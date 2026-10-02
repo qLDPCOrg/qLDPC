@@ -386,29 +386,38 @@ def min_sum_bp(
 def lookup_table(
     max_weight: int,
     *,
-    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
-    penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
+    error_channel: (
+        npt.NDArray[np.floating]
+        | Sequence[float]
+        | Callable[[npt.NDArray[np.int_] | Sequence[int]], float]
+        | None
+    ) = None,
     observable_flip_matrix: IntegerArray | None = None,
     post_select: Collection[int] = (),
     add_erasure_bit: bool | None = None,
     confidence_ratio: float | None = None,
     probability_cutoff: float = 0,
     symplectic: bool = False,
+    penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
 ) -> DecoderSpec[LookupDecoder]:
-    """Configure a lookup-table decoder."""
+    """Configure a lookup decoder with an independent or callable correlated error channel.
+
+    See :class:`LookupDecoder` for the two ``error_channel`` forms.  ``penalty_func`` is deprecated;
+    it remains available here only to construct legacy decoder specifications.
+    """
     return _decoder_spec(
         "lookup_table",
         get_decoder_lookup,
         get_observable_decoder_lookup,
         max_weight=max_weight,
         error_channel=error_channel,
-        penalty_func=penalty_func,
         observable_flip_matrix=observable_flip_matrix,
         post_select=post_select,
         add_erasure_bit=add_erasure_bit,
         confidence_ratio=confidence_ratio,
         probability_cutoff=probability_cutoff,
         symplectic=symplectic,
+        penalty_func=penalty_func,
     )
 
 

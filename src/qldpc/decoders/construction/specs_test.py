@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import pickle
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import numpy as np
@@ -15,6 +15,13 @@ import stim
 
 from qldpc import decoders
 from qldpc.decoders.adapters import error_decoders
+
+
+def _uniform_binary_error_log_probability(
+    error: npt.NDArray[np.int_] | Sequence[int],
+) -> float:
+    """Return a uniform full-error log probability for pickling tests."""
+    return -float(np.size(error) * np.log(2))
 
 
 def test_decoder_specs_store_public_builders() -> None:
@@ -75,7 +82,7 @@ def test_decoder_specs() -> None:
     matrix = np.eye(2, dtype=int)
     syndrome = np.array([1, 0], dtype=int)
 
-    spec = decoders.lookup_table(max_weight=1)
+    spec = decoders.lookup_table(max_weight=1, error_channel=_uniform_binary_error_log_probability)
     restored = pickle.loads(pickle.dumps(spec))  # noqa: S301 - trusted in-memory round trip
     assert np.array_equal(
         decoders.get_error_decoder(matrix, decoder=restored).decode(syndrome), syndrome
@@ -97,6 +104,12 @@ def test_decoder_specs() -> None:
     spec = decoders.lookup_table(max_weight=2)
     spec.options["max_weight"] = 3
     assert spec.options["max_weight"] == 2
+
+    # deprecated lookup penalties remain available through deferred construction
+    legacy_spec = decoders.lookup_table(max_weight=1, penalty_func=lambda _: 0.0)
+    with pytest.warns(DeprecationWarning, match="penalty_func is deprecated"):
+        legacy_decoder = legacy_spec.build(matrix)
+    assert np.array_equal(legacy_decoder.decode(syndrome), syndrome)
 
     # a spec that was not built by a helper still has a (less concise) representation
     spec = decoders.DecoderSpec("custom", decoders.get_decoder_lookup, (("max_weight", 1),))
@@ -182,6 +195,14 @@ def test_decoder_spec_helper_defaults() -> None:
         assert helper_defaults.keys() == constructor_defaults.keys() - excluded, helper
         for name, default in helper_defaults.items():
             assert default == constructor_defaults[name], (helper, name)
+
+    entry_points: list[Callable[..., object]] = [
+        decoders.LookupDecoder,
+        decoders.ObservableLookupDecoder,
+        decoders.lookup_table,
+    ]
+    for entry_point in entry_points:
+        assert list(inspect.signature(entry_point).parameters)[-1] == "penalty_func"
 
     # helpers for relay-bp mirror the options of RelayBPDecoder (other than name, which the
     # precision selects) and of the relay_bp classes that they configure

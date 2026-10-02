@@ -7,6 +7,7 @@ from __future__ import annotations
 import collections
 import itertools
 import warnings
+from collections.abc import Callable, Sequence
 
 import galois
 import numpy as np
@@ -18,6 +19,17 @@ import stim
 from qldpc import codes, decoders, math
 from qldpc.decoders.conftest import SurfaceCodeProblem, ToyProblem
 from qldpc.decoders.custom.lookup import _FieldVectorPacker, get_observable_decoder_lookup
+
+
+def _get_uniform_error_channel(
+    field_order: int,
+) -> Callable[[npt.NDArray[np.int_] | Sequence[int]], float]:
+    """Return the normalized log probability of a uniform error distribution."""
+
+    def error_log_probability(error: npt.NDArray[np.int_] | Sequence[int]) -> float:
+        return -float(np.size(error) * np.log(field_order))
+
+    return error_log_probability
 
 
 def test_lookup(toy_problem: ToyProblem) -> None:
@@ -126,7 +138,7 @@ def test_observable_lookup_decoding() -> None:
     assert np.array_equal(obs_matrix @ weighted.decode(np.array([0, 1], dtype=int)), [0])  # E2: D1
 
     # grouping errors by observable flip requires a way to weigh errors against each other
-    with pytest.raises(ValueError, match="error_channel, or penalty_func"):
+    with pytest.raises(ValueError, match="DetectorErrorModel or error_channel"):
         decoders.LookupDecoder(pcm, max_weight=2, observable_flip_matrix=obs_matrix)
 
 
@@ -224,7 +236,7 @@ def test_tie_breaking() -> None:
         2,
         symplectic=True,
         observable_flip_matrix=code.get_logical_ops(),
-        penalty_func=lambda _: 0.0,
+        error_channel=_get_uniform_error_channel(code.field.order),
     )
     assert math.symplectic_weight(decoder.decode(quantum_syndrome)) == 1
 
@@ -257,7 +269,12 @@ def test_invalid_arguments() -> None:
 
     with pytest.raises(ValueError, match=r"providing a stim\.DetectorErrorModel"):
         decoders.LookupDecoder(dem, 1, error_channel=[0.1])
-    with pytest.raises(ValueError, match="both an error_channel and a penalty_func"):
+    with pytest.raises(ValueError, match=r"providing a stim\.DetectorErrorModel"):
+        decoders.LookupDecoder(dem, 1, error_channel=lambda _: 0.0)
+    with (
+        pytest.warns(DeprecationWarning, match="penalty_func is deprecated"),
+        pytest.raises(ValueError, match="both an error_channel and a penalty_func"),
+    ):
         decoders.LookupDecoder(pcm, 1, error_channel=[0.1, 0.1], penalty_func=lambda _: 0.0)
 
     # an observable lookup decoder built from a parity check matrix requires observables
@@ -293,9 +310,116 @@ def test_invalid_arguments() -> None:
     # A positive cutoff needs actual probabilities, rather than an arbitrary penalty.
     with pytest.raises(ValueError, match=r"requires.*error_channel"):
         decoders.LookupDecoder(pcm, 1, probability_cutoff=0.1)
-    with pytest.raises(ValueError, match=r"requires.*error_channel"):
+    with pytest.raises(ValueError, match="array-like independent error_channel"):
+        decoders.LookupDecoder(pcm, 1, error_channel=lambda _: -1.0, probability_cutoff=0.1)
+    with (
+        pytest.warns(DeprecationWarning, match="penalty_func is deprecated"),
+        pytest.raises(ValueError, match=r"requires.*error_channel"),
+    ):
         decoders.LookupDecoder(pcm, 1, penalty_func=lambda _: 0.0, probability_cutoff=0.1)
     decoders.LookupDecoder(pcm, 1, probability_cutoff=0)
+
+
+def test_callable_error_channel() -> None:
+    """A callable error channel supplies a correlated full-error distribution."""
+    matrix = np.array([[1, 1]], dtype=int)
+    probabilities: dict[tuple[int, ...], float] = {
+        (0, 0): 0.05,
+        (1, 0): 0.60,
+        (0, 1): 0.30,
+        (1, 1): 0.05,
+    }
+
+    def error_channel(error: npt.NDArray[np.int_] | Sequence[int]) -> float:
+        return float(np.log(probabilities[tuple(error)]))
+
+    decoder = decoders.LookupDecoder(matrix, 2, error_channel=error_channel)
+    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1, 0])
+
+    # Observable classes accumulate the probabilities of all of their member errors.
+    matrix = np.array([[1, 1, 1]], dtype=int)
+    observable = np.array([[0, 1, 1]], dtype=int)
+    probabilities = {
+        (0, 0, 0): 0.1125,
+        (1, 0, 0): 0.20,
+        (0, 1, 0): 0.15,
+        (0, 0, 1): 0.15,
+        (1, 1, 0): 0.1125,
+        (1, 0, 1): 0.1125,
+        (0, 1, 1): 0.1125,
+        (1, 1, 1): 0.05,
+    }
+    decoder = decoders.LookupDecoder(matrix, 3, error_channel=error_channel)
+    assert np.array_equal(observable @ decoder.decode(np.array([1], dtype=int)), [0])
+    observable_decoder = decoders.ObservableLookupDecoder(
+        matrix,
+        3,
+        observable_flip_matrix=observable,
+        error_channel=error_channel,
+    )
+    assert np.array_equal(observable_decoder.decode_observables(np.array([1], dtype=int)), [1])
+
+
+def test_callable_error_channel_field_values() -> None:
+    """A callable channel sees field values rather than only their Boolean support."""
+    field = galois.GF(3)
+    probabilities = np.array([0.2, 0.3, 0.5])
+    seen: set[int] = set()
+
+    def error_channel(error: npt.NDArray[np.int_] | Sequence[int]) -> float:
+        value = int(error[0])
+        seen.add(value)
+        return float(np.log(probabilities[value]))
+
+    decoder = decoders.LookupDecoder(field([[1]]), max_weight=1, error_channel=error_channel)
+    assert np.array_equal(decoder.decode(np.array([2], dtype=int)), [2])
+    assert seen == {0, 1, 2}
+
+
+@pytest.mark.parametrize("invalid_log_probability", [np.nan, np.inf, 0.1])
+def test_invalid_callable_error_channel(invalid_log_probability: float) -> None:
+    """Callable channels return non-positive log probabilities or -inf."""
+    with pytest.raises(ValueError, match="non-positive or -inf"):
+        decoders.LookupDecoder(
+            np.eye(1, dtype=int),
+            max_weight=1,
+            error_channel=lambda _: invalid_log_probability,
+        )
+
+
+def test_impossible_callable_error() -> None:
+    """Impossible callable-channel errors remain representatives at cutoff zero."""
+    # Impossible errors remain available as representatives when the cutoff is zero.
+    decoder = decoders.LookupDecoder(
+        np.eye(1, dtype=int),
+        max_weight=1,
+        error_channel=lambda error: -np.inf if error[0] else 0.0,
+    )
+    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1])
+
+
+def test_deprecated_lookup_penalty_func() -> None:
+    """The deprecated constructor penalty retains its relative-weight behavior."""
+    matrix = np.array([[1, 1, 1]], dtype=int)
+
+    def penalty_func(error: npt.NDArray[np.int_] | Sequence[int]) -> float:
+        return float(np.dot([1, 2, 3], error))
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        legacy = decoders.LookupDecoder(matrix, 2, penalty_func=penalty_func)
+    assert len(caught) == 1
+    assert caught[0].filename == __file__
+    assert "penalty_func is deprecated" in str(caught[0].message)
+
+    normalization = float(np.sum(np.log1p(np.exp(-np.arange(1, 4)))))
+    replacement = decoders.LookupDecoder(
+        matrix,
+        2,
+        error_channel=lambda error: -penalty_func(error) - normalization,
+    )
+    syndrome = np.array([1], dtype=int)
+    assert np.array_equal(legacy.decode(syndrome), replacement.decode(syndrome))
 
 
 def test_probability_cutoff_matches_exhaustive_filtering() -> None:
@@ -412,7 +536,7 @@ def test_probability_cutoff_endpoint_and_field_semantics() -> None:
             None,
             False,
             error_channel=[0.2],
-            probability_cutoff=0.2,
+            probability_cutoff=0.1,
         )
     }
     assert field_errors == {(0,), (1,), (2,)}
@@ -548,16 +672,23 @@ def test_probability_cutoff_keeps_nonbinary_boundary_ties() -> None:
     field = galois.GF(5)
     matrix = field.Zeros((1, 6))
     error_channel = np.array([np.nextafter(1.0, 0), 1.0, 0.01, 0.01, 0.2, 0.01])
+    active_probabilities = error_channel / (field.order - 1)
     boundary_error = np.array([0, 1, 1, 0, 1, 0], dtype=int)
     probability_cutoff = float(
-        np.prod(np.where(boundary_error.astype(bool), error_channel, 1 - error_channel))
+        np.prod(
+            np.where(
+                boundary_error.astype(bool),
+                active_probabilities,
+                1 - error_channel,
+            )
+        )
     )
 
     exhaustive = decoders.LookupDecoder._iter_errors_and_syndromes(matrix, 2, None, True)
     expected = {
         tuple(error.tolist())
         for error, _ in exhaustive
-        if np.prod(np.where(error.astype(bool), error_channel, 1 - error_channel))
+        if np.prod(np.where(error.astype(bool), active_probabilities, 1 - error_channel))
         >= probability_cutoff
     }
     actual = {
@@ -688,7 +819,7 @@ def test_quantum_lookup_decoding(surface_code_problem: SurfaceCodeProblem) -> No
         symplectic=True,
         add_erasure_bit=True,
         max_weight=2,
-        penalty_func=lambda vec: int(np.count_nonzero(vec)),
+        error_channel=np.full(code.matrix.shape[1], 0.1),
     )
     decoded_error = decoder.decode(syndrome).view(code.field)
     assert decoded_error[-1] == 0
@@ -755,7 +886,7 @@ def test_quantum_observable_flip_prediction() -> None:
                 max_weight=1,
                 observable_flip_matrix=equivalent,
                 symplectic=True,
-                penalty_func=lambda vec: int(np.count_nonzero(vec)),
+                error_channel=_get_uniform_error_channel(code.field.order),
             )
             for syndrome, flips in achievable_flips.items():
                 assert (
@@ -769,7 +900,7 @@ def test_quantum_observable_flip_prediction() -> None:
             np.array([[1, 1, 0], [0, 1, 1]]),
             max_weight=1,
             observable_flip_matrix=galois.GF(3)([[1, 2, 1]]),
-            penalty_func=lambda vec: int(np.count_nonzero(vec)),
+            error_channel=_get_uniform_error_channel(2),
         )
 
 
@@ -794,7 +925,7 @@ def test_observable_flip_matrix_arithmetic() -> None:
             field([[1, 1, 0], [0, 1, 1]]),
             max_weight=1,
             observable_flip_matrix=flip_matrix,
-            penalty_func=lambda vec: int(np.count_nonzero(vec)),
+            error_channel=_get_uniform_error_channel(field.order),
         )
         assert (
             int(decoder.decode_observables(np.array([16, 0], dtype=int))[0])
@@ -816,7 +947,7 @@ def test_observable_flip_matrix_arithmetic() -> None:
         pcm,
         max_weight=1,
         observable_flip_matrix=observable_flip_matrix,
-        penalty_func=lambda vec: int(np.count_nonzero(vec)),
+        error_channel=_get_uniform_error_channel(field.order),
     )
     for syndrome, flips in achievable_flips.items():
         assert int(decoder.decode_observables(np.array(syndrome, dtype=int))[0]) in flips
@@ -829,15 +960,27 @@ def test_observable_flip_matrix_arithmetic() -> None:
                 pcm,
                 max_weight=1,
                 observable_flip_matrix=np.array([[invalid_entry, 0, 0]]),
-                penalty_func=lambda vec: int(np.count_nonzero(vec)),
+                error_channel=_get_uniform_error_channel(field.order),
             )
 
 
-def test_penalty_func() -> None:
-    """Lookup tables can build penalty functions that penalize unlikely errors."""
+def test_independent_error_log_probability() -> None:
+    """Independent channels assign normalized full-error log probabilities."""
     error_channel = [0.2, 0.1]
-    penalty_func = decoders.LookupDecoder._build_penalty_func(error_channel)
-    assert penalty_func([0, 0]) < penalty_func([1, 0]) < penalty_func([0, 1]) < penalty_func([1, 1])
+    error_log_probability = decoders.LookupDecoder._build_error_log_probability(error_channel)
+    assert (
+        error_log_probability([0, 0])
+        > error_log_probability([1, 0])
+        > error_log_probability([0, 1])
+        > error_log_probability([1, 1])
+    )
+
+    ternary_log_probability = decoders.LookupDecoder._build_error_log_probability(
+        [0.2], field_order=3
+    )
+    assert np.isclose(np.exp(ternary_log_probability([0])), 0.8)
+    assert np.isclose(np.exp(ternary_log_probability([1])), 0.1)
+    assert np.isclose(np.exp(ternary_log_probability([2])), 0.1)
 
 
 @pytest.mark.parametrize("order", [2, 3, 2**17])  # bit-packed, uint8, uint32
@@ -871,7 +1014,7 @@ def test_lookup_batch_validation() -> None:
         field([[1]]),
         max_weight=1,
         observable_flip_matrix=field([[1]]),
-        penalty_func=lambda error: int(np.count_nonzero(error)),
+        error_channel=_get_uniform_error_channel(field.order),
     )
     with pytest.raises(ValueError, match=r"only available over GF\(2\)"):
         nonbinary.decode_shots_bit_packed(np.array([[1]], dtype=np.uint8))
@@ -905,7 +1048,7 @@ def test_lookup_batch_decoding(field: type[galois.FieldArray]) -> None:
         matrix,
         max_weight=1,
         observable_flip_matrix=field([[1, 0, 1]]),
-        penalty_func=lambda error: int(np.count_nonzero(error)),
+        error_channel=_get_uniform_error_channel(field.order),
         add_erasure_bit=True,
     )
     expected_flips = np.array([observable_decoder.decode_observables(row) for row in syndromes])

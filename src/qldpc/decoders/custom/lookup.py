@@ -62,8 +62,12 @@ class _LookupDecoderBase:
         pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
         max_weight: int,
         *,
-        error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
-        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
+        error_channel: (
+            npt.NDArray[np.floating]
+            | Sequence[float]
+            | Callable[[npt.NDArray[np.int_] | Sequence[int]], float]
+            | None
+        ) = None,
         observable_flip_matrix: IntegerArray | None = None,
         predict_observable_flips: bool = False,
         post_select: Collection[int] = (),
@@ -71,6 +75,7 @@ class _LookupDecoderBase:
         confidence_ratio: float | None = None,
         probability_cutoff: float = 0,
         symplectic: bool = False,
+        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
     ) -> None:
         if confidence_ratio is not None and not confidence_ratio >= 0:  # also rejects NaN
             raise ValueError("A LookupDecoder confidence_ratio must be a non-negative number")
@@ -86,24 +91,24 @@ class _LookupDecoderBase:
         (
             pcm,
             observable_flip_matrix,
-            penalty_func,
+            error_log_probability,
             syndrome_mask,
             default_correction,
-            error_channel,
+            independent_error_channel,
         ) = self._organize_lookup_table_initialization_data(
             pcm_or_dem,
             error_channel,
-            penalty_func,
             observable_flip_matrix,
             predict_observable_flips,
             post_select,
             add_erasure_bit,
             probability_cutoff,
+            penalty_func,
         )
-        if observable_flip_matrix is not None and penalty_func is None:
+        if observable_flip_matrix is not None and error_log_probability is None:
             raise ValueError(
                 "Grouping errors by observable flip with a LookupDecoder requires providing a"
-                " stim.DetectorErrorModel, error_channel, or penalty_func"
+                " stim.DetectorErrorModel or error_channel"
             )
         if confidence_ratio and observable_flip_matrix is None:
             raise ValueError(
@@ -133,24 +138,24 @@ class _LookupDecoderBase:
             self._build_syndrome_map_from_errors(
                 pcm,
                 max_weight,
-                penalty_func,
+                error_log_probability,
                 syndrome_mask,
                 symplectic,
-                error_channel,
+                independent_error_channel,
                 probability_cutoff,
             )
         else:
-            assert penalty_func is not None  # primarily for type-checking reasons
+            assert error_log_probability is not None
             self._build_syndrome_map_from_observable_flips(
                 pcm,
                 max_weight,
-                penalty_func,
+                error_log_probability,
                 observable_flip_matrix,
                 predict_observable_flips,
                 syndrome_mask,
                 confidence_ratio,
                 symplectic,
-                error_channel,
+                independent_error_channel,
                 probability_cutoff,
             )
 
@@ -158,10 +163,10 @@ class _LookupDecoderBase:
         self,
         pcm: IntegerArray,
         max_weight: int,
-        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None,
+        error_log_probability: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None,
         syndrome_mask: npt.NDArray[np.bool_] | None,
         symplectic: bool,
-        error_channel: npt.NDArray[np.floating] | None,
+        independent_error_channel: npt.NDArray[np.floating] | None,
         probability_cutoff: float,
     ) -> None:
         """Populate the lookup table, mapping each syndrome to its likeliest error.
@@ -169,20 +174,22 @@ class _LookupDecoderBase:
         Errors are enumerated in decreasing weight, so ties in penalty (or, with no penalty
         function, all errors) resolve in favor of the lowest-weight error for each syndrome.
         """
-        error_penalty: dict[bytes, float] = {}
+        best_log_probabilities: dict[bytes, float] = {}
         for error, syndrome in _LookupDecoderBase._iter_errors_and_syndromes(
             pcm,
             max_weight,
             syndrome_mask,
             symplectic,
-            error_channel=error_channel,
+            error_channel=independent_error_channel,
             probability_cutoff=probability_cutoff,
         ):
             key = self._syndrome_packer.pack(syndrome)
-            if penalty_func is None:
+            if error_log_probability is None:
                 self._store_prediction(key, error)
-            elif (error_weight := penalty_func(error)) <= error_penalty.get(key, np.inf):
-                error_penalty[key] = error_weight
+            elif (log_probability := error_log_probability(error)) >= best_log_probabilities.get(
+                key, -np.inf
+            ):
+                best_log_probabilities[key] = log_probability
                 self._store_prediction(key, error)
 
     def _store_prediction(self, packed_syndrome: bytes, prediction: npt.NDArray[np.int_]) -> None:
@@ -211,13 +218,13 @@ class _LookupDecoderBase:
         self,
         pcm: IntegerArray,
         max_weight: int,
-        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float],
+        error_log_probability: Callable[[npt.NDArray[np.int_] | Sequence[int]], float],
         observable_flip_matrix: IntegerArray,
         predict_observable_flips: bool,
         syndrome_mask: npt.NDArray[np.bool_] | None,
         confidence_ratio: float | None,
         symplectic: bool,
-        error_channel: npt.NDArray[np.floating] | None,
+        independent_error_channel: npt.NDArray[np.floating] | None,
         probability_cutoff: float,
     ) -> None:
         """Populate the lookup table, mapping each syndrome to its most likely observable flip.
@@ -247,12 +254,12 @@ class _LookupDecoderBase:
             max_weight,
             syndrome_mask,
             symplectic,
-            error_channel=error_channel,
+            error_channel=independent_error_channel,
             probability_cutoff=probability_cutoff,
         ):
             syndrome = self._syndrome_packer.pack(syndrome_array)
             obs_flip = observable_flip_packer.pack(get_observable_flip(error))
-            log_prob = -penalty_func(error)
+            log_prob = error_log_probability(error)
             net_log_probs[syndrome][obs_flip] = float(
                 np.logaddexp(net_log_probs[syndrome].get(obs_flip, -np.inf), log_prob)
             )
@@ -298,13 +305,18 @@ class _LookupDecoderBase:
     @staticmethod
     def _organize_lookup_table_initialization_data(
         pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
-        error_channel: npt.NDArray[np.floating] | Sequence[float] | None,
-        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None,
+        error_channel: (
+            npt.NDArray[np.floating]
+            | Sequence[float]
+            | Callable[[npt.NDArray[np.int_] | Sequence[int]], float]
+            | None
+        ),
         observable_flip_matrix: IntegerArray | None,
         predict_observable_flips: bool,
         post_select: Collection[int],
         add_erasure_bit: bool,
         probability_cutoff: float = 0,
+        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
     ) -> tuple[
         IntegerArray,
         IntegerArray | None,
@@ -314,6 +326,13 @@ class _LookupDecoderBase:
         npt.NDArray[np.floating] | None,
     ]:
         """Organize and validate the inputs to a LookupDecoder."""
+        if penalty_func is not None:
+            warnings.warn(
+                "LookupDecoder penalty_func is deprecated; pass a callable error_channel that"
+                " returns the full error log probability instead",
+                DeprecationWarning,
+                stacklevel=get_external_caller_stacklevel(),
+            )
         if not np.isfinite(probability_cutoff) or not 0 <= probability_cutoff <= 1:
             raise ValueError(
                 "A LookupDecoder probability_cutoff must be a finite probability between 0 and 1,"
@@ -343,32 +362,44 @@ class _LookupDecoderBase:
                     "Cannot specify both an error_channel and a penalty_func in a LookupDecoder"
                 )
 
-        # validate the explicit error channel before building its penalty function
-        if error_channel is not None:
-            error_channel = np.asarray(error_channel, dtype=float)
+        independent_error_channel: npt.NDArray[np.floating] | None = None
+        error_log_probability: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None
+        if callable(error_channel):
+            error_log_probability = _LookupDecoderBase._validate_error_log_probability(
+                error_channel
+            )
+        elif error_channel is not None:
+            independent_error_channel = np.asarray(error_channel, dtype=float)
             expected_shape = (pcm.shape[1],)
-            if error_channel.shape != expected_shape:
+            if independent_error_channel.shape != expected_shape:
                 raise ValueError(
                     f"A LookupDecoder error_channel must have shape {expected_shape}, but got"
-                    f" {error_channel.shape}"
+                    f" {independent_error_channel.shape}"
                 )
-            if not np.all((0 <= error_channel) & (error_channel <= 1)):
+            if not np.all((0 <= independent_error_channel) & (independent_error_channel <= 1)):
                 raise ValueError(
-                    "A LookupDecoder error_channel must contain finite probabilities between 0 and"
-                    " 1, inclusive"
+                    "An array-like LookupDecoder error_channel must contain finite probabilities"
+                    " between 0 and 1, inclusive"
                 )
-        if probability_cutoff and error_channel is None:
+            error_log_probability = _LookupDecoderBase._build_error_log_probability(
+                independent_error_channel,
+                (type(pcm) if isinstance(pcm, galois.FieldArray) else galois.GF2).order,
+            )
+        elif penalty_func is not None:
+
+            def legacy_log_weight(
+                error: npt.NDArray[np.int_] | Sequence[int],
+            ) -> float:
+                """Convert a deprecated penalty into its legacy log weight."""
+                return -float(penalty_func(error))
+
+            error_log_probability = legacy_log_weight
+
+        if probability_cutoff and independent_error_channel is None:
             raise ValueError(
                 "A positive LookupDecoder probability_cutoff requires a stim.DetectorErrorModel or"
-                " an error_channel"
+                " an array-like independent error_channel"
             )
-
-        # if an explicit penalty_func was not provided, build one from the error channel
-        penalty_func = penalty_func or (
-            _LookupDecoderBase._build_penalty_func(error_channel)
-            if error_channel is not None
-            else None
-        )
 
         # build the mask of syndrome bits to keep (None if not post-selecting)
         syndrome_mask: npt.NDArray[np.bool_] | None = None
@@ -393,29 +424,50 @@ class _LookupDecoderBase:
         return (
             pcm,
             observable_flip_matrix,
-            penalty_func,
+            error_log_probability,
             syndrome_mask,
             default_correction,
-            error_channel,
+            independent_error_channel,
         )
 
     @staticmethod
-    def _build_penalty_func(
+    def _build_error_log_probability(
         error_channel: npt.NDArray[np.floating] | Sequence[float],
+        field_order: int = 2,
     ) -> Callable[[npt.NDArray[np.int_] | Sequence[int]], float]:
-        """Construct a penalty function from independent probabilities of individual errors."""
+        """Construct a full-error log probability from independent mechanism probabilities."""
         error_channel = np.asarray(error_channel)
         with np.errstate(divide="ignore"):  # a probability of 0 or 1 yields a -inf log, which is ok
-            log_probs = np.log(error_channel)
+            log_probs = np.log(error_channel / (field_order - 1))
             log_non_probs = np.log(1 - error_channel)
 
-        def penalty_func(error: npt.NDArray[np.int_] | Sequence[int]) -> float:
-            """Penalize unlikely combinations of errors."""
+        def error_log_probability(
+            error: npt.NDArray[np.int_] | Sequence[int],
+        ) -> float:
+            """Return the full independent-channel log probability of an error."""
             events = np.asarray(error).astype(bool)
-            log_probability_of_error = np.sum(log_probs[events]) + np.sum(log_non_probs[~events])
-            return -float(log_probability_of_error)
+            return float(np.sum(log_probs[events]) + np.sum(log_non_probs[~events]))
 
-        return penalty_func
+        return error_log_probability
+
+    @staticmethod
+    def _validate_error_log_probability(
+        error_log_probability: Callable[[npt.NDArray[np.int_] | Sequence[int]], float],
+    ) -> Callable[[npt.NDArray[np.int_] | Sequence[int]], float]:
+        """Validate the outputs of a callable error channel."""
+
+        def validated_error_log_probability(
+            error: npt.NDArray[np.int_] | Sequence[int],
+        ) -> float:
+            log_probability = float(error_log_probability(error))
+            if np.isnan(log_probability) or log_probability == np.inf or log_probability > 0:
+                raise ValueError(
+                    "A callable LookupDecoder error_channel must return a log probability that is"
+                    " non-positive or -inf"
+                )
+            return log_probability
+
+        return validated_error_log_probability
 
     @staticmethod
     def _build_observable_flip_func(
@@ -679,25 +731,35 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
     For each ``error``, the decoder computes the corresponding ``syndrome``, and nominally adds an
     ``syndrome -> error`` entry to the lookup table, overriding any past entry for ``syndrome``.
 
-    If provided an ``error_channel`` of independent probabilities for each "primitive" error
-    mechanism (which associated with one column of a PCM, or one entry in a DEM), this method
-    constructs a penalty function, ``penalty_func``, that penalizes unlikely errors.  In this case,
-    a candidate ``syndrome -> new_error`` entry encountered during enumeration will only override a
-    past entry in the lookup table if ``penalty_func(new_error) <= penalty_func(old_error)``.
-    Errors are enumerated in decreasing weight, so an equal penalty resolves in favor of the
-    lighter error.
-    Alternatively, this decoder supports the use of a user-provided ``penalty_func``, which must map
-    an error (represented as a binary vector of length ``num_primitive_error_mechanisms``) to a real
-    number (i.e., a penalty).
+    The optional ``error_channel`` specifies the physical error distribution in one of two forms.
+    An array-like channel contains the independent probability that each primitive error mechanism
+    (one column of the PCM) is nonzero.  Over a field of order ``q``, a mechanism with probability
+    ``p`` is zero with probability ``1 - p`` and takes each of its ``q - 1`` nonzero values with
+    probability ``p / (q - 1)``.  Thus, entries may have different probabilities even though the
+    channel factorizes over primitive mechanisms.  With ``symplectic=True``, the X and Z components
+    are separate primitive mechanisms and are independent under an array-like channel.
+
+    A callable ``error_channel`` describes a general, potentially correlated distribution.  It is
+    called with each complete field-valued error vector considered by the decoder and must return
+    the normalized natural log probability ``log(P(error))``.  It may return ``-np.inf`` for an
+    impossible error; finite values must be non-positive.  The decoder rejects NaN, positive values,
+    and positive infinity, but cannot verify that the full distribution sums to one.  A callable can
+    distinguish nonzero field values, represent an arbitrary local Pauli channel, or correlate error
+    mechanisms in ways that an array-like channel cannot.
+
+    If an error distribution is supplied, a candidate ``syndrome -> new_error`` entry encountered
+    during enumeration overrides a past entry only when the new error is at least as probable.
+    Errors are enumerated in decreasing weight, so an equal probability resolves in favor of the
+    lighter error.  With no ``error_channel``, every enumerated error is treated as equally likely.
 
     If provided an ``observable_flip_matrix`` (shape ``num_observables × num_primitive_errors``),
     this decoder maps each syndrome to an error that induces the most likely observable flip for
     that syndrome, which may be different from the single most likely error.  Concretely: errors
     consistent with a given syndrome are grouped by their observable flip value; the total
     probability of each group is the sum of the probabilities of its member errors, restricted to
-    the errors of ``weight <= max_weight`` that this decoder enumerates.  This decoder then assigns
-    each ``syndrome`` the highest-probability individual ``error`` from the group with the highest
-    total probability.
+    the errors of ``weight <= max_weight`` that this decoder enumerates.  This truncation does not
+    renormalize the supplied distribution.  This decoder then assigns each ``syndrome`` the
+    highest-probability individual ``error`` from the group with the highest total probability.
 
     The deprecated ``predict_observable_flips=True`` option makes ``.decode`` return the most likely
     observable flip for each syndrome, rather than a representative ``error``.  Use an
@@ -728,15 +790,21 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
     ``confidence_ratio=np.inf`` keeps only syndromes whose competing flips have zero net
     probability, erasing every syndrome with a competing flip that can actually occur.
 
-    A positive ``probability_cutoff`` omits every error whose full independent Bernoulli
-    probability is below the cutoff.  Equality is retained.  This option requires probabilities
-    from a detector error model or ``error_channel``; it cannot be used with only a custom
-    ``penalty_func``.  Enumeration factors the probability into the no-error probability and the
-    odds of active mechanisms, then prunes sorted combinations whose best possible completion is
-    below the cutoff.  It therefore avoids generating combinations merely to reject them afterward.
-    The default cutoff of zero preserves exhaustive enumeration.  When combined with
-    ``confidence_ratio``, confidence is computed from the errors retained by both ``max_weight`` and
-    ``probability_cutoff``.
+    A positive ``probability_cutoff`` omits every error whose full probability is below the cutoff.
+    Equality is retained.  Efficient pruning requires the factorization of a detector error model or
+    array-like independent ``error_channel``; a callable channel is rejected with a positive cutoff
+    rather than exhaustively generated and post-filtered.  Enumeration factors the probability into
+    the no-error probability and the likelihood ratios of active mechanisms, then prunes sorted
+    combinations whose best possible completion is below the cutoff.  The default cutoff of zero
+    preserves exhaustive enumeration.  When combined with ``confidence_ratio``, confidence is
+    computed from the errors retained by both ``max_weight`` and ``probability_cutoff``.
+
+    The constructor argument ``penalty_func`` is deprecated.  Pass a callable ``error_channel`` that
+    returns the full error log probability instead.  During the deprecation period, a penalty is
+    interpreted with its legacy log weight ``-penalty_func(error)``.  This preserves relative
+    weighting but does not assert a normalized distribution, and it cannot be combined with a
+    positive ``probability_cutoff``.  The decode-time ``penalty_func`` of a WeightedLookupDecoder is
+    a separate, non-deprecated optimization objective.
 
     If initialized with ``symplectic=True``, this decoder treats the provided parity check matrix as
     that of a ``QuditCode``, with the first and last half of the columns denoting, respectively, the
@@ -749,8 +817,12 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
         pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
         max_weight: int,
         *,
-        error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
-        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
+        error_channel: (
+            npt.NDArray[np.floating]
+            | Sequence[float]
+            | Callable[[npt.NDArray[np.int_] | Sequence[int]], float]
+            | None
+        ) = None,
         observable_flip_matrix: IntegerArray | None = None,
         predict_observable_flips: bool = False,
         post_select: Collection[int] = (),
@@ -758,6 +830,7 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
         confidence_ratio: float | None = None,
         probability_cutoff: float = 0,
         symplectic: bool = False,
+        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
     ) -> None:
         """Initialize an error lookup table.
 
@@ -768,7 +841,6 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
             pcm_or_dem,
             max_weight,
             error_channel=error_channel,
-            penalty_func=penalty_func,
             observable_flip_matrix=observable_flip_matrix,
             predict_observable_flips=predict_observable_flips,
             post_select=post_select,
@@ -776,6 +848,7 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
             confidence_ratio=confidence_ratio,
             probability_cutoff=probability_cutoff,
             symplectic=symplectic,
+            penalty_func=penalty_func,
         )
 
     def decode_errors(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
@@ -829,13 +902,18 @@ class ObservableLookupDecoder(_LookupDecoderBase):
         max_weight: int,
         *,
         observable_flip_matrix: IntegerArray,
-        error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
-        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
+        error_channel: (
+            npt.NDArray[np.floating]
+            | Sequence[float]
+            | Callable[[npt.NDArray[np.int_] | Sequence[int]], float]
+            | None
+        ) = None,
         post_select: Collection[int] = (),
         add_erasure_bit: bool | None = None,
         confidence_ratio: float | None = None,
         probability_cutoff: float = 0,
         symplectic: bool = False,
+        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
     ) -> None: ...
 
     def __init__(
@@ -844,19 +922,23 @@ class ObservableLookupDecoder(_LookupDecoderBase):
         max_weight: int,
         *,
         observable_flip_matrix: IntegerArray | None = None,
-        error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
-        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
+        error_channel: (
+            npt.NDArray[np.floating]
+            | Sequence[float]
+            | Callable[[npt.NDArray[np.int_] | Sequence[int]], float]
+            | None
+        ) = None,
         post_select: Collection[int] = (),
         add_erasure_bit: bool | None = None,
         confidence_ratio: float | None = None,
         probability_cutoff: float = 0,
         symplectic: bool = False,
+        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
     ) -> None:
         super().__init__(
             pcm_or_dem,
             max_weight,
             error_channel=error_channel,
-            penalty_func=penalty_func,
             observable_flip_matrix=observable_flip_matrix,
             predict_observable_flips=True,
             post_select=post_select,
@@ -864,6 +946,7 @@ class ObservableLookupDecoder(_LookupDecoderBase):
             confidence_ratio=confidence_ratio,
             probability_cutoff=probability_cutoff,
             symplectic=symplectic,
+            penalty_func=penalty_func,
         )
 
     def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
@@ -934,7 +1017,6 @@ class _WeightedLookupDecoderBase(_LookupDecoderBase):
         pcm, observable_flip_matrix, _, syndrome_mask, default_correction, _ = (
             self._organize_lookup_table_initialization_data(
                 pcm_or_dem,
-                None,
                 None,
                 observable_flip_matrix,
                 predict_observable_flips,
@@ -1169,8 +1251,8 @@ def get_decoder_lookup(
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.  A DEM supplies
             default error probabilities and observable metadata.
         **decoder_args: Arguments passed to :class:`LookupDecoder`, including the required
-            ``max_weight`` and optional erasure, confidence, probability-cutoff, and symplectic
-            settings.
+            ``max_weight``, an independent or callable correlated ``error_channel``, and optional
+            erasure, confidence, probability-cutoff, and symplectic settings.
 
     Returns:
         A :class:`LookupDecoder`.
@@ -1277,8 +1359,9 @@ def _iter_errors_above_probability_cutoff(
 ) -> Iterator[npt.NDArray[np.int_]]:
     """Yield errors above a Bernoulli-probability cutoff without exhaustively generating them."""
     probabilities = error_channel.reshape(repeat, block_length)
+    active_probabilities = probabilities / (field.order - 1)
     with np.errstate(divide="ignore"):
-        log_probabilities = np.log(probabilities)
+        log_probabilities = np.log(active_probabilities)
         log_non_probabilities = np.log1p(-probabilities)
 
     local_errors = tuple(itertools.product(range(field.order), repeat=repeat))[1:]
@@ -1356,7 +1439,12 @@ def _iter_errors_above_probability_cutoff(
             iter_selections(selection), extra_errors or ()
         ):
             active[:, site_index] = np.asarray(local_error, dtype=bool)
-        return float(np.prod(np.where(active, probabilities, 1 - probabilities), dtype=float))
+        return float(
+            np.prod(
+                np.where(active, active_probabilities, 1 - probabilities),
+                dtype=float,
+            )
+        )
 
     def compare_to_cutoff(
         log_probability: float,
@@ -1484,7 +1572,7 @@ def _iter_errors_above_probability_cutoff(
                     events = error.astype(bool).reshape(repeat, block_length)
                     probability = float(
                         np.prod(
-                            np.where(events, probabilities, 1 - probabilities),
+                            np.where(events, active_probabilities, 1 - probabilities),
                             dtype=float,
                         )
                     )
