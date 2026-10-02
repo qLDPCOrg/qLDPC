@@ -5,8 +5,6 @@
 from __future__ import annotations
 
 import galois
-import numpy as np
-import numpy.typing as npt
 import stim
 
 from ..adapters.error_decoders import ErrorsToObservablesDecoder as _ErrorsToObservablesDecoder
@@ -68,19 +66,6 @@ def get_observable_decoder(
     if isinstance(built_decoder, ObservableDecoder):
         return built_decoder
     return _ErrorsToObservablesDecoder(as_error_decoder(built_decoder, source), dem)
-
-
-def decode_observables(
-    dem: stim.DetectorErrorModel,
-    syndrome: npt.NDArray[np.int_],
-    *,
-    decoder: DecoderInput = None,
-) -> npt.NDArray[np.int_]:
-    """Construct a decoder and predict the observable flips of one syndrome.
-
-    See help(qldpc.decoders.get_observable_decoder) for the accepted decoder inputs.
-    """
-    return get_observable_decoder(dem, decoder=decoder).decode_observables(syndrome)
 
 
 def reject_prebuilt_decoder(decoder: object, reason: str) -> None:

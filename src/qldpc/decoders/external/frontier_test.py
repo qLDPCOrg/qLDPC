@@ -216,7 +216,9 @@ def test_frontier_with_generic_decoding_apis(calls: list[_Call]) -> None:
     settings = decoders.frontier(add_erasure_bit=True)
     syndrome = np.array([1, 0])
 
-    assert decoders.decode_observables(dem, syndrome, decoder=settings).tolist() == [1, 0, 0]
+    assert decoders.get_observable_decoder(dem, decoder=settings).decode_observables(
+        syndrome
+    ).tolist() == [1, 0, 0]
 
     sinter_decoder = decoders.SinterDecoder(decoder=settings).compile_decoder_for_dem(dem)
     assert sinter_decoder.num_erasure_bits == 1

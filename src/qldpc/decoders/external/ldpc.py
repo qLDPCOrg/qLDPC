@@ -11,7 +11,7 @@ first use in the private lazy-backend section at the bottom of this module.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, TypeAlias, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -20,7 +20,13 @@ import stim
 from qldpc._util import format_docstring
 from qldpc.math import IntegerArray
 
-from ..common import PLACEHOLDER_ERROR_RATE, _erasure_bit_support
+from ..common import (
+    PLACEHOLDER_ERROR_RATE,
+    _deprecate_error_rate_option,
+    _erasure_bit_support,
+    _get_matrix_error_channel,
+)
+from ..construction.specs import decoder_spec
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder
 
@@ -45,20 +51,35 @@ if TYPE_CHECKING:
 def get_decoder_bp_osd(
     pcm_or_dem: _PcmOrDem,
     *,
-    error_rate: float = PLACEHOLDER_ERROR_RATE,
-    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
-    **decoder_args: object,
+    error_channel: float | npt.NDArray[np.floating] | Sequence[float] | None = None,
+    max_iter: int = 0,
+    bp_method: Literal["product_sum", "minimum_sum", "ps", "ms"] = "product_sum",
+    ms_scaling_factor: float = 1.0,
+    schedule: Literal["parallel", "serial"] = "parallel",
+    omp_thread_count: int = 1,
+    random_schedule_seed: int = 0,
+    serial_schedule_order: Sequence[int] | None = None,
+    osd_method: Literal["OSD_0", "OSD_E", "OSD_CS"] = "OSD_0",
+    osd_order: int = 0,
+    error_rate: float | None = None,
 ) -> ErrorDecoder:
     """Build a belief-propagation with ordered-statistics (BP+OSD) decoder.
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
-        error_rate: The i.i.d. probability of each error in a matrix.  Ignored for a DEM.
-            Default: {PLACEHOLDER_ERROR_RATE}.
-        error_channel: The probability of each error mechanism.  For a matrix, defaults to
-            ``[error_rate] * num_errors``.  For a DEM, defaults to its error probabilities.  An
-            explicit value overrides either default.
-        **decoder_args: Additional keyword arguments passed to ``ldpc.BpOsdDecoder``.
+        error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
+        error_channel: One probability for every matrix-column error, or one probability per column.
+            Defaults to {PLACEHOLDER_ERROR_RATE}. A detector error model supplies its own
+            probabilities, so neither probability argument can be specified with one.
+        max_iter: Maximum number of belief-propagation iterations.
+        bp_method: Belief-propagation method.
+        ms_scaling_factor: Scaling factor for minimum-sum belief propagation.
+        schedule: Belief-propagation update schedule.
+        omp_thread_count: Number of OpenMP threads.
+        random_schedule_seed: Seed for a randomized serial schedule.
+        serial_schedule_order: Explicit update order for a serial schedule.
+        osd_method: Ordered-statistics decoding method.
+        osd_order: Ordered-statistics decoding order.
 
     Returns:
         An ``ldpc.BpOsdDecoder`` subclass that is also an
@@ -71,7 +92,22 @@ def get_decoder_bp_osd(
     `arXiv:2005.07016 <https://arxiv.org/abs/2005.07016>`_.
     """
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
-    return _build_ldpc_decoder("BpOsdDecoder", pcm, error_channel, decoder_args)
+    return _build_ldpc_decoder(
+        "BpOsdDecoder",
+        pcm,
+        error_channel,
+        {
+            "max_iter": max_iter,
+            "bp_method": bp_method,
+            "ms_scaling_factor": ms_scaling_factor,
+            "schedule": schedule,
+            "omp_thread_count": omp_thread_count,
+            "random_schedule_seed": random_schedule_seed,
+            "serial_schedule_order": serial_schedule_order,
+            "osd_method": osd_method,
+            "osd_order": osd_order,
+        },
+    )
 
 
 @_erasure_bit_support("BP_LSD", supported=False)
@@ -79,21 +115,41 @@ def get_decoder_bp_osd(
 def get_decoder_bp_lsd(
     pcm_or_dem: _PcmOrDem,
     *,
-    error_rate: float = PLACEHOLDER_ERROR_RATE,
-    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
-    **decoder_args: object,
+    error_channel: float | npt.NDArray[np.floating] | Sequence[float] | None = None,
+    max_iter: int = 0,
+    bp_method: Literal["product_sum", "minimum_sum", "ps", "ms"] = "product_sum",
+    ms_scaling_factor: float = 1.0,
+    schedule: Literal["parallel", "serial"] = "parallel",
+    omp_thread_count: int = 1,
+    random_schedule_seed: int = 0,
+    random_serial_schedule: bool = False,
+    serial_schedule_order: Sequence[int] | None = None,
+    bits_per_step: int = 1,
+    lsd_method: Literal["LSD_0", "LSD_E", "LSD_CS"] = "LSD_0",
+    lsd_order: int = 0,
+    always_run_lsd: bool = False,
+    error_rate: float | None = None,
 ) -> ErrorDecoder:
     """Build a belief-propagation with localized-statistics (BP+LSD) decoder.
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
-        error_rate: The i.i.d. probability of each error in a matrix.  Ignored for a DEM.
-            Default: {PLACEHOLDER_ERROR_RATE}.
-        error_channel: The probability of each error mechanism.  For a matrix, defaults to
-            ``[error_rate] * num_errors``.  For a DEM, defaults to its error probabilities.  An
-            explicit value overrides either default.
-        **decoder_args: Additional keyword arguments passed to
-            ``ldpc.bplsd_decoder.BpLsdDecoder``.
+        error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
+        error_channel: One probability for every matrix-column error, or one probability per column.
+            Defaults to {PLACEHOLDER_ERROR_RATE}. A detector error model supplies its own
+            probabilities, so neither probability argument can be specified with one.
+        max_iter: Maximum number of belief-propagation iterations.
+        bp_method: Belief-propagation method.
+        ms_scaling_factor: Scaling factor for minimum-sum belief propagation.
+        schedule: Belief-propagation update schedule.
+        omp_thread_count: Number of OpenMP threads.
+        random_schedule_seed: Seed for a randomized serial schedule.
+        random_serial_schedule: Whether to randomize the serial schedule.
+        serial_schedule_order: Explicit update order for a serial schedule.
+        bits_per_step: Number of bits added to each localized-statistics cluster step.
+        lsd_method: Localized-statistics decoding method.
+        lsd_order: Localized-statistics decoding order.
+        always_run_lsd: Whether to run LSD after belief propagation converges.
 
     Returns:
         An ``ldpc.bplsd_decoder.BpLsdDecoder`` subclass that is also an
@@ -106,7 +162,25 @@ def get_decoder_bp_lsd(
     `arXiv:2406.18655 <https://arxiv.org/abs/2406.18655>`_.
     """
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
-    return _build_ldpc_decoder("BpLsdDecoder", pcm, error_channel, decoder_args)
+    return _build_ldpc_decoder(
+        "BpLsdDecoder",
+        pcm,
+        error_channel,
+        {
+            "max_iter": max_iter,
+            "bp_method": bp_method,
+            "ms_scaling_factor": ms_scaling_factor,
+            "schedule": schedule,
+            "omp_thread_count": omp_thread_count,
+            "random_schedule_seed": random_schedule_seed,
+            "random_serial_schedule": random_serial_schedule,
+            "serial_schedule_order": serial_schedule_order,
+            "bits_per_step": bits_per_step,
+            "lsd_method": lsd_method,
+            "lsd_order": lsd_order,
+            "always_run_lsd": always_run_lsd,
+        },
+    )
 
 
 @_erasure_bit_support("BF", supported=False)
@@ -114,20 +188,35 @@ def get_decoder_bp_lsd(
 def get_decoder_bf(
     pcm_or_dem: _PcmOrDem,
     *,
-    error_rate: float = PLACEHOLDER_ERROR_RATE,
-    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
-    **decoder_args: object,
+    error_channel: float | npt.NDArray[np.floating] | Sequence[float] | None = None,
+    max_iter: int = 0,
+    bp_method: Literal["product_sum", "minimum_sum", "ps", "ms"] = "product_sum",
+    ms_scaling_factor: float = 1.0,
+    schedule: Literal["parallel", "serial"] = "parallel",
+    omp_thread_count: int = 1,
+    random_schedule_seed: int = 0,
+    serial_schedule_order: Sequence[int] | None = None,
+    uf_method: Literal["inversion", "peeling"] = "peeling",
+    bits_per_step: int = 0,
+    error_rate: float | None = None,
 ) -> ErrorDecoder:
     """Build a belief-find (BF) decoder.
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
-        error_rate: The i.i.d. probability of each error in a matrix.  Ignored for a DEM.
-            Default: {PLACEHOLDER_ERROR_RATE}.
-        error_channel: The probability of each error mechanism.  For a matrix, defaults to
-            ``[error_rate] * num_errors``.  For a DEM, defaults to its error probabilities.  An
-            explicit value overrides either default.
-        **decoder_args: Additional keyword arguments passed to ``ldpc.BeliefFindDecoder``.
+        error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
+        error_channel: One probability for every matrix-column error, or one probability per column.
+            Defaults to {PLACEHOLDER_ERROR_RATE}. A detector error model supplies its own
+            probabilities, so neither probability argument can be specified with one.
+        max_iter: Maximum number of belief-propagation iterations.
+        bp_method: Belief-propagation method.
+        ms_scaling_factor: Scaling factor for minimum-sum belief propagation.
+        schedule: Belief-propagation update schedule.
+        omp_thread_count: Number of OpenMP threads.
+        random_schedule_seed: Seed for a randomized serial schedule.
+        serial_schedule_order: Explicit update order for a serial schedule.
+        uf_method: Union-find cluster-solving method.
+        bits_per_step: Number of bits added to each cluster step.
 
     Returns:
         An ``ldpc.BeliefFindDecoder`` subclass that is also an
@@ -142,7 +231,27 @@ def get_decoder_bf(
     `arXiv:2209.01180 <https://arxiv.org/abs/2209.01180>`_.
     """
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_rate, error_channel)
-    return _build_ldpc_decoder("BeliefFindDecoder", pcm, error_channel, decoder_args)
+    return _build_ldpc_decoder(
+        "BeliefFindDecoder",
+        pcm,
+        error_channel,
+        {
+            "max_iter": max_iter,
+            "bp_method": bp_method,
+            "ms_scaling_factor": ms_scaling_factor,
+            "schedule": schedule,
+            "omp_thread_count": omp_thread_count,
+            "random_schedule_seed": random_schedule_seed,
+            "serial_schedule_order": serial_schedule_order,
+            "uf_method": uf_method,
+            "bits_per_step": bits_per_step,
+        },
+    )
+
+
+bp_osd = decoder_spec("bp_osd", get_decoder_bp_osd, option_transform=_deprecate_error_rate_option)
+bp_lsd = decoder_spec("bp_lsd", get_decoder_bp_lsd, option_transform=_deprecate_error_rate_option)
+bf = decoder_spec("bf", get_decoder_bf, option_transform=_deprecate_error_rate_option)
 
 
 # Private input helpers
@@ -150,20 +259,21 @@ def get_decoder_bf(
 
 def _to_ldpc_inputs(
     pcm_or_dem: _PcmOrDem,
-    error_rate: float,
-    error_channel: npt.NDArray[np.floating] | Sequence[float] | None,
+    error_rate: float | None,
+    error_channel: float | npt.NDArray[np.floating] | Sequence[float] | None,
 ) -> tuple[IntegerArray, list[float]]:
     """Convert backend input to the matrix and probabilities expected by ldpc."""
+    matrix_error_channel = _get_matrix_error_channel(pcm_or_dem, error_rate, error_channel)
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
         pcm = dem_arrays.detector_flip_matrix
-        error_channel = dem_arrays.error_probs if error_channel is None else error_channel
+        normalized_error_channel = dem_arrays.error_probs
     else:
         pcm = pcm_or_dem
-        error_channel = [error_rate] * pcm.shape[1] if error_channel is None else error_channel
+        normalized_error_channel = cast(npt.NDArray[np.floating], matrix_error_channel)
     if pcm.dtype.kind in "biu":
         pcm = pcm.astype(np.uint8, copy=False)
-    return pcm, list(error_channel)
+    return pcm, list(normalized_error_channel)
 
 
 # Lazy backend classes

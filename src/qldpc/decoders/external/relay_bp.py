@@ -7,7 +7,7 @@ from __future__ import annotations
 import functools
 import warnings
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Literal
 
 import galois
 import numpy as np
@@ -18,6 +18,7 @@ import stim
 from qldpc.math import IntegerArray
 
 from ..common import PLACEHOLDER_ERROR_RATE, _erasure_bit_support, with_erasure_bits
+from ..construction.specs import decoder_spec
 from ..dems import DetectorErrorModelArrays
 from ..protocols import BatchErrorDecoder
 
@@ -337,7 +338,27 @@ def get_decoder_rbp(
 
 
 def get_relay_bp_decoder(
-    pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: Any
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    *,
+    precision: Literal["F32", "F64", "I32", "I64"] = "F32",
+    error_priors: npt.NDArray[np.floating] | Sequence[float] | None = None,
+    observable_error_matrix: IntegerArray | None = None,
+    include_decode_result: bool = False,
+    add_erasure_bit: bool = False,
+    alpha: float | None = None,
+    alpha_iteration_scaling_factor: float = 1.0,
+    gamma0: float = 0.1,
+    data_scale_value: float | None = None,
+    max_data_value: float | None = None,
+    pre_iter: int = 80,
+    num_sets: int = 300,
+    set_max_iter: int = 60,
+    gamma_dist_interval: tuple[float, float] | None = None,
+    explicit_gammas: npt.NDArray[np.floating] | None = None,
+    stop_nconv: int = 1,
+    stopping_criterion: str | None = None,
+    logging: bool = False,
+    seed: int = 0,
 ) -> RelayBPDecoder:
     """Build the ``RelayDecoder`` backend selected by a ``relay_bp`` :class:`DecoderSpec`.
 
@@ -345,11 +366,50 @@ def get_relay_bp_decoder(
     :func:`get_decoder_rbp`.  This public builder exists so deferred specifications have a stable,
     pickleable construction path.
     """
-    return _get_relay_decoder(pcm_or_dem, decoder_class_prefix="RelayDecoder", **decoder_args)
+    optional_args = {
+        "gamma_dist_interval": gamma_dist_interval,
+        "stopping_criterion": stopping_criterion,
+    }
+    return _get_relay_decoder(
+        pcm_or_dem,
+        decoder_class_prefix="RelayDecoder",
+        precision=precision,
+        error_priors=error_priors,
+        observable_error_matrix=observable_error_matrix,
+        include_decode_result=include_decode_result,
+        add_erasure_bit=add_erasure_bit,
+        alpha=alpha,
+        alpha_iteration_scaling_factor=alpha_iteration_scaling_factor,
+        gamma0=gamma0,
+        data_scale_value=data_scale_value,
+        max_data_value=max_data_value,
+        pre_iter=pre_iter,
+        num_sets=num_sets,
+        set_max_iter=set_max_iter,
+        explicit_gammas=explicit_gammas,
+        stop_nconv=stop_nconv,
+        logging=logging,
+        seed=seed,
+        **{name: value for name, value in optional_args.items() if value is not None},
+    )
 
 
 def get_min_sum_bp_decoder(
-    pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: Any
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    *,
+    precision: Literal["F32", "F64", "I8", "I16", "I32", "I64", "Fixed"] = "F32",
+    error_priors: npt.NDArray[np.floating] | Sequence[float] | None = None,
+    observable_error_matrix: IntegerArray | None = None,
+    include_decode_result: bool = False,
+    add_erasure_bit: bool = False,
+    max_iter: int = 200,
+    alpha: float | None = None,
+    alpha_iteration_scaling_factor: float = 1.0,
+    gamma0: float | None = None,
+    data_scale_value: float | None = None,
+    max_data_value: float | None = None,
+    int_bits: int | None = None,
+    frac_bits: int | None = None,
 ) -> RelayBPDecoder:
     """Build the ``MinSumBPDecoder`` backend selected by a ``min_sum_bp`` :class:`DecoderSpec`.
 
@@ -357,7 +417,27 @@ def get_min_sum_bp_decoder(
     :func:`get_decoder_rbp`.  This public builder exists so deferred specifications have a stable,
     pickleable construction path.
     """
-    return _get_relay_decoder(pcm_or_dem, decoder_class_prefix="MinSumBPDecoder", **decoder_args)
+    return _get_relay_decoder(
+        pcm_or_dem,
+        decoder_class_prefix="MinSumBPDecoder",
+        precision=precision,
+        error_priors=error_priors,
+        observable_error_matrix=observable_error_matrix,
+        include_decode_result=include_decode_result,
+        add_erasure_bit=add_erasure_bit,
+        max_iter=max_iter,
+        alpha=alpha,
+        alpha_iteration_scaling_factor=alpha_iteration_scaling_factor,
+        gamma0=gamma0,
+        data_scale_value=data_scale_value,
+        max_data_value=max_data_value,
+        int_bits=int_bits,
+        frac_bits=frac_bits,
+    )
+
+
+relay_bp = decoder_spec("relay_bp", get_relay_bp_decoder, get_relay_bp_decoder)
+min_sum_bp = decoder_spec("min_sum_bp", get_min_sum_bp_decoder, get_min_sum_bp_decoder)
 
 
 # Private builder helpers

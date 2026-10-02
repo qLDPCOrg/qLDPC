@@ -4,10 +4,11 @@
 
 from __future__ import annotations
 
+import builtins
 import pickle
 import subprocess
 import sys
-from typing import cast
+from typing import Literal, cast
 
 import galois
 import numpy as np
@@ -84,6 +85,14 @@ def test_matching_builder_validation() -> None:
     decoder = get_decoder_mwpm(matrix, ignore_non_graphlike_errors=True)
     assert np.array_equal(decoder.decode(syndrome), [0, 1])
 
+    assert not decoders.mwpm().options["enable_correlations"]
+    equivalent_default = cast(Literal["smallest-weight"], b"smallest-weight".decode())
+    assert decoders.mwpm(
+        enable_correlations=True, merge_strategy=equivalent_default
+    ).predicts_observables_natively
+    with pytest.raises(ValueError, match=r"decompose_errors=True.*enable_correlations=True"):
+        decoders.mwpm(enable_correlations=True, decompose_errors=True)
+
 
 def test_matching_protocol_adapter() -> None:
     """The error-mode matching is a PyMatching decoder with qLDPC batch methods."""
@@ -109,3 +118,33 @@ import qldpc.decoders.external.pymatching
 assert "pymatching" not in sys.modules
 """
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_pymatching_missing_dependency_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A missing required dependency identifies a broken qLDPC installation."""
+    monkeypatch.setitem(sys.modules, "pymatching", None)
+    with pytest.raises(ModuleNotFoundError, match="required qLDPC dependency"):
+        pymatching.get_observable_decoder_mwpm(
+            stim.DetectorErrorModel("error(0.1) D0 L0"),
+            enable_correlations=True,
+        )
+
+
+def test_pymatching_transitive_import_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An import failure inside PyMatching is preserved instead of mislabeled as a missing extra."""
+
+    def import_with_missing_dependency(
+        name: str,
+        globals: dict[str, object] | None = None,
+        locals: dict[str, object] | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> object:
+        del globals, locals, fromlist, level
+        assert name == "pymatching"
+        raise ModuleNotFoundError("No module named 'backend_dependency'", name="backend_dependency")
+
+    monkeypatch.delitem(sys.modules, "pymatching")
+    monkeypatch.setattr(builtins, "__import__", import_with_missing_dependency)
+    with pytest.raises(ModuleNotFoundError, match="backend_dependency"):
+        pymatching._get_pymatching()

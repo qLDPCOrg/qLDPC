@@ -38,23 +38,25 @@ Methods that decode, such as the code-capacity estimators below, instead accept 
 
 The helpers are available directly under ``qldpc.decoders``:
 
-* :func:`decoders.bp_osd <qldpc.decoders.construction.specs.bp_osd>`
-* :func:`decoders.bp_lsd <qldpc.decoders.construction.specs.bp_lsd>`
-* :func:`decoders.bf <qldpc.decoders.construction.specs.bf>`
-* :func:`decoders.mwpm <qldpc.decoders.construction.specs.mwpm>`
-* :func:`decoders.frontier <qldpc.decoders.construction.specs.frontier>`
-* :func:`decoders.relay_bp <qldpc.decoders.construction.specs.relay_bp>`
-* :func:`decoders.min_sum_bp <qldpc.decoders.construction.specs.min_sum_bp>`
-* :func:`decoders.tesseract <qldpc.decoders.construction.specs.tesseract>`
-* :func:`decoders.tesseract_preset <qldpc.decoders.construction.specs.tesseract_preset>`
-* :func:`decoders.lookup_table <qldpc.decoders.construction.specs.lookup_table>`
-* :func:`decoders.ilp <qldpc.decoders.construction.specs.ilp>`
-* :func:`decoders.guf <qldpc.decoders.construction.specs.guf>`
+* :func:`decoders.bp_osd <qldpc.decoders.bp_osd>`
+* :func:`decoders.bp_lsd <qldpc.decoders.bp_lsd>`
+* :func:`decoders.bf <qldpc.decoders.bf>`
+* :func:`decoders.mwpm <qldpc.decoders.mwpm>`
+* :func:`decoders.frontier <qldpc.decoders.frontier>`
+* :func:`decoders.relay_bp <qldpc.decoders.relay_bp>`
+* :func:`decoders.min_sum_bp <qldpc.decoders.min_sum_bp>`
+* :func:`decoders.tesseract <qldpc.decoders.tesseract>`
+* :func:`decoders.tesseract_preset <qldpc.decoders.tesseract_preset>`
+* :func:`decoders.lookup_table <qldpc.decoders.lookup_table>`
+* :func:`decoders.ilp <qldpc.decoders.ilp>`
+* :func:`decoders.guf <qldpc.decoders.guf>`
 
-Each helper returns a :class:`decoders.DecoderSpec <qldpc.decoders.construction.specs.DecoderSpec>`, which only stores settings.
+Each helper returns a :class:`decoders.DecoderSpec <qldpc.decoders.DecoderSpec>`, which only stores settings.
 The signature of a helper lists the options of its decoder explicitly, so they are visible to autocomplete and static-analysis tools, and a misspelled option raises a ``TypeError``.
 The exception is ``ilp``, which forwards additional options to ``cvxpy.Problem.solve``.
 Passing ``decoder=None`` uses qLDPC's default: BP+OSD for binary inputs and generalized union-find for nonbinary field arrays.
+Install every optional decoder available on the current platform with ``pip install 'qldpc[decoders]'``.
+PyMatching is included in the base qLDPC installation.
 
 Building decoders immediately
 -----------------------------
@@ -63,7 +65,7 @@ The typed helpers above store settings and do not build a decoder until a higher
 Settings with ``infers_errors=True`` can also build an error decoder immediately with ``.build(...)``.
 Any settings can be passed to a compatible high-level API, which calls ``build_observable_decoder(...)`` when it needs observable predictions.
 To construct one immediately, use the lowercase builders owned by their implementation modules.
-They are exported from ``qldpc.decoders`` and ``qldpc.decoders.construction``:
+They are exported from ``qldpc.decoders``:
 
 * :func:`decoders.get_decoder_bp_osd <qldpc.decoders.external.ldpc.get_decoder_bp_osd>`
 * :func:`decoders.get_decoder_bp_lsd <qldpc.decoders.external.ldpc.get_decoder_bp_lsd>`
@@ -156,7 +158,7 @@ Decoder-based distance bounds still require error decoders, since they inspect t
 Predicting observable flips
 ---------------------------
 
-:func:`decoders.get_observable_decoder <qldpc.decoders.construction.resolution.get_observable_decoder>` builds an observable decoder for a detector error model, and :func:`decoders.decode_observables <qldpc.decoders.construction.resolution.decode_observables>` predicts the observable flips of one syndrome:
+:func:`decoders.get_observable_decoder <qldpc.decoders.get_observable_decoder>` builds an observable decoder for a detector error model:
 
 .. code-block:: python
 
@@ -243,10 +245,10 @@ These classes are also exported from ``qldpc.decoders``.
 Besides a ``DecoderSpec``, the ``decoder=`` argument accepts:
 
 * a constructor, such as a decoder class, or any other callable that builds a decoder from a parity-check matrix or detector error model;
-* where observable flips are predicted for a detector error model, an observable-decoder compiler (see :class:`decoders.ObservableDecoderCompiler <qldpc.decoders.construction.specs.ObservableDecoderCompiler>`), such as a ``SinterDecoder``, which is compiled for that model; or
+* where observable flips are predicted for a detector error model, an observable-decoder compiler (see :class:`decoders.ObservableDecoderCompiler <qldpc.decoders.ObservableDecoderCompiler>`), such as a ``SinterDecoder``, which is compiled for that model; or
 * a prebuilt decoder, which is used as is.
 
-A prebuilt decoder is tied to the matrix used to construct it, so it is only accepted where the caller knows the matrix being decoded: by ``decoders.get_error_decoder``, ``decoders.decode_observables``, and ``decoders.get_observable_decoder``; by the code-capacity estimators of classical codes; by ``ClassicalCode.get_distance_bound`` when given a ``vector`` (whose syndrome is computed with the parity check matrix of the code); and per sector (as ``decoder_x=`` and ``decoder_z=``) by the code-capacity estimators of CSS codes.
+A prebuilt decoder is tied to the matrix used to construct it, so it is only accepted where the caller knows the matrix being decoded: by ``decoders.get_error_decoder`` and ``decoders.get_observable_decoder``; by the code-capacity estimators of classical codes; by ``ClassicalCode.get_distance_bound`` when given a ``vector`` (whose syndrome is computed with the parity check matrix of the code); and per sector (as ``decoder_x=`` and ``decoder_z=``) by the code-capacity estimators of CSS codes.
 A shared prebuilt ``decoder=`` for a CSS code is rejected unless its two stabilizer matrices are equal (and, for a prebuilt observable decoder, so are its two sets of logical operators).
 
 Some methods decode a matrix that they construct internally, and therefore reject prebuilt decoders: decoder-based distance bounds of codes (other than a classical distance bound to a ``vector``), logical-operator reduction, the code-capacity estimators of non-CSS codes, and Sinter decoders, which build a new decoder for every (simplified) detector error model, window, or subgraph that they decode.

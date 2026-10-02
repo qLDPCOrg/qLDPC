@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Unit tests for typed decoder specifications."""
+"""Tests for generic typed decoder specifications."""
 
 from __future__ import annotations
 
+import inspect
 import pickle
+import typing
 from collections.abc import Callable, Sequence
 from typing import Any, Never
 
@@ -14,7 +16,9 @@ import pytest
 import stim
 
 from qldpc import decoders
+from qldpc.decoders import common
 from qldpc.decoders.adapters import error_decoders
+from qldpc.decoders.construction import specs
 from qldpc.decoders.custom.lookup import get_observable_decoder_lookup
 
 
@@ -126,6 +130,61 @@ def test_decoder_specs() -> None:
         decoders.bp_lsd(lsd_ordr=1)  # type: ignore[call-arg]
 
 
+def test_decoder_spec_helper_annotations() -> None:
+    """Generated helper annotations match their public parameters and result."""
+    helpers = (decoders.bp_osd, decoders.lookup_table, decoders.frontier)
+    for helper in helpers:
+        signature = inspect.signature(helper)
+        annotations = typing.get_type_hints(helper)
+        annotated_parameters = {
+            name
+            for name, parameter in signature.parameters.items()
+            if parameter.annotation is not inspect.Parameter.empty
+        }
+        assert annotations.keys() == annotated_parameters | {"return"}
+        assert typing.get_origin(annotations["return"]) is decoders.DecoderSpec
+
+    assert typing.get_args(typing.get_type_hints(decoders.bp_osd)["return"]) == (
+        decoders.ErrorDecoder,
+    )
+    assert typing.get_args(typing.get_type_hints(decoders.frontier)["return"]) == (Never,)
+
+
+def test_decoder_spec_factory_validation() -> None:
+    """Factories transform observable options and reject unusable source signatures."""
+
+    def observable_builder(
+        dem: stim.DetectorErrorModel, *, scale: int = 1
+    ) -> decoders.ObservableDecoder:
+        del scale
+        return get_observable_decoder_lookup(dem, max_weight=1)
+
+    helper = specs.observable_decoder_spec(
+        "observable",
+        observable_builder,
+        option_transform=lambda options, explicit: options | {"scale": len(explicit)},
+    )
+    observable_spec = helper(scale=3)
+    assert observable_spec.options["scale"] == 1
+    assert isinstance(
+        observable_spec.build_observable_decoder(stim.DetectorErrorModel()),
+        decoders.ObservableDecoder,
+    )
+
+    missing_input_builder: Any = lambda: decoders.GUFDecoder(np.eye(1, dtype=int))
+    with pytest.raises(TypeError, match="must accept a matrix or DEM"):
+        specs.decoder_spec("missing_input", missing_input_builder)
+
+    def variadic_builder(matrix: npt.NDArray[np.int_], *options: object) -> decoders.ErrorDecoder:
+        del options
+        return decoders.GUFDecoder(matrix)
+
+    assert isinstance(variadic_builder(np.eye(1, dtype=int), "option"), decoders.ErrorDecoder)
+    variadic_helper = specs.decoder_spec("variadic", variadic_builder)
+    with pytest.raises(TypeError, match="do not support variadic positional arguments"):
+        variadic_helper("option")
+
+
 @pytest.mark.parametrize(
     "preset",
     ["long-beam", "short-beam"],
@@ -143,17 +202,33 @@ def test_tesseract_preset_options() -> None:
     channel = np.array([0.1, 0.2])
     default = decoders.tesseract_preset()
     assert default.options == decoders.tesseract_preset("long-beam").options
-    spec = decoders.tesseract_preset(
-        "short-beam", error_rate=0.3, error_channel=channel, add_erasure_bit=True
-    )
-    assert spec.options["error_rate"] == 0.3
+    spec = decoders.tesseract_preset("short-beam", error_channel=channel, add_erasure_bit=True)
+    assert "error_rate" not in spec.options
     assert spec.options["error_channel"] is channel
     assert spec.options["add_erasure_bit"] is True
+
+    with pytest.warns(DeprecationWarning, match="error_rate=0.3.*error_channel=0.3"):
+        deprecated_spec = decoders.tesseract_preset("short-beam", error_rate=0.3)
+    assert deprecated_spec.options["error_channel"] == 0.3
+    with pytest.raises(ValueError, match="cannot both be specified"):
+        decoders.tesseract_preset("short-beam", error_rate=0.3, error_channel=channel)
 
     with pytest.raises(ValueError, match="Unknown Tesseract preset"):
         decoders.tesseract_preset("medium-beam")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="Unknown Tesseract sparsify preset"):
         decoders.tesseract_preset(sparsify="generic")  # type: ignore[arg-type]
+
+
+def test_deprecated_error_rate_settings_are_last_and_warn() -> None:
+    """Deferred helpers keep deprecated options last and translate them with a warning."""
+    for helper in (decoders.bp_osd, decoders.bp_lsd, decoders.bf, decoders.tesseract):
+        parameters = list(inspect.signature(helper).parameters)
+        assert parameters[-1] == "error_rate"
+
+    with pytest.warns(DeprecationWarning, match="error_rate=0.2.*error_channel=0.2"):
+        spec = decoders.bp_osd(error_rate=0.2)
+    assert "error_rate" not in spec.options
+    assert spec.options["error_channel"] == 0.2
 
 
 def test_observable_decoder_specs() -> None:
@@ -325,7 +400,8 @@ def test_decoder_spec_helper_defaults() -> None:
     ]
     for helper, constructor, attributes in ldpc_decoders:
         helper_decoder = helper().build(matrix)
-        ldpc_decoder = constructor(matrix, error_rate=get_defaults(helper)["error_rate"])
+        default_channel = [common.PLACEHOLDER_ERROR_RATE] * matrix.shape[1]
+        ldpc_decoder = constructor(matrix, error_channel=default_channel)
         for attribute in shared_attributes + attributes:
             assert getattr(helper_decoder, attribute) == getattr(ldpc_decoder, attribute), (
                 helper,

@@ -9,6 +9,7 @@ import functools
 import subprocess
 import sys
 import unittest.mock
+from collections.abc import Callable
 
 import galois
 import numpy as np
@@ -74,7 +75,11 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
     with pytest.raises(ValueError, match="Cannot specify an observable_error_matrix"):
         decoders.RelayBPDecoder(dem, observable_error_matrix=np.eye(2, dtype=np.uint8))
 
-    for builder in [get_relay_bp_decoder, get_min_sum_bp_decoder]:
+    builders: list[Callable[..., decoders.RelayBPDecoder]] = [
+        get_relay_bp_decoder,
+        get_min_sum_bp_decoder,
+    ]
+    for builder in builders:
         relay_decoder = builder(matrix, precision="F32")
         assert np.array_equal(np.asarray(matrix) @ relay_decoder.decode(syndrome) % 2, syndrome)
 

@@ -20,6 +20,7 @@ import numpy.typing as npt
 import scipy.sparse
 import stim
 
+from ..construction.specs import observable_decoder_spec
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ObservableDecoder
 
@@ -175,6 +176,9 @@ def get_observable_decoder_frontier(
         },
         add_erasure_bit=add_erasure_bit,
     )
+
+
+frontier = observable_decoder_spec("frontier", get_observable_decoder_frontier)
 
 
 # Private builder helpers

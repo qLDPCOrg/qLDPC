@@ -17,6 +17,7 @@ from .lookup import (
     ObservableLookupDecoder,
     WeightedLookupDecoder,
     WeightedObservableLookupDecoder,
+    lookup_table,
 )
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "RelayBPDecoder",
     "WeightedLookupDecoder",
     "WeightedObservableLookupDecoder",
+    "lookup_table",
 ]
 
 # Deprecated compatibility aliases

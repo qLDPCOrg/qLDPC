@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import builtins
+import importlib
 import importlib.util
 import inspect
 import subprocess
@@ -21,7 +22,6 @@ import stim
 
 from qldpc import codes, decoders
 from qldpc.codes import code_capacity
-from qldpc.decoders.external import tesseract
 
 
 class _FakeTesseractConfig:
@@ -132,7 +132,7 @@ def test_tesseract_missing_dependency_error(monkeypatch: pytest.MonkeyPatch) -> 
     assert import_tesseract("types") is types
     monkeypatch.setattr(builtins, "__import__", import_tesseract)
     with pytest.raises(ModuleNotFoundError, match="nested_dependency"):
-        tesseract._get_tesseract()
+        importlib.import_module("qldpc.decoders.external.tesseract")._get_tesseract()
 
 
 def test_tesseract_matrix_error_decoding(fake_tesseract: None) -> None:
@@ -163,8 +163,11 @@ def test_tesseract_matrix_error_decoding(fake_tesseract: None) -> None:
     assert decoders.batch_decode_errors(decoder, syndromes[:0]).shape == (0, 3)
     assert np.array_equal(decoder.decoder.dem_arrays.error_probs, [0.1, 0.2, 0.3])
 
-    decoder = decoders.get_decoder_tesseract(matrix, error_rate=0.25)
+    with pytest.warns(DeprecationWarning, match="error_rate=0.25.*error_channel=0.25"):
+        decoder = decoders.get_decoder_tesseract(matrix, error_rate=0.25)
     assert np.array_equal(decoder.decoder.dem_arrays.error_probs, [0.25, 0.25, 0.25])
+    decoder = decoders.get_decoder_tesseract(matrix, error_channel=0.4)
+    assert np.array_equal(decoder.decoder.dem_arrays.error_probs, [0.4, 0.4, 0.4])
 
     # Merging equal columns maps their aggregate probability to one representative original index,
     # which can be a less likely physical correction. qLDPC preserves column identity by default.
@@ -261,13 +264,24 @@ def test_tesseract_options_and_validation(fake_tesseract: None) -> None:
         decoders.get_decoder_tesseract(np.array([0, 1], dtype=int))
     with pytest.raises(ValueError, match="error probabilities of shape"):
         decoders.get_decoder_tesseract(np.eye(2, dtype=int), error_channel=[0.1])
-    with pytest.raises(ValueError, match="finite and between 0 and 1"):
+    with (
+        pytest.warns(DeprecationWarning, match="error_rate=nan.*error_channel=nan"),
+        pytest.raises(ValueError, match="finite and between 0 and 1"),
+    ):
         decoders.get_decoder_tesseract(np.eye(1, dtype=int), error_rate=np.nan)
     with pytest.raises(ValueError, match="Cannot specify an error_channel"):
         decoders.get_decoder_tesseract(
             stim.DetectorErrorModel("error(0.1) D0"),
             error_channel=[0.2],
         )
+    with pytest.raises(ValueError, match="Cannot specify error_rate"):
+        decoders.get_decoder_tesseract(
+            stim.DetectorErrorModel("error(0.1) D0"),
+            error_rate=0.2,
+        )
+    with pytest.warns(DeprecationWarning, match="error_rate=0.2.*error_channel=0.2"):
+        decoder = decoders.get_decoder_tesseract(np.eye(1, dtype=int), error_rate=0.2)
+    assert np.array_equal(decoder.decoder.dem_arrays.error_probs, [0.2])
 
     decoder = decoders.get_decoder_tesseract(np.eye(2, dtype=int))
     with pytest.raises(ValueError, match=r"shape \(2,\)"):
@@ -277,10 +291,21 @@ def test_tesseract_options_and_validation(fake_tesseract: None) -> None:
 
 
 def test_tesseract_preset_merge_defaults(fake_tesseract: None) -> None:
-    """Preset helpers retain qLDPC's input-dependent error-merging policy."""
+    """Preset helpers validate names, probabilities, and input-dependent merge defaults."""
     spec = decoders.tesseract_preset()
     assert not spec.build(np.eye(2, dtype=int)).config.merge_errors
     assert spec.build(stim.DetectorErrorModel("error(0.1) D0")).config.merge_errors
+
+    with pytest.warns(DeprecationWarning, match="error_rate=0.2.*error_channel=0.2") as warnings:
+        deprecated_spec = decoders.tesseract_preset(error_rate=0.2)
+    assert warnings[0].filename == __file__
+    assert deprecated_spec.options["error_channel"] == 0.2
+    with pytest.raises(ValueError, match="cannot both be specified"):
+        decoders.tesseract_preset(error_rate=0.2, error_channel=0.1)
+    with pytest.raises(ValueError, match="Unknown Tesseract preset"):
+        decoders.tesseract_preset(cast(Any, "medium-beam"))
+    with pytest.raises(ValueError, match="Unknown Tesseract sparsify preset"):
+        decoders.tesseract_preset(sparsify=cast(Any, "generic"))
 
 
 def test_tesseract_rejects_invalid_backend_error_index(

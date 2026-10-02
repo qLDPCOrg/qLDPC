@@ -8,6 +8,7 @@ import galois
 import numpy as np
 import numpy.typing as npt
 import pytest
+import stim
 
 from qldpc import decoders
 from qldpc.decoders import common
@@ -21,6 +22,61 @@ def test_with_erasure_bits() -> None:
     errors = np.array([[1, 0], [0, 1]], dtype=int)
     erased = np.array([False, True])
     assert np.array_equal(decoders.with_erasure_bits(errors, erased), [[1, 0, 0], [0, 1, 1]])
+
+
+def test_deprecate_error_rate_option() -> None:
+    """Deferred options translate explicit error_rate values and reject ambiguity."""
+    options: dict[str, object] = {"error_channel": None, "error_rate": None}
+    assert common._deprecate_error_rate_option(options, frozenset()) == {"error_channel": None}
+
+    with pytest.warns(DeprecationWarning, match="error_rate=0.2.*error_channel=0.2") as warnings:
+        translated = common._deprecate_error_rate_option(
+            {"error_channel": None, "error_rate": 0.2},
+            frozenset({"error_rate"}),
+        )
+    assert warnings[0].filename == __file__
+    assert translated == {"error_channel": 0.2}
+
+    with pytest.raises(ValueError, match="cannot both be specified"):
+        common._deprecate_error_rate_option(
+            {"error_channel": 0.1, "error_rate": 0.2},
+            frozenset({"error_channel", "error_rate"}),
+        )
+
+
+def test_get_matrix_error_channel() -> None:
+    """Matrix probabilities are normalized and DEM-owned probabilities are protected."""
+    matrix = np.eye(2, dtype=int)
+    default_channel = common._get_matrix_error_channel(matrix, None, None)
+    assert default_channel is not None
+    assert np.array_equal(
+        default_channel,
+        [common.PLACEHOLDER_ERROR_RATE] * 2,
+    )
+    channel = np.array([0.1, 0.2])
+    normalized_channel = common._get_matrix_error_channel(matrix, None, channel)
+    assert normalized_channel is not None
+    assert np.array_equal(normalized_channel, channel)
+
+    with pytest.warns(DeprecationWarning, match="error_rate=0.3.*error_channel=0.3") as warnings:
+        deprecated_channel = common._get_matrix_error_channel(matrix, 0.3, None)
+    assert deprecated_channel is not None
+    assert np.array_equal(deprecated_channel, [0.3, 0.3])
+    assert warnings[0].filename == __file__
+
+    with pytest.raises(ValueError, match="cannot both be specified"):
+        common._get_matrix_error_channel(matrix, 0.3, 0.2)
+    with pytest.raises(ValueError, match="error probabilities of shape"):
+        common._get_matrix_error_channel(matrix, None, [0.1])
+    for invalid_channel in ([np.nan, 0.2], [-0.1, 0.2], [0.1, 1.1]):
+        with pytest.raises(ValueError, match="finite and between 0 and 1"):
+            common._get_matrix_error_channel(matrix, None, invalid_channel)
+
+    dem = stim.DetectorErrorModel("error(0.1) D0")
+    assert common._get_matrix_error_channel(dem, None, None) is None
+    for error_rate, error_channel in ((0.2, None), (None, 0.2)):
+        with pytest.raises(ValueError, match="supplies its own error probabilities"):
+            common._get_matrix_error_channel(dem, error_rate, error_channel)
 
 
 def test_get_error_and_erasure() -> None:

@@ -28,7 +28,6 @@ from .construction.legacy import (
     resolve_observable_decoder,
 )
 from .construction.resolution import (
-    decode_observables,
     get_error_decoder,
     get_observable_decoder,
     reject_prebuilt_decoder,
@@ -43,18 +42,6 @@ from .construction.specs import (
     ObservableDecoderCompiler,
     ObservableDecoderConstructor,
     PcmOrDem,
-    bf,
-    bp_lsd,
-    bp_osd,
-    frontier,
-    guf,
-    ilp,
-    lookup_table,
-    min_sum_bp,
-    mwpm,
-    relay_bp,
-    tesseract,
-    tesseract_preset,
 )
 from .custom import (
     CompositeDecoder,
@@ -66,21 +53,34 @@ from .custom import (
     WeightedLookupDecoder,
     WeightedObservableLookupDecoder,
 )
-from .custom.guf import get_decoder_guf
-from .custom.ilp import get_decoder_ilp
-from .custom.lookup import get_decoder_lookup
+from .custom.guf import get_decoder_guf, guf
+from .custom.ilp import get_decoder_ilp, ilp
+from .custom.lookup import get_decoder_lookup, lookup_table
 from .dems import (
     DetectorErrorModelArrays,
     FlipPattern,
 )
 from .external.frontier import (
     FrontierObservableDecoder,
+    frontier,
     get_observable_decoder_frontier,
 )
-from .external.ldpc import get_decoder_bf, get_decoder_bp_lsd, get_decoder_bp_osd
-from .external.pymatching import get_decoder_mwpm
-from .external.relay_bp import RelayBPDecoder, get_decoder_rbp
-from .external.tesseract import TesseractDecoder, get_decoder_tesseract
+from .external.ldpc import (
+    bf,
+    bp_lsd,
+    bp_osd,
+    get_decoder_bf,
+    get_decoder_bp_lsd,
+    get_decoder_bp_osd,
+)
+from .external.pymatching import get_decoder_mwpm, mwpm
+from .external.relay_bp import RelayBPDecoder, get_decoder_rbp, min_sum_bp, relay_bp
+from .external.tesseract import (
+    TesseractDecoder,
+    get_decoder_tesseract,
+    tesseract,
+    tesseract_preset,
+)
 from .protocols import (
     BatchErrorDecoder,
     BatchObservableDecoder,
@@ -155,7 +155,6 @@ __all__ = [
     "bp_osd",
     "compiles_for_dem",
     "decode",
-    "decode_observables",
     "frontier",
     "get_decoder",
     "get_decoder_BF",

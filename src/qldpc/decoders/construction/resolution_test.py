@@ -96,7 +96,7 @@ def test_native_observable_decoders() -> None:
             converted_decoder.decode_observables(syndromes[0]),
         ), spec
         assert np.array_equal(
-            decoders.decode_observables(dem, syndromes[0], decoder=spec),
+            decoders.get_observable_decoder(dem, decoder=spec).decode_observables(syndromes[0]),
             native_decoder.decode_observables(syndromes[0]),
         )
 
@@ -181,12 +181,16 @@ def test_observable_decoder_compilers() -> None:
     observable_decoder = decoders.get_observable_decoder(dem, decoder=lookup_compiler)
     assert isinstance(observable_decoder, decoders.CompiledSinterDecoder)
     assert not observable_decoder.has_erasure_bit
+    assert not hasattr(decoders, "decode_observables")
     assert np.array_equal(
         [observable_decoder.decode_observables(syndrome) for syndrome in syndromes],
         expected_flips,
     )
     assert np.array_equal(
-        decoders.decode_observables(dem, syndromes[0], decoder=lookup_compiler), expected_flips[0]
+        decoders.get_observable_decoder(dem, decoder=lookup_compiler).decode_observables(
+            syndromes[0]
+        ),
+        expected_flips[0],
     )
 
     # a nested compiler is compiled for each detector error model that the outer decoder decodes
@@ -288,7 +292,9 @@ def test_decomposed_error_mechanisms() -> None:
 
     # a matching decoder can predict observable flips natively
     spec = decoders.mwpm(decompose_errors=True)
-    assert np.array_equal(decoders.decode_observables(dem, syndrome, decoder=spec), [0])
+    assert np.array_equal(
+        decoders.get_observable_decoder(dem, decoder=spec).decode_observables(syndrome), [0]
+    )
 
     # an error decoder that infers decomposed errors cannot predict observable flips
     decoder_inputs: list[decoders.DecoderInput] = [

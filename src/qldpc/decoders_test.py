@@ -7,7 +7,6 @@ from __future__ import annotations
 import warnings
 
 from qldpc import decoders
-from qldpc.decoders import construction
 
 # Deprecated compatibility
 
@@ -32,7 +31,7 @@ def test_v0_3_3_deprecated_class_aliases() -> None:
 def test_v0_3_3_deprecated_builder_aliases() -> None:
     """Uppercase v0.3.3 builders warn and resolve to lowercase builders."""
     for suffix in ["BF", "BP_LSD", "BP_OSD", "GUF", "ILP", "MWPM", "RBP"]:
-        replacement = getattr(construction, f"get_decoder_{suffix.lower()}")
+        replacement = getattr(decoders, f"get_decoder_{suffix.lower()}")
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             assert getattr(decoders, f"get_decoder_{suffix}") is replacement

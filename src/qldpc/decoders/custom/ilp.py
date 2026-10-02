@@ -16,6 +16,7 @@ import stim
 from qldpc.math import IntegerArray
 
 from ..common import _erasure_bit_support, _to_pcm, with_erasure_bits
+from ..construction.specs import decoder_spec
 from ..protocols import ErrorDecoder
 
 if TYPE_CHECKING:
@@ -170,3 +171,6 @@ def get_decoder_ilp(
     rather than returned as an ordinary inferred error.
     """
     return ILPDecoder(_to_pcm(pcm_or_dem), add_erasure_bit=add_erasure_bit, **decoder_args)
+
+
+ilp = decoder_spec("ilp", get_decoder_ilp, signature_source=ILPDecoder)

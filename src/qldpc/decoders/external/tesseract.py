@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import galois
 import numpy as np
@@ -15,7 +15,13 @@ import stim
 
 from qldpc.math import IntegerArray
 
-from ..common import PLACEHOLDER_ERROR_RATE, _erasure_bit_support, with_erasure_bits
+from ..common import (
+    _deprecate_error_rate_option,
+    _erasure_bit_support,
+    _get_matrix_error_channel,
+    with_erasure_bits,
+)
+from ..construction.specs import DecoderSpec, decoder_spec
 from ..dems import DetectorErrorModelArrays
 from ..protocols import BatchObservableDecoder, ErrorDecoder
 
@@ -59,8 +65,7 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
         self,
         pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
         *,
-        error_rate: float = PLACEHOLDER_ERROR_RATE,
-        error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
+        error_channel: float | npt.NDArray[np.floating] | Sequence[float] | None = None,
         add_erasure_bit: bool = False,
         det_beam: int = 5,
         beam_climbing: bool = False,
@@ -78,15 +83,16 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
         num_det_orders: int | None = None,
         det_order_method: TesseractDetectorOrderMethod | None = None,
         seed: int | None = None,
+        error_rate: float | None = None,
     ) -> None:
         """Initialize a Tesseract decoder.
 
         Args:
             pcm_or_dem: A binary parity-check matrix or detector error model to decode.
-            error_rate: The i.i.d. probability of each error for a matrix.  Ignored for a DEM.
-            error_channel: The probability of each matrix-column error, or None to use
-                ``error_rate``.  A DEM supplies its own probabilities, so this argument cannot be
-                specified with one.
+            error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
+            error_channel: One probability for every matrix-column error, or one probability per
+                column. Defaults to 0.001. A DEM supplies its own probabilities, so neither
+                probability argument can be specified with one.
             add_erasure_bit: Whether to append Tesseract's low-confidence flag to each result.
             det_beam: Beam-search cutoff.
             beam_climbing: Whether to retry with increasing beam sizes.
@@ -208,8 +214,7 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
 def get_decoder_tesseract(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
-    error_rate: float = PLACEHOLDER_ERROR_RATE,
-    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
+    error_channel: float | npt.NDArray[np.floating] | Sequence[float] | None = None,
     add_erasure_bit: bool = False,
     det_beam: int = 5,
     beam_climbing: bool = False,
@@ -227,6 +232,7 @@ def get_decoder_tesseract(
     num_det_orders: int | None = None,
     det_order_method: TesseractDetectorOrderMethod | None = None,
     seed: int | None = None,
+    error_rate: float | None = None,
 ) -> TesseractDecoder:
     """Build an optional Tesseract error and observable decoder.
 
@@ -256,6 +262,72 @@ def get_decoder_tesseract(
     )
 
 
+tesseract = decoder_spec(
+    "tesseract",
+    get_decoder_tesseract,
+    get_decoder_tesseract,
+    option_transform=_deprecate_error_rate_option,
+)
+
+
+def tesseract_preset(
+    preset: Literal["long-beam", "short-beam"] = "long-beam",
+    *,
+    sparsify: Literal["surface-code-like", "color-code-like"] | None = None,
+    error_channel: float | npt.NDArray[np.floating] | Sequence[float] | None = None,
+    add_erasure_bit: bool = False,
+    error_rate: float | None = None,
+) -> DecoderSpec[TesseractDecoder]:
+    """Configure one of Tesseract's named Sinter presets."""
+    beam_presets = {
+        "long-beam": (20, 1_000_000, 21),
+        "short-beam": (15, 200_000, 16),
+    }
+    sparsify_base_degrees = {
+        None: -1,
+        "surface-code-like": 2,
+        "color-code-like": 3,
+    }
+    try:
+        det_beam, pqlimit, num_det_orders = beam_presets[preset]
+    except KeyError:
+        raise ValueError(
+            f"Unknown Tesseract preset {preset!r}; expected 'long-beam' or 'short-beam'"
+        ) from None
+    try:
+        sparsify_base_degree = sparsify_base_degrees[sparsify]
+    except KeyError:
+        raise ValueError(
+            f"Unknown Tesseract sparsify preset {sparsify!r}; expected None,"
+            " 'surface-code-like', or 'color-code-like'"
+        ) from None
+
+    explicitly_provided: set[str] = set()
+    if error_rate is not None:
+        explicitly_provided.add("error_rate")
+    if error_channel is not None:
+        explicitly_provided.add("error_channel")
+    probability_options = _deprecate_error_rate_option(
+        {"error_rate": error_rate, "error_channel": error_channel},
+        frozenset(explicitly_provided),
+    )
+    return tesseract(
+        error_channel=cast(
+            float | npt.NDArray[np.floating] | Sequence[float] | None,
+            probability_options["error_channel"],
+        ),
+        add_erasure_bit=add_erasure_bit,
+        det_beam=det_beam,
+        beam_climbing=True,
+        pqlimit=pqlimit,
+        sparsify_errors=sparsify is not None,
+        sparsify_base_degree=sparsify_base_degree,
+        num_det_orders=num_det_orders,
+        det_order_method="index",
+        seed=2_384_753,
+    )
+
+
 def _get_tesseract() -> Any:
     """Import the optional Tesseract package or raise an actionable error."""
     try:
@@ -274,8 +346,8 @@ def _get_tesseract() -> Any:
 
 def _get_dem_and_num_errors(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
-    error_rate: float,
-    error_channel: npt.NDArray[np.floating] | Sequence[float] | None,
+    error_rate: float | None,
+    error_channel: float | npt.NDArray[np.floating] | Sequence[float] | None,
 ) -> tuple[stim.DetectorErrorModel, int]:
     """Convert an input to Tesseract's DEM while preserving its error indexing."""
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
@@ -284,12 +356,17 @@ def _get_dem_and_num_errors(
                 "Cannot specify an error_channel when building a Tesseract decoder from a detector"
                 " error model"
             )
+        if error_rate is not None:
+            raise ValueError(
+                "Cannot specify error_rate when building a Tesseract decoder from a detector error"
+                " model"
+            )
         return pcm_or_dem, pcm_or_dem.num_errors
 
     _validate_binary_matrix(pcm_or_dem)
-    probabilities: float | npt.NDArray[np.floating]
-    probabilities = (
-        float(error_rate) if error_channel is None else np.asarray(error_channel, dtype=float)
+    probabilities = cast(
+        npt.NDArray[np.floating],
+        _get_matrix_error_channel(pcm_or_dem, error_rate, error_channel),
     )
     dem_arrays = DetectorErrorModelArrays.from_arrays(pcm_or_dem, None, probabilities)
     return dem_arrays.to_dem(), dem_arrays.num_errors

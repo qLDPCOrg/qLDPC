@@ -8,10 +8,12 @@ import pickle
 import subprocess
 import sys
 from collections.abc import Callable
+from typing import Any
 
 import ldpc as ldpc_package
 import numpy as np
 import pytest
+import stim
 from ldpc import bplsd_decoder
 
 from qldpc import decoders
@@ -57,6 +59,37 @@ def test_ldpc_builders_reject_erasure(
     with pytest.raises(ValueError, match=rf"The {name} decoder cannot signal erasure"):
         builder(matrix, add_erasure_bit=True)
     assert builder(matrix, add_erasure_bit=False)
+
+
+@pytest.mark.parametrize("builder", [get_decoder_bp_osd, get_decoder_bp_lsd, get_decoder_bf])
+def test_ldpc_error_channel_compatibility(
+    builder: Callable[..., Any],
+) -> None:
+    """A scalar channel broadcasts, while deprecated and DEM probability inputs are explicit."""
+    matrix = np.eye(2, dtype=int)
+    scalar_decoder = builder(matrix, error_channel=0.2)
+    assert np.array_equal(scalar_decoder.error_channel, [0.2, 0.2])
+
+    with pytest.warns(DeprecationWarning, match="error_rate=0.3.*error_channel=0.3"):
+        deprecated_decoder = builder(matrix, error_rate=0.3)
+    assert np.array_equal(deprecated_decoder.error_channel, [0.3, 0.3])
+
+    with pytest.raises(ValueError, match="cannot both be specified"):
+        builder(matrix, error_rate=0.3, error_channel=0.2)
+
+    dem = stim.DetectorErrorModel("error(0.1) D0\nerror(0.2) D1")
+    for kwargs in ({"error_channel": 0.3}, {"error_rate": 0.3}):
+        with pytest.raises(ValueError, match="supplies its own error probabilities"):
+            builder(dem, **kwargs)
+
+
+def test_bp_lsd_random_serial_schedule() -> None:
+    """The immediate and deferred BP+LSD builders expose the backend schedule option."""
+    matrix = np.eye(2, dtype=int)
+    immediate_decoder: Any = get_decoder_bp_lsd(matrix, random_serial_schedule=True)
+    deferred_decoder: Any = decoders.bp_lsd(random_serial_schedule=True).build(matrix)
+    assert immediate_decoder.random_serial_schedule
+    assert deferred_decoder.random_serial_schedule
 
 
 def test_ldpc_protocol_adapters() -> None:

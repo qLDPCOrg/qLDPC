@@ -21,6 +21,7 @@ from qldpc._util import get_external_caller_stacklevel
 from qldpc.math import IntegerArray
 
 from ..common import _erasure_bit_support, with_erasure_bits
+from ..construction.specs import decoder_spec
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, ObservableDecoder
 
@@ -1444,3 +1445,12 @@ def _warn_deprecated_observable_prediction(enabled: bool, replacement: str) -> N
             DeprecationWarning,
             stacklevel=get_external_caller_stacklevel(),
         )
+
+
+lookup_table = decoder_spec(
+    "lookup_table",
+    get_decoder_lookup,
+    get_observable_decoder_lookup,
+    signature_source=LookupDecoder,
+    exclude=frozenset({"predict_observable_flips"}),
+)
