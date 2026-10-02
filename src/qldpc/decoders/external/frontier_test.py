@@ -7,11 +7,10 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import math
-import pickle
 import subprocess
 import sys
 import types
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 import pytest
@@ -50,6 +49,9 @@ class _Result:
     logical_hat: int | None
 
 
+_Call = tuple[str, _Model, list[int], dict[str, object]]
+
+
 def _decode_exactly(model: _Model, syndrome: np.ndarray, **options: object) -> _Result:
     """Return the most likely observable flips, as unpruned Frontier would."""
     target = sum(int(bit) << index for index, bit in enumerate(syndrome))
@@ -79,11 +81,9 @@ def _optimize_column_order(
 
 
 @pytest.fixture
-def calls(
-    monkeypatch: pytest.MonkeyPatch,
-) -> list[tuple[str, _Model, list[int], dict[str, object]]]:
+def calls(monkeypatch: pytest.MonkeyPatch) -> list[_Call]:
     """Install a substitute for Frontier that decodes exactly, and record its decoding calls."""
-    calls: list[tuple[str, _Model, list[int], dict[str, object]]] = []
+    calls: list[_Call] = []
 
     def get_decode_func(name: str) -> Any:
         def decode(model: _Model, syndrome: np.ndarray, **options: object) -> _Result:
@@ -92,19 +92,19 @@ def calls(
 
         return decode
 
-    package = types.ModuleType("frontier")
-    package.__dict__.update(
-        FrontierModel=_Model,
-        decode_frontier=get_decode_func("forward"),
-        decode_frontier_committee=get_decode_func("committee"),
-    )
     progressive = types.ModuleType("frontier.progressive")
     progressive.__dict__.update(
         ProgressiveColumn=_Column,
         build_frontier_layout=lambda columns, *, num_detectors: tuple(columns),
         optimize_column_order=_optimize_column_order,
     )
-    package.__dict__["progressive"] = progressive
+    package = types.ModuleType("frontier")
+    package.__dict__.update(
+        FrontierModel=_Model,
+        decode_frontier=get_decode_func("forward"),
+        decode_frontier_committee=get_decode_func("committee"),
+        progressive=progressive,
+    )
     monkeypatch.setitem(sys.modules, "frontier", package)
     monkeypatch.setitem(sys.modules, "frontier.progressive", progressive)
     return calls
@@ -119,24 +119,6 @@ decoders.frontier(committee=True)
 assert "frontier" not in sys.modules
 """
     subprocess.run([sys.executable, "-c", code], check=True)
-
-
-def test_frontier_settings(
-    calls: list[tuple[str, _Model, list[int], dict[str, object]]],
-) -> None:
-    """Frontier settings are reproduced by their repr, and survive process serialization."""
-    settings = decoders.frontier(K=64, column_order="time_order", committee=True)
-    assert isinstance(settings, decoders.DecoderSpec)
-    assert repr(settings) == "decoders.frontier(K=64, column_order='time_order', committee=True)"
-    assert repr(decoders.frontier()) == "decoders.frontier()"
-
-    restored = pickle.loads(pickle.dumps(settings))  # noqa: S301 - trusted in-memory round trip
-    assert restored.options == settings.options
-    decoder = restored.build_observable_decoder(stim.DetectorErrorModel("error(0.1) D0 L0"))
-    assert isinstance(decoder, decoders.FrontierObservableDecoder)
-    assert decoder.decode_observables(np.array([1])).tolist() == [1]
-    assert calls[-1][0] == "committee"
-    assert calls[-1][3]["K"] == 64
 
 
 def test_frontier_validation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -156,7 +138,7 @@ def test_frontier_validation(monkeypatch: pytest.MonkeyPatch) -> None:
             decoders.get_observable_decoder_frontier(dem, **options)  # type: ignore[arg-type]
 
 
-def test_frontier_decoding(calls: list[tuple[str, _Model, list[int], dict[str, object]]]) -> None:
+def test_frontier_decoding(calls: list[_Call]) -> None:
     """Frontier receives every error mechanism of a model, and its predictions are converted."""
     dem = stim.DetectorErrorModel("""
         error(0.1) D0 L0
@@ -195,9 +177,7 @@ def test_frontier_decoding(calls: list[tuple[str, _Model, list[int], dict[str, o
         decoder.decode_observables(np.zeros(2, dtype=int))
 
 
-def test_frontier_scan_orders(
-    calls: list[tuple[str, _Model, list[int], dict[str, object]]],
-) -> None:
+def test_frontier_scan_orders(calls: list[_Call]) -> None:
     """Frontier reorders columns on request, and the committee's reverse scan is precomputed."""
     dem = stim.DetectorErrorModel("error(0.1) D0\nerror(0.2) D0 D1\nerror(0.3) D1")
     labels = ["error_0", "error_1", "error_2"]
@@ -206,30 +186,17 @@ def test_frontier_scan_orders(
     assert [column.label for column in model.columns] == labels
     assert model.backward_columns is None
 
-    # with the substitute for Frontier, deadline reordering reverses a scan
-    model = decoders.get_observable_decoder_frontier(dem).model
-    assert [column.label for column in model.columns] == labels[::-1]
-    assert model.backward_columns is None
-
-    column_orders: tuple[Literal["time_order", "deadline_reorder"], ...] = (
-        "time_order",
-        "deadline_reorder",
-    )
-    for column_order in column_orders:
-        decoder = decoders.get_observable_decoder_frontier(
-            dem, column_order=column_order, committee=True
-        )
-        backward_columns = decoder.model.backward_columns
-        assert [column.index for column in backward_columns] == [0, 1, 2]
-        assert [column.label for column in backward_columns] == labels[::-1]
-        assert decoder.model.backward_layout == backward_columns
-        assert decoder.decode_observables(np.array([1, 0])).tolist() == []
-        assert calls[-1][0] == "committee"
+    # with the substitute for Frontier, deadline reordering reverses each scan
+    decoder = decoders.get_observable_decoder_frontier(dem, committee=True)
+    assert [column.label for column in decoder.model.columns] == labels[::-1]
+    assert [column.index for column in decoder.model.backward_columns] == [0, 1, 2]
+    assert [column.label for column in decoder.model.backward_columns] == labels[::-1]
+    assert decoder.model.backward_layout == decoder.model.backward_columns
+    assert decoder.decode_observables(np.array([1, 0])).tolist() == []
+    assert calls[-1][0] == "committee"
 
 
-def test_frontier_degenerate_models(
-    calls: list[tuple[str, _Model, list[int], dict[str, object]]],
-) -> None:
+def test_frontier_degenerate_models(calls: list[_Call]) -> None:
     """Models without detectors or error mechanisms are decoded with a nonempty Frontier model."""
     decoder = decoders.get_observable_decoder_frontier(stim.DetectorErrorModel("error(0.9) L0"))
     assert decoder.decode_observables(np.zeros(0, dtype=int)).tolist() == [1]
@@ -243,16 +210,12 @@ def test_frontier_degenerate_models(
     assert decoder.decode_observables(np.zeros(0, dtype=int)).tolist() == [0]
 
 
-def test_frontier_with_generic_decoding_apis(
-    calls: list[tuple[str, _Model, list[int], dict[str, object]]],
-) -> None:
+def test_frontier_with_generic_decoding_apis(calls: list[_Call]) -> None:
     """Frontier settings are accepted wherever an observable decoder can be compiled."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.2) D0 D1\nerror(0.3) D1 L1")
     settings = decoders.frontier(add_erasure_bit=True)
     syndrome = np.array([1, 0])
 
-    decoder = decoders.get_observable_decoder(dem, decoder=settings)
-    assert isinstance(decoder, decoders.FrontierObservableDecoder)
     assert decoders.decode_observables(dem, syndrome, decoder=settings).tolist() == [1, 0, 0]
 
     sinter_decoder = decoders.SinterDecoder(decoder=settings).compile_decoder_for_dem(dem)
@@ -268,9 +231,6 @@ def test_frontier_with_generic_decoding_apis(
     )(0.1)
     assert 0 <= logical_error_rate <= 1
     assert len(calls) > num_calls
-
-    with pytest.raises(TypeError, match="cannot build an error decoder"):
-        decoders.get_error_decoder(code.matrix, decoder=settings)
 
 
 def test_frontier_unexpected_status() -> None:

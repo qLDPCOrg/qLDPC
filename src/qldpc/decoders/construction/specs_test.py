@@ -30,6 +30,7 @@ def test_decoder_specs_store_public_builders() -> None:
         decoders.bp_lsd(),
         decoders.bf(),
         decoders.mwpm(),
+        decoders.frontier(),
         decoders.relay_bp(),
         decoders.min_sum_bp(),
         decoders.lookup_table(1),
@@ -41,6 +42,7 @@ def test_decoder_specs_store_public_builders() -> None:
         "bp_lsd": "qldpc.decoders.external.ldpc",
         "bf": "qldpc.decoders.external.ldpc",
         "mwpm": "qldpc.decoders.external.pymatching",
+        "frontier": "qldpc.decoders.external.frontier",
         "relay_bp": "qldpc.decoders.external.relay_bp",
         "min_sum_bp": "qldpc.decoders.external.relay_bp",
         "lookup_table": "qldpc.decoders.custom.lookup",
@@ -137,7 +139,7 @@ def test_observable_decoder_specs() -> None:
     with pytest.raises(ValueError, match="needs an error builder or an observable builder"):
         decoders.DecoderSpec("nothing", None, ())
 
-    # the Frontier helper validates and stores its options, but does not import Frontier
+    # the Frontier helper stores its options without importing Frontier
     options: dict[str, Any] = {
         "K": 64,
         "Delta": 6.0,

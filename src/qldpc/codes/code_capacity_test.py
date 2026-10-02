@@ -20,7 +20,6 @@ import stim
 from qldpc import codes, decoders
 from qldpc.codes import code_capacity
 from qldpc.decoders.adapters import observable_decoders
-from qldpc.decoders.custom.lookup import get_observable_decoder_lookup
 
 
 class _FixedObservableDecoder(decoders.ObservableDecoder):
@@ -359,7 +358,7 @@ def test_code_capacity_decoder_from_sinter_decoder() -> None:
 
     # so are settings that build an observable decoder, but cannot infer errors
     observable_spec: decoders.DecoderSpec[Never] = decoders.DecoderSpec(
-        "observable_lookup", None, (("max_weight", 1),), get_observable_decoder_lookup
+        "observable_lookup", None, (), observable_constructor
     )
     decoder = code_capacity.get_code_capacity_decoder(
         code.matrix, observable_matrix, observable_spec
