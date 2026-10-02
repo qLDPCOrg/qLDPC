@@ -57,8 +57,7 @@ optional-dependencies.dev = [
   "qldpc[docs,gap,relay-bp]",
   """\
   qldpc[tesseract]; platform_python_implementation=='CPython' and python_version>='3.12' and python_version<'3.15' and \
-  ((sys_platform=='linux' and platform_machine=='x86_64' and python_version<'3.14') or (sys_platform=='darwin' and \
-  platform_machine=='arm64'))\
+  sys_platform=='darwin' and platform_machine=='arm64'\
   """,
 ]
 optional-dependencies.docs = [
