@@ -49,8 +49,8 @@ The helpers are available directly under ``qldpc.decoders``:
 * :func:`decoders.ilp <qldpc.decoders.construction.specs.ilp>`
 * :func:`decoders.guf <qldpc.decoders.construction.specs.guf>`
 
-Most helpers return a :class:`decoders.DecoderSpec <qldpc.decoders.construction.specs.DecoderSpec>`, which only stores settings for an error decoder and, where supported, its native observable-decoding mode.
-:func:`decoders.frontier <qldpc.decoders.construction.specs.frontier>` instead returns a :class:`decoders.FrontierDecoder <qldpc.decoders.external.frontier.FrontierDecoder>`, an observable-decoder compiler, because Frontier predicts logical observables without inferring a physical error.
+Most helpers return a :class:`decoders.DecoderSpec <qldpc.decoders.construction.specs.DecoderSpec>`, which only stores settings for a decoder that infers errors; some of these decoders can also predict observable flips directly.
+:func:`decoders.frontier <qldpc.decoders.construction.specs.frontier>` instead returns a :class:`decoders.FrontierDecoder <qldpc.decoders.external.frontier.FrontierDecoder>`, because Frontier predicts observable flips but cannot infer errors.
 The signature of a helper lists the options of its decoder explicitly, so they are visible to autocomplete and static-analysis tools, and a misspelled option raises a ``TypeError``.
 The exception is ``ilp``, which forwards additional options to ``cvxpy.Problem.solve``.
 Passing ``decoder=None`` uses qLDPC's default: BP+OSD for binary inputs and generalized union-find for nonbinary field arrays.
