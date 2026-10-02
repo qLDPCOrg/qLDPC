@@ -135,7 +135,7 @@ def test_tesseract_missing_dependency_error(monkeypatch: pytest.MonkeyPatch) -> 
     assert "Install it with `pip install 'qldpc[tesseract]'`" in message
     assert "glibc" in message
     message = tesseract._get_missing_tesseract_message("CPython", (3, 11), "win32", "AMD64")
-    assert "does not install it for CPython 3.11 on win32 AMD64" in message
+    assert "cannot install it for CPython 3.11 on win32 AMD64" in message
     assert "github.com/quantumlib/tesseract-decoder" in message
 
     monkeypatch.delitem(sys.modules, "tesseract_decoder")
@@ -160,29 +160,41 @@ def test_tesseract_missing_dependency_error(monkeypatch: pytest.MonkeyPatch) -> 
         tesseract._get_tesseract()
 
 
-def test_tesseract_supported_platforms_match_extra() -> None:
-    """The platforms named in missing-package errors are those on which the extra installs."""
+def test_tesseract_extra_covers_supported_platforms() -> None:
+    """The tesseract extra installs the package everywhere that it publishes wheels.
+
+    The extra may also attempt an installation that fails elsewhere, but must not skip a supported
+    platform, and must skip Python versions and platforms that qLDPC's development installs use.
+    """
     with open(pathlib.Path(__file__).parents[4] / "pyproject.toml", "rb") as file:
         requirements = tomllib.load(file)["project"]["optional-dependencies"]["tesseract"]
     (requirement,) = (packaging.requirements.Requirement(line) for line in requirements)
-    assert requirement.name == "tesseract-decoder" and requirement.marker is not None
+    marker = requirement.marker
+    assert requirement.name == "tesseract-decoder" and marker is not None
 
-    for implementation, version, system, machine in itertools.product(
+    def is_installed(implementation: str, version: str, system: str, machine: str) -> bool:
+        return marker.evaluate(
+            {
+                "platform_python_implementation": implementation,
+                "python_version": version,
+                "python_full_version": f"{version}.0",
+                "sys_platform": system,
+                "platform_machine": machine,
+            }
+        )
+
+    for implementation, minor, system, machine in itertools.product(
         ["CPython", "PyPy"],
-        [(3, minor) for minor in range(11, 16)],
+        range(11, 16),
         ["darwin", "linux", "win32"],
-        ["arm64", "x86_64", "AMD64"],
+        ["arm64", "aarch64", "x86_64", "AMD64"],
     ):
-        environment = {
-            "platform_python_implementation": implementation,
-            "python_version": f"{version[0]}.{version[1]}",
-            "python_full_version": f"{version[0]}.{version[1]}.0",
-            "sys_platform": system,
-            "platform_machine": machine,
-        }
-        assert requirement.marker.evaluate(environment) == tesseract._is_supported_platform(
-            implementation, version, system, machine
-        ), environment
+        if tesseract._is_supported_platform(implementation, (3, minor), system, machine):
+            assert is_installed(implementation, f"3.{minor}", system, machine), (system, machine)
+
+    assert not is_installed("CPython", "3.11", "linux", "x86_64")
+    assert not is_installed("CPython", "3.14", "win32", "AMD64")
+    assert not is_installed("CPython", "3.14", "linux", "aarch64")
 
 
 def test_tesseract_matrix_error_decoding(fake_tesseract: types.SimpleNamespace) -> None:

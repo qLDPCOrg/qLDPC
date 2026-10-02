@@ -315,7 +315,7 @@ def _get_missing_tesseract_message(
         )
     return (
         f"{requirement}, which publishes wheels only for CPython 3.12-3.14 on macOS arm64 and"
-        f" Linux x86-64.  `pip install 'qldpc[tesseract]'` therefore does not install it for"
+        f" Linux x86-64.  `pip install 'qldpc[tesseract]'` therefore cannot install it for"
         f" {implementation} {version[0]}.{version[1]} on {system} {machine}.  Use a supported Python"
         f" and platform, or build tesseract-decoder from source: {_SOURCE_URL}"
     )
