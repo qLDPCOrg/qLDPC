@@ -397,7 +397,7 @@ def tesseract(
     beam_climbing: bool = False,
     no_revisit_dets: bool = True,
     verbose: bool = False,
-    merge_errors: bool = True,
+    merge_errors: bool = False,
     pqlimit: int = 200_000,
     det_orders: Sequence[Sequence[int]] | None = None,
     det_penalty: float = 0.0,

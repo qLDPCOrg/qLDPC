@@ -153,7 +153,14 @@ def test_tesseract_matrix_error_decoding(fake_tesseract: types.SimpleNamespace) 
     syndromes = np.array([[1, 0], [0, 1]], dtype=int)
     expected = np.array([[1, 0, 0], [0, 0, 1]], dtype=np.uint8)
 
-    for matrix_input in [matrix, scipy.sparse.csc_matrix(matrix), galois.GF2(matrix)]:
+    matrix_inputs = [
+        matrix,
+        scipy.sparse.csc_matrix(matrix),
+        scipy.sparse.dok_matrix(matrix),
+        scipy.sparse.lil_matrix(matrix),
+        galois.GF2(matrix),
+    ]
+    for matrix_input in matrix_inputs:
         decoder = decoders.get_decoder_tesseract(
             matrix_input,
             error_channel=np.array([0.1, 0.2, 0.3]),
@@ -169,6 +176,15 @@ def test_tesseract_matrix_error_decoding(fake_tesseract: types.SimpleNamespace) 
 
     decoder = decoders.get_decoder_tesseract(matrix, error_rate=0.25)
     assert np.array_equal(decoder.decoder.dem_arrays.error_probs, [0.25, 0.25, 0.25])
+
+    # Merging equal columns maps their aggregate probability to one representative original index,
+    # which can be a less likely physical correction. qLDPC preserves column identity by default.
+    decoder = decoders.get_decoder_tesseract(
+        np.array([[1, 1]], dtype=int),
+        error_channel=[0.1, 0.4],
+    )
+    assert not decoder.config.merge_errors
+    assert np.array_equal(decoder.decode_errors(np.array([1], dtype=int)), [0, 1])
 
 
 def test_tesseract_dem_error_and_observable_decoding(

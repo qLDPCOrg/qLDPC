@@ -78,6 +78,8 @@ Install qLDPC with the ``tesseract`` extra to use it: ``pip install 'qldpc[tesse
 A parity-check matrix is converted to a detector error model with probabilities supplied by ``error_rate`` or ``error_channel``; a detector error model supplies its own probabilities and observable definitions.
 Tesseract reports a low-confidence result if its search does not converge within its configured beam or priority-queue limits.
 Set ``add_erasure_bit=True`` to expose that result as qLDPC's appended erasure flag.
+qLDPC disables Tesseract's error merging by default so an inferred physical error retains the identity of the most likely original matrix column.
+Set ``merge_errors=True`` when only the aggregate detector/observable prediction matters.
 
 Higher-level APIs accept the same settings:
 

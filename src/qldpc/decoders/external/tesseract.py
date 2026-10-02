@@ -44,6 +44,11 @@ class TesseractDecoder(BatchErrorDecoder, BatchObservableDecoder):
     and observable prediction.  The bit is set when Tesseract reports low confidence because its
     search did not converge within the configured beam or priority-queue limits.
 
+    qLDPC disables Tesseract's error merging by default because merged errors map back to one
+    representative error-mechanism index.  That representative need not be the most likely original
+    matrix column.  Set ``merge_errors=True`` when only the aggregate detector/observable prediction
+    matters.
+
     See the `Tesseract documentation
     <https://github.com/quantumlib/tesseract-decoder#python-interface>`_ and
     `arXiv:2503.10988 <https://arxiv.org/abs/2503.10988>`_.
@@ -60,7 +65,7 @@ class TesseractDecoder(BatchErrorDecoder, BatchObservableDecoder):
         beam_climbing: bool = False,
         no_revisit_dets: bool = True,
         verbose: bool = False,
-        merge_errors: bool = True,
+        merge_errors: bool = False,
         pqlimit: int = 200_000,
         det_orders: Sequence[Sequence[int]] | None = None,
         det_penalty: float = 0.0,
@@ -86,7 +91,8 @@ class TesseractDecoder(BatchErrorDecoder, BatchObservableDecoder):
             beam_climbing: Whether to retry with increasing beam sizes.
             no_revisit_dets: Whether to avoid revisiting equal residual detector sets.
             verbose: Whether Tesseract prints decoding diagnostics.
-            merge_errors: Whether to merge DEM errors with identical detector symptoms.
+            merge_errors: Whether to merge DEM errors with identical detector symptoms.  Disabled
+                by default to preserve the identity of inferred physical errors.
             pqlimit: Maximum number of nodes pushed into the priority queue.
             det_orders: Explicit detector traversal permutations, or None to generate them.
             det_penalty: Additional cost for each residual detection event.
@@ -218,7 +224,7 @@ def get_decoder_tesseract(
     beam_climbing: bool = False,
     no_revisit_dets: bool = True,
     verbose: bool = False,
-    merge_errors: bool = True,
+    merge_errors: bool = False,
     pqlimit: int = 200_000,
     det_orders: Sequence[Sequence[int]] | None = None,
     det_penalty: float = 0.0,
@@ -306,7 +312,9 @@ def _validate_binary_matrix(matrix: IntegerArray) -> None:
     if isinstance(matrix, galois.FieldArray) and type(matrix).order != 2:
         raise ValueError("The Tesseract decoder only supports binary parity-check matrices")
     values = (
-        matrix.data if isinstance(matrix, scipy.sparse.sparray | scipy.sparse.spmatrix) else matrix
+        matrix.tocoo().data
+        if isinstance(matrix, scipy.sparse.sparray | scipy.sparse.spmatrix)
+        else matrix
     )
     array = np.asarray(values)
     if not (np.issubdtype(array.dtype, np.integer) or np.issubdtype(array.dtype, np.bool_)):
