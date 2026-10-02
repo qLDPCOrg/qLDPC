@@ -26,6 +26,7 @@ def test_decoder_specs_store_public_builders() -> None:
         decoders.mwpm(),
         decoders.relay_bp(),
         decoders.min_sum_bp(),
+        decoders.tesseract(),
         decoders.lookup_table(1),
         decoders.ilp(),
         decoders.guf(),
@@ -37,6 +38,7 @@ def test_decoder_specs_store_public_builders() -> None:
         "mwpm": "qldpc.decoders.external.pymatching",
         "relay_bp": "qldpc.decoders.external.relay_bp",
         "min_sum_bp": "qldpc.decoders.external.relay_bp",
+        "tesseract": "qldpc.decoders.external.tesseract",
         "lookup_table": "qldpc.decoders.custom.lookup",
         "ilp": "qldpc.decoders.custom.ilp",
         "guf": "qldpc.decoders.custom.guf",
@@ -68,6 +70,7 @@ def test_decoder_spec_observable_modes() -> None:
         converted_spec.build_observable_decoder(dem),
         error_decoders.ErrorsToObservablesDecoder,
     )
+    assert decoders.tesseract().predicts_observables_natively
 
 
 def test_decoder_specs() -> None:
@@ -88,6 +91,7 @@ def test_decoder_specs() -> None:
     )
     assert repr(decoders.lookup_table(2)) == "decoders.lookup_table(max_weight=2)"
     assert repr(decoders.relay_bp(gamma0=0.2)) == "decoders.relay_bp(gamma0=0.2)"
+    assert repr(decoders.tesseract(det_beam=7)) == "decoders.tesseract(det_beam=7)"
     assert repr(decoders.ilp(verbose=False)) == "decoders.ilp(verbose=False)"
     assert repr(decoders.guf(max_weight=1)) == "decoders.guf(max_weight=1)"
     channel = np.array([0.1, 0.2])
@@ -175,6 +179,7 @@ def test_decoder_spec_helper_defaults() -> None:
         (decoders.lookup_table, decoders.LookupDecoder, {"predict_observable_flips"}),
         (decoders.guf, decoders.GUFDecoder, set()),
         (decoders.ilp, decoders.ILPDecoder, set()),
+        (decoders.tesseract, decoders.TesseractDecoder, set()),
     ]
     for helper, constructor, excluded in qldpc_decoders:
         helper_defaults = get_defaults(helper)

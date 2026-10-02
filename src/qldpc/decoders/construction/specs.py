@@ -38,6 +38,11 @@ from ..external.relay_bp import (
     get_min_sum_bp_decoder,
     get_relay_bp_decoder,
 )
+from ..external.tesseract import (
+    DetectorOrderMethod,
+    TesseractDecoder,
+    get_decoder_tesseract,
+)
 from ..protocols import (
     BatchErrorDecoder,
     ErrorDecoder,
@@ -380,6 +385,55 @@ def min_sum_bp(
         max_data_value=max_data_value,
         int_bits=int_bits,
         frac_bits=frac_bits,
+    )
+
+
+def tesseract(
+    *,
+    error_rate: float = PLACEHOLDER_ERROR_RATE,
+    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
+    add_erasure_bit: bool = False,
+    det_beam: int = 5,
+    beam_climbing: bool = False,
+    no_revisit_dets: bool = True,
+    verbose: bool = False,
+    merge_errors: bool = True,
+    pqlimit: int = 200_000,
+    det_orders: Sequence[Sequence[int]] | None = None,
+    det_penalty: float = 0.0,
+    create_visualization: bool = False,
+    sparsify_errors: bool = False,
+    sparsify_base_degree: int = -1,
+    sparsify_max_degree: int = -1,
+    sparsify_reactivate_limit: int = -1,
+    num_det_orders: int | None = None,
+    det_order_method: DetectorOrderMethod | None = None,
+    seed: int | None = None,
+) -> DecoderSpec[TesseractDecoder]:
+    """Configure an optional Tesseract search-based decoder."""
+    return _decoder_spec(
+        "tesseract",
+        get_decoder_tesseract,
+        get_decoder_tesseract,
+        error_rate=error_rate,
+        error_channel=error_channel,
+        add_erasure_bit=add_erasure_bit,
+        det_beam=det_beam,
+        beam_climbing=beam_climbing,
+        no_revisit_dets=no_revisit_dets,
+        verbose=verbose,
+        merge_errors=merge_errors,
+        pqlimit=pqlimit,
+        det_orders=det_orders,
+        det_penalty=det_penalty,
+        create_visualization=create_visualization,
+        sparsify_errors=sparsify_errors,
+        sparsify_base_degree=sparsify_base_degree,
+        sparsify_max_degree=sparsify_max_degree,
+        sparsify_reactivate_limit=sparsify_reactivate_limit,
+        num_det_orders=num_det_orders,
+        det_order_method=det_order_method,
+        seed=seed,
     )
 
 

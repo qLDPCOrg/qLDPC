@@ -10,7 +10,7 @@ The distinction matters when composing decoders.
 Decoder-based distance bounds, logical-operator reduction, and sliding-window decoders all work with physical errors, so they need error decoders.
 Circuit-level simulations only need to know which observables flipped, so they use observable decoders.
 Code-capacity estimates only need to know whether decoding changed the logical state, so they accept either kind (see `Code-capacity estimates`_).
-Some decoders are both: a :class:`decoders.RelayBPDecoder <qldpc.decoders.external.relay_bp.RelayBPDecoder>` infers errors and predicts observable flips.
+Some decoders are both: :class:`decoders.RelayBPDecoder <qldpc.decoders.external.relay_bp.RelayBPDecoder>` and :class:`decoders.TesseractDecoder <qldpc.decoders.external.tesseract.TesseractDecoder>` infer errors and predict observable flips.
 Exact distance calculations do not need a decoder.
 
 A :class:`decoders.SinterDecoder <qldpc.decoders.sinter.core.SinterDecoder>` stores decoder settings for Sinter and builds a compiled observable decoder for each detector error model.
@@ -44,6 +44,7 @@ The helpers are available directly under ``qldpc.decoders``:
 * :func:`decoders.mwpm <qldpc.decoders.construction.specs.mwpm>`
 * :func:`decoders.relay_bp <qldpc.decoders.construction.specs.relay_bp>`
 * :func:`decoders.min_sum_bp <qldpc.decoders.construction.specs.min_sum_bp>`
+* :func:`decoders.tesseract <qldpc.decoders.construction.specs.tesseract>`
 * :func:`decoders.lookup_table <qldpc.decoders.construction.specs.lookup_table>`
 * :func:`decoders.ilp <qldpc.decoders.construction.specs.ilp>`
 * :func:`decoders.guf <qldpc.decoders.construction.specs.guf>`
@@ -65,11 +66,18 @@ They are exported from ``qldpc.decoders`` and ``qldpc.decoders.construction``:
 * :func:`decoders.get_decoder_bf <qldpc.decoders.external.ldpc.get_decoder_bf>`
 * :func:`decoders.get_decoder_mwpm <qldpc.decoders.external.pymatching.get_decoder_mwpm>`
 * :func:`decoders.get_decoder_rbp <qldpc.decoders.external.relay_bp.get_decoder_rbp>`
+* :func:`decoders.get_decoder_tesseract <qldpc.decoders.external.tesseract.get_decoder_tesseract>`
 * :func:`decoders.get_decoder_lookup <qldpc.decoders.custom.lookup.get_decoder_lookup>`
 * :func:`decoders.get_decoder_ilp <qldpc.decoders.custom.ilp.get_decoder_ilp>`
 * :func:`decoders.get_decoder_guf <qldpc.decoders.custom.guf.get_decoder_guf>`
 
 For example, ``decoders.get_decoder_bp_lsd(code.matrix, max_iter=30)`` builds immediately, whereas ``decoders.bp_lsd(max_iter=30)`` returns reusable typed settings.
+
+Tesseract is an optional binary decoder.
+Install qLDPC with the ``tesseract`` extra to use it: ``pip install 'qldpc[tesseract]'``.
+A parity-check matrix is converted to a detector error model with probabilities supplied by ``error_rate`` or ``error_channel``; a detector error model supplies its own probabilities and observable definitions.
+Tesseract reports a low-confidence result if its search does not converge within its configured beam or priority-queue limits.
+Set ``add_erasure_bit=True`` to expose that result as qLDPC's appended erasure flag.
 
 Higher-level APIs accept the same settings:
 
@@ -138,7 +146,8 @@ Some decoders can predict observable flips natively, without first inferring an 
 Their settings build a native observable decoder wherever observable flips are wanted:
 
 * ``mwpm`` builds a PyMatching decoder that tracks observables along matched paths;
-* ``relay_bp`` and ``min_sum_bp`` build a :class:`decoders.RelayBPDecoder <qldpc.decoders.external.relay_bp.RelayBPDecoder>`; and
+* ``relay_bp`` and ``min_sum_bp`` build a :class:`decoders.RelayBPDecoder <qldpc.decoders.external.relay_bp.RelayBPDecoder>`;
+* ``tesseract`` builds a :class:`decoders.TesseractDecoder <qldpc.decoders.external.tesseract.TesseractDecoder>` that natively predicts the observables of its detector error model; and
 * ``lookup_table`` builds an :class:`decoders.ObservableLookupDecoder <qldpc.decoders.custom.lookup.ObservableLookupDecoder>`, which maps each syndrome directly to its most likely observable flip.
 
 The settings of any other decoder build an error decoder, whose inferred errors are converted into observable flips.
@@ -179,7 +188,7 @@ A custom decoder may also define:
 Methods that use an error decoder also accept any object whose ``decode`` method returns an inferred error, such as a decoder built directly with the ldpc package, and wrap it in a :class:`decoders.WrappedErrorDecoder <qldpc.decoders.protocols.WrappedErrorDecoder>`.
 The immediate builders of library decoders, such as :func:`decoders.get_decoder_bp_osd <qldpc.decoders.external.ldpc.get_decoder_bp_osd>`, return subclasses of the library's decoder classes defined by their integration modules; for example, ``get_decoder_bp_osd`` returns an ``ldpc.BpOsdDecoder`` that is also an ``ErrorDecoder``.
 
-External integration classes have canonical paths such as :class:`decoders.RelayBPDecoder <qldpc.decoders.external.relay_bp.RelayBPDecoder>`.
+External integration classes have canonical paths such as :class:`decoders.RelayBPDecoder <qldpc.decoders.external.relay_bp.RelayBPDecoder>` and :class:`decoders.TesseractDecoder <qldpc.decoders.external.tesseract.TesseractDecoder>`.
 qLDPC's own implementation classes have canonical paths at :class:`decoders.ILPDecoder <qldpc.decoders.custom.ilp.ILPDecoder>`, :class:`decoders.GUFDecoder <qldpc.decoders.custom.guf.GUFDecoder>`, :class:`decoders.CompositeDecoder <qldpc.decoders.custom.composition.CompositeDecoder>`, and :class:`decoders.DirectDecoder <qldpc.decoders.custom.composition.DirectDecoder>`.
 :class:`decoders.ErrorsToObservablesDecoder <qldpc.decoders.adapters.error_decoders.ErrorsToObservablesDecoder>` and :class:`decoders.ExpandedErrorDecoder <qldpc.decoders.adapters.error_decoders.ExpandedErrorDecoder>` are the conversion adapters.
 These classes are also exported from ``qldpc.decoders``.

@@ -16,6 +16,7 @@ from ..external.relay_bp import (
     get_min_sum_bp_decoder,
     get_relay_bp_decoder,
 )
+from ..external.tesseract import get_decoder_tesseract
 from .legacy import (
     get_legacy_decoder_migration_message,
     reject_removed_decoder_args,
@@ -47,6 +48,7 @@ from .specs import (
     min_sum_bp,
     mwpm,
     relay_bp,
+    tesseract,
 )
 
 __all__ = [
@@ -71,6 +73,7 @@ __all__ = [
     "get_decoder_lookup",
     "get_decoder_mwpm",
     "get_decoder_rbp",
+    "get_decoder_tesseract",
     "get_error_decoder",
     "get_error_decoder_mwpm",
     "get_legacy_decoder_migration_message",
@@ -89,4 +92,5 @@ __all__ = [
     "relay_bp",
     "resolve_decoder",
     "resolve_observable_decoder",
+    "tesseract",
 ]
