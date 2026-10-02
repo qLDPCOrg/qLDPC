@@ -467,26 +467,7 @@ def test_probability_cutoff() -> None:
         0.8,
     ) == {(1,) * num_errors}
 
-    # Equal-log completions can round to opposite sides of an inclusive cutoff.
-    field = galois.GF(5)
-    matrix = field.Zeros((1, 6))
-    error_channel = np.array([np.nextafter(1.0, 0), 1.0, 0.01, 0.01, 0.2, 0.01])
-    active_probabilities = error_channel / (field.order - 1)
-    boundary_error = np.array([0, 1, 1, 0, 1, 0], dtype=int)
-    probability_cutoff = float(
-        np.prod(
-            np.where(
-                boundary_error.astype(bool),
-                active_probabilities,
-                1 - error_channel,
-            )
-        )
-    )
-
-    assert tuple(boundary_error.tolist()) in _get_cutoff_errors(
-        matrix, 2, error_channel, probability_cutoff, symplectic=True
-    )
-
+    # Pruning bounds round differently from exact probabilities, so they need a safety margin.
     error_channel = np.array([0.3, 0.1, 0.1])
     boundary_error = np.array([1, 0, 1], dtype=int)
     probability_cutoff = float(

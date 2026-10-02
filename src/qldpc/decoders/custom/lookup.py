@@ -39,12 +39,11 @@ class _ScoredLocalError(NamedTuple):
 
 
 class _ScoredErrorSite(NamedTuple):
-    """A physical error site and its possible local errors."""
+    """A physical error site and its possible local errors, sorted from most to least likely."""
 
     site_index: int
     inactive_log_probability: float
     errors: tuple[_ScoredLocalError, ...]
-    best_log_probability: float
 
 
 class _ErrorSelection(NamedTuple):
@@ -1359,286 +1358,116 @@ def _iter_errors_above_probability_cutoff(
     error_channel: npt.NDArray[np.floating],
     probability_cutoff: float,
 ) -> Iterator[npt.NDArray[np.int_]]:
-    """Yield errors above a Bernoulli-probability cutoff without exhaustively generating them."""
+    """Yield errors above a Bernoulli-probability cutoff without exhaustively generating them.
+
+    Each site (a bit, or a qudit if symplectic) is either inactive or carries a nonzero local error.
+    Sites are sorted by the likelihood ratio of their best local error, so the most likely way to
+    complete a partial error is to activate the next remaining sites in sorted order.  A depth-first
+    search over the active sites of each weight prunes any branch whose most likely completion falls
+    below the cutoff, and checks the exact probability of each complete error before yielding it.
+    """
     probabilities = error_channel.reshape(repeat, block_length)
     active_probabilities = probabilities / (field.order - 1)
     with np.errstate(divide="ignore"):
-        log_probabilities = np.log(active_probabilities)
-        log_non_probabilities = np.log1p(-probabilities)
+        log_active_probabilities = np.log(active_probabilities)
+        log_inactive_probabilities = np.log1p(-probabilities)
 
+    # score the possible local errors at each site, most likely first
     local_errors = tuple(itertools.product(range(field.order), repeat=repeat))[1:]
-    forced_sites: list[_ScoredErrorSite] = []
-    optional_sites: list[_ScoredErrorSite] = []
-
+    sites: list[_ScoredErrorSite] = []
     for site_index in range(block_length):
-        inactive_log_probability = float(np.sum(log_non_probabilities[:, site_index]))
+        site_log_active = log_active_probabilities[:, site_index]
+        site_log_inactive = log_inactive_probabilities[:, site_index]
         scored_errors: list[_ScoredLocalError] = []
-        for local_error_values in local_errors:
-            active = np.asarray(local_error_values, dtype=bool)
-            local_log_probability = float(
-                np.sum(
-                    np.where(
-                        active,
-                        log_probabilities[:, site_index],
-                        log_non_probabilities[:, site_index],
-                    )
-                )
+        for local_error in local_errors:
+            is_active = np.asarray(local_error, dtype=bool)
+            log_probability = float(np.sum(np.where(is_active, site_log_active, site_log_inactive)))
+            if np.isfinite(log_probability):
+                scored_errors.append(_ScoredLocalError(local_error, log_probability))
+        if scored_errors:  # otherwise this site is never active, so we can ignore it
+            scored_errors.sort(key=lambda error: error.log_probability, reverse=True)
+            sites.append(
+                _ScoredErrorSite(site_index, float(np.sum(site_log_inactive)), tuple(scored_errors))
             )
-            if not np.isfinite(local_log_probability):
-                continue
-            scored_errors.append(_ScoredLocalError(local_error_values, local_log_probability))
 
-        if not scored_errors:
-            continue
-        scored_errors.sort(key=lambda error: error.log_probability, reverse=True)
-        scored_site = _ScoredErrorSite(
-            site_index,
-            inactive_log_probability,
-            tuple(scored_errors),
-            scored_errors[0].log_probability,
-        )
-        if np.isfinite(inactive_log_probability):
-            optional_sites.append(scored_site)
-        else:
-            # A site containing a probability-one mechanism cannot be left inactive.
-            forced_sites.append(scored_site)
-
-    optional_sites.sort(
-        key=lambda site: site.best_log_probability - site.inactive_log_probability,
+    # A site with a probability-one mechanism has an infinite likelihood ratio and an inactive log
+    # probability of -inf, so it sorts first and every bound that leaves it inactive is pruned.
+    sites.sort(
+        key=lambda site: site.errors[0].log_probability - site.inactive_log_probability,
         reverse=True,
     )
-    # Prefix/suffix sums provide exact-weight upper bounds for the sorted optional sites.
-    optional_best_log_prefix = [0.0]
-    for site in optional_sites:
-        optional_best_log_prefix.append(optional_best_log_prefix[-1] + site.best_log_probability)
 
-    optional_inactive_log_suffix = [0.0] * (len(optional_sites) + 1)
-    for index in range(len(optional_sites) - 1, -1, -1):
-        optional_inactive_log_suffix[index] = (
-            optional_inactive_log_suffix[index + 1] + optional_sites[index].inactive_log_probability
+    # prefix/suffix sums give the log probability of activating a window of sorted sites
+    best_log_prefix = [0.0]
+    for site in sites:
+        best_log_prefix.append(best_log_prefix[-1] + site.errors[0].log_probability)
+    inactive_log_suffix = [0.0] * (len(sites) + 1)
+    for index in range(len(sites) - 1, -1, -1):
+        inactive_log_suffix[index] = (
+            inactive_log_suffix[index + 1] + sites[index].inactive_log_probability
         )
 
-    forced_best_log_suffix = [0.0] * (len(forced_sites) + 1)
-    for index in range(len(forced_sites) - 1, -1, -1):
-        forced_best_log_suffix[index] = (
-            forced_best_log_suffix[index + 1] + forced_sites[index].best_log_probability
-        )
-
-    log_cutoff = float(np.log(probability_cutoff))
-    log_tolerance = 16 * np.finfo(float).eps * max(1, error_channel.size)
-
-    def iter_selections(
-        selection: _ErrorSelection | None,
-    ) -> Iterator[tuple[int, tuple[int, ...]]]:
-        while selection is not None:
-            yield selection.site_index, selection.error
-            selection = selection.parent
-
-    def get_probability(
-        selection: _ErrorSelection | None,
-        extra_errors: Iterator[tuple[int, tuple[int, ...]]] | None = None,
-    ) -> float:
-        active = np.zeros((repeat, block_length), dtype=bool)
-        for site_index, local_error in itertools.chain(
-            iter_selections(selection), extra_errors or ()
-        ):
-            active[:, site_index] = np.asarray(local_error, dtype=bool)
-        return float(
-            np.prod(
-                np.where(active, active_probabilities, 1 - probabilities),
-                dtype=float,
-            )
-        )
-
-    def bound_reaches_cutoff(
-        log_probability: float,
-        log_scale: float,
-        selection: _ErrorSelection | None,
-        extra_errors: Iterator[tuple[int, tuple[int, ...]]],
-    ) -> bool | None:
-        """Return whether a bound qualifies, or None when rounding makes it uncertain."""
-        # Log bounds are fast, while a direct product resolves values close enough for rounding to
-        # change the comparison.  An uncertain result stays traversable until the strict leaf check.
-        comparison_scale = max(1.0, log_scale, abs(log_probability), abs(log_cutoff))
-        if abs(log_probability - log_cutoff) > log_tolerance * comparison_scale:
-            return log_probability > log_cutoff
-        return True if get_probability(selection, extra_errors) >= probability_cutoff else None
-
-    def build_error(selection: _ErrorSelection | None) -> npt.NDArray[np.int_]:
-        error = field.Zeros((repeat, block_length))
-        for site_index, local_error in iter_selections(selection):
-            error[:, site_index] = np.asarray(local_error, dtype=dtype)
-        return error.ravel().view(np.ndarray).astype(dtype)
-
-    def get_best_optional_log_probability(start: int, count: int) -> tuple[float, float]:
+    def get_best_completion(start: int, count: int) -> float:
+        """Log probability of activating sites start, ..., start + count - 1 and no later sites."""
         stop = start + count
-        selected_log_probability = optional_best_log_prefix[stop] - optional_best_log_prefix[start]
-        inactive_log_probability = optional_inactive_log_suffix[stop]
-        log_probability = selected_log_probability + inactive_log_probability
-        # Adding both prefix magnitudes bounds cancellation in their subtraction above.
-        log_scale = (
-            abs(optional_best_log_prefix[stop])
-            + abs(optional_best_log_prefix[start])
-            + abs(inactive_log_probability)
-        )
-        return log_probability, log_scale
+        return best_log_prefix[stop] - best_log_prefix[start] + inactive_log_suffix[stop]
 
-    def iter_best_optional_errors(start: int, count: int) -> Iterator[tuple[int, tuple[int, ...]]]:
-        for site in optional_sites[start : start + count]:
-            yield site.site_index, site.errors[0].error
+    # Log-space bounds are only used to prune, while yielded errors are checked exactly, so pruning
+    # only needs a margin that exceeds the rounding error of any bound: a sum of at most
+    # 3 * len(sites) terms whose magnitudes are bounded by log_scale.
+    log_cutoff = float(np.log(probability_cutoff))
+    log_scale = 1 + abs(log_cutoff)
+    for site in sites:
+        log_scale += max(abs(error.log_probability) for error in site.errors)
+        if np.isfinite(site.inactive_log_probability):
+            log_scale += abs(site.inactive_log_probability)
+    prune_threshold = log_cutoff - 4 * (len(sites) + 1) * np.finfo(float).eps * log_scale
 
-    forced_weight = len(forced_sites)
-    # Enumerate physical weights from heavy to light, matching the exhaustive path's tie-breaking.
-    for weight in range(min(block_length, max_weight), forced_weight - 1, -1):
-        optional_weight = weight - forced_weight
-        if optional_weight > len(optional_sites):
-            continue
-
-        best_optional_log_probability, best_optional_log_scale = get_best_optional_log_probability(
-            0, optional_weight
-        )
-        best_log_probability = forced_best_log_suffix[0] + best_optional_log_probability
-        # Only a definite False prunes; None means rounding could hide an inclusive-boundary match.
-        if (
-            bound_reaches_cutoff(
-                best_log_probability,
-                abs(forced_best_log_suffix[0]) + best_optional_log_scale,
-                None,
-                itertools.chain(
-                    ((site.site_index, site.errors[0].error) for site in forced_sites),
-                    iter_best_optional_errors(0, optional_weight),
-                ),
-            )
-            is False
-        ):
-            continue
-
-        forced_stack: list[tuple[int, float, float, _ErrorSelection | None]] = [(0, 0.0, 0.0, None)]
-        # Explicit stacks support high-weight errors without consuming Python recursion depth.
-        while forced_stack:
-            forced_index, current_log_probability, current_log_scale, selection = forced_stack.pop()
-            if forced_index < len(forced_sites):
-                site = forced_sites[forced_index]
-                best_later_log_probability = (
-                    forced_best_log_suffix[forced_index + 1] + best_optional_log_probability
+    # enumerate weights from heavy to light, matching the exhaustive path's tie-breaking
+    for weight in range(min(len(sites), max_weight), -1, -1):
+        # each stack entry: (next sorted site, remaining sites to activate, log probability of the
+        # sites decided so far, linked list of the selected local errors)
+        stack: list[tuple[int, int, float, _ErrorSelection | None]] = [(0, weight, 0.0, None)]
+        while stack:
+            start, remaining, log_probability, selection = stack.pop()
+            if remaining == 0:
+                error = np.zeros((repeat, block_length), dtype=dtype)
+                while selection is not None:
+                    error[:, selection.site_index] = selection.error
+                    selection = selection.parent
+                probability = np.prod(
+                    np.where(error.astype(bool), active_probabilities, 1 - probabilities)
                 )
-                best_later_log_scale = (
-                    abs(forced_best_log_suffix[forced_index + 1]) + best_optional_log_scale
-                )
-                forced_children: list[tuple[int, float, float, _ErrorSelection]] = []
-                for scored_error in site.errors:
-                    child_log_probability = current_log_probability + scored_error.log_probability
-                    child_log_scale = current_log_scale + abs(scored_error.log_probability)
-                    child_selection = _ErrorSelection(
-                        selection, site.site_index, scored_error.error
-                    )
-                    cutoff_comparison = bound_reaches_cutoff(
-                        child_log_probability + best_later_log_probability,
-                        child_log_scale + best_later_log_scale,
-                        child_selection,
-                        itertools.chain(
-                            (
-                                (
-                                    later_site.site_index,
-                                    later_site.errors[0].error,
-                                )
-                                for later_site in forced_sites[forced_index + 1 :]
-                            ),
-                            iter_best_optional_errors(0, optional_weight),
-                        ),
-                    )
-                    if cutoff_comparison is False:
-                        break
-                    forced_children.append(
-                        (
-                            forced_index + 1,
-                            child_log_probability,
-                            child_log_scale,
-                            child_selection,
-                        )
-                    )
-                forced_stack.extend(reversed(forced_children))
+                if probability >= probability_cutoff:
+                    yield error.ravel()
                 continue
 
-            optional_stack: list[tuple[int, int, float, float, _ErrorSelection | None]] = [
-                (
-                    0,
-                    optional_weight,
-                    current_log_probability,
-                    current_log_scale,
-                    selection,
-                )
-            ]
-            while optional_stack:
-                (
-                    start,
-                    remaining,
-                    optional_log_probability,
-                    optional_log_scale,
-                    optional_selection,
-                ) = optional_stack.pop()
-                if remaining == 0:
-                    error = build_error(optional_selection)
-                    events = error.astype(bool).reshape(repeat, block_length)
-                    probability = float(
-                        np.prod(
-                            np.where(events, active_probabilities, 1 - probabilities),
-                            dtype=float,
+            # choose the next active site, leaving all sites from start up to it inactive
+            children: list[tuple[int, int, float, _ErrorSelection]] = []
+            skipped_log_probability = 0.0
+            for position in range(start, len(sites) - remaining + 1):
+                site = sites[position]
+                base_log_probability = log_probability + skipped_log_probability
+                best_later = get_best_completion(position + 1, remaining - 1)
+                if (
+                    base_log_probability + site.errors[0].log_probability + best_later
+                    < prune_threshold
+                ):
+                    break  # later positions have smaller likelihood ratios, so they are pruned too
+                for scored_error in site.errors:
+                    child_log_probability = base_log_probability + scored_error.log_probability
+                    if child_log_probability + best_later < prune_threshold:
+                        break  # less likely local errors at this site are pruned too
+                    children.append(
+                        (
+                            position + 1,
+                            remaining - 1,
+                            child_log_probability,
+                            _ErrorSelection(selection, site.site_index, scored_error.error),
                         )
                     )
-                    if probability >= probability_cutoff:
-                        yield error
-                    continue
-
-                optional_children: list[tuple[int, int, float, float, _ErrorSelection]] = []
-                skipped_log_probability = 0.0
-                skipped_log_scale = 0.0
-                final_position = len(optional_sites) - remaining
-                for position in range(start, final_position + 1):
-                    site = optional_sites[position]
-                    best_later_log_probability, best_later_log_scale = (
-                        get_best_optional_log_probability(position + 1, remaining - 1)
-                    )
-                    position_is_definitely_below_cutoff = True
-                    for scored_error in site.errors:
-                        child_log_probability = (
-                            optional_log_probability
-                            + skipped_log_probability
-                            + scored_error.log_probability
-                        )
-                        child_log_scale = (
-                            optional_log_scale
-                            + skipped_log_scale
-                            + abs(scored_error.log_probability)
-                        )
-                        child_selection = _ErrorSelection(
-                            optional_selection,
-                            site.site_index,
-                            scored_error.error,
-                        )
-                        cutoff_comparison = bound_reaches_cutoff(
-                            child_log_probability + best_later_log_probability,
-                            child_log_scale + best_later_log_scale,
-                            child_selection,
-                            iter_best_optional_errors(position + 1, remaining - 1),
-                        )
-                        if cutoff_comparison is False:
-                            break
-                        position_is_definitely_below_cutoff = False
-                        optional_children.append(
-                            (
-                                position + 1,
-                                remaining - 1,
-                                child_log_probability,
-                                child_log_scale,
-                                child_selection,
-                            )
-                        )
-                    if position_is_definitely_below_cutoff:
-                        break
-                    skipped_log_probability += site.inactive_log_probability
-                    skipped_log_scale += abs(site.inactive_log_probability)
-                optional_stack.extend(reversed(optional_children))
+                skipped_log_probability += site.inactive_log_probability
+            stack.extend(reversed(children))
 
 
 # Deprecated compatibility helpers
