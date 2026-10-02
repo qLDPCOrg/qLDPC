@@ -46,6 +46,7 @@ The helpers are available directly under ``qldpc.decoders``:
 * :func:`decoders.relay_bp <qldpc.decoders.construction.specs.relay_bp>`
 * :func:`decoders.min_sum_bp <qldpc.decoders.construction.specs.min_sum_bp>`
 * :func:`decoders.tesseract <qldpc.decoders.construction.specs.tesseract>`
+* :func:`decoders.tesseract_preset <qldpc.decoders.construction.specs.tesseract_preset>`
 * :func:`decoders.lookup_table <qldpc.decoders.construction.specs.lookup_table>`
 * :func:`decoders.ilp <qldpc.decoders.construction.specs.ilp>`
 * :func:`decoders.guf <qldpc.decoders.construction.specs.guf>`
@@ -85,6 +86,18 @@ By default, Tesseract merges the interchangeable error mechanisms of a detector 
 Set ``merge_errors`` to override this choice.
 Tesseract reports a low-confidence result if its search does not converge within its configured beam or priority-queue limits.
 Set ``add_erasure_bit=True`` to expose that result as qLDPC's appended erasure flag.
+For upstream's named Sinter configurations, use ``decoders.tesseract_preset(...)``:
+
+.. code-block:: python
+
+   long_beam = decoders.tesseract_preset()
+   short_beam = decoders.tesseract_preset("short-beam")
+   surface_like = decoders.tesseract_preset("long-beam", sparsify="surface-code-like")
+   color_like = decoders.tesseract_preset("short-beam", sparsify="color-code-like")
+
+The default long-beam family matches upstream's named ``tesseract`` alias and performs a stronger,
+more expensive search than short beam.
+Use ``decoders.tesseract(...)`` for custom settings.
 
 Higher-level APIs accept the same settings:
 

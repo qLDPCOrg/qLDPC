@@ -484,6 +484,53 @@ def tesseract(
     )
 
 
+def tesseract_preset(
+    preset: Literal["long-beam", "short-beam"] = "long-beam",
+    *,
+    sparsify: Literal["surface-code-like", "color-code-like"] | None = None,
+    error_rate: float = PLACEHOLDER_ERROR_RATE,
+    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
+    add_erasure_bit: bool = False,
+) -> DecoderSpec[TesseractDecoder]:
+    """Configure one of Tesseract's named Sinter presets."""
+    beam_presets = {
+        "long-beam": (20, 1_000_000, 21),
+        "short-beam": (15, 200_000, 16),
+    }
+    sparsify_base_degrees = {
+        None: -1,
+        "surface-code-like": 2,
+        "color-code-like": 3,
+    }
+    try:
+        det_beam, pqlimit, num_det_orders = beam_presets[preset]
+    except KeyError:
+        raise ValueError(
+            f"Unknown Tesseract preset {preset!r}; expected 'long-beam' or 'short-beam'"
+        ) from None
+    try:
+        sparsify_base_degree = sparsify_base_degrees[sparsify]
+    except KeyError:
+        raise ValueError(
+            f"Unknown Tesseract sparsify preset {sparsify!r}; expected None,"
+            " 'surface-code-like', or 'color-code-like'"
+        ) from None
+
+    return tesseract(
+        error_rate=error_rate,
+        error_channel=error_channel,
+        add_erasure_bit=add_erasure_bit,
+        det_beam=det_beam,
+        beam_climbing=True,
+        pqlimit=pqlimit,
+        sparsify_errors=sparsify is not None,
+        sparsify_base_degree=sparsify_base_degree,
+        num_det_orders=num_det_orders,
+        det_order_method="index",
+        seed=2_384_753,
+    )
+
+
 def lookup_table(
     max_weight: int,
     *,

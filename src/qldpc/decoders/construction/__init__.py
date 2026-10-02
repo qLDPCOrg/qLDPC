@@ -51,6 +51,7 @@ from .specs import (
     mwpm,
     relay_bp,
     tesseract,
+    tesseract_preset,
 )
 
 __all__ = [
@@ -97,4 +98,5 @@ __all__ = [
     "resolve_decoder",
     "resolve_observable_decoder",
     "tesseract",
+    "tesseract_preset",
 ]

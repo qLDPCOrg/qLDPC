@@ -126,6 +126,54 @@ def test_decoder_specs() -> None:
         decoders.bp_lsd(lsd_ordr=1)  # type: ignore[call-arg]
 
 
+@pytest.mark.parametrize(
+    ("preset", "det_beam", "pqlimit", "num_det_orders"),
+    [("long-beam", 20, 1_000_000, 21), ("short-beam", 15, 200_000, 16)],
+)
+@pytest.mark.parametrize(
+    ("sparsify", "sparsify_base_degree"),
+    [(None, -1), ("surface-code-like", 2), ("color-code-like", 3)],
+)
+def test_tesseract_presets(
+    preset: Any,
+    det_beam: int,
+    pqlimit: int,
+    num_det_orders: int,
+    sparsify: Any,
+    sparsify_base_degree: int,
+) -> None:
+    """Tesseract preset helpers reproduce upstream's named configurations."""
+    options = decoders.tesseract_preset(preset, sparsify=sparsify).options
+    assert options["det_beam"] == det_beam
+    assert options["beam_climbing"] is True
+    assert options["pqlimit"] == pqlimit
+    assert options["sparsify_errors"] is (sparsify is not None)
+    assert options["sparsify_base_degree"] == sparsify_base_degree
+    assert options["num_det_orders"] == num_det_orders
+    assert options["det_order_method"] == "index"
+    assert options["seed"] == 2_384_753
+    assert options["merge_errors"] is None
+
+
+def test_tesseract_preset_options() -> None:
+    """Tesseract presets preserve qLDPC options and reject unknown selectors."""
+    channel = np.array([0.1, 0.2])
+    default = decoders.tesseract_preset()
+    assert default.options == decoders.tesseract_preset("long-beam").options
+    spec = decoders.tesseract_preset(
+        "short-beam", error_rate=0.3, error_channel=channel, add_erasure_bit=True
+    )
+    assert spec.options["error_rate"] == 0.3
+    assert spec.options["error_channel"] is channel
+    assert spec.options["add_erasure_bit"] is True
+    assert repr(default).startswith("decoders.tesseract(det_beam=20, beam_climbing=True")
+
+    with pytest.raises(ValueError, match="Unknown Tesseract preset"):
+        decoders.tesseract_preset("medium-beam")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="Unknown Tesseract sparsify preset"):
+        decoders.tesseract_preset(sparsify="generic")  # type: ignore[arg-type]
+
+
 def test_observable_decoder_specs() -> None:
     """A spec without an error builder builds observable decoders, but not error decoders."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")

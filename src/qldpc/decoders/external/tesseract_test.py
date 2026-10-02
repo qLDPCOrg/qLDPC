@@ -276,6 +276,13 @@ def test_tesseract_options_and_validation(fake_tesseract: None) -> None:
         decoder.decode_observables_batch(np.array([1, 0], dtype=int))
 
 
+def test_tesseract_preset_merge_defaults(fake_tesseract: None) -> None:
+    """Preset helpers retain qLDPC's input-dependent error-merging policy."""
+    spec = decoders.tesseract_preset()
+    assert not spec.build(np.eye(2, dtype=int)).config.merge_errors
+    assert spec.build(stim.DetectorErrorModel("error(0.1) D0")).config.merge_errors
+
+
 def test_tesseract_rejects_invalid_backend_error_index(
     fake_tesseract: None,
 ) -> None:

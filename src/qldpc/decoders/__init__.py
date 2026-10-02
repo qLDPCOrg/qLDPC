@@ -54,6 +54,7 @@ from .construction.specs import (
     mwpm,
     relay_bp,
     tesseract,
+    tesseract_preset,
 )
 from .custom import (
     CompositeDecoder,
@@ -193,6 +194,7 @@ __all__ = [
     "resolve_observable_decoder",
     "supports_batch_decoding",
     "tesseract",
+    "tesseract_preset",
     "with_erasure_bits",
 ]
 
