@@ -17,7 +17,11 @@ import stim
 
 from qldpc import codes, decoders, math
 from qldpc.decoders.conftest import SurfaceCodeProblem, ToyProblem
-from qldpc.decoders.custom.lookup import _FieldVectorPacker, get_observable_decoder_lookup
+from qldpc.decoders.custom.lookup import (
+    _FieldVectorPacker,
+    _iter_errors_and_syndromes,
+    get_observable_decoder_lookup,
+)
 
 
 def _get_cutoff_errors(
@@ -32,7 +36,7 @@ def _get_cutoff_errors(
     """Return the errors admitted by cutoff enumeration."""
     return {
         tuple(error.tolist())
-        for error, _ in decoders.LookupDecoder._iter_errors_and_syndromes(
+        for error, _ in _iter_errors_and_syndromes(
             matrix,
             max_weight,
             syndrome_mask,
@@ -394,7 +398,7 @@ def test_probability_cutoff() -> None:
     """Cutoff enumeration handles field, pruning, precision, and scale edge cases."""
     matrix = np.eye(3, dtype=int)
     channel = np.array([0.2, 0.1, 0.01])
-    exhaustive = decoders.LookupDecoder._iter_errors_and_syndromes(matrix, 3, None, False)
+    exhaustive = _iter_errors_and_syndromes(matrix, 3, None, False)
     expected = {
         tuple(error.tolist())
         for error, _ in exhaustive
@@ -606,9 +610,7 @@ def test_quantum_observable_flip_prediction() -> None:
         code = codes.SurfaceCode(3, field=order)
         logicals = code.get_logical_ops()
         achievable_flips: dict[tuple[int, ...], set[tuple[int, ...]]] = collections.defaultdict(set)
-        for error, syndrome_array in decoders.LookupDecoder._iter_errors_and_syndromes(
-            code.matrix, 1, None, True
-        ):
+        for error, syndrome_array in _iter_errors_and_syndromes(code.matrix, 1, None, True):
             conjugate = math.symplectic_conjugate(error.view(code.field))
             flip = tuple((logicals @ conjugate).view(np.ndarray).tolist())
             achievable_flips[tuple(syndrome_array.tolist())].add(flip)
@@ -686,9 +688,7 @@ def test_observable_flip_matrix_arithmetic() -> None:
     pcm = field([[1, 1, 0], [0, 1, 1]])
     observable_flip_matrix = field([[2, 0, 2]])
     achievable_flips: dict[tuple[int, ...], set[int]] = collections.defaultdict(set)
-    for error, syndrome_array in decoders.LookupDecoder._iter_errors_and_syndromes(
-        pcm, 1, None, False
-    ):
+    for error, syndrome_array in _iter_errors_and_syndromes(pcm, 1, None, False):
         flip = int((observable_flip_matrix @ error.view(field))[0])
         achievable_flips[tuple(syndrome_array.tolist())].add(flip)
     assert 3 in set.union(*achievable_flips.values())  # unreachable by an integer product
