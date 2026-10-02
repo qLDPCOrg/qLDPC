@@ -29,6 +29,7 @@ from ..custom.lookup import (
     get_decoder_lookup,
     get_observable_decoder_lookup,
 )
+from ..external.frontier import FrontierDecoder
 from ..external.ldpc import get_decoder_bf as _get_decoder_bf
 from ..external.ldpc import get_decoder_bp_lsd as _get_decoder_bp_lsd
 from ..external.ldpc import get_decoder_bp_osd as _get_decoder_bp_osd
@@ -292,6 +293,30 @@ def mwpm(
                     " enable_correlations=True"
                 )
     return spec
+
+
+def frontier(
+    *,
+    K: int = 128,
+    Delta: float = 8.0,
+    score_alpha: float = 0.8,
+    metric_mode: Literal["logsumexp_float", "frontier_lite"] = "logsumexp_float",
+    int_metric_scale: int = 1024,
+    column_order: Literal["deadline_reorder", "time_order"] = "deadline_reorder",
+    committee: bool = False,
+    add_erasure_bit: bool = False,
+) -> FrontierDecoder:
+    """Configure a Frontier decoder, which predicts observable flips but not errors."""
+    return FrontierDecoder(
+        K=K,
+        Delta=Delta,
+        score_alpha=score_alpha,
+        metric_mode=metric_mode,
+        int_metric_scale=int_metric_scale,
+        column_order=column_order,
+        committee=committee,
+        add_erasure_bit=add_erasure_bit,
+    )
 
 
 def relay_bp(

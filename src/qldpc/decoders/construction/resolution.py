@@ -50,12 +50,12 @@ def get_observable_decoder(
         dem: The detector error model to decode.
         decoder: Decoder settings such as ``decoders.mwpm(...)``, which build a native observable
             decoder where the settings support one, and otherwise an error decoder; an
-            observable-decoder compiler such as a ``decoders.SinterDecoder``, which is compiled for
-            dem; a constructor that builds an error decoder or an observable decoder from dem; a
-            prebuilt error decoder or observable decoder; or None to select the default decoder.
-            An error decoder is wrapped so that the observable flips of the errors that it infers
-            become its predictions.  A decoder that is both an error decoder and an observable
-            decoder is used as an observable decoder.
+            observable-decoder compiler such as ``decoders.frontier(...)`` or a
+            ``decoders.SinterDecoder``, which is compiled for dem; a constructor that builds an
+            error decoder or an observable decoder from dem; a prebuilt error decoder or observable
+            decoder; or None to select the default decoder.  An error decoder is wrapped so that the
+            observable flips of the errors that it infers become its predictions.  A decoder that is
+            both an error decoder and an observable decoder is used as an observable decoder.
 
     Returns:
         An ObservableDecoder.
