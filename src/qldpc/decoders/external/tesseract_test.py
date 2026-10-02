@@ -170,13 +170,13 @@ def test_tesseract_matrix_error_decoding(fake_tesseract: types.SimpleNamespace) 
             matrix_input,
             error_channel=np.array([0.1, 0.2, 0.3]),
         )
-        assert isinstance(decoder, decoders.BatchErrorDecoder)
+        assert isinstance(decoder, decoders.ErrorDecoder)
+        assert not decoders.supports_batch_decoding(decoder)
         assert isinstance(decoder, decoders.BatchObservableDecoder)
         assert np.array_equal(decoder.decode_errors(syndromes[0]), expected[0])
         assert np.array_equal(decoder.decode(syndromes[0]), expected[0])
-        assert np.array_equal(decoder.decode_errors_batch(syndromes), expected)
-        assert np.array_equal(decoder.decode_batch(syndromes), expected)
-        assert decoder.decode_errors_batch(syndromes[:0]).shape == (0, 3)
+        assert np.array_equal(decoders.batch_decode_errors(decoder, syndromes), expected)
+        assert decoders.batch_decode_errors(decoder, syndromes[:0]).shape == (0, 3)
         assert np.array_equal(decoder.decoder.dem_arrays.error_probs, [0.1, 0.2, 0.3])
 
     decoder = decoders.get_decoder_tesseract(matrix, error_rate=0.25)
@@ -226,10 +226,10 @@ def test_tesseract_erasure_bits(fake_tesseract: types.SimpleNamespace) -> None:
 
     assert np.array_equal(decoder.decode_errors(syndromes[0]), [0, 1])
     assert np.array_equal(decoder.decode_errors(syndromes[1]), [0, 0])
-    assert np.array_equal(decoder.decode_errors_batch(syndromes), [[0, 1], [0, 0]])
+    assert np.array_equal(decoders.batch_decode_errors(decoder, syndromes), [[0, 1], [0, 0]])
     assert np.array_equal(decoder.decode_observables(syndromes[0]), [0, 1])
     assert np.array_equal(decoder.decode_observables_batch(syndromes), [[0, 1], [0, 0]])
-    assert decoder.decode_errors_batch(syndromes[:0]).shape == (0, 2)
+    assert decoders.batch_decode_errors(decoder, syndromes[:0]).shape == (0, 2)
     assert decoder.decode_observables_batch(syndromes[:0]).shape == (0, 2)
 
 
@@ -305,7 +305,7 @@ def test_tesseract_options_and_validation(fake_tesseract: types.SimpleNamespace)
     with pytest.raises(ValueError, match=r"shape \(2,\)"):
         decoder.decode_errors(np.array([1], dtype=int))
     with pytest.raises(ValueError, match=r"shape \(num_shots, 2\)"):
-        decoder.decode_errors_batch(np.array([1, 0], dtype=int))
+        decoder.decode_observables_batch(np.array([1, 0], dtype=int))
 
 
 def test_tesseract_rejects_invalid_backend_error_index(
@@ -364,7 +364,7 @@ dem = stim.DetectorErrorModel("error(0.3) D0 L0\\nerror(0.3) D0 L0\\nerror(0.4) 
 decoder = decoders.get_decoder_tesseract(dem)
 syndromes = np.array([[1], [0]])
 assert np.array_equal(decoder.decode_observables_batch(syndromes), [[1], [0]])
-assert np.array_equal(decoder.decode_errors_batch(syndromes), [[1, 0, 0], [0, 0, 0]])
+assert np.array_equal(decoders.batch_decode_errors(decoder, syndromes), [[1, 0, 0], [0, 0, 0]])
 
 # A syndrome that no error explains is flagged, with generated detector orders.
 dem = stim.DetectorErrorModel("detector D0\\ndetector D1\\nerror(0.1) D0 L0")
@@ -380,7 +380,7 @@ circuit = stim.Circuit.generated(
 )
 dem = circuit.detector_error_model()
 shots = circuit.compile_detector_sampler(seed=0).sample(50).astype(np.uint8)
-errors = decoders.get_decoder_tesseract(dem).decode_errors_batch(shots)
+errors = decoders.batch_decode_errors(decoders.get_decoder_tesseract(dem), shots)
 matrix = decoders.DetectorErrorModelArrays(dem, simplify=False).detector_flip_matrix
 assert np.array_equal(matrix @ errors.T % 2, shots.T)
 compiled = decoders.SinterDecoder(decoder=decoders.tesseract()).compile_decoder_for_dem(dem)

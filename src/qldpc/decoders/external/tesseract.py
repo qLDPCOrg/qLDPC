@@ -17,7 +17,7 @@ from qldpc.math import IntegerArray
 
 from ..common import PLACEHOLDER_ERROR_RATE, _erasure_bit_support, with_erasure_bits
 from ..dems import DetectorErrorModelArrays
-from ..protocols import BatchErrorDecoder, BatchObservableDecoder
+from ..protocols import BatchObservableDecoder, ErrorDecoder
 
 TesseractDetectorOrderMethod = Literal["bfs", "index", "coordinate"]
 
@@ -28,7 +28,7 @@ _DETECTOR_ORDER_NAMES: dict[TesseractDetectorOrderMethod, str] = {
 }
 
 
-class TesseractDecoder(BatchErrorDecoder, BatchObservableDecoder):
+class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
     """Wrapper for the Tesseract search-based decoder.
 
     Requires the optional ``tesseract-decoder`` package, which can be installed with
@@ -36,9 +36,9 @@ class TesseractDecoder(BatchErrorDecoder, BatchObservableDecoder):
 
     Tesseract natively decodes a binary Stim detector error model.  A binary parity-check matrix is
     converted to a detector error model with one error mechanism per matrix column.  The
-    ``decode_errors`` and ``decode_errors_batch`` methods return inferred errors in matrix-column or
-    flattened DEM-error order.  The ``decode_observables`` and ``decode_observables_batch`` methods
-    return Tesseract's native observable predictions.
+    ``decode_errors`` method returns an inferred error in matrix-column or flattened DEM-error
+    order.  The ``decode_observables`` and ``decode_observables_batch`` methods return Tesseract's
+    native observable predictions.
 
     If initialized with ``add_erasure_bit=True``, the decoder appends a bit to every inferred error
     and observable prediction.  The bit is set when Tesseract reports low confidence because its
@@ -161,18 +161,6 @@ class TesseractDecoder(BatchErrorDecoder, BatchObservableDecoder):
         return error
 
     decode = decode_errors
-
-    def decode_errors_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Decode a batch of syndromes to inferred errors."""
-        validated_syndromes = self._validate_syndromes(syndromes)
-        output_size = self.num_errors + int(self.has_erasure_bit)
-        if len(validated_syndromes) == 0:
-            return np.empty((0, output_size), dtype=int)
-        return np.asarray(
-            [self.decode_errors(syndrome) for syndrome in validated_syndromes], dtype=int
-        )
-
-    decode_batch = decode_errors_batch
 
     def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode one syndrome to Tesseract's native observable-flip prediction."""
