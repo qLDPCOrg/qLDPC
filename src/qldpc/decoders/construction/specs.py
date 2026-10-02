@@ -400,7 +400,7 @@ def lookup_table(
     symplectic: bool = False,
     penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
 ) -> DecoderSpec[LookupDecoder]:
-    """Configure a lookup decoder with an independent or callable correlated error channel."""
+    """Configure a lookup-table decoder."""
     return _decoder_spec(
         "lookup_table",
         get_decoder_lookup,
