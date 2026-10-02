@@ -251,9 +251,9 @@ def get_code_capacity_decoder(
       RelayBPDecoder, is used as an error decoder.
 
     This intentionally differs from qldpc.decoders.resolve_observable_decoder, which may ask decoder
-    settings to build a native observable decoder.  Code-capacity settings that can infer errors
-    retain their historical error-decoder semantics; direct observable decoding must be requested
-    explicitly.
+    settings to build a native observable decoder.  Here, decoder settings that can infer errors
+    always build an error decoder; to decode observables directly, pass a Sinter-style decoder, an
+    observable-decoder constructor, or a prebuilt observable decoder.
 
     Args:
         syndrome_matrix: The matrix that maps an error to its syndrome.
