@@ -15,13 +15,13 @@ import stim
 
 from qldpc.math import IntegerArray
 
-from ..common import PLACEHOLDER_ERROR_RATE, with_erasure_bits
+from ..common import PLACEHOLDER_ERROR_RATE, _erasure_bit_support, with_erasure_bits
 from ..dems import DetectorErrorModelArrays
 from ..protocols import BatchErrorDecoder, BatchObservableDecoder
 
-DetectorOrderMethod = Literal["bfs", "index", "coordinate"]
+TesseractDetectorOrderMethod = Literal["bfs", "index", "coordinate"]
 
-_DETECTOR_ORDER_NAMES: dict[DetectorOrderMethod, str] = {
+_DETECTOR_ORDER_NAMES: dict[TesseractDetectorOrderMethod, str] = {
     "bfs": "BFS",
     "coordinate": "Coordinate",
     "index": "Index",
@@ -44,10 +44,11 @@ class TesseractDecoder(BatchErrorDecoder, BatchObservableDecoder):
     and observable prediction.  The bit is set when Tesseract reports low confidence because its
     search did not converge within the configured beam or priority-queue limits.
 
-    qLDPC disables Tesseract's error merging by default because merged errors map back to one
-    representative error-mechanism index.  That representative need not be the most likely original
-    matrix column.  Set ``merge_errors=True`` when only the aggregate detector/observable prediction
-    matters.
+    Tesseract can merge error mechanisms with identical detector and observable flips, combining
+    their probabilities and reporting the first merged mechanism.  By default, qLDPC merges for a
+    detector error model, where merged mechanisms are interchangeable and combining probabilities
+    identifies the most likely logical class.  A parity-check matrix has no observables, so merging
+    could report a column other than the most likely one, and it is disabled by default.
 
     See the `Tesseract documentation
     <https://github.com/quantumlib/tesseract-decoder#python-interface>`_ and
@@ -65,7 +66,7 @@ class TesseractDecoder(BatchErrorDecoder, BatchObservableDecoder):
         beam_climbing: bool = False,
         no_revisit_dets: bool = True,
         verbose: bool = False,
-        merge_errors: bool = False,
+        merge_errors: bool | None = None,
         pqlimit: int = 200_000,
         det_orders: Sequence[Sequence[int]] | None = None,
         det_penalty: float = 0.0,
@@ -75,7 +76,7 @@ class TesseractDecoder(BatchErrorDecoder, BatchObservableDecoder):
         sparsify_max_degree: int = -1,
         sparsify_reactivate_limit: int = -1,
         num_det_orders: int | None = None,
-        det_order_method: DetectorOrderMethod | None = None,
+        det_order_method: TesseractDetectorOrderMethod | None = None,
         seed: int | None = None,
     ) -> None:
         """Initialize a Tesseract decoder.
@@ -91,8 +92,8 @@ class TesseractDecoder(BatchErrorDecoder, BatchObservableDecoder):
             beam_climbing: Whether to retry with increasing beam sizes.
             no_revisit_dets: Whether to avoid revisiting equal residual detector sets.
             verbose: Whether Tesseract prints decoding diagnostics.
-            merge_errors: Whether to merge DEM errors with identical detector symptoms.  Disabled
-                by default to preserve the identity of inferred physical errors.
+            merge_errors: Whether to merge error mechanisms with identical detector and observable
+                flips, or None to merge only when decoding a detector error model.
             pqlimit: Maximum number of nodes pushed into the priority queue.
             det_orders: Explicit detector traversal permutations, or None to generate them.
             det_penalty: Additional cost for each residual detection event.
@@ -107,6 +108,7 @@ class TesseractDecoder(BatchErrorDecoder, BatchObservableDecoder):
             seed: Seed for generated detector orders, or None for Tesseract's default.
         """
         backend = _get_tesseract()
+        is_dem = isinstance(pcm_or_dem, stim.DetectorErrorModel)
         dem, num_errors = _get_dem_and_num_errors(pcm_or_dem, error_rate, error_channel)
         backend_order_method = (
             None
@@ -123,7 +125,7 @@ class TesseractDecoder(BatchErrorDecoder, BatchObservableDecoder):
             beam_climbing=beam_climbing,
             no_revisit_dets=no_revisit_dets,
             verbose=verbose,
-            merge_errors=merge_errors,
+            merge_errors=is_dem if merge_errors is None else merge_errors,
             pqlimit=pqlimit,
             det_orders=literal_orders,
             det_penalty=det_penalty,
@@ -214,6 +216,7 @@ class TesseractDecoder(BatchErrorDecoder, BatchObservableDecoder):
         return validated_syndromes
 
 
+@_erasure_bit_support("Tesseract", supported=True)
 def get_decoder_tesseract(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
@@ -224,7 +227,7 @@ def get_decoder_tesseract(
     beam_climbing: bool = False,
     no_revisit_dets: bool = True,
     verbose: bool = False,
-    merge_errors: bool = False,
+    merge_errors: bool | None = None,
     pqlimit: int = 200_000,
     det_orders: Sequence[Sequence[int]] | None = None,
     det_penalty: float = 0.0,
@@ -234,7 +237,7 @@ def get_decoder_tesseract(
     sparsify_max_degree: int = -1,
     sparsify_reactivate_limit: int = -1,
     num_det_orders: int | None = None,
-    det_order_method: DetectorOrderMethod | None = None,
+    det_order_method: TesseractDetectorOrderMethod | None = None,
     seed: int | None = None,
 ) -> TesseractDecoder:
     """Build an optional Tesseract error and observable decoder.
@@ -291,8 +294,7 @@ def _get_dem_and_num_errors(
                 "Cannot specify an error_channel when building a Tesseract decoder from a detector"
                 " error model"
             )
-        dem_arrays = DetectorErrorModelArrays(pcm_or_dem, simplify=False)
-        return pcm_or_dem, dem_arrays.num_errors
+        return pcm_or_dem, pcm_or_dem.num_errors
 
     _validate_binary_matrix(pcm_or_dem)
     probabilities: float | npt.NDArray[np.floating]
@@ -323,7 +325,7 @@ def _validate_binary_matrix(matrix: IntegerArray) -> None:
         raise ValueError("A Tesseract parity-check matrix must contain only 0 and 1")
 
 
-def _get_detector_order_name(method: DetectorOrderMethod) -> str:
+def _get_detector_order_name(method: TesseractDetectorOrderMethod) -> str:
     """Translate qLDPC's typed detector-order name to Tesseract's enum attribute."""
     if method not in _DETECTOR_ORDER_NAMES:
         options = ", ".join(repr(option) for option in _DETECTOR_ORDER_NAMES)

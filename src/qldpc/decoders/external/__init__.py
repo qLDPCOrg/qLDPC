@@ -15,10 +15,9 @@ from .relay_bp import (
     get_min_sum_bp_decoder,
     get_relay_bp_decoder,
 )
-from .tesseract import DetectorOrderMethod, TesseractDecoder, get_decoder_tesseract
+from .tesseract import TesseractDecoder, get_decoder_tesseract
 
 __all__ = [
-    "DetectorOrderMethod",
     "MatchingObservableDecoder",
     "RelayBPDecoder",
     "TesseractDecoder",

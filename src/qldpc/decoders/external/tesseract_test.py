@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import builtins
 import importlib.util
+import inspect
 import math
 import subprocess
 import sys
@@ -29,6 +30,7 @@ class _FakeTesseractConfig:
     """API-faithful stand-in for upstream TesseractConfig."""
 
     dem: stim.DetectorErrorModel
+    merge_errors: bool
     pqlimit: int
 
     def __init__(self, **kwargs: object) -> None:
@@ -185,6 +187,7 @@ def test_tesseract_matrix_error_decoding(fake_tesseract: types.SimpleNamespace) 
     )
     assert not decoder.config.merge_errors
     assert np.array_equal(decoder.decode_errors(np.array([1], dtype=int)), [0, 1])
+    assert decoders.get_decoder_tesseract(matrix, merge_errors=True).config.merge_errors
 
 
 def test_tesseract_dem_error_and_observable_decoding(
@@ -200,6 +203,9 @@ def test_tesseract_dem_error_and_observable_decoding(
     decoder = decoders.get_decoder_tesseract(dem)
     syndromes = np.array([[1, 0], [0, 1]], dtype=int)
 
+    # mechanisms of a DEM are merged by default, since merged mechanisms are interchangeable
+    assert decoder.config.merge_errors
+    assert not decoders.get_decoder_tesseract(dem, merge_errors=False).config.merge_errors
     assert decoder.num_errors == 3
     assert np.array_equal(decoder.decode_errors(syndromes[1]), [0, 0, 1])
     assert np.array_equal(decoder.decode_observables(syndromes[0]), [1, 0])
@@ -227,6 +233,10 @@ def test_tesseract_erasure_bits(fake_tesseract: types.SimpleNamespace) -> None:
 def test_tesseract_options_and_validation(fake_tesseract: types.SimpleNamespace) -> None:
     """Construction forwards typed options and rejects unsupported inputs."""
     del fake_tesseract
+    assert inspect.signature(decoders.get_decoder_tesseract).parameters == (
+        inspect.signature(decoders.TesseractDecoder).parameters
+    )
+
     decoder = decoders.get_decoder_tesseract(
         np.eye(2, dtype=int),
         det_beam=8,
@@ -336,22 +346,51 @@ def test_tesseract_specs_sinter_and_code_capacity(
         assert capacity_decoder.get_failure_and_erasure(error) == (False, False)
 
 
-def test_real_tesseract_package() -> None:
-    """Smoke-test the published Tesseract interface whenever the optional package is installed."""
-    code = """
+_REAL_PACKAGE_CHECKS = """
 import numpy as np
 import stim
+
 from qldpc import decoders
 
-matrix = np.eye(2, dtype=int)
-decoder = decoders.get_decoder_tesseract(matrix, num_det_orders=1)
-assert np.array_equal(decoder.decode_errors(np.array([1, 0], dtype=int)), [1, 0])
+# A matrix keeps the most likely of two identical columns.
+decoder = decoders.get_decoder_tesseract(np.array([[1, 1]]), error_channel=[0.1, 0.4])
+assert np.array_equal(decoder.decode_errors(np.array([1])), [0, 1])
 
-dem = stim.DetectorErrorModel("error(0.1) D0 L0")
-decoder = decoders.get_decoder_tesseract(dem, num_det_orders=1)
-assert np.array_equal(decoder.decode_observables(np.array([1], dtype=int)), [1])
+# A DEM merges equivalent mechanisms, so their combined probability selects the logical class.
+dem = stim.DetectorErrorModel("error(0.3) D0 L0\\nerror(0.3) D0 L0\\nerror(0.4) D0")
+decoder = decoders.get_decoder_tesseract(dem)
+syndromes = np.array([[1], [0]])
+assert np.array_equal(decoder.decode_observables_batch(syndromes), [[1], [0]])
+assert np.array_equal(decoder.decode_errors_batch(syndromes), [[1, 0, 0], [0, 0, 0]])
+
+# A syndrome that no error explains is flagged, with generated detector orders.
+dem = stim.DetectorErrorModel("detector D0\\ndetector D1\\nerror(0.1) D0 L0")
+decoder = decoders.get_decoder_tesseract(
+    dem, add_erasure_bit=True, num_det_orders=2, det_order_method="bfs", seed=3
+)
+assert np.array_equal(decoder.decode_observables(np.array([0, 1])), [0, 1])
+assert np.array_equal(decoder.decode_errors(np.array([1, 0])), [1, 0])
+
+# Inferred circuit-level errors reproduce their syndromes, and Sinter compiles native decoding.
+circuit = stim.Circuit.generated(
+    "repetition_code:memory", distance=3, rounds=3, after_clifford_depolarization=0.02
+)
+dem = circuit.detector_error_model()
+shots = circuit.compile_detector_sampler(seed=0).sample(50).astype(np.uint8)
+errors = decoders.get_decoder_tesseract(dem).decode_errors_batch(shots)
+matrix = decoders.DetectorErrorModelArrays(dem, simplify=False).detector_flip_matrix
+assert np.array_equal(matrix @ errors.T % 2, shots.T)
+compiled = decoders.SinterDecoder(decoder=decoders.tesseract()).compile_decoder_for_dem(dem)
+assert compiled.decode_shots(shots).shape == (50, dem.num_observables)
 """
-    assert (
-        importlib.util.find_spec("tesseract_decoder") is None
-        or not subprocess.run([sys.executable, "-c", code], check=True).returncode
-    )
+
+
+def test_real_tesseract_package() -> None:
+    """Exercise the published Tesseract package whenever it is installed.
+
+    The checks run in a subprocess, which runs an empty script if the package is absent, so the
+    statement coverage of this module does not depend on the optional installation.
+    """
+    installed = importlib.util.find_spec("tesseract_decoder") is not None
+    script = _REAL_PACKAGE_CHECKS if installed else ""
+    subprocess.run([sys.executable, "-c", script], check=True)

@@ -39,8 +39,8 @@ from ..external.relay_bp import (
     get_relay_bp_decoder,
 )
 from ..external.tesseract import (
-    DetectorOrderMethod,
     TesseractDecoder,
+    TesseractDetectorOrderMethod,
     get_decoder_tesseract,
 )
 from ..protocols import (
@@ -397,7 +397,7 @@ def tesseract(
     beam_climbing: bool = False,
     no_revisit_dets: bool = True,
     verbose: bool = False,
-    merge_errors: bool = False,
+    merge_errors: bool | None = None,
     pqlimit: int = 200_000,
     det_orders: Sequence[Sequence[int]] | None = None,
     det_penalty: float = 0.0,
@@ -407,7 +407,7 @@ def tesseract(
     sparsify_max_degree: int = -1,
     sparsify_reactivate_limit: int = -1,
     num_det_orders: int | None = None,
-    det_order_method: DetectorOrderMethod | None = None,
+    det_order_method: TesseractDetectorOrderMethod | None = None,
     seed: int | None = None,
 ) -> DecoderSpec[TesseractDecoder]:
     """Configure an optional Tesseract search-based decoder."""

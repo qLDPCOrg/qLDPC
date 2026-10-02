@@ -46,6 +46,16 @@ Install the optional Relay-BP decoder with:
 python -m pip install 'qldpc[relay-bp]'
 ```
 
+#### Tesseract decoder
+
+Install the optional [Tesseract](https://github.com/quantumlib/tesseract-decoder) search-based decoder with:
+
+```bash
+python -m pip install 'qldpc[tesseract]'
+```
+
+Tesseract is distributed only as wheels for CPython 3.12–3.14 on macOS arm64 and recent glibc-based Linux x86-64 systems.
+
 #### GAP integration
 
 Some algebra tools, code lookups, and distance estimates require [GAP](https://www.gap-system.org).
