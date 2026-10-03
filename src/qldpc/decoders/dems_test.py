@@ -10,6 +10,11 @@ import stim
 from qldpc import decoders
 
 
+def error_instructions(dem: stim.DetectorErrorModel) -> list[str]:
+    """The error instructions of a detector error model, without its target declarations."""
+    return [str(instruction) for instruction in dem if instruction.type == "error"]
+
+
 def test_initialization() -> None:
     """Initialize DetectorErrorModelArray objects."""
 
@@ -49,6 +54,99 @@ def test_initialization() -> None:
     )
     assert other_dem_arrays.num_observables == 0
     assert np.allclose(other_dem_arrays.error_probs, [error_prob] * dem_arrays.num_detectors)
+
+
+def test_validating_arrays() -> None:
+    """from_arrays checks that its arrays describe the same error mechanisms."""
+    matrix = np.eye(2, dtype=np.uint8)
+
+    # an integer probability is broadcast to all error mechanisms
+    assert np.array_equal(
+        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1).error_probs, [1.0, 1.0]
+    )
+
+    with pytest.raises(ValueError, match="observable flip matrix addresses"):
+        decoders.DetectorErrorModelArrays.from_arrays(matrix, np.ones((1, 3), dtype=np.uint8), 0.1)
+
+    with pytest.raises(ValueError, match="error probabilities of shape"):
+        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, np.array([0.1, 0.2, 0.3]))
+
+    for invalid_probability in [-0.1, 1.1, np.nan, np.inf, -np.inf]:
+        with pytest.raises(ValueError, match="finite and between 0 and 1"):
+            decoders.DetectorErrorModelArrays.from_arrays(
+                matrix, None, np.array([invalid_probability, 0.1])
+            )
+
+    # The endpoints are deterministic but valid probabilities.
+    assert np.array_equal(
+        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, np.array([0, 1])).error_probs,
+        [0, 1],
+    )
+
+
+def test_from_arrays_copies_its_inputs() -> None:
+    """A DetectorErrorModelArrays built from arrays shares no state with them."""
+    matrix = scipy.sparse.csc_matrix(np.eye(2, dtype=np.uint8))
+    error_probs = np.array([0.1, 0.2])
+    dem_arrays = decoders.DetectorErrorModelArrays.from_arrays(matrix, matrix, error_probs)
+    matrix.data[:] = 0
+    error_probs[:] = 0.5
+    expected_dem = stim.DetectorErrorModel("""
+        detector D0
+        detector D1
+        logical_observable L0
+        logical_observable L1
+        error(0.1) D0 L0
+        error(0.2) D1 L1
+    """)
+    assert expected_dem.approx_equals(dem_arrays.to_dem(), atol=1e-10)
+
+    # the dictionary of suggested decompositions is copied as well
+    decompositions = {0: frozenset([decoders.FlipPattern([0]), decoders.FlipPattern([1])])}
+    dem_arrays = decoders.DetectorErrorModelArrays.from_arrays(
+        np.array([[1], [1]], dtype=np.uint8), None, 0.1, decompositions
+    )
+    assert dem_arrays.suggested_decompositions is not decompositions
+
+
+def test_validating_suggested_decompositions() -> None:
+    """A suggested decomposition passed to from_arrays must agree with the flip matrices."""
+    matrix = np.array([[1], [1], [0]], dtype=np.uint8)
+
+    # the components below flip D0 and D2, while the error itself flips D0 and D1
+    components = frozenset([decoders.FlipPattern([0]), decoders.FlipPattern([2])])
+    with pytest.raises(ValueError, match="flips detectors"):
+        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1, {0: components})
+
+    # there is no error mechanism to decompose at index 1
+    with pytest.raises(ValueError, match="with 1 error mechanisms"):
+        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1, {1: components})
+
+    # out-of-range component indices must not cancel and pass the combined-flip check
+    components = frozenset([decoders.FlipPattern([0, 7], [5]), decoders.FlipPattern([1, 7], [5])])
+    with pytest.raises(ValueError, match=r"detectors \[7\] outside the valid range"):
+        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1, {0: components})
+
+    components = frozenset([decoders.FlipPattern([0], [5]), decoders.FlipPattern([1], [5])])
+    with pytest.raises(ValueError, match=r"observables \[5\] outside the valid range"):
+        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1, {0: components})
+
+    components = frozenset([decoders.FlipPattern([0, 1]), decoders.FlipPattern()])
+    with pytest.raises(ValueError, match="empty component"):
+        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1, {0: components})
+
+
+def test_to_circuit() -> None:
+    """Round-trip a DEM through DetectorErrorModelArrays and to_circuit."""
+    dem = stim.DetectorErrorModel("""
+        detector D0
+        detector D1
+        logical_observable L0
+        error(0.1) D0 D1
+        error(0.2) D1 L0
+    """)
+    circuit = decoders.DetectorErrorModelArrays(dem).to_circuit()
+    assert dem.approx_equals(decoders.DetectorErrorModelArrays(circuit).to_dem(), atol=1e-10)
 
 
 def test_simplify() -> None:
@@ -114,49 +212,72 @@ def test_simplify() -> None:
     assert error_instructions(dem_arrays.to_dem()) == ["error(0.2) D0"]
 
 
-def test_with_erasure() -> None:
-    """Add erasure bits to a DetectorErrorModelArrays."""
+def test_dropping_decomposed_detectors() -> None:
+    """Dropping detectors leaves each suggested decomposition consistent with its error.
+
+    The components of a decomposition are alternative manifestations of one error, so together they
+    must flip exactly what that error flips.  Dropping detectors can leave two components flipping
+    the same targets, or leave a component with nothing to flip, and either way the surviving
+    components have to keep agreeing with the error's column of the flip matrices.
+    """
+    # both components collapse onto D2 and cancel, leaving D3 as the only flip
+    dem = stim.DetectorErrorModel("error(0.1) D0 D2 ^ D1 D2 ^ D3")
+    dropped = decoders.DetectorErrorModelArrays(dem).without_detectors([0, 1])
+    assert error_instructions(dropped.to_dem()) == ["error(0.1) D1"]
+
+    # one component is left flipping only an observable, which no matching graph can represent
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0 ^ D1 ^ D2")
+    dropped = decoders.DetectorErrorModelArrays(dem).without_detectors([0])
+    assert error_instructions(dropped.to_dem()) == ["error(0.1) D0 D1 L0"]
+
+    # a decomposition whose components share an observable can cancel down to nothing at all
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0 ^ D1 L0")
+    dropped = decoders.DetectorErrorModelArrays(dem).without_detectors([0, 1])
+    assert dropped.num_errors == 0
+
+
+def test_without_untriggered_detectors() -> None:
+    """Drop detectors that no error mechanism triggers."""
+    # with no dead detectors, an equivalent (independent) copy is returned
+    dem_arrays = decoders.DetectorErrorModelArrays(stim.DetectorErrorModel("error(0.1) D0"))
+    result = dem_arrays.without_untriggered_detectors()
+    assert result is not dem_arrays
+    assert result.to_dem() == dem_arrays.to_dem()
+
+    # D1 is dead but appears in the decomposition D0 D1 ^ D2 D1, where it cancels; it must be
+    # filtered out rather than remapped to a stale index (live detectors: D0 -> 0, D2 -> 1)
     dem = stim.DetectorErrorModel("""
-        error(0.1) D0
-        error(0.2) D1 L0
+        error(0.1) D0 D1 ^ D2 D1
+        error(0.2) D0
+    """)
+    pruned = decoders.DetectorErrorModelArrays(dem).without_untriggered_detectors()
+    assert pruned.num_detectors == 2
+    assert pruned.suggested_decompositions[0] == frozenset(
+        [decoders.FlipPattern([0]), decoders.FlipPattern([1])]
+    )
+
+
+def test_decomposing_errors() -> None:
+    """Apply suggested decompositions to split errors into their components."""
+    dem = stim.DetectorErrorModel("""
+        error(0.001) D0
+        error(0.002) D1 ^ D2
+        error(0.001) D2
     """)
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
-    erasure_arrays = dem_arrays.with_erasure()
 
-    # one new error mechanism and one new observable; detectors unchanged
-    assert erasure_arrays.num_errors == dem_arrays.num_errors + 1
-    assert erasure_arrays.num_observables == dem_arrays.num_observables + 1
-    assert erasure_arrays.num_detectors == dem_arrays.num_detectors
-
-    # erasure mechanism flips no detectors and has zero probability
-    assert erasure_arrays.detector_flip_matrix[:, -1].nnz == 0
-    assert erasure_arrays.error_probs[-1] == 0
-
-    # erasure mechanism flips only the new erasure observable, not the original ones
-    assert erasure_arrays.observable_flip_matrix[:-1, -1].nnz == 0
-    assert erasure_arrays.observable_flip_matrix[-1, -1] == 1
-
-    # original errors do not flip the new erasure observable
-    assert erasure_arrays.observable_flip_matrix[-1, :-1].nnz == 0
-
-    # original detector/observable matrices and error probs are preserved
-    assert np.array_equal(
-        erasure_arrays.detector_flip_matrix[:, :-1].todense(),
-        dem_arrays.detector_flip_matrix.todense(),
-    )
-    assert np.array_equal(
-        erasure_arrays.observable_flip_matrix[:-1, :-1].todense(),
-        dem_arrays.observable_flip_matrix.todense(),
-    )
-    assert np.array_equal(erasure_arrays.error_probs[:-1], dem_arrays.error_probs)
-
-    # with bits=2, the bottom-right block of observable_flip_matrix is a 2×2 identity
-    erasure_arrays_2 = dem_arrays.with_erasure(bits=2)
-    assert erasure_arrays_2.num_errors == dem_arrays.num_errors + 2
-    assert erasure_arrays_2.num_observables == dem_arrays.num_observables + 2
-    assert np.array_equal(
-        erasure_arrays_2.observable_flip_matrix[-2:, -2:].todense(), np.eye(2, dtype=int)
-    )
+    # error(0.002) D1 ^ D2 splits into two; all four resulting components are distinct so
+    # simplify=True (the default) does not merge any of them
+    split_dem = stim.DetectorErrorModel("""
+        detector D0
+        detector D1
+        detector D2
+        error(0.001) D0
+        error(0.002) D1
+        error(0.002) D2
+        error(0.001) D2
+    """)
+    assert dem_arrays.with_decomposed_errors(simplify=False).to_dem() == split_dem
 
 
 def test_post_selection() -> None:
@@ -297,170 +418,49 @@ def test_post_selection() -> None:
     )
 
 
-def test_without_untriggered_detectors() -> None:
-    """Drop detectors that no error mechanism triggers."""
-    # with no dead detectors, an equivalent (independent) copy is returned
-    dem_arrays = decoders.DetectorErrorModelArrays(stim.DetectorErrorModel("error(0.1) D0"))
-    result = dem_arrays.without_untriggered_detectors()
-    assert result is not dem_arrays
-    assert result.to_dem() == dem_arrays.to_dem()
-
-    # D1 is dead but appears in the decomposition D0 D1 ^ D2 D1, where it cancels; it must be
-    # filtered out rather than remapped to a stale index (live detectors: D0 -> 0, D2 -> 1)
+def test_with_erasure() -> None:
+    """Add erasure bits to a DetectorErrorModelArrays."""
     dem = stim.DetectorErrorModel("""
-        error(0.1) D0 D1 ^ D2 D1
-        error(0.2) D0
-    """)
-    pruned = decoders.DetectorErrorModelArrays(dem).without_untriggered_detectors()
-    assert pruned.num_detectors == 2
-    assert pruned.suggested_decompositions[0] == frozenset(
-        [decoders.FlipPattern([0]), decoders.FlipPattern([1])]
-    )
-
-
-def error_instructions(dem: stim.DetectorErrorModel) -> list[str]:
-    """The error instructions of a detector error model, without its target declarations."""
-    return [str(instruction) for instruction in dem if instruction.type == "error"]
-
-
-def test_dropping_decomposed_detectors() -> None:
-    """Dropping detectors leaves each suggested decomposition consistent with its error.
-
-    The components of a decomposition are alternative manifestations of one error, so together they
-    must flip exactly what that error flips.  Dropping detectors can leave two components flipping
-    the same targets, or leave a component with nothing to flip, and either way the surviving
-    components have to keep agreeing with the error's column of the flip matrices.
-    """
-    # both components collapse onto D2 and cancel, leaving D3 as the only flip
-    dem = stim.DetectorErrorModel("error(0.1) D0 D2 ^ D1 D2 ^ D3")
-    dropped = decoders.DetectorErrorModelArrays(dem).without_detectors([0, 1])
-    assert error_instructions(dropped.to_dem()) == ["error(0.1) D1"]
-
-    # one component is left flipping only an observable, which no matching graph can represent
-    dem = stim.DetectorErrorModel("error(0.1) D0 L0 ^ D1 ^ D2")
-    dropped = decoders.DetectorErrorModelArrays(dem).without_detectors([0])
-    assert error_instructions(dropped.to_dem()) == ["error(0.1) D0 D1 L0"]
-
-    # a decomposition whose components share an observable can cancel down to nothing at all
-    dem = stim.DetectorErrorModel("error(0.1) D0 L0 ^ D1 L0")
-    dropped = decoders.DetectorErrorModelArrays(dem).without_detectors([0, 1])
-    assert dropped.num_errors == 0
-
-
-def test_validating_arrays() -> None:
-    """from_arrays checks that its arrays describe the same error mechanisms."""
-    matrix = np.eye(2, dtype=np.uint8)
-
-    # an integer probability is broadcast to all error mechanisms
-    assert np.array_equal(
-        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1).error_probs, [1.0, 1.0]
-    )
-
-    with pytest.raises(ValueError, match="observable flip matrix addresses"):
-        decoders.DetectorErrorModelArrays.from_arrays(matrix, np.ones((1, 3), dtype=np.uint8), 0.1)
-
-    with pytest.raises(ValueError, match="error probabilities of shape"):
-        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, np.array([0.1, 0.2, 0.3]))
-
-    for invalid_probability in [-0.1, 1.1, np.nan, np.inf, -np.inf]:
-        with pytest.raises(ValueError, match="finite and between 0 and 1"):
-            decoders.DetectorErrorModelArrays.from_arrays(
-                matrix, None, np.array([invalid_probability, 0.1])
-            )
-
-    # The endpoints are deterministic but valid probabilities.
-    assert np.array_equal(
-        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, np.array([0, 1])).error_probs,
-        [0, 1],
-    )
-
-
-def test_from_arrays_copies_its_inputs() -> None:
-    """A DetectorErrorModelArrays built from arrays shares no state with them."""
-    matrix = scipy.sparse.csc_matrix(np.eye(2, dtype=np.uint8))
-    error_probs = np.array([0.1, 0.2])
-    dem_arrays = decoders.DetectorErrorModelArrays.from_arrays(matrix, matrix, error_probs)
-    matrix.data[:] = 0
-    error_probs[:] = 0.5
-    expected_dem = stim.DetectorErrorModel("""
-        detector D0
-        detector D1
-        logical_observable L0
-        logical_observable L1
-        error(0.1) D0 L0
-        error(0.2) D1 L1
-    """)
-    assert expected_dem.approx_equals(dem_arrays.to_dem(), atol=1e-10)
-
-    # the dictionary of suggested decompositions is copied as well
-    decompositions = {0: frozenset([decoders.FlipPattern([0]), decoders.FlipPattern([1])])}
-    dem_arrays = decoders.DetectorErrorModelArrays.from_arrays(
-        np.array([[1], [1]], dtype=np.uint8), None, 0.1, decompositions
-    )
-    assert dem_arrays.suggested_decompositions is not decompositions
-
-
-def test_validating_suggested_decompositions() -> None:
-    """A suggested decomposition passed to from_arrays must agree with the flip matrices."""
-    matrix = np.array([[1], [1], [0]], dtype=np.uint8)
-
-    # the components below flip D0 and D2, while the error itself flips D0 and D1
-    components = frozenset([decoders.FlipPattern([0]), decoders.FlipPattern([2])])
-    with pytest.raises(ValueError, match="flips detectors"):
-        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1, {0: components})
-
-    # there is no error mechanism to decompose at index 1
-    with pytest.raises(ValueError, match="with 1 error mechanisms"):
-        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1, {1: components})
-
-    # out-of-range component indices must not cancel and pass the combined-flip check
-    components = frozenset([decoders.FlipPattern([0, 7], [5]), decoders.FlipPattern([1, 7], [5])])
-    with pytest.raises(ValueError, match=r"detectors \[7\] outside the valid range"):
-        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1, {0: components})
-
-    components = frozenset([decoders.FlipPattern([0], [5]), decoders.FlipPattern([1], [5])])
-    with pytest.raises(ValueError, match=r"observables \[5\] outside the valid range"):
-        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1, {0: components})
-
-    components = frozenset([decoders.FlipPattern([0, 1]), decoders.FlipPattern()])
-    with pytest.raises(ValueError, match="empty component"):
-        decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1, {0: components})
-
-
-def test_to_circuit() -> None:
-    """Round-trip a DEM through DetectorErrorModelArrays and to_circuit."""
-    dem = stim.DetectorErrorModel("""
-        detector D0
-        detector D1
-        logical_observable L0
-        error(0.1) D0 D1
+        error(0.1) D0
         error(0.2) D1 L0
     """)
-    circuit = decoders.DetectorErrorModelArrays(dem).to_circuit()
-    assert dem.approx_equals(decoders.DetectorErrorModelArrays(circuit).to_dem(), atol=1e-10)
-
-
-def test_decomposing_errors() -> None:
-    """Apply suggested decompositions to split errors into their components."""
-    dem = stim.DetectorErrorModel("""
-        error(0.001) D0
-        error(0.002) D1 ^ D2
-        error(0.001) D2
-    """)
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
+    erasure_arrays = dem_arrays.with_erasure()
 
-    # error(0.002) D1 ^ D2 splits into two; all four resulting components are distinct so
-    # simplify=True (the default) does not merge any of them
-    split_dem = stim.DetectorErrorModel("""
-        detector D0
-        detector D1
-        detector D2
-        error(0.001) D0
-        error(0.002) D1
-        error(0.002) D2
-        error(0.001) D2
-    """)
-    assert dem_arrays.with_decomposed_errors(simplify=False).to_dem() == split_dem
+    # one new error mechanism and one new observable; detectors unchanged
+    assert erasure_arrays.num_errors == dem_arrays.num_errors + 1
+    assert erasure_arrays.num_observables == dem_arrays.num_observables + 1
+    assert erasure_arrays.num_detectors == dem_arrays.num_detectors
+
+    # erasure mechanism flips no detectors and has zero probability
+    assert erasure_arrays.detector_flip_matrix[:, -1].nnz == 0
+    assert erasure_arrays.error_probs[-1] == 0
+
+    # erasure mechanism flips only the new erasure observable, not the original ones
+    assert erasure_arrays.observable_flip_matrix[:-1, -1].nnz == 0
+    assert erasure_arrays.observable_flip_matrix[-1, -1] == 1
+
+    # original errors do not flip the new erasure observable
+    assert erasure_arrays.observable_flip_matrix[-1, :-1].nnz == 0
+
+    # original detector/observable matrices and error probs are preserved
+    assert np.array_equal(
+        erasure_arrays.detector_flip_matrix[:, :-1].todense(),
+        dem_arrays.detector_flip_matrix.todense(),
+    )
+    assert np.array_equal(
+        erasure_arrays.observable_flip_matrix[:-1, :-1].todense(),
+        dem_arrays.observable_flip_matrix.todense(),
+    )
+    assert np.array_equal(erasure_arrays.error_probs[:-1], dem_arrays.error_probs)
+
+    # with bits=2, the bottom-right block of observable_flip_matrix is a 2×2 identity
+    erasure_arrays_2 = dem_arrays.with_erasure(bits=2)
+    assert erasure_arrays_2.num_errors == dem_arrays.num_errors + 2
+    assert erasure_arrays_2.num_observables == dem_arrays.num_observables + 2
+    assert np.array_equal(
+        erasure_arrays_2.observable_flip_matrix[-2:, -2:].todense(), np.eye(2, dtype=int)
+    )
 
 
 def test_error_targets_dem_targets() -> None:
