@@ -922,14 +922,39 @@ def _get_observable_decoder_lookup(
     return ObservableLookupDecoder(dem, **decoder_args)  # type: ignore[call-overload]
 
 
-_LOOKUP_SPEC_RETURNS = (
-    "A decoder specification.  Its ``build(pcm_or_dem)`` method takes a parity-check matrix or "
-    "detector error model (DEM), which also supplies default error probabilities and observable"
-    " metadata, and returns a :class:`~qldpc.decoders.custom.lookup.LookupDecoder` that maps "
-    "syndromes to representative errors.  Its ``build_observable_decoder(dem)`` method "
-    "returns an :class:`~qldpc.decoders.custom.lookup.ObservableLookupDecoder` that maps "
-    "syndromes directly to observable flips."
-)
+_LOOKUP_SPEC_DOC = """Configure a bounded-weight lookup-table decoder.
+
+Args:
+    max_weight: Maximum error weight to enumerate; required to bound construction.
+    error_channel: Independent error probabilities for each matrix column, or a callable
+        returning the normalized log probability of a complete error.  A DEM supplies its
+        own probabilities and does not accept this option.
+    observable_flip_matrix: Observable values of matrix-column errors.  A DEM supplies its
+        own observables.  An error decoder with observables selects an error from the most
+        likely observable class, which need not contain the most likely individual error.
+    post_select: Syndrome indices that must be zero; other syndromes decode as absent.
+    add_erasure_bit: Append a flag for absent syndromes, or None to enable it automatically
+        when ``confidence_ratio`` is positive.
+    confidence_ratio: Minimum likelihood ratio of the best observable class to all others;
+        an ambiguous syndrome is erased.  Requires observable metadata.
+    probability_cutoff: Ignore errors below this probability; not supported with a callable
+        ``error_channel``.
+    symplectic: Treat ``[X|Z]`` columns as two error components per qudit.
+
+Returns:
+    A decoder specification.  ``build(pcm_or_dem)`` returns a
+    :class:`~qldpc.decoders.custom.lookup.LookupDecoder` that infers an error.
+    ``build_observable_decoder(dem)`` returns an
+    :class:`~qldpc.decoders.custom.lookup.ObservableLookupDecoder` that predicts observable
+    flips natively for a binary DEM.
+
+See :class:`~qldpc.decoders.custom.lookup.LookupDecoder` for error-channel and field
+conventions, and :class:`~qldpc.decoders.custom.lookup.ObservableLookupDecoder` for the
+observable output contract.
+
+.. deprecated:: 0.4.1
+    ``penalty_func`` is retained for older callers; use a callable ``error_channel`` instead.
+"""
 
 
 lookup = decoder_spec(
@@ -938,7 +963,7 @@ lookup = decoder_spec(
     _get_observable_decoder_lookup,
     signature_source=LookupDecoder,
     exclude=frozenset({"predict_observable_flips"}),
-    returns=_LOOKUP_SPEC_RETURNS,
+    doc=_LOOKUP_SPEC_DOC,
 )
 
 

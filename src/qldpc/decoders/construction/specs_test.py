@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import inspect
+import pathlib
 import pickle
 import types
 import typing
@@ -420,8 +421,22 @@ def test_decoder_spec_helper_annotations() -> None:
 
 
 def test_decoder_spec_helper_docstrings() -> None:
-    """Helpers document the options that they accept, but not the matrix that they build for."""
-    for helper in (decoders.bp_osd, decoders.mwpm, decoders.frontier, decoders.guf, decoders.ilp):
+    """All public helpers document their own options and appear in the guide's API inventory."""
+    helpers = (
+        decoders.bp_osd,
+        decoders.bp_lsd,
+        decoders.bf,
+        decoders.mwpm,
+        decoders.frontier,
+        decoders.relay_bp,
+        decoders.min_sum_bp,
+        decoders.tesseract,
+        decoders.lookup,
+        decoders.ilp,
+        decoders.guf,
+    )
+    guide = (pathlib.Path(__file__).parents[4] / "docs/source/decoders.rst").read_text()
+    for helper in helpers:
         docstring = inspect.getdoc(helper)
         assert docstring is not None and docstring.startswith("Configure ")
         arguments = docstring.split("Args:\n", maxsplit=1)[1].split("\n\n", maxsplit=1)[0]
@@ -430,10 +445,16 @@ def test_decoder_spec_helper_docstrings() -> None:
             for line in arguments.splitlines()
             if line.startswith("    ") and not line.startswith("        ")
         }
-        assert documented_names == set(inspect.signature(helper).parameters)
-    assert "build(pcm_or_dem)" in (decoders.bp_osd.__doc__ or "")
+        legacy_options = {"error_rate", "penalty_func"} & set(inspect.signature(helper).parameters)
+        assert documented_names == set(inspect.signature(helper).parameters) - legacy_options
+        if legacy_options:
+            assert ".. deprecated::" in docstring
+            assert all(f"``{name}``" in docstring for name in legacy_options)
+        assert "A decoder specification." in docstring
+        assert helper.__name__ in decoders.__all__
+        assert f".. autofunction:: qldpc.decoders.{helper.__name__}\n" in guide
 
-    # builders document the decoder they build, and helpers the specifications they return
+    # builders document their built decoders, and helpers independently describe specifications
     builders: list[tuple[Callable[..., object], Callable[..., object]]] = [
         (_get_decoder_bp_osd, decoders.bp_osd),
         (_get_decoder_lookup, decoders.lookup),
@@ -448,34 +469,15 @@ def test_decoder_spec_helper_docstrings() -> None:
         helper_returns = helper_docstring.split("Returns:\n", maxsplit=1)[1].split("\n\n")[0]
         assert "decoder specification" not in builder_returns
         assert helper_returns.lstrip().startswith("A decoder specification.")
-        assert all(len(line) <= 100 for line in helper_returns.splitlines())
-        helper_details = helper_docstring.split("Returns:")[1].partition("\n\n")[2]
-        assert helper_details == builder_docstring.split("Returns:")[1].partition("\n\n")[2]
+        assert "    pcm_or_dem:" not in helper_docstring
 
 
-def test_get_helper_docstring() -> None:
-    """Helper docstrings replace the summary verb and Returns section of a builder docstring."""
-    docstring = """Build a decoder.
-
-    Args:
-        matrix: The matrix to decode.
-        option: An option.
-
-    Returns:
-        A decoder that is
-        built for the matrix.
-
-    More details.
-    """
-    signature = inspect.Signature(
-        [inspect.Parameter("option", inspect.Parameter.KEYWORD_ONLY, default=0)]
-    )
-    assert specs._get_helper_docstring(docstring, signature, "A decoder specification.") == (
-        "Configure a decoder.\n\n    Args:\n        option: An option.\n\n    Returns:\n"
-        "        A decoder specification.\n\n    More details.\n    "
-    )
-    assert "A decoder that is" in (specs._get_helper_docstring(docstring, signature) or "")
-    assert specs._get_helper_docstring(None, signature) is None
+def test_helper_docstring_is_written_independently() -> None:
+    """Builder details must not accidentally become the public helper's documentation."""
+    docstring = "Configure a custom decoder.\n\nReturns:\n    A decoder specification."
+    helper = specs.decoder_spec("custom", _get_decoder_bp_osd, doc=docstring)
+    assert helper.__doc__ == docstring
+    assert specs.decoder_spec("undocumented", _get_decoder_bp_osd).__doc__ is None
 
 
 def test_deprecated_error_rate_option_is_last_and_warns() -> None:

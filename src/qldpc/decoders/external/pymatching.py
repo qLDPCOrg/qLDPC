@@ -220,22 +220,39 @@ def _validate_mwpm_options(
     return options
 
 
-_MWPM_SPEC_RETURNS = (
-    "A decoder specification.  Its ``build(pcm_or_dem)`` method takes a parity-check matrix or "
-    "detector error model (DEM) and returns a ``pymatching.Matching`` subclass that is also a "
-    ":class:`~qldpc.decoders.protocols.BatchErrorDecoder`, which maps a syndrome to an inferred"
-    " physical error.  Its ``build_observable_decoder(dem)`` method returns a "
-    ":class:`~qldpc.decoders.external.pymatching.MatchingObservableDecoder`, which predicts the"
-    " observable flips of a DEM natively: DEM probabilities provide matching weights, and DEM "
-    "observable targets provide the faults matrix."
-)
+_MWPM_SPEC_DOC = """Configure minimum-weight perfect matching (MWPM).
+
+Args:
+    enable_correlations: Use correlated matching for native observable prediction.  Other
+        non-default options are not supported in this mode.
+    decompose_errors: Apply the decompositions suggested by a detector error model.
+    ignore_non_graphlike_errors: Ignore mechanisms that trigger more than two detectors.
+    weights: Matching-edge weights for a matrix input.
+    error_probabilities: Error probabilities for a matrix input.
+    repetitions: Number of repeated matching rounds.
+    timelike_weights: Weights for timelike edges.
+    measurement_error_probabilities: Probabilities for repeated measurement errors.
+    merge_strategy: How to merge duplicate matching edges.
+    use_virtual_boundary_node: Whether to use a virtual boundary node.
+    backend_options: Additional PyMatching options not listed above.  qLDPC rejects unknown
+        names rather than letting PyMatching ignore them; ``faults_matrix`` is reserved for
+        native observable decoding.
+
+Returns:
+    A decoder specification.  ``build(pcm_or_dem)`` infers physical errors with a
+    ``pymatching.Matching`` subclass.  ``build_observable_decoder(dem)`` predicts observable
+    flips natively with a :class:`~qldpc.decoders.external.pymatching.MatchingObservableDecoder`.
+
+An error decoder cannot infer decomposed error mechanisms as errors of the original DEM.
+Use native observable decoding for those models.  MWPM cannot signal erasure.
+"""
 
 mwpm = decoder_spec(
     "mwpm",
     _get_decoder_mwpm,
     _get_observable_decoder_mwpm,
     option_transform=_validate_mwpm_options,
-    returns=_MWPM_SPEC_RETURNS,
+    doc=_MWPM_SPEC_DOC,
 )
 
 

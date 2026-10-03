@@ -255,12 +255,46 @@ def _get_decoder_tesseract(
     return TesseractDecoder(pcm_or_dem, **decoder_args)
 
 
-_TESSERACT_SPEC_RETURNS = (
-    "A decoder specification.  Its ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` "
-    "methods take a binary parity-check matrix or detector error model and return a "
-    ":class:`~qldpc.decoders.external.tesseract.TesseractDecoder`, which infers errors and "
-    "predicts observable flips natively."
-)
+_TESSERACT_SPEC_DOC = """Configure Tesseract decoding for a binary code.
+
+Tesseract searches for likely errors within beam and priority-queue limits.  Its native
+observable predictions need the observable targets supplied by a detector error model.
+
+Args:
+    error_channel: Probabilities of matrix-column errors, as one value or a vector.  A DEM
+        supplies its own probabilities and does not accept an override.
+    add_erasure_bit: Append Tesseract's low-confidence flag to each prediction.
+    det_beam: Beam-search cutoff.
+    beam_climbing: Retry with increasing beam sizes.
+    no_revisit_dets: Avoid revisiting equal residual detector sets.
+    verbose: Print decoding diagnostics.
+    merge_errors: Merge mechanisms with identical detector and observable flips, or None to
+        merge by default for a DEM but not for a matrix.
+    pqlimit: Maximum number of priority-queue entries.
+    det_orders: Explicit detector traversal permutations, or None to generate them.
+    det_penalty: Additional cost per residual detection event.
+    create_visualization: Retain backend visualization data.
+    sparsify_errors: Activate selected high-degree errors per shot.
+    sparsify_base_degree: Maximum degree of errors always active.
+    sparsify_max_degree: Maximum degree of optional errors, or -1 for no maximum.
+    sparsify_reactivate_limit: Maximum optional errors reactivated per shot, or -1 for the
+        backend heuristic.
+    num_det_orders: Number of generated detector orders, or None for the backend default.
+    det_order_method: Generated detector-order method, or None for the backend default.
+    seed: Seed for generated detector orders, or None for the backend default.
+
+Returns:
+    A decoder specification.  ``build(pcm_or_dem)`` infers errors, while
+    ``build_observable_decoder(dem)`` predicts observable flips natively.  Both return a
+    :class:`~qldpc.decoders.external.tesseract.TesseractDecoder`.
+
+The optional ``tesseract-decoder`` package is needed when building the decoder; install it
+with ``pip install 'qldpc[tesseract]'`` on a supported platform.  See
+:class:`~qldpc.decoders.external.tesseract.TesseractDecoder` for the search limitations.
+
+.. deprecated:: 0.4.1
+    ``error_rate`` is a legacy i.i.d. matrix error probability; use ``error_channel`` instead.
+"""
 
 
 tesseract = decoder_spec(
@@ -269,7 +303,7 @@ tesseract = decoder_spec(
     _get_decoder_tesseract,
     signature_source=TesseractDecoder,
     option_transform=_deprecate_error_rate_option,
-    returns=_TESSERACT_SPEC_RETURNS,
+    doc=_TESSERACT_SPEC_DOC,
 )
 
 

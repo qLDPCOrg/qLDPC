@@ -575,32 +575,80 @@ def _get_decoder_min_sum_bp(
     )
 
 
-_RELAY_BP_SPEC_RETURNS = (
-    "A decoder specification.  Its ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` "
-    "methods take a parity-check matrix or detector error model and return a "
-    ":class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when "
-    "observable metadata is available, predicts observable flips."
-)
+_RELAY_BP_SPEC_DOC = """Configure a Relay-BP decoder.
+
+Args:
+    precision: Numeric precision of the ``relay_bp.RelayDecoder<precision>`` backend.
+    error_priors: Prior error probabilities.  A DEM supplies its own unless overridden.
+    observable_error_matrix: Observable flips for each matrix-column error.  A DEM supplies
+        its own matrix; do not pass this option with a DEM.
+    include_decode_result: Whether the upstream observable runner retains decode results.
+    add_erasure_bit: Append a flag when the inferred error fails to reproduce its syndrome.
+    alpha: Option passed to the Relay-BP backend.
+    alpha_iteration_scaling_factor: Option passed to the Relay-BP backend.
+    gamma0: Option passed to the Relay-BP backend.
+    data_scale_value: Option passed to the Relay-BP backend.
+    max_data_value: Option passed to the Relay-BP backend.
+    pre_iter: Option passed to the Relay-BP backend.
+    num_sets: Option passed to the Relay-BP backend.
+    set_max_iter: Option passed to the Relay-BP backend.
+    gamma_dist_interval: Backend option, or None for its default.
+    explicit_gammas: Option passed to the Relay-BP backend.
+    stop_nconv: Option passed to the Relay-BP backend.
+    stopping_criterion: Backend option, or None for its default.
+    logging: Option passed to the Relay-BP backend.
+    seed: Option passed to the Relay-BP backend.
+    backend_options: Additional options for the selected backend class.  Unsupported names
+        are rejected when the decoder is built.
+
+Returns:
+    A decoder specification.  ``build(pcm_or_dem)`` infers errors; for a DEM,
+    ``build_observable_decoder(dem)`` predicts observable flips natively.  Both return
+    :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`.
+
+See the `Relay-BP documentation <https://pypi.org/project/relay-bp>`_ for backend options.
+"""
 
 
 relay_bp = decoder_spec(
-    "relay_bp", _get_decoder_relay_bp, _get_decoder_relay_bp, returns=_RELAY_BP_SPEC_RETURNS
+    "relay_bp", _get_decoder_relay_bp, _get_decoder_relay_bp, doc=_RELAY_BP_SPEC_DOC
 )
 
 
-_MIN_SUM_BP_SPEC_RETURNS = (
-    "A decoder specification.  Its ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` "
-    "methods take a parity-check matrix or detector error model and return a "
-    ":class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when "
-    "observable metadata is available, predicts observable flips."
-)
+_MIN_SUM_BP_SPEC_DOC = """Configure min-sum belief propagation with Relay-BP.
+
+Args:
+    precision: Numeric precision of the ``relay_bp.MinSumBPDecoder<precision>`` backend.
+    error_priors: Prior error probabilities.  A DEM supplies its own unless overridden.
+    observable_error_matrix: Observable flips for each matrix-column error.  A DEM supplies
+        its own matrix; do not pass this option with a DEM.
+    include_decode_result: Whether the upstream observable runner retains decode results.
+    add_erasure_bit: Append a flag when the inferred error fails to reproduce its syndrome.
+    max_iter: Maximum number of backend iterations.
+    alpha: Option passed to the min-sum backend.
+    alpha_iteration_scaling_factor: Option passed to the min-sum backend.
+    gamma0: Option passed to the min-sum backend.
+    data_scale_value: Option passed to the min-sum backend.
+    max_data_value: Option passed to the min-sum backend.
+    int_bits: Fixed-point integer precision, when using a fixed-point backend.
+    frac_bits: Fixed-point fractional precision, when using a fixed-point backend.
+    backend_options: Additional options for the selected backend class.  Unsupported names
+        are rejected when the decoder is built.
+
+Returns:
+    A decoder specification.  ``build(pcm_or_dem)`` infers errors; for a DEM,
+    ``build_observable_decoder(dem)`` predicts observable flips natively.  Both return
+    :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`.
+
+See the `Relay-BP documentation <https://pypi.org/project/relay-bp>`_ for backend options.
+"""
 
 
 min_sum_bp = decoder_spec(
     "min_sum_bp",
     _get_decoder_min_sum_bp,
     _get_decoder_min_sum_bp,
-    returns=_MIN_SUM_BP_SPEC_RETURNS,
+    doc=_MIN_SUM_BP_SPEC_DOC,
 )
 
 

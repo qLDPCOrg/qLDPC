@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
-import textwrap
 from collections.abc import Callable, Mapping
 from typing import (
     Any,
@@ -124,7 +123,7 @@ def decoder_spec(
     signature_source: None = None,
     exclude: frozenset[str] = frozenset(),
     option_transform: _OptionTransform | None = None,
-    returns: str | None = None,
+    doc: str | None = None,
 ) -> Callable[_Parameters, DecoderSpec[_DecoderT]]: ...
 
 
@@ -138,7 +137,7 @@ def decoder_spec(
     signature_source: Callable[Concatenate[_InputT, _Parameters], object],
     exclude: frozenset[str] = frozenset(),
     option_transform: _OptionTransform | None = None,
-    returns: str | None = None,
+    doc: str | None = None,
 ) -> Callable[_Parameters, DecoderSpec[_DecoderT]]: ...
 
 
@@ -151,14 +150,13 @@ def decoder_spec(
     signature_source: Callable[..., object] | None = None,
     exclude: frozenset[str] = frozenset(),
     option_transform: _OptionTransform | None = None,
-    returns: str | None = None,
+    doc: str | None = None,
 ) -> Callable[..., DecoderSpec[_DecoderT]]:
-    """Create a typed decoder-specification helper from a construction signature.
+    """Create a typed decoder-specification helper from one construction signature.
 
-    The helper takes the keyword options of ``signature_source`` (by default, ``builder``) other
-    than its first argument and the ``exclude`` names, and is documented by the docstring of
-    ``builder``, with its summary verb "Build" replaced by "Configure" and its Returns section
-    replaced by ``returns``, which describes the specification.
+    The helper accepts the options of ``signature_source`` (by default, ``builder``), excluding
+    its first argument and any names in ``exclude``.  Its public documentation is ``doc``, not
+    a rewritten builder docstring.
     """
     source = builder if signature_source is None else signature_source
     helper_signature = _get_helper_signature(source, exclude)
@@ -169,13 +167,7 @@ def decoder_spec(
     )
 
     def make_spec(*args: object, **kwargs: object) -> DecoderSpec[_DecoderT]:
-        bound = _bind_helper_arguments(helper_name, helper_signature, args, kwargs)
-        explicitly_provided = _get_explicit_option_names(bound, helper_signature)
-        bound.apply_defaults()
-        options = _get_bound_options(bound, helper_signature)
-        _normalize_backend_options(helper_name, options)
-        if option_transform is not None:
-            options = option_transform(options, explicitly_provided)
+        options = _get_spec_options(helper_name, helper_signature, args, kwargs, option_transform)
         return DecoderSpec(
             helper_name,
             builder,
@@ -193,7 +185,7 @@ def decoder_spec(
         builder,
         helper_signature,
         cast(Any, DecoderSpec)[decoder_type],
-        returns,
+        doc,
     )
     return make_spec
 
@@ -206,7 +198,7 @@ def observable_decoder_spec(
     /,
     *,
     option_transform: _OptionTransform | None = None,
-    returns: str | None = None,
+    doc: str | None = None,
 ) -> Callable[_Parameters, DecoderSpec[Never]]:
     """Create an observable-only decoder-specification helper, as by decoder_spec."""
     helper_signature = _get_helper_signature(observable_builder, frozenset())
@@ -217,13 +209,7 @@ def observable_decoder_spec(
     )
 
     def make_spec(*args: object, **kwargs: object) -> DecoderSpec[Never]:
-        bound = _bind_helper_arguments(helper_name, helper_signature, args, kwargs)
-        explicitly_provided = _get_explicit_option_names(bound, helper_signature)
-        bound.apply_defaults()
-        options = _get_bound_options(bound, helper_signature)
-        _normalize_backend_options(helper_name, options)
-        if option_transform is not None:
-            options = option_transform(options, explicitly_provided)
+        options = _get_spec_options(helper_name, helper_signature, args, kwargs, option_transform)
         return DecoderSpec(
             helper_name,
             None,
@@ -233,7 +219,7 @@ def observable_decoder_spec(
         )
 
     _set_helper_metadata(
-        make_spec, helper_name, observable_builder, helper_signature, DecoderSpec[Never], returns
+        make_spec, helper_name, observable_builder, helper_signature, DecoderSpec[Never], doc
     )
     return make_spec
 
@@ -303,69 +289,15 @@ def _set_helper_metadata(
     builder: Callable[..., object],
     signature: inspect.Signature,
     return_annotation: object,
-    returns: str | None,
+    doc: str | None,
 ) -> None:
-    """Give a generated helper the public name, docs, and signature of a specification helper.
-
-    The docstring of the builder documents the options of the helper.  Unlike functools.wraps, this
-    does not copy the attributes of a decoder class that provides the signature.
-    """
+    """Give a generated helper its documented name and derived public signature."""
     helper.__name__ = helper_name
     helper.__qualname__ = helper_name
     helper.__module__ = builder.__module__
-    helper.__doc__ = _get_helper_docstring(builder.__doc__, signature, returns)
+    helper.__doc__ = doc
     vars(helper)["__signature__"] = signature.replace(return_annotation=return_annotation)
     helper.__annotations__ = _get_helper_annotations(signature, return_annotation)
-
-
-def _get_helper_docstring(
-    docstring: str | None, signature: inspect.Signature, returns: str | None = None
-) -> str | None:
-    """Adapt the docstring of a decoder builder to its specification helper.
-
-    A builder documents the matrix or detector error model that it decodes, which is instead passed
-    to DecoderSpec.build, and may document keyword arguments that it forwards to a decoder class.
-    The arguments that the helper does not accept are dropped.  A builder summary that starts with
-    "Build" starts with "Configure" instead, and if ``returns`` is provided, it replaces the
-    description of the built decoder in the Returns section.
-    """
-    if docstring is None:
-        return None
-    lines = docstring.splitlines()
-    if lines and lines[0].startswith("Build "):
-        lines[0] = "Configure " + lines[0].removeprefix("Build ")
-    kept_lines: list[str] = []
-    section: str | None = None
-    section_indent = 0
-    entry_indent: int | None = None
-    keep_entry = True
-    for line in lines:
-        indent = len(line) - len(line.lstrip())
-        if section is not None and (not line.strip() or indent <= section_indent):
-            section = None
-        if line.strip() == "Args:":
-            section, section_indent, entry_indent = "Args", indent, None
-        elif line.strip() == "Returns:" and returns is not None:
-            section, section_indent = "Returns", indent
-            body_indent = " " * (indent + 4)
-            kept_lines.append(line)
-            kept_lines.extend(
-                textwrap.wrap(
-                    returns, width=100, initial_indent=body_indent, subsequent_indent=body_indent
-                )
-            )
-            continue
-        elif section == "Returns":
-            continue
-        elif section == "Args":
-            entry_indent = indent if entry_indent is None else entry_indent
-            if indent == entry_indent:
-                name = line.strip().split(":", maxsplit=1)[0].lstrip("*")
-                keep_entry = name in signature.parameters
-            if not keep_entry:
-                continue
-        kept_lines.append(line)
-    return "\n".join(kept_lines)
 
 
 def _get_helper_signature(
@@ -392,36 +324,25 @@ def _get_helper_annotations(
     return annotations
 
 
-def _bind_helper_arguments(
+def _get_spec_options(
     helper_name: str,
     signature: inspect.Signature,
     args: tuple[object, ...],
     kwargs: dict[str, object],
-) -> inspect.BoundArguments:
-    """Bind the arguments of a generated helper, naming the helper in any error."""
+    option_transform: _OptionTransform | None,
+) -> dict[str, object]:
+    """Bind and validate the options supplied to a specification helper."""
     try:
-        return signature.bind(*args, **kwargs)
+        bound = signature.bind(*args, **kwargs)
     except TypeError as error:
         raise TypeError(f"{helper_name}() {error}") from None
-
-
-def _get_explicit_option_names(
-    bound: inspect.BoundArguments, signature: inspect.Signature
-) -> frozenset[str]:
-    """Return option names explicitly supplied to a generated helper."""
-    names: set[str] = set()
+    explicitly_provided: set[str] = set()
     for name, value in bound.arguments.items():
         if signature.parameters[name].kind is inspect.Parameter.VAR_KEYWORD:
-            names.update(value)
+            explicitly_provided.update(value)
         else:
-            names.add(name)
-    return frozenset(names)
-
-
-def _get_bound_options(
-    bound: inspect.BoundArguments, signature: inspect.Signature
-) -> dict[str, object]:
-    """Flatten bound helper arguments into decoder construction options."""
+            explicitly_provided.add(name)
+    bound.apply_defaults()
     options: dict[str, object] = {}
     for name, value in bound.arguments.items():
         kind = signature.parameters[name].kind
@@ -433,7 +354,12 @@ def _get_bound_options(
             )
         else:
             options[name] = value
-    return options
+    _normalize_backend_options(helper_name, options)
+    return (
+        option_transform(options, frozenset(explicitly_provided))
+        if option_transform is not None
+        else options
+    )
 
 
 def _normalize_backend_options(helper_name: str, options: dict[str, object]) -> None:
