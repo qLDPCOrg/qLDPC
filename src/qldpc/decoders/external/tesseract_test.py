@@ -11,7 +11,6 @@ import inspect
 import subprocess
 import sys
 import types
-import warnings
 from typing import Any, cast
 
 import galois
@@ -181,20 +180,6 @@ def test_tesseract_matrix_error_decoding(fake_tesseract: None) -> None:
     assert not decoder.config.merge_errors
     assert np.array_equal(decoder.decode_errors(np.array([1], dtype=int)), [0, 1])
     assert _get_decoder_tesseract(matrix, merge_errors=True).config.merge_errors
-
-
-def test_legacy_tesseract_getter(fake_tesseract: None) -> None:
-    """The formerly exported getter still builds a decoder with a migration warning."""
-    matrix = np.eye(1, dtype=int)
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        decoder = decoders.get_decoder_tesseract(matrix, det_beam=7)
-    assert isinstance(decoder, decoders.TesseractDecoder)
-    assert decoder.config.det_beam == 7
-    assert len(caught) == 1
-    assert caught[0].filename == __file__
-    assert "decoders.tesseract(...).build(pcm_or_dem)" in str(caught[0].message)
-    assert "get_decoder_tesseract" in decoders.__all__
 
 
 def test_tesseract_dem_error_and_observable_decoding(

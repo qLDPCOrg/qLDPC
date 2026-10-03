@@ -253,21 +253,6 @@ def test_legacy_flat_backend_options() -> None:
     assert np.array_equal(decoder.decode(np.array([1, 0])), [1, 0, 0])
 
 
-def test_deprecated_tesseract_builder() -> None:
-    """The public Tesseract getter warns and forwards its options to the private builder."""
-    matrix = np.eye(2, dtype=int)
-    with (
-        unittest.mock.patch.object(legacy, "_get_decoder_tesseract") as builder,
-        warnings.catch_warnings(record=True) as caught,
-    ):
-        warnings.simplefilter("always")
-        assert decoders.get_decoder_tesseract(matrix, det_beam=7) is builder.return_value
-    builder.assert_called_once_with(matrix, det_beam=7)
-    assert len(caught) == 1
-    assert caught[0].filename == __file__
-    assert "decoders.tesseract(...).build(pcm_or_dem)" in str(caught[0].message)
-
-
 def test_deprecated_resolution_functions() -> None:
     """get_error_decoder and get_observable_decoder warn with the call that replaces them."""
     matrix = np.array([[1, 1, 0], [0, 1, 1]])

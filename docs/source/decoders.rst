@@ -355,8 +355,6 @@ The following usage remains available during a deprecation period, and each use 
      - ``decoders.bp_osd(...).build(pcm_or_dem)`` (and the corresponding settings helper)
    * - ``decoders.get_decoder_rbp(pcm_or_dem, ...)``
      - ``decoders.relay_bp(...).build(pcm_or_dem)`` or ``decoders.min_sum_bp(...).build(pcm_or_dem)``
-   * - ``decoders.get_decoder_tesseract(pcm_or_dem, ...)``
-     - ``decoders.tesseract(...).build(pcm_or_dem)``
    * - ``decoders.get_error_decoder(pcm_or_dem, decoder=settings)``
      - ``settings.build(pcm_or_dem)``
    * - ``decoders.get_observable_decoder(dem, decoder=settings)``
