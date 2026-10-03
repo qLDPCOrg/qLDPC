@@ -905,9 +905,9 @@ class ClassicalCode(AbstractCode):
         The logical error rate returned by the constructed function is the probability with which a
         code error (obtained by sampling independent errors on all bits) is decoded incorrectly.
 
-        Here the observables of the code are its bits, so decoding succeeds only if the decoder
-        predicts the value of every bit of the sampled error.  The decoder argument accepts either
-        an error decoder or an observable decoder:
+        Here the observables of the code are its encoded bits, so decoding succeeds only if the
+        decoder predicts the value of every bit of the sampled error.  The decoder argument accepts
+        either an error decoder or an observable decoder:
 
         - An error-decoder constructor, a decoder specification without native observable
           prediction (such as ``decoders.bp_osd(...)``), or an error decoder prebuilt for this
@@ -917,7 +917,7 @@ class ClassicalCode(AbstractCode):
         - A specification with native observable prediction (such as ``decoders.mwpm(...)``),
           a Sinter-style decoder, or a factory wrapped with ``decoders.from_dem(factory)``.
           It is built for a detector error model whose detectors are the parity checks of this
-          code and whose observables are its bits.  Stim detector error models are binary; a
+          code and whose observables are its encoded bits.  Stim detector error models are binary; a
           specification that can also infer errors uses error decoding for a nonbinary code.
         - An observable decoder prebuilt to predict the bits of an error from its syndrome, such as
           an ObservableLookupDecoder built with ``observable_flip_matrix=code.field.Identity(n)``.
