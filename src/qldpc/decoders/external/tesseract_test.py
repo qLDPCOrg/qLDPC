@@ -294,7 +294,7 @@ def test_tesseract_preset_merge_defaults(fake_tesseract: None) -> None:
 def test_tesseract_specs_sinter_and_code_capacity(
     fake_tesseract: None,
 ) -> None:
-    """Typed settings use native observables through resolution, Sinter, and code capacity."""
+    """Decoder specifications predict observables natively in all workflows."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
     spec = decoders.tesseract(det_beam=7)
     assert spec.predicts_observables_natively

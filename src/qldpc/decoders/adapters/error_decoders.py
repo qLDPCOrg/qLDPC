@@ -132,7 +132,7 @@ def match_error_decoder_to_dem(decoder: ErrorDecoder, dem: stim.DetectorErrorMod
         raise ValueError(
             "The error decoder infers errors in the components of decomposed error mechanisms,"
             " which cannot be read as errors of the detector error model.  To predict observable"
-            " flips with decomposed errors, pass decoder settings such as"
+            " flips with decomposed errors, pass a decoder specification such as"
             " decoders.mwpm(decompose_errors=True), which build a matching decoder that predicts"
             " observable flips natively"
         )

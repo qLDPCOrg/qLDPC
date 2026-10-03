@@ -198,7 +198,7 @@ def as_error_decoder(decoder: object, source: str = "A decoder") -> ErrorDecoder
 
 
 _OBSERVABLE_DECODER_ADVICE = (
-    "Pass error-decoder settings such as decoders.bp_osd(...), or pass the observable decoder where"
+    "Pass an error-decoder specification such as decoders.bp_osd(...), or pass the observable decoder where"
     " one is accepted, such as to decoders.SinterDecoder"
 )
 

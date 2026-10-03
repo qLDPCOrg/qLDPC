@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Generic typed settings for deferred decoder construction."""
+"""Typed decoder specifications for deferred construction."""
 
 from __future__ import annotations
 
@@ -43,12 +43,12 @@ PcmOrDem: TypeAlias = IntegerArray | stim.DetectorErrorModel
 """A parity-check matrix or detector error model from which to build an error decoder."""
 
 
-# Decoder settings
+# Decoder specifications
 
 
 @dataclasses.dataclass(frozen=True, slots=True, eq=False, repr=False)
 class DecoderSpec(Generic[_DecoderT_co]):
-    """Deferred, typed construction settings for a decoder.
+    """A typed specification for building a decoder later.
 
     A specification builds an error decoder, an observable decoder, or both.  A specification
     without an error builder, such as ``decoders.frontier(...)``, is typed ``DecoderSpec[Never]``.
@@ -63,7 +63,9 @@ class DecoderSpec(Generic[_DecoderT_co]):
     def __post_init__(self) -> None:
         """Require at least one way to build a decoder."""
         if self._builder is None and self._observable_builder is None:
-            raise ValueError("A decoder spec needs an error builder or an observable builder")
+            raise ValueError(
+                "A decoder specification needs an error builder or an observable builder"
+            )
 
     def __repr__(self) -> str:
         """Show the helper call that reproduces this specification."""
@@ -97,7 +99,7 @@ class DecoderSpec(Generic[_DecoderT_co]):
         """Build a decoder that predicts the observable flips of a detector error model."""
         if self._observable_builder is not None:
             return _validate_observable_decoder(
-                self._observable_builder(dem, **self.options), "A decoder spec"
+                self._observable_builder(dem, **self.options), "A decoder specification"
             )
         return _ErrorsToObservablesDecoder(self.build(dem), dem)
 
@@ -151,12 +153,12 @@ def decoder_spec(
     option_transform: _OptionTransform | None = None,
     returns: str | None = None,
 ) -> Callable[..., DecoderSpec[_DecoderT]]:
-    """Create a typed deferred-settings helper from a decoder construction signature.
+    """Create a typed decoder-specification helper from a construction signature.
 
     The helper takes the keyword options of ``signature_source`` (by default, ``builder``) other
     than its first argument and the ``exclude`` names, and is documented by the docstring of
     ``builder``, with its summary verb "Build" replaced by "Configure" and its Returns section
-    replaced by ``returns``, which describes the settings.
+    replaced by ``returns``, which describes the specification.
     """
     source = builder if signature_source is None else signature_source
     helper_signature = _get_helper_signature(source, exclude)
@@ -206,7 +208,7 @@ def observable_decoder_spec(
     option_transform: _OptionTransform | None = None,
     returns: str | None = None,
 ) -> Callable[_Parameters, DecoderSpec[Never]]:
-    """Create deferred settings for an observable-only decoder, documented as by decoder_spec."""
+    """Create an observable-only decoder-specification helper, as by decoder_spec."""
     helper_signature = _get_helper_signature(observable_builder, frozenset())
     defaults = tuple(
         (name, parameter.default)
@@ -264,9 +266,9 @@ DeferredErrorDecoderInput: TypeAlias = (
     DecoderSpec[ErrorDecoder] | ErrorDecoderConstructor | _MatrixDecoderFactory | None
 )
 """A decoder= input that builds an error decoder later, for a matrix or detector error model that
-the receiving method constructs: decoder settings, an error-decoder constructor, a matrix-only
-factory, or None to select the default decoder.  Prebuilt decoders are excluded, because they are
-tied to one matrix."""
+the receiving method constructs: a decoder specification, an error-decoder constructor, a
+matrix-only factory, or None to select the default decoder.  Prebuilt decoders are excluded,
+because they are tied to one matrix."""
 
 
 ErrorDecoderInput: TypeAlias = DeferredErrorDecoderInput | ErrorDecoder | SupportsDecode
@@ -303,7 +305,7 @@ def _set_helper_metadata(
     return_annotation: object,
     returns: str | None,
 ) -> None:
-    """Give a generated helper the public name, docs, and signature of a settings helper.
+    """Give a generated helper the public name, docs, and signature of a specification helper.
 
     The docstring of the builder documents the options of the helper.  Unlike functools.wraps, this
     does not copy the attributes of a decoder class that provides the signature.
@@ -319,7 +321,7 @@ def _set_helper_metadata(
 def _get_helper_docstring(
     docstring: str | None, signature: inspect.Signature, returns: str | None = None
 ) -> str | None:
-    """Adapt the docstring of a decoder builder to its settings helper.
+    """Adapt the docstring of a decoder builder to its specification helper.
 
     A builder documents the matrix or detector error model that it decodes, which is instead passed
     to DecoderSpec.build, and may document keyword arguments that it forwards to a decoder class.
@@ -426,7 +428,9 @@ def _get_bound_options(
         if kind is inspect.Parameter.VAR_KEYWORD:
             options.update(value)
         elif kind is inspect.Parameter.VAR_POSITIONAL:
-            raise TypeError("Decoder settings helpers do not support variadic positional arguments")
+            raise TypeError(
+                "Decoder specification helpers do not support variadic positional arguments"
+            )
         else:
             options[name] = value
     return options

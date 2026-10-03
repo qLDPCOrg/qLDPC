@@ -892,7 +892,7 @@ class WeightedObservableLookupDecoder(_WeightedLookupDecoderBase):
         )
 
 
-# Decoder settings
+# Decoder specifications
 
 
 @_erasure_bit_support("lookup", supported=True)
@@ -903,7 +903,7 @@ def _get_decoder_lookup(
 
     The options, including the required ``max_weight``, an independent or callable correlated
     ``error_channel``, and optional erasure, confidence, probability-cutoff, post-selection, and
-    symplectic settings, are those of :class:`~qldpc.decoders.custom.lookup.LookupDecoder`.
+    symplectic options, are those of :class:`~qldpc.decoders.custom.lookup.LookupDecoder`.
 
     Returns:
         A :class:`~qldpc.decoders.custom.lookup.LookupDecoder` that maps syndromes to representative
@@ -922,11 +922,11 @@ def _get_observable_decoder_lookup(
     return ObservableLookupDecoder(dem, **decoder_args)  # type: ignore[call-overload]
 
 
-_LOOKUP_SETTINGS_RETURNS = (
-    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
+_LOOKUP_SPEC_RETURNS = (
+    "A decoder specification.  Its ``build(pcm_or_dem)`` method takes a parity-check matrix or "
     "detector error model (DEM), which also supplies default error probabilities and observable"
     " metadata, and returns a :class:`~qldpc.decoders.custom.lookup.LookupDecoder` that maps "
-    "syndromes to representative errors.  Their ``build_observable_decoder(dem)`` method "
+    "syndromes to representative errors.  Its ``build_observable_decoder(dem)`` method "
     "returns an :class:`~qldpc.decoders.custom.lookup.ObservableLookupDecoder` that maps "
     "syndromes directly to observable flips."
 )
@@ -938,7 +938,7 @@ lookup = decoder_spec(
     _get_observable_decoder_lookup,
     signature_source=LookupDecoder,
     exclude=frozenset({"predict_observable_flips"}),
-    returns=_LOOKUP_SETTINGS_RETURNS,
+    returns=_LOOKUP_SPEC_RETURNS,
 )
 
 

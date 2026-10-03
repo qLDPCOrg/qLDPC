@@ -33,7 +33,7 @@ from ..protocols import (
     ObservableDecodeResult,
 )
 
-# Public decoder and settings
+# Public decoder and specifications
 
 
 TesseractDetectorOrderMethod = Literal["bfs", "index", "coordinate"]
@@ -255,8 +255,8 @@ def _get_decoder_tesseract(
     return TesseractDecoder(pcm_or_dem, **decoder_args)
 
 
-_TESSERACT_SETTINGS_RETURNS = (
-    "Decoder settings.  Their ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` "
+_TESSERACT_SPEC_RETURNS = (
+    "A decoder specification.  Its ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` "
     "methods take a binary parity-check matrix or detector error model and return a "
     ":class:`~qldpc.decoders.external.tesseract.TesseractDecoder`, which infers errors and "
     "predicts observable flips natively."
@@ -269,7 +269,7 @@ tesseract = decoder_spec(
     _get_decoder_tesseract,
     signature_source=TesseractDecoder,
     option_transform=_deprecate_error_rate_option,
-    returns=_TESSERACT_SETTINGS_RETURNS,
+    returns=_TESSERACT_SPEC_RETURNS,
 )
 
 
@@ -294,8 +294,8 @@ def tesseract_preset(
         error_rate: Deprecated i.i.d. matrix error probability.  Use ``error_channel`` instead.
 
     Returns:
-        Settings for :func:`decoders.tesseract <qldpc.decoders.tesseract>` that reproduce the
-        preset.
+        A decoder specification for :func:`decoders.tesseract <qldpc.decoders.tesseract>` that
+        reproduces the preset.
     """
     beam_presets = {
         "long-beam": (20, 1_000_000, 21),

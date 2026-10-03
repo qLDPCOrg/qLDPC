@@ -190,8 +190,8 @@ If the checks do not commute, make sure you intend to build a subsystem code and
 Choose or supply a decoder
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Configure a decoder with a typed helper such as ``decoders.bp_lsd(...)`` or ``decoders.mwpm(...)``, and build it for a parity-check matrix or Stim detector error model with ``.build(...)``, or pass the settings as ``decoder=`` to a method that decodes.
-Some settings, such as ``decoders.frontier(...)``, predict observable flips but cannot infer errors, so they are accepted only where observable flips are wanted.
+Create a decoder specification with a typed helper such as ``decoders.bp_lsd(...)`` or ``decoders.mwpm(...)``, and build a decoder for a parity-check matrix or Stim detector error model with ``.build(...)``, or pass the specification as ``decoder=`` to a method that decodes.
+Some specifications, such as ``decoders.frontier(...)``, predict observable flips but cannot infer errors, so they are accepted only where observable flips are wanted.
 The default decoder is GUF for a nonbinary field array and BP+OSD otherwise.
 ``.build_observable_decoder(dem)`` builds a decoder that predicts the observable flips of a detector error model instead, and ``qldpc.decoders.SinterDecoder`` does so for Sinter.
 Code-capacity estimators accept either kind of decoder.

@@ -180,7 +180,7 @@ def test_code_capacity_decoder_from_error_decoder() -> None:
     with pytest.raises(ValueError, match="erasure flags that are not 0 or 1"):
         decoder.decode(field([0]))
 
-    # settings build an error decoder, even if it could predict observable flips natively
+    # specifications build an error decoder, even if they could predict observables natively
     decoder = code_capacity.get_code_capacity_decoder(
         galois.GF2([[1, 1]]), galois.GF2([[1, 0]]), decoders.lookup(max_weight=1)
     )
@@ -431,7 +431,7 @@ def test_code_capacity_decoder_from_sinter_decoder() -> None:
             code.matrix, observable_matrix, annotated_observable_factory
         )
 
-    # so are settings that build an observable decoder, but cannot infer errors
+    # so are specifications that build an observable decoder, but cannot infer errors
     observable_spec: decoders.DecoderSpec[Never] = decoders.DecoderSpec(
         "observable_lookup", None, (), observable_constructor
     )

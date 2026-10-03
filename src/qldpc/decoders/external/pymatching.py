@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Settings and observable adapter for the pymatching package.
+"""Decoder specifications and observable adapter for the pymatching package.
 
 qLDPC imports this integration module while initializing its public decoder API.  Importing
 PyMatching and ldpc eagerly adds roughly 0.18 seconds (about 25 percent) to ``import qldpc`` in
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     class Matching(pymatching.Matching, BatchErrorDecoder): ...
 
 
-# Public decoder and settings
+# Public decoder and specifications
 
 
 class MatchingObservableDecoder(ObservableDecoder):
@@ -220,11 +220,11 @@ def _validate_mwpm_options(
     return options
 
 
-_MWPM_SETTINGS_RETURNS = (
-    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
+_MWPM_SPEC_RETURNS = (
+    "A decoder specification.  Its ``build(pcm_or_dem)`` method takes a parity-check matrix or "
     "detector error model (DEM) and returns a ``pymatching.Matching`` subclass that is also a "
     ":class:`~qldpc.decoders.protocols.BatchErrorDecoder`, which maps a syndrome to an inferred"
-    " physical error.  Their ``build_observable_decoder(dem)`` method returns a "
+    " physical error.  Its ``build_observable_decoder(dem)`` method returns a "
     ":class:`~qldpc.decoders.external.pymatching.MatchingObservableDecoder`, which predicts the"
     " observable flips of a DEM natively: DEM probabilities provide matching weights, and DEM "
     "observable targets provide the faults matrix."
@@ -235,7 +235,7 @@ mwpm = decoder_spec(
     _get_decoder_mwpm,
     _get_observable_decoder_mwpm,
     option_transform=_validate_mwpm_options,
-    returns=_MWPM_SETTINGS_RETURNS,
+    returns=_MWPM_SPEC_RETURNS,
 )
 
 

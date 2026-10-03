@@ -4,7 +4,7 @@
 
 This module is an attachment on top of the modern decoder-construction API.  It hosts the deprecated
 builders ``get_decoder_<NAME>``, ``get_error_decoder``, ``get_observable_decoder``, and
-``decode_observables``, which are replaced by decoder settings such as
+``decode_observables``, which are replaced by decoder specifications such as
 ``decoders.bp_osd(...).build(pcm_or_dem)``.  It also translates the keyword arguments of qLDPC 0.3.3
 into modern decoder inputs, and resolves them with the modern resolution functions.  The modern
 modules never depend on it.
@@ -110,8 +110,8 @@ def decode(
 def get_error_decoder(pcm_or_dem: PcmOrDem, *, decoder: ErrorDecoderInput = None) -> ErrorDecoder:
     """Build or retrieve an error decoder through a deprecated API.
 
-    Use decoder settings directly instead, as in ``decoders.bp_osd(...).build(pcm_or_dem)``, or call
-    a decoder constructor directly.
+    Build from a decoder specification instead, as in
+    ``decoders.bp_osd(...).build(pcm_or_dem)``, or call a decoder constructor directly.
     """
     if isinstance(decoder, DecoderSpec):
         replacement = f"{decoder!r}.build(pcm_or_dem)"
@@ -122,7 +122,7 @@ def get_error_decoder(pcm_or_dem: PcmOrDem, *, decoder: ErrorDecoderInput = None
     elif callable(decoder):
         replacement = f"{_get_callable_name(decoder)}(pcm_or_dem)"
     else:
-        replacement = "decoder settings such as decoders.bp_osd(...).build(pcm_or_dem)"
+        replacement = "a decoder specification such as decoders.bp_osd(...).build(pcm_or_dem)"
     _warn_deprecated("decoders.get_error_decoder", replacement)
     return _get_error_decoder(pcm_or_dem, decoder=decoder)
 
@@ -132,7 +132,7 @@ def get_observable_decoder(
 ) -> ObservableDecoder:
     """Build or retrieve an observable decoder through a deprecated API.
 
-    Use decoder settings directly instead, as in
+    Build from a decoder specification instead, as in
     ``decoders.mwpm(...).build_observable_decoder(dem)``.  To predict the observable flips of an
     error decoder, wrap it in ``decoders.ErrorsToObservablesDecoder(error_decoder, dem)``.
     """
@@ -237,9 +237,9 @@ def resolve_decoder(
     """Resolve an error decoder input, together with deprecated keyword-based decoder arguments.
 
     This serves methods that still accept deprecated keyword arguments next to decoder=.  The
-    decoder input may be decoder settings such as ``decoders.bp_osd(...)``, a constructor that
-    builds an error decoder from pcm_or_dem, a prebuilt error decoder, or None to select the default
-    decoder: GUF for a nonbinary FieldArray, and BP+OSD otherwise.
+    decoder input may be a decoder specification such as ``decoders.bp_osd(...)``, a constructor
+    that builds an error decoder from pcm_or_dem, a prebuilt error decoder, or None to select the
+    default decoder: GUF for a nonbinary FieldArray, and BP+OSD otherwise.
     """
     decoder_input = _merge_legacy_decoder_args(
         pcm_or_dem, decoder, decoder_args, warn_deprecated=warn_deprecated
@@ -257,7 +257,7 @@ def resolve_observable_decoder(
     """Resolve an observable decoder input, together with deprecated keyword-based arguments.
 
     This serves methods that still accept deprecated keyword arguments next to decoder=.  Decoder
-    settings build a native observable decoder where they support one, and otherwise an error
+    specifications build a native observable decoder where they support one, and otherwise an error
     decoder; an observable-decoder compiler such as a ``decoders.SinterDecoder`` is compiled for
     dem; a constructor may build an error decoder or an observable decoder from dem; and a prebuilt
     error decoder or observable decoder is used as is.  An error decoder is wrapped so that the
@@ -343,7 +343,7 @@ def _get_legacy_decoder_input(
     """Translate deprecated decoder arguments into a decoder constructor.
 
     Free-form decoder options are passed through to the selected builder unchecked, as they were
-    in qLDPC 0.3.3, so they become a constructor rather than typed decoder settings.
+    in qLDPC 0.3.3, so they become a constructor rather than a typed decoder specification.
     """
     decoder_args = dict(decoder_args)
     if (decoder_constructor := decoder_args.pop("decoder_constructor", None)) is not None:
@@ -473,7 +473,7 @@ def _get_observable_decoder_expression(decoder: DecoderInput) -> tuple[str | Non
         name = _get_callable_name(decoder)
         error_decoder_expression = f"decoders.ErrorsToObservablesDecoder({name}(dem), dem)"
         return f"{name}(dem)", f" (if it builds an error decoder, use {error_decoder_expression})"
-    return "decoder settings such as decoders.mwpm(...).build_observable_decoder(dem)", ""
+    return "a decoder specification such as decoders.mwpm(...).build_observable_decoder(dem)", ""
 
 
 def _get_callable_name(decoder: Callable[..., object]) -> str:
@@ -482,7 +482,7 @@ def _get_callable_name(decoder: Callable[..., object]) -> str:
 
 
 def _warn_deprecated_builder(function_name: str, helper_name: str) -> None:
-    """Warn that a deprecated builder is replaced by decoder settings."""
+    """Warn that a deprecated builder is replaced by a decoder specification."""
     _warn_deprecated(f"decoders.{function_name}", f"decoders.{helper_name}(...).build(pcm_or_dem)")
 
 

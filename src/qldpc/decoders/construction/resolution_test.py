@@ -125,7 +125,7 @@ def test_custom_decoder(pytestconfig: pytest.Config) -> None:
     # injected decoders are validated, which must survive `python -O`
     with pytest.raises(TypeError, match="must be an ErrorDecoder, or have a decode method"):
         _get_error_decoder(matrix, decoder=lambda _: 0)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="decoder must be decoder settings"):
+    with pytest.raises(TypeError, match="decoder must be a decoder specification"):
         _get_error_decoder(matrix, decoder=0)  # type: ignore[arg-type]
 
 
@@ -208,7 +208,7 @@ def test_invalid_explicit_decoder_inputs() -> None:
             matrix,
             decoder=observable_factory,  # type: ignore[arg-type]
         )
-    with pytest.raises(TypeError, match="decoder must be decoder settings"):
+    with pytest.raises(TypeError, match="decoder must be a decoder specification"):
         _get_error_decoder(matrix, decoder=object())  # type: ignore[arg-type]
 
 
@@ -428,7 +428,7 @@ def test_native_observable_decoders() -> None:
 
 
 def test_observable_decoder_inputs() -> None:
-    """Observable decoders are built from settings, constructors, and prebuilt decoders."""
+    """Observable decoders are built from specifications, constructors, and prebuilt decoders."""
     dem, syndromes = _get_circuit_data()
     observable_lookup = decoders.ObservableLookupDecoder(dem, max_weight=2)
     error_lookup = decoders.LookupDecoder(dem, max_weight=2)
@@ -449,7 +449,7 @@ def test_observable_decoder_inputs() -> None:
     assert _get_observable_decoder(dem, decoder=observable_lookup) is observable_lookup
 
     # invalid inputs
-    with pytest.raises(TypeError, match="decoder must be decoder settings"):
+    with pytest.raises(TypeError, match="decoder must be a decoder specification"):
         _get_observable_decoder(dem, decoder=object())  # type: ignore[arg-type]
 
     def build_invalid_decoder(dem: stim.DetectorErrorModel) -> Any:

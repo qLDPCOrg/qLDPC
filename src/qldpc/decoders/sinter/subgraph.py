@@ -67,8 +67,8 @@ class SubgraphDecoder(SinterDecoder):
                 that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
-            decoder: Settings for the inner decoder, such as ``decoders.mwpm(...)``, a constructor
-                that builds an error decoder or an observable decoder from a detector error model,
+            decoder: A specification for the inner decoder, such as ``decoders.mwpm(...)``, or a
+                constructor that builds an error or observable decoder from a detector error model,
                 an observable-decoder compiler such as a SinterDecoder, or None to select the
                 default decoder.  A prebuilt decoder is rejected, because an inner decoder is built
                 for each subgraph.

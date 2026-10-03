@@ -194,12 +194,10 @@ def _get_decoder_ilp(
     return ILPDecoder(_to_pcm(pcm_or_dem), add_erasure_bit=add_erasure_bit, **decoder_args)
 
 
-_ILP_SETTINGS_RETURNS = (
-    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
+_ILP_SPEC_RETURNS = (
+    "A decoder specification.  Its ``build(pcm_or_dem)`` method takes a parity-check matrix or "
     "detector error model (DEM), whose dense detector-flip matrix is decoded, and returns an "
     ":class:`~qldpc.decoders.custom.ilp.ILPDecoder`."
 )
 
-ilp = decoder_spec(
-    "ilp", _get_decoder_ilp, signature_source=ILPDecoder, returns=_ILP_SETTINGS_RETURNS
-)
+ilp = decoder_spec("ilp", _get_decoder_ilp, signature_source=ILPDecoder, returns=_ILP_SPEC_RETURNS)

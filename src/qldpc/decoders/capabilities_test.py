@@ -36,7 +36,7 @@ class _BitPackedCompiledDecoder:
 
 
 def test_is_prebuilt_decoder() -> None:
-    """Prebuilt decoders decode, and are not settings, constructors, or compilers."""
+    """Prebuilt decoders decode, and are not specifications, constructors, or compilers."""
     matrix = np.eye(2, dtype=int)
     prebuilt_decoders: list[object] = [
         _FixedErrorDecoder([0, 0]),

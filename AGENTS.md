@@ -82,7 +82,7 @@ Free-standing statistical Monte Carlo helpers live in `codes/monte_carlo.py`.
 Code-capacity detector-error-model and decoder orchestration lives in `codes/code_capacity.py`.
 Generic decoder-input checks live in `decoders/capabilities.py`; field-valued and bit-packed observable-decoder adapters live in `decoders/adapters/observable_decoders.py`.
 Immediate builders live beside their implementations: external-package integrations under `decoders/external/`, and qLDPC-owned implementations under `decoders/custom/`.
-Typed decoder settings, generic input resolution, and deprecated keyword translation live under `decoders/construction/`.
+Typed decoder specifications, generic input resolution, and deprecated keyword translation live under `decoders/construction/`.
 Legacy keyword-based construction in `decoders/construction/legacy.py` is an attachment on top of the modern API: it translates deprecated arguments into modern decoder inputs and resolves them with `decoders/construction/resolution.py`, which never imports it.
 
 ## Core invariants
@@ -117,7 +117,7 @@ Legacy keyword-based construction in `decoders/construction/legacy.py` is an att
 
 ### Decoders
 
-- Build decoders from typed settings, as in `decoders.bp_osd(...).build(pcm_or_dem)` or `decoders.mwpm(...).build_observable_decoder(dem)`.
+- Build decoders from typed specifications, as in `decoders.bp_osd(...).build(pcm_or_dem)` or `decoders.mwpm(...).build_observable_decoder(dem)`.
   Builders named `get_decoder_<NAME>`, `get_error_decoder`, and `get_observable_decoder` are deprecated and live only in [`construction/legacy.py`](src/qldpc/decoders/construction/legacy.py).
 - `decoder=None` selects GUF for a nonbinary `FieldArray` and BP+OSD otherwise (see [`construction/resolution.py`](src/qldpc/decoders/construction/resolution.py)).
 - Keep error decoders (`decode_errors`, with `decode` as an alias) distinct from observable decoders (`decode_observables`).
@@ -177,7 +177,7 @@ Legacy keyword-based construction in `decoders/construction/legacy.py` is an att
 
 1. Put integrations with third-party decoder packages under [`decoders/external/`](src/qldpc/decoders/external/), and qLDPC-owned implementations under [`decoders/custom/`](src/qldpc/decoders/custom/).
 2. Keep each immediate builder beside the implementation it constructs.
-   Add typed settings or generic resolution wiring under [`decoders/construction/`](src/qldpc/decoders/construction/), then export the modern API from the relevant package `__init__.py` and [`decoders/__init__.py`](src/qldpc/decoders/__init__.py).
+   Add typed specifications or generic resolution wiring under [`decoders/construction/`](src/qldpc/decoders/construction/), then export the modern API from the relevant package `__init__.py` and [`decoders/__init__.py`](src/qldpc/decoders/__init__.py).
    Keep deprecated keyword translation isolated in `construction/legacy.py`.
 3. Decide and test batch behavior, nonbinary support, detector-error-model support, and erasure signaling explicitly.
 4. Use direct syndrome/error reproductions in addition to factory-selection tests.

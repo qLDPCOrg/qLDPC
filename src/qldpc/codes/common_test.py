@@ -1517,7 +1517,7 @@ def test_prebuilt_decoders_rejected_for_internal_matrices() -> None:
     with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
         classical_code.get_distance_bound(decoder=classical_decoder)
 
-    # decoder settings are rebuilt for each internal matrix
+    # decoder specifications are used to build a decoder for each internal matrix
     assert code.get_distance_bound(decoder=decoders.lookup(max_weight=3)) == 3
     assert code.reduce_logical_ops(decoder=decoders.lookup(max_weight=3))
 

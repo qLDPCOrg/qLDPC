@@ -13,8 +13,9 @@ from .protocols import ErrorDecoder, ObservableDecoder, SupportsDecode
 def is_prebuilt_decoder(decoder: object) -> bool:
     """Whether a decoder input is already built for a matrix or detector error model.
 
-    A prebuilt decoder has a decoding method.  Decoder settings, a constructor, and a Sinter-style
-    decoder that is compiled for a detector error model (see compiles_for_dem) are not prebuilt.
+    A prebuilt decoder has a decoding method.  A decoder specification, a constructor, and a
+    Sinter-style decoder that is compiled for a detector error model (see compiles_for_dem) are not
+    prebuilt.
     """
     return (
         decoder is not None

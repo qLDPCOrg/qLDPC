@@ -199,13 +199,11 @@ def _get_decoder_guf(
     return GUFDecoder(_to_pcm(pcm_or_dem), **decoder_args)  # type: ignore[arg-type]
 
 
-_GUF_SETTINGS_RETURNS = (
-    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
+_GUF_SPEC_RETURNS = (
+    "A decoder specification.  Its ``build(pcm_or_dem)`` method takes a parity-check matrix or "
     "detector error model (DEM), whose dense detector-flip matrix is decoded, and returns a "
     ":class:`~qldpc.decoders.custom.guf.GUFDecoder`."
 )
 
 
-guf = decoder_spec(
-    "guf", _get_decoder_guf, signature_source=GUFDecoder, returns=_GUF_SETTINGS_RETURNS
-)
+guf = decoder_spec("guf", _get_decoder_guf, signature_source=GUFDecoder, returns=_GUF_SPEC_RETURNS)

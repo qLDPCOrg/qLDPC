@@ -24,7 +24,7 @@ from ..construction.specs import observable_decoder_spec
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ObservableDecoder, ObservableDecodeResult
 
-# Public decoder and settings
+# Public decoder and specifications
 
 
 class FrontierObservableDecoder(ObservableDecoder):
@@ -202,15 +202,15 @@ def _get_observable_decoder_frontier(
     )
 
 
-_FRONTIER_SETTINGS_RETURNS = (
-    "Decoder settings.  Their ``build_observable_decoder(dem)`` method takes a binary detector "
+_FRONTIER_SPEC_RETURNS = (
+    "A decoder specification.  Its ``build_observable_decoder(dem)`` method takes a binary detector "
     "error model and returns a "
     ":class:`~qldpc.decoders.external.frontier.FrontierObservableDecoder`.  Frontier cannot "
-    "infer errors, so the settings cannot ``build`` an error decoder. "
+    "infer errors, so this specification cannot ``build`` an error decoder. "
 )
 
 frontier = observable_decoder_spec(
-    "frontier", _get_observable_decoder_frontier, returns=_FRONTIER_SETTINGS_RETURNS
+    "frontier", _get_observable_decoder_frontier, returns=_FRONTIER_SPEC_RETURNS
 )
 
 
@@ -249,7 +249,7 @@ def _validate_frontier_options(
     int_metric_scale: int,
     column_order: str,
 ) -> None:
-    """Validate Frontier settings, which Frontier would otherwise check only when decoding."""
+    """Validate Frontier options, which Frontier would otherwise check only when decoding."""
     if K <= 0:
         raise ValueError("K must be positive")
     if not Delta >= 0:

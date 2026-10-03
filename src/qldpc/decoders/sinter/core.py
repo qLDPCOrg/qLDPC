@@ -44,9 +44,9 @@ else:
 class SinterDecoder(_SinterDecoder):
     """Sinter-compatible configuration that builds observable decoders.
 
-    A SinterDecoder stores settings for an inner decoder.  When Sinter compiles a SinterDecoder for
-    a detector error model, the SinterDecoder builds the inner decoder for that model, and returns a
-    CompiledSinterDecoder that predicts observable flips.  If the inner decoder can predict
+    A SinterDecoder stores a decoder input, such as a specification or constructor.  When Sinter
+    compiles it for a detector error model, it builds the inner decoder for that model and returns
+    a CompiledSinterDecoder that predicts observable flips.  If the inner decoder can predict
     observable flips natively (as Frontier, MWPM, Relay-BP, and lookup-table decoders can), it is
     built in that mode.  Otherwise, it is built as an error decoder, and the compiled decoder
     converts the errors that it infers into observable flips.
@@ -78,13 +78,13 @@ class SinterDecoder(_SinterDecoder):
                 that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
-            decoder: Settings for the inner decoder, such as ``decoders.mwpm(...)``, a constructor
-                that builds an error decoder or an observable decoder from a detector error model,
+            decoder: A specification for the inner decoder, such as ``decoders.mwpm(...)``, or a
+                constructor that builds an error or observable decoder from a detector error model,
                 a ``decoders.from_dem`` factory, an observable-decoder compiler such as another
                 SinterDecoder, or None to select the default decoder.  A ``decoders.from_matrix``
                 factory cannot be used because only a detector error model is available.  A
                 prebuilt decoder is rejected, because the inner decoder is built for each
-                (simplified) detector error model.  Settings build a native observable decoder
+                (simplified) detector error model.  Specifications build a native observable decoder
                 where they support one, and an error decoder is wrapped so that the observable flips
                 of the errors that it infers become its predictions.
             **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.

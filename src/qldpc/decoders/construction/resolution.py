@@ -35,9 +35,9 @@ def _get_error_decoder(pcm_or_dem: PcmOrDem, *, decoder: ErrorDecoderInput = Non
 
     Args:
         pcm_or_dem: The parity-check matrix or detector error model to decode.
-        decoder: Decoder settings such as ``decoders.bp_osd(...)``, a constructor that builds an
-            error decoder from pcm_or_dem, a ``decoders.from_matrix`` factory for a parity-check
-            matrix, a prebuilt error decoder, or None to select the default decoder: GUF for a
+        decoder: A decoder specification such as ``decoders.bp_osd(...)``, a constructor that
+            builds an error decoder from pcm_or_dem, a ``decoders.from_matrix`` factory for a
+            parity-check matrix, a prebuilt error decoder, or None to select the default: GUF for a
             nonbinary FieldArray, and BP+OSD otherwise.
 
     Returns:
@@ -53,8 +53,8 @@ def _get_observable_decoder(
 
     Args:
         dem: The detector error model to decode.
-        decoder: Decoder settings such as ``decoders.mwpm(...)``, which build a native observable
-            decoder where the settings support one, and otherwise an error decoder; an
+        decoder: A decoder specification such as ``decoders.mwpm(...)``, which builds a native
+            observable decoder when supported, and otherwise an error decoder; an
             observable-decoder compiler such as a ``decoders.SinterDecoder``, which is compiled for
             dem; a ``decoders.from_dem`` factory or a constructor that builds a decoder from dem; a
             prebuilt error decoder or observable decoder; or None to select the default decoder.
@@ -81,8 +81,8 @@ def reject_prebuilt_decoder(decoder: object, reason: str) -> None:
     """Raise if a decoder input is prebuilt and cannot be rebuilt for a new matrix."""
     if is_prebuilt_decoder(decoder):
         raise ValueError(
-            f"A prebuilt decoder cannot be passed as decoder= here because {reason}.  Pass decoder"
-            " settings such as decoder=decoders.bp_osd(...), or a decoder constructor, instead"
+            f"A prebuilt decoder cannot be passed as decoder= here because {reason}.  Pass a decoder"
+            " specification such as decoder=decoders.bp_osd(...), or a decoder constructor, instead"
         )
 
 
@@ -95,13 +95,13 @@ def _build_decoder(pcm_or_dem: PcmOrDem, decoder: DecoderInput) -> tuple[object,
         built_decoder, source = default_builder(pcm_or_dem), "The default decoder"
     elif isinstance(decoder, DecoderSpec):
         built_decoder = decoder.build(pcm_or_dem)
-        source = "A decoder spec"
+        source = "A decoder specification"
     elif isinstance(decoder, _MatrixDecoderFactory):
         if isinstance(pcm_or_dem, stim.DetectorErrorModel):
             raise ValueError(
                 "A from_matrix factory needs a parity-check matrix; this workflow provides a"
                 " detector error model.  Pass a decoder factory that accepts a DEM directly, or"
-                " use decoder settings instead"
+                " use a decoder specification instead"
             )
         built_decoder, source = decoder.build(pcm_or_dem), "A from_matrix factory"
     elif isinstance(decoder, _DEMDecoderFactory):
@@ -114,8 +114,8 @@ def _build_decoder(pcm_or_dem: PcmOrDem, decoder: DecoderInput) -> tuple[object,
         built_decoder, source = decoder(pcm_or_dem), "A decoder constructor"
     else:
         raise TypeError(
-            "decoder must be decoder settings such as decoders.bp_osd(...), a decoder constructor,"
-            " a prebuilt error decoder, or None"
+            "decoder must be a decoder specification such as decoders.bp_osd(...), a decoder"
+            " constructor, a prebuilt error decoder, or None"
         )
     return built_decoder, source
 

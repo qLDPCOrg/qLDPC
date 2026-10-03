@@ -202,18 +202,20 @@ def test_frontier_degenerate_models(calls: list[_Call]) -> None:
 
 
 def test_frontier_with_generic_decoding_apis(calls: list[_Call]) -> None:
-    """Frontier settings are accepted wherever an observable decoder can be compiled."""
+    """A Frontier specification works wherever an observable decoder can be compiled."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.2) D0 D1\nerror(0.3) D1 L1")
-    settings = decoders.frontier(add_erasure_bit=True)
+    specification = decoders.frontier(add_erasure_bit=True)
     syndrome = np.array([1, 0])
 
-    assert _get_observable_decoder(dem, decoder=settings).decode_observables(syndrome).tolist() == [
+    assert _get_observable_decoder(dem, decoder=specification).decode_observables(
+        syndrome
+    ).tolist() == [
         1,
         0,
         0,
     ]
 
-    sinter_decoder = decoders.SinterDecoder(decoder=settings).compile_decoder_for_dem(dem)
+    sinter_decoder = decoders.SinterDecoder(decoder=specification).compile_decoder_for_dem(dem)
     assert sinter_decoder.num_erasure_bits == 1
     shots = np.array([[1, 0], [0, 1]], dtype=np.uint8)
     assert sinter_decoder.decode_shots(shots).tolist() == [[1, 0, 0], [0, 1, 0]]
@@ -222,14 +224,14 @@ def test_frontier_with_generic_decoding_apis(calls: list[_Call]) -> None:
     code = codes.RepetitionCode(3)
     num_calls = len(calls)
     logical_error_rate, _ = code.get_logical_error_rate_func(
-        num_samples=10, max_error_rate=0.1, decoder=settings
+        num_samples=10, max_error_rate=0.1, decoder=specification
     )(0.1)
     assert 0 <= logical_error_rate <= 1
     assert len(calls) > num_calls
 
 
 def test_frontier_validation(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Invalid settings are rejected before Frontier is imported."""
+    """Invalid options are rejected before Frontier is imported."""
     monkeypatch.setitem(sys.modules, "frontier", None)
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
     for options, message in [

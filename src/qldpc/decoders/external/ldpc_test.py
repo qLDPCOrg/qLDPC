@@ -75,7 +75,7 @@ def test_ldpc_backend_options(
     # an empty mapping is equivalent to no backend options
     assert helper(backend_options={}).options["backend_options"] is None
 
-    # misspelled named options are rejected when the settings are created
+    # misspelled named options are rejected when the specification is created
     with pytest.raises(TypeError, match="unexpected keyword argument 'max_itr'"):
         helper(max_itr=4)
     with pytest.raises(ValueError, match="lists max_iter by name, so pass it directly"):

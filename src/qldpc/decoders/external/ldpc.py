@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Settings for decoders provided by the ldpc package.
+"""Decoder specifications for decoders provided by the ldpc package.
 
 qLDPC imports this integration module while initializing its public decoder API.  Importing ``ldpc``
 and PyMatching eagerly here adds roughly 0.18 seconds (about 25 percent) to ``import qldpc`` in
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     class BeliefFindDecoder(ldpc.BeliefFindDecoder, ErrorDecoder): ...
 
 
-# Decoder settings
+# Decoder specifications
 
 
 @_erasure_bit_support("BP_OSD", supported=False)
@@ -266,8 +266,8 @@ def _get_decoder_bf(
     )
 
 
-_BP_OSD_SETTINGS_RETURNS = (
-    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
+_BP_OSD_SPEC_RETURNS = (
+    "A decoder specification.  Its ``build(pcm_or_dem)`` method takes a parity-check matrix or "
     "detector error model (DEM) and returns an ``ldpc.BpOsdDecoder`` subclass that is also an "
     ":class:`~qldpc.decoders.protocols.ErrorDecoder`."
 )
@@ -276,11 +276,11 @@ bp_osd = decoder_spec(
     "bp_osd",
     _get_decoder_bp_osd,
     option_transform=_deprecate_error_rate_option,
-    returns=_BP_OSD_SETTINGS_RETURNS,
+    returns=_BP_OSD_SPEC_RETURNS,
 )
 
-_BP_LSD_SETTINGS_RETURNS = (
-    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
+_BP_LSD_SPEC_RETURNS = (
+    "A decoder specification.  Its ``build(pcm_or_dem)`` method takes a parity-check matrix or "
     "detector error model (DEM) and returns an ``ldpc.bplsd_decoder.BpLsdDecoder`` subclass "
     "that is also an :class:`~qldpc.decoders.protocols.ErrorDecoder`."
 )
@@ -289,11 +289,11 @@ bp_lsd = decoder_spec(
     "bp_lsd",
     _get_decoder_bp_lsd,
     option_transform=_deprecate_error_rate_option,
-    returns=_BP_LSD_SETTINGS_RETURNS,
+    returns=_BP_LSD_SPEC_RETURNS,
 )
 
-_BF_SETTINGS_RETURNS = (
-    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
+_BF_SPEC_RETURNS = (
+    "A decoder specification.  Its ``build(pcm_or_dem)`` method takes a parity-check matrix or "
     "detector error model (DEM) and returns an ``ldpc.BeliefFindDecoder`` subclass that is also"
     " an :class:`~qldpc.decoders.protocols.ErrorDecoder`."
 )
@@ -302,7 +302,7 @@ bf = decoder_spec(
     "bf",
     _get_decoder_bf,
     option_transform=_deprecate_error_rate_option,
-    returns=_BF_SETTINGS_RETURNS,
+    returns=_BF_SPEC_RETURNS,
 )
 
 

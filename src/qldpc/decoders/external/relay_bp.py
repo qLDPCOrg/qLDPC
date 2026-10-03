@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Relay-BP decoder adapter and settings."""
+"""Relay-BP decoder adapter and specifications."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from ..construction.specs import decoder_spec
 from ..dems import DetectorErrorModelArrays
 from ..protocols import BatchErrorDecoder, ErrorDecodeResult, ObservableDecodeResult
 
-# Public decoder and settings
+# Public decoder and specifications
 
 
 class RelayBPDecoder(BatchErrorDecoder):
@@ -575,8 +575,8 @@ def _get_decoder_min_sum_bp(
     )
 
 
-_RELAY_BP_SETTINGS_RETURNS = (
-    "Decoder settings.  Their ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` "
+_RELAY_BP_SPEC_RETURNS = (
+    "A decoder specification.  Its ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` "
     "methods take a parity-check matrix or detector error model and return a "
     ":class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when "
     "observable metadata is available, predicts observable flips."
@@ -584,12 +584,12 @@ _RELAY_BP_SETTINGS_RETURNS = (
 
 
 relay_bp = decoder_spec(
-    "relay_bp", _get_decoder_relay_bp, _get_decoder_relay_bp, returns=_RELAY_BP_SETTINGS_RETURNS
+    "relay_bp", _get_decoder_relay_bp, _get_decoder_relay_bp, returns=_RELAY_BP_SPEC_RETURNS
 )
 
 
-_MIN_SUM_BP_SETTINGS_RETURNS = (
-    "Decoder settings.  Their ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` "
+_MIN_SUM_BP_SPEC_RETURNS = (
+    "A decoder specification.  Its ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` "
     "methods take a parity-check matrix or detector error model and return a "
     ":class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when "
     "observable metadata is available, predicts observable flips."
@@ -600,7 +600,7 @@ min_sum_bp = decoder_spec(
     "min_sum_bp",
     _get_decoder_min_sum_bp,
     _get_decoder_min_sum_bp,
-    returns=_MIN_SUM_BP_SETTINGS_RETURNS,
+    returns=_MIN_SUM_BP_SPEC_RETURNS,
 )
 
 

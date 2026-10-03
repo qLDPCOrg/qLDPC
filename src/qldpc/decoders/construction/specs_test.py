@@ -78,7 +78,7 @@ def test_decoder_specs() -> None:
     spec = decoders.DecoderSpec("custom", _get_decoder_lookup, (("max_weight", 1),))
     assert repr(spec).startswith("DecoderSpec('custom', ")
 
-    # misspelled options are rejected when settings are created, including by helpers that
+    # misspelled options are rejected when specifications are created, including by helpers that
     # forward additional options to their backends through backend_options
     with pytest.raises(TypeError, match=r"bp_lsd\(\).*unexpected keyword argument 'lsd_ordr'"):
         decoders.bp_lsd(lsd_ordr=1)  # type: ignore[call-arg]
@@ -392,7 +392,7 @@ def test_decoder_spec_helper_annotations() -> None:
         assert annotations.keys() == annotated_parameters | {"return"}
         assert typing.get_origin(annotations["return"]) is decoders.DecoderSpec
 
-    # the runtime annotations name the decoder that the settings build, as type checkers infer
+    # the runtime annotations name the decoder that the specifications build, as type checkers infer
     expected_decoder_types: list[tuple[Callable[..., object], object]] = [
         (decoders.bp_osd, decoders.ErrorDecoder),
         (decoders.mwpm, decoders.BatchErrorDecoder),
@@ -433,7 +433,7 @@ def test_decoder_spec_helper_docstrings() -> None:
         assert documented_names == set(inspect.signature(helper).parameters)
     assert "build(pcm_or_dem)" in (decoders.bp_osd.__doc__ or "")
 
-    # builders document the decoder that they build, and helpers the settings that they return
+    # builders document the decoder they build, and helpers the specifications they return
     builders: list[tuple[Callable[..., object], Callable[..., object]]] = [
         (_get_decoder_bp_osd, decoders.bp_osd),
         (_get_decoder_lookup, decoders.lookup),
@@ -446,8 +446,8 @@ def test_decoder_spec_helper_docstrings() -> None:
         assert builder_docstring.startswith("Build ")
         builder_returns = builder_docstring.split("Returns:\n", maxsplit=1)[1].split("\n\n")[0]
         helper_returns = helper_docstring.split("Returns:\n", maxsplit=1)[1].split("\n\n")[0]
-        assert "Decoder settings" not in builder_returns
-        assert helper_returns.lstrip().startswith("Decoder settings.")
+        assert "decoder specification" not in builder_returns
+        assert helper_returns.lstrip().startswith("A decoder specification.")
         assert all(len(line) <= 100 for line in helper_returns.splitlines())
         helper_details = helper_docstring.split("Returns:")[1].partition("\n\n")[2]
         assert helper_details == builder_docstring.split("Returns:")[1].partition("\n\n")[2]
@@ -470,15 +470,15 @@ def test_get_helper_docstring() -> None:
     signature = inspect.Signature(
         [inspect.Parameter("option", inspect.Parameter.KEYWORD_ONLY, default=0)]
     )
-    assert specs._get_helper_docstring(docstring, signature, "Settings.") == (
+    assert specs._get_helper_docstring(docstring, signature, "A decoder specification.") == (
         "Configure a decoder.\n\n    Args:\n        option: An option.\n\n    Returns:\n"
-        "        Settings.\n\n    More details.\n    "
+        "        A decoder specification.\n\n    More details.\n    "
     )
     assert "A decoder that is" in (specs._get_helper_docstring(docstring, signature) or "")
     assert specs._get_helper_docstring(None, signature) is None
 
 
-def test_deprecated_error_rate_settings_are_last_and_warn() -> None:
+def test_deprecated_error_rate_option_is_last_and_warns() -> None:
     """Deferred helpers keep deprecated options last and translate them with a warning."""
     entry_points = (
         decoders.bp_osd,

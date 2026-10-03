@@ -506,7 +506,7 @@ class ClassicalCode(AbstractCode):
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
-            decoder: Settings for the decoder used to bound distance; see help(get_distance_bound).
+            decoder: Decoder input used to bound distance; see help(get_distance_bound).
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
@@ -536,7 +536,7 @@ class ClassicalCode(AbstractCode):
                 randomized upper bounds; see help(get_distance_bound).
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
-            decoder: Settings for the decoder used to bound distance; see help(get_distance_bound).
+            decoder: Decoder input used to bound distance; see help(get_distance_bound).
             method: Binary exact-distance method, unused when bounding the distance.
                 ``"brouwer_zimmermann"`` is the default; ``"brute_force"`` enumerates every nonzero
                 code word.  Nonbinary and vector-distance calculations always use exhaustive
@@ -659,8 +659,8 @@ class ClassicalCode(AbstractCode):
             cutoff: Exit early once the upper bound falls to or below this cutoff.
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
-            decoder: Decoder settings such as ``decoders.bp_osd(...)``, a constructor that builds an
-                error decoder from a parity check matrix, or None to select the default decoder.
+            decoder: A decoder specification such as ``decoders.bp_osd(...)``, a constructor that
+                builds an error decoder from a parity check matrix, or None to select the default.
                 If vector is not None, the decoder decodes syndromes of the parity check matrix of
                 this code, and may be a decoder prebuilt for that matrix.  Otherwise, the decoder
                 decodes an internal effective check matrix, so a prebuilt decoder is rejected.
@@ -909,13 +909,13 @@ class ClassicalCode(AbstractCode):
         predicts the value of every bit of the sampled error.  The decoder argument accepts either
         an error decoder or an observable decoder:
 
-        - Decoder settings such as ``decoder=decoders.bp_osd(...)``, a constructor that builds an
-          error decoder from a parity check matrix, or an error decoder prebuilt for the parity
-          check matrix of this code.  If decoder is None, the default decoder is GUF for a
+        - A decoder specification such as ``decoder=decoders.bp_osd(...)``, a constructor that
+          builds an error decoder from a parity check matrix, or an error decoder prebuilt for
+          the parity check matrix of this code.  If decoder is None, the default is GUF for a
           nonbinary field and BP+OSD otherwise.  An error decoder infers an error from its syndrome,
           and decoding fails if that error differs from the sampled error.
-        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``, or an
-          observable-decoder constructor with an observable return annotation.  It is built for a
+        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``, or a
+          factory wrapped with ``decoders.from_dem(factory)``.  It is built for a
           detector error model whose detectors are the parity checks of this code and whose
           observables are its bits.  Stim detector error models are binary, so such a decoder is
           rejected for a code over another field.
@@ -2402,13 +2402,13 @@ class QuditCode(AbstractCode):
         its symplectic products with the logical operators of the code.  The decoder argument
         accepts either an error decoder or an observable decoder:
 
-        - Decoder settings such as ``decoder=decoders.bp_osd(...)``, or a constructor that builds an
-          error decoder from a parity check matrix.  If decoder is None, the default decoder is
+        - A decoder specification such as ``decoder=decoders.bp_osd(...)``, or a constructor that
+          builds an error decoder from a parity check matrix.  If decoder is None, the default is
           GUF for a nonbinary field and BP+OSD otherwise.  An error decoder infers a symplectic
           error from its syndrome, and decoding fails if that error and the sampled error have
           different logical actions.
-        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``, or an
-          observable-decoder constructor with an observable return annotation.  It is built for a
+        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``, or a
+          factory wrapped with ``decoders.from_dem(factory)``.  It is built for a
           detector error model whose detectors are the stabilizer generators of the code, whose
           observables are its logical operators, and whose error mechanisms are the single-qubit X,
           Y, and Z errors.  Stim detector error models are binary, so such a decoder is rejected for
@@ -3252,7 +3252,7 @@ class CSSCode(QuditCode):
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
-            decoder: Settings for the decoder used to bound distance; see help(get_distance_bound).
+            decoder: Decoder input used to bound distance; see help(get_distance_bound).
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
@@ -3284,7 +3284,7 @@ class CSSCode(QuditCode):
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
-            decoder: Settings for the decoder used to bound distance; see help(get_distance_bound).
+            decoder: Decoder input used to bound distance; see help(get_distance_bound).
             method: Binary exact-distance method, unused when bounding the distance.
                 ``"brouwer_zimmermann"`` is the default; ``"brute_force"`` enumerates every
                 nontrivial logical operator.  Nonbinary calculations always use exhaustive
@@ -3509,7 +3509,7 @@ class CSSCode(QuditCode):
                 The strings "X" and "Z" (case-insensitive) are also accepted.  If None (the
                 default), minimize over X and Z.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
-            decoder: Settings for the decoder-based algorithm; see
+            decoder: Decoder input for the decoder-based algorithm; see
                 help(get_distance_bound_with_decoder).  Providing a decoder selects the
                 ``"decoder"`` backend when ``backend="auto"``.
             backend: ``"auto"`` (the default), ``"gap"``, ``"sqetch"``, or ``"decoder"``.
@@ -3616,8 +3616,8 @@ class CSSCode(QuditCode):
                 X-type logical operator).  If passed qldpc.objects.Pauli.Z, compute the Z-distance.
             num_trials: Minimize over this many independent upper bounds.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
-            decoder: Decoder settings such as ``decoders.bp_osd(...)``, a constructor that builds an
-                error decoder from a parity check matrix, or None to select the default decoder.
+            decoder: A decoder specification such as ``decoders.bp_osd(...)``, a constructor that
+                builds an error decoder from a parity check matrix, or None to select the default.
                 The decoder decodes an internal effective check matrix (described below), so a
                 prebuilt decoder is rejected.
             **decoder_kwargs: Deprecated decoder-selection and construction arguments to pass to
@@ -3721,8 +3721,8 @@ class CSSCode(QuditCode):
             pauli: The type of the logical operator to reduce: Pauli.X or Pauli.Z.  The strings "X"
                 and "Z" (case-insensitive) are also accepted.
             logical_index: The index of the logical operator to reduce.
-            decoder: Decoder settings such as ``decoders.bp_osd(...)``, a constructor that builds an
-                error decoder from a parity check matrix, or None to select the default decoder.
+            decoder: A decoder specification such as ``decoders.bp_osd(...)``, a constructor that
+                builds an error decoder from a parity check matrix, or None to select the default.
                 The decoder decodes an internal effective check matrix that stacks the checks and
                 dual logical operators of the code, so a prebuilt decoder is rejected.
             **decoder_kwargs: Deprecated decoder-selection and construction arguments to pass to
@@ -3768,7 +3768,7 @@ class CSSCode(QuditCode):
             pauli: The type of logical operators to reduce: Pauli.X, Pauli.Z, or None (the default)
                 to reduce both X-type and Z-type logical operators.  The strings "X" and "Z"
                 (case-insensitive) are also accepted.
-            decoder: Settings for the decoder used to reduce each logical operator; see
+            decoder: Decoder input used to reduce each logical operator; see
                 help(reduce_logical_op).
             **decoder_kwargs: Deprecated decoder-selection and construction arguments to pass to
                 qldpc.decoders.get_decoder.
@@ -3950,12 +3950,12 @@ class CSSCode(QuditCode):
         arguments configure these decoders, and each independently accepts either an error decoder
         or an observable decoder:
 
-        - Decoder settings such as ``decoders.bp_osd(...)``, a constructor that builds an error
-          decoder from a parity check matrix, or an error decoder prebuilt for the stabilizer
+        - A decoder specification such as ``decoders.bp_osd(...)``, a constructor that builds an
+          error decoder from a parity check matrix, or an error decoder prebuilt for the stabilizer
           matrix of its sector.  An error decoder infers an error, whose products with the logical
           operators of the sector are its prediction.
-        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``, or an
-          observable-decoder constructor with an observable return annotation.  It is built for a
+        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``, or a
+          factory wrapped with ``decoders.from_dem(factory)``.  It is built for a
           detector error model whose detectors are the stabilizers of its sector and whose
           observables are the logical operators of its sector.  Stim detector error models are
           binary, so such a decoder is rejected for a code over another field.
@@ -4010,13 +4010,14 @@ class CSSCode(QuditCode):
             raise ValueError(
                 "A shared prebuilt decoder cannot decode both CSS sectors, whose stabilizer"
                 " matrices differ.  Pass decoder_x= and decoder_z= with decoders built for their"
-                " respective sectors, or pass decoder settings such as decoder=decoders.bp_osd(...)"
+                " respective sectors, or pass a decoder specification such as"
+                " decoder=decoders.bp_osd(...)"
             )
 
-        # Construct decoders.  Sector-specific settings override shared settings: decoder_x and
-        # decoder_z override decoder, and the legacy decoder_x_kwargs and decoder_z_kwargs override
-        # shared legacy keyword arguments.  The two decoders can be shared when their matrices,
-        # decoder inputs, and legacy arguments coincide.
+        # Construct decoders.  Sector-specific decoder inputs override the shared input: decoder_x
+        # and decoder_z override decoder, and the legacy decoder_x_kwargs and decoder_z_kwargs
+        # override shared legacy keyword arguments.  The two decoders can be shared when their
+        # matrices, decoder inputs, and legacy arguments coincide.
         decoder_x_input = decoder if decoder_x is None else decoder_x
         decoder_z_input = decoder if decoder_z is None else decoder_z
 
@@ -4061,8 +4062,8 @@ class CSSCode(QuditCode):
                 raise ValueError(
                     "A shared prebuilt observable decoder cannot decode both CSS sectors, whose"
                     " logical operators differ.  Pass decoder_x= and decoder_z= with observable"
-                    " decoders built for their respective sectors, or pass decoder settings such as"
-                    " decoder=decoders.bp_osd(...)"
+                    " decoders built for their respective sectors, or pass a decoder specification"
+                    " such as decoder=decoders.bp_osd(...)"
                 )
             code_capacity_decoder_z = get_code_capacity_decoder(
                 stabilizer_ops_x,
