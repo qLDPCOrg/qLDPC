@@ -369,11 +369,13 @@ class RelayBPDecoder(BatchErrorDecoder):
         return np.hstack([flips, errors_and_erasure_bits[:, -1:]]).astype(np.uint8)
 
     def _observable_flips(self, errors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Convert inferred errors, one per row, into observable flips."""
-        return (
-            np.asarray(np.asarray(errors, dtype=np.uint8) @ self.observable_error_matrix_transposed)
-            & 1
-        )
+        """Convert inferred errors, one per row, into observable flips.
+
+        Each flip is the parity of a uint8 sum, whose overflow is harmless since only its low bit
+        is read.
+        """
+        errors = np.asarray(errors, dtype=np.uint8)
+        return (errors @ self.observable_error_matrix_transposed) & 1
 
     def _reproduces_syndrome(
         self, errors: npt.NDArray[np.int_], detectors: npt.NDArray[np.int_]
