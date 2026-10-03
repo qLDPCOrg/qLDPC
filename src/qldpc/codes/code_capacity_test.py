@@ -288,6 +288,72 @@ def test_code_capacity_decoder_from_observable_decoder() -> None:
         )
 
 
+def test_code_capacity_error_and_observable_output_contracts() -> None:
+    """An ambiguous syndrome can have distinct error and observable predictions."""
+    field = galois.GF2
+    syndrome_matrix = field([[1, 1]])
+    observable_matrix = field([[1, 0]])
+    errors = [field([1, 0]), field([0, 1])]
+    assert all(np.array_equal(syndrome_matrix @ error, [1]) for error in errors)
+    assert [int((observable_matrix @ error)[0]) for error in errors] == [1, 0]
+
+    projected = code_capacity.get_code_capacity_decoder(
+        syndrome_matrix, observable_matrix, _FixedErrorDecoder([1, 0])
+    )
+    native = code_capacity.get_code_capacity_decoder(
+        syndrome_matrix, observable_matrix, _FixedObservableDecoder([0])
+    )
+    assert isinstance(projected.decoder, observable_decoders.ErrorsToFieldObservablesDecoder)
+    assert native.decoder.decode_observables(np.array([1])).tolist() == [0]
+    assert [projected.get_failure_and_erasure(error) for error in errors] == [
+        (False, False),
+        (True, False),
+    ]
+    assert [native.get_failure_and_erasure(error) for error in errors] == [
+        (True, False),
+        (False, False),
+    ]
+
+    erasing = code_capacity.get_code_capacity_decoder(
+        syndrome_matrix, observable_matrix, _FixedErrorDecoder([1, 0, 1], True)
+    )
+    prediction, erased = erasing.decode(field([1]))
+    assert erasing.num_erasure_flags == 1
+    assert prediction.tolist() == [1] and erased
+    assert erasing.get_failure_and_erasure(errors[1]) == (False, True)
+    with pytest.raises(ValueError, match=r"expected shape \(3,\)"):
+        code_capacity.get_code_capacity_decoder(
+            syndrome_matrix, observable_matrix, _FixedErrorDecoder([1, 0], True)
+        ).decode(field([1]))
+
+
+def test_code_capacity_dem_mechanism_order_and_native_prediction() -> None:
+    """DEM columns keep the caller's error order, including tied syndromes."""
+    field = galois.GF2
+    syndrome_matrix = field([[1, 1, 0], [0, 0, 1]])
+    observable_matrix = field([[1, 0, 1], [0, 1, 1]])
+    dem_errors = field([[0, 1, 0], [1, 0, 0], [0, 0, 1]])
+    dem = code_capacity.get_code_capacity_dem(
+        syndrome_matrix,
+        observable_matrix,
+        dem_errors,
+        error_probs=np.array([0.12, 0.04, 0.06]),
+    )
+    arrays = decoders.DetectorErrorModelArrays(dem, simplify=False)
+    assert np.array_equal(arrays.detector_flip_matrix.toarray(), [[1, 1, 0], [0, 0, 1]])
+    assert np.array_equal(arrays.observable_flip_matrix.toarray(), [[0, 1, 1], [1, 0, 1]])
+    assert np.allclose(arrays.error_probs, [0.12, 0.04, 0.06])
+
+    native = decoders.lookup(max_weight=1).build_observable_decoder(dem)
+    decoder = code_capacity.get_code_capacity_decoder(syndrome_matrix, observable_matrix, native)
+    errors = [field([0, 1, 0]), field([1, 0, 0]), field([0, 0, 1])]
+    assert [decoder.get_failure_and_erasure(error) for error in errors] == [
+        (False, False),
+        (True, False),
+        (False, False),
+    ]
+
+
 def test_code_capacity_decoder_from_sinter_decoder() -> None:
     """A Sinter-style decoder is compiled for the code-capacity DEM of its sector."""
     code = codes.RepetitionCode(3)
