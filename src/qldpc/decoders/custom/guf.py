@@ -77,12 +77,6 @@ class GUFDecoder(ErrorDecoder):
 
         self.graph = self.code.graph.to_undirected()
 
-    def decode(
-        self, syndrome: npt.NDArray[np.int_], *, max_weight: int | None = None
-    ) -> npt.NDArray[np.int_]:
-        """Decode an error syndrome and return an inferred error (alias for decode_errors)."""
-        return self.decode_errors(syndrome, max_weight=max_weight)
-
     def decode_errors(
         self, syndrome: npt.NDArray[np.int_], *, max_weight: int | None = None
     ) -> npt.NDArray[np.int_]:
@@ -152,6 +146,12 @@ class GUFDecoder(ErrorDecoder):
             decoded_error = with_erasure_bits(decoded_error, False)
         return decoded_error
 
+    def decode(
+        self, syndrome: npt.NDArray[np.int_], *, max_weight: int | None = None
+    ) -> npt.NDArray[np.int_]:
+        """Decode an error syndrome and return an inferred error (alias for decode_errors)."""
+        return self.decode_errors(syndrome, max_weight=max_weight)
+
     def get_sub_problem_indices(
         self, syndrome: npt.NDArray[np.int_], error_set: set[Node]
     ) -> tuple[list[int], list[int]]:
@@ -204,6 +204,7 @@ _GUF_SETTINGS_RETURNS = (
     "detector error model (DEM), whose dense detector-flip matrix is decoded, and returns a "
     ":class:`~qldpc.decoders.custom.guf.GUFDecoder`."
 )
+
 
 guf = decoder_spec(
     "guf", _get_decoder_guf, signature_source=GUFDecoder, returns=_GUF_SETTINGS_RETURNS
