@@ -6,9 +6,10 @@ from __future__ import annotations
 
 import inspect
 import pickle
+import types
 import typing
-from collections.abc import Callable, Sequence
-from typing import Any, Never
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, Never, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -172,6 +173,7 @@ def test_decoder_spec_helper_annotations() -> None:
     assert typing.get_args(inspect.signature(unannotated_helper).return_annotation) == (
         decoders.ErrorDecoder,
     )
+    assert isinstance(unannotated_helper().build(np.eye(1, dtype=int)), decoders.GUFDecoder)
 
 
 def test_decoder_spec_helper_docstrings() -> None:
@@ -206,6 +208,35 @@ def test_decoder_spec_helper_docstrings() -> None:
         assert all(len(line) <= 100 for line in helper_returns.splitlines())
         helper_details = helper_docstring.split("Returns:")[1].partition("\n\n")[2]
         assert helper_details == builder_docstring.split("Returns:")[1].partition("\n\n")[2]
+
+
+def test_decoder_spec_backend_options() -> None:
+    """A backend_options mapping is stored as a plain dict, and cannot repeat named options."""
+
+    def builder(
+        matrix: npt.NDArray[np.int_],
+        *,
+        max_weight: int | None = None,
+        backend_options: Mapping[str, object] | None = None,
+    ) -> decoders.GUFDecoder:
+        options: dict[str, Any] = dict(backend_options or {})
+        return decoders.GUFDecoder(matrix, max_weight=max_weight, **options)
+
+    helper = specs.decoder_spec("custom", builder)
+    assert helper().options["backend_options"] is None
+    assert helper(backend_options={}).options["backend_options"] is None
+    backend_options = types.MappingProxyType({"symplectic": False})
+    spec = helper(backend_options=backend_options)
+    assert type(spec.options["backend_options"]) is dict
+    assert spec.options["backend_options"] == {"symplectic": False}
+    assert isinstance(spec.build(np.eye(1, dtype=int)), decoders.GUFDecoder)
+
+    with pytest.raises(TypeError, match=r"custom\(\) backend_options must be a mapping"):
+        helper(backend_options=cast(Any, ["symplectic"]))
+    with pytest.raises(ValueError, match="lists max_weight by name, so pass it directly"):
+        helper(backend_options={"max_weight": 1})
+    with pytest.raises(ValueError, match="lists backend_options, max_weight by name, so pass them"):
+        helper(backend_options={"max_weight": 1, "backend_options": {}})
 
 
 def test_get_helper_docstring() -> None:
