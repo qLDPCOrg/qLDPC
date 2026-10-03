@@ -17,10 +17,10 @@ import numpy.typing as npt
 class ErrorDecodeResult:
     """Detailed result of decoding a syndrome to an inferred error.
 
-    ``error`` excludes the erasure flag that ``decode_errors`` appends when erasure signaling is
-    enabled.  ``erasure`` reports whether the decoder signals erasure, whether or not erasure
-    signaling is enabled.  ``diagnostics`` contains explicitly named decoder-specific results, not a
-    cross-decoder confidence score.
+    ``error`` is the array that ``decode_errors`` returns, which ends with an erasure flag only if
+    erasure signaling is enabled.  ``erasure`` reports whether the decoder signals erasure, whether
+    or not erasure signaling is enabled.  ``diagnostics`` contains explicitly named
+    decoder-specific results, not a cross-decoder confidence score.
     """
 
     error: npt.NDArray[np.int_]
@@ -32,10 +32,10 @@ class ErrorDecodeResult:
 class ObservableDecodeResult:
     """Detailed result of decoding a syndrome to predicted observable flips.
 
-    ``observable_flips`` excludes the erasure flag that ``decode_observables`` appends when erasure
-    signaling is enabled.  ``erasure`` reports whether the decoder signals erasure, whether or not
-    erasure signaling is enabled.  ``diagnostics`` contains explicitly named decoder-specific
-    results, not a cross-decoder confidence score.
+    ``observable_flips`` is the array that ``decode_observables`` returns, which ends with an
+    erasure flag only if erasure signaling is enabled.  ``erasure`` reports whether the decoder
+    signals erasure, whether or not erasure signaling is enabled.  ``diagnostics`` contains
+    explicitly named decoder-specific results, not a cross-decoder confidence score.
     """
 
     observable_flips: npt.NDArray[np.int_]

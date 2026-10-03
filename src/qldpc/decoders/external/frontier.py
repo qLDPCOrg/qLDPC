@@ -82,7 +82,8 @@ class FrontierObservableDecoder(ObservableDecoder):
                 if name == "terminal_log_masses":
                     value = dict(value)
                 diagnostics[f"frontier.{name}"] = value
-        return ObservableDecodeResult(np.asarray(flips, dtype=int), erased, diagnostics)
+        prediction = np.array(flips + [erased] * self.has_erasure_bit, dtype=int)
+        return ObservableDecodeResult(prediction, erased, diagnostics)
 
     def _decode(self, syndrome: npt.NDArray[np.int_]) -> tuple[list[int], bool, Any]:
         """Decode once, leaving optional backend diagnostics untouched."""

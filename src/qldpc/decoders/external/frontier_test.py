@@ -154,7 +154,7 @@ def test_frontier_decoding(calls: list[_Call]) -> None:
         "int_metric_scale": 1024,
     }
     detailed = decoder.decode_observables_detailed(syndromes[0])
-    assert detailed.observable_flips.tolist() == [0, 0]
+    assert detailed.observable_flips.tolist() == [0, 0, 0]
     assert not detailed.erasure
     assert detailed.diagnostics["frontier.status"] == "ok"
     assert detailed.diagnostics["frontier.terminal_top_log_mass_gap"] == 0.25

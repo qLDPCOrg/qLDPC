@@ -257,6 +257,8 @@ class RelayBPDecoder(BatchErrorDecoder):
         )
         errors = np.asarray([result.decoding for result in results])
         erased = ~self._reproduces_syndrome(errors, detectors)
+        if self.has_erasure_bit:
+            errors = with_erasure_bits(errors, erased)
         return tuple(
             ErrorDecodeResult(
                 error,
@@ -340,7 +342,12 @@ class RelayBPDecoder(BatchErrorDecoder):
         )
         if not results:
             return ()
-        flips = self._observable_flips(np.asarray([result.error for result in results]))
+        errors = np.asarray([result.error for result in results])
+        flips = (
+            self._errors_to_observable_flips(errors)
+            if self.has_erasure_bit
+            else self._observable_flips(errors)
+        )
         return tuple(
             ObservableDecodeResult(prediction, result.erasure, result.diagnostics)
             for prediction, result in zip(flips, results, strict=True)

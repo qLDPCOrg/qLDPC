@@ -64,8 +64,10 @@ class _DetailedErrorsToObservablesDecoder(ErrorsToObservablesDecoder):
         """Decode one syndrome to observable flips, with the error decoder's diagnostics."""
         error_decoder = cast(DetailedErrorDecoder, self._aligned_error_decoder)
         result = error_decoder.decode_errors_detailed(syndrome)
-        flips = np.asarray(result.error @ self.observable_flip_matrix.T) % 2
-        return ObservableDecodeResult(flips.astype(np.uint8), result.erasure, result.diagnostics)
+        num_errors = self.observable_flip_matrix.shape[1]
+        flips = np.asarray(result.error[:num_errors] @ self.observable_flip_matrix.T) % 2
+        prediction = np.hstack([flips, result.error[num_errors:]])
+        return ObservableDecodeResult(prediction, result.erasure, result.diagnostics)
 
 
 # Error-mechanism alignment
@@ -157,6 +159,8 @@ class _DetailedExpandedErrorDecoder(ExpandedErrorDecoder):
     def decode_errors_detailed(self, syndrome: npt.NDArray[np.int_]) -> ErrorDecodeResult:
         """Decode one syndrome, expand the inferred error, and keep the decoder's diagnostics."""
         result = cast(DetailedErrorDecoder, self._decoder).decode_errors_detailed(syndrome)
+        num_errors = len(self._simplified_to_original_index)
         error = np.zeros(self._num_original_errors, dtype=result.error.dtype)
-        error[self._simplified_to_original_index] = result.error
+        error[self._simplified_to_original_index] = result.error[:num_errors]
+        error = np.concatenate([error, result.error[num_errors:]])
         return ErrorDecodeResult(error, result.erasure, result.diagnostics)

@@ -26,7 +26,7 @@ class _FixedDecoder(decoders.ErrorDecoder):
 
 class _DetailedFixedDecoder(_FixedDecoder):
     def decode_errors_detailed(self, syndrome: npt.NDArray[np.int_]) -> decoders.ErrorDecodeResult:
-        return decoders.ErrorDecodeResult(self.output[:-1], bool(self.output[-1]), {"fixed": 1})
+        return decoders.ErrorDecodeResult(self.output, bool(self.output[-1]), {"fixed": 1})
 
 
 def test_errors_to_observables_decoder() -> None:
@@ -54,7 +54,7 @@ def test_errors_to_observables_decoder() -> None:
     )
     assert isinstance(detailed, decoders.DetailedObservableDecoder)
     result = detailed.decode_observables_detailed(syndromes[0])
-    assert result.observable_flips.tolist() == [1, 0]
+    assert result.observable_flips.tolist() == [1, 0, 1]
     assert result.erasure
     assert result.diagnostics == {"fixed": 1}
     assert type(pickle.loads(pickle.dumps(detailed))) is type(detailed)  # noqa: S301

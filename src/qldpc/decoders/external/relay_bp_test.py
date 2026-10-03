@@ -104,13 +104,9 @@ def test_relay_bp_observables() -> None:
             predicted_flips, [decoder.decode_observables(syndrome) for syndrome in syndromes]
         )
         detailed = decoder.decode_observables_detailed_batch(syndromes)
+        assert np.array_equal([result.observable_flips for result in detailed], predicted_flips)
         assert np.array_equal(
-            [result.observable_flips for result in detailed],
-            predicted_flips[:, : dem.num_observables],
-        )
-        assert np.array_equal(
-            decoder.decode_observables_detailed(syndromes[0]).observable_flips,
-            predicted_flips[0, : dem.num_observables],
+            decoder.decode_observables_detailed(syndromes[0]).observable_flips, predicted_flips[0]
         )
 
         errors = get_decoder().decode_batch(syndromes, progress_bar=False)

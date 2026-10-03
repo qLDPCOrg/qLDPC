@@ -264,7 +264,7 @@ Relay-BP and PyMatching decoders also have ``decode_errors_detailed_batch`` and 
 An :class:`decoders.ErrorDecodeResult <qldpc.decoders.protocols.ErrorDecodeResult>` contains ``error``.
 An :class:`decoders.ObservableDecodeResult <qldpc.decoders.protocols.ObservableDecodeResult>` contains ``observable_flips``.
 Both also contain an ``erasure`` boolean and a namespaced ``diagnostics`` dictionary.
-Detailed-result predictions exclude the erasure bit, which array-returning methods append as their final entry when erasure signaling is enabled.
+Each detailed-result prediction is the array that the corresponding hard method returns, which ends with an erasure bit only if erasure signaling is enabled.
 The ``erasure`` field reports whether the decoder signals erasure, whether or not erasure signaling is enabled.
 
 The available diagnostics depend on the decoder:

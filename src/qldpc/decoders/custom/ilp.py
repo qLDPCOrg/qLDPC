@@ -87,6 +87,8 @@ class ILPDecoder(ErrorDecoder):
         warning) if no optimal solution is found.
         """
         error, erased, problem = self._solve(syndrome, signal_erasure=True)
+        if self.has_erasure_bit:
+            error = with_erasure_bits(error, erased)
         diagnostics: dict[str, object] = {"ilp.status": str(problem.status)}
         if isinstance(problem.value, float) and np.isfinite(problem.value):
             diagnostics["ilp.objective_value"] = problem.value

@@ -92,6 +92,9 @@ def test_ilp_decoder_unreproducible_syndrome() -> None:
         decoded = decoder.decode(syndrome)
     assert len(decoded) == matrix.shape[1] + 1
     assert decoded[-1] == 1
+    with pytest.warns(UserWarning, match="could not be found"):
+        detailed = decoder.decode_errors_detailed(syndrome)
+    assert np.array_equal(detailed.error, decoded)
 
 
 def test_ilp_decoder_near_integral_values() -> None:
