@@ -67,7 +67,7 @@ def get_code_capacity_dem(
     field = type(syndrome_matrix)
     if getattr(field, "order", 2) != 2:
         raise ValueError(
-            "A Sinter-style decoder is compiled for a Stim detector error model, which is binary, so"
+            "An observable decoder built from a Stim detector error model requires a binary code, so"
             f" it cannot decode a code over {field.name}.  Pass a decoder specification such as"
             " decoders.guf(), or a prebuilt observable decoder (such as an ObservableLookupDecoder)"
             " built for this code, instead"
@@ -234,23 +234,27 @@ def get_code_capacity_decoder(
     an observable decoder as follows:
 
     - A Sinter-style decoder (an object with a compile_decoder_for_dem method, such as a
-      decoders.SinterDecoder), a factory wrapped with decoders.from_dem, or a decoder specification
-      that cannot infer errors (such as decoders.frontier(...)), is built for the detector error
+      decoders.SinterDecoder), a factory wrapped with decoders.from_dem, or a specification with
+      native observable prediction (such as decoders.lookup(...)) is built for the detector error
       model that get_code_capacity_dem constructs.  This requires the matrices to be binary.
+      A specification that cannot infer errors (such as decoders.frontier(...)) also needs this
+      model, and therefore cannot decode a nonbinary code.
     - A prebuilt observable decoder (an object with a decode_observables method, or a compiled
       Sinter decoder with a decode_shots_bit_packed method, that is not also an error decoder) is
       used as is.  It must predict the observable values ``observable_matrix @ error`` from the
       syndrome ``syndrome_matrix @ error``.
-    - Anything else (None, a decoder specification, a bare constructor, a factory wrapped with
-      decoders.from_matrix, or a prebuilt error decoder, together with any deprecated decoder_args)
-      builds an error decoder for syndrome_matrix.  The observable values of the errors that it
-      infers are its predictions.  A decoder that is both an error decoder and an observable
-      decoder, such as a RelayBPDecoder, is used as an error decoder.
+    - Anything else (None, a specification without native observable prediction, a bare
+      constructor, a factory wrapped with decoders.from_matrix, or a prebuilt error decoder) builds
+      an error decoder for syndrome_matrix.  The observable values of the errors that it infers are
+      its predictions.  On nonbinary codes, specifications that can infer errors use this path
+      even if they also have a binary native-observable builder.  A prebuilt decoder that can
+      infer errors and predict observables, such as a RelayBPDecoder, also uses this path: it
+      cannot be rebuilt for this sector's observable map.  Deprecated decoder_args retain their
+      error-decoding behavior.
 
-    A DecoderSpec with ``infers_errors=True`` builds an error decoder.  A DecoderSpec with
-    ``infers_errors=False``, a Sinter-style decoder, or a decoders.from_dem factory builds an
-    observable decoder from the code-capacity detector error model.  A prebuilt observable decoder
-    is used directly.
+    A decoder specification that supports native observable prediction builds an observable
+    decoder for binary sectors, even when it can also infer errors.  A specification with no
+    error builder requires a binary sector.  A prebuilt observable-only decoder is used directly.
 
     Args:
         syndrome_matrix: The matrix that maps an error to its syndrome.
@@ -263,9 +267,10 @@ def get_code_capacity_decoder(
             matrix, making each error location an error mechanism.
         symplectic_dem_errors: Whether the detector error model has one X, Z, and Y mechanism per
             qudit.  Cannot be combined with dem_errors.
-        dem_error_weights: Relative probabilities for the detector error model's error mechanisms.
-            These are scaled by a fixed placeholder error rate, so decoder decisions do not change
-            when the returned estimator is evaluated at different physical error rates.
+        dem_error_weights: Relative probabilities for the detector error model's error mechanisms
+            when building a native observable decoder or compiling a Sinter-style decoder.  These
+            are scaled by a fixed placeholder error rate, so decoder decisions do not change when
+            the returned estimator is evaluated at different physical error rates.
         prebuilt_rejection_reason: If not None, reject a prebuilt (error or observable) decoder,
             with this reason; see help(qldpc.decoders.reject_prebuilt_decoder).  A Sinter-style
             decoder is compiled here, so it is not rejected.
@@ -307,8 +312,11 @@ def get_code_capacity_decoder(
             require_dimensions=True,
         )
 
-    observable_spec = isinstance(decoder, DecoderSpec) and not decoder.infers_errors
-    if not decoder_args and (observable_spec or isinstance(decoder, _DEMDecoderFactory)):
+    native_spec = isinstance(decoder, DecoderSpec) and (
+        not decoder.infers_errors
+        or (type(syndrome_matrix).order == 2 and decoder.predicts_observables_natively)
+    )
+    if not decoder_args and (native_spec or isinstance(decoder, _DEMDecoderFactory)):
         dem = get_code_capacity_dem(
             syndrome_matrix,
             observable_matrix,

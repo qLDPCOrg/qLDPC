@@ -309,6 +309,10 @@ def test_tesseract_specs_sinter_and_code_capacity(
 
     code = codes.RepetitionCode(3)
     observable_matrix = code.field([[1, 0, 0]])
+    native_capacity_decoder = code_capacity.get_code_capacity_decoder(
+        code.matrix, observable_matrix, spec
+    )
+    assert isinstance(native_capacity_decoder.decoder, decoders.TesseractDecoder)
     capacity_decoder = code_capacity.get_code_capacity_decoder(
         code.matrix,
         observable_matrix,
@@ -317,6 +321,7 @@ def test_tesseract_specs_sinter_and_code_capacity(
     for bit in range(3):
         error = code.field.Zeros(3)
         error[bit] = 1
+        assert native_capacity_decoder.get_failure_and_erasure(error) == (False, False)
         assert capacity_decoder.get_failure_and_erasure(error) == (False, False)
 
 

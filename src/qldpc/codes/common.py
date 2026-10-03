@@ -909,16 +909,16 @@ class ClassicalCode(AbstractCode):
         predicts the value of every bit of the sampled error.  The decoder argument accepts either
         an error decoder or an observable decoder:
 
-        - A decoder specification such as ``decoder=decoders.bp_osd(...)``, a constructor that
-          builds an error decoder from a parity check matrix, or an error decoder prebuilt for
-          the parity check matrix of this code.  If decoder is None, the default is GUF for a
-          nonbinary field and BP+OSD otherwise.  An error decoder infers an error from its syndrome,
-          and decoding fails if that error differs from the sampled error.
-        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``, or a
-          factory wrapped with ``decoders.from_dem(factory)``.  It is built for a
-          detector error model whose detectors are the parity checks of this code and whose
-          observables are its bits.  Stim detector error models are binary, so such a decoder is
-          rejected for a code over another field.
+        - An error-decoder constructor, a decoder specification without native observable
+          prediction (such as ``decoders.bp_osd(...)``), or an error decoder prebuilt for this
+          code's parity check matrix.  If decoder is None, the default is GUF for a nonbinary
+          field and BP+OSD otherwise.  An error decoder infers an error from its syndrome, and
+          decoding fails if that error differs from the sampled error.
+        - A specification with native observable prediction (such as ``decoders.mwpm(...)``),
+          a Sinter-style decoder, or a factory wrapped with ``decoders.from_dem(factory)``.
+          It is built for a detector error model whose detectors are the parity checks of this
+          code and whose observables are its bits.  Stim detector error models are binary; a
+          specification that can also infer errors uses error decoding for a nonbinary code.
         - An observable decoder prebuilt to predict the bits of an error from its syndrome, such as
           an ObservableLookupDecoder built with ``observable_flip_matrix=code.field.Identity(n)``.
           Its detector and observable dimensions are checked when the decoder exposes them.
@@ -2402,17 +2402,16 @@ class QuditCode(AbstractCode):
         its symplectic products with the logical operators of the code.  The decoder argument
         accepts either an error decoder or an observable decoder:
 
-        - A decoder specification such as ``decoder=decoders.bp_osd(...)``, or a constructor that
-          builds an error decoder from a parity check matrix.  If decoder is None, the default is
-          GUF for a nonbinary field and BP+OSD otherwise.  An error decoder infers a symplectic
-          error from its syndrome, and decoding fails if that error and the sampled error have
-          different logical actions.
-        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``, or a
-          factory wrapped with ``decoders.from_dem(factory)``.  It is built for a
-          detector error model whose detectors are the stabilizer generators of the code, whose
-          observables are its logical operators, and whose error mechanisms are the single-qubit X,
-          Y, and Z errors.  Stim detector error models are binary, so such a decoder is rejected for
-          a code over another field.
+        - An error-decoder constructor or a specification without native observable prediction,
+          such as ``decoders.bp_osd(...)``.  If decoder is None, the default is GUF for a nonbinary
+          field and BP+OSD otherwise.  An error decoder infers a symplectic error from its syndrome,
+          and decoding fails if that error and the sampled error have different logical actions.
+        - A specification with native observable prediction (such as ``decoders.mwpm(...)``),
+          a Sinter-style decoder, or a factory wrapped with ``decoders.from_dem(factory)``.
+          It is built for a detector error model whose detectors are the stabilizer generators
+          of the code, whose observables are its logical operators, and whose error mechanisms
+          are the single-qubit X, Z, and Y errors.  Stim detector error models are binary; a
+          specification that can also infer errors uses error decoding for a nonbinary code.
 
         Either kind of decoder decodes syndromes of an internal syndrome matrix, so a prebuilt
         decoder is rejected.  Any remaining keyword arguments are deprecated decoder-selection and
@@ -3950,15 +3949,16 @@ class CSSCode(QuditCode):
         arguments configure these decoders, and each independently accepts either an error decoder
         or an observable decoder:
 
-        - A decoder specification such as ``decoders.bp_osd(...)``, a constructor that builds an
-          error decoder from a parity check matrix, or an error decoder prebuilt for the stabilizer
+        - An error-decoder constructor, a specification without native observable prediction
+          (such as ``decoders.bp_osd(...)``), or an error decoder prebuilt for the stabilizer
           matrix of its sector.  An error decoder infers an error, whose products with the logical
           operators of the sector are its prediction.
-        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``, or a
-          factory wrapped with ``decoders.from_dem(factory)``.  It is built for a
-          detector error model whose detectors are the stabilizers of its sector and whose
-          observables are the logical operators of its sector.  Stim detector error models are
-          binary, so such a decoder is rejected for a code over another field.
+        - A specification with native observable prediction (such as ``decoders.mwpm(...)``),
+          a Sinter-style decoder, or a factory wrapped with ``decoders.from_dem(factory)``.
+          It is built for a detector error model whose detectors are the stabilizers of its
+          sector and whose observables are its logical operators.  Stim detector error models
+          are binary; a specification that can also infer errors uses error decoding for a
+          nonbinary code.
         - An observable decoder prebuilt to predict the logical flips of its sector from syndromes
           of its sector, such as an ObservableLookupDecoder built with the stabilizer matrix of its
           sector and ``observable_flip_matrix`` set to the logical operators of its sector.  It must

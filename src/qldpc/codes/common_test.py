@@ -1987,6 +1987,20 @@ def test_css_capacity_with_observable_decoders() -> None:
     assert np.array_equal(
         stabilizer_ops, steane_code.get_stabilizer_ops(Pauli.Z, canonicalized=False)
     )
+    sector_models: list[stim.DetectorErrorModel] = []
+
+    def build_sector_decoder(dem: stim.DetectorErrorModel) -> decoders.ObservableDecoder:
+        sector_models.append(dem)
+        return decoders.ObservableLookupDecoder(dem, max_weight=1)
+
+    steane_code.get_logical_error_rate_func(0, decoder=decoders.from_dem(build_sector_decoder))
+    assert len(sector_models) == 2
+    logical_x = decoders.DetectorErrorModelArrays(sector_models[0], simplify=False)
+    logical_z = decoders.DetectorErrorModelArrays(sector_models[1], simplify=False)
+    assert not np.array_equal(
+        logical_x.observable_flip_matrix.toarray(), logical_z.observable_flip_matrix.toarray()
+    )
+
     decoder_x = decoders.ObservableLookupDecoder(
         stabilizer_ops,
         max_weight=1,

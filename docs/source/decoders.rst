@@ -118,10 +118,12 @@ Code-capacity estimates
 A code-capacity estimate samples errors, decodes their syndromes, and counts a failure whenever the decoder mispredicts the logical action of a sampled error.
 It therefore only ever asks which logical operators (observables) an error flips, and its ``decoder=``, ``decoder_x=``, and ``decoder_z=`` arguments each accept either kind of decoder:
 
-* An error decoder (a specification with ``infers_errors=True``, a constructor, or, where accepted, a prebuilt error decoder) infers a physical error, and the logical operators flipped by that error are its prediction.
-  This is the default, and ``decoder=None`` selects BP+OSD or GUF.
-  These specifications build an error decoder here, even if the configured decoder could predict observable flips natively.
-* Specifications with ``infers_errors=False``, such as ``decoders.frontier(...)``, build their native observable decoder from the code-capacity detector error model.
+* An error-decoder constructor, a specification without native observable prediction (such as ``decoders.bp_osd(...)``), or, where accepted, a prebuilt error decoder infers a physical error; the logical operators flipped by that error are its prediction.
+  This is also the default for ``decoder=None`` (BP+OSD for binary codes, GUF for nonbinary ones).
+  On nonbinary codes, a specification that can infer errors uses this path even if it also supports native binary observable decoding.
+  Prebuilt decoders with both methods also use this path: their observable map may not match the sector being decoded.
+* A specification with native observable prediction, such as ``decoders.lookup(max_weight=2)``, builds an observable decoder from the code-capacity detector error model, even if it can also infer physical errors.
+  An observable-only specification, such as ``decoders.frontier(...)``, requires this model.
 * A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.lookup(max_weight=2))``, is compiled for a code-capacity detector error model whose detectors are the stabilizers (or parity checks) of the code and whose observables are its logical operators (or, for a classical code, its bits).
   A shared Sinter-style decoder is compiled separately for each CSS sector.
   Stim detector error models are binary, so such a decoder is rejected for a code over another field.
