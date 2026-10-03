@@ -413,14 +413,23 @@ def test_code_capacity_decoder_from_sinter_decoder() -> None:
             code.field.Zeros((3, 3)), observable_matrix, compiled_decoder
         )
 
-    # a typed observable constructor is built from the code-capacity detector error model
+    # a DEM factory receives the code-capacity detector error model, not the parity-check matrix
     def observable_constructor(dem: stim.DetectorErrorModel) -> decoders.ObservableDecoder:
         return decoders.ObservableLookupDecoder(dem, max_weight=1)
 
     decoder = code_capacity.get_code_capacity_decoder(
-        code.matrix, observable_matrix, observable_constructor
+        code.matrix, observable_matrix, decoders.from_dem(observable_constructor)
     )
     assert decoder.get_failure_and_erasure(code.field([1, 0, 0])) == (False, False)
+
+    # return annotations no longer choose the factory input or output contract
+    def annotated_observable_factory(_input: object) -> decoders.ObservableDecoder:
+        return _FixedObservableDecoder([0])
+
+    with pytest.raises(TypeError, match="predicts observable flips rather than errors"):
+        code_capacity.get_code_capacity_decoder(
+            code.matrix, observable_matrix, annotated_observable_factory
+        )
 
     # so are settings that build an observable decoder, but cannot infer errors
     observable_spec: decoders.DecoderSpec[Never] = decoders.DecoderSpec(
@@ -462,6 +471,12 @@ def test_code_capacity_decoder_from_sinter_decoder() -> None:
     with pytest.raises(ValueError, match="cannot decode a code over GF"):
         code_capacity.get_code_capacity_decoder(
             field(code.matrix), field(observable_matrix), decoders.TrivialDecoder()
+        )
+    with pytest.raises(ValueError, match="cannot decode a code over GF"):
+        code_capacity.get_code_capacity_decoder(
+            field(code.matrix),
+            field(observable_matrix),
+            decoders.from_dem(observable_constructor),
         )
     with pytest.raises(ValueError, match="is binary, so it cannot decode a code over GF"):
         code_capacity.get_code_capacity_decoder(

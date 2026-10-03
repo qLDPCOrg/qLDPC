@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import functools
 import inspect
-import typing
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypeVar
@@ -28,7 +27,6 @@ from qldpc._util import get_external_caller_stacklevel
 
 from ..capabilities import (
     compiles_for_dem,
-    constructs_observable_decoder,
     is_prebuilt_decoder,
     is_prebuilt_observable_decoder,
 )
@@ -39,6 +37,7 @@ from ..external.ldpc import _get_decoder_bf, _get_decoder_bp_lsd, _get_decoder_b
 from ..external.pymatching import _get_decoder_mwpm
 from ..external.relay_bp import RelayBPDecoder, _get_decoder_rbp
 from ..protocols import BatchErrorDecoder, ErrorDecoder, ObservableDecoder
+from .factories import _DEMDecoderFactory, _MatrixDecoderFactory
 from .resolution import _get_error_decoder, _get_observable_decoder
 from .specs import (
     DecoderInput,
@@ -466,29 +465,15 @@ def _get_observable_decoder_expression(decoder: DecoderInput) -> tuple[str | Non
         if isinstance(decoder, ObservableDecoder) or is_prebuilt_observable_decoder(decoder):
             return None, ""
         return "decoders.ErrorsToObservablesDecoder(decoder, dem)", ""
+    if isinstance(decoder, _DEMDecoderFactory):
+        return "decoder.build(dem)", ""
+    if isinstance(decoder, _MatrixDecoderFactory):
+        return "a factory that accepts a detector error model", ""
     if callable(decoder):
         name = _get_callable_name(decoder)
-        constructor = decoder
-        while isinstance(constructor, functools.partial):
-            constructor = constructor.func
-        if constructs_observable_decoder(constructor):
-            return f"{name}(dem)", ""
         error_decoder_expression = f"decoders.ErrorsToObservablesDecoder({name}(dem), dem)"
-        if _constructs_error_decoder(constructor):
-            return error_decoder_expression, ""
         return f"{name}(dem)", f" (if it builds an error decoder, use {error_decoder_expression})"
     return "decoder settings such as decoders.mwpm(...).build_observable_decoder(dem)", ""
-
-
-def _constructs_error_decoder(constructor: Callable[..., object]) -> bool:
-    """Whether a constructor is a class or annotated function that builds an error decoder."""
-    if isinstance(constructor, type):
-        return issubclass(constructor, ErrorDecoder)
-    try:
-        return_annotation = typing.get_type_hints(constructor).get("return")
-    except (NameError, TypeError):
-        return False
-    return isinstance(return_annotation, type) and issubclass(return_annotation, ErrorDecoder)
 
 
 def _get_callable_name(decoder: Callable[..., object]) -> str:

@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import TypeGuard, get_type_hints
+from typing import TypeGuard
 
 from .construction.specs import DecoderSpec, ObservableDecoderCompiler
 from .protocols import ErrorDecoder, ObservableDecoder, SupportsDecode
@@ -65,23 +65,3 @@ def is_prebuilt_observable_decoder(decoder: object) -> bool:
             or callable(getattr(decoder, "decode_shots_bit_packed", None))
         )
     )
-
-
-def constructs_observable_decoder(decoder: object) -> bool:
-    """Whether a callable explicitly declares that it constructs an observable decoder."""
-    if not callable(decoder) or is_prebuilt_decoder(decoder):
-        return False
-    if isinstance(decoder, type):
-        return issubclass(decoder, ObservableDecoder) and not issubclass(decoder, ErrorDecoder)
-    try:
-        return_annotation = get_type_hints(decoder).get("return")
-    except (NameError, TypeError):
-        return False
-    return _annotation_is_observable_decoder(return_annotation)
-
-
-def _annotation_is_observable_decoder(annotation: object) -> bool:
-    """Whether a return annotation identifies an observable decoder, but not an error decoder."""
-    if not isinstance(annotation, type):
-        return False
-    return issubclass(annotation, ObservableDecoder) and not issubclass(annotation, ErrorDecoder)

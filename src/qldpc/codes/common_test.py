@@ -1910,6 +1910,27 @@ def test_css_capacity_with_observable_decoders() -> None:
     failures, discards = _get_capacity_counts(code, decoder=decoder, **kwargs)
     assert failures[1] == 0 and not any(discards)
 
+    matrices: list[galois.FieldArray] = []
+    models: list[stim.DetectorErrorModel] = []
+
+    def build_error_decoder(matrix: galois.FieldArray) -> decoders.ErrorDecoder:
+        matrices.append(matrix)
+        return decoders.LookupDecoder(matrix, max_weight=1)
+
+    def build_observable_decoder(dem: stim.DetectorErrorModel) -> decoders.ObservableDecoder:
+        models.append(dem)
+        return decoders.ObservableLookupDecoder(dem, max_weight=1)
+
+    code.get_logical_error_rate_func(
+        0,
+        decoder_x=decoders.from_matrix(build_error_decoder),
+        decoder_z=decoders.from_dem(build_observable_decoder),
+    )
+    assert len(matrices) == len(models) == 1
+    assert isinstance(matrices[0], code.field)
+    assert models[0].num_detectors == code.num_checks_x
+    assert models[0].num_observables == code.dimension
+
     # Error and observable decoders can be mixed.  A pure X bias leaves the Z sector error-free, so
     # replacing the Z-sector decoder by a trivial observable decoder changes nothing, and similarly
     # for a pure Z bias and the X sector.

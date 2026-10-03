@@ -141,6 +141,15 @@ def test_rejected_decoder_arguments() -> None:
     assert isinstance(compiled.observable_decoder, decoders.ObservableLookupDecoder)
     assert np.array_equal(compiled.decode_observables(np.array([1, 0])), [1, 1])
 
+    compiled = decoders.SinterDecoder(
+        decoder=decoders.from_dem(build_observable_decoder)
+    ).compile_decoder_for_dem(dem)
+    assert np.array_equal(compiled.decode_observables(np.array([1, 0])), [1, 1])
+    with pytest.raises(ValueError, match="needs a parity-check matrix"):
+        decoders.SinterDecoder(
+            decoder=decoders.from_matrix(lambda matrix: decoders.LookupDecoder(matrix, 1))
+        ).compile_decoder_for_dem(dem)
+
     window_decoder = decoders.SequentialWindowDecoder(
         [[0], [1]],
         decoder=build_observable_decoder,  # type: ignore[arg-type]

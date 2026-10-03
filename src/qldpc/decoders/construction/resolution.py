@@ -8,11 +8,17 @@ import galois
 import stim
 
 from ..adapters.error_decoders import ErrorsToObservablesDecoder as _ErrorsToObservablesDecoder
-from ..adapters.observable_decoders import BitPackedObservableDecoder as _BitPackedObservableDecoder
+from ..adapters.observable_decoders import (
+    BitPackedObservableDecoder as _BitPackedObservableDecoder,
+)
+from ..adapters.observable_decoders import (
+    validate_observable_decoder,
+)
 from ..capabilities import compiles_for_dem, is_prebuilt_decoder
 from ..custom.guf import _get_decoder_guf
 from ..external.ldpc import _get_decoder_bp_osd
 from ..protocols import ErrorDecoder, ObservableDecoder, as_error_decoder
+from .factories import _DEMDecoderFactory, _MatrixDecoderFactory
 from .specs import (
     DecoderInput,
     DecoderSpec,
@@ -30,8 +36,9 @@ def _get_error_decoder(pcm_or_dem: PcmOrDem, *, decoder: ErrorDecoderInput = Non
     Args:
         pcm_or_dem: The parity-check matrix or detector error model to decode.
         decoder: Decoder settings such as ``decoders.bp_osd(...)``, a constructor that builds an
-            error decoder from pcm_or_dem, a prebuilt error decoder, or None to select the default
-            decoder: GUF for a nonbinary FieldArray, and BP+OSD otherwise.
+            error decoder from pcm_or_dem, a ``decoders.from_matrix`` factory for a parity-check
+            matrix, a prebuilt error decoder, or None to select the default decoder: GUF for a
+            nonbinary FieldArray, and BP+OSD otherwise.
 
     Returns:
         An ErrorDecoder.
@@ -49,7 +56,7 @@ def _get_observable_decoder(
         decoder: Decoder settings such as ``decoders.mwpm(...)``, which build a native observable
             decoder where the settings support one, and otherwise an error decoder; an
             observable-decoder compiler such as a ``decoders.SinterDecoder``, which is compiled for
-            dem; a constructor that builds an error decoder or an observable decoder from dem; a
+            dem; a ``decoders.from_dem`` factory or a constructor that builds a decoder from dem; a
             prebuilt error decoder or observable decoder; or None to select the default decoder.
             An error decoder is wrapped so that the observable flips of the errors that it infers
             become its predictions.  A decoder that is both an error decoder and an observable
@@ -60,6 +67,8 @@ def _get_observable_decoder(
     """
     if isinstance(decoder, DecoderSpec):
         return decoder.build_observable_decoder(dem)
+    if isinstance(decoder, _DEMDecoderFactory):
+        return validate_observable_decoder(decoder.build(dem), "A from_dem factory")
     if compiles_for_dem(decoder):
         return _compile_observable_decoder(decoder, dem)
     built_decoder, source = _build_decoder(dem, decoder)
@@ -87,6 +96,18 @@ def _build_decoder(pcm_or_dem: PcmOrDem, decoder: DecoderInput) -> tuple[object,
     elif isinstance(decoder, DecoderSpec):
         built_decoder = decoder.build(pcm_or_dem)
         source = "A decoder spec"
+    elif isinstance(decoder, _MatrixDecoderFactory):
+        if isinstance(pcm_or_dem, stim.DetectorErrorModel):
+            raise ValueError(
+                "A from_matrix factory needs a parity-check matrix; this workflow provides a"
+                " detector error model.  Pass a decoder factory that accepts a DEM directly, or"
+                " use decoder settings instead"
+            )
+        built_decoder, source = decoder.build(pcm_or_dem), "A from_matrix factory"
+    elif isinstance(decoder, _DEMDecoderFactory):
+        raise TypeError(
+            "A from_dem factory predicts observables, but this workflow needs inferred errors"
+        )
     elif is_prebuilt_decoder(decoder):
         built_decoder, source = decoder, "A prebuilt decoder"
     elif callable(decoder):

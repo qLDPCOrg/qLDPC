@@ -254,24 +254,40 @@ def test_deprecated_resolution_functions() -> None:
         decoder = decoders.get_error_decoder(galois.GF(3)(matrix))
     assert isinstance(decoder, decoders.GUFDecoder)
 
-    observable_cases: list[tuple[decoders.DecoderInput, str | None]] = [
-        (decoders.lookup(1), "decoders.lookup(max_weight=1).build_observable_decoder(dem)"),
-        (None, "decoders.bp_osd().build_observable_decoder(dem)"),
+    observable_cases: list[tuple[decoders.DecoderInput, str | None, str]] = [
+        (decoders.lookup(1), "decoders.lookup(max_weight=1).build_observable_decoder(dem)", ""),
+        (None, "decoders.bp_osd().build_observable_decoder(dem)", ""),
         (
             decoders.SinterDecoder(decoder=decoders.lookup(1)),
             "decoder.compile_decoder_for_dem(dem)",
+            "",
         ),
-        (build_observable_lookup(dem), None),
-        (build_lookup(dem), "decoders.ErrorsToObservablesDecoder(decoder, dem)"),
-        (build_lookup, "decoders.ErrorsToObservablesDecoder(build_lookup(dem), dem)"),
-        (build_observable_lookup, "build_observable_lookup(dem)"),
+        (build_observable_lookup(dem), None, ""),
+        (build_lookup(dem), "decoders.ErrorsToObservablesDecoder(decoder, dem)", ""),
+        (
+            build_lookup,
+            "build_lookup(dem)",
+            (
+                " (if it builds an error decoder, use"
+                " decoders.ErrorsToObservablesDecoder(build_lookup(dem), dem))"
+            ),
+        ),
+        (
+            build_observable_lookup,
+            "build_observable_lookup(dem)",
+            (
+                " (if it builds an error decoder, use"
+                " decoders.ErrorsToObservablesDecoder(build_observable_lookup(dem), dem))"
+            ),
+        ),
+        (decoders.from_dem(build_observable_lookup), "decoder.build(dem)", ""),
     ]
-    for observable_input, expression in observable_cases:
+    for observable_input, expression, note in observable_cases:
         message = get_message(decoders.get_observable_decoder, dem, decoder=observable_input)
         if expression is None:
             assert message == "the prebuilt observable decoder directly instead"
         else:
-            assert message == f"{expression} instead"
+            assert message == f"{expression}{note} instead"
         message = get_message(
             decoders.decode_observables, dem, np.array([1, 0]), decoder=observable_input
         )
@@ -280,10 +296,15 @@ def test_deprecated_resolution_functions() -> None:
                 "the decode_observables method of the prebuilt observable decoder instead"
             )
         else:
-            assert message == f"{expression}.decode_observables(syndrome) instead"
+            assert message == f"{expression}.decode_observables(syndrome){note} instead"
 
-    # a partial constructor is classified by the constructor that it wraps, and a constructor that
-    # does not declare what it builds gets advice for both kinds of decoder
+    with (
+        pytest.warns(DeprecationWarning, match="a factory that accepts a detector error model"),
+        pytest.raises(ValueError, match="needs a parity-check matrix"),
+    ):
+        decoders.get_observable_decoder(dem, decoder=decoders.from_matrix(build_lookup))
+
+    # bare constructors receive advice for both output kinds, regardless of their annotation
     def build_unannotated(dem: stim.DetectorErrorModel):  # type: ignore[no-untyped-def]
         return decoders.ObservableLookupDecoder(dem, max_weight=1)
 
@@ -293,11 +314,15 @@ def test_deprecated_resolution_functions() -> None:
     build_unresolvable.__annotations__["return"] = "UndefinedDecoder"
     wrapped = "decoders.ErrorsToObservablesDecoder({}(dem), dem)"
     constructor_cases: list[tuple[Callable[..., object], str, str]] = [
-        (functools.partial(build_observable_lookup), "decoder_constructor(dem)", ""),
+        (
+            functools.partial(build_observable_lookup),
+            "decoder_constructor(dem)",
+            f" (if it builds an error decoder, use {wrapped.format('decoder_constructor')})",
+        ),
         (
             functools.partial(decoders.LookupDecoder, max_weight=1),
-            wrapped.format("decoder_constructor"),
-            "",
+            "decoder_constructor(dem)",
+            f" (if it builds an error decoder, use {wrapped.format('decoder_constructor')})",
         ),
         (
             build_unannotated,

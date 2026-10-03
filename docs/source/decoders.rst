@@ -125,7 +125,8 @@ It therefore only ever asks which logical operators (observables) an error flips
 * A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.lookup(max_weight=2))``, is compiled for a code-capacity detector error model whose detectors are the stabilizers (or parity checks) of the code and whose observables are its logical operators (or, for a classical code, its bits).
   A shared Sinter-style decoder is compiled separately for each CSS sector.
   Stim detector error models are binary, so such a decoder is rejected for a code over another field.
-  A callable explicitly annotated to return an observable decoder is treated as an observable-decoder constructor and is built from the same detector error model.
+  A factory wrapped with ``decoders.from_dem(factory)`` is built from the same detector error model.
+  Bare callables are treated as error-decoder constructors and receive the parity-check matrix.
 * A prebuilt observable decoder, such as an :class:`decoders.ObservableLookupDecoder <qldpc.decoders.custom.lookup.ObservableLookupDecoder>` built with the stabilizers and logical operators of a CSS sector, predicts logical flips directly, over any field.
   Detector, observable, and field metadata is validated when a decoder exposes it.
   Built-in observable decoders expose this metadata; a raw precompiled decoder that only provides Sinter's bit-packed interface must do so as well.
@@ -236,6 +237,7 @@ These classes are also exported from ``qldpc.decoders``.
 Besides a ``DecoderSpec``, the ``decoder=`` argument accepts:
 
 * a constructor, such as a decoder class, or any other callable that builds a decoder from a parity-check matrix or detector error model;
+* ``decoders.from_matrix(factory)`` for a custom error decoder that requires a parity-check matrix, or ``decoders.from_dem(factory)`` for a custom observable decoder that requires a binary detector error model (including in code-capacity estimators);
 * where observable flips are predicted for a detector error model, an observable-decoder compiler (see :class:`decoders.ObservableDecoderCompiler <qldpc.decoders.construction.specs.ObservableDecoderCompiler>`), such as a ``SinterDecoder``, which is compiled for that model; or
 * a prebuilt decoder, which is used as is.
 
@@ -246,6 +248,7 @@ Some methods decode a matrix that they construct internally, and therefore rejec
 These methods accept a ``DecoderSpec`` or a constructor.
 A constructor can fix custom options with ``functools.partial`` or a ``lambda``.
 A ``SinterDecoder``, a ``SubgraphDecoder``, and the code-capacity estimators also accept an observable-decoder compiler, which they compile for each detector error model that they decode.
+The two factory wrappers declare the expected input explicitly; they do not convert between matrices and detector error models.
 
 Detailed decode results
 -----------------------
@@ -401,6 +404,14 @@ The following usage remains available during a deprecation period, and each use 
      - ``settings.build_observable_decoder(dem).decode_observables(syndrome)``
    * - ``decoders.lookup_table(...)``
      - ``decoders.lookup(...)``
+
+Migrating custom code-capacity factories
+----------------------------------------
+
+Custom code-capacity factories that relied on a return annotation to receive a detector error model
+must now be wrapped with ``decoders.from_dem(factory)``.  Bare factories receive the parity-check
+matrix and must build error decoders; use ``decoders.from_matrix(factory)`` to declare a matrix-only
+factory explicitly.  Annotations no longer control this routing, without a deprecation period.
 
 Decoder settings reference
 --------------------------

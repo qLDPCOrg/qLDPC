@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import functools
+import pickle
 from collections.abc import Callable
 from typing import Any
 
@@ -125,6 +127,67 @@ def test_custom_decoder(pytestconfig: pytest.Config) -> None:
         _get_error_decoder(matrix, decoder=lambda _: 0)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="decoder must be decoder settings"):
         _get_error_decoder(matrix, decoder=0)  # type: ignore[arg-type]
+
+
+def test_explicit_factory_inputs() -> None:
+    """Factory wrappers specify both the input representation and output contract."""
+    matrix = galois.GF(3)([[1, 1]])
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+    seen_matrices: list[galois.FieldArray] = []
+    seen_dems: list[stim.DetectorErrorModel] = []
+
+    def build_errors(matrix: galois.FieldArray) -> decoders.ErrorDecoder:
+        seen_matrices.append(matrix)
+        return decoders.LookupDecoder(matrix, max_weight=1)
+
+    def build_observables(dem: stim.DetectorErrorModel) -> decoders.ObservableDecoder:
+        seen_dems.append(dem)
+        return decoders.ObservableLookupDecoder(dem, max_weight=1)
+
+    matrix_factory = decoders.from_matrix(build_errors)
+    dem_factory = decoders.from_dem(build_observables)
+    assert _get_error_decoder(matrix, decoder=matrix_factory).decode_errors(
+        np.array([1])
+    ).shape == (2,)
+    assert len(seen_matrices) == 1 and seen_matrices[0] is matrix
+    assert np.array_equal(
+        _get_observable_decoder(dem, decoder=dem_factory).decode_observables(np.array([1])), [1]
+    )
+    assert len(seen_dems) == 1 and seen_dems[0] is dem
+    with pytest.raises(ValueError, match="needs a parity-check matrix"):
+        _get_error_decoder(dem, decoder=matrix_factory)
+    with pytest.raises(ValueError, match="needs a parity-check matrix"):
+        _get_observable_decoder(dem, decoder=matrix_factory)
+    with pytest.raises(TypeError, match="predicts observables, but this workflow needs inferred"):
+        _get_error_decoder(matrix, decoder=dem_factory)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="requires a callable factory"):
+        decoders.from_matrix(None)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="requires a callable factory"):
+        decoders.from_dem(None)  # type: ignore[arg-type]
+
+    def build_invalid_decoder(dem: stim.DetectorErrorModel) -> Any:
+        return object()
+
+    with pytest.raises(TypeError, match="must provide a decode_observables method"):
+        _get_observable_decoder(dem, decoder=decoders.from_dem(build_invalid_decoder))
+    with pytest.raises(TypeError, match="must be an ErrorDecoder"):
+        _get_error_decoder(matrix, decoder=decoders.from_matrix(build_invalid_decoder))
+
+    matrix_factory = decoders.from_matrix(functools.partial(decoders.LookupDecoder, max_weight=1))
+    dem_factory = decoders.from_dem(
+        functools.partial(decoders.ObservableLookupDecoder, max_weight=1)
+    )
+    restored_matrix_factory = pickle.loads(pickle.dumps(matrix_factory))  # noqa: S301
+    restored_dem_factory = pickle.loads(pickle.dumps(dem_factory))  # noqa: S301
+    assert _get_error_decoder(matrix, decoder=restored_matrix_factory).decode_errors(
+        np.array([1])
+    ).shape == (2,)
+    assert np.array_equal(
+        _get_observable_decoder(dem, decoder=restored_dem_factory).decode_observables(
+            np.array([1])
+        ),
+        [1],
+    )
 
 
 def test_invalid_explicit_decoder_inputs() -> None:

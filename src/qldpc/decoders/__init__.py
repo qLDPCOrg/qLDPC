@@ -21,6 +21,7 @@ from .common import (
     get_error_and_erasure,
     with_erasure_bits,
 )
+from .construction.factories import from_dem, from_matrix
 from .construction.legacy import (
     decode_observables,
     get_decoder_bf,
@@ -159,6 +160,8 @@ __all__ = [
     "compiles_for_dem",
     "decode",
     "decode_observables",
+    "from_dem",
+    "from_matrix",
     "frontier",
     "get_decoder",
     "get_decoder_BF",

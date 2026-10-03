@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Mapping
-from typing import cast
 
 import galois
 import numpy as np
@@ -26,16 +25,15 @@ from qldpc.decoders.adapters.observable_decoders import (
 )
 from qldpc.decoders.capabilities import (
     compiles_for_dem,
-    constructs_observable_decoder,
     is_prebuilt_observable_decoder,
 )
 from qldpc.decoders.common import PLACEHOLDER_ERROR_RATE
+from qldpc.decoders.construction.factories import _DEMDecoderFactory
 from qldpc.decoders.construction.legacy import resolve_decoder
 from qldpc.decoders.construction.resolution import reject_prebuilt_decoder
 from qldpc.decoders.construction.specs import (
     DecoderInput,
     DecoderSpec,
-    ObservableDecoderConstructor,
 )
 from qldpc.decoders.dems import DetectorErrorModelArrays
 from qldpc.decoders.protocols import ErrorDecoder, ObservableDecoder
@@ -236,22 +234,21 @@ def get_code_capacity_decoder(
     an observable decoder as follows:
 
     - A Sinter-style decoder (an object with a compile_decoder_for_dem method, such as a
-      decoders.SinterDecoder), a constructor explicitly declared to return an observable decoder,
-      or decoder settings that cannot infer errors (such as decoders.frontier(...)), is built for
-      the detector error model that get_code_capacity_dem constructs.  This requires the matrices
-      to be binary.
+      decoders.SinterDecoder), a factory wrapped with decoders.from_dem, or decoder settings that
+      cannot infer errors (such as decoders.frontier(...)), is built for the detector error model
+      that get_code_capacity_dem constructs.  This requires the matrices to be binary.
     - A prebuilt observable decoder (an object with a decode_observables method, or a compiled
       Sinter decoder with a decode_shots_bit_packed method, that is not also an error decoder) is
       used as is.  It must predict the observable values ``observable_matrix @ error`` from the
       syndrome ``syndrome_matrix @ error``.
-    - Anything else (None, decoder settings, a constructor, or a prebuilt error decoder, together
-      with any deprecated decoder_args) builds an error decoder for syndrome_matrix, exactly as
-      qldpc.decoders.resolve_decoder does.  The observable values of the errors that it infers are
-      its predictions.  A decoder that is both an error decoder and an observable decoder, such as a
-      RelayBPDecoder, is used as an error decoder.
+    - Anything else (None, decoder settings, a bare constructor, a factory wrapped with
+      decoders.from_matrix, or a prebuilt error decoder, together with any deprecated decoder_args)
+      builds an error decoder for syndrome_matrix.  The observable values of the errors that it
+      infers are its predictions.  A decoder that is both an error decoder and an observable
+      decoder, such as a RelayBPDecoder, is used as an error decoder.
 
     A DecoderSpec with ``infers_errors=True`` builds an error decoder.  A DecoderSpec with
-    ``infers_errors=False``, a Sinter-style decoder, or an observable-decoder constructor builds an
+    ``infers_errors=False``, a Sinter-style decoder, or a decoders.from_dem factory builds an
     observable decoder from the code-capacity detector error model.  A prebuilt observable decoder
     is used directly.
 
@@ -311,7 +308,7 @@ def get_code_capacity_decoder(
         )
 
     observable_spec = isinstance(decoder, DecoderSpec) and not decoder.infers_errors
-    if not decoder_args and (observable_spec or constructs_observable_decoder(decoder)):
+    if not decoder_args and (observable_spec or isinstance(decoder, _DEMDecoderFactory)):
         dem = get_code_capacity_dem(
             syndrome_matrix,
             observable_matrix,
@@ -323,8 +320,9 @@ def get_code_capacity_decoder(
             observable_decoder = decoder.build_observable_decoder(dem)
             source = "A decoder spec"
         else:
-            observable_decoder = cast(ObservableDecoderConstructor, decoder)(dem)
-            source = "An observable decoder constructor"
+            assert isinstance(decoder, _DEMDecoderFactory)
+            observable_decoder = decoder.build(dem)
+            source = "A from_dem factory"
         return _get_observable_code_capacity_decoder(
             observable_decoder,
             syndrome_matrix,

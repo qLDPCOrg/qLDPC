@@ -80,11 +80,13 @@ class SinterDecoder(_SinterDecoder):
                 when compiling a decoder for a DEM.
             decoder: Settings for the inner decoder, such as ``decoders.mwpm(...)``, a constructor
                 that builds an error decoder or an observable decoder from a detector error model,
-                an observable-decoder compiler such as another SinterDecoder, or None to select the
-                default decoder.  A prebuilt decoder is rejected, because the inner decoder is built
-                for each (simplified) detector error model.  Settings build a native observable
-                decoder where they support one, and an error decoder is wrapped so that the
-                observable flips of the errors that it infers become its predictions.
+                a ``decoders.from_dem`` factory, an observable-decoder compiler such as another
+                SinterDecoder, or None to select the default decoder.  A ``decoders.from_matrix``
+                factory cannot be used because only a detector error model is available.  A
+                prebuilt decoder is rejected, because the inner decoder is built for each
+                (simplified) detector error model.  Settings build a native observable decoder
+                where they support one, and an error decoder is wrapped so that the observable flips
+                of the errors that it infers become its predictions.
             **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
         """
         reject_removed_decoder_args(decoder_kwargs)

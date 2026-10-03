@@ -30,6 +30,7 @@ from ..adapters.observable_decoders import (
     validate_observable_decoder as _validate_observable_decoder,
 )
 from ..protocols import ErrorDecoder, ObservableDecoder, SupportsDecode
+from .factories import _DEMDecoderFactory, _MatrixDecoderFactory
 
 _DecoderT_co = TypeVar("_DecoderT_co", bound=ErrorDecoder, covariant=True)
 _DecoderT = TypeVar("_DecoderT", bound=ErrorDecoder)
@@ -259,10 +260,13 @@ class ObservableDecoderCompiler(Protocol):
         """Build an observable decoder specialized to one detector error model."""
 
 
-DeferredErrorDecoderInput: TypeAlias = DecoderSpec[ErrorDecoder] | ErrorDecoderConstructor | None
+DeferredErrorDecoderInput: TypeAlias = (
+    DecoderSpec[ErrorDecoder] | ErrorDecoderConstructor | _MatrixDecoderFactory | None
+)
 """A decoder= input that builds an error decoder later, for a matrix or detector error model that
-the receiving method constructs: decoder settings, an error-decoder constructor, or None to select
-the default decoder.  Prebuilt decoders are excluded, because they are tied to one matrix."""
+the receiving method constructs: decoder settings, an error-decoder constructor, a matrix-only
+factory, or None to select the default decoder.  Prebuilt decoders are excluded, because they are
+tied to one matrix."""
 
 
 ErrorDecoderInput: TypeAlias = DeferredErrorDecoderInput | ErrorDecoder | SupportsDecode
@@ -271,12 +275,16 @@ decoder (an ErrorDecoder, or any object whose decode method returns an inferred 
 
 
 DeferredDecoderInput: TypeAlias = (
-    DeferredErrorDecoderInput | ObservableDecoderConstructor | ObservableDecoderCompiler
+    DeferredErrorDecoderInput
+    | ObservableDecoderConstructor
+    | _DEMDecoderFactory
+    | ObservableDecoderCompiler
 )
 """A decoder= input that builds an error or observable decoder later, for a matrix or detector
-error model that the receiving method constructs: a DeferredErrorDecoderInput, an
-observable-decoder constructor, or an observable-decoder compiler such as a SinterDecoder.
-Prebuilt decoders are excluded, because they are tied to one matrix or detector error model."""
+error model that the receiving method constructs: a DeferredErrorDecoderInput, an explicit
+observable-decoder factory, or an observable-decoder compiler such as a SinterDecoder.  A bare
+constructor is treated as an error-decoder constructor.  Prebuilt decoders are excluded, because
+they are tied to one matrix or detector error model."""
 
 
 DecoderInput: TypeAlias = ErrorDecoderInput | DeferredDecoderInput | ObservableDecoder
