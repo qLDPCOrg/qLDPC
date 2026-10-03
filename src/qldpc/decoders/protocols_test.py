@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import copy
-import pickle
 import types
 from typing import Any
 
@@ -15,39 +14,6 @@ import pytest
 import stim
 
 from qldpc import decoders
-
-
-def test_detailed_decode_results_snapshot_inputs() -> None:
-    """Detailed results own their prediction arrays and diagnostic mappings."""
-    error = np.array([1, 0], dtype=int)
-    error_diagnostics: dict[str, object] = {"backend.score": 2.5}
-    error_result = decoders.ErrorDecodeResult(error, diagnostics=error_diagnostics)
-    error[0] = 0
-    error_diagnostics["backend.score"] = 1.0
-    assert error_result.error.tolist() == [1, 0]
-    assert error_result.diagnostics["backend.score"] == 2.5
-    assert isinstance(error_result.diagnostics, types.MappingProxyType)
-
-    flips = np.array([0, 1], dtype=int)
-    observable_diagnostics: dict[str, object] = {"backend.iterations": 4}
-    observable_result = decoders.ObservableDecodeResult(flips, diagnostics=observable_diagnostics)
-    flips[1] = 0
-    observable_diagnostics["backend.iterations"] = 5
-    assert observable_result.observable_flips.tolist() == [0, 1]
-    assert observable_result.diagnostics["backend.iterations"] == 4
-    assert isinstance(observable_result.diagnostics, types.MappingProxyType)
-
-    for result, prediction_name in (
-        (error_result, "error"),
-        (observable_result, "observable_flips"),
-    ):
-        restored = pickle.loads(pickle.dumps(result))  # noqa: S301
-        assert restored is not result
-        assert restored != result
-        assert hash(result) == object.__hash__(result)
-        assert np.array_equal(getattr(restored, prediction_name), getattr(result, prediction_name))
-        assert restored.diagnostics == result.diagnostics
-        assert isinstance(restored.diagnostics, types.MappingProxyType)
 
 
 def test_error_decoder_protocols() -> None:

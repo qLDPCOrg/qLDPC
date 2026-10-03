@@ -18,14 +18,7 @@ from qldpc._util import get_external_caller_stacklevel
 from qldpc.math import IntegerArray
 
 from .dems import DetectorErrorModelArrays
-from .protocols import (
-    ErrorDecoder,
-    ErrorDecodeResult,
-    ObservableDecoder,
-    ObservableDecodeResult,
-    SupportsDecode,
-    as_error_decoder,
-)
+from .protocols import ErrorDecoder, SupportsDecode, as_error_decoder
 
 PLACEHOLDER_ERROR_RATE = 1e-3  # required for some decoding methods
 
@@ -34,120 +27,6 @@ _PcmOrDem: TypeAlias = IntegerArray | stim.DetectorErrorModel
 _Parameters = ParamSpec("_Parameters")
 _Decoder = TypeVar("_Decoder", bound=ErrorDecoder)
 _ErrorChannel: TypeAlias = float | npt.NDArray[np.floating] | Sequence[float] | None
-
-
-# Detailed decode results
-
-
-def decode_errors_detailed(
-    decoder: ErrorDecoder | SupportsDecode, syndrome: npt.NDArray[np.int_]
-) -> ErrorDecodeResult:
-    """Decode one syndrome and return its inferred error, erasure flag, and diagnostics.
-
-    A decoder that implements ``decode_errors_detailed`` supplies its own diagnostics. Otherwise,
-    this helper wraps its existing hard prediction and separates any qLDPC-appended erasure bit.
-    """
-    error_decoder = as_error_decoder(decoder)
-    detailed_decoder = getattr(error_decoder, "decode_errors_detailed", None)
-    if detailed_decoder is not None:
-        result = detailed_decoder(syndrome)
-        if not isinstance(result, ErrorDecodeResult):
-            raise TypeError("decode_errors_detailed must return an ErrorDecodeResult")
-        return result
-
-    error, erasure = _split_erasure_bit(
-        error_decoder.decode_errors(syndrome), getattr(error_decoder, "has_erasure_bit", False)
-    )
-    return ErrorDecodeResult(error, erasure)
-
-
-def decode_errors_detailed_batch(
-    decoder: ErrorDecoder | SupportsDecode, syndromes: npt.NDArray[np.int_]
-) -> tuple[ErrorDecodeResult, ...]:
-    """Decode a batch and return one detailed error result per syndrome, in input order."""
-    error_decoder = as_error_decoder(decoder)
-    syndromes = np.asarray(syndromes)
-    detailed_batch_decoder = getattr(error_decoder, "decode_errors_detailed_batch", None)
-    if detailed_batch_decoder is not None:
-        results = tuple(detailed_batch_decoder(syndromes))
-        if len(results) != len(syndromes) or any(
-            not isinstance(result, ErrorDecodeResult) for result in results
-        ):
-            raise TypeError(
-                "decode_errors_detailed_batch must return one ErrorDecodeResult per syndrome"
-            )
-        return results
-    if len(syndromes) == 0:
-        return ()
-    if getattr(error_decoder, "decode_errors_detailed", None) is not None:
-        return tuple(decode_errors_detailed(error_decoder, syndrome) for syndrome in syndromes)
-    if (decode_batch := getattr(error_decoder, "decode_errors_batch", None)) is not None:
-        has_erasure_bit = getattr(error_decoder, "has_erasure_bit", False)
-        return tuple(
-            ErrorDecodeResult(*_split_erasure_bit(error, has_erasure_bit))
-            for error in decode_batch(syndromes)
-        )
-    return tuple(decode_errors_detailed(error_decoder, syndrome) for syndrome in syndromes)
-
-
-def decode_observables_detailed(
-    decoder: ObservableDecoder, syndrome: npt.NDArray[np.int_]
-) -> ObservableDecodeResult:
-    """Decode one syndrome and return observable flips, erasure, and diagnostics.
-
-    A decoder that implements ``decode_observables_detailed`` supplies its own diagnostics.
-    Otherwise, this helper wraps its existing hard prediction and separates any qLDPC-appended
-    erasure bit.
-    """
-    detailed_decoder = getattr(decoder, "decode_observables_detailed", None)
-    if detailed_decoder is not None:
-        result = detailed_decoder(syndrome)
-        if not isinstance(result, ObservableDecodeResult):
-            raise TypeError("decode_observables_detailed must return an ObservableDecodeResult")
-        return result
-
-    flips, erasure = _split_erasure_bit(
-        decoder.decode_observables(syndrome), getattr(decoder, "has_erasure_bit", False)
-    )
-    return ObservableDecodeResult(flips, erasure)
-
-
-def decode_observables_detailed_batch(
-    decoder: ObservableDecoder, syndromes: npt.NDArray[np.int_]
-) -> tuple[ObservableDecodeResult, ...]:
-    """Decode a batch and return one detailed observable result per syndrome, in input order."""
-    syndromes = np.asarray(syndromes)
-    detailed_batch_decoder = getattr(decoder, "decode_observables_detailed_batch", None)
-    if detailed_batch_decoder is not None:
-        results = tuple(detailed_batch_decoder(syndromes))
-        if len(results) != len(syndromes) or any(
-            not isinstance(result, ObservableDecodeResult) for result in results
-        ):
-            raise TypeError(
-                "decode_observables_detailed_batch must return one ObservableDecodeResult per"
-                " syndrome"
-            )
-        return results
-    if len(syndromes) == 0:
-        return ()
-    if getattr(decoder, "decode_observables_detailed", None) is not None:
-        return tuple(decode_observables_detailed(decoder, syndrome) for syndrome in syndromes)
-    if (decode_batch := getattr(decoder, "decode_observables_batch", None)) is not None:
-        has_erasure_bit = getattr(decoder, "has_erasure_bit", False)
-        return tuple(
-            ObservableDecodeResult(*_split_erasure_bit(flips, has_erasure_bit))
-            for flips in decode_batch(syndromes)
-        )
-    return tuple(decode_observables_detailed(decoder, syndrome) for syndrome in syndromes)
-
-
-def _split_erasure_bit(
-    prediction: npt.NDArray[np.int_], has_erasure_bit: bool
-) -> tuple[npt.NDArray[np.int_], bool]:
-    prediction = np.asarray(prediction)
-    if has_erasure_bit:
-        return prediction[:-1], bool(prediction[-1])
-    return prediction, False
 
 
 # Erasure signaling

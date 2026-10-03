@@ -4,9 +4,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
-from types import MappingProxyType
 from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
@@ -19,46 +17,28 @@ import numpy.typing as npt
 class ErrorDecodeResult:
     """Detailed result of decoding a syndrome to an inferred error.
 
-    ``error`` excludes qLDPC's legacy appended erasure bit; ``erasure`` reports that flag
-    separately. ``diagnostics`` contains explicitly named decoder-specific results, not a
-    cross-decoder confidence score.
+    ``error`` excludes the erasure flag that ``decode_errors`` appends when erasure signaling is
+    enabled; ``erasure`` reports that flag.  ``diagnostics`` contains explicitly named
+    decoder-specific results, not a cross-decoder confidence score.
     """
 
     error: npt.NDArray[np.int_]
     erasure: bool = False
-    diagnostics: Mapping[str, object] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "error", np.asarray(self.error).copy())
-        object.__setattr__(self, "diagnostics", MappingProxyType(dict(self.diagnostics)))
-
-    def __reduce__(
-        self,
-    ) -> tuple[type[ErrorDecodeResult], tuple[npt.NDArray[np.int_], bool, dict[str, object]]]:
-        return type(self), (self.error, self.erasure, dict(self.diagnostics))
+    diagnostics: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, eq=False)
 class ObservableDecodeResult:
     """Detailed result of decoding a syndrome to predicted observable flips.
 
-    ``observable_flips`` excludes qLDPC's legacy appended erasure bit; ``erasure`` reports that
-    flag separately. ``diagnostics`` contains explicitly named decoder-specific results, not a
-    cross-decoder confidence score.
+    ``observable_flips`` excludes the erasure flag that ``decode_observables`` appends when erasure
+    signaling is enabled; ``erasure`` reports that flag.  ``diagnostics`` contains explicitly named
+    decoder-specific results, not a cross-decoder confidence score.
     """
 
     observable_flips: npt.NDArray[np.int_]
     erasure: bool = False
-    diagnostics: Mapping[str, object] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "observable_flips", np.asarray(self.observable_flips).copy())
-        object.__setattr__(self, "diagnostics", MappingProxyType(dict(self.diagnostics)))
-
-    def __reduce__(
-        self,
-    ) -> tuple[type[ObservableDecodeResult], tuple[npt.NDArray[np.int_], bool, dict[str, object]]]:
-        return type(self), (self.observable_flips, self.erasure, dict(self.diagnostics))
+    diagnostics: dict[str, object] = field(default_factory=dict)
 
 
 # Decoder protocols
@@ -144,7 +124,7 @@ class DetailedErrorDecoder(ErrorDecoder, Protocol):
 
 @runtime_checkable
 class BatchDetailedErrorDecoder(DetailedErrorDecoder, Protocol):
-    """Optional protocol for detailed error decoding in batches."""
+    """Optional protocol for an error decoder that returns per-shot diagnostics in batches."""
 
     def decode_errors_detailed_batch(
         self, syndromes: npt.NDArray[np.int_]
@@ -162,7 +142,7 @@ class DetailedObservableDecoder(ObservableDecoder, Protocol):
 
 @runtime_checkable
 class BatchDetailedObservableDecoder(DetailedObservableDecoder, Protocol):
-    """Optional protocol for detailed observable decoding in batches."""
+    """Optional protocol for an observable decoder that returns per-shot diagnostics in batches."""
 
     def decode_observables_detailed_batch(
         self, syndromes: npt.NDArray[np.int_]

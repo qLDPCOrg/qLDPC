@@ -359,13 +359,7 @@ def _get_matching_type() -> type[Any]:
         def decode_errors_detailed(
             matching: Any, syndrome: npt.NDArray[np.int_]
         ) -> ErrorDecodeResult:
-            prediction, weight = matching.decode_batch(
-                np.asarray(syndrome)[None, :], return_weights=True
-            )
-            return ErrorDecodeResult(
-                np.asarray(prediction[0]),
-                diagnostics={"pymatching.objective_weight": float(weight[0])},
-            )
+            return decode_errors_detailed_batch(matching, np.asarray(syndrome)[None, :])[0]
 
         def decode_errors_detailed_batch(
             matching: Any, syndromes: npt.NDArray[np.int_]

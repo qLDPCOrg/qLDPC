@@ -250,24 +250,22 @@ A ``SinterDecoder``, a ``SubgraphDecoder``, and the code-capacity estimators als
 Detailed decode results
 -----------------------
 
-Standard error- and observable-decoding methods return hard prediction arrays.
-To request per-shot diagnostics, use ``decode_errors_detailed`` or ``decode_observables_detailed``.
-The batch helpers return a tuple of detailed results in syndrome order:
+Decoders that expose per-shot diagnostics have ``decode_errors_detailed`` or ``decode_observables_detailed`` methods.
+These methods return a detailed result for one syndrome, while ``decode_errors`` and ``decode_observables`` return hard prediction arrays without building diagnostics.
+Relay-BP and PyMatching decoders also have ``decode_errors_detailed_batch`` and ``decode_observables_detailed_batch`` methods, which use their native batch decoding and return a tuple of detailed results in syndrome order:
 
 .. code-block:: python
 
    decoder = decoders.frontier(K=512).build_observable_decoder(dem)
-   result = decoders.decode_observables_detailed(decoder, syndrome)
-   print(result.observable_flips, result.erasure, result.diagnostics)
-
-   results = decoders.decode_observables_detailed_batch(decoder, syndromes)
+   if isinstance(decoder, decoders.DetailedObservableDecoder):
+       result = decoder.decode_observables_detailed(syndrome)
+       print(result.observable_flips, result.erasure, result.diagnostics)
 
 An :class:`decoders.ErrorDecodeResult <qldpc.decoders.protocols.ErrorDecodeResult>` contains ``error``.
 An :class:`decoders.ObservableDecodeResult <qldpc.decoders.protocols.ObservableDecodeResult>` contains ``observable_flips``.
-Both also contain an ``erasure`` boolean and a read-only, namespaced ``diagnostics`` mapping.
-Detailed-result predictions exclude the erasure bit.
-When erasure signaling is enabled, array-returning methods append the erasure bit as their final entry.
-For decoders without a detailed method, the helpers wrap the hard prediction, separate any appended erasure bit, and return an empty ``diagnostics`` mapping.
+Both also contain an ``erasure`` boolean and a namespaced ``diagnostics`` dictionary.
+Detailed-result predictions exclude the erasure bit, which array-returning methods append as their final entry when erasure signaling is enabled.
+The ``erasure`` field is the value of that bit, and is ``False`` when erasure signaling is disabled.
 
 The available diagnostics depend on the decoder:
 
@@ -278,6 +276,7 @@ The available diagnostics depend on the decoder:
 * ldpc BP-family decoders report available convergence, iteration, and log-probability-ratio state.
 * ILP reports solver status and a finite objective value when one is available.
 
+An observable decoder built from an error decoder, for example by ``decoders.bp_osd().build_observable_decoder(dem)``, forwards the diagnostics of a detailed error decoder.
 These values are deliberately not normalized into a common ``confidence`` field because posterior ratios, logical-class gaps, convergence flags, and optimization costs have different meanings and calibration.
 A custom decoder can implement the optional :class:`decoders.DetailedErrorDecoder <qldpc.decoders.protocols.DetailedErrorDecoder>` or :class:`decoders.DetailedObservableDecoder <qldpc.decoders.protocols.DetailedObservableDecoder>` protocol.
 Sinter's compiled decoder interface returns observable arrays.

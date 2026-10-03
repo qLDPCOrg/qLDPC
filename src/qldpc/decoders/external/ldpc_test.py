@@ -130,8 +130,8 @@ def test_ldpc_protocol_adapters() -> None:
     for decoder, adapter_type, backend_type in adapted_decoders:
         assert isinstance(decoder, adapter_type)
         assert isinstance(decoder, backend_type)
-        assert isinstance(decoder, decoders.ErrorDecoder)
-        detailed = decoders.decode_errors_detailed(decoder, np.array([1, 0], dtype=int))
+        assert isinstance(decoder, decoders.DetailedErrorDecoder)
+        detailed = decoder.decode_errors_detailed(np.array([1, 0], dtype=int))
         assert np.array_equal(detailed.error, decoder.decode(np.array([1, 0], dtype=int)))
         assert pickle.loads(pickle.dumps(adapter_type)) is adapter_type  # noqa: S301
 

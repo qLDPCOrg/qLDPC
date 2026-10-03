@@ -172,19 +172,23 @@ def test_tesseract_erasure_bits(fake_tesseract: None) -> None:
 
     assert np.array_equal(decoder.decode_errors(syndromes[0]), [0, 1])
     assert np.array_equal(decoder.decode_errors(syndromes[1]), [0, 0])
-    detailed_error = decoder.decode_errors_detailed(syndromes[0])
-    assert detailed_error.error.tolist() == [0]
-    assert detailed_error.erasure
-    assert detailed_error.diagnostics["tesseract.low_confidence"]
     assert np.array_equal(decoders.batch_decode_errors(decoder, syndromes), [[0, 1], [0, 0]])
     assert np.array_equal(decoder.decode_observables(syndromes[0]), [0, 1])
-    detailed_observables = decoder.decode_observables_detailed(syndromes[0])
-    assert detailed_observables.observable_flips.tolist() == [0]
-    assert detailed_observables.erasure
-    assert detailed_observables.diagnostics["tesseract.low_confidence"]
     assert np.array_equal(decoder.decode_observables_batch(syndromes), [[0, 1], [0, 0]])
     assert decoders.batch_decode_errors(decoder, syndromes[:0]).shape == (0, 2)
     assert decoder.decode_observables_batch(syndromes[:0]).shape == (0, 2)
+
+    # detailed results flag erasure only if requested, and always report low confidence
+    for add_erasure_bit in [False, True]:
+        decoder = _get_decoder_tesseract(dem, pqlimit=0, add_erasure_bit=add_erasure_bit)
+        detailed_error = decoder.decode_errors_detailed(syndromes[0])
+        detailed_observables = decoder.decode_observables_detailed(syndromes[0])
+        assert (
+            detailed_error.error.tolist() == detailed_observables.observable_flips.tolist() == [0]
+        )
+        assert detailed_error.erasure is detailed_observables.erasure is add_erasure_bit
+        low_confidence = {"tesseract.low_confidence": True}
+        assert detailed_error.diagnostics == detailed_observables.diagnostics == low_confidence
 
 
 def test_tesseract_options_and_validation(fake_tesseract: None) -> None:

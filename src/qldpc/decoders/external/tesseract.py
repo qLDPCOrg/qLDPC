@@ -158,27 +158,18 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
 
     def decode_errors(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode one syndrome to an inferred error in matrix-column or DEM-error order."""
-        result = self.decode_errors_detailed(syndrome)
+        error = self._decode_to_error(syndrome)
         if self.has_erasure_bit:
-            return with_erasure_bits(result.error, result.erasure)
-        return result.error
+            return with_erasure_bits(error, bool(self.decoder.low_confidence_flag))
+        return error
 
     def decode_errors_detailed(self, syndrome: npt.NDArray[np.int_]) -> ErrorDecodeResult:
         """Decode one syndrome and report Tesseract's low-confidence flag."""
-        predicted_indices = np.asarray(
-            self.decoder.decode_to_errors(self._validate_syndrome(syndrome)), dtype=int
-        )
-        if np.any((predicted_indices < 0) | (predicted_indices >= self.num_errors)):
-            raise ValueError(
-                "Tesseract returned an error index outside the provided matrix or detector error"
-                " model"
-            )
-        error = np.zeros(self.num_errors, dtype=int)
-        np.bitwise_xor.at(error, predicted_indices, 1)
+        error = self._decode_to_error(syndrome)
         low_confidence = bool(self.decoder.low_confidence_flag)
         return ErrorDecodeResult(
             error,
-            low_confidence,
+            self.has_erasure_bit and low_confidence,
             {"tesseract.low_confidence": low_confidence},
         )
 
@@ -186,10 +177,10 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
 
     def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode one syndrome to Tesseract's native observable-flip prediction."""
-        result = self.decode_observables_detailed(syndrome)
+        prediction = np.asarray(self.decoder.decode(self._validate_syndrome(syndrome)), dtype=int)
         if self.has_erasure_bit:
-            return with_erasure_bits(result.observable_flips, result.erasure)
-        return result.observable_flips
+            return with_erasure_bits(prediction, bool(self.decoder.low_confidence_flag))
+        return prediction
 
     def decode_observables_detailed(self, syndrome: npt.NDArray[np.int_]) -> ObservableDecodeResult:
         """Decode one syndrome and report Tesseract's low-confidence flag."""
@@ -197,7 +188,7 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
         low_confidence = bool(self.decoder.low_confidence_flag)
         return ObservableDecodeResult(
             prediction,
-            low_confidence,
+            self.has_erasure_bit and low_confidence,
             {"tesseract.low_confidence": low_confidence},
         )
 
@@ -212,6 +203,20 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
                 [self.decode_observables(syndrome) for syndrome in validated_syndromes], dtype=int
             )
         return np.asarray(self.decoder.decode_batch(validated_syndromes), dtype=int)
+
+    def _decode_to_error(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode one syndrome and convert Tesseract's error indices to an error vector."""
+        predicted_indices = np.asarray(
+            self.decoder.decode_to_errors(self._validate_syndrome(syndrome)), dtype=int
+        )
+        if np.any((predicted_indices < 0) | (predicted_indices >= self.num_errors)):
+            raise ValueError(
+                "Tesseract returned an error index outside the provided matrix or detector error"
+                " model"
+            )
+        error = np.zeros(self.num_errors, dtype=int)
+        np.bitwise_xor.at(error, predicted_indices, 1)
+        return error
 
     def _validate_syndrome(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.bool_]:
         """Convert one correctly shaped syndrome to the dtype required by Tesseract."""

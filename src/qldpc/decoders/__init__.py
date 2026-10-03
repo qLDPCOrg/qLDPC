@@ -18,10 +18,6 @@ from .capabilities import (
     is_prebuilt_observable_decoder,
 )
 from .common import (
-    decode_errors_detailed,
-    decode_errors_detailed_batch,
-    decode_observables_detailed,
-    decode_observables_detailed_batch,
     get_error_and_erasure,
     with_erasure_bits,
 )
@@ -162,11 +158,7 @@ __all__ = [
     "bp_osd",
     "compiles_for_dem",
     "decode",
-    "decode_errors_detailed",
-    "decode_errors_detailed_batch",
     "decode_observables",
-    "decode_observables_detailed",
-    "decode_observables_detailed_batch",
     "frontier",
     "get_decoder",
     "get_decoder_BF",

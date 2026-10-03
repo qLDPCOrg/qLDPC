@@ -193,18 +193,7 @@ class RelayBPDecoder(BatchErrorDecoder):
 
     def decode_errors_detailed(self, /, detectors: npt.NDArray[np.int_]) -> ErrorDecodeResult:
         """Decode one syndrome and retain Relay-BP's convergence and posterior diagnostics."""
-        detectors = np.asarray(detectors, dtype=np.uint8)
-        result = self.decoder.decode_detailed(detectors)
-        error = np.asarray(result.decoding)
-        erasure = not bool(self._reproduces_syndrome(error[None, :], detectors[None, :])[0])
-        diagnostics: dict[str, object] = {
-            "relay_bp.success": bool(result.success),
-            "relay_bp.iterations": int(result.iterations),
-            "relay_bp.max_iterations": int(result.max_iter),
-            "relay_bp.decoded_detectors": np.asarray(result.decoded_detectors).copy(),
-            "relay_bp.posterior_ratios": np.asarray(result.posterior_ratios).copy(),
-        }
-        return ErrorDecodeResult(error, erasure, diagnostics)
+        return self.decode_errors_detailed_batch(np.asarray(detectors)[None, :])[0]
 
     def decode(self, /, detectors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error (alias for decode_errors)."""
@@ -247,6 +236,42 @@ class RelayBPDecoder(BatchErrorDecoder):
             detectors, parallel, progress_bar, leave_progress_bar_on_finish
         )
 
+    def decode_errors_detailed_batch(
+        self,
+        /,
+        detectors: npt.NDArray[np.int_],
+        parallel: bool = False,
+        progress_bar: bool = False,
+        leave_progress_bar_on_finish: bool = False,
+    ) -> tuple[ErrorDecodeResult, ...]:
+        """Decode a batch of error syndromes and retain Relay-BP's per-shot diagnostics.
+
+        If initialized with ``add_erasure_bit=True``, set the erasure flag of each result when the
+        inferred error does not reproduce the syndrome.
+        """
+        detectors = np.asarray(detectors, dtype=np.uint8)
+        if len(detectors) == 0:
+            return ()
+        results = self.decoder.decode_detailed_batch(
+            detectors, parallel, progress_bar, leave_progress_bar_on_finish
+        )
+        errors = np.asarray([result.decoding for result in results])
+        erased = self.has_erasure_bit & ~self._reproduces_syndrome(errors, detectors)
+        return tuple(
+            ErrorDecodeResult(
+                error,
+                bool(erasure),
+                {
+                    "relay_bp.success": bool(result.success),
+                    "relay_bp.iterations": int(result.iterations),
+                    "relay_bp.max_iterations": int(result.max_iter),
+                    "relay_bp.decoded_detectors": np.asarray(result.decoded_detectors),
+                    "relay_bp.posterior_ratios": np.asarray(result.posterior_ratios),
+                },
+            )
+            for error, erasure, result in zip(errors, erased, results, strict=True)
+        )
+
     def decode_observables(self, /, detectors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return predicted observable flips.
 
@@ -263,17 +288,8 @@ class RelayBPDecoder(BatchErrorDecoder):
     def decode_observables_detailed(
         self, /, detectors: npt.NDArray[np.int_]
     ) -> ObservableDecodeResult:
-        """Decode one syndrome to observables and retain Relay-BP's detailed error result."""
-        self._require_observables()
-        result = self.decode_errors_detailed(detectors)
-        flips = (
-            np.asarray(
-                np.asarray(result.error, dtype=np.uint8)[None, :]
-                @ self.observable_error_matrix_transposed
-            ).ravel()
-            & 1
-        )
-        return ObservableDecodeResult(flips, result.erasure, result.diagnostics)
+        """Decode one syndrome to observables and retain Relay-BP's diagnostics."""
+        return self.decode_observables_detailed_batch(np.asarray(detectors)[None, :])[0]
 
     def decode_observables_batch(
         self,
@@ -309,6 +325,27 @@ class RelayBPDecoder(BatchErrorDecoder):
         )
         return self._errors_to_observable_flips(errors)
 
+    def decode_observables_detailed_batch(
+        self,
+        /,
+        detectors: npt.NDArray[np.int_],
+        parallel: bool = False,
+        progress_bar: bool = False,
+        leave_progress_bar_on_finish: bool = False,
+    ) -> tuple[ObservableDecodeResult, ...]:
+        """Decode a batch of error syndromes to observables and retain Relay-BP's diagnostics."""
+        self._require_observables()
+        results = self.decode_errors_detailed_batch(
+            detectors, parallel, progress_bar, leave_progress_bar_on_finish
+        )
+        if not results:
+            return ()
+        flips = self._observable_flips(np.asarray([result.error for result in results]))
+        return tuple(
+            ObservableDecodeResult(prediction, result.erasure, result.diagnostics)
+            for prediction, result in zip(flips, results, strict=True)
+        )
+
     def _require_observables(self) -> None:
         """Raise an error if this decoder was not given observables to predict."""
         if not self.has_observable_error_matrix:
@@ -321,9 +358,15 @@ class RelayBPDecoder(BatchErrorDecoder):
         self, errors_and_erasure_bits: npt.NDArray[np.int_]
     ) -> npt.NDArray[np.int_]:
         """Convert inferred errors, each with an erasure bit appended, into observable flips."""
-        errors = np.asarray(errors_and_erasure_bits[:, :-1], dtype=np.uint8)
-        flips = np.asarray(errors @ self.observable_error_matrix_transposed) & 1
+        flips = self._observable_flips(errors_and_erasure_bits[:, :-1])
         return np.hstack([flips, errors_and_erasure_bits[:, -1:]]).astype(np.uint8)
+
+    def _observable_flips(self, errors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Convert inferred errors, one per row, into observable flips."""
+        return (
+            np.asarray(np.asarray(errors, dtype=np.uint8) @ self.observable_error_matrix_transposed)
+            & 1
+        )
 
     def _reproduces_syndrome(
         self, errors: npt.NDArray[np.int_], detectors: npt.NDArray[np.int_]
