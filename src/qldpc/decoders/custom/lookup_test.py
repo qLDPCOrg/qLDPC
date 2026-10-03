@@ -45,6 +45,203 @@ def test_lookup(toy_problem: ToyProblem) -> None:
     assert np.array_equal(observable_decoder.decode_observables(syndrome), [])
 
 
+def test_tie_breaking() -> None:
+    """Equally likely errors for one syndrome resolve in favor of the lightest."""
+    # every error of this code is equally likely, so every candidate ties on probability
+    pcm = np.array([[1, 1, 1]], dtype=int)
+    error_channel = [0.5, 0.5, 0.5]
+    syndrome = np.array([1], dtype=int)
+
+    decoder = decoders.LookupDecoder(pcm, 3, error_channel=error_channel)
+    assert np.count_nonzero(decoder.decode(syndrome)) == 1
+
+    # grouping errors by observable flip must break ties the same way
+    decoder = decoders.LookupDecoder(
+        pcm, 3, error_channel=error_channel, observable_flip_matrix=np.array([[1, 0, 0]])
+    )
+    assert np.count_nonzero(decoder.decode(syndrome)) == 1
+
+    # a penalty function that reports no preference likewise leaves weight to decide
+    weighted_decoder = decoders.WeightedLookupDecoder(np.array([[1, 1, 1, 1]], dtype=int), 4)
+    assert (
+        np.count_nonzero(
+            weighted_decoder.decode(np.array([1], dtype=int), penalty_func=lambda _: 0.0)
+        )
+        == 1
+    )
+
+    # A symplectic error weighs the qudits it addresses, not its nonzero entries: a Y on one qudit
+    # has two nonzero entries, so counting entries cannot tell it from an error on two qudits.
+    code = codes.SurfaceCode(3)
+    quantum_syndrome = np.array([1, 0, 0, 0, 1, 1, 0, 0], dtype=int)
+    decoder = decoders.LookupDecoder(
+        code.matrix,
+        2,
+        symplectic=True,
+        observable_flip_matrix=code.get_logical_ops(),
+        error_channel=np.full(code.matrix.shape[1], 1 - 1 / code.field.order),
+    )
+    assert math.symplectic_weight(decoder.decode(quantum_syndrome)) == 1
+
+    weighted_decoder = decoders.WeightedLookupDecoder(code.matrix, 2, symplectic=True)
+    decoded = weighted_decoder.decode(quantum_syndrome, penalty_func=lambda _: 0.0)
+    assert math.symplectic_weight(decoded) == 1
+
+
+def test_quantum_lookup_decoding(surface_code_problem: SurfaceCodeProblem) -> None:
+    """Lookup-decode random weight-2 errors in a GF(3) surface code."""
+    code, _error, syndrome = surface_code_problem
+    decoder: decoders.ErrorDecoder
+    decoder = decoders.LookupDecoder(code.matrix, symplectic=True, max_weight=2)
+    decoded_error = decoder.decode(syndrome).view(code.field)
+    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error))
+
+    decoder = decoders.LookupDecoder(
+        code.matrix,
+        symplectic=True,
+        add_erasure_bit=True,
+        max_weight=2,
+        error_channel=np.full(code.matrix.shape[1], 0.1),
+    )
+    decoded_error = decoder.decode(syndrome).view(code.field)
+    assert decoded_error[-1] == 0
+    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
+    assert decoder.decode(np.ones_like(syndrome))[-1] == 1
+
+    decoder = decoders.WeightedLookupDecoder(
+        code.matrix, symplectic=True, add_erasure_bit=True, max_weight=2
+    )
+    assert len(decoder) == len(decoder.syndrome_to_candidates)
+    decoded_error = decoder.decode(syndrome).view(code.field)
+    assert decoded_error[-1] == 0
+    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
+    assert decoder.decode(np.ones_like(syndrome))[-1] == 1
+
+    # passing penalty_func=None returns the last-recorded (lowest-weight) consistent candidate
+    decoded_error = decoder.decode(syndrome, penalty_func=None).view(code.field)
+    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
+
+
+@pytest.mark.parametrize("field", [galois.GF(2), galois.GF(3)])
+def test_lookup_batch_decoding(field: type[galois.FieldArray]) -> None:
+    """Packed batch lookup matches scalar lookup over binary and nonbinary fields."""
+    matrix = field([[1, 1, 0], [0, 1, 1]])
+    syndromes = np.array([[0, 0], [1, 0], [0, 1], [1, 1]], dtype=int)
+
+    error_decoder = decoders.LookupDecoder(matrix, max_weight=1, add_erasure_bit=True)
+    expected_errors = np.array([error_decoder.decode_errors(row) for row in syndromes])
+    assert np.array_equal(error_decoder.decode_errors_batch(syndromes), expected_errors)
+    assert np.array_equal(error_decoder.decode_batch(syndromes), expected_errors)
+    assert error_decoder.decode_errors_batch(syndromes[:0]).shape == (0, 4)
+
+    weighted_decoder = decoders.WeightedLookupDecoder(matrix, max_weight=1, add_erasure_bit=True)
+    expected_weighted = np.array([weighted_decoder.decode_errors(row) for row in syndromes])
+    assert np.array_equal(weighted_decoder.decode_errors_batch(syndromes), expected_weighted)
+
+    observable_decoder = decoders.ObservableLookupDecoder(
+        matrix,
+        max_weight=1,
+        observable_flip_matrix=field([[1, 0, 1]]),
+        error_channel=np.full(3, 1 - 1 / field.order),
+        add_erasure_bit=True,
+    )
+    expected_flips = np.array([observable_decoder.decode_observables(row) for row in syndromes])
+    assert np.array_equal(observable_decoder.decode_observables_batch(syndromes), expected_flips)
+
+    post_selected = decoders.LookupDecoder(
+        matrix, max_weight=1, post_select=[0], add_erasure_bit=True
+    )
+    expected_post_selected = np.array([post_selected.decode_errors(row) for row in syndromes])
+    assert np.array_equal(post_selected.decode_errors_batch(syndromes), expected_post_selected)
+
+
+def test_lookup_batch_validation() -> None:
+    """Batch decoding rejects batches of the wrong shape, and bit-packed shots over GF(q > 2)."""
+    decoder = decoders.LookupDecoder(np.eye(2, dtype=int), max_weight=1)
+    with pytest.raises(ValueError, match="Expected syndromes of shape"):
+        decoder.decode_errors_batch(np.zeros(2, dtype=int))
+
+    observable = decoders.ObservableLookupDecoder(
+        stim.DetectorErrorModel("error(0.1) D0 L0"), max_weight=1
+    )
+    with pytest.raises(ValueError, match="Expected bit-packed syndromes of shape"):
+        observable.decode_shots_bit_packed(np.zeros((1, 2), dtype=np.uint8))
+
+    field = galois.GF(3)
+    nonbinary = decoders.ObservableLookupDecoder(
+        field([[1]]),
+        max_weight=1,
+        observable_flip_matrix=field([[1]]),
+        error_channel=[1 - 1 / field.order],
+    )
+    with pytest.raises(ValueError, match=r"only available over GF\(2\)"):
+        nonbinary.decode_shots_bit_packed(np.array([[1]], dtype=np.uint8))
+
+
+def test_lookup_post_selection_violation() -> None:
+    """A syndrome that a LookupDecoder post-selects against decodes as one never enumerated."""
+    matrix = np.eye(3, dtype=int)  # syndrome bit kk is flipped by error kk alone
+    decoder = decoders.LookupDecoder(matrix, max_weight=1, post_select=[0], add_erasure_bit=True)
+
+    # a syndrome nontrivial on bit 0 was never enumerated, so it is erased
+    assert np.array_equal([0, 0, 0, 1], decoder.decode(np.array([1, 1, 0])))
+    assert np.array_equal([0, 0, 0, 1], decoder.decode(np.array([1, 0, 0])))
+
+    # a WeightedLookupDecoder post-selects identically
+    weighted_decoder = decoders.WeightedLookupDecoder(
+        matrix, max_weight=1, post_select=[0], add_erasure_bit=True
+    )
+    assert np.array_equal([0, 1, 0, 0], weighted_decoder.decode(np.array([0, 1, 0])))
+    assert np.array_equal([0, 0, 0, 1], weighted_decoder.decode(np.array([1, 1, 0])))
+
+
+def test_invalid_arguments() -> None:
+    """A LookupDecoder rejects contradictory or insufficient arguments."""
+    pcm = np.eye(2, dtype=int)
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+
+    with pytest.raises(ValueError, match=r"providing a stim\.DetectorErrorModel"):
+        decoders.LookupDecoder(dem, 1, error_channel=[0.1])
+    with pytest.raises(ValueError, match=r"providing a stim\.DetectorErrorModel"):
+        decoders.LookupDecoder(dem, 1, error_channel=lambda _: 0.0)
+    with pytest.raises(ValueError, match="both an error_channel and a penalty_func"):
+        decoders.LookupDecoder(pcm, 1, error_channel=[0.1, 0.1], penalty_func=lambda _: 0.0)
+
+    # an observable lookup decoder built from a parity check matrix requires observables
+    for decoder_class in [
+        decoders.ObservableLookupDecoder,
+        decoders.WeightedObservableLookupDecoder,
+    ]:
+        with pytest.raises(ValueError, match="requires an observable_flip_matrix"):
+            decoder_class(pcm, 1)
+
+    # a detector error model without observables predicts trivial observable flips
+    dem_without_observables = stim.DetectorErrorModel("error(0.1) D0\nerror(0.1) D0 D1")
+    for decoder_class in [
+        decoders.ObservableLookupDecoder,
+        decoders.WeightedObservableLookupDecoder,
+    ]:
+        observable_decoder = decoder_class(dem_without_observables, 1)
+        assert observable_decoder.decode_observables(np.array([1, 0])).shape == (0,)
+
+    # reject malformed channels and invalid probabilities
+    for error_channel in [np.array([0.1]), np.array([[0.1, 0.2]])]:
+        with pytest.raises(ValueError, match=r"error_channel must have shape \(2,\)"):
+            decoders.LookupDecoder(pcm, 1, error_channel=error_channel)
+    for invalid_probability in [-0.1, 1.1, np.nan, np.inf, -np.inf]:
+        with pytest.raises(ValueError, match="finite probabilities between 0 and 1"):
+            decoders.LookupDecoder(pcm, 1, error_channel=[invalid_probability, 0.1])
+        with pytest.raises(ValueError, match="finite probability between 0 and 1"):
+            decoders.LookupDecoder(pcm, 1, probability_cutoff=invalid_probability)
+
+    # The endpoints are deterministic but valid probabilities.
+    decoders.LookupDecoder(pcm, 1, error_channel=[0, 1])
+
+    # a positive cutoff needs independent probabilities
+    with pytest.raises(ValueError, match="array-like independent error_channel"):
+        decoders.LookupDecoder(pcm, 1, error_channel=lambda _: -1.0, probability_cutoff=0.1)
+
+
 def test_observable_lookup_decoding() -> None:
     """Lookup decoding can identify the most likely observable flip for each syndrome."""
     obs_matrix: math.IntegerArray
@@ -134,26 +331,6 @@ def test_observable_lookup_decoding() -> None:
         decoders.LookupDecoder(pcm, max_weight=2, observable_flip_matrix=obs_matrix)
 
 
-def test_observable_lookup_deprecation_warning_location() -> None:
-    """Legacy observable lookup warnings identify the user call and its typed replacement."""
-    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        decoder = decoders.get_decoder(
-            dem,
-            with_lookup=True,
-            max_weight=1,
-            predict_observable_flips=True,
-        )
-
-    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1])
-    assert len(caught) == 2
-    assert all(warning.filename == __file__ for warning in caught)
-    messages = [str(warning.message) for warning in caught]
-    assert all("ObservableLookupDecoder" in message for message in messages)
-    assert any("decode_observables" in message for message in messages)
-
-
 def test_explicit_observable_lookup_decoders() -> None:
     """Observable lookup decoders expose output-specific methods and types."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
@@ -194,166 +371,98 @@ def test_explicit_observable_lookup_decoders() -> None:
     assert not decoders.LookupDecoder(dem, max_weight=1).decode_returns_observables
 
 
-def test_tie_breaking() -> None:
-    """Equally likely errors for one syndrome resolve in favor of the lightest."""
-    # every error of this code is equally likely, so every candidate ties on probability
-    pcm = np.array([[1, 1, 1]], dtype=int)
-    error_channel = [0.5, 0.5, 0.5]
-    syndrome = np.array([1], dtype=int)
+def test_quantum_observable_flip_prediction() -> None:
+    """A predicted observable flip is one that some error consistent with the syndrome induces.
 
-    decoder = decoders.LookupDecoder(pcm, 3, error_channel=error_channel)
-    assert np.count_nonzero(decoder.decode(syndrome)) == 1
+    The flip that an error induces in a logical operator is their symplectic product, which pairs
+    the X sector of one with the Z sector of the other.  A plain matrix product pairs each sector
+    with itself, and exchanging the sectors is independent of the characteristic, so getting this
+    wrong predicts unachievable flips over every field rather than only in odd characteristic.
 
-    # grouping errors by observable flip must break ties the same way
-    decoder = decoders.LookupDecoder(
-        pcm, 3, error_channel=error_channel, observable_flip_matrix=np.array([[1, 0, 0]])
-    )
-    assert np.count_nonzero(decoder.decode(syndrome)) == 1
+    A lookup table has nothing to predict from but the errors it enumerates, so the flips induced by
+    those errors are exactly the flips it may return.  The enumeration is shared with the decoder;
+    the symplectic product it is checked against is written out here.
+    """
+    for order in [2, 3]:
+        code = codes.SurfaceCode(3, field=order)
+        logicals = code.get_logical_ops()
+        achievable_flips: dict[tuple[int, ...], set[tuple[int, ...]]] = collections.defaultdict(set)
+        for error, syndrome_array in _iter_errors_and_syndromes(code.matrix, 1, None, True):
+            conjugate = math.symplectic_conjugate(error.view(code.field))
+            flip = tuple((logicals @ conjugate).view(np.ndarray).tolist())
+            achievable_flips[tuple(syndrome_array.tolist())].add(flip)
 
-    # a penalty function that reports no preference likewise leaves weight to decide
-    weighted_decoder = decoders.WeightedLookupDecoder(np.array([[1, 1, 1, 1]], dtype=int), 4)
-    assert (
-        np.count_nonzero(
-            weighted_decoder.decode(np.array([1], dtype=int), penalty_func=lambda _: 0.0)
+        # at this weight every syndrome admits exactly one flip, so the check below is an equality;
+        # this pins that, since a syndrome admitting several flips would check much less
+        assert max(map(len, achievable_flips.values())) == 1
+
+        weighted = decoders.WeightedObservableLookupDecoder(
+            code.matrix, max_weight=1, observable_flip_matrix=logicals, symplectic=True
         )
-        == 1
-    )
+        for syndrome, flips in achievable_flips.items():
+            predicted_flip = weighted.decode_observables(np.array(syndrome, dtype=int))
+            assert tuple(predicted_flip.tolist()) in flips
 
-    # A symplectic error weighs the qudits it addresses, not its nonzero entries: a Y on one qudit
-    # has two nonzero entries, so counting entries cannot tell it from an error on two qudits.
-    code = codes.SurfaceCode(3)
-    quantum_syndrome = np.array([1, 0, 0, 0, 1, 1, 0, 0], dtype=int)
-    decoder = decoders.LookupDecoder(
-        code.matrix,
-        2,
-        symplectic=True,
-        observable_flip_matrix=code.get_logical_ops(),
-        error_channel=np.full(code.matrix.shape[1], 1 - 1 / code.field.order),
-    )
-    assert math.symplectic_weight(decoder.decode(quantum_syndrome)) == 1
-
-    weighted_decoder = decoders.WeightedLookupDecoder(code.matrix, 2, symplectic=True)
-    decoded = weighted_decoder.decode(quantum_syndrome, penalty_func=lambda _: 0.0)
-    assert math.symplectic_weight(decoded) == 1
-
-
-def test_lookup_post_selection_violation() -> None:
-    """A syndrome that a LookupDecoder post-selects against decodes as one never enumerated."""
-    matrix = np.eye(3, dtype=int)  # syndrome bit kk is flipped by error kk alone
-    decoder = decoders.LookupDecoder(matrix, max_weight=1, post_select=[0], add_erasure_bit=True)
-
-    # a syndrome nontrivial on bit 0 was never enumerated, so it is erased
-    assert np.array_equal([0, 0, 0, 1], decoder.decode(np.array([1, 1, 0])))
-    assert np.array_equal([0, 0, 0, 1], decoder.decode(np.array([1, 0, 0])))
-
-    # a WeightedLookupDecoder post-selects identically
-    weighted_decoder = decoders.WeightedLookupDecoder(
-        matrix, max_weight=1, post_select=[0], add_erasure_bit=True
-    )
-    assert np.array_equal([0, 1, 0, 0], weighted_decoder.decode(np.array([0, 1, 0])))
-    assert np.array_equal([0, 0, 0, 1], weighted_decoder.decode(np.array([1, 1, 0])))
-
-
-def test_invalid_arguments() -> None:
-    """A LookupDecoder rejects contradictory or insufficient arguments."""
-    pcm = np.eye(2, dtype=int)
-    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
-
-    with pytest.raises(ValueError, match=r"providing a stim\.DetectorErrorModel"):
-        decoders.LookupDecoder(dem, 1, error_channel=[0.1])
-    with pytest.raises(ValueError, match=r"providing a stim\.DetectorErrorModel"):
-        decoders.LookupDecoder(dem, 1, error_channel=lambda _: 0.0)
-    with pytest.raises(ValueError, match="both an error_channel and a penalty_func"):
-        decoders.LookupDecoder(pcm, 1, error_channel=[0.1, 0.1], penalty_func=lambda _: 0.0)
-
-    # an observable lookup decoder built from a parity check matrix requires observables
-    for decoder_class in [
-        decoders.ObservableLookupDecoder,
-        decoders.WeightedObservableLookupDecoder,
-    ]:
-        with pytest.raises(ValueError, match="requires an observable_flip_matrix"):
-            decoder_class(pcm, 1)
-
-    # a detector error model without observables predicts trivial observable flips
-    dem_without_observables = stim.DetectorErrorModel("error(0.1) D0\nerror(0.1) D0 D1")
-    for decoder_class in [
-        decoders.ObservableLookupDecoder,
-        decoders.WeightedObservableLookupDecoder,
-    ]:
-        observable_decoder = decoder_class(dem_without_observables, 1)
-        assert observable_decoder.decode_observables(np.array([1, 0])).shape == (0,)
-
-    # reject malformed channels and invalid probabilities
-    for error_channel in [np.array([0.1]), np.array([[0.1, 0.2]])]:
-        with pytest.raises(ValueError, match=r"error_channel must have shape \(2,\)"):
-            decoders.LookupDecoder(pcm, 1, error_channel=error_channel)
-    for invalid_probability in [-0.1, 1.1, np.nan, np.inf, -np.inf]:
-        with pytest.raises(ValueError, match="finite probabilities between 0 and 1"):
-            decoders.LookupDecoder(pcm, 1, error_channel=[invalid_probability, 0.1])
-        with pytest.raises(ValueError, match="finite probability between 0 and 1"):
-            decoders.LookupDecoder(pcm, 1, probability_cutoff=invalid_probability)
-
-    # The endpoints are deterministic but valid probabilities.
-    decoders.LookupDecoder(pcm, 1, error_channel=[0, 1])
-
-    # a positive cutoff needs independent probabilities
-    with pytest.raises(ValueError, match="array-like independent error_channel"):
-        decoders.LookupDecoder(pcm, 1, error_channel=lambda _: -1.0, probability_cutoff=0.1)
-
-
-def test_callable_error_channel() -> None:
-    """A callable error channel supplies a correlated error distribution."""
-    matrix = np.array([[1, 1, 1]], dtype=int)
-    probabilities = [0.1125, 0.15, 0.15, 0.1125, 0.2, 0.1125, 0.1125, 0.05]
-    decoder = decoders.LookupDecoder(
-        matrix,
-        3,
-        error_channel=lambda error: float(np.log(probabilities[int("".join(map(str, error)), 2)])),
-    )
-    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1, 0, 0])
-
-    with pytest.raises(ValueError, match="non-positive or -inf"):
-        decoders.LookupDecoder(matrix, 1, error_channel=lambda _: 0.1)
-
-    # deprecated penalty functions are converted to callable error channels
-    with pytest.warns(DeprecationWarning, match="penalty_func is deprecated"):
-        decoder = decoders.LookupDecoder(
-            matrix, 2, penalty_func=lambda error: -float(np.dot([1, 2, 3], error))
-        )
-    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [0, 0, 1])
-
-
-def test_probability_cutoff() -> None:
-    """A probability cutoff prunes unlikely errors without enumerating them."""
-    error_channel = np.full(60, 1e-3)
-    error_channel[:6] = 0.4
-    errors = np.array(
-        [
-            error
-            for error, _ in _iter_errors_and_syndromes(
-                np.zeros((1, 60), dtype=int),
-                30,
-                None,
-                False,
-                error_channel=error_channel,
-                probability_cutoff=1e-3,
+        # the same operators given as a sparse matrix, or as a plain array whose entries have to be
+        # reduced into the field, name the same logical operators and so predict the same flips
+        plain_logicals = logicals.view(np.ndarray).astype(int)
+        for equivalent in [
+            scipy.sparse.csc_matrix(plain_logicals),
+            plain_logicals + order,
+        ]:
+            same = decoders.ObservableLookupDecoder(
+                code.matrix,
+                max_weight=1,
+                observable_flip_matrix=equivalent,
+                symplectic=True,
+                error_channel=np.full(code.matrix.shape[1], 1 - 1 / code.field.order),
             )
-        ]
-    )
-    assert len(errors) == 2**6
-    assert not np.any(errors[:, 6:])
+            for syndrome, flips in achievable_flips.items():
+                assert (
+                    tuple(same.decode_observables(np.array(syndrome, dtype=int)).tolist()) in flips
+                )
 
-    # the cutoff prunes the unlikely Z error, and post-selection on the Z check drops the Y error
-    decoder = decoders.LookupDecoder(
-        np.eye(2, dtype=int),
-        1,
-        error_channel=[0.6, 0.2],
-        post_select=[0],
-        probability_cutoff=0.1,
-        symplectic=True,
+    # the errors that a lookup table enumerates live over the field of its parity check matrix, so
+    # an observable flip matrix over any other field cannot say what they flip
+    with pytest.raises(ValueError, match="cannot be paired with"):
+        decoders.ObservableLookupDecoder(
+            np.array([[1, 1, 0], [0, 1, 1]]),
+            max_weight=1,
+            observable_flip_matrix=galois.GF(3)([[1, 2, 1]]),
+            error_channel=np.full(3, 0.5),
+        )
+
+
+@pytest.mark.parametrize("num_observables", [0, 7, 8])
+@pytest.mark.parametrize("add_erasure_bit", [False, True])
+def test_observable_lookup_sinter_batches(num_observables: int, add_erasure_bit: bool) -> None:
+    """Observable lookup decodes bit-packed Sinter shots directly."""
+    dem = stim.DetectorErrorModel(
+        "\n".join(f"error(0.1) D{oo} L{oo}" for oo in range(num_observables))
     )
-    assert len(decoder) == 2
-    assert np.array_equal(decoder.decode(np.array([0, 1], dtype=int)), [1, 0])
+    decoder = decoders.ObservableLookupDecoder(dem, max_weight=1, add_erasure_bit=add_erasure_bit)
+    shots = np.zeros((3, num_observables), dtype=np.uint8)
+    if num_observables:
+        shots[1, 0] = 1
+        shots[2, :2] = 1  # a table miss and therefore an erasure, when enabled
+
+    expected = decoder.decode_observables_batch(shots.astype(int))
+    packed_expected = np.packbits(expected[:, :num_observables], bitorder="little", axis=1)
+    if add_erasure_bit:
+        packed_expected = np.hstack([packed_expected, expected[:, -1:].astype(np.uint8)])
+    packed_shots = np.packbits(shots, bitorder="little", axis=1)
+    assert np.array_equal(decoder.decode_shots_bit_packed(packed_shots), packed_expected)
+    assert decoder.decode_shots_bit_packed(packed_shots[:0]).shape == packed_expected[:0].shape
+
+
+def test_observable_lookup_sinter_post_selection() -> None:
+    """Bit-packed shots that are nonzero on a post-selected detector are erased."""
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.1) D1")
+    decoder = decoders.ObservableLookupDecoder(
+        dem, max_weight=1, post_select=[0], add_erasure_bit=True
+    )
+    shots = np.packbits([[0, 1], [1, 0]], bitorder="little", axis=1)
+    assert decoder.decode_shots_bit_packed(shots).tolist() == [[0, 0], [0, 1]]
 
 
 def test_confidence_ratio() -> None:
@@ -433,100 +542,59 @@ def test_confidence_ratio() -> None:
         assert np.array_equal(observable_decoder.decode_observables(syndrome), expected)
 
 
-def test_quantum_lookup_decoding(surface_code_problem: SurfaceCodeProblem) -> None:
-    """Lookup-decode random weight-2 errors in a GF(3) surface code."""
-    code, _error, syndrome = surface_code_problem
-    decoder: decoders.ErrorDecoder
-    decoder = decoders.LookupDecoder(code.matrix, symplectic=True, max_weight=2)
-    decoded_error = decoder.decode(syndrome).view(code.field)
-    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error))
-
-    decoder = decoders.LookupDecoder(
-        code.matrix,
-        symplectic=True,
-        add_erasure_bit=True,
-        max_weight=2,
-        error_channel=np.full(code.matrix.shape[1], 0.1),
-    )
-    decoded_error = decoder.decode(syndrome).view(code.field)
-    assert decoded_error[-1] == 0
-    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
-    assert decoder.decode(np.ones_like(syndrome))[-1] == 1
-
-    decoder = decoders.WeightedLookupDecoder(
-        code.matrix, symplectic=True, add_erasure_bit=True, max_weight=2
-    )
-    assert len(decoder) == len(decoder.syndrome_to_candidates)
-    decoded_error = decoder.decode(syndrome).view(code.field)
-    assert decoded_error[-1] == 0
-    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
-    assert decoder.decode(np.ones_like(syndrome))[-1] == 1
-
-    # passing penalty_func=None returns the last-recorded (lowest-weight) consistent candidate
-    decoded_error = decoder.decode(syndrome, penalty_func=None).view(code.field)
-    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
-
-
-def test_quantum_observable_flip_prediction() -> None:
-    """A predicted observable flip is one that some error consistent with the syndrome induces.
-
-    The flip that an error induces in a logical operator is their symplectic product, which pairs
-    the X sector of one with the Z sector of the other.  A plain matrix product pairs each sector
-    with itself, and exchanging the sectors is independent of the characteristic, so getting this
-    wrong predicts unachievable flips over every field rather than only in odd characteristic.
-
-    A lookup table has nothing to predict from but the errors it enumerates, so the flips induced by
-    those errors are exactly the flips it may return.  The enumeration is shared with the decoder;
-    the symplectic product it is checked against is written out here.
-    """
-    for order in [2, 3]:
-        code = codes.SurfaceCode(3, field=order)
-        logicals = code.get_logical_ops()
-        achievable_flips: dict[tuple[int, ...], set[tuple[int, ...]]] = collections.defaultdict(set)
-        for error, syndrome_array in _iter_errors_and_syndromes(code.matrix, 1, None, True):
-            conjugate = math.symplectic_conjugate(error.view(code.field))
-            flip = tuple((logicals @ conjugate).view(np.ndarray).tolist())
-            achievable_flips[tuple(syndrome_array.tolist())].add(flip)
-
-        # at this weight every syndrome admits exactly one flip, so the check below is an equality;
-        # this pins that, since a syndrome admitting several flips would check much less
-        assert max(map(len, achievable_flips.values())) == 1
-
-        weighted = decoders.WeightedObservableLookupDecoder(
-            code.matrix, max_weight=1, observable_flip_matrix=logicals, symplectic=True
-        )
-        for syndrome, flips in achievable_flips.items():
-            predicted_flip = weighted.decode_observables(np.array(syndrome, dtype=int))
-            assert tuple(predicted_flip.tolist()) in flips
-
-        # the same operators given as a sparse matrix, or as a plain array whose entries have to be
-        # reduced into the field, name the same logical operators and so predict the same flips
-        plain_logicals = logicals.view(np.ndarray).astype(int)
-        for equivalent in [
-            scipy.sparse.csc_matrix(plain_logicals),
-            plain_logicals + order,
-        ]:
-            same = decoders.ObservableLookupDecoder(
-                code.matrix,
-                max_weight=1,
-                observable_flip_matrix=equivalent,
-                symplectic=True,
-                error_channel=np.full(code.matrix.shape[1], 1 - 1 / code.field.order),
+def test_probability_cutoff() -> None:
+    """A probability cutoff prunes unlikely errors without enumerating them."""
+    error_channel = np.full(60, 1e-3)
+    error_channel[:6] = 0.4
+    errors = np.array(
+        [
+            error
+            for error, _ in _iter_errors_and_syndromes(
+                np.zeros((1, 60), dtype=int),
+                30,
+                None,
+                False,
+                error_channel=error_channel,
+                probability_cutoff=1e-3,
             )
-            for syndrome, flips in achievable_flips.items():
-                assert (
-                    tuple(same.decode_observables(np.array(syndrome, dtype=int)).tolist()) in flips
-                )
+        ]
+    )
+    assert len(errors) == 2**6
+    assert not np.any(errors[:, 6:])
 
-    # the errors that a lookup table enumerates live over the field of its parity check matrix, so
-    # an observable flip matrix over any other field cannot say what they flip
-    with pytest.raises(ValueError, match="cannot be paired with"):
-        decoders.ObservableLookupDecoder(
-            np.array([[1, 1, 0], [0, 1, 1]]),
-            max_weight=1,
-            observable_flip_matrix=galois.GF(3)([[1, 2, 1]]),
-            error_channel=np.full(3, 0.5),
+    # the cutoff prunes the unlikely Z error, and post-selection on the Z check drops the Y error
+    decoder = decoders.LookupDecoder(
+        np.eye(2, dtype=int),
+        1,
+        error_channel=[0.6, 0.2],
+        post_select=[0],
+        probability_cutoff=0.1,
+        symplectic=True,
+    )
+    assert len(decoder) == 2
+    assert np.array_equal(decoder.decode(np.array([0, 1], dtype=int)), [1, 0])
+
+
+def test_callable_error_channel() -> None:
+    """A callable error channel supplies a correlated error distribution."""
+    matrix = np.array([[1, 1, 1]], dtype=int)
+    probabilities = [0.1125, 0.15, 0.15, 0.1125, 0.2, 0.1125, 0.1125, 0.05]
+    decoder = decoders.LookupDecoder(
+        matrix,
+        3,
+        error_channel=lambda error: float(np.log(probabilities[int("".join(map(str, error)), 2)])),
+    )
+    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1, 0, 0])
+
+    with pytest.raises(ValueError, match="non-positive or -inf"):
+        decoders.LookupDecoder(matrix, 1, error_channel=lambda _: 0.1)
+
+    # deprecated penalty functions are converted to callable error channels
+    with pytest.warns(DeprecationWarning, match="penalty_func is deprecated"):
+        decoder = decoders.LookupDecoder(
+            matrix, 2, penalty_func=lambda error: -float(np.dot([1, 2, 3], error))
         )
+    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [0, 0, 1])
 
 
 def test_observable_flip_matrix_arithmetic() -> None:
@@ -601,29 +669,6 @@ def test_field_vector_packer(order: int, length: int) -> None:
     assert np.array_equal(packer.unpack(packer.pack(vectors[1])), vectors[1])
 
 
-def test_lookup_batch_validation() -> None:
-    """Batch decoding rejects batches of the wrong shape, and bit-packed shots over GF(q > 2)."""
-    decoder = decoders.LookupDecoder(np.eye(2, dtype=int), max_weight=1)
-    with pytest.raises(ValueError, match="Expected syndromes of shape"):
-        decoder.decode_errors_batch(np.zeros(2, dtype=int))
-
-    observable = decoders.ObservableLookupDecoder(
-        stim.DetectorErrorModel("error(0.1) D0 L0"), max_weight=1
-    )
-    with pytest.raises(ValueError, match="Expected bit-packed syndromes of shape"):
-        observable.decode_shots_bit_packed(np.zeros((1, 2), dtype=np.uint8))
-
-    field = galois.GF(3)
-    nonbinary = decoders.ObservableLookupDecoder(
-        field([[1]]),
-        max_weight=1,
-        observable_flip_matrix=field([[1]]),
-        error_channel=[1 - 1 / field.order],
-    )
-    with pytest.raises(ValueError, match=r"only available over GF\(2\)"):
-        nonbinary.decode_shots_bit_packed(np.array([[1]], dtype=np.uint8))
-
-
 def test_packed_lookup_table() -> None:
     """Lookup-table keys and values are compactly packed bytes."""
     decoder = decoders.LookupDecoder(codes.HammingCode(5).matrix, max_weight=1)
@@ -632,66 +677,21 @@ def test_packed_lookup_table() -> None:
         assert isinstance(value, bytes) and len(value) == 4  # 31 error bits
 
 
-@pytest.mark.parametrize("field", [galois.GF(2), galois.GF(3)])
-def test_lookup_batch_decoding(field: type[galois.FieldArray]) -> None:
-    """Packed batch lookup matches scalar lookup over binary and nonbinary fields."""
-    matrix = field([[1, 1, 0], [0, 1, 1]])
-    syndromes = np.array([[0, 0], [1, 0], [0, 1], [1, 1]], dtype=int)
+def test_observable_lookup_deprecation_warning_location() -> None:
+    """Legacy observable lookup warnings identify the user call and its typed replacement."""
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        decoder = decoders.get_decoder(
+            dem,
+            with_lookup=True,
+            max_weight=1,
+            predict_observable_flips=True,
+        )
 
-    error_decoder = decoders.LookupDecoder(matrix, max_weight=1, add_erasure_bit=True)
-    expected_errors = np.array([error_decoder.decode_errors(row) for row in syndromes])
-    assert np.array_equal(error_decoder.decode_errors_batch(syndromes), expected_errors)
-    assert np.array_equal(error_decoder.decode_batch(syndromes), expected_errors)
-    assert error_decoder.decode_errors_batch(syndromes[:0]).shape == (0, 4)
-
-    weighted_decoder = decoders.WeightedLookupDecoder(matrix, max_weight=1, add_erasure_bit=True)
-    expected_weighted = np.array([weighted_decoder.decode_errors(row) for row in syndromes])
-    assert np.array_equal(weighted_decoder.decode_errors_batch(syndromes), expected_weighted)
-
-    observable_decoder = decoders.ObservableLookupDecoder(
-        matrix,
-        max_weight=1,
-        observable_flip_matrix=field([[1, 0, 1]]),
-        error_channel=np.full(3, 1 - 1 / field.order),
-        add_erasure_bit=True,
-    )
-    expected_flips = np.array([observable_decoder.decode_observables(row) for row in syndromes])
-    assert np.array_equal(observable_decoder.decode_observables_batch(syndromes), expected_flips)
-
-    post_selected = decoders.LookupDecoder(
-        matrix, max_weight=1, post_select=[0], add_erasure_bit=True
-    )
-    expected_post_selected = np.array([post_selected.decode_errors(row) for row in syndromes])
-    assert np.array_equal(post_selected.decode_errors_batch(syndromes), expected_post_selected)
-
-
-@pytest.mark.parametrize("num_observables", [0, 7, 8])
-@pytest.mark.parametrize("add_erasure_bit", [False, True])
-def test_observable_lookup_sinter_batches(num_observables: int, add_erasure_bit: bool) -> None:
-    """Observable lookup decodes bit-packed Sinter shots directly."""
-    dem = stim.DetectorErrorModel(
-        "\n".join(f"error(0.1) D{oo} L{oo}" for oo in range(num_observables))
-    )
-    decoder = decoders.ObservableLookupDecoder(dem, max_weight=1, add_erasure_bit=add_erasure_bit)
-    shots = np.zeros((3, num_observables), dtype=np.uint8)
-    if num_observables:
-        shots[1, 0] = 1
-        shots[2, :2] = 1  # a table miss and therefore an erasure, when enabled
-
-    expected = decoder.decode_observables_batch(shots.astype(int))
-    packed_expected = np.packbits(expected[:, :num_observables], bitorder="little", axis=1)
-    if add_erasure_bit:
-        packed_expected = np.hstack([packed_expected, expected[:, -1:].astype(np.uint8)])
-    packed_shots = np.packbits(shots, bitorder="little", axis=1)
-    assert np.array_equal(decoder.decode_shots_bit_packed(packed_shots), packed_expected)
-    assert decoder.decode_shots_bit_packed(packed_shots[:0]).shape == packed_expected[:0].shape
-
-
-def test_observable_lookup_sinter_post_selection() -> None:
-    """Bit-packed shots that are nonzero on a post-selected detector are erased."""
-    dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.1) D1")
-    decoder = decoders.ObservableLookupDecoder(
-        dem, max_weight=1, post_select=[0], add_erasure_bit=True
-    )
-    shots = np.packbits([[0, 1], [1, 0]], bitorder="little", axis=1)
-    assert decoder.decode_shots_bit_packed(shots).tolist() == [[0, 0], [0, 1]]
+    assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1])
+    assert len(caught) == 2
+    assert all(warning.filename == __file__ for warning in caught)
+    messages = [str(warning.message) for warning in caught]
+    assert all("ObservableLookupDecoder" in message for message in messages)
+    assert any("decode_observables" in message for message in messages)

@@ -9,6 +9,8 @@ from typing import Any, Protocol, runtime_checkable
 import numpy as np
 import numpy.typing as npt
 
+# Decoder protocols
+
 
 @runtime_checkable
 class ErrorDecoder(Protocol):
@@ -89,41 +91,7 @@ class SupportsDecode(Protocol):
         """Decode an error syndrome and return an inferred error."""
 
 
-_OBSERVABLE_DECODER_ADVICE = (
-    "Pass error-decoder settings such as decoders.bp_osd(...), or pass the observable decoder where"
-    " one is accepted, such as to decoders.SinterDecoder"
-)
-
-
-class WrappedErrorDecoder(ErrorDecoder):
-    """Error decoder that wraps an object whose decode method returns an inferred error.
-
-    The wrapped object is the .decoder attribute.  Its decode method provides decode_errors, its
-    decode_batch method (if any) provides decode_errors_batch, and its other attributes are
-    readable from the wrapper.
-    """
-
-    def __init__(self, decoder: SupportsDecode) -> None:
-        self.decoder = decoder
-
-    def decode_errors(self, syndrome: npt.NDArray[np.int_], *args: Any, **kwargs: Any) -> Any:
-        """Decode an error syndrome and return an inferred error."""
-        return self.decoder.decode(syndrome, *args, **kwargs)
-
-    decode = decode_errors
-
-    def __getattr__(self, name: str) -> Any:
-        """Read an attribute of the wrapped object, reading decode_errors_batch as decode_batch.
-
-        Special (dunder) attributes are not read from the wrapped object, which keeps copying and
-        unpickling from recursing before the wrapped object is set.
-        """
-        if name == "decoder" or (name.startswith("__") and name.endswith("__")):
-            raise AttributeError(name)
-        return getattr(self.decoder, "decode_batch" if name == "decode_errors_batch" else name)
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.decoder!r})"
+# Coercion into error decoders
 
 
 def as_error_decoder(decoder: object, source: str = "A decoder") -> ErrorDecoder:
@@ -156,14 +124,44 @@ def as_error_decoder(decoder: object, source: str = "A decoder") -> ErrorDecoder
     raise TypeError(f"{source} must be an ErrorDecoder, or have a decode method")
 
 
-def _get_batch_decoding_method(decoder: ErrorDecoder) -> Any:
-    """The decode_errors_batch method of an error decoder, its alias decode_batch, or None."""
-    return getattr(decoder, "decode_errors_batch", None) or getattr(decoder, "decode_batch", None)
+_OBSERVABLE_DECODER_ADVICE = (
+    "Pass error-decoder settings such as decoders.bp_osd(...), or pass the observable decoder where"
+    " one is accepted, such as to decoders.SinterDecoder"
+)
 
 
-def supports_batch_decoding(decoder: ErrorDecoder) -> bool:
-    """Whether an error decoder has a decode_errors_batch method, or its alias decode_batch."""
-    return _get_batch_decoding_method(decoder) is not None
+class WrappedErrorDecoder(ErrorDecoder):
+    """Error decoder that wraps an object whose decode method returns an inferred error.
+
+    The wrapped object is the .decoder attribute.  Its decode method provides decode_errors, its
+    decode_batch method (if any) provides decode_errors_batch, and its other attributes are
+    readable from the wrapper.
+    """
+
+    def __init__(self, decoder: SupportsDecode) -> None:
+        self.decoder = decoder
+
+    def __getattr__(self, name: str) -> Any:
+        """Read an attribute of the wrapped object, reading decode_errors_batch as decode_batch.
+
+        Special (dunder) attributes are not read from the wrapped object, which keeps copying and
+        unpickling from recursing before the wrapped object is set.
+        """
+        if name == "decoder" or (name.startswith("__") and name.endswith("__")):
+            raise AttributeError(name)
+        return getattr(self.decoder, "decode_batch" if name == "decode_errors_batch" else name)
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self.decoder!r})"
+
+    def decode_errors(self, syndrome: npt.NDArray[np.int_], *args: Any, **kwargs: Any) -> Any:
+        """Decode an error syndrome and return an inferred error."""
+        return self.decoder.decode(syndrome, *args, **kwargs)
+
+    decode = decode_errors
+
+
+# Batch decoding
 
 
 def batch_decode_errors(
@@ -181,3 +179,13 @@ def batch_decode_errors(
         test_error = decoder.decode_errors(np.zeros(syndromes.shape[1], dtype=syndromes.dtype))
         return np.zeros((0, len(test_error)), dtype=np.asarray(test_error).dtype)
     return np.array([decoder.decode_errors(syndrome) for syndrome in syndromes])
+
+
+def supports_batch_decoding(decoder: ErrorDecoder) -> bool:
+    """Whether an error decoder has a decode_errors_batch method, or its alias decode_batch."""
+    return _get_batch_decoding_method(decoder) is not None
+
+
+def _get_batch_decoding_method(decoder: ErrorDecoder) -> Any:
+    """The decode_errors_batch method of an error decoder, its alias decode_batch, or None."""
+    return getattr(decoder, "decode_errors_batch", None) or getattr(decoder, "decode_batch", None)

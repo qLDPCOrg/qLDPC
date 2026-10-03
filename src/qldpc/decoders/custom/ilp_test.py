@@ -25,27 +25,6 @@ def test_ilp_decoder(toy_problem: ToyProblem) -> None:
     assert np.array_equal(error, decoder.decode(syndrome))
 
 
-def test_ilp_builder() -> None:
-    """The ILP builder decodes matrices and detector error models with optional erasure."""
-    matrix = np.array([[1, 1, 0], [0, 1, 1]], dtype=np.int32)
-    dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1).to_dem()
-    error = np.array([1, 0, 0])
-    syndrome = matrix @ error % 2
-
-    for pcm_or_dem in [matrix, dem]:
-        decoder = _get_decoder_ilp(pcm_or_dem, add_erasure_bit=True)
-        decoded = decoder.decode(syndrome)
-        assert decoded.shape == (error.size + 1,)
-        assert decoded[-1] == 0
-        assert np.array_equal(matrix @ decoded[:-1] % 2, syndrome)
-
-    field = galois.GF(3)
-    matrix = -matrix.view(field)
-    error = -error.view(field)
-    decoder = decoders.ILPDecoder(matrix)
-    assert np.array_equal(error, decoder.decode(syndrome))
-
-
 def test_ilp_decoder_minimum_weight(pytestconfig: pytest.Config) -> None:
     """An integer linear program returns a minimum-weight error that reproduces the syndrome."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
@@ -146,3 +125,24 @@ def test_invalid_ilp() -> None:
 
     with pytest.raises(ValueError, match="ILP decoding only supports prime number fields"):
         _get_error_decoder(galois.GF(4)(matrix), decoder=decoders.ilp()).decode(syndrome)
+
+
+def test_ilp_builder() -> None:
+    """The ILP builder decodes matrices and detector error models with optional erasure."""
+    matrix = np.array([[1, 1, 0], [0, 1, 1]], dtype=np.int32)
+    dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1).to_dem()
+    error = np.array([1, 0, 0])
+    syndrome = matrix @ error % 2
+
+    for pcm_or_dem in [matrix, dem]:
+        decoder = _get_decoder_ilp(pcm_or_dem, add_erasure_bit=True)
+        decoded = decoder.decode(syndrome)
+        assert decoded.shape == (error.size + 1,)
+        assert decoded[-1] == 0
+        assert np.array_equal(matrix @ decoded[:-1] % 2, syndrome)
+
+    field = galois.GF(3)
+    matrix = -matrix.view(field)
+    error = -error.view(field)
+    decoder = decoders.ILPDecoder(matrix)
+    assert np.array_equal(error, decoder.decode(syndrome))

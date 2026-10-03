@@ -129,45 +129,44 @@ def test_deprecated_decoder_functions(pytestconfig: pytest.Config) -> None:
         decoders.resolve_decoder(matrix, static_decoder, {"with_BF": True})
 
 
-def test_legacy_decoder_migration_messages() -> None:
-    """Deprecated keyword arguments of methods warn with the decoder input that replaces them."""
-    matrix = np.eye(2, dtype=int)
-    expected_messages: list[tuple[dict[str, object], str]] = [
-        ({"decoder_constructor": decoders.LookupDecoder}, "for example decoder=LookupDecoder"),
-        ({"with_lookup": True, "predict_observable_flips": True}, "ObservableLookupDecoder"),
-        ({"with_BF": True}, r"with_BF keyword .* use decoder=decoders\.bf\(\.\.\.\)"),
-        ({"with_BF": True, "with_MWPM": True}, "pass exactly one"),
-        ({"max_iter": 5}, r"move them into decoder=decoders\.bp_osd\(\.\.\.\)"),
-    ]
-    for decoder_args, expected_message in expected_messages:
-        message = legacy.get_legacy_decoder_migration_message(matrix, decoder_args)
-        assert re.search(expected_message, message), message
-    message = legacy.get_legacy_decoder_migration_message(
-        galois.GF(3)(matrix), {"max_weight": 1}, argument_name="decoder_x"
-    )
-    assert "decoder_x=decoders.guf(...)" in message
+def test_legacy_flat_backend_options() -> None:
+    """Deprecated APIs move flat backend options into the backend_options of a builder."""
+    matrix = np.array([[1, 1, 0], [0, 1, 1]])
+    with (
+        warnings.catch_warnings(),
+        unittest.mock.patch.object(ldpc_integration, "_build_ldpc_decoder") as backend,
+    ):
+        warnings.simplefilter("ignore", DeprecationWarning)
+        decoders.get_decoder_bp_osd(
+            matrix, max_iter=7, backend_extension=1, backend_options={"other": 2}
+        )
+        expected_options = {"max_iter": 7, "backend_extension": 1, "other": 2}
+        assert expected_options.items() <= backend.call_args.args[3].items()
+        decoders.get_decoder(matrix, with_BF=True, backend_extension=3)
+        assert backend.call_args.args[3]["backend_extension"] == 3
 
-    # deprecated arguments build a decoder, warning unless an outer API has already warned
-    with pytest.warns(DeprecationWarning, match="with_BF keyword"):
-        decoder = decoders.resolve_decoder(matrix, None, {"with_BF": True})
-    assert np.array_equal(decoder.decode_errors(np.array([1, 0])), [1, 0])
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        decoders.resolve_decoder(matrix, None, {"with_BF": True}, warn_deprecated=False)
-        decoders.resolve_decoder(matrix, decoders.bf(), {})
+    # add_erasure_bit is not a backend option, so unsupported decoders still reject it clearly
+    with (
+        pytest.warns(DeprecationWarning),
+        pytest.raises(ValueError, match="cannot signal erasure"),
+    ):
+        decoders.get_decoder(matrix, with_BF=True, add_erasure_bit=True)
 
-    # deprecated arguments build an observable decoder with error-decoder semantics
-    dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.2) D0 D1\nerror(0.1) D1")
-    observable_decoder = decoders.resolve_observable_decoder(
-        dem, None, {"with_lookup": True, "max_weight": 1}, warn_deprecated=False
-    )
-    assert isinstance(observable_decoder, decoders.ErrorsToObservablesDecoder)
-    assert np.array_equal(observable_decoder.decode_observables(np.array([1, 0])), [1])
-    assert np.array_equal(observable_decoder.decode_observables(np.array([1, 1])), [0])
+    # MWPM rejects flat options that PyMatching would silently ignore
+    with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match=r"\['typo'\]"):
+        decoders.get_decoder_mwpm(matrix, typo=1)
+    with pytest.warns(DeprecationWarning):
+        matching: Any = decoders.get_decoder_mwpm(matrix, merge_strategy="disallow")
+    assert np.array_equal(matching.decode(np.array([1, 0])), [1, 0, 0])
 
-    # without deprecated arguments, decoder settings may build a native observable decoder
-    observable_decoder = decoders.resolve_observable_decoder(dem, decoders.lookup(1), {})
-    assert isinstance(observable_decoder, decoders.ObservableLookupDecoder)
+    # builders without backend_options receive their keyword arguments unchanged, and the legacy
+    # constructors remain pickleable for Sinter
+    constructor = legacy.DECODER_CONSTRUCTORS["BP_OSD"]
+    assert isinstance(constructor, functools.partial)
+    assert pickle.loads(pickle.dumps(constructor)).func is constructor.func  # noqa: S301
+    with pytest.warns(DeprecationWarning):
+        decoder = decoders.get_decoder(matrix, with_lookup=True, max_weight=1)
+    assert np.array_equal(decoder.decode(np.array([1, 0])), [1, 0, 0])
 
 
 def test_deprecated_builders() -> None:
@@ -211,46 +210,6 @@ def test_deprecated_builders() -> None:
     # the deprecated uppercase aliases resolve to the deprecated lowercase builders
     with pytest.warns(DeprecationWarning, match="get_decoder_BP_OSD"):
         assert decoders.get_decoder_BP_OSD is decoders.get_decoder_bp_osd
-
-
-def test_legacy_flat_backend_options() -> None:
-    """Deprecated APIs move flat backend options into the backend_options of a builder."""
-    matrix = np.array([[1, 1, 0], [0, 1, 1]])
-    with (
-        warnings.catch_warnings(),
-        unittest.mock.patch.object(ldpc_integration, "_build_ldpc_decoder") as backend,
-    ):
-        warnings.simplefilter("ignore", DeprecationWarning)
-        decoders.get_decoder_bp_osd(
-            matrix, max_iter=7, backend_extension=1, backend_options={"other": 2}
-        )
-        expected_options = {"max_iter": 7, "backend_extension": 1, "other": 2}
-        assert expected_options.items() <= backend.call_args.args[3].items()
-        decoders.get_decoder(matrix, with_BF=True, backend_extension=3)
-        assert backend.call_args.args[3]["backend_extension"] == 3
-
-    # add_erasure_bit is not a backend option, so unsupported decoders still reject it clearly
-    with (
-        pytest.warns(DeprecationWarning),
-        pytest.raises(ValueError, match="cannot signal erasure"),
-    ):
-        decoders.get_decoder(matrix, with_BF=True, add_erasure_bit=True)
-
-    # MWPM rejects flat options that PyMatching would silently ignore
-    with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match=r"\['typo'\]"):
-        decoders.get_decoder_mwpm(matrix, typo=1)
-    with pytest.warns(DeprecationWarning):
-        matching: Any = decoders.get_decoder_mwpm(matrix, merge_strategy="disallow")
-    assert np.array_equal(matching.decode(np.array([1, 0])), [1, 0, 0])
-
-    # builders without backend_options receive their keyword arguments unchanged, and the legacy
-    # constructors remain pickleable for Sinter
-    constructor = legacy.DECODER_CONSTRUCTORS["BP_OSD"]
-    assert isinstance(constructor, functools.partial)
-    assert pickle.loads(pickle.dumps(constructor)).func is constructor.func  # noqa: S301
-    with pytest.warns(DeprecationWarning):
-        decoder = decoders.get_decoder(matrix, with_lookup=True, max_weight=1)
-    assert np.array_equal(decoder.decode(np.array([1, 0])), [1, 0, 0])
 
 
 def test_deprecated_resolution_functions() -> None:
@@ -381,3 +340,44 @@ def test_deprecated_resolution_functions() -> None:
         warnings.simplefilter("error")
         decoders.resolve_decoder(matrix, decoders.bf(), {})
         decoders.resolve_observable_decoder(dem, None, {})
+
+
+def test_legacy_decoder_migration_messages() -> None:
+    """Deprecated keyword arguments of methods warn with the decoder input that replaces them."""
+    matrix = np.eye(2, dtype=int)
+    expected_messages: list[tuple[dict[str, object], str]] = [
+        ({"decoder_constructor": decoders.LookupDecoder}, "for example decoder=LookupDecoder"),
+        ({"with_lookup": True, "predict_observable_flips": True}, "ObservableLookupDecoder"),
+        ({"with_BF": True}, r"with_BF keyword .* use decoder=decoders\.bf\(\.\.\.\)"),
+        ({"with_BF": True, "with_MWPM": True}, "pass exactly one"),
+        ({"max_iter": 5}, r"move them into decoder=decoders\.bp_osd\(\.\.\.\)"),
+    ]
+    for decoder_args, expected_message in expected_messages:
+        message = legacy.get_legacy_decoder_migration_message(matrix, decoder_args)
+        assert re.search(expected_message, message), message
+    message = legacy.get_legacy_decoder_migration_message(
+        galois.GF(3)(matrix), {"max_weight": 1}, argument_name="decoder_x"
+    )
+    assert "decoder_x=decoders.guf(...)" in message
+
+    # deprecated arguments build a decoder, warning unless an outer API has already warned
+    with pytest.warns(DeprecationWarning, match="with_BF keyword"):
+        decoder = decoders.resolve_decoder(matrix, None, {"with_BF": True})
+    assert np.array_equal(decoder.decode_errors(np.array([1, 0])), [1, 0])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        decoders.resolve_decoder(matrix, None, {"with_BF": True}, warn_deprecated=False)
+        decoders.resolve_decoder(matrix, decoders.bf(), {})
+
+    # deprecated arguments build an observable decoder with error-decoder semantics
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.2) D0 D1\nerror(0.1) D1")
+    observable_decoder = decoders.resolve_observable_decoder(
+        dem, None, {"with_lookup": True, "max_weight": 1}, warn_deprecated=False
+    )
+    assert isinstance(observable_decoder, decoders.ErrorsToObservablesDecoder)
+    assert np.array_equal(observable_decoder.decode_observables(np.array([1, 0])), [1])
+    assert np.array_equal(observable_decoder.decode_observables(np.array([1, 1])), [0])
+
+    # without deprecated arguments, decoder settings may build a native observable decoder
+    observable_decoder = decoders.resolve_observable_decoder(dem, decoders.lookup(1), {})
+    assert isinstance(observable_decoder, decoders.ObservableLookupDecoder)

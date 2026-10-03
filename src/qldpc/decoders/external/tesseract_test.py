@@ -96,47 +96,6 @@ def fake_tesseract(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_tesseract_import_is_lazy() -> None:
-    """Importing qLDPC's integration does not import the optional backend."""
-    code = """
-import sys
-import qldpc.decoders.external.tesseract
-assert "tesseract_decoder" not in sys.modules
-"""
-    subprocess.run([sys.executable, "-c", code], check=True)
-
-
-def test_tesseract_missing_dependency_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A missing backend produces an actionable error without hiding nested failures."""
-    monkeypatch.setitem(sys.modules, "tesseract_decoder", None)
-    with pytest.raises(ModuleNotFoundError, match=r"qldpc\[tesseract\]") as exc_info:
-        _get_decoder_tesseract(np.eye(1, dtype=int))
-    message = str(exc_info.value)
-    assert "CPython 3.12-3.14 on macOS arm64 and Linux x86-64" in message
-    assert "github.com/quantumlib/tesseract-decoder#installation" in message
-
-    monkeypatch.delitem(sys.modules, "tesseract_decoder")
-    original_import = builtins.__import__
-
-    def import_tesseract(
-        name: str,
-        globals_: dict[str, object] | None = None,
-        locals_: dict[str, object] | None = None,
-        fromlist: tuple[str, ...] = (),
-        level: int = 0,
-    ) -> types.ModuleType:
-        if name == "tesseract_decoder":
-            raise ModuleNotFoundError(
-                "No module named 'nested_dependency'", name="nested_dependency"
-            )
-        return original_import(name, globals_, locals_, fromlist, level)
-
-    assert import_tesseract("types") is types
-    monkeypatch.setattr(builtins, "__import__", import_tesseract)
-    with pytest.raises(ModuleNotFoundError, match="nested_dependency"):
-        importlib.import_module("qldpc.decoders.external.tesseract")._get_tesseract()
-
-
 def test_tesseract_matrix_error_decoding(fake_tesseract: None) -> None:
     """Dense, sparse, and field matrices decode to errors in column order."""
     matrix = np.array([[1, 1, 0], [0, 1, 1]], dtype=int)
@@ -293,6 +252,16 @@ def test_tesseract_options_and_validation(fake_tesseract: None) -> None:
         decoder.decode_observables_batch(np.array([1, 0], dtype=int))
 
 
+def test_tesseract_rejects_invalid_backend_error_index(
+    fake_tesseract: None,
+) -> None:
+    """An invalid upstream result cannot silently corrupt a dense inferred error."""
+    decoder = _get_decoder_tesseract(np.eye(1, dtype=int))
+    decoder.decoder.decode_to_errors = lambda syndrome: [1]
+    with pytest.raises(ValueError, match="outside the provided"):
+        decoder.decode_errors(np.array([1], dtype=int))
+
+
 def test_tesseract_preset_merge_defaults(fake_tesseract: None) -> None:
     """Preset helpers validate names, probabilities, and input-dependent merge defaults."""
     spec = decoders.tesseract_preset()
@@ -309,16 +278,6 @@ def test_tesseract_preset_merge_defaults(fake_tesseract: None) -> None:
         decoders.tesseract_preset(cast(Any, "medium-beam"))
     with pytest.raises(ValueError, match="Unknown Tesseract sparsify preset"):
         decoders.tesseract_preset(sparsify=cast(Any, "generic"))
-
-
-def test_tesseract_rejects_invalid_backend_error_index(
-    fake_tesseract: None,
-) -> None:
-    """An invalid upstream result cannot silently corrupt a dense inferred error."""
-    decoder = _get_decoder_tesseract(np.eye(1, dtype=int))
-    decoder.decoder.decode_to_errors = lambda syndrome: [1]
-    with pytest.raises(ValueError, match="outside the provided"):
-        decoder.decode_errors(np.array([1], dtype=int))
 
 
 def test_tesseract_specs_sinter_and_code_capacity(
@@ -400,3 +359,44 @@ def test_real_tesseract_package() -> None:
     installed = importlib.util.find_spec("tesseract_decoder") is not None
     script = _REAL_PACKAGE_CHECKS if installed else ""
     subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_tesseract_import_is_lazy() -> None:
+    """Importing qLDPC's integration does not import the optional backend."""
+    code = """
+import sys
+import qldpc.decoders.external.tesseract
+assert "tesseract_decoder" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_tesseract_missing_dependency_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A missing backend produces an actionable error without hiding nested failures."""
+    monkeypatch.setitem(sys.modules, "tesseract_decoder", None)
+    with pytest.raises(ModuleNotFoundError, match=r"qldpc\[tesseract\]") as exc_info:
+        _get_decoder_tesseract(np.eye(1, dtype=int))
+    message = str(exc_info.value)
+    assert "CPython 3.12-3.14 on macOS arm64 and Linux x86-64" in message
+    assert "github.com/quantumlib/tesseract-decoder#installation" in message
+
+    monkeypatch.delitem(sys.modules, "tesseract_decoder")
+    original_import = builtins.__import__
+
+    def import_tesseract(
+        name: str,
+        globals_: dict[str, object] | None = None,
+        locals_: dict[str, object] | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> types.ModuleType:
+        if name == "tesseract_decoder":
+            raise ModuleNotFoundError(
+                "No module named 'nested_dependency'", name="nested_dependency"
+            )
+        return original_import(name, globals_, locals_, fromlist, level)
+
+    assert import_tesseract("types") is types
+    monkeypatch.setattr(builtins, "__import__", import_tesseract)
+    with pytest.raises(ModuleNotFoundError, match="nested_dependency"):
+        importlib.import_module("qldpc.decoders.external.tesseract")._get_tesseract()

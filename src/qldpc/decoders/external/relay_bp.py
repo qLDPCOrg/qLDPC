@@ -161,6 +161,24 @@ class RelayBPDecoder(BatchErrorDecoder):
             include_decode_result,
         )
 
+    def __getattr__(self, name: str) -> Any:
+        """Inherit all methods of self.decoder: relay_bp.ObservableDecoderRunner.
+
+        Typecast the first argument, if there is one, to np.uint8 for compatibility with the
+        relay_bp package.
+        """
+        if name == "decoder":
+            raise AttributeError(name)
+        inner_func = getattr(self.decoder, name)
+
+        @functools.wraps(inner_func)
+        def outer_func(*args: object, **kwargs: object) -> Any:
+            if args:
+                args = (np.asarray(args[0], dtype=np.uint8), *args[1:])
+            return inner_func(*args, **kwargs)
+
+        return outer_func
+
     def decode_errors(self, /, detectors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error.
 
@@ -290,24 +308,6 @@ class RelayBPDecoder(BatchErrorDecoder):
         """
         residuals = np.asarray(errors.astype(np.uint8, copy=False) @ self.pcm_transposed) & 1
         return np.all(residuals == detectors, axis=1)
-
-    def __getattr__(self, name: str) -> Any:
-        """Inherit all methods of self.decoder: relay_bp.ObservableDecoderRunner.
-
-        Typecast the first argument, if there is one, to np.uint8 for compatibility with the
-        relay_bp package.
-        """
-        if name == "decoder":
-            raise AttributeError(name)
-        inner_func = getattr(self.decoder, name)
-
-        @functools.wraps(inner_func)
-        def outer_func(*args: object, **kwargs: object) -> Any:
-            if args:
-                args = (np.asarray(args[0], dtype=np.uint8), *args[1:])
-            return inner_func(*args, **kwargs)
-
-        return outer_func
 
 
 @_erasure_bit_support("RBP", supported=True)
@@ -500,9 +500,11 @@ _RELAY_BP_SETTINGS_RETURNS = (
     "observable metadata is available, predicts observable flips."
 )
 
+
 relay_bp = decoder_spec(
     "relay_bp", _get_decoder_relay_bp, _get_decoder_relay_bp, returns=_RELAY_BP_SETTINGS_RETURNS
 )
+
 
 _MIN_SUM_BP_SETTINGS_RETURNS = (
     "Decoder settings.  Their ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` "
@@ -510,6 +512,7 @@ _MIN_SUM_BP_SETTINGS_RETURNS = (
     ":class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when "
     "observable metadata is available, predicts observable flips."
 )
+
 
 min_sum_bp = decoder_spec(
     "min_sum_bp",

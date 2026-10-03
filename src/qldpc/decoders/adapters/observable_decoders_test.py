@@ -34,41 +34,6 @@ class _BitPackedCompiledDecoder:
         return self.packed_prediction
 
 
-def test_validate_decoder_output() -> None:
-    """Decoder values belong to the field, followed only by binary erasure flags."""
-    field = galois.GF(3)
-    observable_decoders.validate_decoder_output(
-        np.array([0, 2, 1]), 2, 1, field, "A decoder returned"
-    )
-
-    with pytest.raises(ValueError, match=r"shape \(2,\).+2 value\(s\) and 1 erasure flag"):
-        observable_decoders.validate_decoder_output(
-            np.array([0, 1]), 2, 1, field, "A decoder returned"
-        )
-    with pytest.raises(ValueError, match="expected integers"):
-        observable_decoders.validate_decoder_output(
-            np.array([0.0, 1.0]), 2, 0, field, "A decoder returned"
-        )
-    with pytest.raises(ValueError, match="not elements of GF"):
-        observable_decoders.validate_decoder_output(
-            np.array([0, 3]), 2, 0, field, "A decoder returned"
-        )
-    with pytest.raises(ValueError, match="erasure flags that are not 0 or 1"):
-        observable_decoders.validate_decoder_output(
-            np.array([0, 2]), 1, 1, field, "A decoder returned"
-        )
-
-
-def test_validate_observable_decoder() -> None:
-    """Observable-decoder validation narrows valid objects and rejects invalid ones."""
-    decoder = observable_decoders.ErrorsToFieldObservablesDecoder(
-        _FixedErrorDecoder([0]), None, galois.GF(2), 1
-    )
-    assert observable_decoders.validate_observable_decoder(decoder, "The decoder") is decoder
-    with pytest.raises(TypeError, match="must provide a decode_observables method"):
-        observable_decoders.validate_observable_decoder(object(), "The decoder")
-
-
 def test_errors_to_field_observables_decoder() -> None:
     """An inferred field-valued error is projected onto the requested observables."""
     field = galois.GF(3)
@@ -100,3 +65,38 @@ def test_bit_packed_observable_decoder() -> None:
     decoder = observable_decoders.BitPackedObservableDecoder(compiled_decoder, num_observables=9)
     with pytest.raises(ValueError, match=r"shape \(1, 1\) for one shot"):
         decoder.decode_observables(syndrome)
+
+
+def test_validate_observable_decoder() -> None:
+    """Observable-decoder validation narrows valid objects and rejects invalid ones."""
+    decoder = observable_decoders.ErrorsToFieldObservablesDecoder(
+        _FixedErrorDecoder([0]), None, galois.GF(2), 1
+    )
+    assert observable_decoders.validate_observable_decoder(decoder, "The decoder") is decoder
+    with pytest.raises(TypeError, match="must provide a decode_observables method"):
+        observable_decoders.validate_observable_decoder(object(), "The decoder")
+
+
+def test_validate_decoder_output() -> None:
+    """Decoder values belong to the field, followed only by binary erasure flags."""
+    field = galois.GF(3)
+    observable_decoders.validate_decoder_output(
+        np.array([0, 2, 1]), 2, 1, field, "A decoder returned"
+    )
+
+    with pytest.raises(ValueError, match=r"shape \(2,\).+2 value\(s\) and 1 erasure flag"):
+        observable_decoders.validate_decoder_output(
+            np.array([0, 1]), 2, 1, field, "A decoder returned"
+        )
+    with pytest.raises(ValueError, match="expected integers"):
+        observable_decoders.validate_decoder_output(
+            np.array([0.0, 1.0]), 2, 0, field, "A decoder returned"
+        )
+    with pytest.raises(ValueError, match="not elements of GF"):
+        observable_decoders.validate_decoder_output(
+            np.array([0, 3]), 2, 0, field, "A decoder returned"
+        )
+    with pytest.raises(ValueError, match="erasure flags that are not 0 or 1"):
+        observable_decoders.validate_decoder_output(
+            np.array([0, 2]), 1, 1, field, "A decoder returned"
+        )

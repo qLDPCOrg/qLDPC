@@ -12,6 +12,8 @@ import numpy.typing as npt
 
 from ..protocols import ErrorDecoder, ObservableDecoder
 
+# Observable decoder adapters
+
 
 class ErrorsToFieldObservablesDecoder(ObservableDecoder):
     """Observable decoder that converts the errors that an error decoder infers into observables.

@@ -37,8 +37,12 @@ _InputT = TypeVar("_InputT")
 _Parameters = ParamSpec("_Parameters")
 _OptionTransform: TypeAlias = Callable[[dict[str, object], frozenset[str]], dict[str, object]]
 
+
 PcmOrDem: TypeAlias = IntegerArray | stim.DetectorErrorModel
 """A parity-check matrix or detector error model from which to build an error decoder."""
+
+
+# Decoder settings
 
 
 @dataclasses.dataclass(frozen=True, slots=True, eq=False, repr=False)
@@ -60,40 +64,6 @@ class DecoderSpec(Generic[_DecoderT_co]):
         if self._builder is None and self._observable_builder is None:
             raise ValueError("A decoder spec needs an error builder or an observable builder")
 
-    @property
-    def options(self) -> dict[str, object]:
-        """Return a copy of the construction options, including defaults."""
-        return dict(self._options)
-
-    @property
-    def infers_errors(self) -> bool:
-        """Whether this specification can build an error decoder."""
-        return self._builder is not None
-
-    def build(self, pcm_or_dem: PcmOrDem) -> _DecoderT_co:
-        """Build an error decoder for a parity-check matrix or detector error model."""
-        if self._builder is None:
-            raise TypeError(
-                f"decoders.{self._helper_name}(...) predicts observable flips but cannot infer"
-                " errors, so it cannot build an error decoder.  Call build_observable_decoder(dem)"
-                " instead, or pass it where an observable decoder is accepted, such as to"
-                " decoders.SinterDecoder"
-            )
-        return self._builder(pcm_or_dem, **self.options)
-
-    @property
-    def predicts_observables_natively(self) -> bool:
-        """Whether this specification has a native observable-decoding mode."""
-        return self._observable_builder is not None
-
-    def build_observable_decoder(self, dem: stim.DetectorErrorModel) -> ObservableDecoder:
-        """Build a decoder that predicts the observable flips of a detector error model."""
-        if self._observable_builder is not None:
-            return _validate_observable_decoder(
-                self._observable_builder(dem, **self.options), "A decoder spec"
-            )
-        return _ErrorsToObservablesDecoder(self.build(dem), dem)
-
     def __repr__(self) -> str:
         """Show the helper call that reproduces this specification."""
         if self._defaults is None:
@@ -106,48 +76,39 @@ class DecoderSpec(Generic[_DecoderT_co]):
         )
         return f"decoders.{self._helper_name}({options})"
 
+    @property
+    def options(self) -> dict[str, object]:
+        """Return a copy of the construction options, including defaults."""
+        return dict(self._options)
 
-class ErrorDecoderConstructor(Protocol):
-    """Callable that builds an error decoder from a matrix or detector error model."""
+    def build(self, pcm_or_dem: PcmOrDem) -> _DecoderT_co:
+        """Build an error decoder for a parity-check matrix or detector error model."""
+        if self._builder is None:
+            raise TypeError(
+                f"decoders.{self._helper_name}(...) predicts observable flips but cannot infer"
+                " errors, so it cannot build an error decoder.  Call build_observable_decoder(dem)"
+                " instead, or pass it where an observable decoder is accepted, such as to"
+                " decoders.SinterDecoder"
+            )
+        return self._builder(pcm_or_dem, **self.options)
 
-    def __call__(self, pcm_or_dem: PcmOrDem, /) -> ErrorDecoder | SupportsDecode:
-        """Build an error decoder."""
+    def build_observable_decoder(self, dem: stim.DetectorErrorModel) -> ObservableDecoder:
+        """Build a decoder that predicts the observable flips of a detector error model."""
+        if self._observable_builder is not None:
+            return _validate_observable_decoder(
+                self._observable_builder(dem, **self.options), "A decoder spec"
+            )
+        return _ErrorsToObservablesDecoder(self.build(dem), dem)
 
+    @property
+    def infers_errors(self) -> bool:
+        """Whether this specification can build an error decoder."""
+        return self._builder is not None
 
-class ObservableDecoderConstructor(Protocol):
-    """Callable that builds an observable decoder from a detector error model."""
-
-    def __call__(self, dem: stim.DetectorErrorModel, /) -> ObservableDecoder:
-        """Build an observable decoder."""
-
-
-class ObservableDecoderCompiler(Protocol):
-    """Object that compiles an observable decoder for a detector error model."""
-
-    def compile_decoder_for_dem(self, dem: stim.DetectorErrorModel) -> ObservableDecoder:
-        """Build an observable decoder specialized to one detector error model."""
-
-
-DeferredErrorDecoderInput: TypeAlias = DecoderSpec[ErrorDecoder] | ErrorDecoderConstructor | None
-"""A decoder= input that builds an error decoder later, for a matrix or detector error model that
-the receiving method constructs: decoder settings, an error-decoder constructor, or None to select
-the default decoder.  Prebuilt decoders are excluded, because they are tied to one matrix."""
-
-ErrorDecoderInput: TypeAlias = DeferredErrorDecoderInput | ErrorDecoder | SupportsDecode
-"""A decoder= input that yields an error decoder: a DeferredErrorDecoderInput, or a prebuilt error
-decoder (an ErrorDecoder, or any object whose decode method returns an inferred error)."""
-
-DeferredDecoderInput: TypeAlias = (
-    DeferredErrorDecoderInput | ObservableDecoderConstructor | ObservableDecoderCompiler
-)
-"""A decoder= input that builds an error or observable decoder later, for a matrix or detector
-error model that the receiving method constructs: a DeferredErrorDecoderInput, an
-observable-decoder constructor, or an observable-decoder compiler such as a SinterDecoder.
-Prebuilt decoders are excluded, because they are tied to one matrix or detector error model."""
-
-DecoderInput: TypeAlias = ErrorDecoderInput | DeferredDecoderInput | ObservableDecoder
-"""Any decoder= input: an ErrorDecoderInput, a DeferredDecoderInput, or a prebuilt observable
-decoder.  The receiving method adapts the decoder that the input yields to what it needs."""
+    @property
+    def predicts_observables_natively(self) -> bool:
+        """Whether this specification has a native observable-decoding mode."""
+        return self._observable_builder is not None
 
 
 @overload
@@ -272,6 +233,58 @@ def observable_decoder_spec(
         make_spec, helper_name, observable_builder, helper_signature, DecoderSpec[Never], returns
     )
     return make_spec
+
+
+# Decoder inputs
+
+
+class ErrorDecoderConstructor(Protocol):
+    """Callable that builds an error decoder from a matrix or detector error model."""
+
+    def __call__(self, pcm_or_dem: PcmOrDem, /) -> ErrorDecoder | SupportsDecode:
+        """Build an error decoder."""
+
+
+class ObservableDecoderConstructor(Protocol):
+    """Callable that builds an observable decoder from a detector error model."""
+
+    def __call__(self, dem: stim.DetectorErrorModel, /) -> ObservableDecoder:
+        """Build an observable decoder."""
+
+
+class ObservableDecoderCompiler(Protocol):
+    """Object that compiles an observable decoder for a detector error model."""
+
+    def compile_decoder_for_dem(self, dem: stim.DetectorErrorModel) -> ObservableDecoder:
+        """Build an observable decoder specialized to one detector error model."""
+
+
+DeferredErrorDecoderInput: TypeAlias = DecoderSpec[ErrorDecoder] | ErrorDecoderConstructor | None
+"""A decoder= input that builds an error decoder later, for a matrix or detector error model that
+the receiving method constructs: decoder settings, an error-decoder constructor, or None to select
+the default decoder.  Prebuilt decoders are excluded, because they are tied to one matrix."""
+
+
+ErrorDecoderInput: TypeAlias = DeferredErrorDecoderInput | ErrorDecoder | SupportsDecode
+"""A decoder= input that yields an error decoder: a DeferredErrorDecoderInput, or a prebuilt error
+decoder (an ErrorDecoder, or any object whose decode method returns an inferred error)."""
+
+
+DeferredDecoderInput: TypeAlias = (
+    DeferredErrorDecoderInput | ObservableDecoderConstructor | ObservableDecoderCompiler
+)
+"""A decoder= input that builds an error or observable decoder later, for a matrix or detector
+error model that the receiving method constructs: a DeferredErrorDecoderInput, an
+observable-decoder constructor, or an observable-decoder compiler such as a SinterDecoder.
+Prebuilt decoders are excluded, because they are tied to one matrix or detector error model."""
+
+
+DecoderInput: TypeAlias = ErrorDecoderInput | DeferredDecoderInput | ObservableDecoder
+"""Any decoder= input: an ErrorDecoderInput, a DeferredDecoderInput, or a prebuilt observable
+decoder.  The receiving method adapts the decoder that the input yields to what it needs."""
+
+
+# Private helpers
 
 
 def _set_helper_metadata(

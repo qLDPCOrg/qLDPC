@@ -46,55 +46,6 @@ def test_ldpc_builders(
 
 
 @pytest.mark.parametrize(
-    ("builder", "name"),
-    [
-        (_get_decoder_bf, "BF"),
-        (_get_decoder_bp_osd, "BP_OSD"),
-        (_get_decoder_bp_lsd, "BP_LSD"),
-    ],
-)
-def test_ldpc_builders_reject_erasure(
-    builder: Callable[..., decoders.ErrorDecoder], name: str
-) -> None:
-    """ldpc decoders cannot signal erasure."""
-    matrix = np.eye(2, dtype=int)
-    with pytest.raises(ValueError, match=rf"The {name} decoder cannot signal erasure"):
-        builder(matrix, add_erasure_bit=True)
-    assert builder(matrix, add_erasure_bit=False)
-
-
-@pytest.mark.parametrize("builder", [_get_decoder_bp_osd, _get_decoder_bp_lsd, _get_decoder_bf])
-def test_ldpc_error_channel_compatibility(
-    builder: Callable[..., Any],
-) -> None:
-    """A scalar channel broadcasts, while deprecated and DEM probability inputs are explicit."""
-    matrix = np.eye(2, dtype=int)
-    scalar_decoder = builder(matrix, error_channel=0.2)
-    assert np.array_equal(scalar_decoder.error_channel, [0.2, 0.2])
-
-    with pytest.warns(DeprecationWarning, match="error_rate=0.3.*error_channel=0.3"):
-        deprecated_decoder = builder(matrix, error_rate=0.3)
-    assert np.array_equal(deprecated_decoder.error_channel, [0.3, 0.3])
-
-    with pytest.raises(ValueError, match="cannot both be specified"):
-        builder(matrix, error_channel=0.2, error_rate=0.3)
-
-    dem = stim.DetectorErrorModel("error(0.1) D0\nerror(0.2) D1")
-    for kwargs in ({"error_channel": 0.3}, {"error_rate": 0.3}):
-        with pytest.raises(ValueError, match="supplies its own error probabilities"):
-            builder(dem, **kwargs)
-
-
-def test_bp_lsd_random_serial_schedule() -> None:
-    """The immediate and deferred BP+LSD builders expose the backend schedule option."""
-    matrix = np.eye(2, dtype=int)
-    immediate_decoder: Any = _get_decoder_bp_lsd(matrix, random_serial_schedule=True)
-    deferred_decoder: Any = decoders.bp_lsd(random_serial_schedule=True).build(matrix)
-    assert immediate_decoder.random_serial_schedule
-    assert deferred_decoder.random_serial_schedule
-
-
-@pytest.mark.parametrize(
     ("builder", "helper"),
     [
         (_get_decoder_bp_osd, decoders.bp_osd),
@@ -181,6 +132,55 @@ def test_ldpc_protocol_adapters() -> None:
         assert isinstance(decoder, backend_type)
         assert isinstance(decoder, decoders.ErrorDecoder)
         assert pickle.loads(pickle.dumps(adapter_type)) is adapter_type  # noqa: S301
+
+
+@pytest.mark.parametrize(
+    ("builder", "name"),
+    [
+        (_get_decoder_bf, "BF"),
+        (_get_decoder_bp_osd, "BP_OSD"),
+        (_get_decoder_bp_lsd, "BP_LSD"),
+    ],
+)
+def test_ldpc_builders_reject_erasure(
+    builder: Callable[..., decoders.ErrorDecoder], name: str
+) -> None:
+    """ldpc decoders cannot signal erasure."""
+    matrix = np.eye(2, dtype=int)
+    with pytest.raises(ValueError, match=rf"The {name} decoder cannot signal erasure"):
+        builder(matrix, add_erasure_bit=True)
+    assert builder(matrix, add_erasure_bit=False)
+
+
+@pytest.mark.parametrize("builder", [_get_decoder_bp_osd, _get_decoder_bp_lsd, _get_decoder_bf])
+def test_ldpc_error_channel_compatibility(
+    builder: Callable[..., Any],
+) -> None:
+    """A scalar channel broadcasts, while deprecated and DEM probability inputs are explicit."""
+    matrix = np.eye(2, dtype=int)
+    scalar_decoder = builder(matrix, error_channel=0.2)
+    assert np.array_equal(scalar_decoder.error_channel, [0.2, 0.2])
+
+    with pytest.warns(DeprecationWarning, match="error_rate=0.3.*error_channel=0.3"):
+        deprecated_decoder = builder(matrix, error_rate=0.3)
+    assert np.array_equal(deprecated_decoder.error_channel, [0.3, 0.3])
+
+    with pytest.raises(ValueError, match="cannot both be specified"):
+        builder(matrix, error_channel=0.2, error_rate=0.3)
+
+    dem = stim.DetectorErrorModel("error(0.1) D0\nerror(0.2) D1")
+    for kwargs in ({"error_channel": 0.3}, {"error_rate": 0.3}):
+        with pytest.raises(ValueError, match="supplies its own error probabilities"):
+            builder(dem, **kwargs)
+
+
+def test_bp_lsd_random_serial_schedule() -> None:
+    """The immediate and deferred BP+LSD builders expose the backend schedule option."""
+    matrix = np.eye(2, dtype=int)
+    immediate_decoder: Any = _get_decoder_bp_lsd(matrix, random_serial_schedule=True)
+    deferred_decoder: Any = decoders.bp_lsd(random_serial_schedule=True).build(matrix)
+    assert immediate_decoder.random_serial_schedule
+    assert deferred_decoder.random_serial_schedule
 
 
 def test_ldpc_import_is_lazy() -> None:

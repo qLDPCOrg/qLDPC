@@ -27,39 +27,10 @@ from ..protocols import ErrorDecoder, ObservableDecoder
 
 _LOOKUP_CHUNK_SIZE = 4096
 
+
 _ErrorVector: TypeAlias = npt.NDArray[np.int_] | Sequence[int]
 _ErrorLogProbability: TypeAlias = Callable[[_ErrorVector], float]
 _ErrorChannel: TypeAlias = npt.NDArray[np.floating] | Sequence[float] | _ErrorLogProbability | None
-
-
-# Decoder settings
-
-
-@_erasure_bit_support("lookup", supported=True)
-def _get_decoder_lookup(
-    pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
-) -> LookupDecoder:
-    """Build a lookup-table decoder.
-
-    The options, including the required ``max_weight``, an independent or callable correlated
-    ``error_channel``, and optional erasure, confidence, probability-cutoff, post-selection, and
-    symplectic settings, are those of :class:`~qldpc.decoders.custom.lookup.LookupDecoder`.
-
-    Returns:
-        A :class:`~qldpc.decoders.custom.lookup.LookupDecoder` that maps syndromes to representative
-        errors.
-
-    ``add_erasure_bit=True`` appends a flag for syndromes absent from the table.  A positive
-    ``confidence_ratio`` also enables the flag and erases ambiguous syndromes.
-    """
-    return LookupDecoder(pcm_or_dem, **decoder_args)  # type: ignore[arg-type]
-
-
-def _get_observable_decoder_lookup(
-    dem: stim.DetectorErrorModel, **decoder_args: object
-) -> ObservableDecoder:
-    """Build a lookup table that maps DEM syndromes directly to observable flips."""
-    return ObservableLookupDecoder(dem, **decoder_args)  # type: ignore[call-overload]
 
 
 # Lookup decoders
@@ -300,13 +271,6 @@ class _LookupDecoderBase:
             return error
         return with_erasure_bits(error, False)
 
-    def _decode_batch(self, syndromes: npt.NDArray[np.integer]) -> npt.NDArray[np.int_]:
-        """Look up a batch of syndromes and return unpacked predictions."""
-        packed_syndromes, passes_post_selection = self._pack_retained_syndromes(syndromes)
-        return self._prediction_packer.unpack_rows(
-            self._lookup_packed_predictions(packed_syndromes, passes_post_selection)
-        )
-
     def _decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Look up the configured error or observable-flip prediction."""
         retained_syndrome = self._remove_post_selected_bits(syndrome)
@@ -318,6 +282,13 @@ class _LookupDecoderBase:
         if packed is None:
             return self.default_correction.copy()
         return self._prediction_packer.unpack(packed)
+
+    def _decode_batch(self, syndromes: npt.NDArray[np.integer]) -> npt.NDArray[np.int_]:
+        """Look up a batch of syndromes and return unpacked predictions."""
+        packed_syndromes, passes_post_selection = self._pack_retained_syndromes(syndromes)
+        return self._prediction_packer.unpack_rows(
+            self._lookup_packed_predictions(packed_syndromes, passes_post_selection)
+        )
 
     def _lookup_packed_predictions(
         self,
@@ -921,6 +892,56 @@ class WeightedObservableLookupDecoder(_WeightedLookupDecoderBase):
         )
 
 
+# Decoder settings
+
+
+@_erasure_bit_support("lookup", supported=True)
+def _get_decoder_lookup(
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
+) -> LookupDecoder:
+    """Build a lookup-table decoder.
+
+    The options, including the required ``max_weight``, an independent or callable correlated
+    ``error_channel``, and optional erasure, confidence, probability-cutoff, post-selection, and
+    symplectic settings, are those of :class:`~qldpc.decoders.custom.lookup.LookupDecoder`.
+
+    Returns:
+        A :class:`~qldpc.decoders.custom.lookup.LookupDecoder` that maps syndromes to representative
+        errors.
+
+    ``add_erasure_bit=True`` appends a flag for syndromes absent from the table.  A positive
+    ``confidence_ratio`` also enables the flag and erases ambiguous syndromes.
+    """
+    return LookupDecoder(pcm_or_dem, **decoder_args)  # type: ignore[arg-type]
+
+
+def _get_observable_decoder_lookup(
+    dem: stim.DetectorErrorModel, **decoder_args: object
+) -> ObservableDecoder:
+    """Build a lookup table that maps DEM syndromes directly to observable flips."""
+    return ObservableLookupDecoder(dem, **decoder_args)  # type: ignore[call-overload]
+
+
+_LOOKUP_SETTINGS_RETURNS = (
+    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
+    "detector error model (DEM), which also supplies default error probabilities and observable"
+    " metadata, and returns a :class:`~qldpc.decoders.custom.lookup.LookupDecoder` that maps "
+    "syndromes to representative errors.  Their ``build_observable_decoder(dem)`` method "
+    "returns an :class:`~qldpc.decoders.custom.lookup.ObservableLookupDecoder` that maps "
+    "syndromes directly to observable flips."
+)
+
+
+lookup = decoder_spec(
+    "lookup",
+    _get_decoder_lookup,
+    _get_observable_decoder_lookup,
+    signature_source=LookupDecoder,
+    exclude=frozenset({"predict_observable_flips"}),
+    returns=_LOOKUP_SETTINGS_RETURNS,
+)
+
+
 # Lookup-table construction
 
 
@@ -1431,22 +1452,3 @@ def _warn_deprecated_observable_prediction(enabled: bool, replacement: str) -> N
             DeprecationWarning,
             stacklevel=get_external_caller_stacklevel(),
         )
-
-
-_LOOKUP_SETTINGS_RETURNS = (
-    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
-    "detector error model (DEM), which also supplies default error probabilities and observable"
-    " metadata, and returns a :class:`~qldpc.decoders.custom.lookup.LookupDecoder` that maps "
-    "syndromes to representative errors.  Their ``build_observable_decoder(dem)`` method "
-    "returns an :class:`~qldpc.decoders.custom.lookup.ObservableLookupDecoder` that maps "
-    "syndromes directly to observable flips."
-)
-
-lookup = decoder_spec(
-    "lookup",
-    _get_decoder_lookup,
-    _get_observable_decoder_lookup,
-    signature_source=LookupDecoder,
-    exclude=frozenset({"predict_observable_flips"}),
-    returns=_LOOKUP_SETTINGS_RETURNS,
-)

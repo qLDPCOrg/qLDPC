@@ -16,6 +16,8 @@ from ..protocols import (
     batch_decode_errors,
 )
 
+# Observable prediction from inferred errors
+
 
 class ErrorsToObservablesDecoder(ObservableDecoder):
     """Convert errors inferred by an error decoder into binary DEM observable flips."""
