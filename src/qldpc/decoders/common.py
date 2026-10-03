@@ -78,6 +78,25 @@ def _deprecate_error_rate_option(
     return options
 
 
+def _reject_dem_error_probabilities(error_channel: object, error_rate: object) -> None:
+    """Reject explicit error probabilities for a detector error model, which supplies its own.
+
+    Earlier qLDPC releases ignored error_rate for a detector error model, and let error_channel
+    override its probabilities, so the error explains how to migrate.
+    """
+    options = {"error_channel": error_channel, "error_rate": error_rate}
+    if specified := [f"{name}={value!r}" for name, value in options.items() if value is not None]:
+        raise ValueError(
+            "A detector error model supplies its own error probabilities, so"
+            f" {' and '.join(specified)} cannot be specified with one.  (In qLDPC 0.4.0, the ldpc"
+            " decoders BP+OSD, BP+LSD, and BF ignored error_rate for a detector error model, and"
+            " let error_channel override its probabilities.)  Remove the option, as for a"
+            " SinterDecoder, which always decodes detector error models.  Alternatively, pass"
+            " error_channel with the detector-flip matrix of the model,"
+            " decoders.DetectorErrorModelArrays(dem).detector_flip_matrix"
+        )
+
+
 def _get_matrix_error_channel(
     pcm_or_dem: _PcmOrDem,
     error_channel: _ErrorChannel,
@@ -85,11 +104,7 @@ def _get_matrix_error_channel(
 ) -> npt.NDArray[np.floating] | None:
     """Normalize matrix error probabilities and reject explicit probabilities for a DEM."""
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
-        if error_rate is not None or error_channel is not None:
-            raise ValueError(
-                "A detector error model supplies its own error probabilities, so error_rate and"
-                " error_channel cannot be specified"
-            )
+        _reject_dem_error_probabilities(error_channel, error_rate)
         return None
 
     if error_rate is not None:

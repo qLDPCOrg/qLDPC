@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+import warnings
+from typing import Any
+
 import galois
 import numpy as np
 import numpy.typing as npt
@@ -75,9 +78,41 @@ def test_get_matrix_error_channel() -> None:
 
     dem = stim.DetectorErrorModel("error(0.1) D0")
     assert common._get_matrix_error_channel(dem, None, None) is None
-    for error_channel, error_rate in ((None, 0.2), (0.2, None)):
-        with pytest.raises(ValueError, match="supplies its own error probabilities"):
+    for error_channel, error_rate, specified in (
+        (None, 0.2, "error_rate=0.2"),
+        (0.2, None, "error_channel=0.2"),
+        (0.2, 0.3, "error_channel=0.2 and error_rate=0.3"),
+    ):
+        with pytest.raises(ValueError) as error:
             common._get_matrix_error_channel(dem, error_channel, error_rate)
+        message = str(error.value)
+        assert message.startswith(
+            f"A detector error model supplies its own error probabilities, so {specified} cannot"
+        )
+        assert "let error_channel override its probabilities" in message
+        assert "SinterDecoder" in message
+        assert "DetectorErrorModelArrays(dem).detector_flip_matrix" in message
+
+
+def test_dem_error_probabilities_through_public_paths() -> None:
+    """Explicit probabilities for a DEM fail with migration advice through every entry point."""
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.2) D0 D1\nerror(0.1) D1")
+    match = r"supplies its own error probabilities.*detector_flip_matrix"
+    with pytest.raises(ValueError, match=match):
+        decoders.bp_osd(error_channel=0.1).build(dem)
+    with pytest.raises(ValueError, match=match):
+        decoders.SinterDecoder(decoder=decoders.bf(error_channel=0.1)).compile_decoder_for_dem(dem)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        with pytest.raises(ValueError, match=match):
+            decoders.SinterDecoder(error_rate=0.1).compile_decoder_for_dem(dem)
+        with pytest.raises(ValueError, match=match):
+            decoders.get_decoder(dem, with_BP_LSD=True, error_rate=0.1)
+
+    # the suggested alternative decodes the detector-flip matrix with the given probabilities
+    matrix = decoders.DetectorErrorModelArrays(dem).detector_flip_matrix
+    decoder: Any = decoders.bp_osd(error_channel=0.3).build(matrix)
+    assert np.array_equal(decoder.error_channel, [0.3, 0.3, 0.3])
 
 
 def test_get_error_and_erasure() -> None:

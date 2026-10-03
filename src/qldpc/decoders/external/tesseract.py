@@ -21,6 +21,7 @@ from ..common import (
     _deprecate_error_rate_option,
     _erasure_bit_support,
     _get_matrix_error_channel,
+    _reject_dem_error_probabilities,
     with_erasure_bits,
 )
 from ..construction.specs import DecoderSpec, decoder_spec
@@ -338,16 +339,7 @@ def _get_dem_and_num_errors(
 ) -> tuple[stim.DetectorErrorModel, int]:
     """Convert an input to Tesseract's DEM while preserving its error indexing."""
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
-        if error_channel is not None:
-            raise ValueError(
-                "Cannot specify an error_channel when building a Tesseract decoder from a detector"
-                " error model"
-            )
-        if error_rate is not None:
-            raise ValueError(
-                "Cannot specify error_rate when building a Tesseract decoder from a detector error"
-                " model"
-            )
+        _reject_dem_error_probabilities(error_channel, error_rate)
         return pcm_or_dem, pcm_or_dem.num_errors
 
     _validate_binary_matrix(pcm_or_dem)

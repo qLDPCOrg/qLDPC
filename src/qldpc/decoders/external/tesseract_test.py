@@ -272,12 +272,12 @@ def test_tesseract_options_and_validation(fake_tesseract: None) -> None:
         pytest.raises(ValueError, match="finite and between 0 and 1"),
     ):
         _get_decoder_tesseract(np.eye(1, dtype=int), error_rate=np.nan)
-    with pytest.raises(ValueError, match="Cannot specify an error_channel"):
+    with pytest.raises(ValueError, match=r"supplies its own.*error_channel=\[0.2\] cannot"):
         _get_decoder_tesseract(
             stim.DetectorErrorModel("error(0.1) D0"),
             error_channel=[0.2],
         )
-    with pytest.raises(ValueError, match="Cannot specify error_rate"):
+    with pytest.raises(ValueError, match=r"supplies its own.*error_rate=0.2 cannot"):
         _get_decoder_tesseract(
             stim.DetectorErrorModel("error(0.1) D0"),
             error_rate=0.2,
