@@ -251,15 +251,16 @@ Detailed decode results
 -----------------------
 
 Decoders that expose per-shot diagnostics have ``decode_errors_detailed`` or ``decode_observables_detailed`` methods.
-These methods return a detailed result for one syndrome, while ``decode_errors`` and ``decode_observables`` return hard prediction arrays without building diagnostics.
-Relay-BP and PyMatching decoders also have ``decode_errors_detailed_batch`` and ``decode_observables_detailed_batch`` methods, which use their native batch decoding and return a tuple of detailed results in syndrome order:
+These methods return a detailed result for one syndrome, while ``decode_errors`` and ``decode_observables`` return hard prediction arrays without building diagnostics:
 
 .. code-block:: python
 
    decoder = decoders.frontier(K=512).build_observable_decoder(dem)
-   if isinstance(decoder, decoders.DetailedObservableDecoder):
-       result = decoder.decode_observables_detailed(syndrome)
-       print(result.observable_flips, result.erasure, result.diagnostics)
+   assert isinstance(decoder, decoders.DetailedObservableDecoder)
+   result = decoder.decode_observables_detailed(syndrome)
+   print(result.observable_flips, result.erasure, result.diagnostics)
+
+Relay-BP and PyMatching decoders also have ``decode_errors_detailed_batch`` and ``decode_observables_detailed_batch`` methods, which use their native batch decoding and return a tuple of detailed results in syndrome order.
 
 An :class:`decoders.ErrorDecodeResult <qldpc.decoders.protocols.ErrorDecodeResult>` contains ``error``.
 An :class:`decoders.ObservableDecodeResult <qldpc.decoders.protocols.ObservableDecodeResult>` contains ``observable_flips``.
