@@ -166,6 +166,60 @@ def test_detailed_decode_helpers() -> None:
 
     assert decoders.decode_errors_detailed_batch(BareErrorDecoder(), syndromes[:0]) == ()
     assert decoders.decode_observables_detailed_batch(BareObservableDecoder(), syndromes[:0]) == ()
+    ordinary = decoders.LookupDecoder(np.eye(2, dtype=int), max_weight=1)
+    assert decoders.decode_errors_detailed(ordinary, syndromes[0]).error.tolist() == [1, 0]
+
+
+def test_detailed_batch_uses_hard_batch_fallback() -> None:
+    """A decoder without detailed methods retains its native hard-batch path."""
+    syndromes = np.array([[1, 0], [0, 1]], dtype=int)
+
+    class BatchErrors(decoders.BatchErrorDecoder):
+        has_erasure_bit = True
+
+        def decode_errors_batch(self, values: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return np.column_stack((values[:, ::-1], values[:, 0]))
+
+    errors = decoders.decode_errors_detailed_batch(BatchErrors(), syndromes)
+    assert [result.error.tolist() for result in errors] == [[0, 1], [1, 0]]
+    assert [result.erasure for result in errors] == [True, False]
+
+    class BatchObservables(decoders.BatchObservableDecoder):
+        has_erasure_bit = True
+
+        def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return np.append(syndrome, 1)
+
+        def decode_observables_batch(self, values: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return np.column_stack((values, values[:, 1]))
+
+    assert decoders.decode_observables_detailed(BatchObservables(), syndromes[0]).erasure
+    observables = decoders.decode_observables_detailed_batch(BatchObservables(), syndromes)
+    assert [result.observable_flips.tolist() for result in observables] == [[1, 0], [0, 1]]
+    assert [result.erasure for result in observables] == [False, True]
+
+    class SingleDetailedErrors(BatchErrors):
+        def decode_errors_detailed(
+            self, syndrome: npt.NDArray[np.int_]
+        ) -> decoders.ErrorDecodeResult:
+            return decoders.ErrorDecodeResult(syndrome, diagnostics={"source": "detailed"})
+
+    class SingleDetailedObservables(BatchObservables):
+        def decode_observables_detailed(
+            self, syndrome: npt.NDArray[np.int_]
+        ) -> decoders.ObservableDecodeResult:
+            return decoders.ObservableDecodeResult(syndrome, diagnostics={"source": "detailed"})
+
+    assert [
+        result.diagnostics["source"]
+        for result in decoders.decode_errors_detailed_batch(SingleDetailedErrors(), syndromes)
+    ] == ["detailed", "detailed"]
+    assert [
+        result.diagnostics["source"]
+        for result in decoders.decode_observables_detailed_batch(
+            SingleDetailedObservables(), syndromes
+        )
+    ] == ["detailed", "detailed"]
 
 
 def test_erasure_bit_support_decorator() -> None:

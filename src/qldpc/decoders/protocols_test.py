@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import copy
+import pickle
 import types
 from typing import Any
 
@@ -35,6 +36,18 @@ def test_detailed_decode_results_snapshot_inputs() -> None:
     assert observable_result.observable_flips.tolist() == [0, 1]
     assert observable_result.diagnostics["backend.iterations"] == 4
     assert isinstance(observable_result.diagnostics, types.MappingProxyType)
+
+    for result, prediction_name in (
+        (error_result, "error"),
+        (observable_result, "observable_flips"),
+    ):
+        restored = pickle.loads(pickle.dumps(result))  # noqa: S301
+        assert restored is not result
+        assert restored != result
+        assert hash(result) == object.__hash__(result)
+        assert np.array_equal(getattr(restored, prediction_name), getattr(result, prediction_name))
+        assert restored.diagnostics == result.diagnostics
+        assert isinstance(restored.diagnostics, types.MappingProxyType)
 
 
 def test_error_decoder_protocols() -> None:

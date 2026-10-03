@@ -61,12 +61,31 @@ class FrontierObservableDecoder(ObservableDecoder):
 
     def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode one syndrome to predicted observable flips, followed by any erasure flag."""
-        result = self.decode_observables_detailed(syndrome)
-        flips = result.observable_flips.tolist()
-        return np.array(flips + [result.erasure] * self.has_erasure_bit, dtype=int)
+        flips, erased, _ = self._decode(syndrome)
+        return np.array(flips + [erased] * self.has_erasure_bit, dtype=int)
 
     def decode_observables_detailed(self, syndrome: npt.NDArray[np.int_]) -> ObservableDecodeResult:
         """Decode one syndrome and retain Frontier's logical-class result and search details."""
+        flips, erased, result = self._decode(syndrome)
+        diagnostics: dict[str, object] = {"frontier.status": result.status}
+        for name in (
+            "log_evidence",
+            "terminal_log_masses",
+            "terminal_top_log_mass_gap",
+            "direction",
+            "engine",
+            "committee_members",
+            "stats",
+        ):
+            if hasattr(result, name):
+                value = getattr(result, name)
+                if name == "terminal_log_masses":
+                    value = dict(value)
+                diagnostics[f"frontier.{name}"] = value
+        return ObservableDecodeResult(np.asarray(flips, dtype=int), erased, diagnostics)
+
+    def _decode(self, syndrome: npt.NDArray[np.int_]) -> tuple[list[int], bool, Any]:
+        """Decode once, leaving optional backend diagnostics untouched."""
         syndrome = np.asarray(syndrome, dtype=np.uint8)
         if syndrome.shape != (self.num_detectors,):
             raise ValueError(
@@ -85,22 +104,7 @@ class FrontierObservableDecoder(ObservableDecoder):
         else:
             raise RuntimeError(f"Frontier returned an unexpected status: {result.status!r}")
         flips = [(logical_hat >> index) & 1 for index in range(self.num_observables)]
-        diagnostics: dict[str, object] = {"frontier.status": result.status}
-        for name in (
-            "log_evidence",
-            "terminal_log_masses",
-            "terminal_top_log_mass_gap",
-            "direction",
-            "engine",
-            "committee_members",
-            "stats",
-        ):
-            if hasattr(result, name):
-                value = getattr(result, name)
-                if name == "terminal_log_masses":
-                    value = dict(value)
-                diagnostics[f"frontier.{name}"] = value
-        return ObservableDecodeResult(np.asarray(flips, dtype=int), erased, diagnostics)
+        return flips, erased, result
 
 
 def _get_observable_decoder_frontier(

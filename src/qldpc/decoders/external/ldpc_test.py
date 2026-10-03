@@ -133,20 +133,33 @@ def test_ldpc_protocol_adapters() -> None:
         assert isinstance(decoder, decoders.ErrorDecoder)
         detailed = decoders.decode_errors_detailed(decoder, np.array([1, 0], dtype=int))
         assert np.array_equal(detailed.error, decoder.decode(np.array([1, 0], dtype=int)))
-        assert "ldpc.converge" in detailed.diagnostics
-        assert "ldpc.log_prob_ratios" in detailed.diagnostics
         assert pickle.loads(pickle.dumps(adapter_type)) is adapter_type  # noqa: S301
 
     class NumpyScalarDiagnostics(ldpc_integration._DetailedLdpcDecoderMixin):
         converge = np.bool_(True)
         iterations = np.int64(3)
 
+        def __init__(self) -> None:
+            self.log_prob_ratios = np.zeros(2)
+
         def decode(self, syndrome: np.ndarray) -> np.ndarray:
+            self.log_prob_ratios[:] = syndrome
+            self.iterations = np.int64(syndrome[0] + 1)
             return syndrome.copy()
 
-    detailed = NumpyScalarDiagnostics().decode_errors_detailed(np.array([1], dtype=int))
-    assert detailed.diagnostics["ldpc.converge"] is True
-    assert detailed.diagnostics["ldpc.iterations"] == 3
+    decoder = NumpyScalarDiagnostics()
+    first = decoder.decode_errors_detailed(np.array([1, 0], dtype=int))
+    first_ratios = first.diagnostics["ldpc.log_prob_ratios"]
+    assert isinstance(first_ratios, np.ndarray)
+    assert first.diagnostics["ldpc.converge"] is True
+    assert first.diagnostics["ldpc.iterations"] == 2
+    assert np.array_equal(first_ratios, [1, 0])
+    second = decoder.decode_errors_detailed(np.array([0, 1], dtype=int))
+    second_ratios = second.diagnostics["ldpc.log_prob_ratios"]
+    assert isinstance(second_ratios, np.ndarray)
+    assert second.diagnostics["ldpc.iterations"] == 1
+    assert np.array_equal(second_ratios, decoder.log_prob_ratios)
+    assert np.array_equal(first_ratios, [1, 0])
 
 
 @pytest.mark.parametrize(

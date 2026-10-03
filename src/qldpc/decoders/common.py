@@ -55,11 +55,9 @@ def decode_errors_detailed(
             raise TypeError("decode_errors_detailed must return an ErrorDecodeResult")
         return result
 
-    error = np.asarray(error_decoder.decode_errors(syndrome))
-    erasure = False
-    if getattr(error_decoder, "has_erasure_bit", False):
-        erasure = bool(error[-1])
-        error = error[:-1]
+    error, erasure = _split_erasure_bit(
+        error_decoder.decode_errors(syndrome), getattr(error_decoder, "has_erasure_bit", False)
+    )
     return ErrorDecodeResult(error, erasure)
 
 
@@ -68,9 +66,10 @@ def decode_errors_detailed_batch(
 ) -> tuple[ErrorDecodeResult, ...]:
     """Decode a batch and return one detailed error result per syndrome, in input order."""
     error_decoder = as_error_decoder(decoder)
+    syndromes = np.asarray(syndromes)
     detailed_batch_decoder = getattr(error_decoder, "decode_errors_detailed_batch", None)
     if detailed_batch_decoder is not None:
-        results = tuple(detailed_batch_decoder(np.asarray(syndromes)))
+        results = tuple(detailed_batch_decoder(syndromes))
         if len(results) != len(syndromes) or any(
             not isinstance(result, ErrorDecodeResult) for result in results
         ):
@@ -78,6 +77,16 @@ def decode_errors_detailed_batch(
                 "decode_errors_detailed_batch must return one ErrorDecodeResult per syndrome"
             )
         return results
+    if len(syndromes) == 0:
+        return ()
+    if getattr(error_decoder, "decode_errors_detailed", None) is not None:
+        return tuple(decode_errors_detailed(error_decoder, syndrome) for syndrome in syndromes)
+    if (decode_batch := getattr(error_decoder, "decode_errors_batch", None)) is not None:
+        has_erasure_bit = getattr(error_decoder, "has_erasure_bit", False)
+        return tuple(
+            ErrorDecodeResult(*_split_erasure_bit(error, has_erasure_bit))
+            for error in decode_batch(syndromes)
+        )
     return tuple(decode_errors_detailed(error_decoder, syndrome) for syndrome in syndromes)
 
 
@@ -97,11 +106,9 @@ def decode_observables_detailed(
             raise TypeError("decode_observables_detailed must return an ObservableDecodeResult")
         return result
 
-    flips = np.asarray(decoder.decode_observables(syndrome))
-    erasure = False
-    if getattr(decoder, "has_erasure_bit", False):
-        erasure = bool(flips[-1])
-        flips = flips[:-1]
+    flips, erasure = _split_erasure_bit(
+        decoder.decode_observables(syndrome), getattr(decoder, "has_erasure_bit", False)
+    )
     return ObservableDecodeResult(flips, erasure)
 
 
@@ -109,9 +116,10 @@ def decode_observables_detailed_batch(
     decoder: ObservableDecoder, syndromes: npt.NDArray[np.int_]
 ) -> tuple[ObservableDecodeResult, ...]:
     """Decode a batch and return one detailed observable result per syndrome, in input order."""
+    syndromes = np.asarray(syndromes)
     detailed_batch_decoder = getattr(decoder, "decode_observables_detailed_batch", None)
     if detailed_batch_decoder is not None:
-        results = tuple(detailed_batch_decoder(np.asarray(syndromes)))
+        results = tuple(detailed_batch_decoder(syndromes))
         if len(results) != len(syndromes) or any(
             not isinstance(result, ObservableDecodeResult) for result in results
         ):
@@ -120,7 +128,26 @@ def decode_observables_detailed_batch(
                 " syndrome"
             )
         return results
+    if len(syndromes) == 0:
+        return ()
+    if getattr(decoder, "decode_observables_detailed", None) is not None:
+        return tuple(decode_observables_detailed(decoder, syndrome) for syndrome in syndromes)
+    if (decode_batch := getattr(decoder, "decode_observables_batch", None)) is not None:
+        has_erasure_bit = getattr(decoder, "has_erasure_bit", False)
+        return tuple(
+            ObservableDecodeResult(*_split_erasure_bit(flips, has_erasure_bit))
+            for flips in decode_batch(syndromes)
+        )
     return tuple(decode_observables_detailed(decoder, syndrome) for syndrome in syndromes)
+
+
+def _split_erasure_bit(
+    prediction: npt.NDArray[np.int_], has_erasure_bit: bool
+) -> tuple[npt.NDArray[np.int_], bool]:
+    prediction = np.asarray(prediction)
+    if has_erasure_bit:
+        return prediction[:-1], bool(prediction[-1])
+    return prediction, False
 
 
 # Erasure signaling

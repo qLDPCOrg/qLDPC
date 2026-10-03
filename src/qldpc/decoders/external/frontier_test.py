@@ -164,6 +164,11 @@ def test_frontier_decoding(calls: list[_Call]) -> None:
     with pytest.raises(ValueError, match="Expected a syndrome of shape"):
         decoder.decode_observables(np.zeros(2, dtype=int))
 
+    decoder.decode_func = lambda *_args, **_kwargs: types.SimpleNamespace(
+        status="ok", logical_hat=0, terminal_log_masses=object()
+    )
+    assert decoder.decode_observables(syndromes[0]).tolist() == [0, 0, 0]
+
 
 def test_frontier_scan_orders(calls: list[_Call]) -> None:
     """Frontier reorders columns on request, and the committee's reverse scan is precomputed."""

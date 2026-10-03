@@ -12,11 +12,10 @@ from typing import Any, Protocol, runtime_checkable
 import numpy as np
 import numpy.typing as npt
 
-
 # Detailed decode results
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class ErrorDecodeResult:
     """Detailed result of decoding a syndrome to an inferred error.
 
@@ -33,8 +32,13 @@ class ErrorDecodeResult:
         object.__setattr__(self, "error", np.asarray(self.error).copy())
         object.__setattr__(self, "diagnostics", MappingProxyType(dict(self.diagnostics)))
 
+    def __reduce__(
+        self,
+    ) -> tuple[type[ErrorDecodeResult], tuple[npt.NDArray[np.int_], bool, dict[str, object]]]:
+        return type(self), (self.error, self.erasure, dict(self.diagnostics))
 
-@dataclass(frozen=True)
+
+@dataclass(frozen=True, eq=False)
 class ObservableDecodeResult:
     """Detailed result of decoding a syndrome to predicted observable flips.
 
@@ -50,6 +54,11 @@ class ObservableDecodeResult:
     def __post_init__(self) -> None:
         object.__setattr__(self, "observable_flips", np.asarray(self.observable_flips).copy())
         object.__setattr__(self, "diagnostics", MappingProxyType(dict(self.diagnostics)))
+
+    def __reduce__(
+        self,
+    ) -> tuple[type[ObservableDecodeResult], tuple[npt.NDArray[np.int_], bool, dict[str, object]]]:
+        return type(self), (self.observable_flips, self.erasure, dict(self.diagnostics))
 
 
 # Decoder protocols
