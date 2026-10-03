@@ -241,6 +241,11 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
         self.num_observables = dem_arrays.num_observables
         self.num_erasure_bits = int(getattr(self.observable_decoder, "has_erasure_bit", False))
 
+    @property
+    def has_erasure_bit(self) -> bool:
+        """Whether decode_observables appends an erasure bit to the predicted observable flips."""
+        return bool(self.num_erasure_bits)
+
     def decode_shots_bit_packed(
         self, bit_packed_detection_event_data: npt.NDArray[np.uint8]
     ) -> npt.NDArray[np.uint8]:
@@ -283,6 +288,31 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
         observable_flips = self.decode_shots(detection_event_data)
         return self.pack_observable_flips(observable_flips)
 
+    def decode_shots(self, detection_event_data: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+        """Predicts observable flips from the given detection events.
+
+        This method accepts and returns boolean data.
+
+        See help(sinter.CompiledDecoder) for additional information.
+        """
+        if hasattr(self.observable_decoder, "decode_observables_batch"):
+            observable_flips = self.observable_decoder.decode_observables_batch(
+                detection_event_data
+            )
+        else:
+            observable_flips = [
+                self.observable_decoder.decode_observables(syndrome)
+                for syndrome in detection_event_data
+            ]
+        return np.asarray(observable_flips, dtype=np.uint8).reshape(
+            len(detection_event_data), self.num_observables + self.num_erasure_bits
+        )
+
+    def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Predict observable flips for one syndrome."""
+        syndrome_uint8 = np.asarray(syndrome, dtype=np.uint8)
+        return self.decode_shots(syndrome_uint8.reshape(1, *syndrome.shape))[0]
+
     def pack_observable_flips(
         self, observable_flips: npt.NDArray[np.uint8]
     ) -> npt.NDArray[np.uint8]:
@@ -304,34 +334,6 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
         packed_flips = self.packbits(observable_flips[:, : self.num_observables])
         return np.hstack([packed_flips, erased.astype(np.uint8)[:, None]])
 
-    def decode_shots(self, detection_event_data: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
-        """Predicts observable flips from the given detection events.
-
-        This method accepts and returns boolean data.
-
-        See help(sinter.CompiledDecoder) for additional information.
-        """
-        if hasattr(self.observable_decoder, "decode_observables_batch"):
-            observable_flips = self.observable_decoder.decode_observables_batch(
-                detection_event_data
-            )
-        else:
-            observable_flips = [
-                self.observable_decoder.decode_observables(syndrome)
-                for syndrome in detection_event_data
-            ]
-        return np.asarray(observable_flips, dtype=np.uint8).reshape(
-            len(detection_event_data), self.num_observables + self.num_erasure_bits
-        )
-
-    def packbits(self, data: npt.NDArray[np.uint8], axis: int = -1) -> npt.NDArray[np.uint8]:
-        """Bit-pack the data along an axis.
-
-        Working with bit-packed data is more memory and compute-efficient, which is why Sinter
-        generally passes around bit-packed data.
-        """
-        return np.packbits(np.asarray(data, dtype=np.uint8), bitorder="little", axis=axis)
-
     def unpack_detection_event_data(
         self, bit_packed_detection_event_data: npt.NDArray[np.uint8], axis: int = -1
     ) -> npt.NDArray[np.uint8]:
@@ -349,15 +351,13 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
             axis=axis,
         )
 
-    def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Predict observable flips for one syndrome."""
-        syndrome_uint8 = np.asarray(syndrome, dtype=np.uint8)
-        return self.decode_shots(syndrome_uint8.reshape(1, *syndrome.shape))[0]
+    def packbits(self, data: npt.NDArray[np.uint8], axis: int = -1) -> npt.NDArray[np.uint8]:
+        """Bit-pack the data along an axis.
 
-    @property
-    def has_erasure_bit(self) -> bool:
-        """Whether decode_observables appends an erasure bit to the predicted observable flips."""
-        return bool(self.num_erasure_bits)
+        Working with bit-packed data is more memory and compute-efficient, which is why Sinter
+        generally passes around bit-packed data.
+        """
+        return np.packbits(np.asarray(data, dtype=np.uint8), bitorder="little", axis=axis)
 
     # Defunct compatibility method
     if TYPE_CHECKING:
