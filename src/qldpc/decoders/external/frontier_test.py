@@ -112,34 +112,6 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> list[_Call]:
     return calls
 
 
-def test_frontier_import_is_lazy() -> None:
-    """Importing the integration and configuring a decoder does not import Frontier."""
-    code = """
-import sys
-from qldpc import decoders
-decoders.frontier(committee=True)
-assert "frontier" not in sys.modules
-"""
-    subprocess.run([sys.executable, "-c", code], check=True)
-
-
-def test_frontier_validation(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Invalid settings are rejected before Frontier is imported."""
-    monkeypatch.setitem(sys.modules, "frontier", None)
-    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
-    for options, message in [
-        ({"K": 0}, "K must be positive"),
-        ({"Delta": -1}, "Delta must be non-negative"),
-        ({"Delta": math.nan}, "Delta must be non-negative"),
-        ({"score_alpha": math.inf}, "score_alpha must be finite"),
-        ({"metric_mode": "maxlog"}, "metric_mode must be one of"),
-        ({"int_metric_scale": 0}, "int_metric_scale must be positive"),
-        ({"column_order": "random"}, "column_order must be one of"),
-    ]:
-        with pytest.raises(ValueError, match=message):
-            _get_observable_decoder_frontier(dem, **options)  # type: ignore[arg-type]
-
-
 def test_frontier_decoding(calls: list[_Call]) -> None:
     """Frontier receives every error mechanism of a model, and its predictions are converted."""
     dem = stim.DetectorErrorModel("""
@@ -237,6 +209,23 @@ def test_frontier_with_generic_decoding_apis(calls: list[_Call]) -> None:
     assert len(calls) > num_calls
 
 
+def test_frontier_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Invalid settings are rejected before Frontier is imported."""
+    monkeypatch.setitem(sys.modules, "frontier", None)
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+    for options, message in [
+        ({"K": 0}, "K must be positive"),
+        ({"Delta": -1}, "Delta must be non-negative"),
+        ({"Delta": math.nan}, "Delta must be non-negative"),
+        ({"score_alpha": math.inf}, "score_alpha must be finite"),
+        ({"metric_mode": "maxlog"}, "metric_mode must be one of"),
+        ({"int_metric_scale": 0}, "int_metric_scale must be positive"),
+        ({"column_order": "random"}, "column_order must be one of"),
+    ]:
+        with pytest.raises(ValueError, match=message):
+            _get_observable_decoder_frontier(dem, **options)  # type: ignore[arg-type]
+
+
 def test_frontier_unexpected_status() -> None:
     """Malformed Frontier results are reported instead of being decoded."""
     model = _Model(columns=(), layout=(), num_detectors=1, num_observables=1)
@@ -266,3 +255,14 @@ def test_frontier_missing_installation(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(ModuleNotFoundError) as error:
         _get_observable_decoder_frontier(dem)
     assert "Install it with" not in str(error.value)
+
+
+def test_frontier_import_is_lazy() -> None:
+    """Importing the integration and configuring a decoder does not import Frontier."""
+    code = """
+import sys
+from qldpc import decoders
+decoders.frontier(committee=True)
+assert "frontier" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", code], check=True)

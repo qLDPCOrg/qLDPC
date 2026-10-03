@@ -28,13 +28,10 @@ from ..construction.specs import DecoderSpec, decoder_spec
 from ..dems import DetectorErrorModelArrays
 from ..protocols import BatchObservableDecoder, ErrorDecoder
 
-TesseractDetectorOrderMethod = Literal["bfs", "index", "coordinate"]
+# Public decoder and settings
 
-_DETECTOR_ORDER_NAMES: dict[TesseractDetectorOrderMethod, str] = {
-    "bfs": "BFS",
-    "coordinate": "Coordinate",
-    "index": "Index",
-}
+
+TesseractDetectorOrderMethod = Literal["bfs", "index", "coordinate"]
 
 
 class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
@@ -239,6 +236,7 @@ _TESSERACT_SETTINGS_RETURNS = (
     "predicts observable flips natively."
 )
 
+
 tesseract = decoder_spec(
     "tesseract",
     _get_decoder_tesseract,
@@ -322,6 +320,9 @@ def tesseract_preset(
     )
 
 
+# Private builder helpers
+
+
 def _get_tesseract() -> Any:
     """Import the optional Tesseract package or raise an actionable error."""
     try:
@@ -375,6 +376,13 @@ def _validate_binary_matrix(matrix: IntegerArray) -> None:
         raise ValueError("A Tesseract parity-check matrix must contain binary integers")
     if np.any((array != 0) & (array != 1)):
         raise ValueError("A Tesseract parity-check matrix must contain only 0 and 1")
+
+
+_DETECTOR_ORDER_NAMES: dict[TesseractDetectorOrderMethod, str] = {
+    "bfs": "BFS",
+    "coordinate": "Coordinate",
+    "index": "Index",
+}
 
 
 def _get_detector_order_name(method: TesseractDetectorOrderMethod) -> str:

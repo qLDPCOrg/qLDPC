@@ -28,16 +28,6 @@ from qldpc.decoders.external.relay_bp import (
 )
 
 
-def test_relay_bp_import_is_lazy() -> None:
-    """Importing the integration does not import relay-bp until a decoder is built."""
-    code = """
-import sys
-import qldpc.decoders.external.relay_bp
-assert "relay_bp" not in sys.modules
-"""
-    subprocess.run([sys.executable, "-c", code], check=True)
-
-
 def test_relay_bp(toy_problem: ToyProblem) -> None:
     """The Relay-BP decoder wraps matrices, sparse matrices, and detector error models."""
     matrix, error, syndrome = toy_problem
@@ -84,33 +74,6 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
     for builder in builders:
         relay_decoder = builder(matrix, precision="F32")
         assert np.array_equal(np.asarray(matrix) @ relay_decoder.decode(syndrome) % 2, syndrome)
-
-
-@pytest.mark.parametrize(
-    ("builder", "helper"),
-    [
-        (_get_decoder_relay_bp, decoders.relay_bp),
-        (_get_decoder_min_sum_bp, decoders.min_sum_bp),
-    ],
-)
-def test_relay_backend_options(
-    builder: Callable[..., decoders.RelayBPDecoder],
-    helper: Callable[..., decoders.DecoderSpec[decoders.RelayBPDecoder]],
-) -> None:
-    """Named options and backend_options survive deferred construction."""
-    matrix = np.eye(2, dtype=int)
-    backend_options = {"backend_extension": 12}
-    with unittest.mock.patch("qldpc.decoders.external.relay_bp._get_relay_decoder") as backend:
-        builder(matrix, backend_options=backend_options)
-        assert backend.call_args.kwargs["backend_extension"] == 12
-        spec = helper(backend_options=backend_options)
-        assert spec.options["backend_options"] == backend_options
-        spec.build(matrix)
-        assert backend.call_args.kwargs["backend_extension"] == 12
-
-    # the backend rejects unsupported names when the decoder is built
-    with pytest.raises(TypeError, match="backend_extension"):
-        helper(backend_options=backend_options).build(matrix)
 
 
 def test_relay_bp_observables() -> None:
@@ -186,3 +149,40 @@ def test_erasure_bit_marks_an_unexplained_syndrome(pytestconfig: pytest.Config) 
         num_erasures += int(guf_errors[:, -1].sum()) + int(relay_bp_errors[:, -1].sum())
 
     assert num_erasures
+
+
+@pytest.mark.parametrize(
+    ("builder", "helper"),
+    [
+        (_get_decoder_relay_bp, decoders.relay_bp),
+        (_get_decoder_min_sum_bp, decoders.min_sum_bp),
+    ],
+)
+def test_relay_backend_options(
+    builder: Callable[..., decoders.RelayBPDecoder],
+    helper: Callable[..., decoders.DecoderSpec[decoders.RelayBPDecoder]],
+) -> None:
+    """Named options and backend_options survive deferred construction."""
+    matrix = np.eye(2, dtype=int)
+    backend_options = {"backend_extension": 12}
+    with unittest.mock.patch("qldpc.decoders.external.relay_bp._get_relay_decoder") as backend:
+        builder(matrix, backend_options=backend_options)
+        assert backend.call_args.kwargs["backend_extension"] == 12
+        spec = helper(backend_options=backend_options)
+        assert spec.options["backend_options"] == backend_options
+        spec.build(matrix)
+        assert backend.call_args.kwargs["backend_extension"] == 12
+
+    # the backend rejects unsupported names when the decoder is built
+    with pytest.raises(TypeError, match="backend_extension"):
+        helper(backend_options=backend_options).build(matrix)
+
+
+def test_relay_bp_import_is_lazy() -> None:
+    """Importing the integration does not import relay-bp until a decoder is built."""
+    code = """
+import sys
+import qldpc.decoders.external.relay_bp
+assert "relay_bp" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", code], check=True)
