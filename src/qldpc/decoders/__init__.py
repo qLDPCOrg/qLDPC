@@ -73,10 +73,16 @@ from .external.pymatching import mwpm
 from .external.relay_bp import RelayBPDecoder, min_sum_bp, relay_bp
 from .external.tesseract import TesseractDecoder, tesseract, tesseract_preset
 from .protocols import (
+    BatchDetailedErrorDecoder,
+    BatchDetailedObservableDecoder,
     BatchErrorDecoder,
     BatchObservableDecoder,
+    DetailedErrorDecoder,
+    DetailedObservableDecoder,
     ErrorDecoder,
+    ErrorDecodeResult,
     ObservableDecoder,
+    ObservableDecodeResult,
     SupportsDecode,
     WrappedErrorDecoder,
     as_error_decoder,
@@ -97,6 +103,8 @@ from .sinter import (
 
 __all__ = [
     "BatchDecoder",
+    "BatchDetailedErrorDecoder",
+    "BatchDetailedObservableDecoder",
     "BatchErrorDecoder",
     "BatchObservableDecoder",
     "CompiledSequentialWindowDecoder",
@@ -109,8 +117,11 @@ __all__ = [
     "DecoderSpec",
     "DeferredDecoderInput",
     "DeferredErrorDecoderInput",
+    "DetailedErrorDecoder",
+    "DetailedObservableDecoder",
     "DetectorErrorModelArrays",
     "DirectDecoder",
+    "ErrorDecodeResult",
     "ErrorDecoder",
     "ErrorDecoderConstructor",
     "ErrorDecoderInput",
@@ -121,6 +132,7 @@ __all__ = [
     "GUFDecoder",
     "ILPDecoder",
     "LookupDecoder",
+    "ObservableDecodeResult",
     "ObservableDecoder",
     "ObservableDecoderCompiler",
     "ObservableDecoderConstructor",

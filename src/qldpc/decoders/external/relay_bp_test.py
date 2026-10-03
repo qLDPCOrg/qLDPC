@@ -10,6 +10,7 @@ import subprocess
 import sys
 import unittest.mock
 from collections.abc import Callable
+from typing import cast
 
 import galois
 import numpy as np
@@ -37,6 +38,15 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
     decoder = _get_decoder_rbp(matrix)
     assert np.array_equal(error, decoder.decode(syndrome))
     assert np.array_equal(errors, decoder.decode_batch(syndromes))
+    detailed = decoder.decode_errors_detailed(syndrome)
+    assert np.array_equal(detailed.error, error)
+    assert detailed.diagnostics["relay_bp.success"]
+    iterations = cast(int, detailed.diagnostics["relay_bp.iterations"])
+    assert iterations <= cast(int, detailed.diagnostics["relay_bp.max_iterations"])
+    # erasure is flagged for a syndrome that no error reproduces, even without an erasure bit
+    unreproducible = _get_decoder_rbp(np.ones((2, 1), dtype=int))
+    assert unreproducible.decode_errors_detailed(np.array([1, 0])).erasure
+    decoder = _get_decoder_rbp(matrix)
     assert np.array_equal(error, copy.copy(decoder).decode(syndrome))
 
     with pytest.raises(TypeError, match="missing 1 required positional argument"):
@@ -93,6 +103,11 @@ def test_relay_bp_observables() -> None:
         assert np.array_equal(
             predicted_flips, [decoder.decode_observables(syndrome) for syndrome in syndromes]
         )
+        detailed = decoder.decode_observables_detailed_batch(syndromes)
+        assert np.array_equal([result.observable_flips for result in detailed], predicted_flips)
+        assert np.array_equal(
+            decoder.decode_observables_detailed(syndromes[0]).observable_flips, predicted_flips[0]
+        )
 
         errors = get_decoder().decode_batch(syndromes, progress_bar=False)
         if add_erasure_bit:
@@ -107,6 +122,7 @@ def test_relay_bp_observables() -> None:
             0,
             dem.num_observables + add_erasure_bit,
         )
+        assert decoder.decode_observables_detailed_batch(no_syndromes) == ()
 
     with pytest.raises(ValueError, match="requires an observable_error_matrix"):
         _get_decoder_rbp(np.eye(2, dtype=int)).decode_observables(np.zeros(2, dtype=int))

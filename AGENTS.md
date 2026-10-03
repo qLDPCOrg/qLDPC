@@ -32,6 +32,16 @@ Do not copy transient project history, machine-specific paths, or local-session 
   Otherwise, needing to do so indicates that the name should be public and documented.
   A test module may use private names of the module that it tests.
 
+## Module organization and ordering
+
+- Preserve a module's existing section headings and organization when adding code.
+- Add a section when new functionality does not fit an existing one.
+- Put important user-facing APIs first within modules and sections.
+- Keep related public entry points together.
+- Place private implementation helpers toward the bottom of the relevant section or module.
+- Keep user-facing decode methods near the top of decoder classes.
+- Place private helper methods after the public decode methods.
+
 ## Repository map
 
 | Area | What it does | Tests and examples |

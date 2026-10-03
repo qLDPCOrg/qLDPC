@@ -23,6 +23,10 @@ def test_ilp_decoder(toy_problem: ToyProblem) -> None:
     matrix, error, syndrome = toy_problem
     decoder = decoders.ILPDecoder(scipy.sparse.csc_matrix(matrix))
     assert np.array_equal(error, decoder.decode(syndrome))
+    detailed = decoder.decode_errors_detailed(syndrome)
+    assert np.array_equal(detailed.error, error)
+    assert detailed.diagnostics["ilp.status"] == "optimal"
+    assert detailed.diagnostics["ilp.objective_value"] == np.count_nonzero(error)
 
 
 def test_ilp_decoder_minimum_weight(pytestconfig: pytest.Config) -> None:
@@ -80,12 +84,17 @@ def test_ilp_decoder_unreproducible_syndrome() -> None:
 
     with pytest.raises(ValueError, match="could not be found"):
         decoders.ILPDecoder(matrix).decode(syndrome)
+    with pytest.warns(UserWarning, match="could not be found"):
+        assert decoders.ILPDecoder(matrix).decode_errors_detailed(syndrome).erasure
 
     decoder = decoders.ILPDecoder(matrix, add_erasure_bit=True)
     with pytest.warns(UserWarning, match="could not be found"):
         decoded = decoder.decode(syndrome)
     assert len(decoded) == matrix.shape[1] + 1
     assert decoded[-1] == 1
+    with pytest.warns(UserWarning, match="could not be found"):
+        detailed = decoder.decode_errors_detailed(syndrome)
+    assert np.array_equal(detailed.error, decoded)
 
 
 def test_ilp_decoder_near_integral_values() -> None:

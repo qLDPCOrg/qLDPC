@@ -178,6 +178,17 @@ def test_tesseract_erasure_bits(fake_tesseract: None) -> None:
     assert decoders.batch_decode_errors(decoder, syndromes[:0]).shape == (0, 2)
     assert decoder.decode_observables_batch(syndromes[:0]).shape == (0, 2)
 
+    # detailed results flag low-confidence erasure whether or not erasure bits are requested
+    for add_erasure_bit in [False, True]:
+        decoder = _get_decoder_tesseract(dem, pqlimit=0, add_erasure_bit=add_erasure_bit)
+        detailed_error = decoder.decode_errors_detailed(syndromes[0])
+        detailed_observables = decoder.decode_observables_detailed(syndromes[0])
+        assert np.array_equal(detailed_error.error, decoder.decode_errors(syndromes[0]))
+        assert np.array_equal(
+            detailed_observables.observable_flips, decoder.decode_observables(syndromes[0])
+        )
+        assert detailed_error.erasure and detailed_observables.erasure
+
 
 def test_tesseract_options_and_validation(fake_tesseract: None) -> None:
     """Construction forwards typed options and rejects unsupported inputs."""

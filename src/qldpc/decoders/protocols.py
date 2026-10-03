@@ -4,10 +4,44 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 import numpy.typing as npt
+
+# Detailed decode results
+
+
+@dataclass(frozen=True, eq=False)
+class ErrorDecodeResult:
+    """Detailed result of decoding a syndrome to an inferred error.
+
+    ``error`` is the array that ``decode_errors`` returns, which ends with an erasure flag only if
+    erasure signaling is enabled.  ``erasure`` reports whether the decoder signals erasure, whether
+    or not erasure signaling is enabled.  ``diagnostics`` contains explicitly named
+    decoder-specific results, not a cross-decoder confidence score.
+    """
+
+    error: npt.NDArray[np.int_]
+    erasure: bool = False
+    diagnostics: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, eq=False)
+class ObservableDecodeResult:
+    """Detailed result of decoding a syndrome to predicted observable flips.
+
+    ``observable_flips`` is the array that ``decode_observables`` returns, which ends with an
+    erasure flag only if erasure signaling is enabled.  ``erasure`` reports whether the decoder
+    signals erasure, whether or not erasure signaling is enabled.  ``diagnostics`` contains
+    explicitly named decoder-specific results, not a cross-decoder confidence score.
+    """
+
+    observable_flips: npt.NDArray[np.int_]
+    erasure: bool = False
+    diagnostics: dict[str, object] = field(default_factory=dict)
+
 
 # Decoder protocols
 
@@ -77,6 +111,45 @@ class BatchObservableDecoder(ObservableDecoder, Protocol):
 
     def decode_observables_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode a batch of error syndromes, one per row, and return predicted observable flips."""
+
+
+# Detailed decoder protocols
+
+
+@runtime_checkable
+class DetailedErrorDecoder(ErrorDecoder, Protocol):
+    """Optional protocol for an error decoder that returns per-shot diagnostics."""
+
+    def decode_errors_detailed(self, syndrome: npt.NDArray[np.int_]) -> ErrorDecodeResult:
+        """Decode one syndrome and return the error, erasure flag, and diagnostics."""
+
+
+@runtime_checkable
+class BatchDetailedErrorDecoder(DetailedErrorDecoder, Protocol):
+    """Optional protocol for an error decoder that returns per-shot diagnostics in batches."""
+
+    def decode_errors_detailed_batch(
+        self, syndromes: npt.NDArray[np.int_]
+    ) -> tuple[ErrorDecodeResult, ...]:
+        """Decode a batch and return one detailed result per syndrome."""
+
+
+@runtime_checkable
+class DetailedObservableDecoder(ObservableDecoder, Protocol):
+    """Optional protocol for an observable decoder that returns per-shot diagnostics."""
+
+    def decode_observables_detailed(self, syndrome: npt.NDArray[np.int_]) -> ObservableDecodeResult:
+        """Decode one syndrome and return observable flips, erasure, and diagnostics."""
+
+
+@runtime_checkable
+class BatchDetailedObservableDecoder(DetailedObservableDecoder, Protocol):
+    """Optional protocol for an observable decoder that returns per-shot diagnostics in batches."""
+
+    def decode_observables_detailed_batch(
+        self, syndromes: npt.NDArray[np.int_]
+    ) -> tuple[ObservableDecodeResult, ...]:
+        """Decode a batch and return one detailed result per syndrome."""
 
 
 @runtime_checkable
