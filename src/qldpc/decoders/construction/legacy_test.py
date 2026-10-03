@@ -323,6 +323,42 @@ def test_deprecated_resolution_functions() -> None:
         else:
             assert message == f"{expression}.decode_observables(syndrome) instead"
 
+    # a partial constructor is classified by the constructor that it wraps, and a constructor that
+    # does not declare what it builds gets advice for both kinds of decoder
+    def build_unannotated(dem: stim.DetectorErrorModel):  # type: ignore[no-untyped-def]
+        return decoders.ObservableLookupDecoder(dem, max_weight=1)
+
+    def build_unresolvable(dem: stim.DetectorErrorModel) -> decoders.ObservableLookupDecoder:
+        return decoders.ObservableLookupDecoder(dem, max_weight=1)
+
+    build_unresolvable.__annotations__["return"] = "UndefinedDecoder"
+    wrapped = "decoders.ErrorsToObservablesDecoder({}(dem), dem)"
+    constructor_cases: list[tuple[Callable[..., object], str, str]] = [
+        (functools.partial(build_observable_lookup), "decoder_constructor(dem)", ""),
+        (
+            functools.partial(decoders.LookupDecoder, max_weight=1),
+            wrapped.format("decoder_constructor"),
+            "",
+        ),
+        (
+            build_unannotated,
+            "build_unannotated(dem)",
+            f" (if it builds an error decoder, use {wrapped.format('build_unannotated')})",
+        ),
+        (
+            build_unresolvable,
+            "build_unresolvable(dem)",
+            f" (if it builds an error decoder, use {wrapped.format('build_unresolvable')})",
+        ),
+    ]
+    for constructor, expression, note in constructor_cases:
+        message = get_message(decoders.get_observable_decoder, dem, decoder=constructor)
+        assert message == f"{expression}{note} instead"
+        message = get_message(
+            decoders.decode_observables, dem, np.array([1, 0]), decoder=constructor
+        )
+        assert message == f"{expression}.decode_observables(syndrome){note} instead"
+
     # an invalid input still names a replacement before it is rejected
     with (
         pytest.warns(DeprecationWarning, match=r"decoders\.bp_osd\(\.\.\.\)\.build"),

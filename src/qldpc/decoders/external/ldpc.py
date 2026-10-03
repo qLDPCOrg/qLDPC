@@ -157,8 +157,9 @@ def _get_decoder_bp_lsd(
         always_run_lsd: Whether to run LSD after belief propagation converges.
         backend_options: Additional options for ``ldpc.BpLsdDecoder`` that are not listed
             above.  ``ldpc.BpLsdDecoder`` silently ignores names that it does not recognize, so
-            names other than ``input_vector_type`` and ``channel_probs`` emit a warning when the
-            decoder is built, but are still forwarded.
+            names other than ``input_vector_type``, ``channel_probs``, and the aliases
+            ``osd_method`` and ``osd_order`` emit a warning when the decoder is built, but are
+            still forwarded.
         error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
 
     Returns:
@@ -307,10 +308,13 @@ bf = decoder_spec(
 
 # Private input helpers
 
-# Options that ldpc.BpLsdDecoder reads, other than those listed by _get_decoder_bp_lsd.  Unlike the
+# Options that ldpc.BpLsdDecoder reads, other than those listed by _get_decoder_bp_lsd, including
+# osd_method and osd_order, which it accepts as aliases of lsd_method and lsd_order.  Unlike the
 # other ldpc decoders, BpLsdDecoder silently ignores unrecognized options.  This list cannot be read
 # from its compiled signature, so names outside it are flagged with a warning rather than rejected.
-_BP_LSD_UNLISTED_BACKEND_OPTIONS = frozenset({"input_vector_type", "channel_probs"})
+_BP_LSD_UNLISTED_BACKEND_OPTIONS = frozenset(
+    {"input_vector_type", "channel_probs", "osd_method", "osd_order"}
+)
 
 
 def _warn_unknown_bp_lsd_options(backend_options: Mapping[str, object]) -> None:

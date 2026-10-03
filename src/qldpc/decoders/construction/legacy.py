@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import functools
 import inspect
+import typing
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypeVar
@@ -136,9 +137,9 @@ def get_observable_decoder(
     ``decoders.mwpm(...).build_observable_decoder(dem)``.  To predict the observable flips of an
     error decoder, wrap it in ``decoders.ErrorsToObservablesDecoder(error_decoder, dem)``.
     """
-    expression = _get_observable_decoder_expression(decoder)
+    expression, note = _get_observable_decoder_expression(decoder)
     replacement = "the prebuilt observable decoder directly" if expression is None else expression
-    _warn_deprecated("decoders.get_observable_decoder", replacement)
+    _warn_deprecated("decoders.get_observable_decoder", replacement + note)
     return _get_observable_decoder(dem, decoder=decoder)
 
 
@@ -153,13 +154,13 @@ def decode_observables(
     Build an observable decoder instead, as in
     ``decoders.mwpm(...).build_observable_decoder(dem).decode_observables(syndrome)``.
     """
-    expression = _get_observable_decoder_expression(decoder)
+    expression, note = _get_observable_decoder_expression(decoder)
     replacement = (
         "the decode_observables method of the prebuilt observable decoder"
         if expression is None
         else f"{expression}.decode_observables(syndrome)"
     )
-    _warn_deprecated("decoders.decode_observables", replacement)
+    _warn_deprecated("decoders.decode_observables", replacement + note)
     return _get_observable_decoder(dem, decoder=decoder).decode_observables(syndrome)
 
 
@@ -441,28 +442,46 @@ def _get_deprecated_function_message(
     return message
 
 
-def _get_observable_decoder_expression(decoder: DecoderInput) -> str | None:
+def _get_observable_decoder_expression(decoder: DecoderInput) -> tuple[str | None, str]:
     """Return an expression that builds the observable decoder for an input to a deprecated API.
 
     The expression refers to the detector error model as ``dem``.  None indicates a prebuilt decoder
-    that predicts observable flips, and is therefore used as is.
+    that predicts observable flips, and is therefore used as is.  The accompanying note, which may
+    be empty, qualifies the expression when it is unknown what kind of decoder a constructor builds.
     """
     if isinstance(decoder, DecoderSpec):
-        return f"{decoder!r}.build_observable_decoder(dem)"
+        return f"{decoder!r}.build_observable_decoder(dem)", ""
     if decoder is None:
-        return "decoders.bp_osd().build_observable_decoder(dem)"
+        return "decoders.bp_osd().build_observable_decoder(dem)", ""
     if compiles_for_dem(decoder):
-        return "decoder.compile_decoder_for_dem(dem)"
+        return "decoder.compile_decoder_for_dem(dem)", ""
     if is_prebuilt_decoder(decoder):
         if isinstance(decoder, ObservableDecoder) or is_prebuilt_observable_decoder(decoder):
-            return None
-        return "decoders.ErrorsToObservablesDecoder(decoder, dem)"
+            return None, ""
+        return "decoders.ErrorsToObservablesDecoder(decoder, dem)", ""
     if callable(decoder):
         name = _get_callable_name(decoder)
-        if constructs_observable_decoder(decoder):
-            return f"{name}(dem)"
-        return f"decoders.ErrorsToObservablesDecoder({name}(dem), dem)"
-    return "decoder settings such as decoders.mwpm(...).build_observable_decoder(dem)"
+        constructor = decoder
+        while isinstance(constructor, functools.partial):
+            constructor = constructor.func
+        if constructs_observable_decoder(constructor):
+            return f"{name}(dem)", ""
+        error_decoder_expression = f"decoders.ErrorsToObservablesDecoder({name}(dem), dem)"
+        if _constructs_error_decoder(constructor):
+            return error_decoder_expression, ""
+        return f"{name}(dem)", f" (if it builds an error decoder, use {error_decoder_expression})"
+    return "decoder settings such as decoders.mwpm(...).build_observable_decoder(dem)", ""
+
+
+def _constructs_error_decoder(constructor: Callable[..., object]) -> bool:
+    """Whether a constructor is a class or annotated function that builds an error decoder."""
+    if isinstance(constructor, type):
+        return issubclass(constructor, ErrorDecoder)
+    try:
+        return_annotation = typing.get_type_hints(constructor).get("return")
+    except (NameError, TypeError):
+        return False
+    return isinstance(return_annotation, type) and issubclass(return_annotation, ErrorDecoder)
 
 
 def _get_callable_name(decoder: Callable[..., object]) -> str:

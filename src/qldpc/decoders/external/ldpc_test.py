@@ -142,6 +142,11 @@ def test_ldpc_backend_options(
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             helper(backend_options={"input_vector_type": "syndrome"}).build(matrix)
+            # osd_method and osd_order are aliases that BP+LSD honors
+            aliased: Any = helper(backend_options={"osd_order": 2, "osd_method": "LSD_E"}).build(
+                matrix
+            )
+            assert (aliased.lsd_order, aliased.lsd_method) == (2, "LSD_E")
     else:
         with pytest.raises((TypeError, ValueError), match="unsupported_backend_option"):
             spec.build(matrix)
