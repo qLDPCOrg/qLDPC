@@ -33,12 +33,12 @@ def test_deprecate_error_rate_option() -> None:
     options: dict[str, object] = {"error_channel": None, "error_rate": None}
     assert common._deprecate_error_rate_option(options, frozenset()) == {"error_channel": None}
 
-    with pytest.warns(DeprecationWarning, match="error_rate=0.2.*error_channel=0.2") as warnings:
+    with pytest.warns(DeprecationWarning, match="error_rate=0.2.*error_channel=0.2") as caught:
         translated = common._deprecate_error_rate_option(
             {"error_channel": None, "error_rate": 0.2},
             frozenset({"error_rate"}),
         )
-    assert warnings[0].filename == __file__
+    assert caught[0].filename == __file__
     assert translated == {"error_channel": 0.2}
 
     with pytest.raises(ValueError, match="cannot both be specified"):
@@ -46,6 +46,21 @@ def test_deprecate_error_rate_option() -> None:
             {"error_channel": 0.1, "error_rate": 0.2},
             frozenset({"error_channel", "error_rate"}),
         )
+
+    # an explicit error_rate=None is equivalent to omitting it
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        translated = common._deprecate_error_rate_option(
+            {"error_channel": 0.1, "error_rate": None},
+            frozenset({"error_channel", "error_rate"}),
+        )
+        assert translated == {"error_channel": 0.1}
+        for helper in (decoders.bp_osd, decoders.tesseract):
+            assert helper(error_rate=None).options == helper().options
+            assert helper(error_rate=None, error_channel=0.1).options["error_channel"] == 0.1
+        assert decoders.tesseract_preset(error_rate=None, error_channel=0.1).options[
+            "error_channel"
+        ] == 0.1
 
 
 def test_get_matrix_error_channel() -> None:
@@ -62,11 +77,11 @@ def test_get_matrix_error_channel() -> None:
     assert normalized_channel is not None
     assert np.array_equal(normalized_channel, channel)
 
-    with pytest.warns(DeprecationWarning, match="error_rate=0.3.*error_channel=0.3") as warnings:
+    with pytest.warns(DeprecationWarning, match="error_rate=0.3.*error_channel=0.3") as caught:
         deprecated_channel = common._get_matrix_error_channel(matrix, None, 0.3)
     assert deprecated_channel is not None
     assert np.array_equal(deprecated_channel, [0.3, 0.3])
-    assert warnings[0].filename == __file__
+    assert caught[0].filename == __file__
 
     with pytest.raises(ValueError, match="cannot both be specified"):
         common._get_matrix_error_channel(matrix, 0.2, 0.3)

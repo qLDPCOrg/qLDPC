@@ -61,8 +61,11 @@ def with_erasure_bits(
 def _deprecate_error_rate_option(
     options: dict[str, object], explicitly_provided: frozenset[str]
 ) -> dict[str, object]:
-    """Replace an explicitly supplied error_rate option with error_channel."""
-    if "error_rate" not in explicitly_provided:
+    """Replace an explicitly supplied error_rate option with error_channel.
+
+    An explicit error_rate=None is the default value, so it is dropped as if it were omitted.
+    """
+    if "error_rate" not in explicitly_provided or options.get("error_rate") is None:
         options.pop("error_rate", None)
         return options
     if "error_channel" in explicitly_provided:
