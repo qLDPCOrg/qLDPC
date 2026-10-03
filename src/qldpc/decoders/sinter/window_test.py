@@ -27,7 +27,7 @@ def test_sequential_decoding() -> None:
     sampler = dem.compile_sampler()
     det_data, obs_data, _err_data = sampler.sample(100)
 
-    decoder_1 = decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=3))
+    decoder_1 = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=3))
     compiled_decoder_1 = decoder_1.compile_decoder_for_dem(dem)
     predicted_flips_1 = compiled_decoder_1.decode_shots_bit_packed(
         compiled_decoder_1.packbits(det_data)
@@ -35,7 +35,7 @@ def test_sequential_decoding() -> None:
     assert np.array_equal(predicted_flips_1, compiled_decoder_1.packbits(obs_data))
 
     decoder_2 = decoders.SequentialWindowDecoder(
-        [[0], [1], [2]], decoder=decoders.lookup_table(max_weight=1)
+        [[0], [1], [2]], decoder=decoders.lookup(max_weight=1)
     )
     compiled_decoder_2 = decoder_2.compile_decoder_for_dem(dem)
     predicted_flips_2 = compiled_decoder_2.decode_shots_bit_packed(
@@ -43,7 +43,7 @@ def test_sequential_decoding() -> None:
     )
     assert np.array_equal(predicted_flips_1, predicted_flips_2)
 
-    decoder_2 = decoders.SlidingWindowDecoder(1, 1, decoder=decoders.lookup_table(max_weight=1))
+    decoder_2 = decoders.SlidingWindowDecoder(1, 1, decoder=decoders.lookup(max_weight=1))
     compiled_decoder_2 = decoder_2.compile_decoder_for_dem(dem)
     predicted_flips_2 = compiled_decoder_2.decode_shots_bit_packed(
         compiled_decoder_2.packbits(det_data)
@@ -59,7 +59,7 @@ def test_sliding_window_recompilation() -> None:
     one_round = stim.DetectorErrorModel("detector(0) D0\ndetector(0) D1\nerror(0.1) D0 D1")
     two_rounds = stim.DetectorErrorModel("detector(0) D0\ndetector(1) D1\nerror(0.1) D0 D1")
 
-    decoder = decoders.SlidingWindowDecoder(1, 1, decoder=decoders.lookup_table(max_weight=1))
+    decoder = decoders.SlidingWindowDecoder(1, 1, decoder=decoders.lookup(max_weight=1))
     decoder.compile_decoder_for_dem(two_rounds)
     compiled = decoder.compile_decoder_for_dem(one_round)
     assert list(compiled.window_detectors) == [[0, 1]]
@@ -79,7 +79,7 @@ def test_sliding_window_time_coordinate() -> None:
             dem.append("error", 0.1, targets)
         return dem
 
-    decoder = decoders.SlidingWindowDecoder(1, 1, decoder=decoders.lookup_table(max_weight=1))
+    decoder = decoders.SlidingWindowDecoder(1, 1, decoder=decoders.lookup(max_weight=1))
 
     compiled = decoder.compile_decoder_for_dem(dem_with_coords([(0, 0), (0, 1), (1, 2), (1, 3)]))
     assert list(compiled.window_detectors) == [[0, 1], [2, 3]]
@@ -147,7 +147,7 @@ def test_window_region_validation() -> None:
         error(0.1) D2 L2
     """)
     decoder = decoders.SequentialWindowDecoder(
-        [[0], [1, 2]], [[0, 1], [2]], decoder=decoders.lookup_table(max_weight=1)
+        [[0], [1, 2]], [[0, 1], [2]], decoder=decoders.lookup(max_weight=1)
     )
     with pytest.raises(ValueError, match="cannot be decoded before"):
         decoder.compile_decoder_for_dem(dem)
@@ -163,7 +163,7 @@ def test_compiled_window_input_validation() -> None:
     """)
     wide_shots = np.zeros((1, dem.num_detectors + 1), dtype=np.uint8)
     window_decoder = decoders.SequentialWindowDecoder(
-        [[0], [1]], decoder=decoders.lookup_table(max_weight=1)
+        [[0], [1]], decoder=decoders.lookup(max_weight=1)
     ).compile_decoder_for_dem(dem)
     with pytest.raises(ValueError, match="per window"):
         decoders.CompiledSequentialWindowDecoder(window_decoder.dem_arrays, [[0]], [], [])
@@ -180,11 +180,11 @@ def test_sliding_window_time_gaps() -> None:
         error(0.1) D0 D1
         error(0.1) D1 D2
     """)
-    decoder = decoders.SlidingWindowDecoder(1, 1, decoder=decoders.lookup_table(max_weight=1))
+    decoder = decoders.SlidingWindowDecoder(1, 1, decoder=decoders.lookup(max_weight=1))
     compiled = decoder.compile_decoder_for_dem(dem)
     assert list(compiled.window_detectors) == [[0], [1], [2]]
 
-    decoder = decoders.SlidingWindowDecoder(2, 1, decoder=decoders.lookup_table(max_weight=1))
+    decoder = decoders.SlidingWindowDecoder(2, 1, decoder=decoders.lookup(max_weight=1))
     compiled = decoder.compile_decoder_for_dem(dem)
     assert list(compiled.window_detectors) == [[0], [1], [2]]
 
@@ -200,15 +200,11 @@ def test_sliding_window_ignores_undecoded_detectors() -> None:
         error(0.1) D1 D2
         error(0.1) D3
     """)
-    decoder = decoders.SlidingWindowDecoder(
-        1, 1, [[0, 1]], decoder=decoders.lookup_table(max_weight=1)
-    )
+    decoder = decoders.SlidingWindowDecoder(1, 1, [[0, 1]], decoder=decoders.lookup(max_weight=1))
     compiled = decoder.compile_decoder_for_dem(dem)
     assert list(compiled.window_detectors) == [[0], [1]]
 
-    decoder = decoders.SlidingWindowDecoder(
-        1, 1, [[1, 2]], decoder=decoders.lookup_table(max_weight=1)
-    )
+    decoder = decoders.SlidingWindowDecoder(1, 1, [[1, 2]], decoder=decoders.lookup(max_weight=1))
     with pytest.raises(ValueError, match="no coordinates"):
         decoder.compile_decoder_for_dem(dem)
 
@@ -228,7 +224,7 @@ def test_sliding_window_validation() -> None:
         return detector / 2
 
     decoder = decoders.SlidingWindowDecoder(
-        1, 1, detector_to_time=detector_to_time, decoder=decoders.lookup_table(max_weight=1)
+        1, 1, detector_to_time=detector_to_time, decoder=decoders.lookup(max_weight=1)
     )
     with pytest.raises(TypeError, match="non-integer"):
         decoder.compile_decoder_for_dem(dem)
@@ -239,7 +235,7 @@ def test_sliding_window_validation() -> None:
         return times[detector]
 
     decoder = decoders.SlidingWindowDecoder(
-        1, 1, detector_to_time=array_lookup, decoder=decoders.lookup_table(max_weight=1)
+        1, 1, detector_to_time=array_lookup, decoder=decoders.lookup(max_weight=1)
     )
     assert list(decoder.compile_decoder_for_dem(dem).window_detectors) == [[0], [1]]
 

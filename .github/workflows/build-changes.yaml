@@ -65,7 +65,7 @@ jobs:
           key: uv-windows-py3.14-${{ hashFiles('pyproject.toml') }}
           restore-keys: uv-windows-py3.14-
       - name: Install package and dependencies
-        run: uv sync --extra relay-bp --group ci-test
+        run: uv sync --extra decoders --group ci-test
       # save the cache now, so that it survives a later timeout
       - name: Prune uv cache
         if: steps.restore-uv-cache.outputs.cache-hit != 'true'
@@ -77,4 +77,4 @@ jobs:
           path: ${{ runner.temp }}/uv-cache
           key: ${{ steps.restore-uv-cache.outputs.cache-primary-key }}
       - name: Run pytest
-        run: uv run --extra relay-bp --group ci-test python checks/pytest_.py
+        run: uv run --extra decoders --group ci-test python checks/pytest_.py

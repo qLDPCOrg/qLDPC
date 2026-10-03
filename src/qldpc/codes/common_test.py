@@ -308,7 +308,7 @@ def test_classical_capacity() -> None:
     logical_error_rate_func = code.get_logical_error_rate_func(
         num_samples=1,
         max_error_rate=1,
-        decoder=decoders.lookup_table(max_weight=0, add_erasure_bit=True),
+        decoder=decoders.lookup(max_weight=0, add_erasure_bit=True),
     )
     assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
     assert logical_error_rate_func(0.5, discard_rate=True)[0] > 0  # nonzero syndromes → erasure
@@ -358,7 +358,7 @@ def test_classical_capacity_with_observable_decoders() -> None:
     # the Hamming code is perfect, so a lookup table of weight-one errors decodes every syndrome
     # uniquely, and direct observable decoding agrees exactly with error decoding
     kwargs: dict[str, Any] = {"num_samples": 200, "max_error_rate": 0.3}
-    expected = _get_capacity_counts(code, decoder=decoders.lookup_table(max_weight=1), **kwargs)
+    expected = _get_capacity_counts(code, decoder=decoders.lookup(max_weight=1), **kwargs)
     assert expected != _get_capacity_counts(code, decoder=decoders.TrivialDecoder(), **kwargs)
     observable_lookup = decoders.ObservableLookupDecoder(
         code.matrix,
@@ -366,7 +366,7 @@ def test_classical_capacity_with_observable_decoders() -> None:
         observable_flip_matrix=code.field.Identity(num_bits),
         error_channel=[0.1] * num_bits,
     )
-    sinter_lookup = decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=1))
+    sinter_lookup = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1))
     for decoder in [observable_lookup, sinter_lookup]:
         assert _get_capacity_counts(code, decoder=decoder, **kwargs) == expected
 
@@ -1114,7 +1114,7 @@ def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
     logical_error_rate_func = code.get_logical_error_rate_func(
         num_samples=1,
         max_error_rate=1,
-        decoder=decoders.lookup_table(max_weight=0, add_erasure_bit=True),
+        decoder=decoders.lookup(max_weight=0, add_erasure_bit=True),
     )
     assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
     assert logical_error_rate_func(0.5, discard_rate=True)[0] > 0  # all syndromes → erasure
@@ -1150,7 +1150,7 @@ def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
     logical_error_rate_func = qudit_code.get_logical_error_rate_func(
         num_samples=400,
         max_error_rate=1 / len(qudit_code),
-        decoder=decoders.lookup_table(max_weight=2),
+        decoder=decoders.lookup(max_weight=2),
     )
     assert logical_error_rate_func.infidelities[1] == 0
 
@@ -1461,7 +1461,7 @@ def test_legacy_decoder_warning_location() -> None:
         )
     messages = [str(warning.message) for warning in caught]
     assert all(warning.filename == __file__ for warning in caught)
-    assert any("decoder_x=decoders.lookup_table(...)" in message for message in messages)
+    assert any("decoder_x=decoders.lookup(...)" in message for message in messages)
     assert any("decoder_z=decoders.mwpm(...)" in message for message in messages)
 
 
@@ -1518,14 +1518,14 @@ def test_prebuilt_decoders_rejected_for_internal_matrices() -> None:
         classical_code.get_distance_bound(decoder=classical_decoder)
 
     # decoder settings are rebuilt for each internal matrix
-    assert code.get_distance_bound(decoder=decoders.lookup_table(max_weight=3)) == 3
-    assert code.reduce_logical_ops(decoder=decoders.lookup_table(max_weight=3))
+    assert code.get_distance_bound(decoder=decoders.lookup(max_weight=3)) == 3
+    assert code.reduce_logical_ops(decoder=decoders.lookup(max_weight=3))
 
 
 def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
     """Distance bounds and logical-operator reduction handle erasure and give up on failure."""
     # an erasure bit is stripped from decoded errors, and an erased decoding is retried
-    erasing_decoder = decoders.lookup_table(max_weight=3, add_erasure_bit=True)
+    erasing_decoder = decoders.lookup(max_weight=3, add_erasure_bit=True)
     classical_code = codes.ClassicalCode(codes.HammingCode(3).matrix)  # distance not yet known
     assert classical_code.get_distance_bound(decoder=erasing_decoder) == 3
     code = codes.SurfaceCode(3)
@@ -1536,7 +1536,7 @@ def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
     classical_code.forget_distance()
 
     # a decoder that cannot find a consistent error gives up, rather than retrying forever
-    failing_decoder = decoders.lookup_table(max_weight=0)
+    failing_decoder = decoders.lookup(max_weight=0)
     for search in [
         lambda: classical_code.get_distance_bound(decoder=failing_decoder),
         lambda: codes.SurfaceCode(3).get_distance_bound_with_decoder(
@@ -1789,7 +1789,7 @@ def test_css_capacity() -> None:
         num_samples=1,
         max_error_rate=1,
         pauli_bias=(0, 0, 1),
-        decoder=decoders.lookup_table(max_weight=0, add_erasure_bit=True),
+        decoder=decoders.lookup(max_weight=0, add_erasure_bit=True),
     )
     assert logical_error_rate_func_z(0, discard_rate=True) == (0, 0)  # no errors at p=0
     assert logical_error_rate_func_z(0.5, discard_rate=True)[0] > 0  # Z syndromes → erasure
@@ -1799,7 +1799,7 @@ def test_css_capacity() -> None:
         num_samples=1,
         max_error_rate=1,
         pauli_bias=(1, 0, 0),
-        decoder=decoders.lookup_table(max_weight=0, add_erasure_bit=True),
+        decoder=decoders.lookup(max_weight=0, add_erasure_bit=True),
     )
     assert logical_error_rate_func_x(0, discard_rate=True) == (0, 0)  # no errors at p=0
     assert logical_error_rate_func_x(0.5, discard_rate=True)[0] > 0  # X syndromes → erasure
@@ -1813,7 +1813,7 @@ def test_css_capacity() -> None:
         num_samples=20,
         max_error_rate=1,
         pauli_bias=(0, 0, 1),
-        decoder=decoders.lookup_table(max_weight=1, add_erasure_bit=True),
+        decoder=decoders.lookup(max_weight=1, add_erasure_bit=True),
     )
     assert logical_error_rate_func(0.5)[0] > 0  # Z-sector failures are recorded
     assert logical_error_rate_func(0.5, discard_rate=True)[0] == 0  # and nothing is discarded
@@ -1838,7 +1838,7 @@ def test_quantum_capacity_with_observable_decoders(monkeypatch: pytest.MonkeyPat
     # the five-qubit code is perfect, so an observable lookup table of weight-one errors corrects
     # every weight-one error, whereas a decoder that predicts no flips does not
     kwargs: dict[str, Any] = {"num_samples": 100, "max_error_rate": 0.3}
-    decoder = decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=1))
+    decoder = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1))
     failures, discards = _get_capacity_counts(code_as_qudit_code, decoder=decoder, **kwargs)
     assert failures[1] == 0 and not any(discards)
     failures, _ = _get_capacity_counts(
@@ -1888,7 +1888,7 @@ def test_quantum_capacity_with_observable_decoders(monkeypatch: pytest.MonkeyPat
     code_as_qudit_code.get_logical_error_rate_func(
         0,
         pauli_bias=(0.2, 0.3, 0.5),
-        decoder=decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=1)),
+        decoder=decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1)),
     )
     decoder_kwargs = captured_decoder_kwargs[-1]
     assert decoder_kwargs["symplectic_dem_errors"] is True
@@ -1906,14 +1906,14 @@ def test_css_capacity_with_observable_decoders() -> None:
 
     # a shared Sinter-style decoder is compiled for each sector, even though their stabilizer
     # matrices differ, and corrects every weight-one error
-    decoder = decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=1))
+    decoder = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1))
     failures, discards = _get_capacity_counts(code, decoder=decoder, **kwargs)
     assert failures[1] == 0 and not any(discards)
 
     # Error and observable decoders can be mixed.  A pure X bias leaves the Z sector error-free, so
     # replacing the Z-sector decoder by a trivial observable decoder changes nothing, and similarly
     # for a pure Z bias and the X sector.
-    error_decoder = decoders.lookup_table(max_weight=2)
+    error_decoder = decoders.lookup(max_weight=2)
     trivial_decoder = decoders.TrivialDecoder()
     mixed_configurations: list[tuple[tuple[int, int, int], dict[str, Any]]] = [
         ((1, 0, 0), {"decoder_x": error_decoder, "decoder_z": trivial_decoder}),
@@ -1980,9 +1980,7 @@ def test_css_capacity_with_observable_decoders() -> None:
         num_samples=20,
         max_error_rate=1,
         pauli_bias=(1, 0, 0),
-        decoder=decoders.SinterDecoder(
-            decoder=decoders.lookup_table(max_weight=0, add_erasure_bit=True)
-        ),
+        decoder=decoders.SinterDecoder(decoder=decoders.lookup(max_weight=0, add_erasure_bit=True)),
     )
     assert func(0.5, discard_rate=True)[0] > 0
     assert func.num_discards[1] == func.num_samples[1]  # every weight-one error has a syndrome
@@ -2006,14 +2004,14 @@ def test_capacity_pauli_bias_convention() -> None:
     signatures: dict[tuple[int, int, int], tuple[bool, bool]] = {}
     for pauli_bias in [(1, 0, 0), (0, 0, 1)]:
         fails = code.get_logical_error_rate_func(
-            300, error_rate, pauli_bias, decoder=decoders.lookup_table(max_weight=1)
+            300, error_rate, pauli_bias, decoder=decoders.lookup(max_weight=1)
         )
         discards = code.get_logical_error_rate_func(
             300,
             error_rate,
             pauli_bias,
-            decoder_x=decoders.lookup_table(max_weight=0, add_erasure_bit=True),
-            decoder_z=decoders.lookup_table(max_weight=1),
+            decoder_x=decoders.lookup(max_weight=0, add_erasure_bit=True),
+            decoder_z=decoders.lookup(max_weight=1),
         )
         signatures[pauli_bias] = (
             bool(fails.infidelities[1] > 0),
@@ -2042,7 +2040,7 @@ def test_capacity_min_error_weight() -> None:
         baseline = code.get_logical_error_rate_func(
             num_samples=1000,
             max_error_rate=0.2,
-            decoder=decoders.lookup_table(max_weight=max_weight),
+            decoder=decoders.lookup(max_weight=max_weight),
         )
         assert baseline.num_failures[1] == 0  # the premise: weight-1 errors are always corrected
 
@@ -2050,7 +2048,7 @@ def test_capacity_min_error_weight() -> None:
             num_samples=1000,
             max_error_rate=0.2,
             min_error_weight=2,
-            decoder=decoders.lookup_table(max_weight=max_weight),
+            decoder=decoders.lookup(max_weight=max_weight),
         )
         assert not func.num_samples[:2].any()  # no samples spent where the decoder cannot fail
 

@@ -5,7 +5,8 @@
 from __future__ import annotations
 
 import functools
-from collections.abc import Callable
+import warnings
+from collections.abc import Callable, Sequence
 from typing import ParamSpec, TypeAlias, TypeVar
 
 import galois
@@ -13,6 +14,7 @@ import numpy as np
 import numpy.typing as npt
 import stim
 
+from qldpc._util import get_external_caller_stacklevel
 from qldpc.math import IntegerArray
 
 from .dems import DetectorErrorModelArrays
@@ -23,6 +25,7 @@ PLACEHOLDER_ERROR_RATE = 1e-3  # required for some decoding methods
 _PcmOrDem: TypeAlias = IntegerArray | stim.DetectorErrorModel
 _Parameters = ParamSpec("_Parameters")
 _Decoder = TypeVar("_Decoder", bound=ErrorDecoder)
+_ErrorChannel: TypeAlias = float | npt.NDArray[np.floating] | Sequence[float] | None
 
 
 def get_error_and_erasure(
@@ -53,6 +56,85 @@ def with_erasure_bits(
     """
     flags = np.asarray(erased, dtype=errors.dtype).reshape(errors.shape[:-1] + (1,))
     return np.hstack([errors, flags])
+
+
+def _deprecate_error_rate_option(
+    options: dict[str, object], explicitly_provided: frozenset[str]
+) -> dict[str, object]:
+    """Replace an explicitly supplied error_rate option with error_channel.
+
+    An explicit error_rate=None is the default value, so it is dropped as if it were omitted.
+    """
+    if "error_rate" not in explicitly_provided or options.get("error_rate") is None:
+        options.pop("error_rate", None)
+        return options
+    if "error_channel" in explicitly_provided:
+        raise ValueError("error_rate and error_channel cannot both be specified")
+    error_rate = options["error_rate"]
+    warnings.warn(
+        f"error_rate={error_rate!r} is deprecated; use error_channel={error_rate!r} instead",
+        DeprecationWarning,
+        stacklevel=get_external_caller_stacklevel(),
+    )
+    options.pop("error_rate")
+    options["error_channel"] = error_rate
+    return options
+
+
+def _reject_dem_error_probabilities(error_channel: object, error_rate: object) -> None:
+    """Reject explicit error probabilities for a detector error model, which supplies its own.
+
+    Earlier qLDPC releases ignored error_rate for a detector error model, and let error_channel
+    override its probabilities, so the error explains how to migrate.
+    """
+    options = {"error_channel": error_channel, "error_rate": error_rate}
+    if specified := [f"{name}={value!r}" for name, value in options.items() if value is not None]:
+        raise ValueError(
+            "A detector error model supplies its own error probabilities, so"
+            f" {' and '.join(specified)} cannot be specified with one.  (In qLDPC 0.4.0, the ldpc"
+            " decoders BP+OSD, BP+LSD, and BF ignored error_rate for a detector error model, and"
+            " let error_channel override its probabilities.)  Remove the option, as for a"
+            " SinterDecoder, which always decodes detector error models.  Alternatively, pass"
+            " error_channel with the detector-flip matrix of the model,"
+            " decoders.DetectorErrorModelArrays(dem).detector_flip_matrix"
+        )
+
+
+def _get_matrix_error_channel(
+    pcm_or_dem: _PcmOrDem,
+    error_channel: _ErrorChannel,
+    error_rate: float | None,
+) -> npt.NDArray[np.floating] | None:
+    """Normalize matrix error probabilities and reject explicit probabilities for a DEM."""
+    if isinstance(pcm_or_dem, stim.DetectorErrorModel):
+        _reject_dem_error_probabilities(error_channel, error_rate)
+        return None
+
+    if error_rate is not None:
+        if error_channel is not None:
+            raise ValueError("error_rate and error_channel cannot both be specified")
+        warnings.warn(
+            f"error_rate={error_rate!r} is deprecated; use error_channel={error_rate!r} instead",
+            DeprecationWarning,
+            stacklevel=get_external_caller_stacklevel(),
+        )
+        error_channel = error_rate
+    if error_channel is None:
+        error_channel = PLACEHOLDER_ERROR_RATE
+
+    if np.isscalar(error_channel):
+        probabilities = np.full(pcm_or_dem.shape[1], error_channel, dtype=float)
+    else:
+        probabilities = np.asarray(error_channel, dtype=float)
+    expected_shape = (pcm_or_dem.shape[1],)
+    if probabilities.shape != expected_shape:
+        raise ValueError(
+            f"error probabilities of shape {expected_shape} are required in error_channel, but got"
+            f" {probabilities.shape}"
+        )
+    if np.any(~np.isfinite(probabilities)) or np.any((probabilities < 0) | (probabilities > 1)):
+        raise ValueError("error_channel probabilities must be finite and between 0 and 1")
+    return probabilities
 
 
 # Private builder helpers

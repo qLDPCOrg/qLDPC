@@ -9,6 +9,7 @@ import functools
 import subprocess
 import sys
 import unittest.mock
+from collections.abc import Callable
 
 import galois
 import numpy as np
@@ -19,9 +20,11 @@ import stim
 
 from qldpc import decoders
 from qldpc.decoders.conftest import ToyProblem
+from qldpc.decoders.construction.resolution import _get_error_decoder
 from qldpc.decoders.external.relay_bp import (
-    get_min_sum_bp_decoder,
-    get_relay_bp_decoder,
+    _get_decoder_min_sum_bp,
+    _get_decoder_rbp,
+    _get_decoder_relay_bp,
 )
 
 
@@ -41,7 +44,7 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
     errors = np.array([error, error])
     syndromes = np.array([syndrome, syndrome])
 
-    decoder = decoders.get_decoder_rbp(matrix)
+    decoder = _get_decoder_rbp(matrix)
     assert np.array_equal(error, decoder.decode(syndrome))
     assert np.array_equal(errors, decoder.decode_batch(syndromes))
     assert np.array_equal(error, copy.copy(decoder).decode(syndrome))
@@ -49,21 +52,21 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
     with pytest.raises(TypeError, match="missing 1 required positional argument"):
         decoder.compute_observables()
 
-    decoder = decoders.get_decoder_rbp(scipy.sparse.dok_matrix(matrix))
+    decoder = _get_decoder_rbp(scipy.sparse.dok_matrix(matrix))
     assert np.array_equal(error, decoder.decode_detailed(syndrome).decoding)
 
     dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
-    decoder = decoders.get_decoder_rbp(dem)
+    decoder = _get_decoder_rbp(dem)
     assert np.array_equal(error, decoder.decode(syndrome))
 
     with (
         unittest.mock.patch.dict("sys.modules", {"relay_bp": None}),
         pytest.raises(ImportError, match="Failed to import relay-bp"),
     ):
-        decoders.get_error_decoder(np.array([[]]), decoder=decoders.relay_bp())
+        _get_error_decoder(np.array([[]]), decoder=decoders.relay_bp())
 
     with pytest.raises(ValueError, match="name not recognized"):
-        decoders.get_decoder_rbp(np.array([[]]), name="invalid_name")
+        _get_decoder_rbp(np.array([[]]), name="invalid_name")
 
     with pytest.raises(TypeError, match="breaking change"):
         decoders.RelayBPDecoder("MinSumBPDecoderF32")
@@ -74,9 +77,40 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
     with pytest.raises(ValueError, match="Cannot specify an observable_error_matrix"):
         decoders.RelayBPDecoder(dem, observable_error_matrix=np.eye(2, dtype=np.uint8))
 
-    for builder in [get_relay_bp_decoder, get_min_sum_bp_decoder]:
+    builders: list[Callable[..., decoders.RelayBPDecoder]] = [
+        _get_decoder_relay_bp,
+        _get_decoder_min_sum_bp,
+    ]
+    for builder in builders:
         relay_decoder = builder(matrix, precision="F32")
         assert np.array_equal(np.asarray(matrix) @ relay_decoder.decode(syndrome) % 2, syndrome)
+
+
+@pytest.mark.parametrize(
+    ("builder", "helper"),
+    [
+        (_get_decoder_relay_bp, decoders.relay_bp),
+        (_get_decoder_min_sum_bp, decoders.min_sum_bp),
+    ],
+)
+def test_relay_backend_options(
+    builder: Callable[..., decoders.RelayBPDecoder],
+    helper: Callable[..., decoders.DecoderSpec[decoders.RelayBPDecoder]],
+) -> None:
+    """Named options and backend_options survive deferred construction."""
+    matrix = np.eye(2, dtype=int)
+    backend_options = {"backend_extension": 12}
+    with unittest.mock.patch("qldpc.decoders.external.relay_bp._get_relay_decoder") as backend:
+        builder(matrix, backend_options=backend_options)
+        assert backend.call_args.kwargs["backend_extension"] == 12
+        spec = helper(backend_options=backend_options)
+        assert spec.options["backend_options"] == backend_options
+        spec.build(matrix)
+        assert backend.call_args.kwargs["backend_extension"] == 12
+
+    # the backend rejects unsupported names when the decoder is built
+    with pytest.raises(TypeError, match="backend_extension"):
+        helper(backend_options=backend_options).build(matrix)
 
 
 def test_relay_bp_observables() -> None:
@@ -89,9 +123,7 @@ def test_relay_bp_observables() -> None:
     observable_flip_matrix = decoders.DetectorErrorModelArrays(dem).observable_flip_matrix
 
     for add_erasure_bit in [False, True]:
-        get_decoder = functools.partial(
-            decoders.get_decoder_rbp, dem, add_erasure_bit=add_erasure_bit
-        )
+        get_decoder = functools.partial(_get_decoder_rbp, dem, add_erasure_bit=add_erasure_bit)
         predicted_flips = get_decoder().decode_observables_batch(syndromes, progress_bar=False)
         assert predicted_flips.shape == (len(syndromes), dem.num_observables + add_erasure_bit)
         decoder = get_decoder()
@@ -114,7 +146,7 @@ def test_relay_bp_observables() -> None:
         )
 
     with pytest.raises(ValueError, match="requires an observable_error_matrix"):
-        decoders.get_decoder_rbp(np.eye(2, dtype=int)).decode_observables(np.zeros(2, dtype=int))
+        _get_decoder_rbp(np.eye(2, dtype=int)).decode_observables(np.zeros(2, dtype=int))
 
 
 def test_erasure_bit_marks_an_unexplained_syndrome(pytestconfig: pytest.Config) -> None:

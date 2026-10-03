@@ -10,6 +10,7 @@ import pytest
 
 from qldpc import decoders
 from qldpc.decoders.conftest import ToyProblem
+from qldpc.decoders.construction.resolution import _get_error_decoder
 
 
 def test_batch_decoding_by_alias() -> None:
@@ -68,7 +69,7 @@ def test_composite_erasure() -> None:
 def test_augmented_decoders(toy_problem: ToyProblem) -> None:
     """Composite and direct decoders can be built from other decoders."""
     matrix, error, syndrome = toy_problem
-    decoder = decoders.get_error_decoder(matrix, decoder=decoders.mwpm())
+    decoder = _get_error_decoder(matrix, decoder=decoders.mwpm())
 
     direct_decoder = decoders.DirectDecoder.from_indirect(decoder, matrix)
     assert np.array_equal(np.zeros_like(error), direct_decoder.decode(error))

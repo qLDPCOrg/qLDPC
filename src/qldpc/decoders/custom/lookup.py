@@ -21,6 +21,7 @@ from qldpc._util import get_external_caller_stacklevel
 from qldpc.math import IntegerArray
 
 from ..common import _erasure_bit_support, with_erasure_bits
+from ..construction.specs import decoder_spec
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, ObservableDecoder
 
@@ -31,47 +32,33 @@ _ErrorLogProbability: TypeAlias = Callable[[_ErrorVector], float]
 _ErrorChannel: TypeAlias = npt.NDArray[np.floating] | Sequence[float] | _ErrorLogProbability | None
 
 
-# Decoder builders
+# Decoder settings
 
 
 @_erasure_bit_support("lookup", supported=True)
-def get_decoder_lookup(
+def _get_decoder_lookup(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
 ) -> LookupDecoder:
-    """Build a lookup table that maps syndromes to inferred errors.
+    """Build a lookup-table decoder.
 
-    Args:
-        pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.  A DEM supplies
-            default error probabilities and observable metadata.
-        **decoder_args: Arguments passed to :class:`LookupDecoder`, including the required
-            ``max_weight``, an independent or callable correlated ``error_channel``, and optional
-            erasure, confidence, probability-cutoff, and symplectic settings.
+    The options, including the required ``max_weight``, an independent or callable correlated
+    ``error_channel``, and optional erasure, confidence, probability-cutoff, post-selection, and
+    symplectic settings, are those of :class:`~qldpc.decoders.custom.lookup.LookupDecoder`.
 
     Returns:
-        A :class:`LookupDecoder`.
+        A :class:`~qldpc.decoders.custom.lookup.LookupDecoder` that maps syndromes to representative
+        errors.
 
     ``add_erasure_bit=True`` appends a flag for syndromes absent from the table.  A positive
-    ``confidence_ratio`` also enables the flag and erases ambiguous syndromes.  This error builder
-    returns a representative physical error; use :func:`get_observable_decoder_lookup` to return
-    observable flips directly.
+    ``confidence_ratio`` also enables the flag and erases ambiguous syndromes.
     """
     return LookupDecoder(pcm_or_dem, **decoder_args)  # type: ignore[arg-type]
 
 
-def get_observable_decoder_lookup(
+def _get_observable_decoder_lookup(
     dem: stim.DetectorErrorModel, **decoder_args: object
 ) -> ObservableDecoder:
-    """Build a lookup table that maps DEM syndromes directly to observable flips.
-
-    Args:
-        dem: The detector error model whose detectors and observables define the table.
-        **decoder_args: Arguments passed to :class:`ObservableLookupDecoder`, including
-            ``max_weight`` and optional erasure, confidence, probability-cutoff, and post-selection
-            settings.
-
-    Returns:
-        An :class:`ObservableLookupDecoder`.
-    """
+    """Build a lookup table that maps DEM syndromes directly to observable flips."""
     return ObservableLookupDecoder(dem, **decoder_args)  # type: ignore[call-overload]
 
 
@@ -1444,3 +1431,22 @@ def _warn_deprecated_observable_prediction(enabled: bool, replacement: str) -> N
             DeprecationWarning,
             stacklevel=get_external_caller_stacklevel(),
         )
+
+
+_LOOKUP_SETTINGS_RETURNS = (
+    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
+    "detector error model (DEM), which also supplies default error probabilities and observable"
+    " metadata, and returns a :class:`~qldpc.decoders.custom.lookup.LookupDecoder` that maps "
+    "syndromes to representative errors.  Their ``build_observable_decoder(dem)`` method "
+    "returns an :class:`~qldpc.decoders.custom.lookup.ObservableLookupDecoder` that maps "
+    "syndromes directly to observable flips."
+)
+
+lookup = decoder_spec(
+    "lookup",
+    _get_decoder_lookup,
+    _get_observable_decoder_lookup,
+    signature_source=LookupDecoder,
+    exclude=frozenset({"predict_observable_flips"}),
+    returns=_LOOKUP_SETTINGS_RETURNS,
+)

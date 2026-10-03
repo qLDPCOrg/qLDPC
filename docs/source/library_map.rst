@@ -193,7 +193,7 @@ Choose or supply a decoder
 Configure a decoder with a typed helper such as ``decoders.bp_lsd(...)`` or ``decoders.mwpm(...)``, and build it for a parity-check matrix or Stim detector error model with ``.build(...)``, or pass the settings as ``decoder=`` to a method that decodes.
 Some settings, such as ``decoders.frontier(...)``, predict observable flips but cannot infer errors, so they are accepted only where observable flips are wanted.
 The default decoder is GUF for a nonbinary field array and BP+OSD otherwise.
-``qldpc.decoders.get_observable_decoder`` builds a decoder that predicts the observable flips of a detector error model instead, and ``qldpc.decoders.SinterDecoder`` does so for Sinter.
+``.build_observable_decoder(dem)`` builds a decoder that predicts the observable flips of a detector error model instead, and ``qldpc.decoders.SinterDecoder`` does so for Sinter.
 Code-capacity estimators accept either kind of decoder.
 See :doc:`Choosing a decoder <decoders>` for the difference between error and observable decoders, custom decoders, and per-sector CSS choices.
 

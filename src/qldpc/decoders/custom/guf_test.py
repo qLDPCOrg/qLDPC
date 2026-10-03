@@ -10,6 +10,8 @@ import numpy as np
 
 from qldpc import codes, decoders, math
 from qldpc.decoders.conftest import SurfaceCodeProblem
+from qldpc.decoders.construction.resolution import _get_error_decoder
+from qldpc.decoders.custom.guf import _get_decoder_guf
 
 
 def test_generalized_union_find() -> None:
@@ -20,22 +22,17 @@ def test_generalized_union_find() -> None:
     error[[3, 4]] = 1
     matrix = code.matrix_z
     syndrome = matrix @ error
+    assert np.count_nonzero(_get_error_decoder(matrix, decoder=decoders.guf()).decode(syndrome)) > 2
     assert (
         np.count_nonzero(
-            decoders.get_error_decoder(matrix, decoder=decoders.guf()).decode(syndrome)
-        )
-        > 2
-    )
-    assert (
-        np.count_nonzero(
-            decoders.get_error_decoder(matrix, decoder=decoders.guf(max_weight=2)).decode(syndrome)
+            _get_error_decoder(matrix, decoder=decoders.guf(max_weight=2)).decode(syndrome)
         )
         == 2
     )
 
     assert np.array_equal(
         np.zeros_like(error),
-        decoders.get_error_decoder(matrix, decoder=decoders.guf()).decode(np.zeros_like(syndrome)),
+        _get_error_decoder(matrix, decoder=decoders.guf()).decode(np.zeros_like(syndrome)),
     )
     decoded = decoders.GUFDecoder(matrix, add_erasure_bit=True).decode(syndrome)
     assert decoded[-1] == 0
@@ -50,7 +47,7 @@ def test_guf_builder() -> None:
     syndrome = matrix @ error % 2
 
     for pcm_or_dem in [matrix, dem]:
-        decoder = decoders.get_decoder_guf(pcm_or_dem, add_erasure_bit=True)
+        decoder = _get_decoder_guf(pcm_or_dem, add_erasure_bit=True)
         decoded = decoder.decode(syndrome)
         assert decoded.shape == (error.size + 1,)
         assert decoded[-1] == 0

@@ -22,17 +22,23 @@ from .common import (
     with_erasure_bits,
 )
 from .construction.legacy import (
+    decode_observables,
+    get_decoder_bf,
+    get_decoder_bp_lsd,
+    get_decoder_bp_osd,
+    get_decoder_guf,
+    get_decoder_ilp,
+    get_decoder_lookup,
+    get_decoder_mwpm,
+    get_decoder_rbp,
+    get_error_decoder,
     get_legacy_decoder_migration_message,
+    get_observable_decoder,
     reject_removed_decoder_args,
     resolve_decoder,
     resolve_observable_decoder,
 )
-from .construction.resolution import (
-    decode_observables,
-    get_error_decoder,
-    get_observable_decoder,
-    reject_prebuilt_decoder,
-)
+from .construction.resolution import reject_prebuilt_decoder
 from .construction.specs import (
     DecoderInput,
     DecoderSpec,
@@ -43,18 +49,6 @@ from .construction.specs import (
     ObservableDecoderCompiler,
     ObservableDecoderConstructor,
     PcmOrDem,
-    bf,
-    bp_lsd,
-    bp_osd,
-    frontier,
-    guf,
-    ilp,
-    lookup_table,
-    min_sum_bp,
-    mwpm,
-    relay_bp,
-    tesseract,
-    tesseract_preset,
 )
 from .custom import (
     CompositeDecoder,
@@ -66,21 +60,18 @@ from .custom import (
     WeightedLookupDecoder,
     WeightedObservableLookupDecoder,
 )
-from .custom.guf import get_decoder_guf
-from .custom.ilp import get_decoder_ilp
-from .custom.lookup import get_decoder_lookup
+from .custom.guf import guf
+from .custom.ilp import ilp
+from .custom.lookup import lookup
 from .dems import (
     DetectorErrorModelArrays,
     FlipPattern,
 )
-from .external.frontier import (
-    FrontierObservableDecoder,
-    get_observable_decoder_frontier,
-)
-from .external.ldpc import get_decoder_bf, get_decoder_bp_lsd, get_decoder_bp_osd
-from .external.pymatching import get_decoder_mwpm
-from .external.relay_bp import RelayBPDecoder, get_decoder_rbp
-from .external.tesseract import TesseractDecoder, get_decoder_tesseract
+from .external.frontier import FrontierObservableDecoder, frontier
+from .external.ldpc import bf, bp_lsd, bp_osd
+from .external.pymatching import mwpm
+from .external.relay_bp import RelayBPDecoder, min_sum_bp, relay_bp
+from .external.tesseract import TesseractDecoder, tesseract, tesseract_preset
 from .protocols import (
     BatchErrorDecoder,
     BatchObservableDecoder,
@@ -173,16 +164,15 @@ __all__ = [
     "get_decoder_lookup",
     "get_decoder_mwpm",
     "get_decoder_rbp",
-    "get_decoder_tesseract",
     "get_error_and_erasure",
     "get_error_decoder",
     "get_legacy_decoder_migration_message",
     "get_observable_decoder",
-    "get_observable_decoder_frontier",
     "guf",
     "ilp",
     "is_prebuilt_decoder",
     "is_prebuilt_observable_decoder",
+    "lookup",
     "lookup_table",
     "match_error_decoder_to_dem",
     "min_sum_bp",
@@ -216,19 +206,21 @@ DEPRECATED_ALIASES = (
         "get_decoder_ILP": get_decoder_ilp,
         "get_decoder_MWPM": get_decoder_mwpm,
         "get_decoder_RBP": get_decoder_rbp,
+        "lookup_table": lookup,
     }
 )
 
 if TYPE_CHECKING:
+    from .construction.legacy import get_decoder_bf as get_decoder_BF
+    from .construction.legacy import get_decoder_bp_lsd as get_decoder_BP_LSD
+    from .construction.legacy import get_decoder_bp_osd as get_decoder_BP_OSD
+    from .construction.legacy import get_decoder_guf as get_decoder_GUF
+    from .construction.legacy import get_decoder_ilp as get_decoder_ILP
+    from .construction.legacy import get_decoder_mwpm as get_decoder_MWPM
+    from .construction.legacy import get_decoder_rbp as get_decoder_RBP
     from .custom import BatchDecoder as BatchDecoder
     from .custom import Decoder as Decoder
-    from .custom.guf import get_decoder_guf as get_decoder_GUF
-    from .custom.ilp import get_decoder_ilp as get_decoder_ILP
-    from .external.ldpc import get_decoder_bf as get_decoder_BF
-    from .external.ldpc import get_decoder_bp_lsd as get_decoder_BP_LSD
-    from .external.ldpc import get_decoder_bp_osd as get_decoder_BP_OSD
-    from .external.pymatching import get_decoder_mwpm as get_decoder_MWPM
-    from .external.relay_bp import get_decoder_rbp as get_decoder_RBP
+    from .custom.lookup import lookup as lookup_table
     from .sinter import SequentialSinterDecoder as SequentialSinterDecoder
     from .sinter import SubgraphSinterDecoder as SubgraphSinterDecoder
 else:

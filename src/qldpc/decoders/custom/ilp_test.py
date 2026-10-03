@@ -14,6 +14,8 @@ import scipy.sparse
 
 from qldpc import decoders
 from qldpc.decoders.conftest import ToyProblem
+from qldpc.decoders.construction.resolution import _get_error_decoder
+from qldpc.decoders.custom.ilp import _get_decoder_ilp
 
 
 def test_ilp_decoder(toy_problem: ToyProblem) -> None:
@@ -31,7 +33,7 @@ def test_ilp_builder() -> None:
     syndrome = matrix @ error % 2
 
     for pcm_or_dem in [matrix, dem]:
-        decoder = decoders.get_decoder_ilp(pcm_or_dem, add_erasure_bit=True)
+        decoder = _get_decoder_ilp(pcm_or_dem, add_erasure_bit=True)
         decoded = decoder.decode(syndrome)
         assert decoded.shape == (error.size + 1,)
         assert decoded[-1] == 0
@@ -140,7 +142,7 @@ def test_invalid_ilp() -> None:
     syndrome = np.array([0, 1], dtype=int)
 
     with pytest.raises(ValueError, match="could not be found"):
-        decoders.get_error_decoder(matrix, decoder=decoders.ilp()).decode(syndrome)
+        _get_error_decoder(matrix, decoder=decoders.ilp()).decode(syndrome)
 
     with pytest.raises(ValueError, match="ILP decoding only supports prime number fields"):
-        decoders.get_error_decoder(galois.GF(4)(matrix), decoder=decoders.ilp()).decode(syndrome)
+        _get_error_decoder(galois.GF(4)(matrix), decoder=decoders.ilp()).decode(syndrome)

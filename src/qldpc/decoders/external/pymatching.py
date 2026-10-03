@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Builders and observable adapter for the pymatching package.
+"""Settings and observable adapter for the pymatching package.
 
 qLDPC imports this integration module while initializing its public decoder API.  Importing
 PyMatching and ldpc eagerly adds roughly 0.18 seconds (about 25 percent) to ``import qldpc`` in
@@ -10,7 +10,9 @@ in the private lazy-backend section at the bottom of this module.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeAlias
+import inspect
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 import numpy as np
 import numpy.typing as npt
@@ -20,10 +22,16 @@ import stim
 from qldpc.math import IntegerArray
 
 from ..common import _erasure_bit_support
+from ..construction.specs import _is_default_value, decoder_spec
 from ..dems import DetectorErrorModelArrays
 from ..protocols import BatchErrorDecoder, ObservableDecoder
 
 _PcmOrDem: TypeAlias = IntegerArray | stim.DetectorErrorModel
+_FAULTS_MATRIX_MESSAGE = (
+    "MWPM faults_matrix is reserved for observable decoding: use"
+    " decoders.mwpm(...).build_observable_decoder(dem), which derives it from the observables of"
+    " the detector error model"
+)
 
 if TYPE_CHECKING:
     import pymatching
@@ -31,7 +39,7 @@ if TYPE_CHECKING:
     class Matching(pymatching.Matching, BatchErrorDecoder): ...
 
 
-# Public decoder and builders
+# Public decoder and settings
 
 
 class MatchingObservableDecoder(ObservableDecoder):
@@ -57,103 +65,98 @@ class MatchingObservableDecoder(ObservableDecoder):
 
 
 @_erasure_bit_support("MWPM", supported=False)
-def get_decoder_mwpm(
+def _get_decoder_mwpm(
     pcm_or_dem: _PcmOrDem,
     *,
+    enable_correlations: bool = False,
     decompose_errors: bool = False,
     ignore_non_graphlike_errors: bool = False,
-    **decoder_args: object,
+    weights: float | npt.NDArray[np.floating] | Sequence[float] | None = None,
+    error_probabilities: float | npt.NDArray[np.floating] | Sequence[float] | None = None,
+    repetitions: int | None = None,
+    timelike_weights: float | npt.NDArray[np.floating] | Sequence[float] | None = None,
+    measurement_error_probabilities: float
+    | npt.NDArray[np.floating]
+    | Sequence[float]
+    | None = None,
+    merge_strategy: Literal[
+        "disallow", "independent", "smallest-weight", "keep-original", "replace"
+    ] = "smallest-weight",
+    use_virtual_boundary_node: bool = False,
+    backend_options: Mapping[str, object] | None = None,
 ) -> BatchErrorDecoder:
-    """Build a minimum-weight perfect matching (MWPM) error decoder.
+    """Build a minimum-weight perfect matching (MWPM) decoder.
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
-        decompose_errors: Whether to apply decompositions suggested by a DEM.
+        enable_correlations: Whether to use PyMatching's correlated-matching mode.  Correlated
+            matching predicts observable flips, so it requires ``build_observable_decoder`` and
+            rejects every other non-default option.
+        decompose_errors: Whether to apply decompositions suggested by a detector error model.
         ignore_non_graphlike_errors: Whether to ignore errors that trigger more than two detectors
             after any requested decomposition.
-        **decoder_args: Additional keyword arguments passed to
-            ``pymatching.Matching.load_from_check_matrix``.
+        weights: Weight of each error mechanism for a matrix input.
+        error_probabilities: Error probabilities for a matrix input.
+        repetitions: Number of repeated matching rounds.
+        timelike_weights: Weight assigned to timelike edges.
+        measurement_error_probabilities: Measurement-error probabilities for repeated rounds.
+        merge_strategy: Strategy used when merging duplicate matching edges.
+        use_virtual_boundary_node: Whether to use a virtual boundary node.
+        backend_options: Additional options for ``pymatching.Matching.load_from_check_matrix``
+            that are not listed above.  PyMatching ignores names that it does not recognize, so
+            names absent from its signature are rejected when the decoder is built.
+            ``faults_matrix`` is reserved for observable decoding and cannot be specified here.
 
     Returns:
         A ``pymatching.Matching`` subclass that is also a
-        :class:`~qldpc.decoders.protocols.BatchErrorDecoder`.
+        :class:`~qldpc.decoders.protocols.BatchErrorDecoder`, which maps a syndrome to an inferred
+        physical error.
 
-    This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.  It always maps a
-    syndrome to an inferred physical error, even when built from a DEM.  To predict the observable
-    flips of a DEM natively, use :func:`get_observable_decoder_mwpm`, normally through
-    :func:`qldpc.decoders.construction.get_observable_decoder` with
-    ``decoder=decoders.mwpm(...)``.
-
-    If ``decompose_errors=True`` splits a DEM error mechanism, the inferred vector addresses the
-    resulting components rather than the original error mechanisms.  It therefore cannot be
-    converted back into observable flips of that DEM.
+    This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.  If
+    ``decompose_errors=True`` splits a DEM error mechanism, an inferred error addresses the
+    resulting components rather than the original error mechanisms, so it cannot be converted back
+    into observable flips of that DEM.
 
     See the `PyMatching documentation <https://pymatching.readthedocs.io/>`_ and
     `arXiv:2105.13082 <https://arxiv.org/abs/2105.13082>`_.
     """
+    if enable_correlations:
+        raise ValueError(
+            "Correlated matching (enable_correlations=True) cannot infer errors; it can only"
+            " predict observable flips, as with decoders.mwpm(...).build_observable_decoder(dem)"
+        )
     return _build_matching(
         pcm_or_dem,
         decompose_errors=decompose_errors,
         ignore_non_graphlike_errors=ignore_non_graphlike_errors,
         predict_observables=False,
-        **decoder_args,
+        weights=weights,
+        error_probabilities=error_probabilities,
+        repetitions=repetitions,
+        timelike_weights=timelike_weights,
+        measurement_error_probabilities=measurement_error_probabilities,
+        merge_strategy=merge_strategy,
+        use_virtual_boundary_node=use_virtual_boundary_node,
+        backend_options=backend_options,
     )
 
 
-def get_error_decoder_mwpm(
-    pcm_or_dem: _PcmOrDem,
-    *,
-    enable_correlations: bool = False,
-    **decoder_args: Any,
-) -> BatchErrorDecoder:
-    """Build the error-decoding mode used by an MWPM :class:`DecoderSpec`.
-
-    Args:
-        pcm_or_dem: A parity-check matrix or detector error model to decode.
-        enable_correlations: Whether to enable correlated matching.  Correlated matching predicts
-            observable flips and therefore is not available in this error-decoding mode.
-        **decoder_args: Arguments forwarded to :func:`get_decoder_mwpm`.
-
-    Returns:
-        An MWPM decoder that infers physical errors.
-    """
-    if enable_correlations:
-        raise ValueError(
-            "Correlated matching (enable_correlations=True) cannot infer errors; it can only"
-            " predict observable flips, as with decoders.get_observable_decoder"
-        )
-    return get_decoder_mwpm(pcm_or_dem, **decoder_args)
-
-
-def get_observable_decoder_mwpm(
+def _get_observable_decoder_mwpm(
     dem: stim.DetectorErrorModel,
     *,
     decompose_errors: bool = False,
     ignore_non_graphlike_errors: bool = False,
     enable_correlations: bool = False,
+    backend_options: Mapping[str, object] | None = None,
     **decoder_args: object,
 ) -> MatchingObservableDecoder:
     """Build an MWPM decoder that predicts DEM observable flips natively.
 
-    Args:
-        dem: The detector error model to decode.
-        decompose_errors: Whether to apply decompositions suggested by the DEM.
-        ignore_non_graphlike_errors: Whether to ignore errors that trigger more than two detectors
-            after any requested decomposition.
-        enable_correlations: Whether to use PyMatching's correlated-matching mode.
-        **decoder_args: Additional matching-construction arguments.  PyMatching constructs
-            correlated matchings directly from ``dem``; in that mode these arguments are unused.
-
-    Returns:
-        An observable decoder backed by ``pymatching.Matching``.
-
-    Unlike :func:`get_decoder_mwpm`, this builder returns observable flips rather than inferred
-    physical errors.  DEM probabilities provide matching weights, and DEM observable targets provide
-    the faults matrix.
+    In correlated-matching mode, PyMatching constructs the matching directly from the DEM, so the
+    other matching-construction arguments are unused.
     """
     if enable_correlations:
-        import pymatching
-
+        pymatching = _get_pymatching()
         matching = pymatching.Matching.from_detector_error_model(dem, enable_correlations=True)
         return MatchingObservableDecoder(matching, enable_correlations=True)
     return MatchingObservableDecoder(
@@ -162,9 +165,47 @@ def get_observable_decoder_mwpm(
             decompose_errors=decompose_errors,
             ignore_non_graphlike_errors=ignore_non_graphlike_errors,
             predict_observables=True,
+            backend_options=backend_options,
             **decoder_args,
         )
     )
+
+
+def _validate_mwpm_options(
+    options: dict[str, object], _explicitly_provided: frozenset[str]
+) -> dict[str, object]:
+    """Reject options that would change error decoding or break correlated matching."""
+    backend_options = options["backend_options"]
+    if isinstance(backend_options, Mapping) and "faults_matrix" in backend_options:
+        raise ValueError(_FAULTS_MATRIX_MESSAGE)
+    if not options["enable_correlations"]:
+        return options
+    parameters = inspect.signature(_get_decoder_mwpm).parameters
+    for name, value in options.items():
+        if name != "enable_correlations" and not _is_default_value(value, parameters[name].default):
+            raise ValueError(
+                f"The MWPM option {name}={value!r} is not supported with enable_correlations=True"
+            )
+    return options
+
+
+_MWPM_SETTINGS_RETURNS = (
+    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
+    "detector error model (DEM) and returns a ``pymatching.Matching`` subclass that is also a "
+    ":class:`~qldpc.decoders.protocols.BatchErrorDecoder`, which maps a syndrome to an inferred"
+    " physical error.  Their ``build_observable_decoder(dem)`` method returns a "
+    ":class:`~qldpc.decoders.external.pymatching.MatchingObservableDecoder`, which predicts the"
+    " observable flips of a DEM natively: DEM probabilities provide matching weights, and DEM "
+    "observable targets provide the faults matrix."
+)
+
+mwpm = decoder_spec(
+    "mwpm",
+    _get_decoder_mwpm,
+    _get_observable_decoder_mwpm,
+    option_transform=_validate_mwpm_options,
+    returns=_MWPM_SETTINGS_RETURNS,
+)
 
 
 # Private matching helpers
@@ -176,9 +217,14 @@ def _build_matching(
     decompose_errors: bool,
     ignore_non_graphlike_errors: bool,
     predict_observables: bool,
+    backend_options: Mapping[str, object] | None = None,
     **decoder_args: object,
 ) -> Any:
     """Build a Matching that predicts errors or, from a DEM, observable flips."""
+    pymatching = _get_pymatching()
+    backend_options = dict(backend_options or {})
+    _validate_backend_options(pymatching, backend_options)
+    decoder_args |= backend_options
     infers_decomposed_errors = False
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         dem_arrays = DetectorErrorModelArrays(pcm_or_dem, decompose_errors=decompose_errors)
@@ -214,13 +260,29 @@ def _build_matching(
             " you can try 'ignore_non_graphlike_errors=True'"
         )
 
-    import pymatching
-
     matching = pymatching.Matching() if predict_observables else _get_matching_type()()
     matching.load_from_check_matrix(pcm, **decoder_args)
     if infers_decomposed_errors:
         matching._infers_decomposed_errors = True
     return matching
+
+
+def _validate_backend_options(pymatching: Any, backend_options: Mapping[str, object]) -> None:
+    """Reject backend options that load_from_check_matrix would silently ignore."""
+    if "faults_matrix" in backend_options:
+        raise ValueError(_FAULTS_MATRIX_MESSAGE)
+    parameters = inspect.signature(pymatching.Matching.load_from_check_matrix).parameters
+    supported = {
+        name
+        for name, parameter in parameters.items()
+        if name not in ("self", "check_matrix")
+        and parameter.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+    }
+    if unsupported := sorted(set(backend_options) - supported):
+        raise ValueError(
+            f"Unsupported MWPM backend option(s) {unsupported}: they are not parameters of"
+            " pymatching.Matching.load_from_check_matrix, which would silently ignore them"
+        )
 
 
 def _splits_errors(
@@ -244,17 +306,34 @@ def _splits_errors(
 _MATCHING_TYPE: type[Any] | None = None
 
 
+def _get_pymatching() -> Any:
+    """Import PyMatching or report a broken qLDPC installation."""
+    try:
+        import pymatching
+    except ModuleNotFoundError as error:
+        if error.name != "pymatching":
+            raise
+        raise ModuleNotFoundError(
+            "PyMatching is a required qLDPC dependency but is not installed. Reinstall qLDPC"
+        ) from None
+    return pymatching
+
+
 def _get_matching_type() -> type[Any]:
     """Return the protocol-compatible PyMatching subclass, creating it on first use."""
     global _MATCHING_TYPE
     if _MATCHING_TYPE is None:
-        import pymatching
-
-        class Matching(pymatching.Matching, BatchErrorDecoder):
-            """A pymatching.Matching that is also a BatchErrorDecoder."""
-
-        Matching.__module__ = __name__
-        Matching.__qualname__ = Matching.__name__
+        pymatching_module = _get_pymatching()
+        matching_type = type(
+            "Matching",
+            (pymatching_module.Matching, BatchErrorDecoder),
+            {
+                "__module__": __name__,
+                "__doc__": "A pymatching.Matching that is also a BatchErrorDecoder.",
+            },
+        )
+        matching_type.__qualname__ = matching_type.__name__
+        Matching = matching_type
         globals()["Matching"] = Matching
         _MATCHING_TYPE = Matching
     return _MATCHING_TYPE

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import builtins
+import importlib
 import importlib.util
 import inspect
 import subprocess
@@ -21,7 +22,8 @@ import stim
 
 from qldpc import codes, decoders
 from qldpc.codes import code_capacity
-from qldpc.decoders.external import tesseract
+from qldpc.decoders.construction.resolution import _get_error_decoder, _get_observable_decoder
+from qldpc.decoders.external.tesseract import _get_decoder_tesseract
 
 
 class _FakeTesseractConfig:
@@ -108,7 +110,7 @@ def test_tesseract_missing_dependency_error(monkeypatch: pytest.MonkeyPatch) -> 
     """A missing backend produces an actionable error without hiding nested failures."""
     monkeypatch.setitem(sys.modules, "tesseract_decoder", None)
     with pytest.raises(ModuleNotFoundError, match=r"qldpc\[tesseract\]") as exc_info:
-        decoders.get_decoder_tesseract(np.eye(1, dtype=int))
+        _get_decoder_tesseract(np.eye(1, dtype=int))
     message = str(exc_info.value)
     assert "CPython 3.12-3.14 on macOS arm64 and Linux x86-64" in message
     assert "github.com/quantumlib/tesseract-decoder#installation" in message
@@ -132,7 +134,7 @@ def test_tesseract_missing_dependency_error(monkeypatch: pytest.MonkeyPatch) -> 
     assert import_tesseract("types") is types
     monkeypatch.setattr(builtins, "__import__", import_tesseract)
     with pytest.raises(ModuleNotFoundError, match="nested_dependency"):
-        tesseract._get_tesseract()
+        importlib.import_module("qldpc.decoders.external.tesseract")._get_tesseract()
 
 
 def test_tesseract_matrix_error_decoding(fake_tesseract: None) -> None:
@@ -149,7 +151,7 @@ def test_tesseract_matrix_error_decoding(fake_tesseract: None) -> None:
         galois.GF2(matrix),
     ]
     for matrix_input in matrix_inputs:
-        decoder = decoders.get_decoder_tesseract(
+        decoder = _get_decoder_tesseract(
             matrix_input,
             error_channel=np.array([0.1, 0.2, 0.3]),
         )
@@ -163,18 +165,21 @@ def test_tesseract_matrix_error_decoding(fake_tesseract: None) -> None:
     assert decoders.batch_decode_errors(decoder, syndromes[:0]).shape == (0, 3)
     assert np.array_equal(decoder.decoder.dem_arrays.error_probs, [0.1, 0.2, 0.3])
 
-    decoder = decoders.get_decoder_tesseract(matrix, error_rate=0.25)
+    with pytest.warns(DeprecationWarning, match="error_rate=0.25.*error_channel=0.25"):
+        decoder = _get_decoder_tesseract(matrix, error_rate=0.25)
     assert np.array_equal(decoder.decoder.dem_arrays.error_probs, [0.25, 0.25, 0.25])
+    decoder = _get_decoder_tesseract(matrix, error_channel=0.4)
+    assert np.array_equal(decoder.decoder.dem_arrays.error_probs, [0.4, 0.4, 0.4])
 
     # Merging equal columns maps their aggregate probability to one representative original index,
     # which can be a less likely physical correction. qLDPC preserves column identity by default.
-    decoder = decoders.get_decoder_tesseract(
+    decoder = _get_decoder_tesseract(
         np.array([[1, 1]], dtype=int),
         error_channel=[0.1, 0.4],
     )
     assert not decoder.config.merge_errors
     assert np.array_equal(decoder.decode_errors(np.array([1], dtype=int)), [0, 1])
-    assert decoders.get_decoder_tesseract(matrix, merge_errors=True).config.merge_errors
+    assert _get_decoder_tesseract(matrix, merge_errors=True).config.merge_errors
 
 
 def test_tesseract_dem_error_and_observable_decoding(
@@ -186,12 +191,12 @@ def test_tesseract_dem_error_and_observable_decoding(
         error(0) D1 L1
         error(0.2) D1 L1
     """)
-    decoder = decoders.get_decoder_tesseract(dem)
+    decoder = _get_decoder_tesseract(dem)
     syndromes = np.array([[1, 0], [0, 1]], dtype=int)
 
     # mechanisms of a DEM are merged by default, since merged mechanisms are interchangeable
     assert decoder.config.merge_errors
-    assert not decoders.get_decoder_tesseract(dem, merge_errors=False).config.merge_errors
+    assert not _get_decoder_tesseract(dem, merge_errors=False).config.merge_errors
     assert decoder.num_errors == 3
     assert np.array_equal(decoder.decode_errors(syndromes[1]), [0, 0, 1])
     assert np.array_equal(decoder.decode_observables(syndromes[0]), [1, 0])
@@ -203,7 +208,7 @@ def test_tesseract_dem_error_and_observable_decoding(
 def test_tesseract_erasure_bits(fake_tesseract: None) -> None:
     """Tesseract low-confidence results become optional qLDPC erasure flags."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
-    decoder = decoders.get_decoder_tesseract(dem, pqlimit=0, add_erasure_bit=True)
+    decoder = _get_decoder_tesseract(dem, pqlimit=0, add_erasure_bit=True)
     syndromes = np.array([[1], [0]], dtype=int)
 
     assert np.array_equal(decoder.decode_errors(syndromes[0]), [0, 1])
@@ -217,8 +222,9 @@ def test_tesseract_erasure_bits(fake_tesseract: None) -> None:
 
 def test_tesseract_options_and_validation(fake_tesseract: None) -> None:
     """Construction forwards typed options and rejects unsupported inputs."""
-    assert inspect.signature(decoders.get_decoder_tesseract).parameters == (
-        inspect.signature(decoders.TesseractDecoder).parameters
+    assert (
+        list(inspect.signature(decoders.tesseract).parameters)
+        == (list(inspect.signature(decoders.TesseractDecoder).parameters)[1:])
     )
 
     options: dict[str, Any] = {
@@ -236,10 +242,10 @@ def test_tesseract_options_and_validation(fake_tesseract: None) -> None:
         "sparsify_max_degree": 4,
         "sparsify_reactivate_limit": 7,
     }
-    config = decoders.get_decoder_tesseract(np.eye(2, dtype=int), **options).config
+    config = _get_decoder_tesseract(np.eye(2, dtype=int), **options).config
     assert {name: getattr(config, name) for name in options} == options
 
-    decoder = decoders.get_decoder_tesseract(
+    decoder = _get_decoder_tesseract(
         np.eye(2, dtype=int),
         num_det_orders=3,
         det_order_method="bfs",
@@ -250,26 +256,37 @@ def test_tesseract_options_and_validation(fake_tesseract: None) -> None:
     assert decoder.config.seed == 11
 
     with pytest.raises(ValueError, match="Unknown Tesseract det_order_method"):
-        decoders.get_decoder_tesseract(np.eye(1, dtype=int), det_order_method=cast(Any, "random"))
+        _get_decoder_tesseract(np.eye(1, dtype=int), det_order_method=cast(Any, "random"))
     with pytest.raises(ValueError, match="only supports binary"):
-        decoders.get_decoder_tesseract(galois.GF(3)(np.eye(2, dtype=int)))
+        _get_decoder_tesseract(galois.GF(3)(np.eye(2, dtype=int)))
     with pytest.raises(ValueError, match="only 0 and 1"):
-        decoders.get_decoder_tesseract(np.array([[0, 2]], dtype=int))
+        _get_decoder_tesseract(np.array([[0, 2]], dtype=int))
     with pytest.raises(ValueError, match="binary integers"):
-        decoders.get_decoder_tesseract(np.array([[0.0, 1.0]]))
+        _get_decoder_tesseract(np.array([[0.0, 1.0]]))
     with pytest.raises(ValueError, match="two-dimensional"):
-        decoders.get_decoder_tesseract(np.array([0, 1], dtype=int))
+        _get_decoder_tesseract(np.array([0, 1], dtype=int))
     with pytest.raises(ValueError, match="error probabilities of shape"):
-        decoders.get_decoder_tesseract(np.eye(2, dtype=int), error_channel=[0.1])
-    with pytest.raises(ValueError, match="finite and between 0 and 1"):
-        decoders.get_decoder_tesseract(np.eye(1, dtype=int), error_rate=np.nan)
-    with pytest.raises(ValueError, match="Cannot specify an error_channel"):
-        decoders.get_decoder_tesseract(
+        _get_decoder_tesseract(np.eye(2, dtype=int), error_channel=[0.1])
+    with (
+        pytest.warns(DeprecationWarning, match="error_rate=nan.*error_channel=nan"),
+        pytest.raises(ValueError, match="finite and between 0 and 1"),
+    ):
+        _get_decoder_tesseract(np.eye(1, dtype=int), error_rate=np.nan)
+    with pytest.raises(ValueError, match=r"supplies its own.*error_channel=\[0.2\] cannot"):
+        _get_decoder_tesseract(
             stim.DetectorErrorModel("error(0.1) D0"),
             error_channel=[0.2],
         )
+    with pytest.raises(ValueError, match=r"supplies its own.*error_rate=0.2 cannot"):
+        _get_decoder_tesseract(
+            stim.DetectorErrorModel("error(0.1) D0"),
+            error_rate=0.2,
+        )
+    with pytest.warns(DeprecationWarning, match="error_rate=0.2.*error_channel=0.2"):
+        decoder = _get_decoder_tesseract(np.eye(1, dtype=int), error_rate=0.2)
+    assert np.array_equal(decoder.decoder.dem_arrays.error_probs, [0.2])
 
-    decoder = decoders.get_decoder_tesseract(np.eye(2, dtype=int))
+    decoder = _get_decoder_tesseract(np.eye(2, dtype=int))
     with pytest.raises(ValueError, match=r"shape \(2,\)"):
         decoder.decode_errors(np.array([1], dtype=int))
     with pytest.raises(ValueError, match=r"shape \(num_shots, 2\)"):
@@ -277,17 +294,28 @@ def test_tesseract_options_and_validation(fake_tesseract: None) -> None:
 
 
 def test_tesseract_preset_merge_defaults(fake_tesseract: None) -> None:
-    """Preset helpers retain qLDPC's input-dependent error-merging policy."""
+    """Preset helpers validate names, probabilities, and input-dependent merge defaults."""
     spec = decoders.tesseract_preset()
     assert not spec.build(np.eye(2, dtype=int)).config.merge_errors
     assert spec.build(stim.DetectorErrorModel("error(0.1) D0")).config.merge_errors
+
+    with pytest.warns(DeprecationWarning, match="error_rate=0.2.*error_channel=0.2") as warnings:
+        deprecated_spec = decoders.tesseract_preset(error_rate=0.2)
+    assert warnings[0].filename == __file__
+    assert deprecated_spec.options["error_channel"] == 0.2
+    with pytest.raises(ValueError, match="cannot both be specified"):
+        decoders.tesseract_preset(error_channel=0.1, error_rate=0.2)
+    with pytest.raises(ValueError, match="Unknown Tesseract preset"):
+        decoders.tesseract_preset(cast(Any, "medium-beam"))
+    with pytest.raises(ValueError, match="Unknown Tesseract sparsify preset"):
+        decoders.tesseract_preset(sparsify=cast(Any, "generic"))
 
 
 def test_tesseract_rejects_invalid_backend_error_index(
     fake_tesseract: None,
 ) -> None:
     """An invalid upstream result cannot silently corrupt a dense inferred error."""
-    decoder = decoders.get_decoder_tesseract(np.eye(1, dtype=int))
+    decoder = _get_decoder_tesseract(np.eye(1, dtype=int))
     decoder.decoder.decode_to_errors = lambda syndrome: [1]
     with pytest.raises(ValueError, match="outside the provided"):
         decoder.decode_errors(np.array([1], dtype=int))
@@ -300,8 +328,8 @@ def test_tesseract_specs_sinter_and_code_capacity(
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
     spec = decoders.tesseract(det_beam=7)
     assert spec.predicts_observables_natively
-    assert isinstance(decoders.get_error_decoder(dem, decoder=spec), decoders.TesseractDecoder)
-    observable_decoder = decoders.get_observable_decoder(dem, decoder=spec)
+    assert isinstance(_get_error_decoder(dem, decoder=spec), decoders.TesseractDecoder)
+    observable_decoder = _get_observable_decoder(dem, decoder=spec)
     assert isinstance(observable_decoder, decoders.TesseractDecoder)
     assert np.array_equal(observable_decoder.decode_observables(np.array([1])), [1])
 
@@ -327,21 +355,23 @@ import numpy as np
 import stim
 
 from qldpc import decoders
+from qldpc.decoders.construction.resolution import _get_error_decoder, _get_observable_decoder
+from qldpc.decoders.external.tesseract import _get_decoder_tesseract
 
 # A matrix keeps the most likely of two identical columns.
-decoder = decoders.get_decoder_tesseract(np.array([[1, 1]]), error_channel=[0.1, 0.4])
+decoder = _get_decoder_tesseract(np.array([[1, 1]]), error_channel=[0.1, 0.4])
 assert np.array_equal(decoder.decode_errors(np.array([1])), [0, 1])
 
 # A DEM merges equivalent mechanisms, so their combined probability selects the logical class.
 dem = stim.DetectorErrorModel("error(0.3) D0 L0\\nerror(0.3) D0 L0\\nerror(0.4) D0")
-decoder = decoders.get_decoder_tesseract(dem)
+decoder = _get_decoder_tesseract(dem)
 syndromes = np.array([[1], [0]])
 assert np.array_equal(decoder.decode_observables_batch(syndromes), [[1], [0]])
 assert np.array_equal(decoders.batch_decode_errors(decoder, syndromes), [[1, 0, 0], [0, 0, 0]])
 
 # A syndrome that no error explains is flagged, with generated detector orders.
 dem = stim.DetectorErrorModel("detector D0\\ndetector D1\\nerror(0.1) D0 L0")
-decoder = decoders.get_decoder_tesseract(
+decoder = _get_decoder_tesseract(
     dem, add_erasure_bit=True, num_det_orders=2, det_order_method="bfs", seed=3
 )
 assert np.array_equal(decoder.decode_observables(np.array([0, 1])), [0, 1])
@@ -353,7 +383,7 @@ circuit = stim.Circuit.generated(
 )
 dem = circuit.detector_error_model()
 shots = circuit.compile_detector_sampler(seed=0).sample(50).astype(np.uint8)
-errors = decoders.batch_decode_errors(decoders.get_decoder_tesseract(dem), shots)
+errors = decoders.batch_decode_errors(_get_decoder_tesseract(dem), shots)
 matrix = decoders.DetectorErrorModelArrays(dem, simplify=False).detector_flip_matrix
 assert np.array_equal(matrix @ errors.T % 2, shots.T)
 compiled = decoders.SinterDecoder(decoder=decoders.tesseract()).compile_decoder_for_dem(dem)

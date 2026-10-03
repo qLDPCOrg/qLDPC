@@ -91,7 +91,7 @@ class SupportsDecode(Protocol):
 
 _OBSERVABLE_DECODER_ADVICE = (
     "Pass error-decoder settings such as decoders.bp_osd(...), or pass the observable decoder where"
-    " one is accepted, such as to decoders.get_observable_decoder or decoders.SinterDecoder"
+    " one is accepted, such as to decoders.SinterDecoder"
 )
 
 

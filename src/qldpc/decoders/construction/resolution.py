@@ -5,15 +5,13 @@
 from __future__ import annotations
 
 import galois
-import numpy as np
-import numpy.typing as npt
 import stim
 
 from ..adapters.error_decoders import ErrorsToObservablesDecoder as _ErrorsToObservablesDecoder
 from ..adapters.observable_decoders import BitPackedObservableDecoder as _BitPackedObservableDecoder
 from ..capabilities import compiles_for_dem, is_prebuilt_decoder
-from ..custom.guf import get_decoder_guf as _get_decoder_guf
-from ..external.ldpc import get_decoder_bp_osd as _get_decoder_bp_osd
+from ..custom.guf import _get_decoder_guf
+from ..external.ldpc import _get_decoder_bp_osd
 from ..protocols import ErrorDecoder, ObservableDecoder, as_error_decoder
 from .specs import (
     DecoderInput,
@@ -23,10 +21,10 @@ from .specs import (
     PcmOrDem,
 )
 
-# Modern decoder resolution APIs
+# Decoder input resolution
 
 
-def get_error_decoder(pcm_or_dem: PcmOrDem, *, decoder: ErrorDecoderInput = None) -> ErrorDecoder:
+def _get_error_decoder(pcm_or_dem: PcmOrDem, *, decoder: ErrorDecoderInput = None) -> ErrorDecoder:
     """Build or retrieve a decoder that maps a syndrome to an inferred error.
 
     Args:
@@ -41,7 +39,7 @@ def get_error_decoder(pcm_or_dem: PcmOrDem, *, decoder: ErrorDecoderInput = None
     return as_error_decoder(*_build_decoder(pcm_or_dem, decoder))
 
 
-def get_observable_decoder(
+def _get_observable_decoder(
     dem: stim.DetectorErrorModel, *, decoder: DecoderInput = None
 ) -> ObservableDecoder:
     """Build or retrieve a decoder that maps a syndrome to predicted observable flips.
@@ -70,19 +68,6 @@ def get_observable_decoder(
     return _ErrorsToObservablesDecoder(as_error_decoder(built_decoder, source), dem)
 
 
-def decode_observables(
-    dem: stim.DetectorErrorModel,
-    syndrome: npt.NDArray[np.int_],
-    *,
-    decoder: DecoderInput = None,
-) -> npt.NDArray[np.int_]:
-    """Construct a decoder and predict the observable flips of one syndrome.
-
-    See help(qldpc.decoders.get_observable_decoder) for the accepted decoder inputs.
-    """
-    return get_observable_decoder(dem, decoder=decoder).decode_observables(syndrome)
-
-
 def reject_prebuilt_decoder(decoder: object, reason: str) -> None:
     """Raise if a decoder input is prebuilt and cannot be rebuilt for a new matrix."""
     if is_prebuilt_decoder(decoder):
@@ -90,9 +75,6 @@ def reject_prebuilt_decoder(decoder: object, reason: str) -> None:
             f"A prebuilt decoder cannot be passed as decoder= here because {reason}.  Pass decoder"
             " settings such as decoder=decoders.bp_osd(...), or a decoder constructor, instead"
         )
-
-
-# Resolution internals
 
 
 def _build_decoder(pcm_or_dem: PcmOrDem, decoder: DecoderInput) -> tuple[object, str]:

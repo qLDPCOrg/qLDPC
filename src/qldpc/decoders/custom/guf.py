@@ -18,6 +18,7 @@ from qldpc.math import IntegerArray
 from qldpc.objects import Node
 
 from ..common import _erasure_bit_support, _to_pcm, with_erasure_bits
+from ..construction.specs import decoder_spec
 from ..protocols import ErrorDecoder
 
 if TYPE_CHECKING:
@@ -172,7 +173,7 @@ class GUFDecoder(ErrorDecoder):
 
 
 @_erasure_bit_support("GUF", supported=True)
-def get_decoder_guf(
+def _get_decoder_guf(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
 ) -> GUFDecoder:
     """Build a generalized union-find (GUF) decoder.
@@ -180,14 +181,30 @@ def get_decoder_guf(
     Args:
         pcm_or_dem: A parity-check matrix or detector error model to decode.  A DEM is converted to
             its dense detector-flip matrix.
-        **decoder_args: Arguments passed to :class:`GUFDecoder`, including ``max_weight``,
-            ``symplectic``, and ``add_erasure_bit``.
+        max_weight: Maximum weight of a candidate error, or None for no limit.
+        symplectic: Whether to treat the parity-check matrix as that of a QuditCode, whose first
+            and last halves of columns denote the X and Z support of a stabilizer.
+        add_erasure_bit: Whether to append a flag when the search is exhausted without finding an
+            error that reproduces the syndrome.
+        **decoder_args: The options above, passed to
+            :class:`~qldpc.decoders.custom.guf.GUFDecoder`.
 
     Returns:
-        A :class:`GUFDecoder`.
+        A :class:`~qldpc.decoders.custom.guf.GUFDecoder`.
 
-    With ``add_erasure_bit=True``, the decoder appends a flag when its search is exhausted without
-    finding an error that reproduces the syndrome.  Supplying ``max_weight`` can make the search
-    exponential.  See `arXiv:2103.08049 <https://arxiv.org/abs/2103.08049>`_.
+    Supplying ``max_weight`` can make the search exponential.  See
+    :class:`~qldpc.decoders.custom.guf.GUFDecoder` and
+    `arXiv:2103.08049 <https://arxiv.org/abs/2103.08049>`_.
     """
     return GUFDecoder(_to_pcm(pcm_or_dem), **decoder_args)  # type: ignore[arg-type]
+
+
+_GUF_SETTINGS_RETURNS = (
+    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
+    "detector error model (DEM), whose dense detector-flip matrix is decoded, and returns a "
+    ":class:`~qldpc.decoders.custom.guf.GUFDecoder`."
+)
+
+guf = decoder_spec(
+    "guf", _get_decoder_guf, signature_source=GUFDecoder, returns=_GUF_SETTINGS_RETURNS
+)

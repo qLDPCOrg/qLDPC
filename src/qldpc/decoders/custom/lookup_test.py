@@ -15,10 +15,12 @@ import stim
 
 from qldpc import codes, decoders, math
 from qldpc.decoders.conftest import SurfaceCodeProblem, ToyProblem
+from qldpc.decoders.construction.resolution import _get_error_decoder
 from qldpc.decoders.custom.lookup import (
     _FieldVectorPacker,
+    _get_decoder_lookup,
+    _get_observable_decoder_lookup,
     _iter_errors_and_syndromes,
-    get_observable_decoder_lookup,
 )
 
 
@@ -26,20 +28,20 @@ def test_lookup(toy_problem: ToyProblem) -> None:
     """Lookup decoding should be straightforward."""
     matrix, error, syndrome = toy_problem
 
-    decoder = decoders.get_decoder_lookup(matrix, max_weight=2)
+    decoder = _get_decoder_lookup(matrix, max_weight=2)
     assert np.array_equal(error, decoder.decode(syndrome))
     assert len(decoder) == len(decoder._packed_syndrome_to_prediction)
 
     # decode with a detector error model
     dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
-    decoder = decoders.get_decoder_lookup(dem, max_weight=2)
+    decoder = _get_decoder_lookup(dem, max_weight=2)
     assert np.array_equal(error, decoder.decode(syndrome))
 
-    erasing_decoder = decoders.get_decoder_lookup(matrix, max_weight=2, add_erasure_bit=True)
+    erasing_decoder = _get_decoder_lookup(matrix, max_weight=2, add_erasure_bit=True)
     assert erasing_decoder.has_erasure_bit
     assert np.array_equal(erasing_decoder.decode(syndrome), [*error, 0])
 
-    observable_decoder = get_observable_decoder_lookup(dem, max_weight=2)
+    observable_decoder = _get_observable_decoder_lookup(dem, max_weight=2)
     assert np.array_equal(observable_decoder.decode_observables(syndrome), [])
 
 
@@ -174,7 +176,7 @@ def test_explicit_observable_lookup_decoders() -> None:
     assert weighted.decode_observables_batch(no_syndromes).shape == (0, 1)
 
     with pytest.raises(TypeError, match="observable flips rather than errors"):
-        decoders.get_error_decoder(dem, decoder=decoder)  # type: ignore[arg-type]
+        _get_error_decoder(dem, decoder=decoder)  # type: ignore[arg-type]
 
     # deprecated lookup decoders that predict observable flips are marked as such, so they are
     # rejected where an error decoder is required
@@ -188,7 +190,7 @@ def test_explicit_observable_lookup_decoders() -> None:
         assert legacy_decoder.decode_returns_observables
         assert np.array_equal(legacy_decoder.decode(syndrome), [1])
         with pytest.raises(TypeError, match="observable flips rather than errors"):
-            decoders.get_error_decoder(dem, decoder=legacy_decoder)
+            _get_error_decoder(dem, decoder=legacy_decoder)
     assert not decoders.LookupDecoder(dem, max_weight=1).decode_returns_observables
 
 

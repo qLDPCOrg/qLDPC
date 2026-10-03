@@ -1,12 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Unit tests for typed decoder specifications."""
+"""Tests for generic typed decoder specifications."""
 
 from __future__ import annotations
 
+import inspect
 import pickle
-from collections.abc import Callable, Sequence
-from typing import Any, Never
+import types
+import typing
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, Never, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -14,8 +17,13 @@ import pytest
 import stim
 
 from qldpc import decoders
+from qldpc.decoders import common
 from qldpc.decoders.adapters import error_decoders
-from qldpc.decoders.custom.lookup import get_observable_decoder_lookup
+from qldpc.decoders.construction import specs
+from qldpc.decoders.construction.resolution import _get_error_decoder, _get_observable_decoder
+from qldpc.decoders.custom.lookup import _get_decoder_lookup, _get_observable_decoder_lookup
+from qldpc.decoders.external.frontier import _get_observable_decoder_frontier
+from qldpc.decoders.external.ldpc import _get_decoder_bf, _get_decoder_bp_lsd, _get_decoder_bp_osd
 
 
 def _uniform_binary_error_channel(error: npt.NDArray[np.int_] | Sequence[int]) -> float:
@@ -23,8 +31,8 @@ def _uniform_binary_error_channel(error: npt.NDArray[np.int_] | Sequence[int]) -
     return -float(np.size(error) * np.log(2))
 
 
-def test_decoder_specs_store_public_builders() -> None:
-    """Every callable stored by a DecoderSpec has a stable public construction path."""
+def test_decoder_specs_store_module_builders() -> None:
+    """Every callable stored by a DecoderSpec is a module-level builder, pickled by reference."""
     specs = [
         decoders.bp_osd(),
         decoders.bp_lsd(),
@@ -34,7 +42,7 @@ def test_decoder_specs_store_public_builders() -> None:
         decoders.relay_bp(),
         decoders.min_sum_bp(),
         decoders.tesseract(),
-        decoders.lookup_table(1),
+        decoders.lookup(1),
         decoders.ilp(),
         decoders.guf(),
     ]
@@ -47,7 +55,7 @@ def test_decoder_specs_store_public_builders() -> None:
         "relay_bp": "qldpc.decoders.external.relay_bp",
         "min_sum_bp": "qldpc.decoders.external.relay_bp",
         "tesseract": "qldpc.decoders.external.tesseract",
-        "lookup_table": "qldpc.decoders.custom.lookup",
+        "lookup": "qldpc.decoders.custom.lookup",
         "ilp": "qldpc.decoders.custom.ilp",
         "guf": "qldpc.decoders.custom.guf",
     }
@@ -56,7 +64,7 @@ def test_decoder_specs_store_public_builders() -> None:
             if builder is None:
                 continue
             assert builder.__module__ == expected_modules[spec._helper_name]
-            assert not builder.__name__.startswith("_")
+            assert builder.__name__.startswith(("_get_decoder_", "_get_observable_decoder_"))
 
         restored = pickle.loads(pickle.dumps(spec))  # noqa: S301 - trusted round trip
         assert restored.options == spec.options
@@ -68,7 +76,7 @@ def test_decoder_spec_observable_modes() -> None:
     """Specs expose native observable construction and error-conversion fallback."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
 
-    native_spec = decoders.lookup_table(max_weight=1)
+    native_spec = decoders.lookup(max_weight=1)
     assert native_spec.predicts_observables_natively
     assert isinstance(native_spec.build_observable_decoder(dem), decoders.ObservableLookupDecoder)
 
@@ -86,19 +94,17 @@ def test_decoder_specs() -> None:
     matrix = np.eye(2, dtype=int)
     syndrome = np.array([1, 0], dtype=int)
 
-    spec = decoders.lookup_table(max_weight=1, error_channel=_uniform_binary_error_channel)
+    spec = decoders.lookup(max_weight=1, error_channel=_uniform_binary_error_channel)
     assert spec.options["error_channel"] is _uniform_binary_error_channel
     restored = pickle.loads(pickle.dumps(spec))  # noqa: S301 - trusted in-memory round trip
-    assert np.array_equal(
-        decoders.get_error_decoder(matrix, decoder=restored).decode(syndrome), syndrome
-    )
+    assert np.array_equal(_get_error_decoder(matrix, decoder=restored).decode(syndrome), syndrome)
 
     # a spec displays the helper call that reproduces it, omitting default options
     assert repr(decoders.bp_osd()) == "decoders.bp_osd()"
     assert repr(decoders.bp_lsd(max_iter=30, bp_method="ms")) == (
         "decoders.bp_lsd(max_iter=30, bp_method='ms')"
     )
-    assert repr(decoders.lookup_table(2)) == "decoders.lookup_table(max_weight=2)"
+    assert repr(decoders.lookup(2)) == "decoders.lookup(max_weight=2)"
     assert repr(decoders.relay_bp(gamma0=0.2)) == "decoders.relay_bp(gamma0=0.2)"
     assert repr(decoders.tesseract(det_beam=7)) == "decoders.tesseract(det_beam=7)"
     assert repr(decoders.ilp(verbose=False)) == "decoders.ilp(verbose=False)"
@@ -107,23 +113,190 @@ def test_decoder_specs() -> None:
     assert "error_channel=array" in repr(decoders.bf(error_channel=channel))
 
     # a spec exposes a copy of its options, which cannot modify the spec
-    spec = decoders.lookup_table(max_weight=2)
+    spec = decoders.lookup(max_weight=2)
     spec.options["max_weight"] = 3
     assert spec.options["max_weight"] == 2
 
     # deprecated lookup penalties remain available through deferred construction
-    legacy_spec = decoders.lookup_table(max_weight=1, penalty_func=lambda error: -float(error[1]))
+    legacy_spec = decoders.lookup(max_weight=1, penalty_func=lambda error: -float(error[1]))
     with pytest.warns(DeprecationWarning, match="penalty_func is deprecated"):
         legacy_decoder = legacy_spec.build(np.array([[1, 1]], dtype=int))
     assert np.array_equal(legacy_decoder.decode(np.array([1])), [0, 1])
 
     # a spec that was not built by a helper still has a (less concise) representation
-    spec = decoders.DecoderSpec("custom", decoders.get_decoder_lookup, (("max_weight", 1),))
+    spec = decoders.DecoderSpec("custom", _get_decoder_lookup, (("max_weight", 1),))
     assert repr(spec).startswith("DecoderSpec('custom', ")
 
-    # misspelled options are rejected, rather than silently passed to a decoder
-    with pytest.raises(TypeError, match="lsd_ordr"):
+    # misspelled options are rejected when settings are created, including by helpers that
+    # forward additional options to their backends through backend_options
+    with pytest.raises(TypeError, match=r"bp_lsd\(\).*unexpected keyword argument 'lsd_ordr'"):
         decoders.bp_lsd(lsd_ordr=1)  # type: ignore[call-arg]
+    with pytest.raises(TypeError, match=r"guf\(\).*unexpected keyword argument 'max_weigth'"):
+        decoders.guf(max_weigth=1)  # type: ignore[call-arg]
+
+
+def test_decoder_spec_helper_annotations() -> None:
+    """Generated helper annotations match their public parameters and result."""
+    helpers = (decoders.bp_osd, decoders.lookup, decoders.frontier)
+    for helper in helpers:
+        signature = inspect.signature(helper)
+        annotations = typing.get_type_hints(helper)
+        annotated_parameters = {
+            name
+            for name, parameter in signature.parameters.items()
+            if parameter.annotation is not inspect.Parameter.empty
+        }
+        assert annotations.keys() == annotated_parameters | {"return"}
+        assert typing.get_origin(annotations["return"]) is decoders.DecoderSpec
+
+    # the runtime annotations name the decoder that the settings build, as type checkers infer
+    expected_decoder_types: list[tuple[Callable[..., object], object]] = [
+        (decoders.bp_osd, decoders.ErrorDecoder),
+        (decoders.mwpm, decoders.BatchErrorDecoder),
+        (decoders.relay_bp, decoders.RelayBPDecoder),
+        (decoders.tesseract, decoders.TesseractDecoder),
+        (decoders.lookup, decoders.LookupDecoder),
+        (decoders.guf, decoders.GUFDecoder),
+        (decoders.ilp, decoders.ILPDecoder),
+        (decoders.frontier, Never),
+    ]
+    for annotated_helper, decoder_type in expected_decoder_types:
+        return_annotation = typing.get_type_hints(annotated_helper)["return"]
+        assert typing.get_args(return_annotation) == (decoder_type,), annotated_helper
+        assert inspect.signature(annotated_helper).return_annotation == return_annotation
+
+    # a builder without a return annotation is assumed to build an error decoder
+    def unannotated_builder(matrix: npt.NDArray[np.int_]):  # type: ignore[no-untyped-def]
+        return decoders.GUFDecoder(matrix)
+
+    unannotated_helper = specs.decoder_spec("unannotated", unannotated_builder)
+    assert typing.get_args(inspect.signature(unannotated_helper).return_annotation) == (
+        decoders.ErrorDecoder,
+    )
+    assert isinstance(unannotated_helper().build(np.eye(1, dtype=int)), decoders.GUFDecoder)
+
+
+def test_decoder_spec_helper_docstrings() -> None:
+    """Helpers document the options that they accept, but not the matrix that they build for."""
+    for helper in (decoders.bp_osd, decoders.mwpm, decoders.frontier, decoders.guf, decoders.ilp):
+        docstring = inspect.getdoc(helper)
+        assert docstring is not None and docstring.startswith("Configure ")
+        arguments = docstring.split("Args:\n", maxsplit=1)[1].split("\n\n", maxsplit=1)[0]
+        documented_names = {
+            line.strip().split(":", maxsplit=1)[0].lstrip("*")
+            for line in arguments.splitlines()
+            if line.startswith("    ") and not line.startswith("        ")
+        }
+        assert documented_names == set(inspect.signature(helper).parameters)
+    assert "build(pcm_or_dem)" in (decoders.bp_osd.__doc__ or "")
+
+    # builders document the decoder that they build, and helpers the settings that they return
+    builders: list[tuple[Callable[..., object], Callable[..., object]]] = [
+        (_get_decoder_bp_osd, decoders.bp_osd),
+        (_get_decoder_lookup, decoders.lookup),
+        (_get_observable_decoder_frontier, decoders.frontier),
+    ]
+    for builder, documented_helper in builders:
+        builder_docstring = inspect.getdoc(builder)
+        helper_docstring = inspect.getdoc(documented_helper)
+        assert builder_docstring is not None and helper_docstring is not None
+        assert builder_docstring.startswith("Build ")
+        builder_returns = builder_docstring.split("Returns:\n", maxsplit=1)[1].split("\n\n")[0]
+        helper_returns = helper_docstring.split("Returns:\n", maxsplit=1)[1].split("\n\n")[0]
+        assert "Decoder settings" not in builder_returns
+        assert helper_returns.lstrip().startswith("Decoder settings.")
+        assert all(len(line) <= 100 for line in helper_returns.splitlines())
+        helper_details = helper_docstring.split("Returns:")[1].partition("\n\n")[2]
+        assert helper_details == builder_docstring.split("Returns:")[1].partition("\n\n")[2]
+
+
+def test_decoder_spec_backend_options() -> None:
+    """A backend_options mapping is stored as a plain dict, and cannot repeat named options."""
+
+    def builder(
+        matrix: npt.NDArray[np.int_],
+        *,
+        max_weight: int | None = None,
+        backend_options: Mapping[str, object] | None = None,
+    ) -> decoders.GUFDecoder:
+        options: dict[str, Any] = dict(backend_options or {})
+        return decoders.GUFDecoder(matrix, max_weight=max_weight, **options)
+
+    helper = specs.decoder_spec("custom", builder)
+    assert helper().options["backend_options"] is None
+    assert helper(backend_options={}).options["backend_options"] is None
+    backend_options = types.MappingProxyType({"symplectic": False})
+    spec = helper(backend_options=backend_options)
+    assert type(spec.options["backend_options"]) is dict
+    assert spec.options["backend_options"] == {"symplectic": False}
+    assert isinstance(spec.build(np.eye(1, dtype=int)), decoders.GUFDecoder)
+
+    with pytest.raises(TypeError, match=r"custom\(\) backend_options must be a mapping"):
+        helper(backend_options=cast(Any, ["symplectic"]))
+    with pytest.raises(ValueError, match="lists max_weight by name, so pass it directly"):
+        helper(backend_options={"max_weight": 1})
+    with pytest.raises(ValueError, match="lists backend_options, max_weight by name, so pass them"):
+        helper(backend_options={"max_weight": 1, "backend_options": {}})
+
+
+def test_get_helper_docstring() -> None:
+    """Helper docstrings replace the summary verb and Returns section of a builder docstring."""
+    docstring = """Build a decoder.
+
+    Args:
+        matrix: The matrix to decode.
+        option: An option.
+
+    Returns:
+        A decoder that is
+        built for the matrix.
+
+    More details.
+    """
+    signature = inspect.Signature(
+        [inspect.Parameter("option", inspect.Parameter.KEYWORD_ONLY, default=0)]
+    )
+    assert specs._get_helper_docstring(docstring, signature, "Settings.") == (
+        "Configure a decoder.\n\n    Args:\n        option: An option.\n\n    Returns:\n"
+        "        Settings.\n\n    More details.\n    "
+    )
+    assert "A decoder that is" in (specs._get_helper_docstring(docstring, signature) or "")
+    assert specs._get_helper_docstring(None, signature) is None
+
+
+def test_decoder_spec_factory_validation() -> None:
+    """Factories transform observable options and reject unusable source signatures."""
+
+    def observable_builder(
+        dem: stim.DetectorErrorModel, *, scale: int = 1
+    ) -> decoders.ObservableDecoder:
+        del scale
+        return _get_observable_decoder_lookup(dem, max_weight=1)
+
+    helper = specs.observable_decoder_spec(
+        "observable",
+        observable_builder,
+        option_transform=lambda options, explicit: options | {"scale": len(explicit)},
+    )
+    observable_spec = helper(scale=3)
+    assert observable_spec.options["scale"] == 1
+    assert isinstance(
+        observable_spec.build_observable_decoder(stim.DetectorErrorModel()),
+        decoders.ObservableDecoder,
+    )
+
+    missing_input_builder: Any = lambda: decoders.GUFDecoder(np.eye(1, dtype=int))
+    with pytest.raises(TypeError, match="must accept a matrix or DEM"):
+        specs.decoder_spec("missing_input", missing_input_builder)
+
+    def variadic_builder(matrix: npt.NDArray[np.int_], *options: object) -> decoders.ErrorDecoder:
+        del options
+        return decoders.GUFDecoder(matrix)
+
+    assert isinstance(variadic_builder(np.eye(1, dtype=int), "option"), decoders.ErrorDecoder)
+    variadic_helper = specs.decoder_spec("variadic", variadic_builder)
+    with pytest.raises(TypeError, match="do not support variadic positional arguments"):
+        variadic_helper("option")
 
 
 @pytest.mark.parametrize(
@@ -143,12 +316,16 @@ def test_tesseract_preset_options() -> None:
     channel = np.array([0.1, 0.2])
     default = decoders.tesseract_preset()
     assert default.options == decoders.tesseract_preset("long-beam").options
-    spec = decoders.tesseract_preset(
-        "short-beam", error_rate=0.3, error_channel=channel, add_erasure_bit=True
-    )
-    assert spec.options["error_rate"] == 0.3
+    spec = decoders.tesseract_preset("short-beam", error_channel=channel, add_erasure_bit=True)
+    assert "error_rate" not in spec.options
     assert spec.options["error_channel"] is channel
     assert spec.options["add_erasure_bit"] is True
+
+    with pytest.warns(DeprecationWarning, match="error_rate=0.3.*error_channel=0.3"):
+        deprecated_spec = decoders.tesseract_preset("short-beam", error_rate=0.3)
+    assert deprecated_spec.options["error_channel"] == 0.3
+    with pytest.raises(ValueError, match="cannot both be specified"):
+        decoders.tesseract_preset("short-beam", error_channel=channel, error_rate=0.3)
 
     with pytest.raises(ValueError, match="Unknown Tesseract preset"):
         decoders.tesseract_preset("medium-beam")  # type: ignore[arg-type]
@@ -156,20 +333,59 @@ def test_tesseract_preset_options() -> None:
         decoders.tesseract_preset(sparsify="generic")  # type: ignore[arg-type]
 
 
+def test_deprecated_error_rate_settings_are_last_and_warn() -> None:
+    """Deferred helpers keep deprecated options last and translate them with a warning."""
+    entry_points = (
+        decoders.bp_osd,
+        decoders.bp_lsd,
+        decoders.bf,
+        decoders.tesseract,
+        decoders.tesseract_preset,
+        _get_decoder_bp_osd,
+        _get_decoder_bp_lsd,
+        _get_decoder_bf,
+        decoders.TesseractDecoder,
+    )
+    for entry_point in entry_points:
+        assert list(inspect.signature(entry_point).parameters)[-1] == "error_rate"
+
+    documented_entry_points: tuple[Callable[..., object], ...] = (
+        _get_decoder_bp_osd,
+        _get_decoder_bp_lsd,
+        _get_decoder_bf,
+        decoders.TesseractDecoder.__init__,
+    )
+    for documented_entry_point in documented_entry_points:
+        docstring = inspect.getdoc(documented_entry_point)
+        assert docstring is not None
+        arguments = docstring.split("Args:\n", maxsplit=1)[1].split("\n\n", maxsplit=1)[0]
+        documented_names = [
+            line.strip().split(":", maxsplit=1)[0]
+            for line in arguments.splitlines()
+            if line.startswith("    ") and not line.startswith("        ")
+        ]
+        assert documented_names[-1] == "error_rate"
+
+    with pytest.warns(DeprecationWarning, match="error_rate=0.2.*error_channel=0.2"):
+        spec = decoders.bp_osd(error_rate=0.2)
+    assert "error_rate" not in spec.options
+    assert spec.options["error_channel"] == 0.2
+
+
 def test_observable_decoder_specs() -> None:
     """A spec without an error builder builds observable decoders, but not error decoders."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
     spec: decoders.DecoderSpec[Never] = decoders.DecoderSpec(
-        "observable_lookup", None, (("max_weight", 1),), get_observable_decoder_lookup
+        "observable_lookup", None, (("max_weight", 1),), _get_observable_decoder_lookup
     )
-    assert decoders.lookup_table(1).infers_errors
+    assert decoders.lookup(1).infers_errors
     assert not spec.infers_errors
     assert spec.predicts_observables_natively
     assert isinstance(spec.build_observable_decoder(dem), decoders.ObservableLookupDecoder)
     with pytest.raises(TypeError, match="cannot build an error decoder"):
         spec.build(dem)
     with pytest.raises(TypeError, match="cannot build an error decoder"):
-        decoders.get_error_decoder(dem, decoder=spec)
+        _get_error_decoder(dem, decoder=spec)
     with pytest.raises(ValueError, match="needs an error builder or an observable builder"):
         decoders.DecoderSpec("nothing", None, ())
 
@@ -211,7 +427,7 @@ def test_decoder_spec_helpers_build_decoders() -> None:
         decoders.bf(max_iter=5, uf_method="inversion"),
         decoders.mwpm(merge_strategy="independent"),
         decoders.relay_bp(gamma0=0.2),
-        decoders.lookup_table(max_weight=1),
+        decoders.lookup(max_weight=1),
         decoders.ilp(),
         decoders.guf(max_weight=2),
     ]
@@ -259,8 +475,8 @@ def test_decoder_spec_helper_defaults() -> None:
 
     # helpers for decoders defined in qLDPC mirror all non-deprecated constructor options
     qldpc_decoders: list[tuple[Callable[..., object], Callable[..., object], set[str]]] = [
-        (decoders.frontier, decoders.get_observable_decoder_frontier, set()),
-        (decoders.lookup_table, decoders.LookupDecoder, {"predict_observable_flips"}),
+        (decoders.frontier, _get_observable_decoder_frontier, set()),
+        (decoders.lookup, decoders.LookupDecoder, {"predict_observable_flips"}),
         (decoders.guf, decoders.GUFDecoder, set()),
         (decoders.ilp, decoders.ILPDecoder, set()),
         (decoders.tesseract, decoders.TesseractDecoder, set()),
@@ -275,7 +491,7 @@ def test_decoder_spec_helper_defaults() -> None:
     entry_points: list[Callable[..., object]] = [
         decoders.LookupDecoder,
         decoders.ObservableLookupDecoder,
-        decoders.lookup_table,
+        decoders.lookup,
     ]
     for entry_point in entry_points:
         assert list(inspect.signature(entry_point).parameters)[-1] == "penalty_func"
@@ -293,6 +509,7 @@ def test_decoder_spec_helper_defaults() -> None:
     for relay_bp_helper, relay_bp_class in relay_bp_helpers:
         helper_defaults = get_defaults(relay_bp_helper)
         assert helper_defaults.pop("precision") == "F32"
+        assert helper_defaults.pop("backend_options") is None
         relay_bp_defaults = relay_bp_decoder_defaults | get_defaults(relay_bp_class)
         assert helper_defaults.keys() == relay_bp_defaults.keys(), relay_bp_helper
         for name, default in helper_defaults.items():
@@ -325,7 +542,8 @@ def test_decoder_spec_helper_defaults() -> None:
     ]
     for helper, constructor, attributes in ldpc_decoders:
         helper_decoder = helper().build(matrix)
-        ldpc_decoder = constructor(matrix, error_rate=get_defaults(helper)["error_rate"])
+        default_channel = [common.PLACEHOLDER_ERROR_RATE] * matrix.shape[1]
+        ldpc_decoder = constructor(matrix, error_channel=default_channel)
         for attribute in shared_attributes + attributes:
             assert getattr(helper_decoder, attribute) == getattr(ldpc_decoder, attribute), (
                 helper,
@@ -344,11 +562,11 @@ def test_correlated_matching() -> None:
 
     # enabling correlations changes the prediction from [1], because the decomposed error that
     # explains D0 D1 also explains D2 D3
-    decoder = decoders.get_observable_decoder(dem, decoder=spec)
+    decoder = _get_observable_decoder(dem, decoder=spec)
     assert np.array_equal(decoder.decode_observables(np.array([1, 1, 1, 1])), [0])
 
     with pytest.raises(ValueError, match="cannot infer errors"):
-        decoders.get_error_decoder(dem, decoder=spec)
+        _get_error_decoder(dem, decoder=spec)
     with pytest.raises(ValueError, match="not supported with enable_correlations=True"):
         decoders.mwpm(enable_correlations=True, decompose_errors=True)
     with pytest.raises(ValueError, match="not supported with enable_correlations=True"):
