@@ -164,6 +164,9 @@ def decode_observables(
     return _get_observable_decoder(dem, decoder=decoder).decode_observables(syndrome)
 
 
+# Deprecated per-decoder builders
+
+
 def get_decoder_bp_osd(pcm_or_dem: PcmOrDem, **decoder_args: Any) -> ErrorDecoder:
     """Build a BP+OSD decoder through a deprecated API; use decoders.bp_osd(...).build(...)."""
     _warn_deprecated_builder("get_decoder_bp_osd", "bp_osd")
@@ -220,6 +223,9 @@ def get_decoder_rbp(
         "decoders.relay_bp(...).build(pcm_or_dem) or decoders.min_sum_bp(...).build(pcm_or_dem)",
     )
     return _get_decoder_rbp(pcm_or_dem, error_priors, **decoder_args)
+
+
+# Deprecated resolution functions
 
 
 def resolve_decoder(
@@ -308,6 +314,7 @@ def get_legacy_decoder_migration_message(
 
 
 # Legacy translation and message helpers
+
 
 _LEGACY_HELPER_NAMES = {
     "BF": "bf",
