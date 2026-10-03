@@ -58,9 +58,10 @@ def test_deprecate_error_rate_option() -> None:
         for helper in (decoders.bp_osd, decoders.tesseract):
             assert helper(error_rate=None).options == helper().options
             assert helper(error_rate=None, error_channel=0.1).options["error_channel"] == 0.1
-        assert decoders.tesseract_preset(error_rate=None, error_channel=0.1).options[
-            "error_channel"
-        ] == 0.1
+        assert (
+            decoders.tesseract_preset(error_rate=None, error_channel=0.1).options["error_channel"]
+            == 0.1
+        )
 
 
 def test_get_matrix_error_channel() -> None:

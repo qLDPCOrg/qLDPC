@@ -148,10 +148,30 @@ def test_decoder_spec_helper_annotations() -> None:
         assert annotations.keys() == annotated_parameters | {"return"}
         assert typing.get_origin(annotations["return"]) is decoders.DecoderSpec
 
-    assert typing.get_args(typing.get_type_hints(decoders.bp_osd)["return"]) == (
+    # the runtime annotations name the decoder that the settings build, as type checkers infer
+    expected_decoder_types: list[tuple[Callable[..., object], object]] = [
+        (decoders.bp_osd, decoders.ErrorDecoder),
+        (decoders.mwpm, decoders.BatchErrorDecoder),
+        (decoders.relay_bp, decoders.RelayBPDecoder),
+        (decoders.tesseract, decoders.TesseractDecoder),
+        (decoders.lookup, decoders.LookupDecoder),
+        (decoders.guf, decoders.GUFDecoder),
+        (decoders.ilp, decoders.ILPDecoder),
+        (decoders.frontier, Never),
+    ]
+    for annotated_helper, decoder_type in expected_decoder_types:
+        return_annotation = typing.get_type_hints(annotated_helper)["return"]
+        assert typing.get_args(return_annotation) == (decoder_type,), annotated_helper
+        assert inspect.signature(annotated_helper).return_annotation == return_annotation
+
+    # a builder without a return annotation is assumed to build an error decoder
+    def unannotated_builder(matrix: npt.NDArray[np.int_]):  # type: ignore[no-untyped-def]
+        return decoders.GUFDecoder(matrix)
+
+    unannotated_helper = specs.decoder_spec("unannotated", unannotated_builder)
+    assert typing.get_args(inspect.signature(unannotated_helper).return_annotation) == (
         decoders.ErrorDecoder,
     )
-    assert typing.get_args(typing.get_type_hints(decoders.frontier)["return"]) == (Never,)
 
 
 def test_decoder_spec_helper_docstrings() -> None:
@@ -167,6 +187,50 @@ def test_decoder_spec_helper_docstrings() -> None:
         }
         assert documented_names == set(inspect.signature(helper).parameters)
     assert "build(pcm_or_dem)" in (decoders.bp_osd.__doc__ or "")
+
+    # builders document the decoder that they build, and helpers the settings that they return
+    builders: list[tuple[Callable[..., object], Callable[..., object]]] = [
+        (_get_decoder_bp_osd, decoders.bp_osd),
+        (_get_decoder_lookup, decoders.lookup),
+        (_get_observable_decoder_frontier, decoders.frontier),
+    ]
+    for builder, documented_helper in builders:
+        builder_docstring = inspect.getdoc(builder)
+        helper_docstring = inspect.getdoc(documented_helper)
+        assert builder_docstring is not None and helper_docstring is not None
+        assert builder_docstring.startswith("Build ")
+        builder_returns = builder_docstring.split("Returns:\n", maxsplit=1)[1].split("\n\n")[0]
+        helper_returns = helper_docstring.split("Returns:\n", maxsplit=1)[1].split("\n\n")[0]
+        assert "Decoder settings" not in builder_returns
+        assert helper_returns.lstrip().startswith("Decoder settings.")
+        assert all(len(line) <= 100 for line in helper_returns.splitlines())
+        helper_details = helper_docstring.split("Returns:")[1].partition("\n\n")[2]
+        assert helper_details == builder_docstring.split("Returns:")[1].partition("\n\n")[2]
+
+
+def test_get_helper_docstring() -> None:
+    """Helper docstrings replace the summary verb and Returns section of a builder docstring."""
+    docstring = """Build a decoder.
+
+    Args:
+        matrix: The matrix to decode.
+        option: An option.
+
+    Returns:
+        A decoder that is
+        built for the matrix.
+
+    More details.
+    """
+    signature = inspect.Signature(
+        [inspect.Parameter("option", inspect.Parameter.KEYWORD_ONLY, default=0)]
+    )
+    assert specs._get_helper_docstring(docstring, signature, "Settings.") == (
+        "Configure a decoder.\n\n    Args:\n        option: An option.\n\n    Returns:\n"
+        "        Settings.\n\n    More details.\n    "
+    )
+    assert "A decoder that is" in (specs._get_helper_docstring(docstring, signature) or "")
+    assert specs._get_helper_docstring(None, signature) is None
 
 
 def test_decoder_spec_factory_validation() -> None:

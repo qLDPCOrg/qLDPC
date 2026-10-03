@@ -218,14 +218,12 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
 def _get_decoder_tesseract(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: Any
 ) -> TesseractDecoder:
-    """Configure a Tesseract search-based decoder.
+    """Build a Tesseract search-based decoder.
 
     The options are those of :class:`~qldpc.decoders.external.tesseract.TesseractDecoder`.
 
     Returns:
-        Decoder settings.  Their ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` methods
-        take a binary parity-check matrix or detector error model and return a
-        :class:`~qldpc.decoders.external.tesseract.TesseractDecoder`, which infers errors and
+        A :class:`~qldpc.decoders.external.tesseract.TesseractDecoder`, which infers errors and
         predicts observable flips natively.
 
     Tesseract requires the optional ``tesseract-decoder`` package, which can be installed with
@@ -234,12 +232,20 @@ def _get_decoder_tesseract(
     return TesseractDecoder(pcm_or_dem, **decoder_args)
 
 
+_TESSERACT_SETTINGS_RETURNS = (
+    "Decoder settings.  Their ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` "
+    "methods take a binary parity-check matrix or detector error model and return a "
+    ":class:`~qldpc.decoders.external.tesseract.TesseractDecoder`, which infers errors and "
+    "predicts observable flips natively."
+)
+
 tesseract = decoder_spec(
     "tesseract",
     _get_decoder_tesseract,
     _get_decoder_tesseract,
     signature_source=TesseractDecoder,
     option_transform=_deprecate_error_rate_option,
+    returns=_TESSERACT_SETTINGS_RETURNS,
 )
 
 

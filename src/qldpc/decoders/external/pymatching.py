@@ -85,7 +85,7 @@ def _get_decoder_mwpm(
     use_virtual_boundary_node: bool = False,
     backend_options: Mapping[str, object] | None = None,
 ) -> BatchErrorDecoder:
-    """Configure a minimum-weight perfect matching (MWPM) decoder.
+    """Build a minimum-weight perfect matching (MWPM) decoder.
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
@@ -108,13 +108,9 @@ def _get_decoder_mwpm(
             ``faults_matrix`` is reserved for observable decoding and cannot be specified here.
 
     Returns:
-        Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or
-        detector error model (DEM) and returns a ``pymatching.Matching`` subclass that is also a
+        A ``pymatching.Matching`` subclass that is also a
         :class:`~qldpc.decoders.protocols.BatchErrorDecoder`, which maps a syndrome to an inferred
-        physical error.  Their ``build_observable_decoder(dem)`` method returns a
-        :class:`~qldpc.decoders.external.pymatching.MatchingObservableDecoder`, which predicts the
-        observable flips of a DEM natively: DEM probabilities provide matching weights, and DEM
-        observable targets provide the faults matrix.
+        physical error.
 
     This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.  If
     ``decompose_errors=True`` splits a DEM error mechanism, an inferred error addresses the
@@ -186,20 +182,29 @@ def _validate_mwpm_options(
         return options
     parameters = inspect.signature(_get_decoder_mwpm).parameters
     for name, value in options.items():
-        if name != "enable_correlations" and not _is_default_value(
-            value, parameters[name].default
-        ):
+        if name != "enable_correlations" and not _is_default_value(value, parameters[name].default):
             raise ValueError(
                 f"The MWPM option {name}={value!r} is not supported with enable_correlations=True"
             )
     return options
 
 
+_MWPM_SETTINGS_RETURNS = (
+    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
+    "detector error model (DEM) and returns a ``pymatching.Matching`` subclass that is also a "
+    ":class:`~qldpc.decoders.protocols.BatchErrorDecoder`, which maps a syndrome to an inferred"
+    " physical error.  Their ``build_observable_decoder(dem)`` method returns a "
+    ":class:`~qldpc.decoders.external.pymatching.MatchingObservableDecoder`, which predicts the"
+    " observable flips of a DEM natively: DEM probabilities provide matching weights, and DEM "
+    "observable targets provide the faults matrix."
+)
+
 mwpm = decoder_spec(
     "mwpm",
     _get_decoder_mwpm,
     _get_observable_decoder_mwpm,
     option_transform=_validate_mwpm_options,
+    returns=_MWPM_SETTINGS_RETURNS,
 )
 
 

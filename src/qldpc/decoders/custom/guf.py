@@ -176,7 +176,7 @@ class GUFDecoder(ErrorDecoder):
 def _get_decoder_guf(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
 ) -> GUFDecoder:
-    """Configure a generalized union-find (GUF) decoder.
+    """Build a generalized union-find (GUF) decoder.
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model to decode.  A DEM is converted to
@@ -190,9 +190,7 @@ def _get_decoder_guf(
             :class:`~qldpc.decoders.custom.guf.GUFDecoder`.
 
     Returns:
-        Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or
-        detector error model (DEM), whose dense detector-flip matrix is decoded, and returns a
-        :class:`~qldpc.decoders.custom.guf.GUFDecoder`.
+        A :class:`~qldpc.decoders.custom.guf.GUFDecoder`.
 
     Supplying ``max_weight`` can make the search exponential.  See
     :class:`~qldpc.decoders.custom.guf.GUFDecoder` and
@@ -201,4 +199,12 @@ def _get_decoder_guf(
     return GUFDecoder(_to_pcm(pcm_or_dem), **decoder_args)  # type: ignore[arg-type]
 
 
-guf = decoder_spec("guf", _get_decoder_guf, signature_source=GUFDecoder)
+_GUF_SETTINGS_RETURNS = (
+    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
+    "detector error model (DEM), whose dense detector-flip matrix is decoded, and returns a "
+    ":class:`~qldpc.decoders.custom.guf.GUFDecoder`."
+)
+
+guf = decoder_spec(
+    "guf", _get_decoder_guf, signature_source=GUFDecoder, returns=_GUF_SETTINGS_RETURNS
+)

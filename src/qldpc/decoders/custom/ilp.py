@@ -155,7 +155,7 @@ def _get_decoder_ilp(
     add_erasure_bit: bool = False,
     **decoder_args: object,
 ) -> ILPDecoder:
-    """Configure an integer-linear-program (ILP) decoder.
+    """Build an integer-linear-program (ILP) decoder.
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model to decode.  A DEM is converted to
@@ -165,9 +165,7 @@ def _get_decoder_ilp(
         **decoder_args: Arguments passed to ``cvxpy.Problem.solve``.
 
     Returns:
-        Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or
-        detector error model (DEM), whose dense detector-flip matrix is decoded, and returns an
-        :class:`~qldpc.decoders.custom.ilp.ILPDecoder`.
+        An :class:`~qldpc.decoders.custom.ilp.ILPDecoder`.
 
     ILP decoding supports prime fields.  Without an erasure bit, an unexplained syndrome is rejected
     rather than returned as an ordinary inferred error.
@@ -175,4 +173,12 @@ def _get_decoder_ilp(
     return ILPDecoder(_to_pcm(pcm_or_dem), add_erasure_bit=add_erasure_bit, **decoder_args)
 
 
-ilp = decoder_spec("ilp", _get_decoder_ilp, signature_source=ILPDecoder)
+_ILP_SETTINGS_RETURNS = (
+    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
+    "detector error model (DEM), whose dense detector-flip matrix is decoded, and returns an "
+    ":class:`~qldpc.decoders.custom.ilp.ILPDecoder`."
+)
+
+ilp = decoder_spec(
+    "ilp", _get_decoder_ilp, signature_source=ILPDecoder, returns=_ILP_SETTINGS_RETURNS
+)

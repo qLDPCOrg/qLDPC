@@ -50,6 +50,7 @@ from .specs import (
 _InputT = TypeVar("_InputT", ErrorDecoderInput, DecoderInput)
 _DecoderT = TypeVar("_DecoderT")
 
+
 # Legacy keyword-based compatibility
 def _call_with_flat_backend_options(
     builder: Callable[..., _DecoderT], pcm_or_dem: PcmOrDem, /, **decoder_args: Any

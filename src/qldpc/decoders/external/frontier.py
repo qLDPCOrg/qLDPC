@@ -94,7 +94,7 @@ def _get_observable_decoder_frontier(
     committee: bool = False,
     add_erasure_bit: bool = False,
 ) -> FrontierObservableDecoder:
-    """Configure a Frontier decoder that predicts the observable flips of a detector error model.
+    """Build a Frontier decoder that predicts the observable flips of a detector error model.
 
     Frontier (https://github.com/aleverrier/frontier) scans the error mechanisms of a binary
     detector error model in a fixed order.  After each step, it groups partial solutions by the
@@ -127,11 +127,7 @@ def _get_observable_decoder_frontier(
             observable flips, and is clear otherwise.
 
     Returns:
-        Decoder settings.  Their ``build_observable_decoder(dem)`` method takes a binary detector
-        error model and returns a
-        :class:`~qldpc.decoders.external.frontier.FrontierObservableDecoder`.  Frontier cannot
-        infer errors, so the settings cannot ``build`` an error decoder.
-    """
+        A :class:`~qldpc.decoders.external.frontier.FrontierObservableDecoder`."""
     _validate_frontier_options(
         K=K,
         Delta=Delta,
@@ -180,7 +176,16 @@ def _get_observable_decoder_frontier(
     )
 
 
-frontier = observable_decoder_spec("frontier", _get_observable_decoder_frontier)
+_FRONTIER_SETTINGS_RETURNS = (
+    "Decoder settings.  Their ``build_observable_decoder(dem)`` method takes a binary detector "
+    "error model and returns a "
+    ":class:`~qldpc.decoders.external.frontier.FrontierObservableDecoder`.  Frontier cannot "
+    "infer errors, so the settings cannot ``build`` an error decoder. "
+)
+
+frontier = observable_decoder_spec(
+    "frontier", _get_observable_decoder_frontier, returns=_FRONTIER_SETTINGS_RETURNS
+)
 
 
 # Private builder helpers

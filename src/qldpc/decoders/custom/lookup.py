@@ -39,19 +39,15 @@ _ErrorChannel: TypeAlias = npt.NDArray[np.floating] | Sequence[float] | _ErrorLo
 def _get_decoder_lookup(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
 ) -> LookupDecoder:
-    """Configure a lookup-table decoder.
+    """Build a lookup-table decoder.
 
     The options, including the required ``max_weight``, an independent or callable correlated
     ``error_channel``, and optional erasure, confidence, probability-cutoff, post-selection, and
     symplectic settings, are those of :class:`~qldpc.decoders.custom.lookup.LookupDecoder`.
 
     Returns:
-        Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or
-        detector error model (DEM), which also supplies default error probabilities and observable
-        metadata, and returns a :class:`~qldpc.decoders.custom.lookup.LookupDecoder` that maps
-        syndromes to representative errors.  Their ``build_observable_decoder(dem)`` method returns
-        an :class:`~qldpc.decoders.custom.lookup.ObservableLookupDecoder` that maps syndromes
-        directly to observable flips.
+        A :class:`~qldpc.decoders.custom.lookup.LookupDecoder` that maps syndromes to representative
+        errors.
 
     ``add_erasure_bit=True`` appends a flag for syndromes absent from the table.  A positive
     ``confidence_ratio`` also enables the flag and erases ambiguous syndromes.
@@ -1437,10 +1433,20 @@ def _warn_deprecated_observable_prediction(enabled: bool, replacement: str) -> N
         )
 
 
+_LOOKUP_SETTINGS_RETURNS = (
+    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
+    "detector error model (DEM), which also supplies default error probabilities and observable"
+    " metadata, and returns a :class:`~qldpc.decoders.custom.lookup.LookupDecoder` that maps "
+    "syndromes to representative errors.  Their ``build_observable_decoder(dem)`` method "
+    "returns an :class:`~qldpc.decoders.custom.lookup.ObservableLookupDecoder` that maps "
+    "syndromes directly to observable flips."
+)
+
 lookup = decoder_spec(
     "lookup",
     _get_decoder_lookup,
     _get_observable_decoder_lookup,
     signature_source=LookupDecoder,
     exclude=frozenset({"predict_observable_flips"}),
+    returns=_LOOKUP_SETTINGS_RETURNS,
 )

@@ -114,7 +114,9 @@ def test_ldpc_backend_options(
         assert backend.call_args.args[3]["input_vector_type"] == "syndrome"
         spec = helper(max_iter=4, backend_options={"input_vector_type": "syndrome"})
         assert spec.options["backend_options"] == {"input_vector_type": "syndrome"}
-        assert repr(spec).endswith("(max_iter=4, backend_options={'input_vector_type': 'syndrome'})")
+        assert repr(spec).endswith(
+            "(max_iter=4, backend_options={'input_vector_type': 'syndrome'})"
+        )
         assert pickle.loads(pickle.dumps(spec)).options == spec.options  # noqa: S301
         spec.build(matrix)
         assert backend.call_args.args[3]["input_vector_type"] == "syndrome"

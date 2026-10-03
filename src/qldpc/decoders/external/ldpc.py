@@ -65,7 +65,7 @@ def _get_decoder_bp_osd(
     backend_options: Mapping[str, object] | None = None,
     error_rate: float | None = None,
 ) -> ErrorDecoder:
-    """Configure a belief-propagation with ordered-statistics (BP+OSD) decoder.
+    """Build a belief-propagation with ordered-statistics (BP+OSD) decoder.
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
@@ -86,9 +86,8 @@ def _get_decoder_bp_osd(
         error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
 
     Returns:
-        Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or
-        detector error model (DEM) and returns an ``ldpc.BpOsdDecoder`` subclass that is
-        also an :class:`~qldpc.decoders.protocols.ErrorDecoder`.
+        An ``ldpc.BpOsdDecoder`` subclass that is also an
+        :class:`~qldpc.decoders.protocols.ErrorDecoder`.
 
     This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
 
@@ -137,7 +136,7 @@ def _get_decoder_bp_lsd(
     backend_options: Mapping[str, object] | None = None,
     error_rate: float | None = None,
 ) -> ErrorDecoder:
-    """Configure a belief-propagation with localized-statistics (BP+LSD) decoder.
+    """Build a belief-propagation with localized-statistics (BP+LSD) decoder.
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
@@ -163,9 +162,8 @@ def _get_decoder_bp_lsd(
         error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
 
     Returns:
-        Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or
-        detector error model (DEM) and returns an ``ldpc.bplsd_decoder.BpLsdDecoder`` subclass
-        that is also an :class:`~qldpc.decoders.protocols.ErrorDecoder`.
+        An ``ldpc.bplsd_decoder.BpLsdDecoder`` subclass that is also an
+        :class:`~qldpc.decoders.protocols.ErrorDecoder`.
 
     This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
 
@@ -215,7 +213,7 @@ def _get_decoder_bf(
     backend_options: Mapping[str, object] | None = None,
     error_rate: float | None = None,
 ) -> ErrorDecoder:
-    """Configure a belief-find (BF) decoder.
+    """Build a belief-find (BF) decoder.
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
@@ -236,9 +234,8 @@ def _get_decoder_bf(
         error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
 
     Returns:
-        Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or
-        detector error model (DEM) and returns an ``ldpc.BeliefFindDecoder`` subclass that is
-        also an :class:`~qldpc.decoders.protocols.ErrorDecoder`.
+        An ``ldpc.BeliefFindDecoder`` subclass that is also an
+        :class:`~qldpc.decoders.protocols.ErrorDecoder`.
 
     This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
 
@@ -268,9 +265,44 @@ def _get_decoder_bf(
     )
 
 
-bp_osd = decoder_spec("bp_osd", _get_decoder_bp_osd, option_transform=_deprecate_error_rate_option)
-bp_lsd = decoder_spec("bp_lsd", _get_decoder_bp_lsd, option_transform=_deprecate_error_rate_option)
-bf = decoder_spec("bf", _get_decoder_bf, option_transform=_deprecate_error_rate_option)
+_BP_OSD_SETTINGS_RETURNS = (
+    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
+    "detector error model (DEM) and returns an ``ldpc.BpOsdDecoder`` subclass that is also an "
+    ":class:`~qldpc.decoders.protocols.ErrorDecoder`."
+)
+
+bp_osd = decoder_spec(
+    "bp_osd",
+    _get_decoder_bp_osd,
+    option_transform=_deprecate_error_rate_option,
+    returns=_BP_OSD_SETTINGS_RETURNS,
+)
+
+_BP_LSD_SETTINGS_RETURNS = (
+    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
+    "detector error model (DEM) and returns an ``ldpc.bplsd_decoder.BpLsdDecoder`` subclass "
+    "that is also an :class:`~qldpc.decoders.protocols.ErrorDecoder`."
+)
+
+bp_lsd = decoder_spec(
+    "bp_lsd",
+    _get_decoder_bp_lsd,
+    option_transform=_deprecate_error_rate_option,
+    returns=_BP_LSD_SETTINGS_RETURNS,
+)
+
+_BF_SETTINGS_RETURNS = (
+    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
+    "detector error model (DEM) and returns an ``ldpc.BeliefFindDecoder`` subclass that is also"
+    " an :class:`~qldpc.decoders.protocols.ErrorDecoder`."
+)
+
+bf = decoder_spec(
+    "bf",
+    _get_decoder_bf,
+    option_transform=_deprecate_error_rate_option,
+    returns=_BF_SETTINGS_RETURNS,
+)
 
 
 # Private input helpers

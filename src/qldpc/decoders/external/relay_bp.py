@@ -361,7 +361,7 @@ def _get_decoder_relay_bp(
     seed: int = 0,
     backend_options: Mapping[str, object] | None = None,
 ) -> RelayBPDecoder:
-    """Configure a Relay-BP decoder from the relay-bp package.
+    """Build a Relay-BP decoder from the relay-bp package.
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
@@ -391,9 +391,7 @@ def _get_decoder_relay_bp(
             listed above.  The backend rejects unsupported names when the decoder is built.
 
     Returns:
-        Decoder settings.  Their ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` methods
-        take a parity-check matrix or detector error model and return a
-        :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when
+        A :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when
         observable metadata is available, predicts observable flips.
 
     See the `relay-bp package documentation <https://pypi.org/project/relay-bp>`_ and
@@ -446,7 +444,7 @@ def _get_decoder_min_sum_bp(
     frac_bits: int | None = None,
     backend_options: Mapping[str, object] | None = None,
 ) -> RelayBPDecoder:
-    """Configure a min-sum belief-propagation decoder from the relay-bp package.
+    """Build a min-sum belief-propagation decoder from the relay-bp package.
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
@@ -470,9 +468,7 @@ def _get_decoder_min_sum_bp(
             listed above.  The backend rejects unsupported names when the decoder is built.
 
     Returns:
-        Decoder settings.  Their ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` methods
-        take a parity-check matrix or detector error model and return a
-        :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when
+        A :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when
         observable metadata is available, predicts observable flips.
 
     See the `relay-bp package documentation <https://pypi.org/project/relay-bp>`_.
@@ -497,8 +493,30 @@ def _get_decoder_min_sum_bp(
     )
 
 
-relay_bp = decoder_spec("relay_bp", _get_decoder_relay_bp, _get_decoder_relay_bp)
-min_sum_bp = decoder_spec("min_sum_bp", _get_decoder_min_sum_bp, _get_decoder_min_sum_bp)
+_RELAY_BP_SETTINGS_RETURNS = (
+    "Decoder settings.  Their ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` "
+    "methods take a parity-check matrix or detector error model and return a "
+    ":class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when "
+    "observable metadata is available, predicts observable flips."
+)
+
+relay_bp = decoder_spec(
+    "relay_bp", _get_decoder_relay_bp, _get_decoder_relay_bp, returns=_RELAY_BP_SETTINGS_RETURNS
+)
+
+_MIN_SUM_BP_SETTINGS_RETURNS = (
+    "Decoder settings.  Their ``build(pcm_or_dem)`` and ``build_observable_decoder(dem)`` "
+    "methods take a parity-check matrix or detector error model and return a "
+    ":class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when "
+    "observable metadata is available, predicts observable flips."
+)
+
+min_sum_bp = decoder_spec(
+    "min_sum_bp",
+    _get_decoder_min_sum_bp,
+    _get_decoder_min_sum_bp,
+    returns=_MIN_SUM_BP_SETTINGS_RETURNS,
+)
 
 
 # Private builder helpers

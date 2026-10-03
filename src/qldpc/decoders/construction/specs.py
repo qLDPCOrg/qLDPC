@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
+import textwrap
 from collections.abc import Callable, Mapping
 from typing import (
+    Any,
     Concatenate,
     Generic,
     Never,
@@ -15,6 +17,7 @@ from typing import (
     Protocol,
     TypeAlias,
     TypeVar,
+    cast,
     overload,
 )
 
@@ -157,6 +160,7 @@ def decoder_spec(
     signature_source: None = None,
     exclude: frozenset[str] = frozenset(),
     option_transform: _OptionTransform | None = None,
+    returns: str | None = None,
 ) -> Callable[_Parameters, DecoderSpec[_DecoderT]]: ...
 
 
@@ -170,6 +174,7 @@ def decoder_spec(
     signature_source: Callable[Concatenate[_InputT, _Parameters], object],
     exclude: frozenset[str] = frozenset(),
     option_transform: _OptionTransform | None = None,
+    returns: str | None = None,
 ) -> Callable[_Parameters, DecoderSpec[_DecoderT]]: ...
 
 
@@ -182,8 +187,15 @@ def decoder_spec(
     signature_source: Callable[..., object] | None = None,
     exclude: frozenset[str] = frozenset(),
     option_transform: _OptionTransform | None = None,
+    returns: str | None = None,
 ) -> Callable[..., DecoderSpec[_DecoderT]]:
-    """Create a typed deferred-settings helper from a decoder construction signature."""
+    """Create a typed deferred-settings helper from a decoder construction signature.
+
+    The helper takes the keyword options of ``signature_source`` (by default, ``builder``) other
+    than its first argument and the ``exclude`` names, and is documented by the docstring of
+    ``builder``, with its summary verb "Build" replaced by "Configure" and its Returns section
+    replaced by ``returns``, which describes the settings.
+    """
     source = builder if signature_source is None else signature_source
     helper_signature = _get_helper_signature(source, exclude)
     defaults = tuple(
@@ -208,8 +220,16 @@ def decoder_spec(
             defaults,
         )
 
+    decoder_type = inspect.signature(builder, eval_str=True).return_annotation
+    if decoder_type is inspect.Signature.empty:
+        decoder_type = ErrorDecoder
     _set_helper_metadata(
-        make_spec, helper_name, builder, helper_signature, DecoderSpec[ErrorDecoder]
+        make_spec,
+        helper_name,
+        builder,
+        helper_signature,
+        cast(Any, DecoderSpec)[decoder_type],
+        returns,
     )
     return make_spec
 
@@ -222,8 +242,9 @@ def observable_decoder_spec(
     /,
     *,
     option_transform: _OptionTransform | None = None,
+    returns: str | None = None,
 ) -> Callable[_Parameters, DecoderSpec[Never]]:
-    """Create deferred settings for an observable-only decoder."""
+    """Create deferred settings for an observable-only decoder, documented as by decoder_spec."""
     helper_signature = _get_helper_signature(observable_builder, frozenset())
     defaults = tuple(
         (name, parameter.default)
@@ -248,7 +269,7 @@ def observable_decoder_spec(
         )
 
     _set_helper_metadata(
-        make_spec, helper_name, observable_builder, helper_signature, DecoderSpec[Never]
+        make_spec, helper_name, observable_builder, helper_signature, DecoderSpec[Never], returns
     )
     return make_spec
 
@@ -259,6 +280,7 @@ def _set_helper_metadata(
     builder: Callable[..., object],
     signature: inspect.Signature,
     return_annotation: object,
+    returns: str | None,
 ) -> None:
     """Give a generated helper the public name, docs, and signature of a settings helper.
 
@@ -268,31 +290,51 @@ def _set_helper_metadata(
     helper.__name__ = helper_name
     helper.__qualname__ = helper_name
     helper.__module__ = builder.__module__
-    helper.__doc__ = _get_helper_docstring(builder.__doc__, signature)
+    helper.__doc__ = _get_helper_docstring(builder.__doc__, signature, returns)
     vars(helper)["__signature__"] = signature.replace(return_annotation=return_annotation)
     helper.__annotations__ = _get_helper_annotations(signature, return_annotation)
 
 
-def _get_helper_docstring(docstring: str | None, signature: inspect.Signature) -> str | None:
-    """Drop the arguments of a builder docstring that its settings helper does not accept.
+def _get_helper_docstring(
+    docstring: str | None, signature: inspect.Signature, returns: str | None = None
+) -> str | None:
+    """Adapt the docstring of a decoder builder to its settings helper.
 
     A builder documents the matrix or detector error model that it decodes, which is instead passed
     to DecoderSpec.build, and may document keyword arguments that it forwards to a decoder class.
+    The arguments that the helper does not accept are dropped.  A builder summary that starts with
+    "Build" starts with "Configure" instead, and if ``returns`` is provided, it replaces the
+    description of the built decoder in the Returns section.
     """
     if docstring is None:
         return None
     lines = docstring.splitlines()
+    if lines and lines[0].startswith("Build "):
+        lines[0] = "Configure " + lines[0].removeprefix("Build ")
     kept_lines: list[str] = []
-    args_indent: int | None = None
+    section: str | None = None
+    section_indent = 0
     entry_indent: int | None = None
     keep_entry = True
     for line in lines:
         indent = len(line) - len(line.lstrip())
+        if section is not None and (not line.strip() or indent <= section_indent):
+            section = None
         if line.strip() == "Args:":
-            args_indent, entry_indent = indent, None
-        elif args_indent is not None and (not line.strip() or indent <= args_indent):
-            args_indent = None
-        elif args_indent is not None:
+            section, section_indent, entry_indent = "Args", indent, None
+        elif line.strip() == "Returns:" and returns is not None:
+            section, section_indent = "Returns", indent
+            body_indent = " " * (indent + 4)
+            kept_lines.append(line)
+            kept_lines.extend(
+                textwrap.wrap(
+                    returns, width=100, initial_indent=body_indent, subsequent_indent=body_indent
+                )
+            )
+            continue
+        elif section == "Returns":
+            continue
+        elif section == "Args":
             entry_indent = indent if entry_indent is None else entry_indent
             if indent == entry_indent:
                 name = line.strip().split(":", maxsplit=1)[0].lstrip("*")
