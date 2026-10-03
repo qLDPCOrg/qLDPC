@@ -10,7 +10,7 @@ import re
 import unittest.mock
 import warnings
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import galois
 import numpy as np
@@ -254,41 +254,91 @@ def test_legacy_flat_backend_options() -> None:
 
 
 def test_deprecated_resolution_functions() -> None:
-    """get_error_decoder and get_observable_decoder warn with the call that replaces them."""
+    """Deprecated resolution functions warn with the call that replaces them for each input."""
     matrix = np.array([[1, 1, 0], [0, 1, 1]])
     dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.2) D0 D1\nerror(0.1) D1")
-    lookup_constructor = functools.partial(decoders.LookupDecoder, max_weight=1)
 
-    error_cases: list[tuple[decoders.ErrorDecoderInput, str]] = [
-        (decoders.bf(max_iter=2), "use decoders.bf(max_iter=2).build(pcm_or_dem) instead"),
-        (None, "use decoders.bp_osd().build(pcm_or_dem) instead"),
-        (lookup_constructor, "use decoder settings such as decoders.bp_osd(...).build(pcm_or_dem)"),
-    ]
-    for decoder_input, replacement in error_cases:
+    def build_lookup(pcm_or_dem: decoders.PcmOrDem) -> decoders.LookupDecoder:
+        return decoders.LookupDecoder(pcm_or_dem, max_weight=1)
+
+    def build_observable_lookup(
+        dem: stim.DetectorErrorModel,
+    ) -> decoders.ObservableLookupDecoder:
+        return decoders.ObservableLookupDecoder(dem, max_weight=1)
+
+    def get_message(function: Callable[..., Any], *args: object, **kwargs: object) -> str:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            decoder = decoders.get_error_decoder(matrix, decoder=decoder_input)
+            result = function(*args, **kwargs)
         assert len(caught) == 1 and caught[0].filename == __file__
-        assert str(caught[0].message).startswith("decoders.get_error_decoder is deprecated;")
-        assert replacement in str(caught[0].message)
-        assert np.array_equal(decoder.decode_errors(np.array([1, 0])), [1, 0, 0])
+        name = function.__name__
+        assert str(caught[0].message).startswith(f"decoders.{name} is deprecated; use ")
+        if name == "get_error_decoder":
+            assert np.array_equal(result.decode_errors(np.array([1, 0])), [1, 0, 0])
+        elif name == "get_observable_decoder":
+            assert np.array_equal(result.decode_observables(np.array([1, 0])), [1])
+        else:
+            assert np.array_equal(result, [1])
+        return str(caught[0].message).split("; use ", maxsplit=1)[1]
+
+    error_cases: list[tuple[decoders.ErrorDecoderInput, str]] = [
+        (decoders.bf(max_iter=2), "decoders.bf(max_iter=2).build(pcm_or_dem)"),
+        (None, "decoders.bp_osd().build(pcm_or_dem)"),
+        (build_lookup(matrix), "the prebuilt decoder directly"),
+        (build_lookup, "build_lookup(pcm_or_dem)"),
+        (functools.partial(build_lookup), "decoder_constructor(pcm_or_dem)"),
+    ]
+    for decoder_input, replacement in error_cases:
+        message = get_message(decoders.get_error_decoder, matrix, decoder=decoder_input)
+        assert message == f"{replacement} instead"
     with pytest.warns(DeprecationWarning, match=r"decoders\.guf\(\)\.build"):
         decoder = decoders.get_error_decoder(galois.GF(3)(matrix))
     assert isinstance(decoder, decoders.GUFDecoder)
 
-    observable_cases: list[tuple[decoders.DecoderInput, str]] = [
-        (decoders.lookup(1), "use decoders.lookup(max_weight=1).build_observable_decoder(dem)"),
-        (None, "use decoders.bp_osd().build_observable_decoder(dem) instead"),
-        (lookup_constructor, "decoders.ErrorsToObservablesDecoder(error_decoder, dem)"),
+    observable_cases: list[tuple[decoders.DecoderInput, str | None]] = [
+        (decoders.lookup(1), "decoders.lookup(max_weight=1).build_observable_decoder(dem)"),
+        (None, "decoders.bp_osd().build_observable_decoder(dem)"),
+        (
+            decoders.SinterDecoder(decoder=decoders.lookup(1)),
+            "decoder.compile_decoder_for_dem(dem)",
+        ),
+        (build_observable_lookup(dem), None),
+        (build_lookup(dem), "decoders.ErrorsToObservablesDecoder(decoder, dem)"),
+        (build_lookup, "decoders.ErrorsToObservablesDecoder(build_lookup(dem), dem)"),
+        (build_observable_lookup, "build_observable_lookup(dem)"),
     ]
-    for observable_input, replacement in observable_cases:
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            observable_decoder = decoders.get_observable_decoder(dem, decoder=observable_input)
-        assert len(caught) == 1 and caught[0].filename == __file__
-        assert str(caught[0].message).startswith("decoders.get_observable_decoder is deprecated;")
-        assert replacement in str(caught[0].message)
-        assert np.array_equal(observable_decoder.decode_observables(np.array([1, 0])), [1])
+    for observable_input, expression in observable_cases:
+        message = get_message(decoders.get_observable_decoder, dem, decoder=observable_input)
+        if expression is None:
+            assert message == "the prebuilt observable decoder directly instead"
+        else:
+            assert message == f"{expression} instead"
+        message = get_message(
+            decoders.decode_observables, dem, np.array([1, 0]), decoder=observable_input
+        )
+        if expression is None:
+            assert message == (
+                "the decode_observables method of the prebuilt observable decoder instead"
+            )
+        else:
+            assert message == f"{expression}.decode_observables(syndrome) instead"
+
+    # an invalid input still names a replacement before it is rejected
+    with (
+        pytest.warns(DeprecationWarning, match=r"decoders\.bp_osd\(\.\.\.\)\.build"),
+        pytest.raises(TypeError, match="decoder must be"),
+    ):
+        decoders.get_error_decoder(matrix, decoder=cast(Any, 1))
+    with (
+        pytest.warns(DeprecationWarning, match=r"decoders\.mwpm\(\.\.\.\)\.build"),
+        pytest.raises(TypeError, match="decoder must be"),
+    ):
+        decoders.get_observable_decoder(dem, decoder=cast(Any, 1))
+
+    # the renamed lookup_table helper is a deprecated alias of lookup
+    with pytest.warns(DeprecationWarning, match="lookup_table is deprecated; use lookup") as caught:
+        assert decoders.lookup_table is decoders.lookup
+    assert caught[0].filename == __file__
 
     # internal resolution, used by methods that accept decoder=, does not warn
     with warnings.catch_warnings():

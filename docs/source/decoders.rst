@@ -330,9 +330,6 @@ The following changes take effect without a deprecation period:
 
 * The subpackages ``qldpc.decoders.construction``, ``qldpc.decoders.custom``, and ``qldpc.decoders.external``, and the module ``qldpc.decoders.construction.specs``, no longer re-export decoder builders, settings helpers, or resolution functions.
   Import these names from ``qldpc.decoders`` instead.
-* ``decoders.decode_observables(dem, syndrome, decoder=...)`` has been removed.
-  Use ``settings.build_observable_decoder(dem).decode_observables(syndrome)`` instead.
-* The ``lookup_table`` settings helper has been renamed to ``decoders.lookup``.
 * Builders that were not exported from ``qldpc.decoders``, such as ``get_error_decoder_mwpm``, ``get_observable_decoder_mwpm``, ``get_relay_bp_decoder``, ``get_min_sum_bp_decoder``, and ``get_observable_decoder_lookup``, have been removed.
   Use decoder settings and their ``build`` and ``build_observable_decoder`` methods instead.
 * A detector error model supplies its own error probabilities, so passing ``error_channel`` or ``error_rate`` together with a detector error model raises a ``ValueError``.
@@ -361,6 +358,10 @@ The following usage remains available during a deprecation period, and each use 
      - ``settings.build_observable_decoder(dem)``
    * - ``decoders.get_observable_decoder(dem, decoder=error_decoder)``
      - ``decoders.ErrorsToObservablesDecoder(error_decoder, dem)``
+   * - ``decoders.decode_observables(dem, syndrome, decoder=settings)``
+     - ``settings.build_observable_decoder(dem).decode_observables(syndrome)``
+   * - ``decoders.lookup_table(...)``
+     - ``decoders.lookup(...)``
 
 Decoder settings reference
 --------------------------

@@ -22,6 +22,7 @@ from .common import (
     with_erasure_bits,
 )
 from .construction.legacy import (
+    decode_observables,
     get_decoder_bf,
     get_decoder_bp_lsd,
     get_decoder_bp_osd,
@@ -145,6 +146,7 @@ __all__ = [
     "bp_osd",
     "compiles_for_dem",
     "decode",
+    "decode_observables",
     "frontier",
     "get_decoder",
     "get_decoder_BF",
@@ -171,6 +173,7 @@ __all__ = [
     "is_prebuilt_decoder",
     "is_prebuilt_observable_decoder",
     "lookup",
+    "lookup_table",
     "match_error_decoder_to_dem",
     "min_sum_bp",
     "mwpm",
@@ -203,6 +206,7 @@ DEPRECATED_ALIASES = (
         "get_decoder_ILP": get_decoder_ilp,
         "get_decoder_MWPM": get_decoder_mwpm,
         "get_decoder_RBP": get_decoder_rbp,
+        "lookup_table": lookup,
     }
 )
 
@@ -216,6 +220,7 @@ if TYPE_CHECKING:
     from .construction.legacy import get_decoder_rbp as get_decoder_RBP
     from .custom import BatchDecoder as BatchDecoder
     from .custom import Decoder as Decoder
+    from .custom.lookup import lookup as lookup_table
     from .sinter import SequentialSinterDecoder as SequentialSinterDecoder
     from .sinter import SubgraphSinterDecoder as SubgraphSinterDecoder
 else:

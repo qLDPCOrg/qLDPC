@@ -182,7 +182,6 @@ def test_observable_decoder_compilers() -> None:
     observable_decoder = _get_observable_decoder(dem, decoder=lookup_compiler)
     assert isinstance(observable_decoder, decoders.CompiledSinterDecoder)
     assert not observable_decoder.has_erasure_bit
-    assert not hasattr(decoders, "decode_observables")
     assert np.array_equal(
         [observable_decoder.decode_observables(syndrome) for syndrome in syndromes],
         expected_flips,
