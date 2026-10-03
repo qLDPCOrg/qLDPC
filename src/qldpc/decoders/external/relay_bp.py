@@ -246,8 +246,8 @@ class RelayBPDecoder(BatchErrorDecoder):
     ) -> tuple[ErrorDecodeResult, ...]:
         """Decode a batch of error syndromes and retain Relay-BP's per-shot diagnostics.
 
-        If initialized with ``add_erasure_bit=True``, set the erasure flag of each result when the
-        inferred error does not reproduce the syndrome.
+        The erasure flag of each result is set when the inferred error does not reproduce the
+        syndrome.
         """
         detectors = np.asarray(detectors, dtype=np.uint8)
         if len(detectors) == 0:
@@ -256,7 +256,7 @@ class RelayBPDecoder(BatchErrorDecoder):
             detectors, parallel, progress_bar, leave_progress_bar_on_finish
         )
         errors = np.asarray([result.decoding for result in results])
-        erased = self.has_erasure_bit & ~self._reproduces_syndrome(errors, detectors)
+        erased = ~self._reproduces_syndrome(errors, detectors)
         return tuple(
             ErrorDecodeResult(
                 error,

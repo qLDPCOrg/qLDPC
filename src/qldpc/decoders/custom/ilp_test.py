@@ -84,6 +84,8 @@ def test_ilp_decoder_unreproducible_syndrome() -> None:
 
     with pytest.raises(ValueError, match="could not be found"):
         decoders.ILPDecoder(matrix).decode(syndrome)
+    with pytest.warns(UserWarning, match="could not be found"):
+        assert decoders.ILPDecoder(matrix).decode_errors_detailed(syndrome).erasure
 
     decoder = decoders.ILPDecoder(matrix, add_erasure_bit=True)
     with pytest.warns(UserWarning, match="could not be found"):

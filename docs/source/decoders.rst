@@ -265,14 +265,14 @@ An :class:`decoders.ErrorDecodeResult <qldpc.decoders.protocols.ErrorDecodeResul
 An :class:`decoders.ObservableDecodeResult <qldpc.decoders.protocols.ObservableDecodeResult>` contains ``observable_flips``.
 Both also contain an ``erasure`` boolean and a namespaced ``diagnostics`` dictionary.
 Detailed-result predictions exclude the erasure bit, which array-returning methods append as their final entry when erasure signaling is enabled.
-The ``erasure`` field is the value of that bit, and is ``False`` when erasure signaling is disabled.
+The ``erasure`` field reports whether the decoder signals erasure, whether or not erasure signaling is enabled.
 
 The available diagnostics depend on the decoder:
 
 * Frontier reports its status, terminal logical-class log masses, log evidence, top-mass gap, search statistics, and committee results when provided by the backend.
 * Relay-BP reports convergence, iterations, decoded detectors, and per-variable posterior ratios.
 * PyMatching reports the matching objective weight for ordinary matching; correlated matching does not provide that weight through its batch API.
-* Tesseract reports its low-confidence flag, including when ``add_erasure_bit=False``.
+* Tesseract reports its low-confidence flag as ``erasure``.
 * ldpc BP-family decoders report available convergence, iteration, and log-probability-ratio state.
 * ILP reports solver status and a finite objective value when one is available.
 

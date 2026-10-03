@@ -178,7 +178,7 @@ def test_tesseract_erasure_bits(fake_tesseract: None) -> None:
     assert decoders.batch_decode_errors(decoder, syndromes[:0]).shape == (0, 2)
     assert decoder.decode_observables_batch(syndromes[:0]).shape == (0, 2)
 
-    # detailed results flag erasure only if requested, and always report low confidence
+    # detailed results flag low-confidence erasure whether or not erasure bits are requested
     for add_erasure_bit in [False, True]:
         decoder = _get_decoder_tesseract(dem, pqlimit=0, add_erasure_bit=add_erasure_bit)
         detailed_error = decoder.decode_errors_detailed(syndromes[0])
@@ -186,9 +186,7 @@ def test_tesseract_erasure_bits(fake_tesseract: None) -> None:
         assert (
             detailed_error.error.tolist() == detailed_observables.observable_flips.tolist() == [0]
         )
-        assert detailed_error.erasure is detailed_observables.erasure is add_erasure_bit
-        low_confidence = {"tesseract.low_confidence": True}
-        assert detailed_error.diagnostics == detailed_observables.diagnostics == low_confidence
+        assert detailed_error.erasure and detailed_observables.erasure
 
 
 def test_tesseract_options_and_validation(fake_tesseract: None) -> None:

@@ -43,10 +43,9 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
     assert detailed.diagnostics["relay_bp.success"]
     iterations = cast(int, detailed.diagnostics["relay_bp.iterations"])
     assert iterations <= cast(int, detailed.diagnostics["relay_bp.max_iterations"])
-    # erasure is flagged for a syndrome that no error reproduces, but only if requested
-    for add_erasure_bit in [False, True]:
-        decoder = _get_decoder_rbp(np.ones((2, 1), dtype=int), add_erasure_bit=add_erasure_bit)
-        assert decoder.decode_errors_detailed(np.array([1, 0])).erasure is add_erasure_bit
+    # erasure is flagged for a syndrome that no error reproduces, even without an erasure bit
+    unreproducible = _get_decoder_rbp(np.ones((2, 1), dtype=int))
+    assert unreproducible.decode_errors_detailed(np.array([1, 0])).erasure
     decoder = _get_decoder_rbp(matrix)
     assert np.array_equal(error, copy.copy(decoder).decode(syndrome))
 
@@ -109,9 +108,6 @@ def test_relay_bp_observables() -> None:
             [result.observable_flips for result in detailed],
             predicted_flips[:, : dem.num_observables],
         )
-        assert [result.erasure for result in detailed] == [
-            bool(add_erasure_bit and flips[-1]) for flips in predicted_flips
-        ]
         assert np.array_equal(
             decoder.decode_observables_detailed(syndromes[0]).observable_flips,
             predicted_flips[0, : dem.num_observables],

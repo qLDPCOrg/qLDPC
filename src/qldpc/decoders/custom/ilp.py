@@ -77,12 +77,16 @@ class ILPDecoder(ErrorDecoder):
 
     def decode_errors(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
-        error, erased, _ = self._solve(syndrome)
+        error, erased, _ = self._solve(syndrome, self.has_erasure_bit)
         return with_erasure_bits(error, erased) if self.has_erasure_bit else error
 
     def decode_errors_detailed(self, syndrome: npt.NDArray[np.int_]) -> ErrorDecodeResult:
-        """Decode one syndrome and report the solver status and objective value."""
-        error, erased, problem = self._solve(syndrome)
+        """Decode one syndrome and report the solver status and objective value.
+
+        The erasure flag is set if the inferred error does not reproduce the syndrome, or (with a
+        warning) if no optimal solution is found.
+        """
+        error, erased, problem = self._solve(syndrome, signal_erasure=True)
         diagnostics: dict[str, object] = {"ilp.status": str(problem.status)}
         if isinstance(problem.value, float) and np.isfinite(problem.value):
             diagnostics["ilp.objective_value"] = problem.value
@@ -126,9 +130,12 @@ class ILPDecoder(ErrorDecoder):
         return constraints
 
     def _solve(
-        self, syndrome: npt.NDArray[np.int_]
+        self, syndrome: npt.NDArray[np.int_], signal_erasure: bool
     ) -> tuple[npt.NDArray[np.int_], bool, cvxpy.Problem]:
-        """Solve the integer linear program, and return its error, erasure flag, and problem."""
+        """Solve the integer linear program, and return its error, erasure flag, and problem.
+
+        If not signaling erasure, raise an error instead of returning an erased result.
+        """
         import cvxpy
 
         constraints = self.variable_constraints + self.cvxpy_constraints_for_syndrome(syndrome)
@@ -141,7 +148,7 @@ class ILPDecoder(ErrorDecoder):
                 "Optimal solution to integer linear program could not be found!"
                 f"\nSolver output: {result}"
             )
-            if not self.has_erasure_bit:
+            if not signal_erasure:
                 raise ValueError(message)
             warnings.warn(message, stacklevel=3)
             return np.zeros(self.matrix.shape[1], dtype=syndrome.dtype), True, problem
@@ -152,12 +159,12 @@ class ILPDecoder(ErrorDecoder):
             self.matrix @ error % self.modulus,
             np.asarray(syndrome, dtype=int) % self.modulus,
         )
-        if not self.has_erasure_bit and not reproduces_syndrome:
+        if not signal_erasure and not reproduces_syndrome:
             raise ValueError(
                 "Integer linear program returned an error that does not reproduce the syndrome!"
                 f"\nSolver status: {problem.status}"
             )
-        return error, self.has_erasure_bit and not reproduces_syndrome, problem
+        return error, not reproduces_syndrome, problem
 
 
 @_erasure_bit_support("ILP", supported=True)

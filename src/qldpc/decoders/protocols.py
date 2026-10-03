@@ -18,8 +18,9 @@ class ErrorDecodeResult:
     """Detailed result of decoding a syndrome to an inferred error.
 
     ``error`` excludes the erasure flag that ``decode_errors`` appends when erasure signaling is
-    enabled; ``erasure`` reports that flag.  ``diagnostics`` contains explicitly named
-    decoder-specific results, not a cross-decoder confidence score.
+    enabled.  ``erasure`` reports whether the decoder signals erasure, whether or not erasure
+    signaling is enabled.  ``diagnostics`` contains explicitly named decoder-specific results, not a
+    cross-decoder confidence score.
     """
 
     error: npt.NDArray[np.int_]
@@ -32,8 +33,9 @@ class ObservableDecodeResult:
     """Detailed result of decoding a syndrome to predicted observable flips.
 
     ``observable_flips`` excludes the erasure flag that ``decode_observables`` appends when erasure
-    signaling is enabled; ``erasure`` reports that flag.  ``diagnostics`` contains explicitly named
-    decoder-specific results, not a cross-decoder confidence score.
+    signaling is enabled.  ``erasure`` reports whether the decoder signals erasure, whether or not
+    erasure signaling is enabled.  ``diagnostics`` contains explicitly named decoder-specific
+    results, not a cross-decoder confidence score.
     """
 
     observable_flips: npt.NDArray[np.int_]
