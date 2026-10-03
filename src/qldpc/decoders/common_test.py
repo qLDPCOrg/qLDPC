@@ -59,6 +59,115 @@ def test_with_erasure_bits() -> None:
     assert np.array_equal(decoders.with_erasure_bits(errors, erased), [[1, 0, 0], [0, 1, 1]])
 
 
+def test_detailed_decode_helpers() -> None:
+    """Detailed helpers preserve predictions and normalize erasure flags."""
+    syndromes = np.array([[1, 0], [0, 1]], dtype=int)
+
+    class BareErrorDecoder:
+        has_erasure_bit = True
+
+        def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return np.append(syndrome, int(syndrome[0]))
+
+    error_results = decoders.decode_errors_detailed_batch(BareErrorDecoder(), syndromes)
+    assert [result.error.tolist() for result in error_results] == [[1, 0], [0, 1]]
+    assert [result.erasure for result in error_results] == [True, False]
+    assert not error_results[0].diagnostics
+
+    class BareObservableDecoder:
+        has_erasure_bit = True
+
+        def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return np.append(syndrome, int(syndrome[1]))
+
+    observable_results = decoders.decode_observables_detailed_batch(
+        BareObservableDecoder(), syndromes
+    )
+    assert [result.observable_flips.tolist() for result in observable_results] == [
+        [1, 0],
+        [0, 1],
+    ]
+    assert [result.erasure for result in observable_results] == [False, True]
+
+    class DetailedErrorDecoder(BareErrorDecoder, decoders.ErrorDecoder):
+        def decode_errors_detailed(
+            self, syndrome: npt.NDArray[np.int_]
+        ) -> decoders.ErrorDecodeResult:
+            return decoders.ErrorDecodeResult(syndrome, diagnostics={"backend.score": 2.5})
+
+        def decode_errors_detailed_batch(
+            self, values: npt.NDArray[np.int_]
+        ) -> tuple[decoders.ErrorDecodeResult, ...]:
+            return tuple(self.decode_errors_detailed(value) for value in values)
+
+    detailed_errors = decoders.decode_errors_detailed_batch(DetailedErrorDecoder(), syndromes)
+    assert [result.error.tolist() for result in detailed_errors] == [[1, 0], [0, 1]]
+    assert [result.diagnostics["backend.score"] for result in detailed_errors] == [2.5, 2.5]
+    assert decoders.decode_errors_detailed(DetailedErrorDecoder(), syndromes[0]).error.tolist() == [
+        1,
+        0,
+    ]
+    assert isinstance(DetailedErrorDecoder(), decoders.DetailedErrorDecoder)
+    assert isinstance(DetailedErrorDecoder(), decoders.BatchDetailedErrorDecoder)
+
+    class InvalidDetailedErrorDecoder(BareErrorDecoder):
+        def decode_errors_detailed(self, syndrome: npt.NDArray[np.int_]) -> object:
+            return object()
+
+        def decode_errors_detailed_batch(self, values: npt.NDArray[np.int_]) -> tuple[object, ...]:
+            return ()
+
+    with pytest.raises(TypeError, match="must return an ErrorDecodeResult"):
+        decoders.decode_errors_detailed(InvalidDetailedErrorDecoder(), syndromes[0])
+    with pytest.raises(TypeError, match="one ErrorDecodeResult per syndrome"):
+        decoders.decode_errors_detailed_batch(InvalidDetailedErrorDecoder(), syndromes)
+
+    class DetailedObservableDecoder(BareObservableDecoder):
+        def decode_observables_detailed(
+            self, syndrome: npt.NDArray[np.int_]
+        ) -> decoders.ObservableDecodeResult:
+            return decoders.ObservableDecodeResult(syndrome, diagnostics={"backend.iterations": 4})
+
+        def decode_observables_detailed_batch(
+            self, values: npt.NDArray[np.int_]
+        ) -> tuple[decoders.ObservableDecodeResult, ...]:
+            return tuple(self.decode_observables_detailed(value) for value in values)
+
+    detailed_observables = decoders.decode_observables_detailed_batch(
+        DetailedObservableDecoder(), syndromes
+    )
+    assert [result.observable_flips.tolist() for result in detailed_observables] == [
+        [1, 0],
+        [0, 1],
+    ]
+    assert [result.diagnostics["backend.iterations"] for result in detailed_observables] == [
+        4,
+        4,
+    ]
+    assert decoders.decode_observables_detailed(
+        DetailedObservableDecoder(), syndromes[0]
+    ).observable_flips.tolist() == [1, 0]
+    assert isinstance(DetailedObservableDecoder(), decoders.DetailedObservableDecoder)
+    assert isinstance(DetailedObservableDecoder(), decoders.BatchDetailedObservableDecoder)
+
+    class InvalidDetailedObservableDecoder(BareObservableDecoder):
+        def decode_observables_detailed(self, syndrome: npt.NDArray[np.int_]) -> object:
+            return object()
+
+        def decode_observables_detailed_batch(
+            self, values: npt.NDArray[np.int_]
+        ) -> tuple[object, ...]:
+            return ()
+
+    with pytest.raises(TypeError, match="must return an ObservableDecodeResult"):
+        decoders.decode_observables_detailed(InvalidDetailedObservableDecoder(), syndromes[0])
+    with pytest.raises(TypeError, match="one ObservableDecodeResult per syndrome"):
+        decoders.decode_observables_detailed_batch(InvalidDetailedObservableDecoder(), syndromes)
+
+    assert decoders.decode_errors_detailed_batch(BareErrorDecoder(), syndromes[:0]) == ()
+    assert decoders.decode_observables_detailed_batch(BareObservableDecoder(), syndromes[:0]) == ()
+
+
 def test_erasure_bit_support_decorator() -> None:
     """Erasure support declarations enforce capabilities and use an explicit display name."""
 

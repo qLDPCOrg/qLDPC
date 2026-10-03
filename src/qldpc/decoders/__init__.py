@@ -18,6 +18,10 @@ from .capabilities import (
     is_prebuilt_observable_decoder,
 )
 from .common import (
+    decode_errors_detailed,
+    decode_errors_detailed_batch,
+    decode_observables_detailed,
+    decode_observables_detailed_batch,
     get_error_and_erasure,
     with_erasure_bits,
 )
@@ -73,10 +77,16 @@ from .external.pymatching import mwpm
 from .external.relay_bp import RelayBPDecoder, min_sum_bp, relay_bp
 from .external.tesseract import TesseractDecoder, tesseract, tesseract_preset
 from .protocols import (
+    BatchDetailedErrorDecoder,
+    BatchDetailedObservableDecoder,
     BatchErrorDecoder,
     BatchObservableDecoder,
+    DetailedErrorDecoder,
+    DetailedObservableDecoder,
     ErrorDecoder,
+    ErrorDecodeResult,
     ObservableDecoder,
+    ObservableDecodeResult,
     SupportsDecode,
     WrappedErrorDecoder,
     as_error_decoder,
@@ -97,6 +107,8 @@ from .sinter import (
 
 __all__ = [
     "BatchDecoder",
+    "BatchDetailedErrorDecoder",
+    "BatchDetailedObservableDecoder",
     "BatchErrorDecoder",
     "BatchObservableDecoder",
     "CompiledSequentialWindowDecoder",
@@ -109,8 +121,11 @@ __all__ = [
     "DecoderSpec",
     "DeferredDecoderInput",
     "DeferredErrorDecoderInput",
+    "DetailedErrorDecoder",
+    "DetailedObservableDecoder",
     "DetectorErrorModelArrays",
     "DirectDecoder",
+    "ErrorDecodeResult",
     "ErrorDecoder",
     "ErrorDecoderConstructor",
     "ErrorDecoderInput",
@@ -121,6 +136,7 @@ __all__ = [
     "GUFDecoder",
     "ILPDecoder",
     "LookupDecoder",
+    "ObservableDecodeResult",
     "ObservableDecoder",
     "ObservableDecoderCompiler",
     "ObservableDecoderConstructor",
@@ -146,7 +162,11 @@ __all__ = [
     "bp_osd",
     "compiles_for_dem",
     "decode",
+    "decode_errors_detailed",
+    "decode_errors_detailed_batch",
     "decode_observables",
+    "decode_observables_detailed",
+    "decode_observables_detailed_batch",
     "frontier",
     "get_decoder",
     "get_decoder_BF",

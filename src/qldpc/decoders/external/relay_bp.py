@@ -20,7 +20,7 @@ from qldpc.math import IntegerArray
 from ..common import PLACEHOLDER_ERROR_RATE, _erasure_bit_support, with_erasure_bits
 from ..construction.specs import decoder_spec
 from ..dems import DetectorErrorModelArrays
-from ..protocols import BatchErrorDecoder
+from ..protocols import BatchErrorDecoder, ErrorDecodeResult, ObservableDecodeResult
 
 # Public decoder and settings
 
@@ -191,6 +191,21 @@ class RelayBPDecoder(BatchErrorDecoder):
         erased = ~self._reproduces_syndrome(np.asarray(error)[None, :], detectors[None, :])
         return with_erasure_bits(error, erased[0])
 
+    def decode_errors_detailed(self, /, detectors: npt.NDArray[np.int_]) -> ErrorDecodeResult:
+        """Decode one syndrome and retain Relay-BP's convergence and posterior diagnostics."""
+        detectors = np.asarray(detectors, dtype=np.uint8)
+        result = self.decoder.decode_detailed(detectors)
+        error = np.asarray(result.decoding)
+        erasure = not bool(self._reproduces_syndrome(error[None, :], detectors[None, :])[0])
+        diagnostics: dict[str, object] = {
+            "relay_bp.success": bool(result.success),
+            "relay_bp.iterations": int(result.iterations),
+            "relay_bp.max_iterations": int(result.max_iter),
+            "relay_bp.decoded_detectors": np.asarray(result.decoded_detectors).copy(),
+            "relay_bp.posterior_ratios": np.asarray(result.posterior_ratios).copy(),
+        }
+        return ErrorDecodeResult(error, erasure, diagnostics)
+
     def decode(self, /, detectors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error (alias for decode_errors)."""
         return self.decode_errors(detectors)
@@ -244,6 +259,21 @@ class RelayBPDecoder(BatchErrorDecoder):
                 self.decoder.decode_observables(np.asarray(detectors, dtype=np.uint8))
             )
         return self._errors_to_observable_flips(self.decode_errors(detectors)[None, :])[0]
+
+    def decode_observables_detailed(
+        self, /, detectors: npt.NDArray[np.int_]
+    ) -> ObservableDecodeResult:
+        """Decode one syndrome to observables and retain Relay-BP's detailed error result."""
+        self._require_observables()
+        result = self.decode_errors_detailed(detectors)
+        flips = (
+            np.asarray(
+                np.asarray(result.error, dtype=np.uint8)[None, :]
+                @ self.observable_error_matrix_transposed
+            ).ravel()
+            & 1
+        )
+        return ObservableDecodeResult(flips, result.erasure, result.diagnostics)
 
     def decode_observables_batch(
         self,

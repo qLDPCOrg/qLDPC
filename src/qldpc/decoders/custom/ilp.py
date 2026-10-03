@@ -17,7 +17,7 @@ from qldpc.math import IntegerArray
 
 from ..common import _erasure_bit_support, _to_pcm, with_erasure_bits
 from ..construction.specs import decoder_spec
-from ..protocols import ErrorDecoder
+from ..protocols import ErrorDecoder, ErrorDecodeResult
 
 if TYPE_CHECKING:
     import cvxpy
@@ -77,12 +77,22 @@ class ILPDecoder(ErrorDecoder):
 
     def decode_errors(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
+        result = self.decode_errors_detailed(syndrome)
+        if self.has_erasure_bit:
+            return with_erasure_bits(result.error, result.erasure)
+        return result.error
+
+    def decode_errors_detailed(self, syndrome: npt.NDArray[np.int_]) -> ErrorDecodeResult:
+        """Decode one syndrome and report the solver status and objective value."""
         import cvxpy
 
         constraints = self.variable_constraints + self.cvxpy_constraints_for_syndrome(syndrome)
 
         problem = cvxpy.Problem(self.objective, constraints)
         result = problem.solve(**self.decoder_args)
+        diagnostics: dict[str, object] = {"ilp.status": str(problem.status)}
+        if isinstance(result, float) and np.isfinite(result):
+            diagnostics["ilp.objective_value"] = result
 
         if not isinstance(result, float) or not np.isfinite(result) or self.variables.value is None:
             message = (
@@ -93,7 +103,7 @@ class ILPDecoder(ErrorDecoder):
                 raise ValueError(message)
             warnings.warn(message, stacklevel=2)
             no_error = np.zeros(self.matrix.shape[1], dtype=syndrome.dtype)
-            return with_erasure_bits(no_error, True)
+            return ErrorDecodeResult(no_error, True, diagnostics)
 
         error = (np.rint(self.variables.value) % self.modulus).astype(int)
 
@@ -107,8 +117,8 @@ class ILPDecoder(ErrorDecoder):
                     "Integer linear program returned an error that does not reproduce the syndrome!"
                     f"\nSolver status: {problem.status}"
                 )
-            return error
-        return with_erasure_bits(error, not reproduces_syndrome)
+            return ErrorDecodeResult(error, diagnostics=diagnostics)
+        return ErrorDecodeResult(error, not reproduces_syndrome, diagnostics)
 
     def cvxpy_constraints_for_syndrome(
         self, syndrome: npt.NDArray[np.int_]

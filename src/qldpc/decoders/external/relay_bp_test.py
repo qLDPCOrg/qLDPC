@@ -37,6 +37,11 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
     decoder = _get_decoder_rbp(matrix)
     assert np.array_equal(error, decoder.decode(syndrome))
     assert np.array_equal(errors, decoder.decode_batch(syndromes))
+    detailed = decoder.decode_errors_detailed(syndrome)
+    assert np.array_equal(detailed.error, error)
+    assert "relay_bp.success" in detailed.diagnostics
+    assert "relay_bp.iterations" in detailed.diagnostics
+    assert "relay_bp.posterior_ratios" in detailed.diagnostics
     assert np.array_equal(error, copy.copy(decoder).decode(syndrome))
 
     with pytest.raises(TypeError, match="missing 1 required positional argument"):
@@ -93,6 +98,13 @@ def test_relay_bp_observables() -> None:
         assert np.array_equal(
             predicted_flips, [decoder.decode_observables(syndrome) for syndrome in syndromes]
         )
+        detailed = decoder.decode_observables_detailed(syndromes[0])
+        detailed_error = decoder.decode_errors_detailed(syndromes[0])
+        assert np.array_equal(
+            detailed.observable_flips,
+            np.asarray(detailed_error.error[None, :] @ observable_flip_matrix.T).ravel() % 2,
+        )
+        assert "relay_bp.posterior_ratios" in detailed.diagnostics
 
         errors = get_decoder().decode_batch(syndromes, progress_bar=False)
         if add_erasure_bit:

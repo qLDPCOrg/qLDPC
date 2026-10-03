@@ -24,7 +24,12 @@ from qldpc.math import IntegerArray
 from ..common import _erasure_bit_support
 from ..construction.specs import _is_default_value, decoder_spec
 from ..dems import DetectorErrorModelArrays
-from ..protocols import BatchErrorDecoder, ObservableDecoder
+from ..protocols import (
+    BatchErrorDecoder,
+    ErrorDecodeResult,
+    ObservableDecoder,
+    ObservableDecodeResult,
+)
 
 _PcmOrDem: TypeAlias = IntegerArray | stim.DetectorErrorModel
 _FAULTS_MATRIX_MESSAGE = (
@@ -56,11 +61,37 @@ class MatchingObservableDecoder(ObservableDecoder):
             dtype=np.uint8,
         )
 
+    def decode_observables_detailed(self, syndrome: npt.NDArray[np.int_]) -> ObservableDecodeResult:
+        """Decode one syndrome and report PyMatching's objective weight when available."""
+        return self.decode_observables_detailed_batch(np.asarray(syndrome)[None, :])[0]
+
     def decode_observables_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode a batch of syndromes to predicted observable flips."""
         return np.asarray(
             self.matching.decode_batch(syndromes, enable_correlations=self.enable_correlations),
             dtype=np.uint8,
+        )
+
+    def decode_observables_detailed_batch(
+        self, syndromes: npt.NDArray[np.int_]
+    ) -> tuple[ObservableDecodeResult, ...]:
+        """Decode a batch and report objective weights for ordinary matching."""
+        syndromes = np.asarray(syndromes)
+        if len(syndromes) == 0:
+            return ()
+        if self.enable_correlations:
+            predictions = np.asarray(
+                self.matching.decode_batch(syndromes, enable_correlations=True),
+                dtype=np.uint8,
+            )
+            return tuple(ObservableDecodeResult(prediction) for prediction in predictions)
+        predictions, weights = self.matching.decode_batch(syndromes, return_weights=True)
+        return tuple(
+            ObservableDecodeResult(
+                np.asarray(prediction, dtype=np.uint8),
+                diagnostics={"pymatching.objective_weight": float(weight)},
+            )
+            for prediction, weight in zip(predictions, weights, strict=True)
         )
 
 
@@ -324,12 +355,41 @@ def _get_matching_type() -> type[Any]:
     global _MATCHING_TYPE
     if _MATCHING_TYPE is None:
         pymatching_module = _get_pymatching()
+
+        def decode_errors_detailed(
+            matching: Any, syndrome: npt.NDArray[np.int_]
+        ) -> ErrorDecodeResult:
+            prediction, weight = matching.decode_batch(
+                np.asarray(syndrome)[None, :], return_weights=True
+            )
+            return ErrorDecodeResult(
+                np.asarray(prediction[0]),
+                diagnostics={"pymatching.objective_weight": float(weight[0])},
+            )
+
+        def decode_errors_detailed_batch(
+            matching: Any, syndromes: npt.NDArray[np.int_]
+        ) -> tuple[ErrorDecodeResult, ...]:
+            syndromes = np.asarray(syndromes)
+            if len(syndromes) == 0:
+                return ()
+            predictions, weights = matching.decode_batch(syndromes, return_weights=True)
+            return tuple(
+                ErrorDecodeResult(
+                    np.asarray(prediction),
+                    diagnostics={"pymatching.objective_weight": float(weight)},
+                )
+                for prediction, weight in zip(predictions, weights, strict=True)
+            )
+
         matching_type = type(
             "Matching",
             (pymatching_module.Matching, BatchErrorDecoder),
             {
                 "__module__": __name__,
                 "__doc__": "A pymatching.Matching that is also a BatchErrorDecoder.",
+                "decode_errors_detailed": decode_errors_detailed,
+                "decode_errors_detailed_batch": decode_errors_detailed_batch,
             },
         )
         matching_type.__qualname__ = matching_type.__name__

@@ -49,6 +49,13 @@ class _Model:
 class _Result:
     status: str
     logical_hat: int | None
+    log_evidence: float = 1.0
+    terminal_log_masses: dict[int, float] = dataclasses.field(default_factory=lambda: {0: 1.0})
+    terminal_top_log_mass_gap: float = 0.25
+    direction: str = "forward"
+    engine: str = "python"
+    committee_members: tuple[object, ...] = ()
+    stats: dict[str, int] = dataclasses.field(default_factory=lambda: {"processed_columns": 2})
 
 
 _Call = tuple[str, _Model, list[int], dict[str, object]]
@@ -146,6 +153,13 @@ def test_frontier_decoding(calls: list[_Call]) -> None:
         "metric_mode": "logsumexp_float",
         "int_metric_scale": 1024,
     }
+    detailed = decoder.decode_observables_detailed(syndromes[0])
+    assert detailed.observable_flips.tolist() == [0, 0]
+    assert not detailed.erasure
+    assert detailed.diagnostics["frontier.status"] == "ok"
+    assert detailed.diagnostics["frontier.terminal_top_log_mass_gap"] == 0.25
+    assert detailed.diagnostics["frontier.terminal_log_masses"] == {0: 1.0}
+    assert decoder.decode_observables(syndromes[0]).tolist() == [0, 0, 0]
 
     with pytest.raises(ValueError, match="Expected a syndrome of shape"):
         decoder.decode_observables(np.zeros(2, dtype=int))

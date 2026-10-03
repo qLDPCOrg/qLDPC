@@ -29,7 +29,7 @@ from ..common import (
 )
 from ..construction.specs import decoder_spec
 from ..dems import DetectorErrorModelArrays
-from ..protocols import ErrorDecoder
+from ..protocols import ErrorDecoder, ErrorDecodeResult
 
 _PcmOrDem: TypeAlias = IntegerArray | stim.DetectorErrorModel
 
@@ -357,6 +357,23 @@ _BACKEND_CLASS_NAMES = frozenset({"BeliefFindDecoder", "BpLsdDecoder", "BpOsdDec
 _BACKEND_CLASSES: dict[str, type[Any]] | None = None
 
 
+class _DetailedLdpcDecoderMixin(ErrorDecoder):
+    """Snapshot stable BP diagnostics immediately after an ldpc decode."""
+
+    def decode_errors_detailed(self, syndrome: npt.NDArray[np.int_]) -> ErrorDecodeResult:
+        error = np.asarray(self.decode_errors(syndrome))
+        diagnostics: dict[str, object] = {}
+        for name in ("converge", "iterations", "log_prob_ratios"):
+            if hasattr(self, name):
+                value = getattr(self, name)
+                if isinstance(value, np.ndarray):
+                    value = value.copy()
+                elif isinstance(value, np.generic):
+                    value = value.item()
+                diagnostics[f"ldpc.{name}"] = value
+        return ErrorDecodeResult(error, diagnostics=diagnostics)
+
+
 def _build_ldpc_decoder(
     name: str,
     pcm: IntegerArray,
@@ -375,14 +392,16 @@ def _get_backend_class(name: str) -> type[Any]:
         import ldpc
         import ldpc.bplsd_decoder
 
-        class BpOsdDecoder(ldpc.BpOsdDecoder, ErrorDecoder):
-            """An ldpc.BpOsdDecoder that is also an ErrorDecoder."""
+        class BpOsdDecoder(_DetailedLdpcDecoderMixin, ldpc.BpOsdDecoder, ErrorDecoder):
+            """An ldpc.BpOsdDecoder with qLDPC error-decoding protocols."""
 
-        class BpLsdDecoder(ldpc.bplsd_decoder.BpLsdDecoder, ErrorDecoder):
-            """An ldpc.bplsd_decoder.BpLsdDecoder that is also an ErrorDecoder."""
+        class BpLsdDecoder(
+            _DetailedLdpcDecoderMixin, ldpc.bplsd_decoder.BpLsdDecoder, ErrorDecoder
+        ):
+            """An ldpc.bplsd_decoder.BpLsdDecoder with qLDPC error-decoding protocols."""
 
-        class BeliefFindDecoder(ldpc.BeliefFindDecoder, ErrorDecoder):
-            """An ldpc.BeliefFindDecoder that is also an ErrorDecoder."""
+        class BeliefFindDecoder(_DetailedLdpcDecoderMixin, ldpc.BeliefFindDecoder, ErrorDecoder):
+            """An ldpc.BeliefFindDecoder with qLDPC error-decoding protocols."""
 
         classes = (BpOsdDecoder, BpLsdDecoder, BeliefFindDecoder)
         for decoder_type in classes:

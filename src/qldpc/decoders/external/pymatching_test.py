@@ -57,6 +57,14 @@ def test_mwpm_observable_builders() -> None:
     syndromes = np.array([[1, 0], [0, 1]], dtype=int)
     observable_decoder = _get_observable_decoder_mwpm(dem)
     assert np.array_equal(observable_decoder.decode_observables(syndromes[0]), syndromes[0])
+    detailed_observable = decoders.decode_observables_detailed(observable_decoder, syndromes[0])
+    assert np.array_equal(detailed_observable.observable_flips, syndromes[0])
+    objective_weight = detailed_observable.diagnostics["pymatching.objective_weight"]
+    assert isinstance(objective_weight, float) and objective_weight >= 0
+    detailed_batch = decoders.decode_observables_detailed_batch(observable_decoder, syndromes)
+    assert [result.observable_flips.tolist() for result in detailed_batch] == [[1, 0], [0, 1]]
+    assert all("pymatching.objective_weight" in result.diagnostics for result in detailed_batch)
+    assert decoders.decode_observables_detailed_batch(observable_decoder, syndromes[:0]) == ()
     batch_decoder = cast(decoders.BatchObservableDecoder, observable_decoder)
     assert np.array_equal(batch_decoder.decode_observables_batch(syndromes), syndromes)
 
@@ -67,6 +75,11 @@ def test_mwpm_observable_builders() -> None:
     """)
     correlated_decoder = _get_observable_decoder_mwpm(correlated_dem, enable_correlations=True)
     assert np.array_equal(correlated_decoder.decode_observables(np.ones(4, dtype=int)), [0])
+    detailed_correlated = decoders.decode_observables_detailed(
+        correlated_decoder, np.ones(4, dtype=int)
+    )
+    assert detailed_correlated.observable_flips.tolist() == [0]
+    assert not detailed_correlated.diagnostics
 
 
 def test_matching_builder_validation() -> None:
@@ -159,6 +172,14 @@ def test_matching_protocol_adapter() -> None:
     assert isinstance(decoder, pymatching_package.Matching)
     assert isinstance(decoder, decoders.BatchErrorDecoder)
     assert np.array_equal(decoder.decode_errors_batch(syndromes), decoder.decode_batch(syndromes))
+    detailed = decoders.decode_errors_detailed(decoder, syndromes[0])
+    assert np.array_equal(detailed.error, decoder.decode(syndromes[0]))
+    objective_weight = detailed.diagnostics["pymatching.objective_weight"]
+    assert isinstance(objective_weight, float) and objective_weight >= 0
+    detailed_batch = decoders.decode_errors_detailed_batch(decoder, syndromes)
+    assert len(detailed_batch) == len(syndromes)
+    assert all("pymatching.objective_weight" in result.diagnostics for result in detailed_batch)
+    assert decoders.decode_errors_detailed_batch(decoder, syndromes[:0]) == ()
     assert pickle.loads(pickle.dumps(pymatching.Matching)) is pymatching.Matching  # noqa: S301
 
 

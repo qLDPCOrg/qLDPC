@@ -23,6 +23,10 @@ def test_ilp_decoder(toy_problem: ToyProblem) -> None:
     matrix, error, syndrome = toy_problem
     decoder = decoders.ILPDecoder(scipy.sparse.csc_matrix(matrix))
     assert np.array_equal(error, decoder.decode(syndrome))
+    detailed = decoders.decode_errors_detailed(decoder, syndrome)
+    assert np.array_equal(detailed.error, error)
+    assert detailed.diagnostics["ilp.status"] == "optimal"
+    assert detailed.diagnostics["ilp.objective_value"] == np.count_nonzero(error)
 
 
 def test_ilp_decoder_minimum_weight(pytestconfig: pytest.Config) -> None:

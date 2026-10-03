@@ -131,7 +131,22 @@ def test_ldpc_protocol_adapters() -> None:
         assert isinstance(decoder, adapter_type)
         assert isinstance(decoder, backend_type)
         assert isinstance(decoder, decoders.ErrorDecoder)
+        detailed = decoders.decode_errors_detailed(decoder, np.array([1, 0], dtype=int))
+        assert np.array_equal(detailed.error, decoder.decode(np.array([1, 0], dtype=int)))
+        assert "ldpc.converge" in detailed.diagnostics
+        assert "ldpc.log_prob_ratios" in detailed.diagnostics
         assert pickle.loads(pickle.dumps(adapter_type)) is adapter_type  # noqa: S301
+
+    class NumpyScalarDiagnostics(ldpc_integration._DetailedLdpcDecoderMixin):
+        converge = np.bool_(True)
+        iterations = np.int64(3)
+
+        def decode(self, syndrome: np.ndarray) -> np.ndarray:
+            return syndrome.copy()
+
+    detailed = NumpyScalarDiagnostics().decode_errors_detailed(np.array([1], dtype=int))
+    assert detailed.diagnostics["ldpc.converge"] is True
+    assert detailed.diagnostics["ldpc.iterations"] == 3
 
 
 @pytest.mark.parametrize(
