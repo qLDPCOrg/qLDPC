@@ -11,7 +11,7 @@ in the private lazy-backend section at the bottom of this module.
 from __future__ import annotations
 
 import inspect
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 import numpy as np
@@ -27,6 +27,11 @@ from ..dems import DetectorErrorModelArrays
 from ..protocols import BatchErrorDecoder, ObservableDecoder
 
 _PcmOrDem: TypeAlias = IntegerArray | stim.DetectorErrorModel
+_FAULTS_MATRIX_MESSAGE = (
+    "MWPM faults_matrix is reserved for observable decoding: use"
+    " decoders.mwpm(...).build_observable_decoder(dem), which derives it from the observables of"
+    " the detector error model"
+)
 
 if TYPE_CHECKING:
     import pymatching
@@ -78,7 +83,7 @@ def _get_decoder_mwpm(
         "disallow", "independent", "smallest-weight", "keep-original", "replace"
     ] = "smallest-weight",
     use_virtual_boundary_node: bool = False,
-    **backend_options: object,
+    backend_options: Mapping[str, object] | None = None,
 ) -> BatchErrorDecoder:
     """Configure a minimum-weight perfect matching (MWPM) decoder.
 
@@ -97,9 +102,10 @@ def _get_decoder_mwpm(
         measurement_error_probabilities: Measurement-error probabilities for repeated rounds.
         merge_strategy: Strategy used when merging duplicate matching edges.
         use_virtual_boundary_node: Whether to use a virtual boundary node.
-        **backend_options: Additional options forwarded to
-            ``pymatching.Matching.load_from_check_matrix``.  ``faults_matrix`` is reserved for
-            observable decoding and cannot be specified here.
+        backend_options: Additional options for ``pymatching.Matching.load_from_check_matrix``
+            that are not listed above.  PyMatching ignores names that it does not recognize, so
+            names absent from its signature are rejected when the decoder is built.
+            ``faults_matrix`` is reserved for observable decoding and cannot be specified here.
 
     Returns:
         Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or
@@ -135,7 +141,7 @@ def _get_decoder_mwpm(
         measurement_error_probabilities=measurement_error_probabilities,
         merge_strategy=merge_strategy,
         use_virtual_boundary_node=use_virtual_boundary_node,
-        **backend_options,
+        backend_options=backend_options,
     )
 
 
@@ -145,6 +151,7 @@ def _get_observable_decoder_mwpm(
     decompose_errors: bool = False,
     ignore_non_graphlike_errors: bool = False,
     enable_correlations: bool = False,
+    backend_options: Mapping[str, object] | None = None,
     **decoder_args: object,
 ) -> MatchingObservableDecoder:
     """Build an MWPM decoder that predicts DEM observable flips natively.
@@ -162,6 +169,7 @@ def _get_observable_decoder_mwpm(
             decompose_errors=decompose_errors,
             ignore_non_graphlike_errors=ignore_non_graphlike_errors,
             predict_observables=True,
+            backend_options=backend_options,
             **decoder_args,
         )
     )
@@ -171,16 +179,15 @@ def _validate_mwpm_options(
     options: dict[str, object], _explicitly_provided: frozenset[str]
 ) -> dict[str, object]:
     """Reject options that would change error decoding or break correlated matching."""
-    if "faults_matrix" in options:
-        raise ValueError(
-            "MWPM faults_matrix is reserved for observable decoding from a detector error model"
-        )
+    backend_options = options["backend_options"]
+    if isinstance(backend_options, Mapping) and "faults_matrix" in backend_options:
+        raise ValueError(_FAULTS_MATRIX_MESSAGE)
     if not options["enable_correlations"]:
         return options
     parameters = inspect.signature(_get_decoder_mwpm).parameters
     for name, value in options.items():
-        if name != "enable_correlations" and (
-            name not in parameters or not _is_default_value(value, parameters[name].default)
+        if name != "enable_correlations" and not _is_default_value(
+            value, parameters[name].default
         ):
             raise ValueError(
                 f"The MWPM option {name}={value!r} is not supported with enable_correlations=True"
@@ -205,9 +212,14 @@ def _build_matching(
     decompose_errors: bool,
     ignore_non_graphlike_errors: bool,
     predict_observables: bool,
+    backend_options: Mapping[str, object] | None = None,
     **decoder_args: object,
 ) -> Any:
     """Build a Matching that predicts errors or, from a DEM, observable flips."""
+    pymatching = _get_pymatching()
+    backend_options = dict(backend_options or {})
+    _validate_backend_options(pymatching, backend_options)
+    decoder_args |= backend_options
     infers_decomposed_errors = False
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         dem_arrays = DetectorErrorModelArrays(pcm_or_dem, decompose_errors=decompose_errors)
@@ -243,12 +255,29 @@ def _build_matching(
             " you can try 'ignore_non_graphlike_errors=True'"
         )
 
-    pymatching = _get_pymatching()
     matching = pymatching.Matching() if predict_observables else _get_matching_type()()
     matching.load_from_check_matrix(pcm, **decoder_args)
     if infers_decomposed_errors:
         matching._infers_decomposed_errors = True
     return matching
+
+
+def _validate_backend_options(pymatching: Any, backend_options: Mapping[str, object]) -> None:
+    """Reject backend options that load_from_check_matrix would silently ignore."""
+    if "faults_matrix" in backend_options:
+        raise ValueError(_FAULTS_MATRIX_MESSAGE)
+    parameters = inspect.signature(pymatching.Matching.load_from_check_matrix).parameters
+    supported = {
+        name
+        for name, parameter in parameters.items()
+        if name not in ("self", "check_matrix")
+        and parameter.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+    }
+    if unsupported := sorted(set(backend_options) - supported):
+        raise ValueError(
+            f"Unsupported MWPM backend option(s) {unsupported}: they are not parameters of"
+            " pymatching.Matching.load_from_check_matrix, which would silently ignore them"
+        )
 
 
 def _splits_errors(

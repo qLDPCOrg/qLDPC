@@ -53,9 +53,12 @@ The helpers are available directly under ``qldpc.decoders``:
 
 Each helper returns a :class:`decoders.DecoderSpec <qldpc.decoders.construction.specs.DecoderSpec>`, which only stores settings.
 See `Decoder settings reference`_ for the options of each helper.
-The signatures list known options explicitly for autocomplete and static analysis.
-The helpers for ldpc, PyMatching, and Relay-BP also forward additional keyword options to their backends; unsupported options are rejected by the backend when the decoder is built.
-The ``ilp`` helper likewise forwards additional options to ``cvxpy.Problem.solve``.
+The signatures list known options explicitly for autocomplete and static analysis, and a misspelled option raises a ``TypeError`` when the settings are created.
+The helpers for ldpc, PyMatching, and Relay-BP also accept a ``backend_options`` mapping, which forwards options that they do not list to the backend unchecked, as in ``decoders.bp_osd(max_iter=30, backend_options={"input_vector_type": "syndrome"})``.
+An option that a helper lists must be passed by name rather than in ``backend_options``.
+The ldpc and Relay-BP backends reject unsupported names when the decoder is built.
+PyMatching and ldpc's BP+LSD decoder would instead silently ignore them, so qLDPC rejects names absent from PyMatching's signature, and warns about BP+LSD options that it does not know.
+The ``ilp`` helper forwards additional keyword options to ``cvxpy.Problem.solve``.
 Passing ``decoder=None`` uses qLDPC's default: BP+OSD for binary inputs and generalized union-find for nonbinary field arrays.
 Install every optional decoder available on the current platform with ``pip install 'qldpc[decoders]'``.
 PyMatching is included in the base qLDPC installation.
@@ -333,6 +336,11 @@ The following changes take effect without a deprecation period:
 * Builders that were not exported from ``qldpc.decoders``, such as ``get_error_decoder_mwpm``, ``get_observable_decoder_mwpm``, ``get_relay_bp_decoder``, ``get_min_sum_bp_decoder``, and ``get_observable_decoder_lookup``, have been removed.
   Use decoder settings and their ``build`` and ``build_observable_decoder`` methods instead.
 * A detector error model supplies its own error probabilities, so passing ``error_channel`` or ``error_rate`` together with a detector error model raises a ``ValueError``.
+* The deprecated builder ``get_decoder_mwpm`` and ``get_decoder(..., with_MWPM=True)`` now reject options that PyMatching would silently ignore, and reserve ``faults_matrix`` for ``decoders.mwpm(...).build_observable_decoder(dem)``.
+  The corresponding paths for BP+LSD warn about options that ldpc's BP+LSD decoder would silently ignore.
+
+Settings helpers accept the options that they list, and helpers for ldpc, PyMatching, and Relay-BP accept other backend options in a ``backend_options`` mapping (see `Configuring decoders`_).
+Deprecated builders such as ``get_decoder_bp_osd(pcm_or_dem, **options)`` still accept backend options as keyword arguments.
 
 The following usage remains available during a deprecation period, and each use emits a ``DeprecationWarning`` that names its replacement:
 

@@ -8,6 +8,7 @@ import builtins
 import pickle
 import subprocess
 import sys
+import types
 import unittest.mock
 from collections.abc import Callable
 from typing import Literal, cast
@@ -95,26 +96,54 @@ def test_matching_builder_validation() -> None:
     ).predicts_observables_natively
     with pytest.raises(ValueError, match=r"decompose_errors=True.*enable_correlations=True"):
         decoders.mwpm(enable_correlations=True, decompose_errors=True)
+    faults_matrix = {"faults_matrix": np.eye(2, dtype=int)}
+    with pytest.raises(ValueError, match=r"faults_matrix is reserved.*build_observable_decoder"):
+        decoders.mwpm(backend_options=faults_matrix)
     with pytest.raises(ValueError, match="faults_matrix is reserved"):
-        decoders.mwpm(faults_matrix=np.eye(2, dtype=int))
+        _get_decoder_mwpm(np.eye(2, dtype=int), backend_options=faults_matrix)
     with pytest.raises(ValueError, match="not supported with enable_correlations=True"):
-        decoders.mwpm(enable_correlations=True, backend_extension=12)
+        decoders.mwpm(enable_correlations=True, backend_options={"backend_extension": 12})
+    with pytest.raises(TypeError, match="unexpected keyword argument 'merge_stratgy'"):
+        decoders.mwpm(merge_stratgy="disallow")  # type: ignore[call-arg]
 
 
 def test_matching_backend_options() -> None:
-    """Deferred and immediate builders forward additional options in both modes."""
+    """Deferred and immediate builders forward backend_options in both modes."""
     matrix = np.eye(2, dtype=int)
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
-    with unittest.mock.patch.object(pymatching, "_build_matching") as backend:
-        _get_decoder_mwpm(matrix, backend_extension=12)
-        assert backend.call_args.kwargs["backend_extension"] == 12
-        spec = decoders.mwpm(backend_extension=12)
-        assert spec.options["backend_extension"] == 12
+    backend_options = {"backend_extension": 12}
+    with (
+        unittest.mock.patch.object(pymatching, "_validate_backend_options") as validate,
+        unittest.mock.patch.object(pymatching_package.Matching, "load_from_check_matrix") as load,
+    ):
+        _get_decoder_mwpm(matrix, backend_options=backend_options)
+        assert validate.call_args.args[1] == backend_options
+        assert load.call_args.kwargs["backend_extension"] == 12
+        spec = decoders.mwpm(backend_options=backend_options)
+        assert spec.options["backend_options"] == backend_options
         spec.build(matrix)
-        assert backend.call_args.kwargs["backend_extension"] == 12
+        assert load.call_args.kwargs["backend_extension"] == 12
         observable = spec.build_observable_decoder(dem)
         assert isinstance(observable, pymatching.MatchingObservableDecoder)
-        assert backend.call_args.kwargs["backend_extension"] == 12
+        assert load.call_args.kwargs["backend_extension"] == 12
+        assert load.call_args.kwargs["faults_matrix"] is not None
+
+
+def test_matching_backend_option_validation() -> None:
+    """PyMatching ignores unknown options, so names absent from its signature are rejected."""
+    with pytest.raises(ValueError, match=r"Unsupported MWPM backend option\(s\) \['typo'\]"):
+        decoders.mwpm(backend_options={"typo": 1}).build(np.eye(2, dtype=int))
+
+    class FutureMatching:
+        def load_from_check_matrix(
+            self, check_matrix: object = None, *, new_option: int = 0, **kwargs: object
+        ) -> None:
+            """Accept an option that a future PyMatching release might add."""
+
+    future_pymatching = types.SimpleNamespace(Matching=FutureMatching)
+    pymatching._validate_backend_options(future_pymatching, {"new_option": 1})
+    with pytest.raises(ValueError, match="kwargs"):
+        pymatching._validate_backend_options(future_pymatching, {"kwargs": 1})
 
 
 def test_matching_protocol_adapter() -> None:
@@ -137,6 +166,7 @@ def test_pymatching_import_is_lazy() -> None:
     """Importing the integration does not import pymatching until a matching is requested."""
     code = """
 import sys
+import types
 import qldpc.decoders.external.pymatching
 assert "pymatching" not in sys.modules
 """

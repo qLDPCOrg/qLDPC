@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import functools
+import pickle
 import re
 import unittest.mock
 import warnings
@@ -19,6 +20,7 @@ import stim
 
 from qldpc import decoders
 from qldpc.decoders.construction import legacy
+from qldpc.decoders.external import ldpc as ldpc_integration
 
 
 def test_decoder_selection() -> None:
@@ -209,6 +211,46 @@ def test_deprecated_builders() -> None:
     # the deprecated uppercase aliases resolve to the deprecated lowercase builders
     with pytest.warns(DeprecationWarning, match="get_decoder_BP_OSD"):
         assert decoders.get_decoder_BP_OSD is decoders.get_decoder_bp_osd
+
+
+def test_legacy_flat_backend_options() -> None:
+    """Deprecated APIs move flat backend options into the backend_options of a builder."""
+    matrix = np.array([[1, 1, 0], [0, 1, 1]])
+    with (
+        warnings.catch_warnings(),
+        unittest.mock.patch.object(ldpc_integration, "_build_ldpc_decoder") as backend,
+    ):
+        warnings.simplefilter("ignore", DeprecationWarning)
+        decoders.get_decoder_bp_osd(
+            matrix, max_iter=7, backend_extension=1, backend_options={"other": 2}
+        )
+        expected_options = {"max_iter": 7, "backend_extension": 1, "other": 2}
+        assert expected_options.items() <= backend.call_args.args[3].items()
+        decoders.get_decoder(matrix, with_BF=True, backend_extension=3)
+        assert backend.call_args.args[3]["backend_extension"] == 3
+
+    # add_erasure_bit is not a backend option, so unsupported decoders still reject it clearly
+    with (
+        pytest.warns(DeprecationWarning),
+        pytest.raises(ValueError, match="cannot signal erasure"),
+    ):
+        decoders.get_decoder(matrix, with_BF=True, add_erasure_bit=True)
+
+    # MWPM rejects flat options that PyMatching would silently ignore
+    with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match=r"\['typo'\]"):
+        decoders.get_decoder_mwpm(matrix, typo=1)
+    with pytest.warns(DeprecationWarning):
+        matching: Any = decoders.get_decoder_mwpm(matrix, merge_strategy="disallow")
+    assert np.array_equal(matching.decode(np.array([1, 0])), [1, 0, 0])
+
+    # builders without backend_options receive their keyword arguments unchanged, and the legacy
+    # constructors remain pickleable for Sinter
+    constructor = legacy.DECODER_CONSTRUCTORS["BP_OSD"]
+    assert isinstance(constructor, functools.partial)
+    assert pickle.loads(pickle.dumps(constructor)).func is constructor.func  # noqa: S301
+    with pytest.warns(DeprecationWarning):
+        decoder = decoders.get_decoder(matrix, with_lookup=True, max_weight=1)
+    assert np.array_equal(decoder.decode(np.array([1, 0])), [1, 0, 0])
 
 
 def test_deprecated_tesseract_builder() -> None:

@@ -10,14 +10,15 @@ first use in the private lazy-backend section at the bottom of this module.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import warnings
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, cast
 
 import numpy as np
 import numpy.typing as npt
 import stim
 
-from qldpc._util import format_docstring
+from qldpc._util import format_docstring, get_external_caller_stacklevel
 from qldpc.math import IntegerArray
 
 from ..common import (
@@ -61,8 +62,8 @@ def _get_decoder_bp_osd(
     serial_schedule_order: Sequence[int] | None = None,
     osd_method: Literal["OSD_0", "OSD_E", "OSD_CS"] = "OSD_0",
     osd_order: int = 0,
+    backend_options: Mapping[str, object] | None = None,
     error_rate: float | None = None,
-    **backend_options: object,
 ) -> ErrorDecoder:
     """Configure a belief-propagation with ordered-statistics (BP+OSD) decoder.
 
@@ -80,7 +81,8 @@ def _get_decoder_bp_osd(
         serial_schedule_order: Explicit update order for a serial schedule.
         osd_method: Ordered-statistics decoding method.
         osd_order: Ordered-statistics decoding order.
-        **backend_options: Additional options forwarded to ``ldpc.BpOsdDecoder``.
+        backend_options: Additional options for ``ldpc.BpOsdDecoder`` that are not listed
+            above.  The backend rejects unsupported names when the decoder is built.
         error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
 
     Returns:
@@ -109,7 +111,7 @@ def _get_decoder_bp_osd(
             "serial_schedule_order": serial_schedule_order,
             "osd_method": osd_method,
             "osd_order": osd_order,
-            **backend_options,
+            **(backend_options or {}),
         },
     )
 
@@ -132,8 +134,8 @@ def _get_decoder_bp_lsd(
     lsd_method: Literal["LSD_0", "LSD_E", "LSD_CS"] = "LSD_0",
     lsd_order: int = 0,
     always_run_lsd: bool = False,
+    backend_options: Mapping[str, object] | None = None,
     error_rate: float | None = None,
-    **backend_options: object,
 ) -> ErrorDecoder:
     """Configure a belief-propagation with localized-statistics (BP+LSD) decoder.
 
@@ -154,7 +156,10 @@ def _get_decoder_bp_lsd(
         lsd_method: Localized-statistics decoding method.
         lsd_order: Localized-statistics decoding order.
         always_run_lsd: Whether to run LSD after belief propagation converges.
-        **backend_options: Additional options forwarded to ``ldpc.BpLsdDecoder``.
+        backend_options: Additional options for ``ldpc.BpLsdDecoder`` that are not listed
+            above.  ``ldpc.BpLsdDecoder`` silently ignores names that it does not recognize, so
+            names other than ``input_vector_type`` and ``channel_probs`` emit a warning when the
+            decoder is built, but are still forwarded.
         error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
 
     Returns:
@@ -169,6 +174,7 @@ def _get_decoder_bp_lsd(
     `arXiv:2406.18655 <https://arxiv.org/abs/2406.18655>`_.
     """
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_channel, error_rate)
+    _warn_unknown_bp_lsd_options(backend_options or {})
     return _build_ldpc_decoder(
         "BpLsdDecoder",
         pcm,
@@ -186,7 +192,7 @@ def _get_decoder_bp_lsd(
             "lsd_method": lsd_method,
             "lsd_order": lsd_order,
             "always_run_lsd": always_run_lsd,
-            **backend_options,
+            **(backend_options or {}),
         },
     )
 
@@ -206,8 +212,8 @@ def _get_decoder_bf(
     serial_schedule_order: Sequence[int] | None = None,
     uf_method: Literal["inversion", "peeling"] = "peeling",
     bits_per_step: int = 0,
+    backend_options: Mapping[str, object] | None = None,
     error_rate: float | None = None,
-    **backend_options: object,
 ) -> ErrorDecoder:
     """Configure a belief-find (BF) decoder.
 
@@ -225,7 +231,8 @@ def _get_decoder_bf(
         serial_schedule_order: Explicit update order for a serial schedule.
         uf_method: Union-find cluster-solving method.
         bits_per_step: Number of bits added to each cluster step.
-        **backend_options: Additional options forwarded to ``ldpc.BeliefFindDecoder``.
+        backend_options: Additional options for ``ldpc.BeliefFindDecoder`` that are not listed
+            above.  The backend rejects unsupported names when the decoder is built.
         error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
 
     Returns:
@@ -256,7 +263,7 @@ def _get_decoder_bf(
             "serial_schedule_order": serial_schedule_order,
             "uf_method": uf_method,
             "bits_per_step": bits_per_step,
-            **backend_options,
+            **(backend_options or {}),
         },
     )
 
@@ -267,6 +274,22 @@ bf = decoder_spec("bf", _get_decoder_bf, option_transform=_deprecate_error_rate_
 
 
 # Private input helpers
+
+# Options that ldpc.BpLsdDecoder reads, other than those listed by _get_decoder_bp_lsd.  Unlike the
+# other ldpc decoders, BpLsdDecoder silently ignores unrecognized options.  This list cannot be read
+# from its compiled signature, so names outside it are flagged with a warning rather than rejected.
+_BP_LSD_UNLISTED_BACKEND_OPTIONS = frozenset({"input_vector_type", "channel_probs"})
+
+
+def _warn_unknown_bp_lsd_options(backend_options: Mapping[str, object]) -> None:
+    """Warn about backend options that ldpc.BpLsdDecoder may silently ignore."""
+    if unknown := sorted(set(backend_options) - _BP_LSD_UNLISTED_BACKEND_OPTIONS):
+        warnings.warn(
+            f"ldpc.BpLsdDecoder silently ignores options that it does not recognize, and"
+            f" {unknown} are not BP+LSD options known to qLDPC; check their spelling",
+            UserWarning,
+            stacklevel=get_external_caller_stacklevel(),
+        )
 
 
 def _to_ldpc_inputs(

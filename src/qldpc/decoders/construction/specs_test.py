@@ -126,9 +126,10 @@ def test_decoder_specs() -> None:
     spec = decoders.DecoderSpec("custom", _get_decoder_lookup, (("max_weight", 1),))
     assert repr(spec).startswith("DecoderSpec('custom', ")
 
-    # A backend-specific option is retained for validation by the backend at build time
-    assert decoders.bp_lsd(lsd_ordr=1).options["lsd_ordr"] == 1
-    # Helpers without a backend keyword escape hatch still reject unknown options at construction
+    # misspelled options are rejected when settings are created, including by helpers that
+    # forward additional options to their backends through backend_options
+    with pytest.raises(TypeError, match=r"bp_lsd\(\).*unexpected keyword argument 'lsd_ordr'"):
+        decoders.bp_lsd(lsd_ordr=1)  # type: ignore[call-arg]
     with pytest.raises(TypeError, match=r"guf\(\).*unexpected keyword argument 'max_weigth'"):
         decoders.guf(max_weigth=1)  # type: ignore[call-arg]
 
@@ -251,10 +252,7 @@ def test_deprecated_error_rate_settings_are_last_and_warn() -> None:
         decoders.TesseractDecoder,
     )
     for entry_point in entry_points:
-        parameters = list(inspect.signature(entry_point).parameters)
-        if parameters[-1] == "backend_options":
-            parameters.pop()
-        assert parameters[-1] == "error_rate"
+        assert list(inspect.signature(entry_point).parameters)[-1] == "error_rate"
 
     documented_entry_points: tuple[Callable[..., object], ...] = (
         _get_decoder_bp_osd,
@@ -416,6 +414,7 @@ def test_decoder_spec_helper_defaults() -> None:
     for relay_bp_helper, relay_bp_class in relay_bp_helpers:
         helper_defaults = get_defaults(relay_bp_helper)
         assert helper_defaults.pop("precision") == "F32"
+        assert helper_defaults.pop("backend_options") is None
         relay_bp_defaults = relay_bp_decoder_defaults | get_defaults(relay_bp_class)
         assert helper_defaults.keys() == relay_bp_defaults.keys(), relay_bp_helper
         for name, default in helper_defaults.items():

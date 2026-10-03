@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import (
     Concatenate,
     Generic,
@@ -197,6 +197,7 @@ def decoder_spec(
         explicitly_provided = _get_explicit_option_names(bound, helper_signature)
         bound.apply_defaults()
         options = _get_bound_options(bound, helper_signature)
+        _normalize_backend_options(helper_name, options)
         if option_transform is not None:
             options = option_transform(options, explicitly_provided)
         return DecoderSpec(
@@ -235,6 +236,7 @@ def observable_decoder_spec(
         explicitly_provided = _get_explicit_option_names(bound, helper_signature)
         bound.apply_defaults()
         options = _get_bound_options(bound, helper_signature)
+        _normalize_backend_options(helper_name, options)
         if option_transform is not None:
             options = option_transform(options, explicitly_provided)
         return DecoderSpec(
@@ -365,6 +367,29 @@ def _get_bound_options(
         else:
             options[name] = value
     return options
+
+
+def _normalize_backend_options(helper_name: str, options: dict[str, object]) -> None:
+    """Store backend_options as a plain dict, or None if empty, and reject named duplicates.
+
+    A helper whose construction signature has a ``backend_options`` parameter forwards that mapping
+    unchecked to its backend.  An option listed by name must be passed by name instead, so that its
+    spelling is checked.
+    """
+    if (backend_options := options.get("backend_options")) is None:
+        return
+    if not isinstance(backend_options, Mapping):
+        raise TypeError(
+            f"{helper_name}() backend_options must be a mapping from option names to values, but"
+            f" got {type(backend_options).__name__}"
+        )
+    if duplicates := sorted(name for name in backend_options if name in options):
+        raise ValueError(
+            f"{helper_name}() lists {', '.join(duplicates)} by name, so pass "
+            + ("it" if len(duplicates) == 1 else "them")
+            + " directly rather than in backend_options"
+        )
+    options["backend_options"] = dict(backend_options) or None
 
 
 def _is_default_value(value: object, default: object) -> bool:

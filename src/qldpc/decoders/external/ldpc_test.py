@@ -8,6 +8,7 @@ import pickle
 import subprocess
 import sys
 import unittest.mock
+import warnings
 from collections.abc import Callable
 from typing import Any
 
@@ -105,16 +106,43 @@ def test_ldpc_backend_options(
     builder: Callable[..., decoders.ErrorDecoder],
     helper: Callable[..., decoders.DecoderSpec[decoders.ErrorDecoder]],
 ) -> None:
-    """Named options and extra backend options reach the underlying ldpc constructor."""
+    """Named options and backend_options reach the underlying ldpc constructor."""
     matrix = np.eye(2, dtype=int)
     with unittest.mock.patch.object(ldpc_integration, "_build_ldpc_decoder") as backend:
-        builder(matrix, max_iter=4, backend_extension=12)
+        builder(matrix, max_iter=4, backend_options={"input_vector_type": "syndrome"})
         assert backend.call_args.args[3]["max_iter"] == 4
-        assert backend.call_args.args[3]["backend_extension"] == 12
-        spec = helper(max_iter=4, backend_extension=12)
-        assert spec.options["backend_extension"] == 12
+        assert backend.call_args.args[3]["input_vector_type"] == "syndrome"
+        spec = helper(max_iter=4, backend_options={"input_vector_type": "syndrome"})
+        assert spec.options["backend_options"] == {"input_vector_type": "syndrome"}
+        assert repr(spec).endswith("(max_iter=4, backend_options={'input_vector_type': 'syndrome'})")
+        assert pickle.loads(pickle.dumps(spec)).options == spec.options  # noqa: S301
         spec.build(matrix)
-        assert backend.call_args.args[3]["backend_extension"] == 12
+        assert backend.call_args.args[3]["input_vector_type"] == "syndrome"
+
+    # an empty mapping is equivalent to no backend options
+    assert helper(backend_options={}).options["backend_options"] is None
+
+    # misspelled named options are rejected when the settings are created
+    with pytest.raises(TypeError, match="unexpected keyword argument 'max_itr'"):
+        helper(max_itr=4)
+    with pytest.raises(ValueError, match="lists max_iter by name, so pass it directly"):
+        helper(backend_options={"max_iter": 4})
+    with pytest.raises(TypeError, match="backend_options must be a mapping"):
+        helper(backend_options=[("backend_extension", 12)])
+
+    # the backend rejects unsupported names when the decoder is built, except that BP+LSD silently
+    # ignores them, so qLDPC warns about names it does not know
+    spec = helper(backend_options={"unsupported_backend_option": True})
+    if helper is decoders.bp_lsd:
+        with pytest.warns(UserWarning, match=r"\['unsupported_backend_option'\]") as caught:
+            spec.build(matrix)
+        assert caught[0].filename == __file__
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            helper(backend_options={"input_vector_type": "syndrome"}).build(matrix)
+    else:
+        with pytest.raises((TypeError, ValueError), match="unsupported_backend_option"):
+            spec.build(matrix)
 
 
 def test_ldpc_protocol_adapters() -> None:

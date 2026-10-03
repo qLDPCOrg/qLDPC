@@ -12,6 +12,7 @@ resolution functions.  The modern modules never depend on it.
 from __future__ import annotations
 
 import functools
+import inspect
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypeVar
@@ -41,15 +42,35 @@ from .specs import (
 )
 
 _InputT = TypeVar("_InputT", ErrorDecoderInput, DecoderInput)
+_DecoderT = TypeVar("_DecoderT")
 
 # Legacy keyword-based compatibility
+def _call_with_flat_backend_options(
+    builder: Callable[..., _DecoderT], pcm_or_dem: PcmOrDem, /, **decoder_args: Any
+) -> _DecoderT:
+    """Call a builder, moving deprecated flat backend options into its backend_options mapping.
+
+    Deprecated APIs accept backend options as ordinary keyword arguments, whereas builders that
+    forward backend options take them as a ``backend_options`` mapping, so that the names that they
+    list are checked.  The add_erasure_bit argument is handled by the builder itself.
+    """
+    parameters = inspect.signature(builder).parameters
+    backend_options = dict(decoder_args.pop("backend_options", None) or {})
+    for name in [name for name in decoder_args if name not in parameters]:
+        if name != "add_erasure_bit":
+            backend_options[name] = decoder_args.pop(name)
+    if backend_options:
+        decoder_args["backend_options"] = backend_options
+    return builder(pcm_or_dem, **decoder_args)
+
+
 DECODER_CONSTRUCTORS: dict[str, Callable[..., ErrorDecoder]] = {
-    "BF": _get_decoder_bf,
-    "BP_LSD": _get_decoder_bp_lsd,
-    "BP_OSD": _get_decoder_bp_osd,
+    "BF": functools.partial(_call_with_flat_backend_options, _get_decoder_bf),
+    "BP_LSD": functools.partial(_call_with_flat_backend_options, _get_decoder_bp_lsd),
+    "BP_OSD": functools.partial(_call_with_flat_backend_options, _get_decoder_bp_osd),
     "GUF": _get_decoder_guf,
     "ILP": _get_decoder_ilp,
-    "MWPM": _get_decoder_mwpm,
+    "MWPM": functools.partial(_call_with_flat_backend_options, _get_decoder_mwpm),
     "RBP": _get_decoder_rbp,
     "lookup": _get_decoder_lookup,
 }
@@ -123,19 +144,19 @@ def get_observable_decoder(
 def get_decoder_bp_osd(pcm_or_dem: PcmOrDem, **decoder_args: Any) -> ErrorDecoder:
     """Build a BP+OSD decoder through a deprecated API; use decoders.bp_osd(...).build(...)."""
     _warn_deprecated_builder("get_decoder_bp_osd", "bp_osd")
-    return _get_decoder_bp_osd(pcm_or_dem, **decoder_args)
+    return _call_with_flat_backend_options(_get_decoder_bp_osd, pcm_or_dem, **decoder_args)
 
 
 def get_decoder_bp_lsd(pcm_or_dem: PcmOrDem, **decoder_args: Any) -> ErrorDecoder:
     """Build a BP+LSD decoder through a deprecated API; use decoders.bp_lsd(...).build(...)."""
     _warn_deprecated_builder("get_decoder_bp_lsd", "bp_lsd")
-    return _get_decoder_bp_lsd(pcm_or_dem, **decoder_args)
+    return _call_with_flat_backend_options(_get_decoder_bp_lsd, pcm_or_dem, **decoder_args)
 
 
 def get_decoder_bf(pcm_or_dem: PcmOrDem, **decoder_args: Any) -> ErrorDecoder:
     """Build a belief-find decoder through a deprecated API; use decoders.bf(...).build(...)."""
     _warn_deprecated_builder("get_decoder_bf", "bf")
-    return _get_decoder_bf(pcm_or_dem, **decoder_args)
+    return _call_with_flat_backend_options(_get_decoder_bf, pcm_or_dem, **decoder_args)
 
 
 def get_decoder_guf(pcm_or_dem: PcmOrDem, **decoder_args: Any) -> GUFDecoder:
@@ -159,7 +180,7 @@ def get_decoder_lookup(pcm_or_dem: PcmOrDem, **decoder_args: Any) -> LookupDecod
 def get_decoder_mwpm(pcm_or_dem: PcmOrDem, **decoder_args: Any) -> BatchErrorDecoder:
     """Build an MWPM decoder through a deprecated API; use decoders.mwpm(...).build(...)."""
     _warn_deprecated_builder("get_decoder_mwpm", "mwpm")
-    return _get_decoder_mwpm(pcm_or_dem, **decoder_args)
+    return _call_with_flat_backend_options(_get_decoder_mwpm, pcm_or_dem, **decoder_args)
 
 
 def get_decoder_rbp(
