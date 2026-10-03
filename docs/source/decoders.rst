@@ -250,7 +250,7 @@ A ``SinterDecoder``, a ``SubgraphDecoder``, and the code-capacity estimators als
 Detailed decode results
 -----------------------
 
-The usual decoder methods continue to return hard prediction arrays.
+Standard error- and observable-decoding methods return hard prediction arrays.
 To request per-shot diagnostics, use ``decode_errors_detailed`` or ``decode_observables_detailed``.
 The batch helpers return a tuple of detailed results in syndrome order:
 
@@ -265,10 +265,9 @@ The batch helpers return a tuple of detailed results in syndrome order:
 An :class:`decoders.ErrorDecodeResult <qldpc.decoders.protocols.ErrorDecodeResult>` contains ``error``.
 An :class:`decoders.ObservableDecodeResult <qldpc.decoders.protocols.ObservableDecodeResult>` contains ``observable_flips``.
 Both also contain an ``erasure`` boolean and a read-only, namespaced ``diagnostics`` mapping.
-The prediction excludes the erasure bit.
-Existing array-returning methods retain their current appended-bit behavior.
-Decoders that do not implement a detailed method are still accepted.
-The helpers wrap their hard result and separate an appended erasure bit, leaving ``diagnostics`` empty.
+Detailed-result predictions exclude the erasure bit.
+When erasure signaling is enabled, array-returning methods append the erasure bit as their final entry.
+For decoders without a detailed method, the helpers wrap the hard prediction, separate any appended erasure bit, and return an empty ``diagnostics`` mapping.
 
 The available diagnostics depend on the decoder:
 
@@ -281,7 +280,7 @@ The available diagnostics depend on the decoder:
 
 These values are deliberately not normalized into a common ``confidence`` field because posterior ratios, logical-class gaps, convergence flags, and optimization costs have different meanings and calibration.
 A custom decoder can implement the optional :class:`decoders.DetailedErrorDecoder <qldpc.decoders.protocols.DetailedErrorDecoder>` or :class:`decoders.DetailedObservableDecoder <qldpc.decoders.protocols.DetailedObservableDecoder>` protocol.
-Sinter's compiled decoder interface continues to return observable arrays for compatibility with Sinter.
+Sinter's compiled decoder interface returns observable arrays.
 
 Lookup-table outputs
 --------------------
