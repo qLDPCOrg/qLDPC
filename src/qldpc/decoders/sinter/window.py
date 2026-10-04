@@ -13,7 +13,7 @@ import numpy.typing as npt
 import stim
 
 from ..adapters.error_decoders import match_error_decoder_to_dem
-from ..construction.legacy import resolve_decoder
+from ..construction.resolution import _resolve_error_decoder
 from ..construction.specs import DeferredErrorDecoderInput
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, batch_decode_errors
@@ -140,7 +140,7 @@ class SequentialWindowDecoder(SinterDecoder):
                 dem_arrays.error_probs[d_errors],
             )
             window_dem = window_dem_arrays.to_dem()
-            window_decoder = resolve_decoder(
+            window_decoder = _resolve_error_decoder(
                 window_dem,
                 self.decoder_input,
                 self.decoder_kwargs.copy(),

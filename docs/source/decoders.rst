@@ -328,7 +328,7 @@ Deprecated usage
 ~~~~~~~~~~~~~~~~
 
 The keyword-based decoder API of ``qldpc==0.3.3`` remains available during a deprecation period, and each use emits a ``DeprecationWarning`` that names its replacement.
-Usage marked as defunct instead raises an error that names its replacement.
+Defunct Sinter ``decode`` methods have been removed; use ``decode_observables`` on a compiled decoder.
 Compatibility is provided for the names exported from the package root, ``qldpc.decoders``, in that release; internal module paths are not part of this guarantee.
 In particular, ``decoders.get_decoder`` and ``decoders.decode`` behave as they did in ``qldpc==0.3.3``, except that ``error_rate`` and ``error_channel`` are rejected for a detector error model (see `Migrating from qLDPC 0.4.0`_):
 
@@ -357,8 +357,10 @@ In particular, ``decoders.get_decoder`` and ``decoders.decode`` behave as they d
    * - ``WeightedLookupDecoder(..., predict_observable_flips=True)``
      - ``qldpc.decoders.custom.lookup.WeightedObservableLookupDecoder(...)`` and its
        ``decode_observables`` method
-   * - ``SinterDecoder.decode`` and ``CompiledSinterDecoder.decode`` (defunct)
-     - ``CompiledSinterDecoder.decode_observables``
+   * - ``decoders.bp_osd(error_rate=p)`` (also ``bp_lsd``, ``bf``, and ``tesseract``)
+     - ``decoders.bp_osd(error_channel=p)`` (or the corresponding specification helper)
+   * - ``SinterDecoder.decode`` and ``CompiledSinterDecoder.decode`` (removed)
+     - Compile the ``SinterDecoder``, then call ``CompiledSinterDecoder.decode_observables``
    * - ``SubgraphSinterDecoder`` and ``SequentialSinterDecoder``
      - ``SubgraphDecoder`` and ``SequentialWindowDecoder``
    * - ``Decoder`` and ``BatchDecoder``

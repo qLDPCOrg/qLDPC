@@ -38,7 +38,10 @@ from ..external.pymatching import _get_decoder_mwpm
 from ..external.relay_bp import RelayBPDecoder, _get_decoder_rbp
 from ..protocols import BatchErrorDecoder, ErrorDecoder, ObservableDecoder
 from .factories import _DEMDecoderFactory, _MatrixDecoderFactory
-from .resolution import _get_error_decoder, _get_observable_decoder
+from .resolution import (
+    _get_error_decoder,
+    _get_observable_decoder,
+)
 from .specs import (
     DecoderInput,
     DecoderSpec,

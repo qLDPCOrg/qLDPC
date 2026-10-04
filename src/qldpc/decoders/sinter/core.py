@@ -19,9 +19,8 @@ from ..adapters.error_decoders import ErrorsToObservablesDecoder
 from ..construction.legacy import (
     get_legacy_decoder_migration_message,
     reject_removed_decoder_args,
-    resolve_observable_decoder,
 )
-from ..construction.resolution import reject_prebuilt_decoder
+from ..construction.resolution import _resolve_observable_decoder, reject_prebuilt_decoder
 from ..construction.specs import DecoderSpec, DeferredDecoderInput
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, ObservableDecoder, as_error_decoder
@@ -51,8 +50,6 @@ class SinterDecoder(_SinterDecoder):
     built in that mode.  Otherwise, it is built as an error decoder, and the compiled decoder
     converts the errors that it infers into observable flips.
     """
-
-    decode_is_defunct = True
 
     # completes the error message "A prebuilt decoder cannot be passed as decoder= here because ..."
     _prebuilt_decoder_rejection_reason = (
@@ -126,7 +123,7 @@ class SinterDecoder(_SinterDecoder):
         dem_arrays = DetectorErrorModelArrays(
             dem, simplify=self.simplify, decompose_errors=self.decompose_errors
         )
-        observable_decoder = resolve_observable_decoder(
+        observable_decoder = _resolve_observable_decoder(
             dem_arrays.to_dem(),
             self.decoder_input,
             self.decoder_kwargs.copy(),
@@ -172,21 +169,6 @@ class SinterDecoder(_SinterDecoder):
         observable_flips = predicted_flips[:, :num_observable_bytes]
         observable_flips.tofile(obs_predictions_b8_out_path)
 
-    # Defunct compatibility method
-    if TYPE_CHECKING:
-        # Hide this method from mypy, so that a SinterDecoder does not satisfy ErrorDecoder.
-        decode: None
-    else:
-
-        def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-            """Reject a defunct direct-decoding call."""
-            raise ValueError(
-                "SinterDecoder.decode is DEFUNCT.  Compile the SinterDecoder for a detector error"
-                " model, then call decode_observables or decode_shots on the compiled decoder."
-                "\nIf you need this method restored, please open an issue at"
-                " https://github.com/qLDPCOrg/qLDPC/issues"
-            )
-
 
 class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
     """Observable decoder compiled to a specific detector error model.
@@ -208,8 +190,6 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
     num_detectors: int
     num_observables: int
     num_erasure_bits: int = 0
-
-    decode_is_defunct = True
 
     def __init__(
         self, dem_arrays: DetectorErrorModelArrays, decoder: ErrorDecoder | ObservableDecoder
@@ -360,20 +340,6 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
         generally passes around bit-packed data.
         """
         return np.packbits(np.asarray(data, dtype=np.uint8), bitorder="little", axis=axis)
-
-    # Defunct compatibility method
-    if TYPE_CHECKING:
-        # Hide this method from mypy, so that a CompiledSinterDecoder does not satisfy ErrorDecoder.
-        decode: None
-    else:
-
-        def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-            """Reject a defunct alias for observable decoding."""
-            raise ValueError(
-                "CompiledSinterDecoder.decode is DEFUNCT; use decode_observables instead."
-                "\nIf you need this method restored, please open an issue at"
-                " https://github.com/qLDPCOrg/qLDPC/issues"
-            )
 
 
 class TrivialDecoder(SinterDecoder):

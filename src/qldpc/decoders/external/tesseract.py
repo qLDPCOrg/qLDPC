@@ -18,12 +18,12 @@ from qldpc.math import IntegerArray
 
 from ..common import (
     PLACEHOLDER_ERROR_RATE,
-    _deprecate_error_rate_option,
     _erasure_bit_support,
     _get_matrix_error_channel,
     _reject_dem_error_probabilities,
     with_erasure_bits,
 )
+from ..construction.legacy_options import _deprecate_error_rate_option
 from ..construction.specs import DecoderSpec, decoder_spec
 from ..dems import DetectorErrorModelArrays
 from ..protocols import (

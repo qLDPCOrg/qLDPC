@@ -15,6 +15,7 @@ import stim
 
 from qldpc import decoders
 from qldpc.decoders import common
+from qldpc.decoders.construction.legacy_options import _deprecate_error_rate_option
 from qldpc.decoders.external.ldpc import _get_decoder_bp_osd
 
 
@@ -134,7 +135,6 @@ def test_get_matrix_error_channel() -> None:
         assert message.startswith(
             f"A detector error model supplies its own error probabilities, so {specified} cannot"
         )
-        assert "let error_channel override its probabilities" in message
         assert "SinterDecoder" in message
         assert "DetectorErrorModelArrays(dem).detector_flip_matrix" in message
 
@@ -163,10 +163,10 @@ def test_dem_error_probabilities_through_public_paths() -> None:
 def test_deprecate_error_rate_option() -> None:
     """Deferred options translate explicit error_rate values and reject ambiguity."""
     options: dict[str, object] = {"error_channel": None, "error_rate": None}
-    assert common._deprecate_error_rate_option(options, frozenset()) == {"error_channel": None}
+    assert _deprecate_error_rate_option(options, frozenset()) == {"error_channel": None}
 
     with pytest.warns(DeprecationWarning, match="error_rate=0.2.*error_channel=0.2") as caught:
-        translated = common._deprecate_error_rate_option(
+        translated = _deprecate_error_rate_option(
             {"error_channel": None, "error_rate": 0.2},
             frozenset({"error_rate"}),
         )
@@ -174,7 +174,7 @@ def test_deprecate_error_rate_option() -> None:
     assert translated == {"error_channel": 0.2}
 
     with pytest.raises(ValueError, match="cannot both be specified"):
-        common._deprecate_error_rate_option(
+        _deprecate_error_rate_option(
             {"error_channel": 0.1, "error_rate": 0.2},
             frozenset({"error_channel", "error_rate"}),
         )
@@ -182,7 +182,7 @@ def test_deprecate_error_rate_option() -> None:
     # an explicit error_rate=None is equivalent to omitting it
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        translated = common._deprecate_error_rate_option(
+        translated = _deprecate_error_rate_option(
             {"error_channel": 0.1, "error_rate": None},
             frozenset({"error_channel", "error_rate"}),
         )

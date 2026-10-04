@@ -54,9 +54,7 @@ def is_prebuilt_observable_decoder(decoder: object) -> bool:
     """
     returns_observables = bool(getattr(decoder, "decode_returns_observables", False))
     is_error_decoder = isinstance(decoder, ErrorDecoder) or (
-        isinstance(decoder, SupportsDecode)
-        and not returns_observables
-        and not getattr(decoder, "decode_is_defunct", False)
+        isinstance(decoder, SupportsDecode) and not returns_observables
     )
     return (
         not isinstance(decoder, (type, DecoderSpec))

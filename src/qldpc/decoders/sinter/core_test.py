@@ -4,8 +4,6 @@
 
 from __future__ import annotations
 
-import typing
-
 import ldpc
 import numpy as np
 import numpy.typing as npt
@@ -82,13 +80,14 @@ def test_sinter_decoder_classes() -> None:
     assert decoders.ObservableDecoder in decoders.CompiledSinterDecoder.__mro__
 
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
-    decoder: typing.Any = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1))
-    with pytest.raises(ValueError, match=r"SinterDecoder\.decode is DEFUNCT"):
-        decoder.decode(np.array([1], dtype=int))
-
-    compiled: typing.Any = decoder.compile_decoder_for_dem(dem)
-    with pytest.raises(ValueError, match=r"CompiledSinterDecoder\.decode is DEFUNCT"):
-        compiled.decode(np.array([1], dtype=int))
+    decoder = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1))
+    assert not hasattr(decoder, "decode")
+    compiled = decoder.compile_decoder_for_dem(dem)
+    assert not hasattr(compiled, "decode")
+    with pytest.raises(TypeError, match="cannot decode until it is compiled"):
+        decoders.as_error_decoder(decoder)
+    with pytest.raises(TypeError, match="predicts observable flips rather than errors"):
+        decoders.as_error_decoder(compiled)
     assert np.array_equal(compiled.decode_observables(np.array([1], dtype=int)), [1])
 
 

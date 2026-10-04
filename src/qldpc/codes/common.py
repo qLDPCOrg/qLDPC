@@ -25,6 +25,7 @@ import stim
 from qldpc import abstract, decoders, external, math
 from qldpc._util import format_docstring, get_external_caller_stacklevel
 from qldpc._util import networkx as nx
+from qldpc.decoders.construction.resolution import _resolve_error_decoder
 from qldpc.math import IntegerArray
 from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ, PauliXZLike, QuditPauli
 
@@ -695,7 +696,7 @@ class ClassicalCode(AbstractCode):
         else:
             check_matrix = np.vstack([self.matrix, self.generator]).view(self.field)
             syndrome = np.zeros(len(check_matrix), dtype=int).view(self.field)
-        error_decoder = decoders.resolve_decoder(check_matrix, decoder, decoder_kwargs)
+        error_decoder = _resolve_error_decoder(check_matrix, decoder, decoder_kwargs)
 
         def get_syndrome() -> npt.NDArray[np.int_]:
             """Get a syndrome to decode, randomizing its overlap with code words if necessary."""
@@ -3674,7 +3675,7 @@ class CSSCode(QuditCode):
 
         # initialize a decoder and a trivial effective syndrome
         effective_check_matrix = np.vstack([matrix_z, logical_ops_z])
-        error_decoder = decoders.resolve_decoder(effective_check_matrix, decoder, decoder_kwargs)
+        error_decoder = _resolve_error_decoder(effective_check_matrix, decoder, decoder_kwargs)
         effective_syndrome = np.zeros(len(effective_check_matrix), dtype=int)
 
         def get_effective_syndrome() -> npt.NDArray[np.int_]:
@@ -3744,7 +3745,7 @@ class CSSCode(QuditCode):
         effective_syndrome = np.zeros((code.num_checks + self.dimension), dtype=int)
         effective_syndrome[dual_op_index] = 1
 
-        error_decoder = decoders.resolve_decoder(effective_check_matrix, decoder, decoder_kwargs)
+        error_decoder = _resolve_error_decoder(effective_check_matrix, decoder, decoder_kwargs)
         candidate_logical_op = _decode_consistently(
             error_decoder, effective_check_matrix, lambda: effective_syndrome, self.field
         )

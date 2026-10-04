@@ -17,7 +17,7 @@ import stim
 
 from qldpc import decoders
 from qldpc.decoders.adapters import error_decoders
-from qldpc.decoders.construction import resolution
+from qldpc.decoders.construction import legacy, resolution
 from qldpc.decoders.construction.resolution import _get_error_decoder, _get_observable_decoder
 from qldpc.decoders.custom.guf import _get_decoder_guf
 from qldpc.decoders.custom.ilp import _get_decoder_ilp
@@ -34,6 +34,32 @@ def _get_circuit_data() -> tuple[stim.DetectorErrorModel, npt.NDArray[np.int_]]:
     )
     syndromes = circuit.compile_detector_sampler(seed=0).sample(200).astype(int)
     return circuit.detector_error_model(), syndromes
+
+
+def test_legacy_translation_stays_at_the_input_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ordinary decoder inputs bypass keyword translation, including in Sinter compilation."""
+    matrix = np.eye(1, dtype=int)
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            legacy,
+            "_merge_legacy_decoder_args",
+            lambda *args, **kwargs: pytest.fail("Modern decoder inputs need no legacy translation"),
+        )
+        error_decoder = resolution._resolve_error_decoder(matrix, decoders.lookup(1), {})
+        assert error_decoder.decode_errors(np.array([1])).tolist() == [1]
+        observable_decoder = resolution._resolve_observable_decoder(dem, decoders.lookup(1), {})
+        assert observable_decoder.decode_observables(np.array([1])).tolist() == [1]
+        compiled = decoders.SinterDecoder(decoder=decoders.lookup(1)).compile_decoder_for_dem(dem)
+        assert compiled.decode_observables(np.array([1])).tolist() == [1]
+
+    with pytest.warns(DeprecationWarning, match="with_lookup"):
+        decoder = resolution._resolve_error_decoder(
+            matrix, None, {"with_lookup": True, "max_weight": 1}
+        )
+    assert decoder.decode_errors(np.array([1])).tolist() == [1]
+    with pytest.raises(ValueError, match="Cannot combine decoder"):
+        resolution._resolve_observable_decoder(dem, decoders.lookup(1), {"with_lookup": True})
 
 
 def test_decoding() -> None:

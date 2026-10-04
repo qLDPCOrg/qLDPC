@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import functools
-import warnings
 from collections.abc import Callable, Sequence
 from typing import ParamSpec, TypeAlias, TypeVar
 
@@ -14,7 +13,6 @@ import numpy as np
 import numpy.typing as npt
 import stim
 
-from qldpc._util import get_external_caller_stacklevel
 from qldpc.math import IntegerArray
 
 from .dems import DetectorErrorModelArrays
@@ -116,12 +114,13 @@ def _get_matrix_error_channel(
         return None
 
     if error_rate is not None:
-        if error_channel is not None:
-            raise ValueError("error_rate and error_channel cannot both be specified")
-        warnings.warn(
-            f"error_rate={error_rate!r} is deprecated; use error_channel={error_rate!r} instead",
-            DeprecationWarning,
-            stacklevel=get_external_caller_stacklevel(),
+        from .construction.legacy_options import _deprecate_error_rate_option
+
+        _deprecate_error_rate_option(
+            {"error_channel": error_channel, "error_rate": error_rate},
+            frozenset(
+                {"error_rate", "error_channel"} if error_channel is not None else {"error_rate"}
+            ),
         )
         error_channel = error_rate
     if error_channel is None:
@@ -145,43 +144,14 @@ def _get_matrix_error_channel(
 def _reject_dem_error_probabilities(error_channel: object, error_rate: object) -> None:
     """Reject explicit error probabilities for a detector error model, which supplies its own.
 
-    Earlier qLDPC releases ignored error_rate for a detector error model, and let error_channel
-    override its probabilities, so the error explains how to migrate.
+    A detector error model supplies its own probabilities.
     """
     options = {"error_channel": error_channel, "error_rate": error_rate}
     if specified := [f"{name}={value!r}" for name, value in options.items() if value is not None]:
         raise ValueError(
             "A detector error model supplies its own error probabilities, so"
-            f" {' and '.join(specified)} cannot be specified with one.  (In qLDPC 0.4.0, the ldpc"
-            " decoders BP+OSD, BP+LSD, and BF ignored error_rate for a detector error model, and"
-            " let error_channel override its probabilities.)  Remove the option, as for a"
+            f" {' and '.join(specified)} cannot be specified with one.  Remove the option, as for a"
             " SinterDecoder, which always decodes detector error models.  Alternatively, pass"
             " error_channel with the detector-flip matrix of the model,"
             " decoders.DetectorErrorModelArrays(dem).detector_flip_matrix"
         )
-
-
-# Deprecated compatibility helpers
-
-
-def _deprecate_error_rate_option(
-    options: dict[str, object], explicitly_provided: frozenset[str]
-) -> dict[str, object]:
-    """Replace an explicitly supplied error_rate option with error_channel.
-
-    An explicit error_rate=None is the default value, so it is dropped as if it were omitted.
-    """
-    if "error_rate" not in explicitly_provided or options.get("error_rate") is None:
-        options.pop("error_rate", None)
-        return options
-    if "error_channel" in explicitly_provided:
-        raise ValueError("error_rate and error_channel cannot both be specified")
-    error_rate = options["error_rate"]
-    warnings.warn(
-        f"error_rate={error_rate!r} is deprecated; use error_channel={error_rate!r} instead",
-        DeprecationWarning,
-        stacklevel=get_external_caller_stacklevel(),
-    )
-    options.pop("error_rate")
-    options["error_channel"] = error_rate
-    return options

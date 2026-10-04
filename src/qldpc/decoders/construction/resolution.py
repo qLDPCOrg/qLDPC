@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import galois
 import stim
 
@@ -46,6 +48,23 @@ def _get_error_decoder(pcm_or_dem: PcmOrDem, *, decoder: ErrorDecoderInput = Non
     return as_error_decoder(*_build_decoder(pcm_or_dem, decoder))
 
 
+def _resolve_error_decoder(
+    pcm_or_dem: PcmOrDem,
+    decoder: ErrorDecoderInput,
+    decoder_args: Mapping[str, object],
+    *,
+    warn_deprecated: bool = True,
+) -> ErrorDecoder:
+    """Resolve an error decoder, translating old keyword arguments only when supplied."""
+    if decoder_args:
+        from .legacy import _merge_legacy_decoder_args
+
+        decoder = _merge_legacy_decoder_args(
+            pcm_or_dem, decoder, decoder_args, warn_deprecated=warn_deprecated
+        )
+    return _get_error_decoder(pcm_or_dem, decoder=decoder)
+
+
 def _get_observable_decoder(
     dem: stim.DetectorErrorModel, *, decoder: DecoderInput = None
 ) -> ObservableDecoder:
@@ -75,6 +94,23 @@ def _get_observable_decoder(
     if isinstance(built_decoder, ObservableDecoder):
         return built_decoder
     return _ErrorsToObservablesDecoder(as_error_decoder(built_decoder, source), dem)
+
+
+def _resolve_observable_decoder(
+    dem: stim.DetectorErrorModel,
+    decoder: DecoderInput,
+    decoder_args: Mapping[str, object],
+    *,
+    warn_deprecated: bool = True,
+) -> ObservableDecoder:
+    """Resolve an observable decoder, translating old keywords only when supplied."""
+    if decoder_args:
+        from .legacy import _merge_legacy_decoder_args
+
+        decoder = _merge_legacy_decoder_args(
+            dem, decoder, decoder_args, warn_deprecated=warn_deprecated
+        )
+    return _get_observable_decoder(dem, decoder=decoder)
 
 
 def reject_prebuilt_decoder(decoder: object, reason: str) -> None:

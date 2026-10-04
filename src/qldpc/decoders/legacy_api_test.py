@@ -156,6 +156,13 @@ def test_tagged_root_inventory() -> None:
     assert V033_ROOT_NAMES <= V041_ROOT_NAMES
 
 
+def test_tagged_root_star_import() -> None:
+    """The import machinery can resolve the package root's star-import inventory."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        assert __import__("qldpc.decoders", fromlist=["*"]) is qldpc.decoders
+
+
 @pytest.mark.parametrize(
     "name,qualified_name",
     [

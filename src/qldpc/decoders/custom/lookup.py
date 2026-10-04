@@ -42,6 +42,8 @@ class _LookupDecoderBase:
     See help(LookupDecoder) for details.
     """
 
+    _outputs_observables = False
+
     def __init__(
         self,
         pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
@@ -54,7 +56,6 @@ class _LookupDecoderBase:
             | None
         ) = None,
         observable_flip_matrix: IntegerArray | None = None,
-        predict_observable_flips: bool = False,
         post_select: Collection[int] = (),
         add_erasure_bit: bool | None = None,  # falsy by default
         confidence_ratio: float | None = None,
@@ -85,7 +86,7 @@ class _LookupDecoderBase:
             pcm_or_dem,
             error_channel,
             observable_flip_matrix,
-            predict_observable_flips,
+            self._outputs_observables,
             post_select,
             add_erasure_bit,
             probability_cutoff,
@@ -102,11 +103,7 @@ class _LookupDecoderBase:
                 " observable_flip_matrix"
             )
 
-        # save attributes; decode_returns_observables declares whether a decode method returns
-        # observable flips, which it does with the deprecated predict_observable_flips=True
-        self.predict_observable_flips = predict_observable_flips
-        self.decode_returns_observables = predict_observable_flips
-        self._save_interface_metadata(pcm, observable_flip_matrix, predict_observable_flips)
+        self._save_interface_metadata(pcm, observable_flip_matrix, self._outputs_observables)
         self.syndrome_mask = syndrome_mask
         self.has_erasure_bit = add_erasure_bit
         self.default_correction = default_correction
@@ -138,7 +135,6 @@ class _LookupDecoderBase:
                 pcm,
                 observable_flip_matrix,
                 symplectic,
-                predict_observable_flips,
                 confidence_ratio,
             )
 
@@ -153,13 +149,12 @@ class _LookupDecoderBase:
         pcm: IntegerArray,
         observable_flip_matrix: IntegerArray,
         symplectic: bool,
-        predict_observable_flips: bool,
         confidence_ratio: float | None,
     ) -> None:
         """Populate the lookup table, mapping each syndrome to its most likely observable flip.
 
         Builds a lookup table that maps each syndrome to an error that induces the most likely
-        observable flips (or, if predict_observable_flips, to the observable flips themselves).
+        observable flips (or to representative errors with those flips).
         """
 
         get_observable_flip = _build_observable_flip_func(pcm, observable_flip_matrix, symplectic)
@@ -183,7 +178,7 @@ class _LookupDecoderBase:
             net_log_probs[syndrome][obs_flip] = float(
                 np.logaddexp(net_log_probs[syndrome].get(obs_flip, -np.inf), log_prob)
             )
-            if predict_observable_flips:
+            if self._outputs_observables:
                 continue  # representative errors are only needed to decode to errors
             # Record the first error for each key (so it always has a representative, even when all
             # of its errors have zero probability), then keep the most likely one thereafter.  A tie
@@ -216,7 +211,7 @@ class _LookupDecoderBase:
                 # which ignores competing flips of zero probability at every confidence_ratio
                 if log_prob_top < log_confidence_ratio + log_prob_rest:
                     continue  # omit the ambiguous syndrome, leaving it to decode as erasure
-            if predict_observable_flips:
+            if self._outputs_observables:
                 prediction = observable_flip_packer.unpack(most_likely_obs_flip)
             else:
                 prediction = error_packer.unpack(most_likely_errors[syndrome, most_likely_obs_flip])
@@ -247,13 +242,13 @@ class _LookupDecoderBase:
         self,
         pcm: IntegerArray,
         observable_flip_matrix: IntegerArray | None,
-        predict_observable_flips: bool,
+        output_observables: bool,
     ) -> None:
         """Record dimensions and the field so prebuilt-decoder compatibility can be checked."""
         self.num_detectors = pcm.shape[0]
         self.num_observables = (
             observable_flip_matrix.shape[0]
-            if predict_observable_flips and observable_flip_matrix is not None
+            if output_observables and observable_flip_matrix is not None
             else 0
         )
         self.field = type(pcm) if isinstance(pcm, galois.FieldArray) else galois.GF2
@@ -420,10 +415,6 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
     each ``syndrome`` the highest-probability individual ``error`` from the group with the highest
     total probability.
 
-    The deprecated ``predict_observable_flips=True`` option makes ``.decode`` return the most likely
-    observable flip for each syndrome, rather than a representative ``error``.  Use an
-    ObservableLookupDecoder instead, whose ``.decode_observables`` method returns observable flips.
-
     If provided a ``post_select`` collection of syndrome-bit (i.e., detector) indices, this decoder
     post-selects on those bits being trivial: when constructing the lookup table, it ignores
     syndromes that are nonzero on the post-selected bits, and it drops those bits from the syndrome
@@ -453,11 +444,14 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
     ``[X|Z]`` support of a stabilizer.  Decoded errors are likewise vectors that indicate
     ``[X|Z]`` support.
 
-    The constructor argument ``penalty_func`` is deprecated.  It is immediately replaced by the
-    callable channel ``error_channel=lambda error: -penalty_func(error)``.  Legacy penalty outputs
-    are not subjected to the stricter normalized-log-probability validation, but the adapted channel
-    has the same cutoff restriction as any other callable channel.  The decode-time ``penalty_func``
-    of a WeightedLookupDecoder is a separate, non-deprecated optimization objective.
+    .. deprecated:: 0.4.1
+        ``predict_observable_flips=True`` makes ``.decode`` return observable flips instead of
+        errors.  Use an ObservableLookupDecoder and ``.decode_observables`` instead.
+        The constructor argument ``penalty_func`` is replaced by the callable channel
+        ``error_channel=lambda error: -penalty_func(error)``.  Legacy penalty outputs are not
+        subjected to normalized-log-probability validation, but the adapted channel has the same
+        cutoff restriction as any other callable channel.  The decode-time ``penalty_func`` of a
+        WeightedLookupDecoder remains a separate, non-deprecated optimization objective.
     """
 
     def __init__(
@@ -485,12 +479,14 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
         predict_observable_flips is deprecated; use ObservableLookupDecoder for observable output.
         """
         _warn_deprecated_observable_prediction(predict_observable_flips, "ObservableLookupDecoder")
+        self._outputs_observables = predict_observable_flips
+        self.predict_observable_flips = predict_observable_flips
+        self.decode_returns_observables = predict_observable_flips
         super().__init__(
             pcm_or_dem,
             max_weight,
             error_channel=error_channel,
             observable_flip_matrix=observable_flip_matrix,
-            predict_observable_flips=predict_observable_flips,
             post_select=post_select,
             add_erasure_bit=add_erasure_bit,
             confidence_ratio=confidence_ratio,
@@ -529,6 +525,8 @@ class ObservableLookupDecoder(_LookupDecoderBase):
     observables.  If initialized with ``add_erasure_bit=True``, this decoder appends an erasure bit
     to each predicted observable flip.
     """
+
+    _outputs_observables = True
 
     @overload
     def __init__(
@@ -588,7 +586,6 @@ class ObservableLookupDecoder(_LookupDecoderBase):
             max_weight,
             error_channel=error_channel,
             observable_flip_matrix=observable_flip_matrix,
-            predict_observable_flips=True,
             post_select=post_select,
             add_erasure_bit=add_erasure_bit,
             confidence_ratio=confidence_ratio,
@@ -660,7 +657,6 @@ class _WeightedLookupDecoderBase(_LookupDecoderBase):
         max_weight: int,
         *,
         observable_flip_matrix: IntegerArray | None = None,
-        predict_observable_flips: bool = False,
         post_select: Collection[int] = (),
         add_erasure_bit: bool = False,
         symplectic: bool = False,
@@ -670,17 +666,13 @@ class _WeightedLookupDecoderBase(_LookupDecoderBase):
                 pcm_or_dem,
                 None,
                 observable_flip_matrix,
-                predict_observable_flips,
+                self._outputs_observables,
                 post_select,
                 add_erasure_bit,
             )
         )
 
-        # save attributes; decode_returns_observables declares whether a decode method returns
-        # observable flips, which it does with the deprecated predict_observable_flips=True
-        self.predict_observable_flips = predict_observable_flips
-        self.decode_returns_observables = predict_observable_flips
-        self._save_interface_metadata(pcm, observable_flip_matrix, predict_observable_flips)
+        self._save_interface_metadata(pcm, observable_flip_matrix, self._outputs_observables)
         self.syndrome_mask = syndrome_mask
         self.has_erasure_bit = add_erasure_bit
         self.default_correction = default_correction
@@ -694,7 +686,7 @@ class _WeightedLookupDecoderBase(_LookupDecoderBase):
             tuple[int, ...], list[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]
         ] = collections.defaultdict(list)
         get_observable_flip = None
-        if predict_observable_flips:
+        if self._outputs_observables:
             assert observable_flip_matrix is not None  # primarily for type-checking reasons
             get_observable_flip = _build_observable_flip_func(
                 pcm, observable_flip_matrix, symplectic
@@ -753,8 +745,11 @@ class WeightedLookupDecoder(_WeightedLookupDecoderBase, LookupDecoder):
 
     The ``pcm_or_dem``, ``max_weight``, ``observable_flip_matrix``, ``post_select``,
     ``add_erasure_bit``, and ``symplectic`` options behave as they do for a LookupDecoder; see
-    help(LookupDecoder).  The deprecated ``predict_observable_flips=True`` option makes ``.decode``
-    return observable flips; use a WeightedObservableLookupDecoder instead.
+    help(LookupDecoder).
+
+    .. deprecated:: 0.4.1
+        ``predict_observable_flips=True`` makes ``.decode`` return observable flips; use a
+        WeightedObservableLookupDecoder and ``.decode_observables`` instead.
     """
 
     def __init__(
@@ -771,11 +766,13 @@ class WeightedLookupDecoder(_WeightedLookupDecoderBase, LookupDecoder):
         _warn_deprecated_observable_prediction(
             predict_observable_flips, "WeightedObservableLookupDecoder"
         )
+        self._outputs_observables = predict_observable_flips
+        self.predict_observable_flips = predict_observable_flips
+        self.decode_returns_observables = predict_observable_flips
         super().__init__(
             pcm_or_dem,
             max_weight,
             observable_flip_matrix=observable_flip_matrix,
-            predict_observable_flips=predict_observable_flips,
             post_select=post_select,
             add_erasure_bit=add_erasure_bit,
             symplectic=symplectic,
@@ -826,6 +823,8 @@ class WeightedObservableLookupDecoder(_WeightedLookupDecoderBase):
     a parity check matrix together with an ``observable_flip_matrix``.
     """
 
+    _outputs_observables = True
+
     @overload
     def __init__(
         self,
@@ -863,7 +862,6 @@ class WeightedObservableLookupDecoder(_WeightedLookupDecoderBase):
             pcm_or_dem,
             max_weight,
             observable_flip_matrix=observable_flip_matrix,
-            predict_observable_flips=True,
             post_select=post_select,
             add_erasure_bit=add_erasure_bit,
             symplectic=symplectic,
@@ -974,7 +972,7 @@ def _organize_lookup_table_initialization_data(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     error_channel: _ErrorChannel,
     observable_flip_matrix: IntegerArray | None,
-    predict_observable_flips: bool,
+    output_observables: bool,
     post_select: Collection[int],
     add_erasure_bit: bool,
     probability_cutoff: float = 0,
@@ -1003,7 +1001,7 @@ def _organize_lookup_table_initialization_data(
         error_channel = dem_arrays.error_probs
         # errors are grouped by observable flip if there are observables, or if predicting
         # observable flips, which are trivial (empty) if there are no observables
-        if dem_arrays.num_observables > 0 or predict_observable_flips:
+        if dem_arrays.num_observables > 0 or output_observables:
             observable_flip_matrix = dem_arrays.observable_flip_matrix
     else:
         pcm = pcm_or_dem
@@ -1042,7 +1040,7 @@ def _organize_lookup_table_initialization_data(
         syndrome_mask[list(post_select)] = False
 
     # build the default output returned for syndromes absent from the lookup table
-    if predict_observable_flips:
+    if output_observables:
         if observable_flip_matrix is None:
             raise ValueError(
                 "A lookup decoder that predicts observable flips requires an"
