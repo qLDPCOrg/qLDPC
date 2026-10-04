@@ -28,8 +28,9 @@ Do not copy transient project history, machine-specific paths, or local-session 
   Do not infer that this weaker guarantee applies elsewhere.
 - Keep complete lists of public symbols in `__all__` and AutoAPI.
   Human-written docs should explain what packages do and show representative tasks, not duplicate a class catalogue.
-- A module should not use a private (underscore-prefixed) name from another module unless it is a narrowly shared internal helper deliberately housed in a package's `common.py`, and used only within that package.
-  Otherwise, needing to do so indicates that the name should be public and documented.
+- A module should not use a private (underscore-prefixed) name from another module unless it is a narrowly shared internal helper or an intentional decoder-composition boundary.
+  For example, `decoders/construction/resolution.py` calls private backend builders kept beside their implementations; they are not public APIs merely because the resolver imports them.
+  Otherwise, needing a cross-module private name indicates that it should be public and documented.
   A test module may use private names of the module that it tests.
 
 ## Module organization and ordering
@@ -174,6 +175,8 @@ Legacy keyword-based construction in `decoders/construction/legacy.py` is an att
 3. Preserve public imports and invalidate or transfer cached values deliberately.
 
 ### Add or adapt a decoder
+
+Follow the [adding a decoder guide](docs/source/adding_decoders.rst) for a custom-decoder example and a first-party backend checklist.
 
 1. Put integrations with third-party decoder packages under [`decoders/external/`](src/qldpc/decoders/external/), and qLDPC-owned implementations under [`decoders/custom/`](src/qldpc/decoders/custom/).
 2. Keep each immediate builder beside the implementation it constructs.

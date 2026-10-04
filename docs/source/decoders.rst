@@ -220,6 +220,8 @@ Sinter passes decoders to its worker processes by pickling them, so a custom dec
 Custom and prebuilt decoders
 ----------------------------
 
+To write a custom decoder or contribute a new backend, follow :doc:`Adding a decoder <adding_decoders>`.
+
 A custom error decoder subclasses :class:`decoders.ErrorDecoder <qldpc.decoders.protocols.ErrorDecoder>` and implements ``decode_errors``, which maps a syndrome to an inferred error.
 The subclass inherits ``decode`` as an alias for ``decode_errors``.
 A custom observable decoder implements ``decode_observables``, which maps a syndrome to predicted observable flips, to satisfy the :class:`decoders.ObservableDecoder <qldpc.decoders.protocols.ObservableDecoder>` protocol.

@@ -421,22 +421,19 @@ def test_decoder_spec_helper_annotations() -> None:
 
 
 def test_decoder_spec_helper_docstrings() -> None:
-    """All public helpers document their own options and appear in the guide's API inventory."""
-    helpers = (
-        decoders.bp_osd,
-        decoders.bp_lsd,
-        decoders.bf,
-        decoders.mwpm,
-        decoders.frontier,
-        decoders.relay_bp,
-        decoders.min_sum_bp,
-        decoders.tesseract,
-        decoders.lookup,
-        decoders.ilp,
-        decoders.guf,
-    )
+    """Exported generated helpers must document their options and appear in the guide."""
+    helpers = [
+        (name, helper)
+        for name in decoders.__all__
+        if (helper := vars(decoders).get(name)) is not None
+        and isinstance(getattr(helper, "__signature__", None), inspect.Signature)
+        and typing.get_origin(getattr(helper, "__annotations__", {}).get("return"))
+        is decoders.DecoderSpec
+    ]
+    assert helpers
     guide = (pathlib.Path(__file__).parents[4] / "docs/source/decoders.rst").read_text()
-    for helper in helpers:
+    for name, helper in helpers:
+        assert callable(helper) and getattr(helper, "__name__", None) == name
         docstring = inspect.getdoc(helper)
         assert docstring is not None and docstring.startswith("Configure ")
         arguments = docstring.split("Args:\n", maxsplit=1)[1].split("\n\n", maxsplit=1)[0]
@@ -451,8 +448,7 @@ def test_decoder_spec_helper_docstrings() -> None:
             assert ".. deprecated::" in docstring
             assert all(f"``{name}``" in docstring for name in legacy_options)
         assert "A decoder specification." in docstring
-        assert helper.__name__ in decoders.__all__
-        assert f".. autofunction:: qldpc.decoders.{helper.__name__}\n" in guide
+        assert f".. autofunction:: qldpc.decoders.{name}\n" in guide
 
     # builders document their built decoders, and helpers independently describe specifications
     builders: list[tuple[Callable[..., object], Callable[..., object]]] = [
