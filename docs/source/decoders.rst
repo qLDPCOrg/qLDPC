@@ -294,16 +294,14 @@ Lookup-table outputs
 :class:`LookupDecoder <qldpc.decoders.custom.lookup.LookupDecoder>` and :class:`WeightedLookupDecoder <qldpc.decoders.custom.lookup.WeightedLookupDecoder>` are error decoders.
 They may use an observable-flip matrix to group candidate errors by logical effect, but their output is a representative physical error.
 
-:class:`ObservableLookupDecoder <qldpc.decoders.custom.lookup.ObservableLookupDecoder>` and :class:`WeightedObservableLookupDecoder <qldpc.decoders.custom.lookup.WeightedObservableLookupDecoder>` are observable decoders, which return the observable flip itself:
+:class:`ObservableLookupDecoder <qldpc.decoders.custom.lookup.ObservableLookupDecoder>` and :class:`WeightedObservableLookupDecoder <qldpc.decoders.custom.lookup.WeightedObservableLookupDecoder>` return the observable flip itself.  Build the ordinary observable lookup decoder from a DEM through its specification:
 
 .. code-block:: python
 
-   from qldpc.decoders.custom.lookup import ObservableLookupDecoder
-
-   observable_lookup = ObservableLookupDecoder(dem, max_weight=2)
+   observable_lookup = decoders.lookup(max_weight=2).build_observable_decoder(dem)
    predicted_flips = observable_lookup.decode_observables(syndrome)
 
-An observable lookup decoder built from a parity-check matrix, rather than a detector error model, requires an ``observable_flip_matrix`` that specifies which errors flip which observables.
+For the advanced case of constructing an :class:`ObservableLookupDecoder <qldpc.decoders.custom.lookup.ObservableLookupDecoder>` directly from a parity-check matrix rather than a DEM, supply an ``observable_flip_matrix`` specifying which errors flip which observables.
 
 Erasure-aware decoders append their erasure flag after the inferred error or observable vector.
 Compiled Sinter decoders translate that flag into a discarded shot.
@@ -354,9 +352,11 @@ In particular, ``decoders.get_decoder`` and ``decoders.decode`` behave as they d
    * - ``decoder_x_kwargs={...}`` and ``decoder_z_kwargs={...}``
      - ``decoder_x=...`` and ``decoder_z=...``
    * - ``LookupDecoder(..., predict_observable_flips=True)``
-     - ``ObservableLookupDecoder(...)`` and its ``decode_observables`` method
+     - ``decoders.lookup(...).build_observable_decoder(dem)`` for a DEM.  For a matrix, use
+       ``qldpc.decoders.custom.lookup.ObservableLookupDecoder`` with an ``observable_flip_matrix``.
    * - ``WeightedLookupDecoder(..., predict_observable_flips=True)``
-     - ``WeightedObservableLookupDecoder(...)`` and its ``decode_observables`` method
+     - ``qldpc.decoders.custom.lookup.WeightedObservableLookupDecoder(...)`` and its
+       ``decode_observables`` method
    * - ``SinterDecoder.decode`` and ``CompiledSinterDecoder.decode`` (defunct)
      - ``CompiledSinterDecoder.decode_observables``
    * - ``SubgraphSinterDecoder`` and ``SequentialSinterDecoder``

@@ -45,17 +45,22 @@ factory that accepts the sector's DEM with ``decoders.from_dem(factory)``.  For 
 
 .. code-block:: python
 
+   import numpy as np
    import stim
    from qldpc import decoders
-   from qldpc.decoders.custom.lookup import ObservableLookupDecoder
 
-   def make_observable_decoder(dem: stim.DetectorErrorModel) -> decoders.ObservableDecoder:
-       return ObservableLookupDecoder(dem, max_weight=1)
+   class NoFlipDecoder(decoders.ObservableDecoder):
+       def __init__(self, dem: stim.DetectorErrorModel) -> None:
+           self.num_observables = dem.num_observables
+
+       def decode_observables(self, syndrome: np.ndarray) -> np.ndarray:
+           return np.zeros(self.num_observables, dtype=int)
 
    sinter_decoder = decoders.SinterDecoder(
-       decoder=decoders.from_dem(make_observable_decoder)
+       decoder=decoders.from_dem(NoFlipDecoder)
    )
 
+This toy decoder always predicts no flips; it only illustrates the output contract.
 A DEM is binary; a decoder for a nonbinary code must use field-valued matrix inputs.
 Define factories in an importable module, not as local functions or lambdas, when Sinter
 needs to pickle them for worker processes.  To signal erasure, set ``has_erasure_bit = True``
