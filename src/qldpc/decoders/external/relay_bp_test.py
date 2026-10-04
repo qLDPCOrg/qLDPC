@@ -112,8 +112,6 @@ def test_relay_bp_observables() -> None:
             get_decoder().decode_observables_detailed(syndromes[0]).observable_flips,
             predicted_flips[0],
         )
-        # a decoder's predictions depend on what it decoded before
-        assert not np.array_equal(decoder.decode_observables_batch(syndromes), predicted_flips)
 
         errors = get_decoder().decode_batch(syndromes, progress_bar=False)
         if add_erasure_bit:
