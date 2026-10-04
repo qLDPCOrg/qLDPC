@@ -2,6 +2,7 @@
 
 """Contract tests for the v0.3.3 and v0.4.1 package-root decoder API."""
 
+import importlib
 import inspect
 import warnings
 
@@ -153,6 +154,30 @@ def test_tagged_root_inventory() -> None:
     assert len(V033_ROOT_NAMES) == 32
     assert len(V041_ROOT_NAMES) == 90
     assert V033_ROOT_NAMES <= V041_ROOT_NAMES
+
+
+@pytest.mark.parametrize(
+    "name,qualified_name",
+    [
+        ("LookupDecoder", "qldpc.decoders.custom.lookup.LookupDecoder"),
+        ("RelayBPDecoder", "qldpc.decoders.external.relay_bp.RelayBPDecoder"),
+        ("CompiledSubgraphDecoder", "qldpc.decoders.sinter.subgraph.CompiledSubgraphDecoder"),
+        ("FlipPattern", "qldpc.decoders.dems.FlipPattern"),
+    ],
+)
+def test_historical_root_class_has_qualified_import(name: str, qualified_name: str) -> None:
+    """Historical root classes retain identity while naming their canonical package path."""
+    assert name in qldpc.decoders.__all__
+    assert name not in vars(qldpc.decoders)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        alias = getattr(qldpc.decoders, name)
+    module, _, class_name = qualified_name.rpartition(".")
+    assert alias is getattr(importlib.import_module(module), class_name)
+    assert [str(warning.message) for warning in caught] == [
+        f"{name} is deprecated; use {qualified_name} instead"
+    ]
+    assert caught[0].filename == __file__
 
 
 def test_tagged_root_function_signatures() -> None:

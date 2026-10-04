@@ -47,9 +47,10 @@ factory that accepts the sector's DEM with ``decoders.from_dem(factory)``.  For 
 
    import stim
    from qldpc import decoders
+   from qldpc.decoders.custom.lookup import ObservableLookupDecoder
 
    def make_observable_decoder(dem: stim.DetectorErrorModel) -> decoders.ObservableDecoder:
-       return decoders.ObservableLookupDecoder(dem, max_weight=1)
+       return ObservableLookupDecoder(dem, max_weight=1)
 
    sinter_decoder = decoders.SinterDecoder(
        decoder=decoders.from_dem(make_observable_decoder)

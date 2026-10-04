@@ -16,11 +16,11 @@ import stim
 from qldpc import codes, decoders, math
 from qldpc.decoders.conftest import SurfaceCodeProblem, ToyProblem
 from qldpc.decoders.construction.resolution import _get_error_decoder
+from qldpc.decoders.custom._lookup_enumeration import _iter_errors_and_syndromes
 from qldpc.decoders.custom.lookup import (
     _FieldVectorPacker,
     _get_decoder_lookup,
     _get_observable_decoder_lookup,
-    _iter_errors_and_syndromes,
 )
 
 

@@ -180,7 +180,8 @@ Follow the [adding a decoder guide](docs/source/adding_decoders.rst) for a custo
 
 1. Put integrations with third-party decoder packages under [`decoders/external/`](src/qldpc/decoders/external/), and qLDPC-owned implementations under [`decoders/custom/`](src/qldpc/decoders/custom/).
 2. Keep each immediate builder beside the implementation it constructs.
-   Add typed specifications or generic resolution wiring under [`decoders/construction/`](src/qldpc/decoders/construction/), then export the modern API from the relevant package `__init__.py` and [`decoders/__init__.py`](src/qldpc/decoders/__init__.py).
+   Add typed specifications or generic resolution wiring under [`decoders/construction/`](src/qldpc/decoders/construction/).
+   Export concrete backend classes at qualified `custom` or `external` paths, and export public specification helpers from [`decoders/__init__.py`](src/qldpc/decoders/__init__.py).
    Derive each specification helper's signature from one typed builder or constructor, write its public docstring explicitly, and add it to the `autofunction` inventory in [`decoders.rst`](docs/source/decoders.rst).
    Keep deprecated keyword translation isolated in `construction/legacy.py`.
 3. Decide and test batch behavior, nonbinary support, detector-error-model support, and erasure signaling explicitly.

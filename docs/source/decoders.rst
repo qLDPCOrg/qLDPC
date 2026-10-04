@@ -10,7 +10,7 @@ The distinction matters when composing decoders.
 Decoder-based distance bounds, logical-operator reduction, and sliding-window decoders all work with physical errors, so they need error decoders.
 Circuit-level simulations only need to know which observables flipped, so they use observable decoders.
 Code-capacity estimates only need to know whether decoding changed the logical state, so they accept either kind (see `Code-capacity estimates`_).
-Some decoders are both: :class:`decoders.RelayBPDecoder <qldpc.decoders.external.relay_bp.RelayBPDecoder>` and :class:`decoders.TesseractDecoder <qldpc.decoders.external.tesseract.TesseractDecoder>` infer errors and predict observable flips.
+Some decoders are both: :class:`RelayBPDecoder <qldpc.decoders.external.relay_bp.RelayBPDecoder>` and :class:`TesseractDecoder <qldpc.decoders.external.tesseract.TesseractDecoder>` infer errors and predict observable flips.
 Exact distance calculations do not need a decoder.
 
 A :class:`decoders.SinterDecoder <qldpc.decoders.sinter.core.SinterDecoder>` accepts a decoder specification or constructor and builds a compiled observable decoder for each detector error model.
@@ -129,7 +129,7 @@ It therefore only ever asks which logical operators (observables) an error flips
   Stim detector error models are binary, so such a decoder is rejected for a code over another field.
   A factory wrapped with ``decoders.from_dem(factory)`` is built from the same detector error model.
   Bare callables are treated as error-decoder constructors and receive the parity-check matrix.
-* A prebuilt observable decoder, such as an :class:`decoders.ObservableLookupDecoder <qldpc.decoders.custom.lookup.ObservableLookupDecoder>` built with the stabilizers and logical operators of a CSS sector, predicts logical flips directly, over any field.
+* A prebuilt observable decoder, such as an :class:`ObservableLookupDecoder <qldpc.decoders.custom.lookup.ObservableLookupDecoder>` built with the stabilizers and logical operators of a CSS sector, predicts logical flips directly, over any field.
   Detector, observable, and field metadata is validated when a decoder exposes it.
   Built-in observable decoders expose this metadata; a raw precompiled decoder that only provides Sinter's bit-packed interface must do so as well.
 
@@ -163,10 +163,10 @@ Some decoders can predict observable flips natively, without first inferring an 
 Their specifications build a native observable decoder wherever observable flips are wanted:
 
 * ``mwpm`` builds a PyMatching decoder that tracks observables along matched paths;
-* ``frontier`` builds a :class:`decoders.FrontierObservableDecoder <qldpc.decoders.external.frontier.FrontierObservableDecoder>`, described below;
-* ``relay_bp`` and ``min_sum_bp`` build a :class:`decoders.RelayBPDecoder <qldpc.decoders.external.relay_bp.RelayBPDecoder>`;
-* ``tesseract`` builds a :class:`decoders.TesseractDecoder <qldpc.decoders.external.tesseract.TesseractDecoder>` that natively predicts the observables of its detector error model; and
-* ``lookup`` builds an :class:`decoders.ObservableLookupDecoder <qldpc.decoders.custom.lookup.ObservableLookupDecoder>`, which maps each syndrome directly to its most likely observable flip.
+* ``frontier`` builds a :class:`FrontierObservableDecoder <qldpc.decoders.external.frontier.FrontierObservableDecoder>`, described below;
+* ``relay_bp`` and ``min_sum_bp`` build a :class:`RelayBPDecoder <qldpc.decoders.external.relay_bp.RelayBPDecoder>`;
+* ``tesseract`` builds a :class:`TesseractDecoder <qldpc.decoders.external.tesseract.TesseractDecoder>` that natively predicts the observables of its detector error model; and
+* ``lookup`` builds an :class:`ObservableLookupDecoder <qldpc.decoders.custom.lookup.ObservableLookupDecoder>`, which maps each syndrome directly to its most likely observable flip.
 
 Specifications for other decoders build an error decoder, whose inferred errors are converted into observable flips.
 ``DecoderSpec.predicts_observables_natively`` reports which of these applies.
@@ -233,10 +233,9 @@ A custom decoder may also define:
 Methods that use an error decoder also accept any object whose ``decode`` method returns an inferred error, such as a decoder built directly with the ldpc package, and wrap it in a :class:`decoders.WrappedErrorDecoder <qldpc.decoders.protocols.WrappedErrorDecoder>`.
 Decoder specifications build instances of the backend decoder classes, defined by their integration modules; for example, ``decoders.bp_osd().build(pcm)`` returns an ``ldpc.BpOsdDecoder`` that is also an ``ErrorDecoder``.
 
-External integration classes have canonical paths such as :class:`decoders.RelayBPDecoder <qldpc.decoders.external.relay_bp.RelayBPDecoder>` and :class:`decoders.TesseractDecoder <qldpc.decoders.external.tesseract.TesseractDecoder>`.
-qLDPC's own implementation classes have canonical paths at :class:`decoders.ILPDecoder <qldpc.decoders.custom.ilp.ILPDecoder>`, :class:`decoders.GUFDecoder <qldpc.decoders.custom.guf.GUFDecoder>`, :class:`decoders.CompositeDecoder <qldpc.decoders.custom.composition.CompositeDecoder>`, and :class:`decoders.DirectDecoder <qldpc.decoders.custom.composition.DirectDecoder>`.
-:class:`decoders.ErrorsToObservablesDecoder <qldpc.decoders.adapters.error_decoders.ErrorsToObservablesDecoder>` and :class:`decoders.ExpandedErrorDecoder <qldpc.decoders.adapters.error_decoders.ExpandedErrorDecoder>` are the conversion adapters.
-These classes are also exported from ``qldpc.decoders``.
+External integration classes have qualified paths such as :class:`RelayBPDecoder <qldpc.decoders.external.relay_bp.RelayBPDecoder>` and :class:`TesseractDecoder <qldpc.decoders.external.tesseract.TesseractDecoder>`.
+qLDPC's own implementation classes live in the :mod:`qldpc.decoders.custom` package, such as :class:`ILPDecoder <qldpc.decoders.custom.ilp.ILPDecoder>`, :class:`GUFDecoder <qldpc.decoders.custom.guf.GUFDecoder>`, :class:`CompositeDecoder <qldpc.decoders.custom.composition.CompositeDecoder>`, and :class:`DirectDecoder <qldpc.decoders.custom.composition.DirectDecoder>`.
+:class:`ErrorsToObservablesDecoder <qldpc.decoders.adapters.error_decoders.ErrorsToObservablesDecoder>` and :class:`ExpandedErrorDecoder <qldpc.decoders.adapters.error_decoders.ExpandedErrorDecoder>` are the conversion adapters.
 
 Besides a ``DecoderSpec``, the ``decoder=`` argument accepts:
 
@@ -292,14 +291,16 @@ Sinter's compiled decoder interface returns observable arrays.
 Lookup-table outputs
 --------------------
 
-:class:`decoders.LookupDecoder <qldpc.decoders.custom.lookup.LookupDecoder>` and :class:`decoders.WeightedLookupDecoder <qldpc.decoders.custom.lookup.WeightedLookupDecoder>` are error decoders.
+:class:`LookupDecoder <qldpc.decoders.custom.lookup.LookupDecoder>` and :class:`WeightedLookupDecoder <qldpc.decoders.custom.lookup.WeightedLookupDecoder>` are error decoders.
 They may use an observable-flip matrix to group candidate errors by logical effect, but their output is a representative physical error.
 
-:class:`decoders.ObservableLookupDecoder <qldpc.decoders.custom.lookup.ObservableLookupDecoder>` and :class:`decoders.WeightedObservableLookupDecoder <qldpc.decoders.custom.lookup.WeightedObservableLookupDecoder>` are observable decoders, which return the observable flip itself:
+:class:`ObservableLookupDecoder <qldpc.decoders.custom.lookup.ObservableLookupDecoder>` and :class:`WeightedObservableLookupDecoder <qldpc.decoders.custom.lookup.WeightedObservableLookupDecoder>` are observable decoders, which return the observable flip itself:
 
 .. code-block:: python
 
-   observable_lookup = decoders.ObservableLookupDecoder(dem, max_weight=2)
+   from qldpc.decoders.custom.lookup import ObservableLookupDecoder
+
+   observable_lookup = ObservableLookupDecoder(dem, max_weight=2)
    predicted_flips = observable_lookup.decode_observables(syndrome)
 
 An observable lookup decoder built from a parity-check matrix, rather than a detector error model, requires an ``observable_flip_matrix`` that specifies which errors flip which observables.
@@ -416,6 +417,17 @@ Custom code-capacity factories that relied on a return annotation to receive a d
 must now be wrapped with ``decoders.from_dem(factory)``.  Bare factories receive the parity-check
 matrix and must build error decoders; use ``decoders.from_matrix(factory)`` to declare a matrix-only
 factory explicitly.  Annotations no longer control this routing, without a deprecation period.
+
+Migrating backend class imports
+-------------------------------
+
+Backend implementation classes formerly exported from ``qldpc.decoders``, such as
+``LookupDecoder`` and ``RelayBPDecoder``, remain importable at the package root, including
+through star imports, but now warn on access.  Workflow classes such as ``SinterDecoder``
+remain direct root exports.  Import backend classes from their defining modules instead:
+``from qldpc.decoders.custom.lookup import LookupDecoder`` or
+``from qldpc.decoders.external.relay_bp import RelayBPDecoder``.  The objects and their
+constructor signatures are unchanged.
 
 Decoder specification reference
 -------------------------------

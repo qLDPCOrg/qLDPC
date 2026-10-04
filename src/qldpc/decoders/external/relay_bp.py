@@ -116,7 +116,7 @@ class RelayBPDecoder(BatchErrorDecoder):
             raise TypeError(
                 "I think you provided a Relay-BP decoder decoder name in place of a parity check"
                 " matrix.  There was breaking change to this API.  See"
-                " help(qldpc.decoders.RelayBPDecoder)"
+                " help(qldpc.decoders.external.relay_bp.RelayBPDecoder)"
             )
 
         if isinstance(pcm_or_dem, stim.DetectorErrorModel):

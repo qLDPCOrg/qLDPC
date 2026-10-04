@@ -20,6 +20,9 @@ import stim
 
 from qldpc import decoders
 from qldpc.decoders.construction import legacy
+from qldpc.decoders.custom.guf import GUFDecoder
+from qldpc.decoders.custom.ilp import ILPDecoder
+from qldpc.decoders.custom.lookup import LookupDecoder, ObservableLookupDecoder
 from qldpc.decoders.external import ldpc as ldpc_integration
 
 
@@ -113,7 +116,7 @@ def test_deprecated_decoder_functions(pytestconfig: pytest.Config) -> None:
 
         # the default decoder depends on the field
         decoder = decoders.get_decoder(galois.GF(3)(matrix))
-        assert isinstance(decoder, decoders.GUFDecoder)
+        assert isinstance(decoder, GUFDecoder)
 
     with pytest.warns(DeprecationWarning, match=r"use static_decoder\.decode\(syndrome\)"):
         decoded_error = decoders.decode(matrix, syndrome, static_decoder=static_decoder)
@@ -198,7 +201,7 @@ def test_deprecated_builders() -> None:
 
     with pytest.warns(DeprecationWarning, match=r"decoders\.ilp\(\.\.\.\)\.build"):
         decoder = decoders.get_decoder_ilp(matrix)
-    assert isinstance(decoder, decoders.ILPDecoder)
+    assert isinstance(decoder, ILPDecoder)
 
     # additional options are forwarded to the backend, which rejects unsupported names
     with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="Unknown parameter"):
@@ -217,13 +220,13 @@ def test_deprecated_resolution_functions() -> None:
     matrix = np.array([[1, 1, 0], [0, 1, 1]])
     dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.2) D0 D1\nerror(0.1) D1")
 
-    def build_lookup(pcm_or_dem: decoders.PcmOrDem) -> decoders.LookupDecoder:
-        return decoders.LookupDecoder(pcm_or_dem, max_weight=1)
+    def build_lookup(pcm_or_dem: decoders.PcmOrDem) -> LookupDecoder:
+        return LookupDecoder(pcm_or_dem, max_weight=1)
 
     def build_observable_lookup(
         dem: stim.DetectorErrorModel,
-    ) -> decoders.ObservableLookupDecoder:
-        return decoders.ObservableLookupDecoder(dem, max_weight=1)
+    ) -> ObservableLookupDecoder:
+        return ObservableLookupDecoder(dem, max_weight=1)
 
     def get_message(function: Callable[..., Any], *args: object, **kwargs: object) -> str:
         with warnings.catch_warnings(record=True) as caught:
@@ -252,7 +255,7 @@ def test_deprecated_resolution_functions() -> None:
         assert message == f"{replacement} instead"
     with pytest.warns(DeprecationWarning, match=r"decoders\.guf\(\)\.build"):
         decoder = decoders.get_error_decoder(galois.GF(3)(matrix))
-    assert isinstance(decoder, decoders.GUFDecoder)
+    assert isinstance(decoder, GUFDecoder)
 
     observable_cases: list[tuple[decoders.DecoderInput, str | None, str]] = [
         (decoders.lookup(1), "decoders.lookup(max_weight=1).build_observable_decoder(dem)", ""),
@@ -306,10 +309,10 @@ def test_deprecated_resolution_functions() -> None:
 
     # bare constructors receive advice for both output kinds, regardless of their annotation
     def build_unannotated(dem: stim.DetectorErrorModel):  # type: ignore[no-untyped-def]
-        return decoders.ObservableLookupDecoder(dem, max_weight=1)
+        return ObservableLookupDecoder(dem, max_weight=1)
 
-    def build_unresolvable(dem: stim.DetectorErrorModel) -> decoders.ObservableLookupDecoder:
-        return decoders.ObservableLookupDecoder(dem, max_weight=1)
+    def build_unresolvable(dem: stim.DetectorErrorModel) -> ObservableLookupDecoder:
+        return ObservableLookupDecoder(dem, max_weight=1)
 
     build_unresolvable.__annotations__["return"] = "UndefinedDecoder"
     wrapped = "decoders.ErrorsToObservablesDecoder({}(dem), dem)"
@@ -320,7 +323,7 @@ def test_deprecated_resolution_functions() -> None:
             f" (if it builds an error decoder, use {wrapped.format('decoder_constructor')})",
         ),
         (
-            functools.partial(decoders.LookupDecoder, max_weight=1),
+            functools.partial(LookupDecoder, max_weight=1),
             "decoder_constructor(dem)",
             f" (if it builds an error decoder, use {wrapped.format('decoder_constructor')})",
         ),
@@ -371,7 +374,7 @@ def test_legacy_decoder_migration_messages() -> None:
     """Deprecated keyword arguments of methods warn with the decoder input that replaces them."""
     matrix = np.eye(2, dtype=int)
     expected_messages: list[tuple[dict[str, object], str]] = [
-        ({"decoder_constructor": decoders.LookupDecoder}, "for example decoder=LookupDecoder"),
+        ({"decoder_constructor": LookupDecoder}, "for example decoder=LookupDecoder"),
         ({"with_lookup": True, "predict_observable_flips": True}, "ObservableLookupDecoder"),
         ({"with_BF": True}, r"with_BF keyword .* use decoder=decoders\.bf\(\.\.\.\)"),
         ({"with_BF": True, "with_MWPM": True}, "pass exactly one"),
@@ -405,4 +408,4 @@ def test_legacy_decoder_migration_messages() -> None:
 
     # without deprecated arguments, decoder specifications may build a native observable decoder
     observable_decoder = decoders.resolve_observable_decoder(dem, decoders.lookup(1), {})
-    assert isinstance(observable_decoder, decoders.ObservableLookupDecoder)
+    assert isinstance(observable_decoder, ObservableLookupDecoder)
