@@ -88,14 +88,17 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
 
 def test_relay_bp_observables() -> None:
     """A RelayBPDecoder predicts observable flips, with or without an erasure bit."""
+    # noise at which Relay-BP's relay legs, and hence its persistent random state, affect results
     circuit = stim.Circuit.generated(
-        "repetition_code:memory", distance=3, rounds=3, after_clifford_depolarization=0.02
+        "repetition_code:memory", distance=3, rounds=3, after_clifford_depolarization=0.05
     )
     dem = circuit.detector_error_model()
     syndromes = circuit.compile_detector_sampler(seed=0).sample(100).astype(int)
     observable_flip_matrix = decoders.DetectorErrorModelArrays(dem).observable_flip_matrix
 
     for add_erasure_bit in [False, True]:
+        # Relay-BP draws random relay parameters from a generator that persists across calls, so
+        # compare fresh decoders that have decoded the same syndromes in the same order.
         get_decoder = functools.partial(_get_decoder_rbp, dem, add_erasure_bit=add_erasure_bit)
         predicted_flips = get_decoder().decode_observables_batch(syndromes, progress_bar=False)
         assert predicted_flips.shape == (len(syndromes), dem.num_observables + add_erasure_bit)
@@ -103,11 +106,14 @@ def test_relay_bp_observables() -> None:
         assert np.array_equal(
             predicted_flips, [decoder.decode_observables(syndrome) for syndrome in syndromes]
         )
-        detailed = decoder.decode_observables_detailed_batch(syndromes)
+        detailed = get_decoder().decode_observables_detailed_batch(syndromes)
         assert np.array_equal([result.observable_flips for result in detailed], predicted_flips)
         assert np.array_equal(
-            decoder.decode_observables_detailed(syndromes[0]).observable_flips, predicted_flips[0]
+            get_decoder().decode_observables_detailed(syndromes[0]).observable_flips,
+            predicted_flips[0],
         )
+        # a decoder's predictions depend on what it decoded before
+        assert not np.array_equal(decoder.decode_observables_batch(syndromes), predicted_flips)
 
         errors = get_decoder().decode_batch(syndromes, progress_bar=False)
         if add_erasure_bit:

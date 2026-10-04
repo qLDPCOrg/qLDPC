@@ -15,7 +15,7 @@ import stim
 
 from qldpc import decoders
 from qldpc.decoders import common
-from qldpc.decoders.construction.legacy_options import _deprecate_error_rate_option
+from qldpc.decoders.common import _deprecate_error_rate_option
 from qldpc.decoders.external.ldpc import _get_decoder_bp_osd
 
 

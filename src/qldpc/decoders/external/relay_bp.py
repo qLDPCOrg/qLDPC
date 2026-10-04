@@ -42,6 +42,10 @@ class RelayBPDecoder(BatchErrorDecoder):
     observable flips.  Predicting
     observable flips requires an ``observable_error_matrix``, which a detector error model provides.
 
+    A Relay-BP decoder draws random relay parameters from a generator that is seeded once, at
+    construction, and persists across decoding calls.  Its predictions for a syndrome can therefore
+    depend on the syndromes that it decoded before.
+
     .. important::
         Relay-BP has two integration constraints:
 

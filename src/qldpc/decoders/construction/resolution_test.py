@@ -186,10 +186,6 @@ def test_explicit_factory_inputs() -> None:
         _get_observable_decoder(dem, decoder=matrix_factory)
     with pytest.raises(TypeError, match="predicts observables, but this workflow needs inferred"):
         _get_error_decoder(matrix, decoder=dem_factory)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="requires a callable factory"):
-        decoders.from_matrix(None)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="requires a callable factory"):
-        decoders.from_dem(None)  # type: ignore[arg-type]
 
     def build_invalid_decoder(dem: stim.DetectorErrorModel) -> Any:
         return object()

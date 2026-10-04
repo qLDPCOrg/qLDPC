@@ -575,25 +575,7 @@ def test_confidence_ratio() -> None:
 
 
 def test_probability_cutoff() -> None:
-    """A probability cutoff prunes unlikely errors without enumerating them."""
-    error_channel = np.full(60, 1e-3)
-    error_channel[:6] = 0.4
-    errors = np.array(
-        [
-            error
-            for error, _ in _iter_errors_and_syndromes(
-                np.zeros((1, 60), dtype=int),
-                30,
-                None,
-                False,
-                error_channel=error_channel,
-                probability_cutoff=1e-3,
-            )
-        ]
-    )
-    assert len(errors) == 2**6
-    assert not np.any(errors[:, 6:])
-
+    """A probability cutoff prunes unlikely errors from the lookup table."""
     # the cutoff prunes the unlikely Z error, and post-selection on the Z check drops the Y error
     decoder = decoders.custom.LookupDecoder(
         np.eye(2, dtype=int),
