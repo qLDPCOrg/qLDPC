@@ -90,6 +90,11 @@ ci-lint = [
   "checks-superstaq>=0.5.67",
   "pyproject-fmt>=2",
 ]
+ci-notebooks = [
+  "jupyter>=1.1.1",
+  "matplotlib>=3.10",
+  "pip>=24",
+]
 ci-test = [
   "checks-superstaq>=0.5.67",
   "pytest>=8",

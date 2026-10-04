@@ -5,8 +5,8 @@ These notebooks live in the `examples/ directory <https://github.com/qLDPCOrg/qL
 They serve three purposes: an introduction to using ``qLDPC``, pedagogical material for learning about quantum error correction, and code you can copy and adapt for your own use case.
 
 Each notebook runs independently from a fresh kernel.
-Some setup sections include an executable ``%pip`` cell for installing dependencies into the active notebook kernel.
-The decoder introduction instead uses an already installed checkout and runs offline.
+Setup cells install qLDPC and any additional packages needed by that notebook into the active kernel.
+The decoder introduction uses an already installed checkout and runs offline.
 Workflow cells use ordinary Python, but a script must place calls to ``sinter.collect`` or TQEC's Sinter runner under an ``if __name__ == "__main__":`` guard because Sinter starts worker processes with Python's spawn method.
 The stored simulations use bounded sample budgets for documentation; they are not publication-quality benchmarks.
 
@@ -46,7 +46,7 @@ Miscellaneous
 -------------
 
 Further logical-error-rate examples that fall outside the progressive series above.
-The TQEC example also requires the external ``tqec`` package.
+The TQEC example requires Python 3.11--3.13 because its pinned ``tqec==0.2.0`` dependency does not support Python 3.14.
 
 .. toctree::
    :maxdepth: 1

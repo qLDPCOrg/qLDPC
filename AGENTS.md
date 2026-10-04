@@ -229,7 +229,7 @@ Use the smallest targeted command while iterating, then the full gate before mer
 | `python checks/all_.py` | Complete repository gate: formatting, lint, strict mypy, tests, 100% coverage, and docs |
 | `python checks/pytest_.py` | Full Python pytest suite; does not execute notebooks by default |
 | `python checks/pytest_.py src/qldpc/codes/` | Tests for one package |
-| `python checks/pytest_.py --notebook examples/decoders.ipynb` | Execute the entire canonical decoder notebook locally with the installed checkout |
+| `python checks/pytest_.py --notebook examples/decoders.ipynb examples/basics.ipynb examples/noise_models.ipynb` | Execute the three complete, CI-allowlisted notebooks with their dependencies installed |
 | `python -m pytest src/qldpc/codes/quantum_test.py::test_name -v` | One focused test |
 | `python checks/format_.py --check` | Verify Ruff and `pyproject.toml` formatting |
 | `python checks/format_.py` | Apply repository formatting |
@@ -241,6 +241,7 @@ Use the smallest targeted command while iterating, then the full gate before mer
 The docs build renders saved notebook outputs without executing code cells.
 Refresh outputs by executing the entire canonical notebook in an offline, editable installation before changing a notebook example.
 Pass an absolute path to this checkout's `src` directory in `PYTHONPATH` if a notebook runner starts its kernel from `examples/`.
+The TQEC notebook requires Python 3.11--3.13 because its pinned TQEC dependency does not support Python 3.14.
 
 Some check wrappers discover files through Git.
 Add new source and test files to the index before relying on the full gate to include them.
