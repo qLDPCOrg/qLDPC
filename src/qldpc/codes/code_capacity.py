@@ -228,14 +228,9 @@ def get_code_capacity_decoder(
 ) -> CodeCapacityDecoder:
     """Build an observable decoder for one sector of a code-capacity experiment.
 
-    Code-capacity sampling decodes the syndrome ``syndrome_matrix @ error`` of each sampled error to
-    predict its observable values ``observable_matrix @ error``.  Pass a decoder specification as
-    ``decoder=``.  For a binary sector, a specification with native observable prediction (such as
-    ``decoders.lookup(...)``) builds for the DEM returned by ``get_code_capacity_dem``.  A
-    specification without native observable prediction infers errors from ``syndrome_matrix``;
-    the observable values of those errors become its predictions.  On nonbinary codes, a
-    specification that can infer errors uses that field-valued matrix path even if it also has a
-    binary native-observable builder.  An observable-only specification needs a binary sector.
+    Code-capacity sampling predicts ``observable_matrix @ error`` from the syndrome
+    ``syndrome_matrix @ error``.  Pass a decoder specification such as ``decoders.bp_osd(...)``
+    as ``decoder=``.
 
     Args:
         syndrome_matrix: The matrix that maps an error to its syndrome.

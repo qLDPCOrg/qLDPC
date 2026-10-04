@@ -41,7 +41,6 @@ This small decoder works only for an identity parity-check matrix, for which the
    assert estimator.num_failures[1] == 0
 
 ``decoder_spec`` derives the helper's options from the builder's typed signature.
-The resulting specification builds the error decoder for the field-valued parity-check matrix provided by the code-capacity estimator and projects inferred errors onto observables.
 This builder accepts only a matrix; it does not convert a Stim detector error model (DEM).
 
 To predict observables directly, implement ``decode_observables(syndrome)`` instead.
@@ -70,7 +69,6 @@ For a **binary** code-capacity sector or a Sinter decoder, provide a DEM-based o
    ).tolist() == [0]
 
 This toy decoder always predicts no flips; it only illustrates the output contract.
-A DEM is binary; a decoder for a nonbinary code must use field-valued matrix inputs.
 Define builders in an importable module, not as local functions or lambdas, when Sinter needs to pickle them for worker processes.
 To signal erasure, set ``has_erasure_bit = True`` and append **one binary flag at the end** of each prediction.
 Do not append it unless the decoder declares erasure support.

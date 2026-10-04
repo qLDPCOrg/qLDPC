@@ -904,15 +904,10 @@ class ClassicalCode(AbstractCode):
         The logical error rate returned by the constructed function is the probability with which a
         code error (obtained by sampling independent errors on all bits) is decoded incorrectly.
 
-        Here the observables of the code are its encoded bits, so decoding succeeds only if the
-        decoder predicts the value of every bit of the sampled error.  Pass a decoder specification
-        as ``decoder=``.  A specification without native observable prediction, such as
-        ``decoders.bp_osd(...)``, infers an error from its syndrome; the estimate fails if the
-        inferred error differs from the sampled one.  A native-observable specification such as
-        ``decoders.mwpm(...)`` instead builds from a detector error model whose detectors are the
-        parity checks and whose observables are the encoded bits.  Stim detector error models are
-        binary, so a specification that also infers errors uses the matrix path for nonbinary codes.
-        With ``decoder=None``, the default is GUF for nonbinary fields and BP+OSD otherwise.
+        Here the observables of the code are its encoded symbols, so decoding succeeds only if the
+        decoder predicts the value of every symbol of the sampled error.  Pass a decoder specification
+        such as ``decoders.bp_osd(...)`` as ``decoder=``.  With no specification, the default is
+        BP+OSD for binary codes and GUF otherwise.
 
         The basic idea in this method is to think of the fidelity
 
@@ -2387,20 +2382,9 @@ class QuditCode(AbstractCode):
         logical error by the decoder.
 
         Decoding succeeds if the decoder predicts the logical action of the sampled error, that is,
-        its symplectic products with the logical operators of the code.  The decoder argument
-        accepts either an error decoder or an observable decoder:
-
-        - A specification without native observable prediction, such as ``decoders.bp_osd(...)``,
-          infers a symplectic error from its syndrome; decoding fails if its logical action differs
-          from the sampled error.
-        - A specification with native observable prediction, such as ``decoders.mwpm(...)``, builds
-          for a detector error model whose detectors are stabilizer generators, whose observables
-          are logical operators, and whose mechanisms are single-qubit X, Z, and Y errors.
-          Stim detector error models are binary; specifications that also infer errors use error
-          decoding for nonbinary codes.
-
-        Pass a specification as ``decoder=``; with None, the default is GUF for a nonbinary field
-        and BP+OSD otherwise.  The decoder is built for an internal syndrome matrix.
+        its symplectic products with the logical operators of the code.  Pass a decoder
+        specification such as ``decoders.bp_osd(...)`` as ``decoder=``.  With no specification, the
+        default is BP+OSD for binary codes and GUF otherwise.
 
         For a subsystem code, errors are decoded against the stabilizer generators of the code, so
         a syndrome has one entry per stabilizer generator.  These generators can be high-weight
@@ -3918,29 +3902,10 @@ class CSSCode(QuditCode):
         code error (obtained by sampling independent errors on all qubits) is converted into a
         logical error by the decoder.
 
-        The X-type and Z-type parts of each error are decoded independently, by two decoders:
-
-        - The X-sector decoder decodes the syndrome of an X-type error with respect to the Z-type
-          stabilizers, ``code.get_stabilizer_ops(Pauli.Z, canonicalized=False)``, to predict which
-          Z-type logical operators, ``code.get_logical_ops(Pauli.Z)``, the error anticommutes with.
-        - The Z-sector decoder decodes the syndrome of a Z-type error with respect to the X-type
-          stabilizers, ``code.get_stabilizer_ops(Pauli.X, canonicalized=False)``, to predict which
-          X-type logical operators, ``code.get_logical_ops(Pauli.X)``, the error anticommutes with.
-
-        A sample fails if either prediction is wrong.  The ``decoder_x`` and ``decoder_z``
-        arguments configure these decoders with specifications:
-
-        - A specification without native observable prediction (such as ``decoders.bp_osd(...)``)
-          infers an error, whose products with the logical operators are its prediction.
-        - A specification with native observable prediction (such as ``decoders.mwpm(...)``)
-          builds for a detector error model whose detectors are the stabilizers and whose
-          observables are the logical operators of its sector.  Stim detector error models
-          are binary; a specification that also infers errors uses error decoding for a
-          nonbinary code.
-
-        If ``decoder_x`` or ``decoder_z`` is None, the corresponding sector is decoded as
-        configured by the shared ``decoder`` specification.  If all three specifications are
-        None, the default is GUF for a nonbinary field and BP+OSD otherwise.
+        The X and Z sectors are decoded independently.  Pass a decoder specification such as
+        ``decoders.bp_osd(...)`` as ``decoder=`` for both sectors, or set ``decoder_x=`` and
+        ``decoder_z=`` separately.  An omitted sector uses the shared ``decoder=`` specification.
+        With no specification, the default is BP+OSD for binary codes and GUF otherwise.
 
         For a subsystem code, errors are decoded against the stabilizer generators of the code, so
         a syndrome has one entry per stabilizer generator.  These generators can be high-weight

@@ -43,12 +43,8 @@ else:
 class SinterDecoder(_SinterDecoder):
     """Sinter-compatible configuration that builds observable decoders.
 
-    A SinterDecoder stores its decoder configuration.  When Sinter
-    compiles it for a detector error model, it builds the inner decoder for that model and returns
-    a CompiledSinterDecoder that predicts observable flips.  If the inner decoder can predict
-    observable flips natively (as Frontier, MWPM, Relay-BP, and lookup-table decoders can), it is
-    built in that mode.  Otherwise, it is built as an error decoder, and the compiled decoder
-    converts the errors that it infers into observable flips.
+    Pass a decoder specification as ``decoder=``.  Sinter compiles it for each detector error
+    model and uses the compiled decoder to predict observable flips.
     """
 
     # completes the error message "A prebuilt decoder cannot be passed as decoder= here because ..."
@@ -67,18 +63,15 @@ class SinterDecoder(_SinterDecoder):
     ) -> None:
         """Initialize a SinterDecoder.
 
-        A SinterDecoder is used by Sinter to decode events from a detector error model and predict
-        observable flips.  See help(sinter.Decoder) for additional information.
+        See help(sinter.Decoder) for additional information.
 
         Args:
             simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
                 that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
-            decoder: A decoder specification such as ``decoders.mwpm(...)``, or None to select
-                the default.  It builds for each (simplified) detector error model, preferring
-                native observable predictions where supported and otherwise projecting inferred
-                errors onto observables.
+            decoder: A decoder specification such as ``decoders.mwpm(...)``, or None for the
+                default decoder.  It is built for each (simplified) detector error model.
             **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
                 ``decoder=`` instead.
         """
