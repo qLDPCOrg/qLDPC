@@ -181,11 +181,11 @@ Its specification builds an observable decoder with ``.build_observable_decoder(
 
 .. code-block:: python
 
-   frontier_specification = decoders.frontier(K=512, Delta=12, committee=True, add_erasure_bit=True)
-   observable_decoder = frontier_specification.build_observable_decoder(dem)
+   frontier_spec = decoders.frontier(K=512, Delta=12, committee=True, add_erasure_bit=True)
+   observable_decoder = frontier_spec.build_observable_decoder(dem)
    predicted_flips = observable_decoder.decode_observables(syndrome)
 
-   sinter_decoder = decoders.SinterDecoder(decoder=frontier_specification)
+   sinter_decoder = decoders.SinterDecoder(decoder=frontier_spec)
 
 ``K`` and ``Delta`` control how aggressively Frontier prunes; larger values are slower and more accurate.
 By default, Frontier reorders error mechanisms so that detectors are resolved early; ``column_order="time_order"`` keeps the order of the detector error model.
@@ -399,14 +399,14 @@ The following usage remains available during a deprecation period, and each use 
      - ``decoders.bp_osd(...).build(pcm_or_dem)`` (and the corresponding specification helper)
    * - ``decoders.get_decoder_rbp(pcm_or_dem, ...)``
      - ``decoders.relay_bp(...).build(pcm_or_dem)`` or ``decoders.min_sum_bp(...).build(pcm_or_dem)``
-   * - ``decoders.get_error_decoder(pcm_or_dem, decoder=specification)``
-     - ``specification.build(pcm_or_dem)``
-   * - ``decoders.get_observable_decoder(dem, decoder=specification)``
-     - ``specification.build_observable_decoder(dem)``
+   * - ``decoders.get_error_decoder(pcm_or_dem, decoder=spec)``
+     - ``spec.build(pcm_or_dem)``
+   * - ``decoders.get_observable_decoder(dem, decoder=spec)``
+     - ``spec.build_observable_decoder(dem)``
    * - ``decoders.get_observable_decoder(dem, decoder=error_decoder)``
      - ``decoders.ErrorsToObservablesDecoder(error_decoder, dem)``
-   * - ``decoders.decode_observables(dem, syndrome, decoder=specification)``
-     - ``specification.build_observable_decoder(dem).decode_observables(syndrome)``
+   * - ``decoders.decode_observables(dem, syndrome, decoder=spec)``
+     - ``spec.build_observable_decoder(dem).decode_observables(syndrome)``
    * - ``decoders.lookup_table(...)``
      - ``decoders.lookup(...)``
 
