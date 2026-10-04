@@ -905,9 +905,9 @@ class ClassicalCode(AbstractCode):
         code error (obtained by sampling independent errors on all bits) is decoded incorrectly.
 
         Here the observables of the code are its encoded symbols, so decoding succeeds only if the
-        decoder predicts the value of every symbol of the sampled error.  Pass a decoder specification
-        such as ``decoders.bp_osd(...)`` as ``decoder=``.  With no specification, the default is
-        BP+OSD for binary codes and GUF otherwise.
+        decoder predicts the value of every symbol of the sampled error.
+        Pass a decoder specification such as ``decoders.bp_osd(...)`` as ``decoder=``.
+        With no specification, the default is BP+OSD for binary codes and GUF otherwise.
 
         The basic idea in this method is to think of the fidelity
 
