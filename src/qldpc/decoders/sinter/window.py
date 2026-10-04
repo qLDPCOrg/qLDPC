@@ -84,11 +84,8 @@ class SequentialWindowDecoder(SinterDecoder):
                 that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
-            decoder: A specification such as ``decoders.bp_osd(...)``, or a constructor that builds
-                an error decoder from a detector error model, or None to
-                select the default error decoder.  Windows commit the errors that they infer, so
-                they require error decoders.  A prebuilt decoder is rejected, because an inner
-                decoder is built for each window.
+            decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None for
+                the default.  Each window builds its own decoder to infer errors it can commit.
             **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
                 ``decoder=`` instead.
         """
@@ -357,11 +354,8 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                 that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
-            decoder: A specification such as ``decoders.bp_osd(...)``, or a constructor that builds
-                an error decoder from a detector error model, or None to
-                select the default error decoder.  Windows commit the errors that they infer, so
-                they require error decoders.  A prebuilt decoder is rejected, because an inner
-                decoder is built for each window.
+            decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None for
+                the default.  Each window builds its own decoder to infer errors it can commit.
             **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
                 ``decoder=`` instead.
         """

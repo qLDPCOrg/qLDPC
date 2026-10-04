@@ -43,7 +43,7 @@ else:
 class SinterDecoder(_SinterDecoder):
     """Sinter-compatible configuration that builds observable decoders.
 
-    A SinterDecoder stores a decoder input, such as a specification or constructor.  When Sinter
+    A SinterDecoder stores its decoder configuration.  When Sinter
     compiles it for a detector error model, it builds the inner decoder for that model and returns
     a CompiledSinterDecoder that predicts observable flips.  If the inner decoder can predict
     observable flips natively (as Frontier, MWPM, Relay-BP, and lookup-table decoders can), it is
@@ -75,15 +75,10 @@ class SinterDecoder(_SinterDecoder):
                 that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
-            decoder: A specification for the inner decoder, such as ``decoders.mwpm(...)``, or a
-                constructor that builds an error or observable decoder from a detector error model,
-                a ``decoders.from_dem`` factory, an observable-decoder compiler such as another
-                SinterDecoder, or None to select the default decoder.  A ``decoders.from_matrix``
-                factory cannot be used because only a detector error model is available.  A
-                prebuilt decoder is rejected, because the inner decoder is built for each
-                (simplified) detector error model.  Specifications build a native observable decoder
-                where they support one, and an error decoder is wrapped so that the observable flips
-                of the errors that it infers become its predictions.
+            decoder: A decoder specification such as ``decoders.mwpm(...)``, or None to select
+                the default.  It builds for each (simplified) detector error model, preferring
+                native observable predictions where supported and otherwise projecting inferred
+                errors onto observables.
             **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
                 ``decoder=`` instead.
         """

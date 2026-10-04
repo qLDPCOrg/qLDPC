@@ -33,23 +33,14 @@ class _DEMDecoderFactory:
 
 
 def from_matrix(factory: Callable[..., ErrorDecoder | SupportsDecode]) -> _MatrixDecoderFactory:
-    """Declare that a custom factory builds an error decoder from a parity-check matrix.
-
-    Pass the result as ``decoder=``, ``decoder_x=``, or ``decoder_z=`` where an error decoder is
-    accepted.  A detector error model is not converted into a matrix for this factory.
-    """
+    """Declare a parity-check matrix input for a custom error-decoder factory."""
     if not callable(factory):
         raise TypeError("from_matrix requires a callable factory")
     return _MatrixDecoderFactory(factory)
 
 
 def from_dem(factory: Callable[..., ObservableDecoder]) -> _DEMDecoderFactory:
-    """Declare that a custom factory builds an observable decoder from a binary Stim DEM.
-
-    Pass the result where observable predictions are used, such as to a code-capacity estimator
-    or a SinterDecoder.  A code-capacity estimator builds a DEM for the code's checks and logicals;
-    it rejects this factory for nonbinary codes.
-    """
+    """Declare a binary detector error model input for a custom observable-decoder factory."""
     if not callable(factory):
         raise TypeError("from_dem requires a callable factory")
     return _DEMDecoderFactory(factory)

@@ -37,10 +37,8 @@ def _get_error_decoder(pcm_or_dem: PcmOrDem, *, decoder: ErrorDecoderInput = Non
 
     Args:
         pcm_or_dem: The parity-check matrix or detector error model to decode.
-        decoder: A decoder specification such as ``decoders.bp_osd(...)``, a constructor that
-            builds an error decoder from pcm_or_dem, a ``decoders.from_matrix`` factory for a
-            parity-check matrix, a prebuilt error decoder, or None to select the default: GUF for a
-            nonbinary FieldArray, and BP+OSD otherwise.
+        decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None to
+            select the default: GUF for a nonbinary FieldArray and BP+OSD otherwise.
 
     Returns:
         An ErrorDecoder.
@@ -73,13 +71,8 @@ def _get_observable_decoder(
     Args:
         dem: The detector error model to decode.
         decoder: A decoder specification such as ``decoders.mwpm(...)``, which builds a native
-            observable decoder when supported, and otherwise an error decoder; an
-            observable-decoder compiler such as a ``decoders.SinterDecoder``, which is compiled for
-            dem; a ``decoders.from_dem`` factory or a constructor that builds a decoder from dem; a
-            prebuilt error decoder or observable decoder; or None to select the default decoder.
-            An error decoder is wrapped so that the observable flips of the errors that it infers
-            become its predictions.  A decoder that is both an error decoder and an observable
-            decoder is used as an observable decoder.
+            observable decoder when supported, or None to select the default decoder.  If a
+            specification infers errors instead, those errors are projected onto the observables.
 
     Returns:
         An ObservableDecoder.

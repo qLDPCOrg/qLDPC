@@ -56,7 +56,7 @@ Do not copy transient project history, machine-specific paths, or local-session 
 | [`src/qldpc/abstract/`](src/qldpc/abstract/) | Groups, group rings, `RingArray`, semisimple linear algebra, and Wedderburn--Artin transforms | Co-located `*_test.py` files in the same directory |
 | [`src/qldpc/math.py`](src/qldpc/math.py) | Symplectic and finite-field array helpers | [`math_test.py`](src/qldpc/math_test.py) |
 | [`src/qldpc/objects.py`](src/qldpc/objects.py) | Pauli labels, graph nodes, Cayley complexes, and chain complexes | [`objects_test.py`](src/qldpc/objects_test.py) |
-| [`src/qldpc/decoders/external/`](src/qldpc/decoders/external/) | Integrations and immediate builders for ldpc, PyMatching, and Relay-BP | Co-located `*_test.py` files |
+| [`src/qldpc/decoders/external/`](src/qldpc/decoders/external/) | Integrations and immediate builders for ldpc, PyMatching, Relay-BP, Tesseract, and Frontier | Co-located `*_test.py` files |
 | [`src/qldpc/decoders/custom/`](src/qldpc/decoders/custom/) | qLDPC-owned decoder implementations and their immediate builders | Co-located `*_test.py` files; [`custom_test.py`](src/qldpc/decoders/custom_test.py) covers deprecated aliases |
 | [`src/qldpc/decoders/construction/`](src/qldpc/decoders/construction/) | Typed decoder specs, generic resolution, and legacy keyword translation | Co-located `*_test.py` files |
 | [`src/qldpc/decoders/`](src/qldpc/decoders/) | Decoder protocols, capability checks, adapters, DEM arrays, Sinter, and windowed decoding | Co-located tests, [`decoders_test.py`](src/qldpc/decoders_test.py) and [`sinter_test.py`](src/qldpc/decoders/sinter_test.py) for deprecated aliases, plus [`logical_error_rates/`](examples/logical_error_rates/) |
@@ -84,7 +84,7 @@ Code-capacity detector-error-model and decoder orchestration lives in `codes/cod
 Generic decoder-input checks live in `decoders/capabilities.py`; field-valued and bit-packed observable-decoder adapters live in `decoders/adapters/observable_decoders.py`.
 Immediate builders live beside their implementations: external-package integrations under `decoders/external/`, and qLDPC-owned implementations under `decoders/custom/`.
 Typed decoder specifications, generic input resolution, and deprecated keyword translation live under `decoders/construction/`.
-Legacy keyword-based construction in `decoders/construction/legacy.py` is an attachment on top of the modern API: it translates deprecated arguments into modern decoder inputs and resolves them with `decoders/construction/resolution.py`, which never imports it.
+Modern decoder inputs resolve directly in `decoders/construction/resolution.py`; nonempty deprecated keywords enter `decoders/construction/legacy.py` for translation, and the package-root compatibility calls remain there.
 
 ## Core invariants
 
@@ -124,7 +124,7 @@ Legacy keyword-based construction in `decoders/construction/legacy.py` is an att
 - Keep error decoders (`decode_errors`, with `decode` as an alias) distinct from observable decoders (`decode_observables`).
   Code that consumes a user-supplied error decoder coerces it with `decoders.as_error_decoder` and calls `decode_errors`.
 - A method that decodes a matrix it constructs itself must reject prebuilt decoders with `decoders.reject_prebuilt_decoder`.
-- Code-capacity estimators resolve their `decoder=`, `decoder_x=`, and `decoder_z=` inputs with [`codes.code_capacity.get_code_capacity_decoder`](src/qldpc/codes/code_capacity.py), which always yields an observable decoder: error decoders are wrapped so that their inferred errors become logical predictions.
+- Code-capacity estimators resolve their `decoder=`, `decoder_x=`, and `decoder_z=` inputs with [`codes.code_capacity.get_code_capacity_decoder`](src/qldpc/codes/code_capacity.py), which always yields an observable decoder: on binary codes, specifications with native observable support build it from a DEM; otherwise inferred errors can be projected onto logical predictions.
   Keep `decoders.resolve_decoder` error-decoder-specific, and dispatch on explicit capabilities (`compile_decoder_for_dem`, `decode_observables`, the `ErrorDecoder` protocol), never on output length.
 - Only decoders that declare erasure support may append an erasure flag.
   They append that flag as the last entry of each inferred error; unsupported decoders must reject `add_erasure_bit=True`.
@@ -180,7 +180,8 @@ Follow the [adding a decoder guide](docs/source/adding_decoders.rst) for a custo
 
 1. Put integrations with third-party decoder packages under [`decoders/external/`](src/qldpc/decoders/external/), and qLDPC-owned implementations under [`decoders/custom/`](src/qldpc/decoders/custom/).
 2. Keep each immediate builder beside the implementation it constructs.
-   Add typed specifications or generic resolution wiring under [`decoders/construction/`](src/qldpc/decoders/construction/).
+   Add a typed specification under [`decoders/construction/`](src/qldpc/decoders/construction/) when exposing an algorithm.
+   Do not change generic resolution for an ordinary backend.
    Export concrete backend classes at qualified `custom` or `external` paths, and export public specification helpers from [`decoders/__init__.py`](src/qldpc/decoders/__init__.py).
    Derive each specification helper's signature from one typed builder or constructor, write its public docstring explicitly, and add it to the `autofunction` inventory in [`decoders.rst`](docs/source/decoders.rst).
    Keep deprecated keyword translation isolated in `construction/legacy.py`.
@@ -224,8 +225,9 @@ Use the smallest targeted command while iterating, then the full gate before mer
 | Command | Purpose |
 | --- | --- |
 | `python checks/all_.py` | Complete repository gate: formatting, lint, strict mypy, tests, 100% coverage, and docs |
-| `python checks/pytest_.py` | Full pytest and notebook test suite |
+| `python checks/pytest_.py` | Full Python pytest suite; does not execute notebooks by default |
 | `python checks/pytest_.py src/qldpc/codes/` | Tests for one package |
+| `python checks/pytest_.py --notebook examples/decoders.ipynb` | Execute the entire canonical decoder notebook locally with the installed checkout |
 | `python -m pytest src/qldpc/codes/quantum_test.py::test_name -v` | One focused test |
 | `python checks/format_.py --check` | Verify Ruff and `pyproject.toml` formatting |
 | `python checks/format_.py` | Apply repository formatting |
@@ -233,6 +235,10 @@ Use the smallest targeted command while iterating, then the full gate before mer
 | `python checks/mypy_.py` | Strict mypy over source and tests |
 | `python checks/coverage_.py` | Modular 100% statement-coverage gate |
 | `python checks/build_docs.py` | Strict Sphinx and notebook documentation build |
+
+The docs build renders saved notebook outputs without executing code cells.
+Refresh outputs by executing the entire canonical notebook in an offline, editable installation before changing a notebook example.
+Pass an absolute path to this checkout's `src` directory in `PYTHONPATH` if a notebook runner starts its kernel from `examples/`.
 
 Some check wrappers discover files through Git.
 Add new source and test files to the index before relying on the full gate to include them.

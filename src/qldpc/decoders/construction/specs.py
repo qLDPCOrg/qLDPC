@@ -251,15 +251,12 @@ class ObservableDecoderCompiler(Protocol):
 DeferredErrorDecoderInput: TypeAlias = (
     DecoderSpec[ErrorDecoder] | ErrorDecoderConstructor | _MatrixDecoderFactory | None
 )
-"""A decoder= input that builds an error decoder later, for a matrix or detector error model that
-the receiving method constructs: a decoder specification, an error-decoder constructor, a
-matrix-only factory, or None to select the default decoder.  Prebuilt decoders are excluded,
-because they are tied to one matrix."""
+"""A deferred input for an error decoder; use a decoder specification for the model the
+receiving method constructs."""
 
 
 ErrorDecoderInput: TypeAlias = DeferredErrorDecoderInput | ErrorDecoder | SupportsDecode
-"""A decoder= input that yields an error decoder: a DeferredErrorDecoderInput, or a prebuilt error
-decoder (an ErrorDecoder, or any object whose decode method returns an inferred error)."""
+"""An input for a decoder that infers errors; configure it with a decoder specification."""
 
 
 DeferredDecoderInput: TypeAlias = (
@@ -268,16 +265,12 @@ DeferredDecoderInput: TypeAlias = (
     | _DEMDecoderFactory
     | ObservableDecoderCompiler
 )
-"""A decoder= input that builds an error or observable decoder later, for a matrix or detector
-error model that the receiving method constructs: a DeferredErrorDecoderInput, an explicit
-observable-decoder factory, or an observable-decoder compiler such as a SinterDecoder.  A bare
-constructor is treated as an error-decoder constructor.  Prebuilt decoders are excluded, because
-they are tied to one matrix or detector error model."""
+"""A deferred input for error or observable decoding; configure it with a decoder specification
+for the receiving method's matrix or detector error model."""
 
 
 DecoderInput: TypeAlias = ErrorDecoderInput | DeferredDecoderInput | ObservableDecoder
-"""Any decoder= input: an ErrorDecoderInput, a DeferredDecoderInput, or a prebuilt observable
-decoder.  The receiving method adapts the decoder that the input yields to what it needs."""
+"""An input for error or observable decoding; use a decoder specification to select a backend."""
 
 
 # Private helpers

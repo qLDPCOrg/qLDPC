@@ -1,9 +1,9 @@
 Adding a decoder
 ================
 
-There are two paths.  To **use your own decoder**, implement one decoding method and pass a
-factory to qLDPC; no registration or library changes are needed.  To **ship a decoder with
-qLDPC**, add an implementation, an optional public specification helper, and tests.  There is
+There are two paths.  To **use your own decoder**, implement one decoding method and configure
+a decoder specification; no registration or library changes are needed.  To **ship a decoder with
+qLDPC**, add an implementation, a public specification helper, and tests.  There is
 no plugin registry and no need to edit the generic resolver for a new backend.
 
 Use a custom decoder without changing qLDPC
@@ -19,6 +19,7 @@ parity-check matrix, for which the syndrome is the error itself:
    import numpy as np
 
    from qldpc import codes, decoders
+   from qldpc.decoders.construction.specs import decoder_spec
 
    class IdentityDecoder(decoders.ErrorDecoder):
        def __init__(self, matrix: galois.FieldArray) -> None:
@@ -29,25 +30,31 @@ parity-check matrix, for which the syndrome is the error itself:
            return np.asarray(syndrome, dtype=int)
 
    matrix = galois.GF2.Identity(3)
+   identity = decoder_spec("identity", IdentityDecoder)
+   identity_spec = identity()
+   assert np.array_equal(
+       identity_spec.build(matrix).decode_errors(np.array([1, 0, 0])), [1, 0, 0]
+   )
    estimator = codes.ClassicalCode(matrix).get_logical_error_rate_func(
-       3, decoder=decoders.from_matrix(IdentityDecoder)
+       3, decoder=identity_spec
    )
    assert estimator.num_failures[1] == 0
 
-``from_matrix`` tells a code-capacity estimator to give the factory its field-valued
-parity-check matrix and to project inferred errors onto the code's observables.  The wrapper
-does not convert a Stim detector error model (DEM) into a matrix.  A plain callable that
-returns an error decoder also works; the wrapper makes the input contract explicit.
+``decoder_spec`` derives the helper's options from the builder's typed signature.
+The resulting specification builds the error decoder for the field-valued parity-check matrix
+provided by the code-capacity estimator and projects inferred errors onto observables.
+This builder accepts only a matrix; it does not convert a Stim detector error model (DEM).
 
 To predict observables directly, implement ``decode_observables(syndrome)`` instead.  It returns
-one value per observable.  For a **binary** code-capacity sector or a Sinter decoder, wrap a
-factory that accepts the sector's DEM with ``decoders.from_dem(factory)``.  For example:
+one value per observable.  For a **binary** code-capacity sector or a Sinter decoder, provide a
+DEM-based observable builder to ``observable_decoder_spec``:
 
 .. code-block:: python
 
    import numpy as np
    import stim
    from qldpc import decoders
+   from qldpc.decoders.construction.specs import observable_decoder_spec
 
    class NoFlipDecoder(decoders.ObservableDecoder):
        def __init__(self, dem: stim.DetectorErrorModel) -> None:
@@ -56,18 +63,21 @@ factory that accepts the sector's DEM with ``decoders.from_dem(factory)``.  For 
        def decode_observables(self, syndrome: np.ndarray) -> np.ndarray:
            return np.zeros(self.num_observables, dtype=int)
 
-   sinter_decoder = decoders.SinterDecoder(
-       decoder=decoders.from_dem(NoFlipDecoder)
-   )
+   no_flip = observable_decoder_spec("no_flip", NoFlipDecoder)
+   sinter_decoder = decoders.SinterDecoder(decoder=no_flip())
+   dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+   assert sinter_decoder.compile_decoder_for_dem(dem).decode_observables(
+       np.array([1], dtype=int)
+   ).tolist() == [0]
 
 This toy decoder always predicts no flips; it only illustrates the output contract.
 A DEM is binary; a decoder for a nonbinary code must use field-valued matrix inputs.
-Define factories in an importable module, not as local functions or lambdas, when Sinter
+Define builders in an importable module, not as local functions or lambdas, when Sinter
 needs to pickle them for worker processes.  To signal erasure, set ``has_erasure_bit = True``
 and append **one binary flag at the end** of each prediction.  Do not append it unless the
 decoder declares erasure support.  Batch methods are optional; if provided, accept one
 syndrome per row and return one prediction per row.  See the
-:doc:`decoder guide <decoders>` for prebuilt-decoder restrictions and CSS sector choices.
+:doc:`decoder guide <decoders>` for code-capacity and CSS sector choices.
 
 Add a public decoder to qLDPC
 -----------------------------
@@ -86,7 +96,7 @@ Add a public decoder to qLDPC
    Keep a module-level builder with a typed signature: its first input is a matrix or
    DEM, followed by the options for this algorithm.  If the backend is optional, import
    it when building, not when importing ``qldpc.decoders``, and report how to install it.
-3. **Expose a specification only if useful.** Use
+3. **Expose a specification.** Use
    :func:`~qldpc.decoders.construction.specs.decoder_spec` with an error builder,
    and optionally a DEM-based native observable builder.  An observable-only backend
    uses :func:`~qldpc.decoders.construction.specs.observable_decoder_spec`.
@@ -113,8 +123,6 @@ For an optional published backend, add an extra under ``optional-dependencies`` 
 ``pyproject.toml`` with any required platform markers; do not assume every backend can
 be installed through the ``decoders`` extra.  Existing integrations such as
 :mod:`qldpc.decoders.external.tesseract` show a backend with both output contracts.
-Do not add a new backend to ``construction/legacy.py`` unless it is actually needed
-to preserve an existing deprecated call.
 
 Run the relevant co-located tests while developing, then check the full change with the
 existing repository commands.  Replace the GUF test path below with your own test file:

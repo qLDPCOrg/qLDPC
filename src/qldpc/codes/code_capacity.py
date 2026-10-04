@@ -229,37 +229,19 @@ def get_code_capacity_decoder(
     """Build an observable decoder for one sector of a code-capacity experiment.
 
     Code-capacity sampling decodes the syndrome ``syndrome_matrix @ error`` of each sampled error to
-    predict its observable values ``observable_matrix @ error``.  The decoder input is resolved into
-    an observable decoder as follows:
-
-    - A Sinter-style decoder (an object with a compile_decoder_for_dem method, such as a
-      decoders.SinterDecoder), a factory wrapped with decoders.from_dem, or a specification with
-      native observable prediction (such as decoders.lookup(...)) is built for the detector error
-      model that get_code_capacity_dem constructs.  This requires the matrices to be binary.
-      A specification that cannot infer errors (such as decoders.frontier(...)) also needs this
-      model, and therefore cannot decode a nonbinary code.
-    - A prebuilt observable decoder (an object with a decode_observables method, or a compiled
-      Sinter decoder with a decode_shots_bit_packed method, that is not also an error decoder) is
-      used as is.  It must predict the observable values ``observable_matrix @ error`` from the
-      syndrome ``syndrome_matrix @ error``.
-    - Anything else (None, a specification without native observable prediction, a bare
-      constructor, a factory wrapped with decoders.from_matrix, or a prebuilt error decoder) builds
-      an error decoder for syndrome_matrix.  The observable values of the errors that it infers are
-      its predictions.  On nonbinary codes, specifications that can infer errors use this path
-      even if they also have a binary native-observable builder.  A prebuilt decoder that can
-      infer errors and predict observables, such as a RelayBPDecoder, also uses this path: it
-      cannot be rebuilt for this sector's observable map.  Deprecated decoder_args retain their
-      error-decoding behavior.
-
-    A decoder specification that supports native observable prediction builds an observable
-    decoder for binary sectors, even when it can also infer errors.  A specification with no
-    error builder requires a binary sector.  A prebuilt observable-only decoder is used directly.
+    predict its observable values ``observable_matrix @ error``.  Pass a decoder specification as
+    ``decoder=``.  For a binary sector, a specification with native observable prediction (such as
+    ``decoders.lookup(...)``) builds for the DEM returned by ``get_code_capacity_dem``.  A
+    specification without native observable prediction infers errors from ``syndrome_matrix``;
+    the observable values of those errors become its predictions.  On nonbinary codes, a
+    specification that can infer errors uses that field-valued matrix path even if it also has a
+    binary native-observable builder.  An observable-only specification needs a binary sector.
 
     Args:
         syndrome_matrix: The matrix that maps an error to its syndrome.
         observable_matrix: The matrix that maps an error to its observable values, or None if every
             error location is itself an observable.
-        decoder: The decoder input.
+        decoder: A decoder specification for this sector, or None for the default decoder.
         decoder_args: Deprecated keyword-based decoder options, which build an error decoder.
         dem_errors: The errors of the error mechanisms of the detector error model for which a
             Sinter-style decoder is compiled, as columns of a matrix.  Defaults to the identity
