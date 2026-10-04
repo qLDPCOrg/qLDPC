@@ -8,6 +8,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import warnings
 from typing import Any, Never
 
 import galois
@@ -185,14 +186,14 @@ def test_code_capacity_decoder_from_error_decoder() -> None:
     decoder = code_capacity.get_code_capacity_decoder(
         galois.GF2([[1, 1]]), galois.GF2([[1, 0]]), decoders.lookup(max_weight=1)
     )
-    assert isinstance(decoder.decoder, decoders.ObservableLookupDecoder)
+    assert isinstance(decoder.decoder, decoders.custom.ObservableLookupDecoder)
 
     # nonbinary codes cannot use a Stim DEM, but can still infer field-valued errors
     decoder = code_capacity.get_code_capacity_decoder(
         syndrome_matrix, observable_matrix, decoders.lookup(max_weight=1)
     )
     assert isinstance(decoder.decoder, observable_decoders.ErrorsToFieldObservablesDecoder)
-    assert isinstance(decoder.decoder.error_decoder, decoders.LookupDecoder)
+    assert isinstance(decoder.decoder.error_decoder, decoders.custom.LookupDecoder)
 
     # None represents an identity observable map without materializing a dense identity matrix
     decoder = code_capacity.get_code_capacity_decoder(
@@ -291,7 +292,6 @@ def test_code_capacity_decoder_from_observable_decoder() -> None:
             observable_matrix,
             _FixedObservableDecoder([0, 0]),
             {"with_lookup": True},
-            warn_deprecated=False,
         )
 
 
@@ -381,7 +381,7 @@ def test_code_capacity_prefers_most_likely_observable_class() -> None:
         observable_matrix,
         decoders.from_matrix(specification.build),
     )
-    assert isinstance(native.decoder, decoders.ObservableLookupDecoder)
+    assert isinstance(native.decoder, decoders.custom.ObservableLookupDecoder)
     assert isinstance(projected.decoder, observable_decoders.ErrorsToFieldObservablesDecoder)
     assert native.decode(field([1]))[0].tolist() == [0]
     assert projected.decode(field([1]))[0].tolist() == [1]
@@ -396,13 +396,13 @@ def test_code_capacity_prefers_most_likely_observable_class() -> None:
         (False, False),
     ]
 
-    legacy = code_capacity.get_code_capacity_decoder(
-        syndrome_matrix,
-        observable_matrix,
-        None,
-        {"with_lookup": True, "max_weight": 1},
-        warn_deprecated=False,
-    )
+    with pytest.warns(DeprecationWarning, match="with_lookup"):
+        legacy = code_capacity.get_code_capacity_decoder(
+            syndrome_matrix,
+            observable_matrix,
+            None,
+            {"with_lookup": True, "max_weight": 1},
+        )
     assert isinstance(legacy.decoder, observable_decoders.ErrorsToFieldObservablesDecoder)
     assert legacy.decode(field([1]))[0].tolist() == [1]
 
@@ -427,7 +427,7 @@ def test_code_capacity_prefers_most_likely_observable_class() -> None:
         syndrome_matrix,
         weighted_observables,
         decoders.from_matrix(
-            lambda matrix: decoders.LookupDecoder(
+            lambda matrix: decoders.custom.LookupDecoder(
                 matrix, max_weight=1, error_channel=[0.003, 0.002, 0.002]
             )
         ),
@@ -441,6 +441,65 @@ def test_code_capacity_prefers_most_likely_observable_class() -> None:
     prediction, erased = erasing.decode(field([1]))
     assert prediction.tolist() == [0] and erased
     assert erasing.get_failure_and_erasure(errors[2]) == (False, True)
+
+
+def test_code_capacity_native_build_fallback() -> None:
+    """A specification that cannot decode the code-capacity DEM natively falls back to errors."""
+    field = galois.GF2
+    syndrome_matrix = field([[1, 1, 0], [0, 1, 1]])
+    observable_matrix = field([[1, 0, 0]])
+    single_errors = [field([1, 0, 0]), field([0, 1, 0]), field([0, 0, 1])]
+
+    # matrix-only options cannot be applied to a detector error model
+    for specification in [
+        decoders.lookup(max_weight=1, error_channel=[0.1, 0.1, 0.1]),
+        decoders.mwpm(weights=np.ones(3)),
+    ]:
+        with pytest.warns(decoders.ObservableDecodingFallbackWarning, match="from_matrix"):
+            decoder = code_capacity.get_code_capacity_decoder(
+                syndrome_matrix, observable_matrix, specification
+            )
+        assert isinstance(decoder.decoder, observable_decoders.ErrorsToFieldObservablesDecoder)
+        assert not any(decoder.get_failure_and_erasure(error)[0] for error in single_errors)
+
+    # a backend can reject the structure of the model, such as Y mechanisms that are not graphlike
+    code = codes.QuditCode(codes.SurfaceCode(3).matrix)
+    with pytest.warns(decoders.ObservableDecodingFallbackWarning, match="non-graphlike"):
+        code.get_logical_error_rate_func(10, decoder=decoders.mwpm())
+    with pytest.warns(decoders.ObservableDecodingFallbackWarning, match="cannot be symplectic"):
+        code.get_logical_error_rate_func(10, decoder=decoders.lookup(max_weight=1, symplectic=True))
+
+    # explicit error decoding, error-only specifications, and successful native builds do not warn
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", decoders.ObservableDecodingFallbackWarning)
+        quiet_inputs: list[decoders.DecoderInput] = [
+            decoders.from_matrix(decoders.mwpm(weights=np.ones(3)).build),
+            decoders.bp_osd(),
+            decoders.lookup(max_weight=1),
+        ]
+        for quiet_input in quiet_inputs:
+            code_capacity.get_code_capacity_decoder(syndrome_matrix, observable_matrix, quiet_input)
+
+    # if error decoding also fails, both errors are reported
+    bad_shape = decoders.lookup(max_weight=1, error_channel=[0.1, 0.1])
+    with (
+        pytest.warns(decoders.ObservableDecodingFallbackWarning),
+        pytest.raises(ValueError, match="must have shape") as error_info,
+    ):
+        code_capacity.get_code_capacity_decoder(syndrome_matrix, observable_matrix, bad_shape)
+    assert isinstance(error_info.value.__cause__, ValueError)
+    assert "stim.DetectorErrorModel" in str(error_info.value.__cause__)
+
+    # an observable-only specification has nothing to fall back to
+    observable_only: decoders.DecoderSpec[Never] = decoders.DecoderSpec(
+        "observable_only", None, (), _raise_value_error
+    )
+    with pytest.raises(ValueError, match="cannot build"):
+        code_capacity.get_code_capacity_decoder(syndrome_matrix, observable_matrix, observable_only)
+
+
+def _raise_value_error(dem: stim.DetectorErrorModel) -> Never:
+    raise ValueError("cannot build")
 
 
 def test_code_capacity_decoder_from_sinter_decoder() -> None:
@@ -488,7 +547,7 @@ def test_code_capacity_decoder_from_sinter_decoder() -> None:
         decoders.TrivialDecoder(),
         prebuilt_rejection_reason="it is a test",
     )
-    assert isinstance(decoder.decoder, decoders.CompiledTrivialDecoder)
+    assert isinstance(decoder.decoder, decoders.sinter.CompiledTrivialDecoder)
 
     # but a compiled decoder is, and it must fit the sector that it decodes
     compiled_decoder = decoders.TrivialDecoder().compile_decoder_for_dem(
@@ -509,7 +568,7 @@ def test_code_capacity_decoder_from_sinter_decoder() -> None:
 
     # a DEM factory receives the code-capacity detector error model, not the parity-check matrix
     def observable_constructor(dem: stim.DetectorErrorModel) -> decoders.ObservableDecoder:
-        return decoders.ObservableLookupDecoder(dem, max_weight=1)
+        return decoders.custom.ObservableLookupDecoder(dem, max_weight=1)
 
     decoder = code_capacity.get_code_capacity_decoder(
         code.matrix, observable_matrix, decoders.from_dem(observable_constructor)
@@ -532,7 +591,7 @@ def test_code_capacity_decoder_from_sinter_decoder() -> None:
     decoder = code_capacity.get_code_capacity_decoder(
         code.matrix, observable_matrix, observable_spec
     )
-    assert isinstance(decoder.decoder, decoders.ObservableLookupDecoder)
+    assert isinstance(decoder.decoder, decoders.custom.ObservableLookupDecoder)
     assert decoder.get_failure_and_erasure(code.field([1, 0, 0])) == (False, False)
 
     # relative mechanism weights are scaled by a fixed placeholder probability
@@ -583,7 +642,7 @@ def test_code_capacity_decoder_from_sinter_decoder() -> None:
             _BitPackedCompiledDecoder(np.zeros((1, 1), dtype=np.uint8)),
         )
 
-    binary_lookup = decoders.ObservableLookupDecoder(
+    binary_lookup = decoders.custom.ObservableLookupDecoder(
         code.matrix,
         max_weight=1,
         observable_flip_matrix=observable_matrix,
@@ -662,7 +721,7 @@ def test_code_capacity_decoder_reuse() -> None:
     projected = code_capacity.get_code_capacity_decoder(
         syndrome_matrix,
         observables_a,
-        decoders.from_matrix(lambda matrix: decoders.LookupDecoder(matrix, max_weight=1)),
+        decoders.from_matrix(lambda matrix: decoders.custom.LookupDecoder(matrix, max_weight=1)),
     )
     reused_decoder = projected.reuse_for(syndrome_matrix, observables_b)
     assert reused_decoder is not None

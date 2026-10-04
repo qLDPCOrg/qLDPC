@@ -29,7 +29,7 @@ from ..external.ldpc import _get_decoder_bf, _get_decoder_bp_lsd, _get_decoder_b
 from ..external.pymatching import _get_decoder_mwpm
 from ..external.relay_bp import RelayBPDecoder, _get_decoder_rbp
 from ..protocols import BatchErrorDecoder, ErrorDecoder, ObservableDecoder
-from .factories import _DEMDecoderFactory, _MatrixDecoderFactory
+from .factories import DEMDecoderFactory, MatrixDecoderFactory
 from .resolution import (
     _get_error_decoder,
     _get_observable_decoder,
@@ -257,6 +257,12 @@ def reject_removed_decoder_args(decoder_args: Mapping[str, object]) -> None:
         )
 
 
+_MATRIX_OBSERVABLE_LOOKUP_ADVICE = (
+    "use qldpc.decoders.custom.lookup.ObservableLookupDecoder(matrix, max_weight=...,"
+    " observable_flip_matrix=..., error_channel=...).decode_observables(syndrome) instead"
+)
+
+
 def get_legacy_decoder_migration_message(
     pcm_or_dem: PcmOrDem | None,
     decoder_args: Mapping[str, object],
@@ -277,9 +283,10 @@ def get_legacy_decoder_migration_message(
             "use decoders.lookup(max_weight=...).build_observable_decoder(dem) instead"
             if isinstance(pcm_or_dem, stim.DetectorErrorModel)
             else (
-                "see the decoder migration guide for observable lookup decoding"
+                "pass decoder=decoders.lookup(max_weight=...) instead, which predicts observable"
+                " flips natively"
                 if pcm_or_dem is None
-                else "see the decoder migration guide for matrix-based observable decoding"
+                else _MATRIX_OBSERVABLE_LOOKUP_ADVICE
             )
         )
         return f"predict_observable_flips=True is deprecated; {advice}"
@@ -422,10 +429,7 @@ def _get_deprecated_function_message(
             if decodes_syndrome:
                 replacement += ".decode_observables(syndrome)"
             return f"{function_name} is deprecated; use {replacement} instead"
-        return (
-            f"{function_name} is deprecated; see the decoder migration guide for matrix-based"
-            " observable decoding"
-        )
+        return f"{function_name} is deprecated; {_MATRIX_OBSERVABLE_LOOKUP_ADVICE}"
     if (decoder_constructor := decoder_args.get("decoder_constructor")) is not None:
         other_args = ", ..." if len(decoder_args) > 1 else ""
         replacement = f"{_get_constructor_name(decoder_constructor)}(pcm_or_dem{other_args})"
@@ -458,9 +462,9 @@ def _get_observable_decoder_expression(decoder: DecoderInput) -> tuple[str | Non
         if isinstance(decoder, ObservableDecoder) or is_prebuilt_observable_decoder(decoder):
             return None, ""
         return "decoders.ErrorsToObservablesDecoder(decoder, dem)", ""
-    if isinstance(decoder, _DEMDecoderFactory):
+    if isinstance(decoder, DEMDecoderFactory):
         return "decoder.build(dem)", ""
-    if isinstance(decoder, _MatrixDecoderFactory):
+    if isinstance(decoder, MatrixDecoderFactory):
         return "a factory that accepts a detector error model", ""
     if callable(decoder):
         name = _get_callable_name(decoder)

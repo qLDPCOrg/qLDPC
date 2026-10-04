@@ -93,7 +93,9 @@ def test_decoder_spec_observable_modes() -> None:
 
     native_spec = decoders.lookup(max_weight=1)
     assert native_spec.predicts_observables_natively
-    assert isinstance(native_spec.build_observable_decoder(dem), decoders.ObservableLookupDecoder)
+    assert isinstance(
+        native_spec.build_observable_decoder(dem), decoders.custom.ObservableLookupDecoder
+    )
 
     converted_spec = decoders.guf()
     assert not converted_spec.predicts_observables_natively
@@ -153,9 +155,9 @@ def test_decoder_spec_backend_options() -> None:
         *,
         max_weight: int | None = None,
         backend_options: Mapping[str, object] | None = None,
-    ) -> decoders.GUFDecoder:
+    ) -> decoders.custom.GUFDecoder:
         options: dict[str, Any] = dict(backend_options or {})
-        return decoders.GUFDecoder(matrix, max_weight=max_weight, **options)
+        return decoders.custom.GUFDecoder(matrix, max_weight=max_weight, **options)
 
     helper = specs.decoder_spec("custom", builder)
     assert helper().options["backend_options"] is None
@@ -164,7 +166,7 @@ def test_decoder_spec_backend_options() -> None:
     spec = helper(backend_options=backend_options)
     assert type(spec.options["backend_options"]) is dict
     assert spec.options["backend_options"] == {"symplectic": False}
-    assert isinstance(spec.build(np.eye(1, dtype=int)), decoders.GUFDecoder)
+    assert isinstance(spec.build(np.eye(1, dtype=int)), decoders.custom.GUFDecoder)
 
     with pytest.raises(TypeError, match=r"custom\(\) backend_options must be a mapping"):
         helper(backend_options=cast(Any, ["symplectic"]))
@@ -195,13 +197,13 @@ def test_decoder_spec_factory_validation() -> None:
         decoders.ObservableDecoder,
     )
 
-    missing_input_builder: Any = lambda: decoders.GUFDecoder(np.eye(1, dtype=int))
+    missing_input_builder: Any = lambda: decoders.custom.GUFDecoder(np.eye(1, dtype=int))
     with pytest.raises(TypeError, match="must accept a matrix or DEM"):
         specs.decoder_spec("missing_input", missing_input_builder)
 
     def variadic_builder(matrix: npt.NDArray[np.int_], *options: object) -> decoders.ErrorDecoder:
         del options
-        return decoders.GUFDecoder(matrix)
+        return decoders.custom.GUFDecoder(matrix)
 
     assert isinstance(variadic_builder(np.eye(1, dtype=int), "option"), decoders.ErrorDecoder)
     variadic_helper = specs.decoder_spec("variadic", variadic_builder)
@@ -218,7 +220,7 @@ def test_observable_decoder_specs() -> None:
     assert decoders.lookup(1).infers_errors
     assert not spec.infers_errors
     assert spec.predicts_observables_natively
-    assert isinstance(spec.build_observable_decoder(dem), decoders.ObservableLookupDecoder)
+    assert isinstance(spec.build_observable_decoder(dem), decoders.custom.ObservableLookupDecoder)
     with pytest.raises(TypeError, match="cannot build an error decoder"):
         spec.build(dem)
     with pytest.raises(TypeError, match="cannot build an error decoder"):
@@ -304,10 +306,10 @@ def test_decoder_spec_helper_defaults() -> None:
     # helpers for decoders defined in qLDPC mirror all non-deprecated constructor options
     qldpc_decoders: list[tuple[Callable[..., object], Callable[..., object], set[str]]] = [
         (decoders.frontier, _get_observable_decoder_frontier, set()),
-        (decoders.lookup, decoders.LookupDecoder, {"predict_observable_flips"}),
-        (decoders.guf, decoders.GUFDecoder, set()),
-        (decoders.ilp, decoders.ILPDecoder, set()),
-        (decoders.tesseract, decoders.TesseractDecoder, set()),
+        (decoders.lookup, decoders.custom.LookupDecoder, {"predict_observable_flips"}),
+        (decoders.guf, decoders.custom.GUFDecoder, set()),
+        (decoders.ilp, decoders.custom.ILPDecoder, set()),
+        (decoders.tesseract, decoders.external.TesseractDecoder, set()),
     ]
     for helper, constructor, excluded in qldpc_decoders:
         helper_defaults = get_defaults(helper)
@@ -317,8 +319,8 @@ def test_decoder_spec_helper_defaults() -> None:
             assert default == constructor_defaults[name], (helper, name)
 
     entry_points: list[Callable[..., object]] = [
-        decoders.LookupDecoder,
-        decoders.ObservableLookupDecoder,
+        decoders.custom.LookupDecoder,
+        decoders.custom.ObservableLookupDecoder,
         decoders.lookup,
     ]
     for entry_point in entry_points:
@@ -328,7 +330,7 @@ def test_decoder_spec_helper_defaults() -> None:
     # precision selects) and of the relay_bp classes that they configure
     import relay_bp
 
-    relay_bp_decoder_defaults = get_defaults(decoders.RelayBPDecoder)
+    relay_bp_decoder_defaults = get_defaults(decoders.external.RelayBPDecoder)
     del relay_bp_decoder_defaults["name"]
     relay_bp_helpers: list[tuple[Callable[..., object], Any]] = [
         (decoders.relay_bp, relay_bp.RelayDecoderF32),
@@ -397,11 +399,11 @@ def test_decoder_spec_helper_annotations() -> None:
     expected_decoder_types: list[tuple[Callable[..., object], object]] = [
         (decoders.bp_osd, decoders.ErrorDecoder),
         (decoders.mwpm, decoders.BatchErrorDecoder),
-        (decoders.relay_bp, decoders.RelayBPDecoder),
-        (decoders.tesseract, decoders.TesseractDecoder),
-        (decoders.lookup, decoders.LookupDecoder),
-        (decoders.guf, decoders.GUFDecoder),
-        (decoders.ilp, decoders.ILPDecoder),
+        (decoders.relay_bp, decoders.external.RelayBPDecoder),
+        (decoders.tesseract, decoders.external.TesseractDecoder),
+        (decoders.lookup, decoders.custom.LookupDecoder),
+        (decoders.guf, decoders.custom.GUFDecoder),
+        (decoders.ilp, decoders.custom.ILPDecoder),
         (decoders.frontier, Never),
     ]
     for annotated_helper, decoder_type in expected_decoder_types:
@@ -411,13 +413,13 @@ def test_decoder_spec_helper_annotations() -> None:
 
     # a builder without a return annotation is assumed to build an error decoder
     def unannotated_builder(matrix: npt.NDArray[np.int_]):  # type: ignore[no-untyped-def]
-        return decoders.GUFDecoder(matrix)
+        return decoders.custom.GUFDecoder(matrix)
 
     unannotated_helper = specs.decoder_spec("unannotated", unannotated_builder)
     assert typing.get_args(inspect.signature(unannotated_helper).return_annotation) == (
         decoders.ErrorDecoder,
     )
-    assert isinstance(unannotated_helper().build(np.eye(1, dtype=int)), decoders.GUFDecoder)
+    assert isinstance(unannotated_helper().build(np.eye(1, dtype=int)), decoders.custom.GUFDecoder)
 
 
 def test_decoder_spec_helper_docstrings() -> None:
@@ -487,7 +489,7 @@ def test_deprecated_error_rate_option_is_last_and_warns() -> None:
         _get_decoder_bp_osd,
         _get_decoder_bp_lsd,
         _get_decoder_bf,
-        decoders.TesseractDecoder,
+        decoders.external.TesseractDecoder,
     )
     for entry_point in entry_points:
         assert list(inspect.signature(entry_point).parameters)[-1] == "error_rate"
@@ -496,7 +498,7 @@ def test_deprecated_error_rate_option_is_last_and_warns() -> None:
         _get_decoder_bp_osd,
         _get_decoder_bp_lsd,
         _get_decoder_bf,
-        decoders.TesseractDecoder.__init__,
+        decoders.external.TesseractDecoder.__init__,
     )
     for documented_entry_point in documented_entry_points:
         docstring = inspect.getdoc(documented_entry_point)

@@ -29,7 +29,7 @@ from ..adapters.observable_decoders import (
     validate_observable_decoder as _validate_observable_decoder,
 )
 from ..protocols import ErrorDecoder, ObservableDecoder, SupportsDecode
-from .factories import _DEMDecoderFactory, _MatrixDecoderFactory
+from .factories import DEMDecoderFactory, MatrixDecoderFactory
 
 _DecoderT_co = TypeVar("_DecoderT_co", bound=ErrorDecoder, covariant=True)
 _DecoderT = TypeVar("_DecoderT", bound=ErrorDecoder)
@@ -249,7 +249,7 @@ class ObservableDecoderCompiler(Protocol):
 
 
 DeferredErrorDecoderInput: TypeAlias = (
-    DecoderSpec[ErrorDecoder] | ErrorDecoderConstructor | _MatrixDecoderFactory | None
+    DecoderSpec[ErrorDecoder] | ErrorDecoderConstructor | MatrixDecoderFactory | None
 )
 """A deferred input for an error decoder; use a decoder specification for the model the
 receiving method constructs."""
@@ -262,7 +262,7 @@ ErrorDecoderInput: TypeAlias = DeferredErrorDecoderInput | ErrorDecoder | Suppor
 DeferredDecoderInput: TypeAlias = (
     DeferredErrorDecoderInput
     | ObservableDecoderConstructor
-    | _DEMDecoderFactory
+    | DEMDecoderFactory
     | ObservableDecoderCompiler
 )
 """A deferred input for error or observable decoding; configure it with a decoder specification

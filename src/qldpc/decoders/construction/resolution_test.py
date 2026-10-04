@@ -164,11 +164,11 @@ def test_explicit_factory_inputs() -> None:
 
     def build_errors(matrix: galois.FieldArray) -> decoders.ErrorDecoder:
         seen_matrices.append(matrix)
-        return decoders.LookupDecoder(matrix, max_weight=1)
+        return decoders.custom.LookupDecoder(matrix, max_weight=1)
 
     def build_observables(dem: stim.DetectorErrorModel) -> decoders.ObservableDecoder:
         seen_dems.append(dem)
-        return decoders.ObservableLookupDecoder(dem, max_weight=1)
+        return decoders.custom.ObservableLookupDecoder(dem, max_weight=1)
 
     matrix_factory = decoders.from_matrix(build_errors)
     dem_factory = decoders.from_dem(build_observables)
@@ -199,9 +199,11 @@ def test_explicit_factory_inputs() -> None:
     with pytest.raises(TypeError, match="must be an ErrorDecoder"):
         _get_error_decoder(matrix, decoder=decoders.from_matrix(build_invalid_decoder))
 
-    matrix_factory = decoders.from_matrix(functools.partial(decoders.LookupDecoder, max_weight=1))
+    matrix_factory = decoders.from_matrix(
+        functools.partial(decoders.custom.LookupDecoder, max_weight=1)
+    )
     dem_factory = decoders.from_dem(
-        functools.partial(decoders.ObservableLookupDecoder, max_weight=1)
+        functools.partial(decoders.custom.ObservableLookupDecoder, max_weight=1)
     )
     restored_matrix_factory = pickle.loads(pickle.dumps(matrix_factory))  # noqa: S301
     restored_dem_factory = pickle.loads(pickle.dumps(dem_factory))  # noqa: S301
@@ -219,7 +221,7 @@ def test_explicit_factory_inputs() -> None:
 def test_invalid_explicit_decoder_inputs() -> None:
     """The explicit input rejects observable predictors and invalid factories."""
     matrix = np.eye(1, dtype=int)
-    observable = decoders.ObservableLookupDecoder(
+    observable = decoders.custom.ObservableLookupDecoder(
         stim.DetectorErrorModel("error(0.1) D0 L0"), max_weight=1
     )
 
@@ -241,9 +243,9 @@ def test_invalid_explicit_decoder_inputs() -> None:
 def test_reject_prebuilt_decoder() -> None:
     """Prebuilt decoders are rejected where a decoder must be built for a new matrix."""
     matrix = np.eye(2, dtype=int)
-    prebuilt = decoders.LookupDecoder(matrix, max_weight=1)
+    prebuilt = decoders.custom.LookupDecoder(matrix, max_weight=1)
     reason = "the matrix is new"
-    for decoder in [None, decoders.lookup(max_weight=1), decoders.LookupDecoder]:
+    for decoder in [None, decoders.lookup(max_weight=1), decoders.custom.LookupDecoder]:
         resolution.reject_prebuilt_decoder(decoder, reason)
     with pytest.raises(ValueError, match="cannot be passed as decoder= here because the matrix"):
         resolution.reject_prebuilt_decoder(prebuilt, reason)
@@ -268,7 +270,7 @@ def test_error_decoder_output_is_validated() -> None:
     ):
         _get_observable_decoder(
             dem,
-            decoder=lambda dem: decoders.LookupDecoder(
+            decoder=lambda dem: decoders.custom.LookupDecoder(
                 dem, max_weight=1, predict_observable_flips=True
             ),
         )
@@ -399,9 +401,9 @@ def test_native_observable_decoders() -> None:
     dem, syndromes = _get_circuit_data()
     native_decoder_types: list[tuple[decoders.DecoderSpec[Any], type[Any]]] = [
         (decoders.mwpm(), MatchingObservableDecoder),
-        (decoders.relay_bp(), decoders.RelayBPDecoder),
-        (decoders.min_sum_bp(gamma0=0.5), decoders.RelayBPDecoder),
-        (decoders.lookup(max_weight=2), decoders.ObservableLookupDecoder),
+        (decoders.relay_bp(), decoders.external.RelayBPDecoder),
+        (decoders.min_sum_bp(gamma0=0.5), decoders.external.RelayBPDecoder),
+        (decoders.lookup(max_weight=2), decoders.custom.ObservableLookupDecoder),
     ]
     for spec, native_decoder_type in native_decoder_types:
         assert spec.predicts_observables_natively
@@ -456,16 +458,16 @@ def test_native_observable_decoders() -> None:
 def test_observable_decoder_inputs() -> None:
     """Observable decoders are built from specifications, constructors, and prebuilt decoders."""
     dem, syndromes = _get_circuit_data()
-    observable_lookup = decoders.ObservableLookupDecoder(dem, max_weight=2)
-    error_lookup = decoders.LookupDecoder(dem, max_weight=2)
+    observable_lookup = decoders.custom.ObservableLookupDecoder(dem, max_weight=2)
+    error_lookup = decoders.custom.LookupDecoder(dem, max_weight=2)
     expected_flips = observable_lookup.decode_observables_batch(syndromes)
 
     # prebuilt decoders, and constructors of either kind of decoder
     decoder_inputs: list[decoders.DecoderInput] = [
         observable_lookup,
         error_lookup,
-        lambda dem: decoders.ObservableLookupDecoder(dem, max_weight=2),
-        lambda dem: decoders.LookupDecoder(dem, max_weight=2),
+        lambda dem: decoders.custom.ObservableLookupDecoder(dem, max_weight=2),
+        lambda dem: decoders.custom.LookupDecoder(dem, max_weight=2),
     ]
     for decoder_input in decoder_inputs:
         observable_decoder: Any = _get_observable_decoder(dem, decoder=decoder_input)
@@ -496,9 +498,9 @@ class _BitPackedOnly:
 def test_observable_decoder_compilers() -> None:
     """An observable-decoder compiler, such as a SinterDecoder, is compiled for the given model."""
     dem, syndromes = _get_circuit_data()
-    expected_flips = decoders.ObservableLookupDecoder(dem, max_weight=2).decode_observables_batch(
-        syndromes
-    )
+    expected_flips = decoders.custom.ObservableLookupDecoder(
+        dem, max_weight=2
+    ).decode_observables_batch(syndromes)
     lookup_compiler = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=2))
     assert not decoders.is_prebuilt_decoder(lookup_compiler)
 

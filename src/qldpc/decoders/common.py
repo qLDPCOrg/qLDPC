@@ -15,10 +15,18 @@ import stim
 
 from qldpc.math import IntegerArray
 
+from .construction.legacy_options import _deprecate_error_rate_option
 from .dems import DetectorErrorModelArrays
 from .protocols import ErrorDecoder, SupportsDecode, as_error_decoder
 
 PLACEHOLDER_ERROR_RATE = 1e-3  # required for some decoding methods
+
+
+class ObservableDecodingFallbackWarning(UserWarning):
+    """A decoder specification could not decode observables natively, so errors are decoded instead.
+
+    Filter this category with ``warnings.filterwarnings`` to silence the notice.
+    """
 
 
 _PcmOrDem: TypeAlias = IntegerArray | stim.DetectorErrorModel
@@ -114,8 +122,6 @@ def _get_matrix_error_channel(
         return None
 
     if error_rate is not None:
-        from .construction.legacy_options import _deprecate_error_rate_option
-
         _deprecate_error_rate_option(
             {"error_channel": error_channel, "error_rate": error_rate},
             frozenset(

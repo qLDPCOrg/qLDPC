@@ -50,7 +50,7 @@ def test_is_prebuilt_decoder() -> None:
     deferred_decoders: list[object] = [
         None,
         decoders.bp_osd(),
-        decoders.LookupDecoder,
+        decoders.custom.LookupDecoder,
         lambda matrix: _FixedErrorDecoder([0, 0]),
         decoders.from_matrix(lambda matrix: _FixedErrorDecoder([0, 0])),
         decoders.from_dem(lambda dem: _FixedObservableDecoder([0])),
@@ -81,7 +81,7 @@ def test_is_prebuilt_observable_decoder() -> None:
     assert np.array_equal(error_decoder.decode_errors(np.array([0])), [0, 0])
     assert not decoders.is_prebuilt_observable_decoder(error_decoder)
     assert not decoders.is_prebuilt_observable_decoder(decoders.lookup(max_weight=1))
-    assert not decoders.is_prebuilt_observable_decoder(decoders.ObservableLookupDecoder)
+    assert not decoders.is_prebuilt_observable_decoder(decoders.custom.ObservableLookupDecoder)
     sinter_decoder = decoders.TrivialDecoder()
     assert not isinstance(sinter_decoder, decoders.ObservableDecoder)
     assert not decoders.is_prebuilt_observable_decoder(sinter_decoder)

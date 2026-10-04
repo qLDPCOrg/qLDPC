@@ -908,6 +908,9 @@ class ClassicalCode(AbstractCode):
         the error at every location.  Pass a decoder specification such as ``decoders.bp_osd(...)``
         as ``decoder=``.  With no specification, the default is BP+OSD for binary codes and GUF
         otherwise.
+        A specification that predicts observables natively is used that way when it can be built for
+        this code; otherwise it decodes errors, with a warning (see
+        help(qldpc.codes.code_capacity.get_code_capacity_decoder)).
 
         The basic idea in this method is to think of the fidelity
 
@@ -2385,6 +2388,9 @@ class QuditCode(AbstractCode):
         its symplectic products with the logical operators of the code.  Pass a decoder
         specification such as ``decoders.bp_osd(...)`` as ``decoder=``.  With no specification, the
         default is BP+OSD for binary codes and GUF otherwise.
+        A specification that predicts observables natively is used that way when it can be built for
+        this code; otherwise it decodes errors, with a warning (see
+        help(qldpc.codes.code_capacity.get_code_capacity_decoder)).
 
         For a subsystem code, errors are decoded against the stabilizer generators of the code, so
         a syndrome has one entry per stabilizer generator.  These generators can be high-weight
@@ -3906,6 +3912,9 @@ class CSSCode(QuditCode):
         ``decoders.bp_osd(...)`` as ``decoder=`` for both sectors, or set ``decoder_x=`` and
         ``decoder_z=`` separately.  An omitted sector uses the shared ``decoder=`` specification.
         With no specification, the default is BP+OSD for binary codes and GUF otherwise.
+        A specification that predicts observables natively is used that way when it can be built for
+        this code; otherwise it decodes errors, with a warning (see
+        help(qldpc.codes.code_capacity.get_code_capacity_decoder)).
 
         For a subsystem code, errors are decoded against the stabilizer generators of the code, so
         a syndrome has one entry per stabilizer generator.  These generators can be high-weight

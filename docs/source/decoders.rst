@@ -52,6 +52,9 @@ Code-capacity estimates
 
 A code-capacity estimate samples errors and counts a failure when the decoder mispredicts their logical effect.
 Pass a decoder specification such as ``decoders.mwpm()`` as ``decoder=``.
+For a binary code, a specification that predicts observable flips natively is built for the code-capacity detector error model.
+If that build fails, an ``decoders.ObservableDecodingFallbackWarning`` is emitted and the specification instead builds an error decoder for the syndrome matrix.
+Pass ``decoder=decoders.from_matrix(spec.build)`` to select error decoding explicitly, or ``decoder=decoders.from_dem(factory)`` for a custom observable decoder.
 
 .. code-block:: python
 
@@ -66,7 +69,7 @@ Predicting observable flips
 ---------------------------
 
 An :class:`error decoder <qldpc.decoders.protocols.ErrorDecoder>` infers a physical error with ``decode_errors``; an :class:`observable decoder <qldpc.decoders.protocols.ObservableDecoder>` predicts flips with ``decode_observables``.
-Specifications such as ``decoders.lookup(...)`` and ``decoders.mwpm()`` can predict observable flips natively.
+Specifications such as ``decoders.lookup(...)``, ``decoders.mwpm()``, ``decoders.relay_bp()``, and ``decoders.tesseract()`` can predict observable flips natively.
 Other specifications infer errors and project them onto the observables defined by the detector error model.
 ``DecoderSpec.predicts_observables_natively`` identifies native observable prediction support; ``DecoderSpec.infers_errors`` identifies specifications that can build error decoders.
 
@@ -324,8 +327,8 @@ The following usage remains available during a deprecation period, and each use 
 Migrating custom code-capacity factories
 ----------------------------------------
 
-Custom code-capacity factories that relied on a return annotation to receive a detector error model must now be wrapped with ``decoders.from_dem(factory)``.
-Bare factories receive the parity-check matrix and must build error decoders; use ``decoders.from_matrix(factory)`` to declare a matrix-only factory explicitly.
+Custom code-capacity factories that relied on a return annotation to receive a detector error model must now be wrapped with ``decoders.from_dem(factory)``, which returns a :class:`decoders.DEMDecoderFactory <qldpc.decoders.construction.factories.DEMDecoderFactory>`.
+Bare factories receive the parity-check matrix and must build error decoders; use ``decoders.from_matrix(factory)``, which returns a :class:`decoders.MatrixDecoderFactory <qldpc.decoders.construction.factories.MatrixDecoderFactory>`, to declare a matrix-only factory explicitly.
 Annotations no longer control this routing, without a deprecation period.
 
 Migrating backend class imports

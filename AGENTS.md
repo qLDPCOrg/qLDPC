@@ -157,6 +157,8 @@ Modern decoder inputs resolve directly in `decoders/construction/resolution.py`;
   Do not hide errors by returning a default value that looks successful.
 - Statement coverage is gated at 100%.
   Co-located `*_test.py` files are the strong convention, although a thin helper can be covered through its consumer's test module.
+- Pytest turns every `DeprecationWarning` into an error, so tests must use the modern API.
+  A test of a deprecated path must assert its warning with `pytest.warns(DeprecationWarning, ...)`.
 
 ## Common change recipes
 

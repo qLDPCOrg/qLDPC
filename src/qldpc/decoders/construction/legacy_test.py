@@ -82,7 +82,10 @@ def test_decoder_selection() -> None:
         for warning in caught
     )
 
-    with pytest.warns(DeprecationWarning, match="migration guide for matrix-based"):
+    with pytest.warns(
+        DeprecationWarning,
+        match=r"ObservableLookupDecoder\(matrix, max_weight=.*decode_observables",
+    ):
         matrix_decoder = decoders.get_decoder(
             np.array([[1]], dtype=int),
             with_lookup=True,
@@ -403,7 +406,7 @@ def test_legacy_decoder_migration_messages() -> None:
         ({"decoder_constructor": LookupDecoder}, "for example decoder=LookupDecoder"),
         (
             {"with_lookup": True, "predict_observable_flips": True},
-            "migration guide for matrix-based observable decoding",
+            r"ObservableLookupDecoder\(matrix, .*observable_flip_matrix=",
         ),
         ({"with_BF": True}, r"with_BF keyword .* use decoder=decoders\.bf\(\.\.\.\)"),
         ({"with_BF": True, "with_MWPM": True}, "pass exactly one"),
@@ -418,7 +421,7 @@ def test_legacy_decoder_migration_messages() -> None:
             dem, {"with_lookup": True, "predict_observable_flips": True}
         )
     )
-    assert "migration guide for observable lookup decoding" in (
+    assert "decoder=decoders.lookup(max_weight=...)" in (
         legacy.get_legacy_decoder_migration_message(
             None, {"with_lookup": True, "predict_observable_flips": True}
         )

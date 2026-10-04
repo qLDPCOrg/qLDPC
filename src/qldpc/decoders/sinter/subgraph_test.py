@@ -113,7 +113,7 @@ def test_compiled_subgraph_input_validation() -> None:
     wide_shots = np.zeros((1, dem.num_detectors + 1), dtype=np.uint8)
 
     with pytest.raises(ValueError, match="per subgraph"):
-        decoders.CompiledSubgraphDecoder([[0]], [[0], [1]], [], 2, 2)
+        decoders.sinter.CompiledSubgraphDecoder([[0]], [[0], [1]], [], 2, 2)
     subgraph_decoder = decoders.SubgraphDecoder(
         [[0], [1]], decoder=decoders.lookup(max_weight=1)
     ).compile_decoder_for_dem(dem)

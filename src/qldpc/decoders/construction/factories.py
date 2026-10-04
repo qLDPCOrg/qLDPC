@@ -15,7 +15,13 @@ from ..protocols import ErrorDecoder, ObservableDecoder, SupportsDecode
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
-class _MatrixDecoderFactory:
+class MatrixDecoderFactory:
+    """A custom factory that builds an error decoder from a parity-check matrix.
+
+    Create one with ``decoders.from_matrix(factory)``, and pass it as ``decoder=``.  A workflow that
+    only has a detector error model rejects it.
+    """
+
     factory: Callable[..., ErrorDecoder | SupportsDecode]
 
     def build(self, matrix: IntegerArray) -> ErrorDecoder | SupportsDecode:
@@ -24,7 +30,13 @@ class _MatrixDecoderFactory:
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
-class _DEMDecoderFactory:
+class DEMDecoderFactory:
+    """A custom factory that builds an observable decoder from a binary detector error model.
+
+    Create one with ``decoders.from_dem(factory)``, and pass it as ``decoder=``.  A workflow that
+    needs inferred errors, such as a window decoder, rejects it.
+    """
+
     factory: Callable[..., ObservableDecoder]
 
     def build(self, dem: stim.DetectorErrorModel) -> ObservableDecoder:
@@ -32,15 +44,15 @@ class _DEMDecoderFactory:
         return self.factory(dem)
 
 
-def from_matrix(factory: Callable[..., ErrorDecoder | SupportsDecode]) -> _MatrixDecoderFactory:
+def from_matrix(factory: Callable[..., ErrorDecoder | SupportsDecode]) -> MatrixDecoderFactory:
     """Declare a parity-check matrix input for a custom error-decoder factory."""
     if not callable(factory):
         raise TypeError("from_matrix requires a callable factory")
-    return _MatrixDecoderFactory(factory)
+    return MatrixDecoderFactory(factory)
 
 
-def from_dem(factory: Callable[..., ObservableDecoder]) -> _DEMDecoderFactory:
+def from_dem(factory: Callable[..., ObservableDecoder]) -> DEMDecoderFactory:
     """Declare a binary detector error model input for a custom observable-decoder factory."""
     if not callable(factory):
         raise TypeError("from_dem requires a callable factory")
-    return _DEMDecoderFactory(factory)
+    return DEMDecoderFactory(factory)

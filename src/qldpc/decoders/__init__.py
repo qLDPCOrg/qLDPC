@@ -18,10 +18,16 @@ from .capabilities import (
     is_prebuilt_observable_decoder,
 )
 from .common import (
+    ObservableDecodingFallbackWarning,
     get_error_and_erasure,
     with_erasure_bits,
 )
-from .construction.factories import from_dem, from_matrix
+from .construction.factories import (
+    DEMDecoderFactory,
+    MatrixDecoderFactory,
+    from_dem,
+    from_matrix,
+)
 from .construction.legacy import (
     decode_observables,
     get_decoder_bf,
@@ -97,6 +103,7 @@ __all__ = [
     "CompiledSubgraphDecoder",
     "CompiledTrivialDecoder",
     "CompositeDecoder",
+    "DEMDecoderFactory",
     "Decoder",
     "DecoderInput",
     "DecoderSpec",
@@ -117,10 +124,12 @@ __all__ = [
     "GUFDecoder",
     "ILPDecoder",
     "LookupDecoder",
+    "MatrixDecoderFactory",
     "ObservableDecodeResult",
     "ObservableDecoder",
     "ObservableDecoderCompiler",
     "ObservableDecoderConstructor",
+    "ObservableDecodingFallbackWarning",
     "ObservableLookupDecoder",
     "PcmOrDem",
     "RelayBPDecoder",

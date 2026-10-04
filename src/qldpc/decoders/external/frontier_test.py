@@ -130,7 +130,7 @@ def test_frontier_decoding(calls: list[_Call]) -> None:
     decoder = _get_observable_decoder_frontier(
         dem, K=11, Delta=4.5, column_order="time_order", add_erasure_bit=True
     )
-    assert isinstance(decoder, decoders.FrontierObservableDecoder)
+    assert isinstance(decoder, decoders.external.FrontierObservableDecoder)
     assert decoder.has_erasure_bit
     assert [
         (column.prior_probs, column.detector_response_masks, column.logical_response_masks)

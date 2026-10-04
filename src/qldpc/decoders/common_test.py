@@ -147,12 +147,12 @@ def test_dem_error_probabilities_through_public_paths() -> None:
         decoders.bp_osd(error_channel=0.1).build(dem)
     with pytest.raises(ValueError, match=match):
         decoders.SinterDecoder(decoder=decoders.bf(error_channel=0.1)).compile_decoder_for_dem(dem)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        with pytest.raises(ValueError, match=match):
-            decoders.SinterDecoder(error_rate=0.1).compile_decoder_for_dem(dem)
-        with pytest.raises(ValueError, match=match):
-            decoders.get_decoder(dem, with_BP_LSD=True, error_rate=0.1)
+    with pytest.warns(DeprecationWarning, match="free-form decoder options"):
+        legacy_sinter_decoder = decoders.SinterDecoder(error_rate=0.1)
+    with pytest.raises(ValueError, match=match):
+        legacy_sinter_decoder.compile_decoder_for_dem(dem)
+    with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match=match):
+        decoders.get_decoder(dem, with_BP_LSD=True, error_rate=0.1)
 
     # the suggested alternative decodes the detector-flip matrix with the given probabilities
     matrix = decoders.DetectorErrorModelArrays(dem).detector_flip_matrix

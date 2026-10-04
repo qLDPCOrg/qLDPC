@@ -10,6 +10,7 @@ by converting the physical errors that it infers into observable values.
 from __future__ import annotations
 
 import dataclasses
+import warnings
 from collections.abc import Mapping
 
 import galois
@@ -18,6 +19,7 @@ import numpy.typing as npt
 import scipy.sparse
 import stim
 
+from qldpc._util import get_external_caller_stacklevel
 from qldpc.decoders.adapters.observable_decoders import (
     BitPackedObservableDecoder,
     ErrorsToFieldObservablesDecoder,
@@ -27,8 +29,8 @@ from qldpc.decoders.capabilities import (
     compiles_for_dem,
     is_prebuilt_observable_decoder,
 )
-from qldpc.decoders.common import PLACEHOLDER_ERROR_RATE
-from qldpc.decoders.construction.factories import _DEMDecoderFactory
+from qldpc.decoders.common import PLACEHOLDER_ERROR_RATE, ObservableDecodingFallbackWarning
+from qldpc.decoders.construction.factories import DEMDecoderFactory
 from qldpc.decoders.construction.resolution import _resolve_error_decoder, reject_prebuilt_decoder
 from qldpc.decoders.construction.specs import (
     DecoderInput,
@@ -232,6 +234,13 @@ def get_code_capacity_decoder(
     ``syndrome_matrix @ error``.  Pass a decoder specification such as ``decoders.bp_osd(...)``
     as ``decoder=``.
 
+    For a binary code, a specification with native observable support is first built as an
+    observable decoder for the code-capacity detector error model.  If that build fails, for example
+    because the specification sets matrix-only options or the backend rejects the model's structure,
+    an ObservableDecodingFallbackWarning is emitted and an error decoder is built for
+    syndrome_matrix instead.  Wrap a specification as ``decoders.from_matrix(spec.build)`` to
+    select error decoding explicitly.
+
     Args:
         syndrome_matrix: The matrix that maps an error to its syndrome.
         observable_matrix: The matrix that maps an error to its observable values, or None if every
@@ -288,11 +297,7 @@ def get_code_capacity_decoder(
             require_dimensions=True,
         )
 
-    native_spec = isinstance(decoder, DecoderSpec) and (
-        not decoder.infers_errors
-        or (type(syndrome_matrix).order == 2 and decoder.predicts_observables_natively)
-    )
-    if not decoder_args and (native_spec or isinstance(decoder, _DEMDecoderFactory)):
+    if not decoder_args and isinstance(decoder, DEMDecoderFactory):
         dem = get_code_capacity_dem(
             syndrome_matrix,
             observable_matrix,
@@ -300,31 +305,88 @@ def get_code_capacity_decoder(
             symplectic_errors=symplectic_dem_errors,
             error_probs=dem_error_probs,
         )
-        if isinstance(decoder, DecoderSpec):
-            observable_decoder = decoder.build_observable_decoder(dem)
-            source = "A decoder specification"
-        else:
-            assert isinstance(decoder, _DEMDecoderFactory)
-            observable_decoder = decoder.build(dem)
-            source = "A from_dem factory"
         return _get_observable_code_capacity_decoder(
-            observable_decoder,
+            decoder.build(dem),
             syndrome_matrix,
             observable_matrix,
-            source,
+            "A from_dem factory",
             require_dimensions=False,
         )
 
-    error_decoder = _resolve_error_decoder(
-        syndrome_matrix,
-        decoder,  # type:ignore[arg-type]
-        decoder_args,
-        warn_deprecated=warn_deprecated,
-    )
+    native_error: Exception | None = None
+    if not decoder_args and isinstance(decoder, DecoderSpec):
+        is_binary = getattr(type(syndrome_matrix), "order", 2) == 2
+        if not decoder.infers_errors:
+            # an observable-only specification has nothing to fall back to
+            return _build_native_code_capacity_decoder(
+                decoder,
+                syndrome_matrix,
+                observable_matrix,
+                dem_errors,
+                symplectic_dem_errors,
+                dem_error_probs,
+            )
+        if is_binary and decoder.predicts_observables_natively:
+            try:
+                return _build_native_code_capacity_decoder(
+                    decoder,
+                    syndrome_matrix,
+                    observable_matrix,
+                    dem_errors,
+                    symplectic_dem_errors,
+                    dem_error_probs,
+                )
+            except (ValueError, TypeError) as error:
+                native_error = error
+            warnings.warn(
+                f"{decoder!r} could not build an observable decoder for this code-capacity detector"
+                f" error model ({type(native_error).__name__}: {native_error}), so qLDPC is"
+                " decoding errors with the syndrome matrix instead.  Pass"
+                " decoder=decoders.from_matrix(spec.build) to select error decoding explicitly",
+                ObservableDecodingFallbackWarning,
+                stacklevel=get_external_caller_stacklevel(),
+            )
+
+    try:
+        error_decoder = _resolve_error_decoder(
+            syndrome_matrix,
+            decoder,  # type:ignore[arg-type]
+            decoder_args,
+            warn_deprecated=warn_deprecated,
+        )
+    except (ValueError, TypeError) as error:
+        if native_error is not None:
+            raise error from native_error
+        raise
     return CodeCapacityDecoder.from_error_decoder(error_decoder, syndrome_matrix, observable_matrix)
 
 
 # Private helpers
+
+
+def _build_native_code_capacity_decoder(
+    decoder: DecoderSpec[ErrorDecoder],
+    syndrome_matrix: galois.FieldArray,
+    observable_matrix: galois.FieldArray | None,
+    dem_errors: galois.FieldArray | None,
+    symplectic_dem_errors: bool,
+    dem_error_probs: npt.NDArray[np.floating] | float,
+) -> CodeCapacityDecoder:
+    """Build a specification's observable decoder for the code-capacity detector error model."""
+    dem = get_code_capacity_dem(
+        syndrome_matrix,
+        observable_matrix,
+        dem_errors,
+        symplectic_errors=symplectic_dem_errors,
+        error_probs=dem_error_probs,
+    )
+    return _get_observable_code_capacity_decoder(
+        decoder.build_observable_decoder(dem),
+        syndrome_matrix,
+        observable_matrix,
+        "A decoder specification",
+        require_dimensions=False,
+    )
 
 
 def _get_single_qudit_error_effects(matrix: galois.FieldArray) -> galois.FieldArray:

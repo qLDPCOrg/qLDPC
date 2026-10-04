@@ -133,11 +133,11 @@ def test_rejected_decoder_arguments() -> None:
     """)
 
     def build_observable_decoder(dem: stim.DetectorErrorModel) -> decoders.ObservableDecoder:
-        return decoders.ObservableLookupDecoder(dem, 2)
+        return decoders.custom.ObservableLookupDecoder(dem, 2)
 
     decoder = decoders.SinterDecoder(decoder=build_observable_decoder)
     compiled = decoder.compile_decoder_for_dem(dem)
-    assert isinstance(compiled.observable_decoder, decoders.ObservableLookupDecoder)
+    assert isinstance(compiled.observable_decoder, decoders.custom.ObservableLookupDecoder)
     assert np.array_equal(compiled.decode_observables(np.array([1, 0])), [1, 1])
 
     compiled = decoders.SinterDecoder(
@@ -146,7 +146,7 @@ def test_rejected_decoder_arguments() -> None:
     assert np.array_equal(compiled.decode_observables(np.array([1, 0])), [1, 1])
     with pytest.raises(ValueError, match="needs a parity-check matrix"):
         decoders.SinterDecoder(
-            decoder=decoders.from_matrix(lambda matrix: decoders.LookupDecoder(matrix, 1))
+            decoder=decoders.from_matrix(lambda matrix: decoders.custom.LookupDecoder(matrix, 1))
         ).compile_decoder_for_dem(dem)
 
     window_decoder = decoders.SequentialWindowDecoder(
@@ -158,7 +158,7 @@ def test_rejected_decoder_arguments() -> None:
 
     class SingleShotDecoder:
         def __init__(self, dem: stim.DetectorErrorModel) -> None:
-            self.lookup = decoders.ObservableLookupDecoder(dem, 2)
+            self.lookup = decoders.custom.ObservableLookupDecoder(dem, 2)
 
         def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
             return self.lookup.decode_observables(syndrome)
@@ -168,7 +168,7 @@ def test_rejected_decoder_arguments() -> None:
 
     with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
         decoders.SinterDecoder(
-            decoder=decoders.ObservableLookupDecoder(dem, 2)  # type: ignore[arg-type]
+            decoder=decoders.custom.ObservableLookupDecoder(dem, 2)  # type: ignore[arg-type]
         )
 
     with pytest.warns(DeprecationWarning):
@@ -195,7 +195,7 @@ def test_rejected_decoder_arguments() -> None:
 def test_observable_decoders_reject_prebuilt_decoders() -> None:
     """Observable decoders reject an error decoder that cannot be rebuilt for each model."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
-    prebuilt = decoders.LookupDecoder(dem, max_weight=1)
+    prebuilt = decoders.custom.LookupDecoder(dem, max_weight=1)
     for build_decoder, reason in [
         (
             lambda: decoders.SinterDecoder(decoder=prebuilt),  # type: ignore[arg-type]
@@ -222,7 +222,7 @@ def test_observable_decoders_reject_prebuilt_decoders() -> None:
         decoders.SinterDecoder(static_decoder=prebuilt)
 
     decoder = decoders.SequentialWindowDecoder(
-        [[0]], decoder=lambda dem: decoders.LookupDecoder(dem, max_weight=1)
+        [[0]], decoder=lambda dem: decoders.custom.LookupDecoder(dem, max_weight=1)
     )
     assert np.array_equal(
         decoder.compile_decoder_for_dem(dem).decode_observables(np.array([1])), [1]
@@ -238,7 +238,7 @@ def test_sinter_decoder_with_erasure() -> None:
     decoder = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1, add_erasure_bit=True))
     compiled = decoder.compile_decoder_for_dem(dem)
 
-    assert isinstance(compiled.observable_decoder, decoders.ObservableLookupDecoder)
+    assert isinstance(compiled.observable_decoder, decoders.custom.ObservableLookupDecoder)
     assert compiled.num_observables == dem.num_observables
     assert compiled.num_erasure_bits == 1
     assert compiled.has_erasure_bit
@@ -364,7 +364,8 @@ def test_compiled_sinter_decoder_subclass_decode_shots() -> None:
             return 1 - super().decode_shots(detection_event_data)
 
     compiled = InvertingDecoder(
-        decoders.DetectorErrorModelArrays(dem), decoders.ObservableLookupDecoder(dem, max_weight=1)
+        decoders.DetectorErrorModelArrays(dem),
+        decoders.custom.ObservableLookupDecoder(dem, max_weight=1),
     )
     shot = np.zeros((1, 1), dtype=np.uint8)
     assert np.array_equal(compiled.decode_shots(shot), [[1]])

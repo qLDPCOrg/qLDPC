@@ -102,7 +102,9 @@ def test_from_arrays_copies_its_inputs() -> None:
     assert expected_dem.approx_equals(dem_arrays.to_dem(), atol=1e-10)
 
     # the dictionary of suggested decompositions is copied as well
-    decompositions = {0: frozenset([decoders.FlipPattern([0]), decoders.FlipPattern([1])])}
+    decompositions = {
+        0: frozenset([decoders.dems.FlipPattern([0]), decoders.dems.FlipPattern([1])])
+    }
     dem_arrays = decoders.DetectorErrorModelArrays.from_arrays(
         np.array([[1], [1]], dtype=np.uint8), None, 0.1, decompositions
     )
@@ -114,7 +116,7 @@ def test_validating_suggested_decompositions() -> None:
     matrix = np.array([[1], [1], [0]], dtype=np.uint8)
 
     # the components below flip D0 and D2, while the error itself flips D0 and D1
-    components = frozenset([decoders.FlipPattern([0]), decoders.FlipPattern([2])])
+    components = frozenset([decoders.dems.FlipPattern([0]), decoders.dems.FlipPattern([2])])
     with pytest.raises(ValueError, match="flips detectors"):
         decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1, {0: components})
 
@@ -123,15 +125,19 @@ def test_validating_suggested_decompositions() -> None:
         decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1, {1: components})
 
     # out-of-range component indices must not cancel and pass the combined-flip check
-    components = frozenset([decoders.FlipPattern([0, 7], [5]), decoders.FlipPattern([1, 7], [5])])
+    components = frozenset(
+        [decoders.dems.FlipPattern([0, 7], [5]), decoders.dems.FlipPattern([1, 7], [5])]
+    )
     with pytest.raises(ValueError, match=r"detectors \[7\] outside the valid range"):
         decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1, {0: components})
 
-    components = frozenset([decoders.FlipPattern([0], [5]), decoders.FlipPattern([1], [5])])
+    components = frozenset(
+        [decoders.dems.FlipPattern([0], [5]), decoders.dems.FlipPattern([1], [5])]
+    )
     with pytest.raises(ValueError, match=r"observables \[5\] outside the valid range"):
         decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1, {0: components})
 
-    components = frozenset([decoders.FlipPattern([0, 1]), decoders.FlipPattern()])
+    components = frozenset([decoders.dems.FlipPattern([0, 1]), decoders.dems.FlipPattern()])
     with pytest.raises(ValueError, match="empty component"):
         decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 0.1, {0: components})
 
@@ -253,7 +259,7 @@ def test_without_untriggered_detectors() -> None:
     pruned = decoders.DetectorErrorModelArrays(dem).without_untriggered_detectors()
     assert pruned.num_detectors == 2
     assert pruned.suggested_decompositions[0] == frozenset(
-        [decoders.FlipPattern([0]), decoders.FlipPattern([1])]
+        [decoders.dems.FlipPattern([0]), decoders.dems.FlipPattern([1])]
     )
 
 
@@ -465,10 +471,10 @@ def test_with_erasure() -> None:
 
 def test_error_targets_dem_targets() -> None:
     """FlipPattern.dem_targets returns sorted DemTarget lists for detectors and observables."""
-    targets = decoders.FlipPattern([2, 0, 1], [3, 1, 2, 2])
+    targets = decoders.dems.FlipPattern([2, 0, 1], [3, 1, 2, 2])
     det_targets, obs_targets = targets.dem_targets()
     assert det_targets == [stim.DemTarget.relative_detector_id(dd) for dd in (0, 1, 2)]
     assert obs_targets == [stim.DemTarget.logical_observable_id(oo) for oo in (1, 3)]
 
-    empty_det, empty_obs = decoders.FlipPattern().dem_targets()
+    empty_det, empty_obs = decoders.dems.FlipPattern().dem_targets()
     assert empty_det == [] and empty_obs == []

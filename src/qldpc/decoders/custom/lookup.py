@@ -90,6 +90,7 @@ class _LookupDecoderBase:
             post_select,
             add_erasure_bit,
             probability_cutoff,
+            symplectic=symplectic,
         )
         if observable_flip_matrix is not None and error_log_probability is None:
             raise ValueError(
@@ -469,7 +470,10 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
         advice = (
             "use decoders.lookup(max_weight=...).build_observable_decoder(dem) instead"
             if isinstance(pcm_or_dem, stim.DetectorErrorModel)
-            else "see the decoder migration guide for matrix-based observable decoding"
+            else (
+                "use ObservableLookupDecoder(matrix, max_weight=..., observable_flip_matrix=...,"
+                " error_channel=...).decode_observables(syndrome) instead"
+            )
         )
         _warn_deprecated_observable_prediction(predict_observable_flips, advice)
         self._outputs_observables = predict_observable_flips
@@ -663,6 +667,7 @@ class _WeightedLookupDecoderBase(_LookupDecoderBase):
                 self._outputs_observables,
                 post_select,
                 add_erasure_bit,
+                symplectic=symplectic,
             )
         )
 
@@ -755,7 +760,8 @@ class WeightedLookupDecoder(_WeightedLookupDecoderBase, LookupDecoder):
     ) -> None:
         _warn_deprecated_observable_prediction(
             predict_observable_flips,
-            "see the decoder migration guide for weighted observable decoding",
+            "use WeightedObservableLookupDecoder(...).decode_observables(syndrome, penalty_func)"
+            " instead",
         )
         self._outputs_observables = predict_observable_flips
         self.predict_observable_flips = predict_observable_flips
@@ -964,6 +970,8 @@ def _organize_lookup_table_initialization_data(
     post_select: Collection[int],
     add_erasure_bit: bool,
     probability_cutoff: float = 0,
+    *,
+    symplectic: bool = False,
 ) -> tuple[
     IntegerArray,
     IntegerArray | None,
@@ -979,6 +987,11 @@ def _organize_lookup_table_initialization_data(
             " inclusive"
         )
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
+        if symplectic:
+            raise ValueError(
+                "A LookupDecoder cannot be symplectic when built from a stim.DetectorErrorModel,"
+                " whose error mechanisms are not [X|Z] qudit errors"
+            )
         if error_channel is not None or observable_flip_matrix is not None:
             raise ValueError(
                 "Cannot specify an error_channel or observable_flip_matrix when providing a"

@@ -20,7 +20,7 @@ from ..capabilities import compiles_for_dem, is_prebuilt_decoder
 from ..custom.guf import _get_decoder_guf
 from ..external.ldpc import _get_decoder_bp_osd
 from ..protocols import ErrorDecoder, ObservableDecoder, as_error_decoder
-from .factories import _DEMDecoderFactory, _MatrixDecoderFactory
+from .factories import DEMDecoderFactory, MatrixDecoderFactory
 from .specs import (
     DecoderInput,
     DecoderSpec,
@@ -79,7 +79,7 @@ def _get_observable_decoder(
     """
     if isinstance(decoder, DecoderSpec):
         return decoder.build_observable_decoder(dem)
-    if isinstance(decoder, _DEMDecoderFactory):
+    if isinstance(decoder, DEMDecoderFactory):
         return validate_observable_decoder(decoder.build(dem), "A from_dem factory")
     if compiles_for_dem(decoder):
         return _compile_observable_decoder(decoder, dem)
@@ -125,7 +125,7 @@ def _build_decoder(pcm_or_dem: PcmOrDem, decoder: DecoderInput) -> tuple[object,
     elif isinstance(decoder, DecoderSpec):
         built_decoder = decoder.build(pcm_or_dem)
         source = "A decoder specification"
-    elif isinstance(decoder, _MatrixDecoderFactory):
+    elif isinstance(decoder, MatrixDecoderFactory):
         if isinstance(pcm_or_dem, stim.DetectorErrorModel):
             raise ValueError(
                 "A from_matrix factory needs a parity-check matrix; this workflow provides a"
@@ -133,7 +133,7 @@ def _build_decoder(pcm_or_dem: PcmOrDem, decoder: DecoderInput) -> tuple[object,
                 " use a decoder specification instead"
             )
         built_decoder, source = decoder.build(pcm_or_dem), "A from_matrix factory"
-    elif isinstance(decoder, _DEMDecoderFactory):
+    elif isinstance(decoder, DEMDecoderFactory):
         raise TypeError(
             "A from_dem factory predicts observables, but this workflow needs inferred errors"
         )

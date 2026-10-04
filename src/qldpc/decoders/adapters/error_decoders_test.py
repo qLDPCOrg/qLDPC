@@ -70,7 +70,7 @@ def test_expanded_error_decoder() -> None:
     syndromes = np.array([[1, 0], [0, 1]], dtype=int)
 
     for add_erasure_bit in [False, True]:
-        merging_decoder = decoders.GUFDecoder(
+        merging_decoder = decoders.custom.GUFDecoder(
             decoders.DetectorErrorModelArrays(dem).detector_flip_matrix.toarray(),
             add_erasure_bit=add_erasure_bit,
         )
