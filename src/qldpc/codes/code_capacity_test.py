@@ -497,6 +497,16 @@ def test_code_capacity_native_build_fallback() -> None:
     with pytest.raises(ValueError, match="cannot build"):
         code_capacity.get_code_capacity_decoder(syndrome_matrix, observable_matrix, observable_only)
 
+    # long option values are truncated in the warning
+    long_channel = decoders.lookup(max_weight=1, error_channel=[0.1] * 3 + [0.2] * 50)
+    with (
+        pytest.warns(decoders.ObservableDecodingFallbackWarning) as records,
+        pytest.raises(ValueError),
+    ):
+        code_capacity.get_code_capacity_decoder(syndrome_matrix, observable_matrix, long_channel)
+    assert str(records[0].message).startswith("decoders.lookup(")
+    assert "...) could not build" in str(records[0].message)
+
 
 def _raise_value_error(dem: stim.DetectorErrorModel) -> Never:
     raise ValueError("cannot build")

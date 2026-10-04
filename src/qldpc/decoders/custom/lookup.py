@@ -471,8 +471,9 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
             "use decoders.lookup(max_weight=...).build_observable_decoder(dem) instead"
             if isinstance(pcm_or_dem, stim.DetectorErrorModel)
             else (
-                "use ObservableLookupDecoder(matrix, max_weight=..., observable_flip_matrix=...,"
-                " error_channel=...).decode_observables(syndrome) instead"
+                "use qldpc.decoders.custom.lookup.ObservableLookupDecoder(matrix, max_weight=...,"
+                " observable_flip_matrix=..., error_channel=...).decode_observables(syndrome)"
+                " instead"
             )
         )
         _warn_deprecated_observable_prediction(predict_observable_flips, advice)
@@ -760,8 +761,8 @@ class WeightedLookupDecoder(_WeightedLookupDecoderBase, LookupDecoder):
     ) -> None:
         _warn_deprecated_observable_prediction(
             predict_observable_flips,
-            "use WeightedObservableLookupDecoder(...).decode_observables(syndrome, penalty_func)"
-            " instead",
+            "use qldpc.decoders.custom.lookup.WeightedObservableLookupDecoder(...)"
+            ".decode_observables(syndrome, penalty_func) instead",
         )
         self._outputs_observables = predict_observable_flips
         self.predict_observable_flips = predict_observable_flips
