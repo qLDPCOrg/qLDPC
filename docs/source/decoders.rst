@@ -307,18 +307,13 @@ In particular, ``decoders.get_decoder`` and ``decoders.decode`` behave as they d
    * - ``decoder_x_kwargs={...}`` and ``decoder_z_kwargs={...}``
      - ``decoder_x=...`` and ``decoder_z=...``
    * - ``LookupDecoder(..., predict_observable_flips=True)``
-     - ``decoders.lookup(...).build_observable_decoder(dem)`` for a DEM.  For a matrix with an
-       ``observable_flip_matrix`` and ``error_channel``, use
-       ``qldpc.decoders.custom.lookup.ObservableLookupDecoder`` and ``decode_observables``;
-       the specification's observable builder requires a DEM.
+     - ``decoders.lookup(...).build_observable_decoder(dem)`` for a DEM.
+       For a matrix with an ``observable_flip_matrix`` and ``error_channel``, use ``qldpc.decoders.custom.lookup.ObservableLookupDecoder`` and ``decode_observables``; the specification's observable builder requires a DEM.
    * - ``WeightedLookupDecoder(..., predict_observable_flips=True)``
-     - ``qldpc.decoders.custom.lookup.WeightedObservableLookupDecoder(...)`` and its
-       ``decode_observables`` method for late-bound penalty functions; the ordinary lookup
-       specification does not support choosing a new penalty at decode time.
+     - ``qldpc.decoders.custom.lookup.WeightedObservableLookupDecoder(...)`` and its ``decode_observables`` method for late-bound penalty functions; the ordinary lookup specification does not support choosing a new penalty at decode time.
    * - ``LookupDecoder(..., penalty_func=penalty)``
-     - ``decoders.lookup(max_weight=..., error_channel=log_probability)`` with a callable
-       returning a normalized log probability.  An arbitrary penalty cannot be substituted
-       without first turning it into a valid probability distribution.
+     - ``decoders.lookup(max_weight=..., error_channel=log_probability)`` with a callable returning a normalized log probability.
+       An arbitrary penalty cannot be substituted without first turning it into a valid probability distribution.
    * - ``decoders.bp_osd(error_rate=p)`` (also ``bp_lsd``, ``bf``, and ``tesseract``)
      - ``decoders.bp_osd(error_channel=p)`` (or the corresponding specification helper)
    * - ``SinterDecoder.decode`` and ``CompiledSinterDecoder.decode`` (removed)
@@ -377,21 +372,17 @@ The following usage remains available during a deprecation period, and each use 
 Migrating custom code-capacity factories
 ----------------------------------------
 
-Custom code-capacity factories that relied on a return annotation to receive a detector error model
-must now be wrapped with ``decoders.from_dem(factory)``.  Bare factories receive the parity-check
-matrix and must build error decoders; use ``decoders.from_matrix(factory)`` to declare a matrix-only
-factory explicitly.  Annotations no longer control this routing, without a deprecation period.
+Custom code-capacity factories that relied on a return annotation to receive a detector error model must now be wrapped with ``decoders.from_dem(factory)``.
+Bare factories receive the parity-check matrix and must build error decoders; use ``decoders.from_matrix(factory)`` to declare a matrix-only factory explicitly.
+Annotations no longer control this routing, without a deprecation period.
 
 Migrating backend class imports
 -------------------------------
 
-Backend implementation classes formerly exported from ``qldpc.decoders``, such as
-``LookupDecoder`` and ``RelayBPDecoder``, remain importable at the package root, including
-through star imports, but now warn on access.  Workflow classes such as ``SinterDecoder``
-remain direct root exports.  Import backend classes from their defining modules instead:
-``from qldpc.decoders.custom.lookup import LookupDecoder`` or
-``from qldpc.decoders.external.relay_bp import RelayBPDecoder``.  The objects and their
-constructor signatures are unchanged.
+Backend implementation classes formerly exported from ``qldpc.decoders``, such as ``LookupDecoder`` and ``RelayBPDecoder``, remain importable at the package root, including through star imports, but now warn on access.
+Workflow classes such as ``SinterDecoder`` remain direct root exports.
+Import backend classes from their defining modules instead: ``from qldpc.decoders.custom.lookup import LookupDecoder`` or ``from qldpc.decoders.external.relay_bp import RelayBPDecoder``.
+The objects and their constructor signatures are unchanged.
 
 Decoder specification reference
 -------------------------------

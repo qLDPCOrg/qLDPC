@@ -5,7 +5,8 @@ These notebooks live in the `examples/ directory <https://github.com/qLDPCOrg/qL
 They serve three purposes: an introduction to using ``qLDPC``, pedagogical material for learning about quantum error correction, and code you can copy and adapt for your own use case.
 
 Each notebook runs independently from a fresh kernel.
-Setup sections include an executable ``%pip`` cell for installing their dependencies into the active notebook kernel.
+Some setup sections include an executable ``%pip`` cell for installing dependencies into the active notebook kernel.
+The decoder introduction instead uses an already installed checkout and runs offline.
 Workflow cells use ordinary Python, but a script must place calls to ``sinter.collect`` or TQEC's Sinter runner under an ``if __name__ == "__main__":`` guard because Sinter starts worker processes with Python's spawn method.
 The stored simulations use bounded sample budgets for documentation; they are not publication-quality benchmarks.
 

@@ -1,17 +1,17 @@
 Adding a decoder
 ================
 
-There are two paths.  To **use your own decoder**, implement one decoding method and configure
-a decoder specification; no registration or library changes are needed.  To **ship a decoder with
-qLDPC**, add an implementation, a public specification helper, and tests.  There is
-no plugin registry and no need to edit the generic resolver for a new backend.
+There are two paths.
+To **use your own decoder**, implement one decoding method and configure a decoder specification; no registration or library changes are needed.
+To **ship a decoder with qLDPC**, add an implementation, a public specification helper, and tests.
+There is no plugin registry and no need to edit the generic resolver for a new backend.
 
 Use a custom decoder without changing qLDPC
 --------------------------------------------
 
-An error decoder returns a physical error with ``decode_errors(syndrome)``.  The result has one
-entry per matrix column, over the code's field.  This small decoder works only for an identity
-parity-check matrix, for which the syndrome is the error itself:
+An error decoder returns a physical error with ``decode_errors(syndrome)``.
+The result has one entry per matrix column, over the code's field.
+This small decoder works only for an identity parity-check matrix, for which the syndrome is the error itself:
 
 .. code-block:: python
 
@@ -41,13 +41,12 @@ parity-check matrix, for which the syndrome is the error itself:
    assert estimator.num_failures[1] == 0
 
 ``decoder_spec`` derives the helper's options from the builder's typed signature.
-The resulting specification builds the error decoder for the field-valued parity-check matrix
-provided by the code-capacity estimator and projects inferred errors onto observables.
+The resulting specification builds the error decoder for the field-valued parity-check matrix provided by the code-capacity estimator and projects inferred errors onto observables.
 This builder accepts only a matrix; it does not convert a Stim detector error model (DEM).
 
-To predict observables directly, implement ``decode_observables(syndrome)`` instead.  It returns
-one value per observable.  For a **binary** code-capacity sector or a Sinter decoder, provide a
-DEM-based observable builder to ``observable_decoder_spec``:
+To predict observables directly, implement ``decode_observables(syndrome)`` instead.
+It returns one value per observable.
+For a **binary** code-capacity sector or a Sinter decoder, provide a DEM-based observable builder to ``observable_decoder_spec``:
 
 .. code-block:: python
 
@@ -72,60 +71,45 @@ DEM-based observable builder to ``observable_decoder_spec``:
 
 This toy decoder always predicts no flips; it only illustrates the output contract.
 A DEM is binary; a decoder for a nonbinary code must use field-valued matrix inputs.
-Define builders in an importable module, not as local functions or lambdas, when Sinter
-needs to pickle them for worker processes.  To signal erasure, set ``has_erasure_bit = True``
-and append **one binary flag at the end** of each prediction.  Do not append it unless the
-decoder declares erasure support.  Batch methods are optional; if provided, accept one
-syndrome per row and return one prediction per row.  See the
-:doc:`decoder guide <decoders>` for code-capacity and CSS sector choices.
+Define builders in an importable module, not as local functions or lambdas, when Sinter needs to pickle them for worker processes.
+To signal erasure, set ``has_erasure_bit = True`` and append **one binary flag at the end** of each prediction.
+Do not append it unless the decoder declares erasure support.
+Batch methods are optional; if provided, accept one syndrome per row and return one prediction per row.
+See the :doc:`decoder guide <decoders>` for code-capacity and CSS sector choices.
 
 Add a public decoder to qLDPC
 -----------------------------
 
-1. **Choose the contract first.** Decide whether the decoder infers errors,
-   predicts observables, or both.  Decide separately which inputs it accepts:
-   parity-check matrices, binary DEMs, and nonbinary field arrays.  Reject unsupported
-   inputs with a clear error in the builder; do not rely on implicit matrix/DEM conversion.
-   Window decoders need inferred errors; code-capacity and ordinary Sinter decoders can
-   use observable predictions.
-2. **Put implementation and builder together.** Use
-   :mod:`qldpc.decoders.custom` for a qLDPC-owned algorithm or
-   :mod:`qldpc.decoders.external` for a third-party integration.  Implement
-   :class:`~qldpc.decoders.protocols.ErrorDecoder` (``decode_errors``) and/or
-   :class:`~qldpc.decoders.protocols.ObservableDecoder` (``decode_observables``).
-   Keep a module-level builder with a typed signature: its first input is a matrix or
-   DEM, followed by the options for this algorithm.  If the backend is optional, import
-   it when building, not when importing ``qldpc.decoders``, and report how to install it.
-3. **Expose a specification.** Use
-   :func:`~qldpc.decoders.construction.specs.decoder_spec` with an error builder,
-   and optionally a DEM-based native observable builder.  An observable-only backend
-   uses :func:`~qldpc.decoders.construction.specs.observable_decoder_spec`.
-   These helpers take their option signature from the typed builder (or from
-   ``signature_source=DecoderClass`` if that builder forwards ``**kwargs``).
+1. **Choose the contract first.**
+   Decide whether the decoder infers errors, predicts observables, or both.
+   Decide separately which inputs it accepts: parity-check matrices, binary DEMs, and nonbinary field arrays.
+   Reject unsupported inputs with a clear error in the builder; do not rely on implicit matrix/DEM conversion.
+   Window decoders need inferred errors; code-capacity and ordinary Sinter decoders can use observable predictions.
+2. **Put implementation and builder together.**
+   Use :mod:`qldpc.decoders.custom` for a qLDPC-owned algorithm or :mod:`qldpc.decoders.external` for a third-party integration.
+   Implement :class:`~qldpc.decoders.protocols.ErrorDecoder` (``decode_errors``) and/or :class:`~qldpc.decoders.protocols.ObservableDecoder` (``decode_observables``).
+   Keep a module-level builder with a typed signature: its first input is a matrix or DEM, followed by the options for this algorithm.
+   If the backend is optional, import it when building, not when importing ``qldpc.decoders``, and report how to install it.
+3. **Expose a specification.**
+   Use :func:`~qldpc.decoders.construction.specs.decoder_spec` with an error builder, and optionally a DEM-based native observable builder.
+   An observable-only backend uses :func:`~qldpc.decoders.construction.specs.observable_decoder_spec`.
+   These helpers take their option signature from the typed builder (or from ``signature_source=DecoderClass`` if that builder forwards ``**kwargs``).
    Provide a written ``doc=`` string with the helper's options and return contract.
-   A :class:`~qldpc.decoders.construction.specs.DecoderSpec` holds the builder
-   and options; it does not build a decoder until ``build`` or
-   ``build_observable_decoder`` is called.  No registry entry or new
-   ``construction/resolution.py`` branch is needed for an ordinary backend.
-4. **Export, document, and test.** Export the backend class at its qualified
-   ``custom`` or ``external`` package path.  If you add a public specification
-   helper, export it from ``qldpc.decoders`` and add it to ``__all__``.  Add its
-   ``.. autofunction:: qldpc.decoders.<name>`` entry to the
-   :doc:`decoder guide <decoders>`: AutoAPI hides generated helpers because it
-   cannot inspect their signatures statically.  The helper test discovers
-   root-exported generated helpers and checks their signature, written documentation,
-   and guide entry automatically.  Add co-located ``*_test.py`` tests that independently
-   check ``H @ inferred_error == syndrome``, observable predictions against DEM
-   targets, unsupported inputs, erasure width, and batch shapes as applicable.
+   A :class:`~qldpc.decoders.construction.specs.DecoderSpec` holds the builder and options; it does not build a decoder until ``build`` or ``build_observable_decoder`` is called.
+   No registry entry or new ``construction/resolution.py`` branch is needed for an ordinary backend.
+4. **Export, document, and test.**
+   Export the backend class at its qualified ``custom`` or ``external`` package path.
+   If you add a public specification helper, export it from ``qldpc.decoders`` and add it to ``__all__``.
+   Add its ``.. autofunction:: qldpc.decoders.<name>`` entry to the :doc:`decoder guide <decoders>`: AutoAPI hides generated helpers because it cannot inspect their signatures statically.
+   The helper test discovers root-exported generated helpers and checks their signature, written documentation, and guide entry automatically.
+   Add co-located ``*_test.py`` tests that independently check ``H @ inferred_error == syndrome``, observable predictions against DEM targets, unsupported inputs, erasure width, and batch shapes as applicable.
    Test pickling if the decoder is used by Sinter.
 
-For an optional published backend, add an extra under ``optional-dependencies`` in
-``pyproject.toml`` with any required platform markers; do not assume every backend can
-be installed through the ``decoders`` extra.  Existing integrations such as
-:mod:`qldpc.decoders.external.tesseract` show a backend with both output contracts.
+For an optional published backend, add an extra under ``optional-dependencies`` in ``pyproject.toml`` with any required platform markers; do not assume every backend can be installed through the ``decoders`` extra.
+Existing integrations such as :mod:`qldpc.decoders.external.tesseract` show a backend with both output contracts.
 
-Run the relevant co-located tests while developing, then check the full change with the
-existing repository commands.  Replace the GUF test path below with your own test file:
+Run the relevant co-located tests while developing, then check the full change with the existing repository commands.
+Replace the GUF test path below with your own test file:
 
 .. code-block:: bash
 
@@ -136,5 +120,5 @@ existing repository commands.  Replace the GUF test path below with your own tes
    python checks/coverage_.py
    python checks/build_docs.py
 
-The repository requires 100% statement coverage; tests cannot depend on live network
-services.  The strict docs build also verifies the new page and API references.
+The repository requires 100% statement coverage; tests cannot depend on live network services.
+The strict docs build also verifies the new page and API references.

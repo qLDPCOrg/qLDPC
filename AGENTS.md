@@ -210,7 +210,9 @@ Follow the [adding a decoder guide](docs/source/adding_decoders.rst) for a custo
 3. Keep README and the library map selective.
    AutoAPI provides the complete list of public symbols.
 4. When a public limitation changes, update the relevant function or class docstring and every README or guide that repeats it in the same pull request.
-5. Run the strict documentation build before considering the change complete.
+5. Keep one prose sentence per physical source line in `.rst`, `.md`, and Markdown notebook cells.
+   Put `First sentence.` and `Second sentence.` on separate source lines; leave code blocks, equations, and table syntax intact.
+6. Run the strict documentation build before considering the change complete.
 
 ## Validation commands
 
