@@ -10,7 +10,7 @@ The :doc:`decoders example notebook <examples/decoders>` walks through the workf
 Configuring decoders
 --------------------
 
-Use a typed helper to create a decoder specification, then build a decoder for a parity-check matrix or detector error model:
+For example, build a decoder from a specification for a parity-check matrix:
 
 .. code-block:: python
 
@@ -40,7 +40,8 @@ Use an error-inference specification with ``.build(matrix)`` to infer errors fro
 
    dem = stim.DetectorErrorModel("error(0.1) D0 D1 L0\n error(0.1) D1")
    observable_decoder = decoders.mwpm().build_observable_decoder(dem)
-   predicted_flips = observable_decoder.decode_observables(np.array([1, 0]))
+   events = np.array([1, 0])
+   predicted_flips = observable_decoder.decode_observables(events)
 
 A specification can be reused for compatible inputs; qLDPC methods with a ``decoder=`` argument accept a decoder specification, and build a decoder as necessary.
 A detector error model supplies its own error probabilities and observable definitions, so a decoder specification must not override its ``error_channel``.
@@ -66,7 +67,7 @@ Predicting observable flips
 
 An :class:`error decoder <qldpc.decoders.protocols.ErrorDecoder>` infers a physical error with ``decode_errors``; an :class:`observable decoder <qldpc.decoders.protocols.ObservableDecoder>` predicts flips with ``decode_observables``.
 Specifications such as ``decoders.lookup(...)`` and ``decoders.mwpm()`` can predict observable flips natively.
-Other specifications predict errors and infer observable flips automatically if they have sufficient information to do so (for example, if the detector error model they were built from annotates logical observables).
+Other specifications infer errors and project them onto the observables defined by the detector error model.
 ``DecoderSpec.predicts_observables_natively`` identifies native observable prediction support; ``DecoderSpec.infers_errors`` identifies specifications that can build error decoders.
 
 Using decoders with Sinter
@@ -108,8 +109,7 @@ Pass the configured decoder to Sinter under the same name used by the task:
 
 A ``SinterDecoder`` is compiled for a detector error model before it predicts flips.
 Its compiled form, a :class:`decoders.CompiledSinterDecoder <qldpc.decoders.sinter.core.CompiledSinterDecoder>`, exposes ``decode_observables`` for one shot and ``decode_shots`` for a batch.
-Window decoders require a decoder that infers errors, rather than observables, because they commit physical corrections in each window.
-Sinter passes decoders to its worker processes by pickling them; define custom builders in an importable module when using several workers.
+Window decoders require a specification that can infer errors because they commit physical corrections in each window.
 
 Backend limitations
 -------------------
@@ -125,7 +125,7 @@ Its specification builds an observable decoder with ``.build_observable_decoder(
 
    frontier_spec = decoders.frontier(K=512, Delta=12, committee=True, add_erasure_bit=True)
    observable_decoder = frontier_spec.build_observable_decoder(dem)
-   predicted_flips = observable_decoder.decode_observables(syndrome)
+   predicted_flips = observable_decoder.decode_observables(events)
 
 ``K`` and ``Delta`` control how aggressively Frontier prunes; larger values are slower and more accurate.
 By default, Frontier reorders error mechanisms so that detectors are resolved early; ``column_order="time_order"`` keeps the order of the detector error model.
@@ -173,7 +173,7 @@ These methods return a detailed result for one syndrome, while ``decode_errors``
 
    decoder = decoders.frontier(K=512).build_observable_decoder(dem)
    assert isinstance(decoder, decoders.DetailedObservableDecoder)
-   result = decoder.decode_observables_detailed(syndrome)
+   result = decoder.decode_observables_detailed(events)
    print(result.observable_flips, result.erasure, result.diagnostics)
 
 Relay-BP and PyMatching decoders also have ``decode_errors_detailed_batch`` and ``decode_observables_detailed_batch`` methods, which use their native batch decoding and return a tuple of detailed results in syndrome order.
@@ -208,7 +208,7 @@ For observable predictions from a detector error model:
 .. code-block:: python
 
    observable_lookup = decoders.lookup(max_weight=2).build_observable_decoder(dem)
-   predicted_flips = observable_lookup.decode_observables(syndrome)
+   predicted_flips = observable_lookup.decode_observables(events)
 
 Erasure-aware decoders append their erasure flag after the inferred error or observable vector.
 Compiled Sinter decoders translate that flag into a discarded shot.
@@ -228,7 +228,6 @@ The following changes take effect without a deprecation period:
   Prebuilt decoders remain accepted where the caller knows the matrix being decoded, but cannot be rebuilt for internally constructed matrices or Sinter detector error models.
 * When the deprecated ``decoder_x_kwargs`` or ``decoder_z_kwargs`` of a CSS code set the same option as its shared keyword arguments, the sector-specific value now takes precedence, just as ``decoder_x=`` and ``decoder_z=`` take precedence over ``decoder=``.
 * A ``SinterDecoder`` whose specification supports native observable prediction (``mwpm``, ``relay_bp``, ``min_sum_bp``, and ``lookup``) now uses it.
-  The predicted observable flips are unchanged.
   For ``mwpm`` and ``lookup`` specifications, however, the ``decoder`` attribute of the resulting ``CompiledSinterDecoder`` is now a decoder that predicts observable flips rather than errors.
   For other specifications, the ``decoder`` attribute remains the decoder that the specification builds.
 
