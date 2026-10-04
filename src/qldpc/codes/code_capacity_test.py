@@ -497,6 +497,17 @@ def test_code_capacity_native_build_fallback() -> None:
     with pytest.raises(ValueError, match="cannot build"):
         code_capacity.get_code_capacity_decoder(syndrome_matrix, observable_matrix, observable_only)
 
+    # only a ValueError falls back; other errors from the native build propagate
+    native_type_error: decoders.DecoderSpec[decoders.ErrorDecoder] = decoders.DecoderSpec(
+        "native_type_error", decoders.bp_osd().build, (), _raise_type_error
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", decoders.ObservableDecodingFallbackWarning)
+        with pytest.raises(TypeError, match="wrong type"):
+            code_capacity.get_code_capacity_decoder(
+                syndrome_matrix, observable_matrix, native_type_error
+            )
+
     # long option values are truncated in the warning
     long_channel = decoders.lookup(max_weight=1, error_channel=[0.1] * 3 + [0.2] * 50)
     with (
@@ -510,6 +521,10 @@ def test_code_capacity_native_build_fallback() -> None:
 
 def _raise_value_error(dem: stim.DetectorErrorModel) -> Never:
     raise ValueError("cannot build")
+
+
+def _raise_type_error(dem: stim.DetectorErrorModel) -> Never:
+    raise TypeError("wrong type")
 
 
 def test_code_capacity_decoder_from_sinter_decoder() -> None:

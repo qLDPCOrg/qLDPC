@@ -237,11 +237,11 @@ def get_code_capacity_decoder(
     as ``decoder=``.
 
     For a binary code, a specification with native observable support is first built as an
-    observable decoder for the code-capacity detector error model.  If that build fails, for example
-    because the specification sets matrix-only options or the backend rejects the model's structure,
-    an ObservableDecodingFallbackWarning is emitted and an error decoder is built for
-    syndrome_matrix instead.  Wrap a specification as ``decoders.from_matrix(spec.build)`` to
-    select error decoding explicitly.
+    observable decoder for the code-capacity detector error model.  If that build raises a
+    ValueError, for example because the specification sets matrix-only options or the backend
+    rejects the model's structure, an ObservableDecodingFallbackWarning is emitted and an error
+    decoder is built for syndrome_matrix instead.  Wrap a specification as
+    ``decoders.from_matrix(spec.build)`` to select error decoding explicitly.
 
     Args:
         syndrome_matrix: The matrix that maps an error to its syndrome.
@@ -332,7 +332,7 @@ def get_code_capacity_decoder(
             else:
                 try:
                     observable_decoder = decoder.build_observable_decoder(dem)
-                except (ValueError, TypeError) as error:
+                except ValueError as error:
                     native_error = error
             if native_error is None:
                 return _get_observable_code_capacity_decoder(
@@ -361,7 +361,7 @@ def get_code_capacity_decoder(
             decoder_args,
             warn_deprecated=warn_deprecated,
         )
-    except (ValueError, TypeError) as error:
+    except ValueError as error:
         if native_error is not None:
             raise error from native_error
         raise

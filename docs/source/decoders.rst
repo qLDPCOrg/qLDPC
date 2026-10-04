@@ -53,7 +53,7 @@ Code-capacity estimates
 A code-capacity estimate samples errors and counts a failure when the decoder mispredicts their logical effect.
 Pass a decoder specification such as ``decoders.mwpm()`` as ``decoder=``.
 For a binary code, a specification that predicts observable flips natively is built for the code-capacity detector error model.
-If that build fails, an ``decoders.ObservableDecodingFallbackWarning`` is emitted and the specification instead builds an error decoder for the syndrome matrix.
+If that build raises a ``ValueError``, a ``decoders.ObservableDecodingFallbackWarning`` is emitted and the specification instead builds an error decoder for the syndrome matrix.
 Pass ``decoder=decoders.from_matrix(spec.build)`` to select error decoding explicitly, or ``decoder=decoders.from_dem(factory)`` for a custom observable decoder.
 
 .. code-block:: python
