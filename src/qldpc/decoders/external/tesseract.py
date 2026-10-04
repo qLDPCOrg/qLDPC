@@ -117,7 +117,7 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
             num_det_orders: Number of generated detector orders, or None for Tesseract's default.
             det_order_method: Generated detector-order method, or None for Tesseract's default.
             seed: Seed for generated detector orders, or None for Tesseract's default.
-            error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
+            error_rate: Deprecated i.i.d. matrix error probability; use ``error_channel`` instead.
         """
         backend = _get_tesseract()
         is_dem = isinstance(pcm_or_dem, stim.DetectorErrorModel)
@@ -291,9 +291,6 @@ Returns:
 The optional ``tesseract-decoder`` package is needed when building the decoder; install it
 with ``pip install 'qldpc[tesseract]'`` on a supported platform.  See
 :class:`~qldpc.decoders.external.tesseract.TesseractDecoder` for the search limitations.
-
-.. deprecated:: 0.4.1
-    ``error_rate`` is a legacy i.i.d. matrix error probability; use ``error_channel`` instead.
 """
 
 
@@ -325,7 +322,7 @@ def tesseract_preset(
         error_channel: One probability for every matrix-column error, or one probability per
             column.  A detector error model supplies its own probabilities.
         add_erasure_bit: Whether to append Tesseract's low-confidence flag to each result.
-        error_rate: Deprecated i.i.d. matrix error probability.  Use ``error_channel`` instead.
+        error_rate: Deprecated i.i.d. matrix error probability; use ``error_channel`` instead.
 
     Returns:
         A decoder specification for :func:`decoders.tesseract <qldpc.decoders.tesseract>` that

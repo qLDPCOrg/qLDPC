@@ -72,7 +72,8 @@ class SubgraphDecoder(SinterDecoder):
                 an observable-decoder compiler such as a SinterDecoder, or None to select the
                 default decoder.  A prebuilt decoder is rejected, because an inner decoder is built
                 for each subgraph.
-            **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
+            **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
+                ``decoder=`` instead.
         """
         SinterDecoder.__init__(
             self,

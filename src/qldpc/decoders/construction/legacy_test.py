@@ -62,10 +62,36 @@ def test_decoder_selection() -> None:
         )
     messages = [str(warning.message) for warning in caught]
     assert any(
-        "construct an ObservableLookupDecoder" in message and "decode_observables" in message
+        "decoders.lookup(max_weight=...).build_observable_decoder(dem)" in message
         for message in messages
     )
     assert np.array_equal(decoder.decode(np.array([1], dtype=int)), [1])
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert decoders.decode(
+            dem,
+            np.array([1], dtype=int),
+            with_lookup=True,
+            max_weight=1,
+            predict_observable_flips=True,
+        ).tolist() == [1]
+    assert any(
+        "decoders.lookup(max_weight=...).build_observable_decoder(dem).decode_observables(syndrome)"
+        in str(warning.message)
+        for warning in caught
+    )
+
+    with pytest.warns(DeprecationWarning, match="migration guide for matrix-based"):
+        matrix_decoder = decoders.get_decoder(
+            np.array([[1]], dtype=int),
+            with_lookup=True,
+            max_weight=1,
+            observable_flip_matrix=np.array([[1]], dtype=int),
+            error_channel=[0.1],
+            predict_observable_flips=True,
+        )
+    assert matrix_decoder.decode(np.array([1], dtype=int)).tolist() == [1]
 
 
 def test_deprecated_decoder_functions(pytestconfig: pytest.Config) -> None:
@@ -375,7 +401,10 @@ def test_legacy_decoder_migration_messages() -> None:
     matrix = np.eye(2, dtype=int)
     expected_messages: list[tuple[dict[str, object], str]] = [
         ({"decoder_constructor": LookupDecoder}, "for example decoder=LookupDecoder"),
-        ({"with_lookup": True, "predict_observable_flips": True}, "ObservableLookupDecoder"),
+        (
+            {"with_lookup": True, "predict_observable_flips": True},
+            "migration guide for matrix-based observable decoding",
+        ),
         ({"with_BF": True}, r"with_BF keyword .* use decoder=decoders\.bf\(\.\.\.\)"),
         ({"with_BF": True, "with_MWPM": True}, "pass exactly one"),
         ({"max_iter": 5}, r"move them into decoder=decoders\.bp_osd\(\.\.\.\)"),
@@ -383,6 +412,17 @@ def test_legacy_decoder_migration_messages() -> None:
     for decoder_args, expected_message in expected_messages:
         message = legacy.get_legacy_decoder_migration_message(matrix, decoder_args)
         assert re.search(expected_message, message), message
+    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
+    assert "decoders.lookup(max_weight=...).build_observable_decoder(dem)" in (
+        legacy.get_legacy_decoder_migration_message(
+            dem, {"with_lookup": True, "predict_observable_flips": True}
+        )
+    )
+    assert "migration guide for observable lookup decoding" in (
+        legacy.get_legacy_decoder_migration_message(
+            None, {"with_lookup": True, "predict_observable_flips": True}
+        )
+    )
     message = legacy.get_legacy_decoder_migration_message(
         galois.GF(3)(matrix), {"max_weight": 1}, argument_name="decoder_x"
     )

@@ -83,7 +83,7 @@ def _get_decoder_bp_osd(
         osd_order: Ordered-statistics decoding order.
         backend_options: Additional options for ``ldpc.BpOsdDecoder`` that are not listed
             above.  The backend rejects unsupported names when the decoder is built.
-        error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
+        error_rate: Deprecated i.i.d. matrix error probability; use ``error_channel`` instead.
 
     Returns:
         An ``ldpc.BpOsdDecoder`` subclass that is also an
@@ -160,7 +160,7 @@ def _get_decoder_bp_lsd(
             names other than ``input_vector_type``, ``channel_probs``, and the aliases
             ``osd_method`` and ``osd_order`` emit a warning when the decoder is built, but are
             still forwarded.
-        error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
+        error_rate: Deprecated i.i.d. matrix error probability; use ``error_channel`` instead.
 
     Returns:
         An ``ldpc.bplsd_decoder.BpLsdDecoder`` subclass that is also an
@@ -232,7 +232,7 @@ def _get_decoder_bf(
         bits_per_step: Number of bits added to each cluster step.
         backend_options: Additional options for ``ldpc.BeliefFindDecoder`` that are not listed
             above.  The backend rejects unsupported names when the decoder is built.
-        error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
+        error_rate: Deprecated i.i.d. matrix error probability; use ``error_channel`` instead.
 
     Returns:
         An ``ldpc.BeliefFindDecoder`` subclass that is also an
@@ -289,9 +289,6 @@ Returns:
 
 This decoder cannot signal erasure.  See ``help(ldpc.BpOsdDecoder)`` and
 `arXiv:2005.07016 <https://arxiv.org/abs/2005.07016>`_.
-
-.. deprecated:: 0.4.1
-    ``error_rate`` is a legacy i.i.d. matrix error probability; use ``error_channel`` instead.
 """
 
 bp_osd = decoder_spec(
@@ -328,9 +325,6 @@ Returns:
 
 This decoder cannot signal erasure.  See ``help(ldpc.bplsd_decoder.BpLsdDecoder)`` and
 `arXiv:2406.18655 <https://arxiv.org/abs/2406.18655>`_.
-
-.. deprecated:: 0.4.1
-    ``error_rate`` is a legacy i.i.d. matrix error probability; use ``error_channel`` instead.
 """
 
 bp_lsd = decoder_spec(
@@ -363,9 +357,6 @@ Returns:
 
 This decoder cannot signal erasure.  See ``help(ldpc.BeliefFindDecoder)`` and
 `arXiv:1709.06218 <https://arxiv.org/abs/1709.06218>`_.
-
-.. deprecated:: 0.4.1
-    ``error_rate`` is a legacy i.i.d. matrix error probability; use ``error_channel`` instead.
 """
 
 bf = decoder_spec(

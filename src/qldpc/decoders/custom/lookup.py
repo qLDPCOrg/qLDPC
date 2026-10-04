@@ -443,15 +443,6 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
     that of a ``QuditCode``, with the first and last half of the columns denoting, respectively, the
     ``[X|Z]`` support of a stabilizer.  Decoded errors are likewise vectors that indicate
     ``[X|Z]`` support.
-
-    .. deprecated:: 0.4.1
-        ``predict_observable_flips=True`` makes ``.decode`` return observable flips instead of
-        errors.  Use an ObservableLookupDecoder and ``.decode_observables`` instead.
-        The constructor argument ``penalty_func`` is replaced by the callable channel
-        ``error_channel=lambda error: -penalty_func(error)``.  Legacy penalty outputs are not
-        subjected to normalized-log-probability validation, but the adapted channel has the same
-        cutoff restriction as any other callable channel.  The decode-time ``penalty_func`` of a
-        WeightedLookupDecoder remains a separate, non-deprecated optimization objective.
     """
 
     def __init__(
@@ -474,11 +465,13 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
         symplectic: bool = False,
         penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
     ) -> None:
-        """Initialize an error lookup table.
-
-        predict_observable_flips is deprecated; use ObservableLookupDecoder for observable output.
-        """
-        _warn_deprecated_observable_prediction(predict_observable_flips, "ObservableLookupDecoder")
+        """Initialize an error lookup table."""
+        advice = (
+            "use decoders.lookup(max_weight=...).build_observable_decoder(dem) instead"
+            if isinstance(pcm_or_dem, stim.DetectorErrorModel)
+            else "see the decoder migration guide for matrix-based observable decoding"
+        )
+        _warn_deprecated_observable_prediction(predict_observable_flips, advice)
         self._outputs_observables = predict_observable_flips
         self.predict_observable_flips = predict_observable_flips
         self.decode_returns_observables = predict_observable_flips
@@ -520,10 +513,11 @@ class ObservableLookupDecoder(_LookupDecoderBase):
     observable flip, a vector of length ``num_observables`` over the field of the parity check
     matrix.  Decode with the ``.decode_observables`` method.
 
-    An ObservableLookupDecoder is built from a detector error model, or from a parity check matrix
-    together with an ``observable_flip_matrix`` whose rows specify which errors flip which
-    observables.  If initialized with ``add_erasure_bit=True``, this decoder appends an erasure bit
-    to each predicted observable flip.
+    ``decoders.lookup(...).build_observable_decoder(dem)`` builds this decoder from a detector error
+    model.  A matrix-based instance additionally requires an ``observable_flip_matrix`` whose rows
+    specify which errors flip which observables, and an ``error_channel`` for grouping errors.
+    If initialized with ``add_erasure_bit=True``, this decoder appends an erasure bit to each
+    predicted observable flip.
     """
 
     _outputs_observables = True
@@ -746,10 +740,6 @@ class WeightedLookupDecoder(_WeightedLookupDecoderBase, LookupDecoder):
     The ``pcm_or_dem``, ``max_weight``, ``observable_flip_matrix``, ``post_select``,
     ``add_erasure_bit``, and ``symplectic`` options behave as they do for a LookupDecoder; see
     help(LookupDecoder).
-
-    .. deprecated:: 0.4.1
-        ``predict_observable_flips=True`` makes ``.decode`` return observable flips; use a
-        WeightedObservableLookupDecoder and ``.decode_observables`` instead.
     """
 
     def __init__(
@@ -764,7 +754,8 @@ class WeightedLookupDecoder(_WeightedLookupDecoderBase, LookupDecoder):
         symplectic: bool = False,
     ) -> None:
         _warn_deprecated_observable_prediction(
-            predict_observable_flips, "WeightedObservableLookupDecoder"
+            predict_observable_flips,
+            "see the decoder migration guide for weighted observable decoding",
         )
         self._outputs_observables = predict_observable_flips
         self.predict_observable_flips = predict_observable_flips
@@ -949,9 +940,6 @@ Returns:
 See :class:`~qldpc.decoders.custom.lookup.LookupDecoder` for error-channel and field
 conventions, and :class:`~qldpc.decoders.custom.lookup.ObservableLookupDecoder` for the
 observable output contract.
-
-.. deprecated:: 0.4.1
-    ``penalty_func`` is retained for older callers; use a callable ``error_channel`` instead.
 """
 
 
@@ -1252,11 +1240,11 @@ def _error_weight(error: npt.NDArray[np.int_], symplectic: bool) -> int:
 # Deprecated compatibility helpers
 
 
-def _warn_deprecated_observable_prediction(enabled: bool, replacement: str) -> None:
+def _warn_deprecated_observable_prediction(enabled: bool, advice: str) -> None:
     """Warn about the legacy mode in which an error decoder predicts observable flips."""
     if enabled:
         warnings.warn(
-            f"predict_observable_flips=True is deprecated; use {replacement} instead",
+            f"predict_observable_flips=True is deprecated; {advice}",
             DeprecationWarning,
             stacklevel=get_external_caller_stacklevel(),
         )

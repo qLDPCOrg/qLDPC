@@ -357,9 +357,12 @@ def test_explicit_observable_lookup_decoders() -> None:
 
     # deprecated lookup decoders that predict observable flips are marked as such, so they are
     # rejected where an error decoder is required
-    with pytest.warns(DeprecationWarning, match="use ObservableLookupDecoder"):
+    with pytest.warns(
+        DeprecationWarning,
+        match=r"use decoders\.lookup\(max_weight=\.\.\.\)\.build_observable_decoder\(dem\)",
+    ):
         legacy = decoders.LookupDecoder(dem, max_weight=1, predict_observable_flips=True)
-    with pytest.warns(DeprecationWarning, match="use WeightedObservableLookupDecoder"):
+    with pytest.warns(DeprecationWarning, match="migration guide for weighted observable decoding"):
         legacy_weighted = decoders.WeightedLookupDecoder(
             dem, max_weight=1, predict_observable_flips=True
         )
@@ -369,6 +372,14 @@ def test_explicit_observable_lookup_decoders() -> None:
         with pytest.raises(TypeError, match="observable flips rather than errors"):
             _get_error_decoder(dem, decoder=legacy_decoder)
     assert not decoders.LookupDecoder(dem, max_weight=1).decode_returns_observables
+    with pytest.warns(DeprecationWarning, match="migration guide for matrix-based"):
+        decoders.LookupDecoder(
+            np.array([[1]], dtype=int),
+            max_weight=1,
+            observable_flip_matrix=np.array([[1]], dtype=int),
+            error_channel=[0.1],
+            predict_observable_flips=True,
+        )
 
 
 def test_quantum_observable_flip_prediction() -> None:
@@ -693,5 +704,7 @@ def test_observable_lookup_deprecation_warning_location() -> None:
     assert len(caught) == 2
     assert all(warning.filename == __file__ for warning in caught)
     messages = [str(warning.message) for warning in caught]
-    assert all("ObservableLookupDecoder" in message for message in messages)
-    assert any("decode_observables" in message for message in messages)
+    assert all(
+        "decoders.lookup(max_weight=...).build_observable_decoder(dem)" in message
+        for message in messages
+    )

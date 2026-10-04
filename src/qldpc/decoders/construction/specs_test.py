@@ -432,6 +432,7 @@ def test_decoder_spec_helper_docstrings() -> None:
     ]
     assert helpers
     guide = (pathlib.Path(__file__).parents[4] / "docs/source/decoders.rst").read_text()
+    migration = guide.split("Migrating from qLDPC 0.3.3", maxsplit=1)[1]
     for name, helper in helpers:
         assert callable(helper) and getattr(helper, "__name__", None) == name
         docstring = inspect.getdoc(helper)
@@ -444,9 +445,8 @@ def test_decoder_spec_helper_docstrings() -> None:
         }
         legacy_options = {"error_rate", "penalty_func"} & set(inspect.signature(helper).parameters)
         assert documented_names == set(inspect.signature(helper).parameters) - legacy_options
-        if legacy_options:
-            assert ".. deprecated::" in docstring
-            assert all(f"``{name}``" in docstring for name in legacy_options)
+        assert ".. deprecated::" not in docstring
+        assert all(option in migration for option in legacy_options)
         assert "A decoder specification." in docstring
         assert f".. autofunction:: qldpc.decoders.{name}\n" in guide
 

@@ -1,10 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Decoder specifications, protocols, and workflow entry points.
-
-Concrete implementations live at qualified paths under ``custom`` and ``external``.  Historical
-package-root imports remain available as deprecated aliases.
-"""
+"""Decoder specifications, protocols, and workflow entry points."""
 
 from typing import TYPE_CHECKING, Any
 

@@ -89,7 +89,8 @@ class SequentialWindowDecoder(SinterDecoder):
                 select the default error decoder.  Windows commit the errors that they infer, so
                 they require error decoders.  A prebuilt decoder is rejected, because an inner
                 decoder is built for each window.
-            **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
+            **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
+                ``decoder=`` instead.
         """
         SinterDecoder.__init__(
             self,
@@ -361,7 +362,8 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                 select the default error decoder.  Windows commit the errors that they infer, so
                 they require error decoders.  A prebuilt decoder is rejected, because an inner
                 decoder is built for each window.
-            **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
+            **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
+                ``decoder=`` instead.
         """
         SinterDecoder.__init__(
             self,

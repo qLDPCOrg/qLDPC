@@ -129,7 +129,7 @@ It therefore only ever asks which logical operators (observables) an error flips
   Stim detector error models are binary, so such a decoder is rejected for a code over another field.
   A factory wrapped with ``decoders.from_dem(factory)`` is built from the same detector error model.
   Bare callables are treated as error-decoder constructors and receive the parity-check matrix.
-* A prebuilt observable decoder, such as an :class:`ObservableLookupDecoder <qldpc.decoders.custom.lookup.ObservableLookupDecoder>` built with the stabilizers and logical operators of a CSS sector, predicts logical flips directly, over any field.
+* A prebuilt observable decoder built for a CSS sector's stabilizers and logical operators predicts logical flips directly, over any field.
   Detector, observable, and field metadata is validated when a decoder exposes it.
   Built-in observable decoders expose this metadata; a raw precompiled decoder that only provides Sinter's bit-packed interface must do so as well.
 
@@ -291,17 +291,14 @@ Sinter's compiled decoder interface returns observable arrays.
 Lookup-table outputs
 --------------------
 
-:class:`LookupDecoder <qldpc.decoders.custom.lookup.LookupDecoder>` and :class:`WeightedLookupDecoder <qldpc.decoders.custom.lookup.WeightedLookupDecoder>` are error decoders.
-They may use an observable-flip matrix to group candidate errors by logical effect, but their output is a representative physical error.
-
-:class:`ObservableLookupDecoder <qldpc.decoders.custom.lookup.ObservableLookupDecoder>` and :class:`WeightedObservableLookupDecoder <qldpc.decoders.custom.lookup.WeightedObservableLookupDecoder>` return the observable flip itself.  Build the ordinary observable lookup decoder from a DEM through its specification:
+Use a lookup specification to build an error decoder that returns a representative physical error, or an observable decoder that returns the most likely observable flip for each syndrome.
+With observable information, an error decoder may group candidate errors by logical effect before selecting a representative error.
+For observable predictions from a detector error model:
 
 .. code-block:: python
 
    observable_lookup = decoders.lookup(max_weight=2).build_observable_decoder(dem)
    predicted_flips = observable_lookup.decode_observables(syndrome)
-
-For the advanced case of constructing an :class:`ObservableLookupDecoder <qldpc.decoders.custom.lookup.ObservableLookupDecoder>` directly from a parity-check matrix rather than a DEM, supply an ``observable_flip_matrix`` specifying which errors flip which observables.
 
 Erasure-aware decoders append their erasure flag after the inferred error or observable vector.
 Compiled Sinter decoders translate that flag into a discarded shot.
@@ -352,11 +349,18 @@ In particular, ``decoders.get_decoder`` and ``decoders.decode`` behave as they d
    * - ``decoder_x_kwargs={...}`` and ``decoder_z_kwargs={...}``
      - ``decoder_x=...`` and ``decoder_z=...``
    * - ``LookupDecoder(..., predict_observable_flips=True)``
-     - ``decoders.lookup(...).build_observable_decoder(dem)`` for a DEM.  For a matrix, use
-       ``qldpc.decoders.custom.lookup.ObservableLookupDecoder`` with an ``observable_flip_matrix``.
+     - ``decoders.lookup(...).build_observable_decoder(dem)`` for a DEM.  For a matrix with an
+       ``observable_flip_matrix`` and ``error_channel``, use
+       ``qldpc.decoders.custom.lookup.ObservableLookupDecoder`` and ``decode_observables``;
+       the specification's observable builder requires a DEM.
    * - ``WeightedLookupDecoder(..., predict_observable_flips=True)``
      - ``qldpc.decoders.custom.lookup.WeightedObservableLookupDecoder(...)`` and its
-       ``decode_observables`` method
+       ``decode_observables`` method for late-bound penalty functions; the ordinary lookup
+       specification does not support choosing a new penalty at decode time.
+   * - ``LookupDecoder(..., penalty_func=penalty)``
+     - ``decoders.lookup(max_weight=..., error_channel=log_probability)`` with a callable
+       returning a normalized log probability.  An arbitrary penalty cannot be substituted
+       without first turning it into a valid probability distribution.
    * - ``decoders.bp_osd(error_rate=p)`` (also ``bp_lsd``, ``bf``, and ``tesseract``)
      - ``decoders.bp_osd(error_channel=p)`` (or the corresponding specification helper)
    * - ``SinterDecoder.decode`` and ``CompiledSinterDecoder.decode`` (removed)

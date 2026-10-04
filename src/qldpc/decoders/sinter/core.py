@@ -84,7 +84,8 @@ class SinterDecoder(_SinterDecoder):
                 (simplified) detector error model.  Specifications build a native observable decoder
                 where they support one, and an error decoder is wrapped so that the observable flips
                 of the errors that it infers become its predictions.
-            **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
+            **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
+                ``decoder=`` instead.
         """
         reject_removed_decoder_args(decoder_kwargs)
         reject_prebuilt_decoder(decoder, self._prebuilt_decoder_rejection_reason)
