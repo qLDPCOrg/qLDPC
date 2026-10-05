@@ -24,7 +24,7 @@ from ..construction.specs import observable_decoder_spec
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ObservableDecoder, ObservableDecodeResult
 
-# Public decoder and settings
+# Public decoder and specifications
 
 
 class FrontierObservableDecoder(ObservableDecoder):
@@ -202,15 +202,31 @@ def _get_observable_decoder_frontier(
     )
 
 
-_FRONTIER_SETTINGS_RETURNS = (
-    "Decoder settings.  Their ``build_observable_decoder(dem)`` method takes a binary detector "
-    "error model and returns a "
-    ":class:`~qldpc.decoders.external.frontier.FrontierObservableDecoder`.  Frontier cannot "
-    "infer errors, so the settings cannot ``build`` an error decoder. "
-)
+_FRONTIER_SPEC_DOC = """Configure approximate maximum-likelihood observable decoding.
+
+Frontier prunes low-probability partial solutions while scanning a binary detector error model.
+The optional package is imported only when the decoder is built.
+
+Args:
+    K: Maximum number of groups of partial solutions retained after each scan step.
+    Delta: Maximum allowed score gap from the best group.
+    score_alpha: Weight of the estimated probability of resolving remaining detectors.
+    metric_mode: ``"logsumexp_float"`` sums probabilities of merged groups;
+        ``"frontier_lite"`` keeps only the best using integer arithmetic.
+    int_metric_scale: Integer log-probability scale for ``"frontier_lite"``.
+    column_order: ``"deadline_reorder"`` resolves detectors early, while ``"time_order"``
+        preserves the model's error-mechanism order.
+    committee: Whether to also scan the mechanisms in reverse and keep the better result.
+    add_erasure_bit: Whether to append a flag when no retained group explains the syndrome.
+
+Returns:
+    A decoder specification.  ``build_observable_decoder(dem)`` returns a
+    :class:`~qldpc.decoders.external.frontier.FrontierObservableDecoder` for a binary DEM.
+    Frontier cannot infer errors, so this specification cannot ``build`` an error decoder.
+"""
 
 frontier = observable_decoder_spec(
-    "frontier", _get_observable_decoder_frontier, returns=_FRONTIER_SETTINGS_RETURNS
+    "frontier", _get_observable_decoder_frontier, doc=_FRONTIER_SPEC_DOC
 )
 
 
@@ -249,7 +265,7 @@ def _validate_frontier_options(
     int_metric_scale: int,
     column_order: str,
 ) -> None:
-    """Validate Frontier settings, which Frontier would otherwise check only when decoding."""
+    """Validate Frontier options, which Frontier would otherwise check only when decoding."""
     if K <= 0:
         raise ValueError("K must be positive")
     if not Delta >= 0:

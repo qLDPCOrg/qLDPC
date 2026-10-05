@@ -199,13 +199,21 @@ def _get_decoder_guf(
     return GUFDecoder(_to_pcm(pcm_or_dem), **decoder_args)  # type: ignore[arg-type]
 
 
-_GUF_SETTINGS_RETURNS = (
-    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
-    "detector error model (DEM), whose dense detector-flip matrix is decoded, and returns a "
-    ":class:`~qldpc.decoders.custom.guf.GUFDecoder`."
-)
+_GUF_SPEC_DOC = """Configure generalized union-find (GUF) decoding.
+
+Args:
+    max_weight: Maximum weight of a candidate error, or None for no limit.  A finite limit
+        can make the search exponential.
+    symplectic: Treat the matrix as quantum checks with ``[X|Z]`` columns.
+    add_erasure_bit: Append a flag when the search finds no error reproducing the syndrome.
+
+Returns:
+    A decoder specification.  ``build(pcm_or_dem)`` returns a
+    :class:`~qldpc.decoders.custom.guf.GUFDecoder`; a DEM is decoded through its dense
+    detector-flip matrix.
+
+See `arXiv:2103.08049 <https://arxiv.org/abs/2103.08049>`_.
+"""
 
 
-guf = decoder_spec(
-    "guf", _get_decoder_guf, signature_source=GUFDecoder, returns=_GUF_SETTINGS_RETURNS
-)
+guf = decoder_spec("guf", _get_decoder_guf, signature_source=GUFDecoder, doc=_GUF_SPEC_DOC)

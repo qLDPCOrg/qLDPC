@@ -21,7 +21,7 @@ from qldpc.decoders.custom.ilp import _get_decoder_ilp
 def test_ilp_decoder(toy_problem: ToyProblem) -> None:
     """Decode using an integer linear program."""
     matrix, error, syndrome = toy_problem
-    decoder = decoders.ILPDecoder(scipy.sparse.csc_matrix(matrix))
+    decoder = decoders.custom.ILPDecoder(scipy.sparse.csc_matrix(matrix))
     assert np.array_equal(error, decoder.decode(syndrome))
     detailed = decoder.decode_errors_detailed(syndrome)
     assert np.array_equal(detailed.error, error)
@@ -48,7 +48,7 @@ def test_ilp_decoder_minimum_weight(pytestconfig: pytest.Config) -> None:
             ]
             min_weight = min(np.count_nonzero(candidate) for candidate in candidates)
 
-            decoded = decoders.ILPDecoder(matrix).decode(np.asarray(syndrome, dtype=int))
+            decoded = decoders.custom.ILPDecoder(matrix).decode(np.asarray(syndrome, dtype=int))
             assert np.array_equal(matrix @ field(decoded), syndrome)
             assert np.count_nonzero(decoded) == min_weight
 
@@ -59,20 +59,22 @@ def test_ilp_decoder_early_termination() -> None:
     matrix = np.array([[1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 0]])
     syndrome = np.array([1, 0, 1])
 
-    decoder = decoders.ILPDecoder(matrix, solver="HIGHS", time_limit=1e-9)
+    decoder = decoders.custom.ILPDecoder(matrix, solver="HIGHS", time_limit=1e-9)
     with (
         pytest.warns(UserWarning, match="inaccurate"),
         pytest.raises(ValueError, match="does not reproduce the syndrome"),
     ):
         decoder.decode(syndrome)
 
-    decoder = decoders.ILPDecoder(matrix, add_erasure_bit=True, solver="HIGHS", time_limit=1e-9)
+    decoder = decoders.custom.ILPDecoder(
+        matrix, add_erasure_bit=True, solver="HIGHS", time_limit=1e-9
+    )
     with pytest.warns(UserWarning, match="inaccurate"):
         decoded = decoder.decode(syndrome)
     assert len(decoded) == matrix.shape[1] + 1
     assert decoded[-1] == 1
 
-    decoded = decoders.ILPDecoder(matrix, add_erasure_bit=True).decode(syndrome)
+    decoded = decoders.custom.ILPDecoder(matrix, add_erasure_bit=True).decode(syndrome)
     assert decoded[-1] == 0
     assert np.array_equal(matrix @ decoded[:-1] % 2, syndrome)
 
@@ -83,11 +85,11 @@ def test_ilp_decoder_unreproducible_syndrome() -> None:
     syndrome = np.array([0, 1])
 
     with pytest.raises(ValueError, match="could not be found"):
-        decoders.ILPDecoder(matrix).decode(syndrome)
+        decoders.custom.ILPDecoder(matrix).decode(syndrome)
     with pytest.warns(UserWarning, match="could not be found"):
-        assert decoders.ILPDecoder(matrix).decode_errors_detailed(syndrome).erasure
+        assert decoders.custom.ILPDecoder(matrix).decode_errors_detailed(syndrome).erasure
 
-    decoder = decoders.ILPDecoder(matrix, add_erasure_bit=True)
+    decoder = decoders.custom.ILPDecoder(matrix, add_erasure_bit=True)
     with pytest.warns(UserWarning, match="could not be found"):
         decoded = decoder.decode(syndrome)
     assert len(decoded) == matrix.shape[1] + 1
@@ -103,7 +105,7 @@ def test_ilp_decoder_near_integral_values() -> None:
 
     matrix = np.array([[1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 0]])
     syndrome = np.array([1, 0, 1])
-    decoder = decoders.ILPDecoder(matrix)
+    decoder = decoders.custom.ILPDecoder(matrix)
     expected = decoder.decode(syndrome)
 
     solve = cvxpy.Problem.solve
@@ -118,7 +120,7 @@ def test_ilp_decoder_near_integral_values() -> None:
         assert np.array_equal(expected, decoder.decode(syndrome))
 
     field = galois.GF(3)
-    decoder = decoders.ILPDecoder(field([[1, 1], [0, 1]]), add_erasure_bit=True)
+    decoder = decoders.custom.ILPDecoder(field([[1, 1], [0, 1]]), add_erasure_bit=True)
     decoded = decoder.decode(np.array([0, 1], dtype=bool))
     assert np.array_equal(decoded, [2, 1, 0])
     assert np.array_equal(field([[1, 1], [0, 1]]) @ field(decoded[:-1]), [0, 1])
@@ -153,5 +155,5 @@ def test_ilp_builder() -> None:
     field = galois.GF(3)
     matrix = -matrix.view(field)
     error = -error.view(field)
-    decoder = decoders.ILPDecoder(matrix)
+    decoder = decoders.custom.ILPDecoder(matrix)
     assert np.array_equal(error, decoder.decode(syndrome))

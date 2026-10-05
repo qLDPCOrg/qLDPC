@@ -23,6 +23,13 @@ from .protocols import ErrorDecoder, SupportsDecode, as_error_decoder
 PLACEHOLDER_ERROR_RATE = 1e-3  # required for some decoding methods
 
 
+class ObservableDecodingFallbackWarning(UserWarning):
+    """A decoder specification could not decode observables natively, so errors are decoded instead.
+
+    Filter this category with ``warnings.filterwarnings`` to silence the notice.
+    """
+
+
 _PcmOrDem: TypeAlias = IntegerArray | stim.DetectorErrorModel
 _Parameters = ParamSpec("_Parameters")
 _Decoder = TypeVar("_Decoder", bound=ErrorDecoder)
@@ -116,12 +123,11 @@ def _get_matrix_error_channel(
         return None
 
     if error_rate is not None:
-        if error_channel is not None:
-            raise ValueError("error_rate and error_channel cannot both be specified")
-        warnings.warn(
-            f"error_rate={error_rate!r} is deprecated; use error_channel={error_rate!r} instead",
-            DeprecationWarning,
-            stacklevel=get_external_caller_stacklevel(),
+        _deprecate_error_rate_option(
+            {"error_channel": error_channel, "error_rate": error_rate},
+            frozenset(
+                {"error_rate", "error_channel"} if error_channel is not None else {"error_rate"}
+            ),
         )
         error_channel = error_rate
     if error_channel is None:
@@ -145,16 +151,13 @@ def _get_matrix_error_channel(
 def _reject_dem_error_probabilities(error_channel: object, error_rate: object) -> None:
     """Reject explicit error probabilities for a detector error model, which supplies its own.
 
-    Earlier qLDPC releases ignored error_rate for a detector error model, and let error_channel
-    override its probabilities, so the error explains how to migrate.
+    A detector error model supplies its own probabilities.
     """
     options = {"error_channel": error_channel, "error_rate": error_rate}
     if specified := [f"{name}={value!r}" for name, value in options.items() if value is not None]:
         raise ValueError(
             "A detector error model supplies its own error probabilities, so"
-            f" {' and '.join(specified)} cannot be specified with one.  (In qLDPC 0.4.0, the ldpc"
-            " decoders BP+OSD, BP+LSD, and BF ignored error_rate for a detector error model, and"
-            " let error_channel override its probabilities.)  Remove the option, as for a"
+            f" {' and '.join(specified)} cannot be specified with one.  Remove the option, as for a"
             " SinterDecoder, which always decodes detector error models.  Alternatively, pass"
             " error_channel with the detector-flip matrix of the model,"
             " decoders.DetectorErrorModelArrays(dem).detector_flip_matrix"

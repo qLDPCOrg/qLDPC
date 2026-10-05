@@ -178,7 +178,7 @@ def test_compiled_window_input_validation() -> None:
         [[0], [1]], decoder=decoders.lookup(max_weight=1)
     ).compile_decoder_for_dem(dem)
     with pytest.raises(ValueError, match="per window"):
-        decoders.CompiledSequentialWindowDecoder(window_decoder.dem_arrays, [[0]], [], [])
+        decoders.sinter.CompiledSequentialWindowDecoder(window_decoder.dem_arrays, [[0]], [], [])
     with pytest.raises(ValueError, match="detectors per shot"):
         window_decoder.decode_shots_to_error(wide_shots)
 

@@ -186,9 +186,9 @@ def as_error_decoder(decoder: object, source: str = "A decoder") -> ErrorDecoder
         raise predicts_observables
     if isinstance(decoder, ErrorDecoder):
         return decoder
-    if getattr(decoder, "decode_is_defunct", False):
-        if isinstance(decoder, ObservableDecoder):
-            raise predicts_observables
+    if not isinstance(decoder, SupportsDecode) and callable(
+        getattr(decoder, "compile_decoder_for_dem", None)
+    ):
         raise TypeError(f"{source} cannot decode until it is compiled for a detector error model")
     if isinstance(decoder, SupportsDecode):
         return WrappedErrorDecoder(decoder)
@@ -198,7 +198,7 @@ def as_error_decoder(decoder: object, source: str = "A decoder") -> ErrorDecoder
 
 
 _OBSERVABLE_DECODER_ADVICE = (
-    "Pass error-decoder settings such as decoders.bp_osd(...), or pass the observable decoder where"
+    "Pass an error-decoder specification such as decoders.bp_osd(...), or pass the observable decoder where"
     " one is accepted, such as to decoders.SinterDecoder"
 )
 

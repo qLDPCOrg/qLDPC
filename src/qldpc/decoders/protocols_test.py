@@ -84,7 +84,7 @@ def test_error_decoder_coercion() -> None:
     assert np.array_equal(decoders.batch_decode_errors(decoder, syndromes), 3 * syndromes)
 
     # an error decoder is returned as is, and its native batch method is used
-    lookup_decoder = decoders.LookupDecoder(np.eye(2, dtype=int), max_weight=1)
+    lookup_decoder = decoders.custom.LookupDecoder(np.eye(2, dtype=int), max_weight=1)
     assert decoders.as_error_decoder(lookup_decoder) is lookup_decoder
     assert decoders.supports_batch_decoding(lookup_decoder)
     assert np.array_equal(decoders.batch_decode_errors(lookup_decoder, syndromes), syndromes)
@@ -103,10 +103,12 @@ def test_error_decoder_coercion() -> None:
     # objects that predict observable flips, or that do not decode, are rejected
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
     with pytest.warns(DeprecationWarning):
-        legacy_decoder = decoders.LookupDecoder(dem, max_weight=1, predict_observable_flips=True)
+        legacy_decoder = decoders.custom.LookupDecoder(
+            dem, max_weight=1, predict_observable_flips=True
+        )
 
     observable_decoders = [
-        decoders.ObservableLookupDecoder(dem, max_weight=1),
+        decoders.custom.ObservableLookupDecoder(dem, max_weight=1),
         legacy_decoder,
         decoders.TrivialDecoder().compile_decoder_for_dem(dem),
         types.SimpleNamespace(decode_observables=lambda syndrome: syndrome),

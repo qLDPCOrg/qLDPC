@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Settings for decoders provided by the ldpc package.
+"""Decoder specifications for decoders provided by the ldpc package.
 
 qLDPC imports this integration module while initializing its public decoder API.  Importing ``ldpc``
 and PyMatching eagerly here adds roughly 0.18 seconds (about 25 percent) to ``import qldpc`` in
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     class BeliefFindDecoder(ldpc.BeliefFindDecoder, ErrorDecoder): ...
 
 
-# Decoder settings
+# Decoder specifications
 
 
 @_erasure_bit_support("BP_OSD", supported=False)
@@ -83,7 +83,7 @@ def _get_decoder_bp_osd(
         osd_order: Ordered-statistics decoding order.
         backend_options: Additional options for ``ldpc.BpOsdDecoder`` that are not listed
             above.  The backend rejects unsupported names when the decoder is built.
-        error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
+        error_rate: Deprecated i.i.d. matrix error probability; use ``error_channel`` instead.
 
     Returns:
         An ``ldpc.BpOsdDecoder`` subclass that is also an
@@ -160,7 +160,7 @@ def _get_decoder_bp_lsd(
             names other than ``input_vector_type``, ``channel_probs``, and the aliases
             ``osd_method`` and ``osd_order`` emit a warning when the decoder is built, but are
             still forwarded.
-        error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
+        error_rate: Deprecated i.i.d. matrix error probability; use ``error_channel`` instead.
 
     Returns:
         An ``ldpc.bplsd_decoder.BpLsdDecoder`` subclass that is also an
@@ -232,7 +232,7 @@ def _get_decoder_bf(
         bits_per_step: Number of bits added to each cluster step.
         backend_options: Additional options for ``ldpc.BeliefFindDecoder`` that are not listed
             above.  The backend rejects unsupported names when the decoder is built.
-        error_rate: Deprecated i.i.d. matrix error probability. Use ``error_channel`` instead.
+        error_rate: Deprecated i.i.d. matrix error probability; use ``error_channel`` instead.
 
     Returns:
         An ``ldpc.BeliefFindDecoder`` subclass that is also an
@@ -266,43 +266,104 @@ def _get_decoder_bf(
     )
 
 
-_BP_OSD_SETTINGS_RETURNS = (
-    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
-    "detector error model (DEM) and returns an ``ldpc.BpOsdDecoder`` subclass that is also an "
-    ":class:`~qldpc.decoders.protocols.ErrorDecoder`."
-)
+_BP_OSD_SPEC_DOC = """Configure belief propagation with ordered-statistics decoding.
+
+Args:
+    error_channel: Matrix-column error probabilities, as one value or a vector.  A DEM supplies
+        its own probabilities and does not accept an override.
+    max_iter: Maximum number of belief-propagation iterations.
+    bp_method: Belief-propagation method.
+    ms_scaling_factor: Scaling factor for minimum-sum belief propagation.
+    schedule: Parallel or serial update schedule.
+    omp_thread_count: Number of OpenMP threads.
+    random_schedule_seed: Seed for a randomized serial schedule.
+    serial_schedule_order: Explicit order for serial updates.
+    osd_method: Ordered-statistics decoding method.
+    osd_order: Ordered-statistics decoding order.
+    backend_options: Additional options for ``ldpc.BpOsdDecoder``.  The backend rejects
+        unsupported names when the decoder is built.
+
+Returns:
+    A decoder specification.  ``build(pcm_or_dem)`` returns an ``ldpc.BpOsdDecoder`` subclass
+    that implements :class:`~qldpc.decoders.protocols.ErrorDecoder`.
+
+This decoder cannot signal erasure.  See ``help(ldpc.BpOsdDecoder)`` and
+`arXiv:2005.07016 <https://arxiv.org/abs/2005.07016>`_.
+"""
 
 bp_osd = decoder_spec(
     "bp_osd",
     _get_decoder_bp_osd,
     option_transform=_deprecate_error_rate_option,
-    returns=_BP_OSD_SETTINGS_RETURNS,
+    doc=_BP_OSD_SPEC_DOC,
 )
 
-_BP_LSD_SETTINGS_RETURNS = (
-    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
-    "detector error model (DEM) and returns an ``ldpc.bplsd_decoder.BpLsdDecoder`` subclass "
-    "that is also an :class:`~qldpc.decoders.protocols.ErrorDecoder`."
-)
+_BP_LSD_SPEC_DOC = """Configure belief propagation with localized-statistics decoding.
+
+Args:
+    error_channel: Matrix-column error probabilities, as one value or a vector.  A DEM supplies
+        its own probabilities and does not accept an override.
+    max_iter: Maximum number of belief-propagation iterations.
+    bp_method: Belief-propagation method.
+    ms_scaling_factor: Scaling factor for minimum-sum belief propagation.
+    schedule: Parallel or serial update schedule.
+    omp_thread_count: Number of OpenMP threads.
+    random_schedule_seed: Seed for a randomized serial schedule.
+    random_serial_schedule: Whether to randomize the serial update order.
+    serial_schedule_order: Explicit order for serial updates.
+    bits_per_step: Number of bits added to each localized-statistics cluster step.
+    lsd_method: Localized-statistics decoding method.
+    lsd_order: Localized-statistics decoding order.
+    always_run_lsd: Whether to run LSD even after belief propagation converges.
+    backend_options: Additional ``ldpc.BpLsdDecoder`` options.  The backend silently ignores
+        unknown names; qLDPC warns about names it does not recognize.
+
+Returns:
+    A decoder specification.  ``build(pcm_or_dem)`` returns an
+    ``ldpc.bplsd_decoder.BpLsdDecoder`` subclass implementing
+    :class:`~qldpc.decoders.protocols.ErrorDecoder`.
+
+This decoder cannot signal erasure.  See ``help(ldpc.bplsd_decoder.BpLsdDecoder)`` and
+`arXiv:2406.18655 <https://arxiv.org/abs/2406.18655>`_.
+"""
 
 bp_lsd = decoder_spec(
     "bp_lsd",
     _get_decoder_bp_lsd,
     option_transform=_deprecate_error_rate_option,
-    returns=_BP_LSD_SETTINGS_RETURNS,
+    doc=_BP_LSD_SPEC_DOC,
 )
 
-_BF_SETTINGS_RETURNS = (
-    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
-    "detector error model (DEM) and returns an ``ldpc.BeliefFindDecoder`` subclass that is also"
-    " an :class:`~qldpc.decoders.protocols.ErrorDecoder`."
-)
+_BF_SPEC_DOC = """Configure belief-find decoding.
+
+Args:
+    error_channel: Matrix-column error probabilities, as one value or a vector.  A DEM supplies
+        its own probabilities and does not accept an override.
+    max_iter: Maximum number of belief-propagation iterations.
+    bp_method: Belief-propagation method.
+    ms_scaling_factor: Scaling factor for minimum-sum belief propagation.
+    schedule: Parallel or serial update schedule.
+    omp_thread_count: Number of OpenMP threads.
+    random_schedule_seed: Seed for a randomized serial schedule.
+    serial_schedule_order: Explicit order for serial updates.
+    uf_method: Union-find cluster-solving method.
+    bits_per_step: Number of bits added to each cluster step.
+    backend_options: Additional options for ``ldpc.BeliefFindDecoder``.  The backend rejects
+        unsupported names when the decoder is built.
+
+Returns:
+    A decoder specification.  ``build(pcm_or_dem)`` returns an ``ldpc.BeliefFindDecoder``
+    subclass implementing :class:`~qldpc.decoders.protocols.ErrorDecoder`.
+
+This decoder cannot signal erasure.  See ``help(ldpc.BeliefFindDecoder)`` and
+`arXiv:1709.06218 <https://arxiv.org/abs/1709.06218>`_.
+"""
 
 bf = decoder_spec(
     "bf",
     _get_decoder_bf,
     option_transform=_deprecate_error_rate_option,
-    returns=_BF_SETTINGS_RETURNS,
+    doc=_BF_SPEC_DOC,
 )
 
 

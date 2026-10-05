@@ -4,15 +4,23 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import galois
 import stim
 
 from ..adapters.error_decoders import ErrorsToObservablesDecoder as _ErrorsToObservablesDecoder
-from ..adapters.observable_decoders import BitPackedObservableDecoder as _BitPackedObservableDecoder
+from ..adapters.observable_decoders import (
+    BitPackedObservableDecoder as _BitPackedObservableDecoder,
+)
+from ..adapters.observable_decoders import (
+    validate_observable_decoder,
+)
 from ..capabilities import compiles_for_dem, is_prebuilt_decoder
 from ..custom.guf import _get_decoder_guf
 from ..external.ldpc import _get_decoder_bp_osd
 from ..protocols import ErrorDecoder, ObservableDecoder, as_error_decoder
+from .factories import DEMDecoderFactory, MatrixDecoderFactory
 from .specs import (
     DecoderInput,
     DecoderSpec,
@@ -29,14 +37,30 @@ def _get_error_decoder(pcm_or_dem: PcmOrDem, *, decoder: ErrorDecoderInput = Non
 
     Args:
         pcm_or_dem: The parity-check matrix or detector error model to decode.
-        decoder: Decoder settings such as ``decoders.bp_osd(...)``, a constructor that builds an
-            error decoder from pcm_or_dem, a prebuilt error decoder, or None to select the default
-            decoder: GUF for a nonbinary FieldArray, and BP+OSD otherwise.
+        decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None to
+            select the default: GUF for a nonbinary FieldArray and BP+OSD otherwise.
 
     Returns:
         An ErrorDecoder.
     """
     return as_error_decoder(*_build_decoder(pcm_or_dem, decoder))
+
+
+def _resolve_error_decoder(
+    pcm_or_dem: PcmOrDem,
+    decoder: ErrorDecoderInput,
+    decoder_args: Mapping[str, object],
+    *,
+    warn_deprecated: bool = True,
+) -> ErrorDecoder:
+    """Resolve an error decoder, translating old keyword arguments only when supplied."""
+    if decoder_args:
+        from .legacy import _merge_legacy_decoder_args
+
+        decoder = _merge_legacy_decoder_args(
+            pcm_or_dem, decoder, decoder_args, warn_deprecated=warn_deprecated
+        )
+    return _get_error_decoder(pcm_or_dem, decoder=decoder)
 
 
 def _get_observable_decoder(
@@ -46,20 +70,17 @@ def _get_observable_decoder(
 
     Args:
         dem: The detector error model to decode.
-        decoder: Decoder settings such as ``decoders.mwpm(...)``, which build a native observable
-            decoder where the settings support one, and otherwise an error decoder; an
-            observable-decoder compiler such as a ``decoders.SinterDecoder``, which is compiled for
-            dem; a constructor that builds an error decoder or an observable decoder from dem; a
-            prebuilt error decoder or observable decoder; or None to select the default decoder.
-            An error decoder is wrapped so that the observable flips of the errors that it infers
-            become its predictions.  A decoder that is both an error decoder and an observable
-            decoder is used as an observable decoder.
+        decoder: A decoder specification such as ``decoders.mwpm(...)``, which builds a native
+            observable decoder when supported, or None to select the default decoder.  If a
+            specification infers errors instead, those errors are projected onto the observables.
 
     Returns:
         An ObservableDecoder.
     """
     if isinstance(decoder, DecoderSpec):
         return decoder.build_observable_decoder(dem)
+    if isinstance(decoder, DEMDecoderFactory):
+        return validate_observable_decoder(decoder.build(dem), "A from_dem factory")
     if compiles_for_dem(decoder):
         return _compile_observable_decoder(decoder, dem)
     built_decoder, source = _build_decoder(dem, decoder)
@@ -68,12 +89,29 @@ def _get_observable_decoder(
     return _ErrorsToObservablesDecoder(as_error_decoder(built_decoder, source), dem)
 
 
+def _resolve_observable_decoder(
+    dem: stim.DetectorErrorModel,
+    decoder: DecoderInput,
+    decoder_args: Mapping[str, object],
+    *,
+    warn_deprecated: bool = True,
+) -> ObservableDecoder:
+    """Resolve an observable decoder, translating old keywords only when supplied."""
+    if decoder_args:
+        from .legacy import _merge_legacy_decoder_args
+
+        decoder = _merge_legacy_decoder_args(
+            dem, decoder, decoder_args, warn_deprecated=warn_deprecated
+        )
+    return _get_observable_decoder(dem, decoder=decoder)
+
+
 def reject_prebuilt_decoder(decoder: object, reason: str) -> None:
     """Raise if a decoder input is prebuilt and cannot be rebuilt for a new matrix."""
     if is_prebuilt_decoder(decoder):
         raise ValueError(
-            f"A prebuilt decoder cannot be passed as decoder= here because {reason}.  Pass decoder"
-            " settings such as decoder=decoders.bp_osd(...), or a decoder constructor, instead"
+            f"A prebuilt decoder cannot be passed as decoder= here because {reason}.  Pass a decoder"
+            " specification such as decoder=decoders.bp_osd(...), or a decoder constructor, instead"
         )
 
 
@@ -86,15 +124,27 @@ def _build_decoder(pcm_or_dem: PcmOrDem, decoder: DecoderInput) -> tuple[object,
         built_decoder, source = default_builder(pcm_or_dem), "The default decoder"
     elif isinstance(decoder, DecoderSpec):
         built_decoder = decoder.build(pcm_or_dem)
-        source = "A decoder spec"
+        source = "A decoder specification"
+    elif isinstance(decoder, MatrixDecoderFactory):
+        if isinstance(pcm_or_dem, stim.DetectorErrorModel):
+            raise ValueError(
+                "A from_matrix factory needs a parity-check matrix; this workflow provides a"
+                " detector error model.  Pass a decoder factory that accepts a DEM directly, or"
+                " use a decoder specification instead"
+            )
+        built_decoder, source = decoder.build(pcm_or_dem), "A from_matrix factory"
+    elif isinstance(decoder, DEMDecoderFactory):
+        raise TypeError(
+            "A from_dem factory predicts observables, but this workflow needs inferred errors"
+        )
     elif is_prebuilt_decoder(decoder):
         built_decoder, source = decoder, "A prebuilt decoder"
     elif callable(decoder):
         built_decoder, source = decoder(pcm_or_dem), "A decoder constructor"
     else:
         raise TypeError(
-            "decoder must be decoder settings such as decoders.bp_osd(...), a decoder constructor,"
-            " a prebuilt error decoder, or None"
+            "decoder must be a decoder specification such as decoders.bp_osd(...), a decoder"
+            " constructor, a prebuilt error decoder, or None"
         )
     return built_decoder, source
 

@@ -1,20 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Deprecated decoder construction compatibility.
-
-This module is an attachment on top of the modern decoder-construction API.  It hosts the deprecated
-builders ``get_decoder_<NAME>``, ``get_error_decoder``, ``get_observable_decoder``, and
-``decode_observables``, which are replaced by decoder settings such as
-``decoders.bp_osd(...).build(pcm_or_dem)``.  It also translates the keyword arguments of qLDPC 0.3.3
-into modern decoder inputs, and resolves them with the modern resolution functions.  The modern
-modules never depend on it.
-"""
+"""Compatibility entry points for decoder construction and keyword translation."""
 
 from __future__ import annotations
 
 import functools
 import inspect
-import typing
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypeVar
@@ -28,7 +19,6 @@ from qldpc._util import get_external_caller_stacklevel
 
 from ..capabilities import (
     compiles_for_dem,
-    constructs_observable_decoder,
     is_prebuilt_decoder,
     is_prebuilt_observable_decoder,
 )
@@ -39,7 +29,11 @@ from ..external.ldpc import _get_decoder_bf, _get_decoder_bp_lsd, _get_decoder_b
 from ..external.pymatching import _get_decoder_mwpm
 from ..external.relay_bp import RelayBPDecoder, _get_decoder_rbp
 from ..protocols import BatchErrorDecoder, ErrorDecoder, ObservableDecoder
-from .resolution import _get_error_decoder, _get_observable_decoder
+from .factories import DEMDecoderFactory, MatrixDecoderFactory
+from .resolution import (
+    _get_error_decoder,
+    _get_observable_decoder,
+)
 from .specs import (
     DecoderInput,
     DecoderSpec,
@@ -85,7 +79,7 @@ DECODER_CONSTRUCTORS: dict[str, Callable[..., ErrorDecoder]] = {
 
 
 def get_decoder(pcm_or_dem: PcmOrDem, **decoder_args: object) -> Any:
-    """Retrieve a decoder through the deprecated keyword-based API."""
+    """Retrieve a decoder from keyword-based construction arguments."""
     warnings.warn(
         _get_deprecated_function_message("decoders.get_decoder", pcm_or_dem, decoder_args),
         DeprecationWarning,
@@ -97,7 +91,7 @@ def get_decoder(pcm_or_dem: PcmOrDem, **decoder_args: object) -> Any:
 def decode(
     pcm_or_dem: PcmOrDem, syndrome: npt.NDArray[np.int_], **decoder_args: object
 ) -> npt.NDArray[np.int_]:
-    """Construct a decoder and decode one syndrome through the deprecated API."""
+    """Construct a decoder and decode one syndrome."""
     warnings.warn(
         _get_deprecated_function_message(
             "decoders.decode", pcm_or_dem, decoder_args, decodes_syndrome=True
@@ -109,11 +103,7 @@ def decode(
 
 
 def get_error_decoder(pcm_or_dem: PcmOrDem, *, decoder: ErrorDecoderInput = None) -> ErrorDecoder:
-    """Build or retrieve an error decoder through a deprecated API.
-
-    Use decoder settings directly instead, as in ``decoders.bp_osd(...).build(pcm_or_dem)``, or call
-    a decoder constructor directly.
-    """
+    """Build or retrieve an error decoder."""
     if isinstance(decoder, DecoderSpec):
         replacement = f"{decoder!r}.build(pcm_or_dem)"
     elif decoder is None:
@@ -123,7 +113,7 @@ def get_error_decoder(pcm_or_dem: PcmOrDem, *, decoder: ErrorDecoderInput = None
     elif callable(decoder):
         replacement = f"{_get_callable_name(decoder)}(pcm_or_dem)"
     else:
-        replacement = "decoder settings such as decoders.bp_osd(...).build(pcm_or_dem)"
+        replacement = "a decoder specification such as decoders.bp_osd(...).build(pcm_or_dem)"
     _warn_deprecated("decoders.get_error_decoder", replacement)
     return _get_error_decoder(pcm_or_dem, decoder=decoder)
 
@@ -131,12 +121,7 @@ def get_error_decoder(pcm_or_dem: PcmOrDem, *, decoder: ErrorDecoderInput = None
 def get_observable_decoder(
     dem: stim.DetectorErrorModel, *, decoder: DecoderInput = None
 ) -> ObservableDecoder:
-    """Build or retrieve an observable decoder through a deprecated API.
-
-    Use decoder settings directly instead, as in
-    ``decoders.mwpm(...).build_observable_decoder(dem)``.  To predict the observable flips of an
-    error decoder, wrap it in ``decoders.ErrorsToObservablesDecoder(error_decoder, dem)``.
-    """
+    """Build or retrieve an observable decoder."""
     expression, note = _get_observable_decoder_expression(decoder)
     replacement = "the prebuilt observable decoder directly" if expression is None else expression
     _warn_deprecated("decoders.get_observable_decoder", replacement + note)
@@ -149,11 +134,7 @@ def decode_observables(
     *,
     decoder: DecoderInput = None,
 ) -> npt.NDArray[np.int_]:
-    """Predict the observable flips of one syndrome through a deprecated API.
-
-    Build an observable decoder instead, as in
-    ``decoders.mwpm(...).build_observable_decoder(dem).decode_observables(syndrome)``.
-    """
+    """Predict the observable flips of one syndrome."""
     expression, note = _get_observable_decoder_expression(decoder)
     replacement = (
         "the decode_observables method of the prebuilt observable decoder"
@@ -168,43 +149,43 @@ def decode_observables(
 
 
 def get_decoder_bp_osd(pcm_or_dem: PcmOrDem, **decoder_args: Any) -> ErrorDecoder:
-    """Build a BP+OSD decoder through a deprecated API; use decoders.bp_osd(...).build(...)."""
+    """Build a BP+OSD decoder."""
     _warn_deprecated_builder("get_decoder_bp_osd", "bp_osd")
     return _call_with_flat_backend_options(_get_decoder_bp_osd, pcm_or_dem, **decoder_args)
 
 
 def get_decoder_bp_lsd(pcm_or_dem: PcmOrDem, **decoder_args: Any) -> ErrorDecoder:
-    """Build a BP+LSD decoder through a deprecated API; use decoders.bp_lsd(...).build(...)."""
+    """Build a BP+LSD decoder."""
     _warn_deprecated_builder("get_decoder_bp_lsd", "bp_lsd")
     return _call_with_flat_backend_options(_get_decoder_bp_lsd, pcm_or_dem, **decoder_args)
 
 
 def get_decoder_bf(pcm_or_dem: PcmOrDem, **decoder_args: Any) -> ErrorDecoder:
-    """Build a belief-find decoder through a deprecated API; use decoders.bf(...).build(...)."""
+    """Build a belief-find decoder."""
     _warn_deprecated_builder("get_decoder_bf", "bf")
     return _call_with_flat_backend_options(_get_decoder_bf, pcm_or_dem, **decoder_args)
 
 
 def get_decoder_guf(pcm_or_dem: PcmOrDem, **decoder_args: Any) -> GUFDecoder:
-    """Build a GUF decoder through a deprecated API; use decoders.guf(...).build(...)."""
+    """Build a GUF decoder."""
     _warn_deprecated_builder("get_decoder_guf", "guf")
     return _get_decoder_guf(pcm_or_dem, **decoder_args)
 
 
 def get_decoder_ilp(pcm_or_dem: PcmOrDem, **decoder_args: Any) -> ILPDecoder:
-    """Build an ILP decoder through a deprecated API; use decoders.ilp(...).build(...)."""
+    """Build an ILP decoder."""
     _warn_deprecated_builder("get_decoder_ilp", "ilp")
     return _get_decoder_ilp(pcm_or_dem, **decoder_args)
 
 
 def get_decoder_lookup(pcm_or_dem: PcmOrDem, **decoder_args: Any) -> LookupDecoder:
-    """Build a lookup decoder through a deprecated API; use decoders.lookup(...).build(...)."""
+    """Build a lookup decoder."""
     _warn_deprecated_builder("get_decoder_lookup", "lookup")
     return _get_decoder_lookup(pcm_or_dem, **decoder_args)
 
 
 def get_decoder_mwpm(pcm_or_dem: PcmOrDem, **decoder_args: Any) -> BatchErrorDecoder:
-    """Build an MWPM decoder through a deprecated API; use decoders.mwpm(...).build(...)."""
+    """Build an MWPM decoder."""
     _warn_deprecated_builder("get_decoder_mwpm", "mwpm")
     return _call_with_flat_backend_options(_get_decoder_mwpm, pcm_or_dem, **decoder_args)
 
@@ -214,10 +195,7 @@ def get_decoder_rbp(
     error_priors: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: Any,
 ) -> RelayBPDecoder:
-    """Build a Relay-BP decoder through a deprecated API.
-
-    Use ``decoders.relay_bp(...).build(...)`` or ``decoders.min_sum_bp(...).build(...)`` instead.
-    """
+    """Build a Relay-BP decoder."""
     _warn_deprecated(
         "decoders.get_decoder_rbp",
         "decoders.relay_bp(...).build(pcm_or_dem) or decoders.min_sum_bp(...).build(pcm_or_dem)",
@@ -235,12 +213,12 @@ def resolve_decoder(
     *,
     warn_deprecated: bool = True,
 ) -> ErrorDecoder:
-    """Resolve an error decoder input, together with deprecated keyword-based decoder arguments.
+    """Resolve an error decoder input with keyword-based construction arguments.
 
-    This serves methods that still accept deprecated keyword arguments next to decoder=.  The
-    decoder input may be decoder settings such as ``decoders.bp_osd(...)``, a constructor that
-    builds an error decoder from pcm_or_dem, a prebuilt error decoder, or None to select the default
-    decoder: GUF for a nonbinary FieldArray, and BP+OSD otherwise.
+    This serves methods that accept keyword arguments next to decoder=.  The
+    decoder input may be a decoder specification such as ``decoders.bp_osd(...)``, a constructor
+    that builds an error decoder from pcm_or_dem, a prebuilt error decoder, or None to select the
+    default decoder: GUF for a nonbinary FieldArray, and BP+OSD otherwise.
     """
     decoder_input = _merge_legacy_decoder_args(
         pcm_or_dem, decoder, decoder_args, warn_deprecated=warn_deprecated
@@ -255,10 +233,10 @@ def resolve_observable_decoder(
     *,
     warn_deprecated: bool = True,
 ) -> ObservableDecoder:
-    """Resolve an observable decoder input, together with deprecated keyword-based arguments.
+    """Resolve an observable decoder input with keyword-based construction arguments.
 
-    This serves methods that still accept deprecated keyword arguments next to decoder=.  Decoder
-    settings build a native observable decoder where they support one, and otherwise an error
+    This serves methods that accept keyword arguments next to decoder=.  Decoder
+    specifications build a native observable decoder where they support one, and otherwise an error
     decoder; an observable-decoder compiler such as a ``decoders.SinterDecoder`` is compiled for
     dem; a constructor may build an error decoder or an observable decoder from dem; and a prebuilt
     error decoder or observable decoder is used as is.  An error decoder is wrapped so that the
@@ -279,6 +257,12 @@ def reject_removed_decoder_args(decoder_args: Mapping[str, object]) -> None:
         )
 
 
+_MATRIX_OBSERVABLE_LOOKUP_ADVICE = (
+    "use qldpc.decoders.custom.lookup.ObservableLookupDecoder(matrix, max_weight=...,"
+    " observable_flip_matrix=..., error_channel=...).decode_observables(syndrome) instead"
+)
+
+
 def get_legacy_decoder_migration_message(
     pcm_or_dem: PcmOrDem | None,
     decoder_args: Mapping[str, object],
@@ -295,10 +279,17 @@ def get_legacy_decoder_migration_message(
             f" {argument_name}= instead, for example {replacement}"
         )
     if decoder_args.get("predict_observable_flips"):
-        return (
-            "predict_observable_flips=True is deprecated; construct an ObservableLookupDecoder"
-            " directly and call decode_observables(...) instead"
+        advice = (
+            "use decoders.lookup(max_weight=...).build_observable_decoder(dem) instead"
+            if isinstance(pcm_or_dem, stim.DetectorErrorModel)
+            else (
+                "pass decoder=decoders.lookup(max_weight=...) instead, which predicts observable"
+                " flips natively"
+                if pcm_or_dem is None
+                else _MATRIX_OBSERVABLE_LOOKUP_ADVICE
+            )
         )
+        return f"predict_observable_flips=True is deprecated; {advice}"
     selected = [name for name in DECODER_CONSTRUCTORS if decoder_args.get(f"with_{name}", False)]
     if len(selected) == 1:
         return (
@@ -344,7 +335,7 @@ def _get_legacy_decoder_input(
     """Translate deprecated decoder arguments into a decoder constructor.
 
     Free-form decoder options are passed through to the selected builder unchecked, as they were
-    in qLDPC 0.3.3, so they become a constructor rather than typed decoder settings.
+    in qLDPC 0.3.3, so they become a constructor rather than a typed decoder specification.
     """
     decoder_args = dict(decoder_args)
     if (decoder_constructor := decoder_args.pop("decoder_constructor", None)) is not None:
@@ -428,6 +419,17 @@ def _get_deprecated_function_message(
     decodes_syndrome: bool = False,
 ) -> str:
     """Describe the replacement for deprecated get_decoder or decode."""
+    if (
+        decoder_args.get("predict_observable_flips")
+        and decoder_args.get("decoder_constructor") is None
+        and decoder_args.get("static_decoder") is None
+    ):
+        if isinstance(pcm_or_dem, stim.DetectorErrorModel):
+            replacement = "decoders.lookup(max_weight=...).build_observable_decoder(dem)"
+            if decodes_syndrome:
+                replacement += ".decode_observables(syndrome)"
+            return f"{function_name} is deprecated; use {replacement} instead"
+        return f"{function_name} is deprecated; {_MATRIX_OBSERVABLE_LOOKUP_ADVICE}"
     if (decoder_constructor := decoder_args.get("decoder_constructor")) is not None:
         other_args = ", ..." if len(decoder_args) > 1 else ""
         replacement = f"{_get_constructor_name(decoder_constructor)}(pcm_or_dem{other_args})"
@@ -440,13 +442,7 @@ def _get_deprecated_function_message(
         replacement = f"decoders.{_get_legacy_helper_name(pcm_or_dem, {})}().build(pcm_or_dem)"
     if decodes_syndrome:
         replacement += ".decode(syndrome)"
-    message = f"{function_name} is deprecated; use {replacement} instead"
-    if decoder_args.get("predict_observable_flips"):
-        message += (
-            ".  To predict observable flips, construct an ObservableLookupDecoder directly and call"
-            " decode_observables(...)"
-        )
-    return message
+    return f"{function_name} is deprecated; use {replacement} instead"
 
 
 def _get_observable_decoder_expression(decoder: DecoderInput) -> tuple[str | None, str]:
@@ -466,29 +462,15 @@ def _get_observable_decoder_expression(decoder: DecoderInput) -> tuple[str | Non
         if isinstance(decoder, ObservableDecoder) or is_prebuilt_observable_decoder(decoder):
             return None, ""
         return "decoders.ErrorsToObservablesDecoder(decoder, dem)", ""
+    if isinstance(decoder, DEMDecoderFactory):
+        return "decoder.build(dem)", ""
+    if isinstance(decoder, MatrixDecoderFactory):
+        return "a factory that accepts a detector error model", ""
     if callable(decoder):
         name = _get_callable_name(decoder)
-        constructor = decoder
-        while isinstance(constructor, functools.partial):
-            constructor = constructor.func
-        if constructs_observable_decoder(constructor):
-            return f"{name}(dem)", ""
         error_decoder_expression = f"decoders.ErrorsToObservablesDecoder({name}(dem), dem)"
-        if _constructs_error_decoder(constructor):
-            return error_decoder_expression, ""
         return f"{name}(dem)", f" (if it builds an error decoder, use {error_decoder_expression})"
-    return "decoder settings such as decoders.mwpm(...).build_observable_decoder(dem)", ""
-
-
-def _constructs_error_decoder(constructor: Callable[..., object]) -> bool:
-    """Whether a constructor is a class or annotated function that builds an error decoder."""
-    if isinstance(constructor, type):
-        return issubclass(constructor, ErrorDecoder)
-    try:
-        return_annotation = typing.get_type_hints(constructor).get("return")
-    except (NameError, TypeError):
-        return False
-    return isinstance(return_annotation, type) and issubclass(return_annotation, ErrorDecoder)
+    return "a decoder specification such as decoders.mwpm(...).build_observable_decoder(dem)", ""
 
 
 def _get_callable_name(decoder: Callable[..., object]) -> str:
@@ -497,7 +479,7 @@ def _get_callable_name(decoder: Callable[..., object]) -> str:
 
 
 def _warn_deprecated_builder(function_name: str, helper_name: str) -> None:
-    """Warn that a deprecated builder is replaced by decoder settings."""
+    """Warn that a deprecated builder is replaced by a decoder specification."""
     _warn_deprecated(f"decoders.{function_name}", f"decoders.{helper_name}(...).build(pcm_or_dem)")
 
 

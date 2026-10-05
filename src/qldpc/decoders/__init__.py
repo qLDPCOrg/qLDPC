@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Decoder protocols, builders, implementations, conversion helpers, and Sinter adapters."""
+"""Decoder specifications, protocols, and workflow entry points."""
 
 from typing import TYPE_CHECKING, Any
 
 from qldpc._util import get_deprecated_alias
 
-from . import custom, sinter
+from . import custom, dems, external, sinter
 from .adapters.error_decoders import (
     ErrorsToObservablesDecoder,
     ExpandedErrorDecoder,
@@ -18,8 +18,15 @@ from .capabilities import (
     is_prebuilt_observable_decoder,
 )
 from .common import (
+    ObservableDecodingFallbackWarning,
     get_error_and_erasure,
     with_erasure_bits,
+)
+from .construction.factories import (
+    DEMDecoderFactory,
+    MatrixDecoderFactory,
+    from_dem,
+    from_matrix,
 )
 from .construction.legacy import (
     decode_observables,
@@ -50,28 +57,15 @@ from .construction.specs import (
     ObservableDecoderConstructor,
     PcmOrDem,
 )
-from .custom import (
-    CompositeDecoder,
-    DirectDecoder,
-    GUFDecoder,
-    ILPDecoder,
-    LookupDecoder,
-    ObservableLookupDecoder,
-    WeightedLookupDecoder,
-    WeightedObservableLookupDecoder,
-)
 from .custom.guf import guf
 from .custom.ilp import ilp
 from .custom.lookup import lookup
-from .dems import (
-    DetectorErrorModelArrays,
-    FlipPattern,
-)
-from .external.frontier import FrontierObservableDecoder, frontier
+from .dems import DetectorErrorModelArrays
+from .external.frontier import frontier
 from .external.ldpc import bf, bp_lsd, bp_osd
 from .external.pymatching import mwpm
-from .external.relay_bp import RelayBPDecoder, min_sum_bp, relay_bp
-from .external.tesseract import TesseractDecoder, tesseract, tesseract_preset
+from .external.relay_bp import min_sum_bp, relay_bp
+from .external.tesseract import tesseract, tesseract_preset
 from .protocols import (
     BatchDetailedErrorDecoder,
     BatchDetailedObservableDecoder,
@@ -90,10 +84,6 @@ from .protocols import (
     supports_batch_decoding,
 )
 from .sinter import (
-    CompiledSequentialWindowDecoder,
-    CompiledSinterDecoder,
-    CompiledSubgraphDecoder,
-    CompiledTrivialDecoder,
     SequentialWindowDecoder,
     SinterDecoder,
     SlidingWindowDecoder,
@@ -112,6 +102,7 @@ __all__ = [
     "CompiledSubgraphDecoder",
     "CompiledTrivialDecoder",
     "CompositeDecoder",
+    "DEMDecoderFactory",
     "Decoder",
     "DecoderInput",
     "DecoderSpec",
@@ -132,10 +123,12 @@ __all__ = [
     "GUFDecoder",
     "ILPDecoder",
     "LookupDecoder",
+    "MatrixDecoderFactory",
     "ObservableDecodeResult",
     "ObservableDecoder",
     "ObservableDecoderCompiler",
     "ObservableDecoderConstructor",
+    "ObservableDecodingFallbackWarning",
     "ObservableLookupDecoder",
     "PcmOrDem",
     "RelayBPDecoder",
@@ -159,6 +152,8 @@ __all__ = [
     "compiles_for_dem",
     "decode",
     "decode_observables",
+    "from_dem",
+    "from_matrix",
     "frontier",
     "get_decoder",
     "get_decoder_BF",
@@ -207,9 +202,33 @@ __all__ = [
 # Type checkers instead see plain aliases, so that they still flag misspelled attributes.
 from .construction.legacy import decode, get_decoder
 
+_HISTORICAL_ROOT_CLASSES = {
+    "CompiledSequentialWindowDecoder": sinter.CompiledSequentialWindowDecoder,
+    "CompiledSinterDecoder": sinter.CompiledSinterDecoder,
+    "CompiledSubgraphDecoder": sinter.CompiledSubgraphDecoder,
+    "CompiledTrivialDecoder": sinter.CompiledTrivialDecoder,
+    "CompositeDecoder": custom.CompositeDecoder,
+    "DirectDecoder": custom.DirectDecoder,
+    "FlipPattern": dems.FlipPattern,
+    "FrontierObservableDecoder": external.FrontierObservableDecoder,
+    "GUFDecoder": custom.GUFDecoder,
+    "ILPDecoder": custom.ILPDecoder,
+    "LookupDecoder": custom.LookupDecoder,
+    "ObservableLookupDecoder": custom.ObservableLookupDecoder,
+    "RelayBPDecoder": external.RelayBPDecoder,
+    "TesseractDecoder": external.TesseractDecoder,
+    "WeightedLookupDecoder": custom.WeightedLookupDecoder,
+    "WeightedObservableLookupDecoder": custom.WeightedObservableLookupDecoder,
+}
+_HISTORICAL_ROOT_NAMES = {
+    name: f"{decoder.__module__}.{decoder.__name__}"
+    for name, decoder in _HISTORICAL_ROOT_CLASSES.items()
+}
+
 DEPRECATED_ALIASES = (
     custom.DEPRECATED_ALIASES
     | sinter.DEPRECATED_ALIASES
+    | _HISTORICAL_ROOT_CLASSES
     | {
         "get_decoder_BF": get_decoder_bf,
         "get_decoder_BP_LSD": get_decoder_bp_lsd,
@@ -231,12 +250,58 @@ if TYPE_CHECKING:
     from .construction.legacy import get_decoder_mwpm as get_decoder_MWPM
     from .construction.legacy import get_decoder_rbp as get_decoder_RBP
     from .custom import BatchDecoder as BatchDecoder
+    from .custom import (
+        CompositeDecoder as CompositeDecoder,
+    )
     from .custom import Decoder as Decoder
+    from .custom import (
+        DirectDecoder as DirectDecoder,
+    )
+    from .custom import (
+        GUFDecoder as GUFDecoder,
+    )
+    from .custom import (
+        ILPDecoder as ILPDecoder,
+    )
+    from .custom import (
+        LookupDecoder as LookupDecoder,
+    )
+    from .custom import (
+        ObservableLookupDecoder as ObservableLookupDecoder,
+    )
+    from .custom import (
+        WeightedLookupDecoder as WeightedLookupDecoder,
+    )
+    from .custom import (
+        WeightedObservableLookupDecoder as WeightedObservableLookupDecoder,
+    )
     from .custom.lookup import lookup as lookup_table
+    from .dems import FlipPattern as FlipPattern
+    from .external import (
+        FrontierObservableDecoder as FrontierObservableDecoder,
+    )
+    from .external import (
+        RelayBPDecoder as RelayBPDecoder,
+    )
+    from .external import (
+        TesseractDecoder as TesseractDecoder,
+    )
+    from .sinter import (
+        CompiledSequentialWindowDecoder as CompiledSequentialWindowDecoder,
+    )
+    from .sinter import (
+        CompiledSinterDecoder as CompiledSinterDecoder,
+    )
+    from .sinter import (
+        CompiledSubgraphDecoder as CompiledSubgraphDecoder,
+    )
+    from .sinter import (
+        CompiledTrivialDecoder as CompiledTrivialDecoder,
+    )
     from .sinter import SequentialSinterDecoder as SequentialSinterDecoder
     from .sinter import SubgraphSinterDecoder as SubgraphSinterDecoder
 else:
 
     def __getattr__(name: str) -> Any:
         """Resolve deprecated names of decoder classes and protocols, with a DeprecationWarning."""
-        return get_deprecated_alias(__name__, name, DEPRECATED_ALIASES)
+        return get_deprecated_alias(__name__, name, DEPRECATED_ALIASES, _HISTORICAL_ROOT_NAMES)

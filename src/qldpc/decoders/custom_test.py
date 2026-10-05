@@ -18,3 +18,11 @@ def test_deprecated_protocol_aliases() -> None:
         assert custom.Decoder is decoders.ErrorDecoder
     with pytest.warns(DeprecationWarning, match="BatchDecoder is deprecated"):
         assert custom.BatchDecoder is decoders.BatchErrorDecoder
+
+
+def test_relay_bp_custom_alias() -> None:
+    """The external backend remains importable from its old custom-package path."""
+    from qldpc.decoders.external.relay_bp import RelayBPDecoder
+
+    with pytest.warns(DeprecationWarning, match=r"use qldpc\.decoders\.external\.relay_bp"):
+        assert custom.RelayBPDecoder is RelayBPDecoder

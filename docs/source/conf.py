@@ -76,10 +76,10 @@ autoapi_keep_files = True
 autoapi_member_order = "groupwise"
 
 
-def _skip_decoder_settings_helpers(
+def _skip_decoder_specification_helpers(
     app: object, what: str, name: str, obj: object, skip: bool | None, options: object
 ) -> bool | None:
-    """Skip the static AutoAPI entries of generated decoder settings helpers.
+    """Skip static AutoAPI entries of generated decoder specification helpers.
 
     Helpers such as ``bp_osd = decoder_spec(...)`` are assignments, so AutoAPI, which reads source
     statically, would render them as data with no signature.  decoders.rst documents them instead
@@ -99,7 +99,7 @@ def _skip_decoder_settings_helpers(
 
 def setup(app: typing.Any) -> None:
     """Register Sphinx event handlers."""
-    app.connect("autoapi-skip-member", _skip_decoder_settings_helpers)
+    app.connect("autoapi-skip-member", _skip_decoder_specification_helpers)
 
 
 # -- Options for HTML output -------------------------------------------------

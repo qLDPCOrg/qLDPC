@@ -13,7 +13,7 @@ import numpy.typing as npt
 import stim
 
 from ..adapters.error_decoders import match_error_decoder_to_dem
-from ..construction.legacy import resolve_decoder
+from ..construction.resolution import _resolve_error_decoder
 from ..construction.specs import DeferredErrorDecoderInput
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, batch_decode_errors
@@ -84,12 +84,10 @@ class SequentialWindowDecoder(SinterDecoder):
                 that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
-            decoder: Settings for the inner error decoder, such as ``decoders.bp_osd(...)``, a
-                constructor that builds an error decoder from a detector error model, or None to
-                select the default error decoder.  Windows commit the errors that they infer, so
-                they require error decoders.  A prebuilt decoder is rejected, because an inner
-                decoder is built for each window.
-            **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
+            decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None for
+                the default.  Each window builds its own decoder to infer errors it can commit.
+            **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
+                ``decoder=`` instead.
         """
         SinterDecoder.__init__(
             self,
@@ -140,7 +138,7 @@ class SequentialWindowDecoder(SinterDecoder):
                 dem_arrays.error_probs[d_errors],
             )
             window_dem = window_dem_arrays.to_dem()
-            window_decoder = resolve_decoder(
+            window_decoder = _resolve_error_decoder(
                 window_dem,
                 self.decoder_input,
                 self.decoder_kwargs.copy(),
@@ -356,12 +354,10 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                 that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
-            decoder: Settings for the inner error decoder, such as ``decoders.bp_osd(...)``, a
-                constructor that builds an error decoder from a detector error model, or None to
-                select the default error decoder.  Windows commit the errors that they infer, so
-                they require error decoders.  A prebuilt decoder is rejected, because an inner
-                decoder is built for each window.
-            **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
+            decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None for
+                the default.  Each window builds its own decoder to infer errors it can commit.
+            **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
+                ``decoder=`` instead.
         """
         SinterDecoder.__init__(
             self,

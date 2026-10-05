@@ -19,9 +19,8 @@ from ..adapters.error_decoders import ErrorsToObservablesDecoder
 from ..construction.legacy import (
     get_legacy_decoder_migration_message,
     reject_removed_decoder_args,
-    resolve_observable_decoder,
 )
-from ..construction.resolution import reject_prebuilt_decoder
+from ..construction.resolution import _resolve_observable_decoder, reject_prebuilt_decoder
 from ..construction.specs import DecoderSpec, DeferredDecoderInput
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, ObservableDecoder, as_error_decoder
@@ -44,15 +43,9 @@ else:
 class SinterDecoder(_SinterDecoder):
     """Sinter-compatible configuration that builds observable decoders.
 
-    A SinterDecoder stores settings for an inner decoder.  When Sinter compiles a SinterDecoder for
-    a detector error model, the SinterDecoder builds the inner decoder for that model, and returns a
-    CompiledSinterDecoder that predicts observable flips.  If the inner decoder can predict
-    observable flips natively (as Frontier, MWPM, Relay-BP, and lookup-table decoders can), it is
-    built in that mode.  Otherwise, it is built as an error decoder, and the compiled decoder
-    converts the errors that it infers into observable flips.
+    Pass a decoder specification as ``decoder=``.  Sinter compiles it for each detector error
+    model and uses the compiled decoder to predict observable flips.
     """
-
-    decode_is_defunct = True
 
     # completes the error message "A prebuilt decoder cannot be passed as decoder= here because ..."
     _prebuilt_decoder_rejection_reason = (
@@ -70,22 +63,17 @@ class SinterDecoder(_SinterDecoder):
     ) -> None:
         """Initialize a SinterDecoder.
 
-        A SinterDecoder is used by Sinter to decode events from a detector error model and predict
-        observable flips.  See help(sinter.Decoder) for additional information.
+        See help(sinter.Decoder) for additional information.
 
         Args:
             simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
                 that DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
-            decoder: Settings for the inner decoder, such as ``decoders.mwpm(...)``, a constructor
-                that builds an error decoder or an observable decoder from a detector error model,
-                an observable-decoder compiler such as another SinterDecoder, or None to select the
-                default decoder.  A prebuilt decoder is rejected, because the inner decoder is built
-                for each (simplified) detector error model.  Settings build a native observable
-                decoder where they support one, and an error decoder is wrapped so that the
-                observable flips of the errors that it infers become its predictions.
-            **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
+            decoder: A decoder specification such as ``decoders.mwpm(...)``, or None for the
+                default decoder.  It is built for each (simplified) detector error model.
+            **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
+                ``decoder=`` instead.
         """
         reject_removed_decoder_args(decoder_kwargs)
         reject_prebuilt_decoder(decoder, self._prebuilt_decoder_rejection_reason)
@@ -124,7 +112,7 @@ class SinterDecoder(_SinterDecoder):
         dem_arrays = DetectorErrorModelArrays(
             dem, simplify=self.simplify, decompose_errors=self.decompose_errors
         )
-        observable_decoder = resolve_observable_decoder(
+        observable_decoder = _resolve_observable_decoder(
             dem_arrays.to_dem(),
             self.decoder_input,
             self.decoder_kwargs.copy(),
@@ -170,21 +158,6 @@ class SinterDecoder(_SinterDecoder):
         observable_flips = predicted_flips[:, :num_observable_bytes]
         observable_flips.tofile(obs_predictions_b8_out_path)
 
-    # Defunct compatibility method
-    if TYPE_CHECKING:
-        # Hide this method from mypy, so that a SinterDecoder does not satisfy ErrorDecoder.
-        decode: None
-    else:
-
-        def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-            """Reject a defunct direct-decoding call."""
-            raise ValueError(
-                "SinterDecoder.decode is DEFUNCT.  Compile the SinterDecoder for a detector error"
-                " model, then call decode_observables or decode_shots on the compiled decoder."
-                "\nIf you need this method restored, please open an issue at"
-                " https://github.com/qLDPCOrg/qLDPC/issues"
-            )
-
 
 class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
     """Observable decoder compiled to a specific detector error model.
@@ -206,8 +179,6 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
     num_detectors: int
     num_observables: int
     num_erasure_bits: int = 0
-
-    decode_is_defunct = True
 
     def __init__(
         self, dem_arrays: DetectorErrorModelArrays, decoder: ErrorDecoder | ObservableDecoder
@@ -358,20 +329,6 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
         generally passes around bit-packed data.
         """
         return np.packbits(np.asarray(data, dtype=np.uint8), bitorder="little", axis=axis)
-
-    # Defunct compatibility method
-    if TYPE_CHECKING:
-        # Hide this method from mypy, so that a CompiledSinterDecoder does not satisfy ErrorDecoder.
-        decode: None
-    else:
-
-        def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-            """Reject a defunct alias for observable decoding."""
-            raise ValueError(
-                "CompiledSinterDecoder.decode is DEFUNCT; use decode_observables instead."
-                "\nIf you need this method restored, please open an issue at"
-                " https://github.com/qLDPCOrg/qLDPC/issues"
-            )
 
 
 class TrivialDecoder(SinterDecoder):

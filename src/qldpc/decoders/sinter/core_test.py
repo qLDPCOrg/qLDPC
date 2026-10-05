@@ -4,8 +4,6 @@
 
 from __future__ import annotations
 
-import typing
-
 import ldpc
 import numpy as np
 import numpy.typing as npt
@@ -54,7 +52,7 @@ def test_sinter_decoder() -> None:
     assert compiled_decoder.decoder is compiled_decoder.observable_decoder
 
     error_decoder = _get_decoder_lookup(dem, max_weight=3)
-    compiled_decoder = decoders.CompiledSinterDecoder(
+    compiled_decoder = decoders.sinter.CompiledSinterDecoder(
         decoders.DetectorErrorModelArrays(dem), error_decoder
     )
     assert compiled_decoder.decoder is error_decoder
@@ -78,17 +76,18 @@ def test_sinter_decoder_classes() -> None:
     """Only compiled Sinter decoders implement qLDPC's observable protocol."""
     assert sinter.Decoder in decoders.SinterDecoder.__mro__
     assert decoders.ObservableDecoder not in decoders.SinterDecoder.__mro__
-    assert sinter.CompiledDecoder in decoders.CompiledSinterDecoder.__mro__
-    assert decoders.ObservableDecoder in decoders.CompiledSinterDecoder.__mro__
+    assert sinter.CompiledDecoder in decoders.sinter.CompiledSinterDecoder.__mro__
+    assert decoders.ObservableDecoder in decoders.sinter.CompiledSinterDecoder.__mro__
 
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
-    decoder: typing.Any = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1))
-    with pytest.raises(ValueError, match=r"SinterDecoder\.decode is DEFUNCT"):
-        decoder.decode(np.array([1], dtype=int))
-
-    compiled: typing.Any = decoder.compile_decoder_for_dem(dem)
-    with pytest.raises(ValueError, match=r"CompiledSinterDecoder\.decode is DEFUNCT"):
-        compiled.decode(np.array([1], dtype=int))
+    decoder = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1))
+    assert not hasattr(decoder, "decode")
+    compiled = decoder.compile_decoder_for_dem(dem)
+    assert not hasattr(compiled, "decode")
+    with pytest.raises(TypeError, match="cannot decode until it is compiled"):
+        decoders.as_error_decoder(decoder)
+    with pytest.raises(TypeError, match="predicts observable flips rather than errors"):
+        decoders.as_error_decoder(compiled)
     assert np.array_equal(compiled.decode_observables(np.array([1], dtype=int)), [1])
 
 
@@ -134,12 +133,21 @@ def test_rejected_decoder_arguments() -> None:
     """)
 
     def build_observable_decoder(dem: stim.DetectorErrorModel) -> decoders.ObservableDecoder:
-        return decoders.ObservableLookupDecoder(dem, 2)
+        return decoders.custom.ObservableLookupDecoder(dem, 2)
 
     decoder = decoders.SinterDecoder(decoder=build_observable_decoder)
     compiled = decoder.compile_decoder_for_dem(dem)
-    assert isinstance(compiled.observable_decoder, decoders.ObservableLookupDecoder)
+    assert isinstance(compiled.observable_decoder, decoders.custom.ObservableLookupDecoder)
     assert np.array_equal(compiled.decode_observables(np.array([1, 0])), [1, 1])
+
+    compiled = decoders.SinterDecoder(
+        decoder=decoders.from_dem(build_observable_decoder)
+    ).compile_decoder_for_dem(dem)
+    assert np.array_equal(compiled.decode_observables(np.array([1, 0])), [1, 1])
+    with pytest.raises(ValueError, match="needs a parity-check matrix"):
+        decoders.SinterDecoder(
+            decoder=decoders.from_matrix(lambda matrix: decoders.custom.LookupDecoder(matrix, 1))
+        ).compile_decoder_for_dem(dem)
 
     window_decoder = decoders.SequentialWindowDecoder(
         [[0], [1]],
@@ -150,7 +158,7 @@ def test_rejected_decoder_arguments() -> None:
 
     class SingleShotDecoder:
         def __init__(self, dem: stim.DetectorErrorModel) -> None:
-            self.lookup = decoders.ObservableLookupDecoder(dem, 2)
+            self.lookup = decoders.custom.ObservableLookupDecoder(dem, 2)
 
         def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
             return self.lookup.decode_observables(syndrome)
@@ -160,7 +168,7 @@ def test_rejected_decoder_arguments() -> None:
 
     with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
         decoders.SinterDecoder(
-            decoder=decoders.ObservableLookupDecoder(dem, 2)  # type: ignore[arg-type]
+            decoder=decoders.custom.ObservableLookupDecoder(dem, 2)  # type: ignore[arg-type]
         )
 
     with pytest.warns(DeprecationWarning):
@@ -187,7 +195,7 @@ def test_rejected_decoder_arguments() -> None:
 def test_observable_decoders_reject_prebuilt_decoders() -> None:
     """Observable decoders reject an error decoder that cannot be rebuilt for each model."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
-    prebuilt = decoders.LookupDecoder(dem, max_weight=1)
+    prebuilt = decoders.custom.LookupDecoder(dem, max_weight=1)
     for build_decoder, reason in [
         (
             lambda: decoders.SinterDecoder(decoder=prebuilt),  # type: ignore[arg-type]
@@ -214,7 +222,7 @@ def test_observable_decoders_reject_prebuilt_decoders() -> None:
         decoders.SinterDecoder(static_decoder=prebuilt)
 
     decoder = decoders.SequentialWindowDecoder(
-        [[0]], decoder=lambda dem: decoders.LookupDecoder(dem, max_weight=1)
+        [[0]], decoder=lambda dem: decoders.custom.LookupDecoder(dem, max_weight=1)
     )
     assert np.array_equal(
         decoder.compile_decoder_for_dem(dem).decode_observables(np.array([1])), [1]
@@ -230,7 +238,7 @@ def test_sinter_decoder_with_erasure() -> None:
     decoder = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1, add_erasure_bit=True))
     compiled = decoder.compile_decoder_for_dem(dem)
 
-    assert isinstance(compiled.observable_decoder, decoders.ObservableLookupDecoder)
+    assert isinstance(compiled.observable_decoder, decoders.custom.ObservableLookupDecoder)
     assert compiled.num_observables == dem.num_observables
     assert compiled.num_erasure_bits == 1
     assert compiled.has_erasure_bit
@@ -290,7 +298,7 @@ def test_predict_observables_with_erasure(num_observables: int) -> None:
     expected_flips[1, 0] = 1
     assert np.array_equal(np.asarray(predictions, dtype=int), expected_flips)
 
-    class WideCompiledDecoder(decoders.CompiledSinterDecoder):
+    class WideCompiledDecoder(decoders.sinter.CompiledSinterDecoder):
         """A compiled decoder whose bit-packed predictions are two bytes too wide."""
 
         def pack_observable_flips(
@@ -305,7 +313,7 @@ def test_predict_observables_with_erasure(num_observables: int) -> None:
 
         def compile_decoder_for_dem(
             self, dem: stim.DetectorErrorModel
-        ) -> decoders.CompiledSinterDecoder:
+        ) -> decoders.sinter.CompiledSinterDecoder:
             compiled = super().compile_decoder_for_dem(dem)
             return WideCompiledDecoder(compiled.dem_arrays, compiled.decoder)
 
@@ -334,7 +342,7 @@ def test_compiled_sinter_decoder_delegates_bit_packed_shots() -> None:
             return self.output
 
     inner = BitPackedShotDecoder()
-    compiled = decoders.CompiledSinterDecoder(decoders.DetectorErrorModelArrays(dem), inner)
+    compiled = decoders.sinter.CompiledSinterDecoder(decoders.DetectorErrorModelArrays(dem), inner)
     shots = np.array([[0], [1]], dtype=np.uint8)
     assert np.array_equal(compiled.decode_shots(shots), shots)
 
@@ -349,14 +357,15 @@ def test_compiled_sinter_decoder_subclass_decode_shots() -> None:
     """A subclass that post-processes decode_shots gets the same packed and unpacked results."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
 
-    class InvertingDecoder(decoders.CompiledSinterDecoder):
+    class InvertingDecoder(decoders.sinter.CompiledSinterDecoder):
         def decode_shots(
             self, detection_event_data: npt.NDArray[np.uint8]
         ) -> npt.NDArray[np.uint8]:
             return 1 - super().decode_shots(detection_event_data)
 
     compiled = InvertingDecoder(
-        decoders.DetectorErrorModelArrays(dem), decoders.ObservableLookupDecoder(dem, max_weight=1)
+        decoders.DetectorErrorModelArrays(dem),
+        decoders.custom.ObservableLookupDecoder(dem, max_weight=1),
     )
     shot = np.zeros((1, 1), dtype=np.uint8)
     assert np.array_equal(compiled.decode_shots(shot), [[1]])

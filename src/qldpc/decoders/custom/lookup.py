@@ -5,10 +5,9 @@
 from __future__ import annotations
 
 import collections
-import itertools
 import warnings
 from collections.abc import Callable, Collection, Iterator, Sequence
-from typing import NamedTuple, TypeAlias, cast, overload
+from typing import TypeAlias, cast, overload
 
 import galois
 import numpy as np
@@ -24,6 +23,7 @@ from ..common import _erasure_bit_support, with_erasure_bits
 from ..construction.specs import decoder_spec
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, ObservableDecoder
+from ._lookup_enumeration import _iter_errors_and_syndromes
 
 _LOOKUP_CHUNK_SIZE = 4096
 
@@ -42,6 +42,8 @@ class _LookupDecoderBase:
     See help(LookupDecoder) for details.
     """
 
+    _outputs_observables = False
+
     def __init__(
         self,
         pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
@@ -54,7 +56,6 @@ class _LookupDecoderBase:
             | None
         ) = None,
         observable_flip_matrix: IntegerArray | None = None,
-        predict_observable_flips: bool = False,
         post_select: Collection[int] = (),
         add_erasure_bit: bool | None = None,  # falsy by default
         confidence_ratio: float | None = None,
@@ -85,10 +86,11 @@ class _LookupDecoderBase:
             pcm_or_dem,
             error_channel,
             observable_flip_matrix,
-            predict_observable_flips,
+            self._outputs_observables,
             post_select,
             add_erasure_bit,
             probability_cutoff,
+            symplectic=symplectic,
         )
         if observable_flip_matrix is not None and error_log_probability is None:
             raise ValueError(
@@ -102,11 +104,7 @@ class _LookupDecoderBase:
                 " observable_flip_matrix"
             )
 
-        # save attributes; decode_returns_observables declares whether a decode method returns
-        # observable flips, which it does with the deprecated predict_observable_flips=True
-        self.predict_observable_flips = predict_observable_flips
-        self.decode_returns_observables = predict_observable_flips
-        self._save_interface_metadata(pcm, observable_flip_matrix, predict_observable_flips)
+        self._save_interface_metadata(pcm, observable_flip_matrix, self._outputs_observables)
         self.syndrome_mask = syndrome_mask
         self.has_erasure_bit = add_erasure_bit
         self.default_correction = default_correction
@@ -138,7 +136,6 @@ class _LookupDecoderBase:
                 pcm,
                 observable_flip_matrix,
                 symplectic,
-                predict_observable_flips,
                 confidence_ratio,
             )
 
@@ -153,13 +150,12 @@ class _LookupDecoderBase:
         pcm: IntegerArray,
         observable_flip_matrix: IntegerArray,
         symplectic: bool,
-        predict_observable_flips: bool,
         confidence_ratio: float | None,
     ) -> None:
         """Populate the lookup table, mapping each syndrome to its most likely observable flip.
 
         Builds a lookup table that maps each syndrome to an error that induces the most likely
-        observable flips (or, if predict_observable_flips, to the observable flips themselves).
+        observable flips (or to representative errors with those flips).
         """
 
         get_observable_flip = _build_observable_flip_func(pcm, observable_flip_matrix, symplectic)
@@ -183,7 +179,7 @@ class _LookupDecoderBase:
             net_log_probs[syndrome][obs_flip] = float(
                 np.logaddexp(net_log_probs[syndrome].get(obs_flip, -np.inf), log_prob)
             )
-            if predict_observable_flips:
+            if self._outputs_observables:
                 continue  # representative errors are only needed to decode to errors
             # Record the first error for each key (so it always has a representative, even when all
             # of its errors have zero probability), then keep the most likely one thereafter.  A tie
@@ -216,7 +212,7 @@ class _LookupDecoderBase:
                 # which ignores competing flips of zero probability at every confidence_ratio
                 if log_prob_top < log_confidence_ratio + log_prob_rest:
                     continue  # omit the ambiguous syndrome, leaving it to decode as erasure
-            if predict_observable_flips:
+            if self._outputs_observables:
                 prediction = observable_flip_packer.unpack(most_likely_obs_flip)
             else:
                 prediction = error_packer.unpack(most_likely_errors[syndrome, most_likely_obs_flip])
@@ -247,13 +243,13 @@ class _LookupDecoderBase:
         self,
         pcm: IntegerArray,
         observable_flip_matrix: IntegerArray | None,
-        predict_observable_flips: bool,
+        output_observables: bool,
     ) -> None:
         """Record dimensions and the field so prebuilt-decoder compatibility can be checked."""
         self.num_detectors = pcm.shape[0]
         self.num_observables = (
             observable_flip_matrix.shape[0]
-            if predict_observable_flips and observable_flip_matrix is not None
+            if output_observables and observable_flip_matrix is not None
             else 0
         )
         self.field = type(pcm) if isinstance(pcm, galois.FieldArray) else galois.GF2
@@ -420,10 +416,6 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
     each ``syndrome`` the highest-probability individual ``error`` from the group with the highest
     total probability.
 
-    The deprecated ``predict_observable_flips=True`` option makes ``.decode`` return the most likely
-    observable flip for each syndrome, rather than a representative ``error``.  Use an
-    ObservableLookupDecoder instead, whose ``.decode_observables`` method returns observable flips.
-
     If provided a ``post_select`` collection of syndrome-bit (i.e., detector) indices, this decoder
     post-selects on those bits being trivial: when constructing the lookup table, it ignores
     syndromes that are nonzero on the post-selected bits, and it drops those bits from the syndrome
@@ -452,12 +444,6 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
     that of a ``QuditCode``, with the first and last half of the columns denoting, respectively, the
     ``[X|Z]`` support of a stabilizer.  Decoded errors are likewise vectors that indicate
     ``[X|Z]`` support.
-
-    The constructor argument ``penalty_func`` is deprecated.  It is immediately replaced by the
-    callable channel ``error_channel=lambda error: -penalty_func(error)``.  Legacy penalty outputs
-    are not subjected to the stricter normalized-log-probability validation, but the adapted channel
-    has the same cutoff restriction as any other callable channel.  The decode-time ``penalty_func``
-    of a WeightedLookupDecoder is a separate, non-deprecated optimization objective.
     """
 
     def __init__(
@@ -480,17 +466,25 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
         symplectic: bool = False,
         penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
     ) -> None:
-        """Initialize an error lookup table.
-
-        predict_observable_flips is deprecated; use ObservableLookupDecoder for observable output.
-        """
-        _warn_deprecated_observable_prediction(predict_observable_flips, "ObservableLookupDecoder")
+        """Initialize an error lookup table."""
+        advice = (
+            "use decoders.lookup(max_weight=...).build_observable_decoder(dem) instead"
+            if isinstance(pcm_or_dem, stim.DetectorErrorModel)
+            else (
+                "use qldpc.decoders.custom.lookup.ObservableLookupDecoder(matrix, max_weight=...,"
+                " observable_flip_matrix=..., error_channel=...).decode_observables(syndrome)"
+                " instead"
+            )
+        )
+        _warn_deprecated_observable_prediction(predict_observable_flips, advice)
+        self._outputs_observables = predict_observable_flips
+        self.predict_observable_flips = predict_observable_flips
+        self.decode_returns_observables = predict_observable_flips
         super().__init__(
             pcm_or_dem,
             max_weight,
             error_channel=error_channel,
             observable_flip_matrix=observable_flip_matrix,
-            predict_observable_flips=predict_observable_flips,
             post_select=post_select,
             add_erasure_bit=add_erasure_bit,
             confidence_ratio=confidence_ratio,
@@ -524,11 +518,14 @@ class ObservableLookupDecoder(_LookupDecoderBase):
     observable flip, a vector of length ``num_observables`` over the field of the parity check
     matrix.  Decode with the ``.decode_observables`` method.
 
-    An ObservableLookupDecoder is built from a detector error model, or from a parity check matrix
-    together with an ``observable_flip_matrix`` whose rows specify which errors flip which
-    observables.  If initialized with ``add_erasure_bit=True``, this decoder appends an erasure bit
-    to each predicted observable flip.
+    ``decoders.lookup(...).build_observable_decoder(dem)`` builds this decoder from a detector error
+    model.  A matrix-based instance additionally requires an ``observable_flip_matrix`` whose rows
+    specify which errors flip which observables, and an ``error_channel`` for grouping errors.
+    If initialized with ``add_erasure_bit=True``, this decoder appends an erasure bit to each
+    predicted observable flip.
     """
+
+    _outputs_observables = True
 
     @overload
     def __init__(
@@ -588,7 +585,6 @@ class ObservableLookupDecoder(_LookupDecoderBase):
             max_weight,
             error_channel=error_channel,
             observable_flip_matrix=observable_flip_matrix,
-            predict_observable_flips=True,
             post_select=post_select,
             add_erasure_bit=add_erasure_bit,
             confidence_ratio=confidence_ratio,
@@ -660,7 +656,6 @@ class _WeightedLookupDecoderBase(_LookupDecoderBase):
         max_weight: int,
         *,
         observable_flip_matrix: IntegerArray | None = None,
-        predict_observable_flips: bool = False,
         post_select: Collection[int] = (),
         add_erasure_bit: bool = False,
         symplectic: bool = False,
@@ -670,17 +665,14 @@ class _WeightedLookupDecoderBase(_LookupDecoderBase):
                 pcm_or_dem,
                 None,
                 observable_flip_matrix,
-                predict_observable_flips,
+                self._outputs_observables,
                 post_select,
                 add_erasure_bit,
+                symplectic=symplectic,
             )
         )
 
-        # save attributes; decode_returns_observables declares whether a decode method returns
-        # observable flips, which it does with the deprecated predict_observable_flips=True
-        self.predict_observable_flips = predict_observable_flips
-        self.decode_returns_observables = predict_observable_flips
-        self._save_interface_metadata(pcm, observable_flip_matrix, predict_observable_flips)
+        self._save_interface_metadata(pcm, observable_flip_matrix, self._outputs_observables)
         self.syndrome_mask = syndrome_mask
         self.has_erasure_bit = add_erasure_bit
         self.default_correction = default_correction
@@ -694,7 +686,7 @@ class _WeightedLookupDecoderBase(_LookupDecoderBase):
             tuple[int, ...], list[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]
         ] = collections.defaultdict(list)
         get_observable_flip = None
-        if predict_observable_flips:
+        if self._outputs_observables:
             assert observable_flip_matrix is not None  # primarily for type-checking reasons
             get_observable_flip = _build_observable_flip_func(
                 pcm, observable_flip_matrix, symplectic
@@ -753,8 +745,7 @@ class WeightedLookupDecoder(_WeightedLookupDecoderBase, LookupDecoder):
 
     The ``pcm_or_dem``, ``max_weight``, ``observable_flip_matrix``, ``post_select``,
     ``add_erasure_bit``, and ``symplectic`` options behave as they do for a LookupDecoder; see
-    help(LookupDecoder).  The deprecated ``predict_observable_flips=True`` option makes ``.decode``
-    return observable flips; use a WeightedObservableLookupDecoder instead.
+    help(LookupDecoder).
     """
 
     def __init__(
@@ -769,13 +760,17 @@ class WeightedLookupDecoder(_WeightedLookupDecoderBase, LookupDecoder):
         symplectic: bool = False,
     ) -> None:
         _warn_deprecated_observable_prediction(
-            predict_observable_flips, "WeightedObservableLookupDecoder"
+            predict_observable_flips,
+            "use qldpc.decoders.custom.lookup.WeightedObservableLookupDecoder(...)"
+            ".decode_observables(syndrome, penalty_func) instead",
         )
+        self._outputs_observables = predict_observable_flips
+        self.predict_observable_flips = predict_observable_flips
+        self.decode_returns_observables = predict_observable_flips
         super().__init__(
             pcm_or_dem,
             max_weight,
             observable_flip_matrix=observable_flip_matrix,
-            predict_observable_flips=predict_observable_flips,
             post_select=post_select,
             add_erasure_bit=add_erasure_bit,
             symplectic=symplectic,
@@ -826,6 +821,8 @@ class WeightedObservableLookupDecoder(_WeightedLookupDecoderBase):
     a parity check matrix together with an ``observable_flip_matrix``.
     """
 
+    _outputs_observables = True
+
     @overload
     def __init__(
         self,
@@ -863,7 +860,6 @@ class WeightedObservableLookupDecoder(_WeightedLookupDecoderBase):
             pcm_or_dem,
             max_weight,
             observable_flip_matrix=observable_flip_matrix,
-            predict_observable_flips=True,
             post_select=post_select,
             add_erasure_bit=add_erasure_bit,
             symplectic=symplectic,
@@ -892,7 +888,7 @@ class WeightedObservableLookupDecoder(_WeightedLookupDecoderBase):
         )
 
 
-# Decoder settings
+# Decoder specifications
 
 
 @_erasure_bit_support("lookup", supported=True)
@@ -903,7 +899,7 @@ def _get_decoder_lookup(
 
     The options, including the required ``max_weight``, an independent or callable correlated
     ``error_channel``, and optional erasure, confidence, probability-cutoff, post-selection, and
-    symplectic settings, are those of :class:`~qldpc.decoders.custom.lookup.LookupDecoder`.
+    symplectic options, are those of :class:`~qldpc.decoders.custom.lookup.LookupDecoder`.
 
     Returns:
         A :class:`~qldpc.decoders.custom.lookup.LookupDecoder` that maps syndromes to representative
@@ -922,14 +918,36 @@ def _get_observable_decoder_lookup(
     return ObservableLookupDecoder(dem, **decoder_args)  # type: ignore[call-overload]
 
 
-_LOOKUP_SETTINGS_RETURNS = (
-    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
-    "detector error model (DEM), which also supplies default error probabilities and observable"
-    " metadata, and returns a :class:`~qldpc.decoders.custom.lookup.LookupDecoder` that maps "
-    "syndromes to representative errors.  Their ``build_observable_decoder(dem)`` method "
-    "returns an :class:`~qldpc.decoders.custom.lookup.ObservableLookupDecoder` that maps "
-    "syndromes directly to observable flips."
-)
+_LOOKUP_SPEC_DOC = """Configure a bounded-weight lookup-table decoder.
+
+Args:
+    max_weight: Maximum error weight to enumerate; required to bound construction.
+    error_channel: Independent error probabilities for each matrix column, or a callable
+        returning the normalized log probability of a complete error.  A DEM supplies its
+        own probabilities and does not accept this option.
+    observable_flip_matrix: Observable values of matrix-column errors.  A DEM supplies its
+        own observables.  An error decoder with observables selects an error from the most
+        likely observable class, which need not contain the most likely individual error.
+    post_select: Syndrome indices that must be zero; other syndromes decode as absent.
+    add_erasure_bit: Append a flag for absent syndromes, or None to enable it automatically
+        when ``confidence_ratio`` is positive.
+    confidence_ratio: Minimum likelihood ratio of the best observable class to all others;
+        an ambiguous syndrome is erased.  Requires observable metadata.
+    probability_cutoff: Ignore errors below this probability; not supported with a callable
+        ``error_channel``.
+    symplectic: Treat ``[X|Z]`` columns as two error components per qudit.
+
+Returns:
+    A decoder specification.  ``build(pcm_or_dem)`` returns a
+    :class:`~qldpc.decoders.custom.lookup.LookupDecoder` that infers an error.
+    ``build_observable_decoder(dem)`` returns an
+    :class:`~qldpc.decoders.custom.lookup.ObservableLookupDecoder` that predicts observable
+    flips natively for a binary DEM.
+
+See :class:`~qldpc.decoders.custom.lookup.LookupDecoder` for error-channel and field
+conventions, and :class:`~qldpc.decoders.custom.lookup.ObservableLookupDecoder` for the
+observable output contract.
+"""
 
 
 lookup = decoder_spec(
@@ -938,7 +956,7 @@ lookup = decoder_spec(
     _get_observable_decoder_lookup,
     signature_source=LookupDecoder,
     exclude=frozenset({"predict_observable_flips"}),
-    returns=_LOOKUP_SETTINGS_RETURNS,
+    doc=_LOOKUP_SPEC_DOC,
 )
 
 
@@ -949,10 +967,12 @@ def _organize_lookup_table_initialization_data(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     error_channel: _ErrorChannel,
     observable_flip_matrix: IntegerArray | None,
-    predict_observable_flips: bool,
+    output_observables: bool,
     post_select: Collection[int],
     add_erasure_bit: bool,
     probability_cutoff: float = 0,
+    *,
+    symplectic: bool = False,
 ) -> tuple[
     IntegerArray,
     IntegerArray | None,
@@ -968,6 +988,11 @@ def _organize_lookup_table_initialization_data(
             " inclusive"
         )
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
+        if symplectic:
+            raise ValueError(
+                "A LookupDecoder cannot be symplectic when built from a stim.DetectorErrorModel,"
+                " whose error mechanisms are not [X|Z] qudit errors"
+            )
         if error_channel is not None or observable_flip_matrix is not None:
             raise ValueError(
                 "Cannot specify an error_channel or observable_flip_matrix when providing a"
@@ -978,7 +1003,7 @@ def _organize_lookup_table_initialization_data(
         error_channel = dem_arrays.error_probs
         # errors are grouped by observable flip if there are observables, or if predicting
         # observable flips, which are trivial (empty) if there are no observables
-        if dem_arrays.num_observables > 0 or predict_observable_flips:
+        if dem_arrays.num_observables > 0 or output_observables:
             observable_flip_matrix = dem_arrays.observable_flip_matrix
     else:
         pcm = pcm_or_dem
@@ -1017,7 +1042,7 @@ def _organize_lookup_table_initialization_data(
         syndrome_mask[list(post_select)] = False
 
     # build the default output returned for syndromes absent from the lookup table
-    if predict_observable_flips:
+    if output_observables:
         if observable_flip_matrix is None:
             raise ValueError(
                 "A lookup decoder that predicts observable flips requires an"
@@ -1038,198 +1063,6 @@ def _organize_lookup_table_initialization_data(
         default_correction,
         independent_error_channel,
     )
-
-
-def _iter_errors_and_syndromes(
-    matrix: IntegerArray,
-    max_weight: int,
-    syndrome_mask: npt.NDArray[np.bool_] | None,
-    symplectic: bool,
-    *,
-    error_channel: npt.NDArray[np.floating] | None = None,
-    probability_cutoff: float = 0,
-) -> Iterator[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]:
-    """Iterate over all errors that this decoder considers, and their associated syndromes.
-
-    Errors are sorted in decreasing weight (number of bits or qudits addressed nontrivially).  A
-    positive probability_cutoff requires an error_channel, and skips errors below the cutoff.
-
-    The syndrome_mask is a boolean mask of syndrome bits to retain, or None to keep all bits.
-    When post-selecting (keep is not None), errors whose syndrome is nontrivial on any dropped
-    bit are skipped, and dropped bits are omitted from the yielded syndrome.
-    """
-    from qldpc import codes
-
-    dtype = matrix.dtype
-    # rewrite the checks so multiplying by an error produces its syndrome
-    code = codes.ClassicalCode(matrix) if not symplectic else codes.QuditCode(matrix)
-    matrix = code.matrix if not symplectic else -math.symplectic_conjugate(code.matrix)
-    repeat = 2 if symplectic else 1
-    block_length = matrix.shape[1] // repeat
-
-    errors: Iterator[npt.NDArray[np.int_]]
-    if probability_cutoff:
-        assert error_channel is not None
-        errors = _iter_errors_above_probability_cutoff(
-            code.field,
-            block_length,
-            repeat,
-            max_weight,
-            dtype,
-            error_channel,
-            probability_cutoff,
-        )
-    else:
-        errors = _iter_errors_up_to_weight(
-            code.field.order, block_length, repeat, max_weight, dtype
-        )
-
-    for error in errors:
-        syndrome = (matrix @ error.view(code.field)).view(np.ndarray)
-        if syndrome_mask is not None:
-            if np.any(syndrome[~syndrome_mask]):
-                continue  # a post-selected syndrome bit is nontrivial
-            syndrome = syndrome[syndrome_mask]
-        yield error, syndrome
-
-
-def _iter_errors_up_to_weight(
-    field_order: int,
-    block_length: int,
-    repeat: int,
-    max_weight: int,
-    dtype: npt.DTypeLike,
-) -> Iterator[npt.NDArray[np.int_]]:
-    """Yield every error with weight at most max_weight, in order of decreasing weight."""
-    local_errors = tuple(itertools.product(range(field_order), repeat=repeat))[1:]
-    for weight in range(max_weight, -1, -1):
-        for error_sites in itertools.combinations(range(block_length), weight):
-            error_site_indices = list(error_sites)
-            for site_errors in itertools.product(local_errors, repeat=weight):
-                error = np.zeros((repeat, block_length), dtype=dtype)
-                error[:, error_site_indices] = np.asarray(site_errors, dtype=dtype).T
-                yield error.ravel()
-
-
-def _iter_errors_above_probability_cutoff(
-    field: type[galois.FieldArray],
-    block_length: int,
-    repeat: int,
-    max_weight: int,
-    dtype: npt.DTypeLike,
-    error_channel: npt.NDArray[np.floating],
-    probability_cutoff: float,
-) -> Iterator[npt.NDArray[np.int_]]:
-    """Yield errors above a Bernoulli-probability cutoff without exhaustively generating them.
-
-    Each site (a bit, or a qudit if symplectic) is either inactive or carries a nonzero local error.
-    Sites are sorted by the likelihood ratio of their best local error, so the most likely way to
-    complete a partial error is to activate the next remaining sites in sorted order.  A depth-first
-    search over the active sites of each weight prunes any branch whose most likely completion falls
-    below the cutoff, and checks the exact probability of each complete error before yielding it.
-    """
-    probabilities = error_channel.reshape(repeat, block_length)
-    active_probabilities = probabilities / (field.order - 1)
-    with np.errstate(divide="ignore"):
-        log_active_probabilities = np.log(active_probabilities)
-        log_inactive_probabilities = np.log1p(-probabilities)
-
-    # score the possible local errors at each site, most likely first
-    local_errors = tuple(itertools.product(range(field.order), repeat=repeat))[1:]
-    sites: list[_ScoredErrorSite] = []
-    for site_index in range(block_length):
-        site_log_active = log_active_probabilities[:, site_index]
-        site_log_inactive = log_inactive_probabilities[:, site_index]
-        scored_errors: list[_ScoredLocalError] = []
-        for local_error in local_errors:
-            is_active = np.asarray(local_error, dtype=bool)
-            log_probability = float(np.sum(np.where(is_active, site_log_active, site_log_inactive)))
-            if np.isfinite(log_probability):
-                scored_errors.append(_ScoredLocalError(local_error, log_probability))
-        if scored_errors:  # otherwise this site is never active, so we can ignore it
-            scored_errors.sort(key=lambda error: error.log_probability, reverse=True)
-            sites.append(
-                _ScoredErrorSite(site_index, float(np.sum(site_log_inactive)), tuple(scored_errors))
-            )
-
-    # A site with a probability-one mechanism has an infinite likelihood ratio and an inactive log
-    # probability of -inf, so it sorts first and every bound that leaves it inactive is pruned.
-    sites.sort(
-        key=lambda site: site.errors[0].log_probability - site.inactive_log_probability,
-        reverse=True,
-    )
-
-    # prefix/suffix sums give the log probability of activating a window of sorted sites
-    best_log_prefix = [0.0]
-    for site in sites:
-        best_log_prefix.append(best_log_prefix[-1] + site.errors[0].log_probability)
-    inactive_log_suffix = [0.0] * (len(sites) + 1)
-    for index in range(len(sites) - 1, -1, -1):
-        inactive_log_suffix[index] = (
-            inactive_log_suffix[index + 1] + sites[index].inactive_log_probability
-        )
-
-    def get_best_completion(start: int, count: int) -> float:
-        """Log probability of activating sites start, ..., start + count - 1 and no later sites."""
-        stop = start + count
-        return best_log_prefix[stop] - best_log_prefix[start] + inactive_log_suffix[stop]
-
-    # Log-space bounds are only used to prune, while yielded errors are checked exactly, so pruning
-    # only needs a margin that exceeds the rounding error of any bound: a sum of at most
-    # 3 * len(sites) terms whose magnitudes are bounded by log_scale.
-    log_cutoff = float(np.log(probability_cutoff))
-    log_scale = 1 + abs(log_cutoff)
-    for site in sites:
-        log_scale += max(abs(error.log_probability) for error in site.errors)
-        if np.isfinite(site.inactive_log_probability):
-            log_scale += abs(site.inactive_log_probability)
-    prune_threshold = log_cutoff - 4 * (len(sites) + 1) * np.finfo(float).eps * log_scale
-
-    # enumerate weights from heavy to light, matching the exhaustive path's tie-breaking
-    for weight in range(min(len(sites), max_weight), -1, -1):
-        # each stack entry: (next sorted site, remaining sites to activate, log probability of the
-        # sites decided so far, linked list of the selected local errors)
-        stack: list[tuple[int, int, float, _ErrorSelection | None]] = [(0, weight, 0.0, None)]
-        while stack:
-            start, remaining, log_probability, selection = stack.pop()
-            if remaining == 0:
-                error = np.zeros((repeat, block_length), dtype=dtype)
-                while selection is not None:
-                    error[:, selection.site_index] = selection.error
-                    selection = selection.parent
-                probability = np.prod(
-                    np.where(error.astype(bool), active_probabilities, 1 - probabilities)
-                )
-                if probability >= probability_cutoff:
-                    yield error.ravel()
-                continue
-
-            # choose the next active site, leaving all sites from start up to it inactive
-            children: list[tuple[int, int, float, _ErrorSelection]] = []
-            skipped_log_probability = 0.0
-            for position in range(start, len(sites) - remaining + 1):
-                site = sites[position]
-                base_log_probability = log_probability + skipped_log_probability
-                best_later = get_best_completion(position + 1, remaining - 1)
-                if (
-                    base_log_probability + site.errors[0].log_probability + best_later
-                    < prune_threshold
-                ):
-                    break  # later positions have smaller likelihood ratios, so they are pruned too
-                for scored_error in site.errors:
-                    child_log_probability = base_log_probability + scored_error.log_probability
-                    if child_log_probability + best_later < prune_threshold:
-                        break  # less likely local errors at this site are pruned too
-                    children.append(
-                        (
-                            position + 1,
-                            remaining - 1,
-                            child_log_probability,
-                            _ErrorSelection(selection, site.site_index, scored_error.error),
-                        )
-                    )
-                skipped_log_probability += site.inactive_log_probability
-            stack.extend(reversed(children))
 
 
 def _prepare_error_channel(
@@ -1418,37 +1251,14 @@ def _error_weight(error: npt.NDArray[np.int_], symplectic: bool) -> int:
     return int(np.count_nonzero(error))
 
 
-class _ScoredErrorSite(NamedTuple):
-    """A physical error site and its possible local errors, sorted from most to least likely."""
-
-    site_index: int
-    inactive_log_probability: float
-    errors: tuple[_ScoredLocalError, ...]
-
-
-class _ScoredLocalError(NamedTuple):
-    """A local error and its log probability."""
-
-    error: tuple[int, ...]
-    log_probability: float
-
-
-class _ErrorSelection(NamedTuple):
-    """One selection in a linked list of local errors."""
-
-    parent: _ErrorSelection | None
-    site_index: int
-    error: tuple[int, ...]
-
-
 # Deprecated compatibility helpers
 
 
-def _warn_deprecated_observable_prediction(enabled: bool, replacement: str) -> None:
+def _warn_deprecated_observable_prediction(enabled: bool, advice: str) -> None:
     """Warn about the legacy mode in which an error decoder predicts observable flips."""
     if enabled:
         warnings.warn(
-            f"predict_observable_flips=True is deprecated; use {replacement} instead",
+            f"predict_observable_flips=True is deprecated; {advice}",
             DeprecationWarning,
             stacklevel=get_external_caller_stacklevel(),
         )

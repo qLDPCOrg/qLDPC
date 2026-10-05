@@ -190,10 +190,11 @@ If the checks do not commute, make sure you intend to build a subsystem code and
 Choose or supply a decoder
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Configure a decoder with a typed helper such as ``decoders.bp_lsd(...)`` or ``decoders.mwpm(...)``, and build it for a parity-check matrix or Stim detector error model with ``.build(...)``, or pass the settings as ``decoder=`` to a method that decodes.
-Some settings, such as ``decoders.frontier(...)``, predict observable flips but cannot infer errors, so they are accepted only where observable flips are wanted.
-The default decoder is GUF for a nonbinary field array and BP+OSD otherwise.
-``.build_observable_decoder(dem)`` builds a decoder that predicts the observable flips of a detector error model instead, and ``qldpc.decoders.SinterDecoder`` does so for Sinter.
+Create a decoder specification with a helper such as ``decoders.bp_lsd(...)`` or ``decoders.mwpm(...)``, then pass it as ``decoder=`` or build a decoder for a matrix with ``.build(matrix)``.
+Use ``.build_observable_decoder(dem)`` to predict observable flips from a Stim detector error model.
+Some specifications, such as ``decoders.frontier(...)``, predict observable flips but cannot infer errors, so they are accepted only where observable flips are wanted.
+The default decoder is BP+OSD for binary codes and GUF otherwise.
+``qldpc.decoders.SinterDecoder`` builds observable decoders for Sinter.
 Code-capacity estimators accept either kind of decoder.
 See :doc:`Choosing a decoder <decoders>` for the difference between error and observable decoders, custom decoders, and per-sector CSS choices.
 
@@ -209,7 +210,7 @@ See :doc:`Choosing a decoder <decoders>` for the difference between error and ob
    correction = decoder.decode_errors(syndrome)
 
 Only some decoders can signal an erasure.
-Those decoders append the erasure flag as the last entry of each inferred error.
+Those decoders append the erasure flag as the last entry of each prediction.
 
 Build and simulate a memory circuit
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

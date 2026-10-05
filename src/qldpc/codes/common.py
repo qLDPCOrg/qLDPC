@@ -25,6 +25,7 @@ import stim
 from qldpc import abstract, decoders, external, math
 from qldpc._util import format_docstring, get_external_caller_stacklevel
 from qldpc._util import networkx as nx
+from qldpc.decoders.construction.resolution import _resolve_error_decoder
 from qldpc.math import IntegerArray
 from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ, PauliXZLike, QuditPauli
 
@@ -506,7 +507,7 @@ class ClassicalCode(AbstractCode):
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
-            decoder: Settings for the decoder used to bound distance; see help(get_distance_bound).
+            decoder: Decoder input used to bound distance; see help(get_distance_bound).
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
@@ -536,7 +537,7 @@ class ClassicalCode(AbstractCode):
                 randomized upper bounds; see help(get_distance_bound).
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
-            decoder: Settings for the decoder used to bound distance; see help(get_distance_bound).
+            decoder: Decoder input used to bound distance; see help(get_distance_bound).
             method: Binary exact-distance method, unused when bounding the distance.
                 ``"brouwer_zimmermann"`` is the default; ``"brute_force"`` enumerates every nonzero
                 code word.  Nonbinary and vector-distance calculations always use exhaustive
@@ -659,15 +660,13 @@ class ClassicalCode(AbstractCode):
             cutoff: Exit early once the upper bound falls to or below this cutoff.
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
-            decoder: Decoder settings such as ``decoders.bp_osd(...)``, a constructor that builds an
-                error decoder from a parity check matrix, or None to select the default decoder.
-                If vector is not None, the decoder decodes syndromes of the parity check matrix of
-                this code, and may be a decoder prebuilt for that matrix.  Otherwise, the decoder
-                decodes an internal effective check matrix, so a prebuilt decoder is rejected.
+            decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None to
+                select the default.  It is built for this code's parity-check matrix if vector is
+                provided, and for an internal effective check matrix otherwise.
             backend: Distance-bound backend.  Classical codes use only the decoder path; this
                 argument is accepted for compatibility with shared distance-bound workflows.
-            **decoder_kwargs: Deprecated decoder-selection and construction arguments to pass to
-                qldpc.decoders.get_decoder.
+            **decoder_kwargs: Deprecated decoder-selection options; pass a specification as
+                ``decoder=`` instead.
 
         Returns:
             An upper bound on distance if it is defined, or np.nan otherwise.  When bounding code
@@ -695,7 +694,7 @@ class ClassicalCode(AbstractCode):
         else:
             check_matrix = np.vstack([self.matrix, self.generator]).view(self.field)
             syndrome = np.zeros(len(check_matrix), dtype=int).view(self.field)
-        error_decoder = decoders.resolve_decoder(check_matrix, decoder, decoder_kwargs)
+        error_decoder = _resolve_error_decoder(check_matrix, decoder, decoder_kwargs)
 
         def get_syndrome() -> npt.NDArray[np.int_]:
             """Get a syndrome to decode, randomizing its overlap with code words if necessary."""
@@ -905,26 +904,13 @@ class ClassicalCode(AbstractCode):
         The logical error rate returned by the constructed function is the probability with which a
         code error (obtained by sampling independent errors on all bits) is decoded incorrectly.
 
-        Here the observables of the code are its bits, so decoding succeeds only if the decoder
-        predicts the value of every bit of the sampled error.  The decoder argument accepts either
-        an error decoder or an observable decoder:
-
-        - Decoder settings such as ``decoder=decoders.bp_osd(...)``, a constructor that builds an
-          error decoder from a parity check matrix, or an error decoder prebuilt for the parity
-          check matrix of this code.  If decoder is None, the default decoder is GUF for a
-          nonbinary field and BP+OSD otherwise.  An error decoder infers an error from its syndrome,
-          and decoding fails if that error differs from the sampled error.
-        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``, or an
-          observable-decoder constructor with an observable return annotation.  It is built for a
-          detector error model whose detectors are the parity checks of this code and whose
-          observables are its bits.  Stim detector error models are binary, so such a decoder is
-          rejected for a code over another field.
-        - An observable decoder prebuilt to predict the bits of an error from its syndrome, such as
-          an ObservableLookupDecoder built with ``observable_flip_matrix=code.field.Identity(n)``.
-          Its detector and observable dimensions are checked when the decoder exposes them.
-
-        Any remaining keyword arguments are deprecated decoder-selection and construction arguments
-        for qldpc.decoders.get_decoder.
+        Here each error location is an observable, so decoding succeeds only if the decoder predicts
+        the error at every location.  Pass a decoder specification such as ``decoders.bp_osd(...)``
+        as ``decoder=``.  With no specification, the default is BP+OSD for binary codes and GUF
+        otherwise.
+        A specification that predicts observables natively is used that way when it can be built for
+        this code; otherwise it decodes errors, with a warning (see
+        help(qldpc.codes.code_capacity.get_code_capacity_decoder)).
 
         The basic idea in this method is to think of the fidelity
 
@@ -2399,24 +2385,12 @@ class QuditCode(AbstractCode):
         logical error by the decoder.
 
         Decoding succeeds if the decoder predicts the logical action of the sampled error, that is,
-        its symplectic products with the logical operators of the code.  The decoder argument
-        accepts either an error decoder or an observable decoder:
-
-        - Decoder settings such as ``decoder=decoders.bp_osd(...)``, or a constructor that builds an
-          error decoder from a parity check matrix.  If decoder is None, the default decoder is
-          GUF for a nonbinary field and BP+OSD otherwise.  An error decoder infers a symplectic
-          error from its syndrome, and decoding fails if that error and the sampled error have
-          different logical actions.
-        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``, or an
-          observable-decoder constructor with an observable return annotation.  It is built for a
-          detector error model whose detectors are the stabilizer generators of the code, whose
-          observables are its logical operators, and whose error mechanisms are the single-qubit X,
-          Y, and Z errors.  Stim detector error models are binary, so such a decoder is rejected for
-          a code over another field.
-
-        Either kind of decoder decodes syndromes of an internal syndrome matrix, so a prebuilt
-        decoder is rejected.  Any remaining keyword arguments are deprecated decoder-selection and
-        construction arguments for qldpc.decoders.get_decoder.
+        its symplectic products with the logical operators of the code.  Pass a decoder
+        specification such as ``decoders.bp_osd(...)`` as ``decoder=``.  With no specification, the
+        default is BP+OSD for binary codes and GUF otherwise.
+        A specification that predicts observables natively is used that way when it can be built for
+        this code; otherwise it decodes errors, with a warning (see
+        help(qldpc.codes.code_capacity.get_code_capacity_decoder)).
 
         For a subsystem code, errors are decoded against the stabilizer generators of the code, so
         a syndrome has one entry per stabilizer generator.  These generators can be high-weight
@@ -3252,7 +3226,7 @@ class CSSCode(QuditCode):
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
-            decoder: Settings for the decoder used to bound distance; see help(get_distance_bound).
+            decoder: Decoder input used to bound distance; see help(get_distance_bound).
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
@@ -3284,7 +3258,7 @@ class CSSCode(QuditCode):
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
-            decoder: Settings for the decoder used to bound distance; see help(get_distance_bound).
+            decoder: Decoder input used to bound distance; see help(get_distance_bound).
             method: Binary exact-distance method, unused when bounding the distance.
                 ``"brouwer_zimmermann"`` is the default; ``"brute_force"`` enumerates every
                 nontrivial logical operator.  Nonbinary calculations always use exhaustive
@@ -3509,7 +3483,7 @@ class CSSCode(QuditCode):
                 The strings "X" and "Z" (case-insensitive) are also accepted.  If None (the
                 default), minimize over X and Z.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
-            decoder: Settings for the decoder-based algorithm; see
+            decoder: Decoder input for the decoder-based algorithm; see
                 help(get_distance_bound_with_decoder).  Providing a decoder selects the
                 ``"decoder"`` backend when ``backend="auto"``.
             backend: ``"auto"`` (the default), ``"gap"``, ``"sqetch"``, or ``"decoder"``.
@@ -3616,12 +3590,10 @@ class CSSCode(QuditCode):
                 X-type logical operator).  If passed qldpc.objects.Pauli.Z, compute the Z-distance.
             num_trials: Minimize over this many independent upper bounds.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
-            decoder: Decoder settings such as ``decoders.bp_osd(...)``, a constructor that builds an
-                error decoder from a parity check matrix, or None to select the default decoder.
-                The decoder decodes an internal effective check matrix (described below), so a
-                prebuilt decoder is rejected.
-            **decoder_kwargs: Deprecated decoder-selection and construction arguments to pass to
-                qldpc.decoders.get_decoder.
+            decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None to
+                select the default.  It is built for an internal effective check matrix.
+            **decoder_kwargs: Deprecated decoder-selection options; pass a specification as
+                ``decoder=`` instead.
 
         For ease of language, we henceforth assume without loss of generality that we are
         computing an X-distance, and tentatively assume that `num_trials == 1`.
@@ -3675,7 +3647,7 @@ class CSSCode(QuditCode):
 
         # initialize a decoder and a trivial effective syndrome
         effective_check_matrix = np.vstack([matrix_z, logical_ops_z])
-        error_decoder = decoders.resolve_decoder(effective_check_matrix, decoder, decoder_kwargs)
+        error_decoder = _resolve_error_decoder(effective_check_matrix, decoder, decoder_kwargs)
         effective_syndrome = np.zeros(len(effective_check_matrix), dtype=int)
 
         def get_effective_syndrome() -> npt.NDArray[np.int_]:
@@ -3721,12 +3693,11 @@ class CSSCode(QuditCode):
             pauli: The type of the logical operator to reduce: Pauli.X or Pauli.Z.  The strings "X"
                 and "Z" (case-insensitive) are also accepted.
             logical_index: The index of the logical operator to reduce.
-            decoder: Decoder settings such as ``decoders.bp_osd(...)``, a constructor that builds an
-                error decoder from a parity check matrix, or None to select the default decoder.
-                The decoder decodes an internal effective check matrix that stacks the checks and
-                dual logical operators of the code, so a prebuilt decoder is rejected.
-            **decoder_kwargs: Deprecated decoder-selection and construction arguments to pass to
-                qldpc.decoders.get_decoder.
+            decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None to
+                select the default.  It is built for an internal effective check matrix that
+                stacks the checks and dual logical operators of the code.
+            **decoder_kwargs: Deprecated decoder-selection options; pass a specification as
+                ``decoder=`` instead.
 
         Returns:
             This code, with a reduced logical operator.
@@ -3745,7 +3716,7 @@ class CSSCode(QuditCode):
         effective_syndrome = np.zeros((code.num_checks + self.dimension), dtype=int)
         effective_syndrome[dual_op_index] = 1
 
-        error_decoder = decoders.resolve_decoder(effective_check_matrix, decoder, decoder_kwargs)
+        error_decoder = _resolve_error_decoder(effective_check_matrix, decoder, decoder_kwargs)
         candidate_logical_op = _decode_consistently(
             error_decoder, effective_check_matrix, lambda: effective_syndrome, self.field
         )
@@ -3768,7 +3739,7 @@ class CSSCode(QuditCode):
             pauli: The type of logical operators to reduce: Pauli.X, Pauli.Z, or None (the default)
                 to reduce both X-type and Z-type logical operators.  The strings "X" and "Z"
                 (case-insensitive) are also accepted.
-            decoder: Settings for the decoder used to reduce each logical operator; see
+            decoder: Decoder input used to reduce each logical operator; see
                 help(reduce_logical_op).
             **decoder_kwargs: Deprecated decoder-selection and construction arguments to pass to
                 qldpc.decoders.get_decoder.
@@ -3937,44 +3908,13 @@ class CSSCode(QuditCode):
         code error (obtained by sampling independent errors on all qubits) is converted into a
         logical error by the decoder.
 
-        The X-type and Z-type parts of each error are decoded independently, by two decoders:
-
-        - The X-sector decoder decodes the syndrome of an X-type error with respect to the Z-type
-          stabilizers, ``code.get_stabilizer_ops(Pauli.Z, canonicalized=False)``, to predict which
-          Z-type logical operators, ``code.get_logical_ops(Pauli.Z)``, the error anticommutes with.
-        - The Z-sector decoder decodes the syndrome of a Z-type error with respect to the X-type
-          stabilizers, ``code.get_stabilizer_ops(Pauli.X, canonicalized=False)``, to predict which
-          X-type logical operators, ``code.get_logical_ops(Pauli.X)``, the error anticommutes with.
-
-        A sample fails if either prediction is wrong.  The ``decoder_x`` and ``decoder_z``
-        arguments configure these decoders, and each independently accepts either an error decoder
-        or an observable decoder:
-
-        - Decoder settings such as ``decoders.bp_osd(...)``, a constructor that builds an error
-          decoder from a parity check matrix, or an error decoder prebuilt for the stabilizer
-          matrix of its sector.  An error decoder infers an error, whose products with the logical
-          operators of the sector are its prediction.
-        - A Sinter-style decoder, such as ``decoders.SinterDecoder(decoder=decoders.mwpm())``, or an
-          observable-decoder constructor with an observable return annotation.  It is built for a
-          detector error model whose detectors are the stabilizers of its sector and whose
-          observables are the logical operators of its sector.  Stim detector error models are
-          binary, so such a decoder is rejected for a code over another field.
-        - An observable decoder prebuilt to predict the logical flips of its sector from syndromes
-          of its sector, such as an ObservableLookupDecoder built with the stabilizer matrix of its
-          sector and ``observable_flip_matrix`` set to the logical operators of its sector.  It must
-          have detector and observable dimensions compatible with the sector.
-
-        If ``decoder_x`` or ``decoder_z`` is None, the corresponding sector is decoded as
-        configured by the shared ``decoder`` argument.  A shared Sinter-style decoder is compiled
-        separately for each sector.  A shared prebuilt decoder is rejected if it would decode both
-        sectors, unless the X-type and Z-type stabilizer matrices are equal (and, for a prebuilt
-        observable decoder, so are the X-type and Z-type logical operators).  If all of these
-        arguments are None, the default decoder is GUF for a nonbinary field and BP+OSD otherwise.
-
-        The ``decoder_x_kwargs``, ``decoder_z_kwargs``, and remaining keyword arguments are
-        deprecated decoder-selection and construction arguments for qldpc.decoders.get_decoder, for
-        the X sector, the Z sector, and both sectors, respectively.  Sector-specific arguments
-        override shared arguments.
+        The X and Z sectors are decoded independently.  Pass a decoder specification such as
+        ``decoders.bp_osd(...)`` as ``decoder=`` for both sectors, or set ``decoder_x=`` and
+        ``decoder_z=`` separately.  An omitted sector uses the shared ``decoder=`` specification.
+        With no specification, the default is BP+OSD for binary codes and GUF otherwise.
+        A specification that predicts observables natively is used that way when it can be built for
+        this code; otherwise it decodes errors, with a warning (see
+        help(qldpc.codes.code_capacity.get_code_capacity_decoder)).
 
         For a subsystem code, errors are decoded against the stabilizer generators of the code, so
         a syndrome has one entry per stabilizer generator.  These generators can be high-weight
@@ -4010,13 +3950,14 @@ class CSSCode(QuditCode):
             raise ValueError(
                 "A shared prebuilt decoder cannot decode both CSS sectors, whose stabilizer"
                 " matrices differ.  Pass decoder_x= and decoder_z= with decoders built for their"
-                " respective sectors, or pass decoder settings such as decoder=decoders.bp_osd(...)"
+                " respective sectors, or pass a decoder specification such as"
+                " decoder=decoders.bp_osd(...)"
             )
 
-        # Construct decoders.  Sector-specific settings override shared settings: decoder_x and
-        # decoder_z override decoder, and the legacy decoder_x_kwargs and decoder_z_kwargs override
-        # shared legacy keyword arguments.  The two decoders can be shared when their matrices,
-        # decoder inputs, and legacy arguments coincide.
+        # Construct decoders.  Sector-specific decoder inputs override the shared input: decoder_x
+        # and decoder_z override decoder, and the legacy decoder_x_kwargs and decoder_z_kwargs
+        # override shared legacy keyword arguments.  The two decoders can be shared when their
+        # matrices, decoder inputs, and legacy arguments coincide.
         decoder_x_input = decoder if decoder_x is None else decoder_x
         decoder_z_input = decoder if decoder_z is None else decoder_z
 
@@ -4061,8 +4002,8 @@ class CSSCode(QuditCode):
                 raise ValueError(
                     "A shared prebuilt observable decoder cannot decode both CSS sectors, whose"
                     " logical operators differ.  Pass decoder_x= and decoder_z= with observable"
-                    " decoders built for their respective sectors, or pass decoder settings such as"
-                    " decoder=decoders.bp_osd(...)"
+                    " decoders built for their respective sectors, or pass a decoder specification"
+                    " such as decoder=decoders.bp_osd(...)"
                 )
             code_capacity_decoder_z = get_code_capacity_decoder(
                 stabilizer_ops_x,

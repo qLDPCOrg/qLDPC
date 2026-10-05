@@ -69,15 +69,15 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
         _get_decoder_rbp(np.array([[]]), name="invalid_name")
 
     with pytest.raises(TypeError, match="breaking change"):
-        decoders.RelayBPDecoder("MinSumBPDecoderF32")
+        decoders.external.RelayBPDecoder("MinSumBPDecoderF32")
 
     with pytest.warns(UserWarning, match="will override"):
-        decoders.RelayBPDecoder(dem, error_priors=[0.1, 0.1])
+        decoders.external.RelayBPDecoder(dem, error_priors=[0.1, 0.1])
 
     with pytest.raises(ValueError, match="Cannot specify an observable_error_matrix"):
-        decoders.RelayBPDecoder(dem, observable_error_matrix=np.eye(2, dtype=np.uint8))
+        decoders.external.RelayBPDecoder(dem, observable_error_matrix=np.eye(2, dtype=np.uint8))
 
-    builders: list[Callable[..., decoders.RelayBPDecoder]] = [
+    builders: list[Callable[..., decoders.external.RelayBPDecoder]] = [
         _get_decoder_relay_bp,
         _get_decoder_min_sum_bp,
     ]
@@ -88,14 +88,17 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
 
 def test_relay_bp_observables() -> None:
     """A RelayBPDecoder predicts observable flips, with or without an erasure bit."""
+    # noise at which Relay-BP's relay legs, and hence its persistent random state, affect results
     circuit = stim.Circuit.generated(
-        "repetition_code:memory", distance=3, rounds=3, after_clifford_depolarization=0.02
+        "repetition_code:memory", distance=3, rounds=3, after_clifford_depolarization=0.05
     )
     dem = circuit.detector_error_model()
     syndromes = circuit.compile_detector_sampler(seed=0).sample(100).astype(int)
     observable_flip_matrix = decoders.DetectorErrorModelArrays(dem).observable_flip_matrix
 
     for add_erasure_bit in [False, True]:
+        # Relay-BP draws random relay parameters from a generator that persists across calls, so
+        # compare fresh decoders that have decoded the same syndromes in the same order.
         get_decoder = functools.partial(_get_decoder_rbp, dem, add_erasure_bit=add_erasure_bit)
         predicted_flips = get_decoder().decode_observables_batch(syndromes, progress_bar=False)
         assert predicted_flips.shape == (len(syndromes), dem.num_observables + add_erasure_bit)
@@ -103,10 +106,11 @@ def test_relay_bp_observables() -> None:
         assert np.array_equal(
             predicted_flips, [decoder.decode_observables(syndrome) for syndrome in syndromes]
         )
-        detailed = decoder.decode_observables_detailed_batch(syndromes)
+        detailed = get_decoder().decode_observables_detailed_batch(syndromes)
         assert np.array_equal([result.observable_flips for result in detailed], predicted_flips)
         assert np.array_equal(
-            decoder.decode_observables_detailed(syndromes[0]).observable_flips, predicted_flips[0]
+            get_decoder().decode_observables_detailed(syndromes[0]).observable_flips,
+            predicted_flips[0],
         )
 
         errors = get_decoder().decode_batch(syndromes, progress_bar=False)
@@ -151,8 +155,8 @@ def test_erasure_bit_marks_an_unexplained_syndrome(pytestconfig: pytest.Config) 
             dtype=int,
         )
 
-        guf_decoder = decoders.GUFDecoder(galois.GF(2)(matrix), add_erasure_bit=True)
-        relay_bp_decoder = decoders.RelayBPDecoder(matrix, add_erasure_bit=True)
+        guf_decoder = decoders.custom.GUFDecoder(galois.GF(2)(matrix), add_erasure_bit=True)
+        relay_bp_decoder = decoders.external.RelayBPDecoder(matrix, add_erasure_bit=True)
 
         guf_errors = np.array([guf_decoder.decode(syndrome) for syndrome in syndromes])
         relay_bp_errors = np.array([relay_bp_decoder.decode(syndrome) for syndrome in syndromes])
@@ -175,8 +179,8 @@ def test_erasure_bit_marks_an_unexplained_syndrome(pytestconfig: pytest.Config) 
     ],
 )
 def test_relay_backend_options(
-    builder: Callable[..., decoders.RelayBPDecoder],
-    helper: Callable[..., decoders.DecoderSpec[decoders.RelayBPDecoder]],
+    builder: Callable[..., decoders.external.RelayBPDecoder],
+    helper: Callable[..., decoders.DecoderSpec[decoders.external.RelayBPDecoder]],
 ) -> None:
     """Named options and backend_options survive deferred construction."""
     matrix = np.eye(2, dtype=int)

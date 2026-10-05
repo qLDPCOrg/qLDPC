@@ -41,7 +41,7 @@ python -m pip install qldpc
 #### Decoders
 
 qLDPC installs `ldpc` and `pymatching` by default, which include a host of decoders.
-You can install every decoder available in `qldpc` for your platform with:
+Install the optional decoder integrations published as qLDPC extras for your platform with:
 
 ```bash
 python -m pip install 'qldpc[decoders]'
@@ -55,6 +55,7 @@ python -m pip install 'qldpc[tesseract]'
 ```
 
 The [Tesseract](https://github.com/quantumlib/tesseract-decoder) decoder requires CPython 3.12–3.14 on macOS arm64 or Linux x86-64.
+[Frontier](https://github.com/aleverrier/frontier) is not published on PyPI and is not included in an extra; see the [decoder guide](https://qldpc.readthedocs.io/decoders.html) for availability and build-time installation guidance.
 
 #### GAP integration
 

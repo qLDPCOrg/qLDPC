@@ -46,7 +46,7 @@ class _FakeTesseractDecoder:
     def __init__(self, config: _FakeTesseractConfig) -> None:
         self.config = config
         self.dem_arrays = decoders.DetectorErrorModelArrays(config.dem, simplify=False)
-        self.lookup = decoders.LookupDecoder(config.dem, max_weight=config.dem.num_errors)
+        self.lookup = decoders.custom.LookupDecoder(config.dem, max_weight=config.dem.num_errors)
         self.low_confidence_flag = False
         self.predicted_errors_buffer: list[int] = []
 
@@ -194,7 +194,7 @@ def test_tesseract_options_and_validation(fake_tesseract: None) -> None:
     """Construction forwards typed options and rejects unsupported inputs."""
     assert (
         list(inspect.signature(decoders.tesseract).parameters)
-        == (list(inspect.signature(decoders.TesseractDecoder).parameters)[1:])
+        == (list(inspect.signature(decoders.external.TesseractDecoder).parameters)[1:])
     )
 
     options: dict[str, Any] = {
@@ -294,21 +294,25 @@ def test_tesseract_preset_merge_defaults(fake_tesseract: None) -> None:
 def test_tesseract_specs_sinter_and_code_capacity(
     fake_tesseract: None,
 ) -> None:
-    """Typed settings use native observables through resolution, Sinter, and code capacity."""
+    """Decoder specifications predict observables natively in all workflows."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
     spec = decoders.tesseract(det_beam=7)
     assert spec.predicts_observables_natively
-    assert isinstance(_get_error_decoder(dem, decoder=spec), decoders.TesseractDecoder)
+    assert isinstance(_get_error_decoder(dem, decoder=spec), decoders.external.TesseractDecoder)
     observable_decoder = _get_observable_decoder(dem, decoder=spec)
-    assert isinstance(observable_decoder, decoders.TesseractDecoder)
+    assert isinstance(observable_decoder, decoders.external.TesseractDecoder)
     assert np.array_equal(observable_decoder.decode_observables(np.array([1])), [1])
 
     compiled = decoders.SinterDecoder(decoder=spec).compile_decoder_for_dem(dem)
-    assert isinstance(compiled.observable_decoder, decoders.TesseractDecoder)
+    assert isinstance(compiled.observable_decoder, decoders.external.TesseractDecoder)
     assert np.array_equal(compiled.decode_shots(np.array([[1]], dtype=np.uint8)), [[1]])
 
     code = codes.RepetitionCode(3)
     observable_matrix = code.field([[1, 0, 0]])
+    native_capacity_decoder = code_capacity.get_code_capacity_decoder(
+        code.matrix, observable_matrix, spec
+    )
+    assert isinstance(native_capacity_decoder.decoder, decoders.external.TesseractDecoder)
     capacity_decoder = code_capacity.get_code_capacity_decoder(
         code.matrix,
         observable_matrix,
@@ -317,6 +321,7 @@ def test_tesseract_specs_sinter_and_code_capacity(
     for bit in range(3):
         error = code.field.Zeros(3)
         error[bit] = 1
+        assert native_capacity_decoder.get_failure_and_erasure(error) == (False, False)
         assert capacity_decoder.get_failure_and_erasure(error) == (False, False)
 
 

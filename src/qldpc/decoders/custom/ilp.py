@@ -194,12 +194,17 @@ def _get_decoder_ilp(
     return ILPDecoder(_to_pcm(pcm_or_dem), add_erasure_bit=add_erasure_bit, **decoder_args)
 
 
-_ILP_SETTINGS_RETURNS = (
-    "Decoder settings.  Their ``build(pcm_or_dem)`` method takes a parity-check matrix or "
-    "detector error model (DEM), whose dense detector-flip matrix is decoded, and returns an "
-    ":class:`~qldpc.decoders.custom.ilp.ILPDecoder`."
-)
+_ILP_SPEC_DOC = """Configure integer-linear-program (ILP) decoding.
 
-ilp = decoder_spec(
-    "ilp", _get_decoder_ilp, signature_source=ILPDecoder, returns=_ILP_SETTINGS_RETURNS
-)
+Args:
+    add_erasure_bit: Append a flag when the solver cannot find an error reproducing the syndrome.
+        Without it, an unexplained syndrome raises an error.
+    **decoder_args: Options passed to ``cvxpy.Problem.solve``.
+
+Returns:
+    A decoder specification.  ``build(pcm_or_dem)`` returns an
+    :class:`~qldpc.decoders.custom.ilp.ILPDecoder` over a prime field; a DEM is decoded through
+    its dense detector-flip matrix.
+"""
+
+ilp = decoder_spec("ilp", _get_decoder_ilp, signature_source=ILPDecoder, doc=_ILP_SPEC_DOC)
