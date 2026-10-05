@@ -4,7 +4,7 @@ requires = [ "uv-build>=0.9.18,<0.13" ]
 
 [project]
 name = "qldpc"
-version = "0.4.1"
+version = "0.4.2.dev20261004"
 description = "Tools for constructing and analyzing quantum low density parity check (qLDPC) codes."
 readme = "README.md"
 keywords = [
