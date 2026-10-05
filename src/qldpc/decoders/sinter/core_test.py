@@ -52,7 +52,7 @@ def test_sinter_decoder() -> None:
     assert compiled_decoder.decoder is compiled_decoder.observable_decoder
 
     error_decoder = _get_decoder_lookup(dem, max_weight=3)
-    compiled_decoder = decoders.CompiledSinterDecoder(
+    compiled_decoder = decoders.sinter.CompiledSinterDecoder(
         decoders.DetectorErrorModelArrays(dem), error_decoder
     )
     assert compiled_decoder.decoder is error_decoder
@@ -76,8 +76,8 @@ def test_sinter_decoder_classes() -> None:
     """Only compiled Sinter decoders implement qLDPC's observable protocol."""
     assert sinter.Decoder in decoders.SinterDecoder.__mro__
     assert decoders.ObservableDecoder not in decoders.SinterDecoder.__mro__
-    assert sinter.CompiledDecoder in decoders.CompiledSinterDecoder.__mro__
-    assert decoders.ObservableDecoder in decoders.CompiledSinterDecoder.__mro__
+    assert sinter.CompiledDecoder in decoders.sinter.CompiledSinterDecoder.__mro__
+    assert decoders.ObservableDecoder in decoders.sinter.CompiledSinterDecoder.__mro__
 
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
     decoder = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1))
@@ -298,7 +298,7 @@ def test_predict_observables_with_erasure(num_observables: int) -> None:
     expected_flips[1, 0] = 1
     assert np.array_equal(np.asarray(predictions, dtype=int), expected_flips)
 
-    class WideCompiledDecoder(decoders.CompiledSinterDecoder):
+    class WideCompiledDecoder(decoders.sinter.CompiledSinterDecoder):
         """A compiled decoder whose bit-packed predictions are two bytes too wide."""
 
         def pack_observable_flips(
@@ -313,7 +313,7 @@ def test_predict_observables_with_erasure(num_observables: int) -> None:
 
         def compile_decoder_for_dem(
             self, dem: stim.DetectorErrorModel
-        ) -> decoders.CompiledSinterDecoder:
+        ) -> decoders.sinter.CompiledSinterDecoder:
             compiled = super().compile_decoder_for_dem(dem)
             return WideCompiledDecoder(compiled.dem_arrays, compiled.decoder)
 
@@ -342,7 +342,7 @@ def test_compiled_sinter_decoder_delegates_bit_packed_shots() -> None:
             return self.output
 
     inner = BitPackedShotDecoder()
-    compiled = decoders.CompiledSinterDecoder(decoders.DetectorErrorModelArrays(dem), inner)
+    compiled = decoders.sinter.CompiledSinterDecoder(decoders.DetectorErrorModelArrays(dem), inner)
     shots = np.array([[0], [1]], dtype=np.uint8)
     assert np.array_equal(compiled.decode_shots(shots), shots)
 
@@ -357,7 +357,7 @@ def test_compiled_sinter_decoder_subclass_decode_shots() -> None:
     """A subclass that post-processes decode_shots gets the same packed and unpacked results."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
 
-    class InvertingDecoder(decoders.CompiledSinterDecoder):
+    class InvertingDecoder(decoders.sinter.CompiledSinterDecoder):
         def decode_shots(
             self, detection_event_data: npt.NDArray[np.uint8]
         ) -> npt.NDArray[np.uint8]:

@@ -189,7 +189,7 @@ def test_erasure_counts_as_a_discard() -> None:
 
         def compile_decoder_for_dem(
             self, dem: stim.DetectorErrorModel
-        ) -> decoders.CompiledSinterDecoder:
+        ) -> decoders.sinter.CompiledSinterDecoder:
             compiled = super().compile_decoder_for_dem(dem)
             assert isinstance(compiled, decoders.sinter.CompiledTrivialDecoder)
             compiled.packed_observable_size += 2

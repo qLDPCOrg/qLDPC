@@ -487,7 +487,7 @@ def test_observable_decoder_inputs() -> None:
 class _BitPackedOnly:
     """A compiled decoder that only exposes decode_shots_bit_packed."""
 
-    def __init__(self, compiled_decoder: decoders.CompiledSinterDecoder) -> None:
+    def __init__(self, compiled_decoder: decoders.sinter.CompiledSinterDecoder) -> None:
         self.decode_shots_bit_packed = compiled_decoder.decode_shots_bit_packed
 
 
@@ -501,7 +501,7 @@ def test_observable_decoder_compilers() -> None:
     assert not decoders.is_prebuilt_decoder(lookup_compiler)
 
     observable_decoder = _get_observable_decoder(dem, decoder=lookup_compiler)
-    assert isinstance(observable_decoder, decoders.CompiledSinterDecoder)
+    assert isinstance(observable_decoder, decoders.sinter.CompiledSinterDecoder)
     assert not observable_decoder.has_erasure_bit
     assert np.array_equal(
         [observable_decoder.decode_observables(syndrome) for syndrome in syndromes],
@@ -515,7 +515,7 @@ def test_observable_decoder_compilers() -> None:
     # a nested compiler is compiled for each detector error model that the outer decoder decodes
     nested_compiler = decoders.SinterDecoder(decoder=lookup_compiler)
     nested_decoder = nested_compiler.compile_decoder_for_dem(dem)
-    assert isinstance(nested_decoder.decoder, decoders.CompiledSinterDecoder)
+    assert isinstance(nested_decoder.decoder, decoders.sinter.CompiledSinterDecoder)
     assert np.array_equal(nested_decoder.decode_shots(syndromes.astype(np.uint8)), expected_flips)
 
     # a compiled decoder that only decodes bit-packed shots signals discards with an erasure bit

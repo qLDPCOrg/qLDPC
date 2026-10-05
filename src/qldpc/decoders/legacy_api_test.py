@@ -169,6 +169,7 @@ def test_tagged_root_star_import() -> None:
         ("LookupDecoder", "qldpc.decoders.custom.lookup.LookupDecoder"),
         ("RelayBPDecoder", "qldpc.decoders.external.relay_bp.RelayBPDecoder"),
         ("CompiledSubgraphDecoder", "qldpc.decoders.sinter.subgraph.CompiledSubgraphDecoder"),
+        ("CompiledSinterDecoder", "qldpc.decoders.sinter.core.CompiledSinterDecoder"),
         ("FlipPattern", "qldpc.decoders.dems.FlipPattern"),
     ],
 )

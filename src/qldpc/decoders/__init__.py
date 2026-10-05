@@ -84,7 +84,6 @@ from .protocols import (
     supports_batch_decoding,
 )
 from .sinter import (
-    CompiledSinterDecoder,
     SequentialWindowDecoder,
     SinterDecoder,
     SlidingWindowDecoder,
@@ -205,6 +204,7 @@ from .construction.legacy import decode, get_decoder
 
 _HISTORICAL_ROOT_CLASSES = {
     "CompiledSequentialWindowDecoder": sinter.CompiledSequentialWindowDecoder,
+    "CompiledSinterDecoder": sinter.CompiledSinterDecoder,
     "CompiledSubgraphDecoder": sinter.CompiledSubgraphDecoder,
     "CompiledTrivialDecoder": sinter.CompiledTrivialDecoder,
     "CompositeDecoder": custom.CompositeDecoder,
@@ -288,6 +288,9 @@ if TYPE_CHECKING:
     )
     from .sinter import (
         CompiledSequentialWindowDecoder as CompiledSequentialWindowDecoder,
+    )
+    from .sinter import (
+        CompiledSinterDecoder as CompiledSinterDecoder,
     )
     from .sinter import (
         CompiledSubgraphDecoder as CompiledSubgraphDecoder,

@@ -111,7 +111,7 @@ Pass the configured decoder to Sinter under the same name used by the task:
    )
 
 A ``SinterDecoder`` is compiled for a detector error model before it predicts flips.
-Its compiled form, a :class:`decoders.CompiledSinterDecoder <qldpc.decoders.sinter.core.CompiledSinterDecoder>`, exposes ``decode_observables`` for one shot and ``decode_shots`` for a batch.
+Its compiled form, which ``compile_decoder_for_dem`` returns and which is not meant to be constructed directly, is a :class:`~qldpc.decoders.sinter.core.CompiledSinterDecoder` that exposes ``decode_observables`` for one shot and ``decode_shots`` for a batch.
 Window decoders require a specification that can infer errors because they commit physical corrections in each window.
 
 Backend limitations
@@ -336,6 +336,7 @@ Migrating backend class imports
 
 Backend implementation classes formerly exported from ``qldpc.decoders``, such as ``LookupDecoder`` and ``RelayBPDecoder``, remain importable at the package root, including through star imports, but now warn on access.
 Workflow classes such as ``SinterDecoder`` remain direct root exports.
+The compiled Sinter decoders, such as ``CompiledSinterDecoder``, also warn at the package root; they are returned by ``compile_decoder_for_dem`` rather than constructed directly, and remain available from ``qldpc.decoders.sinter``.
 Import backend classes from their defining modules instead: ``from qldpc.decoders.custom.lookup import LookupDecoder`` or ``from qldpc.decoders.external.relay_bp import RelayBPDecoder``.
 The objects and their constructor signatures are unchanged.
 

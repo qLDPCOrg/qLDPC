@@ -539,7 +539,7 @@ def test_code_capacity_decoder_from_sinter_decoder() -> None:
     decoder = code_capacity.get_code_capacity_decoder(
         code.matrix, observable_matrix, decoders.SinterDecoder(decoder=decoders.mwpm())
     )
-    assert isinstance(decoder.decoder, decoders.CompiledSinterDecoder)
+    assert isinstance(decoder.decoder, decoders.sinter.CompiledSinterDecoder)
     assert decoder.decoder.num_detectors == 2 and decoder.decoder.num_observables == 1
     for bit in range(3):
         error = code.field.Zeros(3)
