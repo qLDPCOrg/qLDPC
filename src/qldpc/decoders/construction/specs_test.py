@@ -4,9 +4,11 @@
 
 from __future__ import annotations
 
+import ast
 import inspect
 import pathlib
 import pickle
+import sys
 import types
 import typing
 from collections.abc import Callable, Mapping, Sequence
@@ -437,6 +439,20 @@ def test_decoder_spec_helper_docstrings() -> None:
     migration = guide.split("Migrating from qLDPC 0.3.3", maxsplit=1)[1]
     for name, helper in helpers:
         assert callable(helper) and getattr(helper, "__name__", None) == name
+        module = sys.modules[helper.__module__]
+        assignments = [
+            node
+            for node in ast.parse(inspect.getsource(module)).body
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == name for target in node.targets)
+        ]
+        assert len(assignments) == 1
+        assignment = assignments[0]
+        assert isinstance(assignment.value, ast.Call)
+        doc_args = [arg.value for arg in assignment.value.keywords if arg.arg == "doc"]
+        assert len(doc_args) == 1
+        assert isinstance(doc_args[0], ast.Constant) and doc_args[0].value == helper.__doc__
+
         docstring = inspect.getdoc(helper)
         assert docstring is not None and docstring.startswith("Configure ")
         arguments = docstring.split("Args:\n", maxsplit=1)[1].split("\n\n", maxsplit=1)[0]

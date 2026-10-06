@@ -579,7 +579,11 @@ def _get_decoder_min_sum_bp(
     )
 
 
-_RELAY_BP_SPEC_DOC = """Configure a Relay-BP decoder.
+relay_bp = decoder_spec(
+    "relay_bp",
+    _get_decoder_relay_bp,
+    _get_decoder_relay_bp,
+    doc="""Configure a Relay-BP decoder.
 
 Args:
     precision: Numeric precision of the ``relay_bp.RelayDecoder<precision>`` backend.
@@ -611,15 +615,14 @@ Returns:
     :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`.
 
 See the `Relay-BP documentation <https://pypi.org/project/relay-bp>`_ for backend options.
-"""
-
-
-relay_bp = decoder_spec(
-    "relay_bp", _get_decoder_relay_bp, _get_decoder_relay_bp, doc=_RELAY_BP_SPEC_DOC
+""",
 )
 
-
-_MIN_SUM_BP_SPEC_DOC = """Configure min-sum belief propagation with Relay-BP.
+min_sum_bp = decoder_spec(
+    "min_sum_bp",
+    _get_decoder_min_sum_bp,
+    _get_decoder_min_sum_bp,
+    doc="""Configure min-sum belief propagation with Relay-BP.
 
 Args:
     precision: Numeric precision of the ``relay_bp.MinSumBPDecoder<precision>`` backend.
@@ -645,14 +648,7 @@ Returns:
     :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`.
 
 See the `Relay-BP documentation <https://pypi.org/project/relay-bp>`_ for backend options.
-"""
-
-
-min_sum_bp = decoder_spec(
-    "min_sum_bp",
-    _get_decoder_min_sum_bp,
-    _get_decoder_min_sum_bp,
-    doc=_MIN_SUM_BP_SPEC_DOC,
+""",
 )
 
 

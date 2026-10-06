@@ -266,7 +266,11 @@ def _get_decoder_bf(
     )
 
 
-_BP_OSD_SPEC_DOC = """Configure belief propagation with ordered-statistics decoding.
+bp_osd = decoder_spec(
+    "bp_osd",
+    _get_decoder_bp_osd,
+    option_transform=_deprecate_error_rate_option,
+    doc="""Configure belief propagation with ordered-statistics decoding.
 
 Args:
     error_channel: Matrix-column error probabilities, as one value or a vector.  A DEM supplies
@@ -289,16 +293,14 @@ Returns:
 
 This decoder cannot signal erasure.  See ``help(ldpc.BpOsdDecoder)`` and
 `arXiv:2005.07016 <https://arxiv.org/abs/2005.07016>`_.
-"""
-
-bp_osd = decoder_spec(
-    "bp_osd",
-    _get_decoder_bp_osd,
-    option_transform=_deprecate_error_rate_option,
-    doc=_BP_OSD_SPEC_DOC,
+""",
 )
 
-_BP_LSD_SPEC_DOC = """Configure belief propagation with localized-statistics decoding.
+bp_lsd = decoder_spec(
+    "bp_lsd",
+    _get_decoder_bp_lsd,
+    option_transform=_deprecate_error_rate_option,
+    doc="""Configure belief propagation with localized-statistics decoding.
 
 Args:
     error_channel: Matrix-column error probabilities, as one value or a vector.  A DEM supplies
@@ -325,16 +327,14 @@ Returns:
 
 This decoder cannot signal erasure.  See ``help(ldpc.bplsd_decoder.BpLsdDecoder)`` and
 `arXiv:2406.18655 <https://arxiv.org/abs/2406.18655>`_.
-"""
-
-bp_lsd = decoder_spec(
-    "bp_lsd",
-    _get_decoder_bp_lsd,
-    option_transform=_deprecate_error_rate_option,
-    doc=_BP_LSD_SPEC_DOC,
+""",
 )
 
-_BF_SPEC_DOC = """Configure belief-find decoding.
+bf = decoder_spec(
+    "bf",
+    _get_decoder_bf,
+    option_transform=_deprecate_error_rate_option,
+    doc="""Configure belief-find decoding.
 
 Args:
     error_channel: Matrix-column error probabilities, as one value or a vector.  A DEM supplies
@@ -357,13 +357,7 @@ Returns:
 
 This decoder cannot signal erasure.  See ``help(ldpc.BeliefFindDecoder)`` and
 `arXiv:1709.06218 <https://arxiv.org/abs/1709.06218>`_.
-"""
-
-bf = decoder_spec(
-    "bf",
-    _get_decoder_bf,
-    option_transform=_deprecate_error_rate_option,
-    doc=_BF_SPEC_DOC,
+""",
 )
 
 

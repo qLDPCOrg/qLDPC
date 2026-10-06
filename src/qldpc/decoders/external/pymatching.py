@@ -220,7 +220,12 @@ def _validate_mwpm_options(
     return options
 
 
-_MWPM_SPEC_DOC = """Configure minimum-weight perfect matching (MWPM).
+mwpm = decoder_spec(
+    "mwpm",
+    _get_decoder_mwpm,
+    _get_observable_decoder_mwpm,
+    option_transform=_validate_mwpm_options,
+    doc="""Configure minimum-weight perfect matching (MWPM).
 
 Args:
     enable_correlations: Use correlated matching for native observable prediction.  Other
@@ -245,14 +250,7 @@ Returns:
 
 An error decoder cannot infer decomposed error mechanisms as errors of the original DEM.
 Use native observable decoding for those models.  MWPM cannot signal erasure.
-"""
-
-mwpm = decoder_spec(
-    "mwpm",
-    _get_decoder_mwpm,
-    _get_observable_decoder_mwpm,
-    option_transform=_validate_mwpm_options,
-    doc=_MWPM_SPEC_DOC,
+""",
 )
 
 

@@ -918,7 +918,13 @@ def _get_observable_decoder_lookup(
     return ObservableLookupDecoder(dem, **decoder_args)  # type: ignore[call-overload]
 
 
-_LOOKUP_SPEC_DOC = """Configure a bounded-weight lookup-table decoder.
+lookup = decoder_spec(
+    "lookup",
+    _get_decoder_lookup,
+    _get_observable_decoder_lookup,
+    signature_source=LookupDecoder,
+    exclude=frozenset({"predict_observable_flips"}),
+    doc="""Configure a bounded-weight lookup-table decoder.
 
 Args:
     max_weight: Maximum error weight to enumerate; required to bound construction.
@@ -947,16 +953,7 @@ Returns:
 See :class:`~qldpc.decoders.custom.lookup.LookupDecoder` for error-channel and field
 conventions, and :class:`~qldpc.decoders.custom.lookup.ObservableLookupDecoder` for the
 observable output contract.
-"""
-
-
-lookup = decoder_spec(
-    "lookup",
-    _get_decoder_lookup,
-    _get_observable_decoder_lookup,
-    signature_source=LookupDecoder,
-    exclude=frozenset({"predict_observable_flips"}),
-    doc=_LOOKUP_SPEC_DOC,
+""",
 )
 
 
