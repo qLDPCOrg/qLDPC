@@ -199,7 +199,11 @@ def _get_decoder_guf(
     return GUFDecoder(_to_pcm(pcm_or_dem), **decoder_args)  # type: ignore[arg-type]
 
 
-_GUF_SPEC_DOC = """Configure generalized union-find (GUF) decoding.
+guf = decoder_spec(
+    "guf",
+    _get_decoder_guf,
+    signature_source=GUFDecoder,
+    doc="""Configure generalized union-find (GUF) decoding.
 
 Args:
     max_weight: Maximum weight of a candidate error, or None for no limit.  A finite limit
@@ -213,7 +217,5 @@ Returns:
     detector-flip matrix.
 
 See `arXiv:2103.08049 <https://arxiv.org/abs/2103.08049>`_.
-"""
-
-
-guf = decoder_spec("guf", _get_decoder_guf, signature_source=GUFDecoder, doc=_GUF_SPEC_DOC)
+""",
+)

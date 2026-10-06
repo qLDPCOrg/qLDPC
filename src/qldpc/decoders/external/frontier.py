@@ -202,7 +202,10 @@ def _get_observable_decoder_frontier(
     )
 
 
-_FRONTIER_SPEC_DOC = """Configure approximate maximum-likelihood observable decoding.
+frontier = observable_decoder_spec(
+    "frontier",
+    _get_observable_decoder_frontier,
+    doc="""Configure approximate maximum-likelihood observable decoding.
 
 Frontier prunes low-probability partial solutions while scanning a binary detector error model.
 The optional package is imported only when the decoder is built.
@@ -223,10 +226,7 @@ Returns:
     A decoder specification.  ``build_observable_decoder(dem)`` returns a
     :class:`~qldpc.decoders.external.frontier.FrontierObservableDecoder` for a binary DEM.
     Frontier cannot infer errors, so this specification cannot ``build`` an error decoder.
-"""
-
-frontier = observable_decoder_spec(
-    "frontier", _get_observable_decoder_frontier, doc=_FRONTIER_SPEC_DOC
+""",
 )
 
 

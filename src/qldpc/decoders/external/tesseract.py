@@ -255,7 +255,13 @@ def _get_decoder_tesseract(
     return TesseractDecoder(pcm_or_dem, **decoder_args)
 
 
-_TESSERACT_SPEC_DOC = """Configure Tesseract decoding for a binary code.
+tesseract = decoder_spec(
+    "tesseract",
+    _get_decoder_tesseract,
+    _get_decoder_tesseract,
+    signature_source=TesseractDecoder,
+    option_transform=_deprecate_error_rate_option,
+    doc="""Configure Tesseract decoding for a binary code.
 
 Tesseract searches for likely errors within beam and priority-queue limits.  Its native
 observable predictions need the observable targets supplied by a detector error model.
@@ -291,16 +297,7 @@ Returns:
 The optional ``tesseract-decoder`` package is needed when building the decoder; install it
 with ``pip install 'qldpc[tesseract]'`` on a supported platform.  See
 :class:`~qldpc.decoders.external.tesseract.TesseractDecoder` for the search limitations.
-"""
-
-
-tesseract = decoder_spec(
-    "tesseract",
-    _get_decoder_tesseract,
-    _get_decoder_tesseract,
-    signature_source=TesseractDecoder,
-    option_transform=_deprecate_error_rate_option,
-    doc=_TESSERACT_SPEC_DOC,
+""",
 )
 
 

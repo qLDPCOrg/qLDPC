@@ -194,7 +194,11 @@ def _get_decoder_ilp(
     return ILPDecoder(_to_pcm(pcm_or_dem), add_erasure_bit=add_erasure_bit, **decoder_args)
 
 
-_ILP_SPEC_DOC = """Configure integer-linear-program (ILP) decoding.
+ilp = decoder_spec(
+    "ilp",
+    _get_decoder_ilp,
+    signature_source=ILPDecoder,
+    doc="""Configure integer-linear-program (ILP) decoding.
 
 Args:
     add_erasure_bit: Append a flag when the solver cannot find an error reproducing the syndrome.
@@ -205,6 +209,5 @@ Returns:
     A decoder specification.  ``build(pcm_or_dem)`` returns an
     :class:`~qldpc.decoders.custom.ilp.ILPDecoder` over a prime field; a DEM is decoded through
     its dense detector-flip matrix.
-"""
-
-ilp = decoder_spec("ilp", _get_decoder_ilp, signature_source=ILPDecoder, doc=_ILP_SPEC_DOC)
+""",
+)
