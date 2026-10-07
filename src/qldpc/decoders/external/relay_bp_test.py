@@ -86,6 +86,40 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
         assert np.array_equal(np.asarray(matrix) @ relay_decoder.decode(syndrome) % 2, syndrome)
 
 
+def test_relay_bp_unsorted_observables() -> None:
+    """Relay-BP decodes a detector error model in which an error flips several observables."""
+    # the observable flip matrix of this model stores the observables of error 0 as (8, 1)
+    dem = stim.DetectorErrorModel("error(0.1) D0 L1 L8\nerror(0.1) D0 D1\nerror(0.1) D1 L0")
+    expected_flips = np.zeros(dem.num_observables, dtype=int)
+    expected_flips[[1, 8]] = 1
+    decoder = _get_decoder_rbp(dem)
+    assert np.array_equal(decoder.decode_observables(np.array([1, 0])), expected_flips)
+
+
+@pytest.mark.parametrize(
+    "sparse_format", [scipy.sparse.csc_matrix, scipy.sparse.csr_matrix, scipy.sparse.csc_array]
+)
+def test_relay_bp_noncanonical_sparse_matrices(sparse_format: type) -> None:
+    """Relay-BP accepts sparse matrices with unsorted or duplicate indices, and leaves them be."""
+    # error 1 lists its checks out of order, and error 2 lists check 0 twice, which cancels
+    matrix = sparse_format(
+        scipy.sparse.csc_matrix(([1] * 6, [0, 1, 0, 1, 0, 0], [0, 1, 3, 6]), shape=(2, 3))
+    )
+    # error 0 lists its observables out of order, and error 2 lists observable 0 twice
+    observable_error_matrix = sparse_format(
+        scipy.sparse.csc_matrix(([1] * 4, [1, 0, 0, 0], [0, 2, 2, 4]), shape=(2, 3))
+    )
+    matrix_indices = matrix.indices.copy()
+    observable_indices = observable_error_matrix.indices.copy()
+
+    decoder = _get_decoder_rbp(matrix, observable_error_matrix=observable_error_matrix)
+    syndromes = np.array([[1, 0], [1, 1], [0, 1]])
+    assert np.array_equal(decoder.decode_batch(syndromes), np.eye(3, dtype=int))
+    assert np.array_equal(decoder.decode_observables_batch(syndromes), [[1, 1], [0, 0], [0, 0]])
+    assert np.array_equal(matrix.indices, matrix_indices)
+    assert np.array_equal(observable_error_matrix.indices, observable_indices)
+
+
 def test_relay_bp_observables() -> None:
     """A RelayBPDecoder predicts observable flips, with or without an erasure bit."""
     # noise at which Relay-BP's relay legs, and hence its persistent random state, affect results

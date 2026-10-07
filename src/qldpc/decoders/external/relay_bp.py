@@ -145,14 +145,12 @@ class RelayBPDecoder(BatchErrorDecoder):
             if error_priors is None:
                 error_priors = [PLACEHOLDER_ERROR_RATE] * pcm.shape[1]
 
-        if isinstance(pcm, galois.FieldArray):
-            pcm = pcm.view(np.ndarray)
-        elif isinstance(pcm, scipy.sparse.spmatrix):
-            pcm = pcm.tocsc()
-            pcm.sort_indices()
+        pcm = _as_relay_bp_matrix(pcm)
         self.has_observable_error_matrix = observable_error_matrix is not None
         if observable_error_matrix is None:
             observable_error_matrix = np.empty((0, 0), dtype=np.uint8)
+        else:
+            observable_error_matrix = _as_relay_bp_matrix(observable_error_matrix)
 
         self.has_erasure_bit = add_erasure_bit
         self.pcm_transposed = scipy.sparse.csr_matrix(pcm, dtype=np.uint8).T.tocsr()
@@ -664,3 +662,23 @@ def _get_relay_decoder(
 ) -> RelayBPDecoder:
     """Build a RelayBPDecoder from a class-name prefix and precision."""
     return _get_decoder_rbp(pcm_or_dem, name=f"{decoder_class_prefix}{precision}", **decoder_args)
+
+
+def _as_relay_bp_matrix(matrix: IntegerArray) -> IntegerArray:
+    """Return a binary matrix in a form that relay_bp accepts, leaving the given matrix unmodified.
+
+    relay_bp accepts dense arrays and CSR or CSC matrices, but panics on sparse matrices whose
+    indices are unsorted or duplicated.  Scipy allows such matrices, and DetectorErrorModelArrays
+    builds them: an error that flips observables 1 and 8 can store them in the order (8, 1).
+    Sparse inputs (including sparse arrays and other sparse formats) are therefore copied into a
+    canonical CSC matrix, with duplicate entries summed mod 2.  Dense inputs are passed on as is.
+    """
+    if isinstance(matrix, galois.FieldArray):
+        return matrix.view(np.ndarray)
+    if not scipy.sparse.issparse(matrix):
+        return matrix
+    canonical = scipy.sparse.csc_matrix(matrix, dtype=np.uint8, copy=True)
+    canonical.sum_duplicates()
+    canonical.data %= 2
+    canonical.eliminate_zeros()
+    return canonical
