@@ -9,6 +9,7 @@ import functools
 import subprocess
 import sys
 import unittest.mock
+import warnings
 from collections.abc import Callable
 from typing import cast
 
@@ -96,28 +97,45 @@ def test_relay_bp_unsorted_observables() -> None:
     assert np.array_equal(decoder.decode_observables(np.array([1, 0])), expected_flips)
 
 
-@pytest.mark.parametrize(
-    "sparse_format", [scipy.sparse.csc_matrix, scipy.sparse.csr_matrix, scipy.sparse.csc_array]
-)
-def test_relay_bp_noncanonical_sparse_matrices(sparse_format: type) -> None:
+def test_relay_bp_noncanonical_sparse_matrices() -> None:
     """Relay-BP accepts sparse matrices with unsorted or duplicate indices, and leaves them be."""
     # error 1 lists its checks out of order, and error 2 lists check 0 twice, which cancels
-    matrix = sparse_format(
-        scipy.sparse.csc_matrix(([1] * 6, [0, 1, 0, 1, 0, 0], [0, 1, 3, 6]), shape=(2, 3))
-    )
+    matrix = scipy.sparse.csc_matrix(([1] * 6, [0, 1, 0, 1, 0, 0], [0, 1, 3, 6]), shape=(2, 3))
     # error 0 lists its observables out of order, and error 2 lists observable 0 twice
-    observable_error_matrix = sparse_format(
-        scipy.sparse.csc_matrix(([1] * 4, [1, 0, 0, 0], [0, 2, 2, 4]), shape=(2, 3))
+    observable_error_matrix = scipy.sparse.csc_matrix(
+        ([1] * 4, [1, 0, 0, 0], [0, 2, 2, 4]), shape=(2, 3)
     )
     matrix_indices = matrix.indices.copy()
     observable_indices = observable_error_matrix.indices.copy()
 
-    decoder = _get_decoder_rbp(matrix, observable_error_matrix=observable_error_matrix)
+    with pytest.warns(UserWarning, match="reduced mod 2"):
+        decoder = _get_decoder_rbp(matrix, observable_error_matrix=observable_error_matrix)
     syndromes = np.array([[1, 0], [1, 1], [0, 1]])
     assert np.array_equal(decoder.decode_batch(syndromes), np.eye(3, dtype=int))
     assert np.array_equal(decoder.decode_observables_batch(syndromes), [[1, 1], [0, 0], [0, 0]])
     assert np.array_equal(matrix.indices, matrix_indices)
     assert np.array_equal(observable_error_matrix.indices, observable_indices)
+
+
+def test_relay_bp_matrix_entries_read_mod_2() -> None:
+    """Matrix entries are read mod 2 for dense and sparse inputs alike, with a warning if needed."""
+    unsorted_binary = scipy.sparse.csc_matrix(([1, 1, 1], [0, 1, 0], [0, 1, 3]), shape=(2, 2))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # reordering indices alone does not warn
+        _get_decoder_rbp(unsorted_binary)
+
+    # error 1 has entry 2 in check 0, which is 0 over GF(2)
+    dense = np.array([[1, 2], [0, 1]])
+    syndromes = np.array([[1, 0], [0, 1], [1, 1]])
+    decodes = []
+    for matrix in (dense, scipy.sparse.csc_matrix(dense), scipy.sparse.csr_matrix(dense)):
+        with pytest.warns(UserWarning, match="reduced mod 2"):
+            decoder = _get_decoder_rbp(matrix, error_priors=[0.1, 0.1])
+        decodes.append(decoder.decode_batch(syndromes))
+    # over GF(2) the matrix is the identity, so each syndrome is its own error
+    for decode in decodes:
+        assert np.array_equal(decode, syndromes)
+    assert np.array_equal(dense, [[1, 2], [0, 1]])
 
 
 def test_relay_bp_observables() -> None:

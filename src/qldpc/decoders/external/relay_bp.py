@@ -671,14 +671,33 @@ def _as_relay_bp_matrix(matrix: IntegerArray) -> IntegerArray:
     indices are unsorted or duplicated.  Scipy allows such matrices, and DetectorErrorModelArrays
     builds them: an error that flips observables 1 and 8 can store them in the order (8, 1).
     Sparse inputs (including sparse arrays and other sparse formats) are therefore copied into a
-    canonical CSC matrix, with duplicate entries summed mod 2.  Dense inputs are passed on as is.
+    canonical CSC matrix.  Reordering indices does not change the matrix.
+
+    Entries are read over GF(2), as in the rest of RelayBPDecoder (which checks syndromes and
+    computes observable flips mod 2): duplicate sparse entries are summed, and every entry is
+    reduced mod 2.  relay_bp by itself would read any nonzero entry as 1, so a matrix with entries
+    other than 0 and 1 would otherwise be decoded as a different matrix from the one that those
+    checks use, and differently for dense and sparse storage.  Such matrices are reduced with a
+    warning, since the decoder then uses a matrix whose integer entries differ from the input.
     """
     if isinstance(matrix, galois.FieldArray):
         return matrix.view(np.ndarray)
-    if not scipy.sparse.issparse(matrix):
-        return matrix
-    canonical = scipy.sparse.csc_matrix(matrix, dtype=np.uint8, copy=True)
-    canonical.sum_duplicates()
-    canonical.data %= 2
-    canonical.eliminate_zeros()
-    return canonical
+    if scipy.sparse.issparse(matrix):
+        reduced = scipy.sparse.csc_matrix(matrix, dtype=np.int64, copy=True)
+        reduced.sum_duplicates()
+        non_binary = bool(np.any(reduced.data > 1) or np.any(reduced.data < 0))
+        reduced.data %= 2
+        reduced.eliminate_zeros()
+        reduced = reduced.astype(np.uint8)
+    else:
+        array = np.asarray(matrix)
+        non_binary = bool(np.any((array != 0) & (array != 1)))
+        reduced = array % 2 if non_binary else matrix
+    if non_binary:
+        warnings.warn(
+            "RelayBPDecoder received a matrix with entries other than 0 and 1 (counting duplicate"
+            " sparse entries as summed).  Its entries were reduced mod 2, so the decoder uses a"
+            " binary matrix over GF(2) that differs from the input as an integer matrix.",
+            stacklevel=3,
+        )
+    return reduced
