@@ -43,8 +43,8 @@ else:
 class SinterDecoder(_SinterDecoder):
     """Sinter-compatible configuration that builds observable decoders.
 
-    Pass a decoder specification as ``decoder=``.  Sinter compiles it for each detector error
-    model and uses the compiled decoder to predict observable flips.
+    Pass a decoder specification as ``decoder=``.  Sinter compiles it for each detector error model
+    and uses the compiled decoder to predict observable flips.
     """
 
     # completes the error message "A prebuilt decoder cannot be passed as decoder= here because ..."
@@ -66,12 +66,12 @@ class SinterDecoder(_SinterDecoder):
         See help(sinter.Decoder) for additional information.
 
         Args:
-            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
-                that DEM.
+            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for that
+                DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
-            decoder: A decoder specification such as ``decoders.mwpm(...)``, or None for the
-                default decoder.  It is built for each (simplified) detector error model.
+            decoder: A decoder specification such as ``decoders.mwpm(...)``, or None for the default
+                decoder.  It is built for each (simplified) detector error model.
             **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
                 ``decoder=`` instead.
         """
@@ -291,8 +291,8 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
 
         Sinter discards a shot whose bit-packed prediction is exactly one byte wider than the
         observables of the sampled circuit require, and whose extra byte is nonzero.  Erasure is
-        signalled in that byte, which keeps the packed predictions aligned with the observables
-        that the circuit actually reports.  A shot is erased if any erasure bit is set.
+        signalled in that byte, which keeps the packed predictions aligned with the observables that
+        the circuit actually reports.  A shot is erased if any erasure bit is set.
 
         The added byte is read by the sampler that sinter runs a decoder under, and is not part of
         the return shape that sinter documents for a compiled decoder, which is one byte per eight

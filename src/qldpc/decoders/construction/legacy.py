@@ -215,10 +215,10 @@ def resolve_decoder(
 ) -> ErrorDecoder:
     """Resolve an error decoder input with keyword-based construction arguments.
 
-    This serves methods that accept keyword arguments next to decoder=.  The
-    decoder input may be a decoder specification such as ``decoders.bp_osd(...)``, a constructor
-    that builds an error decoder from pcm_or_dem, a prebuilt error decoder, or None to select the
-    default decoder: GUF for a nonbinary FieldArray, and BP+OSD otherwise.
+    This serves methods that accept keyword arguments next to decoder=.  The decoder input may be a
+    decoder specification such as ``decoders.bp_osd(...)``, a constructor that builds an error
+    decoder from pcm_or_dem, a prebuilt error decoder, or None to select the default decoder: GUF
+    for a nonbinary FieldArray, and BP+OSD otherwise.
     """
     decoder_input = _merge_legacy_decoder_args(
         pcm_or_dem, decoder, decoder_args, warn_deprecated=warn_deprecated
@@ -235,12 +235,12 @@ def resolve_observable_decoder(
 ) -> ObservableDecoder:
     """Resolve an observable decoder input with keyword-based construction arguments.
 
-    This serves methods that accept keyword arguments next to decoder=.  Decoder
-    specifications build a native observable decoder where they support one, and otherwise an error
-    decoder; an observable-decoder compiler such as a ``decoders.SinterDecoder`` is compiled for
-    dem; a constructor may build an error decoder or an observable decoder from dem; and a prebuilt
-    error decoder or observable decoder is used as is.  An error decoder is wrapped so that the
-    observable flips of the errors that it infers become its predictions.
+    This serves methods that accept keyword arguments next to decoder=.  Decoder specifications
+    build a native observable decoder where they support one, and otherwise an error decoder; an
+    observable-decoder compiler such as a ``decoders.SinterDecoder`` is compiled for dem; a
+    constructor may build an error decoder or an observable decoder from dem; and a prebuilt error
+    decoder or observable decoder is used as is.  An error decoder is wrapped so that the observable
+    flips of the errors that it infers become its predictions.
     """
     decoder_input = _merge_legacy_decoder_args(
         dem, decoder, decoder_args, warn_deprecated=warn_deprecated
@@ -334,8 +334,8 @@ def _get_legacy_decoder_input(
 ) -> ErrorDecoderConstructor:
     """Translate deprecated decoder arguments into a decoder constructor.
 
-    Free-form decoder options are passed through to the selected builder unchecked, as they were
-    in qLDPC 0.3.3, so they become a constructor rather than a typed decoder specification.
+    Free-form decoder options are passed through to the selected builder unchecked, as they were in
+    qLDPC 0.3.3, so they become a constructor rather than a typed decoder specification.
     """
     decoder_args = dict(decoder_args)
     if (decoder_constructor := decoder_args.pop("decoder_constructor", None)) is not None:

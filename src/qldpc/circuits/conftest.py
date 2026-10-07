@@ -13,9 +13,9 @@ class StimCircuitWrapper:
     """A minimal stim-wrapping circuit (like tsim.Circuit) for exercising StimCircuitProtocol.
 
     It satisfies StimCircuitProtocol (append / __iadd__ / indexing / len) and is
-    default-constructible, so circuit-polymorphic functions accept it and return the same type.
-    The ``stim_circuit`` attribute is not required by those functions; it just lets tests read back
-    the wrapped circuit to check results.
+    default-constructible, so circuit-polymorphic functions accept it and return the same type.  The
+    ``stim_circuit`` attribute is not required by those functions; it just lets tests read back the
+    wrapped circuit to check results.
     """
 
     def __init__(self, stim_circuit: stim.Circuit | None = None) -> None:

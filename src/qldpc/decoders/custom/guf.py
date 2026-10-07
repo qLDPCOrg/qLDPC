@@ -182,12 +182,11 @@ def _get_decoder_guf(
         pcm_or_dem: A parity-check matrix or detector error model to decode.  A DEM is converted to
             its dense detector-flip matrix.
         max_weight: Maximum weight of a candidate error, or None for no limit.
-        symplectic: Whether to treat the parity-check matrix as that of a QuditCode, whose first
-            and last halves of columns denote the X and Z support of a stabilizer.
+        symplectic: Whether to treat the parity-check matrix as that of a QuditCode, whose first and
+            last halves of columns denote the X and Z support of a stabilizer.
         add_erasure_bit: Whether to append a flag when the search is exhausted without finding an
             error that reproduces the syndrome.
-        **decoder_args: The options above, passed to
-            :class:`~qldpc.decoders.custom.guf.GUFDecoder`.
+        **decoder_args: The options above, passed to :class:`~qldpc.decoders.custom.guf.GUFDecoder`.
 
     Returns:
         A :class:`~qldpc.decoders.custom.guf.GUFDecoder`.

@@ -74,8 +74,8 @@ def kron(
 ) -> RingArray:
     """Take the Kronecker product of two matrices over a ring.
 
-    If the base ring R is commutative, this is the ordinary Kronecker product. Otherwise, matrix
-    entries of the Kronecker product live in the bimodule of R. See get_bimodule for additional
+    If the base ring R is commutative, this is the ordinary Kronecker product.  Otherwise, matrix
+    entries of the Kronecker product live in the bimodule of R.  See get_bimodule for additional
     information.
     """
     ring = _get_ring(matrix_a, matrix_b)

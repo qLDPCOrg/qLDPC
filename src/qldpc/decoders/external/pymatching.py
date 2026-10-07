@@ -133,10 +133,10 @@ def _get_decoder_mwpm(
         measurement_error_probabilities: Measurement-error probabilities for repeated rounds.
         merge_strategy: Strategy used when merging duplicate matching edges.
         use_virtual_boundary_node: Whether to use a virtual boundary node.
-        backend_options: Additional options for ``pymatching.Matching.load_from_check_matrix``
-            that are not listed above.  PyMatching ignores names that it does not recognize, so
-            names absent from its signature are rejected when the decoder is built.
-            ``faults_matrix`` is reserved for observable decoding and cannot be specified here.
+        backend_options: Additional options for ``pymatching.Matching.load_from_check_matrix`` that
+            are not listed above.  PyMatching ignores names that it does not recognize, so names
+            absent from its signature are rejected when the decoder is built.  ``faults_matrix`` is
+            reserved for observable decoding and cannot be specified here.
 
     Returns:
         A ``pymatching.Matching`` subclass that is also a

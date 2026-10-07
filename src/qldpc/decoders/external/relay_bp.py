@@ -32,15 +32,14 @@ class RelayBPDecoder(BatchErrorDecoder):
 
     This class first constructs a ``relay_bp.decoder.DynDecoder`` decoder by class name, such as
     ``RelayDecoderF32``; see ``help(relay_bp)`` for more options.  To enable parallelized decoding,
-    which as of ``relay-bp==0.2.1`` is only implemented for the
-    ``relay_bp.ObservableDecoderRunner`` class, ``RelayBPDecoder`` wraps the
-    ``relay_bp.decoder.DynDecoder`` in a ``relay_bp.ObservableDecoderRunner`` at initialization
-    time.
+    which as of ``relay-bp==0.2.1`` is only implemented for the ``relay_bp.ObservableDecoderRunner``
+    class, ``RelayBPDecoder`` wraps the ``relay_bp.decoder.DynDecoder`` in a
+    ``relay_bp.ObservableDecoderRunner`` at initialization time.
 
     A RelayBPDecoder is both an error decoder and an observable decoder: ``.decode_errors`` (or its
     alias ``.decode``) returns an inferred error, and ``.decode_observables`` returns predicted
-    observable flips.  Predicting
-    observable flips requires an ``observable_error_matrix``, which a detector error model provides.
+    observable flips.  Predicting observable flips requires an ``observable_error_matrix``, which a
+    detector error model provides.
 
     A Relay-BP decoder draws random relay parameters from a generator that is seeded once, at
     construction, and persists across decoding calls.  Its predictions for a syndrome can therefore
@@ -59,8 +58,8 @@ class RelayBPDecoder(BatchErrorDecoder):
            method or attribute it does not recognize, such as
            ``decoder.decode_observables_batch(detectors, parallel=True)`` or
            ``decoder.decode_detailed(detectors)``, it passes all arguments to an identically named
-           method of ``relay_bp.ObservableDecoderRunner``.  Consequently, most methods recognized
-           by ``RelayBPDecoder`` in practice do not appear in its documentation.  See
+           method of ``relay_bp.ObservableDecoderRunner``.  Consequently, most methods recognized by
+           ``RelayBPDecoder`` in practice do not appear in its documentation.  See
            ``help(relay_bp.ObservableDecoderRunner)`` for a complete list.
 
     For details about Relay-BP decoders, see:
@@ -92,15 +91,15 @@ class RelayBPDecoder(BatchErrorDecoder):
                 default.
             name: The name of the RelayBP decoder to instantiate.  Must be one of the classes listed
                 under ``help(relay_bp.bp)``.
-            observable_error_matrix: A binary matrix whose rows specify which error mechanisms
-                flip which observables, or None.  If ``pcm_or_dem`` is a DEM, this matrix is
-                extracted from the DEM.  If ``pcm_or_dem`` is a matrix and
+            observable_error_matrix: A binary matrix whose rows specify which error mechanisms flip
+                which observables, or None.  If ``pcm_or_dem`` is a DEM, this matrix is extracted
+                from the DEM.  If ``pcm_or_dem`` is a matrix and
                 ``observable_error_matrix is None``, the constructed ``RelayBPDecoder`` will not be
                 able to predict observable flips (or logical error rates).
             include_decode_result: Argument passed to ``relay_bp.ObservableDecoderRunner``.
-            add_erasure_bit: Whether to append a bit to all decoded errors, set to 1 when the
-                error Relay-BP settles on does not reproduce the syndrome and to 0 otherwise.
-                Without that bit, such a shot is reported as an ordinary inferred error.
+            add_erasure_bit: Whether to append a bit to all decoded errors, set to 1 when the error
+                Relay-BP settles on does not reproduce the syndrome and to 0 otherwise.  Without
+                that bit, such a shot is reported as an ordinary inferred error.
             **decoder_args: Arguments passed to the "inner" (syndrome -> error) decoder from
                 relay_bp.  See help(relay_bp.RelayDecoderF32) or https://pypi.org/project/relay-bp/
                 for the options (alpha, alpha_iteration_scaling_factor, gamma0, etc.).
@@ -375,8 +374,8 @@ class RelayBPDecoder(BatchErrorDecoder):
     def _observable_flips(self, errors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Convert inferred errors, one per row, into observable flips.
 
-        Each flip is the parity of a uint8 sum, whose overflow is harmless since only its low bit
-        is read.
+        Each flip is the parity of a uint8 sum, whose overflow is harmless since only its low bit is
+        read.
         """
         errors = np.asarray(errors, dtype=np.uint8)
         return (errors @ self.observable_error_matrix_transposed) & 1
@@ -386,8 +385,8 @@ class RelayBPDecoder(BatchErrorDecoder):
     ) -> npt.NDArray[np.bool_]:
         """Whether each inferred error reproduces the syndrome it was inferred from.
 
-        Relay-BP settles on a best guess whether or not it converges, so checking that guess is
-        what separates a syndrome it explained from one it could not.
+        Relay-BP settles on a best guess whether or not it converges, so checking that guess is what
+        separates a syndrome it explained from one it could not.
 
         The parity accumulates in uint8 and overflows for a check that many error mechanisms
         address.  That is harmless: overflow reduces modulo 256, and only the low bit is read.
@@ -473,8 +472,8 @@ def _get_decoder_relay_bp(
         stopping_criterion: Backend option, or None for the backend default.
         logging: Backend option.
         seed: Backend option.
-        backend_options: Additional options for the selected Relay-BP backend that are not
-            listed above.  The backend rejects unsupported names when the decoder is built.
+        backend_options: Additional options for the selected Relay-BP backend that are not listed
+            above.  The backend rejects unsupported names when the decoder is built.
 
     Returns:
         A :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when
@@ -550,8 +549,8 @@ def _get_decoder_min_sum_bp(
         max_data_value: Backend option.
         int_bits: Backend option for fixed-point precision.
         frac_bits: Backend option for fixed-point precision.
-        backend_options: Additional options for the selected Relay-BP backend that are not
-            listed above.  The backend rejects unsupported names when the decoder is built.
+        backend_options: Additional options for the selected Relay-BP backend that are not listed
+            above.  The backend rejects unsupported names when the decoder is built.
 
     Returns:
         A :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when

@@ -160,8 +160,8 @@ def build_alternating4_gf5_howell_generator(
     number.  The transformer seed and coefficient RNG are fixed on purpose: they pin a matrix for
     which the *wrong*-orientation dual has no symmetric idempotent projector -- the case
     test_get_howell_dual_edge_cases exercises -- which only a minority of random matrices produce,
-    so a random seed would make that test flake.  The explicit seeds also make it independent of
-    the pytest-randomly run seed.
+    so a random seed would make that test flake.  The explicit seeds also make it independent of the
+    pytest-randomly run seed.
     """
     transformer = ring.get_transformer(seed=0)
     coeffs = np.random.default_rng(2).integers(0, ring.field.order, size=(2, 5, ring.group.order))

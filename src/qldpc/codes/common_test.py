@@ -265,8 +265,8 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
     ):
         codes.RepetitionCode(2).get_automorphism_group()
 
-    # otherwise, check that automorphisms do indeed preserve the code space
-    # this pytest.warns block intentionally wraps a loop of warning-emitting calls
+    # otherwise, check that automorphisms do indeed preserve the code space this pytest.warns block
+    # intentionally wraps a loop of warning-emitting calls
     with (  # noqa: PT031
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
         unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=None),
@@ -350,8 +350,8 @@ def test_classical_capacity_with_observable_decoders() -> None:
     code = codes.HammingCode(3)
     num_bits = len(code)
 
-    # the observables of a classical code are its bits, so a decoder that predicts no flips fails
-    # on every nonzero error
+    # the observables of a classical code are its bits, so a decoder that predicts no flips fails on
+    # every nonzero error
     func = code.get_logical_error_rate_func(100, 0.5, decoder=decoders.TrivialDecoder())
     assert np.array_equal(func.num_failures[1:], func.num_samples[1:])
 
@@ -936,8 +936,8 @@ def test_qudit_subsystem_logical_ops() -> None:
     assert_valid_basis(shipped)
     assert shipped.get_distance() == 3
 
-    # property test over several fields, for one and two logical qudits.  Away from GF(2), build
-    # the non-CSS codes with _local_fourier, as conjugated() is only symplectic over GF(2).
+    # property test over several fields, for one and two logical qudits.  Away from GF(2), build the
+    # non-CSS codes with _local_fourier, as conjugated() is only symplectic over GF(2).
     for field in [galois.GF(2), galois.GF(3), galois.GF(4)]:
         bacon_shor = codes.BaconShorCode(3, field=field.order).matrix
         single = _local_fourier(bacon_shor, [1, 3, 5])
@@ -1132,8 +1132,8 @@ def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
     qudit_rate = qudit_code.get_logical_error_rate_func(num_samples=200, max_error_rate=0.3)(0.1)
     assert np.allclose(qudit_rate, css_rate)
 
-    # a code over a non-binary field is decoded with a field-aware decoder: its syndrome matrix is
-    # a field array, from which the decoder is selected to match the field
+    # a code over a non-binary field is decoded with a field-aware decoder: its syndrome matrix is a
+    # field array, from which the decoder is selected to match the field
     qudit_code = codes.QuditCode(codes.BaconShorCode(3, field=3).matrix)
     logical_error_rate_func = qudit_code.get_logical_error_rate_func(
         num_samples=100, max_error_rate=0.2
@@ -1507,8 +1507,8 @@ def test_prebuilt_decoders_rejected_for_internal_matrices() -> None:
     with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
         qudit_code.get_logical_error_rate_func(0, decoder=decoder)  # type: ignore[arg-type]
 
-    # a classical code accepts a prebuilt decoder for its parity check matrix only when bounding
-    # the distance to a vector, which decodes syndromes of that parity check matrix
+    # a classical code accepts a prebuilt decoder for its parity check matrix only when bounding the
+    # distance to a vector, which decodes syndromes of that parity check matrix
     classical_code = codes.HammingCode(3)
     classical_decoder = decoders.custom.LookupDecoder(classical_code.matrix, max_weight=1)
     vector = np.zeros(len(classical_code), dtype=int)

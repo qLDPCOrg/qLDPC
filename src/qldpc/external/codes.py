@@ -115,8 +115,8 @@ def get_qldpc_challenge_code(
     ``(d,)`` otherwise.  A submitted distance is only an upper bound, so the distance is ``None``
     unless the challenge has certified it to be exact.
 
-    Results are cached to disk.  Use get_qldpc_challenge_code.refresh(code_id) to retrieve and
-    cache the latest data from the challenge.
+    Results are cached to disk.  Use get_qldpc_challenge_code.refresh(code_id) to retrieve and cache
+    the latest data from the challenge.
     """
     url = "https://unitaryfoundation.github.io/qldpc-challenge/codes"
     code_data = _get_json(f"{url}/{code_id}.json")
@@ -153,8 +153,7 @@ def _gap_define_sparse_matrix(
 ) -> list[str]:
     _, matrix_width = matrix.shape
     # Turn matrix into sparse representation where `nonzero_entries[i][j]` is a list of integers
-    # where, for all values `l` in that list, `matrix[i,l] == j+1`.
-    # Example:
+    # where, for all values `l` in that list, `matrix[i,l] == j+1`.  Example:
     #     matrix_var: NDArray[F3] = [
     #         [0, 0, 0, 1, 2, 1],
     #         [1, 0, 0, 0, 0, 0],
@@ -218,11 +217,11 @@ def get_distance_bound(
     The estimate is a randomized upper bound (QDistRnd samples random codewords).  Requires the GAP
     GUAVA and QDistRnd packages.
 
-    If given a CSSCode, estimate the Z-distance (minimum weight of a Z-type logical operator).
-    See https://qec-pages.github.io/QDistRnd/doc/chap4.html.
+    If given a CSSCode, estimate the Z-distance (minimum weight of a Z-type logical operator).  See
+    https://qec-pages.github.io/QDistRnd/doc/chap4.html.
 
-    Note that QDistRnd does not support subsystem codes.  In the case of a CSS code, however, we
-    can still compute the Z-distance by promoting all Z-type gauge group generators to stabilizers.
+    Note that QDistRnd does not support subsystem codes.  In the case of a CSS code, however, we can
+    still compute the Z-distance by promoting all Z-type gauge group generators to stabilizers.
     ``maxav`` is passed through to QDistRnd as a raw GAP value (default "fail"); see its docs above.
     """
     qldpc.external.gap.require_package("GUAVA")

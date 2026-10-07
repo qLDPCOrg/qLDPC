@@ -99,12 +99,9 @@ class ILPDecoder(ErrorDecoder):
     ) -> list[cvxpy.Constraint]:
         """Build cvxpy constraints of the form ``matrix @ variables == syndrome (mod q)``.
 
-        This method relaxes each constraint of the form
-        ``expression = val mod q``
-        to
-        ``expression = val + q t``,
-        where t is a nonnegative integer built out of boolean variables {b_j} as
-        ``t = sum_j 2^j b_j``.
+        This method relaxes each constraint of the form ``expression = val mod q`` to
+        ``expression = val + q t``, where t is a nonnegative integer built out of boolean variables
+        {b_j} as ``t = sum_j 2^j b_j``.
 
         Since the variables are nonnegative and val is reduced mod q, ``expression - val`` is a
         nonnegative multiple of q, so t is nonnegative, and it is bounded above by the largest value

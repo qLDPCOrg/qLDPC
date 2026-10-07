@@ -70,7 +70,7 @@ def _get_decoder_bp_osd(
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
         error_channel: One probability for every matrix-column error, or one probability per column.
-            Defaults to {PLACEHOLDER_ERROR_RATE}. A detector error model supplies its own
+            Defaults to {PLACEHOLDER_ERROR_RATE}.  A detector error model supplies its own
             probabilities, so neither probability argument can be specified with one.
         max_iter: Maximum number of belief-propagation iterations.
         bp_method: Belief-propagation method.
@@ -81,8 +81,8 @@ def _get_decoder_bp_osd(
         serial_schedule_order: Explicit update order for a serial schedule.
         osd_method: Ordered-statistics decoding method.
         osd_order: Ordered-statistics decoding order.
-        backend_options: Additional options for ``ldpc.BpOsdDecoder`` that are not listed
-            above.  The backend rejects unsupported names when the decoder is built.
+        backend_options: Additional options for ``ldpc.BpOsdDecoder`` that are not listed above.
+            The backend rejects unsupported names when the decoder is built.
         error_rate: Deprecated i.i.d. matrix error probability; use ``error_channel`` instead.
 
     Returns:
@@ -141,7 +141,7 @@ def _get_decoder_bp_lsd(
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
         error_channel: One probability for every matrix-column error, or one probability per column.
-            Defaults to {PLACEHOLDER_ERROR_RATE}. A detector error model supplies its own
+            Defaults to {PLACEHOLDER_ERROR_RATE}.  A detector error model supplies its own
             probabilities, so neither probability argument can be specified with one.
         max_iter: Maximum number of belief-propagation iterations.
         bp_method: Belief-propagation method.
@@ -155,11 +155,10 @@ def _get_decoder_bp_lsd(
         lsd_method: Localized-statistics decoding method.
         lsd_order: Localized-statistics decoding order.
         always_run_lsd: Whether to run LSD after belief propagation converges.
-        backend_options: Additional options for ``ldpc.BpLsdDecoder`` that are not listed
-            above.  ``ldpc.BpLsdDecoder`` silently ignores names that it does not recognize, so
-            names other than ``input_vector_type``, ``channel_probs``, and the aliases
-            ``osd_method`` and ``osd_order`` emit a warning when the decoder is built, but are
-            still forwarded.
+        backend_options: Additional options for ``ldpc.BpLsdDecoder`` that are not listed above.
+            ``ldpc.BpLsdDecoder`` silently ignores names that it does not recognize, so names other
+            than ``input_vector_type``, ``channel_probs``, and the aliases ``osd_method`` and
+            ``osd_order`` emit a warning when the decoder is built, but are still forwarded.
         error_rate: Deprecated i.i.d. matrix error probability; use ``error_channel`` instead.
 
     Returns:
@@ -219,7 +218,7 @@ def _get_decoder_bf(
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
         error_channel: One probability for every matrix-column error, or one probability per column.
-            Defaults to {PLACEHOLDER_ERROR_RATE}. A detector error model supplies its own
+            Defaults to {PLACEHOLDER_ERROR_RATE}.  A detector error model supplies its own
             probabilities, so neither probability argument can be specified with one.
         max_iter: Maximum number of belief-propagation iterations.
         bp_method: Belief-propagation method.

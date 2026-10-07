@@ -19,8 +19,8 @@ class ErrorDecodeResult:
 
     ``error`` is the array that ``decode_errors`` returns, which ends with an erasure flag only if
     erasure signaling is enabled.  ``erasure`` reports whether the decoder signals erasure, whether
-    or not erasure signaling is enabled.  ``diagnostics`` contains explicitly named
-    decoder-specific results, not a cross-decoder confidence score.
+    or not erasure signaling is enabled.  ``diagnostics`` contains explicitly named decoder-specific
+    results, not a cross-decoder confidence score.
     """
 
     error: npt.NDArray[np.int_]
@@ -171,9 +171,9 @@ def as_error_decoder(decoder: object, source: str = "A decoder") -> ErrorDecoder
     """Coerce an object into an error decoder, or raise an error if it is not one.
 
     An ErrorDecoder is returned as is.  Another object with a decode method is wrapped in a
-    WrappedErrorDecoder.  An object that predicts observable flips is rejected; this
-    includes an object whose decode_returns_observables attribute is True, which declares that its
-    decode method returns observable flips.
+    WrappedErrorDecoder.  An object that predicts observable flips is rejected; this includes an
+    object whose decode_returns_observables attribute is True, which declares that its decode method
+    returns observable flips.
 
     Args:
         decoder: The object to coerce.
@@ -207,8 +207,8 @@ class WrappedErrorDecoder(ErrorDecoder):
     """Error decoder that wraps an object whose decode method returns an inferred error.
 
     The wrapped object is the .decoder attribute.  Its decode method provides decode_errors, its
-    decode_batch method (if any) provides decode_errors_batch, and its other attributes are
-    readable from the wrapper.
+    decode_batch method (if any) provides decode_errors_batch, and its other attributes are readable
+    from the wrapper.
     """
 
     def __init__(self, decoder: SupportsDecode) -> None:

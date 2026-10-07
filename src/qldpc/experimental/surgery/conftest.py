@@ -212,9 +212,9 @@ def build_generalised_bicycle_code(ell: int, A_set: list[int], B_set: list[int])
     """Build a generalised bicycle code from cyclic exponent sets A, B.
 
     Per Kovalev-Pryadko (arXiv:1212.6703) and Swaroop's reference implementation
-    (https://github.com/eswaroop/adapters-LDPC-surgery, ext/bivariate_bicyclic.py): given subsets
-    A, B of Z_ell, let A(x) = sum(x^a for a in A_set) and B(x) = sum(x^b for b in B_set) as cyclic
-    matrices in F_2[Z_ell]. Then H_X = [A | B] and H_Z = [B^T | A^T] define the generalized bicycle
+    (https://github.com/eswaroop/adapters-LDPC-surgery, ext/bivariate_bicyclic.py): given subsets A,
+    B of Z_ell, let A(x) = sum(x^a for a in A_set) and B(x) = sum(x^b for b in B_set) as cyclic
+    matrices in F_2[Z_ell].  Then H_X = [A | B] and H_Z = [B^T | A^T] define the generalized bicycle
     code on 2*ell data qubits.
 
     Args:
@@ -248,7 +248,7 @@ def _webster_x_bar_operator(
     """Extract the named logical operator from a Webster seed_set dict.
 
     L_support and R_support are sparse index lists (positions within each ell-half that are set to
-    1). Returns a dense binary vector of length 2*ell.
+    1).  Returns a dense binary vector of length 2*ell.
 
     Args:
         data: Webster seed set dict (from load_webster_seed_set).

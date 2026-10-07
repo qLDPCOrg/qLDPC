@@ -60,8 +60,8 @@ NestedSequence = Sequence[object | Sequence["NestedSequence"]]
 def _preserve_sympy_rng() -> Iterator[None]:
     """Restore SymPy's global RNG state on exit, so a local reseed leaves other consumers intact.
 
-    ``sympy.core.random.seed`` reseeds both the main RNG and the separate "assumptions" RNG, so
-    both are saved and restored.
+    ``sympy.core.random.seed`` reseeds both the main RNG and the separate "assumptions" RNG, so both
+    are saved and restored.
     """
     rng_state = sympy.core.random.rng.getstate()
     assumptions_state = sympy.core.random._assumptions_rng.getstate()
@@ -116,8 +116,8 @@ class GroupMember(comb.Permutation):
 
         For consistency with how SymPy composes permutations, the permutation matrix constructed
         here is right-acting, meaning that it acts on a vector v as ``v --> v @ p.to_matrix()``.
-        This convention ensures that this lift is a homomorphism on SymPy Permutation objects,
-        which is to say that ``(p * q).to_matrix() = p.to_matrix() @ q.to_matrix()``.
+        This convention ensures that this lift is a homomorphism on SymPy Permutation objects, which
+        is to say that ``(p * q).to_matrix() = p.to_matrix() @ q.to_matrix()``.
         """
         matrix = np.zeros([self.size] * 2, dtype=int)
         for ii in range(self.size):
@@ -149,8 +149,8 @@ class Group:
 
     A group naturally comes equipped with a "regular lift" that maps each group member to a
     permutation matrix corresponding to the regular representation of the group.  The regular
-    representation of a group represents group members by how they act on the group itself.
-    See https://en.wikipedia.org/wiki/Regular_representation.
+    representation of a group represents group members by how they act on the group itself.  See
+    https://en.wikipedia.org/wiki/Regular_representation.
 
     A group may additionally be equipped with a custom lift to a matrix over a finite field, for
     which the group action corresponds to matrix multiplication.  Custom lifts are not required to
@@ -210,8 +210,8 @@ class Group:
         """Do these share the same underlying group, ignoring their representations (lifts)?
 
         Unlike ``==``, this compares only the underlying SymPy permutation groups, so groups that
-        differ solely in their custom lift (e.g. the same group built twice, hence carrying
-        distinct lift closures) compare as equivalent.
+        differ solely in their custom lift (e.g. the same group built twice, hence carrying distinct
+        lift closures) compare as equivalent.
         """
         return isinstance(other, Group) and self._group == other._group
 
@@ -398,9 +398,8 @@ class Group:
     def adjoint_lift(self, member: GroupMember) -> npt.NDArray[np.int_]:
         r"""Lift a group member to its adjoint representation.
 
-        The adjoint representation captures how group members get transformed by conjugation.
-        If ``Vec : G -> F_2^{|G|}`` lifts group members to standard basis vectors and
-        ``g,h ∈ G``, then
+        The adjoint representation captures how group members get transformed by conjugation.  If
+        ``Vec : G -> F_2^{|G|}`` lifts group members to standard basis vectors and ``g,h ∈ G``, then
 
             ``adjoint_lift(g) @ Vec(h) = Vec(g·h·~g)``,
 
@@ -665,9 +664,8 @@ class WreathProductGroup(Group):
     """Permutational wreath product of a top group and copies of a bottom group.
 
     If the top group acts on ``k`` points and the bottom group acts on ``m`` points, an element
-    ``(h; c_0, ..., c_{k-1})`` acts on ``k * m`` points by
-    ``(i, j) -> (h(i), c_i(j))``.  The selected lift is the natural permutation representation on
-    these ``k * m`` points.
+    ``(h; c_0, ..., c_{k-1})`` acts on ``k * m`` points by ``(i, j) -> (h(i), c_i(j))``.  The
+    selected lift is the natural permutation representation on these ``k * m`` points.
     """
 
     top: Group
@@ -763,8 +761,8 @@ class AbelianGroup(Group):
 
     See ``CyclicGroup`` for more info.  By default, an ``AbelianGroup`` member of the form
     ``∏_i g_i^{a_i}``, where ``{g_i}`` are the generators of the group, gets lifted to a Kronecker
-    product ``⨂_i L(g_i)^{a_i}``.  If an ``AbelianGroup`` is initialized with
-    ``direct_sum=True``, the group members get lifted to a direct sum ``⨁_i L(g_i)^{a_i}``.
+    product ``⨂_i L(g_i)^{a_i}``.  If an ``AbelianGroup`` is initialized with ``direct_sum=True``,
+    the group members get lifted to a direct sum ``⨁_i L(g_i)^{a_i}``.
     """
 
     orders: tuple[int, ...]
@@ -1048,9 +1046,8 @@ class ProjectiveSpecialLinearGroup(Group):
 
     Here "center" is the subgroup of SL that commutes with all elements of SL.  Specifically, every
     element in the center of SL is a scalar multiple of the identity matrix I.  In the case of
-    ``SL(d,q)`` (``d×d`` matrices over ``F_q`` with determinant 1), the determinant of
-    ``scalar*I`` is ``scalar**d``, which is only contained in ``SL(d,q)`` if
-    ``scalar**d == 1``.
+    ``SL(d,q)`` (``d×d`` matrices over ``F_q`` with determinant 1), the determinant of ``scalar*I``
+    is ``scalar**d``, which is only contained in ``SL(d,q)`` if ``scalar**d == 1``.
 
     Altogether, we construct ``PSL(d,q)`` by ``SL(d,q)`` mod [d-th roots of unity over ``F_q``].
 
@@ -1077,8 +1074,8 @@ class ProjectiveSpecialLinearGroup(Group):
         self._field = resolve_field(field)
 
         # The linear representation of PSL exists only when SL has a trivial center.  The center is
-        # the scalar matrices in SL, of size gcd(d, q - 1), so this happens exactly when that gcd
-        # is 1.  See the class docstring for how linear_rep selects the representation.
+        # the scalar matrices in SL, of size gcd(d, q - 1), so this happens exactly when that
+        # gcd is 1.  See the class docstring for how linear_rep selects the representation.
         num_roots = math.gcd(self.dimension, self.field.order - 1)
         has_linear_rep = num_roots == 1
         if linear_rep and not has_linear_rep:
@@ -1311,8 +1308,8 @@ class ProjectiveGeneralLinearGroup(Group):
     ``q == 2`` (e.g. ``PGL(2, 2)``); otherwise we fall back to a permutation representation, which
     always works.  The ``linear_rep`` argument chooses between them: ``None`` (default) uses the
     linear representation when it exists and the permutation representation otherwise; ``True``
-    forces the linear representation, raising an error when it does not exist; ``False`` always
-    uses the permutation representation.
+    forces the linear representation, raising an error when it does not exist; ``False`` always uses
+    the permutation representation.
     """
 
     _dimension: int

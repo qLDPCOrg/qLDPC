@@ -63,8 +63,8 @@ class SubgraphDecoder(SinterDecoder):
             subgraph_detectors: A sequence containing one set of detectors per subgraph.
             subgraph_observables: A sequence containing one set of observables per subgraph; or None
                 to indicate that every subgraph should decode every observable.  Default: None.
-            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
-                that DEM.
+            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for that
+                DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
             decoder: A decoder specification such as ``decoders.mwpm(...)``, or None for the
@@ -164,8 +164,7 @@ class CompiledSubgraphDecoder(CompiledSinterDecoder):
     This decoder splits a decoding problem into subgraphs that are decoded independently.
 
     Instances of this class are meant to be constructed by a SubgraphDecoder, whose
-    .compile_decoder_for_dem method returns a CompiledSubgraphDecoder.
-    See help(SubgraphDecoder).
+    .compile_decoder_for_dem method returns a CompiledSubgraphDecoder.  See help(SubgraphDecoder).
     """
 
     def __init__(

@@ -176,7 +176,7 @@ class QuantumHammingCode(CSSCode):
         if size == 4 and set_logicals and self.field is galois.GF2:
             """Make a "nice" choice of logical operators for the [15, 7, 3] quantum Hamming code.
 
-            Pinning all but the last logical qubit to |0> results in the TetrahedralCode. See the
+            Pinning all but the last logical qubit to |0> results in the TetrahedralCode.  See the
             docstring of the TetrahedralCode for an explanation of the comments below.
             """
             support_x = [
@@ -228,16 +228,16 @@ class SteaneCode(QuantumHammingCode):
 class QuantumReedMullerCode(CSSCode):
     r"""Self-orthogonal CSS code from a classical Reed-Muller code.
 
-    The code CSS(RM(r, m), RM(r, m)) is a [[2**m, 2**m - 2 * dim(RM(r, m)), 2**(r + 1)]] code
-    for 0 <= r < (m - 1) / 2, i.e. whenever RM(r, m) is strictly self-orthogonal::
+    The code CSS(RM(r, m), RM(r, m)) is a [[2**m, 2**m - 2 * dim(RM(r, m)), 2**(r + 1)]] code for
+    0 <= r < (m - 1) / 2, i.e. whenever RM(r, m) is strictly self-orthogonal::
 
         RM(r, m) ⊆ RM(r, m)⊥ = RM(m - r - 1, m).
 
     The stabilizer generators are the rows of the generator matrix of RM(r, m), whose pairwise
-    orthogonality follows from self-orthogonality.  Both the X- and the Z-distance equal
-    2**(r + 1), the minimum weight of a vector in ``RM(m - r - 1, m) \ RM(r, m)``, attained by the
-    indicator vector of an affine (r + 1)-flat in AG(m, 2) (MacWilliams & Sloane, Ch. 13).  This
-    closed form makes distance evaluation O(1), independent of block length.
+    orthogonality follows from self-orthogonality.  Both the X- and the Z-distance equal 2**(r + 1),
+    the minimum weight of a vector in ``RM(m - r - 1, m) \ RM(r, m)``, attained by the indicator
+    vector of an affine (r + 1)-flat in AG(m, 2) (MacWilliams & Sloane, Ch. 13).  This closed form
+    makes distance evaluation O(1), independent of block length.
 
     References:
 
@@ -561,9 +561,9 @@ class GALACode(CSSCode):
         assert code.num_qubits == 132  # the block length n
         assert code.dimension == 30  # the number of logical qubits k
 
-        # the maximum stabilizer weight, which for this code coincides numerically with the
-        # distance d = 12 reported in arXiv:2608.07431; computing the distance itself is
-        # intractable at this block length, so it is taken from the reference rather than checked
+        # the maximum stabilizer weight, which for this code coincides numerically with the distance
+        # d = 12 reported in arXiv:2608.07431; computing the distance itself is intractable at this
+        # block length, so it is taken from the reference rather than checked
         assert code.get_weight() == 12
 
     References:
@@ -601,9 +601,8 @@ class GALACode(CSSCode):
             num_active_rows: The number J of active block rows, with 1 <= J <= L/2.
 
         Keyword args:
-            skip_validation: If True, skip the check that the active X-type and Z-type parity
-                checks commute.  Structural input validation is performed regardless.  Default:
-                False.
+            skip_validation: If True, skip the check that the active X-type and Z-type parity checks
+                commute.  Structural input validation is performed regardless.  Default: False.
         """
         generators_f, generators_g, ring = self._validate_generators(
             generators_f, generators_g, num_active_rows
@@ -696,8 +695,8 @@ class QCCode(TBCode):
     - ``matrix_x = [A, B]``, and
     - ``matrix_z = [B.T, -A.T]``.
 
-    Here A and B are polynomials of the form
-    ``A = sum_{i,j,k,...} A_{ijk...} x^i y^j z^k ...``, where
+    Here A and B are polynomials of the form ``A = sum_{i,j,k,...} A_{ijk...} x^i y^j z^k ...``,
+    where
 
     - A_{ijk...} is a scalar coefficient (over some finite field),
     - x, y, z, ... are generators of cyclic groups of orders ``R_x``, ``R_y``, ``R_z``, ...
@@ -756,9 +755,9 @@ class QCCode(TBCode):
                 assert isinstance(symbol, sympy.Symbol), f"Invalid symbol: {symbol}"
                 symbol_to_order[symbol] = order
 
-        # add placeholder symbols for any orders that the polynomials do not account for
-        # the "~" prefix and the index keep each placeholder distinct from the others and from the
-        # symbols appearing in the polynomials; sorting makes the names deterministic
+        # add placeholder symbols for any orders that the polynomials do not account for the "~"
+        # prefix and the index keep each placeholder distinct from the others and from the symbols
+        # appearing in the polynomials; sorting makes the names deterministic
         placeholder_prefix = "~" + "".join(sorted(map(str, symbols)))
         while len(symbol_to_order) < len(orders):
             index = len(symbol_to_order)
@@ -956,15 +955,15 @@ class BBCode(QCCode):
     - X are check qubits measure X-type parity checks, and are associated with rows of matrix_x.
     - Z are check qubits measure Z-type parity checks, and are associated with rows of matrix_z.
 
-    These four-qubit plaquettes are arranged into a rectangular grid that is ``R_x`` plaquettes
-    wide and ``R_y`` plaquettes tall, where ``R_x`` and ``R_y`` are the orders of the cyclic
-    groups generated by x and y.
-    Each qubit can then be labeled by coordinates (a, b) of a plaquette, corresponding to a row
-    and column in the grid of plaquettes, and a "sector" (L, R, X, or Z) within a plaquette.
+    These four-qubit plaquettes are arranged into a rectangular grid that is ``R_x`` plaquettes wide
+    and ``R_y`` plaquettes tall, where ``R_x`` and ``R_y`` are the orders of the cyclic groups
+    generated by x and y.  Each qubit can then be labeled by coordinates (a, b) of a plaquette,
+    corresponding to a row and column in the grid of plaquettes, and a "sector" (L, R, X, or Z)
+    within a plaquette.
 
-    If we associate ``(L, R) ~ (0, 1)``, then the data qubit addressed by column qq of matrix_x
-    (or matrix_z) has the label ``(sector, a, b) = numpy.unravel_index(qq, [2, R_x, R_y])``.
-    The integer index of a data qubit and its label are thereby related to each other by array
+    If we associate ``(L, R) ~ (0, 1)``, then the data qubit addressed by column qq of matrix_x (or
+    matrix_z) has the label ``(sector, a, b) = numpy.unravel_index(qq, [2, R_x, R_y])``.  The
+    integer index of a data qubit and its label are thereby related to each other by array
     reshaping.  The label of a check qubit, whose numerical index is the index of a corresponding
     row in the full parity check matrix of a BBCode, is similarly obtained by associating
     ``(X, Z) ~ (0, 1)``.
@@ -1105,9 +1104,9 @@ class BBCode(QCCode):
         Each pair of terms ``(A_j/A_k, B_j/B_l)`` is then a candidate for cyclic group generators
         (g, h) for an equivalent BBCode.
 
-        This modification of polynomials and change-of-basis from the original generators (x, y)
-        to (g, h) produces an equivalent BBCode so long as g and h satisfy the conditions in Lemma 4
-        of arXiv:2308.07915, which boils down to the requirement that
+        This modification of polynomials and change-of-basis from the original generators (x, y) to
+        (g, h) produces an equivalent BBCode so long as g and h satisfy the conditions in Lemma 4 of
+        arXiv:2308.07915, which boils down to the requirement that
 
             ``order(g) * order(h) = order(<g, h>) = order(<x, y>)``,
 
@@ -1349,8 +1348,8 @@ class HGPCode(CSSCode):
         ``matrix_x = [ H1 ⨂ In2, Im1 ⨂ H2.T]``
         ``matrix_z = [-In1 ⨂ H2, H1.T ⨂ Im2]``
 
-        Here ``(H1, H2) == (matrix_a, matrix_b)``, and ``I[m/n][1/2]`` are identity matrices,
-        with ``(m1, n1) = H1.shape`` and ``(m2, n2) = H2.shape``.
+        Here ``(H1, H2) == (matrix_a, matrix_b)``, and ``I[m/n][1/2]`` are identity matrices, with
+        ``(m1, n1) = H1.shape`` and ``(m2, n2) = H2.shape``.
 
         A minus sign in one sector of matrix_x or matrix_z is necessary to satisfy CSS code
         requirements with nonbinary fields.  The placement of this sign is chosen for consistency
@@ -1839,8 +1838,8 @@ class LPCode(CSSCode):
     A lifted product code is essentially the same as a hypergraph product code, except that the
     parity check matrices are RingArrays, or matrices whose entries are members of a group algebra
     over a finite field ``F_q``.  Each of these entries can be "lifted" to a representation as
-    orthogonal matrices over ``F_q``, in which case the RingArray is interpreted as a block
-    matrix; this is called "lifting" the RingArray.
+    orthogonal matrices over ``F_q``, in which case the RingArray is interpreted as a block matrix;
+    this is called "lifting" the RingArray.
 
     As an example, the lift-connected surface code in Eq. (2) of https://arxiv.org/pdf/2401.02911v2
     can be constructed by::
@@ -2010,8 +2009,8 @@ class SLPCode(CSSCode):
     """Subsystem lifted product code.
 
     The subsystem lifted product code is a lifted version of the subsystem hypergraph product code.
-    That is, the SLPCode is to the SHPCode what the LPCode is to the HGPCode.
-    See help(qldpc.codes.LPCode) for additional information.
+    That is, the SLPCode is to the SHPCode what the LPCode is to the HGPCode.  See
+    help(qldpc.codes.LPCode) for additional information.
 
     As an example, the SLPCode in example 1 on page 6 of https://arxiv.org/pdf/2404.18302v1 can be
     constructed by::
@@ -2229,8 +2228,8 @@ class QTCode(CSSCode):
         requires choosing an ordering on the edges incident to every source node of these graphs.
         If the group G is equipped with a total order, a natural ordering of edges incident to every
         source node is induced by assigning the label (a, b) to edge ``(g, f(g,a,b))``.  Consistency
-        then requires that edge ``(ag, f(g,a,b))`` has label ``(a^-1, b)``, as verified by
-        defining ``g' = ag`` and checking that ``f(g,a,b) = f(g',a^-1,b)``.
+        then requires that edge ``(ag, f(g,a,b))`` has label ``(a^-1, b)``, as verified by defining
+        ``g' = ag`` and checking that ``f(g,a,b) = f(g',a^-1,b)``.
         """
         # sort the subsets by the total order on the group, which fixes the order in which faces are
         # added below, and thereby the qudit that each face of the Cayley complex is identified with
@@ -2374,8 +2373,8 @@ def _get_check_pauli(row: int, col: int) -> PauliXZ:
 class SurfaceCode(CSSCode):
     """The one and only!
 
-    Actually, there are two variants: "ordinary" and "rotated" surface codes.
-    The rotated code is more qubit-efficient.
+    Actually, there are two variants: "ordinary" and "rotated" surface codes.  The rotated code is
+    more qubit-efficient.
 
     References:
 
@@ -2747,11 +2746,10 @@ class GeneralizedSurfaceCode(CSSCode):
 class T4Code(CSSCode):
     """Four-dimensional (2, 2) toric code.
 
-    A T4Code depends on a four-dimensional integer lattice.
-    The lattice acts on Euclidean four-space by translations.
-    The quotient manifold is a four-dimensional torus ``T^4``.
-    The number of physical qudits is 6 times the volume of the lattice.
-    The number of logical qudits is the dimension of the 2nd homology group of ``T^4``, which is 6.
+    A T4Code depends on a four-dimensional integer lattice.  The lattice acts on Euclidean
+    four-space by translations.  The quotient manifold is a four-dimensional torus ``T^4``.  The
+    number of physical qudits is 6 times the volume of the lattice.  The number of logical qudits is
+    the dimension of the 2nd homology group of ``T^4``, which is 6.
 
     Homologically, a T4Code is the topological CSS code attached to the 3-term sub-complex in the
     middle of the 5-term chain-complex

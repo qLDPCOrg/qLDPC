@@ -377,8 +377,8 @@ def test_surgery_qec_cycle_round_1_detectors_classified() -> None:
     )
     # Count round-1 1-arg DETECTORs (those appearing before any REPEAT_BLOCK).
     text = str(circuit)
-    # Number of "DETECTOR" instructions in the first round (before the REPEAT block)
-    # should equal len(reliable).
+    # Number of "DETECTOR" instructions in the first round (before the REPEAT block) should equal
+    # len(reliable).
     first_round_str = text.split("REPEAT")[0]
     n_det = first_round_str.count("DETECTOR")
     assert n_det == len(reliable), (
@@ -446,9 +446,9 @@ def test_surgery_observable_emits_two_observable_include() -> None:
     """Direct unit test on _surgery_observable: emits two OBSERVABLE_INCLUDE entries.
 
     Observable 0 = XOR of the last QEC round's meas-check records (Webster, Smith, Cohen
-    single-round identity Z̄ = ∏_v A_v, arXiv:2511.15989 §II A).
-    Observable 1 = XOR of data records on support (destructive cross-check).
-    Asserts exactly two OBSERVABLE_INCLUDE lines are emitted with distinct observable indices."""
+    single-round identity Z̄ = ∏_v A_v, arXiv:2511.15989 §II A).  Observable 1 = XOR of data records
+    on support (destructive cross-check).  Asserts exactly two OBSERVABLE_INCLUDE lines are emitted
+    with distinct observable indices."""
     from qldpc.circuits.bookkeeping import MeasurementRecord
     from qldpc.experimental.surgery.circuit import _surgery_observable
     from qldpc.experimental.surgery.gadget import build_gadget
@@ -649,7 +649,7 @@ def test_single_ppm_ler_with_final_detectors_below_threshold() -> None:
     """With final detectors wired, LER at p=0.001 should be ≤ 0.01.
 
     The final inferred detectors give the decoder the last round's information, without which errors
-    there are invisible. The threshold sits a few times above the rate this configuration actually
+    there are invisible.  The threshold sits a few times above the rate this configuration actually
     reaches, so it tolerates Monte-Carlo scatter while still catching a regression of that wiring.
     """
     import sinter
@@ -798,10 +798,9 @@ def test_stitch_intracode_basis_x_css_commutation() -> None:
 
 
 def test_stitch_intracode_basis_x_k_reduces_by_one() -> None:
-    # Use Webster code 0 (k>=2) so the k_joint = k_data - 1 invariant is not
-    # masked by the spurious bridge X-logical: Steane (k=1) with x_l = x_r is
-    # the degenerate joint X̄ · X̄ = I case where the spurious bridge logical
-    # leaves the dimension at k_data instead of k_data - 1.
+    # Use Webster code 0 (k>=2) so the k_joint = k_data - 1 invariant is not masked by the spurious
+    # bridge X-logical: Steane (k=1) with x_l = x_r is the degenerate joint X̄ · X̄ = I case where
+    # the spurious bridge logical leaves the dimension at k_data instead of k_data - 1.
     from qldpc.experimental.surgery.bridge import build_bridge
     from qldpc.experimental.surgery.circuit import _stitch_to_joint_csscode
     from qldpc.experimental.surgery.gadget import (
@@ -842,8 +841,8 @@ def test_stitch_intercode_both_bases_commute_and_singletons_excluded(basis: Paul
     product = (HX @ HZ.T) % 2
     assert np.array_equal(product, np.zeros_like(product))
     assert merged.dimension == 2 * code.dimension - 1
-    # Singletons excluded: (x_l, 0, ...) and (0, x_r, ...) NOT in rowspan of the
-    # check matrix that contains the joint stabilizer (HX for basis=X, HZ for Z).
+    # Singletons excluded: (x_l, 0, ...) and (0, x_r, ...) NOT in rowspan of the check matrix that
+    # contains the joint stabilizer (HX for basis=X, HZ for Z).
     H_joint = HX if basis is Pauli.X else HZ
     n_l = code.num_qudits
     base_rank = np.linalg.matrix_rank(GF2(H_joint.tolist()))
@@ -859,7 +858,7 @@ def test_stitch_intercode_both_bases_commute_and_singletons_excluded(basis: Paul
 
 @pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
 def test_stitch_intracode_both_bases_commute(basis: PauliXZ) -> None:
-    """Intra-code commutation for both bases. Use a Webster code with 2 distinct logicals.
+    """Intra-code commutation for both bases.  Use a Webster code with 2 distinct logicals.
 
     Steane intra-code (k=1) yields the degenerate joint X̄·X̄ = I case.
     """
@@ -959,10 +958,10 @@ def test_joint_ppm_rejects_an_identity_product() -> None:
 def test_build_joint_ppm_circuit_intercode_noiseless_observables_zero() -> None:
     """Cross-check obs0 == obs1 per shot across all 4 parity inits.
 
-    Uses compile_sampler + raw XOR, so noiseless obs0 and obs1 are the actual eigenvalue bits
-    rather than flip indicators, and sweeps non-trivial parity inits. Asserting ``obs.sum() == 0``
-    from compile_detector_sampler on a single |+⟩^n init would instead be vacuous: noiseless flips
-    are 0 whether or not obs0 is correct, and parity=+1 gives the expected 0 for free.
+    Uses compile_sampler + raw XOR, so noiseless obs0 and obs1 are the actual eigenvalue bits rather
+    than flip indicators, and sweeps non-trivial parity inits.  Asserting ``obs.sum() == 0`` from
+    compile_detector_sampler on a single |+⟩^n init would instead be vacuous: noiseless flips are 0
+    whether or not obs0 is correct, and parity=+1 gives the expected 0 for free.
     """
     from qldpc.experimental.surgery.bridge import build_bridge
     from qldpc.experimental.surgery.circuit import build_joint_ppm_circuit
@@ -1025,8 +1024,8 @@ def test_joint_ppm_ler_monotone_steane_intercode() -> None:
 def test_joint_xx_in_stabilizer_on_webster_intracode(code_index: int) -> None:
     """Webster BB codes 0..3 intra-code: (x_1, x_2 padded, 0...) is in rowspan(H_X^merged).
 
-    Pins the SkipTree adapter construction across the full Webster Table I code family rather
-    than just code 0.
+    Pins the SkipTree adapter construction across the full Webster Table I code family rather than
+    just code 0.
     """
     import galois
 
@@ -1351,7 +1350,7 @@ def test_qubit_coords_layout_steane() -> None:
     """Steane single-PPM circuit emits QUBIT_COORDS in 6 semantic lanes.
 
     y=0 data (Steane ids 0..6), y=1 κ ancillas (3), y=2 data H_X ancillas (3), y=3 χ ancillas (3),
-    y=4 data H_Z ancillas (3), y=5 G ancilla (1). Ordering chosen so y is monotonic in qubit ID for
+    y=4 data H_Z ancillas (3), y=5 G ancilla (1).  Ordering chosen so y is monotonic in qubit ID for
     basis=X.
     """
     from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
@@ -1408,8 +1407,8 @@ def test_qubit_coords_layout_steane() -> None:
 def test_detector_coords_steane_round_1_reliable() -> None:
     """Steane single-PPM detector coordinates are (round, lane, check_id).
 
-    Round-1 reliable for a basis=X gadget: 3 data H_X checks (lane=2) + 1 G check (lane=5). No χ or
-    data H_Z because those aren't deterministic on the protocol-default |+⟩ init. The final readout
+    Round-1 reliable for a basis=X gadget: 3 data H_X checks (lane=2) + 1 G check (lane=5).  No χ or
+    data H_Z because those aren't deterministic on the protocol-default |+⟩ init.  The final readout
     re-checks the same four after one SHIFT_COORDS, so they reappear at round 1.
 
     Coordinate 0 is the round, which is the time index the sliding-window decoders read by default.
@@ -1443,7 +1442,7 @@ def test_detector_coords_basis_z_preserves_lane_semantics() -> None:
     """basis=Z gadget: round-1 reliable detector lanes ⊆ {4, 5}; no lane 2 or 3 leakage.
 
     The lane map must not route G ancillas to lane 2 (data H_X) nor χ ancillas to lane 3 when the
-    basis swaps their matrix slots. Steane's Z̄ gadget has an empty G, so lane 5 never appears and
+    basis swaps their matrix slots.  Steane's Z̄ gadget has an empty G, so lane 5 never appears and
     the leak that would expose the misrouting is itself empty; the test stands as a guard for a
     fixture whose G is non-empty.
 
@@ -1515,8 +1514,8 @@ def test_sliding_window_decoder_windows_a_surgery_circuit_by_round(basis: PauliX
     """A window decoder handed the DEM with no time mapping of its own recovers the rounds.
 
     SlidingWindowDecoder's default time index is coordinate 0 of each detector, which is the reason
-    the round goes there. This exercises that end to end -- through keep_only_observable and the DEM
-    conversion -- rather than reading the coordinates off the circuit. Seven round values at
+    the round goes there.  This exercises that end to end -- through keep_only_observable and the
+    DEM conversion -- rather than reading the coordinates off the circuit.  Seven round values at
     window_size=3, stride=1 give five windows sliding one round at a time.
     """
     from qldpc.circuits.noise_model import DepolarizingNoiseModel
@@ -1588,8 +1587,8 @@ def test_joint_ppm_qubit_coords_intercode_layout() -> None:
     y1 = sorted(by_y.get(1, []))
     assert len(y1) >= 2, f"y=1 expected at least 2 κ qubits, got {len(y1)}"
 
-    # y=6 must have bridge data (= bridge.width) at x=0..w-1, plus
-    # cycle ancillas (= bridge.width - 1) at x=0..w-2.
+    # y=6 must have bridge data (= bridge.width) at x=0..w-1, plus cycle ancillas
+    # (= bridge.width - 1) at x=0..w-2.
     y6 = sorted(by_y.get(6, []))
     w = bridge.width
     expected_y6_count = w + max(0, w - 1)  # bridge data + cycle ancillas
@@ -1732,7 +1731,7 @@ def test_logical_state_init_log_idx_out_of_range_raises(log_idx: int) -> None:
 def test_logical_state_init_end_to_end_steane_basis_z(state: str, expected_obs0: int) -> None:
     """Steane single-PPM (basis=Z) reads obs0 = int(state) deterministically.
 
-    Steane has wt(Z̄_0) = 3 (odd), so a naive broadcast of `"1" * n` also works here. Pinning the
+    Steane has wt(Z̄_0) = 3 (odd), so a naive broadcast of `"1" * n` also works here.  Pinning the
     helper to the textbook expectation on this code therefore catches any divergence from naive.
     """
     from qldpc.experimental.surgery.circuit import (
@@ -1773,7 +1772,7 @@ def test_logical_state_init_end_to_end_bbcode_basis_z(state: str, expected_obs0:
     logical |0⟩_L (NOT |1⟩_L) and obs0=0, silently failing any truth table that hardcodes expected=1
     for "1".
 
-    The helper uses X̄_0 to flip the correct support, so obs0 tracks the textbook expectation. If
+    The helper uses X̄_0 to flip the correct support, so obs0 tracks the textbook expectation.  If
     this test ever returns obs0=0 for state="1", the helper has regressed to naive broadcast.
     """
     import sympy
@@ -1823,7 +1822,7 @@ def test_multi_round_invariance_steane_basis_z(rounds: int, state: str) -> None:
     Therefore obs0 = int(state) for every R ≥ 1, since |0⟩_L gives Z̄ = +1 and |1⟩_L gives Z̄ = −1.
 
     Any round-index drift in _surgery_qec_cycle, _surgery_observable, or
-    MeasurementRecord.get_target_rec would break that invariance for some R. The R sweep also rules
+    MeasurementRecord.get_target_rec would break that invariance for some R.  The R sweep also rules
     out reading the observable as an XOR across all R rounds, which collapses to R·m_v mod 2 and is
     silently 0 for every even R.
     """
@@ -1865,7 +1864,7 @@ def test_single_qubit_x_error_triggers_only_neighboring_z_checks_steane(
     """Inject X_ERROR(1.0) on data qubit ``error_qubit`` before the first QEC round.
 
     Injected between state prep and the first QEC round of the Steane basis=Z PPM, whose round-1
-    reliable Z-checks compare the measured syndrome to +1. An X on data qubit i flips the parity of
+    reliable Z-checks compare the measured syndrome to +1.  An X on data qubit i flips the parity of
     every Z-stab whose support contains i, so exactly those detectors must fire, and the assertion
     compares the fired set by row index rather than by count.
 
@@ -1886,11 +1885,10 @@ def test_single_qubit_x_error_triggers_only_neighboring_z_checks_steane(
         data_init="0" * 7,
     )
 
-    # Splice X_ERROR(1.0) at the boundary between state prep and QEC.
-    # _surgery_state_prep emits only R, RX, X, Z instructions (closed
-    # set) before the QEC cycle begins. Scan for the LAST such op and
-    # insert immediately after — this is robust to future QEC ops
-    # (MPP, XCX, etc.) that an open-set heuristic would misclassify.
+    # Splice X_ERROR(1.0) at the boundary between state prep and QEC.  _surgery_state_prep emits
+    # only R, RX, X, Z instructions (closed set) before the QEC cycle begins.  Scan for the LAST
+    # such op and insert immediately after — this is robust to future QEC ops (MPP, XCX, etc.) that
+    # an open-set heuristic would misclassify.
     lines = str(clean_circuit).splitlines()
     prep_ops = ("R", "RX", "X", "Z")
     last_prep_idx = -1
@@ -1915,7 +1913,7 @@ def test_single_qubit_x_error_triggers_only_neighboring_z_checks_steane(
     events = detection_events[0]
 
     # Identify ROUND-1 reliable Z-side detectors from the clean reference: the deterministic-0
-    # detectors with round coordinate 0. Only those are flipped by a prep-time X error; the
+    # detectors with round coordinate 0.  Only those are flipped by a prep-time X error; the
     # post-SHIFT detectors compare the round-1 syndrome against the data-derived one and stay at 0.
     # They are emitted in data-H_Z row order, set by _classify_reliable_round1_checks iterating
     # qubit_ids.checks_z[:m_Z], so deterministic_zero_round1[j] corresponds to H_Z row j.
@@ -1990,9 +1988,9 @@ def test_joint_code_dimension_steane_x_steane_equals_one() -> None:
 def test_joint_code_dimension_webster_x_steane_equals_ten() -> None:
     """Intercode Webster GB code 0 × Steane joint PPM gives dim == k_l + k_r − 1 = 10.
 
-    Webster GB code 0 is [[62, 10, _]]; k_l = 10. Steane is k_r = 1. Expected: 10 + 1 − 1 = 10.
+    Webster GB code 0 is [[62, 10, _]]; k_l = 10.  Steane is k_r = 1.  Expected: 10 + 1 − 1 = 10.
 
-    The k_l > 1 case exposes the −1 reduction in the formula. A stitching bug that fails to add the
+    The k_l > 1 case exposes the −1 reduction in the formula.  A stitching bug that fails to add the
     Z̄_l ⊗ Z̄_r constraint would surface as dim = 11.
     """
     from qldpc.experimental.surgery.bridge import build_bridge
@@ -2025,8 +2023,8 @@ def test_joint_ppm_even_rounds_truth_table() -> None:
     """obs0 must encode logical X̄_l X̄_r parity correctly at EVEN rounds.
 
     _surgery_observable must read a single round's product of meas-check outcomes (Webster, Smith,
-    Cohen arXiv:2511.15989 §II A: Z̄ = ∏_v A_v). XOR-ing across all R rounds instead would give
-    R · m_v ≡ 0 mod 2 at even R, so the parity would silently vanish exactly here. Uses
+    Cohen arXiv:2511.15989 §II A: Z̄ = ∏_v A_v).  XOR-ing across all R rounds instead would give
+    R · m_v ≡ 0 mod 2 at even R, so the parity would silently vanish exactly here.  Uses
     ``compile_sampler`` + manual XOR to read the raw observable bit rather than stim's noiseless
     flip, which is derived from the same prediction under test.
     """
@@ -2039,8 +2037,8 @@ def test_joint_ppm_even_rounds_truth_table() -> None:
     g_l = build_gadget(code, x, basis=Pauli.X)
     g_r = build_gadget(codes.SteaneCode(), x, basis=Pauli.X)
     bridge = build_bridge(g_l, g_r)
-    # basis=X, so we sweep ("+", "+"), ("-", "+"), ("+", "-"), ("-", "-").
-    # "-" on data flips X̄ to -1; X̄_l X̄_r = product → parity bit.
+    # basis=X, so we sweep ("+", "+"), ("-", "+"), ("+", "-"), ("-", "-").  "-" on data flips X̄ to
+    # -1; X̄_l X̄_r = product → parity bit.
     cases = [
         (("+", "+"), 0),
         (("-", "+"), 1),
@@ -2074,8 +2072,8 @@ def test_single_ppm_even_rounds_truth_table() -> None:
     """obs0 must encode single-patch X̄ (or Z̄) parity at EVEN rounds.
 
     Same regression as test_joint_ppm_even_rounds_truth_table but for the single-patch PPM
-    construction. Sweeps "+" and "-" data inits in basis=X and "0", "1" in basis=Z to expose the
-    cumulative-XOR bug at even rounds. Uses compile_sampler + manual XOR for the same reason as
+    construction.  Sweeps "+" and "-" data inits in basis=X and "0", "1" in basis=Z to expose the
+    cumulative-XOR bug at even rounds.  Uses compile_sampler + manual XOR for the same reason as
     that test.
     """
     from qldpc.experimental.surgery.circuit import build_single_ppm_circuit, logical_state_init
@@ -2163,7 +2161,7 @@ def test_single_ppm_dem_ok_bb_36_8_with_boost() -> None:
     """Single-PPM DEM constructs cleanly on BB [[36, 8]] with boost.
 
     Contract test: single-PPM does not call build_bridge / SkipTree, so nothing in the bridge's
-    handling of boosts or of duplicate weight-2 rows can reach it. The fixture asserts both
+    handling of boosts or of duplicate weight-2 rows can reach it.  The fixture asserts both
     conditions the bridge is sensitive to, so if a refactor ever routes single-PPM through bridge
     code, stim's non-deterministic-detector rejection catches it here.
     """
@@ -2228,7 +2226,7 @@ def _lightest_undetectable_logical_fault(circuit: stim.Circuit) -> int | None:
 
     Returns None when every undetectable observable-flipping fault has weight 3 or more.
 
-    A set of circuit faults goes undetected exactly when its detector flips cancel. One mechanism
+    A set of circuit faults goes undetected exactly when its detector flips cancel.  One mechanism
     qualifies when it flips no detector at all; two qualify when they flip the same detectors.
     Grouping the detector error model's mechanisms by their detector column therefore settles
     weights 1 and 2 in a single pass, without enumerating pairs.
@@ -2259,13 +2257,13 @@ def test_repeated_rounds_close_the_single_fault_readout_path(basis: PauliXZ) -> 
     """One fault flips the PPM outcome undetectably at rounds=1, but never at rounds=3.
 
     obs0 is the XOR of the last QEC round's meas-check (S'_meas) outcomes, so at rounds=1 nothing
-    compares that round against another and a single mechanism on the readout suffices. The repeated
-    rounds are what supply the detector redundancy, which is the circuit's whole fault-tolerance
-    argument; this pins that they deliver it.
+    compares that round against another and a single mechanism on the readout suffices.  The
+    repeated rounds are what supply the detector redundancy, which is the circuit's whole
+    fault-tolerance argument; this pins that they deliver it.
 
     The weight-2 search is exhaustive, so a rounds=3 result of 2 is a genuine pair and None means
-    the fault distance is at least 3. Steane's Z̄ gadget reaches only 2, so distance preservation is
-    not asserted here -- see ``cheeger_constant`` for what is and is not established.
+    the fault distance is at least 3.  Steane's Z̄ gadget reaches only 2, so distance preservation
+    is not asserted here -- see ``cheeger_constant`` for what is and is not established.
     """
     from qldpc.circuits.noise_model import DepolarizingNoiseModel
     from qldpc.experimental.surgery.circuit import build_single_ppm_circuit

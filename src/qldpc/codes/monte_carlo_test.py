@@ -421,8 +421,8 @@ def test_error_rate_func_single_weight() -> None:
     assert func.max_error_weight == 0
 
     # every error of weight >= 1 lies outside the covered range, so nothing measured contributes and
-    # the reported rate is the truncation term alone, with no uncertainty around it.  A discard
-    # rate takes no such term, so it stays at zero
+    # the reported rate is the truncation term alone, with no uncertainty around it.  A discard rate
+    # takes no such term, so it stays at zero
     truncation = func.truncation_error_bound(0.1)
     assert np.isclose(truncation, 1 - 0.9**5)
     assert func(0.1) == (truncation, 0)

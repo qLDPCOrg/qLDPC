@@ -1,7 +1,7 @@
 """L=1 gadget construction (Webster, Smith, Cohen arXiv:2511.15989 §II A).
 
 The construction restricts complementary checks to the logical support, computes a gauge basis for
-that incidence matrix, and assembles the resulting merged CSS checks. The paper writes the number
+that incidence matrix, and assembles the resulting merged CSS checks.  The paper writes the number
 of gauge-fixing checks as ``|S_L| - wt(L) + 1``; the general form is ``|S_L| - rank(F)``, and the
 two agree whenever dim ker(F) = 1, as they do for the paper's four codes.
 
@@ -47,11 +47,11 @@ from .construction import _CSSConeMaps, _CSSConeResult
 class GadgetLayout:
     """An L=1 surgery gadget for measuring one logical operator of a CSS code.
 
-    Built by ``build_gadget``. The field names map onto Webster, Smith, Cohen arXiv:2511.15989 §II A
-    as V_0 → support, F → incidence, G → gauge.
+    Built by ``build_gadget``.  The field names map onto Webster, Smith, Cohen arXiv:2511.15989 §II
+    A as V_0 → support, F → incidence, G → gauge.
 
     ``incidence`` carries one row per κ ancilla qubit, and the κ qubits occupy the merged-code qubit
-    indices from ``code.num_qudits`` onward, so ``incidence.shape[0]`` is the κ count. A boosted
+    indices from ``code.num_qudits`` onward, so ``incidence.shape[0]`` is the κ count.  A boosted
     gadget appends one row per added κ qubit; those rows belong to no check of the data code, so
     ``incidence`` is then not a plain restriction of the complementary check matrix.
     """
@@ -127,7 +127,7 @@ def _restrict_checks_to_support(
     """Webster §II A steps 1-2 — V_0 = supp(x); C_0 = checks on V_0; F = H_complement[C_0, V_0].
 
     For basis=Pauli.X: incidence = H_Z[data_checks, support] (the complementary basis to the
-    measured logical). For basis=Pauli.Z: incidence = H_X[data_checks, support].
+    measured logical).  For basis=Pauli.Z: incidence = H_X[data_checks, support].
     """
     x = np.asarray(x).astype(np.uint8)
     if x.shape != (code.num_qudits,):
@@ -200,8 +200,8 @@ def _assemble_merged_checks(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Assemble HX_merged and HZ_merged from the Webster §II A pieces.
 
-    basis=X (default): χ rows added to HX_merged, G to HZ_merged.
-    basis=Z: χ rows added to HZ_merged, G to HX_merged (basis-symmetric dual).
+    basis=X (default): χ rows added to HX_merged, G to HZ_merged.  basis=Z: χ rows added to
+    HZ_merged, G to HX_merged (basis-symmetric dual).
     """
     result = _build_cone_maps(
         code,
@@ -223,20 +223,20 @@ def build_gadget(
     *,
     basis: PauliXZLike,
 ) -> GadgetLayout:
-    """Webster §II A L=1 gadget: restriction, gauge fix, assembly. Deterministic in its arguments.
+    """Webster §II A L=1 gadget: restriction, gauge fix, assembly.  Deterministic in its arguments.
 
     gadget notation: κ qubits → rows of incidence; G → gauge.
 
-    basis=Pauli.X: measures a logical X (PPM of X̄). Validates H_Z @ x == 0.
-    basis=Pauli.Z: measures a logical Z (PPM of Z̄). Validates H_X @ x == 0.
-    The strings "X" and "Z" (case-insensitive) are also accepted for basis.
+    basis=Pauli.X: measures a logical X (PPM of X̄).  Validates H_Z @ x == 0.  basis=Pauli.Z:
+    measures a logical Z (PPM of Z̄).  Validates H_X @ x == 0.  The strings "X" and "Z"
+    (case-insensitive) are also accepted for basis.
 
     Raises:
         ValueError: code is a subsystem code or is not over GF(2); x has an entry outside {0, 1};
             basis does not identify Pauli.X or Pauli.Z; x fails the complementary check equation
-            (H_Z @ x == 0 for basis=X, H_X @ x == 0 for basis=Z); x is the zero vector; or x lies
-            in the row space of the measured basis's check matrix, making it a stabilizer rather
-            than a logical operator.
+            (H_Z @ x == 0 for basis=X, H_X @ x == 0 for basis=Z); x is the zero vector; or x lies in
+            the row space of the measured basis's check matrix, making it a stabilizer rather than a
+            logical operator.
     """
     if code.is_subsystem_code:
         raise ValueError(
@@ -270,7 +270,7 @@ def build_gadget(
         raise ValueError("x is the zero vector, which measures no logical operator.")
 
     # The check equation above admits the whole normalizer, so every stabilizer of the measured
-    # basis passes it too. Such an x measures the identity, so reject it: x must not lie in the row
+    # basis passes it too.  Such an x measures the identity, so reject it: x must not lie in the row
     # space of the measured basis's check matrix.
     H_same_gf2 = galois.GF2(H_same.astype(np.int_))
     x_gf2 = galois.GF2(x.astype(np.int_))
@@ -310,12 +310,12 @@ def _rebuild_with_added_ancillas(
     """Rebuild a GadgetLayout with incidence augmented by extra weight-2 rows.
 
     Each row of ``incidence_extra`` has weight 2 and corresponds to a new κ qubit not backed by any
-    original Z-check (basis=X) or X-check (basis=Z). The function:
+    original Z-check (basis=X) or X-check (basis=Z).  The function:
 
     1. Stacks incidence_aug = [incidence; incidence_extra].
     2. Recomputes G_aug = ker(incidence_aug^T).
-    3. Assembles merged checks with the original V_0 / C_0 plus the new κ rows. The extra columns of
-       tilde_F are all zero, since no original check sits on the new κ qubits.
+    3. Assembles merged checks with the original V_0 / C_0 plus the new κ rows.  The extra columns
+       of tilde_F are all zero, since no original check sits on the new κ qubits.
 
     The returned ``incidence`` covers the new κ qubits, whose merged-code qubit indices come after
     the original ones.

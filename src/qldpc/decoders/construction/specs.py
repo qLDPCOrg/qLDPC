@@ -154,9 +154,9 @@ def decoder_spec(
 ) -> Callable[..., DecoderSpec[_DecoderT]]:
     """Create a typed decoder-specification helper from one construction signature.
 
-    The helper accepts the options of ``signature_source`` (by default, ``builder``), excluding
-    its first argument and any names in ``exclude``.  Its public documentation is ``doc``, not
-    a rewritten builder docstring.
+    The helper accepts the options of ``signature_source`` (by default, ``builder``), excluding its
+    first argument and any names in ``exclude``.  Its public documentation is ``doc``, not a
+    rewritten builder docstring.
     """
     source = builder if signature_source is None else signature_source
     helper_signature = _get_helper_signature(source, exclude)

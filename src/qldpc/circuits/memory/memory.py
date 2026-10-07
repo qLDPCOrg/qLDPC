@@ -64,8 +64,8 @@ def get_memory_experiment(
     More specifically, if ``basis`` is ``Pauli.X`` or ``Pauli.Z`` then the memory experiment
     performs the following:
 
-    1. Initialize all data qubits to a +1 eigenstate of the specified basis: ``|0>`` for Z,
-       ``|+>`` for X.
+    1. Initialize all data qubits to a +1 eigenstate of the specified basis: ``|0>`` for Z, ``|+>``
+       for X.
     2. Perform an initial round of QEC, adding detectors for the basis-type stabilizers.
     3. Perform ``num_rounds - 1`` additional QEC rounds, adding detectors to enforce that basis-type
        stabilizers have not changed between adjacent rounds of QEC.
@@ -139,8 +139,8 @@ def get_memory_experiment(
             check matrix, with data qubits numbered from 0 and check qubits numbered from len(code).
             For a combined-basis experiment, ``qubit_ids.reference`` contains noiseless Bell
             reference qubits.
-        syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
-            round of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
+        syndrome_measurement_strategy: The syndrome measurement strategy that defines how each round
+            of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
 
     Returns:
         stim.Circuit: A circuit ready for simulation via Stim or Sinter.
@@ -438,8 +438,8 @@ def get_observables(
     Args:
         code: The code whose observables we wish to annotate.
         data_qubits: Indices of the data qubits of the code.  Default: the first len(code) integers.
-        basis: The type of observable (Pauli.X or Pauli.Z, or equivalently a case-insensitive "X"
-            or "Z" string) we wish to annotate, or None for both.
+        basis: The type of observable (Pauli.X or Pauli.Z, or equivalently a case-insensitive "X" or
+            "Z" string) we wish to annotate, or None for both.
         on_measurements: If provided a sequence of measurement targets, assume that they correspond
             to measurements of the data qubits in a specified basis (which in this case is not
             allowed to be None), and define observables using these measurements.  If True, define
@@ -546,8 +546,8 @@ def _get_qec_cycle(
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.
         check_ids: The check qubits that measure stabilizers to annotate with detectors.  Must be a
             subset of qubit_ids.check (though this requirement is not verified).
-        syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
-            round of QEC measures the parity checks of the code.
+        syndrome_measurement_strategy: The syndrome measurement strategy that defines how each round
+            of QEC measures the parity checks of the code.
 
     Returns:
         stim.Circuit: The noiseless circuit of num_rounds syndorme measurements.
