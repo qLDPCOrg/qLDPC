@@ -53,9 +53,9 @@ def _iter_errors_and_syndromes(
     Errors are sorted in decreasing weight (number of bits or qudits addressed nontrivially).  A
     positive probability_cutoff requires an error_channel, and skips errors below the cutoff.
 
-    The syndrome_mask is a boolean mask of syndrome bits to retain, or None to keep all bits.
-    When post-selecting, errors whose syndrome is nontrivial on any dropped bit are skipped,
-    and dropped bits are omitted from the yielded syndrome.
+    The syndrome_mask is a boolean mask of syndrome bits to retain, or None to keep all bits.  When
+    post-selecting, errors whose syndrome is nontrivial on any dropped bit are skipped, and dropped
+    bits are omitted from the yielded syndrome.
     """
     from qldpc import codes
 

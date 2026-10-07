@@ -63,9 +63,9 @@ class _CSSConeResult:
 class _CSSConeMaps:
     """Four-map CSS cone in a measurement-basis-neutral convention.
 
-    ``measurement_to_data`` and ``measurement_boundary`` form the new checks in the measured
-    basis. ``complement_from_data`` extends the original complementary checks onto the ancillas,
-    and ``complement_boundary`` forms new ancilla-only complementary checks.
+    ``measurement_to_data`` and ``measurement_boundary`` form the new checks in the measured basis.
+    ``complement_from_data`` extends the original complementary checks onto the ancillas, and
+    ``complement_boundary`` forms new ancilla-only complementary checks.
     """
 
     basis: PauliXZ

@@ -24,13 +24,13 @@ class SequentialWindowDecoder(SinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors.
 
     A SequentialWindowDecoder splits a detector error model into (possibly overlapping) "windows".
-    Each window is defined by two sets of detectors, which in turn define a "detection region" and
-    a "commit region" for that window.  Each region consists of a (given) set of detectors and the
+    Each window is defined by two sets of detectors, which in turn define a "detection region" and a
+    "commit region" for that window.  Each region consists of a (given) set of detectors and the
     (induced) set of error mechanisms that trigger those detectors.
 
     Windows are decoded sequentially, one by one.  To decode a window, we first decode the syndrome
-    in its detection region.  We then "commit" to the decoded circuit error in the commit
-    region, which entails
+    in its detection region.  We then "commit" to the decoded circuit error in the commit region,
+    which entails
 
     (a) removing the error mechanisms in the commit region from all subsequent windows, and
     (b) emulating the active correction of committed errors by appropriately updating the syndromes
@@ -44,9 +44,9 @@ class SequentialWindowDecoder(SinterDecoder):
     A SequentialWindowDecoder initialized without specifying commit regions sets the commit region
     of each window to the corresponding detection region.
 
-    A special case of SequentialWindowDecoder is a SlidingWindowDecoder, in which case this
-    decoding method is known as the "overlapping recovery method" in arXiv:quant-ph/0110143, which
-    is explained more nicely in arXiv:2012.15403 and arXiv:2209.08552.
+    A special case of SequentialWindowDecoder is a SlidingWindowDecoder, in which case this decoding
+    method is known as the "overlapping recovery method" in arXiv:quant-ph/0110143, which is
+    explained more nicely in arXiv:2012.15403 and arXiv:2209.08552.
     """
 
     _prebuilt_decoder_rejection_reason = (
@@ -78,10 +78,10 @@ class SequentialWindowDecoder(SinterDecoder):
             commit_regions: A sequence containing a set of detectors for each window, or None, in
                 which case the commit region of each window is equal to its detection regions.
                 Default: None.  The errors triggered by a commit region must also be triggered by
-                the detection region of the same window, which holds whenever the commit region is
-                a subset of the detection region.
-            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
-                that DEM.
+                the detection region of the same window, which holds whenever the commit region is a
+                subset of the detection region.
+            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for that
+                DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
             decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None for
@@ -180,8 +180,8 @@ class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
     sequentially.
 
     Instances of this class are meant to be constructed by a SequentialWindowDecoder, whose
-    .compile_decoder_for_dem method returns a CompiledSequentialWindowDecoder.
-    See help(SequentialWindowDecoder).
+    .compile_decoder_for_dem method returns a CompiledSequentialWindowDecoder.  See
+    help(SequentialWindowDecoder).
     """
 
     def __init__(
@@ -350,8 +350,8 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                 time index from.  A non-None ``detector_to_time`` mapping is assumed to be valid and
                 compatible with every detector error model that this decoder is later compiled to
                 with ``SlidingWindowDecoder.compile_decoder_for_dem``.
-            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
-                that DEM.
+            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for that
+                DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
             decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None for

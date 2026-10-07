@@ -69,8 +69,8 @@ def lazy_import(name: str) -> ModuleType:
     return module
 
 
-# networkx is loaded lazily to keep it and its ~110 ms import out of ``import qldpc``.
-# Call sites import it as ``from qldpc._util import networkx as nx``.
+# networkx is loaded lazily to keep it and its ~110 ms import out of ``import qldpc``.  Call sites
+# import it as ``from qldpc._util import networkx as nx``.
 if TYPE_CHECKING:
     import networkx
 else:

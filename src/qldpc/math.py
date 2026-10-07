@@ -169,14 +169,14 @@ def block_matrix(
 def get_dual_basis(basis: galois.FieldArray, *, validate: bool = True) -> galois.FieldArray:
     """Construct a dual basis, for which ``dual_basis @ basis.T = identity_matrix``.
 
-    The rows of ``basis`` must be linearly independent, and it must have at least as many columns
-    as rows; a dual basis exists only in that case.
+    The rows of ``basis`` must be linearly independent, and it must have at least as many columns as
+    rows; a dual basis exists only in that case.
 
     Args:
         basis: A full-row-rank matrix with at least as many columns as rows, whose rows form the
             basis to dualize.
-        validate: If True (default), check the precondition above and raise a ``ValueError`` when
-            it fails.  Pass False to skip the check when the precondition is already guaranteed.
+        validate: If True (default), check the precondition above and raise a ``ValueError`` when it
+            fails.  Pass False to skip the check when the precondition is already guaranteed.
     """
     if validate and (
         basis.shape[0] > basis.shape[1] or np.linalg.matrix_rank(basis) != basis.shape[0]
@@ -279,16 +279,16 @@ def _orthonormalize_odd(
     First, find an orthogonal basis in which each vector has nonzero self-overlap (with Gram-Schmidt
     orthogonalization): at each step, pick a vector with nonzero self-overlap ``v @ v`` and subtract
     its projection from the others.  Out of the remaining null vectors (with zero self-overlap), if
-    a pair (u, v) have nonzero overlap ``u @ v``, then their sum has nonzero self-overlap
-    (in a field with odd characteristic), ``(u + v) @ (u + v) = 2 * u @ v``, so replace
-    ``u <- u + v``, and orthogonalize remaining vectors against u.  If no remaining null vectors
-    have nonzero overlap, no orthonormal basis exists.
+    a pair (u, v) have nonzero overlap ``u @ v``, then their sum has nonzero self-overlap (in a
+    field with odd characteristic), ``(u + v) @ (u + v) = 2 * u @ v``, so replace ``u <- u + v``,
+    and orthogonalize remaining vectors against u.  If no remaining null vectors have nonzero
+    overlap, no orthonormal basis exists.
 
     A vector with nonzero self-overlap can be rescaled to a unit vector (self-overlap 1) exactly
     when its self-overlap has a square root in the field, by taking ``v -> v / sqrt(v @ v)``.
-    Vectors with non-square self-overlaps cannot be rescaled on their own, but a pair of them may
-    be combined into two unit vectors, allowing an orthonormal basis when the number of such
-    vectors is even.
+    Vectors with non-square self-overlaps cannot be rescaled on their own, but a pair of them may be
+    combined into two unit vectors, allowing an orthonormal basis when the number of such vectors is
+    even.
     """
     # diagonalize: build an orthogonal basis of vectors with nonzero self-overlap
     diagonal: list[tuple[galois.FieldArray, galois.FieldArray]] = []

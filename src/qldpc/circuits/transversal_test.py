@@ -173,8 +173,8 @@ def test_finding_circuit(
         with pytest.raises(ValueError, match="logical tableau on 1 qubits"):
             circuits.get_transversal_circuits(code, [stim.Tableau(2)])
 
-        # There are no logical two-qubit gates in the SWAP-only group of this
-        # two-logical-qubit CSS code.
+        # There are no logical two-qubit gates in the SWAP-only group of this two-logical-qubit CSS
+        # code.
         assert (
             circuits.get_transversal_circuit(
                 codes.CSSCode([[1, 1, 0, 0]], [[0, 0, 1, 1]]),

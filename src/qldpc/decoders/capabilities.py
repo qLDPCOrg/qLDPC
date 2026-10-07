@@ -49,8 +49,8 @@ def is_prebuilt_observable_decoder(decoder: object) -> bool:
     Such a decoder has a decode_observables method, or is a compiled Sinter decoder with a
     decode_shots_bit_packed method.  It is not a Sinter-style decoder that still has to be compiled
     for a detector error model (see compiles_for_dem), and it is not an error decoder: a decoder
-    that can do both, such as a RelayBPDecoder, is used as an error decoder if passed prebuilt to
-    a code-capacity estimator, since it cannot be rebuilt for that sector's observables.
+    that can do both, such as a RelayBPDecoder, is used as an error decoder if passed prebuilt to a
+    code-capacity estimator, since it cannot be rebuilt for that sector's observables.
     """
     returns_observables = bool(getattr(decoder, "decode_returns_observables", False))
     is_error_decoder = isinstance(decoder, ErrorDecoder) or (

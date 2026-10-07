@@ -69,9 +69,9 @@ def test_boost_gadget_dispatches_to_two_methods() -> None:
         build_gadget,
     )
 
-    # Use Webster code 0 (l=31, k>=2): Steane gadget has dimension 0 (Steane
-    # k=1 minus 1 gadget-consumed logical), which causes the BP+OSD decoder
-    # used by _boost_gadget_distance to hang searching for nonexistent logicals.
+    # Use Webster code 0 (l=31, k>=2): Steane gadget has dimension 0 (Steane k=1 minus 1
+    # gadget-consumed logical), which causes the BP+OSD decoder used by _boost_gadget_distance to
+    # hang searching for nonexistent logicals.
     data = load_webster_seed_set(0)
     code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
     x = _webster_x_bar_operator(data)
@@ -140,7 +140,7 @@ def test_boost_gadget_combinatorial_basis_z_preserves_chi_carrier() -> None:
     """After basis=Z combinatorial boost, χ rows must live in HZ_merged.
 
     Layout rebuilding carries the basis through, so this pins that χ rows land in HZ_merged and not
-    HX_merged. Scope is the combinatorial path; the distance path's basis=X is covered by
+    HX_merged.  Scope is the combinatorial path; the distance path's basis=X is covered by
     test_boost_gadget_preserves_css_commutation[distance].
     """
     from qldpc.experimental.surgery.cheeger import boost_gadget
@@ -239,7 +239,7 @@ def test_boost_gadget_distance_rejects_too_small_a_target_by_its_own_value(
     """The rejection quotes the target the caller wrote, not what int() made of it.
 
     method='distance' casts the target to an int, and anything in (0, 1) casts to 0, so validating
-    after the cast reports a value the caller never passed. 0.9 pins that the cast is what gets
+    after the cast reports a value the caller never passed.  0.9 pins that the cast is what gets
     checked; -2.0 pins that the outer guard, not the inner one, is what answers a negative target.
     """
     from qldpc.experimental.surgery import boost_gadget, build_gadget
@@ -413,7 +413,7 @@ def test_boost_combinatorial_rejects_synthetic_n_V_above_26() -> None:
 def test_boost_combinatorial_raises_when_target_unreachable_in_budget() -> None:
     """When boost can't reach target_h within max_extra_qubits, it raises RuntimeError.
 
-    It raises rather than silently returning an under-target (distance-degraded) gadget. Webster0
+    It raises rather than silently returning an under-target (distance-degraded) gadget.  Webster0
     (h0=1) with target=10 cannot be reached in max_extra=2.
     """
     from qldpc.experimental.surgery import build_gadget
@@ -460,7 +460,7 @@ def test_boost_distance_raises_when_target_unreachable_in_budget() -> None:
     """_boost_gadget_distance raises RuntimeError when nothing clears the BP+OSD screen.
 
     A returned gadget has always met target_distance, so exhausting the budget is an error rather
-    than a result. Webster0 cannot reach target_distance=999.
+    than a result.  Webster0 cannot reach target_distance=999.
     """
     from qldpc.experimental.surgery.cheeger import _boost_gadget_distance
 
@@ -499,7 +499,7 @@ def test_boost_distance_skips_unusable_augmentation_sample(
     """A sample yielding no fresh degree-2 rows is skipped, and the search moves to the next sample.
 
     The bound is scripted so the bare gadget fails and a later candidate passes, reaching the accept
-    path without paying for BP+OSD. The first sample returns None and the second delegates to the
+    path without paying for BP+OSD.  The first sample returns None and the second delegates to the
     real sampler, so a boosted gadget comes back only if the unusable sample is skipped rather than
     ending the search.
     """
@@ -574,7 +574,7 @@ def test_boost_combinatorial_stops_when_every_cut_edge_is_already_a_row() -> Non
     """The greedy search ends when every pair spanning the worst cut already shares a row of F.
 
     Steane's F is the weight-2 complement of the identity on 3 columns, so all three cut pairs are
-    already present. The budget is left generous to pin that the pair supply, not the budget, is
+    already present.  The budget is left generous to pin that the pair supply, not the budget, is
     what stops the search: h is reported unchanged at its bare value of 2.0.
     """
     from qldpc.experimental.surgery import build_gadget

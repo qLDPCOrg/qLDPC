@@ -37,8 +37,8 @@ def _get_error_decoder(pcm_or_dem: PcmOrDem, *, decoder: ErrorDecoderInput = Non
 
     Args:
         pcm_or_dem: The parity-check matrix or detector error model to decode.
-        decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None to
-            select the default: GUF for a nonbinary FieldArray and BP+OSD otherwise.
+        decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None to select
+            the default: GUF for a nonbinary FieldArray and BP+OSD otherwise.
 
     Returns:
         An ErrorDecoder.

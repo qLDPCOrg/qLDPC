@@ -23,8 +23,8 @@ from .encoding import _get_logical_tableau_from_code_data, get_encoder_and_decod
 def get_transversal_s(code: codes.CSSCode, *, validate: bool = True) -> stim.Circuit:
     """Get a physical circuit for a transversal logical ``S = diag(1, i)`` gate of the code.
 
-    The returned circuit applies one physical S or S_DAG gate to each qubit, and thereby enacts
-    a logical S gate on every logical qubit of the code.
+    The returned circuit applies one physical S or S_DAG gate to each qubit, and thereby enacts a
+    logical S gate on every logical qubit of the code.
 
     This construction only supports self-dual codes with equivalent logicals (SWEL):
 
@@ -59,8 +59,8 @@ def get_transversal_s(code: codes.CSSCode, *, validate: bool = True) -> stim.Cir
     decoded_frame_correction = stim.PauliString.from_numpy(xs=z_signs, zs=x_signs)
 
     # Map the decoded-frame Pauli correction back to a physical Pauli.  For SWEL codes this
-    # correction is purely Z-type (mod stabilizers), and appending a Z after an S makes it S_DAG,
-    # so we can realize the correction by emitting S_DAG (rather than S) on the corrected qubits.
+    # correction is purely Z-type (mod stabilizers), and appending a Z after an S makes it S_DAG, so
+    # we can realize the correction by emitting S_DAG (rather than S) on the corrected qubits.
     physical_correction = decoded_frame_correction.after(encoder, targets=range(len(code)))
     _, physical_zs = physical_correction.to_numpy()
 
@@ -82,10 +82,9 @@ def get_transversal_ops(
     """Logical tableaus and physical circuits induced by transversal automorphism generators.
 
     This method returns one logical/physical pair per generator of the transversal automorphism
-    group.  It does not enumerate every Clifford in that group.  If
-    ``remove_redundancies is True``, generator images that are logical Paulis or differ only by
-    logical Pauli corrections are omitted; the result can therefore be empty even for a nontrivial
-    automorphism group.
+    group.  It does not enumerate every Clifford in that group.  If ``remove_redundancies is True``,
+    generator images that are logical Paulis or differ only by logical Pauli corrections are
+    omitted; the result can therefore be empty even for a nontrivial automorphism group.
 
     Here local_gates must be a subset of {"S", "H", "SQRT_X", "SWAP"}.  The set describes the
     allowed local Pauli permutations; equivalent Stim ``C_XYZ``/``C_ZYX`` decompositions may appear
@@ -442,8 +441,8 @@ def _get_transversal_automorphism_data(
     if physical_circuit.num_qubits < len(code):
         physical_circuit.append("I", len(code) - 1)
 
-    # Determine the effect of physical_circuit on "decoded" qubits, for which
-    # logicals, stabilizers, and destabilizers are single-qubit Paulis.
+    # Determine the effect of physical_circuit on "decoded" qubits, for which logicals, stabilizers,
+    # and destabilizers are single-qubit Paulis.
     encoder, decoder = get_encoder_and_decoder(code, physical_circuit if deform_code else None)
     decoded_tableau = encoder.then(physical_circuit.to_tableau()).then(decoder)
 

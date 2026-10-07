@@ -63,17 +63,17 @@ class DetectorErrorModelArrays:
                 noise channels may contain correlated ``ELSE_CORRELATED_ERROR`` chains, so the
                 disjoint-error approximation is enabled for this convenience path.  A model
                 extracted here carries no decomposition suggestions; to obtain those, extract it
-                yourself by calling ``circuit.detector_error_model(decompose_errors=True)`` and
-                pass the result.
+                yourself by calling ``circuit.detector_error_model(decompose_errors=True)`` and pass
+                the result.
             simplify: If ``True``, merge equivalent error mechanisms (see
                 ``DetectorErrorModelArrays.simplified``).  Defaults to ``True``.
             decompose_errors: If ``True``, split every error into the components that the error
                 model suggests for it, leaving errors with no suggestion alone.  Each component
                 inherits the probability of the error it came from, and the correlation between
-                components is discarded, so a split model addresses fewer detectors per error --
-                as a matching decoder requires -- at the cost of no longer sampling like the model
-                it came from.  Simplifying afterwards then merges components that coincide,
-                combining their probabilities.  Defaults to ``False``.
+                components is discarded, so a split model addresses fewer detectors per error -- as
+                a matching decoder requires -- at the cost of no longer sampling like the model it
+                came from.  Simplifying afterwards then merges components that coincide, combining
+                their probabilities.  Defaults to ``False``.
         """
         dem = (
             circuit_or_dem.detector_error_model(approximate_disjoint_errors=True)
@@ -110,8 +110,8 @@ class DetectorErrorModelArrays:
             observable_flip_matrix: binary matrix mapping errors to observable flips, or None for
                 zero observables.
             error_probs: per-error probabilities, or a single number broadcast to all errors.
-            suggested_decompositions (optional): dictionary that maps an error (by index) into
-                a frozenset of FlipPattern, one per suggested decomposition component.
+            suggested_decompositions (optional): dictionary that maps an error (by index) into a
+                frozenset of FlipPattern, one per suggested decomposition component.
             simplify: If True, return a simplified model with equivalent error mechanisms merged
                 (see DetectorErrorModelArrays.simplified).  Defaults to False.
 
@@ -243,8 +243,8 @@ class DetectorErrorModelArrays:
     def to_circuit(self) -> stim.Circuit:
         """Convert this DEM to a synthetic stim.Circuit.
 
-        Each error mechanism becomes a noisy measurement ``M(p)`` on a dedicated qubit. DETECTOR and
-        OBSERVABLE_INCLUDE instructions then reference those measurements.
+        Each error mechanism becomes a noisy measurement ``M(p)`` on a dedicated qubit.  DETECTOR
+        and OBSERVABLE_INCLUDE instructions then reference those measurements.
 
         The detector error model of that circuit reproduces this DEM up to reordering of error
         mechanisms, merging of mechanisms with identical flips, and omission of mechanisms that
@@ -319,8 +319,8 @@ class DetectorErrorModelArrays:
     ) -> DetectorErrorModelArrays:
         """Condition this detector error model on the given detectors being in 0 (untriggered).
 
-        The errors that trigger the post-selected detectors are removed from the DEM.
-        The post-selected detectors are similarly removed unless keep_detectors is True.
+        The errors that trigger the post-selected detectors are removed from the DEM.  The
+        post-selected detectors are similarly removed unless keep_detectors is True.
 
         If order > 1, combinations of up to 'order' removed error mechanisms whose co-occurrence
         does not trigger any of the post-selected detectors are added back to the DEM as synthetic
@@ -429,8 +429,8 @@ class DetectorErrorModelArrays:
 
         If ``decompose_errors is True``, all errors are decomposed into single-component errors.
 
-        If a detector or observable appears multiple times within one component, its occurrences
-        are reduced to the original value mod 2.
+        If a detector or observable appears multiple times within one component, its occurrences are
+        reduced to the original value mod 2.
         """
         errors: list[CircuitError] = []
         for instruction in dem.flattened():

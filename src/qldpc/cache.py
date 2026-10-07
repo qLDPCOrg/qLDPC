@@ -101,9 +101,9 @@ def use_disk_cache(
     pairs, unpacked if this tuple has length 1.  A custom key_func, called with the same arguments
     as the decorated function, overrides this default.
 
-    The decorated function has a .refresh method with the same signature, which ignores any
-    existing cache entry, recomputes the result, and saves the new result to the cache.  Refreshing
-    only affects this cache, and does not clear other caches used internally by the function.
+    The decorated function has a .refresh method with the same signature, which ignores any existing
+    cache entry, recomputes the result, and saves the new result to the cache.  Refreshing only
+    affects this cache, and does not clear other caches used internally by the function.
 
     The decorator is intended for module-level functions: a decorated function is pickled by
     reference to its qualified name, and it does not bind as a method.
