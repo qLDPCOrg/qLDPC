@@ -4,7 +4,7 @@ Choosing a decoder
 Decoder-based distance bounds and logical error rate estimates require a decoder.
 qLDPC lets you choose a decoder by creating a :class:`decoder specification <qldpc.decoders.construction.specs.DecoderSpec>`, such as ``spec = qldpc.decoders.bp_osd(...)``, which defines a decoding algorithm and its options.
 Any method with a ``decoder=`` argument, such as :meth:`qldpc.codes.CSSCode.get_logical_error_rate_func <qldpc.codes.common.CSSCode.get_logical_error_rate_func>` (see, for example, the :doc:`code-capacity notebook <examples/logical_error_rates/1_code_capacity>`), accepts and uses a decoder specification to internally compile a decoder for a fixed parity check matrix or detector error model.
-You can also pass your own decoder class or factory as ``decoder=``; see `Code-capacity estimates`_ and `Using decoders with Sinter`_ for the inputs each workflow supplies.
+You can also pass your own decoder class or factory as ``decoder=``; see `Code-capacity logical error rate estimates`_ and `Using decoders with Sinter`_ for the inputs each workflow supplies.
 
 The :doc:`decoders example notebook <examples/decoders>` walks through the workflows on this page.
 
