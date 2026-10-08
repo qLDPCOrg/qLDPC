@@ -15,6 +15,7 @@ import numpy.typing as npt
 import scipy.sparse
 import stim
 
+from qldpc._util import get_external_caller_stacklevel
 from qldpc.math import IntegerArray
 
 from ..common import PLACEHOLDER_ERROR_RATE, _erasure_bit_support, with_erasure_bits
@@ -666,37 +667,34 @@ def _get_relay_decoder(
 def _as_relay_bp_matrix(matrix: IntegerArray) -> IntegerArray:
     """Return a binary matrix in a form that relay_bp accepts, leaving the given matrix unmodified.
 
-    relay_bp accepts dense arrays and CSR or CSC matrices, but panics on sparse matrices whose
-    indices are unsorted or duplicated.  Scipy allows such matrices, and DetectorErrorModelArrays
-    builds them: an error that flips observables 1 and 8 can store them in the order (8, 1).
-    Sparse inputs (including sparse arrays and other sparse formats) are therefore copied into a
-    canonical CSC matrix.  Reordering indices does not change the matrix.
-
-    Entries are read over GF(2), as in the rest of RelayBPDecoder (which checks syndromes and
-    computes observable flips mod 2): duplicate sparse entries are summed, and every entry is
-    reduced mod 2.  relay_bp by itself would read any nonzero entry as 1, so a matrix with entries
-    other than 0 and 1 would otherwise be decoded as a different matrix from the one that those
-    checks use, and differently for dense and sparse storage.  Such matrices are reduced with a
-    warning, since the decoder then uses a matrix whose integer entries differ from the input.
+    relay_bp panics on sparse matrices with unsorted or duplicate indices, so this function copies
+    sparse inputs into a canonical CSC matrix.  This function also reduces entries mod 2 (after
+    summing sparse duplicates) and warns if that changes them, so that relay_bp decodes the same
+    GF(2) matrix that the RelayBPDecoder uses to check syndromes.  Finally, this function rejects
+    matrices with non-integer entries, and field arrays over fields other than GF(2).
     """
     if isinstance(matrix, galois.FieldArray):
+        if type(matrix).order != 2:
+            raise ValueError(
+                f"Relay-BP requires a binary matrix, but received a matrix over {type(matrix).name}"
+            )
         return matrix.view(np.ndarray)
+    output: IntegerArray
     if scipy.sparse.issparse(matrix):
-        reduced = scipy.sparse.csc_matrix(matrix, dtype=np.int64, copy=True)
-        reduced.sum_duplicates()
-        non_binary = bool(np.any(reduced.data > 1) or np.any(reduced.data < 0))
-        reduced.data %= 2
-        reduced.eliminate_zeros()
-        reduced = reduced.astype(np.uint8)
+        output = scipy.sparse.csc_matrix(matrix, copy=True)
+        output.sum_duplicates()
+        entries = output.data
     else:
-        array = np.asarray(matrix)
-        non_binary = bool(np.any((array != 0) & (array != 1)))
-        reduced = array % 2 if non_binary else matrix
-    if non_binary:
+        output = entries = np.array(matrix)  # copy, so that reducing entries leaves matrix intact
+    if np.any(entries % 1):
+        raise ValueError("Relay-BP requires a matrix with integer entries")
+    if np.any((entries != 0) & (entries != 1)):
         warnings.warn(
-            "RelayBPDecoder received a matrix with entries other than 0 and 1 (counting duplicate"
-            " sparse entries as summed).  Its entries were reduced mod 2, so the decoder uses a"
-            " binary matrix over GF(2) that differs from the input as an integer matrix.",
-            stacklevel=3,
+            "RelayBPDecoder received a matrix with entries other than 0 and 1 (after summing"
+            " duplicate sparse entries, if applicable).  Reducing these entries mod 2.",
+            stacklevel=get_external_caller_stacklevel(),
         )
-    return reduced
+        entries %= 2
+    if scipy.sparse.issparse(output):
+        output.eliminate_zeros()
+    return output.astype(np.uint8, copy=False)

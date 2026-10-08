@@ -108,7 +108,7 @@ def test_relay_bp_noncanonical_sparse_matrices() -> None:
     matrix_indices = matrix.indices.copy()
     observable_indices = observable_error_matrix.indices.copy()
 
-    with pytest.warns(UserWarning, match="reduced mod 2"):
+    with pytest.warns(UserWarning, match="Reducing these entries mod 2"):
         decoder = _get_decoder_rbp(matrix, observable_error_matrix=observable_error_matrix)
     syndromes = np.array([[1, 0], [1, 1], [0, 1]])
     assert np.array_equal(decoder.decode_batch(syndromes), np.eye(3, dtype=int))
@@ -117,25 +117,45 @@ def test_relay_bp_noncanonical_sparse_matrices() -> None:
     assert np.array_equal(observable_error_matrix.indices, observable_indices)
 
 
-def test_relay_bp_matrix_entries_read_mod_2() -> None:
-    """Matrix entries are read mod 2 for dense and sparse inputs alike, with a warning if needed."""
+def test_relay_bp_reads_entries_mod_2() -> None:
+    """Relay-BP reads dense and sparse matrices mod 2 alike, and warns if that changes an entry."""
     unsorted_binary = scipy.sparse.csc_matrix(([1, 1, 1], [0, 1, 0], [0, 1, 3]), shape=(2, 2))
     with warnings.catch_warnings():
         warnings.simplefilter("error")  # reordering indices alone does not warn
         _get_decoder_rbp(unsorted_binary)
 
-    # error 1 has entry 2 in check 0, which is 0 over GF(2)
-    dense = np.array([[1, 2], [0, 1]])
+    # error 1 has entry 2 in check 0, which is 0 over GF(2), and entry -1 in check 1, which is 1
+    dense = np.array([[1, 2], [0, -1]])
     syndromes = np.array([[1, 0], [0, 1], [1, 1]])
     decodes = []
-    for matrix in (dense, scipy.sparse.csc_matrix(dense), scipy.sparse.csr_matrix(dense)):
-        with pytest.warns(UserWarning, match="reduced mod 2"):
+    for matrix in (
+        dense,
+        dense.astype(float),
+        scipy.sparse.csc_matrix(dense),
+        scipy.sparse.csr_matrix(dense),
+    ):
+        with pytest.warns(UserWarning, match="Reducing these entries mod 2"):
             decoder = _get_decoder_rbp(matrix, error_priors=[0.1, 0.1])
         decodes.append(decoder.decode_batch(syndromes))
     # over GF(2) the matrix is the identity, so each syndrome is its own error
     for decode in decodes:
         assert np.array_equal(decode, syndromes)
-    assert np.array_equal(dense, [[1, 2], [0, 1]])
+    assert np.array_equal(dense, [[1, 2], [0, -1]])
+
+
+def test_relay_bp_rejects_invalid_matrices() -> None:
+    """Relay-BP rejects non-integer entries and fields other than GF(2), but accepts GF(2)."""
+    for matrix in (np.array([[0.5, 1]]), scipy.sparse.csc_matrix([[0.5, 1]])):
+        with pytest.raises(ValueError, match="integer entries"):
+            _get_decoder_rbp(matrix)
+    with pytest.raises(ValueError, match="requires a binary matrix"):
+        _get_decoder_rbp(galois.GF(3)([[1, 2], [0, 1]]))
+    with pytest.raises(ValueError, match="requires a binary matrix"):
+        _get_decoder_rbp(
+            galois.GF(2)([[1, 0], [0, 1]]), observable_error_matrix=galois.GF(4)([[1, 2]])
+        )
+    decoder = _get_decoder_rbp(galois.GF(2)([[1, 0], [0, 1]]))
+    assert np.array_equal(decoder.decode(np.array([1, 0])), [1, 0])
 
 
 def test_relay_bp_observables() -> None:
