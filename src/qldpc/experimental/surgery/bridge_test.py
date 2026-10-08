@@ -681,7 +681,6 @@ def test_build_joint_ppm_circuit_dem_deterministic_bb_36_8() -> None:
     Duplicate incidence rows are the stressor: if the SkipTree invariant fails on them, stim reports
     non-deterministic detectors.  BB [[36, 8]] Z̄⊗Z̄ joint PPM at h=1 (no boost) has such rows.
     """
-    from qldpc.circuits.noise_model import DepolarizingNoiseModel
     from qldpc.experimental.surgery.bridge import build_bridge
     from qldpc.experimental.surgery.circuit import (
         build_joint_ppm_circuit,
@@ -695,10 +694,10 @@ def test_build_joint_ppm_circuit_dem_deterministic_bb_36_8() -> None:
     g_r = build_gadget(code_r, z, basis=Pauli.Z)
     bridge = build_bridge(g_l, g_r)
 
-    noise = DepolarizingNoiseModel(1e-3, include_idling_error=False)
-    circuit, _ = build_joint_ppm_circuit(g_l, g_r, bridge, rounds=3, noise_model=noise)
+    # stim rejects non-deterministic detectors in a noiseless circuit too, and noise is slow to add
+    circuit, _ = build_joint_ppm_circuit(g_l, g_r, bridge, rounds=3)
     stripped = keep_only_observable(circuit, keep_idx=0)
-    dem = stripped.detector_error_model(approximate_disjoint_errors=True)
+    dem = stripped.detector_error_model()
     assert dem.num_detectors > 0
 
 
@@ -709,7 +708,6 @@ def test_build_joint_ppm_circuit_dem_deterministic_after_boost_bb() -> None:
     stabilizers in joint_code do not commute with the round-1 initial state, stim raises
     ``ValueError: The circuit contains non-deterministic detectors``.
     """
-    from qldpc.circuits.noise_model import DepolarizingNoiseModel
     from qldpc.experimental.surgery.bridge import build_bridge
     from qldpc.experimental.surgery.cheeger import boost_gadget
     from qldpc.experimental.surgery.circuit import (
@@ -736,11 +734,11 @@ def test_build_joint_ppm_circuit_dem_deterministic_after_boost_bb() -> None:
     )
     bridge = build_bridge(g_l, g_r)
 
-    noise = DepolarizingNoiseModel(1e-3, include_idling_error=False)
-    circuit, _ = build_joint_ppm_circuit(g_l, g_r, bridge, rounds=3, noise_model=noise)
+    # stim rejects non-deterministic detectors in a noiseless circuit too, and noise is slow to add
+    circuit, _ = build_joint_ppm_circuit(g_l, g_r, bridge, rounds=3)
     stripped = keep_only_observable(circuit, keep_idx=0)
     # raises ValueError("non-deterministic detectors") if the bug regressed
-    dem = stripped.detector_error_model(approximate_disjoint_errors=True)
+    dem = stripped.detector_error_model()
     assert dem.num_detectors > 0
 
 

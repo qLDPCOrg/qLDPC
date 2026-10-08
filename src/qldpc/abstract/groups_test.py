@@ -410,11 +410,20 @@ def test_quaternion_group() -> None:
 
 
 def assert_lift_is_homomorphism(group: abstract.Group) -> None:
-    """The lift satisfies lift(g . h) == lift(g) @ lift(h) over the whole group."""
-    members = list(group.generate())
+    """The lift satisfies lift(g . h) == lift(g) @ lift(h) over the whole group.
+
+    It suffices to check that lift(identity) is the identity matrix and that the product rule holds
+    whenever h is a generator s: every h is a product s_1 ... s_k of generators, so by induction on
+    k, lift(g . h) == lift(g) @ lift(s_1) @ ... @ lift(s_k), which at g == identity equals lift(h).
+    This avoids checking all |G|^2 pairs.
+    """
+    identity = group.lift(group.identity)
+    assert np.array_equal(identity, np.eye(len(identity), dtype=int))
+    generators = [(s, group.lift(s)) for s in group.generators]
     assert all(
-        np.array_equal(group.lift(g * h), group.lift(g) @ group.lift(h))
-        for g, h in itertools.product(members, members)
+        np.array_equal(group.lift(g * s), group.lift(g) @ lift_s)
+        for g in group.generate()
+        for s, lift_s in generators
     )
 
 
@@ -549,17 +558,18 @@ def test_quotient_generating_mats_are_homomorphic(
 
 
 def test_psl_iter_mats_dimension_3() -> None:
-    """``PSL(3, 3)`` has the correct order and 2-D (not flattened) matrix representatives.
+    """``PSL(3, 2)`` has the correct order and 2-D (not flattened) matrix representatives.
 
-    ``PSL(3, 3)`` (order 5616) is large enough that building it end-to-end via ``linear_rep=False``
-    is impractically slow for a test, so ``iter_mats`` is checked directly instead: it is fast and
-    exercises both the group order and the reshape of orbit representatives to
-    ``dimension x dimension`` matrices, which is the ``iter_mats``-specific bug this test guards
-    against.  (That the underlying quotient representation is a genuine homomorphism -- the other
-    bug fixed alongside this one -- is covered separately by
+    Building a dimension-3 group end-to-end via ``linear_rep=False`` is slow, so ``iter_mats`` is
+    checked directly instead: it exercises both the group order and the reshape of orbit
+    representatives to ``dimension x dimension`` matrices, which is the ``iter_mats``-specific bug
+    this test guards against.  The smallest field keeps the brute-force enumeration of all
+    ``field**9`` candidate matrices fast; quotients by nontrivial centers are checked in
+    ``test_PSL``.  (That the underlying quotient representation is a genuine homomorphism -- the
+    other bug fixed alongside this one -- is covered separately by
     ``test_quotient_generating_mats_are_homomorphic``.)
     """
-    dimension, field = 3, 3
+    dimension, field = 3, 2
     order_SL = np.prod([field**dimension - field**jj for jj in range(dimension)]) // (field - 1)
     order = order_SL // math.gcd(dimension, field - 1)
     mats = tuple(abstract.PSL.iter_mats(dimension, field))
@@ -568,15 +578,17 @@ def test_psl_iter_mats_dimension_3() -> None:
 
 
 def test_pgl_iter_mats_dimension_3() -> None:
-    """``PGL(3, 3)`` has the correct order and 2-D (not flattened) matrix representatives.
+    """``PGL(3, 2)`` has the correct order and 2-D (not flattened) matrix representatives.
 
-    ``PGL(3, 3)`` (order 5616) is large enough that building it end-to-end via ``linear_rep=False``
-    is impractically slow for a test -- and, before the fix, the non-homomorphic quotient
-    representation was confirmed to make that construction generate a vastly oversized group here --
-    so ``iter_mats`` is checked directly instead: it is fast and exercises both the group order and
-    the reshape of orbit representatives to ``dimension x dimension`` matrices.
+    Building a dimension-3 group end-to-end via ``linear_rep=False`` is slow -- and, before the fix,
+    the non-homomorphic quotient representation was confirmed to make that construction generate a
+    vastly oversized group for ``PGL(3, 3)`` -- so ``iter_mats`` is checked directly instead: it
+    exercises both the group order and the reshape of orbit representatives to
+    ``dimension x dimension`` matrices.  The smallest field keeps the brute-force enumeration of all
+    ``field**9`` candidate matrices fast; quotients by nontrivial centers are checked in
+    ``test_PGL``.
     """
-    dimension, field = 3, 3
+    dimension, field = 3, 2
     order_GL = np.prod([field**dimension - field**jj for jj in range(dimension)])
     order = order_GL // (field - 1)
     mats = tuple(abstract.PGL.iter_mats(dimension, field))

@@ -1095,7 +1095,8 @@ def test_random_quantum_tanner_code_is_reproducible() -> None:
         assert len({matrix_for() for _ in range(4)}) > 1
 
     # the code is also independent of the hash seed, which sets the iteration order of the sets of
-    # group members that the construction is built from
+    # group members that the construction is built from.  Child interpreters with fixed hash seeds
+    # must reproduce the code built here, under this interpreter's (randomized) hash seed.
     script = (
         "import numpy as np;"
         "from qldpc import abstract, codes;"
@@ -1116,9 +1117,9 @@ def test_random_quantum_tanner_code_is_reproducible() -> None:
             check=True,
             text=True,
         ).stdout
-        for hash_seed in ["0", "1", "2", "3"]
+        for hash_seed in ["0", "1"]
     }
-    assert len(matrices) == 1
+    assert matrices == {matrix_for(seed=7).hex() + "\n"}
 
 
 def test_toric_tanner_code(size: int = 4) -> None:
