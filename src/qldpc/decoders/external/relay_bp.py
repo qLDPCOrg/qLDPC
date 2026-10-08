@@ -584,6 +584,9 @@ relay_bp = decoder_spec(
     _get_decoder_relay_bp,
     doc="""Configure a Relay-BP decoder.
 
+See the `Relay-BP documentation <https://github.com/trmue/relay#performance>`_ for a discussion of
+the backend options.
+
 Args:
     precision: Numeric precision of the ``relay_bp.RelayDecoder<precision>`` backend.
     error_priors: Prior error probabilities.  A DEM supplies its own unless overridden.
@@ -612,9 +615,6 @@ Returns:
     A decoder specification.  ``build(pcm_or_dem)`` infers errors; for a DEM,
     ``build_observable_decoder(dem)`` predicts observable flips natively.  Both return
     :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`.
-
-See the `Relay-BP documentation <https://github.com/trmue/relay#performance>`_ for a discussion of
-the backend options.
 """,
 )
 
@@ -623,6 +623,9 @@ min_sum_bp = decoder_spec(
     _get_decoder_min_sum_bp,
     _get_decoder_min_sum_bp,
     doc="""Configure min-sum belief propagation with Relay-BP.
+
+See the `Relay-BP documentation <https://github.com/trmue/relay#performance>`_ for a discussion of
+the backend options.
 
 Args:
     precision: Numeric precision of the ``relay_bp.MinSumBPDecoder<precision>`` backend.
@@ -646,9 +649,6 @@ Returns:
     A decoder specification.  ``build(pcm_or_dem)`` infers errors; for a DEM,
     ``build_observable_decoder(dem)`` predicts observable flips natively.  Both return
     :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`.
-
-See the `Relay-BP documentation <https://github.com/trmue/relay#performance>`_ for a discussion of
-the backend options.
 """,
 )
 

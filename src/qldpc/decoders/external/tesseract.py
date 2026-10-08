@@ -267,6 +267,13 @@ tesseract = decoder_spec(
 Tesseract searches for likely errors within beam and priority-queue limits.  Its native
 observable predictions need the observable targets supplied by a detector error model.
 
+The optional ``tesseract-decoder`` package is needed when building the decoder; install it
+with ``pip install 'qldpc[tesseract]'`` on a supported platform.  See
+:class:`~qldpc.decoders.external.tesseract.TesseractDecoder` for the search limitations, and the
+`Tesseract documentation of TesseractConfig
+<https://github.com/quantumlib/tesseract-decoder/blob/main/src/py/README.md#class-tesseracttesseractconfig>`_
+for a discussion of these options.
+
 Args:
     error_channel: Probabilities of matrix-column errors, as one value or a vector.  A DEM
         supplies its own probabilities and does not accept an override.
@@ -294,13 +301,6 @@ Returns:
     A decoder specification.  ``build(pcm_or_dem)`` infers errors, while
     ``build_observable_decoder(dem)`` predicts observable flips natively.  Both return a
     :class:`~qldpc.decoders.external.tesseract.TesseractDecoder`.
-
-The optional ``tesseract-decoder`` package is needed when building the decoder; install it
-with ``pip install 'qldpc[tesseract]'`` on a supported platform.  See
-:class:`~qldpc.decoders.external.tesseract.TesseractDecoder` for the search limitations, and the
-`Tesseract documentation of TesseractConfig
-<https://github.com/quantumlib/tesseract-decoder/blob/main/src/py/README.md#class-tesseracttesseractconfig>`_
-for a discussion of these options.
 """,
 )
 
@@ -315,6 +315,10 @@ def tesseract_preset(
 ) -> DecoderSpec[TesseractDecoder]:
     """Configure one of Tesseract's named Sinter presets.
 
+    See the `Tesseract documentation of TesseractConfig
+    <https://github.com/quantumlib/tesseract-decoder/blob/main/src/py/README.md#class-tesseracttesseractconfig>`_
+    for a discussion of the options that a preset sets.
+
     Args:
         preset: ``"long-beam"`` or ``"short-beam"``, which set the beam-search cutoff, the
             priority-queue limit, and the number of generated detector orders.
@@ -328,10 +332,6 @@ def tesseract_preset(
     Returns:
         A decoder specification for :func:`decoders.tesseract <qldpc.decoders.tesseract>` that
         reproduces the preset.
-
-    See the `Tesseract documentation of TesseractConfig
-    <https://github.com/quantumlib/tesseract-decoder/blob/main/src/py/README.md#class-tesseracttesseractconfig>`_
-    for a discussion of the options that a preset sets.
     """
     beam_presets = {
         "long-beam": (20, 1_000_000, 21),

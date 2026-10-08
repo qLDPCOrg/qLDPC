@@ -67,6 +67,10 @@ def _get_decoder_bp_osd(
 ) -> ErrorDecoder:
     """Build a belief-propagation with ordered-statistics (BP+OSD) decoder.
 
+    See ``help(ldpc.BpOsdDecoder)``, the
+    `ldpc decoder documentation <https://software.roffe.eu/ldpc/quantum_decoder.html>`_, and
+    `arXiv:2005.07016 <https://arxiv.org/abs/2005.07016>`_.
+
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
         error_channel: One probability for every matrix-column error, or one probability per column.
@@ -90,10 +94,6 @@ def _get_decoder_bp_osd(
         :class:`~qldpc.decoders.protocols.ErrorDecoder`.
 
     This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
-
-    See ``help(ldpc.BpOsdDecoder)``, the
-    `ldpc decoder documentation <https://software.roffe.eu/ldpc/quantum_decoder.html>`_, and
-    `arXiv:2005.07016 <https://arxiv.org/abs/2005.07016>`_.
     """
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_channel, error_rate)
     return _build_ldpc_decoder(
@@ -138,6 +138,10 @@ def _get_decoder_bp_lsd(
 ) -> ErrorDecoder:
     """Build a belief-propagation with localized-statistics (BP+LSD) decoder.
 
+    See ``help(ldpc.bplsd_decoder.BpLsdDecoder)``, the
+    `ldpc decoder documentation <https://software.roffe.eu/ldpc/quantum_decoder.html>`_, and
+    `arXiv:2406.18655 <https://arxiv.org/abs/2406.18655>`_.
+
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
         error_channel: One probability for every matrix-column error, or one probability per column.
@@ -166,10 +170,6 @@ def _get_decoder_bp_lsd(
         :class:`~qldpc.decoders.protocols.ErrorDecoder`.
 
     This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
-
-    See ``help(ldpc.bplsd_decoder.BpLsdDecoder)``, the
-    `ldpc decoder documentation <https://software.roffe.eu/ldpc/quantum_decoder.html>`_, and
-    `arXiv:2406.18655 <https://arxiv.org/abs/2406.18655>`_.
     """
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_channel, error_rate)
     _warn_unknown_bp_lsd_options(backend_options or {})
@@ -215,6 +215,12 @@ def _get_decoder_bf(
 ) -> ErrorDecoder:
     """Build a belief-find (BF) decoder.
 
+    See ``help(ldpc.BeliefFindDecoder)``, the
+    `ldpc decoder documentation <https://software.roffe.eu/ldpc/quantum_decoder.html>`_,
+    `arXiv:1709.06218 <https://arxiv.org/abs/1709.06218>`_,
+    `arXiv:2103.08049 <https://arxiv.org/abs/2103.08049>`_, and
+    `arXiv:2209.01180 <https://arxiv.org/abs/2209.01180>`_.
+
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
         error_channel: One probability for every matrix-column error, or one probability per column.
@@ -238,12 +244,6 @@ def _get_decoder_bf(
         :class:`~qldpc.decoders.protocols.ErrorDecoder`.
 
     This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
-
-    See ``help(ldpc.BeliefFindDecoder)``, the
-    `ldpc decoder documentation <https://software.roffe.eu/ldpc/quantum_decoder.html>`_,
-    `arXiv:1709.06218 <https://arxiv.org/abs/1709.06218>`_,
-    `arXiv:2103.08049 <https://arxiv.org/abs/2103.08049>`_, and
-    `arXiv:2209.01180 <https://arxiv.org/abs/2209.01180>`_.
     """
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_channel, error_rate)
     return _build_ldpc_decoder(
@@ -271,6 +271,10 @@ bp_osd = decoder_spec(
     option_transform=_deprecate_error_rate_option,
     doc="""Configure belief propagation with ordered-statistics decoding.
 
+See the `ldpc BP+OSD documentation
+<https://software.roffe.eu/ldpc/ldpc/bposd_decoder.html>`_ for a discussion of its options, as
+well as ``help(ldpc.BpOsdDecoder)`` and `arXiv:2005.07016 <https://arxiv.org/abs/2005.07016>`_.
+
 Args:
     error_channel: Matrix-column error probabilities, as one value or a vector.  A DEM supplies
         its own probabilities and does not accept an override.
@@ -289,10 +293,6 @@ Args:
 Returns:
     A decoder specification.  ``build(pcm_or_dem)`` returns an ``ldpc.BpOsdDecoder`` subclass
     that implements :class:`~qldpc.decoders.protocols.ErrorDecoder`.
-
-This decoder cannot signal erasure.  See the `ldpc BP+OSD documentation
-<https://software.roffe.eu/ldpc/ldpc/bposd_decoder.html>`_ for a discussion of its options, as
-well as ``help(ldpc.BpOsdDecoder)`` and `arXiv:2005.07016 <https://arxiv.org/abs/2005.07016>`_.
 """,
 )
 
@@ -301,6 +301,11 @@ bp_lsd = decoder_spec(
     _get_decoder_bp_lsd,
     option_transform=_deprecate_error_rate_option,
     doc="""Configure belief propagation with localized-statistics decoding.
+
+See the `ldpc BP+LSD documentation
+<https://software.roffe.eu/ldpc/ldpc/bplsd_decoder.html>`_ for a discussion of its options, as
+well as ``help(ldpc.bplsd_decoder.BpLsdDecoder)`` and
+`arXiv:2406.18655 <https://arxiv.org/abs/2406.18655>`_.
 
 Args:
     error_channel: Matrix-column error probabilities, as one value or a vector.  A DEM supplies
@@ -324,11 +329,6 @@ Returns:
     A decoder specification.  ``build(pcm_or_dem)`` returns an
     ``ldpc.bplsd_decoder.BpLsdDecoder`` subclass implementing
     :class:`~qldpc.decoders.protocols.ErrorDecoder`.
-
-This decoder cannot signal erasure.  See the `ldpc BP+LSD documentation
-<https://software.roffe.eu/ldpc/ldpc/bplsd_decoder.html>`_ for a discussion of its options, as
-well as ``help(ldpc.bplsd_decoder.BpLsdDecoder)`` and
-`arXiv:2406.18655 <https://arxiv.org/abs/2406.18655>`_.
 """,
 )
 
@@ -337,6 +337,11 @@ bf = decoder_spec(
     _get_decoder_bf,
     option_transform=_deprecate_error_rate_option,
     doc="""Configure belief-find decoding.
+
+See the `ldpc belief-find documentation
+<https://software.roffe.eu/ldpc/ldpc/belief_find_decoder.html>`_ for a discussion of its options,
+as well as ``help(ldpc.BeliefFindDecoder)`` and
+`arXiv:1709.06218 <https://arxiv.org/abs/1709.06218>`_.
 
 Args:
     error_channel: Matrix-column error probabilities, as one value or a vector.  A DEM supplies
@@ -356,11 +361,6 @@ Args:
 Returns:
     A decoder specification.  ``build(pcm_or_dem)`` returns an ``ldpc.BeliefFindDecoder``
     subclass implementing :class:`~qldpc.decoders.protocols.ErrorDecoder`.
-
-This decoder cannot signal erasure.  See the `ldpc belief-find documentation
-<https://software.roffe.eu/ldpc/ldpc/belief_find_decoder.html>`_ for a discussion of its options,
-as well as ``help(ldpc.BeliefFindDecoder)`` and
-`arXiv:1709.06218 <https://arxiv.org/abs/1709.06218>`_.
 """,
 )
 
