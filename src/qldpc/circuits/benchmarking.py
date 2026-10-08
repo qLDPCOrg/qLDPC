@@ -51,8 +51,8 @@ def get_state_prep_diagnostic_circuit(
 
     The logical error rate of the diagnostic circuit is nominally the probability with which any of
     the annotated observables are flipped after decoding flag and stabilizer measurement outcomes.
-    However, the details of decoding and the option to post-select on some detectors are left up
-    to the user.
+    However, the details of decoding and the option to post-select on some detectors are left up to
+    the user.
 
     The second returned value is a ``DetectorRecord`` whose ``get_events`` method maps keys to
     detector indices:
@@ -69,8 +69,8 @@ def get_state_prep_diagnostic_circuit(
 
     Keyword args:
         add_flags: Whether to add a flag detector for each unaddressed measurement in the circuit.
-        qubit_ids: A QubitIDs object specifying the indices of the data qubits of the code.
-            If None, the data qubits of the code are assumed to be range(len(code)).
+        qubit_ids: A QubitIDs object specifying the indices of the data qubits of the code.  If
+            None, the data qubits of the code are assumed to be range(len(code)).
         observables: The observables that should stabilize the prepared state, or (by default) None.
             If not None, the observables should be either a matrix of symplectic row vectors, with
             shape (num_observables, 2 * len(code)), or a sequence of Pauli strings supported on the
@@ -160,8 +160,8 @@ def get_state_prep_diagnostic_tasks(
 ) -> list[sinter.Task]:
     r"""Helper method to build sinter Tasks for benchmarking a logical state preparation circuit.
 
-    This method is essentially a wrapper for get_state_prep_diagnostic_circuit.
-    See help(get_state_prep_diagnostic_circuit) for additional information.
+    This method is essentially a wrapper for get_state_prep_diagnostic_circuit.  See
+    help(get_state_prep_diagnostic_circuit) for additional information.
 
     As an example, if::
 
@@ -216,8 +216,8 @@ def get_state_prep_diagnostic_tasks(
         post_select_observables: The observables to post-select on.  Any time the decoder's
             prediction for these observable flips do not agree with the actual observable flips, the
             shot is discarded rather than counting as an error.
-        qubit_ids: A QubitIDs object specifying the indices of the data qubits of the code.
-            If None, the data qubits of the code are assumed to be range(len(code)).
+        qubit_ids: A QubitIDs object specifying the indices of the data qubits of the code.  If
+            None, the data qubits of the code are assumed to be range(len(code)).
         observables: The observables that should stabilize the prepared state, or (by default) None.
             If not None, the observables should be either a matrix of symplectic row vectors, with
             shape (num_observables, 2 * len(code)), or a sequence of Pauli strings supported on the
@@ -310,9 +310,9 @@ def get_logical_error_and_discard_rate(
     Returns:
         A fraction of the retained samples in which at least one observable was decoded incorrectly.
         A fraction of samples that were discarded, either by post-selection or at the request of the
-        decoder, which signals that a shot should be discarded by predicting observable flips in
-        one more byte than the observables of the sampled circuit require.  These are point
-        estimates.  Use ``sinter.collect`` when counts or confidence intervals are needed.
+        decoder, which signals that a shot should be discarded by predicting observable flips in one
+        more byte than the observables of the sampled circuit require.  These are point estimates.
+        Use ``sinter.collect`` when counts or confidence intervals are needed.
     """
     # identify and simplify the DEM to sample
     dem_arrays = decoders.DetectorErrorModelArrays(circuit_or_dem, simplify=True)

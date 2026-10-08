@@ -90,8 +90,8 @@ def test_group_equality_and_equivalence() -> None:
     group = abstract.CyclicGroup(3)
     other = abstract.CyclicGroup(3)  # same group, but a separately built lift
 
-    # equality is representation-sensitive (consistent with __hash__), so distinct instances of
-    # the same group are not equal, but they are equivalent.  A copy shares the representation.
+    # equality is representation-sensitive (consistent with __hash__), so distinct instances of the
+    # same group are not equal, but they are equivalent.  A copy shares the representation.
     assert group == copy.copy(group)
     assert group != other
     assert group != "not a group"
@@ -363,8 +363,8 @@ def test_seeded_random_leaves_global_rng_intact() -> None:
     """Passing a seed does not disturb SymPy's global RNG for other consumers.
 
     Seeding is still deterministic, but the reseed is confined to the seeded call: sampling the
-    global SymPy RNG before and after a seeded call yields the same sequence as sampling it twice
-    in a row.
+    global SymPy RNG before and after a seeded call yields the same sequence as sampling it twice in
+    a row.
     """
     group = abstract.CyclicGroup(2) * abstract.CyclicGroup(3)
 
@@ -436,8 +436,8 @@ def test_SL(dimension: int, field: int, linear_rep: bool) -> None:
 def test_PSL(dimension: int, field: int, linear_rep: bool | None) -> None:
     """Projective special linear group; its lift is a homomorphism (though not orthogonal).
 
-    ``linear_rep=None`` (the default) uses the linear representation where it exists
-    (``gcd = 1``, as in ``PSL(2, 4)`` and ``PSL(3, 2)``) and otherwise falls back to the permutation
+    ``linear_rep=None`` (the default) uses the linear representation where it exists (``gcd = 1``,
+    as in ``PSL(2, 4)`` and ``PSL(3, 2)``) and otherwise falls back to the permutation
     representation (``gcd > 1``, as in ``PSL(2, 3)``).
     """
     group = abstract.PSL(dimension, field, linear_rep=linear_rep)
@@ -525,9 +525,9 @@ def test_quotient_generating_mats_are_homomorphic(
     commute, so this map satisfies ``rep(g) @ rep(h) == rep(g @ h)`` for *all* ``g``, ``h`` --
     unlike the naive ``kron(inv(g), g)``, which only satisfies that identity when ``g`` and ``h``
     commute.  The dimension-3 generators below do not commute, so this test directly catches a
-    non-homomorphic representation.  For ``PGL(d>=3, q>2)``, the bad map was confirmed to
-    build a vastly oversized group when ``linear_rep=False`` is used; for other cases (e.g. ``PSL``)
-    a non-homomorphic map is still a latent correctness bug even where it happens not to inflate the
+    non-homomorphic representation.  For ``PGL(d>=3, q>2)``, the bad map was confirmed to build a
+    vastly oversized group when ``linear_rep=False`` is used; for other cases (e.g. ``PSL``) a
+    non-homomorphic map is still a latent correctness bug even where it happens not to inflate the
     closure's order.  Checking a handful of noncommuting words is enough to catch the defect without
     exhaustively enumerating ``SL(d, q)/GL(d, q)``, which is impractically slow at these dimensions
     (e.g. ``|SL(3, 3)| = 5616``).
@@ -572,9 +572,9 @@ def test_pgl_iter_mats_dimension_3() -> None:
 
     ``PGL(3, 3)`` (order 5616) is large enough that building it end-to-end via ``linear_rep=False``
     is impractically slow for a test -- and, before the fix, the non-homomorphic quotient
-    representation was confirmed to make that construction generate a vastly oversized group here
-    -- so ``iter_mats`` is checked directly instead: it is fast and exercises both the group order
-    and the reshape of orbit representatives to ``dimension x dimension`` matrices.
+    representation was confirmed to make that construction generate a vastly oversized group here --
+    so ``iter_mats`` is checked directly instead: it is fast and exercises both the group order and
+    the reshape of orbit representatives to ``dimension x dimension`` matrices.
     """
     dimension, field = 3, 3
     order_GL = np.prod([field**dimension - field**jj for jj in range(dimension)])

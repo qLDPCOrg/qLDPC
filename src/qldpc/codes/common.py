@@ -298,9 +298,9 @@ class AbstractCode(abc.ABC):
 class ClassicalCode(AbstractCode):
     """Classical linear error-correcting code over a finite field ``F_q``.
 
-    A classical binary code ``C = {x}`` is a set of vectors x (with entries in ``F_q``) called
-    code words.  We consider only linear codes, for which any linear combination of code words is
-    also code word.
+    A classical binary code ``C = {x}`` is a set of vectors x (with entries in ``F_q``) called code
+    words.  We consider only linear codes, for which any linear combination of code words is also
+    code word.
 
     Operationally, we define a classical code by a parity check matrix H with dimensions
     (num_checks, num_bits).  Each row of H represents a linear constraint (a "check") that code
@@ -481,12 +481,11 @@ class ClassicalCode(AbstractCode):
     def tensor_product(code_a: ClassicalCode, code_b: ClassicalCode) -> ClassicalCode:
         """Tensor product ``C_a ⨂ C_b`` of two codes ``C_a`` and ``C_b``.
 
-        Let ``G_a`` and ``G_b`` respectively denote the generators ``C_a`` and ``C_b``.
-        Definition: ``C_a ⨂ C_b`` is the code whose generators are ``G_a ⨂ G_b``.
+        Let ``G_a`` and ``G_b`` respectively denote the generators ``C_a`` and ``C_b``.  Definition:
+        ``C_a ⨂ C_b`` is the code whose generators are ``G_a ⨂ G_b``.
 
-        Observation: ``G_a ⨂ G_b`` is the check matrix of ``~(C_a ⨂ C_b)``.
-        We therefore construct ``~(C_a ⨂ C_b)`` and return its dual
-        ``~~(C_a ⨂ C_b) = C_a ⨂ C_b``.
+        Observation: ``G_a ⨂ G_b`` is the check matrix of ``~(C_a ⨂ C_b)``.  We therefore construct
+        ``~(C_a ⨂ C_b)`` and return its dual ``~~(C_a ⨂ C_b) = C_a ⨂ C_b``.
         """
         if code_a.field is not code_b.field:
             raise ValueError("Cannot take tensor product of codes over different fields")
@@ -655,8 +654,8 @@ class ClassicalCode(AbstractCode):
 
         Args:
             num_trials: Minimize over this many independent upper bounds.  If ``None`` (the
-                default), return the best known upper bound on distance, or compute a single
-                upper bound if no bound is known.
+                default), return the best known upper bound on distance, or compute a single upper
+                bound if no bound is known.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
@@ -813,8 +812,8 @@ class ClassicalCode(AbstractCode):
         matrix (whose rows form a basis for the code space).
 
         Puncturing a code is equivalent to shortening its dual code (Prop. 2.5 of arXiv:2308.15746).
-        Shortening a code at a bit keeps only the code words that are zero at that bit.
-        To shorten a code at a bit, we can
+        Shortening a code at a bit keeps only the code words that are zero at that bit.  To shorten
+        a code at a bit, we can
         (1) row-reduce the generator matrix at that bit,
         (2) delete the pivot row for that bit, and then
         (3) delete the column for that bit.
@@ -891,8 +890,8 @@ class ClassicalCode(AbstractCode):
         high estimate.  See help(qldpc.codes.ErrorRateFunc).
 
         If the decoder is known to correct every error of weight below min_error_weight, saying so
-        skips sampling those weights and drops their contribution to the reported uncertainty,
-        which otherwise dominates that uncertainty at small physical error rates while carrying no
+        skips sampling those weights and drops their contribution to the reported uncertainty, which
+        otherwise dominates that uncertainty at small physical error rates while carrying no
         information.  The claim is taken on trust and understates the reported failure or discard
         rate if it is false; it is a claim about the decoder rather than about the code, and cannot
         be read off the code distance.  See help(qldpc.codes.ErrorRateFunc) for the full caveats.
@@ -907,9 +906,8 @@ class ClassicalCode(AbstractCode):
         Here each error location is an observable, so decoding succeeds only if the decoder predicts
         the error at every location.  Pass a decoder specification such as ``decoders.bp_osd(...)``
         as ``decoder=``.  With no specification, the default is BP+OSD for binary codes and GUF
-        otherwise.
-        A specification that predicts observables natively is used that way when it can be built for
-        this code; otherwise it decodes errors, with a warning (see
+        otherwise.  A specification that predicts observables natively is used that way when it can
+        be built for this code; otherwise it decodes errors, with a warning (see
         help(qldpc.codes.code_capacity.get_code_capacity_decoder)).
 
         The basic idea in this method is to think of the fidelity
@@ -1003,22 +1001,20 @@ class QuditCode(AbstractCode):
     More specifically, for a QuditCode with block length num_qudits, each row of H is a symplectic
     vector P = ``[P_x|P_z]`` of length ``2 * num_qudits``, where each of ``P_x`` and ``P_z`` are
     vectors of length num_qudits that indicate the support of X-type and Z-type Pauli operators on
-    the physical qudits of the QuditCode.  If ``P_x[j] = r_x`` and ``P_z[j] = r_z``, where
-    ``r_x`` and ``r_z`` are elements of the Galois field ``GF(q)`` (for example,
-    ``GF(2) ~ {0, 1}`` for qubits), then the Pauli string P addresses physical qudit j by the
-    qudit operator ``X(r_x) Z(r_z)``, where
+    the physical qudits of the QuditCode.  If ``P_x[j] = r_x`` and ``P_z[j] = r_z``, where ``r_x``
+    and ``r_z`` are elements of the Galois field ``GF(q)`` (for example, ``GF(2) ~ {0, 1}`` for
+    qubits), then the Pauli string P addresses physical qudit j by the qudit operator
+    ``X(r_x) Z(r_z)``, where
 
     - ``X(r) = sum_{k=0}^{q-1} |k+r><k|`` is a shift operator, and
-    - ``Z(r) = sum_{k=0}^{q-1} w^{k r} |k><k|`` is a phase operator, with
-      ``w = exp(2 pi i / q)``.
+    - ``Z(r) = sum_{k=0}^{q-1} w^{k r} |k><k|`` is a phase operator, with ``w = exp(2 pi i / q)``.
 
     Here r and k are not integers, but elements of the Galois field ``GF(q)``, which has special
     rules for addition and multiplication when q is not a prime number.
 
     The matrix H is a "parity check matrix" in the sense that its null space with respect to the
-    symplectic inner product
-    ``⟨P,Q⟩_s = P_x @ Q_z - P_z @ Q_x = P @ symplectic_conjugate(Q)`` is the space of logical
-    Pauli operators of the QuditCode.
+    symplectic inner product ``⟨P,Q⟩_s = P_x @ Q_z - P_z @ Q_x = P @ symplectic_conjugate(Q)`` is
+    the space of logical Pauli operators of the QuditCode.
 
     References:
 
@@ -1220,8 +1216,8 @@ class QuditCode(AbstractCode):
         incident to that color.  These subgraphs are returned in arbitrary order.
 
         Args:
-            strategy: The strategy used by nx.greedy_color to color parity checks.
-                Default: "smallest_last".
+            strategy: The strategy used by nx.greedy_color to color parity checks.  Default:
+                "smallest_last".
         """
         if self.is_subsystem_code:
             raise ValueError("Syndrome subgraphs are undefined for subsystem codes")
@@ -1266,9 +1262,9 @@ class QuditCode(AbstractCode):
 
         Strings such as "Z_YX" and "Z I Y X" are both recognized, but a string like "ZI Y X" is not.
 
-        Pauli-X/Y/Z operators for qudit codes with ``field > 2`` must be annotated by an element
-        of the Galois field ``GF(field)``, such as "Z(1) _ Y(3) X(2)".  In this case "Y(a)" is an
-        alias for "X(a)*Z(a)", and strings such as "Z(1) _ X(1)*Z(3) X(2)" are also valid.
+        Pauli-X/Y/Z operators for qudit codes with ``field > 2`` must be annotated by an element of
+        the Galois field ``GF(field)``, such as "Z(1) _ Y(3) X(2)".  In this case "Y(a)" is an alias
+        for "X(a)*Z(a)", and strings such as "Z(1) _ X(1)*Z(3) X(2)" are also valid.
         """
         field = abstract.resolve_field(field)
         operator: type[Pauli | QuditPauli] = Pauli if field is galois.GF2 else QuditPauli
@@ -1473,9 +1469,9 @@ class QuditCode(AbstractCode):
                |   └------------------------------------> cols_sz (Z-type stabilizer pivots)
                └----------------------------------------> cols_sx (X-type stabilizer pivots)
 
-        Here I is an identity matrix of an appropriate size, and dots (·) indicate nonzero blocks
-        of the matrix.  Each row sector is associated with sets of linearly independent stabilizers
-        or gauge operators, though the gauge operators are generally not necessarily sorted into
+        Here I is an identity matrix of an appropriate size, and dots (·) indicate nonzero blocks of
+        the matrix.  Each row sector is associated with sets of linearly independent stabilizers or
+        gauge operators, though the gauge operators are generally not necessarily sorted into
         conjugate pairs (as in self.get_gauge_ops() and self.get_logical_ops()).
 
         For convenience, the standard-form matrix is returned with shape (-1, 2, len(self)), such
@@ -1687,8 +1683,8 @@ class QuditCode(AbstractCode):
         (2) ``Lz @ Ω.T @ Lx.T = I_k``.
         Here Ω is the symplectic form, and ``I_k`` is the ``k × k`` identity matrix.
 
-        Plugging (1) into (2), we find ``M = (Kz @ Ω.T @ Lx.T)**-1``, and in turn plug M into (1)
-        to get ``Lz = (Kz @ Ω.T @ Lx.T)**-1 @ Kz``.
+        Plugging (1) into (2), we find ``M = (Kz @ Ω.T @ Lx.T)**-1``, and in turn plug M into (1) to
+        get ``Lz = (Kz @ Ω.T @ Lx.T)**-1 @ Kz``.
 
         The X-type logical operators are given by a matrix with shape ``(k, 2*n)``.  As a
         convenience, a matrix with shape ``(k, n)`` is also accepted, in which case its entries are
@@ -1727,8 +1723,8 @@ class QuditCode(AbstractCode):
         (2) ``Lx @ Ω @ Lz.T = I_k``.
         Here Ω is the symplectic form, and ``I_k`` is the ``k × k`` identity matrix.
 
-        Plugging (1) into (2), we find ``M = (Kx @ Ω @ Lz.T)**-1``, and in turn plug M into (1)
-        to get ``Lx = (Kx @ Ω @ Lz.T)**-1 @ Kx``.
+        Plugging (1) into (2), we find ``M = (Kx @ Ω @ Lz.T)**-1``, and in turn plug M into (1) to
+        get ``Lx = (Kx @ Ω @ Lz.T)**-1 @ Kx``.
 
         The Z-type logical operators are given by a matrix with shape ``(k, 2*n)``.  As a
         convenience, a matrix with shape ``(k, n)`` is also accepted, in which case its entries are
@@ -1824,8 +1820,8 @@ class QuditCode(AbstractCode):
         """The destabilizers of this code.
 
         Destabilizers are defined relative to a specific minimal choice of stabilizer generators.
-        This method first considers the stabilizer matrix built by
-        ``self.get_stabilizer_ops()``.  If that choice is overcomplete, this method uses
+        This method first considers the stabilizer matrix built by ``self.get_stabilizer_ops()``.
+        If that choice is overcomplete, this method uses
         ``self.get_stabilizer_ops(canonicalized=True)``.
 
         If a pauli (Pauli.X or Pauli.Z) is provided, return only the destabilizers whose leading
@@ -1881,8 +1877,8 @@ class QuditCode(AbstractCode):
 
         The dual of a quantum code is defined almost identically to the dual a classical code.
 
-        In the classical case, a code C is defined as a set of bitstrings, ``{ x : x in C }``.
-        The dual code ``~C`` is then the set of bitstrings that are orthogonal to C::
+        In the classical case, a code C is defined as a set of bitstrings, ``{ x : x in C }``.  The
+        dual code ``~C`` is then the set of bitstrings that are orthogonal to C::
 
             ~C = { y : x @ y = 0 for all x in C }.
 
@@ -2082,8 +2078,8 @@ class QuditCode(AbstractCode):
 
         Args:
             num_trials: Minimize over this many independent upper bounds.  If ``None`` (the
-                default), return the best known upper bound on distance, or compute a single
-                upper bound if no bound is known.
+                default), return the best known upper bound on distance, or compute a single upper
+                bound if no bound is known.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
             backend: Distance-bound backend.  ``"auto"`` and ``"gap"`` use GAP/QDistRnd;
                 ``"decoder"`` and ``"sqetch"`` require a CSSCode and are rejected here.
@@ -2375,8 +2371,8 @@ class QuditCode(AbstractCode):
         (see help(qldpc.codes.ErrorRateFunc)).
 
         The physical error rate provided to the constructed function is the probability with which
-        each qubit experiences a Pauli error.  The constructed function will throw an error if
-        given a physical error rate larger than max_error_rate.  If a pauli_bias is provided, it is
+        each qubit experiences a Pauli error.  The constructed function will throw an error if given
+        a physical error rate larger than max_error_rate.  If a pauli_bias is provided, it is
         treated as the relative probabilities of an X, Y, and Z error on each qubit; otherwise,
         these errors occur with equal probability, corresponding to a depolarizing error.
 
@@ -2387,17 +2383,17 @@ class QuditCode(AbstractCode):
         Decoding succeeds if the decoder predicts the logical action of the sampled error, that is,
         its symplectic products with the logical operators of the code.  Pass a decoder
         specification such as ``decoders.bp_osd(...)`` as ``decoder=``.  With no specification, the
-        default is BP+OSD for binary codes and GUF otherwise.
-        A specification that predicts observables natively is used that way when it can be built for
-        this code; otherwise it decodes errors, with a warning (see
+        default is BP+OSD for binary codes and GUF otherwise.  A specification that predicts
+        observables natively is used that way when it can be built for this code; otherwise it
+        decodes errors, with a warning (see
         help(qldpc.codes.code_capacity.get_code_capacity_decoder)).
 
-        For a subsystem code, errors are decoded against the stabilizer generators of the code, so
-        a syndrome has one entry per stabilizer generator.  These generators can be high-weight
-        (for example, the stabilizers of a Bacon-Shor code have weight proportional to the code's
-        linear size), which general-purpose decoders may handle poorly.  The estimate is still
-        computed correctly, but it can overestimate the logical error rate achievable with a
-        decoder tailored to the code.
+        For a subsystem code, errors are decoded against the stabilizer generators of the code, so a
+        syndrome has one entry per stabilizer generator.  These generators can be high-weight (for
+        example, the stabilizers of a Bacon-Shor code have weight proportional to the code's linear
+        size), which general-purpose decoders may handle poorly.  The estimate is still computed
+        correctly, but it can overestimate the logical error rate achievable with a decoder tailored
+        to the code.
 
         Errors of weight below min_error_weight are taken to be decoded perfectly and are not
         sampled; the claim is taken on trust.  An error's weight here is the number of qudits it
@@ -2509,8 +2505,8 @@ class CSSCode(QuditCode):
 
     A CSSCode is defined from two classical codes with parity check matrices ``H_x`` and ``H_z``,
     whose rows indicate, respectively, the support of X-type Pauli strings that witness Z-type
-    errors, and Z-type Pauli strings that witness X-type errors.  The full parity check matrix of
-    a CSSCode is::
+    errors, and Z-type Pauli strings that witness X-type errors.  The full parity check matrix of a
+    CSSCode is::
 
         ⌈ H_x,  0  ⌉
         ⌊  0 , H_z ⌋.
@@ -2548,9 +2544,9 @@ class CSSCode(QuditCode):
         """Build a CSSCode from classical subcodes that specify X-type and Z-type parity checks.
 
         If ``promise_equal_distance_xz is True``, the X-type and Z-type logical operators are
-        assumed to have equal minimum weight, which lets the code distance be computed from one
-        type alone.  This promise is trusted rather than verified: passing ``True`` when it does
-        not hold makes get_distance return an incorrect (and compute-order-dependent) distance.
+        assumed to have equal minimum weight, which lets the code distance be computed from one type
+        alone.  This promise is trusted rather than verified: passing ``True`` when it does not hold
+        makes get_distance return an incorrect (and compute-order-dependent) distance.
         """
         self._code_x = ClassicalCode(code_x, field)  # X-type parity checks, measuring Z-type errors
         self._code_z = ClassicalCode(code_z, field)  # Z-type parity checks, measuring X-type errors
@@ -2710,13 +2706,13 @@ class CSSCode(QuditCode):
         """Is this code self-dual with equivalent logicals (SWEL)?
 
         A SWEL code is a self-dual CSS code for which there exists a basis of logical operators
-        ``(Lx, Lz)`` with ``Lx = Lz``; that is, Hadamard-transforming any single-qudit logical
-        Pauli X (in some logical Pauli basis) recovers the associated logical Pauli Z.
+        ``(Lx, Lz)`` with ``Lx = Lz``; that is, Hadamard-transforming any single-qudit logical Pauli
+        X (in some logical Pauli basis) recovers the associated logical Pauli Z.
 
-        In the case of stabilizer (non-subsystem) codes over a field with characteristic 2 (that
-        is, over ``GF(2**m)``, which includes qubits with ``m = 1``), a self-dual CSS code is SWEL
-        iff it has odd block length (Corollary 1 of arXiv:2503.19790), or at least one row of Lx
-        (in any basis) has nonzero self-overlap (Theorem 1 of arXiv:2503.19790).
+        In the case of stabilizer (non-subsystem) codes over a field with characteristic 2 (that is,
+        over ``GF(2**m)``, which includes qubits with ``m = 1``), a self-dual CSS code is SWEL iff
+        it has odd block length (Corollary 1 of arXiv:2503.19790), or at least one row of Lx (in any
+        basis) has nonzero self-overlap (Theorem 1 of arXiv:2503.19790).
 
         This method first checks special cases covered by arXiv:2503.19790, and otherwise directly
         checks the existence of a logical operator basis ``(Lx, Lz)`` with ``Lx = Lz``.
@@ -2832,8 +2828,8 @@ class CSSCode(QuditCode):
         operators in all other rows except row ``j+k``.
 
         If this method is passed a pauli operator (Pauli.X or Pauli.Z), it returns only the logical
-        operators of that type.  This matrix has shape ``(k, n)`` by default, but is expanded into
-        a matrix with shape ``(k, 2 * n)`` if this method is called with ``symplectic=True``.
+        operators of that type.  This matrix has shape ``(k, n)`` by default, but is expanded into a
+        matrix with shape ``(k, 2 * n)`` if this method is called with ``symplectic=True``.
 
         Logical X-type operators only address physical qudits by physical X-type operators, and
         logical Z-type operators only address physical qudits by physical Z-type operators.
@@ -3091,14 +3087,14 @@ class CSSCode(QuditCode):
         stabilizers.
 
         Let (Kx, Kz) and (Lx, Lz) denote the matrices of "old" and "new" logical operators of this
-        code, each with shape ``(k, n)``.  We know Kx, Kz, and Lx.  To find a suitable choice of
-        Lz, we write
+        code, each with shape ``(k, n)``.  We know Kx, Kz, and Lx.  To find a suitable choice of Lz,
+        we write
         (1) ``Lz = M @ Kz`` for some basis-change matrix ``M in GL(k)``, and note that
         (2) ``Lz @ Lx.T = I_k``.
         Here ``I_k`` is the ``k × k`` identity matrix.
 
-        Plugging (1) into (2), we find ``M = (Kz @ Lx.T)**-1``, and in turn plug M into (1) to
-        get ``Lz = (Kz @ Lx.T)**-1 @ Kz``.
+        Plugging (1) into (2), we find ``M = (Kz @ Lx.T)**-1``, and in turn plug M into (1) to get
+        ``Lz = (Kz @ Lx.T)**-1 @ Kz``.
         """
         logicals_ops_x = np.asanyarray(logicals_ops_x).view(self.field)
         self._validate_logical_ops_shape(logicals_ops_x)
@@ -3120,14 +3116,14 @@ class CSSCode(QuditCode):
         stabilizers.
 
         Let (Kx, Kz) and (Lx, Lz) denote the matrices of "old" and "new" logical operators of this
-        code, each with shape ``(k, n)``.  We know Kx, Kz, and Lz.  To find a suitable choice of
-        Lx, we write
+        code, each with shape ``(k, n)``.  We know Kx, Kz, and Lz.  To find a suitable choice of Lx,
+        we write
         (1) ``Lx = M @ Kx`` for some basis-change matrix ``M in GL(k)``, and note that
         (2) ``Lx @ Lz.T = I_k``.
         Here ``I_k`` is the ``k × k`` identity matrix.
 
-        Plugging (1) into (2), we find ``M = (Kx @ Lz.T)**-1``, and in turn plug M into (1) to
-        get ``Lx = (Kx @ Lz.T)**-1 @ Kx``.
+        Plugging (1) into (2), we find ``M = (Kx @ Lz.T)**-1``, and in turn plug M into (1) to get
+        ``Lx = (Kx @ Lz.T)**-1 @ Kx``.
         """
         logicals_ops_z = np.asanyarray(logicals_ops_z).view(self.field)
         self._validate_logical_ops_shape(logicals_ops_z)
@@ -3476,8 +3472,8 @@ class CSSCode(QuditCode):
 
         Args:
             num_trials: Minimize over this many independent upper bounds.  If ``None`` (the
-                default), return the best known upper bound on distance, or compute a single
-                upper bound if no bound is known.
+                default), return the best known upper bound on distance, or compute a single upper
+                bound if no bound is known.
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
                 X-type logical operator).  If passed qldpc.objects.Pauli.Z, compute the Z-distance.
                 The strings "X" and "Z" (case-insensitive) are also accepted.  If None (the
@@ -3486,14 +3482,14 @@ class CSSCode(QuditCode):
             decoder: Decoder input for the decoder-based algorithm; see
                 help(get_distance_bound_with_decoder).  Providing a decoder selects the
                 ``"decoder"`` backend when ``backend="auto"``.
-            backend: ``"auto"`` (the default), ``"gap"``, ``"sqetch"``, or ``"decoder"``.
-                Explicit ``"gap"`` always requests QDistRnd and never silently falls back.
-                ``"sqetch"`` requires the optional dependency and a CUDA-capable GPU.  The
-                ``"gap"`` and ``"sqetch"`` backends cannot be combined with ``decoder``.
+            backend: ``"auto"`` (the default), ``"gap"``, ``"sqetch"``, or ``"decoder"``.  Explicit
+                ``"gap"`` always requests QDistRnd and never silently falls back.  ``"sqetch"``
+                requires the optional dependency and a CUDA-capable GPU.  The ``"gap"`` and
+                ``"sqetch"`` backends cannot be combined with ``decoder``.
             **bound_kwargs: Keyword arguments to pass to the downstream distance bounding method.
                 For ``"gap"``, recognized options are {gap_options}.  For ``"sqetch"``, recognized
-                options are {sqetch_options}.  With ``"auto"``, supplied keywords limit selection
-                to backends that accept them.
+                options are {sqetch_options}.  With ``"auto"``, supplied keywords limit selection to
+                backends that accept them.
 
         Returns:
             An upper bound on distance if it is defined, or np.nan otherwise.  The returned bound is
@@ -3595,12 +3591,11 @@ class CSSCode(QuditCode):
             **decoder_kwargs: Deprecated decoder-selection options; pass a specification as
                 ``decoder=`` instead.
 
-        For ease of language, we henceforth assume without loss of generality that we are
-        computing an X-distance, and tentatively assume that `num_trials == 1`.
+        For ease of language, we henceforth assume without loss of generality that we are computing
+        an X-distance, and tentatively assume that `num_trials == 1`.
 
-        Pick a random Z-type logical operator ``Z(w_z)`` whose support is indicated by the
-        bitstring ``w_z``.
-        We now wish to find a low-weight Pauli-X string ``X(w_x)`` that
+        Pick a random Z-type logical operator ``Z(w_z)`` whose support is indicated by the bitstring
+        ``w_z``.  We now wish to find a low-weight Pauli-X string ``X(w_x)`` that
 
             (a) has a trivial syndrome, and
             (b) anti-commutes with ``Z(w_z)``,
@@ -3611,23 +3606,21 @@ class CSSCode(QuditCode):
             (a) ``H_z @ w_x = 0``, and
             (b) ``w_z @ w_x = 1``,
 
-        where ``H_z`` is the parity check matrix of the Z-type subcode that witnesses X-type
-        errors.
+        where ``H_z`` is the parity check matrix of the Z-type subcode that witnesses X-type errors.
 
         Conditions (a) and (b) can be combined into the single block-matrix equation::
 
             ⌈ H_z   ⌉         ⌈ 0 ⌉
             ⌊ w_z.T ⌋ @ w_x = ⌊ 1 ⌋,
 
-        where the "0" on the top right is interpreted as a zero vector.  This equation can be
-        solved by decoding the syndrome ``[ 0, 0, ..., 0, 1 ].T`` for the parity check matrix
-        ``[ H_z; w_z.T ]``.
-        If a decoder fails to find a solution, try again with a new random logical operator
-        ``Z(w_z)``.
-        If the decoder succeeds in finding a solution ``w_x``, this solution corresponds to a
-        logical X type operator ``X(w_x)`` -- and presumably one of low Hamming weight, assuming
-        that the decoder tries to find low-weight solutions to the decoding problem.  The Hamming
-        weight ``|w_x|`` is then our upper bound on the X-distance of this code.
+        where the "0" on the top right is interpreted as a zero vector.  This equation can be solved
+        by decoding the syndrome ``[ 0, 0, ..., 0, 1 ].T`` for the parity check matrix
+        ``[ H_z; w_z.T ]``.  If a decoder fails to find a solution, try again with a new random
+        logical operator ``Z(w_z)``.  If the decoder succeeds in finding a solution ``w_x``, this
+        solution corresponds to a logical X type operator ``X(w_x)`` -- and presumably one of low
+        Hamming weight, assuming that the decoder tries to find low-weight solutions to the decoding
+        problem.  The Hamming weight ``|w_x|`` is then our upper bound on the X-distance of this
+        code.
 
         In practice, we want to minimize over many randomized trials that compute an upper bound.
         To avoid constructing a new decoder for every trial, we set the effective parity check
@@ -3694,8 +3687,8 @@ class CSSCode(QuditCode):
                 and "Z" (case-insensitive) are also accepted.
             logical_index: The index of the logical operator to reduce.
             decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None to
-                select the default.  It is built for an internal effective check matrix that
-                stacks the checks and dual logical operators of the code.
+                select the default.  It is built for an internal effective check matrix that stacks
+                the checks and dual logical operators of the code.
             **decoder_kwargs: Deprecated decoder-selection options; pass a specification as
                 ``decoder=`` instead.
 
@@ -3899,8 +3892,8 @@ class CSSCode(QuditCode):
         (see help(qldpc.codes.ErrorRateFunc)).
 
         The physical error rate provided to the constructed function is the probability with which
-        each qubit experiences a Pauli error.  The constructed function will throw an error if
-        given a physical error rate larger than max_error_rate.  If a pauli_bias is provided, it is
+        each qubit experiences a Pauli error.  The constructed function will throw an error if given
+        a physical error rate larger than max_error_rate.  If a pauli_bias is provided, it is
         treated as the relative probabilities of an X, Y, and Z error on each qubit; otherwise,
         these errors occur with equal probability, corresponding to a depolarizing error.
 
@@ -3911,17 +3904,17 @@ class CSSCode(QuditCode):
         The X and Z sectors are decoded independently.  Pass a decoder specification such as
         ``decoders.bp_osd(...)`` as ``decoder=`` for both sectors, or set ``decoder_x=`` and
         ``decoder_z=`` separately.  An omitted sector uses the shared ``decoder=`` specification.
-        With no specification, the default is BP+OSD for binary codes and GUF otherwise.
-        A specification that predicts observables natively is used that way when it can be built for
+        With no specification, the default is BP+OSD for binary codes and GUF otherwise.  A
+        specification that predicts observables natively is used that way when it can be built for
         this code; otherwise it decodes errors, with a warning (see
         help(qldpc.codes.code_capacity.get_code_capacity_decoder)).
 
-        For a subsystem code, errors are decoded against the stabilizer generators of the code, so
-        a syndrome has one entry per stabilizer generator.  These generators can be high-weight
-        (for example, the stabilizers of a Bacon-Shor code have weight proportional to the code's
-        linear size), which general-purpose decoders may handle poorly.  The estimate is still
-        computed correctly, but it can overestimate the logical error rate achievable with a
-        decoder tailored to the code.
+        For a subsystem code, errors are decoded against the stabilizer generators of the code, so a
+        syndrome has one entry per stabilizer generator.  These generators can be high-weight (for
+        example, the stabilizers of a Bacon-Shor code have weight proportional to the code's linear
+        size), which general-purpose decoders may handle poorly.  The estimate is still computed
+        correctly, but it can overestimate the logical error rate achievable with a decoder tailored
+        to the code.
 
         Errors of weight below min_error_weight are taken to be decoded perfectly and are not
         sampled; the claim is taken on trust.  An error's weight here is the number of qudits it

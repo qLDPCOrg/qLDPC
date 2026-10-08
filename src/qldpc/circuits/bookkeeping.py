@@ -151,8 +151,8 @@ class Record(Mapping[Hashable, list[int]]):
     list of the events (such as measurements or detectors) associated with that key.  The events
     that a Record keeps track of are assumed to be indexed from zero.
 
-    Record is subclassed by MeasurementRecord to keep track of measurements in a circuit, and
-    by DetectorRecord to keep track of the detectors in a circuit.
+    Record is subclassed by MeasurementRecord to keep track of measurements in a circuit, and by
+    DetectorRecord to keep track of the detectors in a circuit.
     """
 
     num_events: int

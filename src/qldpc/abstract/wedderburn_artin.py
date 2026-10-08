@@ -23,8 +23,8 @@ from .rings import GroupRing, RingMember
 class WedderburnArtinTransformer:
     r"""Instrument for implementing the Wedderburn-Artin decomposition of semisimple rings.
 
-    The Wedderburn-Artin theorem states that every semisimple ring R is isomorphic to a direct
-    sum of matrix algebras over division rings:
+    The Wedderburn-Artin theorem states that every semisimple ring R is isomorphic to a direct sum
+    of matrix algebras over division rings:
 
         ``R ≅ ⊕_i R_i``
 
@@ -32,10 +32,10 @@ class WedderburnArtinTransformer:
 
         ``R_i = D_i^{n_i × n_i}``,
 
-    and ``D^{n × n}`` denotes the space of ``n × n`` matrices over the division ring D.
-    By Wedderburn's little theorem, every finite division ring is a finite field, so if R is a
-    group algebra over a finite field F then every division ring ``D_i`` is a field extension of F.
-    If R is a commutative ring, then all ``n_i = 1``, so
+    and ``D^{n × n}`` denotes the space of ``n × n`` matrices over the division ring D.  By
+    Wedderburn's little theorem, every finite division ring is a finite field, so if R is a group
+    algebra over a finite field F then every division ring ``D_i`` is a field extension of F.  If R
+    is a commutative ring, then all ``n_i = 1``, so
 
         ``R = ⊕_i D_i``  (if R is commutative).
 
@@ -159,17 +159,16 @@ class WedderburnArtinComponentTransformer:
 
         ``r = sum_{g in G} r_g g``.
 
-    By the Wedderburn-Artin theorem and Wedderburn's little theorem, every
-    simple component S of R is isomorphic to the space of matrices over a field extension
-    of ``GF(q)``:
+    By the Wedderburn-Artin theorem and Wedderburn's little theorem, every simple component S of R
+    is isomorphic to the space of matrices over a field extension of ``GF(q)``:
 
         ``S ≅ GF(q^d)^{n × n}``.
 
-    We refer to d as the "degree" of S, and n as the "size" of S.
-    If G is abelian, then its size is ``n = 1``, so ``S ≅ GF(q^d)``.
+    We refer to d as the "degree" of S, and n as the "size" of S.  If G is abelian, then its size is
+    ``n = 1``, so ``S ≅ GF(q^d)``.
 
-    The simple component S can be identified by a primitive central idempotent (PCI)
-    ``e ∈ R``, where
+    The simple component S can be identified by a primitive central idempotent (PCI) ``e ∈ R``,
+    where
 
         1. "Idempotent" means that e is a projector: ``e·e = e``.
         2. "Central" means that e commutes with all of R.
@@ -316,8 +315,8 @@ class WedderburnArtinComponentTransformer:
             ``Z(S) = { z ∈ S : z·s = s·z for all s ∈ S }``.
 
         We can decompose ``Z(S) = S ⋂ Z(R)``, where Z(R) is the center of R.  Letting L(r) and A(g)
-        denote, respectively, the regular and adjoint representations of ``r ∈ R`` and ``g ∈ G``,
-        we then note that
+        denote, respectively, the regular and adjoint representations of ``r ∈ R`` and ``g ∈ G``, we
+        then note that
 
             ``S ≅ ker(L(e) - 1)``
 
@@ -405,8 +404,8 @@ class WedderburnArtinComponentTransformer:
 
         There are two parts to this embedding:
         1. Embedding ``GF(q)`` scalars into ``GF(p^{kd})``.
-        2. Embedding the power basis ``B = (b^0, b^1, b^2, ..., b^{d-1})`` for ``GF(q^d)``
-           into ``GF(p^{kd})``.
+        2. Embedding the power basis ``B = (b^0, b^1, b^2, ..., b^{d-1})`` for ``GF(q^d)`` into
+           ``GF(p^{kd})``.
 
         Returns:
             - A vector in ``GF(p^{kd})^d`` whose j-th element is the embedding of ``GF(q)(j)``.
@@ -477,8 +476,7 @@ class WedderburnArtinComponentTransformer:
         ``GF(p^{kd})``.
 
         For an embedded power basis
-        ``E[B] = (E[b^0], E[b^1], E[b^2], ..., E[b^{d-1}]) ∈ GF(p^{kd})^d``,
-        the dual basis
+        ``E[B] = (E[b^0], E[b^1], E[b^2], ..., E[b^{d-1}]) ∈ GF(p^{kd})^d``, the dual basis
 
             ``E[A] = (E[a_0], E[a_1], E[a_2], ..., E[a_{d-1}])``
 
@@ -532,8 +530,8 @@ class WedderburnArtinComponentTransformer:
 
         This method first decomposes the PCI e of S into primitive (possibly non-central)
         idempotents ``e_i`` that sum to the PCI: ``e = sum_i e_i``.  The primitive idempotents
-        ``e_i`` are the "diagonal" matrix elements ``|i><i|``.  These idempotents are, in turn,
-        used to construct off-diagonal matrix elements ``e_ij = |i><j| ∈ e_i S e_j``.
+        ``e_i`` are the "diagonal" matrix elements ``|i><i|``.  These idempotents are, in turn, used
+        to construct off-diagonal matrix elements ``e_ij = |i><j| ∈ e_i S e_j``.
 
         Returns:
             - A matrix in ``GF(q)^{n^2 × |G|}`` whose (ij, :) entry is ``|i><j| = e_ij ∈ S``.
@@ -586,9 +584,8 @@ class WedderburnArtinComponentTransformer:
         Recall that ``S ≅ GF(q^d)^{n × n}``.  The PCI of S is the identity matrix of
         ``GF(q^d)^{n × n}``.  If ``n = 1`` (or: when R is commutative), then the multiplicative
         identity in ``GF(q^d)`` is the only element of ``GF(q^d)`` that squares to itself, so the
-        PCI of S is the only idempotent in S.
-        If ``n > 1``, however, then the PCI can be decomposed into primitive (non-central)
-        idempotents,
+        PCI of S is the only idempotent in S.  If ``n > 1``, however, then the PCI can be decomposed
+        into primitive (non-central) idempotents,
 
             ``e = sum_{i=1}^n e_i``,
 

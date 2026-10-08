@@ -94,8 +94,8 @@ def get_distance_bound(
     Args:
         code: Binary CSS code whose distance is being estimated.
         num_trials: Number of randomized trials.
-        pauli: Pauli sector to estimate (Pauli.X or Pauli.Z, or equivalently a case-insensitive
-            "X" or "Z" string).  Opposite-Pauli stabilizers and logical operators are passed to
+        pauli: Pauli sector to estimate (Pauli.X or Pauli.Z, or equivalently a case-insensitive "X"
+            or "Z" string).  Opposite-Pauli stabilizers and logical operators are passed to
             ``sqetch``; subsystem codes use dressed-distance semantics.
         cutoff: Stop once a bound is at most this value.
         d_target: Backend-specific strict early-stop target.  This takes precedence over ``cutoff``.

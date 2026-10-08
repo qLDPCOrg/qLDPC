@@ -50,8 +50,8 @@ def _get_libgap() -> _LibGap | None:
 
     PassageMath's own library-level GAP feature uses ``sage.all__sagemath_gap`` before importing
     ``sage.libs.gap.libgap``.  Follow that supported order rather than importing the
-    interactive-only ``passagemath_gap`` convenience namespace.  See the import-cycle workaround
-    in PassageMath's ``sage.features.gap`` (commit
+    interactive-only ``passagemath_gap`` convenience namespace.  See the import-cycle workaround in
+    PassageMath's ``sage.features.gap`` (commit
     https://github.com/passagemath/passagemath/commit/f35b8847b4226074d84c4645ea2c6eacab69e70b).
     """
     try:
@@ -354,17 +354,17 @@ def _install_package_libgap(name: str, repo: str | None, libgap: _LibGap) -> boo
 def require_package(name: str, repo: str | None = None) -> bool:
     """Enforce the installation of a GAP package.
 
-    With the direct libgap backend, this checks the package through GAP. A missing package prompts
+    With the direct libgap backend, this checks the package through GAP.  A missing package prompts
     on standard input and, with the user's consent, is installed through GAP's PackageManager into
-    the user package directory visible to libgap. If that installation fails but a GAP executable
+    the user package directory visible to libgap.  If that installation fails but a GAP executable
     is available, qLDPC prints instructions for installing the package for libgap before falling
-    back to the executable backend. With the executable backend, qLDPC installs a missing package
+    back to the executable backend.  With the executable backend, qLDPC installs a missing package
     by cloning its repository into the GAP root's ``pkg`` directory.
 
     Args:
         name: The GAP package name.
-        repo: The package repository to install, if necessary. With libgap, this is passed to GAP's
-            PackageManager; with the executable backend, it is cloned with Git. Defaults to the
+        repo: The package repository to install, if necessary.  With libgap, this is passed to GAP's
+            PackageManager; with the executable backend, it is cloned with Git.  Defaults to the
             package name for PackageManager or f"https://github.com/gap-packages/{name}" for Git.
 
     Raises:

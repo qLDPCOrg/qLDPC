@@ -60,8 +60,8 @@ def get_code_capacity_dem(
     ``observable_matrix @ error``.  If observable_matrix is None, every error location is itself an
     observable.
 
-    The error probabilities must be fixed while the returned code-capacity estimator is evaluated
-    at different physical error rates.  A code-capacity estimate reuses the decoding outcomes of
+    The error probabilities must be fixed while the returned code-capacity estimator is evaluated at
+    different physical error rates.  A code-capacity estimate reuses the decoding outcomes of
     fixed-weight errors at every physical error rate, so it requires such a decoder.
 
     Raises:
@@ -233,8 +233,8 @@ def get_code_capacity_decoder(
     """Build an observable decoder for one sector of a code-capacity experiment.
 
     Code-capacity sampling predicts ``observable_matrix @ error`` from the syndrome
-    ``syndrome_matrix @ error``.  Pass a decoder specification such as ``decoders.bp_osd(...)``
-    as ``decoder=``.
+    ``syndrome_matrix @ error``.  Pass a decoder specification such as ``decoders.bp_osd(...)`` as
+    ``decoder=``.
 
     For a binary code, a specification with native observable support is first built as an
     observable decoder for the code-capacity detector error model.  If that build raises a

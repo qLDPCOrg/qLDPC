@@ -316,8 +316,8 @@ def tesseract_preset(
             priority-queue limit, and the number of generated detector orders.
         sparsify: None, or ``"surface-code-like"`` or ``"color-code-like"`` to sparsify errors with
             the base degree of the corresponding Tesseract preset.
-        error_channel: One probability for every matrix-column error, or one probability per
-            column.  A detector error model supplies its own probabilities.
+        error_channel: One probability for every matrix-column error, or one probability per column.
+            A detector error model supplies its own probabilities.
         add_erasure_bit: Whether to append Tesseract's low-confidence flag to each result.
         error_rate: Deprecated i.i.d. matrix error probability; use ``error_channel`` instead.
 

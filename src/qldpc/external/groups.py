@@ -63,9 +63,9 @@ def get_generators(
 def get_generators_from_magma(group: str) -> GeneratorsList:
     """Retrieve group generators from MAGMA.
 
-    This function uses a manual copy/paste workflow that prints the command, copies it to the
-    system clipboard, and reads the pasted output from standard input (blocking, and raising
-    ``EOFError`` if standard input is closed).
+    This function uses a manual copy/paste workflow that prints the command, copies it to the system
+    clipboard, and reads the pasted output from standard input (blocking, and raising ``EOFError``
+    if standard input is closed).
     """
     print("Run the following command in MAGMA:")
     print()
@@ -247,7 +247,7 @@ def maybe_get_generators_from_groupnames(group: str) -> GeneratorsList | None:
 def parse_gap_permutations(permutations: str, cycle_sep: str = ",") -> GeneratorsList:
     """Parse newline-separated GAP permutations.
 
-    As an example, the permutation "(1,2)(3,4)" becomes [(0, 1), (2, 3)]. This function returns a
+    As an example, the permutation "(1,2)(3,4)" becomes [(0, 1), (2, 3)].  This function returns a
     list of permutations; one for each line in the input string.
     """
     parsed_permutations = []
@@ -313,8 +313,8 @@ def maybe_get_webpage(order: int) -> str | None:
 def get_primitive_central_idempotents(group: str, field: int) -> IdempotentsList:
     """Get the primitive central idempotents of a group algebra over a finite field.
 
-    This function uses the GAP Wedderga package (https://gap-packages.github.io/wedderga/), run in
-    a subprocess.
+    This function uses the GAP Wedderga package (https://gap-packages.github.io/wedderga/), run in a
+    subprocess.
 
     Primitive central idempotents of a ring are nonzero elements that:
 
@@ -476,9 +476,8 @@ KNOWN_GROUPS: dict[str, GeneratorsList] = {
         [(0, 5, 6, 7), (1, 4), (2, 3)],
         [(0, 7), (1, 2), (3, 6, 5, 4)],
     ],
-    # The entries below let the transversal gate tests in circuits/transversal_test.py run
-    # without GAP.
-    # [[1, 0]] code with distinct X and Z checks, whose automorphism group is trivial
+    # The entries below let the transversal gate tests in circuits/transversal_test.py run without
+    # GAP.  [[1, 0]] code with distinct X and Z checks, whose automorphism group is trivial
     "AutomorphismGroup(CheckMatCode([[1,0]],GF(2)))": [[]],
     # [[5, 3]] self-dual code with one unaddressed qubit, automorphism group (SWAP only)
     "AutomorphismGroup(CheckMatCode([[1,1,1,1,0]],GF(2)))": [

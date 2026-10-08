@@ -226,8 +226,8 @@ def get_placement_matrix(
     """Construct a placement matrix of squared maximum communication distances.
 
     Rows and columns of the placement matrix are indexed by candidate qubit locations (locs) and
-    check qubits for placement, such that the value at placement_matrix[loc_index, node_index]
-    is the answer to the question: when the given node is placed at the given location, what is that
+    check qubits for placement, such that the value at placement_matrix[loc_index, node_index] is
+    the answer to the question: when the given node is placed at the given location, what is that
     node's maximum squared distance to any of its neighbors in the Tanner graph of the code?
     """
     # identify how data qubits are permuted relative to the default data qubit layout

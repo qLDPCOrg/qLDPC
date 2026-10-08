@@ -616,8 +616,8 @@ def test_get_distance_classical(block_size: int) -> None:
     """get_distance_classical visits every nontrivial XOR combination of generators exactly once."""
     generators = np.random.randint(2, size=(9, 137))
 
-    # Intercept `hamming_weight` calls to check that every nontrivial combination of generators
-    # is observed exactly once
+    # Intercept `hamming_weight` calls to check that every nontrivial combination of generators is
+    # observed exactly once
     observed_bitstrings: list[tuple[int, ...]] = []
 
     def _mock_hamming_weight(
@@ -1007,8 +1007,8 @@ def test_get_distance_quantum_css_codes(code: qldpc.codes.CSSCode, expected_dist
     assert min(distance_x, distance_z, distance_all) == expected_distance
 
     # forget_distance clears the X and Z caches as well, which assigning to _distance would not:
-    # get_distance_if_known(None) returns min(_distance_x, _distance_z) whenever both are known,
-    # so the recomputation below would otherwise read back a value it never verified
+    # get_distance_if_known(None) returns min(_distance_x, _distance_z) whenever both are known, so
+    # the recomputation below would otherwise read back a value it never verified
     code.forget_distance()
     assert code.get_distance_exact() == expected_distance
 

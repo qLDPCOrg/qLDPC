@@ -50,8 +50,8 @@ def test_gadget_layout_is_frozen_dataclass() -> None:
         "HZ_merged",
         "basis",
     }
-    # Verify actually frozen: mutation must raise. None placeholders are fine here
-    # — we only check FrozenInstanceError, never read the fields.
+    # Verify actually frozen: mutation must raise.  None placeholders are fine here — we only check
+    # FrozenInstanceError, never read the fields.
     inst = GadgetLayout(
         code=None,  # type: ignore[arg-type]
         x=None,  # type: ignore[arg-type]
@@ -190,7 +190,7 @@ def test_assemble_merged_checks_with_distinct_support_and_check_counts() -> None
     code = codes.CSSCode(HX_raw, HZ_raw)  # type: ignore[arg-type]
 
     # x is outside the row space of HX: coordinate 3 forces the second generator in, coordinate 4
-    # forces it out. So x is a logical operator, not a stabilizer.
+    # forces it out.  So x is a logical operator, not a stabilizer.
     x_logical = np.array([1, 1, 1, 1, 0], dtype=np.uint8)
     assert np.array_equal((HZ_raw @ x_logical) % 2, np.zeros(2, dtype=np.uint8)), (
         "x_logical not in ker(HZ)"
@@ -211,8 +211,8 @@ def test_assemble_merged_checks_with_distinct_support_and_check_counts() -> None
         "CSS commutation failed: HX_merged @ HZ_merged.T != 0"
     )
 
-    # 2. Indicator form: each Z-check j in data_checks should attach to exactly
-    #    one ancilla (column-slice after n data qubits in HZ_merged).
+    # 2. Indicator form: each Z-check j in data_checks should attach to exactly one ancilla
+    #    (column-slice after n data qubits in HZ_merged).
     n = code.num_qudits
     mZ = HZ_raw.shape[0]
     HZ_ancilla_block = HZ_m[:mZ, n:]
@@ -287,9 +287,9 @@ def test_webster_table_1_bare_gadget_qubits_exact(code_index: int, n_anc: int) -
     """Bare-gadget qubit count matches Webster Table I for each of the 4 codes.
 
     Webster's "Gadget Qubits" column counts qubits including ancillae, which for an L=1 gadget is
-    |Q'| + |S'_meas| + |S'_comp|: κ ancillas, χ measurement checks, and gauge checks. For codes 2
+    |Q'| + |S'_meas| + |S'_comp|: κ ancillas, χ measurement checks, and gauge checks.  For codes 2
     and 3 the table writes that cell as a sum, (49+8) and (79+20), whose second term is the
-    Cheeger-boost addition; the bare count checked here is the first term. Seed X̄_1 only.
+    Cheeger-boost addition; the bare count checked here is the first term.  Seed X̄_1 only.
     """
     from qldpc.experimental.surgery.gadget import (
         build_gadget,
@@ -354,7 +354,7 @@ def test_build_gadget_z_basis_dual_matches_x_basis_on_dual_code() -> None:
     """basis-symmetric invariant: build_gadget on the Z basis matches its dual on the X basis.
 
     build_gadget(code, z, basis=Z) gives the same merged matrices as build_gadget(dual_code, z,
-    basis=X), where dual_code has HX/HZ swapped. The swap labels swap too, so we compare HX_z vs
+    basis=X), where dual_code has HX/HZ swapped.  The swap labels swap too, so we compare HX_z vs
     HZ_dx_x and HZ_z vs HX_dx_x.
     """
     from qldpc.codes.common import CSSCode
@@ -370,8 +370,8 @@ def test_build_gadget_z_basis_dual_matches_x_basis_on_dual_code() -> None:
         is_subsystem_code=False,
     )
     g_dual = build_gadget(dual, z, basis=Pauli.X)
-    # In the dual construction, the basis-X chi rows end up in dual.HX_merged
-    # which corresponds to original.HZ_merged in the basis-Z construction.
+    # In the dual construction, the basis-X chi rows end up in dual.HX_merged which corresponds to
+    # original.HZ_merged in the basis-Z construction.
     assert np.array_equal(g_z.HZ_merged, g_dual.HX_merged), (
         "basis-Z chi (in HZ_merged) should equal basis-X chi (in HX_merged) on dual"
     )
@@ -439,9 +439,8 @@ def test_compute_gauge_basis_rows_linearly_independent() -> None:
     """Gauge-basis rows are linearly independent over GF(2).
 
     Webster §II A step 3 requires one INDEPENDENT gauge constraint per basis element of
-    ker(H_X,gadget), i.e. |S_L| - rank(F) of them, and a degenerate F
-    could let the gauge fix return redundant rows, inflating g.gauge.shape[0] without changing the
-    gauge structure.
+    ker(H_X,gadget), i.e. |S_L| - rank(F) of them, and a degenerate F could let the gauge fix return
+    redundant rows, inflating g.gauge.shape[0] without changing the gauge structure.
     """
     import galois
     import sympy
@@ -470,10 +469,9 @@ def test_compute_gauge_basis_rows_linearly_independent() -> None:
         1 + xs**6 * ys + xs**27,
         ys**2 + xs**15 * ys**3 + xs**24,
     )
-    # Use the same cached wt-20 Z̄ rep used by the notebook §3.2 cell to
-    # exercise the largest realistic gauge-fix case (G=20 rows). Treat
-    # via swap (matrix_z ↔ matrix_x) so vec_20 acts as the X̄ on
-    # target_code (matches notebook usage).
+    # Use the same cached wt-20 Z̄ rep used by the notebook §3.2 cell to exercise the largest
+    # realistic gauge-fix case (G=20 rows).  Treat via swap (matrix_z ↔ matrix_x) so vec_20 acts as
+    # the X̄ on target_code (matches notebook usage).
     z_bar_support = [
         8,
         9,
@@ -544,7 +542,7 @@ def test_compute_gauge_basis_empty_incidence_returns_zero_rows() -> None:
 def test_build_gadget_rejects_non_logical_input() -> None:
     """build_gadget rejects x that isn't a logical operator support.
 
-    For basis=X: HZ @ x must be 0; for basis=Z: HX @ x must be 0. Single-qubit support [1,0,0,...]
+    For basis=X: HZ @ x must be 0; for basis=Z: HX @ x must be 0.  Single-qubit support [1,0,0,...]
     generally violates both (it's not in the codespace).
     """
     from qldpc.experimental.surgery.gadget import build_gadget
@@ -617,7 +615,7 @@ def test_build_gadget_rejects_zero_x() -> None:
 def test_build_gadget_rejects_a_non_binary_x(entry: int) -> None:
     """x indicates a support, so an entry outside {0, 1} is rejected rather than reinterpreted.
 
-    The cast to uint8 wraps 257 to 1, which would otherwise pass as a different vector entirely. An
+    The cast to uint8 wraps 257 to 1, which would otherwise pass as a different vector entirely.  An
     even entry like 2 survives the cast and is taken at face value by the check equation, which then
     rejects x for the wrong reason.
     """
@@ -638,8 +636,9 @@ def test_build_gadget_rejects_a_stabilizer_support(code: codes.CSSCode, basis: P
     """A stabilizer of the measured basis satisfies the check equation but measures the identity.
 
     Steane is self-dual, so its measured-basis stabilizers lie in the complementary basis's row
-    space too and the test cannot see which of the two matrices the guard reads. The surface code is
-    not self-dual, and there they do not, so only a guard reading the measured basis rejects them.
+    space too and the test cannot see which of the two matrices the guard reads.  The surface code
+    is not self-dual, and there they do not, so only a guard reading the measured basis rejects
+    them.
     """
     from qldpc.experimental.surgery.gadget import build_gadget
 
@@ -691,7 +690,7 @@ def test_single_ppm_merged_code_is_css_and_drops_one_logical(basis: PauliXZ) -> 
     """The merged code commutes and carries one logical fewer than the data code.
 
     Measuring one logical operator of the data code fixes it, so the merged code's dimension is
-    code.dimension - 1. Steane has k = 1, so its merged code has k = 0.
+    code.dimension - 1.  Steane has k = 1, so its merged code has k = 0.
     """
     from qldpc.experimental.surgery.gadget import build_gadget
 

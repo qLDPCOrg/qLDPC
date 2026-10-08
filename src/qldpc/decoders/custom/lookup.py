@@ -163,9 +163,9 @@ class _LookupDecoderBase:
         # For each "key" = (syndrome, observable_flip) combination, identify:
         # 1. The net log-probability of each key.
         # 2. The most likely error for each key.
-        # 3. The log-probability of the most likely error for each key.
-        # Probabilities are accumulated in log-space (via logaddexp) to avoid the underflow that
-        # would otherwise arise from summing the tiny probabilities of individual errors.
+        # 3. The log-probability of the most likely error for each key.  Probabilities are
+        # accumulated in log-space (via logaddexp) to avoid the underflow that would otherwise arise
+        # from summing the tiny probabilities of individual errors.
         num_observables = observable_flip_matrix.shape[0]
         observable_flip_packer = _FieldVectorPacker(self.field.order, num_observables, pcm.dtype)
         error_packer = _FieldVectorPacker(self.field.order, pcm.shape[1], pcm.dtype)
@@ -420,30 +420,30 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
     post-selects on those bits being trivial: when constructing the lookup table, it ignores
     syndromes that are nonzero on the post-selected bits, and it drops those bits from the syndrome
     keys in the lookup table.  For consistency with the post-selection options in sinter, syndromes
-    passed to ``.decode`` should still contain all syndrome bits.  A syndrome that is
-    nonzero on a post-selected bit is one that the lookup table was never given, so it decodes
-    identically to a syndrome that was never enumerated.
+    passed to ``.decode`` should still contain all syndrome bits.  A syndrome that is nonzero on a
+    post-selected bit is one that the lookup table was never given, so it decodes identically to a
+    syndrome that was never enumerated.
 
     If initialized with ``add_erasure_bit=True``, this decoder appends a bit to all decoded errors.
     If asked to decode a syndrome that was not observed when constructing the lookup table, the
     erasure bit is set to 1.  The erasure bit is set to 0 otherwise.
 
-    If initialized with a positive ``confidence_ratio`` (which requires observables, from a
-    detector error model or an ``observable_flip_matrix``), this decoder only assigns a syndrome its
-    most likely observable flip if that flip is at least ``confidence_ratio`` times as likely as all
+    If initialized with a positive ``confidence_ratio`` (which requires observables, from a detector
+    error model or an ``observable_flip_matrix``), this decoder only assigns a syndrome its most
+    likely observable flip if that flip is at least ``confidence_ratio`` times as likely as all
     other flips combined.  Otherwise, the syndrome decodes to erasure, so a positive
     ``confidence_ratio`` sets ``add_erasure_bit=True``.  With ``confidence_ratio=np.inf``, every
     syndrome with a competing flip that can occur decodes to erasure.
 
-    A positive ``probability_cutoff`` omits every error whose probability is below the cutoff,
-    which allows ignoring very-low-probability events.  When combined with ``confidence_ratio``,
+    A positive ``probability_cutoff`` omits every error whose probability is below the cutoff, which
+    allows ignoring very-low-probability events.  When combined with ``confidence_ratio``,
     confidence is computed from the retained errors.  A positive cutoff is not supported with a
     callable ``error_channel``.
 
     If initialized with ``symplectic=True``, this decoder treats the provided parity check matrix as
     that of a ``QuditCode``, with the first and last half of the columns denoting, respectively, the
-    ``[X|Z]`` support of a stabilizer.  Decoded errors are likewise vectors that indicate
-    ``[X|Z]`` support.
+    ``[X|Z]`` support of a stabilizer.  Decoded errors are likewise vectors that indicate ``[X|Z]``
+    support.
     """
 
     def __init__(
@@ -520,9 +520,9 @@ class ObservableLookupDecoder(_LookupDecoderBase):
 
     ``decoders.lookup(...).build_observable_decoder(dem)`` builds this decoder from a detector error
     model.  A matrix-based instance additionally requires an ``observable_flip_matrix`` whose rows
-    specify which errors flip which observables, and an ``error_channel`` for grouping errors.
-    If initialized with ``add_erasure_bit=True``, this decoder appends an erasure bit to each
-    predicted observable flip.
+    specify which errors flip which observables, and an ``error_channel`` for grouping errors.  If
+    initialized with ``add_erasure_bit=True``, this decoder appends an erasure bit to each predicted
+    observable flip.
     """
 
     _outputs_observables = True
@@ -1105,17 +1105,17 @@ def _build_observable_flip_func(
 ) -> Callable[[npt.NDArray[np.int_]], npt.NDArray[np.int_]]:
     """Build the map that takes an error to the observable flips that it induces.
 
-    The observable flip matrix is interpreted over the same field as the parity check matrix,
-    which is GF(2) unless the parity check matrix is a galois.FieldArray.  Plain integer entries
-    are reduced modulo the order of a prime field; for an extension field, they must already be
-    valid integer representations of field elements.  A galois.FieldArray over a different field
-    is rejected: the errors that get enumerated take their values from the parity check matrix's
-    field, so an observable over any other field cannot say what they flip.
+    The observable flip matrix is interpreted over the same field as the parity check matrix, which
+    is GF(2) unless the parity check matrix is a galois.FieldArray.  Plain integer entries are
+    reduced modulo the order of a prime field; for an extension field, they must already be valid
+    integer representations of field elements.  A galois.FieldArray over a different field is
+    rejected: the errors that get enumerated take their values from the parity check matrix's field,
+    so an observable over any other field cannot say what they flip.
 
-    With ``symplectic=True``, an error assigns both an X and a Z component to each qudit, and
-    the flip that it induces in an observable is their symplectic product,
-    ``observable @ symplectic_conjugate(error)``.  That product is obtained by multiplying the
-    error by -symplectic_conjugate(observable_flip_matrix), in the same way that
+    With ``symplectic=True``, an error assigns both an X and a Z component to each qudit, and the
+    flip that it induces in an observable is their symplectic product,
+    ``observable @ symplectic_conjugate(error)``.  That product is obtained by multiplying the error
+    by -symplectic_conjugate(observable_flip_matrix), in the same way that
     _iter_errors_and_syndromes obtains a syndrome from a parity check matrix.
     """
     field = type(pcm) if isinstance(pcm, galois.FieldArray) else galois.GF2
@@ -1240,8 +1240,8 @@ def _error_weight(error: npt.NDArray[np.int_], symplectic: bool) -> int:
 
     This is the weight that ``_iter_errors_and_syndromes`` enumerates by, so ranking errors by it
     keeps the lighter of two that a penalty scores equally.  A symplectic error assigns both an X
-    and a Z component to each qudit, and a qudit carrying both counts once, so the number of
-    nonzero entries would count it twice.
+    and a Z component to each qudit, and a qudit carrying both counts once, so the number of nonzero
+    entries would count it twice.
     """
     if symplectic:
         return int(math.symplectic_weight(np.asarray(error)))

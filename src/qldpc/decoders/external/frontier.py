@@ -134,12 +134,12 @@ def _get_observable_decoder_frontier(
     Args:
         dem: The binary detector error model to decode.
         K: The maximum number of groups of partial solutions to keep after each step.
-        Delta: The maximum gap between the score of a kept group and the best score.  A score is
-            the log-probability of a group, plus score_alpha times an estimate of how likely the
+        Delta: The maximum gap between the score of a kept group and the best score.  A score is the
+            log-probability of a group, plus score_alpha times an estimate of how likely the
             remaining error mechanisms are to resolve the detectors that it flips.
         score_alpha: The weight of the estimate of future consistency in a score.
-        metric_mode: ``"logsumexp_float"`` to add the probabilities of merged partial solutions,
-            or ``"frontier_lite"`` to keep only the largest, using integer arithmetic.
+        metric_mode: ``"logsumexp_float"`` to add the probabilities of merged partial solutions, or
+            ``"frontier_lite"`` to keep only the largest, using integer arithmetic.
             ``"frontier_lite"`` requires the native extension of Frontier.
         int_metric_scale: The scale of the integer log-probabilities used by ``"frontier_lite"``.
         column_order: ``"deadline_reorder"`` to let Frontier reorder error mechanisms so that
@@ -148,8 +148,8 @@ def _get_observable_decoder_frontier(
         committee: If True, also scan the error mechanisms in reverse order (reordered again if
             column_order is ``"deadline_reorder"``), and keep the prediction of the scan that
             retains more probability.
-        add_erasure_bit: If True, append an erasure flag to every prediction.  The flag is set if
-            no remaining group is consistent with the syndrome, in which case the prediction is no
+        add_erasure_bit: If True, append an erasure flag to every prediction.  The flag is set if no
+            remaining group is consistent with the syndrome, in which case the prediction is no
             observable flips, and is clear otherwise.
 
     Returns:

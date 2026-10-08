@@ -93,8 +93,8 @@ def test_build_aux_graph_filters_hyperedges() -> None:
     assert (0, 1) in edge_idx
     assert (2, 3) in edge_idx
     assert (3, 4) in edge_idx
-    # Hyperedge would have produced edges (0,1), (0,2), (0,3), (1,2), (1,3), (2,3)
-    # but only edges from weight-2 rows are present
+    # Hyperedge would have produced edges (0,1), (0,2), (0,3), (1,2), (1,3), (2,3) but only edges
+    # from weight-2 rows are present
     assert (0, 2) not in edge_idx
     assert (0, 3) not in edge_idx
     assert (1, 3) not in edge_idx
@@ -363,10 +363,10 @@ def test_build_bridge_bb18_hyperedge_and_long_cycle() -> None:
 
 
 def test_adapter_cycle_check_weight_bounded() -> None:
-    """Each new cycle-X row has weight <= 8 (SkipTree (3,2) + H_R weight 2). Basis=Z.
+    """Each new cycle-X row has weight <= 8 (SkipTree (3,2) + H_R weight 2).  Basis=Z.
 
-    For basis=Z the new adapter cycle checks are the last w-1 rows of HX, each of the form
-    [T_l | T_r | H_R]: at most 3 entries from each SkipTree block and exactly 2 from H_R.
+    For basis=Z the new adapter cycle checks are the last w-1 rows of HX, each of the form [T_l |
+    T_r | H_R]: at most 3 entries from each SkipTree block and exactly 2 from H_R.
     """
     from qldpc.experimental.surgery.bridge import build_bridge
     from qldpc.experimental.surgery.circuit import _stitch_to_joint_csscode
@@ -424,7 +424,7 @@ def test_cellulate_max_len_defaults_to_the_max_basis_stabilizer_weight(
 
     The hypergraph-product code is not self-dual -- 5 in X, 6 in Z -- while Steane is 4 in either,
     and the bases put the heavier code on opposite sides, so the resolved cap separates reading the
-    complementary matrix, taking the smaller side, and reading one side alone. The floor of 3 is
+    complementary matrix, taking the smaller side, and reading one side alone.  The floor of 3 is
     inactive at these weights and has its own test.
     """
     from typing import Any
@@ -593,9 +593,9 @@ def test_build_bridge_skiptree_invariant_holds_after_boost() -> None:
 
     The boost adds κ' rows to g.incidence, so g_l_aug must be rebuilt from the boosted incidence:
     SkipTree computes T_l against the boosted G_aux, and embedding it into an unboosted
-    g_l_aug.incidence would zero the tree edges running through boost-κ'. That breaks the invariant,
-    which makes the joint code's cycle stabilizers wrong and leaves a non-deterministic detector in
-    the joint PPM DEM.
+    g_l_aug.incidence would zero the tree edges running through boost-κ'.  That breaks the
+    invariant, which makes the joint code's cycle stabilizers wrong and leaves a non-deterministic
+    detector in the joint PPM DEM.
     """
     from qldpc.experimental.surgery.bridge import build_bridge
     from qldpc.experimental.surgery.cheeger import boost_gadget
@@ -638,10 +638,10 @@ def _bb_36_8() -> codes.BBCode:
 def test_build_bridge_skiptree_invariant_holds_with_duplicate_incidence_rows() -> None:
     """T_s · F_aug · P_s = H_R must hold when F_aug has duplicate weight-2 rows.
 
-    BBCode [[36, 8]] restricted to Z̄_0 has h(F)=1 (no boost needed) but the restricted incidence has
-    two κ rows sharing the same (u, v) support, which _build_aux_graph_strict dedups to one G_aux
-    edge. Each duplicate κ row therefore needs its own T_relab column: sharing one column makes
-    their contributions to T · F_aug cancel mod 2, which breaks the invariant, makes the joint
+    BBCode [[36, 8]] restricted to Z̄_0 has h(F)=1 (no boost needed) but the restricted incidence
+    has two κ rows sharing the same (u, v) support, which _build_aux_graph_strict dedups to one
+    G_aux edge.  Each duplicate κ row therefore needs its own T_relab column: sharing one column
+    makes their contributions to T · F_aug cancel mod 2, which breaks the invariant, makes the joint
     code's cycle stabilizer anti-commute with the gauge, and leaves a non-deterministic detector.
     """
     from qldpc.experimental.surgery.bridge import build_bridge
@@ -678,9 +678,8 @@ def test_build_bridge_skiptree_invariant_holds_with_duplicate_incidence_rows() -
 def test_build_joint_ppm_circuit_dem_deterministic_bb_36_8() -> None:
     """Joint PPM DEM constructs without non-deterministic detectors on BB [[36, 8]].
 
-    Duplicate incidence rows are the stressor: if the SkipTree invariant fails on them, stim
-    reports non-deterministic detectors. BB [[36, 8]] Z̄⊗Z̄ joint PPM at h=1 (no boost) has such
-    rows.
+    Duplicate incidence rows are the stressor: if the SkipTree invariant fails on them, stim reports
+    non-deterministic detectors.  BB [[36, 8]] Z̄⊗Z̄ joint PPM at h=1 (no boost) has such rows.
     """
     from qldpc.circuits.noise_model import DepolarizingNoiseModel
     from qldpc.experimental.surgery.bridge import build_bridge
@@ -706,8 +705,8 @@ def test_build_joint_ppm_circuit_dem_deterministic_bb_36_8() -> None:
 def test_build_joint_ppm_circuit_dem_deterministic_after_boost_bb() -> None:
     """Joint PPM DEM must construct without non-deterministic detectors after boost.
 
-    BB Z̄⊗Z̄ joint PPM with the boost needed to reach the Webster threshold h(F) >= 1. If the
-    cycle stabilizers in joint_code do not commute with the round-1 initial state, stim raises
+    BB Z̄⊗Z̄ joint PPM with the boost needed to reach the Webster threshold h(F) >= 1.  If the cycle
+    stabilizers in joint_code do not commute with the round-1 initial state, stim raises
     ``ValueError: The circuit contains non-deterministic detectors``.
     """
     from qldpc.circuits.noise_model import DepolarizingNoiseModel
@@ -750,7 +749,7 @@ def test_build_bridge_rejects_oversized_explicit_port_subset(oversized_side: str
     """An explicit port subset longer than the bridge width is rejected, not silently truncated.
 
     Truncating to the narrower side is intended when both subsets are defaulted, but dropping ports
-    the caller named is a silent change of request. Each side carries its own check, so both are
+    the caller named is a silent change of request.  Each side carries its own check, so both are
     exercised.
     """
     from qldpc.experimental.surgery.bridge import build_bridge
