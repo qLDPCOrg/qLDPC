@@ -210,13 +210,16 @@ assert "relay_bp" not in sys.modules
 
 
 def test_relay_bp_unsorted_observables() -> None:
-    """Relay-BP decodes a detector error model in which an error flips several observables."""
-    # the observable flip matrix of this model stores the observables of its error as (8, 1)
-    dem = stim.DetectorErrorModel("error(0.1) D0 L1 L8")
+    """Relay-BP accepts an observable matrix with unsorted indices, which a DEM can produce."""
+    # the only error lists the observables it flips as (1, 0)
+    observable_matrix = scipy.sparse.csc_matrix(
+        (np.ones(2, dtype=np.uint8), [1, 0], [0, 2]), shape=(2, 1)
+    )
     with warnings.catch_warnings():
-        warnings.simplefilter("error")  # reordering indices alone does not warn
-        decoder = _get_decoder_rbp(dem)
-    assert np.array_equal(np.flatnonzero(decoder.decode_observables(np.array([1]))), [1, 8])
+        # reordering indices alone does not warn
+        warnings.filterwarnings("error", ".*Reducing these entries mod 2")
+        decoder = _get_decoder_rbp(np.array([[1]]), observable_error_matrix=observable_matrix)
+    assert np.array_equal(decoder.decode_observables(np.array([1])), [1, 1])
 
 
 def test_relay_bp_noncanonical_sparse_matrices() -> None:
