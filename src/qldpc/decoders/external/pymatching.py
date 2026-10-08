@@ -48,7 +48,14 @@ if TYPE_CHECKING:
 
 
 class MatchingObservableDecoder(ObservableDecoder):
-    """Observable decoder backed by a Matching that predicts observable flips."""
+    """Observable decoder backed by a Matching that predicts observable flips.
+
+    Build one with ``decoders.mwpm(...).build_observable_decoder(dem)``.  See the `PyMatching
+    documentation of Matching.load_from_check_matrix
+    <https://pymatching.readthedocs.io/en/stable/api.html#pymatching.matching.Matching.load_from_check_matrix>`_
+    for a discussion of the matching options, and the `PyMatching README
+    <https://github.com/oscarhiggott/PyMatching#correlated-matching>`_ for correlated matching.
+    """
 
     def __init__(self, matching: Any, *, enable_correlations: bool = False) -> None:
         self.matching = matching
@@ -250,6 +257,11 @@ Returns:
 
 An error decoder cannot infer decomposed error mechanisms as errors of the original DEM.
 Use native observable decoding for those models.  MWPM cannot signal erasure.
+
+See the `PyMatching documentation of Matching.load_from_check_matrix
+<https://pymatching.readthedocs.io/en/stable/api.html#pymatching.matching.Matching.load_from_check_matrix>`_
+for a discussion of the matching options, and the `PyMatching README
+<https://github.com/oscarhiggott/PyMatching#correlated-matching>`_ for correlated matching.
 """,
 )
 

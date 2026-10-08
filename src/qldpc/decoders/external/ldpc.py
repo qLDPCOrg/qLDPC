@@ -290,8 +290,9 @@ Returns:
     A decoder specification.  ``build(pcm_or_dem)`` returns an ``ldpc.BpOsdDecoder`` subclass
     that implements :class:`~qldpc.decoders.protocols.ErrorDecoder`.
 
-This decoder cannot signal erasure.  See ``help(ldpc.BpOsdDecoder)`` and
-`arXiv:2005.07016 <https://arxiv.org/abs/2005.07016>`_.
+This decoder cannot signal erasure.  See the `ldpc BP+OSD documentation
+<https://software.roffe.eu/ldpc/ldpc/bposd_decoder.html>`_ for a discussion of its options, as
+well as ``help(ldpc.BpOsdDecoder)`` and `arXiv:2005.07016 <https://arxiv.org/abs/2005.07016>`_.
 """,
 )
 
@@ -324,7 +325,9 @@ Returns:
     ``ldpc.bplsd_decoder.BpLsdDecoder`` subclass implementing
     :class:`~qldpc.decoders.protocols.ErrorDecoder`.
 
-This decoder cannot signal erasure.  See ``help(ldpc.bplsd_decoder.BpLsdDecoder)`` and
+This decoder cannot signal erasure.  See the `ldpc BP+LSD documentation
+<https://software.roffe.eu/ldpc/ldpc/bplsd_decoder.html>`_ for a discussion of its options, as
+well as ``help(ldpc.bplsd_decoder.BpLsdDecoder)`` and
 `arXiv:2406.18655 <https://arxiv.org/abs/2406.18655>`_.
 """,
 )
@@ -354,7 +357,9 @@ Returns:
     A decoder specification.  ``build(pcm_or_dem)`` returns an ``ldpc.BeliefFindDecoder``
     subclass implementing :class:`~qldpc.decoders.protocols.ErrorDecoder`.
 
-This decoder cannot signal erasure.  See ``help(ldpc.BeliefFindDecoder)`` and
+This decoder cannot signal erasure.  See the `ldpc belief-find documentation
+<https://software.roffe.eu/ldpc/ldpc/belief_find_decoder.html>`_ for a discussion of its options,
+as well as ``help(ldpc.BeliefFindDecoder)`` and
 `arXiv:1709.06218 <https://arxiv.org/abs/1709.06218>`_.
 """,
 )

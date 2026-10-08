@@ -65,7 +65,8 @@ class RelayBPDecoder(BatchErrorDecoder):
 
     For details about Relay-BP decoders, see:
 
-    - Documentation: https://pypi.org/project/relay-bp
+    - Documentation of options: https://github.com/trmue/relay#performance
+    - Package: https://pypi.org/project/relay-bp
     - Reference: https://arxiv.org/abs/2506.01779
 
     If initialized with ``add_erasure_bit=True``, this decoder appends a bit to all decoded errors,
@@ -612,7 +613,8 @@ Returns:
     ``build_observable_decoder(dem)`` predicts observable flips natively.  Both return
     :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`.
 
-See the `Relay-BP documentation <https://pypi.org/project/relay-bp>`_ for backend options.
+See the `Relay-BP documentation <https://github.com/trmue/relay#performance>`_ for a discussion of
+the backend options.
 """,
 )
 
@@ -645,7 +647,8 @@ Returns:
     ``build_observable_decoder(dem)`` predicts observable flips natively.  Both return
     :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`.
 
-See the `Relay-BP documentation <https://pypi.org/project/relay-bp>`_ for backend options.
+See the `Relay-BP documentation <https://github.com/trmue/relay#performance>`_ for a discussion of
+the backend options.
 """,
 )
 

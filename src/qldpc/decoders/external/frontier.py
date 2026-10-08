@@ -30,7 +30,11 @@ from ..protocols import ObservableDecoder, ObservableDecodeResult
 class FrontierObservableDecoder(ObservableDecoder):
     """Frontier decoder that predicts the observable flips of one detector error model.
 
-    Build one with ``decoders.frontier(...).build_observable_decoder(dem)``.
+    Build one with ``decoders.frontier(...).build_observable_decoder(dem)``.  See `arXiv:2606.20513
+    <https://arxiv.org/abs/2606.20513>`_ for a discussion of the decoder options, and the
+    `Frontier repository
+    <https://github.com/aleverrier/frontier/tree/5d5a60968182eb17cdc12c5ac1949732ead0905b>`_ at
+    the commit that qLDPC is tested against.
     """
 
     def __init__(
@@ -226,6 +230,12 @@ Returns:
     A decoder specification.  ``build_observable_decoder(dem)`` returns a
     :class:`~qldpc.decoders.external.frontier.FrontierObservableDecoder` for a binary DEM.
     Frontier cannot infer errors, so this specification cannot ``build`` an error decoder.
+
+Frontier has no separate reference for its options.  See `arXiv:2606.20513
+<https://arxiv.org/abs/2606.20513>`_ for a discussion of the pruning and scoring parameters, and
+the `Frontier repository
+<https://github.com/aleverrier/frontier/tree/5d5a60968182eb17cdc12c5ac1949732ead0905b>`_ at the
+commit that qLDPC is tested against.
 """,
 )
 

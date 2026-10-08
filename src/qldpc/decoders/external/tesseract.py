@@ -61,8 +61,9 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
     identifies the most likely logical class.  A parity-check matrix has no observables, so merging
     could report a column other than the most likely one, and it is disabled by default.
 
-    See the `Tesseract documentation
-    <https://github.com/quantumlib/tesseract-decoder#python-interface>`_ and
+    See the `Tesseract documentation of TesseractConfig
+    <https://github.com/quantumlib/tesseract-decoder/blob/main/src/py/README.md#class-tesseracttesseractconfig>`_
+    for a discussion of the decoder options, and
     `arXiv:2503.10988 <https://arxiv.org/abs/2503.10988>`_.
     """
 
@@ -296,7 +297,10 @@ Returns:
 
 The optional ``tesseract-decoder`` package is needed when building the decoder; install it
 with ``pip install 'qldpc[tesseract]'`` on a supported platform.  See
-:class:`~qldpc.decoders.external.tesseract.TesseractDecoder` for the search limitations.
+:class:`~qldpc.decoders.external.tesseract.TesseractDecoder` for the search limitations, and the
+`Tesseract documentation of TesseractConfig
+<https://github.com/quantumlib/tesseract-decoder/blob/main/src/py/README.md#class-tesseracttesseractconfig>`_
+for a discussion of these options.
 """,
 )
 
@@ -324,6 +328,10 @@ def tesseract_preset(
     Returns:
         A decoder specification for :func:`decoders.tesseract <qldpc.decoders.tesseract>` that
         reproduces the preset.
+
+    See the `Tesseract documentation of TesseractConfig
+    <https://github.com/quantumlib/tesseract-decoder/blob/main/src/py/README.md#class-tesseracttesseractconfig>`_
+    for a discussion of the options that a preset sets.
     """
     beam_presets = {
         "long-beam": (20, 1_000_000, 21),
