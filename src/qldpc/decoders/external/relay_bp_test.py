@@ -9,6 +9,7 @@ import functools
 import subprocess
 import sys
 import unittest.mock
+import warnings
 from collections.abc import Callable
 from typing import cast
 
@@ -206,3 +207,45 @@ import qldpc.decoders.external.relay_bp
 assert "relay_bp" not in sys.modules
 """
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_relay_bp_unsorted_observables() -> None:
+    """Relay-BP accepts an observable matrix with unsorted indices, which a DEM can produce."""
+    # the only error lists the observables it flips as (1, 0)
+    observable_matrix = scipy.sparse.csc_matrix(([1, 1], [1, 0], [0, 2]), shape=(2, 1))
+    with warnings.catch_warnings():
+        # reordering indices alone does not warn
+        warnings.filterwarnings("error", ".*Reducing these entries mod 2")
+        decoder = _get_decoder_rbp(np.array([[1]]), observable_error_matrix=observable_matrix)
+    assert np.array_equal(decoder.decode_observables(np.array([1])), [1, 1])
+
+
+def test_relay_bp_noncanonical_sparse_matrices() -> None:
+    """Relay-BP accepts sparse matrices with unsorted or duplicate indices, and leaves them be."""
+    # error 0 lists its checks as (1, 0), and error 1 lists check 0 twice, which cancels
+    matrix = scipy.sparse.csc_matrix(
+        (np.ones(4, dtype=np.uint8), [1, 0, 0, 0], [0, 2, 4]), shape=(2, 2)
+    )
+    indices = matrix.indices.copy()
+    with pytest.warns(UserWarning, match="Reducing these entries mod 2"):
+        decoder = _get_decoder_rbp(matrix)
+    assert np.array_equal(decoder.decode(np.array([1, 1])), [1, 0])
+    assert np.array_equal(matrix.indices, indices)
+
+
+def test_relay_bp_reads_entries_mod_2() -> None:
+    """Relay-BP reads a dense matrix mod 2, and warns if that changes an entry."""
+    matrix = np.array([[2, 1]])
+    with pytest.warns(UserWarning, match="Reducing these entries mod 2"):
+        decoder = _get_decoder_rbp(matrix)
+    assert np.array_equal(decoder.decode(np.array([1])), [0, 1])
+    assert np.array_equal(matrix, [[2, 1]])
+
+
+def test_relay_bp_rejects_invalid_matrices() -> None:
+    """Relay-BP rejects non-integer entries and fields other than GF(2)."""
+    for matrix in (np.array([[0.5]]), scipy.sparse.csc_matrix([[0.5]])):
+        with pytest.raises(ValueError, match="integer entries"):
+            _get_decoder_rbp(matrix)
+    with pytest.raises(ValueError, match="requires a binary matrix"):
+        _get_decoder_rbp(galois.GF(3)([[1]]))
