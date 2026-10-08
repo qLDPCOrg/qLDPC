@@ -92,8 +92,6 @@ def _get_decoder_bp_osd(
     Returns:
         An ``ldpc.BpOsdDecoder`` subclass that is also an
         :class:`~qldpc.decoders.protocols.ErrorDecoder`.
-
-    This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
     """
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_channel, error_rate)
     return _build_ldpc_decoder(
@@ -168,8 +166,6 @@ def _get_decoder_bp_lsd(
     Returns:
         An ``ldpc.bplsd_decoder.BpLsdDecoder`` subclass that is also an
         :class:`~qldpc.decoders.protocols.ErrorDecoder`.
-
-    This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
     """
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_channel, error_rate)
     _warn_unknown_bp_lsd_options(backend_options or {})
@@ -242,8 +238,6 @@ def _get_decoder_bf(
     Returns:
         An ``ldpc.BeliefFindDecoder`` subclass that is also an
         :class:`~qldpc.decoders.protocols.ErrorDecoder`.
-
-    This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.
     """
     pcm, error_channel = _to_ldpc_inputs(pcm_or_dem, error_channel, error_rate)
     return _build_ldpc_decoder(

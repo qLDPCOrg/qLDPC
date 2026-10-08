@@ -42,6 +42,11 @@ TesseractDetectorOrderMethod = Literal["bfs", "index", "coordinate"]
 class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
     """Wrapper for the Tesseract search-based decoder.
 
+    See the `Tesseract documentation of TesseractConfig
+    <https://github.com/quantumlib/tesseract-decoder/blob/main/src/py/README.md#class-tesseracttesseractconfig>`_
+    for a discussion of the decoder options, and
+    `arXiv:2503.10988 <https://arxiv.org/abs/2503.10988>`_.
+
     Requires the optional ``tesseract-decoder`` package, which can be installed with
     ``pip install 'qldpc[tesseract]'``.
 
@@ -60,11 +65,6 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
     detector error model, where merged mechanisms are interchangeable and combining probabilities
     identifies the most likely logical class.  A parity-check matrix has no observables, so merging
     could report a column other than the most likely one, and it is disabled by default.
-
-    See the `Tesseract documentation of TesseractConfig
-    <https://github.com/quantumlib/tesseract-decoder/blob/main/src/py/README.md#class-tesseracttesseractconfig>`_
-    for a discussion of the decoder options, and
-    `arXiv:2503.10988 <https://arxiv.org/abs/2503.10988>`_.
     """
 
     @format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)

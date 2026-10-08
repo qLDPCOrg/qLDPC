@@ -29,6 +29,12 @@ from ..protocols import BatchErrorDecoder, ErrorDecodeResult, ObservableDecodeRe
 class RelayBPDecoder(BatchErrorDecoder):
     """Wrapper class for Relay-BP decoders, introduced in arXiv:2506.01779.
 
+    For details about Relay-BP decoders, see:
+
+    - Documentation of options: https://github.com/trmue/relay#performance
+    - Package: https://pypi.org/project/relay-bp
+    - Reference: https://arxiv.org/abs/2506.01779
+
     Requires ``relay_bp`` to be installed, for example via ``pip install 'qldpc[relay-bp]'``.
 
     This class first constructs a ``relay_bp.decoder.DynDecoder`` decoder by class name, such as
@@ -62,12 +68,6 @@ class RelayBPDecoder(BatchErrorDecoder):
            method of ``relay_bp.ObservableDecoderRunner``.  Consequently, most methods recognized by
            ``RelayBPDecoder`` in practice do not appear in its documentation.  See
            ``help(relay_bp.ObservableDecoderRunner)`` for a complete list.
-
-    For details about Relay-BP decoders, see:
-
-    - Documentation of options: https://github.com/trmue/relay#performance
-    - Package: https://pypi.org/project/relay-bp
-    - Reference: https://arxiv.org/abs/2506.01779
 
     If initialized with ``add_erasure_bit=True``, this decoder appends a bit to all decoded errors,
     set to 1 when the error Relay-BP settles on does not reproduce the syndrome and to 0 otherwise.
@@ -403,6 +403,9 @@ def _get_decoder_rbp(
 ) -> RelayBPDecoder:
     """Build a Relay-BP decoder.
 
+    See the `relay-bp package documentation <https://pypi.org/project/relay-bp>`_ and
+    `arXiv:2506.01779 <https://arxiv.org/abs/2506.01779>`_.
+
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
         error_priors: Prior probabilities for each error.  A DEM supplies these by default.
@@ -415,9 +418,6 @@ def _get_decoder_rbp(
 
     With ``add_erasure_bit=True``, the decoder appends a flag set when the inferred error does not
     reproduce the syndrome.
-
-    See the `relay-bp package documentation <https://pypi.org/project/relay-bp>`_ and
-    `arXiv:2506.01779 <https://arxiv.org/abs/2506.01779>`_.
     """
     return RelayBPDecoder(pcm_or_dem, error_priors, **decoder_args)  # type: ignore[arg-type]
 
@@ -447,6 +447,9 @@ def _get_decoder_relay_bp(
     backend_options: Mapping[str, object] | None = None,
 ) -> RelayBPDecoder:
     """Build a Relay-BP decoder from the relay-bp package.
+
+    See the `relay-bp package documentation <https://pypi.org/project/relay-bp>`_ and
+    `arXiv:2506.01779 <https://arxiv.org/abs/2506.01779>`_.
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
@@ -478,9 +481,6 @@ def _get_decoder_relay_bp(
     Returns:
         A :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when
         observable metadata is available, predicts observable flips.
-
-    See the `relay-bp package documentation <https://pypi.org/project/relay-bp>`_ and
-    `arXiv:2506.01779 <https://arxiv.org/abs/2506.01779>`_.
     """
     optional_args = {
         "gamma_dist_interval": gamma_dist_interval,
@@ -531,6 +531,8 @@ def _get_decoder_min_sum_bp(
 ) -> RelayBPDecoder:
     """Build a min-sum belief-propagation decoder from the relay-bp package.
 
+    See the `relay-bp package documentation <https://pypi.org/project/relay-bp>`_.
+
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
         precision: Numeric precision of the ``relay_bp.MinSumBPDecoder<precision>`` backend class.
@@ -555,8 +557,6 @@ def _get_decoder_min_sum_bp(
     Returns:
         A :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when
         observable metadata is available, predicts observable flips.
-
-    See the `relay-bp package documentation <https://pypi.org/project/relay-bp>`_.
     """
     return _get_relay_decoder(
         pcm_or_dem,

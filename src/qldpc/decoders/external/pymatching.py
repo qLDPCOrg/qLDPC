@@ -261,7 +261,7 @@ Returns:
     flips natively with a :class:`~qldpc.decoders.external.pymatching.MatchingObservableDecoder`.
 
 An error decoder cannot infer decomposed error mechanisms as errors of the original DEM.
-Use native observable decoding for those models.  MWPM cannot signal erasure.
+Use native observable decoding for those models.
 """,
 )
 
