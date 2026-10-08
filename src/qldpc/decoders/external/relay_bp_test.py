@@ -212,9 +212,7 @@ assert "relay_bp" not in sys.modules
 def test_relay_bp_unsorted_observables() -> None:
     """Relay-BP accepts an observable matrix with unsorted indices, which a DEM can produce."""
     # the only error lists the observables it flips as (1, 0)
-    observable_matrix = scipy.sparse.csc_matrix(
-        (np.ones(2, dtype=np.uint8), [1, 0], [0, 2]), shape=(2, 1)
-    )
+    observable_matrix = scipy.sparse.csc_matrix(([1, 1], [1, 0], [0, 2]), shape=(2, 1))
     with warnings.catch_warnings():
         # reordering indices alone does not warn
         warnings.filterwarnings("error", ".*Reducing these entries mod 2")
