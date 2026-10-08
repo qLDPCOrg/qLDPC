@@ -42,6 +42,11 @@ TesseractDetectorOrderMethod = Literal["bfs", "index", "coordinate"]
 class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
     """Wrapper for the Tesseract search-based decoder.
 
+    See the `Tesseract documentation of TesseractConfig
+    <https://github.com/quantumlib/tesseract-decoder/blob/main/src/py/README.md#class-tesseracttesseractconfig>`_
+    for a discussion of the decoder options, and
+    `arXiv:2503.10988 <https://arxiv.org/abs/2503.10988>`_.
+
     Requires the optional ``tesseract-decoder`` package, which can be installed with
     ``pip install 'qldpc[tesseract]'``.
 
@@ -60,10 +65,6 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
     detector error model, where merged mechanisms are interchangeable and combining probabilities
     identifies the most likely logical class.  A parity-check matrix has no observables, so merging
     could report a column other than the most likely one, and it is disabled by default.
-
-    See the `Tesseract documentation
-    <https://github.com/quantumlib/tesseract-decoder#python-interface>`_ and
-    `arXiv:2503.10988 <https://arxiv.org/abs/2503.10988>`_.
     """
 
     @format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
@@ -266,6 +267,13 @@ tesseract = decoder_spec(
 Tesseract searches for likely errors within beam and priority-queue limits.  Its native
 observable predictions need the observable targets supplied by a detector error model.
 
+The optional ``tesseract-decoder`` package is needed when building the decoder; install it
+with ``pip install 'qldpc[tesseract]'`` on a supported platform.  See
+:class:`~qldpc.decoders.external.tesseract.TesseractDecoder` for the search limitations, and the
+`Tesseract documentation of TesseractConfig
+<https://github.com/quantumlib/tesseract-decoder/blob/main/src/py/README.md#class-tesseracttesseractconfig>`_
+for a discussion of these options.
+
 Args:
     error_channel: Probabilities of matrix-column errors, as one value or a vector.  A DEM
         supplies its own probabilities and does not accept an override.
@@ -293,10 +301,6 @@ Returns:
     A decoder specification.  ``build(pcm_or_dem)`` infers errors, while
     ``build_observable_decoder(dem)`` predicts observable flips natively.  Both return a
     :class:`~qldpc.decoders.external.tesseract.TesseractDecoder`.
-
-The optional ``tesseract-decoder`` package is needed when building the decoder; install it
-with ``pip install 'qldpc[tesseract]'`` on a supported platform.  See
-:class:`~qldpc.decoders.external.tesseract.TesseractDecoder` for the search limitations.
 """,
 )
 
@@ -310,6 +314,10 @@ def tesseract_preset(
     error_rate: float | None = None,
 ) -> DecoderSpec[TesseractDecoder]:
     """Configure one of Tesseract's named Sinter presets.
+
+    See the `Tesseract documentation of TesseractConfig
+    <https://github.com/quantumlib/tesseract-decoder/blob/main/src/py/README.md#class-tesseracttesseractconfig>`_
+    for a discussion of the options that a preset sets.
 
     Args:
         preset: ``"long-beam"`` or ``"short-beam"``, which set the beam-search cutoff, the

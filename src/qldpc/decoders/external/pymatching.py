@@ -48,7 +48,15 @@ if TYPE_CHECKING:
 
 
 class MatchingObservableDecoder(ObservableDecoder):
-    """Observable decoder backed by a Matching that predicts observable flips."""
+    """Observable decoder backed by a Matching that predicts observable flips.
+
+    Build one with ``decoders.mwpm(...).build_observable_decoder(dem)``.
+
+    See the `PyMatching documentation of Matching.load_from_check_matrix
+    <https://pymatching.readthedocs.io/en/stable/api.html#pymatching.matching.Matching.load_from_check_matrix>`_
+    for a discussion of the matching options, and the `PyMatching README
+    <https://github.com/oscarhiggott/PyMatching#correlated-matching>`_ for correlated matching.
+    """
 
     def __init__(self, matching: Any, *, enable_correlations: bool = False) -> None:
         self.matching = matching
@@ -118,6 +126,9 @@ def _get_decoder_mwpm(
 ) -> BatchErrorDecoder:
     """Build a minimum-weight perfect matching (MWPM) decoder.
 
+    See the `PyMatching documentation <https://pymatching.readthedocs.io/>`_ and
+    `arXiv:2105.13082 <https://arxiv.org/abs/2105.13082>`_.
+
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
         enable_correlations: Whether to use PyMatching's correlated-matching mode.  Correlated
@@ -143,13 +154,9 @@ def _get_decoder_mwpm(
         :class:`~qldpc.decoders.protocols.BatchErrorDecoder`, which maps a syndrome to an inferred
         physical error.
 
-    This decoder cannot signal erasure, so ``add_erasure_bit=True`` is rejected.  If
-    ``decompose_errors=True`` splits a DEM error mechanism, an inferred error addresses the
+    If ``decompose_errors=True`` splits a DEM error mechanism, an inferred error addresses the
     resulting components rather than the original error mechanisms, so it cannot be converted back
     into observable flips of that DEM.
-
-    See the `PyMatching documentation <https://pymatching.readthedocs.io/>`_ and
-    `arXiv:2105.13082 <https://arxiv.org/abs/2105.13082>`_.
     """
     if enable_correlations:
         raise ValueError(
@@ -227,6 +234,11 @@ mwpm = decoder_spec(
     option_transform=_validate_mwpm_options,
     doc="""Configure minimum-weight perfect matching (MWPM).
 
+See the `PyMatching documentation of Matching.load_from_check_matrix
+<https://pymatching.readthedocs.io/en/stable/api.html#pymatching.matching.Matching.load_from_check_matrix>`_
+for a discussion of the matching options, and the `PyMatching README
+<https://github.com/oscarhiggott/PyMatching#correlated-matching>`_ for correlated matching.
+
 Args:
     enable_correlations: Use correlated matching for native observable prediction.  Other
         non-default options are not supported in this mode.
@@ -249,7 +261,7 @@ Returns:
     flips natively with a :class:`~qldpc.decoders.external.pymatching.MatchingObservableDecoder`.
 
 An error decoder cannot infer decomposed error mechanisms as errors of the original DEM.
-Use native observable decoding for those models.  MWPM cannot signal erasure.
+Use native observable decoding for those models.
 """,
 )
 

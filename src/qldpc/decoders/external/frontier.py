@@ -31,6 +31,8 @@ class FrontierObservableDecoder(ObservableDecoder):
     """Frontier decoder that predicts the observable flips of one detector error model.
 
     Build one with ``decoders.frontier(...).build_observable_decoder(dem)``.
+
+    See `arXiv:2606.20513 <https://arxiv.org/abs/2606.20513>`_ for a discussion of decoder options.
     """
 
     def __init__(
@@ -209,6 +211,8 @@ frontier = observable_decoder_spec(
 
 Frontier prunes low-probability partial solutions while scanning a binary detector error model.
 The optional package is imported only when the decoder is built.
+
+See `arXiv:2606.20513 <https://arxiv.org/abs/2606.20513>`_ for a discussion of decoder options.
 
 Args:
     K: Maximum number of groups of partial solutions retained after each scan step.
