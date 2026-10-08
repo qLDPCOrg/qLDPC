@@ -531,7 +531,8 @@ def _get_decoder_min_sum_bp(
 ) -> RelayBPDecoder:
     """Build a min-sum belief-propagation decoder from the relay-bp package.
 
-    See the `relay-bp package documentation <https://pypi.org/project/relay-bp>`_.
+    See the `relay-bp package documentation <https://pypi.org/project/relay-bp>`_ and
+    `arXiv:2506.01779 <https://arxiv.org/abs/2506.01779>`_.
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
