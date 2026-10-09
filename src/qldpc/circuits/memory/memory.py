@@ -10,7 +10,7 @@ import stim
 
 from qldpc import codes
 from qldpc._util import format_docstring
-from qldpc.objects import Node, Pauli, PauliXZ
+from qldpc.objects import Node, Pauli, PauliXZ, PauliXZLike
 
 from ..bookkeeping import DetectorRecord, MeasurementRecord, QubitIDs
 from ..common import get_pauli_product_measurements, restrict_to_qubits, with_remapped_qubits
@@ -41,7 +41,7 @@ class MemoryExperimentParts(NamedTuple):
 @format_docstring(DEFAULT_IMMUNE_OP_TAG=DEFAULT_IMMUNE_OP_TAG)
 def get_memory_experiment(
     code: codes.QuditCode | codes.ClassicalCode,
-    basis: PauliXZ | None = Pauli.X,
+    basis: PauliXZLike | None = Pauli.X,
     num_rounds: int = 1,
     *,
     noise_model: NoiseModel | None = None,
@@ -55,47 +55,47 @@ def get_memory_experiment(
     of the code, and detectors are added to enforce that
     (a) the syndrome from the first round of QEC is trivial, and
     (b) every subsequent round of QEC yields the same syndrome as the preceding round.
-    We refer to num_rounds rounds of syndrome measurement as one logical QEC cycle.
+    We refer to ``num_rounds`` rounds of syndrome measurement as one logical QEC cycle.
 
-    If the basis is Pauli.X or Pauli.Z, then the memory experiment only tracks errors in the logical
-    Pauli operators of that type.  If basis is None, the circuit entangles the code with a noiseless
-    ancilla to track errors in all logical Pauli operators.
+    If ``basis`` is ``Pauli.X`` or ``Pauli.Z``, then the memory experiment only tracks errors in the
+    logical Pauli operators of that type.  If ``basis is None``, the circuit entangles the code with
+    a noiseless ancilla to track errors in all logical Pauli operators.
 
-    More specifically, if basis is Pauli.X or Pauli.Z then the memory experiment performs the
-    following:
+    More specifically, if ``basis`` is ``Pauli.X`` or ``Pauli.Z`` then the memory experiment
+    performs the following:
 
-    1. Initialize all data qubits to a +1 eigenstate of the specified basis: ``|0>`` for Z,
-        ``|+>`` for X.
+    1. Initialize all data qubits to a +1 eigenstate of the specified basis: ``|0>`` for Z, ``|+>``
+       for X.
     2. Perform an initial round of QEC, adding detectors for the basis-type stabilizers.
-    3. Perform num_rounds - 1 additional QEC rounds, adding detectors to enforce that basis-type
-        stabilizers have not changed between adjacent rounds of QEC.
+    3. Perform ``num_rounds - 1`` additional QEC rounds, adding detectors to enforce that basis-type
+       stabilizers have not changed between adjacent rounds of QEC.
     4. Measure all data qubits in the specified basis.
     5. Add detectors for all stabilizers that can be inferred from the data qubit measurements.
 
-    If a noise_model is provided, then noise is added to the assembled fixed-basis circuit so that
-    moments are accounted for across the initialization, QEC, and readout seams.
+    If a ``noise_model`` is provided, then noise is added to the assembled fixed-basis circuit so
+    that moments are accounted for across the initialization, QEC, and readout seams.
 
-    If basis is None, then the memory experiment noiselessly initializes each logical qubit of the
-    code in a maximally entangled state with an (unphysical) noiseless ancilla qubit before running
-    a noisy logical QEC cycle.  This initialization makes it possible to meaningfully track errors
-    in both X-type and Z-type logical operators of a code.  The probability of an error in any
-    logical operator is then essentially the process infidelity (or entanglement infidelity) of the
-    logical QEC cycle.
+    If ``basis is None``, then the memory experiment noiselessly initializes each logical qubit of
+    the code in a maximally entangled state with an (unphysical) noiseless ancilla qubit before
+    running a noisy logical QEC cycle.  This initialization makes it possible to meaningfully track
+    errors in both X-type and Z-type logical operators of a code.  The probability of an error in
+    any logical operator is then essentially the process infidelity (or entanglement infidelity) of
+    the logical QEC cycle.
 
-    More specifically, if basis is None then the memory experiment performs the following:
+    More specifically, if ``basis is None`` then the memory experiment performs the following:
 
     1. Prepare a logical all-``|0>`` state of the code.
     2. For each logical qubit of the code, prepare an ancilla qubit in ``|+>``, and apply an
-        ancilla-controlled-logical-NOT gate to the logical qubit, thereby preparing Bell states
-        ``|00> + |11>`` of logical qubits with their respective ancillas.
+       ancilla-controlled-logical-NOT gate to the logical qubit, thereby preparing Bell states
+       ``|00> + |11>`` of logical qubits with their respective ancillas.
     3. Perform a logical QEC cycle as before, but now adding detectors for all stabilizers.
     4. Measure all stabilizers (with MPP gates).
 
     Unlike the fixed-basis experiment, the combined basis experiment only makes sense when starting
     from the Bell state.  It is also no longer possible to measure out all data qubits to infer all
     stabilizers.  Initialization and readout (measuring final stabilizers) are therefore noiseless.
-    If a noise_model is provided, then noise is added to the logical QEC cycle alone.  Otherwise,
-    the initialization and readout sub-circuits are wrapped in a single-repetition
+    If a ``noise_model`` is provided, then noise is added to the logical QEC cycle alone.
+    Otherwise, the initialization and readout sub-circuits are wrapped in a single-repetition
     stim.CircuitRepeatBlock tagged with "{DEFAULT_IMMUNE_OP_TAG}" to indicate that these
     sub-circuits should be immune to noise.  Tagged coordinate annotations likewise identify the
     reference qubits as immune when noise is added later.
@@ -127,8 +127,9 @@ def get_memory_experiment(
         code: An error-correcting code.  Must be a qubit stabilizer (non-subsystem) codes.  If
             passed a classical code, treat it as a quantum CSS code that protects only basis-type
             logical operators (or X-type logicals, if basis is None).
-        basis: Should be Pauli.X, Pauli.Z, or None to indicate which type of logical operators to
-            track (where "None" means "both X and Z").  Default: Pauli.X.
+        basis: Pauli.X, Pauli.Z, or None to indicate which type of logical operators to track (where
+            "None" means "both X and Z").  The strings "X" and "Z" (case-insensitive) are also
+            accepted.  Default: Pauli.X.
         num_rounds: The number of syndrome measurement rounds to perform in one logical QEC cycle.
             Must be at least 1.  Default: 1.
         noise_model: The noise model to apply to the circuit after construction, or None to return a
@@ -138,8 +139,8 @@ def get_memory_experiment(
             check matrix, with data qubits numbered from 0 and check qubits numbered from len(code).
             For a combined-basis experiment, ``qubit_ids.reference`` contains noiseless Bell
             reference qubits.
-        syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
-            round of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
+        syndrome_measurement_strategy: The syndrome measurement strategy that defines how each round
+            of QEC measures the parity checks of the code.  Default: circuits.EdgeColoring().
 
     Returns:
         stim.Circuit: A circuit ready for simulation via Stim or Sinter.
@@ -166,6 +167,7 @@ def get_memory_experiment(
         sampler = circuit.compile_detector_sampler()
         detectors, observables = sampler.sample(shots=1000, separate_observables=True)
     """
+    basis = None if basis is None else Pauli.coerce_xz(basis)
     initialization, qec_cycle, readout, _, _, qubit_ids = get_memory_experiment_parts(
         code,
         basis=basis,
@@ -197,7 +199,7 @@ def get_memory_experiment(
 @restrict_to_qubits
 def get_memory_experiment_parts(
     code: codes.QuditCode | codes.ClassicalCode,
-    basis: PauliXZ | None,
+    basis: PauliXZLike | None,
     num_rounds: int = 1,
     *,
     qubit_ids: QubitIDs | None = None,
@@ -215,7 +217,9 @@ def get_memory_experiment_parts(
         detector_record: A record of all detectors in the above circuits.
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.
     """
+    basis = None if basis is None else Pauli.coerce_xz(basis)
     if isinstance(code, codes.ClassicalCode):
+        # wrap classical inputs as one-sided CSS codes for the shared circuit path
         matrix_z = code.matrix if basis is Pauli.Z else code.field.Zeros((0, len(code)))
         matrix_x = code.field.Zeros((0, len(code))) if basis is Pauli.Z else code.matrix
         code = codes.CSSCode(matrix_x, matrix_z)
@@ -256,11 +260,6 @@ def _get_basis_memory_experiment_parts(
 
     See help(qldpc.circuits.get_memory_experiment) for additional information.
     """
-    if basis is not Pauli.X and basis is not Pauli.Z:
-        raise ValueError(
-            "Memory experiments in a fixed basis require the basis to be Pauli.X or Pauli.Z,"
-            f" not {basis}"
-        )
     if not isinstance(code, codes.CSSCode):
         raise TypeError("Memory experiments in a fixed basis only support CSS codes")
 
@@ -355,6 +354,7 @@ def _get_combined_memory_simulation_parts(
     qec_cycle, measurement_record, detector_record = _get_qec_cycle(
         code, num_rounds, qubit_ids, check_ids, syndrome_measurement_strategy
     )
+    # reject strategies that would use noiseless Bell reference qubits as work qubits
     operated_qubits = {
         target.qubit_value
         for instruction in qec_cycle.flattened()
@@ -429,7 +429,7 @@ def get_observables(
     code: codes.QuditCode,
     data_qubits: Sequence[int] | None = None,
     *,
-    basis: PauliXZ | None = None,
+    basis: PauliXZLike | None = None,
     on_measurements: Sequence[stim.GateTarget] | bool = False,
     observable_indices: Sequence[int] | None = None,
 ) -> stim.Circuit:
@@ -438,7 +438,8 @@ def get_observables(
     Args:
         code: The code whose observables we wish to annotate.
         data_qubits: Indices of the data qubits of the code.  Default: the first len(code) integers.
-        basis: The type of observable (Pauli.X or Pauli.Z) we wish to annotate, or None for both.
+        basis: The type of observable (Pauli.X or Pauli.Z, or equivalently a case-insensitive "X" or
+            "Z" string) we wish to annotate, or None for both.
         on_measurements: If provided a sequence of measurement targets, assume that they correspond
             to measurements of the data qubits in a specified basis (which in this case is not
             allowed to be None), and define observables using these measurements.  If True, define
@@ -449,11 +450,7 @@ def get_observables(
     Returns:
         A Stim circuit of OBSERVABLE_INCLUDE instructions.
     """
-    if basis not in (None, Pauli.X, Pauli.Z):
-        raise ValueError(
-            f"Provided basis must be Pauli.X or Pauli.Z (from qldpc.objects) or None, not {basis}"
-        )
-
+    basis = None if basis is None else Pauli.coerce_xz(basis)
     data_qubits = range(len(code)) if data_qubits is None else data_qubits
     if len(data_qubits) != len(code):
         raise ValueError("data_qubits must contain one target per data qubit")
@@ -549,8 +546,8 @@ def _get_qec_cycle(
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.
         check_ids: The check qubits that measure stabilizers to annotate with detectors.  Must be a
             subset of qubit_ids.check (though this requirement is not verified).
-        syndrome_measurement_strategy: The syndrome measurement strategy that defines how each
-            round of QEC measures the parity checks of the code.
+        syndrome_measurement_strategy: The syndrome measurement strategy that defines how each round
+            of QEC measures the parity checks of the code.
 
     Returns:
         stim.Circuit: The noiseless circuit of num_rounds syndorme measurements.

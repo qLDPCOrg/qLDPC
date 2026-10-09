@@ -23,14 +23,14 @@ from .encoding import _get_logical_tableau_from_code_data, get_encoder_and_decod
 def get_transversal_s(code: codes.CSSCode, *, validate: bool = True) -> stim.Circuit:
     """Get a physical circuit for a transversal logical ``S = diag(1, i)`` gate of the code.
 
-    The returned circuit applies one physical S or S_DAG gate to each qubit, and thereby enacts
-    a logical S gate on every logical qubit of the code.
+    The returned circuit applies one physical S or S_DAG gate to each qubit, and thereby enacts a
+    logical S gate on every logical qubit of the code.
 
     This construction only supports self-dual codes with equivalent logicals (SWEL):
 
     1. Self dual = CSS code with identical X and Z stabilizers.
     2. Equivalent logicals = applying a Hadamard to every physical qubit enacts a logical Hadamard
-        on every logical qubit.  This property depends on the choice of logical operator basis.
+       on every logical qubit.  This property depends on the choice of logical operator basis.
 
     Args:
         code: The CSS code on which to apply the transversal gate.
@@ -59,8 +59,8 @@ def get_transversal_s(code: codes.CSSCode, *, validate: bool = True) -> stim.Cir
     decoded_frame_correction = stim.PauliString.from_numpy(xs=z_signs, zs=x_signs)
 
     # Map the decoded-frame Pauli correction back to a physical Pauli.  For SWEL codes this
-    # correction is purely Z-type (mod stabilizers), and appending a Z after an S makes it S_DAG,
-    # so we can realize the correction by emitting S_DAG (rather than S) on the corrected qubits.
+    # correction is purely Z-type (mod stabilizers), and appending a Z after an S makes it S_DAG, so
+    # we can realize the correction by emitting S_DAG (rather than S) on the corrected qubits.
     physical_correction = decoded_frame_correction.after(encoder, targets=range(len(code)))
     _, physical_zs = physical_correction.to_numpy()
 
@@ -79,15 +79,20 @@ def get_transversal_ops(
     remove_redundancies: bool = True,
     with_magma: bool = False,
 ) -> list[tuple[stim.Tableau, stim.Circuit]]:
-    """Logical tableaus and physical circuits for transversal logical Clifford gates of a code.
+    """Logical tableaus and physical circuits induced by transversal automorphism generators.
+
+    This method returns one logical/physical pair per generator of the transversal automorphism
+    group.  It does not enumerate every Clifford in that group.  If ``remove_redundancies is True``,
+    generator images that are logical Paulis or differ only by logical Pauli corrections are
+    omitted; the result can therefore be empty even for a nontrivial automorphism group.
 
     Here local_gates must be a subset of {"S", "H", "SQRT_X", "SWAP"}.  The set describes the
     allowed local Pauli permutations; equivalent Stim ``C_XYZ``/``C_ZYX`` decompositions may appear
     in returned circuits when multiple local gates are allowed.
 
-    If deform_code is True, then a physical_circuit returned by this method has two effects, namely
-    (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
-    (b) changing the code that encodes the logical state to
+    If ``deform_code is True``, then a ``physical_circuit`` returned by this method has two effects,
+    namely (a) transforming a logical state of the ``QuditCode`` by a corresponding logical Clifford
+    gate, and (b) changing the code that encodes the logical state to
     ``code.deformed(physical_circuit, preserve_logicals=True)``.
 
     Uses the methods of https://arxiv.org/abs/2409.18175.
@@ -128,10 +133,10 @@ def get_transversal_automorphism_group(
 
     Here local_gates must be a subset of {"S", "H", "SQRT_X", "SWAP"}.
 
-    If deform_code is True, then each member of the automorphism group constructed by this method
-    corresponds to a physical_circuit that has two effects, namely
-    (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
-    (b) changing the code that encodes the logical state to
+    If ``deform_code is True``, then each member of the automorphism group constructed by this
+    method corresponds to a ``physical_circuit`` that has two effects, namely (a) transforming a
+    logical state of the ``QuditCode`` by a corresponding logical Clifford gate, and (b) changing
+    the code that encodes the logical state to
     ``code.deformed(physical_circuit, preserve_logicals=True)``.
 
     Uses the methods of https://arxiv.org/abs/2409.18175.
@@ -247,17 +252,15 @@ def get_transversal_circuits(
 
     Here local_gates must be a subset of {"S", "H", "SQRT_X", "SWAP"}.
 
-    If deform_code is True, then a physical_circuit returned by this method has two effects, namely
-    (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
-    (b) changing the code that encodes the logical state to
+    If ``deform_code is True``, then a ``physical_circuit`` returned by this method has two effects,
+    namely (a) transforming a logical state of the ``QuditCode`` by a corresponding logical Clifford
+    gate, and (b) changing the code that encodes the logical state to
     ``code.deformed(physical_circuit, preserve_logicals=True)``.
 
-    Warning: this method performs a brute-force search over the Clifford automorphisms of a code,
-    and thereby generally has exponential runtime.
+    .. warning::
+        This method performs a brute-force search over the Clifford automorphisms of a code, and
+        thereby generally has exponential runtime.
 
-    When ``remove_redundancies`` is True, generator images that differ only by logical Pauli
-    corrections are treated as equivalent; an empty result is therefore possible for a nontrivial
-    automorphism group.
     """
     physical_circuits = [None] * len(logical_circuits_or_tableaus)
 
@@ -335,13 +338,14 @@ def get_transversal_circuit(
 
     Here local_gates must be a subset of {"S", "H", "SQRT_X", "SWAP"}.
 
-    If deform_code is True, then a physical_circuit returned by this method has two effects, namely
-    (a) transforming a logical state of the QuditCode by a corresponding logical Clifford gate, and
-    (b) changing the code that encodes the logical state to
+    If ``deform_code is True``, then a ``physical_circuit`` returned by this method has two effects,
+    namely (a) transforming a logical state of the ``QuditCode`` by a corresponding logical Clifford
+    gate, and (b) changing the code that encodes the logical state to
     ``code.deformed(physical_circuit, preserve_logicals=True)``.
 
-    Warning: this method performs a brute-force search over the Clifford automorphisms of a code,
-    and thereby generally has exponential runtime.
+    .. warning::
+        This method performs a brute-force search over the Clifford automorphisms of a code, and
+        thereby generally has exponential runtime.
     """
     return get_transversal_circuits(
         code,
@@ -381,7 +385,10 @@ def _tableaus_are_equivalent_mod_paulis(tableau_1: stim.Tableau, tableau_2: stim
 
 @cache.use_disk_cache(
     "group_intersection",
-    key_func=lambda xx, yy: (xx.hashable_generators(), yy.hashable_generators()),
+    key_func=lambda group_a, group_b: (
+        group_a.hashable_generators(),
+        group_b.hashable_generators(),
+    ),
 )
 def _sympy_group_intersection_generators(
     group_a: abstract.Group, group_b: abstract.Group
@@ -434,8 +441,8 @@ def _get_transversal_automorphism_data(
     if physical_circuit.num_qubits < len(code):
         physical_circuit.append("I", len(code) - 1)
 
-    # Determine the effect of physical_circuit on "decoded" qubits, for which
-    # logicals, stabilizers, and destabilizers are single-qubit Paulis.
+    # Determine the effect of physical_circuit on "decoded" qubits, for which logicals, stabilizers,
+    # and destabilizers are single-qubit Paulis.
     encoder, decoder = get_encoder_and_decoder(code, physical_circuit if deform_code else None)
     decoded_tableau = encoder.then(physical_circuit.to_tableau()).then(decoder)
 

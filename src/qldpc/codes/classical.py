@@ -92,12 +92,11 @@ class GolayCode(CyclicCode):
     """Classical binary [23, 12, 7] Golay code.
 
     A famous "perfect" cyclic code: every 23-bit word lies within distance 3 of a unique codeword,
-    so it corrects any 3 bit-flip errors.  As a cyclic code, its codewords are the multiples
-    (mod ``x^23 - 1``) of the Golay generator polynomial ``g(x)``, a degree-11 factor of
-    ``x^23 - 1``.
+    so it corrects any 3 bit-flip errors.  As a cyclic code, its codewords are the multiples (mod
+    ``x^23 - 1``) of the Golay generator polynomial ``g(x)``, a degree-11 factor of ``x^23 - 1``.
 
-    The parity checks are the cyclic shifts of the weight-8 polynomial
-    ``h(x) = (x + 1) g(x)``, which generates the dual code ``G^perp = [23, 11, 8]``.
+    The parity checks are the cyclic shifts of the weight-8 polynomial ``h(x) = (x + 1) g(x)``,
+    which generates the dual code ``G^perp = [23, 11, 8]``.
 
     References:
 
@@ -414,15 +413,15 @@ class TannerCode(ClassicalCode):
     For convenience, we make G directed, with edges directed from V to W.  The node sets V and W can
     then be identified, respectively, by the sources and sinks of G.
 
-    The Tanner code ``T(G,C)`` is defined on ``|W|`` bits.  A ``|W|``-bit string x is a code word
-    of ``T(G,C)`` iff, for every node v in V, the bits of x incident to v are a code word of C.
+    The Tanner code ``T(G,C)`` is defined on ``|W|`` bits.  A ``|W|``-bit string x is a code word of
+    ``T(G,C)`` iff, for every node v in V, the bits of x incident to v are a code word of C.
 
     This construction requires an ordering of the edges E(v) adjacent to each vertex v.  This class
     sorts E(v) by the value of the "sort" attribute attached to each edge.  If there is no "sort"
     attribute, its value is treated as the corresponding neighbor of v.
 
-    Tanner codes can similarly be defined on regular (undirected) graphs ``G' = (V',E')`` by
-    placing checks on V' and bits on E'.
+    Tanner codes can similarly be defined on regular (undirected) graphs ``G' = (V',E')`` by placing
+    checks on V' and bits on E'.
 
     Notes:
 

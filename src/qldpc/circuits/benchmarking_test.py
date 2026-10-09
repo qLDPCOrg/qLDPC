@@ -176,7 +176,7 @@ def test_erasure_counts_as_a_discard() -> None:
 
     # every error of weight one is decoded exactly, and every heavier error is erased, so the
     # logical error rate is exactly zero and the discard rate is 1 - 0.8**7 - 7 * 0.2 * 0.8**6
-    decoder = decoders.SinterDecoder(with_lookup=True, max_weight=1, add_erasure_bit=True)
+    decoder = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1, add_erasure_bit=True))
     logical_error_rate, discard_rate = circuits.get_logical_error_and_discard_rate(
         circuit, sinter_decoder=decoder, num_samples=1000
     )
@@ -189,8 +189,9 @@ def test_erasure_counts_as_a_discard() -> None:
 
         def compile_decoder_for_dem(
             self, dem: stim.DetectorErrorModel
-        ) -> decoders.CompiledSinterDecoder:
+        ) -> decoders.sinter.CompiledSinterDecoder:
             compiled = super().compile_decoder_for_dem(dem)
+            assert isinstance(compiled, decoders.sinter.CompiledTrivialDecoder)
             compiled.packed_observable_size += 2
             return compiled
 

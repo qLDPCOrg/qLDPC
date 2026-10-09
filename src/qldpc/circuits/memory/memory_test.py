@@ -158,8 +158,9 @@ def test_errors() -> None:
         circuits.get_observables(codes.FiveQubitCode(), basis=Pauli.X, on_measurements=True)
     with pytest.raises(ValueError, match="fixed measurement basis"):
         circuits.get_observables(codes.SteaneCode(), basis=None, on_measurements=True)
-    with pytest.raises(ValueError, match="basis must be"):
-        circuits.get_observables(codes.SteaneCode(), basis="test", on_measurements=True)  # type:ignore[arg-type]
+    for invalid_basis in ["test", "y", 0]:
+        with pytest.raises(ValueError, match=r"Pauli\.X or Pauli\.Z"):
+            circuits.get_observables(codes.SteaneCode(), basis=invalid_basis)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="num_rounds"):
         circuits.get_memory_experiment_parts(codes.RepetitionCode(3), Pauli.X, num_rounds=0)
     with pytest.raises(ValueError, match="one target per data qubit"):

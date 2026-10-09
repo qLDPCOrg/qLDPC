@@ -1,11 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Monte-Carlo helpers for code-capacity logical error rate estimation.
+"""Statistical helpers for code-capacity logical error rate estimation.
 
 These utilities turn the failure and discard counts collected by the .get_logical_error_rate_func
 methods of the code classes into logical error and discard rate estimates, and support the sampling
-that those methods perform.  They depend only on the decoder interface and on the binomial weight
-distribution, not on the code classes themselves, so they live in their own module.
+that those methods perform.
 """
 
 from __future__ import annotations
@@ -14,12 +13,11 @@ import dataclasses
 from collections.abc import Iterable
 from typing import TypeVar
 
-import galois
 import numpy as np
 import numpy.typing as npt
 import scipy.special
 
-from qldpc import decoders, math
+from qldpc import math
 
 OneOrManyFloats = TypeVar("OneOrManyFloats", float, Iterable[float])
 
@@ -33,19 +31,19 @@ class ErrorRateFunc:
 
         func = code.get_logical_error_rate_func(...),
 
-    then "func" takes a physical error rate "p" as an argument, and returns two numbers:
+    then ``func`` takes a physical error rate ``p`` as an argument and returns two numbers:
 
     (1) A logical error rate, estimated over the error weights that were sampled.
     (2) A statistical uncertainty in that rate: the standard deviation propagated from the
-            per-weight Jeffreys posterior variances.
+        per-weight Jeffreys posterior variances.
 
     If called with an array of physical error rates, this function returns two arrays.  If called
-    with discard_rate=True, it computes a discard rate instead of an error rate.
+    with ``discard_rate=True``, it computes a discard rate instead of an error rate.
 
     Errors of weight above the max_error_weight are never sampled, and this class counts every one
     of them as a failure.  The reported error rate therefore sits above the true error rate, by at
-    most func.truncation_error_bound(p), which is the probability of drawing such a heavy error.
-    A plot of the reported rate usually carries a vertical bar spanning the range in which the true
+    most func.truncation_error_bound(p), which is the probability of drawing such a heavy error.  A
+    plot of the reported rate usually carries a vertical bar spanning the range in which the true
     rate might lie.  That bar is asymmetric here: the statistical uncertainty spreads in both
     directions, but counting the unsampled errors as failures only pushes the reported rate up.
     Writing ``value, error = func(p)``, the bottom and top of the bar are::
@@ -126,9 +124,9 @@ class ErrorRateFunc:
     def _as_divisor(counts: npt.NDArray[np.int_]) -> npt.NDArray[np.floating]:
         """Cast sample counts to float for use as a divisor, mapping zeros to infinity.
 
-        Dividing by infinity yields zero, so a weight with no (kept) samples is recorded with a
-        zero rate rather than nan or inf.  That is optimistic for a weight with no data; the
-        reported variance does not share this optimism (see jeffreys_variance).
+        Dividing by infinity yields zero, so a weight with no (kept) samples is recorded with a zero
+        rate rather than nan or inf.  That is optimistic for a weight with no data; the reported
+        variance does not share this optimism (see jeffreys_variance).
         """
         divisor = counts.astype(float)
         divisor[divisor == 0] = np.inf
@@ -180,8 +178,8 @@ class ErrorRateFunc:
             value = float(weight_probs @ self.discard_rates)
             variances = self.discard_rate_variances
         else:
-            # errors heavier than max_error_weight are all treated as failures, so their
-            # probability enters the rate in full
+            # errors heavier than max_error_weight are all treated as failures, so their probability
+            # enters the rate in full
             truncation = self.truncation_error_bound(error_rate)
             value = float(weight_probs @ self.infidelities) + truncation
             variances = self.infidelity_variances
@@ -231,11 +229,11 @@ def jeffreys_variance(
 ) -> npt.NDArray[np.floating]:
     """Posterior variance of a binomial rate under a Jeffreys prior.
 
-    With x events observed in n trials, the rate posterior is Beta(x + 1/2, n - x + 1/2), whose
-    mean is (x + 1/2) / (n + 1) and whose variance is mean * (1 - mean) / (n + 2).  Unlike the
-    plug-in variance f (1 - f) / n, this is positive at x = 0, so a weight with no observed events
-    still carries uncertainty, and finite at n = 0, where it reverts to the prior variance 1/8 for
-    a weight with no data at all.
+    With x events observed in n trials, the rate posterior is Beta(x + 1/2, n - x + 1/2), whose mean
+    is (x + 1/2) / (n + 1) and whose variance is mean * (1 - mean) / (n + 2).  Unlike the plug-in
+    variance f (1 - f) / n, this is positive at x = 0, so a weight with no observed events still
+    carries uncertainty, and finite at n = 0, where it reverts to the prior variance 1/8 for a
+    weight with no data at all.
 
     See Brown, Cai & DasGupta, "Interval Estimation for a Binomial Proportion," Statist. Sci. 16
     (2001) 101-133, https://doi.org/10.1214/ss/1009213286, for this posterior and its behaviour at
@@ -258,10 +256,10 @@ def get_sample_allocation(
     weight k, given a maximum error rate that we care about.
 
     A single allocation has to serve every physical error rate ``p <= max_error_rate``, so samples
-    are apportioned in proportion to the largest probability that each error weight is ever
-    assigned over that range of p (see _get_max_error_probs_by_weight).  Every sampled weight is
-    guaranteed at least one sample, so no weight below the maximum sampled weight is silently
-    recorded as failure-free for want of data.
+    are apportioned in proportion to the largest probability that each error weight is ever assigned
+    over that range of p (see _get_max_error_probs_by_weight).  Every sampled weight is guaranteed
+    at least one sample, so no weight below the maximum sampled weight is silently recorded as
+    failure-free for want of data.
 
     The heaviest weight sampled is the heaviest whose share of the budget reaches half a sample (see
     _get_max_error_weight), so a larger budget covers more weights and leaves less probability above
@@ -345,16 +343,16 @@ def _get_max_error_probs_by_weight(
     """Build an array whose k-th entry, for k >= 1, is ``max_(p <= max_error_rate) q_k(p)``.
 
     Entry 0 is held at zero rather than at the one that ``q_0(0)`` attains, because the no-error
-    case is never sampled and callers apportion a budget across these entries, where it must take
-    no share.
+    case is never sampled and callers apportion a budget across these entries, where it must take no
+    share.
 
     Here ``q_k(p)`` is the probability of a weight-k error at physical error rate p, as built by
     _get_error_probs_by_weight.  As a function of p, ``q_k(p)`` peaks at ``p = k / block_length``,
     so the maximum over ``p <= max_error_rate`` is attained at ``p = min(k / block_length,
     max_error_rate)``.  This envelope is the natural stand-in for a single ``q_k(p)`` when one
-    allocation must serve a whole range of physical error rates: a weight contributes
-    ``q_k(p)**2`` to the variance of an estimate at error rate p, so the envelope is the largest
-    that contribution ever gets over the range of p being served.
+    allocation must serve a whole range of physical error rates: a weight contributes ``q_k(p)**2``
+    to the variance of an estimate at error rate p, so the envelope is the largest that contribution
+    ever gets over the range of p being served.
     """
     probs = np.zeros(max_weight + 1)
     if max_error_rate == 0:
@@ -363,8 +361,8 @@ def _get_max_error_probs_by_weight(
     for weight in range(1, max_weight + 1):
         error_rate = min(weight / block_length, max_error_rate)
         if error_rate == 1:
-            # every location errs, so all probability sits at block_length, which is this weight:
-            # an error rate of one requires both max_error_rate == 1 and weight == block_length
+            # every location errs, so all probability sits at block_length, which is this weight: an
+            # error rate of one requires both max_error_rate == 1 and weight == block_length
             probs[weight] = 1
         else:
             probs[weight] = np.exp(
@@ -394,10 +392,10 @@ def _get_error_probs_by_weight(
         probs[0] = 1
         return probs
     elif error_rate == 1:
-        # every location has an error, so the weight is exactly block_length with probability 1.
-        # If block_length exceeds max_weight then this weight lies outside the array and its
-        # probability is fully truncated, so leave all entries at zero (the missing mass is
-        # reported by truncation_error_bound) rather than indexing past the end of the array.
+        # every location has an error, so the weight is exactly block_length with probability 1.  If
+        # block_length exceeds max_weight then this weight lies outside the array and its
+        # probability is fully truncated, so leave all entries at zero (the missing mass is reported
+        # by truncation_error_bound) rather than indexing past the end of the array.
         probs = np.zeros(max_weight + 1)
         if block_length <= max_weight:
             probs[block_length] = 1
@@ -412,20 +410,3 @@ def _get_error_probs_by_weight(
         for kk in range(max_weight + 1)
     ]
     return np.exp(log_probs)
-
-
-def get_error_and_erasure(
-    decoder: decoders.Decoder,
-    syndrome: galois.FieldArray,
-) -> tuple[galois.FieldArray, bool]:
-    """Decode a syndrome and return the inferred error together with an erasure flag.
-
-    If the decoder has a has_erasure_bit attribute set to True (e.g., a LookupDecoder constructed
-    with add_erasure_bit=True), the last element of the decoded vector is treated as the erasure
-    bit: 1 means the syndrome was not recognized and the sample should be discarded, 0 means a
-    correction was found normally.  The erasure bit is stripped before returning the error.
-    """
-    error = decoder.decode(syndrome.view(np.ndarray))
-    if getattr(decoder, "has_erasure_bit", False):
-        return error[:-1].view(type(syndrome)), bool(error[-1])
-    return error.view(type(syndrome)), False

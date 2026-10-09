@@ -31,15 +31,13 @@ from qldpc.codes.common import CSSCode
 from qldpc.objects import Pauli
 
 from .bridge import Bridge
+from .construction import _validate_logical_loss
 from .gadget import GadgetLayout
 
 
 def _gadget_merged_csscode(g: GadgetLayout) -> CSSCode:
-    return CSSCode(
-        g.HX_merged.astype(np.int_),
-        g.HZ_merged.astype(np.int_),
-        is_subsystem_code=False,
-    )
+    """Compatibility wrapper for the internal merged-code accessor."""
+    return _merged_csscode(g)
 
 
 def _validate_one_logical_measurement(
@@ -49,14 +47,12 @@ def _validate_one_logical_measurement(
     operation: str,
 ) -> None:
     """Reject finalized surgery layouts that fix anything other than one logical constraint."""
-    logical_loss = input_dimension - merged_code.dimension
-    if logical_loss != 1:
-        raise ValueError(
-            f"{operation} must fix exactly one logical degree of freedom, but the input encodes "
-            f"{input_dimension} and the merged code encodes {merged_code.dimension} "
-            f"(logical loss {logical_loss}). A reducible logical support can fix its factors "
-            f"separately; boost or replace the gadget before compiling the circuit."
-        )
+    _validate_logical_loss(
+        merged_code,
+        input_dimension=input_dimension,
+        expected_logical_loss=1,
+        operation=operation,
+    )
 
 
 def _validate_bridge_gadget(
@@ -87,7 +83,7 @@ def _validate_bridge_gadget(
 def keep_only_observable(circuit: stim.Circuit, keep_idx: int) -> stim.Circuit:
     """Return a copy of ``circuit`` with all OBSERVABLE_INCLUDE entries dropped except one.
 
-    Keeps only the observable whose first argument equals ``keep_idx``. Recurses into REPEAT blocks
+    Keeps only the observable whose first argument equals ``keep_idx``.  Recurses into REPEAT blocks
     so observables inside loops are filtered the same way.
 
     For surgery PPM circuits pass ``keep_idx=0``: obs1 measures the data on V_0 directly and is not
@@ -127,14 +123,14 @@ def logical_state_init(code: CSSCode, state: str, *, log_idx: int) -> str:
 
     For a meaningful PPM truth-table check, ``log_idx`` must match the logical qubit the gadget
     measures — its seed operator should be ``code.get_logical_ops(Pauli.Z)[log_idx]`` (or
-    ``[Pauli.X]`` for basis=X). This is not verified; if the indices disagree the prep targets a
+    ``[Pauli.X]`` for basis=X).  This is not verified; if the indices disagree the prep targets a
     logical qubit the gadget does not measure, and the obs0 outcome is silently random.
 
     The returned string has length ``code.num_qudits``; pass it as ``data_init`` to
-    ``build_single_ppm_circuit``, or inside a tuple to ``build_joint_ppm_circuit``.
-    Initializing in the basis complementary to the measured logical is useful for raw-sampler truth
-    tables, but makes the logical observable intentionally random; such a circuit has deterministic
-    detectors but cannot define a detector error model for LER decoding.
+    ``build_single_ppm_circuit``, or inside a tuple to ``build_joint_ppm_circuit``.  Initializing in
+    the basis complementary to the measured logical is useful for raw-sampler truth tables, but
+    makes the logical observable intentionally random; such a circuit has deterministic detectors
+    but cannot define a detector error model for LER decoding.
 
     Raises:
         ValueError: ``state`` is not one of "0", "1", "+", "-".
@@ -164,8 +160,8 @@ def _surgery_qubit_coordinates(
 ) -> stim.Circuit:
     """Emit QUBIT_COORDS in surgery's 6/7-lane semantic layout.
 
-    gadget notation: V_0 → support; κ ancillas → ancilla qubits (Q');
-    χ ancillas → S'_meas ancillas (= χ rows); G ancillas → S'_comp ancillas (= G rows).
+    gadget notation: V_0 → support; κ ancillas → ancilla qubits (Q'); χ ancillas → S'_meas ancillas
+    (= χ rows); G ancillas → S'_comp ancillas (= G rows).
 
     Lanes:
       y=0  data qubits         (qubit_ids.data holds data + κ + bridge; split across y=0/1/6)
@@ -180,7 +176,7 @@ def _surgery_qubit_coordinates(
     order in the stringified circuit. basis=Z breaks that monotonicity because χ and G swap matrix
     slots, but the lane numbers stay fixed: S'_meas always y=3, S'_comp always y=5.
 
-    `joint=None` → single PPM. Otherwise pass (g_r, bridge, intercode).
+    `joint=None` → single PPM.  Otherwise pass (g_r, bridge, intercode).
     """
     circuit = stim.Circuit()
 
@@ -220,9 +216,8 @@ def _surgery_qubit_coordinates(
         m_X_r = m_Z_r = 0
         n_meas_r = n_gauge_r = k_r = 0
 
-    # For joint PPM, the in-circuit κ count is the augmented value (bridge may
-    # have added κ' ancillas during cellulation); use the bridge's augmented
-    # gadgets as the source of truth.
+    # For joint PPM, the in-circuit κ count is the augmented value (bridge may have added κ'
+    # ancillas during cellulation); use the bridge's augmented gadgets as the source of truth.
     if joint is not None:
         assert bridge is not None
         k_l = bridge.g_l_aug.incidence.shape[0]
@@ -295,8 +290,8 @@ def _surgery_qubit_coordinates(
 
     # Joint PPM: bridge cycle ancillas on y=6 (sharing the row with bridge data).
     if joint is not None and w > 1:
-        # The new cycle checks live at the end of checks_x (basis=Z) or
-        # checks_z (basis=X). They're (w - 1) of them.
+        # The new cycle checks live at the end of checks_x (basis=Z) or checks_z (basis=X).  They're
+        # (w - 1) of them.
         if is_basis_x:
             cycle_check_ids = qubit_ids.checks_z[m_Z_total + n_gauge_total :]
         else:
@@ -324,7 +319,7 @@ def _check_lane_map(
 
     Detectors carry ``(round, lane, check_id)``, advanced by ``SHIFT_COORDS (1, 0, 0)`` once between
     consecutive rounds and once more before the final data readout, so the round coordinate runs 0
-    through ``rounds``. Round is coordinate 0 because that is the coordinate
+    through ``rounds``.  Round is coordinate 0 because that is the coordinate
     ``SlidingWindowDecoder`` reads as its time index by default, matching ``get_memory_experiment``.
     check_id is the ancilla's stim qubit id, whose QUBIT_COORDS line gives its position within the
     lane.
@@ -425,32 +420,33 @@ def build_single_ppm_circuit(
 
     Emits two OBSERVABLE_INCLUDE entries (see ``_surgery_observable`` for full semantics):
 
-      * obs0 — Single-round Z̄ = ∏_{v ∈ support} A_v readout, or X̄ for basis=X (Webster, Smith, Cohen
-        arXiv:2511.15989 §II A, gadget Eqs. (1)-(4)): the XOR of the **last** QEC round's
-        meas-check outcomes, argued but
-        not tested to be decoding-equivalent to Cain et al.'s first-cycle readout
-        (arXiv:2603.28627 App. D).
+      * obs0 — Single-round Z̄ = ∏_{v ∈ support} A_v readout, or X̄ for basis=X (Webster, Smith,
+        Cohen arXiv:2511.15989 §II A, gadget Eqs. (1)-(4)): the XOR of the **last** QEC round's
+        meas-check outcomes, argued but not tested to be decoding-equivalent to Cain et al.'s
+        first-cycle readout (arXiv:2603.28627 App. D).
       * obs1 — Direct destructive M on ``support`` qubits; noiseless cross-check, not a physical
         protocol.
 
     For LER / noisy runs, use ``keep_only_observable(circuit, keep_idx=0)``.
 
     ``data_init`` (optional): per-data-qubit init override; see ``_surgery_state_prep`` for the
-    character-to-state mapping. A state complementary to the measured logical basis makes obs0/obs1
+    character-to-state mapping.  A state complementary to the measured logical basis makes obs0/obs1
     intentionally random; use ``compile_sampler`` for that truth-table experiment, not
     ``detector_error_model`` or Sinter.
 
     Raises:
-        ValueError: rounds < 1; the finalized gadget fixes anything other than one logical degree
-            of freedom; or ``data_init`` is neither length 1 nor length
-            ``gadget.code.num_qudits``, or contains a character outside "01+-".
+        ValueError: rounds < 1; the finalized gadget fixes anything other than one logical degree of
+            freedom; or ``data_init`` is neither length 1 nor length ``gadget.code.num_qudits``, or
+            contains a character outside "01+-".
     """
     if rounds < 1:
         raise ValueError(f"rounds must be >= 1, got {rounds}.")
-    merged_code = _gadget_merged_csscode(gadget)
-    _validate_one_logical_measurement(
+    cone_result = gadget._get_cone_result()
+    merged_code = cone_result.code
+    _validate_logical_loss(
         merged_code,
         input_dimension=gadget.code.dimension,
+        expected_logical_loss=cone_result.expected_logical_loss,
         operation="build_single_ppm_circuit",
     )
     qubit_ids = QubitIDs.from_code(merged_code)
@@ -515,13 +511,12 @@ def build_single_ppm_circuit(
 
 
 def _stitch_intercode(g_l: GadgetLayout, g_r: GadgetLayout, bridge: Bridge) -> CSSCode:
-    """Inter-code joint stitch (g_l.code is not g_r.code). Handles both bases."""
-    assert g_l.code is not g_r.code
+    """Inter-code joint stitch with disjoint data registers.  Handles both bases."""
     field = g_l.code.field
     g_l_aug, g_r_aug = bridge.g_l_aug, bridge.g_r_aug
 
-    # measured-basis abstraction: M_meas holds the new meas-basis check rows;
-    # M_comp holds the dual cycle/comp-basis rows.
+    # measured-basis abstraction: M_meas holds the new meas-basis check rows; M_comp holds the dual
+    # cycle/comp-basis rows.
     if bridge.basis is Pauli.X:
         M_meas_l_src, M_comp_l_src = g_l_aug.HX_merged, g_l_aug.HZ_merged
         M_meas_r_src, M_comp_r_src = g_r_aug.HX_merged, g_r_aug.HZ_merged
@@ -542,6 +537,7 @@ def _stitch_intercode(g_l: GadgetLayout, g_r: GadgetLayout, bridge: Bridge) -> C
     M_comp_l = np.asarray(M_comp_l_src).astype(np.int_)
     M_comp_r = np.asarray(M_comp_r_src).astype(np.int_)
 
+    # lay out columns as left data, right data, left/right ancillas, then adapter
     n_l, n_r = g_l.code.num_qudits, g_r.code.num_qudits
     k_l, k_r = g_l_aug.incidence.shape[0], g_r_aug.incidence.shape[0]
     w = bridge.width
@@ -600,14 +596,20 @@ def _stitch_intercode(g_l: GadgetLayout, g_r: GadgetLayout, bridge: Bridge) -> C
 
 
 def _stitch_intracode(g_l: GadgetLayout, g_r: GadgetLayout, bridge: Bridge) -> CSSCode:
-    """Intra-code joint stitch (g_l.code is g_r.code). Handles both bases.
+    """Intra-code joint stitch over one shared data register.  Handles both bases.
 
     Differences from _stitch_intercode:
       - Shared data check rows (count = m_meas/comp_data once, not l+r).
       - Shared data column block (n columns, not n_l + n_r).
       - χ rows from both sides write into the SAME data-column slice.
     """
-    assert g_l.code is g_r.code
+    same_code = (
+        g_l.code.field is g_r.code.field
+        and np.array_equal(g_l.code.matrix_x, g_r.code.matrix_x)
+        and np.array_equal(g_l.code.matrix_z, g_r.code.matrix_z)
+    )
+    if not same_code:
+        raise ValueError("an intra-code joint stitch requires structurally identical data codes")
     field = g_l.code.field
     g_l_aug, g_r_aug = bridge.g_l_aug, bridge.g_r_aug
 
@@ -627,6 +629,7 @@ def _stitch_intracode(g_l: GadgetLayout, g_r: GadgetLayout, bridge: Bridge) -> C
     M_comp_l = np.asarray(M_comp_l_src).astype(np.int_)
     M_comp_r = np.asarray(M_comp_r_src).astype(np.int_)
 
+    # lay out columns as shared data, left/right ancillas, then adapter
     n = g_l.code.num_qudits
     k_l, k_r = g_l_aug.incidence.shape[0], g_r_aug.incidence.shape[0]
     w = bridge.width
@@ -657,8 +660,8 @@ def _stitch_intracode(g_l: GadgetLayout, g_r: GadgetLayout, bridge: Bridge) -> C
         if lab >= 0:
             M_meas[m_meas_data + len(g_l.support) + v_idx, c_adapter.start + lab] = 1
 
-    # Build M_comp: shared data co-carrier rows with κ extension on BOTH sides,
-    # then G_l, G_r, then new cycle.
+    # Build M_comp: shared data co-carrier rows with κ extension on BOTH sides, then G_l, G_r, then
+    # new cycle.
     M_comp = np.zeros(
         (m_comp_data + r_l + r_r + (w - 1), n_merged),
         dtype=np.int_,
@@ -682,16 +685,37 @@ def _stitch_to_joint_csscode(
     g_l: GadgetLayout,
     g_r: GadgetLayout,
     bridge: Bridge,
+    *,
+    intercode: bool | None = None,
 ) -> CSSCode:
     """Assemble merged CSSCode for two-PPM surgery.
 
-    Dispatches on the structural axis (g_l.code is g_r.code → intra-code shares data; otherwise
-    inter-code). Each branch handles both bridge.basis values internally via the χ-carrier
-    abstraction.
+    ``intercode`` explicitly selects whether the two gadgets occupy disjoint data blocks.  The
+    default retains the historical object-identity behavior for existing internal callers.
     """
-    if g_l.code is g_r.code:
-        return _stitch_intracode(g_l, g_r, bridge)
-    return _stitch_intercode(g_l, g_r, bridge)
+    if intercode is None:
+        intercode = g_l.code is not g_r.code
+    if intercode:
+        return _stitch_intercode(g_l, g_r, bridge)
+    return _stitch_intracode(g_l, g_r, bridge)
+
+
+def _merged_csscode(
+    g_l: GadgetLayout,
+    g_r: GadgetLayout | None = None,
+    bridge: Bridge | None = None,
+    *,
+    intercode: bool | None = None,
+) -> CSSCode:
+    """Construct the merged code for either a single or joint PPM layout."""
+    if (g_r is None) != (bridge is None):
+        raise ValueError("g_r and bridge must either both be provided or both be omitted")
+    if g_r is None:
+        if intercode is not None:
+            raise ValueError("intercode is only valid for a joint PPM layout")
+        return g_l._get_cone_result().code
+    assert bridge is not None
+    return _stitch_to_joint_csscode(g_l, g_r, bridge, intercode=intercode)
 
 
 def _expand_joint_data_init(
@@ -707,8 +731,8 @@ def _expand_joint_data_init(
       * ``str`` (or ``None``) — passed through verbatim to ``_surgery_state_prep`` (length-1
         broadcasts to all data qubits; length n_l + n_r is per-qubit).
 
-      * ``tuple[str, str]`` (or list) — per-code logical-init spec. Each entry is a string that is
-        itself per-code broadcast (length 1) or per-qubit (length n_code). Tuple form is only valid
+      * ``tuple[str, str]`` (or list) — per-code logical-init spec.  Each entry is a string that is
+        itself per-code broadcast (length 1) or per-qubit (length n_code).  Tuple form is only valid
         for intercode joint PPM (intracode has a single data set; use a plain string instead).
         Example: ``("0", "+")`` initializes c_l data to |0⟩^{n_l} and c_r data to |+⟩^{n_r} — which,
         after the first round of merged-code SE projects into the codespace, equals logical
@@ -755,7 +779,11 @@ def build_joint_ppm_circuit(
     noise_model: NoiseModel | None = None,
     data_init: str | tuple[str, ...] | list[str] | None = None,
 ) -> tuple[stim.Circuit, CSSCode]:
-    """Joint-PPM circuit measuring a logical Pauli product across two gadgets via a bridge.
+    """Build a joint-PPM circuit measuring a logical Pauli product across two gadgets.
+
+    Gadgets over the same code object share one data block; gadgets over distinct code objects use
+    disjoint data blocks.  Compiler callers with explicit logical block identities use the private
+    structural entry point instead.
 
     Emits two OBSERVABLE_INCLUDE entries (see ``_surgery_observable`` for full semantics):
 
@@ -771,14 +799,14 @@ def build_joint_ppm_circuit(
 
     ``data_init`` (optional): override the per-code data init.
 
-      * ``str`` — per-physical-qubit (or len-1 broadcast). For intercode, positions [0:n_l) are
-        left, [n_l:n_l+n_r) are right; for intracode, length is n_l. See ``_surgery_state_prep`` for
-        the char-to-state mapping.
+      * ``str`` — per-physical-qubit (or len-1 broadcast).  For intercode, positions [0:n_l) are
+        left, [n_l:n_l+n_r) are right; for intracode, length is n_l.  See ``_surgery_state_prep``
+        for the char-to-state mapping.
       * ``tuple[str, str]`` (intercode only) — per-code logical-init spec.
         ``data_init=("0", "+")`` → c_l in ``|0⟩_L``, c_r in ``|+⟩_L``.
 
     If either code is initialized in the basis complementary to the measured logical, the joint
-    observable is intentionally random. Its detectors remain deterministic, but the circuit does
+    observable is intentionally random.  Its detectors remain deterministic, but the circuit does
     not define a detector error model; use ``compile_sampler`` for such truth-table experiments.
 
     Raises:
@@ -788,12 +816,33 @@ def build_joint_ppm_circuit(
             or a per-code spec whose length matches neither 1 nor that code's data-qubit count.
         TypeError: ``data_init`` is not a str, tuple, list, or None, or a tuple entry is not a str.
     """
+    return _build_joint_ppm_circuit(
+        g_l,
+        g_r,
+        bridge,
+        intercode=g_l.code is not g_r.code,
+        rounds=rounds,
+        noise_model=noise_model,
+        data_init=data_init,
+    )
+
+
+def _build_joint_ppm_circuit(
+    g_l: GadgetLayout,
+    g_r: GadgetLayout,
+    bridge: Bridge,
+    *,
+    intercode: bool,
+    rounds: int,
+    noise_model: NoiseModel | None = None,
+    data_init: str | tuple[str, ...] | list[str] | None = None,
+) -> tuple[stim.Circuit, CSSCode]:
+    """Build a joint-PPM circuit with an explicit shared- versus disjoint-data choice."""
     if rounds < 1:
         raise ValueError(f"rounds must be >= 1, got {rounds}.")
     _validate_bridge_gadget(g_l, bridge.g_l_aug, bridge.extra_ancilla_l, side="l")
     _validate_bridge_gadget(g_r, bridge.g_r_aug, bridge.extra_ancilla_r, side="r")
-    joint_code = _stitch_to_joint_csscode(g_l, g_r, bridge)
-    intercode = g_l.code is not g_r.code
+    joint_code = _merged_csscode(g_l, g_r, bridge, intercode=intercode)
     input_dimension = g_l.code.dimension + (g_r.code.dimension if intercode else 0)
     _validate_one_logical_measurement(
         joint_code,
@@ -861,8 +910,8 @@ def build_joint_ppm_circuit(
         intercode=intercode,
     )
 
-    # χ check IDs: data H_X^(l) rows occupy first mX_l indices in
-    # qubit_ids.checks_x, then m_X_r (inter-code), then χ^(l), then χ^(r).
+    # χ check IDs: data H_X^(l) rows occupy first mX_l indices in qubit_ids.checks_x, then m_X_r
+    # (inter-code), then χ^(l), then χ^(r).
     if bridge.basis is Pauli.X:
         check_ids = qubit_ids.checks_x
         m_l = g_l.code.matrix_x.shape[0]
@@ -990,6 +1039,7 @@ def _surgery_qec_cycle_joint(
     measurement_record = MeasurementRecord()
     detector_record = DetectorRecord()
 
+    # emit first-round detectors only for checks determined by the initial state
     circuit += one_round
     measurement_record.append(round_measurement_record)
     for check_id in all_check_ids:
@@ -1037,9 +1087,9 @@ def _surgery_final_detectors_joint(
 ) -> stim.Circuit:
     """Joint-code variant of _surgery_final_detectors.
 
-    Emits detectors for the same reliable stabilizers as the round-1 classifier:
-    basis=X: data H_X rows from both gadgets + G_aug + new cycle-Z rows.
-    basis=Z: data H_Z rows from both gadgets + G_aug + new cycle-X rows.
+    Emits detectors for the same reliable stabilizers as the round-1 classifier: basis=X: data H_X
+    rows from both gadgets + G_aug + new cycle-Z rows.  basis=Z: data H_Z rows from both gadgets +
+    G_aug + new cycle-X rows.
     """
     m_X_l = g_l.code.matrix_x.shape[0]
     m_X_r = g_r.code.matrix_x.shape[0] if intercode else 0
@@ -1118,7 +1168,7 @@ def _surgery_state_prep(
       basis=X → data |+⟩ (RX), ancilla + bridge |0⟩ (R)
       basis=Z → data |0⟩ (R),  ancilla + bridge |+⟩ (RX)
 
-    Optional ``data_init`` overrides per-data-qubit initial state. Each character selects a state
+    Optional ``data_init`` overrides per-data-qubit initial state.  Each character selects a state
     for the data qubit at the same position:
 
       "0" → |0⟩  (R)
@@ -1230,28 +1280,26 @@ def _surgery_observable(
 ) -> stim.Circuit:
     """Emit two OBSERVABLE_INCLUDE entries (obs0, obs1) for the surgery PPM.
 
-    obs0 — physical readout of the logical Pauli. The merged stabilizer group satisfies the
+    obs0 — physical readout of the logical Pauli.  The merged stabilizer group satisfies the
         single-round identity Z̄ = ∏_{v ∈ support} A_v (Webster, Smith, Cohen arXiv:2511.15989
-        §II A, gadget Eqs. (1)-(4)). We point ``OBSERVABLE_INCLUDE`` at the **last** QEC round's
-        meas-check
-        (S'_meas) outcomes — their XOR is the eigenvalue bit of Z̄ (or X̄ for basis=X). Detectors
-        carry the FT load via round-to-round consistency. Reading at the final round should be
-        decoding-equivalent to Cain et al.'s first-cycle readout (arXiv:2603.28627 App. D) because
-        the interface detectors telescope, so the observable's fault distance should be unchanged
-        (argued, not covered by a fault-distance test).
+        §II A, gadget Eqs. (1)-(4)).  We point ``OBSERVABLE_INCLUDE`` at the **last** QEC round's
+        meas-check (S'_meas) outcomes — their XOR is the eigenvalue bit of Z̄ (or X̄ for basis=X).
+        Detectors carry the FT load via round-to-round consistency.  Reading at the final round
+        should be decoding-equivalent to Cain et al.'s first-cycle readout (arXiv:2603.28627 App. D)
+        because the interface detectors telescope, so the observable's fault distance should be
+        unchanged (argued, not covered by a fault-distance test).
 
-    obs1 — Direct stim measurement of the data qubits on ``support``. NOT a physical protocol —
+    obs1 — Direct stim measurement of the data qubits on ``support``.  NOT a physical protocol —
         destructively projects the data — but a useful noiseless cross-check: in any noiseless shot
         ``obs0 == obs1``.
 
     For LER sweeps and any noisy run, keep ONLY obs0 via
     ``keep_only_observable(circuit, keep_idx=0)``.
     """
-    # Precondition: every meas-check ancilla must have been measured during
-    # the QEC cycle. Detach/readout only touches data + κ + bridge, never the
-    # meas-check ancillas, so ``get_target_rec(cid)`` (default -1) is
-    # guaranteed to resolve to the last QEC round. Fail loudly if a future
-    # refactor breaks this.
+    # Precondition: every meas-check ancilla must have been measured during the QEC cycle.
+    # Detach/readout only touches data + κ + bridge, never the meas-check ancillas, so
+    # ``get_target_rec(cid)`` (default -1) is guaranteed to resolve to the last QEC round.  Fail
+    # loudly if a future refactor breaks this.
     for cid in meas_check_ids:
         assert measurement_record[cid], (
             f"meas-check {cid} has no measurement record; "
@@ -1274,9 +1322,8 @@ def _surgery_final_detectors(
 ) -> stim.Circuit:
     """Emit DETECTORs for reliable stabs inferable from final readouts.
 
-    For basis=X: data H_X (from Mx data) + G (from Mz κ).
-    For basis=Z: data H_Z (from Mz data) + G (from Mx κ).
-    Each DETECTOR XORs ⊕(final M-record on stab support) ⊕ last-round syndrome.
+    For basis=X: data H_X (from Mx data) + G (from Mz κ).  For basis=Z: data H_Z (from Mz data) + G
+    (from Mx κ).  Each DETECTOR XORs ⊕(final M-record on stab support) ⊕ last-round syndrome.
     """
     m_X = gadget.code.matrix_x.shape[0]
     m_Z = gadget.code.matrix_z.shape[0]
@@ -1314,7 +1361,7 @@ def _surgery_detach_and_readout(
     bridge_ids: tuple[int, ...],
     measurement_record: MeasurementRecord,
 ) -> stim.Circuit:
-    """Cain App. B.1 step 3 + final data measure. Mκ then SHIFT_COORDS then Mdata."""
+    """Cain App. B.1 step 3 + final data measure.  Mκ then SHIFT_COORDS then Mdata."""
     circuit = stim.Circuit()
     detach_qubits = list(ancilla_ids) + list(bridge_ids)
     ancilla_op = "M" if gadget.basis is Pauli.X else "MX"

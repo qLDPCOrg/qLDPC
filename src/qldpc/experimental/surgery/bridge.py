@@ -1,6 +1,6 @@
 """Standalone bridge adapter for two-PPM joint surgery.
 
-Swaroop et al. arXiv:2410.03628 §IV / §VII. Handles both intra-code (g1.code is g2.code) and
+Swaroop et al. arXiv:2410.03628 §IV / §VII.  Handles both intra-code (g1.code is g2.code) and
 inter-code joints.
 
 Copyright 2026 The qLDPC Authors
@@ -59,7 +59,7 @@ def _skip_tree(
     root: int = 0,
     edge_index_verts: dict[tuple[int, int], int] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """SkipTree basis transform (Swaroop et al. arXiv:2410.03628 §III). Returns T, P."""
+    """SkipTree basis transform (Swaroop et al. arXiv:2410.03628 §III).  Returns T, P."""
     n = S.number_of_nodes()
     index = 0
     label = [0] * n
@@ -128,16 +128,16 @@ def _skip_tree_fullrank(
 
     Swaroop et al. arXiv:2410.03628 Algorithm 2 (Appendix E — the flag-based variant targeting the
     full-rank H_R, which this implements) reads each T row off the spanning-tree path between
-    consecutively labelled vertices. Here the spanning tree supplies only the DFS vertex labeling,
+    consecutively labelled vertices.  Here the spanning tree supplies only the DFS vertex labeling,
     and each T row is the XOR of shortest-path edges in the full graph S, which lets S be any
     connected graph; the direct _skip_tree call would IndexError on cyclic inputs.
 
     Row weight ≤ 3 still holds, since a shortest path in S is no longer than the tree path between
     the same endpoints, which the proof of Theorem 7 bounds at 3 edges — that proof analyses
     Algorithm 1's labeling, and the paper asserts Algorithm 2's sparsity only empirically (§VII B).
-    Theorem 7's column-weight-2 half does not
-    carry over, because a full-graph path may route over non-tree edges for which the paper gives no
-    reuse bound; column weight ≤ 2 is checked empirically instead.
+    Theorem 7's column-weight-2 half does not carry over, because a full-graph path may route over
+    non-tree edges for which the paper gives no reuse bound; column weight ≤ 2 is checked
+    empirically instead.
 
     Returns (T, P) of shapes (n-1, |E|) and (n, n).
     """
@@ -174,14 +174,14 @@ def _cellulate_port_subgraph(
 
     SkipTree runs on G_aux.subgraph(ports), so only cycles there enter T_s and only those are
     cellulated; a long cycle of G_aux threading non-port vertices contributes no basis cycle to the
-    port subgraph and need not admit a port-port chord at all. Chords are added to ``G_aux``, the
+    port subgraph and need not admit a port-port chord at all.  Chords are added to ``G_aux``, the
     full graph, and for a port-subgraph cycle both endpoints are necessarily ports.
 
     T_s row weight is already ≤ 3 regardless of cycle length (see _skip_tree_fullrank), so this step
-    is not load-bearing for correctness. Capping basis cycle length is the cellulation of Swaroop et
-    al. arXiv:2410.03628 §II C.
+    is not load-bearing for correctness.  Capping basis cycle length is the cellulation of Swaroop
+    et al. arXiv:2410.03628 §II C.
 
-    Returns the list of added (u, v) edges in insertion order. Idempotent once all port-subgraph
+    Returns the list of added (u, v) edges in insertion order.  Idempotent once all port-subgraph
     basis cycles fit under the cap.
     """
     added: list[tuple[int, int]] = []
@@ -225,9 +225,9 @@ def _build_aux_graph_strict(incidence: np.ndarray) -> tuple[nx.Graph, dict[tuple
     check c → c · X(κ_r), χ_v) untouched.
 
     Swaroop et al. arXiv:2410.03628 §II C Eq. (9)'s perfect-matching decomposition is not applied,
-    and no structural distance
-    argument is claimed for the joint merge: Swaroop et al. Thm 11 (§IV) needs the individual
-    deformed codes to be LDPC with distance d, which this library does not establish.
+    and no structural distance argument is claimed for the joint merge: Swaroop et al. Thm 11 (§IV)
+    needs the individual deformed codes to be LDPC with distance d, which this library does not
+    establish.
 
     Raises:
         ValueError: if any row of F has weight 1 (defensive — F · 1_{V_0} = 0 mod 2 forbids odd
@@ -260,7 +260,7 @@ def _connect_induced_subgraph(
 ) -> list[tuple[int, int]]:
     """Add edges to G_aux so that G_aux.subgraph(ports) is connected.
 
-    Mutates G_aux. Each added edge has both endpoints in ``ports`` so it contributes a weight-2 row
+    Mutates G_aux.  Each added edge has both endpoints in ``ports`` so it contributes a weight-2 row
     to the augmented F matrix downstream.
 
     Loop invariant: u and v are drawn from different components of G_aux.subgraph(ports), so G_aux
@@ -296,19 +296,19 @@ def _run_skiptree_on_port_subgraph(
     """Run SkipTree on the induced port subgraph; embed result back onto F_aug rows.
 
     The induced subgraph's vertex IDs are relabeled to [0, |port|) so the n×n P allocation inside
-    ``_skip_tree`` is square. The output T is then re-expressed onto the original F_aug edge
-    ordering (rows of F_aug index the κ qubits = edges of G_aux_full). ``root_port_idx`` selects
+    ``_skip_tree`` is square.  The output T is then re-expressed onto the original F_aug edge
+    ordering (rows of F_aug index the κ qubits = edges of G_aux_full).  ``root_port_idx`` selects
     which entry of ``port`` is the SkipTree root.
 
-    Returns (T_full, labels) where T_full has shape (w-1, F_aug.shape[0]) and labels[orig_v] = k
-    iff orig_v ∈ port and got SkipTree label k (else -1).
+    Returns (T_full, labels) where T_full has shape (w-1, F_aug.shape[0]) and labels[orig_v] = k iff
+    orig_v ∈ port and got SkipTree label k (else -1).
     """
     sub_orig = G_aux_full.subgraph(port).copy()
     port_sorted = sorted(port)
     new_of_orig = {orig: new for new, orig in enumerate(port_sorted)}
     orig_of_new = {new: orig for orig, new in new_of_orig.items()}
     sub_relab = nx.relabel_nodes(sub_orig, new_of_orig, copy=True)
-    # Take a spanning tree, as the paper's SkipTree algorithms do at their first step. MST is
+    # Take a spanning tree, as the paper's SkipTree algorithms do at their first step.  MST is
     # deterministic; for unweighted graphs nx returns a BFS-like tree.
     sub_tree = nx.minimum_spanning_tree(sub_relab)
     tree_edges = sorted(tuple(sorted(e)) for e in sub_tree.edges())
@@ -328,14 +328,14 @@ def _run_skiptree_on_port_subgraph(
         labels[orig_v] = int(nz[0])
     T_full = np.zeros((T_relab.shape[0], incidence_aug.shape[0]), dtype=np.int_)
     # Duplicate-edge guard: when two κ rows of F_aug share the same (u, v) support,
-    # _build_aux_graph_strict dedups them to one G_aux edge. Giving both rows the same T_relab
-    # column would cancel their contributions to T·F_aug mod 2 and break the SkipTree identity, so
-    # T goes to the first matching row only; the duplicate κ qubits stay in the gauge group.
+    # _build_aux_graph_strict dedups them to one G_aux edge.  Giving both rows the same T_relab
+    # column would cancel their contributions to T·F_aug mod 2 and break the SkipTree identity, so T
+    # goes to the first matching row only; the duplicate κ qubits stay in the gauge group.
     assigned_edges: set[tuple[int, int]] = set()
     for r in range(incidence_aug.shape[0]):
         cols = np.flatnonzero(incidence_aug[r])
         # Load-bearing skip: T_s gets zero columns on hyperedge rows (weight ≥ 3) and on rows whose
-        # endpoints leave the port subgraph. See _build_aux_graph_strict for why that is safe.
+        # endpoints leave the port subgraph.  See _build_aux_graph_strict for why that is safe.
         if len(cols) != 2:
             continue
         u_orig, v_orig = sorted(int(x) for x in cols)
@@ -373,17 +373,17 @@ def build_bridge(
 
     Args:
         g_l: left gadget.
-        g_r: right gadget. Must share g_l's measurement basis.
-        port_subset_l: indices into ``g_l.support`` to use as ports. Must be in range and distinct;
-            out-of-range or repeated entries surface as an IndexError. Defaults to all of it.
+        g_r: right gadget.  Must share g_l's measurement basis.
+        port_subset_l: indices into ``g_l.support`` to use as ports.  Must be in range and distinct;
+            out-of-range or repeated entries surface as an IndexError.  Defaults to all of it.
         port_subset_r: indices into ``g_r.support`` to use as ports, same contract as port_subset_l.
             Defaults to all of it.
         spanning_tree_root_l: index INTO the left port tuple of the SkipTree root vertex.
         spanning_tree_root_r: index INTO the right port tuple of the SkipTree root vertex.
         cellulate_max_len: cap on port-subgraph cycle length, enforced by adding chords, which trade
-            qubits for a sparser gauge. Defaults to the larger of the two data codes' maximum
+            qubits for a sparser gauge.  Defaults to the larger of the two data codes' maximum
             measured-basis stabilizer row weight, floored at 3: a 3-cycle has no chord, so 3 is the
-            smallest cap every port subgraph can meet. That default reads the measured basis while
+            smallest cap every port subgraph can meet.  That default reads the measured basis while
             the cycles it governs come from the complementary one, so pass the cap explicitly for a
             code whose two check matrices differ in maximum row weight.
 
@@ -424,7 +424,7 @@ def build_bridge(
     if width < 2:
         raise ValueError(f"bridge width must be >= 2, got {width}")
     # Truncating to the narrower side is the intended adapter behaviour when both port tuples are
-    # defaulted — supports of unequal size bridge at their minimum. A named port that would be
+    # defaulted — supports of unequal size bridge at their minimum.  A named port that would be
     # truncated away is a request the caller made and cannot get, so it is an error.
     for side, subset, ports in (("l", port_subset_l, port_l_all), ("r", port_subset_r, port_r_all)):
         if subset is not None and len(ports) > width:
@@ -453,7 +453,7 @@ def build_bridge(
     extra_ancilla_l = _edges_to_incidence_extra(extras_l_edges, len(g_l.support))
     extra_ancilla_r = _edges_to_incidence_extra(extras_r_edges, len(g_r.support))
 
-    # Rebuild before SkipTree so its transform uses every boost and bridge ancilla. The layout
+    # Rebuild before SkipTree so its transform uses every boost and bridge ancilla.  The layout
     # method preserves ancillas that were already present on its input.
     g_l_aug = g_l.with_added_ancillas(extra_ancilla_l)
     g_r_aug = g_r.with_added_ancillas(extra_ancilla_r)

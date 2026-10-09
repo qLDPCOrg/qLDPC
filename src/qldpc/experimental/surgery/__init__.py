@@ -4,7 +4,7 @@ EXPERIMENTAL: this subpackage is under active development; its public API is uns
 change without notice or deprecation.
 
 Fault-tolerant logical Pauli-product measurement (PPM) via code surgery: single-PPM "gadgets",
-joint-PPM "bridges" (universal adapters), a distance boost, and a stim circuit layer. See the
+joint-PPM "bridges" (universal adapters), a distance boost, and a stim circuit layer.  See the
 individual modules for references.
 
 Public API:

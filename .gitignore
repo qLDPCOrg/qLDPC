@@ -8,6 +8,7 @@ experiments/quantum_tanner/codes
 
 # python cache
 __pycache__
+.venv
 
 # ipython notebooks
 .ipynb_checkpoints
@@ -28,3 +29,6 @@ build
 *.c
 *.so
 *.pyd
+
+# ignore the uv lockfile, which can reveal private/proprietary info about a package artifactory
+uv.lock

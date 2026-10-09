@@ -73,8 +73,8 @@ def test_get_quantum_code() -> None:
     ):
         external.codes.get_quantum_code("")
 
-    # page missing stabilizer data
-    mock_page = get_mock_page("<tr> <td>d</td> <td>5</td> </tr>")
+    # API response missing stabilizer data
+    mock_page = get_mock_page('{"d": 5}')
     with (
         unittest.mock.patch("urllib.request.urlopen", return_value=mock_page),
         pytest.raises(ValueError, match="stabilizer data"),
@@ -82,12 +82,39 @@ def test_get_quantum_code() -> None:
         external.codes.get_quantum_code("")
 
     # retrieve code data!
-    dist_line = "<tr> <td>d</td> <td>5</td> </tr>"
-    css_line = "<tr> <td>css</td> <td>False</td> </tr>"
-    stab_line = "<tr> <td>H</td> <td><tt>XXXX<br>ZZZZ</tt></td> </tr>"
-    mock_page = get_mock_page(f"{dist_line}\n{css_line}\n{stab_line}")
+    mock_page = get_mock_page('{"H": "XXXX ZZZZ", "d": 5, "css": false}')
     with unittest.mock.patch("urllib.request.urlopen", return_value=mock_page):
         assert external.codes.get_quantum_code("") == (["XXXX", "ZZZZ"], 5, False)
+
+
+def test_get_qldpc_challenge_code() -> None:
+    """Retrieve quantum code data from the Unitary Foundation qLDPC Challenge."""
+    index = {"codes": [{"id": "css", "tier": "exact"}, {"id": "stab", "tier": "ub"}]}
+    get_json = "qldpc.external.codes._get_json"
+
+    # CSS code with a certified exact distance
+    css_checks = {"X": [[0, 2]], "Z": [[1]]}
+    css_distance = {"d": 2, "X": {"value": 2}, "Z": {"value": 3}}
+    css = {"n": 3, "code_type": "CSS", "checks": css_checks, "distance": css_distance}
+    with unittest.mock.patch(get_json, side_effect=[css, index]):
+        matrix, distance, is_css, bounds = external.codes.get_qldpc_challenge_code("css")
+    assert np.array_equal(matrix, [[1, 0, 1, 0, 0, 0], [0, 0, 0, 0, 1, 0]])
+    assert (distance, is_css, bounds) == (2, True, (2, 3))
+
+    # stabilizer code (with a Y on qubit 1) whose distance is only an upper bound
+    stab_checks = {"S": [{"X": [0, 1], "Z": [1]}]}
+    stab = {"n": 2, "code_type": "stabilizer", "checks": stab_checks, "distance": {"d": 1}}
+    with unittest.mock.patch(get_json, side_effect=[stab, index]):
+        matrix, distance, is_css, bounds = external.codes.get_qldpc_challenge_code("stab")
+    assert np.array_equal(matrix, [[1, 1, 0, 1]])
+    assert (distance, is_css, bounds) == (None, False, (1,))
+
+    # malformed code data
+    with (
+        unittest.mock.patch(get_json, side_effect=[{}, index]),
+        pytest.raises(ValueError, match="Could not parse"),
+    ):
+        external.codes.get_qldpc_challenge_code("")
 
 
 def test_distance_bound() -> None:

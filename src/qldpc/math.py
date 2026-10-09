@@ -169,19 +169,20 @@ def block_matrix(
 def get_dual_basis(basis: galois.FieldArray, *, validate: bool = True) -> galois.FieldArray:
     """Construct a dual basis, for which ``dual_basis @ basis.T = identity_matrix``.
 
-    The rows of ``basis`` must be linearly independent, and it must have at least as many columns
-    as rows; a dual basis exists only in that case.
+    The rows of ``basis`` must be linearly independent, and it must have at least as many columns as
+    rows; a dual basis exists only in that case.
 
     Args:
         basis: A full-row-rank matrix with at least as many columns as rows, whose rows form the
             basis to dualize.
-        validate: If True (default), check the precondition above and raise a ``ValueError`` when
-            it fails.  Pass False to skip the check when the precondition is already guaranteed.
+        validate: If True (default), check the precondition above and raise a ``ValueError`` when it
+            fails.  Pass False to skip the check when the precondition is already guaranteed.
     """
     if validate and (
         basis.shape[0] > basis.shape[1] or np.linalg.matrix_rank(basis) != basis.shape[0]
     ):
         raise ValueError("A dual basis can only be found for wide matrices of full rank")
+    # invert independent columns to build a dual basis with dual_basis @ basis.T == I
     pivot_cols = first_nonzero_cols(basis.row_reduce())
     linearly_independent_cols = basis[:, pivot_cols].view(type(basis))
     dual_basis = np.zeros(basis.shape, dtype=int).view(type(basis))
@@ -200,7 +201,7 @@ def get_orthonormal_basis(
     basis, return None.
 
     The rows of the matrix may be linearly dependent; they are first reduced to a basis of V.  Pass
-    promise_full_rank=True to skip this reduction when the rows are already independent.
+    ``promise_full_rank=True`` to skip this reduction when the rows are already independent.
 
     An orthonormal basis for V exists if and only if (a) V is nondegenerate, meaning no nonzero
     vector of V is orthogonal to all of V, and (b), according to the field's characteristic:
@@ -278,16 +279,16 @@ def _orthonormalize_odd(
     First, find an orthogonal basis in which each vector has nonzero self-overlap (with Gram-Schmidt
     orthogonalization): at each step, pick a vector with nonzero self-overlap ``v @ v`` and subtract
     its projection from the others.  Out of the remaining null vectors (with zero self-overlap), if
-    a pair (u, v) have nonzero overlap ``u @ v``, then their sum has nonzero self-overlap
-    (in a field with odd characteristic), ``(u + v) @ (u + v) = 2 * u @ v``, so replace
-    ``u <- u + v``, and orthogonalize remaining vectors against u.  If no remaining null vectors
-    have nonzero overlap, no orthonormal basis exists.
+    a pair (u, v) have nonzero overlap ``u @ v``, then their sum has nonzero self-overlap (in a
+    field with odd characteristic), ``(u + v) @ (u + v) = 2 * u @ v``, so replace ``u <- u + v``,
+    and orthogonalize remaining vectors against u.  If no remaining null vectors have nonzero
+    overlap, no orthonormal basis exists.
 
     A vector with nonzero self-overlap can be rescaled to a unit vector (self-overlap 1) exactly
     when its self-overlap has a square root in the field, by taking ``v -> v / sqrt(v @ v)``.
-    Vectors with non-square self-overlaps cannot be rescaled on their own, but a pair of them may
-    be combined into two unit vectors, allowing an orthonormal basis when the number of such
-    vectors is even.
+    Vectors with non-square self-overlaps cannot be rescaled on their own, but a pair of them may be
+    combined into two unit vectors, allowing an orthonormal basis when the number of such vectors is
+    even.
     """
     # diagonalize: build an orthogonal basis of vectors with nonzero self-overlap
     diagonal: list[tuple[galois.FieldArray, galois.FieldArray]] = []
@@ -381,10 +382,10 @@ def symplectic_gram_schmidt(
       of V.  Its rows are isotropic and orthogonal to every row of ``hyperbolic`` and ``radical``.
 
     Together the rows of ``hyperbolic`` and ``radical`` form a basis for V.  The rows of ``vectors``
-    may be linearly dependent; they are first reduced to a basis of V.  Pass promise_full_rank=True
-    to skip this reduction when the rows are already independent; passing it for dependent rows
-    leaves the dependent directions in ``radical`` as spurious (possibly zero) rows, though the
-    ``hyperbolic`` pairs stay correct.
+    may be linearly dependent; they are first reduced to a basis of V.  Pass
+    ``promise_full_rank=True`` to skip this reduction when the rows are already independent; passing
+    it for dependent rows leaves the dependent directions in ``radical`` as spurious (possibly zero)
+    rows, though the ``hyperbolic`` pairs stay correct.
 
     Because the symplectic form is alternating, ``⟨v, v⟩_s = 0`` for every vector in every
     characteristic, so -- unlike get_orthonormal_basis -- there is no unit-vector case: the
