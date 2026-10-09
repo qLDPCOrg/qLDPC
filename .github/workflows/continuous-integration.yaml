@@ -137,4 +137,7 @@ jobs:
       - name: Install package and dependencies
         run: uv sync --extra decoders --extra gap --group ci-test
       - name: Run coverage
-        run: uv run --extra decoders --extra gap --group ci-test python checks/coverage_.py
+        # Use every CPU of the dedicated runner (the check defaults to half of them).
+        run: >-
+          uv run --extra decoders --extra gap --group ci-test python checks/coverage_.py
+          --jobs "$(nproc)"
