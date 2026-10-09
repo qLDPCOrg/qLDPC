@@ -1291,8 +1291,9 @@ class PairPartitionCode(CSSCode):
 
     References:
 
-    - https://arxiv.org/abs/2607.14091
     - https://github.com/kasaikenta/pair-partition-cpm-css-codes
+    - https://arxiv.org/abs/2607.14091
+    - https://arxiv.org/abs/2609.30069
 
     Example: the ``[[56, 18, 6]]`` code of arXiv:2607.14091 is constructed by::
 
