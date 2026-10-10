@@ -9,7 +9,7 @@ import random
 import unittest.mock
 import warnings
 from collections.abc import Iterator, Sequence
-from typing import Any
+from typing import Any, cast
 
 import galois
 import networkx as nx
@@ -265,8 +265,8 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
     ):
         codes.RepetitionCode(2).get_automorphism_group()
 
-    # otherwise, check that automorphisms do indeed preserve the code space
-    # this pytest.warns block intentionally wraps a loop of warning-emitting calls
+    # otherwise, check that automorphisms do indeed preserve the code space this pytest.warns block
+    # intentionally wraps a loop of warning-emitting calls
     with (  # noqa: PT031
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
         unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=None),
@@ -308,7 +308,7 @@ def test_classical_capacity() -> None:
     logical_error_rate_func = code.get_logical_error_rate_func(
         num_samples=1,
         max_error_rate=1,
-        decoder=decoders.lookup_table(max_weight=0, add_erasure_bit=True),
+        decoder=decoders.lookup(max_weight=0, add_erasure_bit=True),
     )
     assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
     assert logical_error_rate_func(0.5, discard_rate=True)[0] > 0  # nonzero syndromes → erasure
@@ -350,30 +350,30 @@ def test_classical_capacity_with_observable_decoders() -> None:
     code = codes.HammingCode(3)
     num_bits = len(code)
 
-    # the observables of a classical code are its bits, so a decoder that predicts no flips fails
-    # on every nonzero error
+    # the observables of a classical code are its bits, so a decoder that predicts no flips fails on
+    # every nonzero error
     func = code.get_logical_error_rate_func(100, 0.5, decoder=decoders.TrivialDecoder())
     assert np.array_equal(func.num_failures[1:], func.num_samples[1:])
 
     # the Hamming code is perfect, so a lookup table of weight-one errors decodes every syndrome
     # uniquely, and direct observable decoding agrees exactly with error decoding
     kwargs: dict[str, Any] = {"num_samples": 200, "max_error_rate": 0.3}
-    expected = _get_capacity_counts(code, decoder=decoders.lookup_table(max_weight=1), **kwargs)
+    expected = _get_capacity_counts(code, decoder=decoders.lookup(max_weight=1), **kwargs)
     assert expected != _get_capacity_counts(code, decoder=decoders.TrivialDecoder(), **kwargs)
-    observable_lookup = decoders.ObservableLookupDecoder(
+    observable_lookup = decoders.custom.ObservableLookupDecoder(
         code.matrix,
         max_weight=1,
         observable_flip_matrix=code.field.Identity(num_bits),
         error_channel=[0.1] * num_bits,
     )
-    sinter_lookup = decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=1))
+    sinter_lookup = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1))
     for decoder in [observable_lookup, sinter_lookup]:
         assert _get_capacity_counts(code, decoder=decoder, **kwargs) == expected
 
     # direct observable decoding also works over other fields, without Stim
     nonbinary_code = codes.ClassicalCode(codes.RepetitionCode(3, field=3).matrix)
     kwargs = {"num_samples": 100, "max_error_rate": 0.5}
-    nonbinary_lookup = decoders.ObservableLookupDecoder(
+    nonbinary_lookup = decoders.custom.ObservableLookupDecoder(
         nonbinary_code.matrix,
         max_weight=1,
         observable_flip_matrix=nonbinary_code.field.Identity(len(nonbinary_code)),
@@ -383,7 +383,7 @@ def test_classical_capacity_with_observable_decoders() -> None:
         nonbinary_code, decoder=nonbinary_lookup, **kwargs
     ) == _get_capacity_counts(
         nonbinary_code,
-        decoder=decoders.LookupDecoder(nonbinary_code.matrix, max_weight=1),
+        decoder=decoders.custom.LookupDecoder(nonbinary_code.matrix, max_weight=1),
         **kwargs,
     )
 
@@ -397,7 +397,7 @@ def test_classical_capacity_with_observable_decoders() -> None:
     )
     with pytest.raises(ValueError, match="has num_observables=1"):
         codes.RepetitionCode(3).get_logical_error_rate_func(1, decoder=compiled_decoder)
-    wrong_syndrome_lookup = decoders.ObservableLookupDecoder(
+    wrong_syndrome_lookup = decoders.custom.ObservableLookupDecoder(
         code.field([[1, 1, 0]]),
         max_weight=1,
         observable_flip_matrix=code.field.Identity(3),
@@ -936,8 +936,8 @@ def test_qudit_subsystem_logical_ops() -> None:
     assert_valid_basis(shipped)
     assert shipped.get_distance() == 3
 
-    # property test over several fields, for one and two logical qudits.  Away from GF(2), build
-    # the non-CSS codes with _local_fourier, as conjugated() is only symplectic over GF(2).
+    # property test over several fields, for one and two logical qudits.  Away from GF(2), build the
+    # non-CSS codes with _local_fourier, as conjugated() is only symplectic over GF(2).
     for field in [galois.GF(2), galois.GF(3), galois.GF(4)]:
         bacon_shor = codes.BaconShorCode(3, field=field.order).matrix
         single = _local_fourier(bacon_shor, [1, 3, 5])
@@ -1114,7 +1114,7 @@ def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
     logical_error_rate_func = code.get_logical_error_rate_func(
         num_samples=1,
         max_error_rate=1,
-        decoder=decoders.lookup_table(max_weight=0, add_erasure_bit=True),
+        decoder=decoders.lookup(max_weight=0, add_erasure_bit=True),
     )
     assert logical_error_rate_func(0, discard_rate=True) == (0, 0)  # no errors at p=0
     assert logical_error_rate_func(0.5, discard_rate=True)[0] > 0  # all syndromes → erasure
@@ -1132,8 +1132,8 @@ def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
     qudit_rate = qudit_code.get_logical_error_rate_func(num_samples=200, max_error_rate=0.3)(0.1)
     assert np.allclose(qudit_rate, css_rate)
 
-    # a code over a non-binary field is decoded with a field-aware decoder: its syndrome matrix is
-    # a field array, from which the decoder is selected to match the field
+    # a code over a non-binary field is decoded with a field-aware decoder: its syndrome matrix is a
+    # field array, from which the decoder is selected to match the field
     qudit_code = codes.QuditCode(codes.BaconShorCode(3, field=3).matrix)
     logical_error_rate_func = qudit_code.get_logical_error_rate_func(
         num_samples=100, max_error_rate=0.2
@@ -1150,7 +1150,7 @@ def test_quantum_capacity(pytestconfig: pytest.Config) -> None:
     logical_error_rate_func = qudit_code.get_logical_error_rate_func(
         num_samples=400,
         max_error_rate=1 / len(qudit_code),
-        decoder=decoders.lookup_table(max_weight=2),
+        decoder=decoders.lookup(max_weight=2),
     )
     assert logical_error_rate_func.infidelities[1] == 0
 
@@ -1438,7 +1438,7 @@ def test_legacy_decoder_warning_location() -> None:
 
     def build_tagged_decoder(matrix: npt.NDArray[np.int_], tag: str) -> decoders.ErrorDecoder:
         received_tags.append(tag)
-        return decoders.LookupDecoder(matrix, max_weight=1)
+        return decoders.custom.LookupDecoder(matrix, max_weight=1)
 
     with pytest.warns(DeprecationWarning):
         codes.SurfaceCode(2).get_logical_error_rate_func(
@@ -1461,7 +1461,7 @@ def test_legacy_decoder_warning_location() -> None:
         )
     messages = [str(warning.message) for warning in caught]
     assert all(warning.filename == __file__ for warning in caught)
-    assert any("decoder_x=decoders.lookup_table(...)" in message for message in messages)
+    assert any("decoder_x=decoders.lookup(...)" in message for message in messages)
     assert any("decoder_z=decoders.mwpm(...)" in message for message in messages)
 
 
@@ -1470,21 +1470,21 @@ def test_css_rejects_shared_prebuilt_decoders_for_unequal_sectors() -> None:
     code = codes.SurfaceCode(3)
     stabilizer_ops_x = code.get_stabilizer_ops(Pauli.X, canonicalized=False)
     stabilizer_ops_z = code.get_stabilizer_ops(Pauli.Z, canonicalized=False)
-    decoder = decoders.LookupDecoder(stabilizer_ops_z, max_weight=0)
+    decoder = decoders.custom.LookupDecoder(stabilizer_ops_z, max_weight=0)
     with pytest.raises(ValueError, match=r"decoder_x=.*decoder_z="):
         code.get_logical_error_rate_func(0, decoder=decoder)
     with pytest.raises(TypeError, match="static_decoder argument has been removed"):
         code.get_logical_error_rate_func(0, static_decoder=decoder)
 
     # prebuilt decoders are accepted when each is built for the stabilizer matrix of its sector
-    decoder_z = decoders.LookupDecoder(stabilizer_ops_x, max_weight=0)
+    decoder_z = decoders.custom.LookupDecoder(stabilizer_ops_x, max_weight=0)
     assert code.get_logical_error_rate_func(0, decoder_x=decoder, decoder_z=decoder_z)
 
 
 def test_prebuilt_decoders_rejected_for_internal_matrices() -> None:
     """A prebuilt decoder cannot decode a matrix that a method constructs internally."""
     code = codes.SurfaceCode(3)
-    decoder = decoders.LookupDecoder(
+    decoder = decoders.custom.LookupDecoder(
         code.get_stabilizer_ops(Pauli.Z, canonicalized=False), max_weight=2
     )
     code.forget_distance()
@@ -1507,25 +1507,25 @@ def test_prebuilt_decoders_rejected_for_internal_matrices() -> None:
     with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
         qudit_code.get_logical_error_rate_func(0, decoder=decoder)  # type: ignore[arg-type]
 
-    # a classical code accepts a prebuilt decoder for its parity check matrix only when bounding
-    # the distance to a vector, which decodes syndromes of that parity check matrix
+    # a classical code accepts a prebuilt decoder for its parity check matrix only when bounding the
+    # distance to a vector, which decodes syndromes of that parity check matrix
     classical_code = codes.HammingCode(3)
-    classical_decoder = decoders.LookupDecoder(classical_code.matrix, max_weight=1)
+    classical_decoder = decoders.custom.LookupDecoder(classical_code.matrix, max_weight=1)
     vector = np.zeros(len(classical_code), dtype=int)
     vector[0] = 1
     assert classical_code.get_distance_bound(vector=vector, decoder=classical_decoder) == 1
     with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
         classical_code.get_distance_bound(decoder=classical_decoder)
 
-    # decoder settings are rebuilt for each internal matrix
-    assert code.get_distance_bound(decoder=decoders.lookup_table(max_weight=3)) == 3
-    assert code.reduce_logical_ops(decoder=decoders.lookup_table(max_weight=3))
+    # decoder specifications are used to build a decoder for each internal matrix
+    assert code.get_distance_bound(decoder=decoders.lookup(max_weight=3)) == 3
+    assert code.reduce_logical_ops(decoder=decoders.lookup(max_weight=3))
 
 
 def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
     """Distance bounds and logical-operator reduction handle erasure and give up on failure."""
     # an erasure bit is stripped from decoded errors, and an erased decoding is retried
-    erasing_decoder = decoders.lookup_table(max_weight=3, add_erasure_bit=True)
+    erasing_decoder = decoders.lookup(max_weight=3, add_erasure_bit=True)
     classical_code = codes.ClassicalCode(codes.HammingCode(3).matrix)  # distance not yet known
     assert classical_code.get_distance_bound(decoder=erasing_decoder) == 3
     code = codes.SurfaceCode(3)
@@ -1536,7 +1536,7 @@ def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
     classical_code.forget_distance()
 
     # a decoder that cannot find a consistent error gives up, rather than retrying forever
-    failing_decoder = decoders.lookup_table(max_weight=0)
+    failing_decoder = decoders.lookup(max_weight=0)
     for search in [
         lambda: classical_code.get_distance_bound(decoder=failing_decoder),
         lambda: codes.SurfaceCode(3).get_distance_bound_with_decoder(
@@ -1789,7 +1789,7 @@ def test_css_capacity() -> None:
         num_samples=1,
         max_error_rate=1,
         pauli_bias=(0, 0, 1),
-        decoder=decoders.lookup_table(max_weight=0, add_erasure_bit=True),
+        decoder=decoders.lookup(max_weight=0, add_erasure_bit=True),
     )
     assert logical_error_rate_func_z(0, discard_rate=True) == (0, 0)  # no errors at p=0
     assert logical_error_rate_func_z(0.5, discard_rate=True)[0] > 0  # Z syndromes → erasure
@@ -1799,7 +1799,7 @@ def test_css_capacity() -> None:
         num_samples=1,
         max_error_rate=1,
         pauli_bias=(1, 0, 0),
-        decoder=decoders.lookup_table(max_weight=0, add_erasure_bit=True),
+        decoder=decoders.lookup(max_weight=0, add_erasure_bit=True),
     )
     assert logical_error_rate_func_x(0, discard_rate=True) == (0, 0)  # no errors at p=0
     assert logical_error_rate_func_x(0.5, discard_rate=True)[0] > 0  # X syndromes → erasure
@@ -1813,7 +1813,7 @@ def test_css_capacity() -> None:
         num_samples=20,
         max_error_rate=1,
         pauli_bias=(0, 0, 1),
-        decoder=decoders.lookup_table(max_weight=1, add_erasure_bit=True),
+        decoder=decoders.lookup(max_weight=1, add_erasure_bit=True),
     )
     assert logical_error_rate_func(0.5)[0] > 0  # Z-sector failures are recorded
     assert logical_error_rate_func(0.5, discard_rate=True)[0] == 0  # and nothing is discarded
@@ -1838,7 +1838,7 @@ def test_quantum_capacity_with_observable_decoders(monkeypatch: pytest.MonkeyPat
     # the five-qubit code is perfect, so an observable lookup table of weight-one errors corrects
     # every weight-one error, whereas a decoder that predicts no flips does not
     kwargs: dict[str, Any] = {"num_samples": 100, "max_error_rate": 0.3}
-    decoder = decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=1))
+    decoder = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1))
     failures, discards = _get_capacity_counts(code_as_qudit_code, decoder=decoder, **kwargs)
     assert failures[1] == 0 and not any(discards)
     failures, _ = _get_capacity_counts(
@@ -1888,7 +1888,7 @@ def test_quantum_capacity_with_observable_decoders(monkeypatch: pytest.MonkeyPat
     code_as_qudit_code.get_logical_error_rate_func(
         0,
         pauli_bias=(0.2, 0.3, 0.5),
-        decoder=decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=1)),
+        decoder=decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1)),
     )
     decoder_kwargs = captured_decoder_kwargs[-1]
     assert decoder_kwargs["symplectic_dem_errors"] is True
@@ -1906,14 +1906,35 @@ def test_css_capacity_with_observable_decoders() -> None:
 
     # a shared Sinter-style decoder is compiled for each sector, even though their stabilizer
     # matrices differ, and corrects every weight-one error
-    decoder = decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=1))
+    decoder = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1))
     failures, discards = _get_capacity_counts(code, decoder=decoder, **kwargs)
     assert failures[1] == 0 and not any(discards)
+
+    matrices: list[galois.FieldArray] = []
+    models: list[stim.DetectorErrorModel] = []
+
+    def build_error_decoder(matrix: galois.FieldArray) -> decoders.ErrorDecoder:
+        matrices.append(matrix)
+        return decoders.custom.LookupDecoder(matrix, max_weight=1)
+
+    def build_observable_decoder(dem: stim.DetectorErrorModel) -> decoders.ObservableDecoder:
+        models.append(dem)
+        return decoders.custom.ObservableLookupDecoder(dem, max_weight=1)
+
+    code.get_logical_error_rate_func(
+        0,
+        decoder_x=decoders.from_matrix(build_error_decoder),
+        decoder_z=decoders.from_dem(build_observable_decoder),
+    )
+    assert len(matrices) == len(models) == 1
+    assert isinstance(matrices[0], code.field)
+    assert models[0].num_detectors == code.num_checks_x
+    assert models[0].num_observables == code.dimension
 
     # Error and observable decoders can be mixed.  A pure X bias leaves the Z sector error-free, so
     # replacing the Z-sector decoder by a trivial observable decoder changes nothing, and similarly
     # for a pure Z bias and the X sector.
-    error_decoder = decoders.lookup_table(max_weight=2)
+    error_decoder = decoders.lookup(max_weight=2)
     trivial_decoder = decoders.TrivialDecoder()
     mixed_configurations: list[tuple[tuple[int, int, int], dict[str, Any]]] = [
         ((1, 0, 0), {"decoder_x": error_decoder, "decoder_z": trivial_decoder}),
@@ -1928,13 +1949,13 @@ def test_css_capacity_with_observable_decoders() -> None:
     # prebuilt observable decoders are accepted per sector
     stabilizer_ops_x = code.get_stabilizer_ops(Pauli.X, canonicalized=False)
     stabilizer_ops_z = code.get_stabilizer_ops(Pauli.Z, canonicalized=False)
-    decoder_x = decoders.ObservableLookupDecoder(
+    decoder_x = decoders.custom.ObservableLookupDecoder(
         stabilizer_ops_z,
         max_weight=1,
         observable_flip_matrix=code.get_logical_ops(Pauli.Z),
         error_channel=[0.1] * len(code),
     )
-    decoder_z = decoders.ObservableLookupDecoder(
+    decoder_z = decoders.custom.ObservableLookupDecoder(
         stabilizer_ops_x,
         max_weight=1,
         observable_flip_matrix=code.get_logical_ops(Pauli.X),
@@ -1966,7 +1987,21 @@ def test_css_capacity_with_observable_decoders() -> None:
     assert np.array_equal(
         stabilizer_ops, steane_code.get_stabilizer_ops(Pauli.Z, canonicalized=False)
     )
-    decoder_x = decoders.ObservableLookupDecoder(
+    sector_models: list[stim.DetectorErrorModel] = []
+
+    def build_sector_decoder(dem: stim.DetectorErrorModel) -> decoders.ObservableDecoder:
+        sector_models.append(dem)
+        return decoders.custom.ObservableLookupDecoder(dem, max_weight=1)
+
+    steane_code.get_logical_error_rate_func(0, decoder=decoders.from_dem(build_sector_decoder))
+    assert len(sector_models) == 2
+    logical_x = decoders.DetectorErrorModelArrays(sector_models[0], simplify=False)
+    logical_z = decoders.DetectorErrorModelArrays(sector_models[1], simplify=False)
+    assert not np.array_equal(
+        logical_x.observable_flip_matrix.toarray(), logical_z.observable_flip_matrix.toarray()
+    )
+
+    decoder_x = decoders.custom.ObservableLookupDecoder(
         stabilizer_ops,
         max_weight=1,
         observable_flip_matrix=steane_code.get_logical_ops(Pauli.Z),
@@ -1980,12 +2015,92 @@ def test_css_capacity_with_observable_decoders() -> None:
         num_samples=20,
         max_error_rate=1,
         pauli_bias=(1, 0, 0),
-        decoder=decoders.SinterDecoder(
-            decoder=decoders.lookup_table(max_weight=0, add_erasure_bit=True)
-        ),
+        decoder=decoders.SinterDecoder(decoder=decoders.lookup(max_weight=0, add_erasure_bit=True)),
     )
     assert func(0.5, discard_rate=True)[0] > 0
     assert func.num_discards[1] == func.num_samples[1]  # every weight-one error has a syndrome
+
+
+def _code_capacity_inputs() -> dict[str, decoders.DeferredDecoderInput]:
+    """Deferred decoder inputs that yield error decoders or observable decoders."""
+    return {
+        "error specification": decoders.ilp(),
+        "native observable specification": decoders.lookup(max_weight=2),
+        "matrix factory": decoders.from_matrix(decoders.lookup(max_weight=2).build),
+        "DEM factory": decoders.from_dem(decoders.lookup(max_weight=1).build_observable_decoder),
+        "Sinter decoder": decoders.SinterDecoder(decoder=decoders.lookup(max_weight=1)),
+    }
+
+
+@pytest.mark.parametrize("name", list(_code_capacity_inputs()))
+def test_capacity_accepts_error_and_observable_decoders(name: str) -> None:
+    """Every code-capacity estimator accepts inputs that yield error or observable decoders."""
+    decoder = _code_capacity_inputs()[name]
+    classical_code = codes.HammingCode(3)
+    css_code = codes.SteaneCode()
+    qudit_code = codes.QuditCode(css_code.matrix)
+    estimator_codes: list[codes.ClassicalCode | codes.QuditCode] = [
+        classical_code,
+        css_code,
+        qudit_code,
+    ]
+    for code in estimator_codes:
+        func = code.get_logical_error_rate_func(num_samples=20, decoder=decoder)
+        assert func.num_failures[1] == 0  # every code corrects any single-location error
+        assert 0 <= func(0.01)[0] <= 1
+
+
+def test_capacity_accepts_prebuilt_error_and_observable_decoders() -> None:
+    """Classical and CSS estimators accept decoders prebuilt for the matrices that they decode."""
+    classical_code = codes.HammingCode(3)
+    identity = classical_code.field.Identity(len(classical_code))
+    classical_decoders: list[decoders.DecoderInput] = [
+        decoders.lookup(max_weight=1).build(classical_code.matrix),
+        decoders.custom.ObservableLookupDecoder(
+            classical_code.matrix,
+            max_weight=1,
+            observable_flip_matrix=identity,
+            error_channel=[0.1] * len(classical_code),
+        ),
+    ]
+    for decoder in classical_decoders:
+        func = classical_code.get_logical_error_rate_func(num_samples=20, decoder=decoder)
+        assert func.num_failures[1] == 0
+
+    css_code = codes.SteaneCode()
+    sector_x = (
+        css_code.get_stabilizer_ops(Pauli.Z, canonicalized=False),
+        css_code.get_logical_ops(Pauli.Z),
+    )
+    sector_z = (
+        css_code.get_stabilizer_ops(Pauli.X, canonicalized=False),
+        css_code.get_logical_ops(Pauli.X),
+    )
+    error_decoders: list[decoders.DecoderInput] = [
+        decoders.lookup(max_weight=1).build(matrix) for matrix, _ in [sector_x, sector_z]
+    ]
+    observable_decoders: list[decoders.DecoderInput] = [
+        decoders.custom.ObservableLookupDecoder(
+            matrix,
+            max_weight=1,
+            observable_flip_matrix=logicals,
+            error_channel=[0.1] * len(css_code),
+        )
+        for matrix, logicals in [sector_x, sector_z]
+    ]
+    for decoder_x, decoder_z in [
+        (error_decoders[0], error_decoders[1]),
+        (observable_decoders[0], observable_decoders[1]),
+    ]:
+        func = css_code.get_logical_error_rate_func(
+            num_samples=20, decoder_x=decoder_x, decoder_z=decoder_z
+        )
+        assert func.num_failures[1] == 0
+
+    # a general qudit code decodes an internal syndrome matrix, so it rejects prebuilt decoders
+    qudit_code = codes.QuditCode(css_code.matrix)
+    with pytest.raises(ValueError, match="prebuilt decoder cannot be passed"):
+        qudit_code.get_logical_error_rate_func(num_samples=20, decoder=cast(Any, error_decoders[0]))
 
 
 def test_capacity_pauli_bias_convention() -> None:
@@ -2006,14 +2121,14 @@ def test_capacity_pauli_bias_convention() -> None:
     signatures: dict[tuple[int, int, int], tuple[bool, bool]] = {}
     for pauli_bias in [(1, 0, 0), (0, 0, 1)]:
         fails = code.get_logical_error_rate_func(
-            300, error_rate, pauli_bias, decoder=decoders.lookup_table(max_weight=1)
+            300, error_rate, pauli_bias, decoder=decoders.lookup(max_weight=1)
         )
         discards = code.get_logical_error_rate_func(
             300,
             error_rate,
             pauli_bias,
-            decoder_x=decoders.lookup_table(max_weight=0, add_erasure_bit=True),
-            decoder_z=decoders.lookup_table(max_weight=1),
+            decoder_x=decoders.lookup(max_weight=0, add_erasure_bit=True),
+            decoder_z=decoders.lookup(max_weight=1),
         )
         signatures[pauli_bias] = (
             bool(fails.infidelities[1] > 0),
@@ -2042,7 +2157,7 @@ def test_capacity_min_error_weight() -> None:
         baseline = code.get_logical_error_rate_func(
             num_samples=1000,
             max_error_rate=0.2,
-            decoder=decoders.lookup_table(max_weight=max_weight),
+            decoder=decoders.lookup(max_weight=max_weight),
         )
         assert baseline.num_failures[1] == 0  # the premise: weight-1 errors are always corrected
 
@@ -2050,7 +2165,7 @@ def test_capacity_min_error_weight() -> None:
             num_samples=1000,
             max_error_rate=0.2,
             min_error_weight=2,
-            decoder=decoders.lookup_table(max_weight=max_weight),
+            decoder=decoders.lookup(max_weight=max_weight),
         )
         assert not func.num_samples[:2].any()  # no samples spent where the decoder cannot fail
 

@@ -1,20 +1,13 @@
 qLDPC documentation
 ===================
 
-``qLDPC`` is a library of tools for constructing and analyzing finite-size
-`quantum low density parity check (qLDPC) codes <https://errorcorrectionzoo.org/c/qldpc>`_.
-Its primary purpose is to make developments in the quantum error correction literature accessible
-to a broad audience of physicists, computer scientists, and tinkerers.  The hope is that these
-tools facilitate the discovery and design of practical, finite-size codes for near-term (or at
-least medium-term) quantum computers.
+``qLDPC`` is a library of tools for constructing and analyzing finite-size `quantum low density parity check (qLDPC) codes <https://errorcorrectionzoo.org/c/qldpc>`_.
+Its primary purpose is to make developments in the quantum error correction literature accessible to a broad audience of physicists, computer scientists, and tinkerers.
+The hope is that these tools facilitate the discovery and design of practical, finite-size codes for near-term (or at least medium-term) quantum computers.
 
-In practice the tools here work just as well for
-`stabilizer <https://errorcorrectionzoo.org/c/stabilizer>`_ and
-`subsystem <https://errorcorrectionzoo.org/c/oecc>`_ codes more broadly.
+In practice the tools here work just as well for `stabilizer <https://errorcorrectionzoo.org/c/stabilizer>`_ and `subsystem <https://errorcorrectionzoo.org/c/oecc>`_ codes more broadly.
 
-Use the :doc:`library map <library_map>` to understand qLDPC's data model and package structure, the
-:doc:`examples <examples/index>` for complete workflows, and the :doc:`API reference
-<autoapi/index>` for exact signatures and construction-specific literature.
+Use the :doc:`library map <library_map>` to understand qLDPC's data model and package structure, the :doc:`examples <examples/index>` for complete workflows, and the :doc:`API reference <autoapi/index>` for exact signatures and construction-specific literature.
 
 Installation
 ------------
@@ -25,8 +18,7 @@ Installation
 
    pip install qldpc
 
-Some features additionally require the `GAP <https://www.gap-system.org>`_ computer algebra system;
-see the `README <https://github.com/qLDPCOrg/qLDPC#-installation>`_ for details.
+Some features additionally require the `GAP <https://www.gap-system.org>`_ computer algebra system; see the `README <https://github.com/qLDPCOrg/qLDPC#-installation>`_ for details.
 
 Quickstart
 ----------
@@ -47,14 +39,12 @@ Quickstart
 Where to go next
 ----------------
 
-* :doc:`Library map <library_map>` explains how qLDPC represents codes, what each package does,
-  common tasks, and current limitations.
+* :doc:`Library map <library_map>` explains how qLDPC represents codes, what each package does, common tasks, and current limitations.
 * :doc:`Choosing a decoder <decoders>` explains error and observable decoding APIs.
-* :doc:`Examples <examples/index>` walk from code construction through code-capacity and
-  circuit-level simulations.
+* :doc:`Adding a decoder <adding_decoders>` explains the shortest custom-decoder path and how to contribute a backend.
+* :doc:`Examples <examples/index>` walk from code construction through code-capacity and circuit-level simulations.
 * :doc:`API reference <autoapi/index>` documents every public class and function.
-* The `agent and contributor guide <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md>`_
-  explains how to change and test qLDPC safely.
+* The `agent and contributor guide <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md>`_ explains how to change and test qLDPC safely.
 
 .. toctree::
    :maxdepth: 2
@@ -63,6 +53,13 @@ Where to go next
 
    library_map
    decoders
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+   :caption: Contributor guides
+
+   adding_decoders
 
 .. toctree::
    :maxdepth: 2

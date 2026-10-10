@@ -62,8 +62,8 @@ class SyndromeMeasurementStrategy(abc.ABC):
 
         Args:
             code: The code whose syndromes we want to measure.
-            qubit_ids: Integer indices for the data and check (syndrome readout) qubits.
-                Defaults to QubitIDs.from_code(code).
+            qubit_ids: Integer indices for the data and check (syndrome readout) qubits.  Defaults
+                to QubitIDs.from_code(code).
 
         Returns:
             stim.Circuit: A syndrome measurement circuit.
@@ -209,8 +209,8 @@ class EdgeColoring(SyndromeMeasurementStrategy):
             strategy: The graph coloration strategy passed to nx.greedy_color when coloring edges.
                 Defaults to "smallest_last".
             subgraph_kwargs: Keyword arguments to pass to custom ``code.get_syndrome_subgraphs``
-                overrides.  Built-in code families accept only their own ``strategy`` argument;
-                this extension point is intentionally not used by them.
+                overrides.  Built-in code families accept only their own ``strategy`` argument; this
+                extension point is intentionally not used by them.
         """
         self.strategy = strategy
         self.subgraph_kwargs = subgraph_kwargs
@@ -223,8 +223,8 @@ class EdgeColoring(SyndromeMeasurementStrategy):
 
         Args:
             code: The code whose syndromes we want to measure.
-            qubit_ids: Integer indices for the data and check (syndrome readout) qubits.
-                Defaults to QubitIDs.from_code(code).
+            qubit_ids: Integer indices for the data and check (syndrome readout) qubits.  Defaults
+                to QubitIDs.from_code(code).
 
         Returns:
             stim.Circuit: A syndrome measurement circuit.
@@ -323,8 +323,8 @@ class EdgeColoringXZ(EdgeColoring):
 
         Args:
             code: The code whose syndromes we want to measure.
-            qubit_ids: Integer indices for the data and check (syndrome readout) qubits.
-                Defaults to QubitIDs.from_code(code).
+            qubit_ids: Integer indices for the data and check (syndrome readout) qubits.  Defaults
+                to QubitIDs.from_code(code).
 
         Returns:
             stim.Circuit: A syndrome measurement circuit.

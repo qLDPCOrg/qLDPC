@@ -4,15 +4,12 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import galois
 import numpy as np
 import numpy.typing as npt
 import stim
 
 from qldpc import decoders
-from qldpc.decoders import capabilities
 
 
 class _FixedObservableDecoder(decoders.ObservableDecoder):
@@ -39,7 +36,7 @@ class _BitPackedCompiledDecoder:
 
 
 def test_is_prebuilt_decoder() -> None:
-    """Prebuilt decoders decode, and are not settings, constructors, or compilers."""
+    """Prebuilt decoders decode, and are not specifications, constructors, or compilers."""
     matrix = np.eye(2, dtype=int)
     prebuilt_decoders: list[object] = [
         _FixedErrorDecoder([0, 0]),
@@ -53,8 +50,10 @@ def test_is_prebuilt_decoder() -> None:
     deferred_decoders: list[object] = [
         None,
         decoders.bp_osd(),
-        decoders.LookupDecoder,
+        decoders.custom.LookupDecoder,
         lambda matrix: _FixedErrorDecoder([0, 0]),
+        decoders.from_matrix(lambda matrix: _FixedErrorDecoder([0, 0])),
+        decoders.from_dem(lambda dem: _FixedObservableDecoder([0])),
         decoders.SinterDecoder(),
         decoders.TrivialDecoder(),
     ]
@@ -81,8 +80,8 @@ def test_is_prebuilt_observable_decoder() -> None:
     error_decoder = _FixedErrorDecoder([0, 0])
     assert np.array_equal(error_decoder.decode_errors(np.array([0])), [0, 0])
     assert not decoders.is_prebuilt_observable_decoder(error_decoder)
-    assert not decoders.is_prebuilt_observable_decoder(decoders.lookup_table(max_weight=1))
-    assert not decoders.is_prebuilt_observable_decoder(decoders.ObservableLookupDecoder)
+    assert not decoders.is_prebuilt_observable_decoder(decoders.lookup(max_weight=1))
+    assert not decoders.is_prebuilt_observable_decoder(decoders.custom.ObservableLookupDecoder)
     sinter_decoder = decoders.TrivialDecoder()
     assert not isinstance(sinter_decoder, decoders.ObservableDecoder)
     assert not decoders.is_prebuilt_observable_decoder(sinter_decoder)
@@ -91,23 +90,3 @@ def test_is_prebuilt_observable_decoder() -> None:
     assert not decoders.is_prebuilt_observable_decoder(decoders.relay_bp().build(matrix))
     assert decoders.compiles_for_dem(sinter_decoder)
     assert not decoders.compiles_for_dem(decoders.TrivialDecoder)
-
-    class _UnannotatedConstructor:
-        def __call__(self, dem: stim.DetectorErrorModel) -> Any:
-            return None  # pragma: no cover
-
-    def unresolved_constructor(dem: stim.DetectorErrorModel) -> Any:
-        return None  # pragma: no cover
-
-    unresolved_constructor.__annotations__["return"] = "MissingDecoder"
-
-    def observable_constructor(dem: stim.DetectorErrorModel) -> decoders.ObservableDecoder:
-        return _FixedObservableDecoder([0])
-
-    assert capabilities.constructs_observable_decoder(_FixedObservableDecoder)
-    assert capabilities.constructs_observable_decoder(observable_constructor)
-    assert isinstance(observable_constructor(stim.DetectorErrorModel()), decoders.ObservableDecoder)
-    assert not capabilities.constructs_observable_decoder(None)
-    assert not capabilities.constructs_observable_decoder(lambda matrix: None)
-    assert not capabilities.constructs_observable_decoder(_UnannotatedConstructor())
-    assert not capabilities.constructs_observable_decoder(unresolved_constructor)

@@ -13,7 +13,7 @@ import numpy.typing as npt
 import stim
 
 from ..adapters.error_decoders import match_error_decoder_to_dem
-from ..construction.legacy import resolve_decoder
+from ..construction.resolution import _resolve_error_decoder
 from ..construction.specs import DeferredErrorDecoderInput
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, batch_decode_errors
@@ -24,13 +24,13 @@ class SequentialWindowDecoder(SinterDecoder):
     """Decoder usable by Sinter for decoding circuit errors.
 
     A SequentialWindowDecoder splits a detector error model into (possibly overlapping) "windows".
-    Each window is defined by two sets of detectors, which in turn define a "detection region" and
-    a "commit region" for that window.  Each region consists of a (given) set of detectors and the
+    Each window is defined by two sets of detectors, which in turn define a "detection region" and a
+    "commit region" for that window.  Each region consists of a (given) set of detectors and the
     (induced) set of error mechanisms that trigger those detectors.
 
     Windows are decoded sequentially, one by one.  To decode a window, we first decode the syndrome
-    in its detection region.  We then "commit" to the decoded circuit error in the commit
-    region, which entails
+    in its detection region.  We then "commit" to the decoded circuit error in the commit region,
+    which entails
 
     (a) removing the error mechanisms in the commit region from all subsequent windows, and
     (b) emulating the active correction of committed errors by appropriately updating the syndromes
@@ -44,9 +44,9 @@ class SequentialWindowDecoder(SinterDecoder):
     A SequentialWindowDecoder initialized without specifying commit regions sets the commit region
     of each window to the corresponding detection region.
 
-    A special case of SequentialWindowDecoder is a SlidingWindowDecoder, in which case this
-    decoding method is known as the "overlapping recovery method" in arXiv:quant-ph/0110143, which
-    is explained more nicely in arXiv:2012.15403 and arXiv:2209.08552.
+    A special case of SequentialWindowDecoder is a SlidingWindowDecoder, in which case this decoding
+    method is known as the "overlapping recovery method" in arXiv:quant-ph/0110143, which is
+    explained more nicely in arXiv:2012.15403 and arXiv:2209.08552.
     """
 
     _prebuilt_decoder_rejection_reason = (
@@ -78,18 +78,16 @@ class SequentialWindowDecoder(SinterDecoder):
             commit_regions: A sequence containing a set of detectors for each window, or None, in
                 which case the commit region of each window is equal to its detection regions.
                 Default: None.  The errors triggered by a commit region must also be triggered by
-                the detection region of the same window, which holds whenever the commit region is
-                a subset of the detection region.
-            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
-                that DEM.
+                the detection region of the same window, which holds whenever the commit region is a
+                subset of the detection region.
+            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for that
+                DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
-            decoder: Settings for the inner error decoder, such as ``decoders.bp_osd(...)``, a
-                constructor that builds an error decoder from a detector error model, or None to
-                select the default error decoder.  Windows commit the errors that they infer, so
-                they require error decoders.  A prebuilt decoder is rejected, because an inner
-                decoder is built for each window.
-            **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
+            decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None for
+                the default.  Each window builds its own decoder to infer errors it can commit.
+            **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
+                ``decoder=`` instead.
         """
         SinterDecoder.__init__(
             self,
@@ -140,7 +138,7 @@ class SequentialWindowDecoder(SinterDecoder):
                 dem_arrays.error_probs[d_errors],
             )
             window_dem = window_dem_arrays.to_dem()
-            window_decoder = resolve_decoder(
+            window_decoder = _resolve_error_decoder(
                 window_dem,
                 self.decoder_input,
                 self.decoder_kwargs.copy(),
@@ -182,8 +180,8 @@ class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
     sequentially.
 
     Instances of this class are meant to be constructed by a SequentialWindowDecoder, whose
-    .compile_decoder_for_dem method returns a CompiledSequentialWindowDecoder.
-    See help(SequentialWindowDecoder).
+    .compile_decoder_for_dem method returns a CompiledSequentialWindowDecoder.  See
+    help(SequentialWindowDecoder).
     """
 
     def __init__(
@@ -352,16 +350,14 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                 time index from.  A non-None ``detector_to_time`` mapping is assumed to be valid and
                 compatible with every detector error model that this decoder is later compiled to
                 with ``SlidingWindowDecoder.compile_decoder_for_dem``.
-            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
-                that DEM.
+            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for that
+                DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
-            decoder: Settings for the inner error decoder, such as ``decoders.bp_osd(...)``, a
-                constructor that builds an error decoder from a detector error model, or None to
-                select the default error decoder.  Windows commit the errors that they infer, so
-                they require error decoders.  A prebuilt decoder is rejected, because an inner
-                decoder is built for each window.
-            **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
+            decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None for
+                the default.  Each window builds its own decoder to infer errors it can commit.
+            **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
+                ``decoder=`` instead.
         """
         SinterDecoder.__init__(
             self,

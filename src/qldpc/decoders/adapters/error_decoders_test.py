@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import pickle
+
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -20,6 +22,11 @@ class _FixedDecoder(decoders.ErrorDecoder):
 
     def decode_errors(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         return self.output.copy()
+
+
+class _DetailedFixedDecoder(_FixedDecoder):
+    def decode_errors_detailed(self, syndrome: npt.NDArray[np.int_]) -> decoders.ErrorDecodeResult:
+        return decoders.ErrorDecodeResult(self.output, bool(self.output[-1]), {"fixed": 1})
 
 
 def test_errors_to_observables_decoder() -> None:
@@ -39,6 +46,18 @@ def test_errors_to_observables_decoder() -> None:
     )
     assert erasing.has_erasure_bit
     assert np.array_equal(erasing.decode_observables(np.array([0, 1])), [0, 1, 1])
+    assert not isinstance(erasing, decoders.DetailedObservableDecoder)
+
+    # the diagnostics of a detailed error decoder are forwarded through merged-error expansion
+    detailed = error_decoders.ErrorsToObservablesDecoder(
+        _DetailedFixedDecoder([1, 0, 1], has_erasure_bit=True), dem
+    )
+    assert isinstance(detailed, decoders.DetailedObservableDecoder)
+    result = detailed.decode_observables_detailed(syndromes[0])
+    assert result.observable_flips.tolist() == [1, 0, 1]
+    assert result.erasure
+    assert result.diagnostics == {"fixed": 1}
+    assert type(pickle.loads(pickle.dumps(detailed))) is type(detailed)  # noqa: S301
 
 
 def test_expanded_error_decoder() -> None:
@@ -51,7 +70,7 @@ def test_expanded_error_decoder() -> None:
     syndromes = np.array([[1, 0], [0, 1]], dtype=int)
 
     for add_erasure_bit in [False, True]:
-        merging_decoder = decoders.GUFDecoder(
+        merging_decoder = decoders.custom.GUFDecoder(
             decoders.DetectorErrorModelArrays(dem).detector_flip_matrix.toarray(),
             add_erasure_bit=add_erasure_bit,
         )

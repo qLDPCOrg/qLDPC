@@ -99,6 +99,28 @@ jobs:
       - name: Build the docs
         run: uv run --extra docs --group ci-docs python checks/build_docs.py
 
+  notebooks:
+    name: Fast notebook examples
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    needs: install
+    env:
+      PIP_NO_INDEX: "1"
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: 3.14
+          enable-cache: true
+      - name: Install package and notebook test dependencies
+        run: uv sync --group ci-test --group ci-notebooks
+      - name: Execute fast example notebooks
+        run: >-
+          uv run --group ci-test --group ci-notebooks python checks/pytest_.py --notebook
+          examples/decoders.ipynb examples/basics.ipynb examples/noise_models.ipynb
+
   coverage:
     name: Pytest and coverage check
     if: github.event.pull_request.draft == false
@@ -113,6 +135,9 @@ jobs:
           python-version: 3.14
           enable-cache: true
       - name: Install package and dependencies
-        run: uv sync --extra gap --extra relay-bp --group ci-test
+        run: uv sync --extra decoders --extra gap --group ci-test
       - name: Run coverage
-        run: uv run --extra gap --extra relay-bp --group ci-test python checks/coverage_.py
+        # Use every CPU of the dedicated runner (the check defaults to half of them).
+        run: >-
+          uv run --extra decoders --extra gap --group ci-test python checks/coverage_.py
+          --jobs "$(nproc)"

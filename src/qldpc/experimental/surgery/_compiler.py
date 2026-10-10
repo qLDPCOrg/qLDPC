@@ -61,8 +61,8 @@ class _WebsterBackendDetails:
 class _SurgeryResourceCounts:
     """Exact static counts for one emitted surgery circuit.
 
-    ``allocated_physical_qubits`` is the number of qubits the circuit addresses, not a
-    time-resolved peak of simultaneously live qubits.
+    ``allocated_physical_qubits`` is the number of qubits the circuit addresses, not a time-resolved
+    peak of simultaneously live qubits.
     """
 
     source_data_qubits: int

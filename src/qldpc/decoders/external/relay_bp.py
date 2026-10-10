@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Relay-BP decoder adapter and builders."""
+"""Relay-BP decoder adapter and specifications."""
 
 from __future__ import annotations
 
 import functools
 import warnings
-from collections.abc import Sequence
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Any, Literal
 
 import galois
 import numpy as np
@@ -15,31 +15,42 @@ import numpy.typing as npt
 import scipy.sparse
 import stim
 
+from qldpc._util import get_external_caller_stacklevel
 from qldpc.math import IntegerArray
 
 from ..common import PLACEHOLDER_ERROR_RATE, _erasure_bit_support, with_erasure_bits
+from ..construction.specs import decoder_spec
 from ..dems import DetectorErrorModelArrays
-from ..protocols import BatchErrorDecoder
+from ..protocols import BatchErrorDecoder, ErrorDecodeResult, ObservableDecodeResult
 
-# Public decoder and builders
+# Public decoder and specifications
 
 
 class RelayBPDecoder(BatchErrorDecoder):
     """Wrapper class for Relay-BP decoders, introduced in arXiv:2506.01779.
 
+    For details about Relay-BP decoders, see:
+
+    - Documentation of options: https://github.com/trmue/relay#performance
+    - Package: https://pypi.org/project/relay-bp
+    - Reference: https://arxiv.org/abs/2506.01779
+
     Requires ``relay_bp`` to be installed, for example via ``pip install 'qldpc[relay-bp]'``.
 
     This class first constructs a ``relay_bp.decoder.DynDecoder`` decoder by class name, such as
     ``RelayDecoderF32``; see ``help(relay_bp)`` for more options.  To enable parallelized decoding,
-    which as of ``relay-bp==0.2.1`` is only implemented for the
-    ``relay_bp.ObservableDecoderRunner`` class, ``RelayBPDecoder`` wraps the
-    ``relay_bp.decoder.DynDecoder`` in a ``relay_bp.ObservableDecoderRunner`` at initialization
-    time.
+    which as of ``relay-bp==0.2.1`` is only implemented for the ``relay_bp.ObservableDecoderRunner``
+    class, ``RelayBPDecoder`` wraps the ``relay_bp.decoder.DynDecoder`` in a
+    ``relay_bp.ObservableDecoderRunner`` at initialization time.
 
     A RelayBPDecoder is both an error decoder and an observable decoder: ``.decode_errors`` (or its
     alias ``.decode``) returns an inferred error, and ``.decode_observables`` returns predicted
-    observable flips.  Predicting
-    observable flips requires an ``observable_error_matrix``, which a detector error model provides.
+    observable flips.  Predicting observable flips requires an ``observable_error_matrix``, which a
+    detector error model provides.
+
+    A Relay-BP decoder draws random relay parameters from a generator that is seeded once, at
+    construction, and persists across decoding calls.  Its predictions for a syndrome can therefore
+    depend on the syndromes that it decoded before.
 
     .. important::
         Relay-BP has two integration constraints:
@@ -54,14 +65,9 @@ class RelayBPDecoder(BatchErrorDecoder):
            method or attribute it does not recognize, such as
            ``decoder.decode_observables_batch(detectors, parallel=True)`` or
            ``decoder.decode_detailed(detectors)``, it passes all arguments to an identically named
-           method of ``relay_bp.ObservableDecoderRunner``.  Consequently, most methods recognized
-           by ``RelayBPDecoder`` in practice do not appear in its documentation.  See
+           method of ``relay_bp.ObservableDecoderRunner``.  Consequently, most methods recognized by
+           ``RelayBPDecoder`` in practice do not appear in its documentation.  See
            ``help(relay_bp.ObservableDecoderRunner)`` for a complete list.
-
-    For details about Relay-BP decoders, see:
-
-    - Documentation: https://pypi.org/project/relay-bp
-    - Reference: https://arxiv.org/abs/2506.01779
 
     If initialized with ``add_erasure_bit=True``, this decoder appends a bit to all decoded errors,
     set to 1 when the error Relay-BP settles on does not reproduce the syndrome and to 0 otherwise.
@@ -87,15 +93,15 @@ class RelayBPDecoder(BatchErrorDecoder):
                 default.
             name: The name of the RelayBP decoder to instantiate.  Must be one of the classes listed
                 under ``help(relay_bp.bp)``.
-            observable_error_matrix: A binary matrix whose rows specify which error mechanisms
-                flip which observables, or None.  If ``pcm_or_dem`` is a DEM, this matrix is
-                extracted from the DEM.  If ``pcm_or_dem`` is a matrix and
+            observable_error_matrix: A binary matrix whose rows specify which error mechanisms flip
+                which observables, or None.  If ``pcm_or_dem`` is a DEM, this matrix is extracted
+                from the DEM.  If ``pcm_or_dem`` is a matrix and
                 ``observable_error_matrix is None``, the constructed ``RelayBPDecoder`` will not be
                 able to predict observable flips (or logical error rates).
             include_decode_result: Argument passed to ``relay_bp.ObservableDecoderRunner``.
-            add_erasure_bit: Whether to append a bit to all decoded errors, set to 1 when the
-                error Relay-BP settles on does not reproduce the syndrome and to 0 otherwise.
-                Without that bit, such a shot is reported as an ordinary inferred error.
+            add_erasure_bit: Whether to append a bit to all decoded errors, set to 1 when the error
+                Relay-BP settles on does not reproduce the syndrome and to 0 otherwise.  Without
+                that bit, such a shot is reported as an ordinary inferred error.
             **decoder_args: Arguments passed to the "inner" (syndrome -> error) decoder from
                 relay_bp.  See help(relay_bp.RelayDecoderF32) or https://pypi.org/project/relay-bp/
                 for the options (alpha, alpha_iteration_scaling_factor, gamma0, etc.).
@@ -115,7 +121,7 @@ class RelayBPDecoder(BatchErrorDecoder):
             raise TypeError(
                 "I think you provided a Relay-BP decoder decoder name in place of a parity check"
                 " matrix.  There was breaking change to this API.  See"
-                " help(qldpc.decoders.RelayBPDecoder)"
+                " help(qldpc.decoders.external.relay_bp.RelayBPDecoder)"
             )
 
         if isinstance(pcm_or_dem, stim.DetectorErrorModel):
@@ -140,14 +146,12 @@ class RelayBPDecoder(BatchErrorDecoder):
             if error_priors is None:
                 error_priors = [PLACEHOLDER_ERROR_RATE] * pcm.shape[1]
 
-        if isinstance(pcm, galois.FieldArray):
-            pcm = pcm.view(np.ndarray)
-        elif isinstance(pcm, scipy.sparse.spmatrix):
-            pcm = pcm.tocsc()
-            pcm.sort_indices()
+        pcm = _as_relay_bp_matrix(pcm)
         self.has_observable_error_matrix = observable_error_matrix is not None
         if observable_error_matrix is None:
             observable_error_matrix = np.empty((0, 0), dtype=np.uint8)
+        else:
+            observable_error_matrix = _as_relay_bp_matrix(observable_error_matrix)
 
         self.has_erasure_bit = add_erasure_bit
         self.pcm_transposed = scipy.sparse.csr_matrix(pcm, dtype=np.uint8).T.tocsr()
@@ -160,6 +164,24 @@ class RelayBPDecoder(BatchErrorDecoder):
             include_decode_result,
         )
 
+    def __getattr__(self, name: str) -> Any:
+        """Inherit all methods of self.decoder: relay_bp.ObservableDecoderRunner.
+
+        Typecast the first argument, if there is one, to np.uint8 for compatibility with the
+        relay_bp package.
+        """
+        if name == "decoder":
+            raise AttributeError(name)
+        inner_func = getattr(self.decoder, name)
+
+        @functools.wraps(inner_func)
+        def outer_func(*args: object, **kwargs: object) -> Any:
+            if args:
+                args = (np.asarray(args[0], dtype=np.uint8), *args[1:])
+            return inner_func(*args, **kwargs)
+
+        return outer_func
+
     def decode_errors(self, /, detectors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error.
 
@@ -171,6 +193,10 @@ class RelayBPDecoder(BatchErrorDecoder):
             return error
         erased = ~self._reproduces_syndrome(np.asarray(error)[None, :], detectors[None, :])
         return with_erasure_bits(error, erased[0])
+
+    def decode_errors_detailed(self, /, detectors: npt.NDArray[np.int_]) -> ErrorDecodeResult:
+        """Decode one syndrome and retain Relay-BP's convergence and posterior diagnostics."""
+        return self.decode_errors_detailed_batch(np.asarray(detectors)[None, :])[0]
 
     def decode(self, /, detectors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error (alias for decode_errors)."""
@@ -213,6 +239,44 @@ class RelayBPDecoder(BatchErrorDecoder):
             detectors, parallel, progress_bar, leave_progress_bar_on_finish
         )
 
+    def decode_errors_detailed_batch(
+        self,
+        /,
+        detectors: npt.NDArray[np.int_],
+        parallel: bool = False,
+        progress_bar: bool = False,
+        leave_progress_bar_on_finish: bool = False,
+    ) -> tuple[ErrorDecodeResult, ...]:
+        """Decode a batch of error syndromes and retain Relay-BP's per-shot diagnostics.
+
+        The erasure flag of each result is set when the inferred error does not reproduce the
+        syndrome.
+        """
+        detectors = np.asarray(detectors, dtype=np.uint8)
+        if len(detectors) == 0:
+            return ()
+        results = self.decoder.decode_detailed_batch(
+            detectors, parallel, progress_bar, leave_progress_bar_on_finish
+        )
+        errors = np.asarray([result.decoding for result in results])
+        erased = ~self._reproduces_syndrome(errors, detectors)
+        if self.has_erasure_bit:
+            errors = with_erasure_bits(errors, erased)
+        return tuple(
+            ErrorDecodeResult(
+                error,
+                bool(erasure),
+                {
+                    "relay_bp.success": bool(result.success),
+                    "relay_bp.iterations": int(result.iterations),
+                    "relay_bp.max_iterations": int(result.max_iter),
+                    "relay_bp.decoded_detectors": np.asarray(result.decoded_detectors),
+                    "relay_bp.posterior_ratios": np.asarray(result.posterior_ratios),
+                },
+            )
+            for error, erasure, result in zip(errors, erased, results, strict=True)
+        )
+
     def decode_observables(self, /, detectors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return predicted observable flips.
 
@@ -225,6 +289,12 @@ class RelayBPDecoder(BatchErrorDecoder):
                 self.decoder.decode_observables(np.asarray(detectors, dtype=np.uint8))
             )
         return self._errors_to_observable_flips(self.decode_errors(detectors)[None, :])[0]
+
+    def decode_observables_detailed(
+        self, /, detectors: npt.NDArray[np.int_]
+    ) -> ObservableDecodeResult:
+        """Decode one syndrome to observables and retain Relay-BP's diagnostics."""
+        return self.decode_observables_detailed_batch(np.asarray(detectors)[None, :])[0]
 
     def decode_observables_batch(
         self,
@@ -260,6 +330,32 @@ class RelayBPDecoder(BatchErrorDecoder):
         )
         return self._errors_to_observable_flips(errors)
 
+    def decode_observables_detailed_batch(
+        self,
+        /,
+        detectors: npt.NDArray[np.int_],
+        parallel: bool = False,
+        progress_bar: bool = False,
+        leave_progress_bar_on_finish: bool = False,
+    ) -> tuple[ObservableDecodeResult, ...]:
+        """Decode a batch of error syndromes to observables and retain Relay-BP's diagnostics."""
+        self._require_observables()
+        results = self.decode_errors_detailed_batch(
+            detectors, parallel, progress_bar, leave_progress_bar_on_finish
+        )
+        if not results:
+            return ()
+        errors = np.asarray([result.error for result in results])
+        flips = (
+            self._errors_to_observable_flips(errors)
+            if self.has_erasure_bit
+            else self._observable_flips(errors)
+        )
+        return tuple(
+            ObservableDecodeResult(prediction, result.erasure, result.diagnostics)
+            for prediction, result in zip(flips, results, strict=True)
+        )
+
     def _require_observables(self) -> None:
         """Raise an error if this decoder was not given observables to predict."""
         if not self.has_observable_error_matrix:
@@ -272,17 +368,25 @@ class RelayBPDecoder(BatchErrorDecoder):
         self, errors_and_erasure_bits: npt.NDArray[np.int_]
     ) -> npt.NDArray[np.int_]:
         """Convert inferred errors, each with an erasure bit appended, into observable flips."""
-        errors = np.asarray(errors_and_erasure_bits[:, :-1], dtype=np.uint8)
-        flips = np.asarray(errors @ self.observable_error_matrix_transposed) & 1
+        flips = self._observable_flips(errors_and_erasure_bits[:, :-1])
         return np.hstack([flips, errors_and_erasure_bits[:, -1:]]).astype(np.uint8)
+
+    def _observable_flips(self, errors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Convert inferred errors, one per row, into observable flips.
+
+        Each flip is the parity of a uint8 sum, whose overflow is harmless since only its low bit is
+        read.
+        """
+        errors = np.asarray(errors, dtype=np.uint8)
+        return (errors @ self.observable_error_matrix_transposed) & 1
 
     def _reproduces_syndrome(
         self, errors: npt.NDArray[np.int_], detectors: npt.NDArray[np.int_]
     ) -> npt.NDArray[np.bool_]:
         """Whether each inferred error reproduces the syndrome it was inferred from.
 
-        Relay-BP settles on a best guess whether or not it converges, so checking that guess is
-        what separates a syndrome it explained from one it could not.
+        Relay-BP settles on a best guess whether or not it converges, so checking that guess is what
+        separates a syndrome it explained from one it could not.
 
         The parity accumulates in uint8 and overflows for a check that many error mechanisms
         address.  That is harmless: overflow reduces modulo 256, and only the low bit is read.
@@ -290,32 +394,17 @@ class RelayBPDecoder(BatchErrorDecoder):
         residuals = np.asarray(errors.astype(np.uint8, copy=False) @ self.pcm_transposed) & 1
         return np.all(residuals == detectors, axis=1)
 
-    def __getattr__(self, name: str) -> Any:
-        """Inherit all methods of self.decoder: relay_bp.ObservableDecoderRunner.
-
-        Typecast the first argument, if there is one, to np.uint8 for compatibility with the
-        relay_bp package.
-        """
-        if name == "decoder":
-            raise AttributeError(name)
-        inner_func = getattr(self.decoder, name)
-
-        @functools.wraps(inner_func)
-        def outer_func(*args: object, **kwargs: object) -> Any:
-            if args:
-                args = (np.asarray(args[0], dtype=np.uint8), *args[1:])
-            return inner_func(*args, **kwargs)
-
-        return outer_func
-
 
 @_erasure_bit_support("RBP", supported=True)
-def get_decoder_rbp(
+def _get_decoder_rbp(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     error_priors: npt.NDArray[np.floating] | Sequence[float] | None = None,
     **decoder_args: object,
 ) -> RelayBPDecoder:
     """Build a Relay-BP decoder.
+
+    See the `relay-bp package documentation <https://pypi.org/project/relay-bp>`_ and
+    `arXiv:2506.01779 <https://arxiv.org/abs/2506.01779>`_.
 
     Args:
         pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
@@ -329,35 +418,240 @@ def get_decoder_rbp(
 
     With ``add_erasure_bit=True``, the decoder appends a flag set when the inferred error does not
     reproduce the syndrome.
-
-    See the `relay-bp package documentation <https://pypi.org/project/relay-bp>`_ and
-    `arXiv:2506.01779 <https://arxiv.org/abs/2506.01779>`_.
     """
     return RelayBPDecoder(pcm_or_dem, error_priors, **decoder_args)  # type: ignore[arg-type]
 
 
-def get_relay_bp_decoder(
-    pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: Any
+def _get_decoder_relay_bp(
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    *,
+    precision: Literal["F32", "F64", "I32", "I64"] = "F32",
+    error_priors: npt.NDArray[np.floating] | Sequence[float] | None = None,
+    observable_error_matrix: IntegerArray | None = None,
+    include_decode_result: bool = False,
+    add_erasure_bit: bool = False,
+    alpha: float | None = None,
+    alpha_iteration_scaling_factor: float = 1.0,
+    gamma0: float = 0.1,
+    data_scale_value: float | None = None,
+    max_data_value: float | None = None,
+    pre_iter: int = 80,
+    num_sets: int = 300,
+    set_max_iter: int = 60,
+    gamma_dist_interval: tuple[float, float] | None = None,
+    explicit_gammas: npt.NDArray[np.floating] | None = None,
+    stop_nconv: int = 1,
+    stopping_criterion: str | None = None,
+    logging: bool = False,
+    seed: int = 0,
+    backend_options: Mapping[str, object] | None = None,
 ) -> RelayBPDecoder:
-    """Build the ``RelayDecoder`` backend selected by a ``relay_bp`` :class:`DecoderSpec`.
+    """Build a Relay-BP decoder from the relay-bp package.
 
-    The specification supplies a ``precision`` suffix and forwards all other options to
-    :func:`get_decoder_rbp`.  This public builder exists so deferred specifications have a stable,
-    pickleable construction path.
+    See the `relay-bp package documentation <https://pypi.org/project/relay-bp>`_ and
+    `arXiv:2506.01779 <https://arxiv.org/abs/2506.01779>`_.
+
+    Args:
+        pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
+        precision: Numeric precision of the ``relay_bp.RelayDecoder<precision>`` backend class.
+        error_priors: Prior probability of each error mechanism.  Defaults to the probabilities of a
+            detector error model, or to a placeholder probability for a matrix.
+        observable_error_matrix: Binary matrix whose rows specify which error mechanisms flip which
+            observables, for a matrix input.  A detector error model supplies its own.
+        include_decode_result: Argument passed to ``relay_bp.ObservableDecoderRunner``.
+        add_erasure_bit: Whether to append a flag set when the error that Relay-BP settles on does
+            not reproduce the syndrome.
+        alpha: Backend option; see ``help(relay_bp.RelayDecoderF32)``.
+        alpha_iteration_scaling_factor: Backend option.
+        gamma0: Backend option.
+        data_scale_value: Backend option.
+        max_data_value: Backend option.
+        pre_iter: Backend option.
+        num_sets: Backend option.
+        set_max_iter: Backend option.
+        gamma_dist_interval: Backend option, or None for the backend default.
+        explicit_gammas: Backend option.
+        stop_nconv: Backend option.
+        stopping_criterion: Backend option, or None for the backend default.
+        logging: Backend option.
+        seed: Backend option.
+        backend_options: Additional options for the selected Relay-BP backend that are not listed
+            above.  The backend rejects unsupported names when the decoder is built.
+
+    Returns:
+        A :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when
+        observable metadata is available, predicts observable flips.
     """
-    return _get_relay_decoder(pcm_or_dem, decoder_class_prefix="RelayDecoder", **decoder_args)
+    optional_args = {
+        "gamma_dist_interval": gamma_dist_interval,
+        "stopping_criterion": stopping_criterion,
+    }
+    return _get_relay_decoder(
+        pcm_or_dem,
+        decoder_class_prefix="RelayDecoder",
+        precision=precision,
+        error_priors=error_priors,
+        observable_error_matrix=observable_error_matrix,
+        include_decode_result=include_decode_result,
+        add_erasure_bit=add_erasure_bit,
+        alpha=alpha,
+        alpha_iteration_scaling_factor=alpha_iteration_scaling_factor,
+        gamma0=gamma0,
+        data_scale_value=data_scale_value,
+        max_data_value=max_data_value,
+        pre_iter=pre_iter,
+        num_sets=num_sets,
+        set_max_iter=set_max_iter,
+        explicit_gammas=explicit_gammas,
+        stop_nconv=stop_nconv,
+        logging=logging,
+        seed=seed,
+        **{name: value for name, value in optional_args.items() if value is not None},
+        **(backend_options or {}),
+    )
 
 
-def get_min_sum_bp_decoder(
-    pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: Any
+def _get_decoder_min_sum_bp(
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    *,
+    precision: Literal["F32", "F64", "I8", "I16", "I32", "I64", "Fixed"] = "F32",
+    error_priors: npt.NDArray[np.floating] | Sequence[float] | None = None,
+    observable_error_matrix: IntegerArray | None = None,
+    include_decode_result: bool = False,
+    add_erasure_bit: bool = False,
+    max_iter: int = 200,
+    alpha: float | None = None,
+    alpha_iteration_scaling_factor: float = 1.0,
+    gamma0: float | None = None,
+    data_scale_value: float | None = None,
+    max_data_value: float | None = None,
+    int_bits: int | None = None,
+    frac_bits: int | None = None,
+    backend_options: Mapping[str, object] | None = None,
 ) -> RelayBPDecoder:
-    """Build the ``MinSumBPDecoder`` backend selected by a ``min_sum_bp`` :class:`DecoderSpec`.
+    """Build a min-sum belief-propagation decoder from the relay-bp package.
 
-    The specification supplies a ``precision`` suffix and forwards all other options to
-    :func:`get_decoder_rbp`.  This public builder exists so deferred specifications have a stable,
-    pickleable construction path.
+    See the `relay-bp package documentation <https://pypi.org/project/relay-bp>`_ and
+    `arXiv:2506.01779 <https://arxiv.org/abs/2506.01779>`_.
+
+    Args:
+        pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
+        precision: Numeric precision of the ``relay_bp.MinSumBPDecoder<precision>`` backend class.
+        error_priors: Prior probability of each error mechanism.  Defaults to the probabilities of a
+            detector error model, or to a placeholder probability for a matrix.
+        observable_error_matrix: Binary matrix whose rows specify which error mechanisms flip which
+            observables, for a matrix input.  A detector error model supplies its own.
+        include_decode_result: Argument passed to ``relay_bp.ObservableDecoderRunner``.
+        add_erasure_bit: Whether to append a flag set when the error that belief propagation settles
+            on does not reproduce the syndrome.
+        max_iter: Backend option; see ``help(relay_bp.MinSumBPDecoderF32)``.
+        alpha: Backend option.
+        alpha_iteration_scaling_factor: Backend option.
+        gamma0: Backend option.
+        data_scale_value: Backend option.
+        max_data_value: Backend option.
+        int_bits: Backend option for fixed-point precision.
+        frac_bits: Backend option for fixed-point precision.
+        backend_options: Additional options for the selected Relay-BP backend that are not listed
+            above.  The backend rejects unsupported names when the decoder is built.
+
+    Returns:
+        A :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when
+        observable metadata is available, predicts observable flips.
     """
-    return _get_relay_decoder(pcm_or_dem, decoder_class_prefix="MinSumBPDecoder", **decoder_args)
+    return _get_relay_decoder(
+        pcm_or_dem,
+        decoder_class_prefix="MinSumBPDecoder",
+        precision=precision,
+        error_priors=error_priors,
+        observable_error_matrix=observable_error_matrix,
+        include_decode_result=include_decode_result,
+        add_erasure_bit=add_erasure_bit,
+        max_iter=max_iter,
+        alpha=alpha,
+        alpha_iteration_scaling_factor=alpha_iteration_scaling_factor,
+        gamma0=gamma0,
+        data_scale_value=data_scale_value,
+        max_data_value=max_data_value,
+        int_bits=int_bits,
+        frac_bits=frac_bits,
+        **(backend_options or {}),
+    )
+
+
+relay_bp = decoder_spec(
+    "relay_bp",
+    _get_decoder_relay_bp,
+    _get_decoder_relay_bp,
+    doc="""Configure a Relay-BP decoder.
+
+See the `Relay-BP documentation <https://github.com/trmue/relay#performance>`_ for a discussion of
+the backend options.
+
+Args:
+    precision: Numeric precision of the ``relay_bp.RelayDecoder<precision>`` backend.
+    error_priors: Prior error probabilities.  A DEM supplies its own unless overridden.
+    observable_error_matrix: Observable flips for each matrix-column error.  A DEM supplies
+        its own matrix; do not pass this option with a DEM.
+    include_decode_result: Whether the upstream observable runner retains decode results.
+    add_erasure_bit: Append a flag when the inferred error fails to reproduce its syndrome.
+    alpha: Option passed to the Relay-BP backend.
+    alpha_iteration_scaling_factor: Option passed to the Relay-BP backend.
+    gamma0: Option passed to the Relay-BP backend.
+    data_scale_value: Option passed to the Relay-BP backend.
+    max_data_value: Option passed to the Relay-BP backend.
+    pre_iter: Option passed to the Relay-BP backend.
+    num_sets: Option passed to the Relay-BP backend.
+    set_max_iter: Option passed to the Relay-BP backend.
+    gamma_dist_interval: Backend option, or None for its default.
+    explicit_gammas: Option passed to the Relay-BP backend.
+    stop_nconv: Option passed to the Relay-BP backend.
+    stopping_criterion: Backend option, or None for its default.
+    logging: Option passed to the Relay-BP backend.
+    seed: Option passed to the Relay-BP backend.
+    backend_options: Additional options for the selected backend class.  Unsupported names
+        are rejected when the decoder is built.
+
+Returns:
+    A decoder specification.  ``build(pcm_or_dem)`` infers errors; for a DEM,
+    ``build_observable_decoder(dem)`` predicts observable flips natively.  Both return
+    :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`.
+""",
+)
+
+min_sum_bp = decoder_spec(
+    "min_sum_bp",
+    _get_decoder_min_sum_bp,
+    _get_decoder_min_sum_bp,
+    doc="""Configure min-sum belief propagation with Relay-BP.
+
+See the `Relay-BP documentation <https://github.com/trmue/relay#performance>`_ for a discussion of
+the backend options.
+
+Args:
+    precision: Numeric precision of the ``relay_bp.MinSumBPDecoder<precision>`` backend.
+    error_priors: Prior error probabilities.  A DEM supplies its own unless overridden.
+    observable_error_matrix: Observable flips for each matrix-column error.  A DEM supplies
+        its own matrix; do not pass this option with a DEM.
+    include_decode_result: Whether the upstream observable runner retains decode results.
+    add_erasure_bit: Append a flag when the inferred error fails to reproduce its syndrome.
+    max_iter: Maximum number of backend iterations.
+    alpha: Option passed to the min-sum backend.
+    alpha_iteration_scaling_factor: Option passed to the min-sum backend.
+    gamma0: Option passed to the min-sum backend.
+    data_scale_value: Option passed to the min-sum backend.
+    max_data_value: Option passed to the min-sum backend.
+    int_bits: Fixed-point integer precision, when using a fixed-point backend.
+    frac_bits: Fixed-point fractional precision, when using a fixed-point backend.
+    backend_options: Additional options for the selected backend class.  Unsupported names
+        are rejected when the decoder is built.
+
+Returns:
+    A decoder specification.  ``build(pcm_or_dem)`` infers errors; for a DEM,
+    ``build_observable_decoder(dem)`` predicts observable flips natively.  Both return
+    :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`.
+""",
+)
 
 
 # Private builder helpers
@@ -371,4 +665,40 @@ def _get_relay_decoder(
     **decoder_args: Any,
 ) -> RelayBPDecoder:
     """Build a RelayBPDecoder from a class-name prefix and precision."""
-    return get_decoder_rbp(pcm_or_dem, name=f"{decoder_class_prefix}{precision}", **decoder_args)
+    return _get_decoder_rbp(pcm_or_dem, name=f"{decoder_class_prefix}{precision}", **decoder_args)
+
+
+def _as_relay_bp_matrix(matrix: IntegerArray) -> IntegerArray:
+    """Return a binary matrix in a form that relay_bp accepts, leaving the given matrix unmodified.
+
+    relay_bp panics on sparse matrices with unsorted or duplicate indices, so this function copies
+    sparse inputs into a canonical CSC matrix.  This function also reduces entries mod 2 (after
+    summing sparse duplicates) and warns if that changes them, so that relay_bp decodes the same
+    GF(2) matrix that the RelayBPDecoder uses to check syndromes.  Finally, this function rejects
+    matrices with non-integer entries, and field arrays over fields other than GF(2).
+    """
+    if isinstance(matrix, galois.FieldArray):
+        if type(matrix).order != 2:
+            raise ValueError(
+                f"Relay-BP requires a binary matrix, but received a matrix over {type(matrix).name}"
+            )
+        return matrix.view(np.ndarray)
+    output: IntegerArray
+    if scipy.sparse.issparse(matrix):
+        output = scipy.sparse.csc_matrix(matrix, copy=True)
+        output.sum_duplicates()
+        entries = output.data
+    else:
+        output = entries = np.array(matrix)  # copy, so that reducing entries leaves matrix intact
+    if np.any(entries % 1):
+        raise ValueError("Relay-BP requires a matrix with integer entries")
+    if np.any((entries != 0) & (entries != 1)):
+        warnings.warn(
+            "RelayBPDecoder received a matrix with entries other than 0 and 1 (after summing"
+            " duplicate sparse entries, if applicable).  Reducing these entries mod 2.",
+            stacklevel=get_external_caller_stacklevel(),
+        )
+        entries %= 2
+    if scipy.sparse.issparse(output):
+        output.eliminate_zeros()
+    return output.astype(np.uint8, copy=False)

@@ -23,16 +23,14 @@ def test_subgraph_decoding() -> None:
     sampler = dem.compile_sampler()
     det_data, obs_data, _err_data = sampler.sample(100)
 
-    decoder_1 = decoders.SinterDecoder(decoder=decoders.lookup_table(max_weight=3))
+    decoder_1 = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=3))
     compiled_decoder_1 = decoder_1.compile_decoder_for_dem(dem)
     predicted_flips_1 = compiled_decoder_1.decode_shots_bit_packed(
         compiled_decoder_1.packbits(det_data)
     )
     assert np.array_equal(predicted_flips_1, compiled_decoder_1.packbits(obs_data))
 
-    decoder_2 = decoders.SubgraphDecoder(
-        [[0], [1], [2]], decoder=decoders.lookup_table(max_weight=1)
-    )
+    decoder_2 = decoders.SubgraphDecoder([[0], [1], [2]], decoder=decoders.lookup(max_weight=1))
     compiled_decoder_2 = decoder_2.compile_decoder_for_dem(dem)
     predicted_flips_2 = compiled_decoder_2.decode_shots_bit_packed(
         compiled_decoder_2.packbits(det_data)
@@ -41,25 +39,6 @@ def test_subgraph_decoding() -> None:
 
     with pytest.raises(ValueError, match="inconsistent"):
         decoders.SubgraphDecoder([[0], [1], [2]], [[0]])
-
-
-def test_compiled_subgraph_input_validation() -> None:
-    """Compiled subgraph decoders reject inconsistent regions and detector counts."""
-    dem = stim.DetectorErrorModel("""
-        detector(0) D0
-        detector(1) D1
-        error(0.1) D0 L0
-        error(0.1) D1 L1
-    """)
-    wide_shots = np.zeros((1, dem.num_detectors + 1), dtype=np.uint8)
-
-    with pytest.raises(ValueError, match="per subgraph"):
-        decoders.CompiledSubgraphDecoder([[0]], [[0], [1]], [], 2, 2)
-    subgraph_decoder = decoders.SubgraphDecoder(
-        [[0], [1]], decoder=decoders.lookup_table(max_weight=1)
-    ).compile_decoder_for_dem(dem)
-    with pytest.raises(ValueError, match="detectors per shot"):
-        subgraph_decoder.decode_shots(wide_shots)
 
 
 def test_native_observable_decoders_on_subgraphs() -> None:
@@ -76,7 +55,7 @@ def test_native_observable_decoders_on_subgraphs() -> None:
         decoders.mwpm(),
         decoders.relay_bp(),
         decoders.min_sum_bp(gamma0=0.5),
-        decoders.lookup_table(max_weight=1),
+        decoders.lookup(max_weight=1),
     ]:
         assert spec.predicts_observables_natively
         predicted_flips = []
@@ -91,31 +70,6 @@ def test_native_observable_decoders_on_subgraphs() -> None:
         assert np.array_equal(predicted_flips[0], predicted_flips[1]), spec
 
 
-def test_subgraph_partition_warnings() -> None:
-    """Compiling warns about a partition whose predictions do not add up."""
-    contested_dem = stim.DetectorErrorModel("error(0.1) D0 D1 L0")
-    with pytest.warns(UserWarning, match="can be predicted by more than one subgraph") as contested:
-        decoders.SubgraphDecoder(
-            [[0], [1]], decoder=decoders.lookup_table(max_weight=1)
-        ).compile_decoder_for_dem(contested_dem)
-    assert all(warning.filename == __file__ for warning in contested)
-
-    uncovered_dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.1) D1 L0")
-    with pytest.warns(UserWarning, match="belong to no subgraph"):
-        decoders.SubgraphDecoder(
-            [[0]], [[0]], decoder=decoders.lookup_table(max_weight=1)
-        ).compile_decoder_for_dem(uncovered_dem)
-
-    sound_dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.1) D1 L1")
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        decoders.SubgraphDecoder(
-            [[0], [1]],
-            [[0], [1]],
-            decoder=decoders.lookup_table(max_weight=1),
-        ).compile_decoder_for_dem(sound_dem)
-
-
 def test_subgraph_decoder_with_erasure() -> None:
     """SubgraphDecoder collects one erasure bit per subgraph past the observables."""
     dem = stim.DetectorErrorModel("""
@@ -123,7 +77,7 @@ def test_subgraph_decoder_with_erasure() -> None:
         error(0.1) D2 L1
     """)
     decoder = decoders.SubgraphDecoder(
-        [[0, 1], [2]], decoder=decoders.lookup_table(max_weight=1, add_erasure_bit=True)
+        [[0, 1], [2]], decoder=decoders.lookup(max_weight=1, add_erasure_bit=True)
     )
     compiled = decoder.compile_decoder_for_dem(dem)
 
@@ -146,3 +100,47 @@ def test_subgraph_decoder_with_erasure() -> None:
         compiled.packbits(np.array([[1, 0, 0]], dtype=np.uint8))
     )
     assert packed_unknown[0, -1] == 1
+
+
+def test_compiled_subgraph_input_validation() -> None:
+    """Compiled subgraph decoders reject inconsistent regions and detector counts."""
+    dem = stim.DetectorErrorModel("""
+        detector(0) D0
+        detector(1) D1
+        error(0.1) D0 L0
+        error(0.1) D1 L1
+    """)
+    wide_shots = np.zeros((1, dem.num_detectors + 1), dtype=np.uint8)
+
+    with pytest.raises(ValueError, match="per subgraph"):
+        decoders.sinter.CompiledSubgraphDecoder([[0]], [[0], [1]], [], 2, 2)
+    subgraph_decoder = decoders.SubgraphDecoder(
+        [[0], [1]], decoder=decoders.lookup(max_weight=1)
+    ).compile_decoder_for_dem(dem)
+    with pytest.raises(ValueError, match="detectors per shot"):
+        subgraph_decoder.decode_shots(wide_shots)
+
+
+def test_subgraph_partition_warnings() -> None:
+    """Compiling warns about a partition whose predictions do not add up."""
+    contested_dem = stim.DetectorErrorModel("error(0.1) D0 D1 L0")
+    with pytest.warns(UserWarning, match="can be predicted by more than one subgraph") as contested:
+        decoders.SubgraphDecoder(
+            [[0], [1]], decoder=decoders.lookup(max_weight=1)
+        ).compile_decoder_for_dem(contested_dem)
+    assert all(warning.filename == __file__ for warning in contested)
+
+    uncovered_dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.1) D1 L0")
+    with pytest.warns(UserWarning, match="belong to no subgraph"):
+        decoders.SubgraphDecoder(
+            [[0]], [[0]], decoder=decoders.lookup(max_weight=1)
+        ).compile_decoder_for_dem(uncovered_dem)
+
+    sound_dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.1) D1 L1")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        decoders.SubgraphDecoder(
+            [[0], [1]],
+            [[0], [1]],
+            decoder=decoders.lookup(max_weight=1),
+        ).compile_decoder_for_dem(sound_dem)

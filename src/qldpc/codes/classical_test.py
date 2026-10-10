@@ -123,8 +123,8 @@ def test_simplex_codes_over_fields() -> None:
             assert code.get_code_params() == params
             assert codes.ClassicalCode(code.matrix).get_code_params() == params
 
-            # over a larger field the code is built as, and equals, the dual of a Hamming code;
-            # the binary cyclic presentation is the same code only up to a permutation of bits
+            # over a larger field the code is built as, and equals, the dual of a Hamming code; the
+            # binary cyclic presentation is the same code only up to a permutation of bits
             if field > 2:
                 assert codes.ClassicalCode.equiv(
                     codes.SimplexCode(dim, field), ~codes.HammingCode(dim, field)
@@ -162,8 +162,8 @@ def test_degenerate_code_sizes() -> None:
 
 def test_bch_block_lengths() -> None:
     """A BCH block length is valid exactly when it is field_order**m - 1 for an integer m >= 1."""
-    # valid: q**m - 1.  Digits of these lengths are non-decimal in base q > 10, which a
-    # string-based check on the base-q representation would reject.
+    # valid: q**m - 1.  Digits of these lengths are non-decimal in base q > 10, which a string-based
+    # check on the base-q representation would reject.
     for length, order in [(1, 2), (15, 2), (8, 3), (120, 11), (168, 13), (16, 17)]:
         assert codes.BCHCode._is_valid_bch_length(length, order)
 

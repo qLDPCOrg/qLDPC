@@ -38,13 +38,24 @@ python -m pip install qldpc
 
 ### Optional extras
 
-#### Relay-BP decoder
+#### Decoders
 
-Install the optional Relay-BP decoder with:
+qLDPC installs `ldpc` and `pymatching` by default, which include a host of decoders.
+Install the optional decoder integrations published as qLDPC extras for your platform with:
+
+```bash
+python -m pip install 'qldpc[decoders]'
+```
+
+You can also use individual extras to install a specific optional decoder:
 
 ```bash
 python -m pip install 'qldpc[relay-bp]'
+python -m pip install 'qldpc[tesseract]'
 ```
+
+The [Tesseract](https://github.com/quantumlib/tesseract-decoder) decoder requires CPython 3.12–3.14 on macOS arm64 or Linux x86-64.
+[Frontier](https://github.com/aleverrier/frontier) is not published on PyPI and is not included in an extra; see the [decoder guide](https://qldpc.readthedocs.io/decoders.html) for availability and build-time installation guidance.
 
 #### GAP integration
 
@@ -56,10 +67,8 @@ python -m pip install 'qldpc[gap]'
 ```
 
 qLDPC uses `passagemath-gap` when available, so supported GAP operations do not launch a separate process.
-The in-process binding requires Python 3.13 on non-Windows platforms.
-If the extra is unavailable, qLDPC supports a GAP executable on `PATH` (`conda install -c conda-forge gap` is one option) and a manual copy/paste fallback.
-If a package such as GUAVA or QDistRnd is absent from the in-process binding, qLDPC asks for permission to install it through GAP's PackageManager.
-If that attempt fails and a separate GAP executable is available, qLDPC prints instructions for installing the package for libgap before using the executable instead.
+The in-process binding requires Python 3.13 on a non-Windows platform.
+If `passagemath-gap` is unavailable, qLDPC relies on a GAP executable in your `PATH` (possibly obtainable with `conda install -c conda-forge gap`), and a manual copy/paste fallback.
 GAP integration on Windows remains limited; see [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
 
 #### `sqetch` distance estimation
@@ -72,7 +81,7 @@ python -m pip install 'sqetch[gpu] @ git+https://github.com/a7b/yarn.git@e9ce9d0
 
 This command installs the upstream version of `sqetch` that qLDPC is tested against, with GPU support.
 `sqetch` is not published on PyPI, so it is not available as a qLDPC extra.
-For binary CSS codes, select it with `code.get_distance_bound(backend="sqetch")`.
+For binary CSS codes, you can select this backend with `code.get_distance_bound(backend="sqetch")`.
 
 ### Troubleshooting
 
@@ -108,11 +117,9 @@ print("physical qubits:", len(code))
 print("logical qubits:", code.dimension)
 ```
 
-That object is ready for more than a parameter check: inspect its parity checks and logical operators, choose a decoder, estimate a logical error rate, or use it in a memory experiment.
-
 ### Go deeper: a subsystem lifted-product code
 
-For a more technical taste, the next example builds a parity-check matrix over the group algebra `GF(2)[C₅]`, lifts each group-ring entry to a 5×5 binary block, and hands the result to `SLPCode`.
+The next example builds a parity-check matrix over the group algebra `GF(2)[C₅]`, lifts each group-ring entry to a 5×5 binary block, and hands the result to `SLPCode`.
 The [subsystem lifted-product construction](https://arxiv.org/abs/2404.18302) produces an 80-qubit CSS subsystem code with 5 logical qubits and 45 gauge qubits.
 
 ```python

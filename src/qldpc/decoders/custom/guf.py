@@ -18,6 +18,7 @@ from qldpc.math import IntegerArray
 from qldpc.objects import Node
 
 from ..common import _erasure_bit_support, _to_pcm, with_erasure_bits
+from ..construction.specs import decoder_spec
 from ..protocols import ErrorDecoder
 
 if TYPE_CHECKING:
@@ -75,12 +76,6 @@ class GUFDecoder(ErrorDecoder):
             self.code = codes.QuditCode(-math.symplectic_conjugate(matrix.view(field)))
 
         self.graph = self.code.graph.to_undirected()
-
-    def decode(
-        self, syndrome: npt.NDArray[np.int_], *, max_weight: int | None = None
-    ) -> npt.NDArray[np.int_]:
-        """Decode an error syndrome and return an inferred error (alias for decode_errors)."""
-        return self.decode_errors(syndrome, max_weight=max_weight)
 
     def decode_errors(
         self, syndrome: npt.NDArray[np.int_], *, max_weight: int | None = None
@@ -151,6 +146,12 @@ class GUFDecoder(ErrorDecoder):
             decoded_error = with_erasure_bits(decoded_error, False)
         return decoded_error
 
+    def decode(
+        self, syndrome: npt.NDArray[np.int_], *, max_weight: int | None = None
+    ) -> npt.NDArray[np.int_]:
+        """Decode an error syndrome and return an inferred error (alias for decode_errors)."""
+        return self.decode_errors(syndrome, max_weight=max_weight)
+
     def get_sub_problem_indices(
         self, syndrome: npt.NDArray[np.int_], error_set: set[Node]
     ) -> tuple[list[int], list[int]]:
@@ -172,7 +173,7 @@ class GUFDecoder(ErrorDecoder):
 
 
 @_erasure_bit_support("GUF", supported=True)
-def get_decoder_guf(
+def _get_decoder_guf(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
 ) -> GUFDecoder:
     """Build a generalized union-find (GUF) decoder.
@@ -180,14 +181,40 @@ def get_decoder_guf(
     Args:
         pcm_or_dem: A parity-check matrix or detector error model to decode.  A DEM is converted to
             its dense detector-flip matrix.
-        **decoder_args: Arguments passed to :class:`GUFDecoder`, including ``max_weight``,
-            ``symplectic``, and ``add_erasure_bit``.
+        max_weight: Maximum weight of a candidate error, or None for no limit.
+        symplectic: Whether to treat the parity-check matrix as that of a QuditCode, whose first and
+            last halves of columns denote the X and Z support of a stabilizer.
+        add_erasure_bit: Whether to append a flag when the search is exhausted without finding an
+            error that reproduces the syndrome.
+        **decoder_args: The options above, passed to :class:`~qldpc.decoders.custom.guf.GUFDecoder`.
 
     Returns:
-        A :class:`GUFDecoder`.
+        A :class:`~qldpc.decoders.custom.guf.GUFDecoder`.
 
-    With ``add_erasure_bit=True``, the decoder appends a flag when its search is exhausted without
-    finding an error that reproduces the syndrome.  Supplying ``max_weight`` can make the search
-    exponential.  See `arXiv:2103.08049 <https://arxiv.org/abs/2103.08049>`_.
+    Supplying ``max_weight`` can make the search exponential.  See
+    :class:`~qldpc.decoders.custom.guf.GUFDecoder` and
+    `arXiv:2103.08049 <https://arxiv.org/abs/2103.08049>`_.
     """
     return GUFDecoder(_to_pcm(pcm_or_dem), **decoder_args)  # type: ignore[arg-type]
+
+
+guf = decoder_spec(
+    "guf",
+    _get_decoder_guf,
+    signature_source=GUFDecoder,
+    doc="""Configure generalized union-find (GUF) decoding.
+
+Args:
+    max_weight: Maximum weight of a candidate error, or None for no limit.  A finite limit
+        can make the search exponential.
+    symplectic: Treat the matrix as quantum checks with ``[X|Z]`` columns.
+    add_erasure_bit: Append a flag when the search finds no error reproducing the syndrome.
+
+Returns:
+    A decoder specification.  ``build(pcm_or_dem)`` returns a
+    :class:`~qldpc.decoders.custom.guf.GUFDecoder`; a DEM is decoded through its dense
+    detector-flip matrix.
+
+See `arXiv:2103.08049 <https://arxiv.org/abs/2103.08049>`_.
+""",
+)

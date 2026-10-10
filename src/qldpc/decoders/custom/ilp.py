@@ -16,7 +16,8 @@ import stim
 from qldpc.math import IntegerArray
 
 from ..common import _erasure_bit_support, _to_pcm, with_erasure_bits
-from ..protocols import ErrorDecoder
+from ..construction.specs import decoder_spec
+from ..protocols import ErrorDecoder, ErrorDecodeResult
 
 if TYPE_CHECKING:
     import cvxpy
@@ -76,50 +77,31 @@ class ILPDecoder(ErrorDecoder):
 
     def decode_errors(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
-        import cvxpy
+        error, erased, _ = self._solve(syndrome, self.has_erasure_bit)
+        return with_erasure_bits(error, erased) if self.has_erasure_bit else error
 
-        constraints = self.variable_constraints + self.cvxpy_constraints_for_syndrome(syndrome)
+    def decode_errors_detailed(self, syndrome: npt.NDArray[np.int_]) -> ErrorDecodeResult:
+        """Decode one syndrome and report the solver status and objective value.
 
-        problem = cvxpy.Problem(self.objective, constraints)
-        result = problem.solve(**self.decoder_args)
-
-        if not isinstance(result, float) or not np.isfinite(result) or self.variables.value is None:
-            message = (
-                "Optimal solution to integer linear program could not be found!"
-                f"\nSolver output: {result}"
-            )
-            if not self.has_erasure_bit:
-                raise ValueError(message)
-            warnings.warn(message, stacklevel=2)
-            no_error = np.zeros(self.matrix.shape[1], dtype=syndrome.dtype)
-            return with_erasure_bits(no_error, True)
-
-        error = (np.rint(self.variables.value) % self.modulus).astype(int)
-
-        reproduces_syndrome = np.array_equal(
-            self.matrix @ error % self.modulus,
-            np.asarray(syndrome, dtype=int) % self.modulus,
-        )
-        if not self.has_erasure_bit:
-            if not reproduces_syndrome:
-                raise ValueError(
-                    "Integer linear program returned an error that does not reproduce the syndrome!"
-                    f"\nSolver status: {problem.status}"
-                )
-            return error
-        return with_erasure_bits(error, not reproduces_syndrome)
+        The erasure flag is set if the inferred error does not reproduce the syndrome, or (with a
+        warning) if no optimal solution is found.
+        """
+        error, erased, problem = self._solve(syndrome, signal_erasure=True)
+        if self.has_erasure_bit:
+            error = with_erasure_bits(error, erased)
+        diagnostics: dict[str, object] = {"ilp.status": str(problem.status)}
+        if isinstance(problem.value, float) and np.isfinite(problem.value):
+            diagnostics["ilp.objective_value"] = problem.value
+        return ErrorDecodeResult(error, erased, diagnostics)
 
     def cvxpy_constraints_for_syndrome(
         self, syndrome: npt.NDArray[np.int_]
     ) -> list[cvxpy.Constraint]:
         """Build cvxpy constraints of the form ``matrix @ variables == syndrome (mod q)``.
 
-        This method relaxes each constraint of the form
-        ``expression = val mod q``
-        to
-        ``expression = val + q t``,
-        where t is a nonnegative integer built out of boolean variables {b_j} as
-        ``t = sum_j 2^j b_j``.
+        This method relaxes each constraint of the form ``expression = val mod q`` to
+        ``expression = val + q t``, where t is a nonnegative integer built out of boolean variables
+        {b_j} as ``t = sum_j 2^j b_j``.
 
         Since the variables are nonnegative and val is reduced mod q, ``expression - val`` is a
         nonnegative multiple of q, so t is nonnegative, and it is bounded above by the largest value
@@ -146,9 +128,46 @@ class ILPDecoder(ErrorDecoder):
 
         return constraints
 
+    def _solve(
+        self, syndrome: npt.NDArray[np.int_], signal_erasure: bool
+    ) -> tuple[npt.NDArray[np.int_], bool, cvxpy.Problem]:
+        """Solve the integer linear program, and return its error, erasure flag, and problem.
+
+        If not signaling erasure, raise an error instead of returning an erased result.
+        """
+        import cvxpy
+
+        constraints = self.variable_constraints + self.cvxpy_constraints_for_syndrome(syndrome)
+
+        problem = cvxpy.Problem(self.objective, constraints)
+        result = problem.solve(**self.decoder_args)
+
+        if not isinstance(result, float) or not np.isfinite(result) or self.variables.value is None:
+            message = (
+                "Optimal solution to integer linear program could not be found!"
+                f"\nSolver output: {result}"
+            )
+            if not signal_erasure:
+                raise ValueError(message)
+            warnings.warn(message, stacklevel=3)
+            return np.zeros(self.matrix.shape[1], dtype=syndrome.dtype), True, problem
+
+        error = (np.rint(self.variables.value) % self.modulus).astype(int)
+
+        reproduces_syndrome = np.array_equal(
+            self.matrix @ error % self.modulus,
+            np.asarray(syndrome, dtype=int) % self.modulus,
+        )
+        if not signal_erasure and not reproduces_syndrome:
+            raise ValueError(
+                "Integer linear program returned an error that does not reproduce the syndrome!"
+                f"\nSolver status: {problem.status}"
+            )
+        return error, not reproduces_syndrome, problem
+
 
 @_erasure_bit_support("ILP", supported=True)
-def get_decoder_ilp(
+def _get_decoder_ilp(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     *,
     add_erasure_bit: bool = False,
@@ -161,12 +180,31 @@ def get_decoder_ilp(
             its dense detector-flip matrix.
         add_erasure_bit: Whether to append a flag when the solver cannot produce an error that
             reproduces the syndrome.
-        **decoder_args: Arguments passed to ``cvxpy.Problem.solve`` by :class:`ILPDecoder`.
+        **decoder_args: Arguments passed to ``cvxpy.Problem.solve``.
 
     Returns:
-        An :class:`ILPDecoder`.
+        An :class:`~qldpc.decoders.custom.ilp.ILPDecoder`.
 
     ILP decoding supports prime fields.  Without an erasure bit, an unexplained syndrome is rejected
     rather than returned as an ordinary inferred error.
     """
     return ILPDecoder(_to_pcm(pcm_or_dem), add_erasure_bit=add_erasure_bit, **decoder_args)
+
+
+ilp = decoder_spec(
+    "ilp",
+    _get_decoder_ilp,
+    signature_source=ILPDecoder,
+    doc="""Configure integer-linear-program (ILP) decoding.
+
+Args:
+    add_erasure_bit: Append a flag when the solver cannot find an error reproducing the syndrome.
+        Without it, an unexplained syndrome raises an error.
+    **decoder_args: Options passed to ``cvxpy.Problem.solve``.
+
+Returns:
+    A decoder specification.  ``build(pcm_or_dem)`` returns an
+    :class:`~qldpc.decoders.custom.ilp.ILPDecoder` over a prime field; a DEM is decoded through
+    its dense detector-flip matrix.
+""",
+)

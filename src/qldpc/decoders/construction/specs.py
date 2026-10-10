@@ -1,16 +1,25 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Typed settings for deferred decoder construction."""
+"""Typed decoder specifications for deferred construction."""
 
 from __future__ import annotations
 
 import dataclasses
 import inspect
-from collections.abc import Callable, Collection, Sequence
-from typing import Generic, Literal, Protocol, TypeAlias, TypeVar
+from collections.abc import Callable, Mapping
+from typing import (
+    Any,
+    Concatenate,
+    Generic,
+    Never,
+    ParamSpec,
+    Protocol,
+    TypeAlias,
+    TypeVar,
+    cast,
+    overload,
+)
 
-import numpy as np
-import numpy.typing as npt
 import stim
 
 from qldpc.math import IntegerArray
@@ -19,47 +28,55 @@ from ..adapters.error_decoders import ErrorsToObservablesDecoder as _ErrorsToObs
 from ..adapters.observable_decoders import (
     validate_observable_decoder as _validate_observable_decoder,
 )
-from ..common import PLACEHOLDER_ERROR_RATE
-from ..custom.guf import GUFDecoder
-from ..custom.guf import get_decoder_guf as _get_decoder_guf
-from ..custom.ilp import ILPDecoder
-from ..custom.ilp import get_decoder_ilp as _get_decoder_ilp
-from ..custom.lookup import (
-    LookupDecoder,
-    get_decoder_lookup,
-    get_observable_decoder_lookup,
-)
-from ..external.ldpc import get_decoder_bf as _get_decoder_bf
-from ..external.ldpc import get_decoder_bp_lsd as _get_decoder_bp_lsd
-from ..external.ldpc import get_decoder_bp_osd as _get_decoder_bp_osd
-from ..external.pymatching import get_error_decoder_mwpm, get_observable_decoder_mwpm
-from ..external.relay_bp import (
-    RelayBPDecoder,
-    get_min_sum_bp_decoder,
-    get_relay_bp_decoder,
-)
-from ..protocols import (
-    BatchErrorDecoder,
-    ErrorDecoder,
-    ObservableDecoder,
-    SupportsDecode,
-)
+from ..protocols import ErrorDecoder, ObservableDecoder, SupportsDecode
+from .factories import DEMDecoderFactory, MatrixDecoderFactory
 
-_Decoder = TypeVar("_Decoder", bound=ErrorDecoder)
 _DecoderT_co = TypeVar("_DecoderT_co", bound=ErrorDecoder, covariant=True)
+_DecoderT = TypeVar("_DecoderT", bound=ErrorDecoder)
+_InputT = TypeVar("_InputT")
+_Parameters = ParamSpec("_Parameters")
+_OptionTransform: TypeAlias = Callable[[dict[str, object], frozenset[str]], dict[str, object]]
+
 
 PcmOrDem: TypeAlias = IntegerArray | stim.DetectorErrorModel
 """A parity-check matrix or detector error model from which to build an error decoder."""
 
 
+# Decoder specifications
+
+
 @dataclasses.dataclass(frozen=True, slots=True, eq=False, repr=False)
 class DecoderSpec(Generic[_DecoderT_co]):
-    """Deferred, typed construction settings for an error decoder."""
+    """A typed specification for building a decoder later.
+
+    A specification builds an error decoder, an observable decoder, or both.  A specification
+    without an error builder, such as ``decoders.frontier(...)``, is typed ``DecoderSpec[Never]``.
+    """
 
     _helper_name: str
-    _builder: Callable[..., _DecoderT_co]
+    _builder: Callable[..., _DecoderT_co] | None
     _options: tuple[tuple[str, object], ...]
     _observable_builder: Callable[..., ObservableDecoder] | None = None
+    _defaults: tuple[tuple[str, object], ...] | None = None
+
+    def __post_init__(self) -> None:
+        """Require at least one way to build a decoder."""
+        if self._builder is None and self._observable_builder is None:
+            raise ValueError(
+                "A decoder specification needs an error builder or an observable builder"
+            )
+
+    def __repr__(self) -> str:
+        """Show the helper call that reproduces this specification."""
+        if self._defaults is None:
+            return f"DecoderSpec({self._helper_name!r}, {self._builder!r}, {self._options!r})"
+        defaults = dict(self._defaults)
+        options = ", ".join(
+            f"{name}={value!r}"
+            for name, value in self._options
+            if name not in defaults or not _is_default_value(value, defaults[name])
+        )
+        return f"decoders.{self._helper_name}({options})"
 
     @property
     def options(self) -> dict[str, object]:
@@ -68,36 +85,146 @@ class DecoderSpec(Generic[_DecoderT_co]):
 
     def build(self, pcm_or_dem: PcmOrDem) -> _DecoderT_co:
         """Build an error decoder for a parity-check matrix or detector error model."""
+        if self._builder is None:
+            raise TypeError(
+                f"decoders.{self._helper_name}(...) predicts observable flips but cannot infer"
+                " errors, so it cannot build an error decoder.  Call build_observable_decoder(dem)"
+                " instead, or pass it where an observable decoder is accepted, such as to"
+                " decoders.SinterDecoder"
+            )
         return self._builder(pcm_or_dem, **self.options)
+
+    def build_observable_decoder(self, dem: stim.DetectorErrorModel) -> ObservableDecoder:
+        """Build a decoder that predicts the observable flips of a detector error model."""
+        if self._observable_builder is not None:
+            return _validate_observable_decoder(
+                self._observable_builder(dem, **self.options), "A decoder specification"
+            )
+        return _ErrorsToObservablesDecoder(self.build(dem), dem)
+
+    @property
+    def infers_errors(self) -> bool:
+        """Whether this specification can build an error decoder."""
+        return self._builder is not None
 
     @property
     def predicts_observables_natively(self) -> bool:
         """Whether this specification has a native observable-decoding mode."""
         return self._observable_builder is not None
 
-    def build_observable_decoder(self, dem: stim.DetectorErrorModel) -> ObservableDecoder:
-        """Build a decoder that predicts the observable flips of a detector error model."""
-        if self._observable_builder is not None:
-            return _validate_observable_decoder(
-                self._observable_builder(dem, **self.options), "A decoder spec"
-            )
-        return _ErrorsToObservablesDecoder(self.build(dem), dem)
 
-    def __repr__(self) -> str:
-        """Show the helper call that reproduces this specification."""
-        helper = globals().get(self._helper_name)
-        if helper is None:
-            return f"DecoderSpec({self._helper_name!r}, {self._builder!r}, {self._options!r})"
-        defaults = {
-            name: parameter.default
-            for name, parameter in inspect.signature(helper).parameters.items()
-        }
-        options = ", ".join(
-            f"{name}={value!r}"
-            for name, value in self._options
-            if not _is_default_value(value, defaults.get(name, inspect.Parameter.empty))
+@overload
+def decoder_spec(
+    helper_name: str,
+    builder: Callable[Concatenate[PcmOrDem, _Parameters], _DecoderT],
+    observable_builder: Callable[..., ObservableDecoder] | None = None,
+    /,
+    *,
+    signature_source: None = None,
+    exclude: frozenset[str] = frozenset(),
+    option_transform: _OptionTransform | None = None,
+    doc: str | None = None,
+) -> Callable[_Parameters, DecoderSpec[_DecoderT]]: ...
+
+
+@overload
+def decoder_spec(
+    helper_name: str,
+    builder: Callable[..., _DecoderT],
+    observable_builder: Callable[..., ObservableDecoder] | None = None,
+    /,
+    *,
+    signature_source: Callable[Concatenate[_InputT, _Parameters], object],
+    exclude: frozenset[str] = frozenset(),
+    option_transform: _OptionTransform | None = None,
+    doc: str | None = None,
+) -> Callable[_Parameters, DecoderSpec[_DecoderT]]: ...
+
+
+def decoder_spec(
+    helper_name: str,
+    builder: Callable[..., _DecoderT],
+    observable_builder: Callable[..., ObservableDecoder] | None = None,
+    /,
+    *,
+    signature_source: Callable[..., object] | None = None,
+    exclude: frozenset[str] = frozenset(),
+    option_transform: _OptionTransform | None = None,
+    doc: str | None = None,
+) -> Callable[..., DecoderSpec[_DecoderT]]:
+    """Create a typed decoder-specification helper from one construction signature.
+
+    The helper accepts the options of ``signature_source`` (by default, ``builder``), excluding its
+    first argument and any names in ``exclude``.  Its public documentation is ``doc``, not a
+    rewritten builder docstring.
+    """
+    source = builder if signature_source is None else signature_source
+    helper_signature = _get_helper_signature(source, exclude)
+    defaults = tuple(
+        (name, parameter.default)
+        for name, parameter in helper_signature.parameters.items()
+        if parameter.default is not inspect.Parameter.empty
+    )
+
+    def make_spec(*args: object, **kwargs: object) -> DecoderSpec[_DecoderT]:
+        options = _get_spec_options(helper_name, helper_signature, args, kwargs, option_transform)
+        return DecoderSpec(
+            helper_name,
+            builder,
+            tuple(options.items()),
+            observable_builder,
+            defaults,
         )
-        return f"decoders.{self._helper_name}({options})"
+
+    decoder_type = inspect.signature(builder, eval_str=True).return_annotation
+    if decoder_type is inspect.Signature.empty:
+        decoder_type = ErrorDecoder
+    _set_helper_metadata(
+        make_spec,
+        helper_name,
+        builder,
+        helper_signature,
+        cast(Any, DecoderSpec)[decoder_type],
+        doc,
+    )
+    return make_spec
+
+
+def observable_decoder_spec(
+    helper_name: str,
+    observable_builder: Callable[
+        Concatenate[stim.DetectorErrorModel, _Parameters], ObservableDecoder
+    ],
+    /,
+    *,
+    option_transform: _OptionTransform | None = None,
+    doc: str | None = None,
+) -> Callable[_Parameters, DecoderSpec[Never]]:
+    """Create an observable-only decoder-specification helper, as by decoder_spec."""
+    helper_signature = _get_helper_signature(observable_builder, frozenset())
+    defaults = tuple(
+        (name, parameter.default)
+        for name, parameter in helper_signature.parameters.items()
+        if parameter.default is not inspect.Parameter.empty
+    )
+
+    def make_spec(*args: object, **kwargs: object) -> DecoderSpec[Never]:
+        options = _get_spec_options(helper_name, helper_signature, args, kwargs, option_transform)
+        return DecoderSpec(
+            helper_name,
+            None,
+            tuple(options.items()),
+            observable_builder,
+            defaults,
+        )
+
+    _set_helper_metadata(
+        make_spec, helper_name, observable_builder, helper_signature, DecoderSpec[Never], doc
+    )
+    return make_spec
+
+
+# Decoder inputs
 
 
 class ErrorDecoderConstructor(Protocol):
@@ -121,317 +248,134 @@ class ObservableDecoderCompiler(Protocol):
         """Build an observable decoder specialized to one detector error model."""
 
 
-DeferredErrorDecoderInput: TypeAlias = DecoderSpec[ErrorDecoder] | ErrorDecoderConstructor | None
-"""A decoder= input that builds an error decoder later, for a matrix or detector error model that
-the receiving method constructs: decoder settings, an error-decoder constructor, or None to select
-the default decoder.  Prebuilt decoders are excluded, because they are tied to one matrix."""
+DeferredErrorDecoderInput: TypeAlias = (
+    DecoderSpec[ErrorDecoder] | ErrorDecoderConstructor | MatrixDecoderFactory | None
+)
+"""A deferred input for an error decoder; use a decoder specification for the model the
+receiving method constructs."""
+
 
 ErrorDecoderInput: TypeAlias = DeferredErrorDecoderInput | ErrorDecoder | SupportsDecode
-"""A decoder= input that yields an error decoder: a DeferredErrorDecoderInput, or a prebuilt error
-decoder (an ErrorDecoder, or any object whose decode method returns an inferred error)."""
+"""An input for a decoder that infers errors; configure it with a decoder specification."""
+
 
 DeferredDecoderInput: TypeAlias = (
-    DeferredErrorDecoderInput | ObservableDecoderConstructor | ObservableDecoderCompiler
+    DeferredErrorDecoderInput
+    | ObservableDecoderConstructor
+    | DEMDecoderFactory
+    | ObservableDecoderCompiler
 )
-"""A decoder= input that builds an error or observable decoder later, for a matrix or detector
-error model that the receiving method constructs: a DeferredErrorDecoderInput, an
-observable-decoder constructor, or an observable-decoder compiler such as a SinterDecoder.
-Prebuilt decoders are excluded, because they are tied to one matrix or detector error model."""
+"""A deferred input for error or observable decoding; configure it with a decoder specification
+for the receiving method's matrix or detector error model."""
+
 
 DecoderInput: TypeAlias = ErrorDecoderInput | DeferredDecoderInput | ObservableDecoder
-"""Any decoder= input: an ErrorDecoderInput, a DeferredDecoderInput, or a prebuilt observable
-decoder.  The receiving method adapts the decoder that the input yields to what it needs."""
+"""An input for error or observable decoding; use a decoder specification to select a backend."""
 
 
-# Typed decoder-specification helpers
+# Private helpers
 
 
-def bp_osd(
-    *,
-    error_rate: float = PLACEHOLDER_ERROR_RATE,
-    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
-    max_iter: int = 0,
-    bp_method: Literal["product_sum", "minimum_sum", "ps", "ms"] = "product_sum",
-    ms_scaling_factor: float = 1.0,
-    schedule: Literal["parallel", "serial"] = "parallel",
-    omp_thread_count: int = 1,
-    random_schedule_seed: int = 0,
-    serial_schedule_order: Sequence[int] | None = None,
-    osd_method: Literal["OSD_0", "OSD_E", "OSD_CS"] = "OSD_0",
-    osd_order: int = 0,
-) -> DecoderSpec[ErrorDecoder]:
-    """Configure a belief-propagation with ordered-statistics (BP+OSD) decoder."""
-    return _decoder_spec(
-        "bp_osd",
-        _get_decoder_bp_osd,
-        error_rate=error_rate,
-        error_channel=error_channel,
-        max_iter=max_iter,
-        bp_method=bp_method,
-        ms_scaling_factor=ms_scaling_factor,
-        schedule=schedule,
-        omp_thread_count=omp_thread_count,
-        random_schedule_seed=random_schedule_seed,
-        serial_schedule_order=serial_schedule_order,
-        osd_method=osd_method,
-        osd_order=osd_order,
-    )
+def _set_helper_metadata(
+    helper: Callable[..., object],
+    helper_name: str,
+    builder: Callable[..., object],
+    signature: inspect.Signature,
+    return_annotation: object,
+    doc: str | None,
+) -> None:
+    """Give a generated helper its documented name and derived public signature."""
+    helper.__name__ = helper_name
+    helper.__qualname__ = helper_name
+    helper.__module__ = builder.__module__
+    helper.__doc__ = doc
+    vars(helper)["__signature__"] = signature.replace(return_annotation=return_annotation)
+    helper.__annotations__ = _get_helper_annotations(signature, return_annotation)
 
 
-def bp_lsd(
-    *,
-    error_rate: float = PLACEHOLDER_ERROR_RATE,
-    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
-    max_iter: int = 0,
-    bp_method: Literal["product_sum", "minimum_sum", "ps", "ms"] = "product_sum",
-    ms_scaling_factor: float = 1.0,
-    schedule: Literal["parallel", "serial"] = "parallel",
-    omp_thread_count: int = 1,
-    random_schedule_seed: int = 0,
-    serial_schedule_order: Sequence[int] | None = None,
-    bits_per_step: int = 1,
-    lsd_method: Literal["LSD_0", "LSD_E", "LSD_CS"] = "LSD_0",
-    lsd_order: int = 0,
-    always_run_lsd: bool = False,
-) -> DecoderSpec[ErrorDecoder]:
-    """Configure a belief-propagation with localized-statistics (BP+LSD) decoder."""
-    return _decoder_spec(
-        "bp_lsd",
-        _get_decoder_bp_lsd,
-        error_rate=error_rate,
-        error_channel=error_channel,
-        max_iter=max_iter,
-        bp_method=bp_method,
-        ms_scaling_factor=ms_scaling_factor,
-        schedule=schedule,
-        omp_thread_count=omp_thread_count,
-        random_schedule_seed=random_schedule_seed,
-        serial_schedule_order=serial_schedule_order,
-        bits_per_step=bits_per_step,
-        lsd_method=lsd_method,
-        lsd_order=lsd_order,
-        always_run_lsd=always_run_lsd,
-    )
+def _get_helper_signature(
+    source: Callable[..., object], exclude: frozenset[str]
+) -> inspect.Signature:
+    """Return a construction signature without its matrix/DEM input."""
+    parameters = list(inspect.signature(source, eval_str=True).parameters.values())
+    if not parameters:
+        raise TypeError("A decoder construction signature must accept a matrix or DEM")
+    parameters = [parameter for parameter in parameters[1:] if parameter.name not in exclude]
+    return inspect.Signature(parameters)
 
 
-def bf(
-    *,
-    error_rate: float = PLACEHOLDER_ERROR_RATE,
-    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
-    max_iter: int = 0,
-    bp_method: Literal["product_sum", "minimum_sum", "ps", "ms"] = "product_sum",
-    ms_scaling_factor: float = 1.0,
-    schedule: Literal["parallel", "serial"] = "parallel",
-    omp_thread_count: int = 1,
-    random_schedule_seed: int = 0,
-    serial_schedule_order: Sequence[int] | None = None,
-    uf_method: Literal["inversion", "peeling"] = "peeling",
-    bits_per_step: int = 0,
-) -> DecoderSpec[ErrorDecoder]:
-    """Configure a belief-find decoder."""
-    return _decoder_spec(
-        "bf",
-        _get_decoder_bf,
-        error_rate=error_rate,
-        error_channel=error_channel,
-        max_iter=max_iter,
-        bp_method=bp_method,
-        ms_scaling_factor=ms_scaling_factor,
-        schedule=schedule,
-        omp_thread_count=omp_thread_count,
-        random_schedule_seed=random_schedule_seed,
-        serial_schedule_order=serial_schedule_order,
-        uf_method=uf_method,
-        bits_per_step=bits_per_step,
-    )
-
-
-def mwpm(
-    *,
-    decompose_errors: bool = False,
-    ignore_non_graphlike_errors: bool = False,
-    enable_correlations: bool = False,
-    weights: float | npt.NDArray[np.floating] | Sequence[float] | None = None,
-    error_probabilities: float | npt.NDArray[np.floating] | Sequence[float] | None = None,
-    repetitions: int | None = None,
-    timelike_weights: float | npt.NDArray[np.floating] | Sequence[float] | None = None,
-    measurement_error_probabilities: float
-    | npt.NDArray[np.floating]
-    | Sequence[float]
-    | None = None,
-    merge_strategy: Literal[
-        "disallow", "independent", "smallest-weight", "keep-original", "replace"
-    ] = "smallest-weight",
-    use_virtual_boundary_node: bool = False,
-) -> DecoderSpec[BatchErrorDecoder]:
-    """Configure a minimum-weight perfect matching decoder."""
-    spec = _decoder_spec(
-        "mwpm",
-        get_error_decoder_mwpm,
-        get_observable_decoder_mwpm,
-        decompose_errors=decompose_errors,
-        ignore_non_graphlike_errors=ignore_non_graphlike_errors,
-        enable_correlations=enable_correlations,
-        weights=weights,
-        error_probabilities=error_probabilities,
-        repetitions=repetitions,
-        timelike_weights=timelike_weights,
-        measurement_error_probabilities=measurement_error_probabilities,
-        merge_strategy=merge_strategy,
-        use_virtual_boundary_node=use_virtual_boundary_node,
-    )
-    if enable_correlations:
-        defaults = {
-            name: parameter.default
-            for name, parameter in inspect.signature(mwpm).parameters.items()
-        }
-        for name, value in spec.options.items():
-            if name != "enable_correlations" and not _is_default_value(value, defaults[name]):
-                raise ValueError(
-                    f"The MWPM option {name}={value!r} is not supported with"
-                    " enable_correlations=True"
-                )
-    return spec
-
-
-def relay_bp(
-    *,
-    precision: Literal["F32", "F64", "I32", "I64"] = "F32",
-    error_priors: npt.NDArray[np.floating] | Sequence[float] | None = None,
-    observable_error_matrix: IntegerArray | None = None,
-    include_decode_result: bool = False,
-    add_erasure_bit: bool = False,
-    alpha: float | None = None,
-    alpha_iteration_scaling_factor: float = 1.0,
-    gamma0: float = 0.1,
-    data_scale_value: float | None = None,
-    max_data_value: float | None = None,
-    pre_iter: int = 80,
-    num_sets: int = 300,
-    set_max_iter: int = 60,
-    gamma_dist_interval: tuple[float, float] | None = None,
-    explicit_gammas: npt.NDArray[np.floating] | None = None,
-    stop_nconv: int = 1,
-    stopping_criterion: str | None = None,
-    logging: bool = False,
-    seed: int = 0,
-) -> DecoderSpec[RelayBPDecoder]:
-    """Configure a Relay-BP decoder."""
-    optional_args = {
-        "gamma_dist_interval": gamma_dist_interval,
-        "stopping_criterion": stopping_criterion,
+def _get_helper_annotations(
+    signature: inspect.Signature, return_annotation: object
+) -> dict[str, object]:
+    """Return annotations matching a generated helper's public signature."""
+    annotations = {
+        name: parameter.annotation
+        for name, parameter in signature.parameters.items()
+        if parameter.annotation is not inspect.Parameter.empty
     }
-    return _decoder_spec(
-        "relay_bp",
-        get_relay_bp_decoder,
-        get_relay_bp_decoder,
-        precision=precision,
-        error_priors=error_priors,
-        observable_error_matrix=observable_error_matrix,
-        include_decode_result=include_decode_result,
-        add_erasure_bit=add_erasure_bit,
-        alpha=alpha,
-        alpha_iteration_scaling_factor=alpha_iteration_scaling_factor,
-        gamma0=gamma0,
-        data_scale_value=data_scale_value,
-        max_data_value=max_data_value,
-        pre_iter=pre_iter,
-        num_sets=num_sets,
-        set_max_iter=set_max_iter,
-        explicit_gammas=explicit_gammas,
-        stop_nconv=stop_nconv,
-        logging=logging,
-        seed=seed,
-        **{name: value for name, value in optional_args.items() if value is not None},
+    annotations["return"] = return_annotation
+    return annotations
+
+
+def _get_spec_options(
+    helper_name: str,
+    signature: inspect.Signature,
+    args: tuple[object, ...],
+    kwargs: dict[str, object],
+    option_transform: _OptionTransform | None,
+) -> dict[str, object]:
+    """Bind and validate the options supplied to a specification helper."""
+    try:
+        bound = signature.bind(*args, **kwargs)
+    except TypeError as error:
+        raise TypeError(f"{helper_name}() {error}") from None
+    explicitly_provided: set[str] = set()
+    for name, value in bound.arguments.items():
+        if signature.parameters[name].kind is inspect.Parameter.VAR_KEYWORD:
+            explicitly_provided.update(value)
+        else:
+            explicitly_provided.add(name)
+    bound.apply_defaults()
+    options: dict[str, object] = {}
+    for name, value in bound.arguments.items():
+        kind = signature.parameters[name].kind
+        if kind is inspect.Parameter.VAR_KEYWORD:
+            options.update(value)
+        elif kind is inspect.Parameter.VAR_POSITIONAL:
+            raise TypeError(
+                "Decoder specification helpers do not support variadic positional arguments"
+            )
+        else:
+            options[name] = value
+    _normalize_backend_options(helper_name, options)
+    return (
+        option_transform(options, frozenset(explicitly_provided))
+        if option_transform is not None
+        else options
     )
 
 
-def min_sum_bp(
-    *,
-    precision: Literal["F32", "F64", "I8", "I16", "I32", "I64", "Fixed"] = "F32",
-    error_priors: npt.NDArray[np.floating] | Sequence[float] | None = None,
-    observable_error_matrix: IntegerArray | None = None,
-    include_decode_result: bool = False,
-    add_erasure_bit: bool = False,
-    max_iter: int = 200,
-    alpha: float | None = None,
-    alpha_iteration_scaling_factor: float = 1.0,
-    gamma0: float | None = None,
-    data_scale_value: float | None = None,
-    max_data_value: float | None = None,
-    int_bits: int | None = None,
-    frac_bits: int | None = None,
-) -> DecoderSpec[RelayBPDecoder]:
-    """Configure a min-sum belief-propagation decoder from relay-bp."""
-    return _decoder_spec(
-        "min_sum_bp",
-        get_min_sum_bp_decoder,
-        get_min_sum_bp_decoder,
-        precision=precision,
-        error_priors=error_priors,
-        observable_error_matrix=observable_error_matrix,
-        include_decode_result=include_decode_result,
-        add_erasure_bit=add_erasure_bit,
-        max_iter=max_iter,
-        alpha=alpha,
-        alpha_iteration_scaling_factor=alpha_iteration_scaling_factor,
-        gamma0=gamma0,
-        data_scale_value=data_scale_value,
-        max_data_value=max_data_value,
-        int_bits=int_bits,
-        frac_bits=frac_bits,
-    )
+def _normalize_backend_options(helper_name: str, options: dict[str, object]) -> None:
+    """Store backend_options as a plain dict, or None if empty, and reject named duplicates.
 
-
-def lookup_table(
-    max_weight: int,
-    *,
-    error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
-    penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
-    observable_flip_matrix: IntegerArray | None = None,
-    post_select: Collection[int] = (),
-    add_erasure_bit: bool | None = None,
-    confidence_ratio: float | None = None,
-    symplectic: bool = False,
-) -> DecoderSpec[LookupDecoder]:
-    """Configure a lookup-table decoder."""
-    return _decoder_spec(
-        "lookup_table",
-        get_decoder_lookup,
-        get_observable_decoder_lookup,
-        max_weight=max_weight,
-        error_channel=error_channel,
-        penalty_func=penalty_func,
-        observable_flip_matrix=observable_flip_matrix,
-        post_select=post_select,
-        add_erasure_bit=add_erasure_bit,
-        confidence_ratio=confidence_ratio,
-        symplectic=symplectic,
-    )
-
-
-def ilp(*, add_erasure_bit: bool = False, **solver_args: object) -> DecoderSpec[ILPDecoder]:
-    """Configure an integer-linear-program decoder."""
-    return _decoder_spec("ilp", _get_decoder_ilp, add_erasure_bit=add_erasure_bit, **solver_args)
-
-
-def guf(
-    *,
-    max_weight: int | None = None,
-    symplectic: bool = False,
-    add_erasure_bit: bool = False,
-) -> DecoderSpec[GUFDecoder]:
-    """Configure a generalized union-find decoder."""
-    return _decoder_spec(
-        "guf",
-        _get_decoder_guf,
-        max_weight=max_weight,
-        symplectic=symplectic,
-        add_erasure_bit=add_erasure_bit,
-    )
-
-
-# Specification-helper internals
+    A helper whose construction signature has a ``backend_options`` parameter forwards that mapping
+    unchecked to its backend.  An option listed by name must be passed by name instead, so that its
+    spelling is checked.
+    """
+    if (backend_options := options.get("backend_options")) is None:
+        return
+    if not isinstance(backend_options, Mapping):
+        raise TypeError(
+            f"{helper_name}() backend_options must be a mapping from option names to values, but"
+            f" got {type(backend_options).__name__}"
+        )
+    if duplicates := sorted(name for name in backend_options if name in options):
+        raise ValueError(
+            f"{helper_name}() lists {', '.join(duplicates)} by name, so pass "
+            + ("it" if len(duplicates) == 1 else "them")
+            + " directly rather than in backend_options"
+        )
+    options["backend_options"] = dict(backend_options) or None
 
 
 def _is_default_value(value: object, default: object) -> bool:
@@ -440,14 +384,3 @@ def _is_default_value(value: object, default: object) -> bool:
         return True
     plain_types = (bool, int, float, str)
     return type(value) is type(default) and isinstance(value, plain_types) and value == default
-
-
-def _decoder_spec(
-    helper_name: str,
-    builder: Callable[..., _Decoder],
-    observable_builder: Callable[..., ObservableDecoder] | None = None,
-    /,
-    **options: object,
-) -> DecoderSpec[_Decoder]:
-    """Store deferred decoder construction options."""
-    return DecoderSpec(helper_name, builder, tuple(options.items()), observable_builder)

@@ -163,8 +163,8 @@ NOISE = "!?"
 UNSUPPORTED = "unsupported"
 
 # The op-type categories that name a genuine noisy gate (as opposed to pure-noise, annotation, or
-# unsupported instructions).  These are the operations a user-provided ``rule_func`` is
-# consulted for, once decomposed into individual gate applications.
+# unsupported instructions).  These are the operations a user-provided ``rule_func`` is consulted
+# for, once decomposed into individual gate applications.
 GATE_OP_TYPES = frozenset(
     {
         CLIFFORD_1Q,
@@ -283,15 +283,15 @@ class AbstractPauliChannel(abc.ABC):
                 strings must have the same length ``n`` and contain only ``I``, ``X``, ``Y``, or
                 ``Z``.  The all-identity string ``"I" * n`` must not appear.  Entries with
                 probability zero are silently dropped.
-            num_qubits: The arity of the channel.  Required only for an empty ``probabilities``
-                on a nontrivial number of qubits — otherwise defaults to the length of the Pauli
-                strings when ``probabilities`` is non-empty, or ``0`` when empty.  If both are
-                supplied and inconsistent, a ``ValueError`` is raised.
+            num_qubits: The arity of the channel.  Required only for an empty ``probabilities`` on a
+                nontrivial number of qubits — otherwise defaults to the length of the Pauli strings
+                when ``probabilities`` is non-empty, or ``0`` when empty.  If both are supplied and
+                inconsistent, a ``ValueError`` is raised.
 
         Raises:
-            ValueError: If the input contains an invalid Pauli string, contains the identity
-                string, any probability is not in [0, 1], or ``num_qubits`` disagrees with the
-                length of the Pauli strings.
+            ValueError: If the input contains an invalid Pauli string, contains the identity string,
+                any probability is not in [0, 1], or ``num_qubits`` disagrees with the length of the
+                Pauli strings.
         """
         if num_qubits is not None and num_qubits < 0:
             raise ValueError(f"num_qubits={num_qubits} must be >= 0")
@@ -418,15 +418,15 @@ class PauliChannel(AbstractPauliChannel):
                 strings must have the same length ``n`` and contain only ``I``, ``X``, ``Y``, or
                 ``Z``.  The all-identity string ``"I" * n`` must not appear.  Entries with
                 probability zero are silently dropped.
-            num_qubits: The arity of the channel.  Required only for an empty ``probabilities``
-                on a nontrivial number of qubits — otherwise defaults to the length of the Pauli
-                strings when ``probabilities`` is non-empty, or ``0`` when empty.  If both are
-                supplied and inconsistent, a ``ValueError`` is raised.
+            num_qubits: The arity of the channel.  Required only for an empty ``probabilities`` on a
+                nontrivial number of qubits — otherwise defaults to the length of the Pauli strings
+                when ``probabilities`` is non-empty, or ``0`` when empty.  If both are supplied and
+                inconsistent, a ``ValueError`` is raised.
 
         Raises:
-            ValueError: If the input contains an invalid Pauli string, contains the identity
-                string, any probability is not in [0, 1], the sum of probabilities is not in
-                [0, 1], or ``num_qubits`` disagrees with the length of the Pauli strings.
+            ValueError: If the input contains an invalid Pauli string, contains the identity string,
+                any probability is not in [0, 1], the sum of probabilities is not in [0, 1], or
+                ``num_qubits`` disagrees with the length of the Pauli strings.
         """
         super().__init__(probabilities, num_qubits=num_qubits)
 
@@ -469,8 +469,8 @@ class PauliChannel(AbstractPauliChannel):
         that would have acted nontrivially on an immune qubit, which are assumed to not occur).
 
         Args:
-            immune_qubits: Positions in ``[0, num_qubits)`` to constrain to identity.  Repeats
-                are ignored.
+            immune_qubits: Positions in ``[0, num_qubits)`` to constrain to identity.  Repeats are
+                ignored.
 
         Returns:
             A ``PauliChannel`` on the same qubits as ``self``.  If no strings survive, the returned
@@ -530,15 +530,15 @@ class PauliChannel(AbstractPauliChannel):
 
         With ``simplify=False`` the channel is always emitted as a ``CORRELATED_ERROR`` followed by
         one ``ELSE_CORRELATED_ERROR`` per remaining Pauli string, with conditional probabilities
-        renormalized so each string's unconditional firing probability matches this channel.
-        For channels with three or more active qubits, this correlated chain requires
-        ``approximate_disjoint_errors=True`` when converting a containing Stim circuit to a
-        detector error model.
+        renormalized so each string's unconditional firing probability matches this channel.  For
+        channels with three or more active qubits, this correlated chain requires
+        ``approximate_disjoint_errors=True`` when converting a containing Stim circuit to a detector
+        error model.
 
         Args:
             append_to: The circuit to append to; if ``None`` (default), create a new circuit.
-            qubits: The qubit targets, one per position of the channel; if ``None`` (default),
-                set to ``range(self.num_qubits)``.
+            qubits: The qubit targets, one per position of the channel; if ``None`` (default), set
+                to ``range(self.num_qubits)``.
             simplify: If True (the default), emit the channel in the simplest equivalent form.  If
                 False, always emit a ``CORRELATED_ERROR`` / ``ELSE_CORRELATED_ERROR`` chain.
             tag: An optional tag applied to every emitted instruction.
@@ -638,8 +638,8 @@ class PauliChannelSequence(AbstractPauliChannel):
 
         Args:
             append_to: The circuit to append to; if ``None`` (default), create a new circuit.
-            qubits: The qubit targets, one per position of the channel; if ``None`` (default),
-                set to ``range(self.num_qubits)``.
+            qubits: The qubit targets, one per position of the channel; if ``None`` (default), set
+                to ``range(self.num_qubits)``.
             tag: An optional tag applied to every emitted instruction.
 
         Returns:
@@ -672,13 +672,13 @@ class NoiseRule:
         """Initializes a noise rule with specified error channels.
 
         Args:
-            after: Noise applied after each matching operation.  The noise is broadcast across
-                all of the instruction's qubit targets.  May be any of the following:
+            after: Noise applied after each matching operation.  The noise is broadcast across all
+                of the instruction's qubit targets.  May be any of the following:
 
                 - ``PauliChannel``: a joint Pauli channel of some definite arity ``k``.  Emitted
-                    natively via ``PAULI_CHANNEL_1`` / ``PAULI_CHANNEL_2`` when ``k ≤ 2`` or
-                    as a ``CORRELATED_ERROR`` / ``ELSE_CORRELATED_ERROR`` chain per ``k``-qubit
-                    block for ``k ≥ 3``.
+                    natively via ``PAULI_CHANNEL_1`` / ``PAULI_CHANNEL_2`` when ``k ≤ 2`` or as a
+                    ``CORRELATED_ERROR`` / ``ELSE_CORRELATED_ERROR`` chain per ``k``-qubit block for
+                    ``k ≥ 3``.
                 - ``PauliChannelSequence``: a sequence of independent Pauli-string error mechanisms.
                 - ``Mapping[str, float]``: syntactic sugar for a ``PauliChannel``.  Keys are
                     non-identity Pauli strings (e.g., ``"X"``, ``"IZ"``, ``"XYZ"``); values are
@@ -794,10 +794,10 @@ class NoiseRule:
     ) -> None:
         """Append this rule's ``after`` noise in-place to the provided circuit.
 
-        If the operation packages multiple independent gates (e.g., ``H 0 1 2`` — three ``H``
-        gates in one instruction), the noise is applied per gate.  For broadcast forms
-        (``PauliChannel`` of arity 1 or 2), this is achieved by a single emission on all targets,
-        since stim's ``PAULI_CHANNEL_1``/``PAULI_CHANNEL_2`` broadcast natively.  For higher-arity
+        If the operation packages multiple independent gates (e.g., ``H 0 1 2`` — three ``H`` gates
+        in one instruction), the noise is applied per gate.  For broadcast forms (``PauliChannel``
+        of arity 1 or 2), this is achieved by a single emission on all targets, since stim's
+        ``PAULI_CHANNEL_1``/``PAULI_CHANNEL_2`` broadcast natively.  For higher-arity
         ``PauliChannel`` and for the ``stim.Circuit`` form, the fragment is emitted once per gate.
 
         Args:
@@ -832,10 +832,10 @@ class NoiseRule:
                 circuit += with_remapped_qubits(self.after, qubit_targets[i : i + num_qubits])
 
 
-# The accepted forms for a single noise-error specification (as used by `NoiseModel`'s
-# clifford / idle error arguments).  Each is normalized to a `NoiseRule` by `_as_noise_rule`:
-# a float is a uniform depolarizing channel, a Mapping is auto-wrapped as a `PauliChannel`, and
-# an `AbstractPauliChannel` / `NoiseRule` is used directly.
+# The accepted forms for a single noise-error specification (as used by `NoiseModel`'s clifford /
+# idle error arguments).  Each is normalized to a `NoiseRule` by `_as_noise_rule`: a float is a
+# uniform depolarizing channel, a Mapping is auto-wrapped as a `PauliChannel`, and an
+# `AbstractPauliChannel` / `NoiseRule` is used directly.
 ErrorSpec: TypeAlias = float | Mapping[str, float] | AbstractPauliChannel | NoiseRule
 
 
@@ -865,18 +865,18 @@ class NoiseModel:
         """Initializes a noise model with specified parameters.
 
         Args:
-            clifford_1q_error: Default noise applied after each one-qubit unitary Clifford gate.
-                A float ``p`` is a uniform 1-qubit depolarizing channel of total error probability
+            clifford_1q_error: Default noise applied after each one-qubit unitary Clifford gate.  A
+                float ``p`` is a uniform 1-qubit depolarizing channel of total error probability
                 ``p``.  Also accepts a ``Mapping[str, float]`` from one-qubit non-identity
                 Pauli-strings to probabilities, a ``PauliChannel``, or a ``NoiseRule``.
-            clifford_2q_error: Default noise applied after each two-qubit unitary Clifford gate.
-                A float ``p`` is a uniform 2-qubit depolarizing channel of total error probability
+            clifford_2q_error: Default noise applied after each two-qubit unitary Clifford gate.  A
+                float ``p`` is a uniform 2-qubit depolarizing channel of total error probability
                 ``p``.  Also accepts a ``Mapping[str, float]`` from two-qubit non-identity
                 Pauli-strings to probabilities, a ``PauliChannel``, or a ``NoiseRule``.
             readout_error: Default probability of flipping measurement results.
             reset_error: Default probability of resetting qubits to the wrong state.
-            clifford_nq_error: Optional mapping from a qubit count ``k`` to the noise applied
-                after each ``k``-qubit unitary Clifford gate, similarly to ``clifford_?q_error``.
+            clifford_nq_error: Optional mapping from a qubit count ``k`` to the noise applied after
+                each ``k``-qubit unitary Clifford gate, similarly to ``clifford_?q_error``.
                 Specifying both ``clifford_nq_error[1]`` and ``clifford_1q_error`` raises an
                 ambiguity error; likewise with ``clifford_nq_error[2]`` and ``clifford_2q_error``.
                 This dispatch intentionally excludes MXX/MYY/MZZ and MPP measurements.  SPP uses
@@ -908,10 +908,10 @@ class NoiseModel:
         self.rule_func = rule_func
         if rules is not None:
             normalized_rules: dict[str, NoiseRule] = {}
-            # Validate rules whose (arity, can_measure, can_reset) is known — fixed-arity stim
-            # gates and basis-suffixed rule keys (``"MXYZ"`` for MPP X*Y*Z, ``"SXY_DAG"`` for
-            # SPP_DAG X*Y).  Bare ``"MPP"`` / ``"SPP"`` / ``"SPP_DAG"`` are variable-arity and
-            # deferred to emission-time checks via ``emit_after``.
+            # Validate rules whose (arity, can_measure, can_reset) is known — fixed-arity stim gates
+            # and basis-suffixed rule keys (``"MXYZ"`` for MPP X*Y*Z, ``"SXY_DAG"`` for SPP_DAG
+            # X*Y).  Bare ``"MPP"`` / ``"SPP"`` / ``"SPP_DAG"`` are variable-arity and deferred to
+            # emission-time checks via ``emit_after``.
             for op_name, rule in rules.items():
                 canonical_name = _canonical_rule_key(op_name)
                 if canonical_name in normalized_rules:
@@ -934,11 +934,11 @@ class NoiseModel:
         self.readout_error = readout_error or 0
         self.reset_error = reset_error or 0
 
-        # `clifford_1q_error` / `clifford_2q_error` are syntactic sugar for `clifford_nq_error[1]`
-        # / `clifford_nq_error[2]`; internally we normalize everything into a single
+        # `clifford_1q_error` / `clifford_2q_error` are syntactic sugar for `clifford_nq_error[1]` /
+        # `clifford_nq_error[2]`; internally we normalize everything into a single
         # `clifford_nq_error` dict.  Ambiguity detection is symmetric on RAW inputs — an argument
-        # counts as "user-specified" if the user passed anything other than None (including a
-        # zero float, an empty NoiseRule, etc.), even if it normalizes to a no-op.
+        # counts as "user-specified" if the user passed anything other than None (including a zero
+        # float, an empty NoiseRule, etc.), even if it normalizes to a no-op.
         for size, param, name in (
             (1, clifford_1q_error, "clifford_1q_error"),
             (2, clifford_2q_error, "clifford_2q_error"),
@@ -1139,13 +1139,13 @@ class NoiseModel:
                 accumulate idling errors.  Defaults to set(range(circuit.num_qubits)).
             immune_qubits: Qubits that are declared to be immune to noise.  Defaults to none.
             immune_op_tag: If an operation contains this string in its tag, that operation is
-                noiseless.  Set to None to disable tagged operation immunity.
-                Default: "{DEFAULT_IMMUNE_OP_TAG}".
+                noiseless.  Set to None to disable tagged operation immunity.  Default:
+                "{DEFAULT_IMMUNE_OP_TAG}".
             immune_qubit_tag: If a QUBIT_COORDS annotation contains this string in its tag, its
                 target qubits are immune to noise.  Set to None to disable annotated immunity.
                 Default: "{DEFAULT_IMMUNE_QUBIT_TAG}".
-            immunize_gates: If True (the default), a gate that touches an immune qubit is treated
-                as noiseless.  Otherwise, its Pauli noise is conditioned on the absence of errors on
+            immunize_gates: If True (the default), a gate that touches an immune qubit is treated as
+                noiseless.  Otherwise, its Pauli noise is conditioned on the absence of errors on
                 noise-immune qubits, keeping only strings that act as ``I`` on every immune qubit.
                 An immune-tagged operation is still a real operation for moment accounting; it does
                 not suppress idle noise on unrelated qubits in the same moment.
@@ -1187,9 +1187,9 @@ class NoiseModel:
         )
 
         if insert_ticks:
-            # split moments with TICKs to prevent qubit reuse conflicts.  The preprocessing
-            # operates purely on gate-level qubit reuse and ignores ``immune_qubits`` (it uses a
-            # sentinel to force per-target splitting), so it composes cleanly with immunity.
+            # split moments with TICKs to prevent qubit reuse conflicts.  The preprocessing operates
+            # purely on gate-level qubit reuse and ignores ``immune_qubits`` (it uses a sentinel to
+            # force per-target splitting), so it composes cleanly with immunity.
             circuit = _split_moments_with_ticks(circuit, immune_op_tag)
 
         noisy_circuit = stim.Circuit()
@@ -1259,8 +1259,8 @@ class NoiseModel:
             immune_qubits: Qubits that are declared to be immune to noise.
             immune_op_tag: If an operation contains this string in its tag, that operation is
                 noiseless.
-            immunize_gates: If True (the default), a gate that touches an immune qubit is treated
-                as noiseless.  Otherwise, its Pauli noise is conditioned on the absence of errors on
+            immunize_gates: If True (the default), a gate that touches an immune qubit is treated as
+                noiseless.  Otherwise, its Pauli noise is conditioned on the absence of errors on
                 noise-immune qubits, keeping only strings that act as ``I`` on every immune qubit.
                 An immune-tagged operation does not suppress idle noise on unrelated qubits in the
                 same moment.
@@ -1376,9 +1376,9 @@ class SI1000NoiseModel(NoiseModel):
 
     This noise model is defined by a two-qubit gate infidelity that determines all error rates.
 
-    See https://arxiv.org/abs/2108.10457.  A qubit waiting while another qubit is measured or
-    reset receives both the ordinary idling rate ``p/10`` and the additional waiting rate ``2*p``;
-    this matches the cited reference implementation.
+    See https://arxiv.org/abs/2108.10457.  A qubit waiting while another qubit is measured or reset
+    receives both the ordinary idling rate ``p/10`` and the additional waiting rate ``2*p``; this
+    matches the cited reference implementation.
     """
 
     def __init__(self, p: float) -> None:
@@ -1398,9 +1398,9 @@ class SI1000NoiseModel(NoiseModel):
 # helper methods, roughly in order of use above in the file (sub-helpers grouped with their caller)
 
 
-# Floating-point tolerance used for probability comparisons throughout this module.  Small enough
-# to catch real bugs, large enough to absorb the ~O(n * eps) drift that accumulates when summing
-# or renormalizing many probabilities.
+# Floating-point tolerance used for probability comparisons throughout this module.  Small enough to
+# catch real bugs, large enough to absorb the ~O(n * eps) drift that accumulates when summing or
+# renormalizing many probabilities.
 _ABSOLUTE_ERROR_TOLERANCE = 1e-9
 
 
@@ -1538,8 +1538,8 @@ def _rule_with_immunity(
     - **Mixed** (only possible for atomic ``k>=2`` ops the splitter cannot decompose further —
       2-qubit Clifford pairs, ``MXX``/``MYY``/``MZZ``, and MPP/SPP Pauli products):
         - ``immunize_gates=True`` (default): dead simple — drop everything (``after``,
-          ``readout_error``, ``reset_error``).  The gate touches an immune qubit, so no noise
-          is applied.
+          ``readout_error``, ``reset_error``).  The gate touches an immune qubit, so no noise is
+          applied.
         - ``immunize_gates=False``: only ``PauliChannel`` ``after``-noise supports proper
           conditioning via ``PauliChannel.conditioned_on``.  Anything else (a ``stim.Circuit``
           ``after``, ``readout_error``, or ``reset_error``) has no defined projection on the
@@ -1630,8 +1630,8 @@ def _validate_rule_for_arity(
 ) -> None:
     """Reject a NoiseRule whose channels are ambiguous / incompatible on ``num_qubits`` qubits.
 
-    - The rule's ``after`` arity must equal ``num_qubits`` unless ``after`` is ``None`` (the
-      trivial default).  An explicitly-declared arity — even on an empty PauliChannel like
+    - The rule's ``after`` arity must equal ``num_qubits`` unless ``after`` is ``None`` (the trivial
+      default).  An explicitly-declared arity — even on an empty PauliChannel like
       ``PauliChannel({}, num_qubits=3)`` — is honored so callers can flag user typos.
     - ``readout_error`` is only meaningful if ``can_measure`` is True.
     - ``reset_error`` is only meaningful if ``can_reset`` is True.
@@ -1668,8 +1668,8 @@ def _as_noise_rule(error: ErrorSpec | None, default_arity: int) -> NoiseRule | N
     ``DEPOLARIZE{n}`` fragment) preserves the Pauli-channel structure so downstream
     ``PauliChannel.conditioned_on`` can project it under partial immunity.
 
-    Does NOT trivialize an empty NoiseRule to ``None`` — callers must run their guard checks on
-    the declared shape (e.g. arity) BEFORE trivializing, so that user typos like
+    Does NOT trivialize an empty NoiseRule to ``None`` — callers must run their guard checks on the
+    declared shape (e.g. arity) BEFORE trivializing, so that user typos like
     ``PauliChannel({}, num_qubits=3)`` in a 1-qubit-only slot are surfaced.  Trivialize via
     ``rule or None`` after the guard checks.
     """
@@ -1703,8 +1703,8 @@ def _normalize_clifford_nq_error(
       ``NoiseRule(after=<channel>)``.
     - ``NoiseRule`` values are used directly.
     - Falsy entries (0.0, empty NoiseRule, empty channel) are dropped.
-    - Entries are rejected if their joint Pauli channel's ``num_qubits`` disagrees with the key,
-      if their ``after`` broadcast channels are incompatible with ``k`` qubits, or if they set
+    - Entries are rejected if their joint Pauli channel's ``num_qubits`` disagrees with the key, if
+      their ``after`` broadcast channels are incompatible with ``k`` qubits, or if they set
       ``readout_error`` / ``reset_error`` (Pauli-product Cliffords are neither).
     """
     if not error:
@@ -1788,8 +1788,8 @@ def _categorize_moment_qubits(
         ``NoiseModel._inplace_append_idle_errors``).
 
     Raises:
-        ValueError: If any qubit is operated on multiple times within the moment without a TICK
-            in between.
+        ValueError: If any qubit is operated on multiple times within the moment without a TICK in
+            between.
     """
     collapsed_qubits: list[int] = []
     operation_qubits: list[int] = []
@@ -1904,17 +1904,17 @@ def _iter_moments_and_repeat_blocks(
 ) -> Iterator[stim.CircuitRepeatBlock | list[stim.CircuitInstruction]]:
     """Splits a circuit into moments and some operations into pieces.
 
-    Classical control system operations like CX rec[-1] 0 are split from quantum operations like
-    CX 1 0.  SPP and MPP operations are split into one operation per Pauli product.
+    Classical control system operations like ``CX rec[-1] 0`` are split from quantum operations like
+    ``CX 1 0``.  SPP and MPP operations are split into one operation per Pauli product.
 
     Args:
         circuit: The circuit to split into moments.
         immune_qubits: Qubits that are declared to be immune to noise.
         immune_op_tag: Don't split operations with this tag.
-        force_split: If True, decompose every broadcast gate into its individual applications
-            (one target for one-qubit gates, one pair for two-qubit gates) even when no qubit is
-            immune.  Used when a ``rule_func`` is present so the callback is consulted once
-            per gate application.
+        force_split: If True, decompose every broadcast gate into its individual applications (one
+            target for one-qubit gates, one pair for two-qubit gates) even when no qubit is immune.
+            Used when a ``rule_func`` is present so the callback is consulted once per gate
+            application.
 
     Yields:
         Lists of operations corresponding to one moment in the circuit, with any problematic
@@ -1966,8 +1966,8 @@ def _split_targets_if_needed(
         Circuit instructions, potentially split into smaller pieces.
     """
     this_op_type = op_type(op.name)
-    # Two-qubit ops (both Clifford CX/CZ/... and joint measurements MXX/MYY/MZZ) split per-pair
-    # via _split_targets_clifford_2q so partial-immunity decisions happen at the pair level.
+    # Two-qubit ops (both Clifford CX/CZ/... and joint measurements MXX/MYY/MZZ) split per-pair via
+    # _split_targets_clifford_2q so partial-immunity decisions happen at the pair level.
     if this_op_type in (CLIFFORD_2Q, JUST_MEASURE_2Q):
         yield from _split_targets_clifford_2q(
             op, immune_qubits, immune_op_tag, force_split=force_split
@@ -2017,8 +2017,8 @@ def _split_targets_clifford_2q(
 ) -> Iterator[stim.CircuitInstruction]:
     """Splits two-qubit operations into individual gate pairs.
 
-    Handles both two-qubit Cliffords (CX/CZ/...) and joint two-qubit measurements
-    (MXX/MYY/MZZ), separating classical-control from quantum-only gates.
+    Handles both two-qubit Cliffords (CX/CZ/...) and joint two-qubit measurements (MXX/MYY/MZZ),
+    separating classical-control from quantum-only gates.
 
     Args:
         op: The two-qubit operation to split.

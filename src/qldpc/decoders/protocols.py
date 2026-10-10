@@ -4,10 +4,46 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 import numpy.typing as npt
+
+# Detailed decode results
+
+
+@dataclass(frozen=True, eq=False)
+class ErrorDecodeResult:
+    """Detailed result of decoding a syndrome to an inferred error.
+
+    ``error`` is the array that ``decode_errors`` returns, which ends with an erasure flag only if
+    erasure signaling is enabled.  ``erasure`` reports whether the decoder signals erasure, whether
+    or not erasure signaling is enabled.  ``diagnostics`` contains explicitly named decoder-specific
+    results, not a cross-decoder confidence score.
+    """
+
+    error: npt.NDArray[np.int_]
+    erasure: bool = False
+    diagnostics: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, eq=False)
+class ObservableDecodeResult:
+    """Detailed result of decoding a syndrome to predicted observable flips.
+
+    ``observable_flips`` is the array that ``decode_observables`` returns, which ends with an
+    erasure flag only if erasure signaling is enabled.  ``erasure`` reports whether the decoder
+    signals erasure, whether or not erasure signaling is enabled.  ``diagnostics`` contains
+    explicitly named decoder-specific results, not a cross-decoder confidence score.
+    """
+
+    observable_flips: npt.NDArray[np.int_]
+    erasure: bool = False
+    diagnostics: dict[str, object] = field(default_factory=dict)
+
+
+# Decoder protocols
 
 
 @runtime_checkable
@@ -77,6 +113,45 @@ class BatchObservableDecoder(ObservableDecoder, Protocol):
         """Decode a batch of error syndromes, one per row, and return predicted observable flips."""
 
 
+# Detailed decoder protocols
+
+
+@runtime_checkable
+class DetailedErrorDecoder(ErrorDecoder, Protocol):
+    """Optional protocol for an error decoder that returns per-shot diagnostics."""
+
+    def decode_errors_detailed(self, syndrome: npt.NDArray[np.int_]) -> ErrorDecodeResult:
+        """Decode one syndrome and return the error, erasure flag, and diagnostics."""
+
+
+@runtime_checkable
+class BatchDetailedErrorDecoder(DetailedErrorDecoder, Protocol):
+    """Optional protocol for an error decoder that returns per-shot diagnostics in batches."""
+
+    def decode_errors_detailed_batch(
+        self, syndromes: npt.NDArray[np.int_]
+    ) -> tuple[ErrorDecodeResult, ...]:
+        """Decode a batch and return one detailed result per syndrome."""
+
+
+@runtime_checkable
+class DetailedObservableDecoder(ObservableDecoder, Protocol):
+    """Optional protocol for an observable decoder that returns per-shot diagnostics."""
+
+    def decode_observables_detailed(self, syndrome: npt.NDArray[np.int_]) -> ObservableDecodeResult:
+        """Decode one syndrome and return observable flips, erasure, and diagnostics."""
+
+
+@runtime_checkable
+class BatchDetailedObservableDecoder(DetailedObservableDecoder, Protocol):
+    """Optional protocol for an observable decoder that returns per-shot diagnostics in batches."""
+
+    def decode_observables_detailed_batch(
+        self, syndromes: npt.NDArray[np.int_]
+    ) -> tuple[ObservableDecodeResult, ...]:
+        """Decode a batch and return one detailed result per syndrome."""
+
+
 @runtime_checkable
 class SupportsDecode(Protocol):
     """Protocol for an object whose decode method returns an inferred error.
@@ -89,9 +164,42 @@ class SupportsDecode(Protocol):
         """Decode an error syndrome and return an inferred error."""
 
 
+# Coercion into error decoders
+
+
+def as_error_decoder(decoder: object, source: str = "A decoder") -> ErrorDecoder:
+    """Coerce an object into an error decoder, or raise an error if it is not one.
+
+    An ErrorDecoder is returned as is.  Another object with a decode method is wrapped in a
+    WrappedErrorDecoder.  An object that predicts observable flips is rejected; this includes an
+    object whose decode_returns_observables attribute is True, which declares that its decode method
+    returns observable flips.
+
+    Args:
+        decoder: The object to coerce.
+        source: A description of the object, which begins any error message.
+    """
+    predicts_observables = TypeError(
+        f"{source} predicts observable flips rather than errors.  " + _OBSERVABLE_DECODER_ADVICE
+    )
+    if getattr(decoder, "decode_returns_observables", False):
+        raise predicts_observables
+    if isinstance(decoder, ErrorDecoder):
+        return decoder
+    if not isinstance(decoder, SupportsDecode) and callable(
+        getattr(decoder, "compile_decoder_for_dem", None)
+    ):
+        raise TypeError(f"{source} cannot decode until it is compiled for a detector error model")
+    if isinstance(decoder, SupportsDecode):
+        return WrappedErrorDecoder(decoder)
+    if isinstance(decoder, ObservableDecoder):
+        raise predicts_observables
+    raise TypeError(f"{source} must be an ErrorDecoder, or have a decode method")
+
+
 _OBSERVABLE_DECODER_ADVICE = (
-    "Pass error-decoder settings such as decoders.bp_osd(...), or pass the observable decoder where"
-    " one is accepted, such as to decoders.get_observable_decoder or decoders.SinterDecoder"
+    "Pass an error-decoder specification such as decoders.bp_osd(...), or pass the observable decoder where"
+    " one is accepted, such as to decoders.SinterDecoder"
 )
 
 
@@ -99,18 +207,12 @@ class WrappedErrorDecoder(ErrorDecoder):
     """Error decoder that wraps an object whose decode method returns an inferred error.
 
     The wrapped object is the .decoder attribute.  Its decode method provides decode_errors, its
-    decode_batch method (if any) provides decode_errors_batch, and its other attributes are
-    readable from the wrapper.
+    decode_batch method (if any) provides decode_errors_batch, and its other attributes are readable
+    from the wrapper.
     """
 
     def __init__(self, decoder: SupportsDecode) -> None:
         self.decoder = decoder
-
-    def decode_errors(self, syndrome: npt.NDArray[np.int_], *args: Any, **kwargs: Any) -> Any:
-        """Decode an error syndrome and return an inferred error."""
-        return self.decoder.decode(syndrome, *args, **kwargs)
-
-    decode = decode_errors
 
     def __getattr__(self, name: str) -> Any:
         """Read an attribute of the wrapped object, reading decode_errors_batch as decode_batch.
@@ -125,45 +227,14 @@ class WrappedErrorDecoder(ErrorDecoder):
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.decoder!r})"
 
+    def decode_errors(self, syndrome: npt.NDArray[np.int_], *args: Any, **kwargs: Any) -> Any:
+        """Decode an error syndrome and return an inferred error."""
+        return self.decoder.decode(syndrome, *args, **kwargs)
 
-def as_error_decoder(decoder: object, source: str = "A decoder") -> ErrorDecoder:
-    """Coerce an object into an error decoder, or raise an error if it is not one.
-
-    An ErrorDecoder is returned as is.  Another object with a decode method is wrapped in a
-    WrappedErrorDecoder.  An object that predicts observable flips is rejected; this
-    includes an object whose decode_returns_observables attribute is True, which declares that its
-    decode method returns observable flips.
-
-    Args:
-        decoder: The object to coerce.
-        source: A description of the object, which begins any error message.
-    """
-    predicts_observables = TypeError(
-        f"{source} predicts observable flips rather than errors.  " + _OBSERVABLE_DECODER_ADVICE
-    )
-    if getattr(decoder, "decode_returns_observables", False):
-        raise predicts_observables
-    if isinstance(decoder, ErrorDecoder):
-        return decoder
-    if getattr(decoder, "decode_is_defunct", False):
-        if isinstance(decoder, ObservableDecoder):
-            raise predicts_observables
-        raise TypeError(f"{source} cannot decode until it is compiled for a detector error model")
-    if isinstance(decoder, SupportsDecode):
-        return WrappedErrorDecoder(decoder)
-    if isinstance(decoder, ObservableDecoder):
-        raise predicts_observables
-    raise TypeError(f"{source} must be an ErrorDecoder, or have a decode method")
+    decode = decode_errors
 
 
-def _get_batch_decoding_method(decoder: ErrorDecoder) -> Any:
-    """The decode_errors_batch method of an error decoder, its alias decode_batch, or None."""
-    return getattr(decoder, "decode_errors_batch", None) or getattr(decoder, "decode_batch", None)
-
-
-def supports_batch_decoding(decoder: ErrorDecoder) -> bool:
-    """Whether an error decoder has a decode_errors_batch method, or its alias decode_batch."""
-    return _get_batch_decoding_method(decoder) is not None
+# Batch decoding
 
 
 def batch_decode_errors(
@@ -181,3 +252,13 @@ def batch_decode_errors(
         test_error = decoder.decode_errors(np.zeros(syndromes.shape[1], dtype=syndromes.dtype))
         return np.zeros((0, len(test_error)), dtype=np.asarray(test_error).dtype)
     return np.array([decoder.decode_errors(syndrome) for syndrome in syndromes])
+
+
+def supports_batch_decoding(decoder: ErrorDecoder) -> bool:
+    """Whether an error decoder has a decode_errors_batch method, or its alias decode_batch."""
+    return _get_batch_decoding_method(decoder) is not None
+
+
+def _get_batch_decoding_method(decoder: ErrorDecoder) -> Any:
+    """The decode_errors_batch method of an error decoder, its alias decode_batch, or None."""
+    return getattr(decoder, "decode_errors_batch", None) or getattr(decoder, "decode_batch", None)

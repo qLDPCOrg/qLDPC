@@ -79,9 +79,9 @@ def get_distance_classical(
             Brouwer-Zimmermann mode reduces redundant rows to an independent basis.
         cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
         block_size: Vectorize distance calculations over batches of size ``2**block_size``.
-        method: Exact-distance method.  ``"brouwer_zimmermann"`` (default) enumerates
-            fixed-weight combinations in several information-set bases and stops once its lower
-            and upper bounds meet.  ``"brute_force"`` enumerates every nonzero codeword.
+        method: Exact-distance method.  ``"brouwer_zimmermann"`` (default) enumerates fixed-weight
+            combinations in several information-set bases and stops once its lower and upper bounds
+            meet.  ``"brute_force"`` enumerates every nonzero codeword.
 
     Returns:
         The minimum Hamming distance between different code words, or equivalently the minimum
@@ -133,19 +133,19 @@ def get_distance_quantum(
         homogeneous: If True, all Pauli strings (represented by rows of logical_ops and stabilizers)
             are assumed to have the same homogeneous (X or Z) type.  If False, Pauli strings may
             have mixed (X, Y, or Z) support on different qubits.
-        method: Exact-distance method.  ``"brouwer_zimmermann"`` (default) uses an
-            exclusion-aware search over the logical space modulo stabilizers.  ``"brute_force"``
-            enumerates every stabilizer and nonzero logical combination, and requires those input
-            rows to be linearly independent.
+        method: Exact-distance method.  ``"brouwer_zimmermann"`` (default) uses an exclusion-aware
+            search over the logical space modulo stabilizers.  ``"brute_force"`` enumerates every
+            stabilizer and nonzero logical combination, and requires those input rows to be linearly
+            independent.
 
     Returns:
         The exact minimum weight of a nontrivial logical operator in ``logical_ops`` modulo
-        stabilizers (the code distance).  As an optimization, as soon as the lightest operator
-        seen so far has weight ``<= cutoff`` the search stops early and returns that weight -- an
-        upper bound on the true distance, in ``[distance, cutoff]``.  With the default ``cutoff=1``
-        this still returns the exact distance for every valid input (an early return can exceed
-        the distance only when ``cutoff >= 2``).  Pass ``cutoff=0`` to disable the early exit and
-        force the exact minimum.
+        stabilizers (the code distance).  As an optimization, as soon as the lightest operator seen
+        so far has weight ``<= cutoff`` the search stops early and returns that weight -- an upper
+        bound on the true distance, in ``[distance, cutoff]``.  With the default ``cutoff=1`` this
+        still returns the exact distance for every valid input (an early return can exceed the
+        distance only when ``cutoff >= 2``).  Pass ``cutoff=0`` to disable the early exit and force
+        the exact minimum.
 
     More specifically, if homogeneous is True, then::
 
@@ -794,10 +794,9 @@ def _get_distance_brouwer_zimmermann(
 ) -> int:
     """Compute an exact nested-code distance with the Brouwer-Zimmermann algorithm.
 
-    The information-set lower bound follows Algorithm 1 of
-    https://arxiv.org/abs/1603.06757.  Nonzero ``labels`` identify rows outside an excluded
-    subcode; transforming them alongside the generators makes the upper-bound search exact for
-    logical operators modulo stabilizers.
+    The information-set lower bound follows Algorithm 1 of https://arxiv.org/abs/1603.06757.
+    Nonzero ``labels`` identify rows outside an excluded subcode; transforming them alongside the
+    generators makes the upper-bound search exact for logical operators modulo stabilizers.
     """
     return _get_distance_brouwer_zimmermann_many(
         [(basis, labels)],
@@ -880,7 +879,7 @@ def _get_distance_quantum_brute_force(
     int_stabilizers = _rows_to_ints(stabilizers, dtype=np.uint64)
     num_stabilizers = len(int_stabilizers)
 
-    # Number of generators to include in the operational array. Most calculations will then be
+    # Number of generators to include in the operational array.  Most calculations will then be
     # vectorized over ``2**block_size`` values.  Clamp at 0: when the packed word-count per row
     # exceeds ``block_size + 1`` the first term goes negative, which would make a negative slice and
     # build an uncapped ``2**(S-k)`` array, defeating the block_size cap.
@@ -924,10 +923,10 @@ def _get_distance_quantum_brute_force(
 
     # Sweep over every remaining logical-op combination and, nested, every remaining stabilizer
     # combination, on top of the vectorized block above.  The sweep uses a reflected Gray code:
-    # successive Gray-code words differ in one bit, whose position is the trailing-zero count of
-    # the step index.  Each step therefore flips a single operator into/out of the running XOR
-    # (``arrayf``) with one ^=, so the loop walks the 2**k - 1 nonzero combinations of the
-    # remaining operators (the empty combination is the pre-loop state) without rebuilding any.
+    # successive Gray-code words differ in one bit, whose position is the trailing-zero count of the
+    # step index.  Each step therefore flips a single operator into/out of the running XOR
+    # (``arrayf``) with one ^=, so the loop walks the 2**k - 1 nonzero combinations of the remaining
+    # operators (the empty combination is the pre-loop state) without rebuilding any.
     # ``min_weight`` tracks the lightest operator seen; ``cutoff`` lets the sweep stop once that
     # bound is reached (see Returns).
     for li in range(1, 2 ** len(int_logical_ops)):
@@ -992,7 +991,8 @@ def _inplace_rowsum(arr: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
     """Destructively compute ``arr.sum(-1)``, placing the result in the first column of ``arr``.
 
     When complete, the returned sum will be stored in ``arr[..., 0]``, while other entries in
-    ``arr[..., 1:]`` will be left in indeterminate states. This permits a faster sum implementation.
+    ``arr[..., 1:]`` will be left in indeterminate states.  This permits a faster sum
+    implementation.
     """
     width = arr.shape[-1]
     while width > 1:
@@ -1047,7 +1047,7 @@ def _hamming_weight(
     """Somewhat efficient (vectorized) Hamming weight calculation.
 
     Assumes 64-bit uints.  For `numpy >= 2.0.0`, it's generally better to use `np.bitwise_count`
-    (which uses processors' builtin `popcnt` instruction). Unfortunately this isn't available for
+    (which uses processors' builtin `popcnt` instruction).  Unfortunately this isn't available for
     numpy < 2.0.0.
 
     The mask-and-shift steps are the classic SWAR (SIMD-within-a-register) popcount; see

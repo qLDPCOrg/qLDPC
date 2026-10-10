@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from typing import Self, cast
+
 import numpy as np
 import numpy.typing as npt
 import stim
@@ -11,14 +13,28 @@ import stim
 from ..dems import DetectorErrorModelArrays
 from ..protocols import (
     BatchErrorDecoder,
+    DetailedErrorDecoder,
     ErrorDecoder,
+    ErrorDecodeResult,
     ObservableDecoder,
+    ObservableDecodeResult,
     batch_decode_errors,
 )
 
+# Observable prediction from inferred errors
+
 
 class ErrorsToObservablesDecoder(ObservableDecoder):
-    """Convert errors inferred by an error decoder into binary DEM observable flips."""
+    """Convert errors inferred by an error decoder into binary DEM observable flips.
+
+    If the error decoder is a DetailedErrorDecoder, this decoder is a DetailedObservableDecoder that
+    forwards the erasure flag and diagnostics of each detailed error result.
+    """
+
+    def __new__(cls, error_decoder: object = None, *args: object, **kwargs: object) -> Self:
+        if cls is ErrorsToObservablesDecoder and isinstance(error_decoder, DetailedErrorDecoder):
+            return super().__new__(cast(type[Self], _DetailedErrorsToObservablesDecoder))
+        return super().__new__(cls)
 
     def __init__(self, error_decoder: ErrorDecoder, dem: stim.DetectorErrorModel) -> None:
         self.error_decoder = error_decoder
@@ -41,11 +57,32 @@ class ErrorsToObservablesDecoder(ObservableDecoder):
         return np.hstack([flips, erasure_bits]).astype(np.uint8)
 
 
+class _DetailedErrorsToObservablesDecoder(ErrorsToObservablesDecoder):
+    """An ErrorsToObservablesDecoder that forwards the diagnostics of its error decoder."""
+
+    def decode_observables_detailed(self, syndrome: npt.NDArray[np.int_]) -> ObservableDecodeResult:
+        """Decode one syndrome to observable flips, with the error decoder's diagnostics."""
+        error_decoder = cast(DetailedErrorDecoder, self._aligned_error_decoder)
+        result = error_decoder.decode_errors_detailed(syndrome)
+        num_errors = self.observable_flip_matrix.shape[1]
+        flips = np.asarray(result.error[:num_errors] @ self.observable_flip_matrix.T) % 2
+        prediction = np.hstack([flips, result.error[num_errors:]])
+        return ObservableDecodeResult(prediction, result.erasure, result.diagnostics)
+
+
 # Error-mechanism alignment
 
 
 class ExpandedErrorDecoder(BatchErrorDecoder):
-    """Map errors inferred for a simplified DEM back to the full DEM."""
+    """Map errors inferred for a simplified DEM back to the full DEM.
+
+    If the wrapped decoder is a DetailedErrorDecoder, this decoder is also a DetailedErrorDecoder.
+    """
+
+    def __new__(cls, decoder: object = None, *args: object, **kwargs: object) -> Self:
+        if cls is ExpandedErrorDecoder and isinstance(decoder, DetailedErrorDecoder):
+            return super().__new__(cast(type[Self], _DetailedExpandedErrorDecoder))
+        return super().__new__(cls)
 
     def __init__(self, decoder: ErrorDecoder, dem: stim.DetectorErrorModel) -> None:
         self._decoder = decoder
@@ -95,7 +132,7 @@ def match_error_decoder_to_dem(decoder: ErrorDecoder, dem: stim.DetectorErrorMod
         raise ValueError(
             "The error decoder infers errors in the components of decomposed error mechanisms,"
             " which cannot be read as errors of the detector error model.  To predict observable"
-            " flips with decomposed errors, pass decoder settings such as"
+            " flips with decomposed errors, pass a decoder specification such as"
             " decoders.mwpm(decompose_errors=True), which build a matching decoder that predicts"
             " observable flips natively"
         )
@@ -114,3 +151,16 @@ def match_error_decoder_to_dem(decoder: ErrorDecoder, dem: stim.DetectorErrorMod
         " equivalent mechanisms).  If the decoder predicts observable flips rather than errors,"
         " give it a decode_observables method, and pass it where an observable decoder is accepted"
     )
+
+
+class _DetailedExpandedErrorDecoder(ExpandedErrorDecoder):
+    """An ExpandedErrorDecoder that forwards the diagnostics of its wrapped decoder."""
+
+    def decode_errors_detailed(self, syndrome: npt.NDArray[np.int_]) -> ErrorDecodeResult:
+        """Decode one syndrome, expand the inferred error, and keep the decoder's diagnostics."""
+        result = cast(DetailedErrorDecoder, self._decoder).decode_errors_detailed(syndrome)
+        num_errors = len(self._simplified_to_original_index)
+        error = np.zeros(self._num_original_errors, dtype=result.error.dtype)
+        error[self._simplified_to_original_index] = result.error[:num_errors]
+        error = np.concatenate([error, result.error[num_errors:]])
+        return ErrorDecodeResult(error, result.erasure, result.diagnostics)

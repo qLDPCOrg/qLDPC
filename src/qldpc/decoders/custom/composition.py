@@ -123,10 +123,6 @@ class DirectDecoder:
         if decode_batch_func is not None:
             self.decode_batch = decode_batch_func
 
-    def decode(self, word: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Decode a corrupted code word and return a corrected code word."""
-        return self.decode_func(word)
-
     @staticmethod
     def from_indirect(
         decoder: ErrorDecoder | SupportsDecode, matrix: IntegerArray
@@ -165,3 +161,7 @@ class DirectDecoder:
                 return (candidate_words - errors).view(np.ndarray)
 
         return DirectDecoder(decode_func, decode_batch_func)
+
+    def decode(self, word: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Decode a corrupted code word and return a corrected code word."""
+        return self.decode_func(word)

@@ -334,8 +334,8 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         """
         assert self.ndim == 2
 
-        # field-valued null vectors of self.regular_lift() provide an overcomplete basis for
-        # the space of ring-valued null vectors
+        # field-valued null vectors of self.regular_lift() provide an overcomplete basis for the
+        # space of ring-valued null vectors
         null_field_vectors = self.regular_lift(right=right).null_space()
 
         # collect ring-valued null row vectors (that is, transposed null column vectors)
@@ -410,8 +410,8 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             r·α != 0,
 
         for which the row ``r`` is replaced by ``(1-α)·r``, and the row ``α·r`` is appended to the
-        matrix.
-        The ordinary HNF and right-HNF are equal for a ``RingArray`` over a commutative ring.
+        matrix.  The ordinary HNF and right-HNF are equal for a ``RingArray`` over a commutative
+        ring.
 
         The HNF of a ``RingArray`` over a commutative ring is unique.  For non-commutative rings,
         the HNF is only unique up to a choice of matrix basis for simple components of the ring.
@@ -515,8 +515,8 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         # convert into 3-D, where the third dimension stores coefficients for group members
         field_array = self.to_field_array()
 
-        # The "modulus" of underlying polynomial ring for this RingArray: x^n - 1.
-        # Analogous to N in the ring of integers modulo N.
+        # The "modulus" of underlying polynomial ring for this RingArray: x^n - 1.  Analogous to N
+        # in the ring of integers modulo N.
         modulus_poly = galois.Poly([1] + [0] * (self.group.order - 1) + [-1], self.field)
 
         def _multiply(poly: galois.Poly, vecs: galois.FieldArray) -> galois.FieldArray:
@@ -561,8 +561,8 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
                 #     (1) ss * aa + tt * bb = gcd(aa, bb) = gg
                 #     (2) uu * aa + vv * bb = 0
                 #     (3) det([[ss, tt], [uu, vv]]) = ss * vv - tt * uu = 1
-                # Condition (3) ensures that this transformation is invertible.
-                # Condition (2) ensures that bb_vec gets zeroed out at the pivot column.
+                # Condition (3) ensures that this transformation is invertible.  Condition (2)
+                # ensures that bb_vec gets zeroed out at the pivot column.
                 aa_poly = galois.Poly(aa_vec[pivot_col, ::-1], field=self.field)
                 bb_poly = galois.Poly(bb_vec[pivot_col, ::-1], field=self.field)
 
@@ -600,10 +600,10 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
                 field_array = np.append(field_array, [residual_row], axis=0).view(self.field)
                 pivot_poly = gcd_poly
 
-            # Reduce all rows above the pivot_row at the pivot_column.
-            # If some value in the pivot_col above the pivot_row can be written as a multiple of the
-            # pivot plus a remainder, use row operations to subtract off that multiple of the pivot,
-            # leaving only the remainder.
+            # Reduce all rows above the pivot_row at the pivot_column.  If some value in the
+            # pivot_col above the pivot_row can be written as a multiple of the pivot plus a
+            # remainder, use row operations to subtract off that multiple of the pivot, leaving only
+            # the remainder.
             for other_row in range(pivot_row):
                 other_poly = galois.Poly(field_array[other_row, pivot_col, ::-1], field=self.field)
                 div_poly = other_poly // pivot_poly

@@ -19,9 +19,8 @@ from ..adapters.error_decoders import ErrorsToObservablesDecoder
 from ..construction.legacy import (
     get_legacy_decoder_migration_message,
     reject_removed_decoder_args,
-    resolve_observable_decoder,
 )
-from ..construction.resolution import reject_prebuilt_decoder
+from ..construction.resolution import _resolve_observable_decoder, reject_prebuilt_decoder
 from ..construction.specs import DecoderSpec, DeferredDecoderInput
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, ObservableDecoder, as_error_decoder
@@ -44,15 +43,9 @@ else:
 class SinterDecoder(_SinterDecoder):
     """Sinter-compatible configuration that builds observable decoders.
 
-    A SinterDecoder stores settings for an inner decoder.  When Sinter compiles a SinterDecoder for
-    a detector error model, the SinterDecoder builds the inner decoder for that model, and returns a
-    CompiledSinterDecoder that predicts observable flips.  If the inner decoder can predict
-    observable flips natively (as MWPM, Relay-BP, and lookup-table decoders can), it is built in
-    that mode.  Otherwise, it is built as an error decoder, and the compiled decoder converts the
-    errors that it infers into observable flips.
+    Pass a decoder specification as ``decoder=``.  Sinter compiles it for each detector error model
+    and uses the compiled decoder to predict observable flips.
     """
-
-    decode_is_defunct = True
 
     # completes the error message "A prebuilt decoder cannot be passed as decoder= here because ..."
     _prebuilt_decoder_rejection_reason = (
@@ -70,21 +63,17 @@ class SinterDecoder(_SinterDecoder):
     ) -> None:
         """Initialize a SinterDecoder.
 
-        A SinterDecoder is used by Sinter to decode events from a detector error model and predict
-        observable flips.  See help(sinter.Decoder) for additional information.
+        See help(sinter.Decoder) for additional information.
 
         Args:
-            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for
-                that DEM.
+            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for that
+                DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
-            decoder: Settings for the inner decoder, such as ``decoders.mwpm(...)``, a constructor
-                that builds an error decoder or an observable decoder from a detector error model,
-                an observable-decoder compiler such as another SinterDecoder, or None to select the
-                default decoder.  A prebuilt decoder is rejected, because the inner decoder is built
-                for each (simplified) detector error model.  See
-                help(qldpc.decoders.get_observable_decoder).
-            **decoder_kwargs: Deprecated arguments to pass to qldpc.decoders.get_decoder.
+            decoder: A decoder specification such as ``decoders.mwpm(...)``, or None for the default
+                decoder.  It is built for each (simplified) detector error model.
+            **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
+                ``decoder=`` instead.
         """
         reject_removed_decoder_args(decoder_kwargs)
         reject_prebuilt_decoder(decoder, self._prebuilt_decoder_rejection_reason)
@@ -123,7 +112,7 @@ class SinterDecoder(_SinterDecoder):
         dem_arrays = DetectorErrorModelArrays(
             dem, simplify=self.simplify, decompose_errors=self.decompose_errors
         )
-        observable_decoder = resolve_observable_decoder(
+        observable_decoder = _resolve_observable_decoder(
             dem_arrays.to_dem(),
             self.decoder_input,
             self.decoder_kwargs.copy(),
@@ -169,21 +158,6 @@ class SinterDecoder(_SinterDecoder):
         observable_flips = predicted_flips[:, :num_observable_bytes]
         observable_flips.tofile(obs_predictions_b8_out_path)
 
-    # Defunct compatibility method
-    if TYPE_CHECKING:
-        # Hide this method from mypy, so that a SinterDecoder does not satisfy ErrorDecoder.
-        decode: None
-    else:
-
-        def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-            """Reject a defunct direct-decoding call."""
-            raise ValueError(
-                "SinterDecoder.decode is DEFUNCT.  Compile the SinterDecoder for a detector error"
-                " model, then call decode_observables or decode_shots on the compiled decoder."
-                "\nIf you need this method restored, please open an issue at"
-                " https://github.com/qLDPCOrg/qLDPC/issues"
-            )
-
 
 class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
     """Observable decoder compiled to a specific detector error model.
@@ -205,8 +179,6 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
     num_detectors: int
     num_observables: int
     num_erasure_bits: int = 0
-
-    decode_is_defunct = True
 
     def __init__(
         self, dem_arrays: DetectorErrorModelArrays, decoder: ErrorDecoder | ObservableDecoder
@@ -239,6 +211,11 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
         self.num_detectors = dem_arrays.num_detectors
         self.num_observables = dem_arrays.num_observables
         self.num_erasure_bits = int(getattr(self.observable_decoder, "has_erasure_bit", False))
+
+    @property
+    def has_erasure_bit(self) -> bool:
+        """Whether decode_observables appends an erasure bit to the predicted observable flips."""
+        return bool(self.num_erasure_bits)
 
     def decode_shots_bit_packed(
         self, bit_packed_detection_event_data: npt.NDArray[np.uint8]
@@ -282,27 +259,6 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
         observable_flips = self.decode_shots(detection_event_data)
         return self.pack_observable_flips(observable_flips)
 
-    def pack_observable_flips(
-        self, observable_flips: npt.NDArray[np.uint8]
-    ) -> npt.NDArray[np.uint8]:
-        """Bit-pack predicted observable flips, signalling erasure in one whole added byte.
-
-        Sinter discards a shot whose bit-packed prediction is exactly one byte wider than the
-        observables of the sampled circuit require, and whose extra byte is nonzero.  Erasure is
-        signalled in that byte, which keeps the packed predictions aligned with the observables
-        that the circuit actually reports.  A shot is erased if any erasure bit is set.
-
-        The added byte is read by the sampler that sinter runs a decoder under, and is not part of
-        the return shape that sinter documents for a compiled decoder, which is one byte per eight
-        observables.  A sinter release can therefore change how the byte is read without
-        contradicting its own documentation.
-        """
-        if not self.num_erasure_bits:
-            return self.packbits(observable_flips)
-        erased = np.any(observable_flips[:, self.num_observables :], axis=1)
-        packed_flips = self.packbits(observable_flips[:, : self.num_observables])
-        return np.hstack([packed_flips, erased.astype(np.uint8)[:, None]])
-
     def decode_shots(self, detection_event_data: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
         """Predicts observable flips from the given detection events.
 
@@ -323,13 +279,31 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
             len(detection_event_data), self.num_observables + self.num_erasure_bits
         )
 
-    def packbits(self, data: npt.NDArray[np.uint8], axis: int = -1) -> npt.NDArray[np.uint8]:
-        """Bit-pack the data along an axis.
+    def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Predict observable flips for one syndrome."""
+        syndrome_uint8 = np.asarray(syndrome, dtype=np.uint8)
+        return self.decode_shots(syndrome_uint8.reshape(1, *syndrome.shape))[0]
 
-        Working with bit-packed data is more memory and compute-efficient, which is why Sinter
-        generally passes around bit-packed data.
+    def pack_observable_flips(
+        self, observable_flips: npt.NDArray[np.uint8]
+    ) -> npt.NDArray[np.uint8]:
+        """Bit-pack predicted observable flips, signalling erasure in one whole added byte.
+
+        Sinter discards a shot whose bit-packed prediction is exactly one byte wider than the
+        observables of the sampled circuit require, and whose extra byte is nonzero.  Erasure is
+        signalled in that byte, which keeps the packed predictions aligned with the observables that
+        the circuit actually reports.  A shot is erased if any erasure bit is set.
+
+        The added byte is read by the sampler that sinter runs a decoder under, and is not part of
+        the return shape that sinter documents for a compiled decoder, which is one byte per eight
+        observables.  A sinter release can therefore change how the byte is read without
+        contradicting its own documentation.
         """
-        return np.packbits(np.asarray(data, dtype=np.uint8), bitorder="little", axis=axis)
+        if not self.num_erasure_bits:
+            return self.packbits(observable_flips)
+        erased = np.any(observable_flips[:, self.num_observables :], axis=1)
+        packed_flips = self.packbits(observable_flips[:, : self.num_observables])
+        return np.hstack([packed_flips, erased.astype(np.uint8)[:, None]])
 
     def unpack_detection_event_data(
         self, bit_packed_detection_event_data: npt.NDArray[np.uint8], axis: int = -1
@@ -348,29 +322,13 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
             axis=axis,
         )
 
-    def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        """Predict observable flips for one syndrome."""
-        syndrome_uint8 = np.asarray(syndrome, dtype=np.uint8)
-        return self.decode_shots(syndrome_uint8.reshape(1, *syndrome.shape))[0]
+    def packbits(self, data: npt.NDArray[np.uint8], axis: int = -1) -> npt.NDArray[np.uint8]:
+        """Bit-pack the data along an axis.
 
-    @property
-    def has_erasure_bit(self) -> bool:
-        """Whether decode_observables appends an erasure bit to the predicted observable flips."""
-        return bool(self.num_erasure_bits)
-
-    # Defunct compatibility method
-    if TYPE_CHECKING:
-        # Hide this method from mypy, so that a CompiledSinterDecoder does not satisfy ErrorDecoder.
-        decode: None
-    else:
-
-        def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-            """Reject a defunct alias for observable decoding."""
-            raise ValueError(
-                "CompiledSinterDecoder.decode is DEFUNCT; use decode_observables instead."
-                "\nIf you need this method restored, please open an issue at"
-                " https://github.com/qLDPCOrg/qLDPC/issues"
-            )
+        Working with bit-packed data is more memory and compute-efficient, which is why Sinter
+        generally passes around bit-packed data.
+        """
+        return np.packbits(np.asarray(data, dtype=np.uint8), bitorder="little", axis=axis)
 
 
 class TrivialDecoder(SinterDecoder):

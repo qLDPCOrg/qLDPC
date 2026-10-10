@@ -85,8 +85,8 @@ def test_hamming_and_tetrahedral_codes() -> None:
     assert tetrahedral_code.get_code_params() == (15, 1, 3)
     assert tetrahedral_code.is_equiv_to(codes.TetrahedralCode(algebraic=True))
 
-    # the documented permutation maps the geometric checks to Eqs. 2-3 of arXiv:2409.13465v2,
-    # whose X and Z conventions are reversed relative to this implementation
+    # the documented permutation maps the geometric checks to Eqs. 2-3 of arXiv:2409.13465v2, whose
+    # X and Z conventions are reversed relative to this implementation
     qubit_map = [0, 10, 3, 14, 7, 13, 6, 8, 1, 9, 2, 12, 4, 11, 5]
     paper_faces = {
         frozenset(support)
@@ -123,9 +123,9 @@ def test_hamming_and_tetrahedral_codes() -> None:
     # The tetrahedral code (TC) can be constructed by concatenating the quantum Hamming code (QHC)
     # with a classical code on the logical X operators of the QHC, as we show below.  To this end,
     # we first decompose the logical X operator of the TC into a product of logical X operators of
-    # the QHC, which can be found by checking (anti-)commutation with the logical Zs of the QHC.
-    # We then concatenate the QHC with a classical code that has only this combination of QHC
-    # logical Xs as a nontrivial code word.
+    # the QHC, which can be found by checking (anti-)commutation with the logical Zs of the QHC.  We
+    # then concatenate the QHC with a classical code that has only this combination of QHC logical
+    # Xs as a nontrivial code word.
     decomposition = (
         tetrahedral_code.get_logical_ops(Pauli.X) @ quantum_hamming_code.get_logical_ops(Pauli.Z).T
     )
@@ -542,10 +542,10 @@ def test_hypergraph_product(
     # verify that the canonical logicals are valid
     code.set_logical_ops(code.get_logical_ops(), skip_validation=False)
 
-    # the closed-form X and Z distances agree with a generic computation that ignores them.
-    # Both cache layers have to be bypassed: get_distance_exact caches into _distance_x/_distance_z
-    # on its first call, and get_distance_if_known would then short-circuit on that cached value
-    # before ever reaching _get_distance_exact.
+    # the closed-form X and Z distances agree with a generic computation that ignores them.  Both
+    # cache layers have to be bypassed: get_distance_exact caches into _distance_x/_distance_z on
+    # its first call, and get_distance_if_known would then short-circuit on that cached value before
+    # ever reaching _get_distance_exact.
     if field == 2:  # the brute-force kernel behind the generic route is binary
         dist_x = code.get_distance(Pauli.X)
         dist_z = code.get_distance(Pauli.Z)
@@ -573,8 +573,8 @@ def test_hypergraph_product(
         # the same [4, 1, 4] code, presented with one parity check repeated: only its transpose code
         # gains code words, so the (1, 1) sector of the product carries no logical operator
         (codes.ClassicalCode(np.vstack([codes.RepetitionCode(4).matrix] * 2)[:5]), None),
-        # a seed code of dimension zero, so that the (0, 0) sector carries no logical operator,
-        # in each of the two positions
+        # a seed code of dimension zero, so that the (0, 0) sector carries no logical operator, in
+        # each of the two positions
         (codes.ClassicalCode([[1, 0], [0, 1], [1, 1]]), codes.ClassicalCode([[1, 1], [1, 1]])),
         (codes.ClassicalCode([[1, 1], [1, 1]]), codes.ClassicalCode([[1, 0], [0, 1], [1, 1]])),
         # and a dependent check in only the second seed code, the mirror of the first case
@@ -1095,7 +1095,8 @@ def test_random_quantum_tanner_code_is_reproducible() -> None:
         assert len({matrix_for() for _ in range(4)}) > 1
 
     # the code is also independent of the hash seed, which sets the iteration order of the sets of
-    # group members that the construction is built from
+    # group members that the construction is built from.  Child interpreters with fixed hash seeds
+    # must reproduce the code built here, under this interpreter's (randomized) hash seed.
     script = (
         "import numpy as np;"
         "from qldpc import abstract, codes;"
@@ -1116,9 +1117,9 @@ def test_random_quantum_tanner_code_is_reproducible() -> None:
             check=True,
             text=True,
         ).stdout
-        for hash_seed in ["0", "1", "2", "3"]
+        for hash_seed in ["0", "1"]
     }
-    assert len(matrices) == 1
+    assert matrices == {matrix_for(seed=7).hex() + "\n"}
 
 
 def test_toric_tanner_code(size: int = 4) -> None:

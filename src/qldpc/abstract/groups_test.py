@@ -90,8 +90,8 @@ def test_group_equality_and_equivalence() -> None:
     group = abstract.CyclicGroup(3)
     other = abstract.CyclicGroup(3)  # same group, but a separately built lift
 
-    # equality is representation-sensitive (consistent with __hash__), so distinct instances of
-    # the same group are not equal, but they are equivalent.  A copy shares the representation.
+    # equality is representation-sensitive (consistent with __hash__), so distinct instances of the
+    # same group are not equal, but they are equivalent.  A copy shares the representation.
     assert group == copy.copy(group)
     assert group != other
     assert group != "not a group"
@@ -363,8 +363,8 @@ def test_seeded_random_leaves_global_rng_intact() -> None:
     """Passing a seed does not disturb SymPy's global RNG for other consumers.
 
     Seeding is still deterministic, but the reseed is confined to the seeded call: sampling the
-    global SymPy RNG before and after a seeded call yields the same sequence as sampling it twice
-    in a row.
+    global SymPy RNG before and after a seeded call yields the same sequence as sampling it twice in
+    a row.
     """
     group = abstract.CyclicGroup(2) * abstract.CyclicGroup(3)
 
@@ -410,11 +410,20 @@ def test_quaternion_group() -> None:
 
 
 def assert_lift_is_homomorphism(group: abstract.Group) -> None:
-    """The lift satisfies lift(g . h) == lift(g) @ lift(h) over the whole group."""
-    members = list(group.generate())
+    """The lift satisfies lift(g . h) == lift(g) @ lift(h) over the whole group.
+
+    It suffices to check that lift(identity) is the identity matrix and that the product rule holds
+    whenever h is a generator s: every h is a product s_1 ... s_k of generators, so by induction on
+    k, lift(g . h) == lift(g) @ lift(s_1) @ ... @ lift(s_k), which at g == identity equals lift(h).
+    This avoids checking all |G|^2 pairs.
+    """
+    identity = group.lift(group.identity)
+    assert np.array_equal(identity, np.eye(len(identity), dtype=int))
+    generators = [(s, group.lift(s)) for s in group.generators]
     assert all(
-        np.array_equal(group.lift(g * h), group.lift(g) @ group.lift(h))
-        for g, h in itertools.product(members, members)
+        np.array_equal(group.lift(g * s), group.lift(g) @ lift_s)
+        for g in group.generate()
+        for s, lift_s in generators
     )
 
 
@@ -436,8 +445,8 @@ def test_SL(dimension: int, field: int, linear_rep: bool) -> None:
 def test_PSL(dimension: int, field: int, linear_rep: bool | None) -> None:
     """Projective special linear group; its lift is a homomorphism (though not orthogonal).
 
-    ``linear_rep=None`` (the default) uses the linear representation where it exists
-    (``gcd = 1``, as in ``PSL(2, 4)`` and ``PSL(3, 2)``) and otherwise falls back to the permutation
+    ``linear_rep=None`` (the default) uses the linear representation where it exists (``gcd = 1``,
+    as in ``PSL(2, 4)`` and ``PSL(3, 2)``) and otherwise falls back to the permutation
     representation (``gcd > 1``, as in ``PSL(2, 3)``).
     """
     group = abstract.PSL(dimension, field, linear_rep=linear_rep)
@@ -525,9 +534,9 @@ def test_quotient_generating_mats_are_homomorphic(
     commute, so this map satisfies ``rep(g) @ rep(h) == rep(g @ h)`` for *all* ``g``, ``h`` --
     unlike the naive ``kron(inv(g), g)``, which only satisfies that identity when ``g`` and ``h``
     commute.  The dimension-3 generators below do not commute, so this test directly catches a
-    non-homomorphic representation.  For ``PGL(d>=3, q>2)``, the bad map was confirmed to
-    build a vastly oversized group when ``linear_rep=False`` is used; for other cases (e.g. ``PSL``)
-    a non-homomorphic map is still a latent correctness bug even where it happens not to inflate the
+    non-homomorphic representation.  For ``PGL(d>=3, q>2)``, the bad map was confirmed to build a
+    vastly oversized group when ``linear_rep=False`` is used; for other cases (e.g. ``PSL``) a
+    non-homomorphic map is still a latent correctness bug even where it happens not to inflate the
     closure's order.  Checking a handful of noncommuting words is enough to catch the defect without
     exhaustively enumerating ``SL(d, q)/GL(d, q)``, which is impractically slow at these dimensions
     (e.g. ``|SL(3, 3)| = 5616``).
@@ -549,17 +558,18 @@ def test_quotient_generating_mats_are_homomorphic(
 
 
 def test_psl_iter_mats_dimension_3() -> None:
-    """``PSL(3, 3)`` has the correct order and 2-D (not flattened) matrix representatives.
+    """``PSL(3, 2)`` has the correct order and 2-D (not flattened) matrix representatives.
 
-    ``PSL(3, 3)`` (order 5616) is large enough that building it end-to-end via ``linear_rep=False``
-    is impractically slow for a test, so ``iter_mats`` is checked directly instead: it is fast and
-    exercises both the group order and the reshape of orbit representatives to
-    ``dimension x dimension`` matrices, which is the ``iter_mats``-specific bug this test guards
-    against.  (That the underlying quotient representation is a genuine homomorphism -- the other
-    bug fixed alongside this one -- is covered separately by
+    Building a dimension-3 group end-to-end via ``linear_rep=False`` is slow, so ``iter_mats`` is
+    checked directly instead: it exercises both the group order and the reshape of orbit
+    representatives to ``dimension x dimension`` matrices, which is the ``iter_mats``-specific bug
+    this test guards against.  The smallest field keeps the brute-force enumeration of all
+    ``field**9`` candidate matrices fast; quotients by nontrivial centers are checked in
+    ``test_PSL``.  (That the underlying quotient representation is a genuine homomorphism -- the
+    other bug fixed alongside this one -- is covered separately by
     ``test_quotient_generating_mats_are_homomorphic``.)
     """
-    dimension, field = 3, 3
+    dimension, field = 3, 2
     order_SL = np.prod([field**dimension - field**jj for jj in range(dimension)]) // (field - 1)
     order = order_SL // math.gcd(dimension, field - 1)
     mats = tuple(abstract.PSL.iter_mats(dimension, field))
@@ -568,15 +578,17 @@ def test_psl_iter_mats_dimension_3() -> None:
 
 
 def test_pgl_iter_mats_dimension_3() -> None:
-    """``PGL(3, 3)`` has the correct order and 2-D (not flattened) matrix representatives.
+    """``PGL(3, 2)`` has the correct order and 2-D (not flattened) matrix representatives.
 
-    ``PGL(3, 3)`` (order 5616) is large enough that building it end-to-end via ``linear_rep=False``
-    is impractically slow for a test -- and, before the fix, the non-homomorphic quotient
-    representation was confirmed to make that construction generate a vastly oversized group here
-    -- so ``iter_mats`` is checked directly instead: it is fast and exercises both the group order
-    and the reshape of orbit representatives to ``dimension x dimension`` matrices.
+    Building a dimension-3 group end-to-end via ``linear_rep=False`` is slow -- and, before the fix,
+    the non-homomorphic quotient representation was confirmed to make that construction generate a
+    vastly oversized group for ``PGL(3, 3)`` -- so ``iter_mats`` is checked directly instead: it
+    exercises both the group order and the reshape of orbit representatives to
+    ``dimension x dimension`` matrices.  The smallest field keeps the brute-force enumeration of all
+    ``field**9`` candidate matrices fast; quotients by nontrivial centers are checked in
+    ``test_PGL``.
     """
-    dimension, field = 3, 3
+    dimension, field = 3, 2
     order_GL = np.prod([field**dimension - field**jj for jj in range(dimension)])
     order = order_GL // (field - 1)
     mats = tuple(abstract.PGL.iter_mats(dimension, field))

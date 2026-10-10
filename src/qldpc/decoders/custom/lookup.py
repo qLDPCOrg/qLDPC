@@ -5,10 +5,9 @@
 from __future__ import annotations
 
 import collections
-import itertools
 import warnings
 from collections.abc import Callable, Collection, Iterator, Sequence
-from typing import cast, overload
+from typing import TypeAlias, cast, overload
 
 import galois
 import numpy as np
@@ -21,10 +20,20 @@ from qldpc._util import get_external_caller_stacklevel
 from qldpc.math import IntegerArray
 
 from ..common import _erasure_bit_support, with_erasure_bits
+from ..construction.specs import decoder_spec
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, ObservableDecoder
+from ._lookup_enumeration import _iter_errors_and_syndromes
 
 _LOOKUP_CHUNK_SIZE = 4096
+
+
+_ErrorVector: TypeAlias = npt.NDArray[np.int_] | Sequence[int]
+_ErrorLogProbability: TypeAlias = Callable[[_ErrorVector], float]
+_ErrorChannel: TypeAlias = npt.NDArray[np.floating] | Sequence[float] | _ErrorLogProbability | None
+
+
+# Lookup decoders
 
 
 class _LookupDecoderBase:
@@ -33,20 +42,28 @@ class _LookupDecoderBase:
     See help(LookupDecoder) for details.
     """
 
+    _outputs_observables = False
+
     def __init__(
         self,
         pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
         max_weight: int,
         *,
-        error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
-        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
+        error_channel: (
+            npt.NDArray[np.floating]
+            | Sequence[float]
+            | Callable[[npt.NDArray[np.int_] | Sequence[int]], float]
+            | None
+        ) = None,
         observable_flip_matrix: IntegerArray | None = None,
-        predict_observable_flips: bool = False,
         post_select: Collection[int] = (),
         add_erasure_bit: bool | None = None,  # falsy by default
         confidence_ratio: float | None = None,
+        probability_cutoff: float = 0,
         symplectic: bool = False,
+        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
     ) -> None:
+        error_channel = _prepare_error_channel(error_channel, penalty_func)
         if confidence_ratio is not None and not confidence_ratio >= 0:  # also rejects NaN
             raise ValueError("A LookupDecoder confidence_ratio must be a non-negative number")
         if confidence_ratio:  # a positive confidence_ratio signals erasure via the erasure bit
@@ -58,21 +75,27 @@ class _LookupDecoderBase:
             add_erasure_bit = True  # auto-enable the erasure bit used to signal erasure
         add_erasure_bit = bool(add_erasure_bit)  # a default of None is treated as False
 
-        pcm, observable_flip_matrix, penalty_func, syndrome_mask, default_correction = (
-            self._organize_lookup_table_initialization_data(
-                pcm_or_dem,
-                error_channel,
-                penalty_func,
-                observable_flip_matrix,
-                predict_observable_flips,
-                post_select,
-                add_erasure_bit,
-            )
+        (
+            pcm,
+            observable_flip_matrix,
+            error_log_probability,
+            syndrome_mask,
+            default_correction,
+            independent_error_channel,
+        ) = _organize_lookup_table_initialization_data(
+            pcm_or_dem,
+            error_channel,
+            observable_flip_matrix,
+            self._outputs_observables,
+            post_select,
+            add_erasure_bit,
+            probability_cutoff,
+            symplectic=symplectic,
         )
-        if observable_flip_matrix is not None and penalty_func is None:
+        if observable_flip_matrix is not None and error_log_probability is None:
             raise ValueError(
                 "Grouping errors by observable flip with a LookupDecoder requires providing a"
-                " stim.DetectorErrorModel, error_channel, or penalty_func"
+                " stim.DetectorErrorModel or error_channel"
             )
         if confidence_ratio and observable_flip_matrix is None:
             raise ValueError(
@@ -81,11 +104,7 @@ class _LookupDecoderBase:
                 " observable_flip_matrix"
             )
 
-        # save attributes; decode_returns_observables declares whether a decode method returns
-        # observable flips, which it does with the deprecated predict_observable_flips=True
-        self.predict_observable_flips = predict_observable_flips
-        self.decode_returns_observables = predict_observable_flips
-        self._save_interface_metadata(pcm, observable_flip_matrix, predict_observable_flips)
+        self._save_interface_metadata(pcm, observable_flip_matrix, self._outputs_observables)
         self.syndrome_mask = syndrome_mask
         self.has_erasure_bit = add_erasure_bit
         self.default_correction = default_correction
@@ -98,112 +117,69 @@ class _LookupDecoderBase:
         )
         self._packed_syndrome_to_prediction: dict[bytes, bytes] = {}
 
+        # enumerate errors and their syndromes, and use them to build the decoding map
+        errors_and_syndromes = _iter_errors_and_syndromes(
+            pcm,
+            max_weight,
+            syndrome_mask,
+            symplectic,
+            error_channel=independent_error_channel,
+            probability_cutoff=probability_cutoff,
+        )
         if observable_flip_matrix is None:
-            self._build_syndrome_map_from_errors(
-                pcm, max_weight, penalty_func, syndrome_mask, symplectic
-            )
+            self._build_syndrome_map_from_errors(errors_and_syndromes, error_log_probability)
         else:
-            assert penalty_func is not None  # primarily for type-checking reasons
+            assert error_log_probability is not None
             self._build_syndrome_map_from_observable_flips(
+                errors_and_syndromes,
+                error_log_probability,
                 pcm,
-                max_weight,
-                penalty_func,
                 observable_flip_matrix,
-                predict_observable_flips,
-                syndrome_mask,
-                confidence_ratio,
                 symplectic,
+                confidence_ratio,
             )
 
-    def _build_syndrome_map_from_errors(
-        self,
-        pcm: IntegerArray,
-        max_weight: int,
-        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None,
-        syndrome_mask: npt.NDArray[np.bool_] | None,
-        symplectic: bool,
-    ) -> None:
-        """Populate the lookup table, mapping each syndrome to its likeliest error.
-
-        Errors are enumerated in decreasing weight, so ties in penalty (or, with no penalty
-        function, all errors) resolve in favor of the lowest-weight error for each syndrome.
-        """
-        error_penalty: dict[bytes, float] = {}
-        for error, syndrome in _LookupDecoderBase._iter_errors_and_syndromes(
-            pcm, max_weight, syndrome_mask, symplectic
-        ):
-            key = self._syndrome_packer.pack(syndrome)
-            if penalty_func is None:
-                self._store_prediction(key, error)
-            elif (error_weight := penalty_func(error)) <= error_penalty.get(key, np.inf):
-                error_penalty[key] = error_weight
-                self._store_prediction(key, error)
-
-    def _store_prediction(self, packed_syndrome: bytes, prediction: npt.NDArray[np.int_]) -> None:
-        """Record a prediction for a packed syndrome, appending an erasure bit if needed."""
-        prediction = self._maybe_add_erasure_bit(prediction)
-        self._packed_syndrome_to_prediction[packed_syndrome] = self._prediction_packer.pack(
-            prediction
-        )
-
-    def _save_interface_metadata(
-        self,
-        pcm: IntegerArray,
-        observable_flip_matrix: IntegerArray | None,
-        predict_observable_flips: bool,
-    ) -> None:
-        """Record dimensions and the field so prebuilt-decoder compatibility can be checked."""
-        self.num_detectors = pcm.shape[0]
-        self.num_observables = (
-            observable_flip_matrix.shape[0]
-            if predict_observable_flips and observable_flip_matrix is not None
-            else 0
-        )
-        self.field = type(pcm) if isinstance(pcm, galois.FieldArray) else galois.GF2
+    def __len__(self) -> int:
+        """The number of entries in this lookup table."""
+        return len(self._packed_syndrome_to_prediction)
 
     def _build_syndrome_map_from_observable_flips(
         self,
+        errors_and_syndromes: Iterator[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]],
+        error_log_probability: _ErrorLogProbability,
         pcm: IntegerArray,
-        max_weight: int,
-        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float],
         observable_flip_matrix: IntegerArray,
-        predict_observable_flips: bool,
-        syndrome_mask: npt.NDArray[np.bool_] | None,
-        confidence_ratio: float | None,
         symplectic: bool,
+        confidence_ratio: float | None,
     ) -> None:
         """Populate the lookup table, mapping each syndrome to its most likely observable flip.
 
         Builds a lookup table that maps each syndrome to an error that induces the most likely
-        observable flips (or, if predict_observable_flips, to the observable flips themselves).
+        observable flips (or to representative errors with those flips).
         """
 
-        get_observable_flip = _LookupDecoderBase._build_observable_flip_func(
-            pcm, observable_flip_matrix, symplectic
-        )
+        get_observable_flip = _build_observable_flip_func(pcm, observable_flip_matrix, symplectic)
 
         # For each "key" = (syndrome, observable_flip) combination, identify:
         # 1. The net log-probability of each key.
         # 2. The most likely error for each key.
-        # 3. The log-probability of the most likely error for each key.
-        # Probabilities are accumulated in log-space (via logaddexp) to avoid the underflow that
-        # would otherwise arise from summing the tiny probabilities of individual errors.
+        # 3. The log-probability of the most likely error for each key.  Probabilities are
+        # accumulated in log-space (via logaddexp) to avoid the underflow that would otherwise arise
+        # from summing the tiny probabilities of individual errors.
         num_observables = observable_flip_matrix.shape[0]
         observable_flip_packer = _FieldVectorPacker(self.field.order, num_observables, pcm.dtype)
         error_packer = _FieldVectorPacker(self.field.order, pcm.shape[1], pcm.dtype)
         net_log_probs: dict[bytes, dict[bytes, float]] = collections.defaultdict(dict)
         most_likely_errors: dict[tuple[bytes, bytes], bytes] = {}
         most_likely_error_log_probs: dict[tuple[bytes, bytes], float] = {}
-        for error, syndrome_array in _LookupDecoderBase._iter_errors_and_syndromes(
-            pcm, max_weight, syndrome_mask, symplectic
-        ):
+        for error, syndrome_array in errors_and_syndromes:
             syndrome = self._syndrome_packer.pack(syndrome_array)
             obs_flip = observable_flip_packer.pack(get_observable_flip(error))
-            log_prob = -penalty_func(error)
+            log_prob = error_log_probability(error)
             net_log_probs[syndrome][obs_flip] = float(
                 np.logaddexp(net_log_probs[syndrome].get(obs_flip, -np.inf), log_prob)
             )
-            if predict_observable_flips:
+            if self._outputs_observables:
                 continue  # representative errors are only needed to decode to errors
             # Record the first error for each key (so it always has a representative, even when all
             # of its errors have zero probability), then keep the most likely one thereafter.  A tie
@@ -236,252 +212,60 @@ class _LookupDecoderBase:
                 # which ignores competing flips of zero probability at every confidence_ratio
                 if log_prob_top < log_confidence_ratio + log_prob_rest:
                     continue  # omit the ambiguous syndrome, leaving it to decode as erasure
-            if predict_observable_flips:
+            if self._outputs_observables:
                 prediction = observable_flip_packer.unpack(most_likely_obs_flip)
             else:
                 prediction = error_packer.unpack(most_likely_errors[syndrome, most_likely_obs_flip])
             self._store_prediction(syndrome, prediction)
 
-    @staticmethod
-    def _organize_lookup_table_initialization_data(
-        pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
-        error_channel: npt.NDArray[np.floating] | Sequence[float] | None,
-        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None,
-        observable_flip_matrix: IntegerArray | None,
-        predict_observable_flips: bool,
-        post_select: Collection[int],
-        add_erasure_bit: bool,
-    ) -> tuple[
-        IntegerArray,
-        IntegerArray | None,
-        Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None,
-        npt.NDArray[np.bool_] | None,
-        npt.NDArray[np.int_],
-    ]:
-        """Organize and validate the inputs to a LookupDecoder."""
-        if isinstance(pcm_or_dem, stim.DetectorErrorModel):
-            if (
-                error_channel is not None
-                or penalty_func is not None
-                or observable_flip_matrix is not None
+    def _build_syndrome_map_from_errors(
+        self,
+        errors_and_syndromes: Iterator[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]],
+        error_log_probability: _ErrorLogProbability | None,
+    ) -> None:
+        """Populate the lookup table, mapping each syndrome to its likeliest error.
+
+        Errors are enumerated in decreasing weight, so ties in log probability (or, with no error
+        channel, all errors) resolve in favor of the lowest-weight error for each syndrome.
+        """
+        best_log_probabilities: dict[bytes, float] = {}
+        for error, syndrome in errors_and_syndromes:
+            key = self._syndrome_packer.pack(syndrome)
+            if error_log_probability is None:
+                self._store_prediction(key, error)
+            elif (log_probability := error_log_probability(error)) >= best_log_probabilities.get(
+                key, -np.inf
             ):
-                raise ValueError(
-                    "Cannot specify an error_channel, penalty_func, or observable_flip_matrix when"
-                    " providing a stim.DetectorErrorModel to a LookupDecoder"
-                )
-            dem_arrays = DetectorErrorModelArrays(pcm_or_dem, simplify=False)
-            pcm = dem_arrays.detector_flip_matrix
-            error_channel = dem_arrays.error_probs
-            # errors are grouped by observable flip if there are observables, or if predicting
-            # observable flips, which are trivial (empty) if there are no observables
-            if dem_arrays.num_observables > 0 or predict_observable_flips:
-                observable_flip_matrix = dem_arrays.observable_flip_matrix
-        else:
-            pcm = pcm_or_dem
-            if error_channel is not None and penalty_func is not None:
-                raise ValueError(
-                    "Cannot specify both an error_channel and a penalty_func in a LookupDecoder"
-                )
+                best_log_probabilities[key] = log_probability
+                self._store_prediction(key, error)
 
-        # validate the explicit error channel before building its penalty function
-        if error_channel is not None:
-            error_channel = np.asarray(error_channel, dtype=float)
-            expected_shape = (pcm.shape[1],)
-            if error_channel.shape != expected_shape:
-                raise ValueError(
-                    f"A LookupDecoder error_channel must have shape {expected_shape}, but got"
-                    f" {error_channel.shape}"
-                )
-            if not np.all((0 <= error_channel) & (error_channel <= 1)):
-                raise ValueError(
-                    "A LookupDecoder error_channel must contain finite probabilities between 0 and"
-                    " 1, inclusive"
-                )
-
-        # if an explicit penalty_func was not provided, build one from the error channel
-        penalty_func = penalty_func or (
-            _LookupDecoderBase._build_penalty_func(error_channel)
-            if error_channel is not None
-            else None
-        )
-
-        # build the mask of syndrome bits to keep (None if not post-selecting)
-        syndrome_mask: npt.NDArray[np.bool_] | None = None
-        if len(post_select):
-            syndrome_mask = np.ones(pcm.shape[0], dtype=bool)
-            syndrome_mask[list(post_select)] = False
-
-        # build the default output returned for syndromes absent from the lookup table
-        if predict_observable_flips:
-            if observable_flip_matrix is None:
-                raise ValueError(
-                    "A lookup decoder that predicts observable flips requires an"
-                    " observable_flip_matrix when it is built from a parity check matrix"
-                )
-            output_length = observable_flip_matrix.shape[0]
-        else:
-            output_length = pcm.shape[1]
-        default_correction = np.zeros(output_length, dtype=pcm.dtype)
-        if add_erasure_bit:
-            default_correction = np.hstack([default_correction, np.ones(1, dtype=pcm.dtype)])
-
-        return pcm, observable_flip_matrix, penalty_func, syndrome_mask, default_correction
-
-    @staticmethod
-    def _build_penalty_func(
-        error_channel: npt.NDArray[np.floating] | Sequence[float],
-    ) -> Callable[[npt.NDArray[np.int_] | Sequence[int]], float]:
-        """Construct a penalty function from independent probabilities of individual errors."""
-        error_channel = np.asarray(error_channel)
-        with np.errstate(divide="ignore"):  # a probability of 0 or 1 yields a -inf log, which is ok
-            log_probs = np.log(error_channel)
-            log_non_probs = np.log(1 - error_channel)
-
-        def penalty_func(error: npt.NDArray[np.int_] | Sequence[int]) -> float:
-            """Penalize unlikely combinations of errors."""
-            events = np.asarray(error).astype(bool)
-            log_probability_of_error = np.sum(log_probs[events]) + np.sum(log_non_probs[~events])
-            return -float(log_probability_of_error)
-
-        return penalty_func
-
-    @staticmethod
-    def _build_observable_flip_func(
+    def _save_interface_metadata(
+        self,
         pcm: IntegerArray,
-        observable_flip_matrix: IntegerArray,
-        symplectic: bool,
-    ) -> Callable[[npt.NDArray[np.int_]], npt.NDArray[np.int_]]:
-        """Build the map that takes an error to the observable flips that it induces.
-
-        The observable flip matrix is interpreted over the same field as the parity check matrix,
-        which is GF(2) unless the parity check matrix is a galois.FieldArray.  Plain integer entries
-        are reduced modulo the order of a prime field; for an extension field, they must already be
-        valid integer representations of field elements.  A galois.FieldArray over a different field
-        is rejected: the errors that get enumerated take their values from the parity check matrix's
-        field, so an observable over any other field cannot say what they flip.
-
-        With ``symplectic=True``, an error assigns both an X and a Z component to each qudit, and
-        the flip that it induces in an observable is their symplectic product,
-        ``observable @ symplectic_conjugate(error)``.  That product is obtained by multiplying the
-        error by -symplectic_conjugate(observable_flip_matrix), in the same way that
-        _iter_errors_and_syndromes obtains a syndrome from a parity check matrix.
-        """
-        field = type(pcm) if isinstance(pcm, galois.FieldArray) else galois.GF2
-        if isinstance(observable_flip_matrix, galois.FieldArray) and (
-            type(observable_flip_matrix) is not field
-        ):
-            raise ValueError(
-                f"An observable flip matrix over {type(observable_flip_matrix).name} cannot be"
-                f" paired with a parity check matrix over {field.name}"
-            )
-
-        if not symplectic and field.is_prime_field:
-            # A prime field is the integers modulo its order, so the product can be taken over the
-            # integers, which is faster than field arithmetic and keeps a sparse matrix sparse.
-            #
-            # The cast widens a narrow dtype, whose own wrap-around does not commute with reducing
-            # modulo an odd order.
-            integer_matrix = (
-                observable_flip_matrix.view(np.ndarray)
-                if isinstance(observable_flip_matrix, galois.FieldArray)
-                else observable_flip_matrix
-            ).astype(int)
-            order = field.order
-
-            def get_integer_flip(error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-                """Map an error to the observable flips that it induces."""
-                return np.asarray(integer_matrix @ error) % order
-
-            return get_integer_flip
-
-        dense_matrix = (
-            observable_flip_matrix.todense()
-            if isinstance(observable_flip_matrix, scipy.sparse.spmatrix | scipy.sparse.sparray)
-            else observable_flip_matrix
+        observable_flip_matrix: IntegerArray | None,
+        output_observables: bool,
+    ) -> None:
+        """Record dimensions and the field so prebuilt-decoder compatibility can be checked."""
+        self.num_detectors = pcm.shape[0]
+        self.num_observables = (
+            observable_flip_matrix.shape[0]
+            if output_observables and observable_flip_matrix is not None
+            else 0
         )
-        matrix_values = np.asarray(dense_matrix, dtype=int)
-        if field.is_prime_field:
-            matrix_values = matrix_values % field.order
-        matrix = field(matrix_values)
-        if symplectic:
-            matrix = -math.symplectic_conjugate(matrix)
+        self.field = type(pcm) if isinstance(pcm, galois.FieldArray) else galois.GF2
 
-        def get_field_flip(error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-            """Map an error to the observable flips that it induces."""
-            return (matrix @ error.view(field)).view(np.ndarray)
-
-        return get_field_flip
-
-    @staticmethod
-    def _iter_errors_and_syndromes(
-        matrix: IntegerArray,
-        max_weight: int,
-        syndrome_mask: npt.NDArray[np.bool_] | None,
-        symplectic: bool,
-    ) -> Iterator[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]:
-        """Iterate over all errors that this decoder considers, and their associated syndromes.
-
-        Errors are sorted in decreasing weight (number of bits or qudits addressed nontrivially).
-
-        The syndrome_mask is a boolean mask of syndrome bits to retain, or None to keep all bits.
-        When post-selecting (keep is not None), errors whose syndrome is nontrivial on any dropped
-        bit are skipped, and dropped bits are omitted from the yielded syndrome.
-        """
-        from qldpc import codes
-
-        dtype = matrix.dtype
-        # rewrite the checks so multiplying by an error produces its syndrome
-        code = codes.ClassicalCode(matrix) if not symplectic else codes.QuditCode(matrix)
-        matrix = code.matrix if not symplectic else -math.symplectic_conjugate(code.matrix)
-        syndrome_bits_to_drop = (
-            None if syndrome_mask is None else ~syndrome_mask
-        )  # post-selected bits, required to be trivial
-
-        # identify the set of local errors that can occur
-        repeat = 2 if symplectic else 1
-        error_ops = tuple(itertools.product(range(code.field.order), repeat=repeat))[1:]
-
-        block_length = matrix.shape[1] // repeat
-        for weight in range(max_weight, -1, -1):
-            for error_sites in itertools.combinations(range(block_length), weight):
-                error_site_indices = list(error_sites)
-                for local_errors in itertools.product(error_ops, repeat=weight):
-                    error = code.field.Zeros((repeat, block_length))
-                    error[:, error_site_indices] = np.asarray(local_errors, dtype=dtype).T
-                    error = error.ravel()
-                    syndrome = matrix @ error
-                    if syndrome_mask is not None:
-                        if np.any(syndrome[syndrome_bits_to_drop]):
-                            continue
-                        syndrome = syndrome[syndrome_mask]
-                    yield error.view(np.ndarray).astype(dtype), syndrome.view(np.ndarray)
+    def _store_prediction(self, packed_syndrome: bytes, prediction: npt.NDArray[np.int_]) -> None:
+        """Record a prediction for a packed syndrome, appending an erasure bit if needed."""
+        prediction = self._maybe_add_erasure_bit(prediction)
+        self._packed_syndrome_to_prediction[packed_syndrome] = self._prediction_packer.pack(
+            prediction
+        )
 
     def _maybe_add_erasure_bit(self, error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Append a trivial (zero) erasure bit to an error if this decoder tracks erasure bits."""
         if not self.has_erasure_bit:
             return error
         return with_erasure_bits(error, False)
-
-    def _remove_post_selected_bits(
-        self, syndrome: npt.NDArray[np.int_]
-    ) -> npt.NDArray[np.int_] | None:
-        """Drop post-selected bits from a syndrome, or return None if any of them is nonzero."""
-        syndrome = syndrome.view(np.ndarray)
-        if self.syndrome_mask is None:
-            return syndrome
-        retained_syndrome = syndrome[self.syndrome_mask]
-        if np.count_nonzero(retained_syndrome) != np.count_nonzero(syndrome):
-            return None
-        return retained_syndrome
-
-    def _get_syndrome_key(self, syndrome: npt.NDArray[np.int_]) -> tuple[int, ...] | None:
-        """Return the retained syndrome key, or None when a post-selected bit is nontrivial."""
-        retained_syndrome = self._remove_post_selected_bits(syndrome)
-        return None if retained_syndrome is None else tuple(retained_syndrome.tolist())
-
-    def __len__(self) -> int:
-        """The number of entries in this lookup table."""
-        return len(self._packed_syndrome_to_prediction)
 
     def _decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Look up the configured error or observable-flip prediction."""
@@ -495,26 +279,12 @@ class _LookupDecoderBase:
             return self.default_correction.copy()
         return self._prediction_packer.unpack(packed)
 
-    def _pack_retained_syndromes(
-        self, syndromes: npt.NDArray[np.integer]
-    ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.bool_] | None]:
-        """Pack the retained bits of syndrome rows.
-
-        Also returns a mask of the rows that are trivial on every post-selected bit, or None if this
-        decoder does not post-select.  The other rows are absent from the lookup table.
-        """
-        syndromes = syndromes.view(np.ndarray)
-        if syndromes.ndim != 2 or syndromes.shape[1] != self.num_detectors:
-            raise ValueError(
-                f"Expected syndromes of shape (num_syndromes, {self.num_detectors}),"
-                f" but got {syndromes.shape}"
-            )
-        if self.syndrome_mask is None:
-            return self._syndrome_packer.pack_rows(syndromes), None
-        passes_post_selection = ~np.any(syndromes[:, ~self.syndrome_mask], axis=1)
-        return self._syndrome_packer.pack_rows(
-            syndromes[:, self.syndrome_mask]
-        ), passes_post_selection
+    def _decode_batch(self, syndromes: npt.NDArray[np.integer]) -> npt.NDArray[np.int_]:
+        """Look up a batch of syndromes and return unpacked predictions."""
+        packed_syndromes, passes_post_selection = self._pack_retained_syndromes(syndromes)
+        return self._prediction_packer.unpack_rows(
+            self._lookup_packed_predictions(packed_syndromes, passes_post_selection)
+        )
 
     def _lookup_packed_predictions(
         self,
@@ -559,12 +329,43 @@ class _LookupDecoderBase:
             )
         return packed_predictions
 
-    def _decode_batch(self, syndromes: npt.NDArray[np.integer]) -> npt.NDArray[np.int_]:
-        """Look up a batch of syndromes and return unpacked predictions."""
-        packed_syndromes, passes_post_selection = self._pack_retained_syndromes(syndromes)
-        return self._prediction_packer.unpack_rows(
-            self._lookup_packed_predictions(packed_syndromes, passes_post_selection)
-        )
+    def _pack_retained_syndromes(
+        self, syndromes: npt.NDArray[np.integer]
+    ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.bool_] | None]:
+        """Pack the retained bits of syndrome rows.
+
+        Also returns a mask of the rows that are trivial on every post-selected bit, or None if this
+        decoder does not post-select.  The other rows are absent from the lookup table.
+        """
+        syndromes = syndromes.view(np.ndarray)
+        if syndromes.ndim != 2 or syndromes.shape[1] != self.num_detectors:
+            raise ValueError(
+                f"Expected syndromes of shape (num_syndromes, {self.num_detectors}),"
+                f" but got {syndromes.shape}"
+            )
+        if self.syndrome_mask is None:
+            return self._syndrome_packer.pack_rows(syndromes), None
+        passes_post_selection = ~np.any(syndromes[:, ~self.syndrome_mask], axis=1)
+        return self._syndrome_packer.pack_rows(
+            syndromes[:, self.syndrome_mask]
+        ), passes_post_selection
+
+    def _remove_post_selected_bits(
+        self, syndrome: npt.NDArray[np.int_]
+    ) -> npt.NDArray[np.int_] | None:
+        """Drop post-selected bits from a syndrome, or return None if any of them is nonzero."""
+        syndrome = syndrome.view(np.ndarray)
+        if self.syndrome_mask is None:
+            return syndrome
+        retained_syndrome = syndrome[self.syndrome_mask]
+        if np.count_nonzero(retained_syndrome) != np.count_nonzero(syndrome):
+            return None
+        return retained_syndrome
+
+    def _get_syndrome_key(self, syndrome: npt.NDArray[np.int_]) -> tuple[int, ...] | None:
+        """Return the retained syndrome key, or None when a post-selected bit is nontrivial."""
+        retained_syndrome = self._remove_post_selected_bits(syndrome)
+        return None if retained_syndrome is None else tuple(retained_syndrome.tolist())
 
     def _stack_predictions(self, predictions: list[npt.NDArray[np.int_]]) -> npt.NDArray[np.int_]:
         """Stack predictions, one per row, into a 2D array, even if there are no predictions."""
@@ -585,16 +386,26 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
     For each ``error``, the decoder computes the corresponding ``syndrome``, and nominally adds an
     ``syndrome -> error`` entry to the lookup table, overriding any past entry for ``syndrome``.
 
-    If provided an ``error_channel`` of independent probabilities for each "primitive" error
-    mechanism (which associated with one column of a PCM, or one entry in a DEM), this method
-    constructs a penalty function, ``penalty_func``, that penalizes unlikely errors.  In this case,
-    a candidate ``syndrome -> new_error`` entry encountered during enumeration will only override a
-    past entry in the lookup table if ``penalty_func(new_error) <= penalty_func(old_error)``.
-    Errors are enumerated in decreasing weight, so an equal penalty resolves in favor of the
-    lighter error.
-    Alternatively, this decoder supports the use of a user-provided ``penalty_func``, which must map
-    an error (represented as a binary vector of length ``num_primitive_error_mechanisms``) to a real
-    number (i.e., a penalty).
+    The optional ``error_channel`` specifies the physical error distribution in one of two forms.
+    An array-like channel contains the independent probability that each primitive error mechanism
+    (one column of the PCM) is nonzero.  Over a field of order ``q``, a mechanism with probability
+    ``p`` is zero with probability ``1 - p`` and takes each of its ``q - 1`` nonzero values with
+    probability ``p / (q - 1)``.  Thus, entries may have different probabilities even though the
+    channel factorizes over primitive mechanisms.  With ``symplectic=True``, the X and Z components
+    are separate primitive mechanisms and are independent under an array-like channel.
+
+    A callable ``error_channel`` describes a general, potentially correlated distribution.  It is
+    called with each complete field-valued error vector considered by the decoder and must return
+    the normalized natural log probability ``log(P(error))``.  It may return ``-np.inf`` for an
+    impossible error; finite values must be non-positive.  The decoder rejects NaN, positive values,
+    and positive infinity, but cannot verify that the full distribution sums to one.  A callable can
+    distinguish nonzero field values, represent an arbitrary local Pauli channel, or correlate error
+    mechanisms in ways that an array-like channel cannot.
+
+    If an error distribution is supplied, a candidate ``syndrome -> new_error`` entry encountered
+    during enumeration overrides a past entry only when the new error is at least as probable.
+    Errors are enumerated in decreasing weight, so an equal probability resolves in favor of the
+    lighter error.  With no ``error_channel``, every enumerated error is treated as equally likely.
 
     If provided an ``observable_flip_matrix`` (shape ``num_observables × num_primitive_errors``),
     this decoder maps each syndrome to an error that induces the most likely observable flip for
@@ -605,39 +416,34 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
     each ``syndrome`` the highest-probability individual ``error`` from the group with the highest
     total probability.
 
-    The deprecated ``predict_observable_flips=True`` option makes ``.decode`` return the most likely
-    observable flip for each syndrome, rather than a representative ``error``.  Use an
-    ObservableLookupDecoder instead, whose ``.decode_observables`` method returns observable flips.
-
     If provided a ``post_select`` collection of syndrome-bit (i.e., detector) indices, this decoder
     post-selects on those bits being trivial: when constructing the lookup table, it ignores
     syndromes that are nonzero on the post-selected bits, and it drops those bits from the syndrome
     keys in the lookup table.  For consistency with the post-selection options in sinter, syndromes
-    passed to ``.decode`` should still contain all syndrome bits.  A syndrome that is
-    nonzero on a post-selected bit is one that the lookup table was never given, so it decodes
-    identically to a syndrome that was never enumerated.
+    passed to ``.decode`` should still contain all syndrome bits.  A syndrome that is nonzero on a
+    post-selected bit is one that the lookup table was never given, so it decodes identically to a
+    syndrome that was never enumerated.
 
     If initialized with ``add_erasure_bit=True``, this decoder appends a bit to all decoded errors.
     If asked to decode a syndrome that was not observed when constructing the lookup table, the
     erasure bit is set to 1.  The erasure bit is set to 0 otherwise.
 
-    If initialized with a positive ``confidence_ratio`` (which then requires an
-    ``observable_flip_matrix``), this decoder handles ambiguous syndromes -- those consistent with
-    more than one observable flip -- by declining to guess unless one flip is clearly dominant.
-    Letting ``prob_top`` and ``prob_rest`` be the net probabilities of the most likely observable
-    flip and of all other flips combined (summed over the enumerated ``weight <= max_weight``
-    errors, grouped as above), the decoder assigns the most likely flip iff it is at least
-    ``confidence_ratio`` times as likely as the rest, i.e. ``prob_top >= confidence_ratio *
-    prob_rest``.  Otherwise, the syndrome is omitted from the lookup table, so that it decodes to
-    erasure, identically to a syndrome that was never enumerated.  A positive ``confidence_ratio``
-    therefore auto-enables the erasure bit, setting ``add_erasure_bit=True``.  At the extreme,
-    ``confidence_ratio=np.inf`` keeps only syndromes whose competing flips have zero net
-    probability, erasing every syndrome with a competing flip that can actually occur.
+    If initialized with a positive ``confidence_ratio`` (which requires observables, from a detector
+    error model or an ``observable_flip_matrix``), this decoder only assigns a syndrome its most
+    likely observable flip if that flip is at least ``confidence_ratio`` times as likely as all
+    other flips combined.  Otherwise, the syndrome decodes to erasure, so a positive
+    ``confidence_ratio`` sets ``add_erasure_bit=True``.  With ``confidence_ratio=np.inf``, every
+    syndrome with a competing flip that can occur decodes to erasure.
+
+    A positive ``probability_cutoff`` omits every error whose probability is below the cutoff, which
+    allows ignoring very-low-probability events.  When combined with ``confidence_ratio``,
+    confidence is computed from the retained errors.  A positive cutoff is not supported with a
+    callable ``error_channel``.
 
     If initialized with ``symplectic=True``, this decoder treats the provided parity check matrix as
     that of a ``QuditCode``, with the first and last half of the columns denoting, respectively, the
-    ``[X|Z]`` support of a stabilizer.  Decoded errors are likewise vectors that indicate
-    ``[X|Z]`` support.
+    ``[X|Z]`` support of a stabilizer.  Decoded errors are likewise vectors that indicate ``[X|Z]``
+    support.
     """
 
     def __init__(
@@ -645,31 +451,46 @@ class LookupDecoder(_LookupDecoderBase, ErrorDecoder):
         pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
         max_weight: int,
         *,
-        error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
-        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
+        error_channel: (
+            npt.NDArray[np.floating]
+            | Sequence[float]
+            | Callable[[npt.NDArray[np.int_] | Sequence[int]], float]
+            | None
+        ) = None,
         observable_flip_matrix: IntegerArray | None = None,
         predict_observable_flips: bool = False,
         post_select: Collection[int] = (),
         add_erasure_bit: bool | None = None,
         confidence_ratio: float | None = None,
+        probability_cutoff: float = 0,
         symplectic: bool = False,
+        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
     ) -> None:
-        """Initialize an error lookup table.
-
-        predict_observable_flips is deprecated; use ObservableLookupDecoder for observable output.
-        """
-        _warn_deprecated_observable_prediction(predict_observable_flips, "ObservableLookupDecoder")
+        """Initialize an error lookup table."""
+        advice = (
+            "use decoders.lookup(max_weight=...).build_observable_decoder(dem) instead"
+            if isinstance(pcm_or_dem, stim.DetectorErrorModel)
+            else (
+                "use qldpc.decoders.custom.lookup.ObservableLookupDecoder(matrix, max_weight=...,"
+                " observable_flip_matrix=..., error_channel=...).decode_observables(syndrome)"
+                " instead"
+            )
+        )
+        _warn_deprecated_observable_prediction(predict_observable_flips, advice)
+        self._outputs_observables = predict_observable_flips
+        self.predict_observable_flips = predict_observable_flips
+        self.decode_returns_observables = predict_observable_flips
         super().__init__(
             pcm_or_dem,
             max_weight,
             error_channel=error_channel,
-            penalty_func=penalty_func,
             observable_flip_matrix=observable_flip_matrix,
-            predict_observable_flips=predict_observable_flips,
             post_select=post_select,
             add_erasure_bit=add_erasure_bit,
             confidence_ratio=confidence_ratio,
+            probability_cutoff=probability_cutoff,
             symplectic=symplectic,
+            penalty_func=penalty_func,
         )
 
     def decode_errors(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
@@ -697,11 +518,14 @@ class ObservableLookupDecoder(_LookupDecoderBase):
     observable flip, a vector of length ``num_observables`` over the field of the parity check
     matrix.  Decode with the ``.decode_observables`` method.
 
-    An ObservableLookupDecoder is built from a detector error model, or from a parity check matrix
-    together with an ``observable_flip_matrix`` whose rows specify which errors flip which
-    observables.  If initialized with ``add_erasure_bit=True``, this decoder appends an erasure bit
-    to each predicted observable flip.
+    ``decoders.lookup(...).build_observable_decoder(dem)`` builds this decoder from a detector error
+    model.  A matrix-based instance additionally requires an ``observable_flip_matrix`` whose rows
+    specify which errors flip which observables, and an ``error_channel`` for grouping errors.  If
+    initialized with ``add_erasure_bit=True``, this decoder appends an erasure bit to each predicted
+    observable flip.
     """
+
+    _outputs_observables = True
 
     @overload
     def __init__(
@@ -712,6 +536,7 @@ class ObservableLookupDecoder(_LookupDecoderBase):
         post_select: Collection[int] = (),
         add_erasure_bit: bool | None = None,
         confidence_ratio: float | None = None,
+        probability_cutoff: float = 0,
         symplectic: bool = False,
     ) -> None: ...
 
@@ -722,12 +547,18 @@ class ObservableLookupDecoder(_LookupDecoderBase):
         max_weight: int,
         *,
         observable_flip_matrix: IntegerArray,
-        error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
-        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
+        error_channel: (
+            npt.NDArray[np.floating]
+            | Sequence[float]
+            | Callable[[npt.NDArray[np.int_] | Sequence[int]], float]
+            | None
+        ) = None,
         post_select: Collection[int] = (),
         add_erasure_bit: bool | None = None,
         confidence_ratio: float | None = None,
+        probability_cutoff: float = 0,
         symplectic: bool = False,
+        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
     ) -> None: ...
 
     def __init__(
@@ -736,24 +567,30 @@ class ObservableLookupDecoder(_LookupDecoderBase):
         max_weight: int,
         *,
         observable_flip_matrix: IntegerArray | None = None,
-        error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
-        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
+        error_channel: (
+            npt.NDArray[np.floating]
+            | Sequence[float]
+            | Callable[[npt.NDArray[np.int_] | Sequence[int]], float]
+            | None
+        ) = None,
         post_select: Collection[int] = (),
         add_erasure_bit: bool | None = None,
         confidence_ratio: float | None = None,
+        probability_cutoff: float = 0,
         symplectic: bool = False,
+        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
     ) -> None:
         super().__init__(
             pcm_or_dem,
             max_weight,
             error_channel=error_channel,
-            penalty_func=penalty_func,
             observable_flip_matrix=observable_flip_matrix,
-            predict_observable_flips=True,
             post_select=post_select,
             add_erasure_bit=add_erasure_bit,
             confidence_ratio=confidence_ratio,
+            probability_cutoff=probability_cutoff,
             symplectic=symplectic,
+            penalty_func=penalty_func,
         )
 
     def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
@@ -804,6 +641,9 @@ class ObservableLookupDecoder(_LookupDecoderBase):
         return np.column_stack([packed_predictions[:, :num_observable_bytes], erased])
 
 
+# Weighted lookup decoders
+
+
 class _WeightedLookupDecoderBase(_LookupDecoderBase):
     """Shared implementation of weighted lookup-table decoders.
 
@@ -816,28 +656,23 @@ class _WeightedLookupDecoderBase(_LookupDecoderBase):
         max_weight: int,
         *,
         observable_flip_matrix: IntegerArray | None = None,
-        predict_observable_flips: bool = False,
         post_select: Collection[int] = (),
         add_erasure_bit: bool = False,
         symplectic: bool = False,
     ) -> None:
-        pcm, observable_flip_matrix, _, syndrome_mask, default_correction = (
-            self._organize_lookup_table_initialization_data(
+        pcm, observable_flip_matrix, _, syndrome_mask, default_correction, _ = (
+            _organize_lookup_table_initialization_data(
                 pcm_or_dem,
                 None,
-                None,
                 observable_flip_matrix,
-                predict_observable_flips,
+                self._outputs_observables,
                 post_select,
                 add_erasure_bit,
+                symplectic=symplectic,
             )
         )
 
-        # save attributes; decode_returns_observables declares whether a decode method returns
-        # observable flips, which it does with the deprecated predict_observable_flips=True
-        self.predict_observable_flips = predict_observable_flips
-        self.decode_returns_observables = predict_observable_flips
-        self._save_interface_metadata(pcm, observable_flip_matrix, predict_observable_flips)
+        self._save_interface_metadata(pcm, observable_flip_matrix, self._outputs_observables)
         self.syndrome_mask = syndrome_mask
         self.has_erasure_bit = add_erasure_bit
         self.default_correction = default_correction
@@ -851,12 +686,12 @@ class _WeightedLookupDecoderBase(_LookupDecoderBase):
             tuple[int, ...], list[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]
         ] = collections.defaultdict(list)
         get_observable_flip = None
-        if predict_observable_flips:
+        if self._outputs_observables:
             assert observable_flip_matrix is not None  # primarily for type-checking reasons
-            get_observable_flip = _LookupDecoderBase._build_observable_flip_func(
+            get_observable_flip = _build_observable_flip_func(
                 pcm, observable_flip_matrix, symplectic
             )
-        for error, syndrome in _LookupDecoderBase._iter_errors_and_syndromes(
+        for error, syndrome in _iter_errors_and_syndromes(
             pcm, max_weight, syndrome_mask, symplectic
         ):
             output = (
@@ -910,8 +745,7 @@ class WeightedLookupDecoder(_WeightedLookupDecoderBase, LookupDecoder):
 
     The ``pcm_or_dem``, ``max_weight``, ``observable_flip_matrix``, ``post_select``,
     ``add_erasure_bit``, and ``symplectic`` options behave as they do for a LookupDecoder; see
-    help(LookupDecoder).  The deprecated ``predict_observable_flips=True`` option makes ``.decode``
-    return observable flips; use a WeightedObservableLookupDecoder instead.
+    help(LookupDecoder).
     """
 
     def __init__(
@@ -926,13 +760,17 @@ class WeightedLookupDecoder(_WeightedLookupDecoderBase, LookupDecoder):
         symplectic: bool = False,
     ) -> None:
         _warn_deprecated_observable_prediction(
-            predict_observable_flips, "WeightedObservableLookupDecoder"
+            predict_observable_flips,
+            "use qldpc.decoders.custom.lookup.WeightedObservableLookupDecoder(...)"
+            ".decode_observables(syndrome, penalty_func) instead",
         )
+        self._outputs_observables = predict_observable_flips
+        self.predict_observable_flips = predict_observable_flips
+        self.decode_returns_observables = predict_observable_flips
         super().__init__(
             pcm_or_dem,
             max_weight,
             observable_flip_matrix=observable_flip_matrix,
-            predict_observable_flips=predict_observable_flips,
             post_select=post_select,
             add_erasure_bit=add_erasure_bit,
             symplectic=symplectic,
@@ -983,6 +821,8 @@ class WeightedObservableLookupDecoder(_WeightedLookupDecoderBase):
     a parity check matrix together with an ``observable_flip_matrix``.
     """
 
+    _outputs_observables = True
+
     @overload
     def __init__(
         self,
@@ -1020,7 +860,6 @@ class WeightedObservableLookupDecoder(_WeightedLookupDecoderBase):
             pcm_or_dem,
             max_weight,
             observable_flip_matrix=observable_flip_matrix,
-            predict_observable_flips=True,
             post_select=post_select,
             add_erasure_bit=add_erasure_bit,
             symplectic=symplectic,
@@ -1049,46 +888,301 @@ class WeightedObservableLookupDecoder(_WeightedLookupDecoderBase):
         )
 
 
+# Decoder specifications
+
+
 @_erasure_bit_support("lookup", supported=True)
-def get_decoder_lookup(
+def _get_decoder_lookup(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
 ) -> LookupDecoder:
-    """Build a lookup table that maps syndromes to inferred errors.
+    """Build a lookup-table decoder.
 
-    Args:
-        pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.  A DEM supplies
-            default error probabilities and observable metadata.
-        **decoder_args: Arguments passed to :class:`LookupDecoder`, including the required
-            ``max_weight`` and optional erasure, confidence, and symplectic settings.
+    The options, including the required ``max_weight``, an independent or callable correlated
+    ``error_channel``, and optional erasure, confidence, probability-cutoff, post-selection, and
+    symplectic options, are those of :class:`~qldpc.decoders.custom.lookup.LookupDecoder`.
 
     Returns:
-        A :class:`LookupDecoder`.
+        A :class:`~qldpc.decoders.custom.lookup.LookupDecoder` that maps syndromes to representative
+        errors.
 
     ``add_erasure_bit=True`` appends a flag for syndromes absent from the table.  A positive
-    ``confidence_ratio`` also enables the flag and erases ambiguous syndromes.  This error builder
-    returns a representative physical error; use :func:`get_observable_decoder_lookup` to return
-    observable flips directly.
+    ``confidence_ratio`` also enables the flag and erases ambiguous syndromes.
     """
     return LookupDecoder(pcm_or_dem, **decoder_args)  # type: ignore[arg-type]
 
 
-def get_observable_decoder_lookup(
+def _get_observable_decoder_lookup(
     dem: stim.DetectorErrorModel, **decoder_args: object
 ) -> ObservableDecoder:
-    """Build a lookup table that maps DEM syndromes directly to observable flips.
-
-    Args:
-        dem: The detector error model whose detectors and observables define the table.
-        **decoder_args: Arguments passed to :class:`ObservableLookupDecoder`, including
-            ``max_weight`` and optional erasure, confidence, and post-selection settings.
-
-    Returns:
-        An :class:`ObservableLookupDecoder`.
-    """
+    """Build a lookup table that maps DEM syndromes directly to observable flips."""
     return ObservableLookupDecoder(dem, **decoder_args)  # type: ignore[call-overload]
 
 
-# Private helpers
+lookup = decoder_spec(
+    "lookup",
+    _get_decoder_lookup,
+    _get_observable_decoder_lookup,
+    signature_source=LookupDecoder,
+    exclude=frozenset({"predict_observable_flips"}),
+    doc="""Configure a bounded-weight lookup-table decoder.
+
+Args:
+    max_weight: Maximum error weight to enumerate; required to bound construction.
+    error_channel: Independent error probabilities for each matrix column, or a callable
+        returning the normalized log probability of a complete error.  A DEM supplies its
+        own probabilities and does not accept this option.
+    observable_flip_matrix: Observable values of matrix-column errors.  A DEM supplies its
+        own observables.  An error decoder with observables selects an error from the most
+        likely observable class, which need not contain the most likely individual error.
+    post_select: Syndrome indices that must be zero; other syndromes decode as absent.
+    add_erasure_bit: Append a flag for absent syndromes, or None to enable it automatically
+        when ``confidence_ratio`` is positive.
+    confidence_ratio: Minimum likelihood ratio of the best observable class to all others;
+        an ambiguous syndrome is erased.  Requires observable metadata.
+    probability_cutoff: Ignore errors below this probability; not supported with a callable
+        ``error_channel``.
+    symplectic: Treat ``[X|Z]`` columns as two error components per qudit.
+
+Returns:
+    A decoder specification.  ``build(pcm_or_dem)`` returns a
+    :class:`~qldpc.decoders.custom.lookup.LookupDecoder` that infers an error.
+    ``build_observable_decoder(dem)`` returns an
+    :class:`~qldpc.decoders.custom.lookup.ObservableLookupDecoder` that predicts observable
+    flips natively for a binary DEM.
+
+See :class:`~qldpc.decoders.custom.lookup.LookupDecoder` for error-channel and field
+conventions, and :class:`~qldpc.decoders.custom.lookup.ObservableLookupDecoder` for the
+observable output contract.
+""",
+)
+
+
+# Lookup-table construction
+
+
+def _organize_lookup_table_initialization_data(
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    error_channel: _ErrorChannel,
+    observable_flip_matrix: IntegerArray | None,
+    output_observables: bool,
+    post_select: Collection[int],
+    add_erasure_bit: bool,
+    probability_cutoff: float = 0,
+    *,
+    symplectic: bool = False,
+) -> tuple[
+    IntegerArray,
+    IntegerArray | None,
+    _ErrorLogProbability | None,
+    npt.NDArray[np.bool_] | None,
+    npt.NDArray[np.int_],
+    npt.NDArray[np.floating] | None,
+]:
+    """Organize and validate the inputs to a LookupDecoder."""
+    if not np.isfinite(probability_cutoff) or not 0 <= probability_cutoff <= 1:
+        raise ValueError(
+            "A LookupDecoder probability_cutoff must be a finite probability between 0 and 1,"
+            " inclusive"
+        )
+    if isinstance(pcm_or_dem, stim.DetectorErrorModel):
+        if symplectic:
+            raise ValueError(
+                "A LookupDecoder cannot be symplectic when built from a stim.DetectorErrorModel,"
+                " whose error mechanisms are not [X|Z] qudit errors"
+            )
+        if error_channel is not None or observable_flip_matrix is not None:
+            raise ValueError(
+                "Cannot specify an error_channel or observable_flip_matrix when providing a"
+                " stim.DetectorErrorModel to a LookupDecoder"
+            )
+        dem_arrays = DetectorErrorModelArrays(pcm_or_dem, simplify=False)
+        pcm = dem_arrays.detector_flip_matrix
+        error_channel = dem_arrays.error_probs
+        # errors are grouped by observable flip if there are observables, or if predicting
+        # observable flips, which are trivial (empty) if there are no observables
+        if dem_arrays.num_observables > 0 or output_observables:
+            observable_flip_matrix = dem_arrays.observable_flip_matrix
+    else:
+        pcm = pcm_or_dem
+
+    independent_error_channel: npt.NDArray[np.floating] | None = None
+    error_log_probability: _ErrorLogProbability | None = None
+    if callable(error_channel):
+        error_log_probability = error_channel
+    elif error_channel is not None:
+        independent_error_channel = np.asarray(error_channel, dtype=float)
+        expected_shape = (pcm.shape[1],)
+        if independent_error_channel.shape != expected_shape:
+            raise ValueError(
+                f"A LookupDecoder error_channel must have shape {expected_shape}, but got"
+                f" {independent_error_channel.shape}"
+            )
+        if not np.all((0 <= independent_error_channel) & (independent_error_channel <= 1)):
+            raise ValueError(
+                "An array-like LookupDecoder error_channel must contain finite probabilities"
+                " between 0 and 1, inclusive"
+            )
+        error_log_probability = _build_error_log_probability(
+            independent_error_channel,
+            (type(pcm) if isinstance(pcm, galois.FieldArray) else galois.GF2).order,
+        )
+    if probability_cutoff and independent_error_channel is None:
+        raise ValueError(
+            "A positive LookupDecoder probability_cutoff requires a stim.DetectorErrorModel or"
+            " an array-like independent error_channel"
+        )
+
+    # build the mask of syndrome bits to keep (None if not post-selecting)
+    syndrome_mask: npt.NDArray[np.bool_] | None = None
+    if len(post_select):
+        syndrome_mask = np.ones(pcm.shape[0], dtype=bool)
+        syndrome_mask[list(post_select)] = False
+
+    # build the default output returned for syndromes absent from the lookup table
+    if output_observables:
+        if observable_flip_matrix is None:
+            raise ValueError(
+                "A lookup decoder that predicts observable flips requires an"
+                " observable_flip_matrix when it is built from a parity check matrix"
+            )
+        output_length = observable_flip_matrix.shape[0]
+    else:
+        output_length = pcm.shape[1]
+    default_correction = np.zeros(output_length, dtype=pcm.dtype)
+    if add_erasure_bit:
+        default_correction = np.hstack([default_correction, np.ones(1, dtype=pcm.dtype)])
+
+    return (
+        pcm,
+        observable_flip_matrix,
+        error_log_probability,
+        syndrome_mask,
+        default_correction,
+        independent_error_channel,
+    )
+
+
+def _prepare_error_channel(
+    error_channel: _ErrorChannel,
+    penalty_func: _ErrorLogProbability | None,
+) -> _ErrorChannel:
+    """Validate a callable error channel, or replace a deprecated penalty function with one."""
+    if penalty_func is not None:
+        if error_channel is not None:
+            raise ValueError(
+                "Cannot specify both an error_channel and a penalty_func in a LookupDecoder"
+            )
+        warnings.warn(
+            "LookupDecoder penalty_func is deprecated; pass a callable error_channel that returns"
+            " the full error log probability instead",
+            DeprecationWarning,
+            stacklevel=get_external_caller_stacklevel(),
+        )
+        # legacy penalties are not validated as normalized log probabilities
+        return lambda error: -float(penalty_func(error))
+
+    if not callable(error_channel):
+        return error_channel
+    get_log_probability = error_channel
+
+    def error_log_probability(error: _ErrorVector) -> float:
+        """Return the log probability of an error, rejecting invalid values."""
+        log_probability = float(get_log_probability(error))
+        if not log_probability <= 0:  # also rejects NaN
+            raise ValueError(
+                "A callable LookupDecoder error_channel must return a log probability that is"
+                " non-positive or -inf"
+            )
+        return log_probability
+
+    return error_log_probability
+
+
+def _build_observable_flip_func(
+    pcm: IntegerArray,
+    observable_flip_matrix: IntegerArray,
+    symplectic: bool,
+) -> Callable[[npt.NDArray[np.int_]], npt.NDArray[np.int_]]:
+    """Build the map that takes an error to the observable flips that it induces.
+
+    The observable flip matrix is interpreted over the same field as the parity check matrix, which
+    is GF(2) unless the parity check matrix is a galois.FieldArray.  Plain integer entries are
+    reduced modulo the order of a prime field; for an extension field, they must already be valid
+    integer representations of field elements.  A galois.FieldArray over a different field is
+    rejected: the errors that get enumerated take their values from the parity check matrix's field,
+    so an observable over any other field cannot say what they flip.
+
+    With ``symplectic=True``, an error assigns both an X and a Z component to each qudit, and the
+    flip that it induces in an observable is their symplectic product,
+    ``observable @ symplectic_conjugate(error)``.  That product is obtained by multiplying the error
+    by -symplectic_conjugate(observable_flip_matrix), in the same way that
+    _iter_errors_and_syndromes obtains a syndrome from a parity check matrix.
+    """
+    field = type(pcm) if isinstance(pcm, galois.FieldArray) else galois.GF2
+    if isinstance(observable_flip_matrix, galois.FieldArray) and (
+        type(observable_flip_matrix) is not field
+    ):
+        raise ValueError(
+            f"An observable flip matrix over {type(observable_flip_matrix).name} cannot be"
+            f" paired with a parity check matrix over {field.name}"
+        )
+
+    if not symplectic and field.is_prime_field:
+        # A prime field is the integers modulo its order, so the product can be taken over the
+        # integers, which is faster than field arithmetic and keeps a sparse matrix sparse.
+        #
+        # The cast widens a narrow dtype, whose own wrap-around does not commute with reducing
+        # modulo an odd order.
+        integer_matrix = (
+            observable_flip_matrix.view(np.ndarray)
+            if isinstance(observable_flip_matrix, galois.FieldArray)
+            else observable_flip_matrix
+        ).astype(int)
+        order = field.order
+
+        def get_integer_flip(error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            """Map an error to the observable flips that it induces."""
+            return np.asarray(integer_matrix @ error) % order
+
+        return get_integer_flip
+
+    dense_matrix = (
+        observable_flip_matrix.todense()
+        if isinstance(observable_flip_matrix, scipy.sparse.spmatrix | scipy.sparse.sparray)
+        else observable_flip_matrix
+    )
+    matrix_values = np.asarray(dense_matrix, dtype=int)
+    if field.is_prime_field:
+        matrix_values = matrix_values % field.order
+    matrix = field(matrix_values)
+    if symplectic:
+        matrix = -math.symplectic_conjugate(matrix)
+
+    def get_field_flip(error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """Map an error to the observable flips that it induces."""
+        return (matrix @ error.view(field)).view(np.ndarray)
+
+    return get_field_flip
+
+
+def _build_error_log_probability(
+    error_channel: npt.NDArray[np.floating],
+    field_order: int = 2,
+) -> _ErrorLogProbability:
+    """Construct a full-error log probability from independent mechanism probabilities."""
+    with np.errstate(divide="ignore"):  # a probability of 0 or 1 yields a -inf log, which is ok
+        log_probs = np.log(error_channel / (field_order - 1))
+        log_non_probs = np.log(1 - error_channel)
+
+    def error_log_probability(error: _ErrorVector) -> float:
+        """Return the full independent-channel log probability of an error."""
+        events = np.asarray(error).astype(bool)
+        return float(np.sum(log_probs[events]) + np.sum(log_non_probs[~events]))
+
+    return error_log_probability
+
+
+# Supporting objects
 
 
 class _FieldVectorPacker:
@@ -1146,8 +1240,8 @@ def _error_weight(error: npt.NDArray[np.int_], symplectic: bool) -> int:
 
     This is the weight that ``_iter_errors_and_syndromes`` enumerates by, so ranking errors by it
     keeps the lighter of two that a penalty scores equally.  A symplectic error assigns both an X
-    and a Z component to each qudit, and a qudit carrying both counts once, so the number of
-    nonzero entries would count it twice.
+    and a Z component to each qudit, and a qudit carrying both counts once, so the number of nonzero
+    entries would count it twice.
     """
     if symplectic:
         return int(math.symplectic_weight(np.asarray(error)))
@@ -1157,11 +1251,11 @@ def _error_weight(error: npt.NDArray[np.int_], symplectic: bool) -> int:
 # Deprecated compatibility helpers
 
 
-def _warn_deprecated_observable_prediction(enabled: bool, replacement: str) -> None:
+def _warn_deprecated_observable_prediction(enabled: bool, advice: str) -> None:
     """Warn about the legacy mode in which an error decoder predicts observable flips."""
     if enabled:
         warnings.warn(
-            f"predict_observable_flips=True is deprecated; use {replacement} instead",
+            f"predict_observable_flips=True is deprecated; {advice}",
             DeprecationWarning,
             stacklevel=get_external_caller_stacklevel(),
         )

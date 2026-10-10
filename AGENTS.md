@@ -28,11 +28,20 @@ Do not copy transient project history, machine-specific paths, or local-session 
   Do not infer that this weaker guarantee applies elsewhere.
 - Keep complete lists of public symbols in `__all__` and AutoAPI.
   Human-written docs should explain what packages do and show representative tasks, not duplicate a class catalogue.
-- A module should not use a private (underscore-prefixed) name from another module unless it is a
-  narrowly shared internal helper deliberately housed in a package's `common.py`, and used only
-  within that package.
-  Otherwise, needing to do so indicates that the name should be public and documented.
+- A module should not use a private (underscore-prefixed) name from another module unless it is a narrowly shared internal helper or an intentional decoder-composition boundary.
+  For example, `decoders/construction/resolution.py` calls private backend builders kept beside their implementations; they are not public APIs merely because the resolver imports them.
+  Otherwise, needing a cross-module private name indicates that it should be public and documented.
   A test module may use private names of the module that it tests.
+
+## Module organization and ordering
+
+- Preserve a module's existing section headings and organization when adding code.
+- Add a section when new functionality does not fit an existing one.
+- Put important user-facing APIs first within modules and sections.
+- Keep related public entry points together.
+- Place private implementation helpers toward the bottom of the relevant section or module.
+- Keep user-facing decode methods near the top of decoder classes.
+- Place private helper methods after the public decode methods.
 
 ## Repository map
 
@@ -47,7 +56,7 @@ Do not copy transient project history, machine-specific paths, or local-session 
 | [`src/qldpc/abstract/`](src/qldpc/abstract/) | Groups, group rings, `RingArray`, semisimple linear algebra, and Wedderburn--Artin transforms | Co-located `*_test.py` files in the same directory |
 | [`src/qldpc/math.py`](src/qldpc/math.py) | Symplectic and finite-field array helpers | [`math_test.py`](src/qldpc/math_test.py) |
 | [`src/qldpc/objects.py`](src/qldpc/objects.py) | Pauli labels, graph nodes, Cayley complexes, and chain complexes | [`objects_test.py`](src/qldpc/objects_test.py) |
-| [`src/qldpc/decoders/external/`](src/qldpc/decoders/external/) | Integrations and immediate builders for ldpc, PyMatching, and Relay-BP | Co-located `*_test.py` files |
+| [`src/qldpc/decoders/external/`](src/qldpc/decoders/external/) | Integrations and immediate builders for ldpc, PyMatching, Relay-BP, Tesseract, and Frontier | Co-located `*_test.py` files |
 | [`src/qldpc/decoders/custom/`](src/qldpc/decoders/custom/) | qLDPC-owned decoder implementations and their immediate builders | Co-located `*_test.py` files; [`custom_test.py`](src/qldpc/decoders/custom_test.py) covers deprecated aliases |
 | [`src/qldpc/decoders/construction/`](src/qldpc/decoders/construction/) | Typed decoder specs, generic resolution, and legacy keyword translation | Co-located `*_test.py` files |
 | [`src/qldpc/decoders/`](src/qldpc/decoders/) | Decoder protocols, capability checks, adapters, DEM arrays, Sinter, and windowed decoding | Co-located tests, [`decoders_test.py`](src/qldpc/decoders_test.py) and [`sinter_test.py`](src/qldpc/decoders/sinter_test.py) for deprecated aliases, plus [`logical_error_rates/`](examples/logical_error_rates/) |
@@ -72,15 +81,10 @@ The methods in `codes/common.py` share cached and mutable state for standard for
 Do not split them into mixins merely to reduce the file length.
 Free-standing statistical Monte Carlo helpers live in `codes/monte_carlo.py`.
 Code-capacity detector-error-model and decoder orchestration lives in `codes/code_capacity.py`.
-Generic decoder-input checks live in `decoders/capabilities.py`; field-valued and bit-packed
-observable-decoder adapters live in `decoders/adapters/observable_decoders.py`.
-Immediate builders live beside their implementations: external-package integrations under
-`decoders/external/`, and qLDPC-owned implementations under `decoders/custom/`. Typed decoder
-settings, generic input resolution, and deprecated keyword translation live under
-`decoders/construction/`.
-Legacy keyword-based construction in `decoders/construction/legacy.py` is an attachment on top of
-the modern API: it translates deprecated arguments into modern decoder inputs and resolves them with
-`decoders/construction/resolution.py`, which never imports it.
+Generic decoder-input checks live in `decoders/capabilities.py`; field-valued and bit-packed observable-decoder adapters live in `decoders/adapters/observable_decoders.py`.
+Immediate builders live beside their implementations: external-package integrations under `decoders/external/`, and qLDPC-owned implementations under `decoders/custom/`.
+Typed decoder specifications, generic input resolution, and deprecated keyword translation live under `decoders/construction/`.
+Modern decoder inputs resolve directly in `decoders/construction/resolution.py`; nonempty deprecated keywords enter `decoders/construction/legacy.py` for translation, and the package-root compatibility calls remain there.
 
 ## Core invariants
 
@@ -114,12 +118,14 @@ the modern API: it translates deprecated arguments into modern decoder inputs an
 
 ### Decoders
 
-- [`decoders.get_error_decoder`](src/qldpc/decoders/construction/resolution.py) defaults to GUF for a nonbinary `FieldArray` and BP+OSD otherwise.
+- Build decoders from typed specifications, as in `decoders.bp_osd(...).build(pcm_or_dem)` or `decoders.mwpm(...).build_observable_decoder(dem)`.
+  Builders named `get_decoder_<NAME>`, `get_error_decoder`, and `get_observable_decoder` are deprecated and live only in [`construction/legacy.py`](src/qldpc/decoders/construction/legacy.py).
+- `decoder=None` selects GUF for a nonbinary `FieldArray` and BP+OSD otherwise (see [`construction/resolution.py`](src/qldpc/decoders/construction/resolution.py)).
 - Keep error decoders (`decode_errors`, with `decode` as an alias) distinct from observable decoders (`decode_observables`).
   Code that consumes a user-supplied error decoder coerces it with `decoders.as_error_decoder` and calls `decode_errors`.
 - A method that decodes a matrix it constructs itself must reject prebuilt decoders with `decoders.reject_prebuilt_decoder`.
-- Code-capacity estimators resolve their `decoder=`, `decoder_x=`, and `decoder_z=` inputs with [`codes.code_capacity.get_code_capacity_decoder`](src/qldpc/codes/code_capacity.py), which always yields an observable decoder: error decoders are wrapped so that their inferred errors become logical predictions.
-  Keep `decoders.get_error_decoder` and `decoders.resolve_decoder` error-decoder-specific, and dispatch on explicit capabilities (`compile_decoder_for_dem`, `decode_observables`, the `ErrorDecoder` protocol), never on output length.
+- Code-capacity estimators resolve their `decoder=`, `decoder_x=`, and `decoder_z=` inputs with [`codes.code_capacity.get_code_capacity_decoder`](src/qldpc/codes/code_capacity.py), which always yields an observable decoder: on binary codes, specifications with native observable support build it from a DEM; otherwise inferred errors can be projected onto logical predictions.
+  Keep `decoders.resolve_decoder` error-decoder-specific, and dispatch on explicit capabilities (`compile_decoder_for_dem`, `decode_observables`, the `ErrorDecoder` protocol), never on output length.
 - Only decoders that declare erasure support may append an erasure flag.
   They append that flag as the last entry of each inferred error; unsupported decoders must reject `add_erasure_bit=True`.
 - Detector-error-model decomposition indices and remaps must remain valid after cancellation and simplification.
@@ -151,6 +157,8 @@ the modern API: it translates deprecated arguments into modern decoder inputs an
   Do not hide errors by returning a default value that looks successful.
 - Statement coverage is gated at 100%.
   Co-located `*_test.py` files are the strong convention, although a thin helper can be covered through its consumer's test module.
+- Pytest turns every `DeprecationWarning` into an error, so tests must use the modern API.
+  A test of a deprecated path must assert its warning with `pytest.warns(DeprecationWarning, ...)`.
 
 ## Common change recipes
 
@@ -170,8 +178,15 @@ the modern API: it translates deprecated arguments into modern decoder inputs an
 
 ### Add or adapt a decoder
 
+Follow the [adding a decoder guide](docs/source/adding_decoders.rst) for a custom-decoder example and a first-party backend checklist.
+
 1. Put integrations with third-party decoder packages under [`decoders/external/`](src/qldpc/decoders/external/), and qLDPC-owned implementations under [`decoders/custom/`](src/qldpc/decoders/custom/).
-2. Keep each immediate builder beside the implementation it constructs. Add typed settings or generic resolution wiring under [`decoders/construction/`](src/qldpc/decoders/construction/), then export the modern API from the relevant package `__init__.py` and [`decoders/__init__.py`](src/qldpc/decoders/__init__.py). Keep deprecated keyword translation isolated in `construction/legacy.py`.
+2. Keep each immediate builder beside the implementation it constructs.
+   Add a typed specification under [`decoders/construction/`](src/qldpc/decoders/construction/) when exposing an algorithm.
+   Do not change generic resolution for an ordinary backend.
+   Export concrete backend classes at qualified `custom` or `external` paths, and export public specification helpers from [`decoders/__init__.py`](src/qldpc/decoders/__init__.py).
+   Derive each specification helper's signature from one typed builder or constructor, write its public docstring explicitly, and add it to the `autofunction` inventory in [`decoders.rst`](docs/source/decoders.rst).
+   Keep deprecated keyword translation isolated in `construction/legacy.py`.
 3. Decide and test batch behavior, nonbinary support, detector-error-model support, and erasure signaling explicitly.
 4. Use direct syndrome/error reproductions in addition to factory-selection tests.
 
@@ -197,7 +212,9 @@ the modern API: it translates deprecated arguments into modern decoder inputs an
 3. Keep README and the library map selective.
    AutoAPI provides the complete list of public symbols.
 4. When a public limitation changes, update the relevant function or class docstring and every README or guide that repeats it in the same pull request.
-5. Run the strict documentation build before considering the change complete.
+5. Keep one prose sentence per physical source line in `.rst`, `.md`, and Markdown notebook cells.
+   Put `First sentence.` and `Second sentence.` on separate source lines; leave code blocks, equations, and table syntax intact.
+6. Run the strict documentation build before considering the change complete.
 
 ## Validation commands
 
@@ -212,8 +229,9 @@ Use the smallest targeted command while iterating, then the full gate before mer
 | Command | Purpose |
 | --- | --- |
 | `python checks/all_.py` | Complete repository gate: formatting, lint, strict mypy, tests, 100% coverage, and docs |
-| `python checks/pytest_.py` | Full pytest and notebook test suite |
+| `python checks/pytest_.py` | Full Python pytest suite; does not execute notebooks by default |
 | `python checks/pytest_.py src/qldpc/codes/` | Tests for one package |
+| `python checks/pytest_.py --notebook examples/decoders.ipynb examples/basics.ipynb examples/noise_models.ipynb` | Execute the three complete, CI-allowlisted notebooks with their dependencies installed |
 | `python -m pytest src/qldpc/codes/quantum_test.py::test_name -v` | One focused test |
 | `python checks/format_.py --check` | Verify Ruff and `pyproject.toml` formatting |
 | `python checks/format_.py` | Apply repository formatting |
@@ -221,6 +239,11 @@ Use the smallest targeted command while iterating, then the full gate before mer
 | `python checks/mypy_.py` | Strict mypy over source and tests |
 | `python checks/coverage_.py` | Modular 100% statement-coverage gate |
 | `python checks/build_docs.py` | Strict Sphinx and notebook documentation build |
+
+The docs build renders saved notebook outputs without executing code cells.
+Refresh outputs by executing the entire canonical notebook in an offline, editable installation before changing a notebook example.
+Pass an absolute path to this checkout's `src` directory in `PYTHONPATH` if a notebook runner starts its kernel from `examples/`.
+The TQEC notebook requires Python 3.11--3.13 because its pinned TQEC dependency does not support Python 3.14.
 
 Some check wrappers discover files through Git.
 Add new source and test files to the index before relying on the full gate to include them.

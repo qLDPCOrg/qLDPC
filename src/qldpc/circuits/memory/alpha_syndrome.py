@@ -24,9 +24,9 @@ from ..common import get_pauli_product_measurements, restrict_to_qubits, with_re
 from ..noise_model import NoiseModel, as_noiseless_circuit
 from .syndrome_measurement import SyndromeMeasurementStrategy, validate_syndrome_qubit_ids
 
-# Scrappy type to represent a schedule of two-qubit gates:
-# A list whose t-th entry is a list of gates to apply at time t.
-# For the purposes of this schedule, a "gate" is just an ordered pair of target qubits.
+# Scrappy type to represent a schedule of two-qubit gates: A list whose t-th entry is a list of
+# gates to apply at time t.  For the purposes of this schedule, a "gate" is just an ordered pair of
+# target qubits.
 GateSchedule = list[list[tuple[int, int]]]
 
 # default decoder used to estimate logical error rates while searching for a measurement schedule
@@ -63,8 +63,8 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
         The MCTS requires building and simulating noisy evaluation circuits, which naturally
         requires defining a noise model.  Computing a logical error rate, in turn, requires
-        specifying a decoder.  These are provided by the ``noise_model`` and ``decoder``
-        arguments described below.
+        specifying a decoder.  These are provided by the ``noise_model`` and ``decoder`` arguments
+        described below.
 
         Args:
             noise_model: The noise model to append to the syndrome measurement circuit.
@@ -112,8 +112,8 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
         Args:
             code: The code whose syndromes we want to measure.
-            qubit_ids: Integer indices for the data and check (syndrome readout) qubits.
-                Defaults to QubitIDs.from_code(code).
+            qubit_ids: Integer indices for the data and check (syndrome readout) qubits.  Defaults
+                to QubitIDs.from_code(code).
 
         Returns:
             stim.Circuit: A syndrome measurement circuit.
@@ -287,8 +287,8 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 class TreeNode:
     """Node of a tree for Monte Carlo tree search (MCTS).
 
-    TreeNode is agnostic to the problem being solved by MCTS.
-    All problem data is handled by the TreeState.
+    TreeNode is agnostic to the problem being solved by MCTS.  All problem data is handled by the
+    TreeState.
 
     References:
 

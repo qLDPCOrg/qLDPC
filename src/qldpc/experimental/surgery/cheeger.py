@@ -6,11 +6,11 @@ References:
 
     Cross et al. arXiv:2407.18393 — Cheeger-based distance preservation (§3.3 Thm 6).
 
-    Williamson & Yoder arXiv:2410.02213 — augmenting the auxiliary graph to preserve
-        distance: random edges until h(G) ≥ 1 (proof of Thm 3 step 2), with
-        d* ≥ min(h(G), 1)·d (Methods Lemma 2), and BP+OSD-screened random augmentation
-        (Suppl. "BB code examples — Gross code"). That paper has no numbered sections.
-        The greedy worst-cut search here is neither paper's.
+    Williamson & Yoder arXiv:2410.02213 — augmenting the auxiliary graph to preserve distance:
+        random edges until h(G) ≥ 1 (proof of Thm 3 step 2), with d* ≥ min(h(G), 1)·d (Methods
+        Lemma 2), and BP+OSD-screened random augmentation (Suppl. "BB code examples —
+        Gross code").  That paper has no numbered sections.  The greedy worst-cut search here is
+        neither paper's.
 
 Copyright 2026 The qLDPC Authors
 
@@ -58,7 +58,7 @@ def _exact_boundary_cheeger(incidence: galois.FieldArray) -> tuple[float, np.nda
 
     Returns:
         (h, v_star_indicator) where v_star_indicator is a length-|V| binary numpy array marking the
-        worst cut. If |V| < 2, returns (inf, zero vector) — boost is not applicable.
+        worst cut.  If |V| < 2, returns (inf, zero vector) — boost is not applicable.
 
     Raises:
         ValueError: if |V| > 26 (exhaustive enumeration is infeasible).
@@ -73,8 +73,8 @@ def _exact_boundary_cheeger(incidence: galois.FieldArray) -> tuple[float, np.nda
             f"Exact boundary-Cheeger enumeration is infeasible beyond this size."
         )
 
-    # Bit-pack F columns: incidence_col_ints[i] is a Python int with bit r set iff
-    # F[r, i] = 1. Boundary as Python int allows O(1) XOR + popcount.
+    # Bit-pack F columns: incidence_col_ints[i] is a Python int with bit r set iff F[r, i] = 1.
+    # Boundary as Python int allows O(1) XOR + popcount.
     incidence_col_ints = [
         int.from_bytes(np.packbits(incidence_arr[:, i][::-1]).tobytes()[::-1], "little")
         for i in range(n_V)
@@ -107,22 +107,22 @@ def _exact_boundary_cheeger(incidence: galois.FieldArray) -> tuple[float, np.nda
 def cheeger_constant(g: GadgetLayout) -> float:
     """Exact boundary Cheeger constant h(F) of a gadget's F matrix.
 
-    gadget notation: F → incidence; V_0 → support (Webster–Smith–Cohen
-    arXiv:2511.15989 §II A Def 1 / Cross et al. arXiv:2407.18393 Def 3).
+    gadget notation: F → incidence; V_0 → support (Webster–Smith–Cohen arXiv:2511.15989 §II A Def 1
+    / Cross et al. arXiv:2407.18393 Def 3).
 
     Computed exactly by Gray-code subset enumeration, which is tractable only for ``|V_0|`` ≤ 26.
 
     Cross et al. arXiv:2407.18393 §3.3 Thm 6 concludes d_merged ≥ d_data when an L-layer ancilla
-    system satisfies ceil(L/2) ≥ 1/h, which at the L=1 gadgets built here reduces to h ≥ 1. Below 1
+    system satisfies ceil(L/2) ≥ 1/h, which at the L=1 gadgets built here reduces to h ≥ 1.  Below 1
     the gadget falls outside the theorem, where distance may degrade; consider
     ``boost_gadget(g, method="combinatorial", target=1.0)``.
 
-    Reaching h ≥ 1 is a screen, not a distance guarantee. The theorem bounds the merged code
+    Reaching h ≥ 1 is a screen, not a distance guarantee.  The theorem bounds the merged code
     distance; chained through Thm 11 that gives a phenomenological logical fault distance ≥ d, but
-    nothing in the paper bounds the circuit fault distance. Thm 6 also inherits the irreducibility
+    nothing in the paper bounds the circuit fault distance.  Thm 6 also inherits the irreducibility
     assumption declared in §3.1 and stated in Thm 1 — no other logical of the same type has support
     inside the measured logical's support — which ``build_gadget`` does not check, and nothing here
-    verifies its conclusion. Nor does h track circuit fault distance, so a higher h is not a reason
+    verifies its conclusion.  Nor does h track circuit fault distance, so a higher h is not a reason
     to expect a better circuit.
 
     Raises:
@@ -159,8 +159,8 @@ def _augment_incidence_with_random_edges(
     """Add n_new_edges random degree-2 rows to F.
 
     Each new row connects two distinct columns not already directly connected via another existing
-    row. That restricts the search to simple-graph augmentations, narrower than the multi-graph ones
-    Williamson & Yoder allow — their two-gross solution doubles an edge.
+    row.  That restricts the search to simple-graph augmentations, narrower than the multi-graph
+    ones Williamson & Yoder allow — their two-gross solution doubles an edge.
 
     Returns None if a collision-free sample could not be drawn within the attempt budget.
     """
@@ -202,23 +202,23 @@ def _boost_gadget_cheeger_combinatorial(
     gadget notation: F → incidence; V_0 → support; κ → ancilla.
 
     Computes the exact boundary Cheeger constant h(F) via subset enumeration (Webster Def 1 / Cross
-    Def 3). When h < target_h, identifies the worst cut v* and adds a κ qubit (degree-2 row of F)
+    Def 3).  When h < target_h, identifies the worst cut v* and adds a κ qubit (degree-2 row of F)
     with one endpoint in v* and one outside, which monotonically increases |∂v*| by 1 without
     decreasing any other |∂v|.
 
     Reaching target_h = 1.0 meets the h >= 1 condition of Cross et al. arXiv:2407.18393 §3.3 Thm 6
-    at L=1; see ``cheeger_constant`` for what that does and does not establish. Unlike
+    at L=1; see ``cheeger_constant`` for what that does and does not establish.  Unlike
     ``cheeger_constant``, this buffers every enumerated subset, so memory grows with |V_0| as well
     as time.
 
     Args:
         g: input gadget produced by build_gadget.
-        target_h: Cheeger target. Default 1.0 (Cross Thm 6 threshold).
-        max_extra_qubits: cap on additions. Default 50.
+        target_h: Cheeger target.  Default 1.0 (Cross Thm 6 threshold).
+        max_extra_qubits: cap on additions.  Default 50.
         seed: RNG seed for tie-breaking in edge selection.
 
     Returns:
-        A new GadgetLayout with F augmented and its merged checks rebuilt symmetrically in X/Z. Its
+        A new GadgetLayout with F augmented and its merged checks rebuilt symmetrically in X/Z.  Its
         h(F) >= target_h when ``g`` came from build_gadget.
 
     Raises:
@@ -352,7 +352,7 @@ def _boost_gadget_distance(
 
     Iteratively add small random batches of degree-2 edges to F, using a BP+OSD upper bound on
     merged code distance to fast-reject any augmentation that falls below target, per that paper's
-    Suppl. "BB code examples — Gross code" (it has no numbered sections). The ascending batch-size
+    Suppl. "BB code examples — Gross code" (it has no numbered sections).  The ascending batch-size
     schedule, starting from n_extra = 0 so a bare gadget already meeting the target comes back
     unaugmented, is this module's own.
 
@@ -363,8 +363,8 @@ def _boost_gadget_distance(
         max_extra_qubits: cap on number of new κ' qubits to consider.
         num_trials_per_step: random augmentations per n_extra value.
         decoder_trials: trials for each get_distance_bound_with_decoder call.
-        seed: RNG seed for the edge sampling only. The BP+OSD screen is unseeded, so identical calls
-            with the same seed can differ in outcome.
+        seed: RNG seed for the edge sampling only.  The BP+OSD screen is unseeded, so identical
+            calls with the same seed can differ in outcome.
 
     Returns:
         A new GadgetLayout whose merged code passes the BP+OSD screen at target_distance.
@@ -372,7 +372,7 @@ def _boost_gadget_distance(
     Raises:
         ValueError: target_distance <= 0 or max_extra_qubits < 0.
         RuntimeError: neither the bare gadget nor any augmentation within max_extra_qubits passed
-            the screen. Retry, raise decoder_trials or num_trials_per_step, raise max_extra_qubits,
+            the screen.  Retry, raise decoder_trials or num_trials_per_step, raise max_extra_qubits,
             or lower the target.
     """
     if target_distance <= 0:
@@ -385,8 +385,8 @@ def _boost_gadget_distance(
     n_V = incidence_base.shape[1]
 
     def _passes_decoder(layout: GadgetLayout) -> bool:
-        # Reconstruct the merged CSSCode from layout.HX_merged / HZ_merged
-        # to feed the existing decoder.
+        # Reconstruct the merged CSSCode from layout.HX_merged / HZ_merged to feed the existing
+        # decoder.
         merged = CSSCode(
             galois.GF2(np.asarray(layout.HX_merged).astype(np.int_).tolist()),
             galois.GF2(np.asarray(layout.HZ_merged).astype(np.int_).tolist()),
@@ -445,24 +445,25 @@ def boost_gadget(
     Args:
         gadget: a GadgetLayout from build_gadget.
         method: 'combinatorial' | 'distance'.
-        target: target Cheeger constant (for combinatorial) or
-            target distance (for distance method; cast via int(target)).
+        target: target Cheeger constant (for combinatorial) or target distance (for distance method;
+            cast via int(target)).
         seed: RNG seed.
-        max_extra_qubits: cap on new ancillas. Defaults to 50 for the combinatorial method and 30
+        max_extra_qubits: cap on new ancillas.  Defaults to 50 for the combinatorial method and 30
             for the distance method.
-        num_trials_per_step: distance-method random augmentations per ancilla count. Defaults to 20.
-        decoder_trials: distance-method BP+OSD trials per candidate. Defaults to 10.
+        num_trials_per_step: distance-method random augmentations per ancilla count.  Defaults
+            to 20.
+        decoder_trials: distance-method BP+OSD trials per candidate.  Defaults to 10.
 
     Returns:
         A NEW GadgetLayout with boosted incidence, gauge, HX_merged, HZ_merged. method='distance'
-        screens with a BP+OSD upper bound, so acceptance is a heuristic rather than a proof;
-        confirm it by computing the exact distance of the code HX_merged / HZ_merged define.
+        screens with a BP+OSD upper bound, so acceptance is a heuristic rather than a proof; confirm
+        it by computing the exact distance of the code HX_merged / HZ_merged define.
 
     Raises:
         ValueError: gadget is already augmented; method is neither 'combinatorial' nor 'distance';
             target is not positive; distance-only options are passed to the combinatorial method; or
             the combinatorial method is used with ``|V_0|`` > 26.
-        RuntimeError: the chosen method could not reach ``target``. Lower it; raising
+        RuntimeError: the chosen method could not reach ``target``.  Lower it; raising
             max_extra_qubits helps only when the budget is what ran out, which the message says.
             For method='distance', retrying can also succeed, since its screen is not seeded.
     """
