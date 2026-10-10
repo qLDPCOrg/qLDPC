@@ -215,9 +215,14 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
                 ignore_decomposition_failures=True,
                 approximate_disjoint_errors=True,
             )
-            predictions = sinter.predict_observables(
-                dem=dem, dets=dets, **self.sinter_decoding_kwargs
-            )
+            if dem.num_detectors:
+                predictions = sinter.predict_observables(
+                    dem=dem, dets=dets, **self.sinter_decoding_kwargs
+                )
+            else:
+                # without detection events there is nothing to decode; sinter also mis-shapes its
+                # predictions for detector-free models with multiple observables
+                predictions = np.zeros_like(observable_flips)
             num_logical_errors = np.sum(np.any(predictions != observable_flips, axis=1))
             # Estimate the inverse logical error rate, as prescribed in Section 4.4 of the paper.
             node.backpropagate(self.shots_per_iter / (num_logical_errors + 1))

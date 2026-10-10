@@ -2,13 +2,15 @@
 
 """Circuit construction utilities for quantum error-corrected memory experiments."""
 
-from collections.abc import Collection, Sequence
+from collections.abc import Hashable, Sequence
 from typing import NamedTuple
 
+import galois
 import numpy as np
+import numpy.typing as npt
 import stim
 
-from qldpc import codes
+from qldpc import codes, math
 from qldpc._util import format_docstring
 from qldpc.objects import Node, Pauli, PauliXZ, PauliXZLike
 
@@ -23,7 +25,11 @@ from ..noise_model import (
     as_noiseless_circuit,
     op_type,
 )
-from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
+from .syndrome_measurement import (
+    EdgeColoring,
+    SyndromeMeasurementStrategy,
+    validate_gauge_layers,
+)
 
 # default strategy used to schedule the two-qubit gates of a syndrome measurement circuit
 DEFAULT_STRATEGY = EdgeColoring()
@@ -116,6 +122,15 @@ def get_memory_experiment(
     (noiseless) ancilla qubits cancels out, leaving us with two-time logical XX and ZZ observables
     supported on the data qubits alone.
 
+    For a subsystem code, the parity checks of the code are gauge operators that need not commute,
+    so each round of QEC measures one layer of mutually commuting checks at a time, in the order
+    set by ``syndrome_measurement_strategy.get_gauge_layers(code)`` (by default, all X-type checks
+    and then all Z-type checks of a CSS code).  Individual gauge measurement outcomes may then be
+    random, but any product of checks in a single layer that is a stabilizer of the code has a
+    deterministic value.  Detectors therefore track such products of checks, rather than individual
+    checks, and the tracked products are chosen to generate all (basis-type) stabilizers of the
+    code.  A ValueError is raised if the gauge measurement schedule does not make that possible.
+
     Qubits and detectors are assigned coordinates as follows:
 
     - The data qubit addressed by column C of the parity check matrix gets coordinate (0, C).
@@ -124,8 +139,8 @@ def get_memory_experiment(
     - The K-th detector in measurement round M gets coordinate (M, 0, K).
 
     Args:
-        code: An error-correcting code.  Must be a qubit stabilizer (non-subsystem) codes.  If
-            passed a classical code, treat it as a quantum CSS code that protects only basis-type
+        code: An error-correcting code on qubits, which may be a subsystem code.  If passed a
+            classical code, treat it as a quantum CSS code that protects only basis-type
             logical operators (or X-type logicals, if basis is None).
         basis: Pauli.X, Pauli.Z, or None to indicate which type of logical operators to track (where
             "None" means "both X and Z").  The strings "X" and "Z" (case-insensitive) are also
@@ -209,6 +224,10 @@ def get_memory_experiment_parts(
 
     See help(qldpc.circuits.get_memory_experiment) for additional information.
 
+    For a stabilizer code, the detector record keys detectors by the check qubit whose stabilizer
+    they track.  For a subsystem code, the detector record keys detectors by the tuple of check
+    qubits whose (gauge) measurement outcomes multiply to the stabilizer that they track.
+
     Returns:
         initialization: A circuit that sets the coordinates and initializes data qubit state.
         qec_cycle: A circuit for one logical QEC cycle, with num_rounds syndrome measurements.
@@ -226,11 +245,6 @@ def get_memory_experiment_parts(
 
     if num_rounds < 1:
         raise ValueError("num_rounds must be at least 1")
-
-    if code.is_subsystem_code:
-        raise ValueError(
-            "Memory simulations currently only support stabilizer (non-subsystem) codes"
-        )
 
     if basis is None:
         return _get_combined_memory_simulation_parts(
@@ -266,7 +280,6 @@ def _get_basis_memory_experiment_parts(
     # identify all qubits by index
     qubit_ids = QubitIDs.validated(qubit_ids, code) if qubit_ids else QubitIDs.from_code(code)
     data_ids, check_ids, _ = qubit_ids
-    basis_check_ids = qubit_ids.checks_x if basis is Pauli.X else qubit_ids.checks_z
 
     # set qubit coordinates
     coordinates = get_qubit_coordinates(data_ids, check_ids)
@@ -276,8 +289,10 @@ def _get_basis_memory_experiment_parts(
     data_reset.append(f"R{basis}", data_ids)
 
     # build a logical QEC cycle
+    layers = _get_gauge_layers(code, syndrome_measurement_strategy)
+    detectors = _get_stabilizer_detectors(code, qubit_ids, layers, basis)
     qec_cycle, measurement_record, detector_record = _get_qec_cycle(
-        code, num_rounds, qubit_ids, basis_check_ids, syndrome_measurement_strategy
+        code, num_rounds, qubit_ids, detectors, syndrome_measurement_strategy, layers
     )
 
     # measure out the data qubits
@@ -289,16 +304,18 @@ def _get_basis_memory_experiment_parts(
 
     # detectors for stabilizers that can be inferred from data qubit measurements
     readout.append("SHIFT_COORDS", [], (1, 0, 0))
-    check_support = code.get_matrix(basis)
-    for kk, check_id in enumerate(basis_check_ids):
-        data_support = np.flatnonzero(check_support[kk])
+    for kk, detector in enumerate(detectors):
+        basis_support = detector.stabilizer.reshape(2, len(code))[0 if basis is Pauli.X else 1]
         readout.append(
             "DETECTOR",
-            [measurement_record.get_target_rec(data_ids[qq]) for qq in data_support]
-            + [measurement_record.get_target_rec(check_id)],
+            [
+                measurement_record.get_target_rec(data_ids[qq])
+                for qq in np.flatnonzero(basis_support)
+            ]
+            + [measurement_record.get_target_rec(check_id) for check_id in detector.check_ids],
             (0, 0, kk),
         )
-    detector_record.append({check_id: dd for dd, check_id in enumerate(basis_check_ids)})
+    detector_record.append({detector.key: dd for dd, detector in enumerate(detectors)})
 
     # annotate all basis-type observables
     targets = [measurement_record.get_target_rec(data_id) for data_id in data_ids]
@@ -351,8 +368,10 @@ def _get_combined_memory_simulation_parts(
     state_prep = get_logical_bell_prep(code, data_ids, reference_ids)
 
     # build a logical QEC cycle
+    layers = _get_gauge_layers(code, syndrome_measurement_strategy)
+    detectors = _get_stabilizer_detectors(code, qubit_ids, layers)
     qec_cycle, measurement_record, detector_record = _get_qec_cycle(
-        code, num_rounds, qubit_ids, check_ids, syndrome_measurement_strategy
+        code, num_rounds, qubit_ids, detectors, syndrome_measurement_strategy, layers
     )
     # reject strategies that would use noiseless Bell reference qubits as work qubits
     operated_qubits = {
@@ -369,22 +388,28 @@ def _get_combined_memory_simulation_parts(
         )
 
     # measure all stabilizers
-    readout = with_remapped_qubits(
-        get_pauli_product_measurements(code.matrix), qubit_ids.data + qubit_ids.check
+    readout = get_pauli_product_measurements(
+        [detector.stabilizer for detector in detectors], data_ids
     )
+
+    # identify the final syndrome measurements that detectors compare against stabilizer readout
+    last_syndrome_measurements = [
+        [measurement_record.get_events(check_id)[-1] for check_id in detector.check_ids]
+        for detector in detectors
+    ]
 
     # update the measurement record, add detectors, and update the detector record
     readout.append("SHIFT_COORDS", [], (1, 0, 0))
-    measurement_record.append({check_id: mm for mm, check_id in enumerate(check_ids)})
+    measurement_record.append({detector.key: mm for mm, detector in enumerate(detectors)})
     measurement_count = qec_cycle.num_measurements + readout.num_measurements
     measurement_record.validate_num_measurements(measurement_count)
-    for kk, check_id in enumerate(check_ids):
-        targets = [
-            measurement_record.get_target_rec(check_id, -1),
-            measurement_record.get_target_rec(check_id, -2),
+    for kk, (detector, measurements) in enumerate(zip(detectors, last_syndrome_measurements)):
+        targets = [measurement_record.get_target_rec(detector.key)] + [
+            stim.target_rec(measurement - measurement_record.num_events)
+            for measurement in measurements
         ]
         readout.append("DETECTOR", targets, (0, 0, kk))
-    detector_record.append({check_id: dd for dd, check_id in enumerate(check_ids)})
+    detector_record.append({detector.key: dd for dd, detector in enumerate(detectors)})
 
     # annotate all observables
     observables = get_observables(code, data_ids)
@@ -531,12 +556,135 @@ def get_logical_bell_prep(
     return as_noiseless_circuit(circuit)
 
 
+class _StabilizerDetector(NamedTuple):
+    """A stabilizer whose value is the product of the most recent outcomes of some checks."""
+
+    key: Hashable  # the key for this detector in a DetectorRecord
+    check_ids: tuple[int, ...]  # the check qubits whose measurement outcomes we multiply
+    stabilizer: galois.FieldArray  # the stabilizer, as a symplectic vector
+
+
+def _get_gauge_layers(
+    code: codes.QuditCode, syndrome_measurement_strategy: SyndromeMeasurementStrategy
+) -> tuple[tuple[int, ...], ...] | None:
+    """Validated gauge measurement layers for a subsystem code, or None for a stabilizer code.
+
+    The layers are computed once so that the circuit and its detectors use the same schedule.
+    """
+    if not code.is_subsystem_code:
+        return None
+    layers = tuple(
+        tuple(sorted(layer)) for layer in syndrome_measurement_strategy.get_gauge_layers(code)
+    )
+    validate_gauge_layers(code, layers)
+    return layers
+
+
+def _get_stabilizer_detectors(
+    code: codes.QuditCode,
+    qubit_ids: QubitIDs,
+    layers: Sequence[Sequence[int]] | None,
+    basis: PauliXZ | None = None,
+) -> list[_StabilizerDetector]:
+    """Identify the stabilizers to annotate with detectors in a memory experiment.
+
+    For a stabilizer code, every check is a stabilizer, and the detector for a check is keyed by its
+    check qubit.  If a basis is provided, only annotate checks of that type.
+
+    For a subsystem code, a detector tracks a product of checks from one of the given layers of the
+    gauge measurement schedule, such that this product is a stabilizer.  The detector is keyed by
+    the tuple of check qubits in this product.  If a basis is provided, only annotate stabilizers of
+    that type.  This method prefers the stabilizer generators in code.get_stabilizer_ops() (which
+    may, for example, have low weight), and adds other products of checks as necessary to generate
+    all tracked stabilizers.
+
+    Raises:
+        ValueError: If the gauge measurement schedule of a subsystem code does not determine all
+            stabilizers that the memory experiment should track.
+    """
+    if layers is None:
+        detector_check_ids = (
+            qubit_ids.check
+            if basis is None
+            else qubit_ids.checks_x
+            if basis is Pauli.X
+            else qubit_ids.checks_z
+        )
+        check_to_row = {check_id: row for row, check_id in enumerate(qubit_ids.check)}
+        return [
+            _StabilizerDetector(check_id, (check_id,), code.matrix[check_to_row[check_id]])
+            for check_id in detector_check_ids
+        ]
+
+    num_qubits = len(code)
+    gauge_ops = code.matrix.view(code.field)
+
+    def is_tracked(ops: galois.FieldArray) -> npt.NDArray[np.bool_]:
+        """Identify the rows of a symplectic matrix that have the tracked Pauli type."""
+        if basis is None:
+            return np.ones(len(ops), dtype=bool)
+        other_support = ops[:, num_qubits:] if basis is Pauli.X else ops[:, :num_qubits]
+        return ~np.any(other_support, axis=1)
+
+    stabilizer_ops = code.get_stabilizer_ops(symplectic=True)
+    stabilizer_ops = stabilizer_ops[is_tracked(stabilizer_ops)]
+
+    # collect (layer, coefficients, stabilizer) triplets, where the coefficients of checks in a
+    # layer multiply to a stabilizer
+    candidates: list[tuple[Sequence[int], galois.FieldArray, galois.FieldArray]] = []
+    for layer in layers:
+        # row-reduce [checks | identity] to express stabilizers in the span of these checks
+        layer_ops = gauge_ops[list(layer)]
+        identity = code.field.Identity(len(layer))
+        reduced = np.hstack([layer_ops, identity]).view(code.field).row_reduce()
+        reduced = reduced[np.any(reduced[:, : 2 * num_qubits], axis=1)]
+        pivots = math.first_nonzero_cols(reduced[:, : 2 * num_qubits])
+        coefficients = stabilizer_ops[:, pivots] @ reduced[:, 2 * num_qubits :]
+        solved = ~np.any(coefficients @ layer_ops - stabilizer_ops, axis=1)
+        candidates.extend(
+            (layer, coefficients_row, stabilizer)
+            for coefficients_row, stabilizer in zip(coefficients[solved], stabilizer_ops[solved])
+        )
+    for layer in layers:
+        # every product of checks in this layer that commutes with all checks is a stabilizer
+        layer_ops = gauge_ops[list(layer)]
+        commutators = layer_ops @ math.symplectic_conjugate(gauge_ops).T
+        coefficients = commutators.T.null_space()
+        stabilizers = coefficients @ layer_ops
+        tracked = is_tracked(stabilizers)
+        candidates.extend(
+            (layer, coefficients_row, stabilizer)
+            for coefficients_row, stabilizer in zip(coefficients[tracked], stabilizers[tracked])
+        )
+
+    # select a maximal set of independent stabilizers, in order of preference
+    detectors = []
+    if candidates:
+        candidate_stabilizers = code.field([stabilizer for *_, stabilizer in candidates])
+        reduced = candidate_stabilizers.T.row_reduce()
+        independent = math.first_nonzero_cols(reduced[np.any(reduced, axis=1)])
+        for index in independent:
+            layer, coefficients_row, stabilizer = candidates[index]
+            check_ids = tuple(qubit_ids.check[layer[cc]] for cc in np.flatnonzero(coefficients_row))
+            detectors.append(_StabilizerDetector(check_ids, check_ids, stabilizer))
+
+    if len(detectors) != np.linalg.matrix_rank(stabilizer_ops):
+        raise ValueError(
+            "The gauge measurement schedule does not determine all "
+            + ("" if basis is None else f"{basis}-type ")
+            + "stabilizers of the code: products of the checks within single gauge layers must"
+            " generate these stabilizers (see SyndromeMeasurementStrategy.get_gauge_layers)"
+        )
+    return detectors
+
+
 def _get_qec_cycle(
     code: codes.QuditCode,
     num_rounds: int,
     qubit_ids: QubitIDs,
-    check_ids: Collection[int],
+    detectors: Sequence[_StabilizerDetector],
     syndrome_measurement_strategy: SyndromeMeasurementStrategy,
+    layers: Sequence[Sequence[int]] | None = None,
 ) -> tuple[stim.Circuit, MeasurementRecord, DetectorRecord]:
     """Build a circuit of num_rounds noiseless syndrome measurements for a given code.
 
@@ -544,17 +692,26 @@ def _get_qec_cycle(
         code: The code for which we are building a logical QEC cycle.
         num_rounds: The number of syndrome measurement rounds in one logical QEC cycle.
         qubit_ids: A QubitIDs object specifying the index of data and check qubits.
-        check_ids: The check qubits that measure stabilizers to annotate with detectors.  Must be a
-            subset of qubit_ids.check (though this requirement is not verified).
+        detectors: The stabilizers to annotate with detectors, each of which is the product of the
+            most recent measurement outcomes of some check qubits in qubit_ids.check.
         syndrome_measurement_strategy: The syndrome measurement strategy that defines how each round
             of QEC measures the parity checks of the code.
+        layers: The gauge measurement layers of a subsystem code, or None for a stabilizer code.
 
     Returns:
-        stim.Circuit: The noiseless circuit of num_rounds syndorme measurements.
+        stim.Circuit: The noiseless circuit of num_rounds syndrome measurements.
         MeasurementRecord: The record of all measurements in the constructed circuit.
         DetectorRecord: The record of all detectors in the constructed circuit.
     """
-    one_round, round_measurement_record = syndrome_measurement_strategy.get_circuit(code, qubit_ids)
+    if layers is not None:
+        one_round, round_measurement_record = syndrome_measurement_strategy.get_subsystem_circuit(
+            code, qubit_ids, layers=layers
+        )
+    else:
+        one_round, round_measurement_record = syndrome_measurement_strategy.get_circuit(
+            code, qubit_ids
+        )
+    round_detector_record = {detector.key: dd for dd, detector in enumerate(detectors)}
 
     circuit = stim.Circuit()
     measurement_record = MeasurementRecord()
@@ -565,13 +722,10 @@ def _get_qec_cycle(
     measurement_record.append(round_measurement_record)
     measurement_count = circuit.num_measurements
     measurement_record.validate_num_measurements(measurement_count)
-    for kk, check_id in enumerate(check_ids):
-        circuit.append(
-            "DETECTOR",
-            [measurement_record.get_target_rec(check_id)],
-            (0, 0, kk),
-        )
-    detector_record.append({check_id: dd for dd, check_id in enumerate(check_ids)})
+    for kk, detector in enumerate(detectors):
+        targets = [measurement_record.get_target_rec(check_id) for check_id in detector.check_ids]
+        circuit.append("DETECTOR", targets, (0, 0, kk))
+    detector_record.append(round_detector_record)
 
     # apply following repeated rounds of QEC and detectors
     if num_rounds > 1:
@@ -580,18 +734,17 @@ def _get_qec_cycle(
         measurement_count += repeat_circuit.num_measurements
         measurement_record.validate_num_measurements(measurement_count)
         repeat_circuit.append("SHIFT_COORDS", [], (1, 0, 0))
-        for kk, check_id in enumerate(check_ids):
+        for kk, detector in enumerate(detectors):
             targets = [
-                measurement_record.get_target_rec(check_id, -1),
-                measurement_record.get_target_rec(check_id, -2),
+                measurement_record.get_target_rec(check_id, index)
+                for index in (-1, -2)
+                for check_id in detector.check_ids
             ]
             repeat_circuit.append("DETECTOR", targets, (0, 0, kk))
         circuit.append(stim.CircuitRepeatBlock(num_rounds - 1, repeat_circuit))
 
         # update the measurement and detector records to account for repetitions
         measurement_record.append(round_measurement_record, repeat=num_rounds - 2)
-        detector_record.append(
-            {check_id: dd for dd, check_id in enumerate(check_ids)}, repeat=num_rounds - 1
-        )
+        detector_record.append(round_detector_record, repeat=num_rounds - 1)
 
     return circuit, measurement_record, detector_record
