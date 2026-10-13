@@ -40,6 +40,7 @@ from .memory import (
     get_memory_experiment_parts,
     get_observables,
     get_qubit_coordinates,
+    validate_gauge_layers,
     validate_syndrome_qubit_ids,
 )
 from .noise_model import (
@@ -108,6 +109,7 @@ __all__ = [
     "remap_qubit_target",
     "restrict_tableau",
     "restrict_to_qubits",
+    "validate_gauge_layers",
     "validate_syndrome_qubit_ids",
     "with_remapped_qubits",
 ]

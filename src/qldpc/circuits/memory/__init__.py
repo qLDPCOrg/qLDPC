@@ -13,6 +13,7 @@ from .syndrome_measurement import (
     EdgeColoring,
     EdgeColoringXZ,
     SyndromeMeasurementStrategy,
+    validate_gauge_layers,
     validate_syndrome_qubit_ids,
 )
 
@@ -27,5 +28,6 @@ __all__ = [
     "get_memory_experiment_parts",
     "get_observables",
     "get_qubit_coordinates",
+    "validate_gauge_layers",
     "validate_syndrome_qubit_ids",
 ]
