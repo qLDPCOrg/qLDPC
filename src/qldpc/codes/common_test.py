@@ -1526,7 +1526,9 @@ def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
     """Distance bounds and logical-operator reduction handle erasure and give up on failure."""
     # an erasure bit is stripped from decoded errors, and an erased decoding is retried
     erasing_decoder = decoders.lookup(max_weight=3, add_erasure_bit=True)
-    classical_code = codes.ClassicalCode(codes.HammingCode(3).matrix)  # distance not yet known
+    # a [5, 2, 3] shortened Hamming code (distance not yet known), for which one in three random
+    # decoding problems has a solution of weight at most 3
+    classical_code = codes.ClassicalCode(codes.HammingCode(3).matrix[:, 2:])
     assert classical_code.get_distance_bound(decoder=erasing_decoder) == 3
     code = codes.SurfaceCode(3)
     code.forget_distance()
