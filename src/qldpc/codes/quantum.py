@@ -1258,10 +1258,6 @@ class BBCode(QCCode):
 # pair-partition code
 
 
-_PairPartitionArray = Sequence[Sequence[Sequence[Sequence[int]]]]
-_Matchings = tuple[tuple[tuple[tuple[int, int], ...], ...], ...]
-
-
 class PairPartitionCode(CSSCode):
     """Pair-partition code: a quasi-cyclic CSS code built from circulant permutation matrices.
 
@@ -1282,15 +1278,13 @@ class PairPartitionCode(CSSCode):
     two orderings differ only by a permutation of qubits.)
 
     In other words, the parity check matrices are CPM lifts of the all-ones ``J x L`` protograph, as
-    in the standard construction of quasi-cyclic LDPC codes.  Unlike in a two-block group-algebra
-    code (see TBCode), the X-type and Z-type exponent arrays are not related by a transpose, so CSS
-    orthogonality must be arranged separately.  The block of ``matrix_x @ matrix_z.T`` indexed by
-    X-block-row ``i`` and Z-block-row ``j`` is ``sum_l C(e_{il} - d_{jl})``, which vanishes over
-    ``F_2`` if the ``L`` block columns can be partitioned into pairs ``{u, v}`` that satisfy the
-    paired-difference equation ``d_{j,u} - e_{i,u} = d_{j,v} - e_{i,v}`` (mod ``P``), so that the
-    two CPMs coincide and cancel.  A ``J x J`` array ``M`` of such pair partitions, one per pair of
-    block rows ``(i, j)``, is called a pair-partition array.  To build a code from a pair-partition
-    array (rather than from exponents worked out by hand), see
+    in the standard construction of quasi-cyclic LDPC codes.  The block of ``matrix_x @ matrix_z.T``
+    indexed by X-block-row ``i`` and Z-block-row ``j`` is ``sum_l C(e_{il} - d_{jl})``, which
+    vanishes over ``F_2`` if the ``L`` block columns can be partitioned into pairs ``{u, v}`` that
+    satisfy the paired-difference equation ``d_{j,u} - e_{i,u} = d_{j,v} - e_{i,v}`` (mod ``P``),
+    so that the two CPMs coincide and cancel.  A ``J x J`` array ``M`` of such pair partitions, one
+    per pair of block rows ``(i, j)``, is called a pair-partition array.  To build a code from a
+    pair-partition array (rather than from exponents worked out by hand), see
     PairPartitionCode.from_pair_partition_array.
 
     The paired-difference equations and the code are invariant under the relabelings
@@ -1329,7 +1323,7 @@ class PairPartitionCode(CSSCode):
     exponents_x: npt.NDArray[np.int_]
     exponents_z: npt.NDArray[np.int_]
     lift_size: int
-    matchings: _Matchings | None
+    matchings: tuple[tuple[tuple[tuple[int, int], ...], ...], ...] | None
 
     ring_array_x: abstract.RingArray
     ring_array_z: abstract.RingArray
@@ -1340,7 +1334,7 @@ class PairPartitionCode(CSSCode):
         exponents_z: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         lift_size: int,
         *,
-        matchings: _PairPartitionArray | None = None,
+        matchings: Sequence[Sequence[Sequence[Sequence[int]]]] | None = None,
         promise_equal_distance_xz: bool = False,
         skip_validation: bool = False,
     ) -> None:
@@ -1444,8 +1438,10 @@ class PairPartitionCode(CSSCode):
 
     @staticmethod
     def _validate_pair_partition_array(
-        matchings: _PairPartitionArray, num_rows: int | None = None, num_cols: int | None = None
-    ) -> _Matchings:
+        matchings: Sequence[Sequence[Sequence[Sequence[int]]]],
+        num_rows: int | None = None,
+        num_cols: int | None = None,
+    ) -> tuple[tuple[tuple[tuple[int, int], ...], ...], ...]:
         """Check that a pair-partition array is well-formed, and return it as nested tuples.
 
         If provided, num_rows and num_cols are the expected values of J and L.
@@ -1528,7 +1524,10 @@ class PairPartitionCode(CSSCode):
 
     @staticmethod
     def solve_pair_partition_array(
-        matchings: _PairPartitionArray, lift_size: int, *, fix_gauge: bool = False
+        matchings: Sequence[Sequence[Sequence[Sequence[int]]]],
+        lift_size: int,
+        *,
+        fix_gauge: bool = False,
     ) -> galois.FieldArray:
         """Solve the paired-difference equations induced by a pair-partition array.
 
@@ -1606,7 +1605,7 @@ class PairPartitionCode(CSSCode):
     @classmethod
     def from_pair_partition_array(
         cls,
-        matchings: _PairPartitionArray,
+        matchings: Sequence[Sequence[Sequence[Sequence[int]]]],
         lift_size: int,
         coefficients: Sequence[int] | None = None,
         *,
