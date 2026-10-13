@@ -572,20 +572,13 @@ def _assert_pair_partition_cycle_properties(code: codes.PairPartitionCode) -> No
 
 def test_pair_partition_codes() -> None:
     """Pair-partition CSS codes from circulant permutation matrices."""
-    # the [[276, 98, 14]] code of arXiv:2607.14091, Table I, certified by its pair-partition array
-    code = codes.PairPartitionCode(
-        EXPONENTS_X_276, EXPONENTS_Z_276, lift_size=23, matchings=PAIR_PARTITION_ARRAY_276
-    )
+    # the [[276, 98, 14]] code of arXiv:2607.14091, Table I
+    code = codes.PairPartitionCode(EXPONENTS_X_276, EXPONENTS_Z_276, lift_size=23)
     assert (code.num_qubits, code.dimension) == (276, 98)
     assert not np.any(code.matrix_x @ code.matrix_z.T)
     assert not code.has_4_cycles()
     assert code.is_mixed_distinct()
     _assert_pair_partition_cycle_properties(code)
-
-    # the certificate is optional, and does not change the code
-    code_without_matchings = codes.PairPartitionCode(EXPONENTS_X_276, EXPONENTS_Z_276, lift_size=23)
-    assert code_without_matchings == code
-    assert code_without_matchings.matchings is None
 
     # a [[56, 18, 6]] code with (J, L, P) = (3, 8, 7), which has 4-cycles and is not mixed-distinct
     exponents_x = [[3, 6, 0, 4, 6, 0, 1, 0], [4, 3, 4, 6, 2, 6, 3, 0], [1, 5, 2, 4, 1, 0, 2, 3]]
@@ -609,20 +602,14 @@ def test_pair_partition_code_validation() -> None:
     """Invalid inputs to the PairPartitionCode constructor are rejected."""
     with pytest.raises(ValueError, match="must be positive"):
         codes.PairPartitionCode([[0, 0]], [[0, 0]], lift_size=0)
-    with pytest.raises(ValueError, match="nonempty two-dimensional"):
+    with pytest.raises(ValueError, match="two-dimensional array of integers"):
         codes.PairPartitionCode([0, 0], [0, 0], lift_size=3)  # type:ignore[list-item]
-    with pytest.raises(ValueError, match="integer entries"):
+    with pytest.raises(ValueError, match="two-dimensional array of integers"):
         codes.PairPartitionCode([[0, 0.5]], [[0, 0]], lift_size=3)  # type:ignore[list-item]
     with pytest.raises(ValueError, match="same shape"):
         codes.PairPartitionCode([[0, 0]], [[0, 0], [0, 0]], lift_size=3)
     with pytest.raises(ValueError, match="CSS orthogonality"):
         codes.PairPartitionCode([[0, 0]], [[0, 1]], lift_size=3)
-
-    # a pair-partition array is checked against the exponents
-    with pytest.raises(ValueError, match="paired-difference equation"):
-        codes.PairPartitionCode([[0, 0]], [[0, 1]], lift_size=3, matchings=[[[[0, 1]]]])
-    with pytest.raises(ValueError, match="incompatible"):
-        codes.PairPartitionCode([[0, 0, 0, 0]], [[0, 0, 0, 0]], lift_size=3, matchings=[[[[0, 1]]]])
 
 
 def test_pair_partition_from_array() -> None:
@@ -644,7 +631,6 @@ def test_pair_partition_from_array() -> None:
     # members of the family are CSS-orthogonal, and random members are reproducible
     code = codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size, seed=1)
     assert not np.any(code.matrix_x @ code.matrix_z.T)
-    assert code.matchings is not None and code.matchings[1][0] == ((0, 3), (1, 2))
     assert code == codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size, seed=1)
 
     # cross-check the cycle properties of random members of a sub-family of the published array,
@@ -668,12 +654,11 @@ def test_pair_partition_from_array() -> None:
         codes.PairPartitionCode.solve_pair_partition_array(matchings, lift_size=4)
 
     # the array must be nonempty and square, and each entry must be a perfect matching of range(L)
-    with pytest.raises(ValueError, match="must be nonempty"):
-        codes.PairPartitionCode.solve_pair_partition_array([[[]]], lift_size=5)
-    with pytest.raises(ValueError, match="must be square"):
+    with pytest.raises(ValueError, match="nonempty and square"):
         codes.PairPartitionCode.solve_pair_partition_array([[[[0, 1]]], [[[0, 1]]]], lift_size=5)
-    with pytest.raises(ValueError, match="perfect matching"):
-        codes.PairPartitionCode.solve_pair_partition_array([[[[0, 2]]]], lift_size=5)
+    for bad_matching in [[], [[0, 2]], [[0, 1, 2], [3]]]:
+        with pytest.raises(ValueError, match="perfect matching"):
+            codes.PairPartitionCode.solve_pair_partition_array([[bad_matching]], lift_size=5)
 
 
 def test_pair_partition_from_published_array() -> None:

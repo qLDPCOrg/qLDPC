@@ -1279,12 +1279,13 @@ class PairPartitionCode(CSSCode):
 
     In other words, the parity check matrices are CPM lifts of the all-ones ``J x L`` protograph, as
     in the standard construction of quasi-cyclic LDPC codes.  The block of ``matrix_x @ matrix_z.T``
-    indexed by X-block-row ``i`` and Z-block-row ``j`` is ``sum_l C(e_{il} - d_{jl})``, which
-    vanishes over ``F_2`` if the ``L`` block columns can be partitioned into pairs ``{u, v}`` that
-    satisfy the paired-difference equation ``d_{j,u} - e_{i,u} = d_{j,v} - e_{i,v}`` (mod ``P``),
-    so that the two CPMs coincide and cancel.  A ``J x J`` array ``M`` of such pair partitions, one
-    per pair of block rows ``(i, j)``, is called a pair-partition array.  To build a code from a
-    pair-partition array (rather than from exponents worked out by hand), see
+    indexed by X-block-row ``i`` and Z-block-row ``j`` is ``sum_l C(e_{il} - d_{jl})``.  Distinct
+    CPMs have disjoint supports, so this block vanishes over ``F_2`` if and only if the ``L`` block
+    columns can be partitioned into pairs ``{u, v}`` that satisfy the paired-difference equation
+    ``d_{j,u} - e_{i,u} = d_{j,v} - e_{i,v}`` (mod ``P``), so that the two CPMs in each pair
+    coincide and cancel.  A ``J x J`` array ``M`` of such pair partitions, one per pair of block
+    rows ``(i, j)``, is called a pair-partition array.  To build a code from a pair-partition array
+    (rather than from exponents worked out by hand), see
     PairPartitionCode.from_pair_partition_array.
 
     The paired-difference equations and the code are invariant under the relabelings
@@ -1323,7 +1324,6 @@ class PairPartitionCode(CSSCode):
     exponents_x: npt.NDArray[np.int_]
     exponents_z: npt.NDArray[np.int_]
     lift_size: int
-    matchings: tuple[tuple[tuple[tuple[int, int], ...], ...], ...] | None
 
     ring_array_x: abstract.RingArray
     ring_array_z: abstract.RingArray
@@ -1334,7 +1334,6 @@ class PairPartitionCode(CSSCode):
         exponents_z: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         lift_size: int,
         *,
-        matchings: Sequence[Sequence[Sequence[Sequence[int]]]] | None = None,
         promise_equal_distance_xz: bool = False,
         skip_validation: bool = False,
     ) -> None:
@@ -1345,16 +1344,10 @@ class PairPartitionCode(CSSCode):
             exponents_z: A ``J x L`` array of integer exponents ``d_{jl}`` for the Z-type checks.
             lift_size: The size ``P`` of the circulant permutation matrices; a positive integer.
                 Exponents are stored modulo ``P``.
-            matchings: An optional ``J x J`` pair-partition array certifying CSS orthogonality, in
-                which ``matchings[i][j]`` is a partition of ``range(L)`` into pairs ``(u, v)``
-                satisfying ``d_{j,u} - e_{i,u} = d_{j,v} - e_{i,v}`` (mod ``P``).  If provided, the
-                certificate is always checked and stored as ``self.matchings``; this check is cheap,
-                and replaces the direct check of CSS orthogonality.  Default: None.
             promise_equal_distance_xz: Passed to CSSCode; a promise (which is not verified) that the
                 X-distance and Z-distance of this code are equal.  Default: False.
-            skip_validation: If True, and no matchings are provided, skip checking that
-                ``matrix_x @ matrix_z.T == 0``.  Only use this if the exponents are known to define
-                a valid CSS code.  Default: False.
+            skip_validation: If True, skip checking that ``matrix_x @ matrix_z.T == 0``.  Only use
+                this if the exponents are known to define a valid CSS code.  Default: False.
         """
         if lift_size < 1:
             raise ValueError(f"The lift size must be positive (got {lift_size})")
@@ -1366,18 +1359,6 @@ class PairPartitionCode(CSSCode):
                 "The X-type and Z-type exponent arrays of a PairPartitionCode must have the same"
                 f" shape (got shapes {self.exponents_x.shape} and {self.exponents_z.shape})"
             )
-
-        self.matchings = None
-        if matchings is not None:
-            self.matchings = self._validate_pair_partition_array(matchings)
-            num_rows, num_cols = len(self.matchings), 2 * len(self.matchings[0][0])
-            if (num_rows, num_cols) != self.exponents_x.shape:
-                raise ValueError(
-                    f"A {num_rows} x {num_rows} pair-partition array of matchings of"
-                    f" range({num_cols}) is incompatible with exponent arrays of shape"
-                    f" {self.exponents_x.shape}"
-                )
-            self._check_paired_differences()
 
         # build the monomial RingArrays over F_2[Z_P] whose lifts are the CSS parity check matrices
         ring = abstract.GroupRing(abstract.CyclicGroup(self.lift_size))
@@ -1391,7 +1372,7 @@ class PairPartitionCode(CSSCode):
         matrix_x = self.ring_array_x.lift()
         matrix_z = self.ring_array_z.lift()
 
-        if self.matchings is None and not skip_validation and np.any(matrix_x @ matrix_z.T):
+        if not skip_validation and np.any(matrix_x @ matrix_z.T):
             raise ValueError(
                 "The exponent arrays provided for this PairPartitionCode violate CSS orthogonality"
                 " (matrix_x @ matrix_z.T != 0); see the pair-partition constraints in"
@@ -1417,57 +1398,14 @@ class PairPartitionCode(CSSCode):
     def _validate_exponents(
         exponents: npt.NDArray[np.int_] | Sequence[Sequence[int]], pauli: str
     ) -> npt.NDArray[np.int_]:
-        """Check that an exponent array is a nonempty 2D array of integers, and return it."""
+        """Check that an exponent array is a 2D array of integers, and return it."""
         array = np.asarray(exponents)
-        if array.ndim != 2 or array.size == 0:
+        if array.ndim != 2 or not np.issubdtype(array.dtype, np.integer):
             raise ValueError(
-                f"The {pauli}-type exponent array of a PairPartitionCode must be a nonempty"
-                f" two-dimensional array (got shape {array.shape})"
-            )
-        if not np.issubdtype(array.dtype, np.integer):
-            raise ValueError(
-                f"The {pauli}-type exponent array of a PairPartitionCode must have integer entries"
+                f"The {pauli}-type exponent array of a PairPartitionCode must be a two-dimensional"
+                f" array of integers (got shape {array.shape} and dtype {array.dtype})"
             )
         return array.astype(int)
-
-    @staticmethod
-    def _validate_pair_partition_array(
-        matchings: Sequence[Sequence[Sequence[Sequence[int]]]],
-    ) -> tuple[tuple[tuple[tuple[int, int], ...], ...], ...]:
-        """Check that a pair-partition array is well-formed, and return it as nested tuples."""
-        num_rows = len(matchings)
-        if num_rows == 0 or len(matchings[0]) == 0 or len(matchings[0][0]) == 0:
-            raise ValueError("A pair-partition array and its matchings must be nonempty")
-        if any(len(matching_row) != num_rows for matching_row in matchings):
-            raise ValueError(f"A pair-partition array must be square (got {num_rows} rows)")
-        num_cols = 2 * len(matchings[0][0])
-
-        for i, matching_row in enumerate(matchings):
-            for j, matching in enumerate(matching_row):
-                if any(len(pair) != 2 for pair in matching) or sorted(
-                    col for pair in matching for col in pair
-                ) != list(range(num_cols)):
-                    raise ValueError(
-                        f"matchings[{i}][{j}] is not a perfect matching of range({num_cols}) into"
-                        " pairs"
-                    )
-        return tuple(
-            tuple(tuple((int(uu), int(vv)) for uu, vv in matching) for matching in matching_row)
-            for matching_row in matchings
-        )
-
-    def _check_paired_differences(self) -> None:
-        """Check that the exponents satisfy the paired-difference equations of self.matchings."""
-        assert self.matchings is not None
-        for i, matching_row in enumerate(self.matchings):
-            for j, matching in enumerate(matching_row):
-                diffs = (self.exponents_z[j] - self.exponents_x[i]) % self.lift_size
-                for uu, vv in matching:
-                    if diffs[uu] != diffs[vv]:
-                        raise ValueError(
-                            "The exponent arrays provided for this PairPartitionCode violate the"
-                            f" paired-difference equation for pair {(uu, vv)} of matchings[{i}][{j}]"
-                        )
 
     def has_4_cycles(self) -> bool:
         """Does the Tanner graph of matrix_x or matrix_z contain a 4-cycle?
@@ -1546,40 +1484,37 @@ class PairPartitionCode(CSSCode):
             raise ValueError(
                 f"The lift size of a pair-partition array must be prime (got {lift_size})"
             )
-        valid_matchings = PairPartitionCode._validate_pair_partition_array(matchings)
-        num_rows = len(valid_matchings)  # J
-        num_cols = 2 * len(valid_matchings[0][0])  # L = 2 * (number of pairs per matching)
-        num_vars = 2 * num_rows * num_cols
-        field = galois.GF(lift_size)
+        num_rows = len(matchings)  # J
+        if num_rows == 0 or any(len(matching_row) != num_rows for matching_row in matchings):
+            raise ValueError("A pair-partition array must be nonempty and square")
+        num_cols = 2 * len(matchings[0][0])  # L = 2 * (number of pairs per matching)
 
-        def index_x(row: int, col: int) -> int:
-            return row * num_cols + col
-
-        def index_z(row: int, col: int) -> int:
-            return num_rows * num_cols + row * num_cols + col
-
-        # one equation per pair: -e_{i,u} + e_{i,v} + d_{j,u} - d_{j,v} = 0
+        # each pair imposes -e_{i,u} + e_{i,v} + d_{j,u} - d_{j,v} = 0 on the exponents (e, d)
         equations = []
-        for i, matching_row in enumerate(valid_matchings):
+        for i, matching_row in enumerate(matchings):
             for j, matching in enumerate(matching_row):
+                cols = sorted(col for pair in matching for col in pair)
+                if (
+                    num_cols == 0
+                    or any(len(pair) != 2 for pair in matching)
+                    or cols != list(range(num_cols))
+                ):
+                    raise ValueError(
+                        f"matchings[{i}][{j}] is not a perfect matching of range({num_cols}) into"
+                        " pairs"
+                    )
                 for uu, vv in matching:
-                    equation = [0] * num_vars
-                    equation[index_x(i, uu)] -= 1
-                    equation[index_x(i, vv)] += 1
-                    equation[index_z(j, uu)] += 1
-                    equation[index_z(j, vv)] -= 1
-                    equations.append(equation)
+                    equation = np.zeros((2, num_rows, num_cols), dtype=int)
+                    equation[0, i, [uu, vv]] = -1, 1
+                    equation[1, j, [uu, vv]] = 1, -1
+                    equations.append(equation.ravel())
 
         if fix_gauge:
-            fixed_vars = {index_x(0, col) for col in range(num_cols)}
-            fixed_vars |= {index_x(row, 0) for row in range(num_rows)}
-            fixed_vars |= {index_z(row, 0) for row in range(num_rows)}
-            for var in sorted(fixed_vars):
-                equation = [0] * num_vars
-                equation[var] = 1
-                equations.append(equation)
+            fixed = np.zeros((2, num_rows, num_cols), dtype=bool)
+            fixed[0, 0, :] = fixed[:, :, 0] = True
+            equations.extend(np.eye(fixed.size, dtype=int)[fixed.ravel()])
 
-        return field(np.array(equations) % lift_size).null_space()
+        return galois.GF(lift_size)(np.array(equations) % lift_size).null_space()
 
     @classmethod
     def from_pair_partition_array(
@@ -1592,7 +1527,6 @@ class PairPartitionCode(CSSCode):
         require_no_4_cycles: bool = False,
         require_mixed_distinct: bool = False,
         max_attempts: int = 1000,
-        promise_equal_distance_xz: bool = False,
         seed: int | np.random.Generator | None = None,
     ) -> PairPartitionCode:
         """Construct a pair-partition code from a pair-partition array.
@@ -1602,8 +1536,7 @@ class PairPartitionCode(CSSCode):
         The member is the ``F_P``-linear combination of the basis returned by
         solve_pair_partition_array given by ``coefficients``, or, if ``coefficients`` is None, a
         uniformly random member of the family.  The resulting exponents satisfy the
-        paired-difference equations by construction, so the code is CSS-orthogonal.  The
-        pair-partition array is stored as ``code.matchings``.
+        paired-difference equations by construction, so the code is CSS-orthogonal.
 
         Note that a pair-partition array fixes CSS orthogonality but not code quality: the girth,
         dimension, and distance depend on which member of the family is chosen.  When choosing a
@@ -1625,7 +1558,6 @@ class PairPartitionCode(CSSCode):
                 False.
             max_attempts: The maximum number of random members to try before giving up on the
                 requirements above.  Default: 1000.
-            promise_equal_distance_xz: Passed to PairPartitionCode.  Default: False.
             seed: A seed or random number generator for choosing a random member.  Default: None.
 
         Raises:
@@ -1652,13 +1584,7 @@ class PairPartitionCode(CSSCode):
                 combination = field(rng.integers(lift_size, size=len(basis)))
             exponents = np.array(combination @ basis, dtype=int)
             exponents_x, exponents_z = exponents.reshape(2, num_rows, num_cols)
-            code = cls(
-                exponents_x,
-                exponents_z,
-                lift_size,
-                matchings=matchings,
-                promise_equal_distance_xz=promise_equal_distance_xz,
-            )
+            code = cls(exponents_x, exponents_z, lift_size)
             if (not require_no_4_cycles or not code.has_4_cycles()) and (
                 not require_mixed_distinct or code.is_mixed_distinct()
             ):
