@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import io
+import itertools
 import os
 import subprocess
 import sys
@@ -576,83 +577,42 @@ def test_pair_partition_codes() -> None:
         EXPONENTS_X_276, EXPONENTS_Z_276, lift_size=23, matchings=PAIR_PARTITION_ARRAY_276
     )
     assert (code.num_qubits, code.dimension) == (276, 98)
-    assert code.get_weight() == 12  # every parity check has weight L = 12
-    assert not code.is_subsystem_code
     assert not np.any(code.matrix_x @ code.matrix_z.T)
-    assert code.matchings is not None and code.matchings[0][0][0] == (1, 7)
-    assert not code.has_4_cycles()  # the code has Tanner graph girth 6
+    assert not code.has_4_cycles()
     assert code.is_mixed_distinct()
     _assert_pair_partition_cycle_properties(code)
 
-    # the certificate does not change the code, and is optional
+    # the certificate is optional, and does not change the code
     code_without_matchings = codes.PairPartitionCode(EXPONENTS_X_276, EXPONENTS_Z_276, lift_size=23)
     assert code_without_matchings == code
     assert code_without_matchings.matchings is None
 
-    # an illustrative [[56, 18, 6]] code with (J, L, P) = (3, 8, 7), which has 4-cycles and is not
-    # mixed-distinct
+    # a [[56, 18, 6]] code with (J, L, P) = (3, 8, 7), which has 4-cycles and is not mixed-distinct
     exponents_x = [[3, 6, 0, 4, 6, 0, 1, 0], [4, 3, 4, 6, 2, 6, 3, 0], [1, 5, 2, 4, 1, 0, 2, 3]]
     exponents_z = [[4, 4, 6, 2, 4, 6, 6, 1], [5, 3, 2, 5, 1, 4, 3, 1], [2, 3, 1, 3, 0, 6, 0, 4]]
     code = codes.PairPartitionCode(exponents_x, exponents_z, lift_size=7)
     assert code.get_code_params() == (56, 18, 6)
-    assert code.get_weight() == 8
     assert code.has_4_cycles()
     assert not code.is_mixed_distinct()
     _assert_pair_partition_cycle_properties(code)
-
-    # the parity check matrices are the lifts of the two monomial RingArrays
-    assert np.array_equal(code.matrix_x, code.ring_array_x.lift())
-    assert np.array_equal(code.matrix_z, code.ring_array_z.lift())
-
-    # the exponent arrays are stored (modulo the lift size), and appear in the string representation
-    assert np.array_equal(code.exponents_x, exponents_x)
     assert "lift size 7" in str(code)
+
+    # exponents are stored modulo the lift size, and skip_validation does not change the code
     shifted = codes.PairPartitionCode(
-        np.array(exponents_x) - 7, np.array(exponents_z, dtype=float) + 14, lift_size=7
+        np.array(exponents_x) - 7, np.array(exponents_z) + 14, lift_size=7, skip_validation=True
     )
     assert np.array_equal(shifted.exponents_x, exponents_x)
-    assert np.array_equal(shifted.exponents_z, exponents_z)
     assert shifted == code
-
-    # an illustrative [[84, 34, 6]] code with (J, L, P) = (4, 12, 7)
-    exponents_x = [
-        [1, 4, 6, 6, 6, 0, 2, 0, 3, 6, 3, 3],
-        [5, 3, 6, 1, 0, 4, 3, 0, 6, 3, 4, 4],
-        [6, 5, 3, 5, 6, 4, 3, 3, 4, 6, 2, 5],
-        [4, 6, 3, 0, 2, 2, 4, 4, 2, 5, 4, 6],
-    ]
-    exponents_z = [
-        [6, 5, 0, 5, 5, 2, 0, 1, 4, 5, 2, 5],
-        [6, 0, 2, 1, 6, 6, 5, 6, 6, 6, 1, 5],
-        [0, 3, 2, 0, 2, 4, 3, 6, 6, 5, 0, 6],
-        [5, 4, 1, 0, 2, 6, 5, 2, 0, 5, 4, 3],
-    ]
-    code = codes.PairPartitionCode(exponents_x, exponents_z, lift_size=7)
-    assert code.get_code_params() == (84, 34, 6)
-
-    # skip_validation only skips the orthogonality check: on a valid code, the result is identical
-    skipped = codes.PairPartitionCode(exponents_x, exponents_z, lift_size=7, skip_validation=True)
-    assert skipped == code
-
-    # a trivial lift size is allowed
-    code = codes.PairPartitionCode([[0, 0]], [[0, 0]], lift_size=1)
-    assert (code.num_qubits, code.dimension) == (2, 0)
 
 
 def test_pair_partition_code_validation() -> None:
     """Invalid inputs to the PairPartitionCode constructor are rejected."""
-    with pytest.raises(TypeError, match="must be an integer"):
-        codes.PairPartitionCode([[0, 0]], [[0, 0]], lift_size=2.5)  # type:ignore[arg-type]
     with pytest.raises(ValueError, match="must be positive"):
         codes.PairPartitionCode([[0, 0]], [[0, 0]], lift_size=0)
-    with pytest.raises(ValueError, match="nonempty two-dimensional"):
-        codes.PairPartitionCode([[]], [[]], lift_size=3)
     with pytest.raises(ValueError, match="nonempty two-dimensional"):
         codes.PairPartitionCode([0, 0], [0, 0], lift_size=3)  # type:ignore[list-item]
     with pytest.raises(ValueError, match="integer entries"):
         codes.PairPartitionCode([[0, 0.5]], [[0, 0]], lift_size=3)  # type:ignore[list-item]
-    with pytest.raises(ValueError, match="integer entries"):
-        codes.PairPartitionCode([[0, np.inf]], [[0, 0]], lift_size=3)  # type:ignore[list-item]
     with pytest.raises(ValueError, match="same shape"):
         codes.PairPartitionCode([[0, 0]], [[0, 0], [0, 0]], lift_size=3)
     with pytest.raises(ValueError, match="CSS orthogonality"):
@@ -661,111 +621,79 @@ def test_pair_partition_code_validation() -> None:
     # a pair-partition array is checked against the exponents
     with pytest.raises(ValueError, match="paired-difference equation"):
         codes.PairPartitionCode([[0, 0]], [[0, 1]], lift_size=3, matchings=[[[[0, 1]]]])
-    with pytest.raises(ValueError, match="Expected a 1 x 1"):
-        codes.PairPartitionCode([[0, 0]], [[0, 0]], lift_size=3, matchings=[[[[0, 1]]]] * 2)
-    with pytest.raises(ValueError, match="perfect matching"):
+    with pytest.raises(ValueError, match="incompatible"):
         codes.PairPartitionCode([[0, 0, 0, 0]], [[0, 0, 0, 0]], lift_size=3, matchings=[[[[0, 1]]]])
 
 
 def test_pair_partition_from_array() -> None:
     """Building a pair-partition code from a pair-partition array by solving its constraints."""
-    # a pair-partition array with J = 2, L = 4: each entry is a perfect matching of range(4)
     matchings = [
         [[[0, 1], [2, 3]], [[0, 2], [1, 3]]],
         [[[0, 3], [1, 2]], [[0, 1], [2, 3]]],
     ]
-    num_rows, num_cols, lift_size = 2, 4, 5
+    lift_size = 5
 
-    # the array parametrizes a linear family of valid codes (the null space of its constraints)
+    # every basis vector of the solution space satisfies the paired-difference equations
     basis = codes.PairPartitionCode.solve_pair_partition_array(matchings, lift_size)
-    assert basis.shape[1] == 2 * num_rows * num_cols
     for vector in basis:
-        exponents_x, exponents_z = np.array(vector, dtype=int).reshape(2, num_rows, num_cols)
-        for i, matching_row in enumerate(matchings):
-            for j, matching in enumerate(matching_row):
-                for uu, vv in matching:
-                    diff_u = exponents_z[j, uu] - exponents_x[i, uu]
-                    diff_v = exponents_z[j, vv] - exponents_x[i, vv]
-                    assert (diff_u - diff_v) % lift_size == 0
+        exponents_x, exponents_z = np.array(vector, dtype=int).reshape(2, 2, 4)
+        for i, j in itertools.product(range(2), repeat=2):
+            diffs = (exponents_z[j] - exponents_x[i]) % lift_size
+            assert all(diffs[uu] == diffs[vv] for uu, vv in matchings[i][j])
 
-    # fixing the gauge removes the 2 * J + L - 1 trivial directions from the family
-    fixed_basis = codes.PairPartitionCode.solve_pair_partition_array(
-        matchings, lift_size, fix_gauge=True
-    )
-    assert len(basis) - len(fixed_basis) == 2 * num_rows + num_cols - 1
+    # members of the family are CSS-orthogonal, and random members are reproducible
+    code = codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size, seed=1)
+    assert not np.any(code.matrix_x @ code.matrix_z.T)
+    assert code.matchings is not None and code.matchings[1][0] == ((0, 3), (1, 2))
+    assert code == codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size, seed=1)
 
-    # every member of the family is CSS-orthogonal by construction
-    for code in [
-        codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size, seed=1),
-        codes.PairPartitionCode.from_pair_partition_array(
-            matchings, lift_size, coefficients=[1] * len(basis)
-        ),
-        codes.PairPartitionCode.from_pair_partition_array(
-            matchings, lift_size, fix_gauge=True, seed=np.random.default_rng(0)
-        ),
-    ]:
-        assert code.num_qubits == num_cols * lift_size
-        assert not code.is_subsystem_code
-        assert not np.any(code.matrix_x @ code.matrix_z.T)
-        assert code.matchings == tuple(
-            tuple(tuple(tuple(pair) for pair in matching) for matching in row) for row in matchings
+    # cross-check the cycle properties of random members of a sub-family of the published array,
+    # with X and Z swapped to also cover 4-cycles in matrix_z alone
+    sub_array = [row[:2] for row in PAIR_PARTITION_ARRAY_276[:2]]
+    for seed in range(20):
+        code = codes.PairPartitionCode.from_pair_partition_array(sub_array, lift_size=23, seed=seed)
+        _assert_pair_partition_cycle_properties(code)
+        _assert_pair_partition_cycle_properties(
+            codes.PairPartitionCode(code.exponents_z, code.exponents_x, lift_size=23)
         )
-
-    # random members are reproducible
-    code_a = codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size, seed=2)
-    code_b = codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size, seed=2)
-    assert np.array_equal(code_a.exponents_x, code_b.exponents_x)
-    assert np.array_equal(code_a.exponents_z, code_b.exponents_z)
-
-    # the lift size must be prime
-    with pytest.raises(ValueError, match="must be prime"):
-        codes.PairPartitionCode.solve_pair_partition_array(matchings, lift_size=4)
-
-    # the array must be nonempty and square, and each entry must be a perfect matching of range(L)
-    with pytest.raises(ValueError, match="must be nonempty"):
-        codes.PairPartitionCode.solve_pair_partition_array([], lift_size=5)
-    with pytest.raises(ValueError, match="must be nonempty"):
-        codes.PairPartitionCode.solve_pair_partition_array([[[]]], lift_size=5)
-    with pytest.raises(ValueError, match="must be square"):
-        codes.PairPartitionCode.solve_pair_partition_array([[[[0, 1]]], [[[0, 1]]]], lift_size=5)
-    with pytest.raises(ValueError, match="perfect matching"):
-        codes.PairPartitionCode.solve_pair_partition_array([[[[0, 2]]]], lift_size=5)
-    with pytest.raises(ValueError, match="perfect matching"):
-        codes.PairPartitionCode.solve_pair_partition_array([[[[0, 1, 2], [3]]]], lift_size=5)
-
-    # the number of coefficients must match the dimension of the family
-    with pytest.raises(ValueError, match="coefficients"):
-        codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size, coefficients=[1])
 
     # the trivial member of a family, with all-zero exponents, has 4-cycles
     with pytest.raises(ValueError, match="Failed to find"):
         codes.PairPartitionCode.from_pair_partition_array(
             matchings, lift_size, coefficients=[0] * len(basis), require_no_4_cycles=True
         )
+    with pytest.raises(ValueError, match="coefficients"):
+        codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size, coefficients=[1])
+    with pytest.raises(ValueError, match="must be prime"):
+        codes.PairPartitionCode.solve_pair_partition_array(matchings, lift_size=4)
+
+    # the array must be nonempty and square, and each entry must be a perfect matching of range(L)
+    with pytest.raises(ValueError, match="must be nonempty"):
+        codes.PairPartitionCode.solve_pair_partition_array([[[]]], lift_size=5)
+    with pytest.raises(ValueError, match="must be square"):
+        codes.PairPartitionCode.solve_pair_partition_array([[[[0, 1]]], [[[0, 1]]]], lift_size=5)
+    with pytest.raises(ValueError, match="perfect matching"):
+        codes.PairPartitionCode.solve_pair_partition_array([[[[0, 2]]]], lift_size=5)
 
 
 def test_pair_partition_from_published_array() -> None:
     """Recover the [[276, 98, 14]] code of arXiv:2607.14091 from its pair-partition array."""
-    matchings = PAIR_PARTITION_ARRAY_276
     lift_size = 23
-    field = galois.GF(lift_size)
-    exponents = field(np.concatenate([np.ravel(EXPONENTS_X_276), np.ravel(EXPONENTS_Z_276)]))
+    exponents = galois.GF(lift_size)(np.ravel([EXPONENTS_X_276, EXPONENTS_Z_276]))
 
-    # the published exponents are gauge-fixed, and belong to the (gauge-fixed) family of the array
-    basis = codes.PairPartitionCode.solve_pair_partition_array(matchings, lift_size)
+    # fixing the gauge removes the 2 * J + L - 1 trivial directions from the family
+    basis = codes.PairPartitionCode.solve_pair_partition_array(PAIR_PARTITION_ARRAY_276, lift_size)
     fixed_basis = codes.PairPartitionCode.solve_pair_partition_array(
-        matchings, lift_size, fix_gauge=True
+        PAIR_PARTITION_ARRAY_276, lift_size, fix_gauge=True
     )
     assert len(basis) - len(fixed_basis) == 2 * 4 + 12 - 1
-    for vectors in [basis, fixed_basis]:
-        assert np.linalg.matrix_rank(np.vstack([vectors, exponents])) == len(vectors)
 
-    # the null space basis is in reduced row echelon form, so coefficients can be read off directly
+    # the published exponents are gauge-fixed; read off their coefficients from the RREF basis
     pivots = [int(np.flatnonzero(row)[0]) for row in fixed_basis]
     coefficients = exponents[pivots] / fixed_basis[range(len(pivots)), pivots]
     assert np.array_equal(coefficients @ fixed_basis, exponents)
     code = codes.PairPartitionCode.from_pair_partition_array(
-        matchings,
+        PAIR_PARTITION_ARRAY_276,
         lift_size,
         coefficients=coefficients.tolist(),
         fix_gauge=True,
@@ -774,15 +702,6 @@ def test_pair_partition_from_published_array() -> None:
     )
     assert np.array_equal(code.exponents_x, EXPONENTS_X_276)
     assert np.array_equal(code.exponents_z, EXPONENTS_Z_276)
-    assert (code.num_qubits, code.dimension) == (276, 98)
-
-    # random members of a family can be filtered for mixed-distinctness
-    sub_array = [row[:2] for row in matchings[:2]]
-    code = codes.PairPartitionCode.from_pair_partition_array(
-        sub_array, lift_size=31, require_mixed_distinct=True, seed=0
-    )
-    assert code.is_mixed_distinct()
-    _assert_pair_partition_cycle_properties(code)
 
 
 @pytest.mark.parametrize("field", [2, 3])

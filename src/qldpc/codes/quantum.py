@@ -1356,9 +1356,11 @@ class PairPartitionCode(CSSCode):
                 ``matrix_x @ matrix_z.T == 0``.  Only use this if the exponents are known to define
                 a valid CSS code.  Default: False.
         """
-        self.lift_size = self._validate_lift_size(lift_size)
-        self.exponents_x = self._validate_exponents(exponents_x, "X") % self.lift_size
-        self.exponents_z = self._validate_exponents(exponents_z, "Z") % self.lift_size
+        if lift_size < 1:
+            raise ValueError(f"The lift size must be positive (got {lift_size})")
+        self.lift_size = lift_size
+        self.exponents_x = self._validate_exponents(exponents_x, "X") % lift_size
+        self.exponents_z = self._validate_exponents(exponents_z, "Z") % lift_size
         if self.exponents_x.shape != self.exponents_z.shape:
             raise ValueError(
                 "The X-type and Z-type exponent arrays of a PairPartitionCode must have the same"
@@ -1367,8 +1369,14 @@ class PairPartitionCode(CSSCode):
 
         self.matchings = None
         if matchings is not None:
-            num_rows, num_cols = self.exponents_x.shape
-            self.matchings = self._validate_pair_partition_array(matchings, num_rows, num_cols)
+            self.matchings = self._validate_pair_partition_array(matchings)
+            num_rows, num_cols = len(self.matchings), 2 * len(self.matchings[0][0])
+            if (num_rows, num_cols) != self.exponents_x.shape:
+                raise ValueError(
+                    f"A {num_rows} x {num_rows} pair-partition array of matchings of"
+                    f" range({num_cols}) is incompatible with exponent arrays of shape"
+                    f" {self.exponents_x.shape}"
+                )
             self._check_paired_differences()
 
         # build the monomial RingArrays over F_2[Z_P] whose lifts are the CSS parity check matrices
@@ -1406,15 +1414,6 @@ class PairPartitionCode(CSSCode):
         return text
 
     @staticmethod
-    def _validate_lift_size(lift_size: int) -> int:
-        """Check that a lift size is a positive integer, and return it as an int."""
-        if isinstance(lift_size, bool) or not isinstance(lift_size, (int, np.integer)):
-            raise TypeError(f"The lift size must be an integer (got {lift_size!r})")
-        if lift_size < 1:
-            raise ValueError(f"The lift size must be positive (got {lift_size})")
-        return int(lift_size)
-
-    @staticmethod
     def _validate_exponents(
         exponents: npt.NDArray[np.int_] | Sequence[Sequence[int]], pauli: str
     ) -> npt.NDArray[np.int_]:
@@ -1425,12 +1424,7 @@ class PairPartitionCode(CSSCode):
                 f"The {pauli}-type exponent array of a PairPartitionCode must be a nonempty"
                 f" two-dimensional array (got shape {array.shape})"
             )
-        is_integral = np.issubdtype(array.dtype, np.integer) or (
-            np.issubdtype(array.dtype, np.floating)
-            and bool(np.all(np.abs(array) < 2**53))  # also excludes inf and nan
-            and np.array_equal(array, np.round(array))
-        )
-        if not is_integral:
+        if not np.issubdtype(array.dtype, np.integer):
             raise ValueError(
                 f"The {pauli}-type exponent array of a PairPartitionCode must have integer entries"
             )
@@ -1439,43 +1433,28 @@ class PairPartitionCode(CSSCode):
     @staticmethod
     def _validate_pair_partition_array(
         matchings: Sequence[Sequence[Sequence[Sequence[int]]]],
-        num_rows: int | None = None,
-        num_cols: int | None = None,
     ) -> tuple[tuple[tuple[tuple[int, int], ...], ...], ...]:
-        """Check that a pair-partition array is well-formed, and return it as nested tuples.
-
-        If provided, num_rows and num_cols are the expected values of J and L.
-        """
-        if len(matchings) == 0:
-            raise ValueError("A pair-partition array must be nonempty")
-        if num_rows is not None and len(matchings) != num_rows:
-            raise ValueError(
-                f"Expected a {num_rows} x {num_rows} pair-partition array (got {len(matchings)}"
-                " rows)"
-            )
+        """Check that a pair-partition array is well-formed, and return it as nested tuples."""
         num_rows = len(matchings)
+        if num_rows == 0 or len(matchings[0]) == 0 or len(matchings[0][0]) == 0:
+            raise ValueError("A pair-partition array and its matchings must be nonempty")
         if any(len(matching_row) != num_rows for matching_row in matchings):
             raise ValueError(f"A pair-partition array must be square (got {num_rows} rows)")
-        if num_cols is None:
-            num_cols = 2 * len(matchings[0][0])
-        if num_cols == 0:
-            raise ValueError("The matchings in a pair-partition array must be nonempty")
+        num_cols = 2 * len(matchings[0][0])
 
-        result = []
         for i, matching_row in enumerate(matchings):
-            result_row = []
             for j, matching in enumerate(matching_row):
-                pairs = tuple(tuple(int(col) for col in pair) for pair in matching)
-                if any(len(pair) != 2 for pair in pairs) or sorted(
-                    col for pair in pairs for col in pair
+                if any(len(pair) != 2 for pair in matching) or sorted(
+                    col for pair in matching for col in pair
                 ) != list(range(num_cols)):
                     raise ValueError(
                         f"matchings[{i}][{j}] is not a perfect matching of range({num_cols}) into"
                         " pairs"
                     )
-                result_row.append(tuple((pair[0], pair[1]) for pair in pairs))
-            result.append(tuple(result_row))
-        return tuple(result)
+        return tuple(
+            tuple(tuple((int(uu), int(vv)) for uu, vv in matching) for matching in matching_row)
+            for matching_row in matchings
+        )
 
     def _check_paired_differences(self) -> None:
         """Check that the exponents satisfy the paired-difference equations of self.matchings."""
@@ -1653,10 +1632,8 @@ class PairPartitionCode(CSSCode):
             ValueError: If the chosen member (or every random member that was tried) violates the
                 requirements above.
         """
-        valid_matchings = cls._validate_pair_partition_array(matchings)
-        num_rows = len(valid_matchings)
-        num_cols = 2 * len(valid_matchings[0][0])
-        basis = cls.solve_pair_partition_array(valid_matchings, lift_size, fix_gauge=fix_gauge)
+        basis = cls.solve_pair_partition_array(matchings, lift_size, fix_gauge=fix_gauge)
+        num_rows, num_cols = len(matchings), 2 * len(matchings[0][0])
         field = galois.GF(lift_size)
 
         if coefficients is not None:
@@ -1666,7 +1643,7 @@ class PairPartitionCode(CSSCode):
                     f" {len(coefficients)}"
                 )
             max_attempts = 1
-        rng = seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
+        rng = np.random.default_rng(seed)
 
         for _ in range(max_attempts):
             if coefficients is not None:
@@ -1679,7 +1656,7 @@ class PairPartitionCode(CSSCode):
                 exponents_x,
                 exponents_z,
                 lift_size,
-                matchings=valid_matchings,
+                matchings=matchings,
                 promise_equal_distance_xz=promise_equal_distance_xz,
             )
             if (not require_no_4_cycles or not code.has_4_cycles()) and (
