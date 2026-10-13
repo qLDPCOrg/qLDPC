@@ -31,6 +31,9 @@ from qldpc.objects import Pauli, PauliXZ
 
 from .gadget import GadgetLayout
 
+####################################################################################################
+# bridges between gadgets
+
 
 @dataclasses.dataclass(frozen=True, eq=False)
 class Bridge:
@@ -52,6 +55,144 @@ class Bridge:
     H_R: np.ndarray  # (w-1, w) canonical rep code parity
     g_l_aug: GadgetLayout  # gadget rebuilt over F_aug^(l)
     g_r_aug: GadgetLayout
+
+
+def build_bridge(
+    g_l: GadgetLayout,
+    g_r: GadgetLayout,
+    *,
+    port_subset_l: tuple[int, ...] | None = None,
+    port_subset_r: tuple[int, ...] | None = None,
+    spanning_tree_root_l: int = 0,
+    spanning_tree_root_r: int = 0,
+    cellulate_max_len: int | None = None,
+) -> Bridge:
+    """Universal-adapter bridge between two gadgets (Swaroop et al. arXiv:2410.03628 §IV).
+
+    gadget notation: V_0^(l) → support^(l); F → incidence; extra_kappa → extra_ancilla.
+
+    Built on the SkipTree basis transform of the same paper (§III).
+
+    Args:
+        g_l: left gadget.
+        g_r: right gadget.  Must share g_l's measurement basis.
+        port_subset_l: indices into ``g_l.support`` to use as ports.  Must be in range and distinct;
+            out-of-range or repeated entries surface as an IndexError.  Defaults to all of it.
+        port_subset_r: indices into ``g_r.support`` to use as ports, same contract as port_subset_l.
+            Defaults to all of it.
+        spanning_tree_root_l: index INTO the left port tuple of the SkipTree root vertex.
+        spanning_tree_root_r: index INTO the right port tuple of the SkipTree root vertex.
+        cellulate_max_len: cap on port-subgraph cycle length, enforced by adding chords, which trade
+            qubits for a sparser gauge.  Defaults to the larger of the two data codes' maximum
+            measured-basis stabilizer row weight, floored at 3: a 3-cycle has no chord, so 3 is the
+            smallest cap every port subgraph can meet.  That default reads the measured basis while
+            the cycles it governs come from the complementary one, so pass the cap explicitly for a
+            code whose two check matrices differ in maximum row weight.
+
+    Returns:
+        A Bridge of width ``min(|ports_l|, |ports_r|)``.
+
+    Raises:
+        ValueError: the two gadgets disagree on basis; the resulting width is < 2; a spanning-tree
+            root is out of range; or an explicitly supplied port subset is longer than the width, so
+            that requested ports would be dropped.
+        RuntimeError: a port-subgraph cycle has no chord available to meet cellulate_max_len, which
+            a cap below 3 forces.
+    """
+    if g_l.basis is not g_r.basis:
+        raise ValueError(
+            f"build_bridge requires g_l.basis == g_r.basis, got {g_l.basis!r} vs {g_r.basis!r}"
+        )
+    basis = g_l.basis
+    if cellulate_max_len is None:
+        cellulate_max_len = max(
+            3,
+            _max_basis_stabilizer_weight(g_l.code, basis),
+            _max_basis_stabilizer_weight(g_r.code, basis),
+        )
+
+    # Step 1: auxiliary graphs
+    G_l_aux, _ = _build_aux_graph_strict(g_l.incidence)
+    G_r_aux, _ = _build_aux_graph_strict(g_r.incidence)
+
+    # Step 2: port subsets + width
+    port_l_all = (
+        tuple(port_subset_l) if port_subset_l is not None else tuple(range(len(g_l.support)))
+    )
+    port_r_all = (
+        tuple(port_subset_r) if port_subset_r is not None else tuple(range(len(g_r.support)))
+    )
+    width = min(len(port_l_all), len(port_r_all))
+    if width < 2:
+        raise ValueError(f"bridge width must be >= 2, got {width}")
+    # Truncating to the narrower side is the intended adapter behaviour when both port tuples are
+    # defaulted — supports of unequal size bridge at their minimum.  A named port that would be
+    # truncated away is a request the caller made and cannot get, so it is an error.
+    for side, subset, ports in (("l", port_subset_l, port_l_all), ("r", port_subset_r, port_r_all)):
+        if subset is not None and len(ports) > width:
+            raise ValueError(
+                f"port_subset_{side} lists {len(ports)} ports but the bridge width is {width}, so "
+                f"{len(ports) - width} requested port(s) would be dropped. Supply port subsets of "
+                f"equal length, or leave both unset to bridge at min(|support_l|, |support_r|)."
+            )
+    port_l = port_l_all[:width]
+    port_r = port_r_all[:width]
+    if not (0 <= spanning_tree_root_l < width):
+        raise ValueError(f"spanning_tree_root_l={spanning_tree_root_l} out of [0, {width})")
+    if not (0 <= spanning_tree_root_r < width):
+        raise ValueError(f"spanning_tree_root_r={spanning_tree_root_r} out of [0, {width})")
+
+    # Step 3: induced-subgraph connectivity augmentation
+    extras_l_conn = _connect_induced_subgraph(G_l_aux, port_l)
+    extras_r_conn = _connect_induced_subgraph(G_r_aux, port_r)
+
+    # Step 4: cellulation
+    extras_l_cell = _cellulate_port_subgraph(G_l_aux, port_l, max_len=cellulate_max_len)
+    extras_r_cell = _cellulate_port_subgraph(G_r_aux, port_r, max_len=cellulate_max_len)
+
+    extras_l_edges = extras_l_conn + extras_l_cell
+    extras_r_edges = extras_r_conn + extras_r_cell
+    extra_ancilla_l = _edges_to_incidence_extra(extras_l_edges, len(g_l.support))
+    extra_ancilla_r = _edges_to_incidence_extra(extras_r_edges, len(g_r.support))
+
+    # Rebuild before SkipTree so its transform uses every boost and bridge ancilla.  The layout
+    # method preserves ancillas that were already present on its input.
+    g_l_aug = g_l.with_added_ancillas(extra_ancilla_l)
+    g_r_aug = g_r.with_added_ancillas(extra_ancilla_r)
+
+    # Step 5: SkipTree on induced port subgraph; embed back into full F_aug rows
+    T_l, label_l = _run_skiptree_on_port_subgraph(
+        G_l_aux,
+        port_l,
+        spanning_tree_root_l,
+        g_l_aug.incidence,
+    )
+    T_r, label_r = _run_skiptree_on_port_subgraph(
+        G_r_aux,
+        port_r,
+        spanning_tree_root_r,
+        g_r_aug.incidence,
+    )
+
+    return Bridge(
+        width=width,
+        basis=basis,
+        port_l=port_l,
+        port_r=port_r,
+        label_l=tuple(label_l),
+        label_r=tuple(label_r),
+        extra_ancilla_l=extra_ancilla_l.astype(np.uint8),
+        extra_ancilla_r=extra_ancilla_r.astype(np.uint8),
+        T_l=T_l,
+        T_r=T_r,
+        H_R=_canonical_H_R(width).astype(np.int_),
+        g_l_aug=g_l_aug,
+        g_r_aug=g_r_aug,
+    )
+
+
+####################################################################################################
+# helper methods
 
 
 def _skip_tree(
@@ -353,137 +494,3 @@ def _max_basis_stabilizer_weight(code: CSSCode, basis: PauliXZ) -> int:
     """Largest row weight of the data code's check matrix in the measured basis."""
     H = code.matrix_x if basis is Pauli.X else code.matrix_z
     return int(np.asarray(H).astype(int).sum(axis=1).max(initial=0))
-
-
-def build_bridge(
-    g_l: GadgetLayout,
-    g_r: GadgetLayout,
-    *,
-    port_subset_l: tuple[int, ...] | None = None,
-    port_subset_r: tuple[int, ...] | None = None,
-    spanning_tree_root_l: int = 0,
-    spanning_tree_root_r: int = 0,
-    cellulate_max_len: int | None = None,
-) -> Bridge:
-    """Universal-adapter bridge between two gadgets (Swaroop et al. arXiv:2410.03628 §IV).
-
-    gadget notation: V_0^(l) → support^(l); F → incidence; extra_kappa → extra_ancilla.
-
-    Built on the SkipTree basis transform of the same paper (§III).
-
-    Args:
-        g_l: left gadget.
-        g_r: right gadget.  Must share g_l's measurement basis.
-        port_subset_l: indices into ``g_l.support`` to use as ports.  Must be in range and distinct;
-            out-of-range or repeated entries surface as an IndexError.  Defaults to all of it.
-        port_subset_r: indices into ``g_r.support`` to use as ports, same contract as port_subset_l.
-            Defaults to all of it.
-        spanning_tree_root_l: index INTO the left port tuple of the SkipTree root vertex.
-        spanning_tree_root_r: index INTO the right port tuple of the SkipTree root vertex.
-        cellulate_max_len: cap on port-subgraph cycle length, enforced by adding chords, which trade
-            qubits for a sparser gauge.  Defaults to the larger of the two data codes' maximum
-            measured-basis stabilizer row weight, floored at 3: a 3-cycle has no chord, so 3 is the
-            smallest cap every port subgraph can meet.  That default reads the measured basis while
-            the cycles it governs come from the complementary one, so pass the cap explicitly for a
-            code whose two check matrices differ in maximum row weight.
-
-    Returns:
-        A Bridge of width ``min(|ports_l|, |ports_r|)``.
-
-    Raises:
-        ValueError: the two gadgets disagree on basis; the resulting width is < 2; a spanning-tree
-            root is out of range; or an explicitly supplied port subset is longer than the width, so
-            that requested ports would be dropped.
-        RuntimeError: a port-subgraph cycle has no chord available to meet cellulate_max_len, which
-            a cap below 3 forces.
-    """
-    if g_l.basis is not g_r.basis:
-        raise ValueError(
-            f"build_bridge requires g_l.basis == g_r.basis, got {g_l.basis!r} vs {g_r.basis!r}"
-        )
-    basis = g_l.basis
-    if cellulate_max_len is None:
-        cellulate_max_len = max(
-            3,
-            _max_basis_stabilizer_weight(g_l.code, basis),
-            _max_basis_stabilizer_weight(g_r.code, basis),
-        )
-
-    # Step 1: auxiliary graphs
-    G_l_aux, _ = _build_aux_graph_strict(g_l.incidence)
-    G_r_aux, _ = _build_aux_graph_strict(g_r.incidence)
-
-    # Step 2: port subsets + width
-    port_l_all = (
-        tuple(port_subset_l) if port_subset_l is not None else tuple(range(len(g_l.support)))
-    )
-    port_r_all = (
-        tuple(port_subset_r) if port_subset_r is not None else tuple(range(len(g_r.support)))
-    )
-    width = min(len(port_l_all), len(port_r_all))
-    if width < 2:
-        raise ValueError(f"bridge width must be >= 2, got {width}")
-    # Truncating to the narrower side is the intended adapter behaviour when both port tuples are
-    # defaulted — supports of unequal size bridge at their minimum.  A named port that would be
-    # truncated away is a request the caller made and cannot get, so it is an error.
-    for side, subset, ports in (("l", port_subset_l, port_l_all), ("r", port_subset_r, port_r_all)):
-        if subset is not None and len(ports) > width:
-            raise ValueError(
-                f"port_subset_{side} lists {len(ports)} ports but the bridge width is {width}, so "
-                f"{len(ports) - width} requested port(s) would be dropped. Supply port subsets of "
-                f"equal length, or leave both unset to bridge at min(|support_l|, |support_r|)."
-            )
-    port_l = port_l_all[:width]
-    port_r = port_r_all[:width]
-    if not (0 <= spanning_tree_root_l < width):
-        raise ValueError(f"spanning_tree_root_l={spanning_tree_root_l} out of [0, {width})")
-    if not (0 <= spanning_tree_root_r < width):
-        raise ValueError(f"spanning_tree_root_r={spanning_tree_root_r} out of [0, {width})")
-
-    # Step 3: induced-subgraph connectivity augmentation
-    extras_l_conn = _connect_induced_subgraph(G_l_aux, port_l)
-    extras_r_conn = _connect_induced_subgraph(G_r_aux, port_r)
-
-    # Step 4: cellulation
-    extras_l_cell = _cellulate_port_subgraph(G_l_aux, port_l, max_len=cellulate_max_len)
-    extras_r_cell = _cellulate_port_subgraph(G_r_aux, port_r, max_len=cellulate_max_len)
-
-    extras_l_edges = extras_l_conn + extras_l_cell
-    extras_r_edges = extras_r_conn + extras_r_cell
-    extra_ancilla_l = _edges_to_incidence_extra(extras_l_edges, len(g_l.support))
-    extra_ancilla_r = _edges_to_incidence_extra(extras_r_edges, len(g_r.support))
-
-    # Rebuild before SkipTree so its transform uses every boost and bridge ancilla.  The layout
-    # method preserves ancillas that were already present on its input.
-    g_l_aug = g_l.with_added_ancillas(extra_ancilla_l)
-    g_r_aug = g_r.with_added_ancillas(extra_ancilla_r)
-
-    # Step 5: SkipTree on induced port subgraph; embed back into full F_aug rows
-    T_l, label_l = _run_skiptree_on_port_subgraph(
-        G_l_aux,
-        port_l,
-        spanning_tree_root_l,
-        g_l_aug.incidence,
-    )
-    T_r, label_r = _run_skiptree_on_port_subgraph(
-        G_r_aux,
-        port_r,
-        spanning_tree_root_r,
-        g_r_aug.incidence,
-    )
-
-    return Bridge(
-        width=width,
-        basis=basis,
-        port_l=port_l,
-        port_r=port_r,
-        label_l=tuple(label_l),
-        label_r=tuple(label_r),
-        extra_ancilla_l=extra_ancilla_l.astype(np.uint8),
-        extra_ancilla_r=extra_ancilla_r.astype(np.uint8),
-        T_l=T_l,
-        T_r=T_r,
-        H_R=_canonical_H_R(width).astype(np.int_),
-        g_l_aug=g_l_aug,
-        g_r_aug=g_r_aug,
-    )

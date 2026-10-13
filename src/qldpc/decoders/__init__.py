@@ -195,7 +195,8 @@ __all__ = [
     "with_erasure_bits",
 ]
 
-# Deprecated compatibility aliases
+####################################################################################################
+# deprecated compatibility aliases
 
 # Deprecated names remain importable (including by star imports, since they are listed in __all__),
 # and resolve at runtime through a module-level __getattr__ (PEP 562) that warns when accessed.

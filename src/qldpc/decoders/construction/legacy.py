@@ -46,7 +46,10 @@ _InputT = TypeVar("_InputT", ErrorDecoderInput, DecoderInput)
 _DecoderT = TypeVar("_DecoderT")
 
 
-# Legacy keyword-based compatibility
+####################################################################################################
+# legacy keyword-based compatibility
+
+
 def _call_with_flat_backend_options(
     builder: Callable[..., _DecoderT], pcm_or_dem: PcmOrDem, /, **decoder_args: Any
 ) -> _DecoderT:
@@ -145,7 +148,8 @@ def decode_observables(
     return _get_observable_decoder(dem, decoder=decoder).decode_observables(syndrome)
 
 
-# Deprecated per-decoder builders
+####################################################################################################
+# deprecated per-decoder builders
 
 
 def get_decoder_bp_osd(pcm_or_dem: PcmOrDem, **decoder_args: Any) -> ErrorDecoder:
@@ -203,7 +207,8 @@ def get_decoder_rbp(
     return _get_decoder_rbp(pcm_or_dem, error_priors, **decoder_args)
 
 
-# Deprecated resolution functions
+####################################################################################################
+# deprecated resolution functions
 
 
 def resolve_decoder(
@@ -304,7 +309,8 @@ def get_legacy_decoder_migration_message(
     return f"Passing free-form decoder options is deprecated; move them into {replacement} instead"
 
 
-# Legacy translation and message helpers
+####################################################################################################
+# legacy translation and message helpers
 
 
 _LEGACY_HELPER_NAMES = {

@@ -28,7 +28,7 @@ from .rings import GroupRing, RingMember
 if TYPE_CHECKING:
     from .wedderburn_artin import WedderburnArtinTransformer
 
-################################################################################
+####################################################################################################
 # RingArray: RingMember-valued array
 
 
@@ -637,6 +637,10 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         )
 
 
+####################################################################################################
+# helper methods
+
+
 # Avoid replacing sparse object storage with coefficient tensors whose estimated working set is
 # larger than 64 MiB.
 _MAX_MATMUL_COEFFICIENT_BYTES = 64 << 20
@@ -908,6 +912,10 @@ def _get_block_howell_form(matrix: galois.FieldArray, *, right: bool = False) ->
         matrix = matrix.transpose(0, 1, 3, 2)
 
     return matrix
+
+
+####################################################################################################
+# deprecated aliases
 
 
 DEPRECATED_ALIASES = {"Protograph": RingArray}

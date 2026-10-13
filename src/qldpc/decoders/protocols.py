@@ -10,7 +10,8 @@ from typing import Any, Protocol, runtime_checkable
 import numpy as np
 import numpy.typing as npt
 
-# Detailed decode results
+####################################################################################################
+# detailed decode results
 
 
 @dataclass(frozen=True, eq=False)
@@ -43,7 +44,8 @@ class ObservableDecodeResult:
     diagnostics: dict[str, object] = field(default_factory=dict)
 
 
-# Decoder protocols
+####################################################################################################
+# decoder protocols
 
 
 @runtime_checkable
@@ -113,7 +115,8 @@ class BatchObservableDecoder(ObservableDecoder, Protocol):
         """Decode a batch of error syndromes, one per row, and return predicted observable flips."""
 
 
-# Detailed decoder protocols
+####################################################################################################
+# detailed decoder protocols
 
 
 @runtime_checkable
@@ -164,7 +167,8 @@ class SupportsDecode(Protocol):
         """Decode an error syndrome and return an inferred error."""
 
 
-# Coercion into error decoders
+####################################################################################################
+# coercion into error decoders
 
 
 def as_error_decoder(decoder: object, source: str = "A decoder") -> ErrorDecoder:
@@ -234,7 +238,8 @@ class WrappedErrorDecoder(ErrorDecoder):
     decode = decode_errors
 
 
-# Batch decoding
+####################################################################################################
+# batch decoding
 
 
 def batch_decode_errors(

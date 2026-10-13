@@ -18,6 +18,9 @@ from qldpc.objects import Pauli
 from .common import restrict_to_qubits
 from .encoding import _get_logical_tableau_from_code_data, get_encoder_and_decoder
 
+####################################################################################################
+# transversal logical Clifford gates
+
 
 @restrict_to_qubits
 def get_transversal_s(code: codes.CSSCode, *, validate: bool = True) -> stim.Circuit:
@@ -354,6 +357,10 @@ def get_transversal_circuit(
         deform_code=deform_code,
         with_magma=with_magma,
     )[0]
+
+
+####################################################################################################
+# helper methods
 
 
 def _is_pauli_tableau(tableau: stim.Tableau) -> bool:

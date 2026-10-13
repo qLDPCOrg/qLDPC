@@ -19,6 +19,9 @@ import qldpc
 import qldpc.cache
 import qldpc.external.gap
 
+####################################################################################################
+# codes and distance bounds from external sources
+
 
 @qldpc.cache.use_disk_cache(
     "codes",
@@ -72,14 +75,6 @@ def get_classical_code(code: str) -> tuple[list[list[int]], int]:
         [0 if power < 0 else int(primitive_element**power) for power in row] for row in logarithms
     ]
     return checks, field
-
-
-def _get_json(url: str) -> Any:
-    """Retrieve JSON data from a URL."""
-    try:
-        return json.loads(urllib.request.urlopen(url, timeout=10).read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError) as exception:
-        raise RuntimeError(f"Cannot access {url}") from exception
 
 
 @qldpc.cache.use_disk_cache("qecdb")
@@ -148,63 +143,6 @@ def get_qldpc_challenge_code(
     return matrix.reshape(len(supports), 2 * num_qubits), distance, is_css, distance_bounds
 
 
-def _gap_define_sparse_matrix(
-    matrix_var: str, field_order: int, matrix: npt.NDArray[np.int_]
-) -> list[str]:
-    _, matrix_width = matrix.shape
-    # Turn matrix into sparse representation where `nonzero_entries[i][j]` is a list of integers
-    # where, for all values `l` in that list, `matrix[i,l] == j+1`.  Example:
-    #     matrix_var: NDArray[F3] = [
-    #         [0, 0, 0, 1, 2, 1],
-    #         [1, 0, 0, 0, 0, 0],
-    #     ]
-    #     nonzero_entries: list[list[np.NDArray[np.int_]]] = [
-    #         [ # Sparse definition of the first matrix row, `matrix_var[0]`
-    #             [3, 5],  # Columns in this row that contain 1's: `matrix_var[0, 3] == 1`
-    #             [4],  # Columns in this row that contain 2's: `matrix_var[0, 4] == 2`
-    #         ],
-    #         [ # Sparse definition of the second matrix row, `matrix_var[1]`
-    #             [0],  # Columns in this row that contain 1's
-    #             [],  # Columns in this row that contain 2's
-    #         ],
-    #     ]
-    nonzero_entries = [
-        [np.nonzero(row == val)[0] for val in range(1, field_order)] for row in matrix
-    ]
-
-    def nonzero_row_str(nonzeros: list[npt.NDArray[np.int_]]) -> str:
-        all_field_vals = [f"[{','.join(str(int(val)) for val in columns)}]" for columns in nonzeros]
-        return f"[{','.join(all_field_vals)}]"
-
-    nonzero_str = ",".join(nonzero_row_str(nonzeros) for nonzeros in nonzero_entries)
-
-    # Map each stored galois integer 1..field_order-1 to the matching GAP field element.  A galois
-    # integer encodes an element's coordinates in the primitive-element basis, so it equals
-    # Z(field_order)^log.  GAP and galois share that primitive element (both use Conway
-    # polynomials), so the powers agree.
-    field = galois.GF(field_order)
-    field_elements = ",".join(
-        f"Z({field_order})^{int(field(value).log())}" for value in range(1, field_order)
-    )
-    commands = [
-        f"nz:=[{nonzero_str}];;",
-        f"F:=GF({field_order});;",
-        f"elements:=[{field_elements}];;",
-        f"{matrix_var}:=[];",
-        "for r in nz do",
-        f"  v:=ListWithIdenticalEntries({matrix_width},Zero(F));;",
-        f"  for f in [1..{field_order - 1}] do",
-        "    for i in r[f] do",
-        "      v[i+1]:=elements[f];;",
-        "    od;;",
-        "  od;;",
-        f"  Append({matrix_var},[v]);;",
-        "od;;",
-    ]
-    commands = [cmd.strip() for cmd in commands]
-    return commands
-
-
 def get_distance_bound(
     code: qldpc.codes.QuditCode,
     num_trials: int = 1,
@@ -269,3 +207,72 @@ def get_distance_bound(
     if not bound:
         raise ValueError(f"Could not parse a distance bound from QDistRnd output: {output!r}")
     return int(bound)
+
+
+####################################################################################################
+# helper methods
+
+
+def _get_json(url: str) -> Any:
+    """Retrieve JSON data from a URL."""
+    try:
+        return json.loads(urllib.request.urlopen(url, timeout=10).read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError) as exception:
+        raise RuntimeError(f"Cannot access {url}") from exception
+
+
+def _gap_define_sparse_matrix(
+    matrix_var: str, field_order: int, matrix: npt.NDArray[np.int_]
+) -> list[str]:
+    _, matrix_width = matrix.shape
+    # Turn matrix into sparse representation where `nonzero_entries[i][j]` is a list of integers
+    # where, for all values `l` in that list, `matrix[i,l] == j+1`.  Example:
+    #     matrix_var: NDArray[F3] = [
+    #         [0, 0, 0, 1, 2, 1],
+    #         [1, 0, 0, 0, 0, 0],
+    #     ]
+    #     nonzero_entries: list[list[np.NDArray[np.int_]]] = [
+    #         [ # Sparse definition of the first matrix row, `matrix_var[0]`
+    #             [3, 5],  # Columns in this row that contain 1's: `matrix_var[0, 3] == 1`
+    #             [4],  # Columns in this row that contain 2's: `matrix_var[0, 4] == 2`
+    #         ],
+    #         [ # Sparse definition of the second matrix row, `matrix_var[1]`
+    #             [0],  # Columns in this row that contain 1's
+    #             [],  # Columns in this row that contain 2's
+    #         ],
+    #     ]
+    nonzero_entries = [
+        [np.nonzero(row == val)[0] for val in range(1, field_order)] for row in matrix
+    ]
+
+    def nonzero_row_str(nonzeros: list[npt.NDArray[np.int_]]) -> str:
+        all_field_vals = [f"[{','.join(str(int(val)) for val in columns)}]" for columns in nonzeros]
+        return f"[{','.join(all_field_vals)}]"
+
+    nonzero_str = ",".join(nonzero_row_str(nonzeros) for nonzeros in nonzero_entries)
+
+    # Map each stored galois integer 1..field_order-1 to the matching GAP field element.  A galois
+    # integer encodes an element's coordinates in the primitive-element basis, so it equals
+    # Z(field_order)^log.  GAP and galois share that primitive element (both use Conway
+    # polynomials), so the powers agree.
+    field = galois.GF(field_order)
+    field_elements = ",".join(
+        f"Z({field_order})^{int(field(value).log())}" for value in range(1, field_order)
+    )
+    commands = [
+        f"nz:=[{nonzero_str}];;",
+        f"F:=GF({field_order});;",
+        f"elements:=[{field_elements}];;",
+        f"{matrix_var}:=[];",
+        "for r in nz do",
+        f"  v:=ListWithIdenticalEntries({matrix_width},Zero(F));;",
+        f"  for f in [1..{field_order - 1}] do",
+        "    for i in r[f] do",
+        "      v[i+1]:=elements[f];;",
+        "    od;;",
+        "  od;;",
+        f"  Append({matrix_var},[v]);;",
+        "od;;",
+    ]
+    commands = [cmd.strip() for cmd in commands]
+    return commands

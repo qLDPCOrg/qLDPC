@@ -20,7 +20,8 @@ import stim
 HashableType = TypeVar("HashableType", bound=Hashable)
 
 
-# Detector error model arrays
+####################################################################################################
+# detector error model arrays
 
 
 class DetectorErrorModelArrays:
@@ -501,7 +502,8 @@ class DetectorErrorModelArrays:
         return detector_flip_matrix.tocsc(), observable_flip_matrix.tocsc(), error_probs
 
 
-# Circuit errors
+####################################################################################################
+# circuit errors
 
 
 @dataclasses.dataclass(frozen=True, init=False)
@@ -541,7 +543,8 @@ class FlipPattern:
 CircuitError = tuple[float, frozenset[FlipPattern]]
 
 
-# Private helpers
+####################################################################################################
+# private helpers
 
 
 def _validate_decompositions(

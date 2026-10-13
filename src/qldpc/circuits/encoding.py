@@ -16,6 +16,9 @@ from qldpc.objects import Pauli
 from .bookkeeping import QubitIDs
 from .common import restrict_to_qubits, with_remapped_qubits
 
+####################################################################################################
+# encoding circuits, logical tableaus, and logical states
+
 
 @restrict_to_qubits
 def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> stim.Tableau:
@@ -274,6 +277,10 @@ def get_logical_state_stabilizers(
     decoded_stabilizers = get_state_stabilizers(circuit, qubit_ids.data[: code.dimension])
     identity = stim.PauliString(num_qubits=len(code))
     return [(string * identity).after(encoder) for string in decoded_stabilizers]
+
+
+####################################################################################################
+# helper methods
 
 
 def _get_logical_tableau_from_code_data(

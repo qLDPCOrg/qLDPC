@@ -29,7 +29,8 @@ from .specs import (
     PcmOrDem,
 )
 
-# Decoder input resolution
+####################################################################################################
+# decoder input resolution
 
 
 def _get_error_decoder(pcm_or_dem: PcmOrDem, *, decoder: ErrorDecoderInput = None) -> ErrorDecoder:

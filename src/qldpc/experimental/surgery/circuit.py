@@ -34,50 +34,8 @@ from .bridge import Bridge
 from .construction import _validate_logical_loss
 from .gadget import GadgetLayout
 
-
-def _gadget_merged_csscode(g: GadgetLayout) -> CSSCode:
-    """Compatibility wrapper for the internal merged-code accessor."""
-    return _merged_csscode(g)
-
-
-def _validate_one_logical_measurement(
-    merged_code: CSSCode,
-    *,
-    input_dimension: int,
-    operation: str,
-) -> None:
-    """Reject finalized surgery layouts that fix anything other than one logical constraint."""
-    _validate_logical_loss(
-        merged_code,
-        input_dimension=input_dimension,
-        expected_logical_loss=1,
-        operation=operation,
-    )
-
-
-def _validate_bridge_gadget(
-    gadget: GadgetLayout,
-    augmented: GadgetLayout,
-    bridge_extra: np.ndarray,
-    *,
-    side: str,
-) -> None:
-    """Require a joint-circuit gadget to be the same layout used to build its bridge."""
-    n_bridge_rows = int(np.asarray(bridge_extra).shape[0])
-    n_source_rows = augmented.incidence.shape[0] - n_bridge_rows
-    matches = (
-        n_source_rows >= 0
-        and gadget.code is augmented.code
-        and gadget.basis is augmented.basis
-        and np.array_equal(gadget.x, augmented.x)
-        and gadget.support == augmented.support
-        and np.array_equal(gadget.incidence, augmented.incidence[:n_source_rows])
-    )
-    if not matches:
-        raise ValueError(
-            f"bridge does not match supplied g_{side}. Rebuild the bridge from the gadgets passed "
-            f"to build_joint_ppm_circuit, after applying any boosts."
-        )
+####################################################################################################
+# surgery circuits
 
 
 def keep_only_observable(circuit: stim.Circuit, keep_idx: int) -> stim.Circuit:
@@ -150,6 +108,213 @@ def logical_state_init(code: CSSCode, state: str, *, log_idx: int) -> str:
         flip = np.asarray(code.get_logical_ops(Pauli.Z)[log_idx]).astype(np.uint8)
         flip_char, base_char = "-", "+"
     return "".join(flip_char if flip[i] else base_char for i in range(n))
+
+
+def build_single_ppm_circuit(
+    gadget: GadgetLayout,
+    *,
+    rounds: int,
+    noise_model: NoiseModel | None = None,
+    data_init: str | None = None,
+) -> stim.Circuit:
+    """Single-PPM measurement circuit for `gadget`, assembled per Cain et al. arXiv:2603.28627.
+
+    Emits two OBSERVABLE_INCLUDE entries (see ``_surgery_observable`` for full semantics):
+
+      * obs0 — Single-round Z̄ = ∏_{v ∈ support} A_v readout, or X̄ for basis=X (Webster, Smith,
+        Cohen arXiv:2511.15989 §II A, gadget Eqs. (1)-(4)): the XOR of the **last** QEC round's
+        meas-check outcomes, argued but not tested to be decoding-equivalent to Cain et al.'s
+        first-cycle readout (arXiv:2603.28627 App. D).
+      * obs1 — Direct destructive M on ``support`` qubits; noiseless cross-check, not a physical
+        protocol.
+
+    For LER / noisy runs, use ``keep_only_observable(circuit, keep_idx=0)``.
+
+    ``data_init`` (optional): per-data-qubit init override; see ``_surgery_state_prep`` for the
+    character-to-state mapping.  A state complementary to the measured logical basis makes obs0/obs1
+    intentionally random; use ``compile_sampler`` for that truth-table experiment, not
+    ``detector_error_model`` or Sinter.
+
+    Raises:
+        ValueError: rounds < 1; the finalized gadget fixes anything other than one logical degree of
+            freedom; or ``data_init`` is neither length 1 nor length ``gadget.code.num_qudits``, or
+            contains a character outside "01+-".
+    """
+    if rounds < 1:
+        raise ValueError(f"rounds must be >= 1, got {rounds}.")
+    cone_result = gadget._get_cone_result()
+    merged_code = cone_result.code
+    _validate_logical_loss(
+        merged_code,
+        input_dimension=gadget.code.dimension,
+        expected_logical_loss=cone_result.expected_logical_loss,
+        operation="build_single_ppm_circuit",
+    )
+    qubit_ids = QubitIDs.from_code(merged_code)
+    n_data = gadget.code.num_qudits
+    data_ids = qubit_ids.data[:n_data]
+    ancilla_ids = qubit_ids.data[n_data:]
+    bridge_ids: tuple[int, ...] = ()
+    resolved_data_init = _resolve_data_init(gadget, n_data, data_init)
+
+    circuit = _surgery_qubit_coordinates(gadget, qubit_ids)
+    circuit += _surgery_state_prep(
+        gadget,
+        data_ids,
+        ancilla_ids,
+        bridge_ids,
+        data_init=resolved_data_init,
+    )
+    qec_cycle, measurement_record, _ = _surgery_qec_cycle(
+        gadget,
+        merged_code,
+        num_rounds=rounds,
+        qubit_ids=qubit_ids,
+        data_init=resolved_data_init,
+    )
+    circuit += qec_cycle
+    circuit += _surgery_detach_and_readout(
+        gadget,
+        data_ids=data_ids,
+        ancilla_ids=ancilla_ids,
+        bridge_ids=bridge_ids,
+        measurement_record=measurement_record,
+    )
+    circuit += _surgery_final_detectors(
+        gadget,
+        merged_code,
+        qubit_ids,
+        measurement_record=measurement_record,
+    )
+
+    m_X, m_Z, n_V = (
+        gadget.code.matrix_x.shape[0],
+        gadget.code.matrix_z.shape[0],
+        len(gadget.support),
+    )
+    if gadget.basis is Pauli.X:
+        meas_check_ids = tuple(qubit_ids.checks_x[m_X : m_X + n_V])
+    else:
+        meas_check_ids = tuple(qubit_ids.checks_z[m_Z : m_Z + n_V])
+
+    circuit += _surgery_observable(
+        gadget,
+        meas_check_ids=meas_check_ids,
+        data_ids=data_ids,
+        support_indices=gadget.support,
+        measurement_record=measurement_record,
+    )
+
+    if noise_model is not None:
+        circuit = noise_model.noisy_circuit(circuit)
+
+    return circuit
+
+
+def build_joint_ppm_circuit(
+    g_l: GadgetLayout,
+    g_r: GadgetLayout,
+    bridge: Bridge,
+    *,
+    rounds: int,
+    noise_model: NoiseModel | None = None,
+    data_init: str | tuple[str, ...] | list[str] | None = None,
+) -> tuple[stim.Circuit, CSSCode]:
+    """Build a joint-PPM circuit measuring a logical Pauli product across two gadgets.
+
+    Gadgets over the same code object share one data block; gadgets over distinct code objects use
+    disjoint data blocks.  Compiler callers with explicit logical block identities use the private
+    structural entry point instead.
+
+    Emits two OBSERVABLE_INCLUDE entries (see ``_surgery_observable`` for full semantics):
+
+      * obs0 — Single-round joint readout via the bridged-product identity of Webster, Smith, Cohen
+        arXiv:2511.15989 §II B 2 (prose, crediting Cross et al. arXiv:2407.18393),
+        ∏_{v ∈ support_l ∪ support_r} A_v = X̄_l ⊗ X̄_r (or Z̄_l ⊗ Z̄_r for basis=Z): the XOR
+        of the **last** QEC round's meas-check outcomes on both patches, argued but not tested to be
+        decoding-equivalent to Cain et al.'s first-cycle readout (arXiv:2603.28627 App. D).
+      * obs1 — Direct destructive M on ``support_l ∪ support_r``; noiseless cross-check, not a
+        physical protocol.
+
+    For LER / noisy runs, use ``keep_only_observable(circuit, keep_idx=0)``.
+
+    ``data_init`` (optional): override the per-code data init.
+
+      * ``str`` — per-physical-qubit (or len-1 broadcast).  For intercode, positions [0:n_l) are
+        left, [n_l:n_l+n_r) are right; for intracode, length is n_l.  See ``_surgery_state_prep``
+        for the char-to-state mapping.
+      * ``tuple[str, str]`` (intercode only) — per-code logical-init spec.
+        ``data_init=("0", "+")`` → c_l in ``|0⟩_L``, c_r in ``|+⟩_L``.
+
+    If either code is initialized in the basis complementary to the measured logical, the joint
+    observable is intentionally random.  Its detectors remain deterministic, but the circuit does
+    not define a detector error model; use ``compile_sampler`` for such truth-table experiments.
+
+    Raises:
+        ValueError: rounds < 1; the bridge was built from different gadget layouts; the finalized
+            joint code fixes anything other than one logical degree of freedom; a tuple
+            ``data_init`` on an intracode pair, which has a single data set; a tuple of length != 2;
+            or a per-code spec whose length matches neither 1 nor that code's data-qubit count.
+        TypeError: ``data_init`` is not a str, tuple, list, or None, or a tuple entry is not a str.
+    """
+    return _build_joint_ppm_circuit(
+        g_l,
+        g_r,
+        bridge,
+        intercode=g_l.code is not g_r.code,
+        rounds=rounds,
+        noise_model=noise_model,
+        data_init=data_init,
+    )
+
+
+####################################################################################################
+# helper methods
+
+
+def _gadget_merged_csscode(g: GadgetLayout) -> CSSCode:
+    """Compatibility wrapper for the internal merged-code accessor."""
+    return _merged_csscode(g)
+
+
+def _validate_one_logical_measurement(
+    merged_code: CSSCode,
+    *,
+    input_dimension: int,
+    operation: str,
+) -> None:
+    """Reject finalized surgery layouts that fix anything other than one logical constraint."""
+    _validate_logical_loss(
+        merged_code,
+        input_dimension=input_dimension,
+        expected_logical_loss=1,
+        operation=operation,
+    )
+
+
+def _validate_bridge_gadget(
+    gadget: GadgetLayout,
+    augmented: GadgetLayout,
+    bridge_extra: np.ndarray,
+    *,
+    side: str,
+) -> None:
+    """Require a joint-circuit gadget to be the same layout used to build its bridge."""
+    n_bridge_rows = int(np.asarray(bridge_extra).shape[0])
+    n_source_rows = augmented.incidence.shape[0] - n_bridge_rows
+    matches = (
+        n_source_rows >= 0
+        and gadget.code is augmented.code
+        and gadget.basis is augmented.basis
+        and np.array_equal(gadget.x, augmented.x)
+        and gadget.support == augmented.support
+        and np.array_equal(gadget.incidence, augmented.incidence[:n_source_rows])
+    )
+    if not matches:
+        raise ValueError(
+            f"bridge does not match supplied g_{side}. Rebuild the bridge from the gadgets passed "
+            f"to build_joint_ppm_circuit, after applying any boosts."
+        )
 
 
 def _surgery_qubit_coordinates(
@@ -407,107 +572,6 @@ def _deterministic_data_checks(
         if all(data_init[int(qubit)] in eigenstates for qubit in support):
             reliable.append(check_id)
     return tuple(reliable)
-
-
-def build_single_ppm_circuit(
-    gadget: GadgetLayout,
-    *,
-    rounds: int,
-    noise_model: NoiseModel | None = None,
-    data_init: str | None = None,
-) -> stim.Circuit:
-    """Single-PPM measurement circuit for `gadget`, assembled per Cain et al. arXiv:2603.28627.
-
-    Emits two OBSERVABLE_INCLUDE entries (see ``_surgery_observable`` for full semantics):
-
-      * obs0 — Single-round Z̄ = ∏_{v ∈ support} A_v readout, or X̄ for basis=X (Webster, Smith,
-        Cohen arXiv:2511.15989 §II A, gadget Eqs. (1)-(4)): the XOR of the **last** QEC round's
-        meas-check outcomes, argued but not tested to be decoding-equivalent to Cain et al.'s
-        first-cycle readout (arXiv:2603.28627 App. D).
-      * obs1 — Direct destructive M on ``support`` qubits; noiseless cross-check, not a physical
-        protocol.
-
-    For LER / noisy runs, use ``keep_only_observable(circuit, keep_idx=0)``.
-
-    ``data_init`` (optional): per-data-qubit init override; see ``_surgery_state_prep`` for the
-    character-to-state mapping.  A state complementary to the measured logical basis makes obs0/obs1
-    intentionally random; use ``compile_sampler`` for that truth-table experiment, not
-    ``detector_error_model`` or Sinter.
-
-    Raises:
-        ValueError: rounds < 1; the finalized gadget fixes anything other than one logical degree of
-            freedom; or ``data_init`` is neither length 1 nor length ``gadget.code.num_qudits``, or
-            contains a character outside "01+-".
-    """
-    if rounds < 1:
-        raise ValueError(f"rounds must be >= 1, got {rounds}.")
-    cone_result = gadget._get_cone_result()
-    merged_code = cone_result.code
-    _validate_logical_loss(
-        merged_code,
-        input_dimension=gadget.code.dimension,
-        expected_logical_loss=cone_result.expected_logical_loss,
-        operation="build_single_ppm_circuit",
-    )
-    qubit_ids = QubitIDs.from_code(merged_code)
-    n_data = gadget.code.num_qudits
-    data_ids = qubit_ids.data[:n_data]
-    ancilla_ids = qubit_ids.data[n_data:]
-    bridge_ids: tuple[int, ...] = ()
-    resolved_data_init = _resolve_data_init(gadget, n_data, data_init)
-
-    circuit = _surgery_qubit_coordinates(gadget, qubit_ids)
-    circuit += _surgery_state_prep(
-        gadget,
-        data_ids,
-        ancilla_ids,
-        bridge_ids,
-        data_init=resolved_data_init,
-    )
-    qec_cycle, measurement_record, _ = _surgery_qec_cycle(
-        gadget,
-        merged_code,
-        num_rounds=rounds,
-        qubit_ids=qubit_ids,
-        data_init=resolved_data_init,
-    )
-    circuit += qec_cycle
-    circuit += _surgery_detach_and_readout(
-        gadget,
-        data_ids=data_ids,
-        ancilla_ids=ancilla_ids,
-        bridge_ids=bridge_ids,
-        measurement_record=measurement_record,
-    )
-    circuit += _surgery_final_detectors(
-        gadget,
-        merged_code,
-        qubit_ids,
-        measurement_record=measurement_record,
-    )
-
-    m_X, m_Z, n_V = (
-        gadget.code.matrix_x.shape[0],
-        gadget.code.matrix_z.shape[0],
-        len(gadget.support),
-    )
-    if gadget.basis is Pauli.X:
-        meas_check_ids = tuple(qubit_ids.checks_x[m_X : m_X + n_V])
-    else:
-        meas_check_ids = tuple(qubit_ids.checks_z[m_Z : m_Z + n_V])
-
-    circuit += _surgery_observable(
-        gadget,
-        meas_check_ids=meas_check_ids,
-        data_ids=data_ids,
-        support_indices=gadget.support,
-        measurement_record=measurement_record,
-    )
-
-    if noise_model is not None:
-        circuit = noise_model.noisy_circuit(circuit)
-
-    return circuit
 
 
 def _stitch_intercode(g_l: GadgetLayout, g_r: GadgetLayout, bridge: Bridge) -> CSSCode:
@@ -768,63 +832,6 @@ def _expand_joint_data_init(
     if len(spec_r) != n_r:
         raise ValueError(f"data_init[1] length {len(spec_r)} does not match c_r data count {n_r}")
     return spec_l + spec_r
-
-
-def build_joint_ppm_circuit(
-    g_l: GadgetLayout,
-    g_r: GadgetLayout,
-    bridge: Bridge,
-    *,
-    rounds: int,
-    noise_model: NoiseModel | None = None,
-    data_init: str | tuple[str, ...] | list[str] | None = None,
-) -> tuple[stim.Circuit, CSSCode]:
-    """Build a joint-PPM circuit measuring a logical Pauli product across two gadgets.
-
-    Gadgets over the same code object share one data block; gadgets over distinct code objects use
-    disjoint data blocks.  Compiler callers with explicit logical block identities use the private
-    structural entry point instead.
-
-    Emits two OBSERVABLE_INCLUDE entries (see ``_surgery_observable`` for full semantics):
-
-      * obs0 — Single-round joint readout via the bridged-product identity of Webster, Smith, Cohen
-        arXiv:2511.15989 §II B 2 (prose, crediting Cross et al. arXiv:2407.18393),
-        ∏_{v ∈ support_l ∪ support_r} A_v = X̄_l ⊗ X̄_r (or Z̄_l ⊗ Z̄_r for basis=Z): the XOR
-        of the **last** QEC round's meas-check outcomes on both patches, argued but not tested to be
-        decoding-equivalent to Cain et al.'s first-cycle readout (arXiv:2603.28627 App. D).
-      * obs1 — Direct destructive M on ``support_l ∪ support_r``; noiseless cross-check, not a
-        physical protocol.
-
-    For LER / noisy runs, use ``keep_only_observable(circuit, keep_idx=0)``.
-
-    ``data_init`` (optional): override the per-code data init.
-
-      * ``str`` — per-physical-qubit (or len-1 broadcast).  For intercode, positions [0:n_l) are
-        left, [n_l:n_l+n_r) are right; for intracode, length is n_l.  See ``_surgery_state_prep``
-        for the char-to-state mapping.
-      * ``tuple[str, str]`` (intercode only) — per-code logical-init spec.
-        ``data_init=("0", "+")`` → c_l in ``|0⟩_L``, c_r in ``|+⟩_L``.
-
-    If either code is initialized in the basis complementary to the measured logical, the joint
-    observable is intentionally random.  Its detectors remain deterministic, but the circuit does
-    not define a detector error model; use ``compile_sampler`` for such truth-table experiments.
-
-    Raises:
-        ValueError: rounds < 1; the bridge was built from different gadget layouts; the finalized
-            joint code fixes anything other than one logical degree of freedom; a tuple
-            ``data_init`` on an intracode pair, which has a single data set; a tuple of length != 2;
-            or a per-code spec whose length matches neither 1 nor that code's data-qubit count.
-        TypeError: ``data_init`` is not a str, tuple, list, or None, or a tuple entry is not a str.
-    """
-    return _build_joint_ppm_circuit(
-        g_l,
-        g_r,
-        bridge,
-        intercode=g_l.code is not g_r.code,
-        rounds=rounds,
-        noise_model=noise_model,
-        data_init=data_init,
-    )
 
 
 def _build_joint_ppm_circuit(

@@ -56,23 +56,7 @@ def resolve_field(
 NestedSequence = Sequence[object | Sequence["NestedSequence"]]
 
 
-@contextlib.contextmanager
-def _preserve_sympy_rng() -> Iterator[None]:
-    """Restore SymPy's global RNG state on exit, so a local reseed leaves other consumers intact.
-
-    ``sympy.core.random.seed`` reseeds both the main RNG and the separate "assumptions" RNG, so both
-    are saved and restored.
-    """
-    rng_state = sympy.core.random.rng.getstate()
-    assumptions_state = sympy.core.random._assumptions_rng.getstate()
-    try:
-        yield
-    finally:
-        sympy.core.random.rng.setstate(rng_state)
-        sympy.core.random._assumptions_rng.setstate(assumptions_state)
-
-
-################################################################################
+####################################################################################################
 # groups and group members
 
 
@@ -730,7 +714,7 @@ class WreathProductGroup(Group):
         )
 
 
-################################################################################
+####################################################################################################
 # "simple" named groups
 
 
@@ -931,7 +915,7 @@ class SmallGroup(Group):
         return external.groups.get_small_group_structure(order, index)
 
 
-################################################################################
+####################################################################################################
 # special linear (SL) and projective special linear (PSL) groups
 
 
@@ -1178,7 +1162,7 @@ class ProjectiveSpecialLinearGroup(Group):
             yield flat.view(field)
 
 
-################################################################################
+####################################################################################################
 # general linear (GL) and projective general linear (PGL) groups
 
 
@@ -1425,3 +1409,23 @@ SL = SpecialLinearGroup
 PSL = ProjectiveSpecialLinearGroup
 GL = GeneralLinearGroup
 PGL = ProjectiveGeneralLinearGroup
+
+
+####################################################################################################
+# helper methods
+
+
+@contextlib.contextmanager
+def _preserve_sympy_rng() -> Iterator[None]:
+    """Restore SymPy's global RNG state on exit, so a local reseed leaves other consumers intact.
+
+    ``sympy.core.random.seed`` reseeds both the main RNG and the separate "assumptions" RNG, so both
+    are saved and restored.
+    """
+    rng_state = sympy.core.random.rng.getstate()
+    assumptions_state = sympy.core.random._assumptions_rng.getstate()
+    try:
+        yield
+    finally:
+        sympy.core.random.rng.setstate(rng_state)
+        sympy.core.random._assumptions_rng.setstate(assumptions_state)

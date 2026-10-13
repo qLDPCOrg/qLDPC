@@ -33,6 +33,10 @@ GateSchedule = list[list[tuple[int, int]]]
 DEFAULT_SINTER_DECODER = decoders.SinterDecoder()
 
 
+####################################################################################################
+# AlphaSyndrome strategy and Monte Carlo tree search
+
+
 class AlphaSyndrome(SyndromeMeasurementStrategy):
     """AlphaSyndrome strategy for constructing a syndrome measurement circuit.
 
@@ -399,6 +403,10 @@ class TreeState:
 
         # return a schedule of gates: a list whose t-th index is a list of gates to apply at time t
         return [time_to_gates[time] for time in sorted(time_to_gates.keys())]
+
+
+####################################################################################################
+# helper methods
 
 
 def _schedule_to_circuit(schedule: GateSchedule, target_pauli: Pauli) -> stim.Circuit:

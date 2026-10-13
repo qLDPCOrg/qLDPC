@@ -45,32 +45,8 @@ _RESET_LIBGAP_ERROR_OUTPUT = """CallFuncList(function()
 end, [])"""
 
 
-def _get_libgap() -> _LibGap | None:
-    """Return the optional direct GAP binding, if it is importable.
-
-    PassageMath's own library-level GAP feature uses ``sage.all__sagemath_gap`` before importing
-    ``sage.libs.gap.libgap``.  Follow that supported order rather than importing the
-    interactive-only ``passagemath_gap`` convenience namespace.  See the import-cycle workaround in
-    PassageMath's ``sage.features.gap`` (commit
-    https://github.com/passagemath/passagemath/commit/f35b8847b4226074d84c4645ea2c6eacab69e70b).
-    """
-    try:
-        importlib.import_module("sage.all__sagemath_gap")
-        module = importlib.import_module("sage.libs.gap.libgap")
-    except (ImportError, OSError):
-        return None
-    return getattr(module, "libgap", None)
-
-
-@functools.cache
-def _is_gap_executable() -> bool:
-    """Can the GAP executable be used for package installation and evaluation?"""
-    commands = ["gap", "-q", "-c", r'Print(GAPInfo.Version, "\n");; QUIT;;']
-    try:
-        result = subprocess.run(commands, capture_output=True, text=True, check=False)
-    except FileNotFoundError:
-        return False
-    return bool(re.match(r"4\.\d+\.\d+", result.stdout.strip()))
+####################################################################################################
+# calling GAP
 
 
 @functools.cache
@@ -115,47 +91,6 @@ def sanitize_commands(commands: Sequence[str]) -> tuple[str, ...]:
     suffix = ["QUIT;;"]
     commands = [cmd.replace("Print(", f"PrintTo({stream}, ") for cmd in commands]
     return tuple(prefix + commands + suffix)
-
-
-def _gap_string(value: object) -> str:
-    """Convert a libgap value to the corresponding Python string."""
-    if isinstance(value, str):
-        return value
-    try:
-        converted = value.sage()  # type: ignore[attr-defined]
-    except (AttributeError, NotImplementedError, ValueError):
-        converted = str(value)
-    return converted if isinstance(converted, str) else str(converted)
-
-
-def _get_output_libgap(commands: Sequence[str], libgap: _LibGap) -> str:
-    """Evaluate commands through libgap while capturing GAP's printed output."""
-    stream = "__qldpc_output__"
-    stream_object = f"{stream}_stream"
-    body = [
-        f"local {stream}, {stream_object};",
-        f'{stream} := "";',
-        f"{stream_object} := OutputTextString({stream}, false);",
-        f"SetPrintFormattingStatus({stream_object}, false);",
-    ]
-    for command in commands:
-        command = command.rstrip()
-        if not command.endswith(";") and not re.search(r"(?:do|then|else|repeat)$", command):
-            command += ";"
-        body.append(command.replace("Print(", f"PrintTo({stream_object}, "))
-    body.extend([f"CloseStream({stream_object});", f"return {stream};"])
-    direct_command = "CallFuncList(function()\n" + "\n".join(body) + "\nend, [])"
-
-    try:
-        libgap.eval(_RESET_LIBGAP_ERROR_OUTPUT)
-        result = libgap.eval(direct_command)
-        libgap.eval(_RESET_LIBGAP_ERROR_OUTPUT)
-    except Exception as error:
-        raise ValueError(
-            "Error encountered when running GAP through libgap\n\n"
-            f"{error}\n\nGAP command:\n{' '.join(commands)}"
-        ) from error
-    return _gap_string(result)
 
 
 def get_output(*commands: str, use_pipe: bool = False) -> str:
@@ -226,6 +161,154 @@ def get_output(*commands: str, use_pipe: bool = False) -> str:
     # save output to cache and return
     cache[command] = output
     return output
+
+
+@functools.cache
+def require_package(name: str, repo: str | None = None) -> bool:
+    """Enforce the installation of a GAP package.
+
+    With the direct libgap backend, this checks the package through GAP.  A missing package prompts
+    on standard input and, with the user's consent, is installed through GAP's PackageManager into
+    the user package directory visible to libgap.  If that installation fails but a GAP executable
+    is available, qLDPC prints instructions for installing the package for libgap before falling
+    back to the executable backend.  With the executable backend, qLDPC installs a missing package
+    by cloning its repository into the GAP root's ``pkg`` directory.
+
+    Args:
+        name: The GAP package name.
+        repo: The package repository to install, if necessary.  With libgap, this is passed to GAP's
+            PackageManager; with the executable backend, it is cloned with Git.  Defaults to the
+            package name for PackageManager or f"https://github.com/gap-packages/{name}" for Git.
+
+    Raises:
+        ModuleNotFoundError: If the package is missing and GAP cannot be called to install it.
+        ValueError: If the user declines to install a missing package, or the installation fails.
+
+    Returns:
+        True if the requirement is satisfied (raises an error otherwise).
+    """
+    libgap = None if _subprocess_packages else _get_libgap()
+    if libgap is not None:
+        try:
+            availability = libgap.function_factory("TestPackageAvailability")(name.lower())
+        except Exception as error:
+            raise ValueError(f"Could not check GAP package availability for {name}") from error
+        if str(availability).lower() != "fail":
+            _libgap_packages[name.lower()] = (name, repo)
+            return True
+
+        _confirm_package_install(name)
+        try:
+            installed = _install_package_libgap(name, repo, libgap)
+        except (ModuleNotFoundError, ValueError) as error:
+            if not _is_gap_executable():
+                raise
+            print(error)
+            print("Falling back to the GAP executable for this package.")
+        else:
+            _libgap_packages[name.lower()] = (name, repo)
+            return installed
+
+        requirements = dict(_libgap_packages)
+        requirements[name.lower()] = (name, repo)
+        for package, package_repo in requirements.values():
+            availability = _get_output_subprocess(
+                (f'Print(TestPackageAvailability("{package.lower()}"));;',)
+            )
+            _require_package_subprocess(
+                package,
+                package_repo,
+                availability,
+                confirm_install=package.lower() != name.lower(),
+            )
+        _subprocess_packages.update(requirements)
+        _libgap_packages.clear()
+        require_package.cache_clear()
+        return True
+
+    availability = get_output(f'Print(TestPackageAvailability("{name.lower()}"));;')
+    if availability.strip() == "fail":
+        repo = repo or f"https://github.com/gap-packages/{name}"
+        if not is_callable():
+            raise ModuleNotFoundError(
+                f"GAP package '{name}' is required but not installed.\n"
+                f"You may be able to find this package at {repo}"
+            )
+        return _require_package_subprocess(name, repo, availability)
+    return True
+
+
+####################################################################################################
+# helper methods
+
+
+def _get_libgap() -> _LibGap | None:
+    """Return the optional direct GAP binding, if it is importable.
+
+    PassageMath's own library-level GAP feature uses ``sage.all__sagemath_gap`` before importing
+    ``sage.libs.gap.libgap``.  Follow that supported order rather than importing the
+    interactive-only ``passagemath_gap`` convenience namespace.  See the import-cycle workaround in
+    PassageMath's ``sage.features.gap`` (commit
+    https://github.com/passagemath/passagemath/commit/f35b8847b4226074d84c4645ea2c6eacab69e70b).
+    """
+    try:
+        importlib.import_module("sage.all__sagemath_gap")
+        module = importlib.import_module("sage.libs.gap.libgap")
+    except (ImportError, OSError):
+        return None
+    return getattr(module, "libgap", None)
+
+
+@functools.cache
+def _is_gap_executable() -> bool:
+    """Can the GAP executable be used for package installation and evaluation?"""
+    commands = ["gap", "-q", "-c", r'Print(GAPInfo.Version, "\n");; QUIT;;']
+    try:
+        result = subprocess.run(commands, capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        return False
+    return bool(re.match(r"4\.\d+\.\d+", result.stdout.strip()))
+
+
+def _gap_string(value: object) -> str:
+    """Convert a libgap value to the corresponding Python string."""
+    if isinstance(value, str):
+        return value
+    try:
+        converted = value.sage()  # type: ignore[attr-defined]
+    except (AttributeError, NotImplementedError, ValueError):
+        converted = str(value)
+    return converted if isinstance(converted, str) else str(converted)
+
+
+def _get_output_libgap(commands: Sequence[str], libgap: _LibGap) -> str:
+    """Evaluate commands through libgap while capturing GAP's printed output."""
+    stream = "__qldpc_output__"
+    stream_object = f"{stream}_stream"
+    body = [
+        f"local {stream}, {stream_object};",
+        f'{stream} := "";',
+        f"{stream_object} := OutputTextString({stream}, false);",
+        f"SetPrintFormattingStatus({stream_object}, false);",
+    ]
+    for command in commands:
+        command = command.rstrip()
+        if not command.endswith(";") and not re.search(r"(?:do|then|else|repeat)$", command):
+            command += ";"
+        body.append(command.replace("Print(", f"PrintTo({stream_object}, "))
+    body.extend([f"CloseStream({stream_object});", f"return {stream};"])
+    direct_command = "CallFuncList(function()\n" + "\n".join(body) + "\nend, [])"
+
+    try:
+        libgap.eval(_RESET_LIBGAP_ERROR_OUTPUT)
+        result = libgap.eval(direct_command)
+        libgap.eval(_RESET_LIBGAP_ERROR_OUTPUT)
+    except Exception as error:
+        raise ValueError(
+            "Error encountered when running GAP through libgap\n\n"
+            f"{error}\n\nGAP command:\n{' '.join(commands)}"
+        ) from error
+    return _gap_string(result)
 
 
 def _get_output_subprocess(commands: Sequence[str], use_pipe: bool = False) -> str:
@@ -347,79 +430,4 @@ def _install_package_libgap(name: str, repo: str | None, libgap: _LibGap) -> boo
         raise ValueError(
             f"GAP installed {name}, but the package is still unavailable to libgap.\n{instructions}"
         )
-    return True
-
-
-@functools.cache
-def require_package(name: str, repo: str | None = None) -> bool:
-    """Enforce the installation of a GAP package.
-
-    With the direct libgap backend, this checks the package through GAP.  A missing package prompts
-    on standard input and, with the user's consent, is installed through GAP's PackageManager into
-    the user package directory visible to libgap.  If that installation fails but a GAP executable
-    is available, qLDPC prints instructions for installing the package for libgap before falling
-    back to the executable backend.  With the executable backend, qLDPC installs a missing package
-    by cloning its repository into the GAP root's ``pkg`` directory.
-
-    Args:
-        name: The GAP package name.
-        repo: The package repository to install, if necessary.  With libgap, this is passed to GAP's
-            PackageManager; with the executable backend, it is cloned with Git.  Defaults to the
-            package name for PackageManager or f"https://github.com/gap-packages/{name}" for Git.
-
-    Raises:
-        ModuleNotFoundError: If the package is missing and GAP cannot be called to install it.
-        ValueError: If the user declines to install a missing package, or the installation fails.
-
-    Returns:
-        True if the requirement is satisfied (raises an error otherwise).
-    """
-    libgap = None if _subprocess_packages else _get_libgap()
-    if libgap is not None:
-        try:
-            availability = libgap.function_factory("TestPackageAvailability")(name.lower())
-        except Exception as error:
-            raise ValueError(f"Could not check GAP package availability for {name}") from error
-        if str(availability).lower() != "fail":
-            _libgap_packages[name.lower()] = (name, repo)
-            return True
-
-        _confirm_package_install(name)
-        try:
-            installed = _install_package_libgap(name, repo, libgap)
-        except (ModuleNotFoundError, ValueError) as error:
-            if not _is_gap_executable():
-                raise
-            print(error)
-            print("Falling back to the GAP executable for this package.")
-        else:
-            _libgap_packages[name.lower()] = (name, repo)
-            return installed
-
-        requirements = dict(_libgap_packages)
-        requirements[name.lower()] = (name, repo)
-        for package, package_repo in requirements.values():
-            availability = _get_output_subprocess(
-                (f'Print(TestPackageAvailability("{package.lower()}"));;',)
-            )
-            _require_package_subprocess(
-                package,
-                package_repo,
-                availability,
-                confirm_install=package.lower() != name.lower(),
-            )
-        _subprocess_packages.update(requirements)
-        _libgap_packages.clear()
-        require_package.cache_clear()
-        return True
-
-    availability = get_output(f'Print(TestPackageAvailability("{name.lower()}"));;')
-    if availability.strip() == "fail":
-        repo = repo or f"https://github.com/gap-packages/{name}"
-        if not is_callable():
-            raise ModuleNotFoundError(
-                f"GAP package '{name}' is required but not installed.\n"
-                f"You may be able to find this package at {repo}"
-            )
-        return _require_package_subprocess(name, repo, availability)
     return True

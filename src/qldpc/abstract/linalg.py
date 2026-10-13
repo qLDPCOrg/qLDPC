@@ -28,6 +28,10 @@ if TYPE_CHECKING:
     from .wedderburn_artin import WedderburnArtinComponentTransformer, WedderburnArtinTransformer
 
 
+####################################################################################################
+# matrices over rings
+
+
 def matmul(
     matrix_a: RingArray | npt.NDArray[np.int_],
     matrix_b: RingArray | npt.NDArray[np.int_],
@@ -242,6 +246,10 @@ def get_howell_dual(
     if not skip_validation:
         _validate_howell_dual(matrix_hnf, dual, transformer, right)
     return dual
+
+
+####################################################################################################
+# helper methods
 
 
 def _validate_howell_dual(

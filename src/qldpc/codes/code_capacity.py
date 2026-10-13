@@ -43,6 +43,10 @@ from qldpc.decoders.sinter.core import CompiledSinterDecoder
 _MAX_SPEC_REPR_LENGTH = 80  # truncate long option values in warnings
 
 
+####################################################################################################
+# code-capacity detector error models and decoders
+
+
 def get_code_capacity_dem(
     syndrome_matrix: galois.FieldArray,
     observable_matrix: galois.FieldArray | None,
@@ -368,7 +372,8 @@ def get_code_capacity_decoder(
     return CodeCapacityDecoder.from_error_decoder(error_decoder, syndrome_matrix, observable_matrix)
 
 
-# Private helpers
+####################################################################################################
+# helper methods
 
 
 def _get_single_qudit_error_effects(matrix: galois.FieldArray) -> galois.FieldArray:

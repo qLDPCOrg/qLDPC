@@ -39,6 +39,122 @@ from qldpc.objects import Pauli
 
 from .gadget import GadgetLayout
 
+####################################################################################################
+# Cheeger constants and gadget boosts
+
+
+def cheeger_constant(g: GadgetLayout) -> float:
+    """Exact boundary Cheeger constant h(F) of a gadget's F matrix.
+
+    gadget notation: F → incidence; V_0 → support (Webster–Smith–Cohen arXiv:2511.15989 §II A Def 1
+    / Cross et al. arXiv:2407.18393 Def 3).
+
+    Computed exactly by Gray-code subset enumeration, which is tractable only for ``|V_0|`` ≤ 26.
+
+    Cross et al. arXiv:2407.18393 §3.3 Thm 6 concludes d_merged ≥ d_data when an L-layer ancilla
+    system satisfies ceil(L/2) ≥ 1/h, which at the L=1 gadgets built here reduces to h ≥ 1.  Below 1
+    the gadget falls outside the theorem, where distance may degrade; consider
+    ``boost_gadget(g, method="combinatorial", target=1.0)``.
+
+    Reaching h ≥ 1 is a screen, not a distance guarantee.  The theorem bounds the merged code
+    distance; chained through Thm 11 that gives a phenomenological logical fault distance ≥ d, but
+    nothing in the paper bounds the circuit fault distance.  Thm 6 also inherits the irreducibility
+    assumption declared in §3.1 and stated in Thm 1 — no other logical of the same type has support
+    inside the measured logical's support — which ``build_gadget`` does not check, and nothing here
+    verifies its conclusion.  Nor does h track circuit fault distance, so a higher h is not a reason
+    to expect a better circuit.
+
+    Raises:
+        ValueError: if ``|V_0|`` > 26, beyond which the exact enumeration is infeasible.
+    """
+    incidence = galois.GF2(np.asarray(g.incidence).astype(int))
+    if incidence.shape[1] > 26:
+        raise ValueError(
+            f"cheeger_constant requires |V_0| ≤ 26 for an exact value; got "
+            f"|V_0|={incidence.shape[1]}. Enumeration cost quadruples per additional 2 columns, and "
+            f"no bound on h(F) is computed in its place, so no value can be returned; compute the "
+            f"exact code distance instead."
+        )
+    h, _ = _exact_boundary_cheeger(incidence)
+    return h
+
+
+def boost_gadget(
+    gadget: GadgetLayout,
+    *,
+    method: Literal["combinatorial", "distance"],
+    target: float,
+    seed: int | None = None,
+    max_extra_qubits: int | None = None,
+    num_trials_per_step: int | None = None,
+    decoder_trials: int | None = None,
+) -> GadgetLayout:
+    """Single entry point for Cheeger / distance boost.
+
+    Args:
+        gadget: a GadgetLayout from build_gadget.
+        method: 'combinatorial' | 'distance'.
+        target: target Cheeger constant (for combinatorial) or target distance (for distance method;
+            cast via int(target)).
+        seed: RNG seed.
+        max_extra_qubits: cap on new ancillas.  Defaults to 50 for the combinatorial method and 30
+            for the distance method.
+        num_trials_per_step: distance-method random augmentations per ancilla count.  Defaults
+            to 20.
+        decoder_trials: distance-method BP+OSD trials per candidate.  Defaults to 10.
+
+    Returns:
+        A NEW GadgetLayout with boosted incidence, gauge, HX_merged, HZ_merged. method='distance'
+        screens with a BP+OSD upper bound, so acceptance is a heuristic rather than a proof; confirm
+        it by computing the exact distance of the code HX_merged / HZ_merged define.
+
+    Raises:
+        ValueError: gadget is already augmented; method is neither 'combinatorial' nor 'distance';
+            target is not positive; distance-only options are passed to the combinatorial method; or
+            the combinatorial method is used with ``|V_0|`` > 26.
+        RuntimeError: the chosen method could not reach ``target``.  Lower it; raising
+            max_extra_qubits helps only when the budget is what ran out, which the message says.
+            For method='distance', retrying can also succeed, since its screen is not seeded.
+    """
+    if gadget.is_augmented:
+        raise ValueError(
+            "boost_gadget requires an unaugmented layout returned directly by build_gadget; "
+            "chaining boosts is not supported."
+        )
+
+    if method == "combinatorial":
+        if num_trials_per_step is not None or decoder_trials is not None:
+            raise ValueError(
+                "num_trials_per_step and decoder_trials apply only to method='distance'."
+            )
+        return _boost_gadget_cheeger_combinatorial(
+            gadget,
+            target_h=target,
+            max_extra_qubits=50 if max_extra_qubits is None else max_extra_qubits,
+            seed=seed,
+        )
+    if method == "distance":
+        # Validate before the cast, so the rejection quotes the target the caller wrote rather than
+        # the 0 that anything in (0, 1) casts to.
+        if int(target) <= 0:
+            raise ValueError(
+                f"target must be at least 1 for method='distance', which casts it with int(), "
+                f"got {target}."
+            )
+        return _boost_gadget_distance(
+            gadget,
+            target_distance=int(target),
+            max_extra_qubits=30 if max_extra_qubits is None else max_extra_qubits,
+            num_trials_per_step=20 if num_trials_per_step is None else num_trials_per_step,
+            decoder_trials=10 if decoder_trials is None else decoder_trials,
+            seed=seed,
+        )
+    raise ValueError(f"unknown method: {method!r}. Allowed: 'combinatorial', 'distance'.")
+
+
+####################################################################################################
+# helper methods
+
 
 def _exact_boundary_cheeger(incidence: galois.FieldArray) -> tuple[float, np.ndarray]:
     """Exact boundary Cheeger constant of F per Webster §II A Definition 1.
@@ -102,42 +218,6 @@ def _exact_boundary_cheeger(incidence: galois.FieldArray) -> tuple[float, np.nda
         if best_mask & (1 << i):
             v_star[i] = 1
     return best_h, v_star
-
-
-def cheeger_constant(g: GadgetLayout) -> float:
-    """Exact boundary Cheeger constant h(F) of a gadget's F matrix.
-
-    gadget notation: F → incidence; V_0 → support (Webster–Smith–Cohen arXiv:2511.15989 §II A Def 1
-    / Cross et al. arXiv:2407.18393 Def 3).
-
-    Computed exactly by Gray-code subset enumeration, which is tractable only for ``|V_0|`` ≤ 26.
-
-    Cross et al. arXiv:2407.18393 §3.3 Thm 6 concludes d_merged ≥ d_data when an L-layer ancilla
-    system satisfies ceil(L/2) ≥ 1/h, which at the L=1 gadgets built here reduces to h ≥ 1.  Below 1
-    the gadget falls outside the theorem, where distance may degrade; consider
-    ``boost_gadget(g, method="combinatorial", target=1.0)``.
-
-    Reaching h ≥ 1 is a screen, not a distance guarantee.  The theorem bounds the merged code
-    distance; chained through Thm 11 that gives a phenomenological logical fault distance ≥ d, but
-    nothing in the paper bounds the circuit fault distance.  Thm 6 also inherits the irreducibility
-    assumption declared in §3.1 and stated in Thm 1 — no other logical of the same type has support
-    inside the measured logical's support — which ``build_gadget`` does not check, and nothing here
-    verifies its conclusion.  Nor does h track circuit fault distance, so a higher h is not a reason
-    to expect a better circuit.
-
-    Raises:
-        ValueError: if ``|V_0|`` > 26, beyond which the exact enumeration is infeasible.
-    """
-    incidence = galois.GF2(np.asarray(g.incidence).astype(int))
-    if incidence.shape[1] > 26:
-        raise ValueError(
-            f"cheeger_constant requires |V_0| ≤ 26 for an exact value; got "
-            f"|V_0|={incidence.shape[1]}. Enumeration cost quadruples per additional 2 columns, and "
-            f"no bound on h(F) is computed in its place, so no value can be returned; compute the "
-            f"exact code distance instead."
-        )
-    h, _ = _exact_boundary_cheeger(incidence)
-    return h
 
 
 def _incidence_pairs(incidence: np.ndarray) -> set[tuple[int, int]]:
@@ -428,76 +508,3 @@ def _boost_gadget_distance(
         f"augmentation passed the BP+OSD screen. Increase max_extra_qubits or "
         f"num_trials_per_step, or lower the target."
     )
-
-
-def boost_gadget(
-    gadget: GadgetLayout,
-    *,
-    method: Literal["combinatorial", "distance"],
-    target: float,
-    seed: int | None = None,
-    max_extra_qubits: int | None = None,
-    num_trials_per_step: int | None = None,
-    decoder_trials: int | None = None,
-) -> GadgetLayout:
-    """Single entry point for Cheeger / distance boost.
-
-    Args:
-        gadget: a GadgetLayout from build_gadget.
-        method: 'combinatorial' | 'distance'.
-        target: target Cheeger constant (for combinatorial) or target distance (for distance method;
-            cast via int(target)).
-        seed: RNG seed.
-        max_extra_qubits: cap on new ancillas.  Defaults to 50 for the combinatorial method and 30
-            for the distance method.
-        num_trials_per_step: distance-method random augmentations per ancilla count.  Defaults
-            to 20.
-        decoder_trials: distance-method BP+OSD trials per candidate.  Defaults to 10.
-
-    Returns:
-        A NEW GadgetLayout with boosted incidence, gauge, HX_merged, HZ_merged. method='distance'
-        screens with a BP+OSD upper bound, so acceptance is a heuristic rather than a proof; confirm
-        it by computing the exact distance of the code HX_merged / HZ_merged define.
-
-    Raises:
-        ValueError: gadget is already augmented; method is neither 'combinatorial' nor 'distance';
-            target is not positive; distance-only options are passed to the combinatorial method; or
-            the combinatorial method is used with ``|V_0|`` > 26.
-        RuntimeError: the chosen method could not reach ``target``.  Lower it; raising
-            max_extra_qubits helps only when the budget is what ran out, which the message says.
-            For method='distance', retrying can also succeed, since its screen is not seeded.
-    """
-    if gadget.is_augmented:
-        raise ValueError(
-            "boost_gadget requires an unaugmented layout returned directly by build_gadget; "
-            "chaining boosts is not supported."
-        )
-
-    if method == "combinatorial":
-        if num_trials_per_step is not None or decoder_trials is not None:
-            raise ValueError(
-                "num_trials_per_step and decoder_trials apply only to method='distance'."
-            )
-        return _boost_gadget_cheeger_combinatorial(
-            gadget,
-            target_h=target,
-            max_extra_qubits=50 if max_extra_qubits is None else max_extra_qubits,
-            seed=seed,
-        )
-    if method == "distance":
-        # Validate before the cast, so the rejection quotes the target the caller wrote rather than
-        # the 0 that anything in (0, 1) casts to.
-        if int(target) <= 0:
-            raise ValueError(
-                f"target must be at least 1 for method='distance', which casts it with int(), "
-                f"got {target}."
-            )
-        return _boost_gadget_distance(
-            gadget,
-            target_distance=int(target),
-            max_extra_qubits=30 if max_extra_qubits is None else max_extra_qubits,
-            num_trials_per_step=20 if num_trials_per_step is None else num_trials_per_step,
-            decoder_trials=10 if decoder_trials is None else decoder_trials,
-            seed=seed,
-        )
-    raise ValueError(f"unknown method: {method!r}. Allowed: 'combinatorial', 'distance'.")

@@ -71,33 +71,6 @@ _QUDIT_SYNDROME_MATRIX_REASON = "errors are decoded against an internal syndrome
 _MAX_DECODING_ATTEMPTS = 100
 
 
-def _decode_consistently(
-    decoder: decoders.ErrorDecoder,
-    check_matrix: npt.NDArray[np.int_],
-    get_syndrome: Callable[[], npt.NDArray[np.int_]],
-    field: type[galois.FieldArray],
-) -> galois.FieldArray:
-    """Decode syndromes until the decoder infers an error that reproduces its syndrome.
-
-    Each attempt decodes a new syndrome from get_syndrome, which may be randomized.  An attempt
-    fails if the decoder signals erasure, or infers an error that does not reproduce its syndrome.
-
-    Raises:
-        ValueError: If the decoder fails _MAX_DECODING_ATTEMPTS times in a row.
-    """
-    check_matrix = np.asanyarray(check_matrix).view(field)
-    for _ in range(_MAX_DECODING_ATTEMPTS):
-        syndrome = np.asanyarray(get_syndrome()).view(field)
-        error, erased = decoders.get_error_and_erasure(decoder, syndrome)
-        if not erased and np.array_equal(check_matrix @ error.view(field), syndrome):
-            return error.view(field)
-    raise ValueError(
-        f"The decoder failed to infer an error that reproduces its syndrome in {_MAX_DECODING_ATTEMPTS}"
-        " attempts.  Try a more thorough decoder, such as"
-        " decoder=decoders.bp_osd(osd_method='OSD_CS', osd_order=5)"
-    )
-
-
 def get_scrambled_seed(seed: int) -> int:
     """Scramble a seed, allowing us to safely increment seeds in repeat-until-success protocols."""
     state = np.random.get_state()
@@ -124,7 +97,7 @@ def get_random_array(
     return array
 
 
-################################################################################
+####################################################################################################
 # template error-correcting code class
 
 
@@ -291,7 +264,7 @@ class AbstractCode(abc.ABC):
         return self
 
 
-################################################################################
+####################################################################################################
 # classical codes
 
 
@@ -985,7 +958,7 @@ class ClassicalCode(AbstractCode):
         return num_failures, num_discards
 
 
-################################################################################
+####################################################################################################
 # quantum codes
 
 
@@ -4087,6 +4060,37 @@ class CSSCode(QuditCode):
                 num_failures += 1
 
         return num_failures, num_discards
+
+
+####################################################################################################
+# helper methods
+
+
+def _decode_consistently(
+    decoder: decoders.ErrorDecoder,
+    check_matrix: npt.NDArray[np.int_],
+    get_syndrome: Callable[[], npt.NDArray[np.int_]],
+    field: type[galois.FieldArray],
+) -> galois.FieldArray:
+    """Decode syndromes until the decoder infers an error that reproduces its syndrome.
+
+    Each attempt decodes a new syndrome from get_syndrome, which may be randomized.  An attempt
+    fails if the decoder signals erasure, or infers an error that does not reproduce its syndrome.
+
+    Raises:
+        ValueError: If the decoder fails _MAX_DECODING_ATTEMPTS times in a row.
+    """
+    check_matrix = np.asanyarray(check_matrix).view(field)
+    for _ in range(_MAX_DECODING_ATTEMPTS):
+        syndrome = np.asanyarray(get_syndrome()).view(field)
+        error, erased = decoders.get_error_and_erasure(decoder, syndrome)
+        if not erased and np.array_equal(check_matrix @ error.view(field), syndrome):
+            return error.view(field)
+    raise ValueError(
+        f"The decoder failed to infer an error that reproduces its syndrome in {_MAX_DECODING_ATTEMPTS}"
+        " attempts.  Try a more thorough decoder, such as"
+        " decoder=decoders.bp_osd(osd_method='OSD_CS', osd_order=5)"
+    )
 
 
 def _join_slices(*sectors: Slice) -> npt.NDArray[np.int_]:

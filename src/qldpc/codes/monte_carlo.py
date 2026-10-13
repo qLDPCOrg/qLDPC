@@ -22,6 +22,10 @@ from qldpc import math
 OneOrManyFloats = TypeVar("OneOrManyFloats", float, Iterable[float])
 
 
+####################################################################################################
+# logical error rate estimation
+
+
 @dataclasses.dataclass
 class ErrorRateFunc:
     """Container for raw simulation data used to compute logical error and discard rates.
@@ -218,12 +222,6 @@ class ErrorRateFunc:
         )
 
 
-def _check_error_weight(min_error_weight: int) -> None:
-    """Reject a minimum failing error weight below one."""
-    if min_error_weight < 1:
-        raise ValueError("min_error_weight must be at least 1: weight 0 is a no-error case")
-
-
 def jeffreys_variance(
     num_events: npt.NDArray[np.int_], num_trials: npt.NDArray[np.int_]
 ) -> npt.NDArray[np.floating]:
@@ -307,6 +305,16 @@ def get_sample_allocation(
 
     sample_allocation[min_error_weight:] = np.maximum(sample_allocation[min_error_weight:], 1)
     return sample_allocation
+
+
+####################################################################################################
+# helper methods
+
+
+def _check_error_weight(min_error_weight: int) -> None:
+    """Reject a minimum failing error weight below one."""
+    if min_error_weight < 1:
+        raise ValueError("min_error_weight must be at least 1: weight 0 is a no-error case")
 
 
 def _get_max_error_weight(

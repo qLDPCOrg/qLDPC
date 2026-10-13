@@ -42,7 +42,8 @@ PcmOrDem: TypeAlias = IntegerArray | stim.DetectorErrorModel
 """A parity-check matrix or detector error model from which to build an error decoder."""
 
 
-# Decoder specifications
+####################################################################################################
+# decoder specifications
 
 
 @dataclasses.dataclass(frozen=True, slots=True, eq=False, repr=False)
@@ -224,7 +225,8 @@ def observable_decoder_spec(
     return make_spec
 
 
-# Decoder inputs
+####################################################################################################
+# decoder inputs
 
 
 class ErrorDecoderConstructor(Protocol):
@@ -273,7 +275,8 @@ DecoderInput: TypeAlias = ErrorDecoderInput | DeferredDecoderInput | ObservableD
 """An input for error or observable decoding; use a decoder specification to select a backend."""
 
 
-# Private helpers
+####################################################################################################
+# private helpers
 
 
 def _set_helper_metadata(

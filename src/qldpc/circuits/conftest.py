@@ -33,3 +33,30 @@ class StimCircuitWrapper:
 
     def __len__(self) -> int:
         return len(self.stim_circuit)
+
+
+def circuits_are_equivalent(
+    circuit_a: stim.Circuit, circuit_b: stim.Circuit, atol: float = 1e-10
+) -> bool:
+    """Test equivalence between circuits after standardizing them with a trivial noise model."""
+    from qldpc.circuits import NoiseModel
+
+    trivial_noise_model = NoiseModel()
+    circuit_a = trivial_noise_model.noisy_circuit(circuit_a)
+    circuit_b = trivial_noise_model.noisy_circuit(circuit_b)
+    return circuit_a.approx_equals(circuit_b, atol=atol)
+
+
+def flatten_repeat_blocks(circuit: stim.Circuit, keep_tag: str | None = None) -> stim.Circuit:
+    """Flatten the repeat blocks of a circuit, except for those whose tag contains keep_tag."""
+    flattened = stim.Circuit()
+    for instruction in circuit:
+        if isinstance(instruction, stim.CircuitRepeatBlock) and (
+            keep_tag is None or keep_tag not in instruction.tag
+        ):
+            body = flatten_repeat_blocks(instruction.body_copy(), keep_tag)
+            for _ in range(instruction.repeat_count):
+                flattened += body
+        else:
+            flattened.append(instruction)
+    return flattened

@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from .ring_array import Protograph, RingArray  # noqa: F401
     from .wedderburn_artin import WedderburnArtinTransformer
 
-################################################################################
+####################################################################################################
 # group algebra and elements thereof
 
 

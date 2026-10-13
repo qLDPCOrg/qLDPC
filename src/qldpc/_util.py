@@ -17,6 +17,10 @@ from typing import TYPE_CHECKING, Any, TypeVar
 CallableType = TypeVar("CallableType", bound=Callable[..., object])
 
 
+####################################################################################################
+# lazy imports
+
+
 class _LoaderWithCleanup(importlib.abc.Loader):
     """Loader proxy that restores lazy modules after failed execution."""
 
@@ -75,6 +79,10 @@ if TYPE_CHECKING:
     import networkx
 else:
     networkx = lazy_import("networkx")
+
+
+####################################################################################################
+# docstrings and deprecation
 
 
 def format_docstring(**substitutions: object) -> Callable[[CallableType], CallableType]:
@@ -165,6 +173,10 @@ def get_deprecated_alias(
             stacklevel=get_external_caller_stacklevel(),
         )
     return replacement
+
+
+####################################################################################################
+# helper methods
 
 
 def _is_import_probe(frame: FrameType | None) -> bool:

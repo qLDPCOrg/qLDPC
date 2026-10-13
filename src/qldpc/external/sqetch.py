@@ -29,46 +29,13 @@ _INSTALL_COMMAND = (
 )
 
 
+####################################################################################################
+# distance estimation with sqetch
+
+
 def is_installed() -> bool:
     """Return whether the optional upstream package is discoverable."""
     return importlib.util.find_spec("sqetch") is not None
-
-
-def _get_sqetch() -> Any:
-    """Import the optional upstream dependency or raise an actionable error."""
-    try:
-        import sqetch
-    except ModuleNotFoundError as error:
-        if error.name != "sqetch":
-            raise
-        raise ModuleNotFoundError(
-            "The sqetch distance backend requires the optional 'sqetch' package. "
-            f"Install it with `{_INSTALL_COMMAND}`."
-        ) from error
-    return sqetch
-
-
-def _get_binary_matrices(
-    code: CSSCode, pauli: PauliXZ
-) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
-    """Build binary matrices for dressed-distance estimation in one Pauli sector."""
-    if code.field is not galois.GF2:
-        raise ValueError("The sqetch distance backend only supports CSS codes over GF(2).")
-    if pauli not in PAULIS_XZ:
-        raise ValueError(f"sqetch distance bounds require Pauli.X or Pauli.Z, got {pauli!r}.")
-
-    check_pauli = pauli.swap_xz()
-    if code.is_subsystem_code:
-        # Dressed logicals need only commute with opposite-type stabilizers.  Adding opposite-type
-        # gauge generators would restrict the search to bare logicals.
-        check_matrix = code.get_stabilizer_ops(check_pauli, canonicalized=True)
-    else:
-        check_matrix = code.get_matrix(check_pauli)
-    logical_matrix = code.get_logical_ops(check_pauli)
-    return (
-        np.asarray(check_matrix, dtype=np.uint8),
-        np.asarray(logical_matrix, dtype=np.uint8),
-    )
 
 
 def get_distance_bound(
@@ -151,3 +118,44 @@ def get_distance_bound(
             f"{result.trials_run} trials; increase num_trials or adjust k_sub."
         )
     return int(result.best_weight)
+
+
+####################################################################################################
+# helper methods
+
+
+def _get_sqetch() -> Any:
+    """Import the optional upstream dependency or raise an actionable error."""
+    try:
+        import sqetch
+    except ModuleNotFoundError as error:
+        if error.name != "sqetch":
+            raise
+        raise ModuleNotFoundError(
+            "The sqetch distance backend requires the optional 'sqetch' package. "
+            f"Install it with `{_INSTALL_COMMAND}`."
+        ) from error
+    return sqetch
+
+
+def _get_binary_matrices(
+    code: CSSCode, pauli: PauliXZ
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
+    """Build binary matrices for dressed-distance estimation in one Pauli sector."""
+    if code.field is not galois.GF2:
+        raise ValueError("The sqetch distance backend only supports CSS codes over GF(2).")
+    if pauli not in PAULIS_XZ:
+        raise ValueError(f"sqetch distance bounds require Pauli.X or Pauli.Z, got {pauli!r}.")
+
+    check_pauli = pauli.swap_xz()
+    if code.is_subsystem_code:
+        # Dressed logicals need only commute with opposite-type stabilizers.  Adding opposite-type
+        # gauge generators would restrict the search to bare logicals.
+        check_matrix = code.get_stabilizer_ops(check_pauli, canonicalized=True)
+    else:
+        check_matrix = code.get_matrix(check_pauli)
+    logical_matrix = code.get_logical_ops(check_pauli)
+    return (
+        np.asarray(check_matrix, dtype=np.uint8),
+        np.asarray(logical_matrix, dtype=np.uint8),
+    )

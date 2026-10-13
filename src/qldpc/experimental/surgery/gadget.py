@@ -42,6 +42,9 @@ from qldpc.objects import Pauli, PauliXZ, PauliXZLike
 
 from .construction import _CSSConeMaps, _CSSConeResult
 
+####################################################################################################
+# surgery gadgets
+
 
 @dataclasses.dataclass(frozen=True, eq=False)
 class GadgetLayout:
@@ -116,6 +119,93 @@ class GadgetLayout:
             )
         combined = np.vstack([self.added_ancilla_incidence, added])
         return _rebuild_with_added_ancillas(self.code, self.x, combined, basis=self.basis)
+
+
+def build_gadget(
+    code: CSSCode,
+    x: np.ndarray,
+    *,
+    basis: PauliXZLike,
+) -> GadgetLayout:
+    """Webster §II A L=1 gadget: restriction, gauge fix, assembly.  Deterministic in its arguments.
+
+    gadget notation: κ qubits → rows of incidence; G → gauge.
+
+    basis=Pauli.X: measures a logical X (PPM of X̄).  Validates H_Z @ x == 0.  basis=Pauli.Z:
+    measures a logical Z (PPM of Z̄).  Validates H_X @ x == 0.  The strings "X" and "Z"
+    (case-insensitive) are also accepted for basis.
+
+    Raises:
+        ValueError: code is a subsystem code or is not over GF(2); x has an entry outside {0, 1};
+            basis does not identify Pauli.X or Pauli.Z; x fails the complementary check equation
+            (H_Z @ x == 0 for basis=X, H_X @ x == 0 for basis=Z); x is the zero vector; or x lies in
+            the row space of the measured basis's check matrix, making it a stabilizer rather than a
+            logical operator.
+    """
+    if code.is_subsystem_code:
+        raise ValueError(
+            "build_gadget currently supports only stabilizer (non-subsystem) CSS codes."
+        )
+    if code.field.order != 2:
+        raise ValueError(
+            f"build_gadget requires a qubit code, got one over GF({code.field.order}). The gauge "
+            f"fix, the Cheeger boost and the merged-code assembly are all mod 2."
+        )
+    basis = Pauli.coerce_xz(basis)
+    x = np.asarray(x)
+    # Check before the cast to uint8, which wraps 256 to 0 and 257 to 1 rather than complaining.
+    if ((x != 0) & (x != 1)).any():
+        raise ValueError(f"x must be a binary support vector, got entries outside {{0, 1}}: {x}.")
+    x = x.astype(np.uint8)
+    if basis is Pauli.X:
+        H_check = np.asarray(code.matrix_z).astype(np.uint8)
+        H_same = np.asarray(code.matrix_x).astype(np.uint8)
+        if ((H_check @ x) % 2).any():
+            raise ValueError("x is not a logical-X support (H_Z @ x != 0).")
+    else:
+        H_check = np.asarray(code.matrix_x).astype(np.uint8)
+        H_same = np.asarray(code.matrix_z).astype(np.uint8)
+        if ((H_check @ x) % 2).any():
+            raise ValueError("x is not a logical-Z support (H_X @ x != 0).")
+
+    # The zero vector satisfies H @ x == 0 but measures nothing: it yields an empty support and a
+    # 0x0 incidence, for which cheeger_constant reports inf.
+    if not x.any():
+        raise ValueError("x is the zero vector, which measures no logical operator.")
+
+    # The check equation above admits the whole normalizer, so every stabilizer of the measured
+    # basis passes it too.  Such an x measures the identity, so reject it: x must not lie in the row
+    # space of the measured basis's check matrix.
+    H_same_gf2 = galois.GF2(H_same.astype(np.int_))
+    x_gf2 = galois.GF2(x.astype(np.int_))
+    if np.linalg.matrix_rank(np.vstack([H_same_gf2, x_gf2])) == np.linalg.matrix_rank(H_same_gf2):
+        H_name = "H_X" if basis is Pauli.X else "H_Z"
+        raise ValueError(
+            f"x lies in the row space of {H_name}, so it is a stabilizer rather than a logical "
+            f"operator, and the gadget would measure the identity."
+        )
+
+    support, data_checks, incidence = _restrict_checks_to_support(code, x, basis=basis)
+    gauge = _compute_gauge_basis(incidence)
+    maps = _build_cone_maps(code, support, data_checks, incidence, gauge, basis=basis)
+    assert maps.measures_exact_span(code, x.reshape(1, -1)), (
+        "internal cone maps do not measure the requested logical operator"
+    )
+    result = maps.build(code)
+    return GadgetLayout(
+        code=code,
+        x=x,
+        support=support,
+        incidence=incidence,
+        gauge=gauge,
+        HX_merged=np.asarray(result.code.matrix_x, dtype=np.uint8),
+        HZ_merged=np.asarray(result.code.matrix_z, dtype=np.uint8),
+        basis=basis,
+    )
+
+
+####################################################################################################
+# helper methods
 
 
 def _restrict_checks_to_support(
@@ -214,89 +304,6 @@ def _assemble_merged_checks(
     return (
         np.asarray(result.code.matrix_x, dtype=np.uint8),
         np.asarray(result.code.matrix_z, dtype=np.uint8),
-    )
-
-
-def build_gadget(
-    code: CSSCode,
-    x: np.ndarray,
-    *,
-    basis: PauliXZLike,
-) -> GadgetLayout:
-    """Webster §II A L=1 gadget: restriction, gauge fix, assembly.  Deterministic in its arguments.
-
-    gadget notation: κ qubits → rows of incidence; G → gauge.
-
-    basis=Pauli.X: measures a logical X (PPM of X̄).  Validates H_Z @ x == 0.  basis=Pauli.Z:
-    measures a logical Z (PPM of Z̄).  Validates H_X @ x == 0.  The strings "X" and "Z"
-    (case-insensitive) are also accepted for basis.
-
-    Raises:
-        ValueError: code is a subsystem code or is not over GF(2); x has an entry outside {0, 1};
-            basis does not identify Pauli.X or Pauli.Z; x fails the complementary check equation
-            (H_Z @ x == 0 for basis=X, H_X @ x == 0 for basis=Z); x is the zero vector; or x lies in
-            the row space of the measured basis's check matrix, making it a stabilizer rather than a
-            logical operator.
-    """
-    if code.is_subsystem_code:
-        raise ValueError(
-            "build_gadget currently supports only stabilizer (non-subsystem) CSS codes."
-        )
-    if code.field.order != 2:
-        raise ValueError(
-            f"build_gadget requires a qubit code, got one over GF({code.field.order}). The gauge "
-            f"fix, the Cheeger boost and the merged-code assembly are all mod 2."
-        )
-    basis = Pauli.coerce_xz(basis)
-    x = np.asarray(x)
-    # Check before the cast to uint8, which wraps 256 to 0 and 257 to 1 rather than complaining.
-    if ((x != 0) & (x != 1)).any():
-        raise ValueError(f"x must be a binary support vector, got entries outside {{0, 1}}: {x}.")
-    x = x.astype(np.uint8)
-    if basis is Pauli.X:
-        H_check = np.asarray(code.matrix_z).astype(np.uint8)
-        H_same = np.asarray(code.matrix_x).astype(np.uint8)
-        if ((H_check @ x) % 2).any():
-            raise ValueError("x is not a logical-X support (H_Z @ x != 0).")
-    else:
-        H_check = np.asarray(code.matrix_x).astype(np.uint8)
-        H_same = np.asarray(code.matrix_z).astype(np.uint8)
-        if ((H_check @ x) % 2).any():
-            raise ValueError("x is not a logical-Z support (H_X @ x != 0).")
-
-    # The zero vector satisfies H @ x == 0 but measures nothing: it yields an empty support and a
-    # 0x0 incidence, for which cheeger_constant reports inf.
-    if not x.any():
-        raise ValueError("x is the zero vector, which measures no logical operator.")
-
-    # The check equation above admits the whole normalizer, so every stabilizer of the measured
-    # basis passes it too.  Such an x measures the identity, so reject it: x must not lie in the row
-    # space of the measured basis's check matrix.
-    H_same_gf2 = galois.GF2(H_same.astype(np.int_))
-    x_gf2 = galois.GF2(x.astype(np.int_))
-    if np.linalg.matrix_rank(np.vstack([H_same_gf2, x_gf2])) == np.linalg.matrix_rank(H_same_gf2):
-        H_name = "H_X" if basis is Pauli.X else "H_Z"
-        raise ValueError(
-            f"x lies in the row space of {H_name}, so it is a stabilizer rather than a logical "
-            f"operator, and the gadget would measure the identity."
-        )
-
-    support, data_checks, incidence = _restrict_checks_to_support(code, x, basis=basis)
-    gauge = _compute_gauge_basis(incidence)
-    maps = _build_cone_maps(code, support, data_checks, incidence, gauge, basis=basis)
-    assert maps.measures_exact_span(code, x.reshape(1, -1)), (
-        "internal cone maps do not measure the requested logical operator"
-    )
-    result = maps.build(code)
-    return GadgetLayout(
-        code=code,
-        x=x,
-        support=support,
-        incidence=incidence,
-        gauge=gauge,
-        HX_merged=np.asarray(result.code.matrix_x, dtype=np.uint8),
-        HZ_merged=np.asarray(result.code.matrix_z, dtype=np.uint8),
-        basis=basis,
     )
 
 

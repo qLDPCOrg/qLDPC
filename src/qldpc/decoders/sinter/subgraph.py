@@ -218,6 +218,10 @@ class CompiledSubgraphDecoder(CompiledSinterDecoder):
         return observable_flips
 
 
+####################################################################################################
+# helper methods
+
+
 def _warn_about_subgraph_partition(
     flip_errors: npt.NDArray[np.int_],
     flip_observables: npt.NDArray[np.int_],

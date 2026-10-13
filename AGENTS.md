@@ -37,9 +37,11 @@ Do not copy transient project history, machine-specific paths, or local-session 
 
 - Preserve a module's existing section headings and organization when adding code.
 - Add a section when new functionality does not fit an existing one.
+- Start each section with a line of 100 `#` characters followed by a one-line `# title` comment.
 - Put important user-facing APIs first within modules and sections.
 - Keep related public entry points together.
 - Place private implementation helpers toward the bottom of the relevant section or module.
+  Module-level helpers go in a final `# helper methods` section, except for private constants and types that belong near the imports, or helpers that must be defined before code that uses them at import time.
 - Keep user-facing decode methods near the top of decoder classes.
 - Place private helper methods after the public decode methods.
 

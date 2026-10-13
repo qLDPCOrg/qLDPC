@@ -44,27 +44,6 @@ def validate_distance_method(method: DistanceMethod) -> None:
 # exact binary distance
 
 
-def _assert_binary(vectors: npt.ArrayLike, name: str) -> None:
-    """Assert that the given vectors are binary.
-
-    The enumeration below packs each row into the bits of ``uint64`` words and combines rows by
-    bitwise XOR, so it is only correct over GF(2).  Non-binary input would otherwise be truncated
-    silently and yield a wrong distance rather than an error.
-    """
-    order = getattr(type(vectors), "order", None)
-    if order is not None and order != 2:
-        raise ValueError(
-            f"Distance calculations only support binary codes, but {name} is defined over"
-            f" GF({order})"
-        )
-    array = np.asarray(vectors)
-    if array.size and not np.all((array == 0) | (array == 1)):
-        raise ValueError(
-            f"Distance calculations only support binary codes, but {name} has entries other"
-            " than 0 and 1"
-        )
-
-
 def get_distance_classical(
     generators: npt.ArrayLike,
     *,
@@ -259,6 +238,31 @@ def get_distance_css_brouwer_zimmermann(
         block_size=block_size,
         upper_bound=best,
     )
+
+
+####################################################################################################
+# helper methods
+
+
+def _assert_binary(vectors: npt.ArrayLike, name: str) -> None:
+    """Assert that the given vectors are binary.
+
+    The enumeration below packs each row into the bits of ``uint64`` words and combines rows by
+    bitwise XOR, so it is only correct over GF(2).  Non-binary input would otherwise be truncated
+    silently and yield a wrong distance rather than an error.
+    """
+    order = getattr(type(vectors), "order", None)
+    if order is not None and order != 2:
+        raise ValueError(
+            f"Distance calculations only support binary codes, but {name} is defined over"
+            f" GF({order})"
+        )
+    array = np.asarray(vectors)
+    if array.size and not np.all((array == 0) | (array == 1)):
+        raise ValueError(
+            f"Distance calculations only support binary codes, but {name} has entries other"
+            " than 0 and 1"
+        )
 
 
 def _as_binary_matrix(

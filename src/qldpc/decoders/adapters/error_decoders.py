@@ -21,7 +21,8 @@ from ..protocols import (
     batch_decode_errors,
 )
 
-# Observable prediction from inferred errors
+####################################################################################################
+# observable prediction from inferred errors
 
 
 class ErrorsToObservablesDecoder(ObservableDecoder):
@@ -70,7 +71,8 @@ class _DetailedErrorsToObservablesDecoder(ErrorsToObservablesDecoder):
         return ObservableDecodeResult(prediction, result.erasure, result.diagnostics)
 
 
-# Error-mechanism alignment
+####################################################################################################
+# error-mechanism alignment
 
 
 class ExpandedErrorDecoder(BatchErrorDecoder):

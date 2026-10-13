@@ -35,7 +35,8 @@ __all__ = [
     "TrivialDecoder",
 ]
 
-# Deprecated compatibility aliases
+####################################################################################################
+# deprecated compatibility aliases
 
 DEPRECATED_ALIASES: dict[str, type] = {
     "Decoder": ErrorDecoder,

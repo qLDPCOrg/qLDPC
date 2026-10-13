@@ -22,6 +22,9 @@ from .common import (
 from .encoding import get_logical_state_stabilizers, get_state_stabilizers
 from .noise_model import DepolarizingNoiseModel, NoiseModel, as_noiseless_circuit
 
+####################################################################################################
+# state preparation diagnostics and logical error rates
+
 
 @restrict_to_qubits
 def get_state_prep_diagnostic_circuit(
@@ -379,6 +382,10 @@ def get_logical_error_and_discard_rate(
     logical_error_rate = np.sum(failures) / len(failures) if len(failures) else np.nan
     discard_rate = num_discards / num_samples if num_samples else 0.0
     return logical_error_rate, discard_rate
+
+
+####################################################################################################
+# helper methods
 
 
 def _get_postselection_masks(

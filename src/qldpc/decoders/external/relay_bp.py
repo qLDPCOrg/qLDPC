@@ -23,7 +23,8 @@ from ..construction.specs import decoder_spec
 from ..dems import DetectorErrorModelArrays
 from ..protocols import BatchErrorDecoder, ErrorDecodeResult, ObservableDecodeResult
 
-# Public decoder and specifications
+####################################################################################################
+# public decoder and specifications
 
 
 class RelayBPDecoder(BatchErrorDecoder):
@@ -654,7 +655,8 @@ Returns:
 )
 
 
-# Private builder helpers
+####################################################################################################
+# private builder helpers
 
 
 def _get_relay_decoder(
