@@ -297,6 +297,15 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
     capsys.readouterr()  # intercept print statements
 
 
+def test_matrix_automorphism_group() -> None:
+    """Automorphisms of parity check matrices, which permute checks and bits separately."""
+    pytest.importorskip("pybliss")
+    assert codes.RingCode(6).get_matrix_automorphism_group().order == 12
+    assert codes.HammingCode(3).get_matrix_automorphism_group().order == 6
+    group = codes.ClassicalCode([[1, 1, 0], [0, 1, 1], [0, 0, 1]]).get_matrix_automorphism_group()
+    assert group.order == 1 and group.degree == 6
+
+
 def test_classical_capacity() -> None:
     """Logical error rates in a code capacity model."""
     code = codes.RepetitionCode(2)

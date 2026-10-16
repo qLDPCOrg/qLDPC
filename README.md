@@ -11,7 +11,7 @@ Circuit tools currently only support qubit codes.
 ## ✨ A taste of qLDPC
 
 - **From textbook codes to the research frontier.**
-  Build familiar surface, toric, Hamming, and Reed–Muller codes alongside hypergraph-product, lifted-product, bivariate-bicycle, quantum Tanner, SHYPS, GALA, and other modern families.
+  Build familiar surface, toric, Hamming, and Reed–Muller codes alongside hypergraph-product, lifted-product, balanced-product, bivariate-bicycle, quantum Tanner, SHYPS, GALA, and other modern families.
 - **Go beyond binary.**
   Many constructions and core algorithms work over arbitrary prime-power finite fields, not just qubits.
 - **Ask more of a code than `[[n, k, d]]`.**
