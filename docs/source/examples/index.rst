@@ -28,7 +28,7 @@ The other notebooks in this group are standalone technical examples.
 Logical error rates
 --------------------
 
-A progressive series on estimating logical error rates, from the code-capacity model up to circuit-level simulations with Sinter.
+A progressive series on estimating logical error rates, from the code-capacity model up to circuit-level simulations with Sinter, and on certifying the fault distance of circuits.
 The numbered notebooks build conceptually on one another, but none relies on files or state produced by an earlier notebook.
 
 .. toctree::
@@ -41,6 +41,7 @@ The numbered notebooks build conceptually on one another, but none relies on fil
    logical_error_rates/5_state_preparation
    logical_error_rates/6_steane_qec
    logical_error_rates/7_individual_observables
+   logical_error_rates/8_certifying_fault_distance
 
 Miscellaneous
 -------------
