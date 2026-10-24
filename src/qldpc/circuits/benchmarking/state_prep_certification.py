@@ -2,12 +2,11 @@
 
 """Exact certification of bounded fault propagation in state-preparation circuits.
 
-A *fault* is one error mechanism of the circuit's detector error model (DEM).  Write ``S f`` for
-the syndrome that a set ``f`` of faults leaves on the prepared state, measured against all
-stabilizers of that state, logical ones included, and let ``mu(s)`` be the smallest weight of an
-error with syndrome ``s``.  The certificate proves ``mu(S f) <= |f|`` for every nonempty set ``f``
-of faults, of any size ``|f|``, although it examines only single faults.  The argument rests on
-these facts:
+A *fault* is one error mechanism of the circuit's detector error model (DEM).  Write ``S f`` for the
+syndrome that a set ``f`` of faults leaves on the prepared state, measured against all stabilizers
+of that state, logical ones included, and let ``mu(s)`` be the smallest weight of an error with
+syndrome ``s``.  The certificate proves ``mu(S f) <= |f|`` for every nonempty set ``f`` of faults,
+of any size ``|f|``, although it examines only single faults.  The argument rests on these facts:
 
 - Syndromes identify equivalent errors.  Two errors with the same syndrome differ by an operator
   that commutes with all ``n`` independent stabilizers of the ``n``-qubit state, and every such
@@ -20,8 +19,8 @@ these facts:
   two errors together.  For CSS weight, ``max(a+c, b+d) <= max(a, b) + max(c, d)``.
 
 Hence ``mu(S f)`` is at most the sum of ``mu(S g)`` over the faults ``g`` in ``f``.  If every fault
-alone leaves an error that is equivalent to one of weight at most one, every set of faults meets
-the bound.  Conversely, a fault with ``mu(S g) >= 2`` is itself a violating set.  The certificate
+alone leaves an error that is equivalent to one of weight at most one, every set of faults meets the
+bound.  Conversely, a fault with ``mu(S g) >= 2`` is itself a violating set.  The certificate
 therefore holds exactly when ``mu(S g) <= 1`` for every fault ``g``, and one exact oracle,
 ``PauliCosetSearch``, decides this for each fault.
 """
@@ -36,7 +35,8 @@ import numpy as np
 import numpy.typing as npt
 import stim
 
-from qldpc.codes.distance._bounded_weight_search import PauliCosetSearch, PauliWeightDecision
+from qldpc import math
+from qldpc.codes.distance._bounded_weight_search import MinWeightBound, PauliCosetSearch
 
 from ..common import get_pauli_product_measurements
 from ..encoding import get_state_stabilizers
@@ -54,21 +54,21 @@ def certify_state_prep_fault_propagation(
     """Certify bounded fault propagation in a noisy Clifford state preparation.
 
     Check that, for every set of faults, the error left on the output is equivalent to an error of
-    weight at most the number of faults.  Two errors are equivalent if they leave the prepared
-    state unchanged, that is, if they differ by a stabilizer of that state (logical stabilizers
-    included).  The weight is either the physical weight, the number of qubits that an error acts
-    on, or the CSS weight ``max(|x|, |z|)``, where ``x`` and ``z`` are the X and Z parts of the
-    error.  The minimum is over whole errors, not separately over the X and Z parts.
+    weight at most the number of faults.  Two errors are equivalent if they change the prepared
+    state in the same way, that is, if they differ by a stabilizer of that state (logical
+    stabilizers included).  The weight is either the physical weight, the number of qubits that an
+    error acts on, or the CSS weight ``max(|x|, |z|)``, where ``x`` and ``z`` are the X and Z parts
+    of the error.  The minimum is over whole errors, not separately over the X and Z parts.
 
     A fault is one error mechanism of the circuit's detector error model (DEM), and every fault
     costs one.  Mechanisms are treated as independent, even when they come from one noise channel
-    and could not physically occur together.  A mechanism that flips several detectors at once
-    stays one fault.  Stim converts the circuit with ``approximate_disjoint_errors=True``;
-    probabilities play no role, and nothing is claimed about the sampling distribution.
+    and could not physically occur together.  A mechanism that flips several detectors at once stays
+    one fault.  Stim converts the circuit with ``approximate_disjoint_errors=True``; probabilities
+    play no role, and nothing is claimed about the sampling distribution.
 
-    Because weight is subadditive, it is enough to check every fault on its own: the bound holds
-    for all sets of faults exactly when each single fault leaves an error that is equivalent to one
-    of weight at most one.  See the module docstring for the proof.
+    Because weight is subadditive, it is enough to check every fault on its own: the bound holds for
+    all sets of faults exactly when each single fault leaves an error that is equivalent to one of
+    weight at most one.  See the module docstring for the proof.
 
     The output qubits must end in one definite stabilizer state, the same for every measurement
     outcome.  Detectors and observables that the circuit already has do not affect the certificate,
@@ -101,10 +101,10 @@ def certify_state_prep_fault_propagation(
             when the prepared state is a CSS state.
 
     Returns:
-        A certificate with the decision, the DEM, and the weight that was used.  A failure comes
-        with a counterexample: a fault whose output error has no equivalent error of weight at most
-        one, and a proved lower bound on the weight of its equivalent errors.  Fault indices count
-        the error instructions of the returned DEM.
+        A certificate that states whether the property holds, the DEM, and the weight that was used.
+        A failure comes with a counterexample: a fault whose output error has no equivalent error of
+        weight at most one, and a proved lower bound on the weight of its equivalent errors.  Fault
+        indices count the error instructions of the returned DEM.
 
     Raises:
         ValueError: For invalid inputs, an output that is not one definite pure state,
@@ -124,9 +124,7 @@ def certify_state_prep_fault_propagation(
     stabilizers = get_state_stabilizers(circuit, qubits)
     if len(stabilizers) != len(qubits):
         raise ValueError("Selected outputs must have a definite pure, complete stabilizer state")
-    matrix = np.array(
-        [np.concatenate(stabilizer.to_numpy()) for stabilizer in stabilizers], dtype=np.uint8
-    )
+    matrix = np.array([math.string_to_op(stabilizer) for stabilizer in stabilizers], dtype=np.uint8)
     resolved_css_weight = _is_css_state(matrix) if css_weight is None else css_weight
     dem, syndromes = _get_fault_maps(circuit, stabilizers, qubits)
 
@@ -275,30 +273,30 @@ def _certify_maps(
     """Find the first fault whose error is not equivalent to an error of weight at most one."""
     oracle = PauliCosetSearch(stabilizers, metric="css" if css_weight else "pauli")
 
-    # Faults with equal syndromes leave equivalent errors, so each syndrome is decided once.
+    # Faults with equal syndromes leave equivalent errors, so each syndrome is checked once.
     first_fault: dict[int, int] = {}
     for index, syndrome in enumerate(syndromes):
         first_fault.setdefault(syndrome, index)
     for syndrome, index in first_fault.items():
-        decision = oracle.decide(syndrome, 1)
-        if not decision.within_bound:
-            return _get_counterexample(index, syndrome, decision, oracle.num_qubits)
+        bound = oracle.get_min_weight_bound(syndrome, 1)
+        if not bound.within_max_weight:
+            return _get_counterexample(index, syndrome, bound, oracle.num_qubits)
     return None
 
 
 def _get_counterexample(
-    index: int, syndrome: int, decision: PauliWeightDecision, num_qubits: int
+    index: int, syndrome: int, bound: MinWeightBound, num_qubits: int
 ) -> FaultPropagationCounterexample:
     """Describe a violating fault by its DEM index and an error in the output frame."""
     n = num_qubits
     pauli = stim.PauliString.from_numpy(
-        xs=np.array([(decision.representative >> jj) & 1 for jj in range(n)], dtype=bool),
-        zs=np.array([(decision.representative >> (jj + n)) & 1 for jj in range(n)], dtype=bool),
+        xs=np.array([(bound.representative >> jj) & 1 for jj in range(n)], dtype=bool),
+        zs=np.array([(bound.representative >> (jj + n)) & 1 for jj in range(n)], dtype=bool),
     )
     return FaultPropagationCounterexample(
         (index,),
         tuple((syndrome >> jj) & 1 for jj in range(n)),
-        decision.lower_bound,
+        bound.lower_bound,
         str(pauli),
     )
 

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Exact decisions on whether a Pauli error class contains an error of weight at most one.
+"""Exact bounds on the minimum weight of a class of equivalent Pauli errors on a stabilizer state.
 
 Used by ``circuits.certify_state_prep_fault_propagation``; not public API.
 """
@@ -17,40 +17,37 @@ import numpy.typing as npt
 from ._binary import as_binary_matrix, assert_binary, row_reduce_binary
 
 ####################################################################################################
-# Pauli-coset weight decisions
+# Pauli-coset minimum-weight bounds
 
 
 @dataclass(frozen=True)
-class PauliWeightDecision:
-    """The answer to a weight query on a class of equivalent Pauli errors.
+class MinWeightBound:
+    """What a query learned about the minimum weight of a class of equivalent Pauli errors.
 
-    ``within_bound`` says whether the class contains an error of weight at most the queried
-    threshold, in the oracle's fixed metric.  ``representative`` is an error of the class, packed
-    with its X part in the low ``n`` bits and its Z part in the next ``n``.  If ``within_bound`` is
-    True, its weight is at most the threshold.  ``lower_bound`` is a proved lower bound on the
-    weight of every error in the class, which exceeds the queried threshold when ``within_bound``
-    is False.
+    The query asks whether the class contains an error of weight at most ``max_weight``, where
+    weight is measured in the oracle's metric.
+
+    Attributes:
+        within_max_weight: Whether the class contains such an error.
+        representative: An error in the class, packed with its X part in the low ``n`` bits and
+            its Z part in the next ``n``.  If ``within_max_weight`` is True, its weight is at most
+            ``max_weight``.
+        lower_bound: A proved lower bound on the minimum weight of the class.  If
+            ``within_max_weight`` is False, it exceeds ``max_weight``.
     """
 
-    within_bound: bool
+    within_max_weight: bool
     representative: int
     lower_bound: int
 
 
 class PauliCosetSearch:
-    """Exact weight oracle for the Pauli errors that leave a pure stabilizer state unchanged.
+    """Minimum-weight oracle for Pauli errors modulo the stabilizers of a pure stabilizer state.
 
-    The syndrome of an error lists whether it anticommutes with each of the ``n`` stabilizers.  Full
-    syndromes identify classes of equivalent errors: a maximal isotropic space equals its
-    symplectic orthogonal, so errors have the same syndrome exactly when they differ by an element
-    of the stabilizer group.  Bit ``j`` of a packed syndrome refers to row ``j`` of ``stabilizers``,
-    and a packed Pauli has its X part in the low ``n`` bits and its Z part in the next ``n``.
-
-    Physical weight one means a single X, Y, or Z, so a table of the ``3n`` single-qubit syndromes
-    decides it in linear space.  CSS weight one also includes ``X_i Z_j`` on distinct qubits:
-    matching an X-single syndrome with a Z-single syndrome checks these in linear time without a
-    quadratic table.  If no error of weight at most one has a given syndrome, every error with that
-    syndrome has weight at least two.  The oracle decides only thresholds zero and one.
+    The syndrome of a Pauli error lists whether it anticommutes with each of the ``n`` stabilizers.
+    Two Pauli errors have the same syndrome exactly when they differ by a stabilizer, so a syndrome
+    identifies a class of equivalent errors.  This class provides machinery to determine whether the
+    minimum weight of the errors in a syndrome class is no greater than a given maximum weight.
 
     Args:
         stabilizers: An independent commuting binary ``n x 2n`` matrix in ``[X|Z]`` order.
@@ -88,23 +85,32 @@ class PauliCosetSearch:
         self._z_singles = {0: 0}
         for qubit in range(n):
             x, z = 1 << qubit, 1 << (qubit + n)
-            sx, sz = self.syndrome(x), self.syndrome(z)
+            sx, sz = self.get_syndrome(x), self.get_syndrome(z)
             self._x_singles.setdefault(sx, x)
             self._z_singles.setdefault(sz, z)
             self._singles.setdefault(sx, x)
             self._singles.setdefault(sz, z)
             self._singles.setdefault(sx ^ sz, x ^ z)
 
-    def syndrome(self, pauli: int) -> int:
-        """Compute the complete syndrome of a packed symplectic Pauli."""
+    def get_syndrome(self, pauli: int) -> int:
+        """Compute the complete syndrome of a Pauli error.
+
+        Args:
+            pauli: A packed Pauli, with X in the low ``n`` bits and Z in the next ``n``.
+        """
         return sum(((row & pauli).bit_count() & 1) << jj for jj, row in enumerate(self._checks))
 
-    def decide(self, syndrome: int, max_weight: int) -> PauliWeightDecision:
-        """Decide whether some error with this syndrome has weight at most ``max_weight``.
+    def get_min_weight_bound(self, syndrome: int, max_weight: int) -> MinWeightBound:
+        """Bound the minimum weight of the errors with this syndrome against ``max_weight``.
 
         Args:
             syndrome: A packed syndrome, with bit ``j`` for stabilizer ``j``.
-            max_weight: The weight threshold, which must be zero or one.
+            max_weight: The weight threshold.  It is an argument so that callers need not change
+                when larger thresholds are supported, but for now it must be zero or one.
+
+        Returns:
+            Whether some error with this syndrome has weight at most ``max_weight``, together with
+            an error that has this syndrome and a proved lower bound on the minimum weight.
 
         Raises:
             ValueError: If the syndrome is out of range or the threshold is not zero or one.
@@ -112,11 +118,14 @@ class PauliCosetSearch:
         if not 0 <= syndrome < 1 << self.num_qubits:
             raise ValueError("The syndrome is out of range")
         if max_weight not in (0, 1):
-            raise ValueError("The weight threshold must be zero or one")
+            raise ValueError(
+                f"Only the weight thresholds 0 and 1 are supported so far, not {max_weight}.  The "
+                "threshold is an argument so that callers will not change when larger ones are supported"
+            )
         pauli = self._weight_one_representative(syndrome)
         if pauli is None:
-            return PauliWeightDecision(False, self._representative(syndrome), 2)
-        return PauliWeightDecision(self._weight(pauli) <= max_weight, pauli, int(bool(syndrome)))
+            return MinWeightBound(False, self._representative(syndrome), 2)
+        return MinWeightBound(self._weight(pauli) <= max_weight, pauli, int(bool(syndrome)))
 
     def _representative(self, syndrome: int) -> int:
         return _xor_selected(self._inverse, syndrome)
@@ -126,6 +135,8 @@ class PauliCosetSearch:
         if syndrome in self._singles:
             return self._singles[syndrome]
         if self.metric == "css":
+            # CSS weight one also allows X_i Z_j on distinct qubits.  Matching an X-single syndrome
+            # with a Z-single syndrome finds these in linear time, without a quadratic table.
             for sx, x in self._x_singles.items():
                 z = self._z_singles.get(syndrome ^ sx)
                 if z is not None:

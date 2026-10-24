@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for exact weight-one decisions on Pauli error classes."""
+"""Tests for exact minimum-weight bounds on Pauli error classes."""
 
 from __future__ import annotations
 
@@ -40,8 +40,8 @@ def _class_weights(
 ) -> npt.NDArray[np.int_]:
     """Weights of every error with this syndrome, for stabilizers whose X parts are the identity.
 
-    Z on the set syndrome bits has the syndrome, and all other such errors are its products with
-    the 2**n stabilizers, so this enumeration is independent of the code under test.
+    Z on the set syndrome bits has the syndrome, and all other such errors are its products with the
+    2**n stabilizers, so this enumeration is independent of the code under test.
     """
     n = len(matrix)
     assert np.array_equal(matrix[:, :n], np.eye(n))
@@ -59,8 +59,8 @@ def _pauli_weight(pauli: int, num_qubits: int, metric: Metric) -> int:
 
 
 @pytest.mark.parametrize("metric", ["pauli", "css"])
-def test_decisions_match_exhaustive_minima(metric: Metric, pytestconfig: pytest.Config) -> None:
-    """Decisions agree with exhaustively computed minima for random graph states."""
+def test_bounds_match_exhaustive_minima(metric: Metric, pytestconfig: pytest.Config) -> None:
+    """Bounds agree with exhaustively computed minima for random graph states."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 7):
         edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
@@ -69,23 +69,23 @@ def test_decisions_match_exhaustive_minima(metric: Metric, pytestconfig: pytest.
         for syndrome in range(1 << num_qubits):
             minimum = int(_class_weights(matrix, syndrome, metric).min())
             for threshold in (0, 1):
-                decision = oracle.decide(syndrome, threshold)
-                assert decision.within_bound == (minimum <= threshold)
-                assert oracle.syndrome(decision.representative) == syndrome
-                assert decision.lower_bound <= minimum
-                if decision.within_bound:
-                    assert _pauli_weight(decision.representative, num_qubits, metric) <= threshold
+                bound = oracle.get_min_weight_bound(syndrome, threshold)
+                assert bound.within_max_weight == (minimum <= threshold)
+                assert oracle.get_syndrome(bound.representative) == syndrome
+                assert bound.lower_bound <= minimum
+                if bound.within_max_weight:
+                    assert _pauli_weight(bound.representative, num_qubits, metric) <= threshold
                 else:
-                    assert decision.lower_bound > threshold
+                    assert bound.lower_bound > threshold
 
 
 def test_css_weight_counts_the_larger_sector() -> None:
     """X0 Z1 on |0+> has CSS weight one but physical weight two."""
     matrix = np.array([[0, 0, 1, 0], [0, 1, 0, 0]], dtype=np.uint8)
-    assert not PauliCosetSearch(matrix, metric="pauli").decide(3, 1).within_bound
+    assert not PauliCosetSearch(matrix, metric="pauli").get_min_weight_bound(3, 1).within_max_weight
     css = PauliCosetSearch(matrix, metric="css")
-    assert css.decide(3, 1).within_bound
-    assert not css.decide(3, 0).within_bound
+    assert css.get_min_weight_bound(3, 1).within_max_weight
+    assert not css.get_min_weight_bound(3, 0).within_max_weight
 
 
 def test_css_weight_minimizes_both_sectors_jointly() -> None:
@@ -96,9 +96,9 @@ def test_css_weight_minimizes_both_sectors_jointly() -> None:
     matrix = _graph_state(4, [(0, 1), (1, 2), (2, 3)])
     assert _class_weights(matrix, 15, "css").min() == 2
     oracle = PauliCosetSearch(matrix, metric="css")
-    decision = oracle.decide(15, 1)
-    assert not decision.within_bound and decision.lower_bound == 2
-    assert oracle.syndrome(decision.representative) == 15
+    bound = oracle.get_min_weight_bound(15, 1)
+    assert not bound.within_max_weight and bound.lower_bound == 2
+    assert oracle.get_syndrome(bound.representative) == 15
 
 
 def test_invalid_arguments_are_rejected() -> None:
@@ -111,8 +111,8 @@ def test_invalid_arguments_are_rejected() -> None:
         PauliCosetSearch([[1, 0]], metric=cast(Metric, "invalid"))
     oracle = PauliCosetSearch([[1, 0]])
     with pytest.raises(ValueError):
-        oracle.decide(2, 1)
+        oracle.get_min_weight_bound(2, 1)
     with pytest.raises(ValueError):
-        oracle.decide(0, -1)
+        oracle.get_min_weight_bound(0, -1)
     with pytest.raises(ValueError):
-        oracle.decide(0, 2)
+        oracle.get_min_weight_bound(0, 2)
