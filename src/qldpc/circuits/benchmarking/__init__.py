@@ -4,9 +4,9 @@
 
 from .logical_errors import get_fault_distance, get_logical_error_and_discard_rate
 from .state_prep_certification import (
-    StatePrepSpreadCertificate,
-    StatePrepSpreadCounterexample,
-    StatePrepSpreadStatistics,
+    FaultSpreadCertificate,
+    FaultSpreadCounterexample,
+    FaultSpreadStatistics,
     certify_state_prep_spread,
 )
 from .state_prep_diagnostics import (
@@ -15,9 +15,9 @@ from .state_prep_diagnostics import (
 )
 
 __all__ = [
-    "StatePrepSpreadCertificate",
-    "StatePrepSpreadCounterexample",
-    "StatePrepSpreadStatistics",
+    "FaultSpreadCertificate",
+    "FaultSpreadCounterexample",
+    "FaultSpreadStatistics",
     "certify_state_prep_spread",
     "get_fault_distance",
     "get_logical_error_and_discard_rate",

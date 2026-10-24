@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING
 from qldpc import _deprecations
 
 from .benchmarking import (
-    StatePrepSpreadCertificate,
-    StatePrepSpreadCounterexample,
-    StatePrepSpreadStatistics,
+    FaultSpreadCertificate,
+    FaultSpreadCounterexample,
+    FaultSpreadStatistics,
     certify_state_prep_spread,
     get_fault_distance,
     get_logical_error_and_discard_rate,
@@ -80,6 +80,9 @@ __all__ = [
     "DetectorRecord",
     "EdgeColoring",
     "EdgeColoringXZ",
+    "FaultSpreadCertificate",
+    "FaultSpreadCounterexample",
+    "FaultSpreadStatistics",
     "MeasurementRecord",
     "MemoryExperimentParts",
     "NoiseModel",
@@ -89,9 +92,6 @@ __all__ = [
     "QubitIDs",
     "Record",
     "SI1000NoiseModel",
-    "StatePrepSpreadCertificate",
-    "StatePrepSpreadCounterexample",
-    "StatePrepSpreadStatistics",
     "StimCircuitLike",
     "StimCircuitProtocol",
     "SyndromeMeasurementStrategy",

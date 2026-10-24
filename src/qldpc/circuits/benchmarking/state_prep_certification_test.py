@@ -51,8 +51,8 @@ def _certify_map(
     syndromes: Sequence[int],
     budget: int,
     num_qubits: int,
-    statistics: circuits.StatePrepSpreadStatistics | None = None,
-) -> circuits.StatePrepSpreadCounterexample | None:
+    statistics: circuits.FaultSpreadStatistics | None = None,
+) -> circuits.FaultSpreadCounterexample | None:
     """Certify a flag/syndrome map on |0...0> and check the result against brute force."""
     failure = state_prep_certification._certify_maps(
         flags,
@@ -60,7 +60,7 @@ def _certify_map(
         _z_state(num_qubits),
         False,
         budget,
-        statistics or circuits.StatePrepSpreadStatistics(),
+        statistics or circuits.FaultSpreadStatistics(),
     )
     smallest = _smallest_violation(flags, syndromes, budget)
     assert (failure is None) == (smallest is None)
@@ -91,7 +91,7 @@ def _true_minimum(stabilizers: Sequence[str], syndrome: Sequence[int], metric_cs
 
 
 def _assert_valid_counterexample(
-    certificate: circuits.StatePrepSpreadCertificate,
+    certificate: circuits.FaultSpreadCertificate,
     circuit: stim.Circuit,
     post_select: Sequence[int],
 ) -> None:
@@ -166,12 +166,12 @@ def test_faults_of_weight_at_most_one_certify_every_budget() -> None:
     """Without a fault that spreads on its own, no pattern can exceed its fault count."""
     flags = [3, 5, 6, 9, 10, 12, 1, 2, 4, 8, 7, 11]
     syndromes = [1, 2, 4, 8, 0, 1, 2, 4, 8, 0, 1, 2]
-    statistics = circuits.StatePrepSpreadStatistics()
+    statistics = circuits.FaultSpreadStatistics()
     assert _certify_map(flags, syndromes, 30, 4, statistics) is None
     assert statistics.effective_budget == 1 and statistics.minimal_candidates == 0
 
     # One fault of weight three brings back the search, and it fails with the equal-flag fault.
-    statistics = circuits.StatePrepSpreadStatistics()
+    statistics = circuits.FaultSpreadStatistics()
     failure = _certify_map(flags + [3], syndromes + [14], 13, 4, statistics)
     assert failure is not None and failure.fault_count == 2
     assert statistics.effective_budget > 1
@@ -186,7 +186,7 @@ def test_failures_report_the_fewest_faults() -> None:
     fillers = list(itertools.product(range(8, 64, 8), (0, 1, 2, 4, 8, 16, 32)))
     methods = set()
     for extra in ([], fillers):
-        statistics = circuits.StatePrepSpreadStatistics()
+        statistics = circuits.FaultSpreadStatistics()
         failure = _certify_map(
             flags + [flag for flag, _ in extra],
             syndromes + [syndrome for _, syndrome in extra],
@@ -210,7 +210,7 @@ def test_independent_flag_types_need_only_equal_flag_pairs() -> None:
         failing = [3, 12, 0] * 5
         for syndromes in (passing[: len(flags)], failing[: len(flags)]):
             for budget in (2, 3, 30):
-                statistics = circuits.StatePrepSpreadStatistics()
+                statistics = circuits.FaultSpreadStatistics()
                 failure = _certify_map(flags, syndromes, budget, 4, statistics)
                 assert statistics.effective_budget == 2  # only pairs of equal flags matter
                 outcomes.add(failure is None)
@@ -241,7 +241,7 @@ def test_minimal_patterns_match_exhaustive_enumeration(pytestconfig: pytest.Conf
                             expected[size][tuple(originals[jj] for jj in support)] = syndrome
                         accepted.append(word)
             for size in range(2, 6):
-                statistics = circuits.StatePrepSpreadStatistics()
+                statistics = circuits.FaultSpreadStatistics()
                 prefix = list(
                     state_prep_certification._iter_minimal_patterns(mechanisms, size, statistics)
                 )
@@ -257,7 +257,7 @@ def test_minimal_patterns_match_exhaustive_enumeration(pytestconfig: pytest.Conf
 def test_minimal_patterns_with_flags_wider_than_a_machine_word() -> None:
     """Flag columns of 80 and 130 bits combine correctly."""
     mechanisms = [(1 << 80, 1, 90), (1 << 130, 2, 10), ((1 << 80) ^ (1 << 130), 4, 50)]
-    statistics = circuits.StatePrepSpreadStatistics()
+    statistics = circuits.FaultSpreadStatistics()
     prefix = state_prep_certification._iter_minimal_patterns(mechanisms, 3, statistics)
     assert list(prefix) == [((90, 10, 50), 7)]
     kernel = state_prep_certification._iter_kernel_patterns(mechanisms, 3, statistics)
@@ -305,7 +305,7 @@ def test_steane_preparation_meets_css_spread_but_not_physical_spread() -> None:
         """)
     )
 
-    def certify(css_weight: bool | None) -> circuits.StatePrepSpreadCertificate:
+    def certify(css_weight: bool | None) -> circuits.FaultSpreadCertificate:
         return circuits.certify_state_prep_spread(
             circuit, output_qubits=range(7), max_faults=3, post_select=[0], css_weight=css_weight
         )
@@ -422,7 +422,7 @@ def test_four_ghz_blocks_have_global_lower_bound_four(css_weight: bool | None) -
     circuit.append("DETECTOR", [stim.target_rec(-2)])
     circuit.append("DETECTOR", [stim.target_rec(-1)])
 
-    def certify(max_faults: int) -> circuits.StatePrepSpreadCertificate:
+    def certify(max_faults: int) -> circuits.FaultSpreadCertificate:
         return circuits.certify_state_prep_spread(
             circuit,
             output_qubits=range(12),
@@ -503,7 +503,7 @@ def test_added_flags_match_explicit_flag_detectors() -> None:
         circuit: stim.Circuit,
         post_select: bool | Sequence[int] | Literal["flags"],
         add_flags: bool,
-    ) -> circuits.StatePrepSpreadCertificate:
+    ) -> circuits.FaultSpreadCertificate:
         return circuits.certify_state_prep_spread(
             circuit, max_faults=3, post_select=post_select, add_flags=add_flags
         )
@@ -554,7 +554,7 @@ def test_post_selection_can_accept_a_damaging_pair() -> None:
 
     def certify(
         max_faults: int, post_select: bool | Sequence[int] = (0,)
-    ) -> circuits.StatePrepSpreadCertificate:
+    ) -> circuits.FaultSpreadCertificate:
         return circuits.certify_state_prep_spread(
             circuit, output_qubits=[0, 1, 2, 3], post_select=post_select, max_faults=max_faults
         )

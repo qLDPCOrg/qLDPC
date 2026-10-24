@@ -82,7 +82,7 @@ def certify_state_prep_spread(
     add_flags: bool = False,
     post_select: bool | Collection[int] | Literal["flags"] = False,
     css_weight: bool | None = None,
-) -> StatePrepSpreadCertificate:
+) -> FaultSpreadCertificate:
     r"""Certify bounded error spread of a noisy Clifford state preparation.
 
     Check that, for every set of one through ``max_faults`` faults that passes post-selection, the
@@ -189,11 +189,11 @@ def certify_state_prep_spread(
     resolved_css_weight = _is_css_state(matrix) if css_weight is None else css_weight
     dem, flags, syndromes = _get_fault_maps(circuit, stabilizers, qubits, selected)
 
-    statistics = StatePrepSpreadStatistics(mechanisms=len(flags))
+    statistics = FaultSpreadStatistics(mechanisms=len(flags))
     counterexample = _certify_maps(
         flags, syndromes, matrix, resolved_css_weight, int(max_faults), statistics
     )
-    return StatePrepSpreadCertificate(
+    return FaultSpreadCertificate(
         counterexample is None,
         int(max_faults),
         tuple(map(int, qubits)),
@@ -210,7 +210,7 @@ def certify_state_prep_spread(
 
 
 @dataclass(frozen=True)
-class StatePrepSpreadCounterexample:
+class FaultSpreadCounterexample:
     """A set of faults that passes post-selection but spreads into a heavier output error.
 
     ``fault_indices`` number the error instructions of the certificate's DEM, counting only error
@@ -234,7 +234,7 @@ class StatePrepSpreadCounterexample:
 
 
 @dataclass
-class StatePrepSpreadStatistics:
+class FaultSpreadStatistics:
     """Deterministic search-effort counters for one certification."""
 
     mechanisms: int = 0
@@ -265,7 +265,7 @@ class StatePrepSpreadStatistics:
 
 
 @dataclass(frozen=True)
-class StatePrepSpreadCertificate:
+class FaultSpreadCertificate:
     """Completed spread decision with its model and witness frame.
 
     Failure always includes a counterexample; incomplete searches return no result.
@@ -286,10 +286,10 @@ class StatePrepSpreadCertificate:
     detector_error_model: stim.DetectorErrorModel
     """Flattened, undecomposed DEM including any added flags and noiseless output diagnostics."""
 
-    counterexample: StatePrepSpreadCounterexample | None
+    counterexample: FaultSpreadCounterexample | None
     """Accepted violating pattern on failure, or None on success."""
 
-    statistics: StatePrepSpreadStatistics
+    statistics: FaultSpreadStatistics
     """Deterministic search-effort counters."""
 
     css_weight: bool
@@ -397,8 +397,8 @@ def _certify_maps(
     stabilizers: npt.ArrayLike,
     css_weight: bool,
     budget: int,
-    statistics: StatePrepSpreadStatistics,
-) -> StatePrepSpreadCounterexample | None:
+    statistics: FaultSpreadStatistics,
+) -> FaultSpreadCounterexample | None:
     """Merge joint columns and search minimal accepted supports."""
     # Equal joint columns cancel without changing acceptance or syndrome; removing pairs cannot hide
     # violations.  Keep original DEM indices for witnesses.
@@ -428,8 +428,8 @@ def _search_minimal_patterns(
     representatives: dict[tuple[int, int], int],
     oracle: PauliCosetSearch,
     independent: bool,
-    statistics: StatePrepSpreadStatistics,
-) -> StatePrepSpreadCounterexample | None:
+    statistics: FaultSpreadStatistics,
+) -> FaultSpreadCounterexample | None:
     """Check minimal patterns by increasing size, so that any violation has the fewest faults."""
     flagged: list[tuple[int, int, int]] = []
 
@@ -466,8 +466,8 @@ def _check_fault_pattern(
     indices: tuple[int, ...],
     syndrome: int,
     oracle: PauliCosetSearch,
-    statistics: StatePrepSpreadStatistics,
-) -> StatePrepSpreadCounterexample | None:
+    statistics: FaultSpreadStatistics,
+) -> FaultSpreadCounterexample | None:
     """Check a pattern or return its violation in the original DEM and output frames."""
     statistics.minimal_candidates += 1
     # Compare with this pattern's own fault count, not the maximum allowed search budget.
@@ -480,7 +480,7 @@ def _check_fault_pattern(
         xs=np.array([(decision.representative >> jj) & 1 for jj in range(n)], dtype=bool),
         zs=np.array([(decision.representative >> (jj + n)) & 1 for jj in range(n)], dtype=bool),
     )
-    return StatePrepSpreadCounterexample(
+    return FaultSpreadCounterexample(
         indices,
         tuple((syndrome >> jj) & 1 for jj in range(n)),
         decision.lower_bound,
@@ -510,7 +510,7 @@ def _use_prefix_search(num_columns: int, rank: int, budget: int) -> bool:
 def _iter_kernel_patterns(
     mechanisms: Sequence[tuple[int, int, int]],
     size: int,
-    statistics: StatePrepSpreadStatistics,
+    statistics: FaultSpreadStatistics,
 ) -> Iterator[tuple[tuple[int, ...], int]]:
     """Yield the minimal patterns of a given size from BZ coverage of the rejection kernel.
 
@@ -545,7 +545,7 @@ def _iter_kernel_patterns(
 def _iter_minimal_patterns(
     mechanisms: Sequence[tuple[int, int, int]],
     size: int,
-    statistics: StatePrepSpreadStatistics,
+    statistics: FaultSpreadStatistics,
 ) -> Iterator[tuple[tuple[int, ...], int]]:
     """Yield minimal patterns of a given size of nonzero-flag (flag, syndrome, original) columns.
 
