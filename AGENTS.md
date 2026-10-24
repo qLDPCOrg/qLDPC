@@ -264,7 +264,7 @@ Before merging, run `python checks/all_.py` and `python checks/coverage_.py`.
 The docs build renders saved notebook outputs without executing code cells.
 Refresh outputs by executing the entire canonical notebook in an offline, editable installation before changing a notebook example.
 Pass an absolute path to this checkout's `src` directory in `PYTHONPATH` if a notebook runner starts its kernel from `examples/`.
-The TQEC notebook (`examples/logical_error_rates/misc/decoding_tqec_circuits.ipynb`) requires Python 3.11--3.13 because its pinned TQEC dependency does not support Python 3.14.
+The TQEC notebook (`examples/logical_error_rates/specialized/decoding_tqec_circuits.ipynb`) requires Python 3.11--3.13 because its pinned TQEC dependency does not support Python 3.14.
 
 Some check wrappers discover files through Git.
 Add new source and test files to the index before relying on the full gate to include them.

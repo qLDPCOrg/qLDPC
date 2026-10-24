@@ -37,23 +37,23 @@ The numbered notebooks build conceptually on one another, but none relies on fil
    logical_error_rates/1_code_capacity
    logical_error_rates/2_quantum_memory_x_or_z
    logical_error_rates/3_quantum_memory_combined
-   logical_error_rates/4_sliding_window_decoding
-   logical_error_rates/5_state_preparation
-   logical_error_rates/6_steane_qec
-   logical_error_rates/7_individual_observables
-   logical_error_rates/8_certifying_circuits
+   logical_error_rates/4_state_preparation
+   logical_error_rates/5_steane_qec
+   logical_error_rates/6_certifying_fault_tolerance
 
-Miscellaneous
--------------
+Specialized topics
+------------------
 
-Further logical-error-rate examples that fall outside the progressive series above.
+Self-contained logical-error-rate examples on narrower topics that fall outside the progressive series above.
 The TQEC example requires Python 3.11--3.13 because its pinned ``tqec==0.2.0`` dependency does not support Python 3.14.
 
 .. toctree::
    :maxdepth: 1
 
-   logical_error_rates/misc/alpha_syndrome
-   logical_error_rates/misc/decoding_tqec_circuits
+   logical_error_rates/specialized/alpha_syndrome
+   logical_error_rates/specialized/decoding_tqec_circuits
+   logical_error_rates/specialized/per_observable_error_rates
+   logical_error_rates/specialized/sliding_window_decoding
 
 Experimental
 ------------
