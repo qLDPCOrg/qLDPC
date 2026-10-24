@@ -1,9 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Exact bounds on the minimum weight of a class of equivalent Pauli errors on a stabilizer state.
-
-Used by ``circuits.certify_state_prep_fault_propagation``; not public API.
-"""
+"""Exact minimum-weight queries for classes of equivalent Pauli errors on a stabilizer state."""
 
 from __future__ import annotations
 
