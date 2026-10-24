@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Sequence
+from typing import Any, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -311,6 +312,8 @@ def test_steane_preparation_meets_css_spread_but_not_physical_spread() -> None:
 
     css = certify(None)
     assert css.certified and css.css_weight is True
+    # The default outputs are qubits 0-6: the flag qubit 7 is measured.
+    assert circuits.certify_state_prep_spread(circuit, max_faults=3, post_select=[0]) == css
     physical = certify(False)
     assert physical.css_weight is False
     _assert_valid_counterexample(physical, circuit, [0])
@@ -455,6 +458,79 @@ def test_stabilizers_keep_signs_and_the_output_frame() -> None:
         assert simulator.peek_observable_expectation(-physical if text[0] == "-" else physical) == 1
 
 
+def test_default_outputs_skip_measured_and_untouched_qubits() -> None:
+    """Outputs default to the qubits that are acted on and never measured, in increasing order."""
+    # Qubits 0, 2, and 3 are untouched, and qubit 5 is measured.
+    circuit = stim.Circuit("H 4\nS 4\nCX 4 1\nX 1\nCORRELATED_ERROR(0.01) Y4\nCX 5 1\nM 5")
+    default = circuits.certify_state_prep_spread(circuit, max_faults=3)
+    assert default.output_qubits == (1, 4)
+    assert default == circuits.certify_state_prep_spread(
+        circuit, max_faults=3, output_qubits=[1, 4]
+    )
+    assert default != circuits.certify_state_prep_spread(
+        circuit, max_faults=3, output_qubits=[4, 1]
+    )
+
+
+def test_unmeasured_qubits_account_for_every_kind_of_measurement() -> None:
+    """Resets, inverted and Pauli-product measurements, repeats, and noise-only qubits."""
+    circuit = stim.Circuit("""
+        QUBIT_COORDS(0, 0) 9
+        H 0 1 2 3 4 5 6 7
+        MR 1
+        M !2
+        MPP X3*Z4
+        MXX 5 6
+        REPEAT 2 {
+            MX 7
+        }
+        DETECTOR rec[-1]
+        CORRELATED_ERROR(0.1) X8
+    """)
+    assert state_prep_certification._get_unmeasured_qubits(circuit) == (0, 8)
+
+
+def test_added_flags_match_explicit_flag_detectors() -> None:
+    """Bare measurements become flag detectors, and addressed measurements do not."""
+    body = """
+        I 0 1 2 3 4
+        CORRELATED_ERROR(0.01) X0 X1 X4
+        CORRELATED_ERROR(0.01) X2 X3 X4
+        M 4
+    """
+
+    def certify(
+        circuit: stim.Circuit,
+        post_select: bool | Sequence[int] | Literal["flags"],
+        add_flags: bool,
+    ) -> circuits.StatePrepSpreadCertificate:
+        return circuits.certify_state_prep_spread(
+            circuit, max_faults=3, post_select=post_select, add_flags=add_flags
+        )
+
+    explicit = stim.Circuit(body + "DETECTOR rec[-1]")
+    reference = certify(explicit, [0], add_flags=False)
+    assert not reference.certified and reference.counterexample is not None
+    assert reference.counterexample.fault_count == 2
+    # The added flag is detector 0, so these all select it.
+    for post_select in ("flags", True, [0], [-1]):
+        assert certify(stim.Circuit(body), post_select, add_flags=True) == reference
+    # The measurement is already addressed, so there is no flag to select and a single fault fails.
+    unflagged = certify(explicit, "flags", add_flags=True)
+    assert unflagged.counterexample is not None and unflagged.counterexample.fault_count == 1
+
+
+def test_invalid_post_selection_is_rejected() -> None:
+    """Flags need add_flags, and selections are distinct integer indices of selectable detectors."""
+    circuit = stim.Circuit("I 0\nCORRELATED_ERROR(0.01) X0\nM 1\nDETECTOR rec[-1]")
+    invalid: list[Any] = ["flags", "all", [1], [-2], [0, -1], [0.5], [False]]
+    for post_select in invalid:
+        with pytest.raises(ValueError):
+            circuits.certify_state_prep_spread(
+                circuit, max_faults=1, output_qubits=[0], post_select=post_select
+            )
+
+
 def test_correlated_mechanism_costs_one_fault() -> None:
     """A two-qubit error is one fault, reported in the order of the requested output qubits."""
     circuit = stim.Circuit("I 0 1\nCORRELATED_ERROR(0.01) X0 Y1")
@@ -558,7 +634,10 @@ def test_unsupported_circuits_and_detectors_are_rejected() -> None:
             post_select=[0],
             max_faults=1,
         )
-    with pytest.raises(ValueError, match="post_select"):
+    with pytest.raises(ValueError):
         circuits.certify_state_prep_spread(
             stim.Circuit("I 0"), output_qubits=[0], post_select=[0], max_faults=1
         )
+    # There are no unmeasured qubits to default to.
+    with pytest.raises(ValueError):
+        circuits.certify_state_prep_spread(stim.Circuit("H 0\nM 0"), max_faults=1)

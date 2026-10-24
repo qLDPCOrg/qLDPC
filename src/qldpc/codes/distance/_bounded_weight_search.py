@@ -44,8 +44,7 @@ class BoundedKernelSearch:
     After coefficient weights through ``a`` in dimension ``k``, unseen words have weight at least
     ``sum(max(0, a + 1 - (k - r)) for r in ranks)``.  Each basis needs more than ``a`` coefficient
     bits, at most ``k-r`` outside its pivots; disjoint pivot sets let these bounds add.  Stop only
-    when this bound exceeds ``max_weight`` or coefficients are exhausted.  The ``lower_bound``
-    attribute bounds unseen words, not the global kernel minimum.
+    when this bound exceeds ``max_weight`` or coefficients are exhausted.
 
     When dimension exceeds check rank, store only generator pivot coordinates to avoid a quadratic
     dense kernel matrix; coefficient support supplies free coordinates and their weight.  Otherwise
@@ -58,24 +57,21 @@ class BoundedKernelSearch:
         if max_weight < 0 or batch_size < 1:
             raise ValueError("max_weight must be nonnegative and batch_size must be positive")
         reduced, _, pivots = row_reduce_binary(matrix)
-        self.rank = len(pivots)
-        self.length = matrix.shape[1]
-        self.dimension = self.length - self.rank
-        self.max_weight = min(max_weight, self.length)
+        rank, length = len(pivots), matrix.shape[1]
+        self.dimension = length - rank
+        self.max_weight = min(max_weight, length)
         self.batch_size = batch_size
         self.generated = 0
-        self.coefficient_depth = 0
-        self.lower_bound = 1
         self._pivots = tuple(map(int, pivots))
-        self._free = tuple(col for col in range(self.length) if col not in self._pivots)
-        pivot_parts = reduced[: self.rank, self._free].T
-        self._systematic = self.dimension > self.rank
+        self._free = tuple(col for col in range(length) if col not in self._pivots)
+        pivot_parts = reduced[:rank, self._free].T
+        self._systematic = self.dimension > rank
         self.ranks: tuple[int, ...]
         if self._systematic:
             self.ranks = (self.dimension,)
             self._sets = [pack_bits(pivot_parts)]
         elif self.dimension:
-            basis = np.zeros((self.dimension, self.length), dtype=np.uint8)
+            basis = np.zeros((self.dimension, length), dtype=np.uint8)
             basis[:, self._pivots] = pivot_parts
             basis[:, self._free] = np.eye(self.dimension, dtype=np.uint8)
             information_sets = _information_sets.get_information_set_generators(basis, None)
@@ -102,11 +98,10 @@ class BoundedKernelSearch:
                                 ((word >> jj) & 1) << col for jj, col in enumerate(self._pivots)
                             ) | sum(1 << self._free[int(jj)] for jj in supports[index])
                         yield word
-            self.coefficient_depth = depth
-            self.lower_bound = _information_sets.Certificate(
-                self.dimension, self.ranks
-            ).lower_bound(depth)
-            if self.lower_bound > self.max_weight:
+            if (
+                _information_sets.Certificate(self.dimension, self.ranks).lower_bound(depth)
+                > self.max_weight
+            ):
                 return
 
 
