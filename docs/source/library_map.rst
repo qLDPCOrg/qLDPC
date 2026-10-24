@@ -177,6 +177,18 @@ Stim converts the circuit into a ``stim.DetectorErrorModel`` with ``circuit.dete
 For larger studies, pass the ``SinterDecoder`` to ``sinter.collect``.
 The :doc:`code-capacity <examples/logical_error_rates/1_code_capacity>`, :doc:`quantum-memory <examples/logical_error_rates/2_quantum_memory_x_or_z>`, and :doc:`sliding-window <examples/logical_error_rates/specialized/sliding_window_decoding>` notebooks develop these workflows, and the :doc:`noise-model notebook <examples/noise_models>` explains the noise models.
 
+Certify a state-preparation circuit
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+:func:`qldpc.circuits.certify_state_prep_fault_propagation <qldpc.circuits.benchmarking.state_prep_certification.certify_state_prep_fault_propagation>` checks a noisy Clifford circuit that prepares a stabilizer state.
+The output qubits default to the qubits that the circuit never measures, and ``output_qubits=`` selects others.
+For every set of faults, the error left on the output must be equivalent to an error whose weight is at most the number of faults.
+Errors that differ by a stabilizer of the prepared state count as equivalent.
+Weight is physical Pauli weight or CSS weight (the larger of the X weight and the Z weight), chosen automatically for the prepared state unless you set ``css_weight=``.
+Weight is subadditive, so the exact check only examines each fault on its own, and a failure comes with a violating fault.
+Only the prepared state is certified, not the circuits that use it next.
+The :doc:`fault-tolerance notebook <examples/logical_error_rates/6_certifying_fault_tolerance>` shows examples.
+
 Support and limitations
 -----------------------
 

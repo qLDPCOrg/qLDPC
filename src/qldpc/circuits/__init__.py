@@ -7,6 +7,9 @@ from typing import TYPE_CHECKING
 from qldpc import _deprecations
 
 from .benchmarking import (
+    FaultPropagationCertificate,
+    FaultPropagationCounterexample,
+    certify_state_prep_fault_propagation,
     get_fault_distance,
     get_logical_error_and_discard_rate,
     get_state_prep_diagnostic_circuit,
@@ -76,6 +79,8 @@ __all__ = [
     "DetectorRecord",
     "EdgeColoring",
     "EdgeColoringXZ",
+    "FaultPropagationCertificate",
+    "FaultPropagationCounterexample",
     "MeasurementRecord",
     "MemoryExperimentParts",
     "NoiseModel",
@@ -89,6 +94,7 @@ __all__ = [
     "StimCircuitProtocol",
     "SyndromeMeasurementStrategy",
     "as_noiseless_circuit",
+    "certify_state_prep_fault_propagation",
     "get_encoder_and_decoder",
     "get_encoding_circuit",
     "get_encoding_tableau",
