@@ -90,27 +90,23 @@ _LOGICAL_COUNT_METHODS: dict[str, _CanonicalLogicalCountMethod] = {
 
 @dataclass(frozen=True)
 class CSSLogicalCounts:
-    """Counts of the nontrivial logical operators of one weight in a binary CSS code."""
+    """Counts of the nontrivial logical operators of one weight in a binary CSS code.
+
+    Attributes:
+        weight: The weight of the counted operators.  If no weight was requested, this is the
+            distance of the code, or the number of qubits if the code encodes no qubits, as with
+            :func:`qldpc.codes.distance.get_distance_quantum`.
+        count_x: The number of X-only nontrivial logical operators of weight ``weight``.
+        count_z: The number of Z-only nontrivial logical operators of weight ``weight``.
+        count_pauli: The number of nontrivial logical Pauli operators of weight ``weight``,
+            ignoring phase, or None if it was not requested.  It includes the X-only and Z-only
+            operators counted by ``count_x`` and ``count_z``, as well as Y and mixed operators.
+    """
 
     weight: int
-    """Weight of the counted operators.
-
-    If no weight was requested, it is the distance of the code, or the number of qubits if the code
-    encodes no qubits, as with :func:`qldpc.codes.distance.get_distance_quantum`.
-    """
-
     count_x: int
-    """Number of X-only nontrivial logical operators of weight ``weight``."""
-
     count_z: int
-    """Number of Z-only nontrivial logical operators of weight ``weight``."""
-
     count_pauli: int | None
-    """Number of nontrivial logical Pauli operators of weight ``weight``, ignoring phase.
-
-    It includes the X-only and Z-only operators counted by ``count_x`` and ``count_z``, as well as Y
-    and mixed operators, and is None if it was not requested.
-    """
 
 
 class CSSLogicalCounter:
