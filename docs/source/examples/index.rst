@@ -37,9 +37,9 @@ The numbered notebooks build conceptually on one another, but none relies on fil
    logical_error_rates/1_code_capacity
    logical_error_rates/2_quantum_memory_x_or_z
    logical_error_rates/3_quantum_memory_combined
-   logical_error_rates/5_state_preparation
-   logical_error_rates/6_steane_qec
-   logical_error_rates/8_certifying_circuits
+   logical_error_rates/4_state_preparation
+   logical_error_rates/5_steane_qec
+   logical_error_rates/6_certifying_circuits
 
 Specialized topics
 ------------------
