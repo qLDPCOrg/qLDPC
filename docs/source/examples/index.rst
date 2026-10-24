@@ -28,7 +28,7 @@ The other notebooks in this group are standalone technical examples.
 Logical error rates
 --------------------
 
-A progressive series on estimating logical error rates, from the code-capacity model up to circuit-level simulations with Sinter, and on certifying noisy circuits.
+A progressive series on estimating logical error rates, from the code-capacity model up to circuit-level simulations with Sinter, and on certifying the fault tolerance of noisy circuits.
 The numbered notebooks build conceptually on one another, but none relies on files or state produced by an earlier notebook.
 
 .. toctree::
