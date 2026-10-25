@@ -39,6 +39,10 @@ extensions = [
     "IPython.sphinxext.ipython_console_highlighting",
 ]
 
+# Render "Attributes:" sections as :ivar: fields.  Otherwise napoleon emits an attribute directive
+# for each entry, which duplicates the attribute that AutoAPI documents for the dataclass field.
+napoleon_use_ivar = True
+
 # use the pre-executed outputs in notebooks
 nbsphinx_execute = "never"
 
