@@ -150,6 +150,10 @@ class PauliCosetSearch:
         return max(x.bit_count(), z.bit_count()) if self.metric == "css" else (x | z).bit_count()
 
 
+####################################################################################################
+# helper methods
+
+
 def _binary_row_int(row: npt.NDArray[np.uint8]) -> int:
     return int.from_bytes(np.packbits(row, bitorder="little").tobytes(), "little")
 

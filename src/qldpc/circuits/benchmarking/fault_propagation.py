@@ -41,7 +41,7 @@ from ..common import get_pauli_product_measurements
 from ..encoding import get_state_stabilizers
 
 ####################################################################################################
-# state-preparation certification
+# bounded fault propagation certification
 
 
 def certify_bounded_fault_propagation(
@@ -184,6 +184,10 @@ class BoundedFaultPropagationCertificate:
     detector_error_model: stim.DetectorErrorModel
     counterexample: BoundedFaultPropagationCounterexample | None
     css_weight: bool
+
+
+####################################################################################################
+# helper methods
 
 
 def _get_fault_maps(
