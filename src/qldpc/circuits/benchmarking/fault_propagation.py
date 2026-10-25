@@ -4,15 +4,18 @@
 
 The certificate is justified by the argument below, with faults, equivalence, and weight as defined
 in ``certify_bounded_fault_propagation``.  Write ``S f`` for the syndrome that a set ``f`` of faults
-leaves on the prepared state, measured against all stabilizers of that state, and let ``mu(s)`` be
-the smallest weight of an error with syndrome ``s``.  The bound to prove is ``mu(S f) <= |f|`` for
-every nonempty set ``f`` of faults.  The argument rests on these facts:
+leaves on the prepared state, which lists the stabilizers of that state that the resulting error
+anticommutes with, and let ``mu(s)`` be the smallest weight of an error with syndrome ``s``.  The
+bound to prove is ``mu(S f) <= |f|`` for every nonempty set ``f`` of faults.  The argument rests on
+these facts:
 
-- Syndromes identify equivalent errors.  Two errors with the same syndrome differ by an operator
-  that commutes with all ``n`` independent stabilizers of the ``n``-qubit state, and every such
-  operator is itself a stabilizer (up to a phase).  So ``mu(S f)`` is the weight of the lightest
-  error equivalent to the one that the faults cause.
-- Syndromes add: the syndrome of a set of faults is the GF(2) sum of the syndromes of its faults.
+- Syndromes identify equivalent errors.  Errors that differ by a stabilizer have the same syndrome,
+  because stabilizers commute with each other.  In the other direction, two errors with the same
+  syndrome differ by an operator that commutes with all ``n`` independent stabilizers of the
+  ``n``-qubit state, and every such operator is itself a stabilizer (up to a phase).  So ``mu(S f)``
+  is the weight of the lightest error equivalent to the one that the faults cause.
+- Syndromes add: the syndrome of a product of errors is the GF(2) sum of their syndromes, so the
+  syndrome of a set of faults is the sum of the syndromes of its faults.
 - Weight is subadditive: a product of two errors is no heavier than the sum of their weights, so
   ``mu(s + t) <= mu(s) + mu(t)``.  For physical weight, the product acts on no more qubits than the
   two errors together.  For CSS weight, if two errors have X and Z weights ``a, b`` and ``c, d``,
@@ -61,11 +64,11 @@ def certify_bounded_fault_propagation(
 
     A fault is one error mechanism of the circuit's detector error model (DEM), however many
     detectors it flips.  Mechanisms are treated as independent, even when they come from one noise
-    channel and could not physically occur together.  The circuit is converted with
-    ``approximate_disjoint_errors=True``.
+    channel and could not physically occur together.
 
     Because weight is subadditive, it suffices to check that each fault alone leaves an error
-    equivalent to one of weight at most one (see the module docstring for the proof).
+    equivalent to one of weight at most one.  The proof is in the docstring of the module
+    ``qldpc.circuits.benchmarking.fault_propagation``.
 
     The output qubits must end in one definite stabilizer state, the same for every measurement
     outcome.  Detectors and observables that the circuit already has are ignored, but they must be
@@ -82,8 +85,8 @@ def certify_bounded_fault_propagation(
     Bounded fault propagation is a sufficient criterion for fault-tolerant state preparation; see
     Definition 3 in Section 4.2 of `arXiv:0904.2557 <https://arxiv.org/abs/0904.2557>`_.  It is not
     a necessary criterion.  A result for CSS weight is meaningful only if the circuits that use the
-    state keep X and Z errors separate, which you must justify when passing ``css_weight=True``.
-    The certificate says nothing about the probability of any error.
+    state keep X and Z errors separate, which you must justify whenever CSS weight is used.  The
+    certificate says nothing about the probability of any error.
 
     Args:
         circuit: Noisy Stim Clifford circuit starting in Stim's all-zero state.
@@ -99,9 +102,8 @@ def certify_bounded_fault_propagation(
         The certificate, which includes a counterexample if the property fails.
 
     Raises:
-        ValueError: For invalid inputs, an output that is not one definite pure state,
-            nondeterministic detectors or observables, or a circuit that Stim cannot convert to a
-            DEM.
+        ValueError: If an argument or the circuit violates the conditions above, or if Stim cannot
+            convert the circuit to a DEM.
     """
     if css_weight is not None and not isinstance(css_weight, bool):
         raise ValueError("css_weight must be a bool or None")
@@ -134,7 +136,7 @@ def certify_bounded_fault_propagation(
 class BoundedFaultPropagationCounterexample:
     """A violating fault, whose output error has no equivalent error of weight at most one.
 
-    Equivalence and weight are as in the certificate that holds this counterexample.
+    Equivalence and weight are as defined in ``certify_bounded_fault_propagation``.
 
     Attributes:
         fault_indices: A one-element tuple with the index of the first violating fault among the
@@ -206,12 +208,16 @@ def _get_fault_maps(
     # Converting the noiseless circuit raises an error for a nondeterministic detector or
     # observable.
     diagnostic_circuit.without_noise().detector_error_model()
+
+    # Stim needs this flag for correlated error chains.  It treats their components as independent
+    # faults, which only approximates their probabilities, and no probabilities are used here.
     dem = diagnostic_circuit.detector_error_model(approximate_disjoint_errors=True).flattened()
 
     syndromes: list[int] = []
     for instruction in dem:
         if instruction.type != "error":
             continue
+        # Detector ``circuit.num_detectors + j`` measures stabilizer ``j``.
         syndrome = 0
         for target in instruction.targets_copy():
             if target.is_relative_detector_id() and target.val >= circuit.num_detectors:
