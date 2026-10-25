@@ -79,11 +79,11 @@ def certify_bounded_fault_propagation(
     eigenstate; pass ``css_weight=True`` yourself for such a state when CSS weight is appropriate
     (see below).
 
-    Passing is a sufficient condition for fault-tolerant state preparation, as defined by Definition
-    3 in Section 4.2 of Gottesman's lecture notes (arXiv:0904.2557), but it is not necessary.  A
-    result for CSS weight is meaningful only if the circuits that use the state keep X and Z errors
-    separate, which you must justify when passing ``css_weight=True``.  The certificate says nothing
-    about the probability of any error.
+    Bounded fault propagation is a sufficient criterion for fault-tolerant state preparation; see
+    Definition 3 in Section 4.2 of `arXiv:0904.2557 <https://arxiv.org/abs/0904.2557>`_.  It is not
+    a necessary criterion.  A result for CSS weight is meaningful only if the circuits that use the
+    state keep X and Z errors separate, which you must justify when passing ``css_weight=True``.
+    The certificate says nothing about the probability of any error.
 
     Args:
         circuit: Noisy Stim Clifford circuit starting in Stim's all-zero state.
