@@ -9,6 +9,7 @@ from qldpc import _deprecations
 from .benchmarking import (
     BoundedFaultPropagationCertificate,
     BoundedFaultPropagationCounterexample,
+    BoundedFaultPropagationStatistics,
     certify_bounded_fault_propagation,
     get_fault_distance,
     get_logical_error_and_discard_rate,
@@ -77,6 +78,7 @@ __all__ = [
     "AlphaSyndrome",
     "BoundedFaultPropagationCertificate",
     "BoundedFaultPropagationCounterexample",
+    "BoundedFaultPropagationStatistics",
     "DepolarizingNoiseModel",
     "DetectorRecord",
     "EdgeColoring",
