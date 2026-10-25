@@ -8,6 +8,7 @@ import numbers
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+import galois
 import numpy as np
 import numpy.typing as npt
 import stim
@@ -60,8 +61,8 @@ def certify_bounded_fault_propagation(
 
     Raises:
         ValueError: If ``css_weight`` or ``output_qubits`` has an invalid type or value, if the
-            output qubits do not end in one definite stabilizer state, or if Stim cannot convert
-            the circuit to a DEM.
+            output qubits do not end in one definite stabilizer state, or if Stim cannot convert the
+            circuit to a DEM.
     """
     if css_weight is not None and not isinstance(css_weight, bool):
         raise ValueError("css_weight must be a bool or None")
@@ -69,7 +70,10 @@ def certify_bounded_fault_propagation(
         output_qubits = _get_unmeasured_qubits(circuit)
         if not output_qubits:
             raise ValueError("The circuit has no unmeasured qubits to use as output_qubits")
-    qubits = tuple(output_qubits)
+    try:
+        qubits = tuple(output_qubits)
+    except TypeError as error:
+        raise ValueError("output_qubits must be a sequence of qubit indices") from error
     _validate_output_qubits(qubits, circuit.num_qubits)
 
     stabilizers = get_state_stabilizers(circuit, qubits)
@@ -88,6 +92,34 @@ def certify_bounded_fault_propagation(
         counterexample,
         resolved_css_weight,
     )
+
+
+@dataclass(frozen=True)
+class BoundedFaultPropagationCertificate:
+    """The result of certifying bounded fault propagation in a state-preparation circuit.
+
+    Equivalence, weight, and bounded fault propagation are as defined in
+    ``certify_bounded_fault_propagation``.
+
+    Attributes:
+        certified: Whether fault propagation is bounded.
+        output_qubits: The output qubit indices.  Position ``i`` of every Pauli string in this
+            certificate refers to qubit ``output_qubits[i]``.
+        target_stabilizers: Signed Stim strings that generate the stabilizer group of the prepared
+            state, one per output qubit.
+        detector_error_model: The circuit's detector error model, flattened and undecomposed, with
+            the circuit's own detectors followed by one detector per target stabilizer, in the
+            order of ``target_stabilizers``.
+        counterexample: The counterexample if ``certified`` is False, and None otherwise.
+        css_weight: Whether the certificate used CSS weight (True) or physical weight (False).
+    """
+
+    certified: bool
+    output_qubits: tuple[int, ...]
+    target_stabilizers: tuple[str, ...]
+    detector_error_model: stim.DetectorErrorModel
+    counterexample: BoundedFaultPropagationCounterexample | None
+    css_weight: bool
 
 
 @dataclass(frozen=True)
@@ -118,33 +150,6 @@ class BoundedFaultPropagationCounterexample:
     def fault_count(self) -> int:
         """The number of faults in this counterexample."""
         return len(self.fault_indices)
-
-
-@dataclass(frozen=True)
-class BoundedFaultPropagationCertificate:
-    """The result of certifying bounded fault propagation in a state-preparation circuit.
-
-    Equivalence, weight, and bounded fault propagation are as defined in
-    ``certify_bounded_fault_propagation``.
-
-    Attributes:
-        certified: Whether fault propagation is bounded.
-        output_qubits: The output qubit indices.  Position ``i`` of every Pauli string in this
-            certificate refers to qubit ``output_qubits[i]``.
-        target_stabilizers: Signed Stim strings that generate the stabilizer group of the prepared
-            state, one per output qubit.
-        detector_error_model: The circuit's detector error model, flattened and undecomposed, with
-            the circuit's own detectors followed by one detector per target stabilizer, in order.
-        counterexample: The counterexample if ``certified`` is False, and None otherwise.
-        css_weight: Whether the certificate used CSS weight (True) or physical weight (False).
-    """
-
-    certified: bool
-    output_qubits: tuple[int, ...]
-    target_stabilizers: tuple[str, ...]
-    detector_error_model: stim.DetectorErrorModel
-    counterexample: BoundedFaultPropagationCounterexample | None
-    css_weight: bool
 
 
 ####################################################################################################
@@ -202,14 +207,14 @@ def _get_unmeasured_qubits(circuit: stim.Circuit) -> tuple[int, ...]:
     return tuple(sorted(touched - measured))
 
 
-def _is_css_state(stabilizers: np.ndarray[tuple[int, ...], np.dtype[np.uint8]]) -> bool:
+def _is_css_state(stabilizers: npt.NDArray[np.uint8]) -> bool:
     """Test whether a complete rank-n stabilizer space is CSS in the physical basis."""
     n = len(stabilizers)
     # Let W be the stabilizer space, and W_X and W_Z the X and Z parts of its rows.  The pure-X and
     # pure-Z elements of W have dimensions n-rank(W_Z) and n-rank(W_X) and meet only in 0, so they
     # span W exactly when rank(W_X)+rank(W_Z)=n, whatever generators are used.
     ranks = [
-        _binary_rank([int.from_bytes(np.packbits(row).tobytes(), "little") for row in sector])
+        np.linalg.matrix_rank(galois.GF2(sector))
         for sector in (stabilizers[:, :n], stabilizers[:, n:])
     ]
     return sum(ranks) == n
@@ -254,17 +259,3 @@ def _get_counterexample(
         bound.lower_bound,
         str(pauli),
     )
-
-
-def _binary_rank(columns: Sequence[int]) -> int:
-    """Compute the GF(2) rank of binary vectors packed into integers."""
-    pivots: dict[int, int] = {}
-    for column in columns:
-        while column:
-            pivot = column.bit_length()
-            if pivot in pivots:
-                column ^= pivots[pivot]
-            else:
-                pivots[pivot] = column
-                break
-    return len(pivots)

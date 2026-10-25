@@ -115,7 +115,7 @@ def test_certify_maps_matches_exhaustive_search(pytestconfig: pytest.Config) -> 
 @pytest.mark.parametrize("css_weight", [True, False])
 @pytest.mark.parametrize("num_qubits", [3, 4])
 def test_ghz_preparation_matches_brute_force_over_faults(num_qubits: int, css_weight: bool) -> None:
-    """Fanning out a GHZ state: X on the control spreads to two of four targets, but not of two.
+    """Fanning out a GHZ state certifies for three qubits but not for four.
 
     X on a set of GHZ qubits is equivalent to X on the complement, so only a two-qubit X error on
     four qubits has no lighter equivalent.
@@ -170,6 +170,8 @@ def test_css_detection_depends_on_the_stabilizer_row_space() -> None:
     assert not fault_propagation._is_css_state(state("H 0 1\nCZ 0 1"))
     # A CSS repetition code can prepare logical Y, whose stabilizers are not pure X or Z.
     assert not fault_propagation._is_css_state(state("H 0\nS 0\nCX 0 1 0 2"))
+    # The stabilizers X0, Z1, and Y2 include a pure-X and a pure-Z operator, but do not span.
+    assert not fault_propagation._is_css_state(state("H 0 2\nS 2\nI 1"))
 
 
 def test_stabilizers_keep_signs_and_the_output_frame() -> None:
@@ -251,7 +253,7 @@ def test_existing_observables_do_not_enter_the_syndrome() -> None:
     noise = "CORRELATED_ERROR(0.01) X1 X2\nM 2"  # a weight-one output error that flips rec[-1]
     flipped = stim.Circuit(f"{noise}\nOBSERVABLE_INCLUDE(0) rec[-1]")
     result = circuits.certify_bounded_fault_propagation(flipped, output_qubits=[0, 1])
-    assert "L0" in str(result.detector_error_model)
+    assert result.detector_error_model.num_observables == 1
     plain = circuits.certify_bounded_fault_propagation(stim.Circuit(noise), output_qubits=[0, 1])
     assert result.certified and plain.certified
 
@@ -298,26 +300,33 @@ def test_invalid_css_weight_is_rejected() -> None:
         )
 
 
-@pytest.mark.parametrize("outputs", [[], [0, 0], [1], [-1], [True], [0.5]])
-def test_invalid_output_qubits_are_rejected(outputs: list[int]) -> None:
-    """Output qubits must be a nonempty list of distinct in-range integers."""
+@pytest.mark.parametrize("outputs", [0, [], [0, 0], [1], [-1], [True], [0.5]])
+def test_invalid_output_qubits_are_rejected(outputs: object) -> None:
+    """Output qubits must be a nonempty sequence of distinct in-range integers."""
     with pytest.raises(ValueError, match="output_qubits"):
-        circuits.certify_bounded_fault_propagation(stim.Circuit("I 0"), output_qubits=outputs)
+        circuits.certify_bounded_fault_propagation(
+            stim.Circuit("I 0"), output_qubits=cast(Sequence[int], outputs)
+        )
 
 
 def test_unsupported_circuits_and_detectors_are_rejected() -> None:
     """Mixed or random outputs and nondeterministic annotations raise."""
+    certify = circuits.certify_bounded_fault_propagation
     # An output entangled with an unselected qubit, and an output that was measured.
     for text in ("H 0\nCX 0 1", "H 0\nM 0"):
         with pytest.raises(ValueError):
-            circuits.certify_bounded_fault_propagation(stim.Circuit(text), output_qubits=[0])
+            certify(stim.Circuit(text), output_qubits=[0])
+    assert certify(stim.Circuit("H 0\nCX 0 1"), output_qubits=[0, 1]).certified
+    assert certify(stim.Circuit("H 0\nM 1"), output_qubits=[0]).certified
     # Random detectors and observables on qubits other than the output.
     for text in (
         "H 1\nM 1\nDETECTOR rec[-1]",
         "H 1\nM 1\nOBSERVABLE_INCLUDE(0) rec[-1]",
     ):
         with pytest.raises(ValueError):
-            circuits.certify_bounded_fault_propagation(stim.Circuit(text), output_qubits=[0])
+            certify(stim.Circuit(text), output_qubits=[0])
+    assert certify(stim.Circuit("H 1\nM 1"), output_qubits=[0]).certified
     # There are no unmeasured qubits to default to.
     with pytest.raises(ValueError):
-        circuits.certify_bounded_fault_propagation(stim.Circuit("H 0\nM 0"))
+        certify(stim.Circuit("H 0\nM 0"))
+    assert certify(stim.Circuit("H 0\nM 0\nI 1")).output_qubits == (1,)
