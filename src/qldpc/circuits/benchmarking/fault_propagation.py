@@ -92,20 +92,21 @@ def certify_bounded_fault_propagation(
 
 @dataclass(frozen=True)
 class BoundedFaultPropagationCounterexample:
-    """A violating fault, whose output error has no equivalent error of weight at most one.
+    """A set of faults that violates bounded fault propagation.
 
+    The output error induced by these faults has no equivalent error of weight at most their number.
     Equivalence and weight are as defined in ``certify_bounded_fault_propagation``.
 
     Attributes:
-        fault_indices: A one-element tuple with the index of the first violating fault among the
-            error instructions of the certificate's ``detector_error_model``.
-        output_syndrome: The syndrome of the fault's output error: entry ``j`` is 1 if the error
+        fault_indices: Indices of the faults among the error instructions of the certificate's
+            ``detector_error_model``.
+        output_syndrome: The syndrome of the faults' output error: entry ``j`` is 1 if the error
             anticommutes with ``target_stabilizers[j]``.
         effective_weight_lower_bound: A proved lower bound on the weight of every error equivalent
-            to the fault's output error.  It exceeds ``fault_count``.
+            to the faults' output error.  It exceeds ``fault_count``.
         output_pauli: One Pauli error with this syndrome, as a Stim string over the output qubits in
             the order of the certificate's ``output_qubits``.  It need not be a lightest such error
-            or the error that the fault actually causes.
+            or the error that the faults actually cause.
     """
 
     fault_indices: tuple[int, ...]
