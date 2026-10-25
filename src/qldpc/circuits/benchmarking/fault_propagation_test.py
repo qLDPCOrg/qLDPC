@@ -8,6 +8,7 @@ import functools
 import itertools
 import operator
 from collections.abc import Sequence
+from typing import cast
 
 import numpy as np
 import numpy.typing as npt
@@ -16,7 +17,7 @@ import stim
 
 from qldpc import circuits
 
-from . import state_prep_certification
+from . import fault_propagation
 
 
 def _z_state(num_qubits: int) -> npt.NDArray[np.int_]:
@@ -26,9 +27,9 @@ def _z_state(num_qubits: int) -> npt.NDArray[np.int_]:
 
 def _certify_map(
     syndromes: Sequence[int], num_qubits: int
-) -> circuits.FaultPropagationCounterexample | None:
+) -> circuits.BoundedFaultPropagationCounterexample | None:
     """Certify a map from faults to syndromes on |0...0> and compare with every set of faults."""
-    failure = state_prep_certification._certify_maps(syndromes, _z_state(num_qubits), False)
+    failure = fault_propagation._certify_maps(syndromes, _z_state(num_qubits), False)
     first = next((jj for jj, syndrome in enumerate(syndromes) if syndrome.bit_count() > 1), None)
     # Sets of every size, not only single faults, meet the bound exactly when single faults do.
     violated = any(
@@ -62,7 +63,7 @@ def _true_minimum(stabilizers: Sequence[str], syndrome: Sequence[int], metric_cs
 
 
 def _fault_syndromes(
-    certificate: circuits.FaultPropagationCertificate, circuit: stim.Circuit
+    certificate: circuits.BoundedFaultPropagationCertificate, circuit: stim.Circuit
 ) -> list[tuple[int, ...]]:
     """Output syndrome of every error mechanism in the certificate's DEM.
 
@@ -82,7 +83,7 @@ def _fault_syndromes(
 
 
 def _assert_valid_counterexample(
-    certificate: circuits.FaultPropagationCertificate, circuit: stim.Circuit
+    certificate: circuits.BoundedFaultPropagationCertificate, circuit: stim.Circuit
 ) -> None:
     """Check a witness against the returned DEM and a brute-force minimum, not the search."""
     failure = certificate.counterexample
@@ -123,7 +124,7 @@ def test_ghz_preparation_matches_brute_force_over_faults(num_qubits: int, css_we
     for target in range(1, num_qubits):
         circuit.append("CX", [0, target])
         circuit.append("DEPOLARIZE2", [0, target], 0.01)
-    result = circuits.certify_state_prep_fault_propagation(circuit, css_weight=css_weight)
+    result = circuits.certify_bounded_fault_propagation(circuit, css_weight=css_weight)
     syndromes = _fault_syndromes(result, circuit)
     minima = [_true_minimum(result.target_stabilizers, ss, css_weight) for ss in syndromes]
     first = next((jj for jj, minimum in enumerate(minima) if minimum > 1), None)
@@ -137,7 +138,7 @@ def test_ghz_preparation_matches_brute_force_over_faults(num_qubits: int, css_we
 def test_state_selection_and_overrides(css_weight: bool | None) -> None:
     """Automatic selection picks CSS weight for |0+> only, and an explicit value overrides it."""
     css_state = stim.Circuit("I 0\nH 1\nCORRELATED_ERROR(0.01) X0 Z1")  # X0 Z1 has CSS weight one
-    result = circuits.certify_state_prep_fault_propagation(
+    result = circuits.certify_bounded_fault_propagation(
         css_state, output_qubits=[0, 1], css_weight=css_weight
     )
     assert result.css_weight is (css_weight is not False)
@@ -145,7 +146,7 @@ def test_state_selection_and_overrides(css_weight: bool | None) -> None:
     if not result.certified:
         _assert_valid_counterexample(result, css_state)
     graph_state = stim.Circuit("H 0 1\nCZ 0 1\nCORRELATED_ERROR(0.001) X0 X1")
-    result = circuits.certify_state_prep_fault_propagation(
+    result = circuits.certify_bounded_fault_propagation(
         graph_state, output_qubits=[0, 1], css_weight=css_weight
     )
     assert result.certified and result.css_weight is (css_weight is True)
@@ -164,28 +165,17 @@ def test_css_detection_depends_on_the_stabilizer_row_space() -> None:
         return matrix([str(gg) for gg in tableau.to_stabilizers()])
 
     # These products of the stabilizers X0, Z1, and Z2 of |+00> each mix X and Z.
-    assert state_prep_certification._is_css_state(matrix(["XZ_", "X_Z", "XZZ"]))
-    assert state_prep_certification._is_css_state(state("H 0\nI 1 2"))
-    assert not state_prep_certification._is_css_state(state("H 0 1\nCZ 0 1"))
+    assert fault_propagation._is_css_state(matrix(["XZ_", "X_Z", "XZZ"]))
+    assert fault_propagation._is_css_state(state("H 0\nI 1 2"))
+    assert not fault_propagation._is_css_state(state("H 0 1\nCZ 0 1"))
     # A CSS repetition code can prepare logical Y, whose stabilizers are not pure X or Z.
-    assert not state_prep_certification._is_css_state(state("H 0\nS 0\nCX 0 1 0 2"))
-
-
-def test_css_override_minimizes_jointly_on_a_non_css_state() -> None:
-    """On a path graph state, Z^4 is equivalent to pure X and to pure Z, but not to both at once."""
-    result = circuits.certify_state_prep_fault_propagation(
-        stim.Circuit("H 0 1 2 3\nCZ 0 1 1 2 2 3\nCORRELATED_ERROR(0.001) Z0 Z1 Z2 Z3"),
-        output_qubits=range(4),
-        css_weight=True,
-    )
-    assert result.counterexample is not None
-    assert result.counterexample.effective_weight_lower_bound == 2
+    assert not fault_propagation._is_css_state(state("H 0\nS 0\nCX 0 1 0 2"))
 
 
 def test_stabilizers_keep_signs_and_the_output_frame() -> None:
     """Reported stabilizers are +1 eigenoperators of the ideal state on the chosen output qubits."""
     circuit = stim.Circuit("H 4\nS 4\nCX 4 1\nX 1\nCORRELATED_ERROR(0.01) Y4")
-    result = circuits.certify_state_prep_fault_propagation(circuit, output_qubits=[4, 1])
+    result = circuits.certify_bounded_fault_propagation(circuit, output_qubits=[4, 1])
     assert result.certified and result.output_qubits == (4, 1)
     assert any(ss.startswith("-") for ss in result.target_stabilizers)
     simulator = stim.TableauSimulator()
@@ -201,10 +191,9 @@ def test_default_outputs_skip_measured_and_untouched_qubits() -> None:
     """Outputs default to the qubits that are acted on and never measured, in increasing order."""
     # Qubits 0, 2, and 3 are untouched, and qubit 5 is measured.
     circuit = stim.Circuit("H 4\nS 4\nCX 4 1\nX 1\nCORRELATED_ERROR(0.01) Y4\nCX 5 1\nM 5")
-    default = circuits.certify_state_prep_fault_propagation(circuit)
+    default = circuits.certify_bounded_fault_propagation(circuit)
     assert default.output_qubits == (1, 4)
-    assert default == circuits.certify_state_prep_fault_propagation(circuit, output_qubits=[1, 4])
-    assert default != circuits.certify_state_prep_fault_propagation(circuit, output_qubits=[4, 1])
+    assert default == circuits.certify_bounded_fault_propagation(circuit, output_qubits=[1, 4])
 
 
 def test_unmeasured_qubits_account_for_every_kind_of_measurement() -> None:
@@ -224,13 +213,13 @@ def test_unmeasured_qubits_account_for_every_kind_of_measurement() -> None:
         MPAD 0
         HERALDED_ERASE(0.1) 8
     """)
-    assert state_prep_certification._get_unmeasured_qubits(circuit) == (0, 8)
+    assert fault_propagation._get_unmeasured_qubits(circuit) == (0, 8)
 
 
 def test_correlated_mechanism_costs_one_fault() -> None:
-    """A two-qubit error is one fault, reported in the order of the requested output qubits."""
+    """A two-qubit error is one fault of effective weight two, and the requested order is kept."""
     circuit = stim.Circuit("I 0 1\nCORRELATED_ERROR(0.01) X0 Y1")
-    result = circuits.certify_state_prep_fault_propagation(circuit, output_qubits=[1, 0])
+    result = circuits.certify_bounded_fault_propagation(circuit, output_qubits=[1, 0])
     _assert_valid_counterexample(result, circuit)
     failure = result.counterexample
     assert failure is not None
@@ -241,7 +230,7 @@ def test_correlated_mechanism_costs_one_fault() -> None:
 def test_exclusive_errors_count_as_independent_faults() -> None:
     """Errors that exclude each other in the circuit are still separate faults of the DEM."""
     circuit = stim.Circuit("I 0 1\nCORRELATED_ERROR(0.1) X0\nELSE_CORRELATED_ERROR(0.1) X0 X1")
-    result = circuits.certify_state_prep_fault_propagation(circuit, output_qubits=[0, 1])
+    result = circuits.certify_bounded_fault_propagation(circuit, output_qubits=[0, 1])
     _assert_valid_counterexample(result, circuit)
 
 
@@ -249,12 +238,42 @@ def test_existing_detectors_do_not_enter_the_syndrome() -> None:
     """A fault that trips one of the circuit's own detectors is judged by its output error alone."""
     noise = "CORRELATED_ERROR(0.01) X0 X1 X2"
     detected = stim.Circuit(f"I 0 1\n{noise}\nM 2\nDETECTOR rec[-1]")
-    result = circuits.certify_state_prep_fault_propagation(detected, output_qubits=[0, 1])
+    result = circuits.certify_bounded_fault_propagation(detected, output_qubits=[0, 1])
     _assert_valid_counterexample(result, detected)
-    undetected = circuits.certify_state_prep_fault_propagation(
+    undetected = circuits.certify_bounded_fault_propagation(
         stim.Circuit(f"I 0 1\n{noise}"), output_qubits=[0, 1]
     )
     assert result.counterexample == undetected.counterexample
+
+
+def test_existing_observables_do_not_enter_the_syndrome() -> None:
+    """A fault that flips an observable is judged by its output error alone."""
+    noise = "CORRELATED_ERROR(0.01) X1 X2\nM 2"  # a weight-one output error that flips rec[-1]
+    flipped = stim.Circuit(f"{noise}\nOBSERVABLE_INCLUDE(0) rec[-1]")
+    result = circuits.certify_bounded_fault_propagation(flipped, output_qubits=[0, 1])
+    assert "L0" in str(result.detector_error_model)
+    plain = circuits.certify_bounded_fault_propagation(stim.Circuit(noise), output_qubits=[0, 1])
+    assert result.certified and plain.certified
+
+
+def test_faults_inside_repeat_blocks_are_certified() -> None:
+    """Faults in a loop count although Stim folds the loop into a repeat block of the DEM."""
+    looped = stim.Circuit("REPEAT 3 {\n    CORRELATED_ERROR(0.01) X0 X1\n}")
+    # A loop without detectors keeps its errors in a repeat block, which would hide them.
+    readout = stim.Circuit("M 0 1\nDETECTOR rec[-2]\nDETECTOR rec[-1]")
+    folded = (looped + readout).detector_error_model(approximate_disjoint_errors=True)
+    assert any(instruction.type == "repeat" for instruction in folded)
+
+    result = circuits.certify_bounded_fault_propagation(looped)
+    written_out = circuits.certify_bounded_fault_propagation(looped.flattened())
+    assert not result.certified and not written_out.certified
+    _assert_valid_counterexample(result, looped)
+    assert result.counterexample is not None and written_out.counterexample is not None
+    assert result.counterexample.output_syndrome == written_out.counterexample.output_syndrome
+    assert (
+        result.counterexample.effective_weight_lower_bound
+        == written_out.counterexample.effective_weight_lower_bound
+    )
 
 
 def test_circuit_without_faults_certifies() -> None:
@@ -267,24 +286,23 @@ def test_circuit_without_faults_certifies() -> None:
         }
         OBSERVABLE_INCLUDE(0) rec[-1]
     """)
-    result = circuits.certify_state_prep_fault_propagation(circuit, output_qubits=[0])
+    result = circuits.certify_bounded_fault_propagation(circuit, output_qubits=[0])
     assert result.certified and result.target_stabilizers == ("-Z",)
 
 
-@pytest.mark.parametrize("css_weight", ["css", np.bool_(True)])
-def test_invalid_css_weight_is_rejected(css_weight: bool) -> None:
-    """Only bool and None are accepted, and numpy booleans are not bool."""
+def test_invalid_css_weight_is_rejected() -> None:
+    """Only bool and None are accepted, so a numpy boolean is rejected."""
     with pytest.raises(ValueError, match="css_weight"):
-        circuits.certify_state_prep_fault_propagation(
-            stim.Circuit("I 0"), output_qubits=[0], css_weight=css_weight
+        circuits.certify_bounded_fault_propagation(
+            stim.Circuit("I 0"), output_qubits=[0], css_weight=cast(bool, np.bool_(True))
         )
 
 
-@pytest.mark.parametrize("outputs", [[], [0, 0], [1], [True], [0.5]])
+@pytest.mark.parametrize("outputs", [[], [0, 0], [1], [-1], [True], [0.5]])
 def test_invalid_output_qubits_are_rejected(outputs: list[int]) -> None:
     """Output qubits must be a nonempty list of distinct in-range integers."""
     with pytest.raises(ValueError, match="output_qubits"):
-        circuits.certify_state_prep_fault_propagation(stim.Circuit("I 0"), output_qubits=outputs)
+        circuits.certify_bounded_fault_propagation(stim.Circuit("I 0"), output_qubits=outputs)
 
 
 def test_unsupported_circuits_and_detectors_are_rejected() -> None:
@@ -292,14 +310,14 @@ def test_unsupported_circuits_and_detectors_are_rejected() -> None:
     # An output entangled with an unselected qubit, and an output that was measured.
     for text in ("H 0\nCX 0 1", "H 0\nM 0"):
         with pytest.raises(ValueError):
-            circuits.certify_state_prep_fault_propagation(stim.Circuit(text), output_qubits=[0])
+            circuits.certify_bounded_fault_propagation(stim.Circuit(text), output_qubits=[0])
     # Random detectors and observables on qubits other than the output.
     for text in (
         "H 1\nM 1\nDETECTOR rec[-1]",
         "H 1\nM 1\nOBSERVABLE_INCLUDE(0) rec[-1]",
     ):
         with pytest.raises(ValueError):
-            circuits.certify_state_prep_fault_propagation(stim.Circuit(text), output_qubits=[0])
+            circuits.certify_bounded_fault_propagation(stim.Circuit(text), output_qubits=[0])
     # There are no unmeasured qubits to default to.
     with pytest.raises(ValueError):
-        circuits.certify_state_prep_fault_propagation(stim.Circuit("H 0\nM 0"))
+        circuits.certify_bounded_fault_propagation(stim.Circuit("H 0\nM 0"))

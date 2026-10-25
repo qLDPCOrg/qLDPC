@@ -2,27 +2,26 @@
 
 """Exact certification of bounded fault propagation in state-preparation circuits.
 
-A *fault* is one error mechanism of the circuit's detector error model (DEM).  Write ``S f`` for the
+A *fault* is one error mechanism of the circuit's detector error model.  Write ``S f`` for the
 syndrome that a set ``f`` of faults leaves on the prepared state, measured against all stabilizers
 of that state, logical ones included, and let ``mu(s)`` be the smallest weight of an error with
 syndrome ``s``.  The certificate proves ``mu(S f) <= |f|`` for every nonempty set ``f`` of faults,
-of any size ``|f|``, although it examines only single faults.  The argument rests on these facts:
+of any size, although it examines only single faults.  The argument rests on these facts:
 
 - Syndromes identify equivalent errors.  Two errors with the same syndrome differ by an operator
   that commutes with all ``n`` independent stabilizers of the ``n``-qubit state, and every such
   operator is itself a stabilizer (up to a phase).  So the two errors leave the same state, and
   ``mu(S f)`` is the weight of the lightest error equivalent to the one that the faults cause.
-- Syndromes add.  The syndrome of a set of faults is the sum, over GF(2), of the syndromes of its
-  faults.
+- Syndromes add: the syndrome of a set of faults is the GF(2) sum of the syndromes of its faults.
 - Weight is subadditive: a product of two errors is no heavier than the sum of their weights, so
   ``mu(s + t) <= mu(s) + mu(t)``.  For physical weight, the product acts on no more qubits than the
-  two errors together.  For CSS weight, ``max(a+c, b+d) <= max(a, b) + max(c, d)``.
+  two errors together.  For CSS weight, if two errors have X and Z weights ``a, b`` and ``c, d``,
+  their product has weight at most ``max(a+c, b+d)``, which is at most ``max(a, b) + max(c, d)``.
 
-Hence ``mu(S f)`` is at most the sum of ``mu(S g)`` over the faults ``g`` in ``f``.  If every fault
-alone leaves an error that is equivalent to one of weight at most one, every set of faults meets the
-bound.  Conversely, a fault with ``mu(S g) >= 2`` is itself a violating set.  The certificate
-therefore holds exactly when ``mu(S g) <= 1`` for every fault ``g``, and one exact oracle,
-``PauliCosetSearch``, decides this for each fault.
+Hence ``mu(S f)`` is at most the sum of ``mu(S g)`` over the faults ``g`` in ``f``, which is at most
+``|f|`` if ``mu(S g) <= 1`` for every fault.  Conversely, a fault with ``mu(S g) >= 2`` is itself a
+violating set.  So the certificate holds exactly when ``mu(S g) <= 1`` for every fault ``g``, and
+the certifier tests this exactly for each fault.
 """
 
 from __future__ import annotations
@@ -45,42 +44,40 @@ from ..encoding import get_state_stabilizers
 # state-preparation certification
 
 
-def certify_state_prep_fault_propagation(
+def certify_bounded_fault_propagation(
     circuit: stim.Circuit,
     *,
     output_qubits: Sequence[int] | None = None,
     css_weight: bool | None = None,
-) -> FaultPropagationCertificate:
-    """Certify bounded fault propagation in a noisy Clifford state preparation.
+) -> BoundedFaultPropagationCertificate:
+    """Certify bounded fault propagation in a noisy Clifford state-preparation circuit.
 
-    Check that, for every set of faults, the error left on the output is equivalent to an error of
-    weight at most the number of faults.  Two errors are equivalent if they change the prepared
-    state in the same way, that is, if they differ by a stabilizer of that state (logical
-    stabilizers included).  The weight is either the physical weight, the number of qubits that an
-    error acts on, or the CSS weight ``max(|x|, |z|)``, where ``x`` and ``z`` are the X and Z parts
-    of the error.  The minimum is over whole errors, not separately over the X and Z parts.
+    Fault propagation is bounded if, for every set of faults, the error left on the output is
+    equivalent to an error of weight at most the number of faults.  Two errors are equivalent if
+    they differ by a stabilizer of the prepared state (logical stabilizers included).  The weight is
+    either the physical weight, the number of qubits that an error acts on, or the CSS weight
+    ``max(|x|, |z|)``, where ``x`` and ``z`` are the X and Z parts of the error.  One equivalent
+    error must meet the bound in both parts at once, not a different error for each part.
 
-    A fault is one error mechanism of the circuit's detector error model (DEM), and every fault
-    costs one.  Mechanisms are treated as independent, even when they come from one noise channel
-    and could not physically occur together.  A mechanism that flips several detectors at once stays
-    one fault.  Stim converts the circuit with ``approximate_disjoint_errors=True``; probabilities
-    play no role, and nothing is claimed about the sampling distribution.
+    A fault is one error mechanism of the circuit's detector error model (DEM), however many
+    detectors it flips.  Mechanisms are treated as independent, even when they come from one noise
+    channel and could not physically occur together.  The circuit is converted with
+    ``approximate_disjoint_errors=True``, and probabilities play no role.
 
-    Because weight is subadditive, it is enough to check every fault on its own: the bound holds for
-    all sets of faults exactly when each single fault leaves an error that is equivalent to one of
-    weight at most one.  See the module docstring for the proof.
+    Because weight is subadditive, it suffices to check that each fault alone leaves an error
+    equivalent to one of weight at most one (see the module docstring for the proof).
 
     The output qubits must end in one definite stabilizer state, the same for every measurement
-    outcome.  Detectors and observables that the circuit already has do not affect the certificate,
-    but they must be deterministic.  Branches that depend on random measurement outcomes are not
-    supported.  Stabilizer signs and qubit labels are kept as given, and the diagnostics that the
-    function appends to read out the output state are noiseless.
+    outcome.  Detectors and observables that the circuit already has are ignored, but they must be
+    deterministic.  Branches that depend on random measurement outcomes are not supported.  The
+    function reads out the output state with noiseless stabilizer measurements, which add no faults.
 
-    With ``css_weight=None``, CSS weight is chosen when the prepared state is a CSS state in the
+    With ``css_weight=None``, CSS weight is used when the prepared state is a CSS state in the
     physical Pauli basis, that is, when its stabilizer group is generated by pure-X and pure-Z
-    operators.  A state that becomes CSS only after local Clifford gates counts as non-CSS.  A CSS
-    code can also prepare a non-CSS state, such as a logical Y eigenstate; if you use that state
-    sector by sector, pass ``css_weight=True`` yourself.
+    operators, and physical weight otherwise.  A state that becomes CSS only after local Clifford
+    gates counts as non-CSS.  A CSS code can also prepare a non-CSS state, such as a logical Y
+    eigenstate; pass ``css_weight=True`` yourself for such a state when CSS weight is appropriate
+    (see below).
 
     Passing is a sufficient condition on the prepared state, not a proof that a protocol using it is
     fault tolerant.  It helps only if the next gadget still works when an input error of weight
@@ -94,17 +91,14 @@ def certify_state_prep_fault_propagation(
         circuit: Noisy Stim Clifford circuit starting in Stim's all-zero state.
 
     Keyword args:
-        output_qubits: Distinct indices of the output qubits, at least one, in the desired Pauli
-            frame.  By default, every qubit that the circuit acts on and never measures, in
-            increasing order.
-        css_weight: True for CSS weight, False for physical weight, or None to choose CSS weight
-            when the prepared state is a CSS state.
+        output_qubits: Distinct indices of the output qubits, at least one, in the order that the
+            certificate uses for Pauli strings.  By default, every qubit that the circuit acts on
+            and never measures, in increasing order.
+        css_weight: True for CSS weight, False for physical weight, or None to choose between them
+            as described above.
 
     Returns:
-        A certificate that states whether the property holds, the DEM, and the weight that was used.
-        A failure comes with a counterexample: a fault whose output error has no equivalent error of
-        weight at most one, and a proved lower bound on the weight of its equivalent errors.  Fault
-        indices count the error instructions of the returned DEM.
+        The certificate, which includes a counterexample if the property fails.
 
     Raises:
         ValueError: For invalid inputs, an output that is not one definite pure state,
@@ -120,7 +114,6 @@ def certify_state_prep_fault_propagation(
     qubits = tuple(output_qubits)
     _validate_output_qubits(qubits, circuit.num_qubits)
 
-    # Complete state stabilizers, including logical stabilizers, identify output-error classes.
     stabilizers = get_state_stabilizers(circuit, qubits)
     if len(stabilizers) != len(qubits):
         raise ValueError("Selected outputs must have a definite pure, complete stabilizer state")
@@ -129,7 +122,7 @@ def certify_state_prep_fault_propagation(
     dem, syndromes = _get_fault_maps(circuit, stabilizers, qubits)
 
     counterexample = _certify_maps(syndromes, matrix, resolved_css_weight)
-    return FaultPropagationCertificate(
+    return BoundedFaultPropagationCertificate(
         counterexample is None,
         tuple(map(int, qubits)),
         tuple(map(str, stabilizers)),
@@ -139,22 +132,22 @@ def certify_state_prep_fault_propagation(
     )
 
 
-####################################################################################################
-# certificate results
-
-
 @dataclass(frozen=True)
-class FaultPropagationCounterexample:
-    """A violating set of faults: one fault whose output error is not equivalent to a light error.
+class BoundedFaultPropagationCounterexample:
+    """A violating fault, whose output error has no equivalent error of weight at most one.
 
-    Weight is subadditive, so a single fault is enough to witness a failure.  ``fault_indices``
-    holds its index among the error instructions of the certificate's DEM, counting only error
-    instructions, and it is the first violating fault in the DEM.  ``output_syndrome`` lists the
-    syndrome bits in the order of ``target_stabilizers``.  ``effective_weight_lower_bound`` is a
-    proved lower bound on the weight of any equivalent error, and it exceeds the number of faults.
-    ``output_pauli`` is one Pauli with that syndrome, written as a Stim string over the output
-    qubits in the caller's order.  It is not necessarily the lightest such Pauli or the error that
-    the fault actually causes.
+    Equivalence and weight are as in the certificate that holds this counterexample.
+
+    Attributes:
+        fault_indices: A one-element tuple with the index of the first violating fault among the
+            error instructions of the certificate's ``detector_error_model``.
+        output_syndrome: The syndrome of the fault's output error: entry ``j`` is 1 if the error
+            anticommutes with ``target_stabilizers[j]``.
+        effective_weight_lower_bound: A proved lower bound on the weight of every error equivalent
+            to the fault's output error.  It exceeds ``fault_count``.
+        output_pauli: One Pauli error with this syndrome, as a Stim string over the output qubits in
+            the order of the certificate's ``output_qubits``.  It need not be a lightest such error
+            or the error that the fault actually causes.
     """
 
     fault_indices: tuple[int, ...]
@@ -164,54 +157,53 @@ class FaultPropagationCounterexample:
 
     @property
     def fault_count(self) -> int:
-        """Number of DEM mechanisms in the witness."""
+        """The number of faults in this counterexample."""
         return len(self.fault_indices)
 
 
 @dataclass(frozen=True)
-class FaultPropagationCertificate:
-    """Result of certifying bounded fault propagation, with the model that it used.
+class BoundedFaultPropagationCertificate:
+    """The result of certifying bounded fault propagation in a state-preparation circuit.
 
-    A failure always includes a counterexample.
+    Faults, equivalence, and weight are as defined in ``certify_bounded_fault_propagation``.
+
+    Attributes:
+        certified: Whether every set of faults leaves an error equivalent to one of weight at most
+            the number of faults.
+        output_qubits: The output qubit indices.  Position ``i`` of every Pauli string in this
+            certificate refers to qubit ``output_qubits[i]``.
+        target_stabilizers: Signed Stim strings that generate the stabilizer group of the prepared
+            state, one per output qubit.
+        detector_error_model: The circuit's detector error model, flattened and undecomposed, with
+            the circuit's own detectors followed by one detector per target stabilizer, in order.
+        counterexample: The counterexample if ``certified`` is False, and None otherwise.
+        css_weight: Whether the certificate used CSS weight (True) or physical weight (False).
     """
 
     certified: bool
-    """Whether every set of faults leaves an error equivalent to one of weight at most its size."""
-
     output_qubits: tuple[int, ...]
-    """Output qubit indices, in the order of the target stabilizers and counterexample Pauli."""
-
     target_stabilizers: tuple[str, ...]
-    """Signed Stim strings for the complete state stabilizers, one per output qubit."""
-
     detector_error_model: stim.DetectorErrorModel
-    """Flattened, undecomposed DEM of the circuit and a noiseless detector per target stabilizer."""
-
-    counterexample: FaultPropagationCounterexample | None
-    """A violating fault on failure, or None on success."""
-
+    counterexample: BoundedFaultPropagationCounterexample | None
     css_weight: bool
-    """Weight that was used: True for CSS weight, False for physical weight."""
-
-
-####################################################################################################
-# helper methods
 
 
 def _get_fault_maps(
     circuit: stim.Circuit, stabilizers: Sequence[stim.PauliString], qubits: Sequence[int]
 ) -> tuple[stim.DetectorErrorModel, list[int]]:
-    """Compile the undecomposed DEM with a packed output syndrome for each error mechanism.
+    """Get the DEM with one detector per stabilizer, and the output syndrome of each fault.
 
-    The syndromes follow DEM error-instruction order, and their bits follow stabilizer order.
+    A syndrome is an integer with bit ``j`` for stabilizer ``j``, and the syndromes follow the order
+    of the DEM's error instructions.
     """
-    # Appended detectors diagnose the output state; the circuit's own detectors come first.
+    # The stabilizer detectors follow the circuit's own detectors.
     diagnostics = get_pauli_product_measurements(stabilizers, qubits=qubits)
     for jj in range(len(stabilizers)):
         diagnostics.append("DETECTOR", [stim.target_rec(jj - len(stabilizers))])
     diagnostic_circuit = circuit + diagnostics
 
-    # Exact anticommutation analysis validates determinism without sampling.
+    # Converting the noiseless circuit raises an error for a nondeterministic detector or
+    # observable.
     diagnostic_circuit.without_noise().detector_error_model()
     dem = diagnostic_circuit.detector_error_model(approximate_disjoint_errors=True).flattened()
 
@@ -247,9 +239,9 @@ def _get_unmeasured_qubits(circuit: stim.Circuit) -> tuple[int, ...]:
 def _is_css_state(stabilizers: np.ndarray[tuple[int, ...], np.dtype[np.uint8]]) -> bool:
     """Test whether a complete rank-n stabilizer space is CSS in the physical basis."""
     n = len(stabilizers)
-    # Let W be the stabilizer space.  Its pure-X and pure-Z elements have dimensions n-rank(W_Z) and
-    # n-rank(W_X), where W_X and W_Z are the X and Z parts of the rows.  They span W exactly when
-    # rank(W_X)+rank(W_Z)=n, whatever generators are used.
+    # Let W be the stabilizer space, and W_X and W_Z the X and Z parts of its rows.  The pure-X and
+    # pure-Z elements of W have dimensions n-rank(W_Z) and n-rank(W_X) and meet only in 0, so they
+    # span W exactly when rank(W_X)+rank(W_Z)=n, whatever generators are used.
     ranks = [
         _binary_rank([int.from_bytes(np.packbits(row).tobytes(), "little") for row in sector])
         for sector in (stabilizers[:, :n], stabilizers[:, n:])
@@ -269,7 +261,7 @@ def _validate_output_qubits(qubits: tuple[int, ...], num_qubits: int) -> None:
 
 def _certify_maps(
     syndromes: Sequence[int], stabilizers: npt.ArrayLike, css_weight: bool
-) -> FaultPropagationCounterexample | None:
+) -> BoundedFaultPropagationCounterexample | None:
     """Find the first fault whose error is not equivalent to an error of weight at most one."""
     oracle = PauliCosetSearch(stabilizers, metric="css" if css_weight else "pauli")
 
@@ -286,14 +278,11 @@ def _certify_maps(
 
 def _get_counterexample(
     index: int, syndrome: int, bound: MinWeightBound, num_qubits: int
-) -> FaultPropagationCounterexample:
-    """Describe a violating fault by its DEM index and an error in the output frame."""
+) -> BoundedFaultPropagationCounterexample:
+    """Describe a violating fault by its DEM index and an error on the output qubits."""
     n = num_qubits
-    pauli = stim.PauliString.from_numpy(
-        xs=np.array([(bound.representative >> jj) & 1 for jj in range(n)], dtype=bool),
-        zs=np.array([(bound.representative >> (jj + n)) & 1 for jj in range(n)], dtype=bool),
-    )
-    return FaultPropagationCounterexample(
+    pauli = math.op_to_string(np.array([(bound.representative >> jj) & 1 for jj in range(2 * n)]))
+    return BoundedFaultPropagationCounterexample(
         (index,),
         tuple((syndrome >> jj) & 1 for jj in range(n)),
         bound.lower_bound,
@@ -302,7 +291,7 @@ def _get_counterexample(
 
 
 def _binary_rank(columns: Sequence[int]) -> int:
-    """Find the rank of packed binary columns by leading-bit elimination."""
+    """Compute the GF(2) rank of binary vectors packed into integers."""
     pivots: dict[int, int] = {}
     for column in columns:
         while column:

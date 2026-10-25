@@ -11,6 +11,8 @@ from typing import Literal
 import numpy as np
 import numpy.typing as npt
 
+from qldpc import math
+
 from ._binary import as_binary_matrix, assert_binary, row_reduce_binary
 
 ####################################################################################################
@@ -64,7 +66,7 @@ class PauliCosetSearch:
         n = self.num_qubits
         if not n or matrix.shape[1] != 2 * n:
             raise ValueError("Require a complete nonempty n by 2n stabilizer matrix")
-        checks = np.roll(matrix, n, axis=1)
+        checks = (math.symplectic_conjugate(matrix.astype(int)) % 2).astype(np.uint8)
         _, labels, pivots = row_reduce_binary(checks, np.eye(n, dtype=np.uint8))
         if len(pivots) != n or np.any((checks @ matrix.T) % 2):
             raise ValueError("Stabilizers must be independent and commute")
@@ -117,7 +119,8 @@ class PauliCosetSearch:
         if max_weight not in (0, 1):
             raise ValueError(
                 f"Only the weight thresholds 0 and 1 are supported so far, not {max_weight}.  The "
-                "threshold is an argument so that callers will not change when larger ones are supported"
+                "threshold is an argument so that callers will not change when larger ones are "
+                "supported"
             )
         pauli = self._weight_one_representative(syndrome)
         if pauli is None:
@@ -144,10 +147,6 @@ class PauliCosetSearch:
         mask = (1 << self.num_qubits) - 1
         x, z = pauli & mask, (pauli >> self.num_qubits) & mask
         return max(x.bit_count(), z.bit_count()) if self.metric == "css" else (x | z).bit_count()
-
-
-####################################################################################################
-# helper methods
 
 
 def _binary_row_int(row: npt.NDArray[np.uint8]) -> int:

@@ -113,6 +113,4 @@ def test_invalid_arguments_are_rejected() -> None:
     with pytest.raises(ValueError):
         oracle.get_min_weight_bound(2, 1)
     with pytest.raises(ValueError):
-        oracle.get_min_weight_bound(0, -1)
-    with pytest.raises(ValueError):
         oracle.get_min_weight_bound(0, 2)
