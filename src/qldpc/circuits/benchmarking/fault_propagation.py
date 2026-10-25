@@ -79,13 +79,11 @@ def certify_bounded_fault_propagation(
     eigenstate; pass ``css_weight=True`` yourself for such a state when CSS weight is appropriate
     (see below).
 
-    Passing is a sufficient condition on the prepared state, not a proof that a protocol using it is
-    fault tolerant.  It helps only if the next gadget still works when an input error of weight
-    ``r`` is combined with further faults, as long as ``r`` plus the number of further faults is
-    within the gadget's limit.  A result for CSS weight also needs that gadget to keep X and Z
-    errors separate, which you must justify when passing ``css_weight=True``.  The certificate says
-    nothing about the probability of any error, and it is not a necessary condition for fault
-    tolerance.
+    Passing is a sufficient condition for fault-tolerant state preparation, as defined by Definition
+    3 in Section 4.2 of Gottesman's lecture notes (arXiv:0904.2557), but it is not necessary.  A
+    result for CSS weight is meaningful only if the circuits that use the state keep X and Z errors
+    separate, which you must justify when passing ``css_weight=True``.  The certificate says nothing
+    about the probability of any error.
 
     Args:
         circuit: Noisy Stim Clifford circuit starting in Stim's all-zero state.

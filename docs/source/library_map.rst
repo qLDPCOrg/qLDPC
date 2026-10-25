@@ -182,7 +182,6 @@ Certify a state-preparation circuit
 
 :func:`qldpc.circuits.certify_bounded_fault_propagation <qldpc.circuits.benchmarking.fault_propagation.certify_bounded_fault_propagation>` certifies bounded fault propagation in a noisy Clifford circuit that prepares a stabilizer state.
 Propagation is bounded if, for every set of faults, the error left on the output is equivalent to an error whose weight is at most the number of faults.
-Only the prepared state is certified, not the circuits that use it next.
 The :doc:`fault-tolerance notebook <examples/logical_error_rates/6_certifying_fault_tolerance>` shows examples.
 
 Support and limitations
