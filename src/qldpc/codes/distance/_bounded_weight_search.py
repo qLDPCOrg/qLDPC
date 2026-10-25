@@ -45,8 +45,9 @@ class PauliCosetSearch:
 
     The syndrome of a Pauli error lists whether it anticommutes with each of the ``n`` stabilizers.
     Two Pauli errors have the same syndrome exactly when they differ by a stabilizer, so a syndrome
-    identifies a class of equivalent errors.  This class provides machinery to determine whether the
-    minimum weight of the errors in a syndrome class is no greater than a given maximum weight.
+    identifies a class of equivalent errors.  PauliCosetSearch provides machinery to determine
+    whether the minimum weight of the Pauli errors in a syndrome class is no greater than a given
+    maximum weight.
 
     Args:
         stabilizers: An independent commuting binary ``n x 2n`` matrix in ``[X|Z]`` order.
