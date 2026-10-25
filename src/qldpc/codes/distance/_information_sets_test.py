@@ -28,11 +28,11 @@ EVEN_BASIS = np.array([[1, 1, 0, 0], [0, 1, 1, 0], [1, 0, 0, 1]], dtype=np.uint8
 
 def test_information_set_packing() -> None:
     """Information sets pack full blocks first and retain the residual rank."""
-    information_sets = _information_sets._get_information_set_generators(
+    information_sets = _information_sets.get_information_set_generators(
         PARTIAL_BASIS, np.eye(3, dtype=np.uint8)
     )
     assert [rank for _, _, rank, _ in information_sets] == [3, 3, 2]
-    assert not _information_sets._get_information_set_generators(
+    assert not _information_sets.get_information_set_generators(
         np.zeros((1, 3), dtype=np.uint8), None
     )
 
@@ -44,12 +44,12 @@ def test_information_set_packing() -> None:
         ],
         dtype=np.uint8,
     )
-    information_sets = _information_sets._get_information_set_generators(basis, None)
+    information_sets = _information_sets.get_information_set_generators(basis, None)
     assert [rank for _, _, rank, _ in information_sets] == [3, 3]
 
     # Only one column carries the second row, so no column order packs a second full set.
     basis = np.array([[1, 1, 1, 0], [0, 0, 0, 1]], dtype=np.uint8)
-    information_sets = _information_sets._get_information_set_generators(basis, None)
+    information_sets = _information_sets.get_information_set_generators(basis, None)
     assert [rank for _, _, rank, _ in information_sets] == [2, 1]
 
 

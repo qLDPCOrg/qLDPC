@@ -545,7 +545,7 @@ The certificate is computed from verified ranks and the actual maximum coverage 
 The heuristics below change search work while preserving certificate validity.
 With an early-exit cutoff above one, a different search order can find a different first witness at or below the cutoff, while preserving the upper-bound contract of [Section 4.5](#45-behavior-spanning-files).
 
-- **`get_disjoint_family`** builds the disjoint family greedily in natural column order, through `_get_information_set_generators`.
+- **`get_disjoint_family`** builds the disjoint family greedily in natural column order, through `get_information_set_generators`.
   If that does not reach the maximum number of blocks that are information sets, it tries a small fixed number of fixed-seed random column orders and keeps the family with the lexicographically largest tuple of ranks.
   Fixed seeds keep results reproducible, and the bounded retries keep setup cheap.
   It also infers the divisor `2` when every basis row has even weight, and combines it with any divisor supplied by the caller.

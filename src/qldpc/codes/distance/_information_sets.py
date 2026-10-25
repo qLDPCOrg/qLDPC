@@ -173,7 +173,7 @@ def get_disjoint_family(
 ) -> BasisFamily:
     """Stage one: pack disjoint information sets, and certify them with any inferred parity."""
     return BasisFamily.from_information_sets(
-        _get_information_set_generators(basis, labels),
+        get_information_set_generators(basis, labels),
         dimension=len(basis),
         weight_divisor=infer_weight_divisor(basis, weight_divisor),
     )
@@ -297,7 +297,7 @@ def infer_weight_divisor(basis: npt.NDArray[np.uint8], weight_divisor: int = 1) 
 # disjoint information sets
 
 
-def _get_information_set_generators(
+def get_information_set_generators(
     basis: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8] | None,
 ) -> list[InformationSet]:
