@@ -479,7 +479,7 @@ def test_observable_lookup_sinter_batches(num_observables: int, add_erasure_bit:
 
 
 def test_observable_lookup_sinter_post_selection() -> None:
-    """Bit-packed shots that are nonzero on a post-selected detector are erased."""
+    """Bit-packed shots that are nonzero on a post-selection detector are erased."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.1) D1")
     decoder = decoders.custom.ObservableLookupDecoder(
         dem, max_weight=1, post_select=[0], add_erasure_bit=True

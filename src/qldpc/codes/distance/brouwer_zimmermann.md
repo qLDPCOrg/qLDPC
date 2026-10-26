@@ -460,7 +460,7 @@ Heuristic tunables are identified by parameter name so that their current values
 | --- | --- | --- |
 | [core.py](core.py) | Public interfaces, input validation, adapted bases, method selection, validation of exact-distance method and distance-bound backend selectors, and conversion between symplectic and Hamming units | `get_distance_classical`, `get_distance_quantum`, `_validate_distance_method`, `_validate_distance_backend` |
 | [_brouwer_zimmermann.py](_brouwer_zimmermann.py) | The BZ distance search: preparation exits, witness discovery, scanning, sharing between CSS sectors, and exhaustive cost models | `get_distance_css_brouwer_zimmermann`, `get_distance_brouwer_zimmermann_many`, `_prepare_brouwer_zimmermann_search`, `_BrouwerZimmermannSearch`, `_scan_brouwer_zimmermann` |
-| [_information_sets.py](_information_sets.py) | Families of search bases and their certificates, shared by distance and counting: disjoint packing, pruning, overlapping replacement, parity inference, the lower certificate, and the work estimate | `get_disjoint_family`, `prune_family`, `get_overlapping_family`, `prepare_family`, `BasisFamily`, `Certificate` |
+| [_information_sets.py](_information_sets.py) | Families of search bases and their certificates, shared by distance and counting and used by the Pauli-coset oracle: disjoint packing, pruning, overlapping replacement, parity inference, the lower certificate, and the work estimate | `get_disjoint_family`, `prune_family`, `get_overlapping_family`, `prepare_family`, `BasisFamily`, `Certificate` |
 | [_brute_force.py](_brute_force.py) | Exhaustive enumeration | `get_distance_quantum_brute_force` |
 | [_binary.py](_binary.py) | Shared binary helpers: row reduction with labels, independent and adapted bases, packing, weight functions, and the map of [Section 2.7](#27-pauli-weight-as-hamming-weight) | `row_reduce_binary`, `get_independent_rows`, `get_nested_code_basis`, `symplectic_to_hamming` |
 
@@ -545,7 +545,7 @@ The certificate is computed from verified ranks and the actual maximum coverage 
 The heuristics below change search work while preserving certificate validity.
 With an early-exit cutoff above one, a different search order can find a different first witness at or below the cutoff, while preserving the upper-bound contract of [Section 4.5](#45-behavior-spanning-files).
 
-- **`get_disjoint_family`** builds the disjoint family greedily in natural column order, through `_get_information_set_generators`.
+- **`get_disjoint_family`** builds the disjoint family greedily in natural column order, through `get_information_set_generators`.
   If that does not reach the maximum number of blocks that are information sets, it tries a small fixed number of fixed-seed random column orders and keeps the family with the lexicographically largest tuple of ranks.
   Fixed seeds keep results reproducible, and the bounded retries keep setup cheap.
   It also infers the divisor `2` when every basis row has even weight, and combines it with any divisor supplied by the caller.

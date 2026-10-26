@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Information-set families and lower certificates shared by exact BZ distance and counting.
+"""Information-set families and lower certificates shared by exact BZ and Pauli-coset searches.
 
 Exact distance search (``_brouwer_zimmermann.py``) and fixed-weight logical counting
 (``logical_counts.py``) enumerate coefficient layers over the same families of systematic bases.
 This module owns how those families are built, pruned, and replaced by overlapping families, and the
-certificate that bounds the Hamming weight of eligible words that a family has not yet visited.
+certificate that bounds the Hamming weight of eligible words that a family has not yet visited.  The
+Pauli-coset oracle (``_bounded_weight_search.py``) uses the disjoint information sets and the
+certificate for its own layered search.
 
 Family construction runs in stages, so that a caller can take its own exits between them:
 
@@ -173,7 +175,7 @@ def get_disjoint_family(
 ) -> BasisFamily:
     """Stage one: pack disjoint information sets, and certify them with any inferred parity."""
     return BasisFamily.from_information_sets(
-        _get_information_set_generators(basis, labels),
+        get_information_set_generators(basis, labels),
         dimension=len(basis),
         weight_divisor=infer_weight_divisor(basis, weight_divisor),
     )
@@ -297,25 +299,31 @@ def infer_weight_divisor(basis: npt.NDArray[np.uint8], weight_divisor: int = 1) 
 # disjoint information sets
 
 
-def _get_information_set_generators(
+def get_information_set_generators(
     basis: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8] | None,
 ) -> list[InformationSet]:
     """Construct a large deterministic packing of disjoint information sets."""
+    # Only columns that are nonzero in the basis can be pivots.  Pack them in their natural order.
     nonzero_columns = np.flatnonzero(np.any(basis, axis=0))
     best = _get_information_set_generators_for_columns(
         basis,
         labels,
         nonzero_columns,
     )
-    # Each full set consumes one pivot column per basis row.
+
+    # A full set has ``len(basis)`` pivots, and only the last set of a packing can have fewer.  Full
+    # sets use disjoint nonzero columns, so there are at most this many, and possibly fewer.  Return
+    # if the natural order already reaches this bound.
     max_full_sets = len(nonzero_columns) // len(basis)
     if sum(rank == len(basis) for _, _, rank, _ in best) == max_full_sets:
         return best
 
-    # A fixed seed makes the bounded packing heuristic reproducible.
+    # Otherwise, try up to 8 random column orders.  The fixed seed makes the result reproducible.
     rng = np.random.default_rng(0)
     for _ in range(8):
+        # Keep the packing with the lexicographically larger tuple of ranks: more full sets, or
+        # equally many and a larger last set.
         candidate = _get_information_set_generators_for_columns(
             basis,
             labels,
@@ -325,6 +333,8 @@ def _get_information_set_generators(
         best_ranks = tuple(rank for _, _, rank, _ in best)
         if candidate_ranks > best_ranks:
             best = candidate
+
+        # Stop early if the packing reaches the bound.
         if sum(rank == len(basis) for _, _, rank, _ in best) == max_full_sets:
             break
     return best
@@ -335,7 +345,8 @@ def _get_information_set_generators_for_columns(
     labels: npt.NDArray[np.uint8] | None,
     columns: npt.NDArray[np.int_],
 ) -> list[InformationSet]:
-    """Construct disjoint information sets in a specified column order."""
+    """Construct disjoint information sets, with pivots from the nonzero ``columns`` in order."""
+    # Start with every given column available as a pivot, and with the basis as it is.
     dimension = len(basis)
     active_columns = columns
     working = basis
@@ -343,15 +354,22 @@ def _get_information_set_generators_for_columns(
     information_sets: list[InformationSet] = []
 
     while len(active_columns):
+        # Row-reduce on the available columns, taking pivots in their order, so that each pivot
+        # column has a single one.  The labels follow the same row operations.
         working, working_labels, pivots = row_reduce_binary(
             working, working_labels, columns=active_columns
         )
         rank = len(pivots)
-        assert rank
+        assert rank  # The available columns are nonzero, so they give at least one pivot.
         information_sets.append(InformationSet(working, working_labels, rank, pivots))
+
+        # A set with fewer pivots than rows is partial.  The columns that remain span at most
+        # ``rank`` dimensions, so no later set could be full, and this is the last one.
         if rank < dimension:
             break
 
+        # Make the pivot columns unavailable, so that later sets are disjoint from this one.  Also
+        # drop columns that are zero in the reduced matrix, so that the next pass has a pivot.
         pivot_set = set(pivots)
         active_columns = np.asarray(
             [col for col in active_columns if col not in pivot_set and np.any(working[:, col])],

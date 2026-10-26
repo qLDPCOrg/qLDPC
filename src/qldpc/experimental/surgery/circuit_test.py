@@ -1378,10 +1378,10 @@ def _lightest_undetectable_logical_fault(circuit: stim.Circuit) -> int | None:
 
     Returns None when every undetectable observable-flipping fault has weight 3 or more.
 
-    A set of circuit faults goes undetected exactly when its detector flips cancel.  One mechanism
-    qualifies when it flips no detector at all; two qualify when they flip the same detectors.
-    Grouping the detector error model's mechanisms by their detector column therefore settles
-    weights 1 and 2 in a single pass, without enumerating pairs.
+    A fault goes undetected exactly when the detector flips of its error mechanisms cancel.  One
+    error mechanism qualifies when it flips no detector at all; two qualify when they flip the same
+    detectors.  Grouping the detector error model's error mechanisms by their detector column
+    therefore settles weights 1 and 2 in a single pass, without enumerating pairs.
     """
     from qldpc.decoders.dems import DetectorErrorModelArrays
     from qldpc.experimental.surgery.circuit import keep_only_observable
@@ -1406,10 +1406,10 @@ def _lightest_undetectable_logical_fault(circuit: stim.Circuit) -> int | None:
 
 @pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
 def test_repeated_rounds_close_the_single_fault_readout_path(basis: PauliXZ) -> None:
-    """One fault flips the PPM outcome undetectably at rounds=1, but never at rounds=3.
+    """One error mechanism flips the PPM outcome undetectably at rounds=1, but never at rounds=3.
 
     obs0 is the XOR of the last QEC round's meas-check (S'_meas) outcomes, so at rounds=1 nothing
-    compares that round against another and a single mechanism on the readout suffices.  The
+    compares that round against another and a single error mechanism on the readout suffices.  The
     repeated rounds are what supply the detector redundancy, which is the circuit's whole
     fault-tolerance argument; this pins that they deliver it.
 

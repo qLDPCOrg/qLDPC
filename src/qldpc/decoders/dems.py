@@ -29,9 +29,10 @@ class DetectorErrorModelArrays:
 
     A DetectorErrorModelArrays object organizes the data in a stim.DetectorErrorModel into:
 
-        1. detector_flip_matrix: a binary matrix that maps circuit errors to detector flips,
-        2. observable_flip_matrix: a binary matrix that maps circuit errors to observable flips, and
-        3. error_probs: an array of probabilities of occurrence for each circuit error.
+        1. detector_flip_matrix: a binary matrix that maps error mechanisms to detector flips,
+        2. observable_flip_matrix: a binary matrix that maps error mechanisms to observable
+           flips, and
+        3. error_probs: an array of probabilities of occurrence for each error mechanism.
 
     In addition, ``DetectorErrorModelArrays`` keeps track of any suggestions that a
     ``stim.DetectorErrorModel`` provides for how to decompose errors.
@@ -39,8 +40,9 @@ class DetectorErrorModelArrays:
     A ``DetectorErrorModelArrays`` is *almost* one-to-one with a ``stim.DetectorErrorModel``
     instance.  The primary differences are that a ``DetectorErrorModelArrays`` object
 
-        (a) merges circuit errors with identical targets, where an error's suggested decomposition
-            is part of its targets (which can be disabled with ``simplify=False``), and
+        (a) merges error mechanisms with identical targets, where a mechanism's suggested
+            decomposition is part of its targets (which can be disabled with
+            ``simplify=False``), and
         (b) does not preserve detector coordinate data.
     """
 
@@ -164,12 +166,12 @@ class DetectorErrorModelArrays:
 
     @property
     def num_errors(self) -> int:
-        """The number of distinct circuit errors."""
+        """The number of distinct error mechanisms."""
         return self.detector_flip_matrix.shape[1]
 
     @property
     def num_detectors(self) -> int:
-        """The number of detectors that witness circuit errors."""
+        """The number of detectors that witness error mechanisms."""
         return self.detector_flip_matrix.shape[0]
 
     @property
@@ -183,9 +185,9 @@ class DetectorErrorModelArrays:
         """The arrays of this DetectorErrorModelArrays.
 
         Returns:
-            detector_flip_matrix: a binary matrix that maps circuit errors to detector flips.
-            observable_flip_matrix: a binary matrix that maps circuit errors to observable flips.
-            error_probs: an array of probabilities of occurrence for each circuit error.
+            detector_flip_matrix: a binary matrix that maps error mechanisms to detector flips.
+            observable_flip_matrix: a binary matrix that maps error mechanisms to observable flips.
+            error_probs: an array of probabilities of occurrence for each error mechanism.
         """
         return self.detector_flip_matrix, self.observable_flip_matrix, self.error_probs
 
@@ -320,11 +322,11 @@ class DetectorErrorModelArrays:
     ) -> DetectorErrorModelArrays:
         """Condition this detector error model on the given detectors being in 0 (untriggered).
 
-        The errors that trigger the post-selected detectors are removed from the DEM.  The
-        post-selected detectors are similarly removed unless keep_detectors is True.
+        The errors that trigger the post-selection detectors are removed from the DEM.  The
+        post-selection detectors are similarly removed unless keep_detectors is True.
 
         If order > 1, combinations of up to 'order' removed error mechanisms whose co-occurrence
-        does not trigger any of the post-selected detectors are added back to the DEM as synthetic
+        does not trigger any of the post-selection detectors are added back to the DEM as synthetic
         error mechanisms.
         """
         if not order >= 1:
@@ -411,9 +413,9 @@ class DetectorErrorModelArrays:
     def get_circuit_errors(
         dem: stim.DetectorErrorModel, *, decompose_errors: bool = False
     ) -> list[CircuitError]:
-        """Collect all circuit errors in a stim.DetectorErrorModel into a list.
+        """Collect all error mechanisms in a stim.DetectorErrorModel into a list.
 
-        Each circuit error is nominally identified by:
+        Each error mechanism is nominally identified by:
 
             - a probability of occurrence,
             - a set of detectors that are flipped,
@@ -421,7 +423,7 @@ class DetectorErrorModelArrays:
 
         In addition, a ``stim.DetectorErrorModel`` can come equipped with suggested decompositions
         of errors, which splits the detector/observable targets of an error into groups.  To
-        accommodate decomposition suggestions, a circuit error is identified by
+        accommodate decomposition suggestions, an error mechanism is identified by
 
             - a probability of occurrence,
             - a set of (detector_set, observable_set) tuples, one per suggested component.
@@ -465,7 +467,7 @@ class DetectorErrorModelArrays:
 
     @staticmethod
     def get_merged_circuit_errors(errors: list[CircuitError]) -> list[CircuitError]:
-        """Merge circuit errors that have the same targets.
+        """Merge error mechanisms that have the same targets.
 
         Targets include suggested decompositions, so two errors that flip the same detectors and
         observables stay distinct if they suggest different decompositions.
@@ -484,7 +486,7 @@ class DetectorErrorModelArrays:
     def get_arrays_from_errors(
         errors: list[CircuitError], num_detectors: int, num_observables: int
     ) -> tuple[scipy.sparse.csc_matrix, scipy.sparse.csc_matrix, npt.NDArray[np.floating]]:
-        """Convert circuit errors into DetectorErrorModelArrays data."""
+        """Convert error mechanisms into DetectorErrorModelArrays data."""
         # initialize empty arrays
         detector_flip_matrix = scipy.sparse.dok_matrix((num_detectors, len(errors)), dtype=np.uint8)
         observable_flip_matrix = scipy.sparse.dok_matrix(
@@ -492,7 +494,7 @@ class DetectorErrorModelArrays:
         )
         error_probs = np.zeros(len(errors), dtype=float)
 
-        # iterate over and account for all circuit errors
+        # iterate over and account for all error mechanisms
         for error_index, (probability, components) in enumerate(errors):
             combined = _combined_flips(components)
             detector_flip_matrix[list(combined.detectors), error_index] = 1
@@ -677,7 +679,7 @@ def _with_higher_order_corrections(
 def _get_removed_det_to_removed_errors(
     removed_det_flip_submatrix: scipy.sparse.csc_matrix,
 ) -> list[list[int]]:
-    """Map each post-selected detector to removed errors that trigger it.
+    """Map each post-selection detector to removed errors that trigger it.
 
     More specifically, for each detector, identify errors that: (1) trigger that detector, and (2)
     do not trigger any preceding detectors.

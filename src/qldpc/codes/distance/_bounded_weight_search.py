@@ -1,10 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Exact minimum-weight queries for classes of equivalent Pauli errors on a stabilizer state."""
+"""Exact minimum-weight queries for syndrome classes of Pauli errors on a stabilizer state."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import functools
+import itertools
+import numbers
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -13,7 +16,14 @@ import numpy.typing as npt
 
 from qldpc import math
 
-from ._binary import as_binary_matrix, assert_binary, row_reduce_binary
+from . import _information_sets
+from ._binary import (
+    as_binary_matrix,
+    assert_binary,
+    pack_bits,
+    row_reduce_binary,
+    symplectic_to_hamming,
+)
 
 ####################################################################################################
 # Pauli-coset minimum-weight bounds
@@ -21,17 +31,15 @@ from ._binary import as_binary_matrix, assert_binary, row_reduce_binary
 
 @dataclass(frozen=True)
 class MinWeightBound:
-    """What a query learned about the minimum weight of a class of equivalent Pauli errors.
+    """The answer to a query about the minimum weight of a syndrome class of Pauli errors.
 
-    The query asks whether the class contains an error of weight at most ``max_weight``, where
-    weight is measured in the oracle's metric.
+    The query asks whether the syndrome class has an error of weight at most ``max_weight``.
 
     Attributes:
-        within_max_weight: Whether the class contains such an error.
-        representative: An error in the class, packed with its X part in the low ``n`` bits and
-            its Z part in the next ``n``.  If ``within_max_weight`` is True, its weight is at most
-            ``max_weight``.
-        lower_bound: A proved lower bound on the minimum weight of the class.  If
+        within_max_weight: Whether the syndrome class has such an error.
+        representative: A packed Pauli (see ``PauliCosetSearch``) in the syndrome class.  If
+            ``within_max_weight`` is True, its weight is at most ``max_weight``.
+        lower_bound: A lower bound on the minimum weight of the syndrome class.  If
             ``within_max_weight`` is False, it exceeds ``max_weight``.
     """
 
@@ -43,24 +51,45 @@ class MinWeightBound:
 class PauliCosetSearch:
     """Minimum-weight oracle for Pauli errors modulo the stabilizers of a pure stabilizer state.
 
-    The syndrome of a Pauli error lists whether it anticommutes with each of the ``n`` stabilizers.
-    Two Pauli errors have the same syndrome exactly when they differ by a stabilizer, so a syndrome
-    identifies a class of equivalent errors.  PauliCosetSearch provides machinery to determine
-    whether the minimum weight of the Pauli errors in a syndrome class is no greater than a given
-    maximum weight.
+    The syndrome of a Pauli error on ``n`` qubits says which of the ``n`` stabilizers it
+    anticommutes with.  Two errors have the same syndrome exactly when they differ by a stabilizer,
+    so the errors with a given syndrome form a syndrome class of equivalent errors.  The oracle
+    determines whether a syndrome class has an error of weight at most a given maximum weight.
+
+    The oracle first looks up errors of weight at most one in tables of single-qubit syndromes.  A
+    syndrome class with no such error has minimum weight at least two.  If the maximum weight is at
+    least two, the oracle searches the syndrome class, which is a coset of the stabilizers, with the
+    Brouwer-Zimmermann (BZ) algorithm (see ``brouwer_zimmermann.md``).
+
+    A Pauli is packed into an integer with its X part in the low ``n`` bits and its Z part in the
+    next ``n`` bits, and a syndrome is packed into an integer with bit ``j`` for stabilizer ``j``.
 
     Args:
         stabilizers: An independent commuting binary ``n x 2n`` matrix in ``[X|Z]`` order.
-        metric: ``"pauli"`` counts physical support, and ``"css"`` counts ``max(|x|, |z|)``, where
-            ``x`` and ``z`` are the X and Z parts of a whole error.
+        metric: ``"pauli"`` counts the qubits that an error acts on, and ``"css"`` counts
+            ``max(|x|, |z|)``, where ``x`` and ``z`` are the X and Z parts of the error.
+        cache_size: The number of syndromes whose results are kept between queries, which saves the
+            search when a caller repeats a syndrome.
+        batch_size: The largest number of candidates that a search evaluates at once, which limits
+            its memory usage.
     """
 
     def __init__(
-        self, stabilizers: npt.ArrayLike, *, metric: Literal["pauli", "css"] = "pauli"
+        self,
+        stabilizers: npt.ArrayLike,
+        *,
+        metric: Literal["pauli", "css"] = "pauli",
+        cache_size: int = 4096,
+        batch_size: int = 4096,
     ) -> None:
         if metric not in ("pauli", "css"):
             raise ValueError("metric must be 'pauli' or 'css'")
+        for value in (cache_size, batch_size):
+            if isinstance(value, bool) or not isinstance(value, numbers.Integral) or value < 1:
+                raise ValueError("cache_size and batch_size must be positive integers")
         self.metric = metric
+        self.cache_size = cache_size
+        self.batch_size = batch_size
         assert_binary(stabilizers, "stabilizers")
         matrix = as_binary_matrix(stabilizers)
         self.num_qubits = len(matrix)
@@ -76,8 +105,8 @@ class PauliCosetSearch:
         # Row j of the inverse is an error whose syndrome has only bit j set.
         inverse = np.zeros((n, 2 * n), dtype=np.uint8)
         inverse[:, pivots] = labels.T
-        self._inverse = tuple(_binary_row_int(row) for row in inverse)
-        self._checks = tuple(_binary_row_int(row) for row in checks)
+        self._inverse = _row_ints(inverse)
+        self._checks = _row_ints(checks)
 
         # Map each syndrome of a single-qubit error, or of no error, to such an error.
         self._singles = {0: 0}
@@ -85,50 +114,114 @@ class PauliCosetSearch:
         self._z_singles = {0: 0}
         for qubit in range(n):
             x, z = 1 << qubit, 1 << (qubit + n)
-            sx, sz = self.get_syndrome(x), self.get_syndrome(z)
+            sx, sz = self._get_syndrome(x), self._get_syndrome(z)
             self._x_singles.setdefault(sx, x)
             self._z_singles.setdefault(sz, z)
             self._singles.setdefault(sx, x)
             self._singles.setdefault(sz, z)
             self._singles.setdefault(sx ^ sz, x ^ z)
 
-    def get_syndrome(self, pauli: int) -> int:
-        """Compute the complete syndrome of a Pauli error.
-
-        Args:
-            pauli: A packed Pauli, with X in the low ``n`` bits and Z in the next ``n``.
-        """
-        return sum(((row & pauli).bit_count() & 1) << jj for jj, row in enumerate(self._checks))
+        # The search runs on the embedded stabilizers (see ``_embed``).  Weighing a word in the CSS
+        # metric needs a mask for each of its two sectors.
+        self._embedded = symplectic_to_hamming(matrix) if metric == "pauli" else matrix.copy()
+        if metric == "css":
+            width = (2 * n + 63) // 64
+            self._sector_masks = tuple(
+                _int_to_words(((1 << n) - 1) << shift, width) for shift in (0, n)
+            )
+        self._cache: dict[int, MinWeightBound] = {}
 
     def get_min_weight_bound(self, syndrome: int, max_weight: int) -> MinWeightBound:
-        """Bound the minimum weight of the errors with this syndrome against ``max_weight``.
+        """Decide whether some error with this syndrome has weight at most ``max_weight``.
 
         Args:
-            syndrome: A packed syndrome, with bit ``j`` for stabilizer ``j``.
-            max_weight: The weight threshold.  It is an argument so that callers need not change
-                when larger thresholds are supported, but for now it must be zero or one.
+            syndrome: A packed syndrome (see ``PauliCosetSearch``).
+            max_weight: The weight threshold.
 
         Returns:
-            Whether some error with this syndrome has weight at most ``max_weight``, together with
-            an error that has this syndrome and a proved lower bound on the minimum weight.
+            A ``MinWeightBound``.
 
         Raises:
-            ValueError: If the syndrome is out of range or the threshold is not zero or one.
+            ValueError: If the syndrome is out of range.
         """
         if not 0 <= syndrome < 1 << self.num_qubits:
             raise ValueError("The syndrome is out of range")
-        if max_weight not in (0, 1):
-            raise ValueError(
-                f"Only the weight thresholds 0 and 1 are supported so far, not {max_weight}.  The "
-                "threshold is an argument so that callers will not change when larger ones are "
-                "supported"
-            )
         pauli = self._weight_one_representative(syndrome)
-        if pauli is None:
+        if pauli is not None:
+            return MinWeightBound(self._weight(pauli) <= max_weight, pauli, int(bool(syndrome)))
+        if max_weight < 2:
             return MinWeightBound(False, self._representative(syndrome), 2)
-        return MinWeightBound(self._weight(pauli) <= max_weight, pauli, int(bool(syndrome)))
+
+        # A cached result answers the query if its error has weight at most ``max_weight``, or if
+        # its lower bound exceeds ``max_weight``.
+        known = self._cache.get(syndrome)
+        if known is not None:
+            weight = self._weight(known.representative)
+            if weight <= max_weight or known.lower_bound > max_weight:
+                return MinWeightBound(weight <= max_weight, known.representative, known.lower_bound)
+        bound = self._search(syndrome, max_weight)
+        self._cache[syndrome] = bound
+        if len(self._cache) > self.cache_size:
+            del self._cache[next(iter(self._cache))]
+        return bound
+
+    def _search(self, syndrome: int, max_weight: int) -> MinWeightBound:
+        """Search a syndrome class with no error of weight at most one.
+
+        The search is for an error of weight at most ``max_weight``.
+        """
+        # Start from one error in the syndrome class, and reduce its embedded word on each basis to
+        # get an offset for that basis.  Every word of the coset is that offset plus some rows of
+        # that basis, and has a one on a pivot column exactly where it adds the row for that pivot.
+        pauli = self._representative(syndrome)
+        offsets = self._get_offsets(self._embed(pauli))
+
+        # The low ``2 n`` bits of an embedded word are its packed Pauli, X part first.
+        n = self.num_qubits
+        mask = (1 << (2 * n)) - 1
+
+        # Track the lightest error visited, starting with the one above.
+        best_pauli, best_weight = pauli, self._weight(pauli)
+
+        # Visit the coset in layers, where layer ``depth`` adds ``depth`` rows to the offset.
+        for depth in range(n + 1):
+            # Visit the layer on every basis in turn, since the certificate below needs all of them.
+            for (packed, _, _), offset in zip(self._bases, offsets, strict=True):
+                # Choose the sets of rows to add, in batches.  Build the word for each set of rows
+                # in a batch, and weigh each word.
+                for supports in _iter_fixed_weight_supports(n, depth, self.batch_size):
+                    candidates = np.bitwise_xor.reduce(packed[supports], axis=1) ^ offset
+                    weights = self._candidate_weights(candidates)
+
+                    # Remember the lightest word, and return it if its weight is at most
+                    # ``max_weight``.  The lower bound is two, because the syndrome class has no
+                    # error of weight at most one.
+                    index = int(weights.argmin())
+                    if weights[index] < best_weight:
+                        best_weight = int(weights[index])
+                        best_pauli = _packed_row_int(candidates[index]) & mask
+                    if best_weight <= max_weight:
+                        return MinWeightBound(True, best_pauli, 2)
+
+            # Return if the unvisited words are too heavy.  Each of them adds more than ``depth``
+            # rows on every basis, so the certificate bounds its Hamming weight from below, and its
+            # weight is at least half of that in either metric.  The smaller of this bound and the
+            # lowest weight visited is then a lower bound on every weight.
+            if depth < n:
+                unseen_lower = (self._certificate.lower_bound(depth) + 1) // 2
+                if unseen_lower > max_weight:
+                    return MinWeightBound(False, best_pauli, min(best_weight, unseen_lower))
+
+        # Layer ``n`` can add every row, so every word of the coset has been visited.  None has
+        # weight at most ``max_weight``, and the lowest weight visited is the minimum.
+        return MinWeightBound(False, best_pauli, best_weight)
+
+    def _get_syndrome(self, pauli: int) -> int:
+        """Compute the syndrome of a packed Pauli."""
+        return sum(((row & pauli).bit_count() & 1) << jj for jj, row in enumerate(self._checks))
 
     def _representative(self, syndrome: int) -> int:
+        """Find a packed Pauli with this syndrome."""
         return _xor_selected(self._inverse, syndrome)
 
     def _weight_one_representative(self, syndrome: int) -> int | None:
@@ -149,18 +242,92 @@ class PauliCosetSearch:
         x, z = pauli & mask, (pauli >> self.num_qubits) & mask
         return max(x.bit_count(), z.bit_count()) if self.metric == "css" else (x | z).bit_count()
 
+    def _candidate_weights(self, candidates: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
+        """Compute the weights of packed embedded words, in the metric."""
+        if self.metric == "pauli":
+            return np.bitwise_count(candidates).sum(axis=-1, dtype=np.uint64) // 2
+        return np.maximum(
+            *(
+                np.bitwise_count(candidates & mask).sum(axis=-1, dtype=np.uint64)
+                for mask in self._sector_masks
+            )
+        )
+
+    def _embed(self, pauli: int) -> int:
+        """Embed a packed Pauli into the space in which the Hamming weight is searched."""
+        if self.metric == "css":
+            return pauli
+        n = self.num_qubits
+        x, z = pauli & ((1 << n) - 1), pauli >> n
+        return x | (z << n) | ((x ^ z) << (2 * n))
+
+    def _get_offsets(self, embedded: int) -> list[npt.NDArray[np.uint64]]:
+        """Reduce an embedded word on each basis, so that it is zero on the pivot columns."""
+        offsets = []
+        for packed, rows, pivots in self._bases:
+            # Clear each pivot bit of the word by adding the row that has a one there.
+            word = embedded
+            for row, pivot in zip(rows, pivots):
+                if (word >> pivot) & 1:
+                    word ^= row
+            offsets.append(_int_to_words(word, packed.shape[1]))
+        return offsets
+
+    @functools.cached_property
+    def _bases(self) -> list[tuple[npt.NDArray[np.uint64], tuple[int, ...], list[int]]]:
+        """The disjoint information sets of the embedded stabilizers, prepared on first use.
+
+        Each has the packed generators, the generators as integers, and the pivots.
+        """
+        return [
+            (pack_bits(item.generators), _row_ints(item.generators), item.pivots.tolist())
+            for item in _information_sets.get_information_set_generators(self._embedded, None)
+        ]
+
+    @functools.cached_property
+    def _certificate(self) -> _information_sets.Certificate:
+        """The certificate for the information sets, prepared on first use."""
+        ranks = tuple(len(pivots) for *_, pivots in self._bases)
+        return _information_sets.Certificate(self.num_qubits, ranks)
+
 
 ####################################################################################################
 # helper methods
 
 
-def _binary_row_int(row: npt.NDArray[np.uint8]) -> int:
-    return int.from_bytes(np.packbits(row, bitorder="little").tobytes(), "little")
+def _iter_fixed_weight_supports(
+    dimension: int, weight: int, batch_size: int
+) -> Iterator[npt.NDArray[np.int_]]:
+    """Yield every set of ``weight`` indices below ``dimension`` in lexicographic order, in batches.
+
+    Each batch has at most ``batch_size`` sets, one per row.  Weight zero gives one empty set.
+    """
+    combinations = itertools.combinations(range(dimension), weight)
+    while batch := list(itertools.islice(combinations, batch_size)):
+        indices = itertools.chain.from_iterable(batch)
+        yield np.fromiter(indices, dtype=int).reshape(len(batch), weight)
+
+
+def _row_ints(matrix: npt.NDArray[np.uint8]) -> tuple[int, ...]:
+    """Pack each row of a binary matrix into an integer, with entry ``j`` in bit ``j``."""
+    return tuple(map(_packed_row_int, pack_bits(matrix)))
+
+
+def _packed_row_int(row: npt.NDArray[np.uint64]) -> int:
+    """Convert a row of 64-bit words into an integer, with word ``j`` in bits ``64 j`` and up."""
+    return sum(int(word) << (64 * jj) for jj, word in enumerate(row))
+
+
+def _int_to_words(value: int, width: int) -> npt.NDArray[np.uint64]:
+    """Split an integer into ``width`` 64-bit words, with word ``j`` in bits ``64 j`` and up."""
+    return np.frombuffer(value.to_bytes(8 * width, "little"), dtype="<u8")
 
 
 def _xor_selected(rows: Sequence[int], support: int) -> int:
+    """XOR together the rows whose indices are the set bits of ``support``."""
     word = 0
     while support:
+        # Add the row for the lowest set bit, and then clear that bit.
         low = support & -support
         word ^= rows[low.bit_length() - 1]
         support ^= low
