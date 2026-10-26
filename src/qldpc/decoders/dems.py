@@ -320,11 +320,11 @@ class DetectorErrorModelArrays:
     ) -> DetectorErrorModelArrays:
         """Condition this detector error model on the given detectors being in 0 (untriggered).
 
-        The errors that trigger the post-selected detectors are removed from the DEM.  The
-        post-selected detectors are similarly removed unless keep_detectors is True.
+        The errors that trigger the post-selection detectors are removed from the DEM.  The
+        post-selection detectors are similarly removed unless keep_detectors is True.
 
         If order > 1, combinations of up to 'order' removed error mechanisms whose co-occurrence
-        does not trigger any of the post-selected detectors are added back to the DEM as synthetic
+        does not trigger any of the post-selection detectors are added back to the DEM as synthetic
         error mechanisms.
         """
         if not order >= 1:
@@ -677,7 +677,7 @@ def _with_higher_order_corrections(
 def _get_removed_det_to_removed_errors(
     removed_det_flip_submatrix: scipy.sparse.csc_matrix,
 ) -> list[list[int]]:
-    """Map each post-selected detector to removed errors that trigger it.
+    """Map each post-selection detector to removed errors that trigger it.
 
     More specifically, for each detector, identify errors that: (1) trigger that detector, and (2)
     do not trigger any preceding detectors.
