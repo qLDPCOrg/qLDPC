@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for exact minimum-weight bounds on Pauli error classes."""
+"""Tests for exact minimum-weight bounds on syndrome classes of Pauli errors."""
 
 from __future__ import annotations
 
@@ -304,10 +304,16 @@ def test_invalid_arguments_are_rejected() -> None:
             PauliCosetSearch(stabilizers)
     with pytest.raises(ValueError):
         PauliCosetSearch([[1, 0]], metric=cast(Metric, "invalid"))
-    with pytest.raises(ValueError):
-        PauliCosetSearch([[1, 0]], cache_size=0)
-    with pytest.raises(ValueError):
-        PauliCosetSearch([[1, 0]], batch_size=0)
+    # The cache and batch sizes must be positive integers, and a bool is not an integer here.
+    for value in (0, 1.5, True):
+        with pytest.raises(ValueError):
+            PauliCosetSearch([[1, 0]], cache_size=cast(int, value))
+        with pytest.raises(ValueError):
+            PauliCosetSearch([[1, 0]], batch_size=cast(int, value))
+    sized = PauliCosetSearch(
+        [[1, 0]], cache_size=cast(int, np.int64(3)), batch_size=cast(int, np.int64(2))
+    )
+    assert type(sized.cache_size) is int and type(sized.batch_size) is int
     oracle = PauliCosetSearch([[1, 0]])
     with pytest.raises(ValueError):
         oracle.get_min_weight_bound(2, 1)
