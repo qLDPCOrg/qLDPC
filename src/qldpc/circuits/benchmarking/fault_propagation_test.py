@@ -21,61 +21,78 @@ from . import fault_propagation
 
 
 def _z_state(num_qubits: int) -> npt.NDArray[np.int_]:
-    """Stabilizers of |0...0>, for which an error's effective weight is its syndrome's weight."""
+    """Stabilizers of |0...0>.
+
+    The smallest Pauli weight of an error with a given syndrome is the syndrome's number of ones.
+    """
     return np.hstack([np.zeros((num_qubits, num_qubits), dtype=int), np.eye(num_qubits, dtype=int)])
 
 
 def _smallest_violation(
-    flags: Sequence[int], syndromes: Sequence[int], max_faults: int | None
+    flags: Sequence[int], syndromes: Sequence[int], max_weight: int | None
 ) -> int | None:
-    """The fewest faults in a set that fires no flag and violates the bound on |0...0>."""
-    for size in range(1, len(flags) + 1 if max_faults is None else min(max_faults, len(flags)) + 1):
-        for support in itertools.combinations(range(len(flags)), size):
-            flag = functools.reduce(operator.xor, (flags[jj] for jj in support))
-            syndrome = functools.reduce(operator.xor, (syndromes[jj] for jj in support))
-            if flag == 0 and syndrome.bit_count() > size:
-                return size
+    """The smallest fault weight of an accepted fault that violates the bound on |0...0>."""
+    limit = len(flags) if max_weight is None else min(max_weight, len(flags))
+    for fault_weight in range(1, limit + 1):
+        for indices in itertools.combinations(range(len(flags)), fault_weight):
+            flag = functools.reduce(operator.xor, (flags[jj] for jj in indices))
+            syndrome = functools.reduce(operator.xor, (syndromes[jj] for jj in indices))
+            if flag == 0 and syndrome.bit_count() > fault_weight:
+                return fault_weight
     return None
 
 
-def _certify_map_with_statistics(
-    flags: Sequence[int], syndromes: Sequence[int], max_faults: int | None, num_qubits: int
-) -> tuple[
-    circuits.BoundedFaultPropagationCounterexample | None,
-    circuits.BoundedFaultPropagationStatistics,
-]:
-    """Certify a map from faults to flags and syndromes on |0...0> and compare with brute force."""
-    failure, statistics = fault_propagation._certify_maps(
-        flags, syndromes, _z_state(num_qubits), False, max_faults
+def _irreducible_faults(flags: Sequence[int], max_weight: int) -> list[tuple[int, ...]]:
+    """Irreducible accepted faults of fault weight at most ``max_weight``, as tuples of indices."""
+    accepted: list[int] = []
+    faults = []
+    for fault_weight in range(1, max_weight + 1):
+        for indices in itertools.combinations(range(len(flags)), fault_weight):
+            if functools.reduce(operator.xor, (flags[jj] for jj in indices)) == 0:
+                word = sum(1 << jj for jj in indices)
+                if not any(previous & word == previous for previous in accepted):
+                    faults.append(indices)
+                accepted.append(word)
+    return faults
+
+
+def _certify_map_with_count(
+    flags: Sequence[int], syndromes: Sequence[int], max_weight: int | None, num_qubits: int
+) -> tuple[circuits.BoundedFaultPropagationCounterexample | None, int]:
+    """Certify primitive faults with these flags and syndromes on |0...0> against brute force."""
+    failure, num_checked = fault_propagation._certify_maps(
+        flags, syndromes, _z_state(num_qubits), False, max_weight
     )
-    smallest = _smallest_violation(flags, syndromes, max_faults)
+    smallest = _smallest_violation(flags, syndromes, max_weight)
     assert (failure is None) == (smallest is None)
     if failure is not None:
         indices = failure.fault_indices
         flag = functools.reduce(operator.xor, (flags[jj] for jj in indices))
         syndrome = functools.reduce(operator.xor, (syndromes[jj] for jj in indices))
-        assert failure.fault_count == smallest
+        assert failure.fault_weight == smallest
         assert indices == tuple(sorted(set(indices)))
         assert flag == 0
         assert failure.output_syndrome == tuple((syndrome >> jj) & 1 for jj in range(num_qubits))
-        assert failure.fault_count < failure.effective_weight_lower_bound <= syndrome.bit_count()
+        assert failure.fault_weight < failure.output_weight_lower_bound <= syndrome.bit_count()
         # X on a qubit anticommutes with that qubit's stabilizer Z.
-        xs, _ = stim.PauliString(failure.output_pauli).to_numpy()
+        xs, _ = failure.output_pauli.to_numpy()
         assert tuple(map(int, xs)) == failure.output_syndrome
-    return failure, statistics
+    return failure, num_checked
 
 
 def _certify_map(
-    flags: Sequence[int], syndromes: Sequence[int], max_faults: int | None, num_qubits: int
+    flags: Sequence[int], syndromes: Sequence[int], max_weight: int | None, num_qubits: int
 ) -> circuits.BoundedFaultPropagationCounterexample | None:
-    """Certify a map from faults to flags and syndromes on |0...0> and compare with brute force."""
-    return _certify_map_with_statistics(flags, syndromes, max_faults, num_qubits)[0]
+    """Certify primitive faults with these flags and syndromes on |0...0> against brute force."""
+    return _certify_map_with_count(flags, syndromes, max_weight, num_qubits)[0]
 
 
-def _true_minimum(stabilizers: Sequence[str], syndrome: Sequence[int], metric_css: bool) -> int:
-    """Minimum weight over all Paulis with this syndrome, by enumerating every Pauli."""
+def _true_minimum(
+    stabilizers: Sequence[stim.PauliString], syndrome: Sequence[int], metric_css: bool
+) -> int:
+    """Minimum Pauli weight over all Paulis with this syndrome, by enumerating every Pauli."""
     n = len(stabilizers)
-    rows = np.array([np.concatenate(stim.PauliString(ss).to_numpy()) for ss in stabilizers])
+    rows = np.array([np.concatenate(ss.to_numpy()) for ss in stabilizers])
     paulis = (np.arange(4**n)[:, None] >> np.arange(2 * n)) & 1
     x, z = paulis[:, :n], paulis[:, n:]
     syndromes = (x @ rows[:, n:].T + z @ rows[:, :n].T) % 2
@@ -83,18 +100,21 @@ def _true_minimum(stabilizers: Sequence[str], syndrome: Sequence[int], metric_cs
     return int(weights[np.all(syndromes == np.array(syndrome), axis=1)].min())
 
 
-def _fault_detectors(certificate: circuits.BoundedFaultPropagationCertificate) -> list[set[int]]:
-    """Detectors flipped by every error mechanism in the certificate's DEM."""
-    errors = [inst for inst in certificate.detector_error_model if inst.type == "error"]
+def _primitive_fault_detectors(
+    certificate: circuits.BoundedFaultPropagationCertificate,
+) -> list[set[int]]:
+    """The detectors that each primitive fault flips, in DEM order."""
+    mechanisms = [inst for inst in certificate.detector_error_model if inst.type == "error"]
     return [
-        {tt.val for tt in error.targets_copy() if tt.is_relative_detector_id()} for error in errors
+        {tt.val for tt in mechanism.targets_copy() if tt.is_relative_detector_id()}
+        for mechanism in mechanisms
     ]
 
 
-def _fault_syndromes(
+def _primitive_fault_syndromes(
     certificate: circuits.BoundedFaultPropagationCertificate, circuit: stim.Circuit
 ) -> list[tuple[int, ...]]:
-    """Output syndrome of every error mechanism in the certificate's DEM.
+    """Output syndrome of every primitive fault in the certificate's DEM.
 
     The detectors of the circuit come first, and one detector per target stabilizer follows.
     """
@@ -103,7 +123,7 @@ def _fault_syndromes(
             int(circuit.num_detectors + jj in events)
             for jj in range(len(certificate.target_stabilizers))
         )
-        for events in _fault_detectors(certificate)
+        for events in _primitive_fault_detectors(certificate)
     ]
 
 
@@ -111,29 +131,29 @@ def _assert_valid_counterexample(
     certificate: circuits.BoundedFaultPropagationCertificate,
     circuit: stim.Circuit,
 ) -> None:
-    """Check a witness against the returned DEM and a brute-force minimum, not the search."""
+    """Check a counterexample against the returned DEM and a brute-force minimum, not the search."""
     failure = certificate.counterexample
     assert failure is not None and not certificate.certified
-    fault_detectors = _fault_detectors(certificate)
+    detectors = _primitive_fault_detectors(certificate)
     events: set[int] = set()
     for index in failure.fault_indices:
-        events ^= fault_detectors[index]
+        events ^= detectors[index]
     assert not events & set(certificate.post_selection_detectors)
     syndrome = tuple(
         int(circuit.num_detectors + jj in events)
         for jj in range(len(certificate.target_stabilizers))
     )
     assert syndrome == failure.output_syndrome
-    stabilizers = [stim.PauliString(ss) for ss in certificate.target_stabilizers]
-    pauli = stim.PauliString(failure.output_pauli)
+    pauli = failure.output_pauli
+    stabilizers = certificate.target_stabilizers
     assert tuple(int(not pauli.commutes(ss)) for ss in stabilizers) == failure.output_syndrome
-    assert failure.effective_weight_lower_bound > failure.fault_count
+    assert failure.output_weight_lower_bound > failure.fault_weight
     minimum = _true_minimum(certificate.target_stabilizers, syndrome, certificate.css_weight)
-    assert failure.effective_weight_lower_bound <= minimum
+    assert failure.output_weight_lower_bound <= minimum
 
 
-def test_certify_maps_without_flags_checks_each_fault(pytestconfig: pytest.Config) -> None:
-    """Without flags, the first fault of weight above one is reported and no set can do better."""
+def test_certify_maps_without_flags_checks_primitive_faults(pytestconfig: pytest.Config) -> None:
+    """With zero flags, the first primitive fault whose error has Pauli weight above one fails."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
 
     def certify(
@@ -147,7 +167,8 @@ def test_certify_maps_without_flags_checks_each_fault(pytestconfig: pytest.Confi
         assert failure is None or failure.fault_indices == (first,)
         return failure
 
-    # Faults of weight at most one certify, and the first fault of weight three does not.
+    # Primitive faults whose errors have Pauli weight at most one certify, and the first with Pauli
+    # weight three does not.
     assert certify([0, 1, 2, 4, 2], 3) is None
     assert certify([1, 2, 7, 4, 7], 3) is not None
     # Sparse random syndromes mix certified maps with failing ones.
@@ -158,140 +179,170 @@ def test_certify_maps_without_flags_checks_each_fault(pytestconfig: pytest.Confi
 
 
 def test_certify_maps_with_flags_matches_exhaustive_search(pytestconfig: pytest.Config) -> None:
-    """Random maps with repeated columns and flag rank above the fault limit match brute force."""
+    """Random maps with repeated flags and flag rank above ``max_weight`` match brute force."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for n, rank in itertools.product((3, 5), range(5)):
         for _ in range(12):
             flags = list(map(int, rng.integers(1 << rank, size=8)))
             syndromes = list(map(int, rng.integers(1 << n, size=8)))
-            for max_faults in (1, 2, 3, 5, None):
-                _certify_map(flags, syndromes, max_faults, n)
+            for max_weight in (1, 2, 3, 5, None):
+                _certify_map(flags, syndromes, max_weight, n)
 
 
 def test_hand_derived_dependency_cases() -> None:
-    """Triples, decomposable pairs, duplicate columns, zero columns, and fault limits."""
-    for flags, syndromes, max_faults, certified in (
-        ([1, 2, 3], [1, 2, 12], 2, True),  # the triple of weight 4 needs three faults
+    """Faults of two or three primitive faults, repeated and zero signatures, and limits.
+
+    The limits are values of ``max_weight``.
+    """
+    for flags, syndromes, max_weight, certified in (
+        ([1, 2, 3], [1, 2, 12], 2, True),  # all three: fault weight 3, error of Pauli weight 4
         ([1, 2, 3], [1, 2, 12], 3, False),
-        ([1, 1], [1, 14], 3, False),  # an accepted pair of weight 4
-        ([0, 0, 0], [1, 2, 4], 4, True),  # flag-free faults of weight one
+        ([1, 1], [1, 14], 3, False),  # an accepted fault whose error has Pauli weight 4
+        ([0, 0, 0], [1, 2, 4], 4, True),  # zero flags; each error has Pauli weight one
         ([1, 2, 3, 1, 2, 3], [1, 2, 3, 4, 8, 12], 4, False),
-        ([1, 1, 2, 2, 4, 4], [1, 2, 1, 2, 1, 2], 4, True),  # pairs of weight two
-        ([1, 1, 1, 0], [1, 1, 1, 0], 4, True),  # identical columns cancel in pairs
-        ([0, 0], [0, 0], 4, True),  # faults with no effect
+        # the accepted faults have fault weight two and errors of Pauli weight two
+        ([1, 1, 2, 2, 4, 4], [1, 2, 1, 2, 1, 2], 4, True),
+        ([1, 1, 1, 0], [1, 1, 1, 0], 4, True),  # equal signatures cancel each other
+        ([0, 0], [0, 0], 4, True),  # primitive faults with no effect
         ([1, 2, 4, 3, 5], [0, 0, 0, 7, 56], 3, True),
-        ([1, 2, 4, 3, 5], [0, 0, 0, 7, 56], 4, False),  # four faults of weight six
+        ([1, 2, 4, 3, 5], [0, 0, 0, 7, 56], 4, False),  # fault weight 4, error of Pauli weight 6
         ([1, 2, 4, 3, 5], [0, 0, 0, 7, 56], None, False),
     ):
-        failure = _certify_map(flags, syndromes, max_faults, 6)
+        failure = _certify_map(flags, syndromes, max_weight, 6)
         assert (failure is None) == certified
 
 
-def test_failures_report_the_fewest_and_earliest_faults() -> None:
-    """A pair is reported although a triple violates too, and repeated columns name the first."""
-    # Columns 0-2 form an accepted triple of weight four, and columns 3 and 4 an accepted pair of
-    # weight three.
+def test_failures_report_the_smallest_and_earliest_faults() -> None:
+    """The smallest fault weight and the earliest primitive faults are reported.
+
+    A fault of two primitive faults is reported although a fault of three primitive faults also
+    violates the bound, and a repeated signature stands for its first primitive fault.
+    """
+    # The primitive faults 0-2 form an accepted fault whose error has Pauli weight four, and the
+    # primitive faults 3 and 4 an accepted fault whose error has Pauli weight three.
     failure = _certify_map([1, 2, 3, 4, 4], [1, 2, 12, 1, 6], None, 6)
     assert failure is not None and failure.fault_indices == (3, 4)
-    # Faults 0 and 2 have the same column, so the pair of faults 0 and 1 is reported.
+    # Primitive faults 0 and 2 have the same signature, so the fault {0, 1} is reported.
     failure = _certify_map([1, 1, 1], [3, 4, 3], None, 3)
+    assert failure is not None and failure.fault_indices == (0, 1)
+    # The heavy primitive fault 1 is searched before the light one 0, but the indices are reported
+    # in increasing order.
+    failure = _certify_map([1, 1], [1, 14], None, 4)
     assert failure is not None and failure.fault_indices == (0, 1)
 
 
-def test_faults_of_weight_at_most_one_certify_every_limit() -> None:
-    """Without a fault that leaves weight above one on its own, no set can violate the bound."""
+def test_light_primitive_faults_certify_every_limit() -> None:
+    """Without a heavy primitive fault, no fault can violate the bound."""
     flags = [3, 5, 6, 9, 10, 12, 1, 2, 4, 8, 7, 11]
     syndromes = [1, 2, 4, 8, 0, 1, 2, 4, 8, 0, 1, 2]
-    failure, statistics = _certify_map_with_statistics(flags, syndromes, None, 4)
-    assert failure is None and statistics.num_sets_checked == 0
+    failure, num_checked = _certify_map_with_count(flags, syndromes, None, 4)
+    assert failure is None and num_checked == 0
 
-    # One fault of weight three brings back the search, and it fails with the equal-flag fault.
-    failure, statistics = _certify_map_with_statistics(flags + [3], syndromes + [14], None, 4)
-    assert failure is not None and failure.fault_count == 2
-    assert statistics.num_sets_checked > 0
-
-
-def test_independent_columns_need_only_equal_column_pairs() -> None:
-    """If the distinct nonzero flag columns are independent, only equal-flag pairs matter."""
-    outcomes = set()
-    # Flags 3, 5, 8, 16, and 2**130 are independent; three copies exceed twice the flag rank.
-    for copies in (2, 3):
-        flags = [flag for flag in (3, 5, 8, 16, 1 << 130) for _ in range(copies)]
-        passing = [3, 5, 6] * 5  # each pair has weight two
-        failing = [3, 12, 0] * 5
-        for syndromes in (passing[: len(flags)], failing[: len(flags)]):
-            for max_faults in (2, 3, None):
-                failure, statistics = _certify_map_with_statistics(flags, syndromes, max_faults, 4)
-                assert statistics.effective_budget == 2
-                outcomes.add(failure is None)
-    assert outcomes == {True, False}
+    # One primitive fault whose error has Pauli weight three brings back the search, and it fails
+    # together with the primitive fault that has the same flags.
+    failure, num_checked = _certify_map_with_count(flags + [3], syndromes + [14], None, 4)
+    assert failure is not None and failure.fault_weight == 2
+    assert num_checked > 0
 
 
-def test_statistics_reflect_merged_columns_and_the_flag_rank_limit() -> None:
-    """Zero and repeated columns are never searched, and sets have at most rank + 1 faults."""
-    failure, statistics = _certify_map_with_statistics([0, 1, 1], [0, 1, 1], None, 4)
-    assert failure is None and statistics.num_sets_checked == 0
-    # Each distinct fault without flags is an irreducible accepted set, and an equal fault is not
-    # checked again.
-    failure, statistics = _certify_map_with_statistics([0, 0, 0, 0], [1, 1, 4, 0], None, 4)
-    assert failure is None and statistics.num_sets_checked == 2
+def test_faults_of_flagged_light_primitive_faults_are_skipped(
+    pytestconfig: pytest.Config,
+) -> None:
+    """Faults of flagged light primitive faults are skipped, but zero-flag ones are checked."""
+    # The faults {0, 1} and {2, 3} have light primitive faults only, so they are skipped.  The fault
+    # {4, 5} and the eight faults of fault weight three with one primitive fault from each group of
+    # primitive faults with equal flags contain a heavy primitive fault, which makes nine faults.
+    failure, num_checked = _certify_map_with_count([1, 1, 2, 2, 3, 3], [1, 2, 1, 2, 5, 6], None, 4)
+    assert failure is None and num_checked == 9
 
-    # Flag columns 1, 2, and 3 have rank two, and only all three faults are accepted together.
-    for max_faults, effective_budget in ((None, 3), (30, 3), (2, 2)):
-        failure, statistics = _certify_map_with_statistics([1, 2, 3], [1, 2, 12], max_faults, 4)
-        assert (failure is None) == (max_faults == 2)
-        assert statistics.flag_rank == 2 and statistics.effective_budget == effective_budget
-        assert statistics.num_sets_checked == (0 if max_faults == 2 else 1)
-
-
-def test_irreducible_patterns_match_exhaustive_enumeration(pytestconfig: pytest.Config) -> None:
-    """The prefix search yields every irreducible accepted pattern of a given size, once."""
+    # Random maps with distinct, nonzero signatures check once every irreducible accepted fault that
+    # has fault weight one or contains a heavy primitive fault.
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    for width in range(1, 10):
+    for _ in range(40):
+        signatures = rng.choice(8 * 15, size=8, replace=False)
+        flags = [int(ss // 15) for ss in signatures]
+        syndromes = [int(ss % 15) + 1 for ss in signatures]
+        failure, num_checked = _certify_map_with_count(flags, syndromes, None, 4)
+        if failure is None:
+            expected = sum(
+                len(indices) == 1 or any(syndromes[jj].bit_count() > 1 for jj in indices)
+                for indices in _irreducible_faults(flags, len(flags))
+            )
+            assert num_checked == expected
+
+
+def test_zero_and_repeated_signatures_are_not_searched_and_the_fault_weight_is_limited() -> None:
+    """Zero and repeated signatures are never searched, and the checked fault weight is limited."""
+    failure, num_checked = _certify_map_with_count([0, 1, 1], [0, 1, 1], None, 4)
+    assert failure is None and num_checked == 0
+    # Each distinct nonzero signature with zero flags is an irreducible accepted fault, and a
+    # repeated signature is not checked again.
+    failure, num_checked = _certify_map_with_count([0, 0, 0, 0], [1, 1, 4, 0], None, 4)
+    assert failure is None and num_checked == 2
+
+    # The flags 1, 2, and 3 have rank two, and only the fault of all three primitive faults is
+    # accepted.
+    for max_weight in (None, 30, 2):
+        failure, num_checked = _certify_map_with_count([1, 2, 3], [1, 2, 12], max_weight, 4)
+        assert (failure is None) == (max_weight == 2)
+        assert num_checked == (0 if max_weight == 2 else 1)
+
+
+def test_irreducible_faults_match_exhaustive_enumeration(pytestconfig: pytest.Config) -> None:
+    """The prefix search yields every irreducible accepted fault of a given fault weight, once.
+
+    With ``num_starts``, it yields the faults whose first primitive fault is among the first few.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for num_primitives in range(1, 10):
         for flag_bits in range(1, 5):
-            flags = list(map(int, rng.integers(1, 1 << flag_bits, size=width)))
-            syndromes = list(map(int, rng.integers(16, size=width)))
-            originals = list(map(int, rng.permutation(np.arange(width) * 7 + 100)))
-            faults = list(zip(flags, syndromes, originals, strict=True))
-            expected: dict[int, dict[tuple[int, ...], int]] = {}
-            accepted: list[int] = []
-            for size in range(1, 6):
-                expected[size] = {}
-                for support in itertools.combinations(range(width), size):
-                    flag = functools.reduce(operator.xor, (flags[jj] for jj in support))
-                    syndrome = functools.reduce(operator.xor, (syndromes[jj] for jj in support))
-                    word = sum(1 << jj for jj in support)
-                    if flag == 0:
-                        if not any(previous & word == previous for previous in accepted):
-                            expected[size][tuple(originals[jj] for jj in support)] = syndrome
-                        accepted.append(word)
-            for size in range(2, 6):
-                found = list(fault_propagation._iter_irreducible_patterns(faults, size))
-                assert len(found) == len(expected[size])
-                assert dict(found) == expected[size]
+            flags = list(map(int, rng.integers(1, 1 << flag_bits, size=num_primitives)))
+            syndromes = list(map(int, rng.integers(16, size=num_primitives)))
+            dem_indices = list(map(int, rng.permutation(np.arange(num_primitives) * 7 + 100)))
+            primitives = list(zip(flags, syndromes, dem_indices, strict=True))
+            faults = _irreducible_faults(flags, 5)
+            for num_starts in (None, num_primitives // 2, 0):
+                for fault_weight in range(2, 6):
+                    expected = {
+                        tuple(dem_indices[jj] for jj in indices): functools.reduce(
+                            operator.xor, (syndromes[jj] for jj in indices)
+                        )
+                        for indices in faults
+                        if len(indices) == fault_weight
+                        and indices[0] < (num_primitives if num_starts is None else num_starts)
+                    }
+                    found = list(
+                        fault_propagation._iter_irreducible_faults(
+                            primitives, fault_weight, num_starts
+                        )
+                    )
+                    assert len(found) == len(expected)
+                    assert dict(found) == expected
 
 
-def test_irreducible_patterns_with_flags_wider_than_a_machine_word() -> None:
-    """Flag columns of 80 and 130 bits combine correctly."""
-    faults = [(1 << 80, 1, 90), (1 << 130, 2, 10), ((1 << 80) ^ (1 << 130), 4, 50)]
-    found = fault_propagation._iter_irreducible_patterns(faults, 3)
+def test_irreducible_faults_with_flags_wider_than_a_machine_word() -> None:
+    """Flags of 80 and 130 bits combine correctly."""
+    primitives = [(1 << 80, 1, 90), (1 << 130, 2, 10), ((1 << 80) ^ (1 << 130), 4, 50)]
+    found = fault_propagation._iter_irreducible_faults(primitives, 3)
     assert list(found) == [((90, 10, 50), 7)]
 
 
 @pytest.mark.parametrize("css_weight", [True, False])
 @pytest.mark.parametrize("num_qubits", [3, 4])
-def test_ghz_preparation_matches_brute_force_over_faults(num_qubits: int, css_weight: bool) -> None:
+def test_ghz_preparation_matches_brute_force_over_primitive_faults(
+    num_qubits: int, css_weight: bool
+) -> None:
     """Fanning out a GHZ state certifies for three qubits but not for four.
 
     X on a set of GHZ qubits is equivalent to X on the complement, so only a two-qubit X error on
-    four qubits has no lighter equivalent.
+    four qubits has no equivalent error of lower Pauli weight.
     """
     circuit = stim.Circuit("H 0")
     for target in range(1, num_qubits):
         circuit.append("CX", [0, target])
         circuit.append("DEPOLARIZE2", [0, target], 0.01)
     result = circuits.certify_bounded_fault_propagation(circuit, css_weight=css_weight)
-    syndromes = _fault_syndromes(result, circuit)
+    syndromes = _primitive_fault_syndromes(result, circuit)
     minima = [_true_minimum(result.target_stabilizers, ss, css_weight) for ss in syndromes]
     first = next((jj for jj, minimum in enumerate(minima) if minimum > 1), None)
     assert result.certified == (first is None) == (num_qubits == 3)
@@ -345,14 +396,14 @@ def test_stabilizers_keep_signs_and_the_output_frame() -> None:
     circuit = stim.Circuit("H 4\nS 4\nCX 4 1\nX 1\nCORRELATED_ERROR(0.01) Y4")
     result = circuits.certify_bounded_fault_propagation(circuit, output_qubits=[4, 1])
     assert result.certified and result.output_qubits == (4, 1)
-    assert any(ss.startswith("-") for ss in result.target_stabilizers)
+    assert any(ss.sign == -1 for ss in result.target_stabilizers)
     simulator = stim.TableauSimulator()
     simulator.do(circuit.without_noise())
-    for text in result.target_stabilizers:
+    for stabilizer in result.target_stabilizers:
         physical = stim.PauliString(circuit.num_qubits)
-        for qubit, pauli in zip(result.output_qubits, text[1:], strict=True):
-            physical[qubit] = pauli
-        assert simulator.peek_observable_expectation(-physical if text[0] == "-" else physical) == 1
+        for index, qubit in enumerate(result.output_qubits):
+            physical[qubit] = stabilizer[index]
+        assert simulator.peek_observable_expectation(stabilizer.sign * physical) == 1
 
 
 def test_default_outputs_skip_measured_and_untouched_qubits() -> None:
@@ -384,26 +435,26 @@ def test_unmeasured_qubits_account_for_every_kind_of_measurement() -> None:
     assert fault_propagation._get_unmeasured_qubits(circuit) == (0, 8)
 
 
-def test_correlated_mechanism_costs_one_fault() -> None:
-    """A two-qubit error is one fault of effective weight two, and the requested order is kept."""
+def test_correlated_mechanism_is_one_primitive_fault() -> None:
+    """A two-qubit error mechanism is one primitive fault whose error has Pauli weight two."""
     circuit = stim.Circuit("I 0 1\nCORRELATED_ERROR(0.01) X0 Y1")
     result = circuits.certify_bounded_fault_propagation(circuit, output_qubits=[1, 0])
     _assert_valid_counterexample(result, circuit)
     failure = result.counterexample
     assert failure is not None
-    assert failure.fault_indices == (0,) and failure.effective_weight_lower_bound == 2
+    assert failure.fault_indices == (0,) and failure.output_weight_lower_bound == 2
     assert result.output_qubits == (1, 0)
 
 
-def test_exclusive_errors_count_as_independent_faults() -> None:
-    """Errors that exclude each other in the circuit are still separate faults of the DEM."""
+def test_exclusive_errors_count_as_separate_primitive_faults() -> None:
+    """Errors that exclude each other in the circuit are still separate primitive faults."""
     circuit = stim.Circuit("I 0 1\nCORRELATED_ERROR(0.1) X0\nELSE_CORRELATED_ERROR(0.1) X0 X1")
     result = circuits.certify_bounded_fault_propagation(circuit, output_qubits=[0, 1])
     _assert_valid_counterexample(result, circuit)
 
 
 def test_existing_detectors_do_not_enter_the_syndrome() -> None:
-    """A fault that trips one of the circuit's own detectors is judged by its output error alone."""
+    """A primitive fault that flips a detector of the circuit is judged by its output alone."""
     noise = "CORRELATED_ERROR(0.01) X0 X1 X2"
     detected = stim.Circuit(f"I 0 1\n{noise}\nM 2\nDETECTOR rec[-1]")
     result = circuits.certify_bounded_fault_propagation(detected, output_qubits=[0, 1])
@@ -415,8 +466,8 @@ def test_existing_detectors_do_not_enter_the_syndrome() -> None:
 
 
 def test_existing_observables_do_not_enter_the_syndrome() -> None:
-    """A fault that flips an observable is judged by its output error alone."""
-    noise = "CORRELATED_ERROR(0.01) X1 X2\nM 2"  # a weight-one output error that flips rec[-1]
+    """A primitive fault that flips an observable is judged by its output error alone."""
+    noise = "CORRELATED_ERROR(0.01) X1 X2\nM 2"  # an output error of Pauli weight one, and rec[-1]
     flipped = stim.Circuit(f"{noise}\nOBSERVABLE_INCLUDE(0) rec[-1]")
     result = circuits.certify_bounded_fault_propagation(flipped, output_qubits=[0, 1])
     assert result.detector_error_model.num_observables == 1
@@ -424,8 +475,8 @@ def test_existing_observables_do_not_enter_the_syndrome() -> None:
     assert result.certified and plain.certified
 
 
-def test_faults_inside_repeat_blocks_are_certified() -> None:
-    """Faults in a loop count although Stim folds the loop into a repeat block of the DEM."""
+def test_primitive_faults_inside_repeat_blocks_are_certified() -> None:
+    """Primitive faults in a loop count although Stim folds the loop into a repeat block."""
     looped = stim.Circuit("REPEAT 3 {\n    CORRELATED_ERROR(0.01) X0 X1\n}")
     # A loop without detectors keeps its errors in a repeat block, which would hide them.
     readout = stim.Circuit("M 0 1\nDETECTOR rec[-2]\nDETECTOR rec[-1]")
@@ -439,12 +490,12 @@ def test_faults_inside_repeat_blocks_are_certified() -> None:
     assert result.counterexample is not None and written_out.counterexample is not None
     assert result.counterexample.output_syndrome == written_out.counterexample.output_syndrome
     assert (
-        result.counterexample.effective_weight_lower_bound
-        == written_out.counterexample.effective_weight_lower_bound
+        result.counterexample.output_weight_lower_bound
+        == written_out.counterexample.output_weight_lower_bound
     )
 
 
-def test_circuit_without_faults_certifies() -> None:
+def test_circuit_without_error_mechanisms_certifies() -> None:
     """Deterministic nonzero measurements, repeats, and observables need no check."""
     circuit = stim.Circuit("""
         X 0
@@ -455,11 +506,14 @@ def test_circuit_without_faults_certifies() -> None:
         OBSERVABLE_INCLUDE(0) rec[-1]
     """)
     result = circuits.certify_bounded_fault_propagation(circuit, output_qubits=[0])
-    assert result.certified and result.target_stabilizers == ("-Z",)
+    assert result.certified and result.target_stabilizers == (stim.PauliString("-Z"),)
 
 
-def test_post_selection_can_accept_a_damaging_pair() -> None:
-    """Two faults that each trip the detector cancel it together and damage four outputs."""
+def test_post_selection_can_accept_a_damaging_fault() -> None:
+    """Two primitive faults that each flip the detector leave it unflipped together.
+
+    Their fault is accepted and damages four outputs.
+    """
     circuit = stim.Circuit("""
         I 0 1 2 3 4
         CORRELATED_ERROR(0.01) X0 X1 X4
@@ -469,13 +523,13 @@ def test_post_selection_can_accept_a_damaging_pair() -> None:
     """)
 
     def certify(
-        max_faults: int | None, post_select: bool | Sequence[int] = (0,)
+        max_weight: int | None, post_select: bool | Sequence[int] = (0,)
     ) -> circuits.BoundedFaultPropagationCertificate:
         return circuits.certify_bounded_fault_propagation(
-            circuit, output_qubits=[0, 1, 2, 3], post_select=post_select, max_faults=max_faults
+            circuit, output_qubits=[0, 1, 2, 3], post_select=post_select, max_weight=max_weight
         )
 
-    # A single fault is discarded, so the pair is the smallest violation.
+    # A primitive fault alone is not accepted, so the fault of both is the smallest violation.
     assert certify(1).certified
     result = certify(2)
     _assert_valid_counterexample(result, circuit)
@@ -485,29 +539,32 @@ def test_post_selection_can_accept_a_damaging_pair() -> None:
     # True selects every detector of the circuit, here detector 0, and False selects none.
     assert certify(2, True) == result
     unselected = certify(2, False)
-    assert unselected.counterexample is not None and unselected.counterexample.fault_count == 1
+    assert unselected.counterexample is not None and unselected.counterexample.fault_weight == 1
     default = circuits.certify_bounded_fault_propagation(circuit, output_qubits=[0, 1, 2, 3])
     assert default == certify(None, False)
 
 
-def test_max_faults_does_not_change_results_without_post_selection() -> None:
-    """The check of single faults is exact for sets of every size."""
+def test_max_weight_does_not_change_results_without_post_selection() -> None:
+    """The check of primitive faults is exact for every ``max_weight``."""
     for num_qubits in (3, 4):
         circuit = stim.Circuit("H 0")
         for target in range(1, num_qubits):
             circuit.append("CX", [0, target])
             circuit.append("DEPOLARIZE2", [0, target], 0.01)
         results = [
-            circuits.certify_bounded_fault_propagation(circuit, max_faults=max_faults)
-            for max_faults in (1, 2, 5, None)
+            circuits.certify_bounded_fault_propagation(circuit, max_weight=max_weight)
+            for max_weight in (1, 2, 5, None)
         ]
-        assert [result.max_faults for result in results] == [1, 2, 5, None]
+        assert [result.max_weight for result in results] == [1, 2, 5, None]
         assert all(result.certified == (num_qubits == 3) for result in results)
         assert all(result.counterexample == results[0].counterexample for result in results)
 
 
 def test_flagged_circuit_with_permuted_signed_outputs() -> None:
-    """Many flags, a signed Y stabilizer, and permuted outputs; witnesses name DEM faults."""
+    """Many flags, a signed Y stabilizer, and permuted outputs.
+
+    The counterexample's ``fault_indices`` index the error instructions of the DEM.
+    """
     for damaging in (False, True):
         circuit = stim.Circuit()
         circuit.append("I", range(9))
@@ -523,17 +580,17 @@ def test_flagged_circuit_with_permuted_signed_outputs() -> None:
         for jj in range(4):
             circuit.append("DETECTOR", [stim.target_rec(jj - 4)])
         result = circuits.certify_bounded_fault_propagation(
-            circuit, output_qubits=[2, 0, 4, 1, 3], post_select=range(4), max_faults=3
+            circuit, output_qubits=[2, 0, 4, 1, 3], post_select=range(4), max_weight=3
         )
-        assert any("Y" in ss for ss in result.target_stabilizers)
-        assert any(ss.startswith("-") for ss in result.target_stabilizers)
+        assert any("Y" in str(ss) for ss in result.target_stabilizers)
+        assert any(ss.sign == -1 for ss in result.target_stabilizers)
         assert result.certified != damaging
         if damaging:
             _assert_valid_counterexample(result, circuit)
 
 
 def test_steane_preparation_meets_css_weight_but_not_physical_weight() -> None:
-    """A fault of Steane preparation is equivalent to CSS weight one, not to physical weight one."""
+    """Steane preparation meets the bound for CSS weight, not for physical weight."""
     circuit = circuits.DepolarizingNoiseModel(1e-3).noisy_circuit(
         stim.Circuit("""
             H 0 2 4
@@ -561,8 +618,9 @@ def test_steane_preparation_meets_css_weight_but_not_physical_weight() -> None:
     _assert_valid_counterexample(physical, circuit)
     failure = physical.counterexample
     assert failure is not None
-    # Every Pauli of weight at most one has a different syndrome, so this syndrome class is heavier.
-    stabilizers = [stim.PauliString(ss) for ss in physical.target_stabilizers]
+    # Every Pauli of Pauli weight at most one has a different syndrome, so every error with this
+    # syndrome has Pauli weight above one.
+    stabilizers = physical.target_stabilizers
     for qubit, pauli in itertools.product(range(7), "IXYZ"):
         candidate = stim.PauliString(7)
         candidate[qubit] = pauli
@@ -591,13 +649,14 @@ def test_added_flags_match_explicit_flag_detectors() -> None:
     explicit = stim.Circuit(body + "DETECTOR rec[-1]")
     reference = certify(explicit, [0], add_flags=False)
     assert not reference.certified and reference.counterexample is not None
-    assert reference.counterexample.fault_count == 2
+    assert reference.counterexample.fault_weight == 2
     # The added flag is detector 0, so these all select it.
     for post_select in ("flags", True, [0], [-1]):
         assert certify(stim.Circuit(body), post_select, add_flags=True) == reference
-    # The measurement is already addressed, so there is no flag to select and a single fault fails.
+    # The measurement is already addressed, so there is no flag to select and a primitive fault
+    # alone fails.
     unflagged = certify(explicit, "flags", add_flags=True)
-    assert unflagged.counterexample is not None and unflagged.counterexample.fault_count == 1
+    assert unflagged.counterexample is not None and unflagged.counterexample.fault_weight == 1
     assert reference.post_selection_detectors == (0,) and unflagged.post_selection_detectors == ()
     # The added flag follows the circuit's own detectors.
     with_detector = stim.Circuit(body + "M 3\nDETECTOR rec[-1]")
@@ -634,18 +693,18 @@ def test_invalid_css_weight_is_rejected(css_weight: object) -> None:
         )
 
 
-@pytest.mark.parametrize("max_faults", [0, True, 1.5])
-def test_invalid_max_faults_is_rejected(max_faults: int) -> None:
+@pytest.mark.parametrize("max_weight", [0, True, 1.5])
+def test_invalid_max_weight_is_rejected(max_weight: int) -> None:
     """The limit must be a positive integer or None, and a bool is not an integer here."""
     circuit = stim.Circuit("I 0")
-    with pytest.raises(ValueError, match="max_faults"):
+    with pytest.raises(ValueError, match="max_weight"):
         circuits.certify_bounded_fault_propagation(
-            circuit, output_qubits=[0], max_faults=max_faults
+            circuit, output_qubits=[0], max_weight=max_weight
         )
     result = circuits.certify_bounded_fault_propagation(
-        circuit, output_qubits=[0], max_faults=cast(int, np.int64(2))
+        circuit, output_qubits=[0], max_weight=cast(int, np.int64(2))
     )
-    assert result.max_faults == 2 and type(result.max_faults) is int
+    assert result.max_weight == 2 and type(result.max_weight) is int
 
 
 @pytest.mark.parametrize("outputs", [0, [], [0, 0], [1], [-1], [True], [0.5]])
