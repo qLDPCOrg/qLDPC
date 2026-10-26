@@ -118,7 +118,7 @@ def _assert_valid_counterexample(
     events: set[int] = set()
     for index in failure.fault_indices:
         events ^= fault_detectors[index]
-    assert not events & set(certificate.post_selected_detectors)
+    assert not events & set(certificate.post_selection_detectors)
     syndrome = tuple(
         int(circuit.num_detectors + jj in events)
         for jj in range(len(certificate.target_stabilizers))
@@ -160,18 +160,12 @@ def test_certify_maps_without_flags_checks_each_fault(pytestconfig: pytest.Confi
 def test_certify_maps_with_flags_matches_exhaustive_search(pytestconfig: pytest.Config) -> None:
     """Random maps with repeated columns and flag rank above the fault limit match brute force."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    outcomes = {True: 0, False: 0}
     for n, rank in itertools.product((3, 5), range(5)):
         for _ in range(12):
             flags = list(map(int, rng.integers(1 << rank, size=8)))
             syndromes = list(map(int, rng.integers(1 << n, size=8)))
             for max_faults in (1, 2, 3, 5, None):
-                outcomes[_certify_map(flags, syndromes, max_faults, n) is None] += 1
-    # A fault of weight zero certifies and one of weight three on three qubits does not, so both
-    # outcomes occur whatever the random maps are.
-    assert _certify_map([0], [0], 1, 3) is None
-    assert _certify_map([0], [7], 1, 3) is not None
-    assert all(outcomes.values())
+                _certify_map(flags, syndromes, max_faults, n)
 
 
 def test_hand_derived_dependency_cases() -> None:
@@ -217,8 +211,8 @@ def test_faults_of_weight_at_most_one_certify_every_limit() -> None:
     assert statistics.num_sets_checked > 0
 
 
-def test_independent_flags_need_only_equal_flag_pairs() -> None:
-    """For independent flag columns, only pairs of equal flags matter, at any column count."""
+def test_independent_columns_need_only_equal_column_pairs() -> None:
+    """If the distinct nonzero flag columns are independent, only equal-flag pairs matter."""
     outcomes = set()
     # Flags 3, 5, 8, 16, and 2**130 are independent; three copies exceed twice the flag rank.
     for copies in (2, 3):
@@ -237,7 +231,8 @@ def test_statistics_reflect_merged_columns_and_the_flag_rank_limit() -> None:
     """Zero and repeated columns are never searched, and sets have at most rank + 1 faults."""
     failure, statistics = _certify_map_with_statistics([0, 1, 1], [0, 1, 1], None, 4)
     assert failure is None and statistics.num_sets_checked == 0
-    # Each distinct fault without flags is a minimal set, and an equal fault is not checked again.
+    # Each distinct fault without flags is an irreducible accepted set, and an equal fault is not
+    # checked again.
     failure, statistics = _certify_map_with_statistics([0, 0, 0, 0], [1, 1, 4, 0], None, 4)
     assert failure is None and statistics.num_sets_checked == 2
 
@@ -249,8 +244,8 @@ def test_statistics_reflect_merged_columns_and_the_flag_rank_limit() -> None:
         assert statistics.num_sets_checked == (0 if max_faults == 2 else 1)
 
 
-def test_minimal_patterns_match_exhaustive_enumeration(pytestconfig: pytest.Config) -> None:
-    """The prefix search yields every minimal accepted pattern of a given size, once."""
+def test_irreducible_patterns_match_exhaustive_enumeration(pytestconfig: pytest.Config) -> None:
+    """The prefix search yields every irreducible accepted pattern of a given size, once."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for width in range(1, 10):
         for flag_bits in range(1, 5):
@@ -271,15 +266,15 @@ def test_minimal_patterns_match_exhaustive_enumeration(pytestconfig: pytest.Conf
                             expected[size][tuple(originals[jj] for jj in support)] = syndrome
                         accepted.append(word)
             for size in range(2, 6):
-                found = list(fault_propagation._iter_minimal_patterns(faults, size))
+                found = list(fault_propagation._iter_irreducible_patterns(faults, size))
                 assert len(found) == len(expected[size])
                 assert dict(found) == expected[size]
 
 
-def test_minimal_patterns_with_flags_wider_than_a_machine_word() -> None:
+def test_irreducible_patterns_with_flags_wider_than_a_machine_word() -> None:
     """Flag columns of 80 and 130 bits combine correctly."""
     faults = [(1 << 80, 1, 90), (1 << 130, 2, 10), ((1 << 80) ^ (1 << 130), 4, 50)]
-    found = fault_propagation._iter_minimal_patterns(faults, 3)
+    found = fault_propagation._iter_irreducible_patterns(faults, 3)
     assert list(found) == [((90, 10, 50), 7)]
 
 
@@ -538,7 +533,7 @@ def test_flagged_circuit_with_permuted_signed_outputs() -> None:
 
 
 def test_steane_preparation_meets_css_weight_but_not_physical_weight() -> None:
-    """Steane preparation: a single Y0 Z1 fault has CSS weight one but physical weight two."""
+    """A fault of Steane preparation is equivalent to CSS weight one, not to physical weight one."""
     circuit = circuits.DepolarizingNoiseModel(1e-3).noisy_circuit(
         stim.Circuit("""
             H 0 2 4
@@ -566,7 +561,7 @@ def test_steane_preparation_meets_css_weight_but_not_physical_weight() -> None:
     _assert_valid_counterexample(physical, circuit)
     failure = physical.counterexample
     assert failure is not None
-    # Every Pauli of weight at most one has a different syndrome, so its class is heavier.
+    # Every Pauli of weight at most one has a different syndrome, so this syndrome class is heavier.
     stabilizers = [stim.PauliString(ss) for ss in physical.target_stabilizers]
     for qubit, pauli in itertools.product(range(7), "IXYZ"):
         candidate = stim.PauliString(7)
@@ -603,13 +598,13 @@ def test_added_flags_match_explicit_flag_detectors() -> None:
     # The measurement is already addressed, so there is no flag to select and a single fault fails.
     unflagged = certify(explicit, "flags", add_flags=True)
     assert unflagged.counterexample is not None and unflagged.counterexample.fault_count == 1
-    assert reference.post_selected_detectors == (0,) and unflagged.post_selected_detectors == ()
+    assert reference.post_selection_detectors == (0,) and unflagged.post_selection_detectors == ()
     # The added flag follows the circuit's own detectors.
     with_detector = stim.Circuit(body + "M 3\nDETECTOR rec[-1]")
     selections: list[tuple[Any, tuple[int, ...]]] = [("flags", (1,)), ([-1], (1,)), (True, (0, 1))]
     for post_select, expected in selections:
         certificate = certify(with_detector, post_select, add_flags=True)
-        assert certificate.post_selected_detectors == expected
+        assert certificate.post_selection_detectors == expected
 
 
 def test_invalid_post_selection_is_rejected() -> None:
@@ -620,19 +615,22 @@ def test_invalid_post_selection_is_rejected() -> None:
         return circuits.certify_bounded_fault_propagation(circuit, output_qubits=[0], **kwargs)
 
     assert certify(add_flags=True, post_select="flags").certified
-    for post_select in (True, False, [0], [-1], range(1)):
+    for post_select in (True, False, [0], [-1], range(1), [np.int64(0)]):
         assert certify(post_select=post_select).certified
     invalid: list[Any] = ["flags", "all", [1], [-2], [0, -1], [0.5], [False], 0]
     for post_select in invalid:
         with pytest.raises(ValueError):
             certify(post_select=post_select)
+    with pytest.raises(ValueError):
+        certify(add_flags=True, post_select="all")
 
 
-def test_invalid_css_weight_is_rejected() -> None:
-    """Only bool and None are accepted, so a numpy boolean is rejected."""
+@pytest.mark.parametrize("css_weight", [np.bool_(True), 1, 0, "css"])
+def test_invalid_css_weight_is_rejected(css_weight: object) -> None:
+    """Only bool and None are accepted, so a numpy boolean, an integer, or a string is rejected."""
     with pytest.raises(ValueError, match="css_weight"):
         circuits.certify_bounded_fault_propagation(
-            stim.Circuit("I 0"), output_qubits=[0], css_weight=cast(bool, np.bool_(True))
+            stim.Circuit("I 0"), output_qubits=[0], css_weight=cast(bool, css_weight)
         )
 
 

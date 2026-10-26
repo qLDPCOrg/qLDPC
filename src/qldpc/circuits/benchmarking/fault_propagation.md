@@ -2,9 +2,10 @@
 
 ## 1. Purpose and scope
 
-A noisy Clifford circuit that prepares a stabilizer state has bounded fault propagation if every set of faults leaves an output error that is equivalent to an error whose weight is at most the number of faults.
-This guide explains why qLDPC can decide this exactly when detectors are post-selected, so that only sets of faults that fire none of them count, and how it searches for a violation.
-It is written for contributors who need to understand, debug, or modify the certifier in this directory.
+A noisy Clifford circuit that prepares a stabilizer state has bounded fault propagation if every set of faults leaves an output error equivalent to an error of weight at most the number of faults.
+With post-selection, only the sets of faults that fire none of the post-selection detectors count.
+This guide explains why the certifier can decide this exactly, and how it searches for a violation.
+It is for contributors who need to understand or modify the certifier in this directory.
 It is organized as follows:
 
 - [Section 2](#2-definitions) defines faults, patterns, acceptance, syndromes, and weight.
@@ -16,12 +17,12 @@ It is organized as follows:
 ### 2.1 Faults, patterns, and acceptance
 
 A **fault** is one error mechanism of the circuit's detector error model (DEM), and every fault costs one.
-A **pattern** is a set of faults, and its **size** `|F|` is the number of faults that it contains.
-Every set of faults is a pattern, and a fault occurs at most once in a pattern.
+A **pattern** is a set of faults, and its **size** `|F|` is the number of faults in it.
 
-Let `P` be the binary matrix with one row for each post-selected detector and one column `p_j` for each fault `j`, whose entry is 1 if fault `j` flips that detector.
-Flips add over GF(2), so a pattern `F` flips a detector exactly when an odd number of its faults do, and the **flags** of `F` are the sum of the columns `p_j` over the faults `j` in `F`.
-A pattern is **accepted** if its flags are zero, meaning that it flips none of the post-selected detectors.
+Let `P` be the parity check matrix of the post-selection detectors for the faults: a binary matrix with one row for each post-selection detector and one column `p_j` for each fault `j`, whose entry is 1 if fault `j` flips that detector.
+Flips add over GF(2), so a pattern `F` flips a detector exactly when an odd number of its faults do.
+The **flags** of `F` are the sum of the columns `p_j` over the faults `j` in `F`, so the flags of a single fault `j` are its column `p_j`.
+A pattern is **accepted** if its flags are zero, meaning that it flips none of the post-selection detectors.
 Without post-selection, `P` has no rows and every pattern is accepted.
 
 ### 2.2 Syndromes and weight
@@ -32,19 +33,19 @@ Two errors are **equivalent** if they differ by an element of the stabilizer gro
 
 Pauli errors propagate linearly through a Clifford circuit.
 Each fault therefore leaves a definite Pauli error on the output qubits, up to phase, with a syndrome `s_j`.
-A pattern leaves the product of the errors of its faults, and this product has syndrome `S(F)`, the sum of the `s_j` over GF(2) for the faults `j` in `F`.
+A pattern leaves the product of the errors of its faults, and the syndrome of this product is `S(F)`, the sum of the `s_j` over the faults `j` in `F`.
 
 The **weight** of an error is its physical Pauli weight, the number of qubits that it acts on, or its CSS weight `max(|x|, |z|)`, where `x` and `z` are the X and Z parts of the error.
 For a syndrome `s`, let `μ(s)` be the smallest weight of a Pauli error with syndrome `s`.
 A pattern **violates** the bound if `μ(S(F)) > |F|`.
-Fault propagation is bounded if no accepted nonempty pattern violates the bound, with the patterns restricted to size at most a limit `K` if one is given.
+Fault propagation is bounded if no accepted nonempty pattern violates the bound, with the patterns limited to size at most `K` if there is a limit.
 
 ## 3. Facts that the search relies on
 
 ### 3.1 Syndromes identify equivalent errors
 
 Two errors with the same syndrome differ by an operator that commutes with all `n` independent stabilizers of the `n`-qubit state.
-Every such operator is itself a stabilizer, up to a phase, so the two errors are equivalent.
+Every such operator is a stabilizer up to a phase, so the two errors are equivalent.
 Hence `μ(S(F))` is the weight of the lightest error that is equivalent to the error that the pattern causes.
 
 ### 3.2 Weight is subadditive
@@ -56,80 +57,94 @@ Since syndromes add, `μ(S(F))` is at most the sum of `μ(s_j)` over the faults 
 
 ### 3.3 Without post-selection, single faults suffice
 
-If every fault alone has `μ(s_j) ≤ 1`, then Section 3.2 gives `μ(S(F)) ≤ |F|` for every pattern, and no pattern needs checking.
-Without post-selection, a fault with `μ(s_j) ≥ 2` is itself an accepted violating pattern.
-The bound then holds exactly when `μ(s_j) ≤ 1` for every fault `j`, and a limit `K ≥ 1` cannot change this.
-With post-selection, a fault that flips a post-selected detector is not accepted alone, so the converse fails and Sections 3.4 to 3.7 are needed.
+If every fault alone has `μ(s_j) ≤ 1`, then by subadditivity ([Section 3.2](#32-weight-is-subadditive)) `μ(S(F)) ≤ |F|` for every pattern `F`.
+Without post-selection, the converse holds too, because a fault with `μ(s_j) ≥ 2` is itself an accepted violating pattern.
+So single faults decide the bound exactly, for any limit `K ≥ 1`.
+With post-selection, a fault that flips a post-selection detector is not accepted alone, so the converse can fail, and Sections [3.4](#34-irreducible-accepted-patterns-suffice) to [3.7](#37-with-independent-columns-pairs-suffice) are needed to decide the bound.
 
-### 3.4 Minimal patterns suffice
+### 3.4 Irreducible accepted patterns suffice
 
-A pattern is **minimal** if it is accepted, nonempty, and contains no smaller accepted nonempty pattern.
+An **irreducible accepted pattern** is a nonempty accepted pattern that has no accepted nonempty proper subset.
 If `G` is an accepted pattern inside an accepted pattern `F`, the flags of `F \ G` are the sum of the flags of `F` and `G`, so `F \ G` is accepted too.
-Repeating this shows that every accepted nonempty pattern is a disjoint union of minimal patterns.
-If every minimal pattern `F_i` meets the bound, then Section 3.2 gives `μ(S(F)) ≤ Σ μ(S(F_i)) ≤ Σ |F_i| = |F|` for their union `F`.
-Each `F_i` has at most as many faults as `F`, so checking the minimal patterns of size at most `K` covers every accepted pattern of size at most `K`.
+Repeating this shows that every accepted nonempty pattern is a disjoint union of irreducible accepted patterns.
+If every irreducible accepted pattern `F_i` meets the bound, then [Section 3.2](#32-weight-is-subadditive) gives `μ(S(F)) ≤ Σ μ(S(F_i)) ≤ Σ |F_i| = |F|` for their union `F`.
+Each `F_i` is no larger than `F`, so checking the irreducible accepted patterns of size at most `K` covers every accepted pattern of size at most `K`.
 
-A violating pattern with the fewest faults is minimal.
-Otherwise it is a disjoint union of at least two minimal patterns, and one of them would violate the bound with fewer faults, because the union meets the bound if all of them do.
+A violating pattern with the fewest faults is irreducible.
+Otherwise it is a disjoint union of at least two irreducible accepted patterns, and one of them violates the bound with fewer faults, because the union meets the bound if all of them do.
 
-### 3.5 Minimal patterns have at most rank + 1 faults
+### 3.5 Irreducible accepted patterns have at most `rank(P) + 1` faults
 
-Let `J` be the set of faults of a pattern, and let `P[:, J]` be the columns of `P` for `J`.
-The nonzero null vectors of `P[:, J]` are in one-to-one correspondence with the nonempty accepted patterns inside `J`, through their supports.
-A nonzero null vector other than the all-ones vector has a support that is a proper subset of `J`.
-So `J` is minimal exactly when the null space of `P[:, J]` is spanned by the all-ones vector, which has dimension one.
-Then `rank(P[:, J]) = |J| - 1 ≤ rank(P)`, so `|J| ≤ rank(P) + 1`.
-Patterns of more than `min(K, rank(P) + 1)` faults never need checking.
+Let `P` be the parity check matrix of the post-selection detectors for the faults (as in [Section 2.1](#21-faults-patterns-and-acceptance)).
+For a pattern `F`, let `P[:, F]` be the columns of `P` for the faults in `F`.
+The nonzero null vectors of `P[:, F]` correspond one-to-one, through their supports, to the nonempty accepted patterns inside `F`.
+A nonzero null vector other than the all-ones vector has a support that is a proper subset of `F`.
+So `F` is an irreducible accepted pattern exactly when the null space of `P[:, F]` is spanned by the all-ones vector, which has dimension one.
+The number of columns of `P[:, F]` is its rank plus the dimension of its null space, so `|F| = rank(P[:, F]) + 1 ≤ rank(P) + 1`.
+So patterns of more than `rank(P) + 1` faults never need checking, and neither do patterns above the size limit `K`, if there is one.
 
-### 3.6 Duplicate and zero columns can be dropped
+### 3.6 Duplicate and zero signatures can be dropped
 
-Call the pair `(p_j, s_j)` the **column** of fault `j`.
-A fault with a zero column, meaning zero flags and zero syndrome, does nothing.
-Two faults with equal columns cancel when they appear in the same pattern.
-Dropping a zero-column fault, or both faults of an equal pair, from a violating pattern leaves its flags and syndrome unchanged and lowers its size, so the smaller pattern violates the bound too.
-A violating pattern with the fewest faults therefore has no zero column and no repeated column.
-Replacing each of its faults by another fault with the same column leaves the flags, syndrome, and size unchanged.
-It is thus enough to keep one fault for each distinct nonzero column, which lowers the cost of the search without changing the result or the smallest size of a violation.
-Keeping the first such fault in DEM order makes a counterexample name the earliest faults.
+The **signature** of fault `j` is the pair `(p_j, s_j)`.
+The flags and syndrome of a pattern depend only on the signatures of its faults, so faults with the same signature are interchangeable.
+Dropping a fault with zero signature, or two faults with equal signatures, which cancel, leaves the flags and syndrome of a pattern unchanged and lowers its size.
+So a violating pattern with the fewest faults has no such faults, and it is enough to keep one fault for each distinct nonzero signature.
+Keeping the first one in DEM order makes a counterexample name the earliest faults.
 
-### 3.7 Independent flags give pairs
+### 3.7 With linearly independent columns, pairs of faults suffice
 
-Suppose that the distinct nonzero flag columns `p_j` are linearly independent.
-In an accepted pattern, group the faults by their flags `p_j`.
-The flags of the pattern are the sum of the distinct nonzero columns that occur an odd number of times, so by independence every nonzero column occurs an even number of times.
-Hence an accepted pattern that contains a fault with nonzero flags contains an accepted pair of faults with equal flags.
-The minimal patterns with nonzero flags are therefore exactly the pairs of faults with equal flags, for any rank and any limit `K`.
+Suppose that the distinct nonzero columns of `P` are linearly independent, meaning that no nonempty set of them sums to zero.
+This holds, for example, when every fault flips at most one post-selection detector.
+Two faults may have equal columns, since the statement about linear independence is only about the distinct columns.
+Then the irreducible accepted patterns of more than one fault are exactly the pairs of faults with the same nonzero column.
+
+We prove this in two parts.
+
+1. Such a pair is accepted and irreducible.
+   - It is accepted, because its two equal columns cancel.
+   - It is irreducible, because a single fault with a nonzero column is not accepted.
+2. Every irreducible accepted pattern `F` with `|F| > 1` is such a pair.
+   First, no fault of `F` has a zero column, since that fault alone would be an accepted proper subset of `F`.
+   Then there are two cases:
+   - No two faults of `F` have the same column.
+     Then the columns of `F` are distinct and nonzero, so by linear independence they cannot sum to zero, which means that `F` cannot be accepted.
+     This is a contradiction, so this case cannot occur.
+   - Two faults of `F` have the same column.
+     They form an accepted pattern inside `F`, so by irreducibility `F` consists of just these two faults, whose common column is nonzero.
+
+So when the distinct nonzero columns are linearly independent, the only irreducible accepted patterns are the faults with a zero column and the pairs of faults with the same nonzero column, and no pattern of three or more faults needs checking.
 
 ## 4. The search
 
-### 4.1 Enumerating minimal patterns
+### 4.1 Enumerating irreducible accepted patterns
 
-A fault with zero flags is a minimal pattern by itself, and it lies in no larger minimal pattern, because it is an accepted proper subset of it.
-The larger minimal patterns consist of the remaining faults, which have nonzero flags.
-Order them by their position in the DEM, and write a minimal pattern of size `m ≥ 2` in this order as `j_1 < ... < j_m`.
-Section 3.5 gives `rank(P[:, J]) = m - 1`, and the sum of the columns is zero, so any `m - 1` of the columns are independent and span the same space as all `m`.
+A fault with zero flags is an irreducible accepted pattern by itself, and it is in no larger one, because it would be an accepted proper subset of it.
+The larger irreducible accepted patterns consist of faults with nonzero flags.
+Order them by their position in the DEM, and write an irreducible accepted pattern `F` of size `m ≥ 2` in this order as `j_1 < ... < j_m`.
+By [Section 3.5](#35-irreducible-accepted-patterns-have-at-most-rankp--1-faults), `rank(P[:, F]) = m - 1`, and the sum of the columns is zero, so any `m - 1` of the columns are independent and span the same space as all `m`.
 So the **prefix** `j_1, ..., j_{m-1}` is independent, and the **closing** fault `j_m` has flags equal to the sum of the prefix flags.
-Conversely, an independent prefix and a later closing fault with these flags form an accepted pattern of rank `m - 1`, which is minimal by Section 3.5.
-Requiring the closing fault to have the largest position lists each minimal pattern exactly once.
+Conversely, an independent prefix and a later fault with these flags form an accepted pattern of rank `m - 1`, which is irreducible by [Section 3.5](#35-irreducible-accepted-patterns-have-at-most-rankp--1-faults).
+Requiring the closing fault to have the largest position lists each irreducible accepted pattern exactly once.
 
-The search therefore extends independent prefixes by one fault at a time, in increasing order.
+The search therefore extends independent prefixes one fault at a time, in increasing order.
 It keeps an echelon basis of the prefix flags, with descending leading bits, to reject a new fault whose flags depend on the prefix.
-A dependent prefix cannot be extended to a minimal pattern, because every prefix of a minimal pattern is independent.
-For a prefix of length `m - 1`, a table of the faults by their flags lists the closing faults that come after the prefix.
+No irreducible accepted pattern extends a dependent prefix, because every prefix of an irreducible accepted pattern is independent.
+A table of the faults by their flags gives the closing faults that come after a prefix of length `m - 1`.
 
 ### 4.2 Ascending sizes find a smallest violation
 
-The search checks the faults with zero flags first, and then the minimal patterns of size 2, 3, and so on, up to `min(K, rank(P) + 1)`, and up to 2 if the flags are independent as in Section 3.7.
-It skips the larger sizes entirely if every fault with nonzero flags has `μ(s_j) ≤ 1`, by Section 3.3.
-The first violation that it finds is reported.
+The search checks the faults with zero flags first, and then the irreducible accepted patterns of size 2, 3, and so on, up to `rank(P) + 1`, limited by `K` if there is a limit, and by 2 if the distinct nonzero columns of `P` are linearly independent, as in [Section 3.7](#37-with-independent-columns-pairs-suffice).
+It skips the larger sizes if every fault with nonzero flags has `μ(s_j) ≤ 1`, by [Section 3.3](#33-without-post-selection-single-faults-suffice).
+It reports the first violation that it finds.
 
 Let `m*` be the fewest faults in any violating accepted pattern of size at most `K`.
-Section 3.4 shows that a minimal violating pattern of size `m*` exists, and Section 3.6 shows that it remains one when each of its faults is replaced by the kept fault with the same column.
-No minimal pattern of a smaller size violates the bound, so the search does not stop before size `m*`, and it stops with a violation at that size.
+By [Section 3.4](#34-irreducible-accepted-patterns-suffice), a violating irreducible accepted pattern of size `m*` exists, and by [Section 3.6](#36-duplicate-and-zero-signatures-can-be-dropped) it remains one when each of its faults is replaced by the kept fault with the same signature.
+An irreducible accepted pattern has at most `rank(P) + 1` faults by [Section 3.5](#35-irreducible-accepted-patterns-have-at-most-rankp--1-faults), and at most 2 if the distinct nonzero columns of `P` are linearly independent, by [Section 3.7](#37-with-independent-columns-pairs-suffice), so the search covers size `m*`.
+No irreducible accepted pattern of a smaller size violates the bound, so the search does not stop before size `m*`, and it stops with a violation at that size.
 The reported pattern therefore has the fewest faults of any violating pattern.
 
 ### 4.3 Deciding a pattern
 
-For each pattern that it checks, the search decides whether `μ(S(F)) ≤ |F|`, using the pattern's own size as the weight threshold and not the largest size that is searched.
+For each pattern that it checks, the search decides whether `μ(S(F)) ≤ |F|`, with the size of the pattern as the weight threshold.
 The decision comes from `PauliCosetSearch` in `src/qldpc/codes/distance/_bounded_weight_search.py`, which computes minimum weights of syndrome classes exactly.
-For a violation, it also returns an error with the syndrome and a proved lower bound on `μ(S(F))`, which exceeds `|F|`.
+For a violation, it also returns an error with the syndrome and a lower bound on `μ(S(F))`, which exceeds `|F|`.
