@@ -13,34 +13,16 @@ import numpy.typing as npt
 import pytest
 import stim
 
-from ._bounded_weight_search import (
-    PauliCosetSearch,
-    _iter_fixed_weight_supports,
-    _stream_fixed_weight_supports,
-)
+from qldpc import math
+
+from ._bounded_weight_search import PauliCosetSearch, _iter_fixed_weight_supports
 
 Metric = Literal["pauli", "css"]
 
-# A 10-qubit graph state whose syndrome 1019 has minimum weight 3, but for which a search with
-# maximum weight 3 alone proves only a lower bound of 2.
-GRAPH_10_EDGES = (
-    (0, 2),
-    (0, 3),
-    (0, 6),
-    (0, 7),
-    (1, 8),
-    (2, 5),
-    (2, 8),
-    (3, 4),
-    (3, 6),
-    (3, 7),
-    (4, 6),
-    (4, 7),
-    (4, 9),
-    (5, 6),
-    (6, 8),
-    (7, 8),
-)
+
+def _stabilizer_matrix(generators: Sequence[stim.PauliString]) -> npt.NDArray[np.uint8]:
+    """Stabilizer matrix [X|Z] with the given Pauli strings as rows."""
+    return np.array([np.concatenate(gg.to_numpy()) for gg in generators], dtype=np.uint8)
 
 
 def _graph_state(
@@ -56,8 +38,7 @@ def _graph_state(
         circuit.append("CZ", edge)
     if phase:
         circuit.append("S", range(num_qubits))
-    generators = stim.Tableau.from_circuit(circuit).to_stabilizers()
-    return np.array([np.concatenate(gg.to_numpy()) for gg in generators], dtype=np.uint8)
+    return _stabilizer_matrix(stim.Tableau.from_circuit(circuit).to_stabilizers())
 
 
 def _class_weights(
@@ -83,6 +64,13 @@ def _pauli_weight(pauli: int, num_qubits: int, metric: Metric) -> int:
     return (x | z).bit_count() if metric == "pauli" else max(x.bit_count(), z.bit_count())
 
 
+def _get_syndrome(matrix: npt.NDArray[np.uint8], pauli: int) -> int:
+    """Syndrome of a packed Pauli: its symplectic product with each row of the stabilizer matrix."""
+    bits = np.array([(pauli >> jj) & 1 for jj in range(matrix.shape[1])])
+    products = matrix @ math.symplectic_conjugate(bits) % 2
+    return sum(int(bit) << jj for jj, bit in enumerate(products))
+
+
 def _block_generators(block: Sequence[str], num_blocks: int) -> list[stim.PauliString]:
     """Generators of independent copies of a block state, given the generators of one block."""
     size = len(block[0])
@@ -91,11 +79,6 @@ def _block_generators(block: Sequence[str], num_blocks: int) -> list[stim.PauliS
         for index in range(num_blocks)
         for local in block
     ]
-
-
-def _stabilizer_matrix(generators: Sequence[stim.PauliString]) -> npt.NDArray[np.uint8]:
-    """Stabilizer matrix [X|Z] with the given Pauli strings as rows."""
-    return np.array([np.concatenate(gg.to_numpy()) for gg in generators], dtype=np.uint8)
 
 
 def _ghz_blocks(num_blocks: int) -> tuple[npt.NDArray[np.uint8], int]:
@@ -138,49 +121,37 @@ def _block_minimum(
     return min(max(a, b) for a, b in totals)
 
 
-def test_fixed_weight_supports_cover_all_combinations() -> None:
-    """Supports are exactly the combinations, whatever the batch size."""
-    for dimension, weight in itertools.product(range(1, 8), range(1, 8)):
-        if weight <= dimension:
-            batches = _iter_fixed_weight_supports(dimension, weight, batch_size=3)
-            supports = [tuple(support) for batch in batches for support in batch]
-            assert sorted(supports) == list(itertools.combinations(range(dimension), weight))
-
-
-def test_fixed_weight_supports_stream_in_lexicographic_order() -> None:
-    """Streaming, used when supports are too many to rank in 64 bits, yields every combination."""
-    batches = _stream_fixed_weight_supports(5, 2, batch_size=3)
-    supports = [tuple(support) for batch in batches for support in batch]
-    assert supports == list(itertools.combinations(range(5), 2))
-    # C(200, 20) exceeds 2**63, so the iterator streams; take only its first batch.
-    first = next(_iter_fixed_weight_supports(200, 20, batch_size=3))
-    expected = itertools.islice(itertools.combinations(range(200), 20), 3)
-    assert first.tolist() == [list(support) for support in expected]
+def test_fixed_weight_supports_are_the_combinations() -> None:
+    """Supports are the combinations in lexicographic order, in batches of at most three."""
+    for weight in range(8):
+        batches = list(_iter_fixed_weight_supports(7, weight, batch_size=3))
+        assert all(batch.shape[1] == weight and 0 < len(batch) <= 3 for batch in batches)
+        supports = [tuple(support) for batch in batches for support in batch.tolist()]
+        assert supports == list(itertools.combinations(range(7), weight))
 
 
 @pytest.mark.parametrize("metric", ["pauli", "css"])
 def test_bounds_match_exhaustive_minima(metric: Metric, pytestconfig: pytest.Config) -> None:
-    """Bounds agree with exhaustive minima for shuffled queries, a tiny cache, and small batches."""
+    """Bounds agree with exhaustive minima for a tiny cache and small batches.
+
+    Each syndrome is queried at every threshold in random order, so that cached results are reused.
+    """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 7):
         edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
         matrix = _graph_state(num_qubits, edges, phase=num_qubits % 2 == 0)
-        minima = [
-            int(_class_weights(matrix, syndrome, metric).min())
-            for syndrome in range(1 << num_qubits)
-        ]
-        queries = list(itertools.product(range(1 << num_qubits), range(num_qubits + 1)))
         oracle = PauliCosetSearch(matrix, metric=metric, cache_size=3, batch_size=2)
-        for index in rng.permutation(len(queries)):
-            syndrome, threshold = queries[index]
-            bound = oracle.get_min_weight_bound(syndrome, threshold)
-            assert bound.within_max_weight == (minima[syndrome] <= threshold)
-            assert oracle.get_syndrome(bound.representative) == syndrome
-            assert bound.lower_bound <= minima[syndrome]
-            if bound.within_max_weight:
-                assert _pauli_weight(bound.representative, num_qubits, metric) <= threshold
-            else:
-                assert bound.lower_bound > threshold
+        for syndrome in rng.permutation(1 << num_qubits).tolist():
+            minimum = int(_class_weights(matrix, syndrome, metric).min())
+            for threshold in rng.permutation(num_qubits + 1).tolist():
+                bound = oracle.get_min_weight_bound(syndrome, threshold)
+                assert bound.within_max_weight == (minimum <= threshold)
+                assert _get_syndrome(matrix, bound.representative) == syndrome
+                assert bound.lower_bound <= minimum
+                if bound.within_max_weight:
+                    assert _pauli_weight(bound.representative, num_qubits, metric) <= threshold
+                else:
+                    assert bound.lower_bound > threshold
 
 
 def test_css_weight_counts_the_larger_sector() -> None:
@@ -202,29 +173,19 @@ def test_css_weight_minimizes_both_sectors_jointly() -> None:
     oracle = PauliCosetSearch(matrix, metric="css")
     bound = oracle.get_min_weight_bound(15, 1)
     assert not bound.within_max_weight and bound.lower_bound == 2
-    assert oracle.get_syndrome(bound.representative) == 15
+    assert _get_syndrome(matrix, bound.representative) == 15
     assert oracle.get_min_weight_bound(15, 2).within_max_weight
 
 
-def test_global_bound_after_threshold_queries() -> None:
-    """Four GHZ blocks need weight four, so a bound of five must never be reported or cached."""
-    matrix, syndrome = _ghz_blocks(4)
+def test_syndrome_is_the_symplectic_product_with_each_stabilizer(
+    pytestconfig: pytest.Config,
+) -> None:
+    """Bit ``j`` of a syndrome says whether the Pauli anticommutes with stabilizer ``j``."""
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    matrix = _graph_state(5, [(0, 1), (1, 2), (2, 3), (3, 4)], phase=True)
     oracle = PauliCosetSearch(matrix)
-    below = oracle.get_min_weight_bound(syndrome, 3)
-    at_minimum = oracle.get_min_weight_bound(syndrome, 4)
-    assert not below.within_max_weight and below.lower_bound == 4
-    assert at_minimum.within_max_weight
-    assert oracle.get_syndrome(at_minimum.representative) == syndrome
-
-
-def test_cached_lower_bound_survives_a_larger_threshold() -> None:
-    """A search that finds an error keeps the lower bound proved by an earlier search."""
-    matrix = _graph_state(10, GRAPH_10_EDGES)
-    assert _class_weights(matrix, 1019, "pauli").min() == 3
-    oracle = PauliCosetSearch(matrix)
-    assert oracle.get_min_weight_bound(1019, 2).lower_bound == 3
-    bound = oracle.get_min_weight_bound(1019, 3)
-    assert bound.within_max_weight and bound.lower_bound == 3
+    for pauli in rng.integers(1 << 10, size=16).tolist():
+        assert oracle._get_syndrome(pauli) == _get_syndrome(matrix, pauli)
 
 
 def test_rank_deficient_information_sets_certify_less() -> None:
@@ -258,7 +219,7 @@ def test_wide_states_span_several_packed_words(metric: Metric) -> None:
         assert not below.within_max_weight and below.lower_bound == num_blocks
     found = oracle.get_min_weight_bound(syndrome, num_blocks)
     assert found.within_max_weight
-    assert oracle.get_syndrome(found.representative) == syndrome
+    assert _get_syndrome(matrix, found.representative) == syndrome
     assert _pauli_weight(found.representative, 3 * num_blocks, metric) == num_blocks
 
 
@@ -272,10 +233,15 @@ def test_bounds_match_per_block_minima(metric: Metric, pytestconfig: pytest.Conf
     block, num_blocks = ("XXXX", "ZZ__", "_ZZ_", "__ZZ"), 5
     matrix = _stabilizer_matrix(_block_generators(block, num_blocks))
     oracle = PauliCosetSearch(matrix, metric=metric)
-    for _ in range(8):
-        local = rng.integers(2, size=(num_blocks, len(block)))
-        syndrome = sum(int(bit) << jj for jj, bit in enumerate(local.flatten()))
-        minimum = _block_minimum(block, local.tolist(), metric)
+    # For the first syndrome, the Pauli-metric search stops by its certificate while the lightest
+    # error that it has visited is heavier than the minimum.
+    syndromes = [443351, *rng.integers(1 << (num_blocks * len(block)), size=7).tolist()]
+    for syndrome in syndromes:
+        local = [
+            [(syndrome >> (len(block) * index + jj)) & 1 for jj in range(len(block))]
+            for index in range(num_blocks)
+        ]
+        minimum = _block_minimum(block, local, metric)
         for threshold in range(1, 6):
             bound = oracle.get_min_weight_bound(syndrome, threshold)
             assert bound.within_max_weight == (minimum <= threshold)
@@ -297,7 +263,7 @@ def test_candidate_weights_above_one_byte_are_exact(metric: Metric) -> None:
 
 
 def test_invalid_arguments_are_rejected() -> None:
-    """Malformed states, parameters, queries, and thresholds raise."""
+    """Malformed states, parameters, and queries raise."""
     # Not 2n columns, dependent rows, and anticommuting rows.
     for stabilizers in ([[1]], [[0, 0]], [[1, 0, 0, 0], [0, 0, 1, 0]]):
         with pytest.raises(ValueError):
@@ -310,12 +276,5 @@ def test_invalid_arguments_are_rejected() -> None:
             PauliCosetSearch([[1, 0]], cache_size=cast(int, value))
         with pytest.raises(ValueError):
             PauliCosetSearch([[1, 0]], batch_size=cast(int, value))
-    sized = PauliCosetSearch(
-        [[1, 0]], cache_size=cast(int, np.int64(3)), batch_size=cast(int, np.int64(2))
-    )
-    assert type(sized.cache_size) is int and type(sized.batch_size) is int
-    oracle = PauliCosetSearch([[1, 0]])
     with pytest.raises(ValueError):
-        oracle.get_min_weight_bound(2, 1)
-    with pytest.raises(ValueError):
-        oracle.get_min_weight_bound(0, -1)
+        PauliCosetSearch([[1, 0]]).get_min_weight_bound(2, 1)

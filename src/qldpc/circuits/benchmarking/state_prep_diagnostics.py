@@ -110,11 +110,7 @@ def get_state_prep_diagnostic_circuit(
     detector_record = DetectorRecord({"prep": range(state_prep_circuit.num_detectors)})
 
     # add flag detectors for unused measurements, if applicable
-    flag_detectors = stim.Circuit()
-    if add_flags:
-        for measurement in get_unaddressed_measurements(state_prep_circuit):
-            target = stim.target_rec(measurement - state_prep_circuit.num_measurements)
-            flag_detectors.append("DETECTOR", [target])
+    flag_detectors = _get_flag_detectors(state_prep_circuit) if add_flags else stim.Circuit()
     detector_record.append({"flags": range(len(flag_detectors))})
 
     # stabilizer measurements and detectors
@@ -277,6 +273,15 @@ def get_state_prep_diagnostic_tasks(
         )
         for error_rate in error_rates
     ]
+
+
+def _get_flag_detectors(circuit: stim.Circuit) -> stim.Circuit:
+    """Get a detector for each measurement that no detector or observable addresses."""
+    flag_detectors = stim.Circuit()
+    for measurement in get_unaddressed_measurements(circuit):
+        target = stim.target_rec(measurement - circuit.num_measurements)
+        flag_detectors.append("DETECTOR", [target])
+    return flag_detectors
 
 
 def _get_selected_detectors(
