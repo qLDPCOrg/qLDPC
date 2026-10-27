@@ -9,7 +9,7 @@ import math
 import numpy as np
 import pytest
 
-from . import _macwilliams as mw
+from . import macwilliams as mw
 
 
 @pytest.mark.parametrize("compiled", [True, False])

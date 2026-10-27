@@ -3,7 +3,7 @@
 """Information-set families and lower certificates shared by exact BZ and Pauli-coset searches.
 
 Exact distance search (``_brouwer_zimmermann.py``) and fixed-weight logical counting
-(``logical_counts.py``) enumerate coefficient layers over the same families of systematic bases.
+(``_counting/scan.py``) enumerate coefficient layers over the same families of systematic bases.
 This module owns how those families are built, pruned, and replaced by overlapping families, and the
 certificate that bounds the Hamming weight of eligible words that a family has not yet visited.  The
 Pauli-coset oracle (``_bounded_weight_search.py``) uses the disjoint information sets and the

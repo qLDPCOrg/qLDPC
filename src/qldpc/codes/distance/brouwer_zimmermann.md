@@ -466,6 +466,7 @@ Heuristic tunables are identified by parameter name so that their current values
 
 [`__init__.py`](__init__.py) exports names from [core.py](core.py) and [logical_counts.py](logical_counts.py).
 [logical_counts.py](logical_counts.py) counts the logical operators of a given weight exactly.
+The code that only counting uses is in the `_counting` package, and its scan of the words is in [_counting/scan.py](_counting/scan.py).
 It builds its families and certificates with the same stages of [_information_sets.py](_information_sets.py) as the distance search, under the constraint in [Section 5](#5-correctness-requirements).
 The family policy lives only in that module, so a change to it applies to both consumers.
 [core.py](core.py) calls [_brouwer_zimmermann.py](_brouwer_zimmermann.py) and [_brute_force.py](_brute_force.py), and [_brouwer_zimmermann.py](_brouwer_zimmermann.py) calls [_brute_force.py](_brute_force.py) for its exhaustive routes.
@@ -610,7 +611,7 @@ Changes to the BZ algorithm can use different representations, certificates, and
   Optional rounding requires a divisor valid for every eligible weight ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)).
   A certificate from another CSS sector needs justification for the sector where it is applied, just as any other certificate does.
 - **Keep the strict certificate available to fixed-weight counting.**
-  [logical_counts.py](logical_counts.py) builds its family with `prepare_family` of [_information_sets.py](_information_sets.py), which runs the same stages as the distance search, and stops with that family's `Certificate` to count every word of a target weight `w`, which defaults to the distance.
+  [_counting/scan.py](_counting/scan.py) builds its family with `prepare_family` of [_information_sets.py](_information_sets.py), which runs the same stages as the distance search, and stops with that family's `Certificate` to count every word of a target weight `w`, which defaults to the distance.
   Distance may stop at `L(t) ≥ U`, but counting must also exhaust words of weight exactly `w`, so it stops only at `L(t) > w`.
   Its bound must use the ranks and actual maximum coverage of the family it scans; it passes `upper_bound=w+1` to the family stages only to aim them at that stopping point.
 - **Preserve the return contract.**

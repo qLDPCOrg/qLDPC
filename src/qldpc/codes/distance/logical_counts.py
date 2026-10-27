@@ -14,8 +14,9 @@ weight ``d``, with one masked rank per word.  Self-dual codes scan only one sect
 ``count_pauli = 3 * count_x``.  Counters for codes deformed by local CSS-preserving Cliffords
 transform the stored sector bases and information-set families rather than recomputing them.
 
-The default method is ``"brouwer_zimmermann"``.  The alternative ``"macwilliams"`` counts from
-check-space weight distributions; see ``_macwilliams.py`` for the algorithm.
+The default method is ``"brouwer_zimmermann"``, whose scan is in ``_counting/scan.py``.  The
+alternative ``"macwilliams"`` counts from check-space weight distributions; see
+``_counting/macwilliams.py`` for the algorithm.
 
 References:
 
@@ -25,13 +26,12 @@ References:
 from __future__ import annotations
 
 import functools
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import numpy.typing as npt
-from numba import njit
 
 from qldpc._utils import format_docstring
 
@@ -41,12 +41,10 @@ from ._binary import (
     get_kernel,
     get_nested_code_basis,
     pack_bits,
-    popcount_word,
-    row_reduce_binary,
 )
 from ._brouwer_zimmermann import get_distance_brouwer_zimmermann_many
 from ._brute_force import get_distance_quantum_brute_force
-from ._macwilliams import CheckEnumerators
+from ._counting import local_cliffords, macwilliams, scan
 from .core import _DISTANCE_METHODS, DistanceMethod
 
 # codes.common imports this package, so CSSCode is imported only where it is used.
@@ -54,10 +52,7 @@ if TYPE_CHECKING:
     from ..common import CSSCode
 
 _BinaryMatrix = npt.NDArray[np.uint8]
-_PackedMatrix = npt.NDArray[np.uint64]
 
-# Coefficient combinations visited per native call, which bounds the time between interruptions.
-_CHUNK_SIZE = 1 << 16
 
 # Batch size exponent passed to the distance searches, as in get_distance_quantum.
 _BLOCK_SIZE = 15
@@ -173,7 +168,7 @@ class CSSLogicalCounter:
         # Work that is done on demand and kept for later counts.
         self._sectors: tuple[_Sector, _Sector] | None = None
         self._disjoint_families: dict[int, _information_sets.BasisFamily] = {}
-        self._enumerators: CheckEnumerators | None = None
+        self._enumerators: macwilliams.CheckEnumerators | None = None
         self._canonical: tuple[_BinaryMatrix, _BinaryMatrix] | None = (self._gauge_x, self._gauge_z)
 
     @property
@@ -300,7 +295,7 @@ class CSSLogicalCounter:
         no_rows = self._gauge_x[:0]
 
         # Scan each sector, or only the X sector of a self-dual code.
-        counts_x = _count_words(
+        counts_x = scan.count_words(
             *sector_x,
             target,
             method,
@@ -314,7 +309,7 @@ class CSSLogicalCounter:
         if self._self_dual or counts_x is None:
             counts_z = counts_x
         else:
-            counts_z = _count_words(
+            counts_z = scan.count_words(
                 *sector_z,
                 target,
                 method,
@@ -361,7 +356,7 @@ class CSSLogicalCounter:
                 matrix that matches the number of targets.
         """
         positions = self._get_positions(targets)
-        local_x, local_z = _get_local_matrices(matrix_x, len(positions))
+        local_x, local_z = local_cliffords.get_local_matrices(matrix_x, len(positions))
         return self._deformed(positions, local_x, local_z)
 
     def deformed_cnot(self, control: int, target: int) -> CSSLogicalCounter:
@@ -380,7 +375,7 @@ class CSSLogicalCounter:
         Raises:
             ValueError: If the qubits are not distinct, in-range indices.
         """
-        return self._deformed(self._get_positions([control, target]), *_CNOT)
+        return self._deformed(self._get_positions([control, target]), *local_cliffords.CNOT)
 
     def deformed_swel(
         self, qubit_0: int, qubit_1: int, qubit_2: int, qubit_3: int
@@ -405,7 +400,7 @@ class CSSLogicalCounter:
             ValueError: If the qubits are not distinct, in-range indices.
         """
         positions = self._get_positions([qubit_0, qubit_1, qubit_2, qubit_3])
-        return self._deformed(positions, *_SWEL)
+        return self._deformed(positions, *local_cliffords.SWEL)
 
     def _get_positions(self, targets: Sequence[int]) -> npt.NDArray[np.int64]:
         """Validate deformation targets."""
@@ -445,22 +440,26 @@ class CSSLogicalCounter:
         # A gate that acts identically on X and Z keeps a self-dual code self-dual.
         shared = self._self_dual and (local_x is local_z or np.array_equal(local_x, local_z))
         counter._self_dual = shared
-        counter._gauge_x = _apply_local(self._gauge_x, positions, local_x)
+        counter._gauge_x = local_cliffords.apply_local(self._gauge_x, positions, local_x)
         counter._gauge_z = (
-            counter._gauge_x if shared else _apply_local(self._gauge_z, positions, local_z)
+            counter._gauge_x
+            if shared
+            else local_cliffords.apply_local(self._gauge_z, positions, local_z)
         )
         # Stabilizer codes share their gauge and stabilizer arrays.
         counter._stabilizers_x = (
             counter._gauge_x
             if self._stabilizers_x is self._gauge_x
-            else _apply_local(self._stabilizers_x, positions, local_x)
+            else local_cliffords.apply_local(self._stabilizers_x, positions, local_x)
         )
         if self._stabilizers_z is self._gauge_z:
             counter._stabilizers_z = counter._gauge_z
         elif shared:
             counter._stabilizers_z = counter._stabilizers_x
         else:
-            counter._stabilizers_z = _apply_local(self._stabilizers_z, positions, local_z)
+            counter._stabilizers_z = local_cliffords.apply_local(
+                self._stabilizers_z, positions, local_z
+            )
 
         # Transform the kept work where the gate allows it, and drop the rest.
         counter._sectors = None
@@ -470,8 +469,12 @@ class CSSLogicalCounter:
         counter._enumerators = None
         if self._sectors is not None:
             (basis_x, labels_x), (basis_z, labels_z) = self._sectors
-            sector_x = (_apply_local(basis_x, positions, local_x), labels_x)
-            sector_z = sector_x if shared else (_apply_local(basis_z, positions, local_z), labels_z)
+            sector_x = (local_cliffords.apply_local(basis_x, positions, local_x), labels_x)
+            sector_z = (
+                sector_x
+                if shared
+                else (local_cliffords.apply_local(basis_z, positions, local_z), labels_z)
+            )
             counter._sectors = (sector_x, sector_z)
 
             # The kept families follow the gate.  If one cannot, the sector is prepared again when
@@ -479,7 +482,9 @@ class CSSLogicalCounter:
             for index, local in ((0, local_x), (1, local_z)):
                 family = self._disjoint_families.get(0 if self._self_dual else index)
                 if family is not None and not (shared and index == 1):
-                    moved = _transport_family(family, positions, local, counter._sectors[index][0])
+                    moved = scan.transport_basis_family(
+                        family, positions, local, counter._sectors[index][0]
+                    )
                     if moved is not None:
                         counter._disjoint_families[index] = moved
         return counter
@@ -523,7 +528,7 @@ class CSSLogicalCounter:
                 or self._self_dual
                 or (rank == len(self._gauge_z) >= _MIN_SHARED_WALK_RANK and self.is_self_dual)
             )
-            self._enumerators = CheckEnumerators(
+            self._enumerators = macwilliams.CheckEnumerators(
                 self._gauge_x, self._gauge_x if share else self._gauge_z
             )
         enumerators = self._enumerators
@@ -636,7 +641,7 @@ def _get_above_distance_error(weight: int) -> ValueError:
 
 
 ####################################################################################################
-# counting words of one weight
+# distances of the sectors
 
 
 def _get_distance(sectors: Sequence[_Sector], method: DistanceMethod) -> int:
@@ -653,142 +658,6 @@ def _get_brute_force_distance(sector: _Sector) -> int:
     return get_distance_quantum_brute_force(
         basis[eligible], basis[~eligible], cutoff=0, block_size=_BLOCK_SIZE, homogeneous=True
     )
-
-
-def _count_words(
-    basis: _BinaryMatrix,
-    labels: _BinaryMatrix,
-    weight: int,
-    method: DistanceMethod,
-    rank_rows: _PackedMatrix,
-    *,
-    complement: bool,
-    max_exponent: int,
-    reject_lighter: bool,
-    get_disjoint: Callable[[], _information_sets.BasisFamily],
-    max_sets: int,
-) -> npt.NDArray[np.int64] | None:
-    """Visit each nontrivial word of one sector with the given weight exactly once.
-
-    Returns a histogram over exponents ``max_exponent - rank(rank_rows[:, mask])``, where the mask
-    is the support of the word, or its complement.  The histogram sums to the number of words, and
-    the caller weighs each exponent by ``2**exponent``, which could overflow a native integer.  The
-    scan also visits every lighter word, so with ``reject_lighter`` it returns None as soon as it
-    finds a nontrivial one.
-    """
-    # Select the information sets, or scan the whole basis as one set for brute force.
-    certificate: _information_sets.Certificate | None
-    if method == "brute_force":
-        sets, certificate = [(basis, labels)], None
-    else:
-        sets, certificate = _get_counting_information_sets(
-            basis, labels, weight, get_disjoint(), max_sets
-        )
-
-    # Pack the sets for the native scan.
-    rows = [pack_bits(generators) for generators, _ in sets]
-    tags = [pack_bits(set_labels) for _, set_labels in sets]
-    # Ownership compares sets, so a single set needs no coefficient extractor.
-    extractors = (
-        np.stack([_get_coefficient_extractor(generators) for generators, _ in sets])
-        if len(sets) > 1
-        else np.zeros((1, 0, rows[0].shape[1]), dtype=np.uint64)
-    )
-
-    # Scan the sets layer by layer, until the certificate rules out unvisited words of the weight.
-    histogram = np.zeros(max_exponent + 1, dtype=np.int64)
-    for layer in range(1, len(basis) + 1):
-        for index in range(len(sets)):
-            support = np.zeros(layer, dtype=np.int64)
-            depth = 0
-            while depth >= 0:
-                depth, lighter = _count_chunk(
-                    rows[index],
-                    tags[index],
-                    extractors,
-                    index,
-                    support,
-                    depth,
-                    weight,
-                    rank_rows,
-                    complement,
-                    max_exponent,
-                    histogram,
-                    reject_lighter,
-                    _CHUNK_SIZE,
-                )
-                if lighter:
-                    return None
-        # Equality would still allow unvisited words of the target weight.
-        if certificate is not None and certificate.lower_bound(layer) > weight:
-            break
-    return histogram
-
-
-def _get_counting_information_sets(
-    basis: _BinaryMatrix,
-    labels: _BinaryMatrix,
-    weight: int,
-    disjoint: _information_sets.BasisFamily,
-    max_sets: int,
-) -> tuple[list[_Sector], _information_sets.Certificate]:
-    """Select BZ information sets that certify every word of the given weight.
-
-    Returns the sets and the certificate that bounds the weight of unvisited words after each layer.
-    The family stages aim at the counting stop ``L(t) >= weight + 1``; any family gives an exact
-    count.
-    """
-    family = _information_sets.prepare_family(
-        basis, labels, upper_bound=weight + 1, disjoint=disjoint, max_sets=max_sets
-    )
-    sets = []
-    for information_set in family.information_sets:
-        assert information_set.labels is not None
-        sets.append((information_set.generators, information_set.labels))
-    return sets, family.certificate
-
-
-def _transport_family(
-    family: _information_sets.BasisFamily,
-    positions: npt.NDArray[np.int64],
-    local: npt.NDArray[np.uint64],
-    basis: _BinaryMatrix,
-) -> _information_sets.BasisFamily | None:
-    """The family of a sector after a local gate, or None if one of its sets stops being a set.
-
-    Each set is mapped through the gate and reduced again on its own pivot columns, so the pivots
-    stay disjoint and the labels move with their rows.  A set stops being one if its pivot columns
-    are no longer independent.
-    """
-    sets = []
-    for information_set in family.information_sets:
-        generators = _apply_local(information_set.generators, positions, local)
-        reduced, labels, pivots = row_reduce_binary(
-            generators, information_set.labels, columns=information_set.pivots
-        )
-        if len(pivots) != information_set.rank:
-            return None
-        sets.append(_information_sets.InformationSet(reduced, labels, len(pivots), pivots))
-    return _information_sets.BasisFamily.from_information_sets(
-        sets,
-        dimension=family.certificate.dimension,
-        weight_divisor=_information_sets.infer_weight_divisor(basis),
-    )
-
-
-def _get_coefficient_extractor(generators: _BinaryMatrix) -> _PackedMatrix:
-    """Packed rows ``E.T`` such that ``generators @ E`` is the identity over GF(2).
-
-    Bit ``b`` of the coefficient vector of a word ``w`` is then the parity of ``w & E.T[b]``.
-    """
-    # Row reduction finds T with T @ generators = R, where R is the identity on its pivot columns P,
-    # so that w[P] @ T recovers the coefficients of w.
-    size = len(generators)
-    _, transform, pivots = row_reduce_binary(generators, np.eye(size, dtype=np.uint8))
-    assert transform is not None
-    extractor = np.zeros((generators.shape[1], size), dtype=np.uint8)
-    extractor[pivots] = transform
-    return pack_bits(extractor.T)
 
 
 ####################################################################################################
@@ -813,246 +682,3 @@ def _get_stabilizers(
         get_independent_rows(stabilizers_x.astype(np.uint8)),
         get_independent_rows(stabilizers_z.astype(np.uint8)),
     )
-
-
-####################################################################################################
-# local Cliffords
-
-# Packed local matrices, in which bit j of row i is entry (i, j).  The CNOT, with its control first,
-# acts by [[1, 0], [1, 1]] on X supports and by [[1, 1], [0, 1]] on Z supports.  The SWEL-preserving
-# Clifford acts by [[1, 1, 1, 0], [1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 1]] on both.
-_CNOT = (np.array([1, 3], dtype=np.uint64), np.array([3, 2], dtype=np.uint64))
-_SWEL = (np.array([7, 11, 13, 14], dtype=np.uint64),) * 2
-
-
-def _get_local_matrices(
-    matrix_x: npt.ArrayLike, size: int
-) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.uint64]]:
-    """Packed local matrices for X and Z supports, from a cache keyed by ``matrix_x``."""
-    order = getattr(type(matrix_x), "order", None)
-    local = np.asarray(matrix_x)
-    if local.dtype.kind not in "biuf":
-        # The bytes of other dtypes, such as objects, do not identify their entries.
-        local, order = _as_local_matrix(matrix_x, size), None
-    return _get_cached_local_matrices(size, order, local.shape, local.dtype.str, local.tobytes())
-
-
-@functools.lru_cache(maxsize=1024)
-def _get_cached_local_matrices(
-    size: int, order: int | None, shape: tuple[int, ...], dtype: str, data: bytes
-) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.uint64]]:
-    """Validate and pack ``matrix_x`` given by its bytes, and the matrix for Z supports.
-
-    Searches apply the same local Cliffords repeatedly, so results are cached.  The key identifies
-    the input completely, including its shape and field, so invalid input never matches a cached
-    entry.  Results are read-only so that callers cannot alter the cache.
-    """
-    if order is not None and order != 2:
-        raise ValueError("Local Clifford matrices must be binary")
-    matrix = _as_local_matrix(np.frombuffer(data, dtype=dtype).reshape(shape), size)
-    local_x, local_z = _pack_local(matrix), _pack_local(_get_dual_local_matrix(matrix))
-    local_x.setflags(write=False)
-    local_z.setflags(write=False)
-    return local_x, local_z
-
-
-def _as_local_matrix(matrix: npt.ArrayLike, size: int) -> _BinaryMatrix:
-    """Validate a binary local Clifford matrix that acts on ``size`` targets."""
-    order = getattr(type(matrix), "order", None)
-    local = np.asarray(matrix)
-    if local.shape != (size, size):
-        raise ValueError("Local Clifford matrices must be square and match the target count")
-    if (order is not None and order != 2) or not np.all((local == 0) | (local == 1)):
-        raise ValueError("Local Clifford matrices must be binary")
-    return local.astype(np.uint8)
-
-
-def _get_dual_local_matrix(matrix_x: _BinaryMatrix) -> _BinaryMatrix:
-    """Return the matrix for Z supports, ``matrix_z``, with ``matrix_x @ matrix_z.T = I``."""
-    size = len(matrix_x)
-    # Row reduction finds T with T @ matrix_x = I, so that matrix_z = T.T.
-    _, inverse, pivots = row_reduce_binary(matrix_x, np.eye(size, dtype=np.uint8))
-    if len(pivots) < size:
-        raise ValueError("Local Clifford matrix_x must be invertible over GF(2)")
-    assert inverse is not None
-    return inverse.T.copy()
-
-
-def _pack_local(matrix: _BinaryMatrix) -> npt.NDArray[np.uint64]:
-    """Pack each row of a local matrix into one word, whose bit j is column j."""
-    # There are at most 64 targets, so each row fits in a single word.
-    return pack_bits(matrix)[:, 0]
-
-
-####################################################################################################
-# native kernels
-
-
-@njit(cache=True)
-def _apply_local(
-    rows: _BinaryMatrix, positions: npt.NDArray[np.int64], local: npt.NDArray[np.uint64]
-) -> _BinaryMatrix:
-    """Apply a packed local matrix to the target columns of a copy of the given rows.
-
-    Column ``positions[i]`` of a row becomes the parity of ``local[i]`` and the word whose bit ``j``
-    is the row's entry at ``positions[j]``.
-    """
-    result = rows.copy()
-    for row in range(rows.shape[0]):
-        word = np.uint64(0)
-        for index in range(len(positions)):
-            word |= np.uint64(rows[row, positions[index]]) << np.uint64(index)
-        if word:
-            for index in range(len(positions)):
-                result[row, positions[index]] = popcount_word(local[index] & word) & 1
-    return result
-
-
-@njit(cache=True)
-def _count_chunk(
-    rows: _PackedMatrix,
-    tags: _PackedMatrix,
-    extractors: npt.NDArray[np.uint64],
-    set_index: int,
-    support: npt.NDArray[np.int64],
-    depth: int,
-    target: int,
-    rank_rows: _PackedMatrix,
-    complement: bool,
-    max_exponent: int,
-    histogram: npt.NDArray[np.int64],
-    reject_lighter: bool,
-    chunk_size: int,
-) -> tuple[int, bool]:
-    """Visit up to ``chunk_size`` combinations of ``len(support)`` rows, resuming at ``depth``.
-
-    ``support`` holds the increasing row indices of the current combination; ``depth`` is the
-    position being advanced, or -1 once every combination has been visited.  Each owned nontrivial
-    word of weight ``target`` adds one to ``histogram`` (see ``_count_words``).  Returns the depth
-    from which to resume, and whether the scan stopped at a nontrivial word lighter than ``target``,
-    which is checked only with ``reject_lighter``.
-    """
-    num_rows, width = rows.shape
-    layer = len(support)
-    # Prefixes are recomputed on entry, so only support and depth carry state between calls.
-    prefixes = np.zeros((layer, width), dtype=np.uint64)
-    tag_prefixes = np.zeros((layer, tags.shape[1]), dtype=np.uint64)
-    for position in range(1, depth + 1):
-        row = support[position - 1]
-        for index in range(width):
-            prefixes[position, index] = prefixes[position - 1, index] ^ rows[row, index]
-        for index in range(tags.shape[1]):
-            tag_prefixes[position, index] = tag_prefixes[position - 1, index] ^ tags[row, index]
-
-    # Advance through the combinations until the chunk is used up.
-    word = np.empty(width, dtype=np.uint64)
-    pivots = np.empty((len(rank_rows), width), dtype=np.uint64)
-    visited = 0
-    while depth >= 0 and visited < chunk_size:
-        # Backtrack when no room remains for the rows after this position.
-        if support[depth] > num_rows - layer + depth:
-            depth -= 1
-            if depth >= 0:
-                support[depth] += 1
-            continue
-
-        # Extend the prefix by the row at this position, and advance to the next position.
-        if depth + 1 < layer:
-            row = support[depth]
-            for index in range(width):
-                prefixes[depth + 1, index] = prefixes[depth, index] ^ rows[row, index]
-            for index in range(tags.shape[1]):
-                tag_prefixes[depth + 1, index] = tag_prefixes[depth, index] ^ tags[row, index]
-            depth += 1
-            support[depth] = row + 1
-            continue
-
-        # Visit the remaining combinations that differ only in their last row.
-        stop = min(num_rows, support[depth] + chunk_size - visited)
-        for row in range(support[depth], stop):
-            weight = np.int64(0)
-            for index in range(width):
-                word[index] = prefixes[depth, index] ^ rows[row, index]
-                weight += popcount_word(word[index])
-                # A heavier word is rejected below, so its unwritten words are never read.
-                if weight > target:
-                    break
-            if weight > target or (weight < target and not reject_lighter):
-                continue
-
-            # A nonzero quotient label marks a nontrivial logical rather than a stabilizer.
-            nontrivial = False
-            for index in range(tags.shape[1]):
-                if tag_prefixes[depth, index] != tags[row, index]:
-                    nontrivial = True
-                    break
-            if nontrivial and weight < target:
-                return depth, True
-            if nontrivial and _is_owned(word, extractors, set_index, layer):
-                rank = _get_masked_rank(rank_rows, word, complement, pivots)
-                histogram[max_exponent - rank] += 1
-
-        # Record the visited rows, and resume after them.
-        visited += stop - support[depth]
-        support[depth] = stop
-    return depth, False
-
-
-@njit(cache=True)
-def _is_owned(
-    word: npt.NDArray[np.uint64], extractors: npt.NDArray[np.uint64], set_index: int, layer: int
-) -> bool:
-    """Whether set ``set_index`` minimizes (layer, set index) among the sets that visit ``word``.
-
-    Each set visits a word in the layer given by the weight of its coefficient vector in that set,
-    so exactly one set owns each word, and it visits the word before any other set does.
-    """
-    for other in range(len(extractors)):
-        if other == set_index:
-            continue
-        # A set that visits the word in an earlier layer, or in the same layer with a smaller index,
-        # owns it.
-        limit = layer if other < set_index else layer - 1
-        size = 0
-        for extractor_row in extractors[other]:
-            parity = np.int64(0)
-            for index in range(len(word)):
-                parity += popcount_word(word[index] & extractor_row[index])
-            size += int(parity & 1)
-            if size > limit:
-                break
-        if size <= limit:
-            return False
-    return True
-
-
-@njit(cache=True)
-def _get_masked_rank(
-    rows: _PackedMatrix,
-    mask: npt.NDArray[np.uint64],
-    complement: bool,
-    pivots: _PackedMatrix,
-) -> int:
-    """Rank of ``rows`` restricted to the support of ``mask``, or to its complement.
-
-    ``pivots`` is scratch space with at least as many rows as ``rows``.
-    """
-    pivot_words = np.empty(len(rows), dtype=np.int64)
-    pivot_bits = np.empty(len(rows), dtype=np.uint64)
-    rank = 0
-    for row in rows:
-        current = row & ~mask if complement else row & mask
-        # Pivot rows are reduced when stored, so eliminating them in order clears every pivot bit.
-        for previous in range(rank):
-            if current[pivot_words[previous]] & pivot_bits[previous]:
-                current ^= pivots[previous]
-
-        # A nonzero remainder becomes a new pivot row, whose pivot is its lowest set bit.
-        for index in range(len(current)):
-            if current[index]:
-                pivots[rank] = current
-                pivot_words[rank] = index
-                pivot_bits[rank] = current[index] & (~current[index] + np.uint64(1))
-                rank += 1
-                break
-    return rank
