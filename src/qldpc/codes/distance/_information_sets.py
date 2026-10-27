@@ -5,11 +5,11 @@
 Exact distance search (``_brouwer_zimmermann.py``) and fixed-weight logical counting
 (``_counting/scan.py``) enumerate coefficient layers over the same basis families.  Layer ``w`` of
 an information set holds the words that add ``w`` of its rows to a starting word, which is zero
-except in the coset search (see ``brouwer_zimmermann.md`` for the terminology).  This module owns
-how those basis families are built, pruned, and replaced by overlapping ones, and the certificate
-that bounds the Hamming weight of eligible words that a basis family has not yet visited.  The
-Pauli-coset oracle (``_bounded_weight_search.py``) uses the disjoint information sets for its own
-layered search.  All three enumerate a layer with :func:`advance_support`.
+except in the Pauli-coset oracle's search (see ``brouwer_zimmermann.md`` for the terminology).  This
+module owns how those basis families are built, pruned, and replaced by overlapping ones, and the
+certificate that bounds the Hamming weight of eligible words that a basis family has not yet
+visited.  The Pauli-coset oracle (``_bounded_weight_search.py``) uses the disjoint information sets
+for its own layered search.  All three enumerate a layer with :func:`advance_support`.
 
 A :class:`BasisFamily` stacks its information sets into arrays, so that one set of functions serves
 every caller, in the subset of Python that numba compiles, and some of them are compiled (see
@@ -444,7 +444,7 @@ def advance_support(
     prefixes: npt.NDArray[np.uint64],
     depth: int,
 ) -> int:
-    """Move to the next set of rows in a layer of the search.
+    """Move to the next choice of rows in a layer of the search.
 
     Layer ``w = len(support)`` of a basis family holds a starting word of each information set plus
     each sum of ``w`` of its rows.  A support lists the indices of such rows in increasing order,

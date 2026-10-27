@@ -13,8 +13,9 @@ import numpy.typing as npt
 from qldpc._compilation import always_compiled
 from qldpc.codes.distance._binary import popcount_word, trailing_zeros_word
 
-# The peak number of bytes per pair of primitive faults while building a table of pairs: the hash
-# and the two primitive faults of each pair, and at most one bucket count per pair.
+# The peak number of bytes per pair of primitive faults while building a table of pairs from
+# well-spread hashes: the hash and the two primitive faults of each pair, and at most one bucket
+# count per pair.
 BYTES_PER_PAIR = 24
 
 # The largest number of faults in a batch of the compiled listing.
@@ -156,7 +157,8 @@ def get_closing_table(
     shift = np.uint64(64 - bits)
 
     # Count the sets in each bucket, and turn the counts into the start of each bucket.  The sets
-    # are the single primitive faults ``first``, or the pairs ``first < second``.
+    # are the single primitive faults ``first``, or the pairs ``first < second``: for singles, the
+    # inner loop runs only for ``second == first``, and the key is the hash of ``first``.
     starts = np.zeros((1 << bits) + 1, dtype=np.int64)
     for first in range(num_primitives):
         for second in range(first + size - 1, num_primitives if size == 2 else first + 1):
