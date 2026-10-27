@@ -827,8 +827,10 @@ class ClassicalCode(AbstractCode):
         each bit experiences a bit-flip error.  The constructed function will throw an error if
         given a physical error rate larger than max_error_rate.
 
-        The logical error rate returned by the constructed function is the probability with which a
-        code error (obtained by sampling independent errors on all bits) is decoded incorrectly.
+        The logical error rate returned by the constructed function is the probability that a code
+        error (obtained by sampling independent errors on all bits) is decoded incorrectly, given
+        that the decoder does not discard it.  Without discards, it is simply the probability that
+        the code error is decoded incorrectly.
 
         Here each error location is an observable, so decoding succeeds only if the decoder predicts
         the error at every location.  Pass a decoder specification such as ``decoders.bp_osd(...)``
@@ -841,7 +843,8 @@ class ClassicalCode(AbstractCode):
         decoder is compiled for the same detector error model, and a prebuilt observable decoder
         must be built for the syndromes and observables of this code.
 
-        The basic idea in this method is to think of the fidelity
+        The basic idea in this method, written here for a decoder that never discards, is to think
+        of the fidelity
 
             ``F(p) = 1 - logical_error_rate(p)``
 
@@ -869,6 +872,10 @@ class ClassicalCode(AbstractCode):
         ``k >= min_error_weight`` when a caller sets that higher, since ``F_k = 1`` for every weight
         declared to be decoded perfectly.  The sum runs only as far as the heaviest weight the
         budget reached, and ``F_k = 0`` is assumed above that.
+
+        With a decoder that discards, ``F_k`` is instead the probability that a weight-k error is
+        corrected or discarded, and the reported rate is ``(1 - F(p)) / (1 - D(p))``, where ``D(p)``
+        is the discard rate; see help(qldpc.codes.ErrorRateFunc).
         """
         if decoder_kwargs:  # DEPRECATED: see qldpc._deprecations
             decoder = merge_legacy_decoder_args(self.matrix, decoder, decoder_kwargs)
@@ -2260,9 +2267,9 @@ class QuditCode(AbstractCode):
         treated as the relative probabilities of an X, Y, and Z error on each qubit; otherwise,
         these errors occur with equal probability, corresponding to a depolarizing error.
 
-        The logical error rate returned by the constructed function is the probability with which a
-        code error (obtained by sampling independent errors on all qubits) is converted into a
-        logical error by the decoder.
+        The logical error rate returned by the constructed function is the probability that a code
+        error (obtained by sampling independent errors on all qubits) is converted into a logical
+        error by the decoder, given that the decoder does not discard it.
 
         Decoding succeeds if the decoder predicts the logical action of the sampled error, that is,
         its symplectic products with the logical operators of the code.  Pass a decoder
@@ -3866,9 +3873,9 @@ class CSSCode(QuditCode):
         treated as the relative probabilities of an X, Y, and Z error on each qubit; otherwise,
         these errors occur with equal probability, corresponding to a depolarizing error.
 
-        The logical error rate returned by the constructed function is the probability with which a
-        code error (obtained by sampling independent errors on all qubits) is converted into a
-        logical error by the decoder.
+        The logical error rate returned by the constructed function is the probability that a code
+        error (obtained by sampling independent errors on all qubits) is converted into a logical
+        error by the decoder, given that the decoder does not discard it.
 
         The X and Z sectors are decoded independently.  Pass a decoder specification such as
         ``decoders.bp_osd(...)`` as ``decoder=`` for both sectors, or set ``decoder_x=`` and

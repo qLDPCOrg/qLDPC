@@ -497,8 +497,8 @@ def _scan_brouwer_zimmermann(
         if depth < 0:
             return best, depth, visited
 
-        # Evaluate each support that a last row completes, in each information set, and move on to
-        # the next one, returning at the cutoff or at the end of this chunk.
+        # Visit the remaining supports that differ from this one only in their last row, in each
+        # information set, returning at the cutoff or at the end of this chunk.
         while support[depth] < dimension:
             row = support[depth]
             for set_index in range(len(ranks)):

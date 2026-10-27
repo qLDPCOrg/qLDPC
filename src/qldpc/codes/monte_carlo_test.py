@@ -318,6 +318,12 @@ def test_error_rate_func() -> None:
     assert np.isclose(func.infidelities[1], 0.1)
     assert np.array_equal(func.discard_rates, [0, 0, 1])
 
+    # the per-weight posterior of the failure rate is Beta(x + 1/2, n - x + 1/2), with x failures in
+    # n kept samples, except at weight 0, which cannot fail
+    kept = func.num_samples - func.num_discards
+    variances = scipy.stats.beta(func.num_failures + 0.5, kept - func.num_failures + 0.5).var()
+    assert np.allclose(func.infidelity_variances, [0, *variances[1:]])
+
     # an iterable of physical error rates yields arrays of rates and uncertainties
     rates, uncertainties = func([0.0, 0.1])
     rates, uncertainties = np.asarray(rates), np.asarray(uncertainties)
@@ -375,9 +381,9 @@ def _expected_rate_and_error(
 def test_reported_uncertainty_is_the_propagated_posterior() -> None:
     """A reported rate and uncertainty match an independent computation of both.
 
-    The counts below are chosen so that the two paths cannot be confused for one another: the
-    infidelity is taken over kept samples while the discard rate is taken over all of them, so
-    swapping either the rates or the variances between the paths changes both answers.  They also
+    The counts below are chosen so that the two paths cannot be confused for one another: the error
+    rate counts failures among kept shots while the discard rate counts discards among all shots,
+    so exchanging the paths changes both the rate and its uncertainty.  They also
     put a weight at each extreme -- one that always fails, one whose every sample is discarded and
     which therefore has no kept samples at all -- and leave weights above the covered range for the
     truncation term to act on.
@@ -412,7 +418,7 @@ def test_reported_uncertainty_is_the_propagated_posterior() -> None:
                 )
 
         # an array argument gives the same numbers as the scalar calls, and carries discard_rate
-        # through with it rather than silently reporting infidelities
+        # through with it rather than silently reporting logical error rates
         for discards in [False, True]:
             values, errors = func(error_rates, discard_rate=discards)
             expected_pairs = [
@@ -425,8 +431,8 @@ def test_reported_uncertainty_is_the_propagated_posterior() -> None:
 
     # the two paths genuinely differ, so the checks above would catch them being exchanged
     func = cases[0]
-    assert not np.allclose(func(0.25), func(0.25, discard_rate=True))
-    assert not np.allclose(func.infidelity_variances, func.discard_rate_variances)
+    (value, error), (discard_value, discard_error) = func(0.25), func(0.25, discard_rate=True)
+    assert not np.isclose(value, discard_value) and not np.isclose(error, discard_error)
 
 
 def test_error_rate_func_single_weight() -> None:

@@ -182,9 +182,10 @@ def _compile_with_cache_in(
 ) -> Dispatcher[_Function] | None:
     """Compile a function with numba, cached in a directory, or return None if numba ignores it.
 
-    The function is inlined as numba's option ``inline`` says.  Numba reads its ``CACHE_DIR``
-    setting, the only way to choose where it caches, when it compiles a function, and reports where
-    it cached in ``stats.cache_path``.  Both are internal to numba, so the result is checked.
+    ``inline`` is numba's option of that name: ``"always"`` to include the function's code in
+    compiled callers, or ``"never"``.  Numba reads its ``CACHE_DIR`` setting, the only way to choose
+    where it caches, when it compiles a function, and reports where it cached in
+    ``stats.cache_path``.  Both are internal to numba, so the result is checked.
     """
     with _CACHE_DIRECTORY_LOCK:
         previous_directory = _numba_config.CACHE_DIR

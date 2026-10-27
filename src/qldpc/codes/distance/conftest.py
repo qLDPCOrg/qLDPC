@@ -16,7 +16,7 @@ from qldpc import _compilation, codes
 from qldpc.objects import Pauli
 
 from . import _binary as binary
-from . import _information_sets
+from . import _bounded_weight_search, _information_sets
 from . import logical_counts as lc
 from ._binary import get_kernel
 from .core import DistanceMethod
@@ -40,19 +40,18 @@ def force_information_sets() -> Iterator[None]:
 def compilation_mode(
     request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[None]:
-    """Run the compiled-on-request functions of the basis family stages and the counts in two modes.
+    """Run the compiled functions of the distance searches as plain Python, or compiled.
 
-    In the plain Python mode, the always-compiled functions that the basis family stages define
-    also run as Python, which coverage can trace.  The compiled mode compiles the functions once per
-    session, and restores plain Python afterwards.
+    In the plain Python mode, the compiled-on-request functions, and the always-compiled functions
+    that the basis family stages and the Pauli-coset search define, run as Python, which coverage
+    can trace.  The compiled mode compiles the compiled-on-request functions once per session, and
+    restores plain Python afterwards.
     """
     if request.param == "python":
-        for name, function in list(vars(_information_sets).items()):
-            if (
-                hasattr(function, "py_func")
-                and function.py_func.__module__ == _information_sets.__name__
-            ):
-                monkeypatch.setattr(_information_sets, name, function.py_func)
+        for module in (_information_sets, _bounded_weight_search):
+            for name, function in list(vars(module).items()):
+                if hasattr(function, "py_func") and function.py_func.__module__ == module.__name__:
+                    monkeypatch.setattr(module, name, function.py_func)
         yield
     else:
         _compilation.set_on_request_functions_compiled(True)

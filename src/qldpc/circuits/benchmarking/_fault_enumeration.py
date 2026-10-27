@@ -13,9 +13,10 @@ import numpy.typing as npt
 from qldpc._compilation import always_compiled
 from qldpc.codes.distance._binary import popcount_word, trailing_zeros_word
 
-# The peak number of bytes per pair of primitive faults while building a table of pairs from
-# well-spread hashes: the hash and the two primitive faults of each pair, and at most one bucket
-# count per pair.
+# The peak number of bytes per pair of primitive faults while building a table of pairs: the hash
+# and the two primitive faults of each pair, and at most one bucket count per pair.  A bucket that
+# holds several different hashes is merge sorted with extra memory in proportion to its size, which
+# this leaves out; for random hashes such buckets are rare and small.
 _BYTES_PER_PAIR = 24
 
 # The largest number of faults in a batch of the compiled listing.
@@ -90,13 +91,13 @@ class FaultLister:
     ) -> tuple[tuple[int, ...], int] | None:
         """Find the first listed fault of a fault weight that violates the bound.
 
-        The faults are passed to ``find_violation`` in batches.  It gets the syndromes of a batch,
-        one per row of 64-bit words with word ``j`` holding bits ``64 j`` and up, and the fault
-        weight, and returns the index of the first syndrome of a violating fault, or the number of
-        syndromes if there is none.  Its answer must depend only on the syndromes, so a fault is
-        left out of a batch if an earlier fault in the same batch has its syndrome.  A fault is also
-        left out if the product of the representatives of its primitive faults has Pauli weight at
-        most its fault weight, since then it satisfies the bound.
+        The faults are passed to ``find_violation(syndromes, fault_weight)`` in batches, one
+        syndrome per row, split into 64-bit words with word ``j`` holding bits ``64 j`` and up.  It
+        returns the index of the first syndrome that violates the bound at this fault weight, or the
+        number of rows if there is none.  Its answer must depend only on the syndromes and the fault
+        weight, so a fault is left out of a batch if an earlier fault in the same batch has its
+        syndrome.  A fault is also left out if the product of the representatives of its primitive
+        faults has Pauli weight at most its fault weight, since then it satisfies the bound.
 
         Returns:
             The positions of the primitive faults of the first violating fault and its syndrome, or
@@ -118,9 +119,9 @@ class FaultLister:
         ):
             index = find_violation(batch_syndromes[:count], fault_weight)
             if index < count:
-                fault = tuple(batch_members[index].tolist())
+                positions = tuple(batch_members[index].tolist())
                 syndrome = int.from_bytes(batch_syndromes[index].astype("<u8").tobytes(), "little")
-                return fault, syndrome
+                return positions, syndrome
         return None
 
     @functools.cached_property
@@ -136,46 +137,52 @@ class FaultLister:
 def _get_closing_table(
     hashes: npt.NDArray[np.uint64], size: int
 ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32]]:
-    """List the sets of ``size`` primitive faults, one or two, sorted by the hash of their flags.
+    """Build the table that finds closing primitive faults.
 
-    The sets are listed in lexicographic order and sorted stably, so the sets with each hash stay in
-    that order.  Return the sorted hashes and the sets.
+    The table lists the sets of ``size`` primitive faults (one, or a pair), sorted by the hash of
+    their summed flags.  The sets are listed in lexicographic order and sorted stably, so the sets
+    with each hash stay in that order.  Return the sorted hashes and the sets.
 
     The sort is a counting sort into buckets by the high bits of the hash, with about one bucket per
     set, which keeps the sets of each bucket in order, followed by a stable sort of each bucket.
     """
     num_primitives = len(hashes)
-    count = num_primitives if size == 1 else num_primitives * (num_primitives - 1) // 2
-    bits = 1
-    while 2 << bits <= count:
-        bits += 1
-    shift = np.uint64(64 - bits)
+    num_sets = num_primitives if size == 1 else num_primitives * (num_primitives - 1) // 2
+
+    # Use 2**bucket_bits buckets, the largest power of two that is at most the number of sets (and
+    # at least two), indexed by the top bits of each key.
+    bucket_bits = 1
+    while 2 << bucket_bits <= num_sets:
+        bucket_bits += 1
+    shift = np.uint64(64 - bucket_bits)
 
     # Count the sets in each bucket, and turn the counts into the start of each bucket.  The sets
-    # are the single primitive faults ``first``, or the pairs ``first < second``: for singles, the
-    # inner loop runs only for ``second == first``, and the key is the hash of ``first``.
-    starts = np.zeros((1 << bits) + 1, dtype=np.int64)
+    # are the single primitive faults ``first``, with the hash of ``first`` as their key, or the
+    # pairs ``first < second``, with the sum of their hashes as their key.
+    starts = np.zeros((1 << bucket_bits) + 1, dtype=np.int64)
     for first in range(num_primitives):
-        for second in range(first + size - 1, num_primitives if size == 2 else first + 1):
+        seconds = range(first + 1, num_primitives) if size == 2 else range(first, first + 1)
+        for second in seconds:
             key = hashes[first] ^ hashes[second] if size == 2 else hashes[first]
             starts[np.int64(key >> shift) + 1] += 1
-    for bucket in range(1 << bits):
+    for bucket in range(1 << bucket_bits):
         starts[bucket + 1] += starts[bucket]
 
     # Fill the buckets in the order of the sets, which moves each start to the end of its bucket.
-    keys = np.empty(count, dtype=np.uint64)
-    members = np.empty((count, size), dtype=np.int32)
+    keys = np.empty(num_sets, dtype=np.uint64)
+    members = np.empty((num_sets, size), dtype=np.int32)
     for first in range(num_primitives):
-        for second in range(first + size - 1, num_primitives if size == 2 else first + 1):
+        seconds = range(first + 1, num_primitives) if size == 2 else range(first, first + 1)
+        for second in seconds:
             key = hashes[first] ^ hashes[second] if size == 2 else hashes[first]
-            high_bits = np.int64(key >> shift)
-            slot = starts[high_bits]
-            starts[high_bits] = slot + 1
+            set_bucket = np.int64(key >> shift)
+            slot = starts[set_bucket]
+            starts[set_bucket] = slot + 1
             keys[slot] = key
             members[slot, 0] = first
             if size == 2:
                 members[slot, 1] = second
-    for bucket in range(1 << bits):
+    for bucket in range(1 << bucket_bits):
         start = starts[bucket - 1] if bucket else 0
         if starts[bucket] - start > 1:
             _sort_bucket(keys, members, start, starts[bucket])
@@ -213,9 +220,10 @@ def _sort_bucket(
 ) -> None:
     """Sort the entries from ``start`` to ``stop`` of a closing table stably by their keys.
 
-    A bucket is usually small or already sorted, and then it is sorted by insertion.  A larger
-    unsorted bucket is merge sorted instead, which takes memory in proportion to its size but avoids
-    the quadratic time of insertion.
+    A bucket usually holds few sets, or many sets with one hash (such as the pairs with equal
+    flags), which are already in order, and then it is sorted by insertion.  A larger bucket that is
+    out of order, which holds several hashes, is merge sorted instead, which takes memory in
+    proportion to its size but avoids the quadratic time of insertion.
     """
     if stop - start > 32 and np.any(keys[start + 1 : stop] < keys[start : stop - 1]):
         order = start + np.argsort(keys[start:stop], kind="mergesort")

@@ -58,6 +58,8 @@ For a basis `G` of `V`, a **coefficient vector** `a` is a binary vector of lengt
 The **coefficient weight** of `aG` is `wt(a)`, the number of rows selected.
 Since the rows of `G` are independent, each word of `V` has exactly one coefficient vector `a` in a given basis.
 A **layer** is the set of all words with a given coefficient weight `w`, taken over all choices of `w` rows.
+The Pauli-coset oracle in [_bounded_weight_search.py](_bounded_weight_search.py) searches a coset `e + V` instead of `V`.
+There a layer adds `w` rows to an **offset**, a word of the coset that is zero on the pivot columns ([Section 2.3](#23-systematic-bases-and-information-sets)), so layer zero is the offset itself, and the certificate applies unchanged except that it takes no weight divisor ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)).
 
 BZ keeps track of two quantities:
 

@@ -412,7 +412,7 @@ def _search_irreducible_faults(
 
     # Check the faults by increasing fault weight.
     for fault_weight in range(2, max_fault_weight + 1):
-        violation = lister.find_first(fault_weight, oracle.find_first_not_within)
+        violation = lister.find_first(fault_weight, oracle.find_first_not_within_max_weight)
         if violation is not None:
             positions, syndrome = violation
             indices = tuple(primitives[jj][2] for jj in positions)
