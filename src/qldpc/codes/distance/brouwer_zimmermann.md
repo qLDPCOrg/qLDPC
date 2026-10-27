@@ -456,15 +456,8 @@ Heuristic tunables are identified by parameter name so that their current values
 
 ### 4.1 Module map and layering
 
-| File | Responsibility | Key functions |
-| --- | --- | --- |
-| [core.py](core.py) | Public interfaces, input validation, adapted bases, method selection, validation of exact-distance method and distance-bound backend selectors, and conversion between symplectic and Hamming units | `get_distance_classical`, `get_distance_quantum`, `_validate_distance_method`, `_validate_distance_backend` |
-| [_brouwer_zimmermann.py](_brouwer_zimmermann.py) | The BZ distance search: preparation exits, witness discovery, scanning, sharing between CSS sectors, and exhaustive cost models | `get_distance_css_brouwer_zimmermann`, `get_distance_brouwer_zimmermann_many`, `_prepare_brouwer_zimmermann_search`, `_BrouwerZimmermannSearch`, `_scan_brouwer_zimmermann` |
-| [_information_sets.py](_information_sets.py) | Families of search bases and their certificates, shared by distance and counting and used by the Pauli-coset oracle: disjoint packing, pruning, overlapping replacement, parity inference, the lower certificate, and the work estimate, on basis families stacked into arrays, in the subset of Python that numba compiles | `get_disjoint_family`, `prune_family`, `get_overlapping_family`, `BasisFamily`, `Certificate` |
-| [_brute_force.py](_brute_force.py) | Exhaustive enumeration | `get_distance_quantum_brute_force` |
-| [_binary.py](_binary.py) | Shared binary helpers: row reduction with labels, independent and adapted bases, packing, weight functions, and the map of [Section 2.7](#27-pauli-weight-as-hamming-weight) | `row_reduce_binary`, `get_independent_rows`, `get_nested_code_basis`, `symplectic_to_hamming` |
-| [_compilation.py](_compilation.py) | Compiled functions: the disk cache of the always-compiled functions, named by a hash of the source files of the package, and the registry of functions that run as plain Python unless compiled on request | `always_compiled`, `compiled_on_request` |
-| [_counting/scan.py](_counting/scan.py) | The scan of the words of one weight, for counting: its set-up, its resumable loop, and its native chunks | `count_words` |
+[README.md](README.md) maps the modules of this directory, says where each kind of change goes, and lists the levels in which the modules import each other.
+The rest of this section describes how the searches use those modules.
 
 [`__init__.py`](__init__.py) exports names from [core.py](core.py) and [logical_counts.py](logical_counts.py).
 [logical_counts.py](logical_counts.py) counts the logical operators of a given weight exactly.
