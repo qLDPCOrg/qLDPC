@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import operator
 from typing import Literal, get_args
 
 import numpy as np
@@ -62,16 +63,23 @@ def get_distance_classical(
             combinations in several information-set bases and stops once its lower and upper bounds
             meet.  ``"brute_force"`` enumerates every nonzero codeword.  ``"information_sets"`` is
             an alias for ``"brouwer_zimmermann"``.
-        max_weight: If given, a nonnegative limit: only look for code words of weight at most
-            ``max_weight``.  The search then stops as soon as it proves that there are none, which
-            can be much faster than computing a large distance exactly.  The limit also caps
-            ``cutoff``.
+        max_weight: If given, a nonnegative integer limit on the weights to search: the result is
+            then the smaller of the distance and ``max_weight + 1``.  The search stops as soon as it
+            proves that every nontrivial code word is heavier than ``max_weight``, which can be much
+            faster than computing a large distance exactly.  The limit also caps ``cutoff``; pass
+            ``cutoff=max_weight`` as well to stop at the first code word within the limit.  A code
+            without nontrivial code words gives its usual result, capped likewise.
 
     Returns:
         The minimum Hamming distance between different code words, or equivalently the minimum
         Hamming weight of a nontrivial code word.  If ``max_weight`` is given, the result is the
         smaller of this distance and ``max_weight + 1``, so a result of ``max_weight + 1`` means
         that every nontrivial code word is heavier than ``max_weight``.
+
+    Raises:
+        TypeError: If ``max_weight`` is not an integer.
+        ValueError: If ``max_weight`` is negative, if the method is unknown, or if the generators
+            are not a binary matrix.
     """
     method = _validate_distance_method(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
@@ -127,11 +135,13 @@ def get_distance_quantum(
             search over the logical space modulo stabilizers.  ``"brute_force"`` enumerates eligible
             words using independent bases constructed internally.  ``"information_sets"`` is an
             alias for ``"brouwer_zimmermann"``.
-        max_weight: If given, a nonnegative limit: only look for nontrivial logical operators
-            of weight at most ``max_weight``.  The search then stops as soon as it proves that there
-            are none, which can be much faster than computing a large distance exactly.  The limit
-            also caps ``cutoff``, so an early exit still returns the weight of an operator within
-            the limit.
+        max_weight: If given, a nonnegative integer limit on the weights to search: the result is
+            then the smaller of the distance and ``max_weight + 1``.  The search stops as soon as it
+            proves that every nontrivial logical operator is heavier than ``max_weight``, which can
+            be much faster than computing a large distance exactly.  The limit also caps ``cutoff``,
+            so an early exit still returns the weight of an operator within the limit; pass
+            ``cutoff=max_weight`` as well to stop at the first such operator.  Inputs without
+            nontrivial logical operators give their usual results, capped likewise.
 
     Returns:
         The exact minimum weight of a nontrivial logical operator in ``logical_ops`` modulo
@@ -143,6 +153,11 @@ def get_distance_quantum(
         the exact minimum.  If ``max_weight`` is given, the result is the smaller of this value and
         ``max_weight + 1``, so a result of ``max_weight + 1`` means that every nontrivial logical
         operator is heavier than ``max_weight``.
+
+    Raises:
+        TypeError: If ``max_weight`` is not an integer.
+        ValueError: If ``max_weight`` is negative, if the method is unknown, or if the operators
+            are not binary matrices of equal width, with an even width if ``homogeneous`` is False.
 
     More specifically, if homogeneous is True, then::
 
@@ -222,6 +237,10 @@ def _get_weight_limit(cutoff: int, max_weight: int | None) -> tuple[int, int | N
     """
     if max_weight is None:
         return cutoff, None
+    if isinstance(max_weight, bool):
+        raise TypeError(f"max_weight must be an integer, not {max_weight}")
+    # A NumPy integer becomes a Python integer, so that results are Python integers too.
+    max_weight = operator.index(max_weight)
     if max_weight < 0:
         raise ValueError(f"max_weight must be nonnegative, not {max_weight}")
     return min(cutoff, max_weight), max_weight + 1

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import numbers
 from collections.abc import Callable, Collection, Mapping, Sequence
 from typing import Literal
 
@@ -243,11 +244,6 @@ def get_state_prep_diagnostic_tasks(
         A list of sinter Tasks, one-to-one with the provided error_rates.  The error rate of an
             individual task is task.json_metadata["p"].
     """
-    if isinstance(post_select, str) and not (post_select == "flags" and add_flags):
-        raise ValueError(
-            f"Unsupported post-selection with post_select={post_select!r} and add_flags={add_flags}:"
-            ' post_select="flags" selects the added flag detectors, so it requires add_flags=True'
-        )
     diagnostic_circuit, detector_record = get_state_prep_diagnostic_circuit(
         code,
         state_prep_circuit,
@@ -257,7 +253,7 @@ def get_state_prep_diagnostic_tasks(
         skip_validation=skip_validation,
     )
     postselection_mask = _get_postselection_mask(
-        _get_selected_detectors(post_select, detector_record),
+        _get_selected_detectors(post_select, detector_record, add_flags),
         detector_record.num_events,
         "Detector",
     )
@@ -285,27 +281,49 @@ def _get_flag_detectors(circuit: stim.Circuit) -> stim.Circuit:
 
 
 def _get_selected_detectors(
-    post_select: bool | Collection[int] | Literal["flags"], detector_record: DetectorRecord
-) -> list[int]:
+    post_select: bool | Collection[int] | Literal["flags"],
+    detector_record: DetectorRecord,
+    add_flags: bool,
+) -> tuple[int, ...]:
     """Identify the detectors of a state-prep diagnostic circuit to post-select on.
 
-    ``post_select="flags"`` selects the flag detectors.  Otherwise, ``post_select`` selects among
-    the prep and flag detectors, which come first in the detector record: True selects all of them,
-    False none, and explicit indices may be negative to count back from the last of them.
+    ``post_select="flags"`` selects the flag detectors, which requires ``add_flags=True``.
+    Otherwise, ``post_select`` selects among the prep and flag detectors, which come first in the
+    detector record: True selects all of them, False none, and explicit integer indices may be
+    negative to count back from the last of them.  Return the distinct selected detectors in
+    increasing order.  Raise a TypeError for an invalid type, and a ValueError for an invalid value.
     """
+    invalid = 'post_select must be a bool, "flags", or a collection of detector indices'
     if isinstance(post_select, str):
-        return detector_record.get_events("flags")
+        if post_select != "flags":
+            raise ValueError(f"{invalid}, not {post_select!r}")
+        if not add_flags:
+            raise ValueError(
+                'post_select="flags" selects the added flag detectors, so it requires'
+                " add_flags=True"
+            )
+        return tuple(detector_record.get_events("flags"))
     num_selectable = len(detector_record.get_events("prep", "flags"))
     if isinstance(post_select, bool):
-        return list(range(num_selectable)) if post_select else []
-    post_select = list(post_select)
-    if not all(-num_selectable <= dd < num_selectable for dd in post_select):
+        return tuple(range(num_selectable)) if post_select else ()
+    try:
+        indices = tuple(post_select)
+    except TypeError as error:
+        raise TypeError(invalid) from error
+    if not all(_is_integer(index) for index in indices):
+        raise TypeError("post_select must contain integer detector indices")
+    if not all(-num_selectable <= index < num_selectable for index in indices):
         raise ValueError(
             f"The detector record exposes {num_selectable} selectable prep/flag detectors "
             f"(out of {detector_record.num_events} total), so post-selection accepts indices "
-            f"in the range [-{num_selectable}, {num_selectable}); requested: {post_select}"
+            f"in the range [-{num_selectable}, {num_selectable}); requested: {list(indices)}"
         )
-    return [dd % num_selectable for dd in post_select]
+    return tuple(sorted({int(index) % num_selectable for index in indices}))
+
+
+def _is_integer(value: object) -> bool:
+    """Test whether a value is an integer, which a bool is not."""
+    return isinstance(value, numbers.Integral) and not isinstance(value, bool)
 
 
 def _assert_pure_logical_state(

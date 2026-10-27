@@ -6,15 +6,15 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable
+from typing import cast
 
 import numpy as np
-import numpy.typing as npt
 import pytest
 
 import qldpc
 
 from . import core
-from .conftest import get_random_full_rank_matrix
+from .conftest import get_random_full_rank_matrix, get_span
 
 
 @pytest.mark.usefixtures("force_information_sets", "compilation_mode")
@@ -191,15 +191,15 @@ def test_max_weight(request: pytest.FixtureRequest) -> None:
     rng = np.random.default_rng(7)
     basis = get_random_full_rank_matrix(rng, 4, 7)
     classical = functools.partial(qldpc.codes.get_distance_classical, basis)
-    classical_distance = min(sum(word) for word in _span(basis) if any(word))
+    classical_distance = min(word.bit_count() for word in get_span(basis) if word)
     css = functools.partial(
         qldpc.codes.get_distance_quantum, basis[2:], basis[:2], homogeneous=True
     )
-    css_distance = min(sum(word) for word in _span(basis) - _span(basis[:2]))
+    css_distance = min(word.bit_count() for word in get_span(basis) - get_span(basis[:2]))
     basis = get_random_full_rank_matrix(rng, 5, 8)
     pauli = functools.partial(qldpc.codes.get_distance_quantum, basis[2:], basis[:2])
     pauli_distance = min(
-        sum(x or z for x, z in zip(word[:4], word[4:])) for word in _span(basis) - _span(basis[:2])
+        ((word | word >> 4) & 0b1111).bit_count() for word in get_span(basis) - get_span(basis[:2])
     )
 
     def check(distance_with_limit: Callable[..., int], distance: int, method: str) -> None:
@@ -208,17 +208,17 @@ def test_max_weight(request: pytest.FixtureRequest) -> None:
             result = distance_with_limit(cutoff=0, max_weight=max_weight, method=method)
             assert result == min(distance, max_weight + 1)
 
-    cases = [(classical, classical_distance), (css, css_distance), (pauli, pauli_distance)]
-    for distance_with_limit, distance in cases:
+    for distance_with_limit, distance in [(classical, classical_distance), (css, css_distance)]:
         for method in ["brouwer_zimmermann", "brute_force"]:
             check(distance_with_limit, distance, method)
 
-    # Small quantum problems take an exhaustive shortcut by default, so also force the BZ search.
+    # Small problems take exhaustive routes by default, so also force the BZ search.  The Pauli case
+    # also checks the doubled bound.
     request.getfixturevalue("force_information_sets")
-    for distance_with_limit, distance in cases[1:]:
-        check(distance_with_limit, distance, "brouwer_zimmermann")
+    check(pauli, pauli_distance, "brouwer_zimmermann")
 
 
+@pytest.mark.usefixtures("force_information_sets")
 def test_max_weight_caps_cutoff() -> None:
     """A large cutoff cannot make the search give up on a word within the limit.
 
@@ -240,6 +240,16 @@ def test_max_weight_conventions_and_validation() -> None:
     with pytest.raises(ValueError, match="max_weight must be nonnegative"):
         qldpc.codes.get_distance_quantum([[1, 1]], [], homogeneous=True, max_weight=-1)
 
+    # The limit is an integer, and a NumPy integer gives a Python integer, even on a route that
+    # clamps its result.
+    for not_an_integer in (2.5, True):
+        with pytest.raises(TypeError):
+            qldpc.codes.get_distance_classical([[1, 1]], max_weight=cast(int, not_an_integer))
+    distance = qldpc.codes.get_distance_classical(
+        [[1, 1, 1, 1]], max_weight=cast(int, np.int64(1)), method="brute_force"
+    )
+    assert distance == 2 and type(distance) is int
+
 
 def test_distance_backend_validation() -> None:
     """Distance backend and exact-method selectors are restricted to documented values."""
@@ -253,11 +263,3 @@ def test_distance_backend_validation() -> None:
     assert core._validate_distance_method("information_sets") == "brouwer_zimmermann"
     with pytest.raises(ValueError, match="Unknown distance method"):
         core._validate_distance_method("other")  # type: ignore[arg-type]
-
-
-def _span(rows: npt.NDArray[np.uint8]) -> set[tuple[int, ...]]:
-    """Every vector in the row space of ``rows``, by enumeration."""
-    words = {tuple(np.zeros(rows.shape[1], dtype=int))}
-    for row in rows:
-        words |= {tuple((np.array(word) + row) % 2) for word in words}
-    return words

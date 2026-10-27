@@ -4,9 +4,11 @@
 
 A sector is a basis whose quotient labels mark its nontrivial words.  ``count_words`` selects
 information sets for the basis, with the basis family stages of ``_information_sets.py``, packs
-them, and visits each word of the given weight once, by enumerating
-combinations of the rows of every set, layer by layer.  ``logical_counts.py`` calls it.  Section 3
-of ``brouwer_zimmermann.md`` describes the algorithm, and Section 5 states the counting requirement.
+them, and visits each word of the given weight once, by enumerating combinations of the rows of
+every set, layer by layer.  ``transport_basis_family`` moves the disjoint basis family that a
+counter keeps for a sector, from which both its counts and its distance searches start, through a
+local gate, for deformed counters.  ``logical_counts.py`` calls both.  Section 3 of
+``brouwer_zimmermann.md`` describes the algorithm, and Section 5 states the counting requirement.
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ from . import local_cliffords
 _BinaryMatrix = npt.NDArray[np.uint8]
 _PackedMatrix = npt.NDArray[np.uint64]
 
-# Coefficient combinations that one call of ``_count_chunk`` visits.
+# Supports, choices of rows of a set, that one call of ``_count_chunk`` visits.
 _CHUNK_SIZE = 1 << 16
 
 # Chunks that one call of ``_scan_coefficient_layers`` visits before it returns, unless the scan
@@ -40,7 +42,7 @@ _CHUNKS_PER_SCAN_CALL = 64
 _SCAN_FINISHED, _SCAN_UNFINISHED, _SCAN_FOUND_LIGHTER_WORD = 0, 1, 2
 
 # The positions in the cursor of a scan, which marks where a later call resumes it: the layer, the
-# set, and the depth within the combinations of that layer.
+# set, and the depth within the current support of that layer.
 _CURSOR_LAYER, _CURSOR_SET, _CURSOR_DEPTH = 0, 1, 2
 
 
@@ -81,9 +83,7 @@ def count_words(
             weight,
             get_disjoint_basis_family(),
             max_sets,
-            _information_sets.MINIMUM_WORK,
-            _information_sets.get_capped_binomials(len(basis)),
-            np.random.default_rng(0),
+            *_information_sets.get_overlapping_family_policy(len(basis)),
         )
 
     # Scan in bounded calls, which compiled code cannot be interrupted within.
@@ -91,7 +91,8 @@ def count_words(
     cursor = np.zeros(3, dtype=np.int64)
     cursor[_CURSOR_LAYER] = 1
     support = np.zeros(len(basis), dtype=np.int64)
-    # The words of a row are followed by those of its label, so that their sums are kept together.
+    # Each row's machine words are followed by those of its label, so that one prefix XOR carries
+    # both.
     rows_and_labels = np.concatenate((rows, packed_labels), axis=2)
     prefixes = np.zeros((len(basis), 1, rows_and_labels.shape[2]), dtype=np.uint64)
     status = _SCAN_UNFINISHED
@@ -244,18 +245,18 @@ def _scan_coefficient_layers(
     chunk_size: int,
     max_chunks: int,
 ) -> int:
-    """Visit the combinations of each layer in each set, for at most ``max_chunks`` chunks.
+    """Visit the supports of each layer in each set, for at most ``max_chunks`` chunks.
 
-    The layers run from one to ``last_layer``, and each set visits all of its combinations of that
-    many rows (see ``_count_chunk``).  This loop is a function of its own so that it can be
-    compiled, which saves a call from Python for every chunk.
+    The layers run from one to ``last_layer``, and each set visits all of its supports of that many
+    rows (see ``_count_chunk``).  This loop is a function of its own so that it can be compiled,
+    which saves a call from Python for every chunk.
 
     The scan is resumable, since compiled code cannot be interrupted.  ``cursor`` holds the layer,
     the set, and the depth at which to resume, and ``support`` and ``prefixes`` hold the current
-    combination and its prefix sums, so that a later call continues the scan.  The first call passes
-    a cursor at layer one, set zero and depth zero, and zero prefixes, and every call passes on the
+    support and its prefix XORs, so that a later call continues the scan.  The first call passes a
+    cursor at layer one, set zero and depth zero, and zero prefixes, and every call passes on the
     same ``cursor``, ``support``, ``prefixes`` and ``histogram``.  ``support[:layer]`` is the
-    combination of the current layer, which is how ``_count_chunk`` knows its length.
+    support of the current layer, which is how ``_count_chunk`` knows its length.
 
     Returns ``_SCAN_FINISHED``, ``_SCAN_UNFINISHED`` if chunks remain, or
     ``_SCAN_FOUND_LIGHTER_WORD``.
@@ -342,15 +343,16 @@ def _count_chunk(
     reject_lighter: bool,
     chunk_size: int,
 ) -> tuple[int, bool]:
-    """Visit up to ``chunk_size`` combinations of ``len(support)`` rows, resuming at ``depth``.
+    """Visit up to ``chunk_size`` supports of ``len(support)`` rows, resuming at ``depth``.
 
-    ``rows_and_labels`` holds the rows of one set, stacked as the only set that ``advance_support``
-    enumerates, and each row has ``width`` words followed by those of its quotient label.
-    ``support`` holds the increasing row indices of the current combination, and ``prefixes`` their
-    prefix sums; ``depth`` is the position being advanced, or -1 once every combination has been
-    visited.  Each owned nontrivial word of weight ``target`` adds one to ``histogram`` (see
-    ``count_words``).  Returns the depth from which to resume, and whether the scan stopped at a
-    nontrivial word lighter than ``target``, which is checked only with ``reject_lighter``.
+    ``rows_and_labels`` has shape ``(1, num_rows, total_width)``, a stack of one set, because
+    ``advance_support`` takes a stack of sets.  Each row has ``width`` machine words of the word
+    followed by those of its quotient label.  ``support`` holds the current support, the increasing
+    indices of its rows, and ``prefixes`` its prefix XORs (see ``advance_support``); ``depth`` is
+    the position being advanced, or -1 once every support has been visited.  Each owned nontrivial
+    word of weight ``target`` adds one to ``histogram`` (see ``count_words``).  Returns the depth
+    from which to resume, and whether the scan stopped at a nontrivial word lighter than ``target``,
+    which is checked only with ``reject_lighter``.
     """
     rows = rows_and_labels[0]
     num_rows, total_width = rows.shape
@@ -364,7 +366,7 @@ def _count_chunk(
         if depth < 0:
             break
 
-        # Visit the remaining combinations that differ only in their last row.
+        # Visit the remaining supports that differ from this one only in their last row.
         stop = min(num_rows, support[depth] + chunk_size - visited)
         prefix = prefixes[depth, 0]
         for row in range(support[depth], stop):

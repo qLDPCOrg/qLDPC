@@ -5,10 +5,12 @@
 from __future__ import annotations
 
 import ast
+import os
+import time
 import types
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Literal
 
 import numba
 import numpy as np
@@ -50,7 +52,7 @@ def test_registered_functions_switch_between_plain_and_compiled(
     assert compiled.stats.cache_path is None
 
 
-def test_always_compiled_functions_are_cached_in_the_directory_of_their_source(
+def test_always_compiled_functions_are_cached_in_the_chosen_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
@@ -58,7 +60,7 @@ def test_always_compiled_functions_are_cached_in_the_directory_of_their_source(
     compiled = _compilation.always_compiled(_add_one)
     assert _compilation._numba_config.CACHE_DIR == previous
     cache_path = compiled.stats.cache_path
-    assert cache_path is not None and Path(cache_path).parent == tmp_path / "cache"
+    assert cache_path is not None and Path(cache_path).is_relative_to(tmp_path / "cache")
     assert compiled(1) == _add_one(1) == 2
 
 
@@ -68,7 +70,7 @@ def test_inlined_functions_are_cached_and_their_compiled_callers_include_them(
     monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
     inlined = _compilation.always_compiled(inline=True)(_add_one)
     cache_path = inlined.stats.cache_path
-    assert cache_path is not None and Path(cache_path).parent == tmp_path / "cache"
+    assert cache_path is not None and Path(cache_path).is_relative_to(tmp_path / "cache")
     caller = numba.njit(lambda value: inlined(value) * 2)
     assert caller(1) == 4
     assert not any("_add_one" in code for code in caller.inspect_llvm().values())
@@ -91,6 +93,28 @@ def test_the_source_hash_covers_every_source_file_but_no_tests(tmp_path: Path) -
     assert len({first, changed, _compilation._get_source_hash(tmp_path)}) == 3
 
 
+def test_the_source_hash_skips_entries_that_are_not_imported(tmp_path: Path) -> None:
+    """Such as the lock files that editors make beside modified files, as in ``.#source.py``."""
+    (tmp_path / "source.py").write_text("one")
+    expected = _compilation._get_source_hash(tmp_path)
+    (tmp_path / ".#source.py").write_text("a hidden file")
+    (tmp_path / "directory.py").mkdir()
+    assert _compilation._get_source_hash(tmp_path) == expected
+
+
+def test_there_is_no_cache_directory_if_the_source_files_cannot_be_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "source.py").write_text("one")
+
+    def refuse(path: Path) -> bytes:
+        raise PermissionError("unreadable")
+
+    monkeypatch.setattr(Path, "read_bytes", refuse)
+    with pytest.warns(RuntimeWarning, match="cannot be read"):
+        assert _compilation._get_cache_directory(tmp_path) is None
+
+
 def test_the_cache_directory_is_named_by_the_source_hash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -107,6 +131,63 @@ def test_the_cache_directory_is_named_by_the_source_hash(
     monkeypatch.setattr(_compilation._numba_config, "CACHE_DIR", "")
     monkeypatch.setattr(platformdirs, "user_cache_dir", lambda: str(tmp_path / "user"))
     assert _compilation._get_cache_directory(packages[1]) == tmp_path / "user/qldpc/numba" / name
+
+
+def test_outdated_cache_directories_unused_for_a_week_are_deleted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only directories of earlier source files of the same package directory are outdated.
+
+    The directory in use is marked as used, so that its age restarts.
+    """
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / "source.py").write_text("one")
+    source_hash = _compilation._get_source_hash(package)
+    assert source_hash is not None
+    base = tmp_path / "numba"
+    monkeypatch.setattr(_compilation._numba_config, "CACHE_DIR", str(base))
+
+    def name(digit: str) -> str:
+        return f"qldpc-{digit * len(source_hash)}"
+
+    in_use = base / f"qldpc-{source_hash}"
+    outdated, recent, elsewhere, unknown = (base / name(digit) for digit in "0123")
+    other = base / f"qldpc-tools_{'0' * 40}"  # where numba caches code from a folder "qldpc-tools"
+    day = 24 * 60 * 60
+    now = time.time()
+    for directory, source, age in [
+        (in_use, package, 8),
+        (outdated, package, 8),
+        (recent, package, 6),
+        (elsewhere, tmp_path / "other_checkout", 8),
+        (unknown, None, 8),
+        (other, package, 8),
+    ]:
+        (directory / "contents").mkdir(parents=True)
+        if source is not None:
+            (directory / _compilation._SOURCE_MARKER).write_text(str(source.resolve()))
+        os.utime(directory, (now - age * day, now - age * day))
+
+    assert _compilation._get_cache_directory(package) == in_use
+    kept = {in_use, recent, elsewhere, unknown, other}
+    assert {path.name for path in base.iterdir()} == {path.name for path in kept}
+    assert in_use.stat().st_mtime > now - day
+
+
+def test_a_new_cache_directory_names_its_package_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "source.py").write_text("one")
+    monkeypatch.setattr(_compilation._numba_config, "CACHE_DIR", str(tmp_path / "numba"))
+    directory = _compilation._get_cache_directory(tmp_path)
+    assert directory is not None
+    assert _compilation._read_source_marker(directory) == str(tmp_path.resolve())
+
+
+def test_errors_while_deleting_outdated_cache_directories_are_ignored(tmp_path: Path) -> None:
+    """For example, another process may have deleted the directory meanwhile."""
+    _compilation._delete_outdated_cache_directories(tmp_path / "missing" / "qldpc-0", tmp_path)
 
 
 def test_there_is_no_cache_directory_without_source_files(tmp_path: Path) -> None:
@@ -133,7 +214,7 @@ def test_a_read_only_cache_directory_is_not_used(
     monkeypatch.setattr(_compilation._numba_config, "CACHE_DIR", str(tmp_path / "numba"))
 
     # The directory exists, but the system refuses to create files in it.
-    def refuse(*args: Any, **kwargs: Any) -> None:
+    def refuse(*args: object, **kwargs: object) -> None:
         raise PermissionError("read-only")
 
     monkeypatch.setattr(_compilation.tempfile, "TemporaryFile", refuse)
@@ -157,11 +238,11 @@ def test_a_function_is_not_cached_if_numba_does_not_use_the_directory(
     monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
     njit = numba.njit
 
-    def cache_elsewhere(*args: Any, **kwargs: Any) -> Any:
-        if kwargs.get("cache"):
+    def cache_elsewhere(*, cache: bool = False, inline: Literal["always", "never"]) -> object:
+        if cache:
             elsewhere = types.SimpleNamespace(cache_path=str(tmp_path / "elsewhere"))
             return lambda function: types.SimpleNamespace(stats=elsewhere)
-        return njit(*args, **kwargs)
+        return njit(inline=inline)
 
     monkeypatch.setattr(_compilation.numba, "njit", cache_elsewhere)
     with pytest.warns(RuntimeWarning, match="numba does not use"):
@@ -307,9 +388,8 @@ def _add_one(value: int) -> int:
 
 def _get_source_trees() -> Iterator[tuple[Path, ast.Module]]:
     """The syntax tree of every source file of the library that is not a test."""
-    for path in sorted(Path(qldpc.__file__).parent.rglob("*.py")):
-        if not path.name.endswith("_test.py") and path.name != "conftest.py":
-            yield path, ast.parse(path.read_text())
+    for path in _compilation._get_source_paths(Path(qldpc.__file__).parent):
+        yield path, ast.parse(path.read_text(encoding="utf-8"))
 
 
 def _is_njit(function: ast.expr) -> bool:

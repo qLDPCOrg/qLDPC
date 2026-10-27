@@ -11,7 +11,7 @@ It is for contributors who need to understand or modify the certifier in this di
 
 ### Faults, primitive faults, and acceptance
 
-An **error mechanism** is one error instruction of the circuit's detector error model (DEM).
+An **error mechanism** is one error instruction of the detector error model (DEM) that the certifier returns, which is the DEM of the circuit after adding any flag detectors and one noiseless detector for each stabilizer of the prepared state.
 With `N` error mechanisms, numbered in DEM order, a **fault** is a vector `F` in `GF(2)^N`, whose entry `j` is 1 if error mechanism `j` occurs.
 Its **fault weight** `|F|` is its number of ones.
 A **primitive fault** is a fault of fault weight one, that is, the unit vector of a single error mechanism `j`.
@@ -37,6 +37,13 @@ The **Pauli weight** of an error is either its **physical weight**, the number o
 For a syndrome `s`, let `μ(s)` be the smallest Pauli weight of an error with syndrome `s`, that is, of an error in that equivalence class.
 A fault `F` **violates** the fault propagation bound if `μ(S F) > |F|`.
 Fault propagation is bounded up to fault weight `K`, the largest fault weight to certify (a positive integer, or ∞ for no limit), if no nonzero accepted fault of fault weight at most `K` violates the bound.
+
+### Physical faults
+
+A physical fault is one case of one noise instruction of the circuit, such as one Pauli error of a `DEPOLARIZE1` instruction on one qubit.
+Stim merges physical faults that flip the same detectors and observables into one error mechanism, which does not change the result.
+A set of `t` physical faults has the same flags and syndrome as the sum of their error mechanisms, a fault of fault weight at most `t`, and each error mechanism is the effect of a single physical fault.
+So the smallest fault weight of a violating accepted fault is also the smallest number of physical faults that together pass post-selection and violate the bound.
 
 ## Facts that the search relies on
 
@@ -83,8 +90,13 @@ We call the primitive faults that remain the **kept primitive faults**.
 ### Checking one fault
 
 The search decides exactly whether `μ(S F) ≤ |F|` for a fault `F` with `PauliCosetSearch`, a minimum-weight oracle for the Pauli errors with a given syndrome.
-It skips the oracle when a product of low-weight errors with syndromes `s_j`, one for each primitive fault `j` of `F`, has Pauli weight at most `|F|`, since that product has syndrome `S F`.
 It uses the same oracle, with the threshold one, to decide whether a primitive fault is heavy.
+The search skips the oracle for a fault `F` in two cases, each of which cannot hide a violation.
+
+1. A product of low-weight errors with syndromes `s_j`, one for each primitive fault `j` of `F`, has Pauli weight at most `|F|`.
+   That product has syndrome `S F`, so `F` satisfies the bound.
+2. An earlier fault of the same batch, which has the same fault weight, has the syndrome `S F`.
+   If that fault violates the bound, the search stops there, and otherwise `F` satisfies the bound too, since whether a fault violates the bound depends only on its syndrome and fault weight.
 
 ### Listing each irreducible accepted fault once
 
@@ -103,11 +115,14 @@ Only a fault that [contains a heavy primitive fault](#a-violating-fault-contains
 So the search builds only the prefixes that start with a heavy primitive fault.
 Since the heavy primitive faults come first, such a fault has a heavy `j_1`, so this lists each of them once and lists nothing else.
 
+The search looks up the closing primitive fault in a table of the primitive faults, sorted by a 64-bit linear hash of their flags.
+Different flags can share a hash, so the search compares the flags of every primitive fault that it finds with the sum of the prefix flags.
 Most choices of `j_{m-1}` have no closing primitive fault, so for fault weight `m ≥ 4` the search saves time by choosing `j_{m-1}` and `j_m` together.
 Choosing them together removes about one factor of `N` (the number of primitive faults) from the search time, at the cost of a table whose size is quadratic in `N`.
-The search keeps a table of all pairs of these primitive faults indexed by the sum of their flags, if the table fits within a user-specified memory limit.
-For each choice of `j_1, ..., j_{m-2}`, the search looks up the pairs `j_{m-1} < j_m` that come after `j_{m-2}` and whose flags sum to the flags of `j_1, ..., j_{m-2}`, and keeps the pairs for which the prefix is independent.
-The table lookup lists the same faults in the same order as a loop over `j_{m-1}`.
+The search keeps a table of all pairs of these primitive faults, sorted by the hash of the sum of their flags, if the table fits within a user-specified memory limit.
+The hash is linear, so the hash of the sum of two flags is the sum of their hashes.
+For each choice of `j_1, ..., j_{m-2}`, the search looks up the pairs `j_{m-1} < j_m` with the hash of the flags of `j_1, ..., j_{m-2}`, keeps those that come after `j_{m-2}` and whose flags sum exactly to the flags of `j_1, ..., j_{m-2}`, and of these keeps the pairs for which the prefix is independent.
+The table keeps the pairs with each hash in lexicographic order, so the table lookup lists the same faults in the same order as a loop over `j_{m-1}`.
 
 ### Why the first violation has the smallest fault weight
 

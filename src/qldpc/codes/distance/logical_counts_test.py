@@ -7,6 +7,7 @@ from __future__ import annotations
 import functools
 import itertools
 import math
+from dataclasses import replace
 from typing import Any
 from unittest import mock
 
@@ -185,19 +186,26 @@ def test_methods_agree_on_random_codes(num_qubits: int, rank_x: int, rank_z: int
         ) == counter.count_logical_ops(count_pauli=True, method="brute_force")
 
 
-def test_compile_search_setup() -> None:
-    """Compiling up front gives the same counts and distances, and nothing compiles afterwards."""
+def test_compile_search_setup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Compiling up front gives the same counts and distances, and nothing compiles afterwards.
+
+    The test starts from functions that no other test has compiled.  Its counters are deformed after
+    a count, so that they move their kept basis families through a named and a general gate.
+    """
+    fresh = [replace(item, compiled=None) for item in _compilation._ON_REQUEST_FUNCTIONS]
+    monkeypatch.setattr(_compilation, "_ON_REQUEST_FUNCTIONS", fresh)
     code = qldpc.codes.SurfaceCode(5)
 
     def get_results() -> list[qldpc.codes.CSSLogicalCounts]:
         counter = qldpc.codes.CSSLogicalCounter(code)
-        deformed = counter.deformed_cnot(0, 1)
-        return [
+        results = [
             counter.count_logical_ops(),
             counter.count_logical_ops(count_pauli=True, max_information_sets=4),
-            deformed.count_logical_ops(),
-            deformed.count_logical_ops(counter.count_logical_ops().weight + 1),
         ]
+        for deformed in (counter.deformed_cnot(0, 1), counter.deformed([0, 1], [[1, 0], [1, 1]])):
+            results.append(deformed.count_logical_ops())
+            results.append(deformed.count_logical_ops(results[0].weight + 1))
+        return results
 
     expected = get_results()
     try:
@@ -240,35 +248,43 @@ def test_max_information_sets_must_be_an_integer() -> None:
     assert counter.count_logical_ops(max_information_sets=np.int32(4)) == expected
 
 
-@pytest.mark.usefixtures("force_information_sets")
-def test_first_family_stage_is_computed_once_per_sector() -> None:
-    """The distance search and counts at other weights, as when a guess fails, share the stage."""
-    counter = get_counter(HAND_X, HAND_Z)
+def test_later_counts_reuse_the_first_family_stage() -> None:
+    """Counts at other weights, as when a guessed weight fails, and distance searches share it.
+
+    The distance search of the unrotated distance-five surface code uses information sets.  Its
+    lightest logical operators of each type are the five straight lines across the lattice.
+    """
+    counter = lc.CSSLogicalCounter(codes.SurfaceCode(5, rotated=False))
     with mock.patch.object(
         _information_sets, "get_disjoint_family", wraps=_information_sets.get_disjoint_family
     ) as first_stage:
-        for weight in (None, 3, 1):
-            counter.count_logical_ops(weight)
-    assert first_stage.call_count == 2
+        assert counter.count_logical_ops() == Counts(5, 5, 5, None)
+        num_first_stages = first_stage.call_count
+        assert counter.count_logical_ops(3) == Counts(3, 0, 0, None)
+        assert counter.count_logical_ops() == Counts(5, 5, 5, None)
+    assert num_first_stages > 0
+    assert first_stage.call_count == num_first_stages
 
 
-@pytest.mark.usefixtures("force_information_sets")
-@pytest.mark.parametrize("targets, reuses", [((0, 2), True), ((4, 2), False)])
-def test_deformed_counter_reuses_the_first_family_stage(
-    targets: tuple[int, int], reuses: bool
-) -> None:
-    """A gate that keeps the pivot columns of every set independent keeps the basis families."""
+def test_deformed_counter_reuses_the_first_family_stage() -> None:
+    """A deformed counter, which moves the kept basis families through its gate, counts correctly.
+
+    Like any counter, it keeps the first stage for its later counts.
+    """
     counter = get_counter(HAND_X, HAND_Z)
     counter.count_logical_ops()
-    deformed = counter.deformed_cnot(*targets)
+    deformed = counter.deformed_cnot(0, 2)
     weights = [None, *range(counter.num_qubits + 1)]
     fresh = get_counter(deformed.checks_x, deformed.checks_z)
     expected = [fresh.count_logical_ops(weight) for weight in weights]
     with mock.patch.object(
         _information_sets, "get_disjoint_family", wraps=_information_sets.get_disjoint_family
     ) as first_stage:
-        assert [deformed.count_logical_ops(weight) for weight in weights] == expected
-    assert (first_stage.call_count == 0) == reuses
+        counts = [deformed.count_logical_ops(weights[0])]
+        num_first_stages = first_stage.call_count
+        counts += [deformed.count_logical_ops(weight) for weight in weights[1:]]
+    assert counts == expected
+    assert first_stage.call_count == num_first_stages
 
 
 def test_dense_eighty_qubits_against_physical_enumeration() -> None:

@@ -34,10 +34,12 @@ class ErrorRateFunc:
 
     then ``func`` takes a physical error rate ``p`` as an argument and returns two numbers:
 
-    (1) A logical error rate, estimated over the error weights that were sampled.
+    (1) A logical error rate: the probability that a shot fails given that the decoder keeps it, as
+        defined below.
     (2) A statistical uncertainty in that rate: the standard deviation propagated to first order
-        from the per-weight Jeffreys posterior variances, which grows large, and loses meaning, as
-        the discard rate approaches one.
+        from the Jeffreys posterior over the failed, discarded, and corrected samples of each weight
+        (a Dirichlet distribution), which grows large, and loses meaning, as the discard rate
+        approaches one.
 
     If called with an array of physical error rates, this function returns two arrays.  If called
     with ``discard_rate=True``, it computes a discard rate instead of an error rate.
@@ -78,7 +80,8 @@ class ErrorRateFunc:
     # number of times we sampled each error weight
     num_samples: npt.NDArray[np.int_]
 
-    # number of failures and discards by error weight
+    # number of samples at each error weight that the decoder kept but decoded incorrectly
+    # (failures), and that it discarded (discards); no sample is both
     num_failures: npt.NDArray[np.int_]
     num_discards: npt.NDArray[np.int_]
 
@@ -167,9 +170,11 @@ class ErrorRateFunc:
 
         This is the observed failure rate.  The posterior whose variance infidelity_variances
         reports sits above it, by 1/(2n + 2) at a weight with n kept samples and no observed
-        failure, so the two do not come from the same estimator.  A logical error rate does not
-        weight these rates by the probability of each error weight alone, which would overstate it
-        where most samples of a weight are discarded (see help(ErrorRateFunc)).
+        failure, so the two do not come from the same estimator.  The logical error rate averages
+        these rates over the weights of kept shots: it weights the rate at weight w by
+        ``q_w (1 - d_w / n_w)``, the probability of a kept weight-w shot, adds the probability ``T``
+        of an error too heavy to have been sampled, and divides by the probability that a shot is
+        kept (see help(ErrorRateFunc)).
         """
         return self.num_failures / self._as_divisor(self.num_samples - self.num_discards)
 
@@ -184,6 +189,10 @@ class ErrorRateFunc:
 
         With x failures in n kept samples, this is the variance of the Beta(x + 1/2, n - x + 1/2)
         posterior, which is positive even if x = 0.
+
+        These are per-weight diagnostics.  The uncertainty that the function reports comes from the
+        joint posterior of failures and discards instead, so it differs slightly from propagating
+        these variances, even when nothing is discarded.
         """
         num_samples_kept = self.num_samples - self.num_discards
         variances = _jeffreys_variance(self.num_failures, num_samples_kept)
@@ -212,7 +221,22 @@ class ErrorRateFunc:
     def __call__(
         self, error_rate: float | Iterable[float], *, discard_rate: bool = False
     ) -> tuple[float, float] | tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]:
-        """Compute the logical error rate (or discard rate) at a given physical error rate."""
+        """Compute the logical error rate (or discard rate) at one or more physical error rates.
+
+        Args:
+            error_rate: A physical error rate, at most max_error_rate, or an iterable of them.
+            discard_rate: If True, compute the discard rate instead of the logical error rate.
+
+        Returns:
+            The rate and its statistical uncertainty: two floats for one physical error rate, or two
+            one-dimensional arrays with one entry per physical error rate.  The logical error rate
+            is taken among kept shots (see help(ErrorRateFunc)), so if every shot is discarded at a
+            physical error rate, the logical error rate and its uncertainty are both NaN there, as
+            in qldpc.circuits.get_logical_error_and_discard_rate.
+
+        Raises:
+            ValueError: If a physical error rate exceeds max_error_rate.
+        """
         if isinstance(error_rate, Iterable):
             results = [self(rate, discard_rate=discard_rate) for rate in error_rate]
             return (
@@ -262,15 +286,15 @@ class ErrorRateFunc:
     def truncation_error_bound(
         self, error_rate: float | Iterable[float]
     ) -> float | npt.NDArray[np.floating]:
-        """Contribution to the reported infidelity from errors too heavy to have been sampled.
+        """Contribution to the reported logical error rate from errors above max_error_weight.
 
-        Errors heavier than max_error_weight are all treated as kept failures.  This is their
-        contribution to the reported rate: the probability ``T`` of such an error, divided by one
-        minus the discard rate (see help(ErrorRateFunc)), which is ``T`` itself without discards.
-        It is also the most by which the reported rate can exceed the true rate, which it does if
-        every such error is in fact kept and decoded correctly.  Takes one physical error rate or an
-        iterable of them, and returns one bound or an array of them to match, as the constructed
-        function itself does.
+        Errors heavier than max_error_weight are never sampled, and are all treated as kept
+        failures.  This is their contribution to the reported rate: the probability ``T`` of such an
+        error, divided by one minus the discard rate (see help(ErrorRateFunc)), which is ``T``
+        itself without discards.  It is also the most by which the reported rate can exceed the true
+        rate, which it does if every such error is in fact kept and decoded correctly.  Takes one
+        physical error rate or an iterable of them, and returns one bound or an array of them to
+        match, as the constructed function itself does.
         """
         if isinstance(error_rate, Iterable):
             values = [self.truncation_error_bound(rate) for rate in error_rate]
@@ -322,7 +346,8 @@ class ErrorRateFunc:
 
         Dividing by infinity yields zero, so a weight with no (kept) samples is recorded with a zero
         rate rather than nan or inf.  That is optimistic for a weight with no data; the reported
-        variance does not share this optimism (see _jeffreys_variance).
+        variance does not share this optimism (see _jeffreys_variance and
+        _jeffreys_multinomial_covariances).
         """
         divisor = counts.astype(float)
         divisor[divisor == 0] = np.inf

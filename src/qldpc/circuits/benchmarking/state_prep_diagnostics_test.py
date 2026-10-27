@@ -94,10 +94,20 @@ def test_state_prep_post_selection() -> None:
     assert np.array_equal(
         _selected(get_task(add_flags=True, post_select=[-2]), num_detectors), [1, 0] + [0] * 6
     )
+    # repeated and aliased indices select a detector once
+    assert np.array_equal(
+        _selected(get_task(add_flags=True, post_select=[1, -2, 0]), num_detectors),
+        [1, 1] + [0] * 6,
+    )
     with pytest.raises(ValueError, match="selectable prep/flag detectors"):
         get_task(add_flags=True, post_select=[2])
     with pytest.raises(ValueError, match="add_flags=True"):
         get_task(post_select="flags")
+    with pytest.raises(ValueError, match="post_select"):
+        get_task(add_flags=True, post_select="all")
+    for post_select in (0, [0.5], [True]):
+        with pytest.raises(TypeError, match="post_select"):
+            get_task(post_select=post_select)
 
     task = get_task(post_select_observables=True)
     assert task.postselected_observables_mask is not None

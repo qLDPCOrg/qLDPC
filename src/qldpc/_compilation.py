@@ -11,9 +11,13 @@ caches their compiled code on disk.  Numba checks only the source file of a cach
 changes, not the functions that it calls in other files, so a cache that is kept where numba puts it
 could serve outdated code.  :func:`always_compiled` instead keeps the compiled code in a directory
 that is named by a hash of the source files of qLDPC, so that any change to them selects a new,
-empty directory.  Outdated code is never loaded, and old directories can simply be deleted.
-Compiled code may therefore call always-compiled functions in any module of qLDPC, but no compiled
-functions of other packages, whose source the hash does not cover.
+empty directory.  Outdated code is never loaded.  Compiled code may therefore call always-compiled
+functions in any module of qLDPC, but no compiled functions of other packages, whose source the hash
+does not cover.  Each directory names the package directory whose source files it was compiled from.
+Each import of qLDPC updates the modification time of its directory, and deletes the outdated
+directories of the same package directory, compiled from earlier versions of its source files, that
+were last modified more than 7 days earlier.  Directories of other checkouts or installations are
+kept.
 
 Compiled-on-request functions, such as the building of overlapping basis families, are registered
 with :func:`compiled_on_request`.  They run as ordinary Python until
@@ -39,15 +43,19 @@ only always-compiled functions, since it is compiled and cached by itself.
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import hashlib
+import os
+import re
+import shutil
 import tempfile
 import threading
 import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar, cast, overload
+from typing import TYPE_CHECKING, Literal, Protocol, TypeVar, cast, overload
 
 import numba
 from numba.core import config
@@ -57,7 +65,7 @@ import qldpc.cache
 if TYPE_CHECKING:
     from numba.core.dispatcher import Dispatcher
 
-_Function = TypeVar("_Function", bound=Callable[..., Any])
+_Function = TypeVar("_Function", bound=Callable[..., object])
 
 
 class _NumbaConfig(Protocol):
@@ -73,6 +81,17 @@ _numba_config = cast(_NumbaConfig, config)
 # The directory of qLDPC, whose source files name the directory of its compiled code.
 _PACKAGE_DIRECTORY = Path(__file__).parent
 
+# The directory of compiled code is named by "qldpc-" and this many hexadecimal digits of the hash.
+_HASH_LENGTH = 16
+_CACHE_DIRECTORY_NAME = re.compile(f"qldpc-[0-9a-f]{{{_HASH_LENGTH}}}")
+
+# Outdated directories of compiled code are deleted if they were last modified more than this many
+# seconds before the one in use.
+_MAX_UNUSED_SECONDS = 7 * 24 * 60 * 60
+
+# The file in a directory of compiled code that names the package directory whose code it holds.
+_SOURCE_MARKER = "source_directory.txt"
+
 # Held while the cache directory of numba, which is a setting of the whole process, is changed.  A
 # thread that caches another numba function meanwhile caches it in the same directory, which does
 # not affect results.
@@ -83,10 +102,10 @@ _CACHE_DIRECTORY_LOCK = threading.Lock()
 class _OnRequestFunction:
     """The module namespace and name of a registered function, with its plain and compiled forms."""
 
-    namespace: dict[str, Any]
+    namespace: dict[str, object]
     name: str
-    function: Callable[..., Any]
-    compiled: Callable[..., Any] | None = None
+    function: Callable[..., object]
+    compiled: Callable[..., object] | None = None
 
 
 # Every registered function, in registration order.
@@ -163,9 +182,10 @@ def _compile_with_cache_in(
 ) -> Dispatcher[_Function] | None:
     """Compile a function with numba, cached in a directory, or return None if numba ignores it.
 
-    The function is inlined as numba's option ``inline`` says.  Numba reads its ``CACHE_DIR``
-    setting, the only way to choose where it caches, when it compiles a function, and reports where
-    it cached in ``stats.cache_path``.  Both are internal to numba, so the result is checked.
+    ``inline`` is numba's option of that name: ``"always"`` to include the function's code in
+    compiled callers, or ``"never"``.  Numba reads its ``CACHE_DIR`` setting, the only way to choose
+    where it caches, when it compiles a function, and reports where it cached in
+    ``stats.cache_path``.  Both are internal to numba, so the result is checked.
     """
     with _CACHE_DIRECTORY_LOCK:
         previous_directory = _numba_config.CACHE_DIR
@@ -188,9 +208,14 @@ def _get_cache_directory(package: Path) -> Path | None:
     """A directory that can be written for the compiled code of a package, or None with a warning.
 
     Numba needs to be able to write in the directory, and checks this itself only when it has
-    already moved on to another directory.
+    already moved on to another directory.  Outdated directories of the same package beside it are
+    deleted.
     """
-    source_hash = _get_source_hash(package)
+    try:
+        source_hash = _get_source_hash(package)
+    except OSError as error:
+        _warn_not_cached(f"the source files of {package} cannot be read: {error}")
+        return None
     if source_hash is None:
         _warn_not_cached(f"{package} has no source files")
         return None
@@ -202,7 +227,44 @@ def _get_cache_directory(package: Path) -> Path | None:
     except OSError as error:
         _warn_not_cached(f"{directory} cannot be written: {error}")
         return None
+    _delete_outdated_cache_directories(directory, package)
     return directory
+
+
+def _delete_outdated_cache_directories(directory: Path, package: Path) -> None:
+    """Mark a directory of compiled code as used by a package, and delete its outdated directories.
+
+    A directory beside this one is outdated if it holds compiled code of the same package directory,
+    whose source files have since changed, and it was last modified, for example by an import of
+    qLDPC that used it, more than 7 days before this one.  The grace period protects processes that
+    still run the old source files.  Directories of other package directories, such as other
+    checkouts or installations, are kept.  This is best effort, and errors are ignored.
+    """
+    with contextlib.suppress(OSError):
+        source = str(package.resolve())
+        marker = directory / _SOURCE_MARKER
+        if not marker.is_file() or marker.read_text(encoding="utf-8") != source:
+            marker.write_text(source, encoding="utf-8")
+        os.utime(directory)
+        cutoff = directory.stat().st_mtime - _MAX_UNUSED_SECONDS
+        with os.scandir(directory.parent) as entries:
+            for entry in entries:
+                if (
+                    entry.name != directory.name
+                    and _CACHE_DIRECTORY_NAME.fullmatch(entry.name)
+                    and entry.is_dir(follow_symlinks=False)
+                    and entry.stat(follow_symlinks=False).st_mtime < cutoff
+                    and _read_source_marker(Path(entry.path)) == source
+                ):
+                    shutil.rmtree(entry.path, ignore_errors=True)
+
+
+def _read_source_marker(directory: Path) -> str | None:
+    """The package directory whose compiled code a directory holds, or None if it is unknown."""
+    try:
+        return (directory / _SOURCE_MARKER).read_text(encoding="utf-8")
+    except OSError:
+        return None
 
 
 def _warn_not_cached(reason: str) -> None:
@@ -217,17 +279,26 @@ def _warn_not_cached(reason: str) -> None:
 
 
 def _get_source_hash(directory: Path) -> str | None:
-    """A hash of the paths and contents of the source files of a package, or None if it has none.
-
-    Tests do not change the compiled code, so they are not included.
-    """
-    paths = [
-        path
-        for path in sorted(directory.rglob("*.py"))
-        if not path.name.endswith("_test.py") and path.name != "conftest.py"
-    ]
+    """A hash of the paths and contents of the source files of a package, or None if it has none."""
+    paths = _get_source_paths(directory)
     digest = hashlib.sha256()
     for path in paths:
         digest.update(path.relative_to(directory).as_posix().encode())
         digest.update(path.read_bytes())
-    return digest.hexdigest()[:16] if paths else None
+    return digest.hexdigest()[:_HASH_LENGTH] if paths else None
+
+
+def _get_source_paths(directory: Path) -> list[Path]:
+    """The sorted paths of the source files of a package: its regular, non-hidden ``*.py`` files.
+
+    Hidden files, such as the lock files of editors, are not imported, and tests do not change the
+    compiled code, so neither is included.
+    """
+    return [
+        path
+        for path in sorted(directory.rglob("*.py"))
+        if not path.name.startswith(".")
+        and not path.name.endswith("_test.py")
+        and path.name != "conftest.py"
+        and path.is_file()
+    ]

@@ -58,6 +58,8 @@ For a basis `G` of `V`, a **coefficient vector** `a` is a binary vector of lengt
 The **coefficient weight** of `aG` is `wt(a)`, the number of rows selected.
 Since the rows of `G` are independent, each word of `V` has exactly one coefficient vector `a` in a given basis.
 A **layer** is the set of all words with a given coefficient weight `w`, taken over all choices of `w` rows.
+The Pauli-coset oracle in [_bounded_weight_search.py](_bounded_weight_search.py) searches a coset `e + V` instead of `V`.
+There a layer adds `w` rows to an **offset**, a word of the coset that is zero on the pivot columns ([Section 2.3](#23-systematic-bases-and-information-sets)), so layer zero is the offset itself, and the certificate applies unchanged except that it takes no weight divisor ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)).
 
 BZ keeps track of two quantities:
 
@@ -465,7 +467,7 @@ It builds its families and certificates with the same stages of [_information_se
 It runs the stages in `_prepare_scan` of [_counting/scan.py](_counting/scan.py), and its distance search starts from the disjoint basis families that it keeps for counting.
 The set-up functions of both searches can be compiled on request, through [_compilation.py](../../_compilation.py).
 The code that only counting uses is in the `_counting` package.
-The family policy lives only in that module, so a change to it applies to both consumers.
+The family policy lives only in [_information_sets.py](_information_sets.py), including the minimum work and the fixed-seed generator that `get_overlapping_family_policy` gives every caller of the overlapping stage, so a change to it applies to both consumers.
 [core.py](core.py) calls [_brouwer_zimmermann.py](_brouwer_zimmermann.py) and [_brute_force.py](_brute_force.py), and [_brouwer_zimmermann.py](_brouwer_zimmermann.py) calls [_brute_force.py](_brute_force.py) for its exhaustive routes.
 All three modules, and [_information_sets.py](_information_sets.py), use [_binary.py](_binary.py).
 Every module with compiled functions uses [_compilation.py](../../_compilation.py).
@@ -479,7 +481,7 @@ Preparation either returns a result immediately or produces a `_BrouwerZimmerman
 For a joint CSS search, the coordinator advances the prepared searches in round-robin order and shares the best witness weight.
 
 The tables below index the public routes, the preparation exits, and the subsequent search.
-An integer returned by preparation can incorporate a witness from another sector, so it need not be the exact distance of the sector being prepared.
+An integer returned by preparation can incorporate a witness from another sector or the bound of a weight limit, so it need not be the exact distance of the sector being prepared.
 
 | Public route in [core.py](core.py) | Outcome |
 | --- | --- |
@@ -492,7 +494,7 @@ The disjoint family, its pruning, and any overlapping replacement come from the 
 
 | Preparation stage | Outcome |
 | --- | --- |
-| Initial row witness | Returns if `U ≤ cutoff`, where `U` includes the lightest eligible row and any supplied bound from another sector |
+| Initial row witness | Returns if `U ≤ cutoff`, where `U` includes the lightest eligible row and any supplied bound (from another sector or a weight limit) |
 | Exhaustive by size | Runs exhaustive enumeration if `exhaustive_is_cheaper(dimension, length)` approves |
 | Rows of the disjoint family | Returns if checking the rows of every search basis gives `U ≤ cutoff` |
 | Certificate of the disjoint family | Returns if `L(1) ≥ U` |
@@ -509,7 +511,7 @@ Exhaustive enumeration is chosen automatically at three points: the direct short
 | `_BrouwerZimmermannSearch.finished` | Marks a search finished if `U ≤ cutoff`, `L ≥ U`, or every layer has been enumerated (`next_weight > dimension`) |
 | `get_distance_brouwer_zimmermann_many` | Returns the shared best bound when it is at most `cutoff` after an advance, or when no search can advance |
 
-The tests `test_brouwer_zimmermann_setup_dispatches`, `test_brouwer_zimmermann_setup_cutoffs`, `test_brouwer_zimmermann_overlap_setup_certification`, and `test_brouwer_zimmermann_exhaustive_dispatch` exercise these exits.
+The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_cutoffs`, and `test_brouwer_zimmermann_exhaustive_dispatch` exercise these exits.
 
 ### 4.3 Concept-to-code glossary
 
@@ -554,7 +556,7 @@ With an early-exit cutoff above one, a different search order can find a differe
   It removes nothing if no block is an information set.
 - **`get_overlapping_family`** tries to lower the work estimate of the disjoint family, with tunables `max_sets` and `minimum_work`.
   It returns a basis family with no sets if the existing work is below `minimum_work`, if the blocks already use every nonzero column, if the family is at `max_sets`, or if even the optimistic coverage `ceil(m*r/N)` cannot reduce the estimate.
-  Otherwise it builds search bases by row reducing on column orders that put the least-used columns first, with seeded tie-breaking, and keeps the cheapest family built.
+  Otherwise it builds search bases by row reducing on column orders that put the least-used columns first, breaking ties with a generator that `get_overlapping_family_policy` seeds afresh for every call, and keeps the cheapest family built.
   A repeated pivot set is discarded, but it still consumes one of a bounded number of attempts.
 - **`Certificate.work`, `_brute_force_is_cheaper`, and `exhaustive_is_cheaper`** are cost models, which [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) explains.
   They are not runtime guarantees.
@@ -570,11 +572,13 @@ With an early-exit cutoff above one, a different search order can find a differe
   A `cutoff` of zero or less never triggers an early exit for such a problem, and `advance` clamps negative values to `-1` before it calls the compiled scan.
   [Section 4.2](#42-flow-and-exit-points) lists where the `cutoff` is checked.
 - **Weight limit.**
-  `get_distance_classical` and `get_distance_quantum` accept `max_weight`, which asks only whether a word of weight at most `max_weight` exists.
+  `get_distance_classical` and `get_distance_quantum` accept `max_weight`, which limits the search to weights at most `max_weight`: the result is `min(distance, max_weight+1)`.
   They pass `upper_bound=max_weight+1` to the BZ route, as though a witness of that weight were known, so the search stops once its certificate reaches that bound, and they clamp the results of the other routes to it.
-  The result is the smaller of the distance and `max_weight+1`, so a limit below the distance avoids the cost of certifying the distance itself.
+  A limit below the distance therefore avoids the cost of certifying the distance itself.
   The limit also caps `cutoff` at `max_weight`.
   Without that cap, a cutoff at or above `max_weight+1` would end the search at once on the assumed witness, even if a lighter word exists.
+  Passing `cutoff=max_weight` as well stops the search at the first word within the limit.
+  Inputs without nontrivial words keep their usual results, capped at `max_weight+1`.
   For non-homogeneous input, the BZ route doubles the bound along with `cutoff`.
 - **Units.**
   Homogeneous input represents a pure-X or pure-Z problem with one support bit per qubit.

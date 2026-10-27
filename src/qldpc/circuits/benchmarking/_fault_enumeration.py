@@ -13,13 +13,16 @@ import numpy.typing as npt
 from qldpc._compilation import always_compiled
 from qldpc.codes.distance._binary import popcount_word, trailing_zeros_word
 
-# The peak number of bytes per pair of primitive faults while building a table of pairs from
-# well-spread hashes: the hash and the two primitive faults of each pair, and at most one bucket
-# count per pair.
-BYTES_PER_PAIR = 24
+# The peak number of bytes per pair of primitive faults while building a table of pairs: the hash
+# and the two primitive faults of each pair, and at most one bucket count per pair.  A bucket of
+# more than 32 sets that is out of order is merge sorted, with extra memory in proportion to its
+# size, which this leaves out.  That can happen when a key that many pairs share, such as the zero
+# key of the pairs with equal flags, shares its bucket with another key, which then adds extra
+# memory for each pair of that bucket.
+_BYTES_PER_PAIR = 24
 
 # The largest number of faults in a batch of the compiled listing.
-BATCH_SIZE = 2**12
+_BATCH_SIZE = 2**12
 
 ####################################################################################################
 # listing irreducible accepted faults
@@ -62,20 +65,20 @@ class FaultLister:
         # Each primitive fault is a row of words: the hashes of its flags and of its syndrome, then
         # its flags, its syndrome, and the X and Z parts of its representative.  Every part is
         # linear, so the row of a fault is the sum of the rows of its primitive faults.
-        flag_words = to_words(flags, get_num_words(flags))
-        syndrome_words = to_words(syndromes, get_num_words(syndromes))
+        flag_words = _to_words(flags, _get_num_words(flags))
+        syndrome_words = _to_words(syndromes, _get_num_words(syndromes))
         mask = (1 << num_qubits) - 1
-        num_qubit_words = get_num_words([mask])
+        num_qubit_words = _get_num_words([mask])
         x_parts = [representative & mask for representative in representatives]
         z_parts = [representative >> num_qubits for representative in representatives]
         self._rows = np.hstack(
             [
-                hash_words(flag_words)[:, None],
-                hash_words(syndrome_words)[:, None],
+                _hash_words(flag_words)[:, None],
+                _hash_words(syndrome_words)[:, None],
                 flag_words,
                 syndrome_words,
-                to_words(x_parts, num_qubit_words),
-                to_words(z_parts, num_qubit_words),
+                _to_words(x_parts, num_qubit_words),
+                _to_words(z_parts, num_qubit_words),
             ]
         )
         self._num_flag_words = flag_words.shape[1]
@@ -83,33 +86,30 @@ class FaultLister:
         self._css_weight = css_weight
         self._num_starts = num_starts
         self._memory_limit = memory_limit
-        self._singles = get_closing_table(self._rows[:, 0], 1)
+        self._singles = _get_closing_table(self._rows[:, 0], 1)
 
     def find_first(
         self, fault_weight: int, find_violation: Callable[[npt.NDArray[np.uint64], int], int]
-    ) -> tuple[tuple[tuple[int, ...], int] | None, int]:
+    ) -> tuple[tuple[int, ...], int] | None:
         """Find the first listed fault of a fault weight that violates the bound.
 
-        The faults are passed to ``find_violation`` in batches.  It gets the syndromes of a batch,
-        one per row of 64-bit words with word ``j`` holding bits ``64 j`` and up, and the fault
-        weight, and returns the index of the first syndrome of a violating fault, or the number of
-        syndromes if there is none.  Its answer must depend only on the syndromes, so a fault is
-        left out of a batch if an earlier fault in the same batch has its syndrome.  A fault is also
-        left out if the product of the representatives of its primitive faults has Pauli weight at
-        most its fault weight, since then it satisfies the bound.
+        The faults are passed to ``find_violation(syndromes, fault_weight)`` in batches, one
+        syndrome per row, split into 64-bit words with word ``j`` holding bits ``64 j`` and up.  It
+        returns the index of the first syndrome that violates the bound at this fault weight, or the
+        number of rows if there is none.  Its answer must depend only on the syndromes and the fault
+        weight, so a fault is left out of a batch if an earlier fault in the same batch has its
+        syndrome.  A fault is also left out if the product of the representatives of its primitive
+        faults has Pauli weight at most its fault weight, since then it satisfies the bound.
 
         Returns:
             The positions of the primitive faults of the first violating fault and its syndrome, or
-            None if there is none, and the number of faults listed up to and including that fault,
-            or of all listed faults.
+            None if there is none.
         """
         pairs = self._pairs if fault_weight >= 4 else None
         keys, members = self._singles if pairs is None else pairs
-        batch_members = np.empty((BATCH_SIZE, fault_weight), dtype=np.int64)
-        batch_syndromes = np.empty((BATCH_SIZE, self._num_syndrome_words), dtype=np.uint64)
-        batch_positions = np.empty(BATCH_SIZE, dtype=np.int64)
-        num_listed = 0
-        for batch in iter_batches(
+        batch_members = np.empty((_BATCH_SIZE, fault_weight), dtype=np.int64)
+        batch_syndromes = np.empty((_BATCH_SIZE, self._num_syndrome_words), dtype=np.uint64)
+        for count in _iter_irreducible_fault_batches(
             self._rows,
             self._num_flag_words,
             keys,
@@ -118,76 +118,79 @@ class FaultLister:
             self._css_weight,
             batch_members,
             batch_syndromes,
-            batch_positions,
         ):
-            count, num_listed = batch
             index = find_violation(batch_syndromes[:count], fault_weight)
             if index < count:
-                fault = tuple(batch_members[index].tolist())
+                positions = tuple(batch_members[index].tolist())
                 syndrome = int.from_bytes(batch_syndromes[index].astype("<u8").tobytes(), "little")
-                return (fault, syndrome), int(batch_positions[index]) + 1
-        return None, num_listed
+                return positions, syndrome
+        return None
 
     @functools.cached_property
     def _pairs(self) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32]] | None:
         """The table of pairs of primitive faults, if it fits within the memory limit."""
         num_primitives = len(self._rows)
-        if num_primitives * (num_primitives - 1) // 2 * BYTES_PER_PAIR > self._memory_limit:
+        if num_primitives * (num_primitives - 1) // 2 * _BYTES_PER_PAIR > self._memory_limit:
             return None
-        return get_closing_table(self._rows[:, 0], 2)
+        return _get_closing_table(self._rows[:, 0], 2)
 
 
 @always_compiled
-def get_closing_table(
+def _get_closing_table(
     hashes: npt.NDArray[np.uint64], size: int
 ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32]]:
-    """List the sets of ``size`` primitive faults, one or two, sorted by the hash of their flags.
+    """Build the table that finds closing primitive faults.
 
-    The sets are listed in lexicographic order and sorted stably, so the sets with each hash stay in
-    that order.  Return the sorted hashes and the sets.
+    The table lists the sets of ``size`` primitive faults (one, or a pair), sorted by the hash of
+    their summed flags.  The sets are listed in lexicographic order and sorted stably, so the sets
+    with each hash stay in that order.  Return the sorted hashes and the sets.
 
     The sort is a counting sort into buckets by the high bits of the hash, with about one bucket per
     set, which keeps the sets of each bucket in order, followed by a stable sort of each bucket.
     """
     num_primitives = len(hashes)
-    count = num_primitives if size == 1 else num_primitives * (num_primitives - 1) // 2
-    bits = 1
-    while 2 << bits <= count:
-        bits += 1
-    shift = np.uint64(64 - bits)
+    num_sets = num_primitives if size == 1 else num_primitives * (num_primitives - 1) // 2
+
+    # Use 2**bucket_bits buckets, the largest power of two that is at most the number of sets (and
+    # at least two), indexed by the top bits of each key.
+    bucket_bits = 1
+    while 2 << bucket_bits <= num_sets:
+        bucket_bits += 1
+    shift = np.uint64(64 - bucket_bits)
 
     # Count the sets in each bucket, and turn the counts into the start of each bucket.  The sets
-    # are the single primitive faults ``first``, or the pairs ``first < second``: for singles, the
-    # inner loop runs only for ``second == first``, and the key is the hash of ``first``.
-    starts = np.zeros((1 << bits) + 1, dtype=np.int64)
+    # are the single primitive faults ``first``, with the hash of ``first`` as their key, or the
+    # pairs ``first < second``, with the sum of their hashes as their key.  For single faults, the
+    # inner loop runs only for ``second == first``.
+    starts = np.zeros((1 << bucket_bits) + 1, dtype=np.int64)
     for first in range(num_primitives):
         for second in range(first + size - 1, num_primitives if size == 2 else first + 1):
             key = hashes[first] ^ hashes[second] if size == 2 else hashes[first]
             starts[np.int64(key >> shift) + 1] += 1
-    for bucket in range(1 << bits):
+    for bucket in range(1 << bucket_bits):
         starts[bucket + 1] += starts[bucket]
 
     # Fill the buckets in the order of the sets, which moves each start to the end of its bucket.
-    keys = np.empty(count, dtype=np.uint64)
-    members = np.empty((count, size), dtype=np.int32)
+    keys = np.empty(num_sets, dtype=np.uint64)
+    members = np.empty((num_sets, size), dtype=np.int32)
     for first in range(num_primitives):
         for second in range(first + size - 1, num_primitives if size == 2 else first + 1):
             key = hashes[first] ^ hashes[second] if size == 2 else hashes[first]
-            high_bits = np.int64(key >> shift)
-            slot = starts[high_bits]
-            starts[high_bits] = slot + 1
+            set_bucket = np.int64(key >> shift)
+            slot = starts[set_bucket]
+            starts[set_bucket] = slot + 1
             keys[slot] = key
             members[slot, 0] = first
             if size == 2:
                 members[slot, 1] = second
-    for bucket in range(1 << bits):
+    for bucket in range(1 << bucket_bits):
         start = starts[bucket - 1] if bucket else 0
         if starts[bucket] - start > 1:
             _sort_bucket(keys, members, start, starts[bucket])
     return keys, members
 
 
-def hash_words(words: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
+def _hash_words(words: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
     """Hash each row of words to 64 bits with a fixed random linear map.
 
     The hash of a sum of rows is the sum of their hashes.  Rows that differ can share a hash.
@@ -200,12 +203,12 @@ def hash_words(words: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
     return hashes
 
 
-def get_num_words(values: Collection[int]) -> int:
+def _get_num_words(values: Collection[int]) -> int:
     """The number of 64-bit words that hold each of these integers, at least one."""
     return max(1, (max((value.bit_length() for value in values), default=0) + 63) // 64)
 
 
-def to_words(values: Sequence[int], num_words: int) -> npt.NDArray[np.uint64]:
+def _to_words(values: Sequence[int], num_words: int) -> npt.NDArray[np.uint64]:
     """Split each integer into words, with word ``j`` holding bits ``64 j`` and up."""
     data = b"".join(value.to_bytes(8 * num_words, "little") for value in values)
     words = np.frombuffer(data, dtype="<u8").reshape(len(values), num_words)
@@ -218,9 +221,11 @@ def _sort_bucket(
 ) -> None:
     """Sort the entries from ``start`` to ``stop`` of a closing table stably by their keys.
 
-    A bucket is usually small or already sorted, and then it is sorted by insertion.  A larger
-    unsorted bucket is merge sorted instead, which takes memory in proportion to its size but avoids
-    the quadratic time of insertion.
+    A bucket usually holds few sets, or many sets with one hash (such as the pairs with equal
+    flags), which are in order unless another hash shares the bucket, and then it is sorted by
+    insertion.  A larger bucket that is out of order, which holds several hashes, is merge sorted
+    instead, which takes memory in proportion to its size but avoids the quadratic time of
+    insertion.
     """
     if stop - start > 32 and np.any(keys[start + 1 : stop] < keys[start : stop - 1]):
         order = start + np.argsort(keys[start:stop], kind="mergesort")
@@ -244,7 +249,7 @@ def _sort_bucket(
 
 
 @always_compiled
-def iter_batches(
+def _iter_irreducible_fault_batches(
     rows: npt.NDArray[np.uint64],
     num_flag_words: int,
     keys: npt.NDArray[np.uint64],
@@ -253,15 +258,14 @@ def iter_batches(
     css_weight: bool,
     batch_members: npt.NDArray[np.int64],
     batch_syndromes: npt.NDArray[np.uint64],
-    batch_positions: npt.NDArray[np.int64],
-) -> Iterator[tuple[int, int]]:
-    """List faults into batches, as ``FaultLister.find_first`` describes.
+) -> Iterator[int]:
+    """List irreducible accepted faults into batches, as ``FaultLister.find_first`` describes.
 
     The rows describe the primitive faults, as in ``FaultLister``, and the keys and members are a
-    table from ``get_closing_table``.  Each listed fault that is not left out gets a row of the
-    batch arrays: its primitive faults, its syndrome, and its position in the listing.  Yield the
-    number of faults in the batch and the number of faults listed so far each time that the batch is
-    full, and once at the end.  The caller must read a batch before resuming.
+    table from ``_get_closing_table``.  Each listed fault that is not left out gets a row of the
+    batch arrays: its primitive faults and its syndrome.  Yield the number of faults in the batch
+    each time that the batch is full, and once at the end.  The caller must read a batch before
+    resuming.
     """
     # Columns 0 and 1 of the rows hold the hashes of the flags and of the syndrome.
     num_primitives, num_words = rows.shape
@@ -284,8 +288,8 @@ def iter_batches(
     reduced = np.empty(num_flag_words, dtype=np.uint64)
 
     # A hash table of the syndromes in the batch, holding their rows or -1 in each slot.
-    slots = np.full(2 * len(batch_positions), -1, dtype=np.int64)
-    count = num_listed = 0
+    slots = np.full(2 * len(batch_members), -1, dtype=np.int64)
+    count = 0
 
     level = 0
     while level >= 0:
@@ -296,7 +300,7 @@ def iter_batches(
         candidates[level] = choice + 1
 
         # The choice must keep the flags of the chosen primitive faults independent.
-        pivot = reduce_flags(
+        pivot = _reduce_flags(
             rows[choice, flag_start:syndrome_start], basis[:level], pivots, reduced
         )
         if pivot < 0:
@@ -326,33 +330,31 @@ def iter_batches(
             if fault[flag_start:syndrome_start].any():
                 continue
             first_flags = rows[members[entry, 0], flag_start:syndrome_start]
-            if num_closing == 2 and reduce_flags(first_flags, basis, pivots, reduced) < 0:
+            if num_closing == 2 and _reduce_flags(first_flags, basis, pivots, reduced) < 0:
                 continue
-            num_listed += 1
 
             # The product of the representatives is an error with the fault's syndrome, so if its
             # Pauli weight is at most the fault weight, the fault satisfies the bound.  Otherwise
             # add the fault to the batch, unless an earlier fault in the batch has its syndrome.
-            weight = pauli_weight(fault[x_start:z_start], fault[z_start:], css_weight)
+            weight = _pauli_weight(fault[x_start:z_start], fault[z_start:], css_weight)
             if weight <= fault_weight:
                 continue
             batch_syndromes[count] = fault[syndrome_start:x_start]
-            if not add_syndrome(batch_syndromes, count, slots, fault[1]):
+            if not _add_syndrome(batch_syndromes, count, slots, fault[1]):
                 continue
             for index in range(depth):
                 batch_members[count, index] = candidates[index] - 1
             batch_members[count, depth:] = members[entry]
-            batch_positions[count] = num_listed - 1
             count += 1
-            if count == len(batch_positions):
-                yield count, num_listed
+            if count == len(batch_members):
+                yield count
                 count = 0
                 slots[:] = -1
-    yield count, num_listed
+    yield count
 
 
 @always_compiled
-def reduce_flags(
+def _reduce_flags(
     flags: npt.NDArray[np.uint64],
     basis: npt.NDArray[np.uint64],
     pivots: npt.NDArray[np.int64],
@@ -376,7 +378,7 @@ def reduce_flags(
 
 
 @always_compiled
-def pauli_weight(
+def _pauli_weight(
     x: npt.NDArray[np.uint64], z: npt.NDArray[np.uint64], css_weight: bool
 ) -> np.int64:
     """The Pauli weight of the error with these packed X and Z parts."""
@@ -389,7 +391,7 @@ def pauli_weight(
 
 
 @always_compiled
-def add_syndrome(
+def _add_syndrome(
     syndromes: npt.NDArray[np.uint64], row: int, slots: npt.NDArray[np.int64], hashed: np.uint64
 ) -> bool:
     """Add a row of syndromes to a hash table of the earlier rows, unless an equal row is there.

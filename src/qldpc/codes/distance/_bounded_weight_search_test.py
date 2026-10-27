@@ -18,21 +18,6 @@ from . import _bounded_weight_search
 from ._bounded_weight_search import PauliCosetSearch
 
 
-@pytest.fixture(params=[False, True], ids=["compiled", "python"])
-def kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Run the compiled search, or its Python version for coverage."""
-    if request.param:
-        for name in (
-            "_find_first_not_within",
-            "_search_coset",
-            "_visit_layer",
-            "_keep_lighter",
-            "_get_weight",
-        ):
-            function = getattr(_bounded_weight_search, name).py_func
-            monkeypatch.setattr(_bounded_weight_search, name, function)
-
-
 def _stabilizer_matrix(generators: Sequence[stim.PauliString]) -> npt.NDArray[np.uint8]:
     """Stabilizer matrix [X|Z] with the given Pauli strings as rows."""
     return np.array([np.concatenate(gg.to_numpy()) for gg in generators], dtype=np.uint8)
@@ -85,21 +70,21 @@ def _get_syndrome(matrix: npt.NDArray[np.uint8], pauli: int) -> int:
 
 
 def _syndrome_words(syndromes: Sequence[int], num_qubits: int) -> npt.NDArray[np.uint64]:
-    """Split packed syndromes into rows of words, with word ``j`` holding bits ``64 j`` and up."""
+    """Split packed syndromes into rows of 64-bit words, with word ``j`` in bits ``64 j`` and up."""
     width = (num_qubits + 63) // 64
     words = [[(syndrome >> (64 * jj)) % 2**64 for jj in range(width)] for syndrome in syndromes]
     return np.array(words, dtype=np.uint64).reshape(len(syndromes), width)
 
 
-def _find_each_not_within(
+def _find_each_not_within_max_weight(
     oracle: PauliCosetSearch, syndromes: npt.NDArray[np.uint64], max_weight: int
 ) -> list[int]:
-    """Find each syndrome whose class has no error within ``max_weight``, one search at a time."""
+    """Find each syndrome whose class has no error of weight at most ``max_weight``, in turn."""
     found: list[int] = []
-    index = oracle.find_first_not_within(syndromes, max_weight)
+    index = oracle.find_first_not_within_max_weight(syndromes, max_weight)
     while index < len(syndromes):
         found.append(index)
-        index += 1 + oracle.find_first_not_within(syndromes[index + 1 :], max_weight)
+        index += 1 + oracle.find_first_not_within_max_weight(syndromes[index + 1 :], max_weight)
     return found
 
 
@@ -153,12 +138,12 @@ def _block_minimum(
     return min(max(a, b) for a, b in totals)
 
 
-@pytest.mark.usefixtures("kernels")
+@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("css_weight", [False, True])
 def test_bounds_match_exhaustive_minima(css_weight: bool, pytestconfig: pytest.Config) -> None:
     """Bounds agree with exhaustive minima.
 
-    Each syndrome is queried at every threshold in random order.
+    Each syndrome is queried at every maximum weight in random order.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 7):
@@ -167,25 +152,27 @@ def test_bounds_match_exhaustive_minima(css_weight: bool, pytestconfig: pytest.C
         oracle = PauliCosetSearch(matrix, css_weight=css_weight)
         for syndrome in rng.permutation(1 << num_qubits).tolist():
             minimum = int(_class_weights(matrix, syndrome, css_weight).min())
-            for threshold in rng.permutation(num_qubits + 1).tolist():
-                bound = oracle.get_min_weight_bound(syndrome, threshold)
-                assert bound.within_max_weight == (minimum <= threshold)
+            for max_weight in rng.permutation(num_qubits + 1).tolist():
+                bound = oracle.get_min_weight_bound(syndrome, max_weight)
+                assert bound.within_max_weight == (minimum <= max_weight)
                 assert _get_syndrome(matrix, bound.representative) == syndrome
                 assert bound.lower_bound <= minimum
                 if bound.within_max_weight:
-                    assert _pauli_weight(bound.representative, num_qubits, css_weight) <= threshold
+                    assert _pauli_weight(bound.representative, num_qubits, css_weight) <= max_weight
                 else:
-                    assert bound.lower_bound > threshold
+                    assert bound.lower_bound > max_weight
 
 
-@pytest.mark.usefixtures("kernels")
+@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("css_weight", [False, True])
-def test_batches_find_each_class_beyond_the_threshold(
+def test_batches_find_each_class_above_max_weight(
     css_weight: bool, pytestconfig: pytest.Config
 ) -> None:
-    """Searching the rest of a batch after each class found finds exactly the classes beyond it.
+    """Repeated batch searches find exactly the classes of minimum weight above ``max_weight``.
 
-    Every syndrome, in random order, is checked at every threshold against exhaustive minima.
+    After each index that ``find_first_not_within_max_weight`` returns, it is called again on the
+    syndromes after that index.  Every syndrome, in random order, is checked at every maximum weight
+    against exhaustive minima.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 7):
@@ -194,9 +181,10 @@ def test_batches_find_each_class_beyond_the_threshold(
         oracle = PauliCosetSearch(matrix, css_weight=css_weight)
         syndromes = rng.permutation(1 << num_qubits).tolist()
         minima = np.array([_class_weights(matrix, ss, css_weight).min() for ss in syndromes])
-        for threshold in range(num_qubits + 2):
-            found = _find_each_not_within(oracle, _syndrome_words(syndromes, num_qubits), threshold)
-            assert found == np.flatnonzero(minima > threshold).tolist()
+        for max_weight in range(num_qubits + 2):
+            words = _syndrome_words(syndromes, num_qubits)
+            found = _find_each_not_within_max_weight(oracle, words, max_weight)
+            assert found == np.flatnonzero(minima > max_weight).tolist()
 
 
 @pytest.mark.parametrize("css_weight", [False, True])
@@ -221,9 +209,9 @@ def test_batches_read_syndromes_of_several_words(
         bits = [(syndromes[-1] >> jj) & 1 for jj in range(4 * num_blocks)]
         local = [bits[4 * index : 4 * index + 4] for index in range(num_blocks)]
         minima.append(_block_minimum(block, [ss for ss in local if any(ss)], css_weight))
-    for threshold in range(4):
-        found = _find_each_not_within(oracle, _syndrome_words(syndromes, 68), threshold)
-        assert found == np.flatnonzero(np.array(minima) > threshold).tolist()
+    for max_weight in range(4):
+        found = _find_each_not_within_max_weight(oracle, _syndrome_words(syndromes, 68), max_weight)
+        assert found == np.flatnonzero(np.array(minima) > max_weight).tolist()
 
 
 def test_css_weight_counts_the_larger_sector() -> None:
@@ -251,35 +239,24 @@ def test_css_weight_minimizes_both_sectors_jointly() -> None:
     assert oracle.get_min_weight_bound(15, 2).within_max_weight
 
 
-def test_syndrome_is_the_symplectic_product_with_each_stabilizer(
-    pytestconfig: pytest.Config,
-) -> None:
-    """Bit ``j`` of a syndrome says whether the Pauli anticommutes with stabilizer ``j``."""
-    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    matrix = _graph_state(5, [(0, 1), (1, 2), (2, 3), (3, 4)], phase=True)
-    oracle = PauliCosetSearch(matrix)
-    for pauli in rng.integers(1 << 10, size=16).tolist():
-        assert oracle._get_syndrome(pauli) == _get_syndrome(matrix, pauli)
+@pytest.mark.usefixtures("compilation_mode")
+def test_layers_reach_their_last_support() -> None:
+    """A layer visits every support, including the last one.
 
-
-@pytest.mark.usefixtures("kernels")
-def test_layers_reach_their_last_combination() -> None:
-    """A layer visits every combination of rows, including the last one.
-
-    The rows are unit words and the offset is the sum of the last ``depth`` rows, so that only the
-    last combination of layer ``depth`` gives the zero word.
+    The rows are unit words and the offset is the sum of the last ``layer`` rows, so that only the
+    last support of the layer gives the zero word.
     """
     for num_rows in range(1, 7):
         rows = (np.uint64(1) << np.arange(num_rows, dtype=np.uint64)).reshape(1, num_rows, 1)
-        for depth in range(1, num_rows + 1):
-            offset = np.bitwise_xor.reduce(rows[0, num_rows - depth :])
+        for layer in range(1, num_rows + 1):
+            offset = np.bitwise_xor.reduce(rows[0, num_rows - layer :])
             best = np.empty(1, dtype=np.uint64)
             weight = _bounded_weight_search._visit_layer(
                 offset,
                 rows,
                 np.ones(1, dtype=np.int64),
-                np.empty(depth, dtype=np.int64),
-                np.empty((depth, 1, 1), dtype=np.uint64),
+                np.empty(layer, dtype=np.int64),
+                np.empty((layer, 1, 1), dtype=np.uint64),
                 0,
                 best,
                 np.int64(num_rows),
@@ -300,7 +277,7 @@ def test_rank_deficient_information_sets_certify_less() -> None:
     assert PauliCosetSearch(matrix).get_min_weight_bound(44, 2).within_max_weight
 
 
-@pytest.mark.usefixtures("kernels")
+@pytest.mark.usefixtures("compilation_mode")
 def test_exhausted_search_gives_the_exact_minimum() -> None:
     """On |00000>, flipping every qubit has CSS weight five, which only exhaustion can prove."""
     zero_state = np.hstack([np.zeros((5, 5), dtype=np.uint8), np.eye(5, dtype=np.uint8)])
@@ -327,7 +304,7 @@ def test_wide_states_span_several_packed_words(css_weight: bool) -> None:
 
 @pytest.mark.parametrize("css_weight", [False, True])
 def test_bounds_match_per_block_minima(css_weight: bool, pytestconfig: pytest.Config) -> None:
-    """Five four-qubit GHZ blocks match per-block minima for every threshold up to five.
+    """Five four-qubit GHZ blocks match per-block minima for every maximum weight up to five.
 
     The stabilizers of these blocks have even weight, but their cosets can have odd weight.
     """
@@ -344,12 +321,12 @@ def test_bounds_match_per_block_minima(css_weight: bool, pytestconfig: pytest.Co
             for index in range(num_blocks)
         ]
         minimum = _block_minimum(block, local, css_weight)
-        for threshold in range(1, 6):
-            bound = oracle.get_min_weight_bound(syndrome, threshold)
-            assert bound.within_max_weight == (minimum <= threshold)
+        for max_weight in range(1, 6):
+            bound = oracle.get_min_weight_bound(syndrome, max_weight)
+            assert bound.within_max_weight == (minimum <= max_weight)
             assert bound.lower_bound <= minimum
             if not bound.within_max_weight:
-                assert bound.lower_bound > threshold
+                assert bound.lower_bound > max_weight
 
 
 def test_invalid_arguments_are_rejected() -> None:

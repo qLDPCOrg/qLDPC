@@ -49,7 +49,7 @@ From the top:
 4. `_binary.py`, the foundation.
 
 A module imports only modules of its own level or below, except that `_counting/scan.py` takes `DistanceMethod` from `core.py` for an annotation.
-`src/qldpc/codes/common.py`, `src/qldpc/circuits/benchmarking/fault_propagation.py` and `src/qldpc/circuits/benchmarking/_fault_enumeration.py`, and the deprecation registry in `src/qldpc/_deprecations/core.py` use private names of this package, so check them before you move or rename anything.
+Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py`, modules in `src/qldpc/circuits/benchmarking/`, and the deprecation registry in `src/qldpc/_deprecations/core.py`, use private names of this package, so grep `src/qldpc` for a private name before you move or rename it.
 
 ## Compiled code
 

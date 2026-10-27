@@ -7,6 +7,7 @@ from __future__ import annotations
 import functools
 import itertools
 import operator
+import tracemalloc
 from collections.abc import Collection, Sequence
 
 import numpy as np
@@ -21,8 +22,15 @@ from . import _fault_enumeration as enumeration
 def kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
     """Run the compiled listing, or its Python version for coverage."""
     if request.param:
-        names = ("iter_batches", "reduce_flags", "pauli_weight", "add_syndrome")
-        for name in (*names, "get_closing_table", "_sort_bucket"):
+        names = (
+            "_iter_irreducible_fault_batches",
+            "_reduce_flags",
+            "_pauli_weight",
+            "_add_syndrome",
+            "_get_closing_table",
+            "_sort_bucket",
+        )
+        for name in names:
             monkeypatch.setattr(enumeration, name, getattr(enumeration, name).py_func)
 
 
@@ -52,7 +60,7 @@ def _xor(values: Sequence[int], indices: Sequence[int]) -> int:
 
 def _check_faults(
     lister: enumeration.FaultLister, fault_weight: int, violating: Collection[int]
-) -> tuple[list[int], tuple[tuple[tuple[int, ...], int] | None, int]]:
+) -> tuple[list[int], tuple[tuple[int, ...], int] | None]:
     """List faults, with a search that checks each syndrome in order and stops at one of these.
 
     Return the checked syndromes, and the result of the listing.
@@ -83,15 +91,15 @@ def test_listing_matches_brute_force(
     """
     if collide:
         monkeypatch.setattr(
-            enumeration, "hash_words", lambda words: np.zeros(len(words), np.uint64)
+            enumeration, "_hash_words", lambda words: np.zeros(len(words), np.uint64)
         )
-    monkeypatch.setattr(enumeration, "BATCH_SIZE", 3)
+    monkeypatch.setattr(enumeration, "_BATCH_SIZE", 3)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     # The first flags make an accepted fault {0, 1, 2, 3} that contains the accepted fault {0, 2}.
     flag_sets = [[1, 2, 1, 2, 3, 3]]
     flag_sets += [list(rng.integers(1, 16, size=rng.integers(1, 10))) for _ in range(10)]
     for small_flags in flag_sets:
-        # Spread the four bits of the flags over three words.
+        # Spread the four bits of the flags over four words.
         flags = [
             sum(((int(ff) >> bit) & 1) << (70 * bit) for bit in range(4)) for ff in small_flags
         ]
@@ -107,13 +115,13 @@ def test_listing_matches_brute_force(
             for fault_weight in range(2, 6):
                 expected = _irreducible_faults(flags, fault_weight, num_starts)
                 checked, result = _check_faults(lister, fault_weight, ())
-                assert result == (None, len(expected))
+                assert result is None
                 assert checked == [_xor(syndromes, fault) for fault in expected]
                 if expected:
                     stop = int(rng.integers(len(expected)))
                     violation = (expected[stop], _xor(syndromes, expected[stop]))
                     _, result = _check_faults(lister, fault_weight, {violation[1]})
-                    assert result == (violation, stop + 1)
+                    assert result == violation
 
 
 @pytest.mark.usefixtures("kernels")
@@ -135,7 +143,7 @@ def test_closing_tables_sort_sets_stably_by_hash(size: int, pytestconfig: pytest
                 itertools.combinations(range(num_primitives), size),
                 key=lambda members: _xor(hashes.tolist(), members),
             )
-            keys, members = enumeration.get_closing_table(hashes, size)
+            keys, members = enumeration._get_closing_table(hashes, size)
             assert keys.tolist() == [_xor(hashes.tolist(), members) for members in sets]
             assert members.tolist() == [list(members) for members in sets]
 
@@ -144,10 +152,10 @@ def test_closing_tables_sort_sets_stably_by_hash(size: int, pytestconfig: pytest
 def test_repeated_syndromes_are_checked_once() -> None:
     """The faults {0, 1} and {0, 2} on |000> leave X on all qubits, so only the first is checked.
 
-    The fault {1, 2} leaves no error, so it is not checked either, but all three faults count.
+    The fault {1, 2} leaves no error, so it is not checked either.
     """
     lister = enumeration.FaultLister([1, 1, 1], [7, 0, 0], [7, 0, 0], 3, False, 3, 0)
-    assert _check_faults(lister, 2, ()) == ([7], (None, 3))
+    assert _check_faults(lister, 2, ()) == ([7], None)
 
 
 @pytest.mark.usefixtures("kernels")
@@ -198,6 +206,28 @@ def test_skipped_faults_satisfy_the_bound(css_weight: bool, pytestconfig: pytest
             _, result = _check_faults(lister, fault_weight, violating_syndromes)
             if violating:
                 first = violating[0]
-                assert result == ((faults[first], fault_syndromes[first]), first + 1)
+                assert result == (faults[first], fault_syndromes[first])
             else:
-                assert result == (None, len(faults))
+                assert result is None
+
+
+def test_pair_table_peak_memory_is_within_its_estimate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Building a table of pairs needs at most about ``_BYTES_PER_PAIR`` bytes for each pair.
+
+    The primitive faults have distinct random hashes, so no bucket of the table is merge sorted.
+
+    The table is built by the Python versions of its compiled functions, since only allocations by
+    Python are traced, and loading compiled code would add allocations of its own.
+    """
+    monkeypatch.setattr(enumeration, "_sort_bucket", enumeration._sort_bucket.py_func)
+    num_primitives = 200
+    hashes = np.random.default_rng(0).integers(2**64, size=num_primitives, dtype=np.uint64)
+    tracemalloc.start()
+    try:
+        enumeration._get_closing_table.py_func(hashes, 2)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    # Allow a few kilobytes that do not grow with the number of pairs.
+    num_pairs = num_primitives * (num_primitives - 1) // 2
+    assert peak <= num_pairs * enumeration._BYTES_PER_PAIR + 2**14
