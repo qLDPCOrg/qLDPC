@@ -1,15 +1,15 @@
 # Exact certification of bounded fault propagation in qLDPC
 
-## 1. Purpose and scope
+## Purpose and scope
 
 A noisy Clifford circuit that prepares a stabilizer state has bounded fault propagation if every fault leaves an output error equivalent to an error whose Pauli weight is at most its fault weight.
 With post-selection, only the faults that fire none of the post-selection detectors count.
 This guide explains why the certifier can decide this exactly, and how it searches for a violation.
 It is for contributors who need to understand or modify the certifier in this directory.
 
-## 2. Definitions
+## Definitions
 
-### 2.1 Faults, primitive faults, and acceptance
+### Faults, primitive faults, and acceptance
 
 An **error mechanism** is one error instruction of the circuit's detector error model (DEM).
 With `N` error mechanisms, numbered in DEM order, a **fault** is a vector `F` in `GF(2)^N`, whose entry `j` is 1 if error mechanism `j` occurs.
@@ -23,7 +23,7 @@ A fault `F` is **accepted**, or passes post-selection, if its flags are zero, `P
 So the accepted faults are exactly the codewords of the binary linear code with parity check matrix `P`.
 Without post-selection, `P` has no rows and every fault is accepted.
 
-### 2.2 Syndromes and Pauli weight
+### Syndromes and Pauli weight
 
 Let `n` be the number of output qubits, and let `g_1, ..., g_n` be `n`-qubit Pauli strings that generate the stabilizer group of the prepared state.
 The **syndrome** of a Pauli error is the binary vector whose entry `i` is 1 if the error anticommutes with `g_i`.
@@ -38,39 +38,39 @@ For a syndrome `s`, let `μ(s)` be the smallest Pauli weight of an error with sy
 A fault `F` **violates** the fault propagation bound if `μ(S F) > |F|`.
 Fault propagation is bounded up to fault weight `K`, the largest fault weight to certify (a positive integer, or ∞ for no limit), if no nonzero accepted fault of fault weight at most `K` violates the bound.
 
-## 3. Facts that the search relies on
+## Facts that the search relies on
 
-### 3.1 Pauli weight is subadditive
+### Pauli weight is subadditive
 
 The Pauli weight of a product of two errors is at most the sum of their Pauli weights, so `μ(s + t) ≤ μ(s) + μ(t)`.
 For physical weight, the product acts on no more qubits than the two errors together.
 For CSS weight, let `(a, b)` and `(c, d)` be the values of `(|x|, |z|)` of the two errors, so that the X and Z parts of the product have weights at most `a + c` and `b + d`, and `max(a + c, b + d) ≤ max(a, b) + max(c, d)`.
 So `μ(S F) ≤ Σ μ(s_j)` over the primitive faults `j` of `F`.
 
-### 3.2 A violating fault contains a heavy primitive fault
+### A violating fault contains a heavy primitive fault
 
 Call a primitive fault **heavy** if `μ(s_j) ≥ 2`.
-By [Section 3.1](#31-pauli-weight-is-subadditive), `μ(S F) ≤ |F|` if `F` contains no heavy primitive fault, since every term of the sum is then at most one.
+By [subadditivity](#pauli-weight-is-subadditive), `μ(S F) ≤ |F|` if `F` contains no heavy primitive fault, since every term of the sum is then at most one.
 So every fault `F` that violates the bound contains a heavy primitive fault.
 
-### 3.3 Irreducible accepted faults suffice
+### Irreducible accepted faults suffice
 
 An **irreducible accepted fault** is a nonzero accepted fault that contains no other nonzero accepted fault (a minimal codeword).
 A violating accepted fault `F` with the smallest fault weight is irreducible.
 Otherwise `F` contains another nonzero accepted fault `G`, and `F + G` is also a nonzero accepted fault, which contains exactly the primitive faults of `F` that `G` does not.
 So `|G| + |F + G| = |F|`, and by the choice of `F`, neither `G` nor `F + G` violates the bound.
-Then [Section 3.1](#31-pauli-weight-is-subadditive) gives `μ(S F) ≤ μ(S G) + μ(S (F + G)) ≤ |G| + |F + G| = |F|`, which contradicts that `F` violates the bound.
+Then [subadditivity](#pauli-weight-is-subadditive) gives `μ(S F) ≤ μ(S G) + μ(S (F + G)) ≤ |G| + |F + G| = |F|`, which contradicts that `F` violates the bound.
 So if some accepted fault of fault weight at most `K` violates the bound, so does an irreducible one, and it is enough to check those.
 
-### 3.4 Irreducible accepted faults have fault weight at most `rank(P) + 1`
+### Irreducible accepted faults have fault weight at most `rank(P) + 1`
 
 For a fault `F`, let `P[:, F]` be the columns of `P` for the primitive faults that `F` contains.
 The null vectors of `P[:, F]`, padded with zeros at the other error mechanisms, are the accepted faults that `F` contains, and the all-ones vector gives `F`.
 So a nonzero fault `F` is an irreducible accepted fault exactly when the all-ones vector spans the null space of `P[:, F]`.
 By rank-nullity, an irreducible accepted fault `F` has `|F| = rank(P[:, F]) + 1 ≤ rank(P) + 1`.
-So by [Section 3.3](#33-irreducible-accepted-faults-suffice), no fault of fault weight above `min(K, rank(P) + 1)` needs checking.
+So, since [irreducible accepted faults suffice](#irreducible-accepted-faults-suffice), no fault of fault weight above `min(K, rank(P) + 1)` needs checking.
 
-### 3.5 Duplicate and zero signatures can be dropped
+### Duplicate and zero signatures can be dropped
 
 The **signature** of a primitive fault is the pair of its flags and its syndrome.
 The flags and syndrome of a fault depend only on the signatures of its primitive faults, so primitive faults with the same signature are interchangeable.
@@ -78,16 +78,17 @@ Dropping a primitive fault with zero signature, or a pair with equal signatures,
 So a violating accepted fault with the smallest fault weight contains no such primitive faults, and it is enough to keep one primitive fault for each distinct nonzero signature.
 We call the primitive faults that remain the **kept primitive faults**.
 
-## 4. The search
+## The search
 
-### 4.1 Checking one fault
+### Checking one fault
 
 The search decides exactly whether `μ(S F) ≤ |F|` for a fault `F` with `PauliCosetSearch`, a minimum-weight oracle for the Pauli errors with a given syndrome.
+It skips the oracle when a product of low-weight errors with syndromes `s_j`, one for each primitive fault `j` of `F`, has Pauli weight at most `|F|`, since that product has syndrome `S F`.
 It uses the same oracle, with the threshold one, to decide whether a primitive fault is heavy.
 
-### 4.2 Listing each irreducible accepted fault once
+### Listing each irreducible accepted fault once
 
-In this section, every fault contains only kept primitive faults of [Section 3.5](#35-duplicate-and-zero-signatures-can-be-dropped).
+In this section, every fault contains only [kept primitive faults](#duplicate-and-zero-signatures-can-be-dropped).
 A primitive fault with zero flags is an irreducible accepted fault by itself, and no larger irreducible accepted fault contains one.
 Every other irreducible accepted fault has fault weight `m ≥ 2` and contains only primitive faults with nonzero flags.
 
@@ -95,10 +96,10 @@ Order the kept primitive faults that have nonzero flags, with the heavy ones fir
 Call a fault **independent** if the flags of its primitive faults are linearly independent, that is, if it contains no nonzero accepted fault.
 The **prefix** of `F` is the fault that contains `j_1, ..., j_{m-1}`, and its **closing** primitive fault is `j_m`.
 The prefix is independent because `F` is irreducible, and the closing primitive fault has flags equal to the sum of the prefix flags because `F` is accepted.
-Conversely, if `j_1 < ... < j_{m-1}` are independent and a later primitive fault `j_m` has flags equal to their sum, then the fault that contains these `m` primitive faults is accepted and its flags have rank `m - 1`, so it is irreducible by [Section 3.4](#34-irreducible-accepted-faults-have-fault-weight-at-most-rankp--1).
+Conversely, if `j_1 < ... < j_{m-1}` are independent and a later primitive fault `j_m` has flags equal to their sum, then the fault that contains these `m` primitive faults is accepted and its flags have rank `m - 1`, so it is [irreducible](#irreducible-accepted-faults-have-fault-weight-at-most-rankp--1).
 So the irreducible accepted faults of fault weight `m ≥ 2` correspond one to one to the independent prefixes with a later primitive fault of matching flags, since the closing primitive fault is the last one in the order.
 
-By [Section 3.2](#32-a-violating-fault-contains-a-heavy-primitive-fault), only a fault that contains a heavy primitive fault can violate the bound.
+Only a fault that [contains a heavy primitive fault](#a-violating-fault-contains-a-heavy-primitive-fault) can violate the bound.
 So the search builds only the prefixes that start with a heavy primitive fault.
 Since the heavy primitive faults come first, such a fault has a heavy `j_1`, so this lists each of them once and lists nothing else.
 
@@ -108,17 +109,17 @@ The search keeps a table of all pairs of these primitive faults indexed by the s
 For each choice of `j_1, ..., j_{m-2}`, the search looks up the pairs `j_{m-1} < j_m` that come after `j_{m-2}` and whose flags sum to the flags of `j_1, ..., j_{m-2}`, and keeps the pairs for which the prefix is independent.
 The table lookup lists the same faults in the same order as a loop over `j_{m-1}`.
 
-### 4.3 Why the first violation has the smallest fault weight
+### Why the first violation has the smallest fault weight
 
-The search checks the kept primitive faults with zero flags first, and then the faults of [Section 4.2](#42-listing-each-irreducible-accepted-fault-once) in order of fault weight 2, 3, and so on, up to `min(K, rank(P) + 1)`.
+The search checks the kept primitive faults with zero flags first, and then the [listed faults](#listing-each-irreducible-accepted-fault-once) in order of fault weight 2, 3, and so on, up to `min(K, rank(P) + 1)`.
 The search reports the first violation that it finds, which is a violating accepted fault because every fault that it checks is accepted.
 
 Suppose that some violating accepted fault of fault weight at most `K` exists, and take one with the smallest fault weight.
 
-1. It is irreducible, by [Section 3.3](#33-irreducible-accepted-faults-suffice).
-2. By [Section 3.5](#35-duplicate-and-zero-signatures-can-be-dropped), its primitive faults have distinct nonzero signatures, so replacing each by the kept primitive fault with the same signature gives a violating accepted fault of the same fault weight, which is irreducible by step 1 as well.
+1. It is [irreducible](#irreducible-accepted-faults-suffice).
+2. Its primitive faults have [distinct nonzero signatures](#duplicate-and-zero-signatures-can-be-dropped), so replacing each by the kept primitive fault with the same signature gives a violating accepted fault of the same fault weight, which is irreducible by step 1 as well.
 3. If it has fault weight one, it is a primitive fault with zero flags, and the search checks it first.
-   Otherwise, it contains a heavy primitive fault by [Section 3.2](#32-a-violating-fault-contains-a-heavy-primitive-fault) and has fault weight at most `rank(P) + 1` by [Section 3.4](#34-irreducible-accepted-faults-have-fault-weight-at-most-rankp--1) and at most `K` by assumption, so the search lists it.
+   Otherwise, it [contains a heavy primitive fault](#a-violating-fault-contains-a-heavy-primitive-fault), and it has [fault weight at most `rank(P) + 1`](#irreducible-accepted-faults-have-fault-weight-at-most-rankp--1) and at most `K` by assumption, so the search lists it.
 4. No accepted fault with a smaller fault weight violates the bound, so the search finds no violation at a smaller fault weight, and it finds one at this fault weight.
 
 So the reported fault has the smallest fault weight of any violating accepted fault.
