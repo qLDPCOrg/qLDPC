@@ -9,7 +9,7 @@ except in the coset search (see ``brouwer_zimmermann.md`` for the terminology). 
 how those basis families are built, pruned, and replaced by overlapping ones, and the certificate
 that bounds the Hamming weight of eligible words that a basis family has not yet visited.  The
 Pauli-coset oracle (``_bounded_weight_search.py``) uses the disjoint information sets for its own
-layered search.  The distance search and the oracle enumerate a layer with :func:`advance_support`.
+layered search.  All three enumerate a layer with :func:`advance_support`.
 
 A :class:`BasisFamily` stacks its information sets into arrays, so that one set of functions serves
 every caller, in the subset of Python that numba compiles, and some of them are compiled (see

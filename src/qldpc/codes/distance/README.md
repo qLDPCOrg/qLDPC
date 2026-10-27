@@ -21,7 +21,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 - **Certificate** (`Certificate`): a lower bound on the weight of the words that a search has not yet visited, which tells the search when it can stop.
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer.
   Counting scans in `_counting/scan.py`, and the distance search in `_brouwer_zimmermann.py`.
-  The distance search and `_bounded_weight_search.py` step through a layer with `advance_support` in `_information_sets.py`.
+  Both scans and `_bounded_weight_search.py` step through a layer with `advance_support` in `_information_sets.py`.
 
 ## Where to look
 
