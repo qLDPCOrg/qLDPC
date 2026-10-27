@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import ast
-import os
 import types
 from collections.abc import Iterator
 from pathlib import Path
@@ -90,16 +89,14 @@ def test_a_read_only_cache_directory_is_not_used(
     """Numba would move on to other cache locations, or fail if there were none."""
     (tmp_path / "source.py").write_text("one")
     monkeypatch.setattr(_compilation._numba_config, "CACHE_DIR", str(tmp_path / "numba"))
-    directory = tmp_path / "numba" / f"qldpc-{_compilation._get_source_hash(tmp_path)}"
-    directory.mkdir(parents=True)
-    directory.chmod(0o500)
-    try:
-        if os.access(directory, os.W_OK):
-            pytest.skip("this system does not enforce read-only directories")
-        with pytest.warns(RuntimeWarning, match="cannot be written"):
-            assert _compilation._get_cache_directory(tmp_path) is None
-    finally:
-        directory.chmod(0o700)
+
+    # The directory exists, but the system refuses to create files in it.
+    def refuse(*args: Any, **kwargs: Any) -> None:
+        raise PermissionError("read-only")
+
+    monkeypatch.setattr(_compilation.tempfile, "TemporaryFile", refuse)
+    with pytest.warns(RuntimeWarning, match="cannot be written"):
+        assert _compilation._get_cache_directory(tmp_path) is None
 
 
 def test_functions_are_not_cached_without_a_cache_directory(
@@ -187,6 +184,23 @@ def test_always_compiled_functions_use_nothing_from_outside_their_package() -> N
                     if isinstance(node, ast.Name)
                 }
                 assert not names & outside, f"{path.name}: {function.name} uses {names & outside}"
+
+
+def test_names_imported_from_outside_the_package_are_found() -> None:
+    """Absolute imports of qLDPC, and relative imports that climb above the package, are outside."""
+    tree = ast.parse(
+        "import numpy as np\n"
+        "import qldpc.cache\n"
+        "from qldpc.math import first\n"
+        "from ...objects import second\n"
+        "from .. import third\n"
+        "from . import fourth\n"
+    )
+    package = Path(_compilation.__file__).parent
+    in_subpackage = _get_names_imported_from_outside_the_package(package / "_counting/x.py", tree)
+    assert in_subpackage == {"qldpc", "first", "second"}
+    at_the_top = _get_names_imported_from_outside_the_package(package / "x.py", tree)
+    assert at_the_top == {"qldpc", "first", "second", "third"}
 
 
 _CALLEE = """
