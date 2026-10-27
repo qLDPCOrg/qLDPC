@@ -42,20 +42,6 @@ def _smallest_violation(
     return None
 
 
-def _irreducible_faults(flags: Sequence[int], max_weight: int) -> list[tuple[int, ...]]:
-    """Irreducible accepted faults of fault weight at most ``max_weight``, as tuples of indices."""
-    accepted: list[int] = []
-    faults = []
-    for fault_weight in range(1, max_weight + 1):
-        for indices in itertools.combinations(range(len(flags)), fault_weight):
-            if functools.reduce(operator.xor, (flags[jj] for jj in indices)) == 0:
-                word = sum(1 << jj for jj in indices)
-                if not any(previous & word == previous for previous in accepted):
-                    faults.append(indices)
-                accepted.append(word)
-    return faults
-
-
 def _certify_map_with_count(
     flags: Sequence[int], syndromes: Sequence[int], max_weight: int | None, num_qubits: int
 ) -> tuple[circuits.BoundedFaultPropagationCounterexample | None, int]:
@@ -271,42 +257,21 @@ def test_zero_and_repeated_signatures_are_not_searched_and_the_fault_weight_is_l
         assert num_checked == (0 if max_weight == 2 else 1)
 
 
-def test_irreducible_faults_match_exhaustive_enumeration(pytestconfig: pytest.Config) -> None:
-    """The prefix search yields every irreducible accepted fault of a given fault weight, once.
+def test_syndrome_repeated_at_a_larger_fault_weight_on_a_ghz_state() -> None:
+    """Accepted faults whose errors are equivalent to lighter errors on a GHZ state certify.
 
-    It yields the faults whose first primitive fault is among the first ``num_starts``, in the same
-    order with or without a table of pairs.
+    The accepted faults {1, 4}, {0, 1, 2}, {0, 1, 3}, {0, 2, 4}, and {0, 3, 4} leave errors with
+    syndromes 1, 0, 6, 1, and 7, and each of these syndromes has an error of Pauli weight at most
+    one.
     """
-    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    for num_primitives in range(1, 10):
-        for flag_bits in range(1, 5):
-            flags = list(map(int, rng.integers(1, 1 << flag_bits, size=num_primitives)))
-            syndromes = list(map(int, rng.integers(16, size=num_primitives)))
-            dem_indices = list(map(int, rng.permutation(np.arange(num_primitives) * 7 + 100)))
-            primitives = list(zip(flags, syndromes, dem_indices, strict=True))
-            pairs = fault_propagation._get_pair_table(flags, 2**20)
-            faults = _irreducible_faults(flags, 5)
-            for num_starts in (num_primitives, num_primitives // 2, 0):
-                for fault_weight in range(2, 6):
-                    expected = {
-                        tuple(dem_indices[jj] for jj in indices): functools.reduce(
-                            operator.xor, (syndromes[jj] for jj in indices)
-                        )
-                        for indices in faults
-                        if len(indices) == fault_weight and indices[0] < num_starts
-                    }
-                    found = list(
-                        fault_propagation._iter_irreducible_faults(
-                            primitives, fault_weight, num_starts
-                        )
-                    )
-                    assert len(found) == len(expected)
-                    assert dict(found) == expected
-                    assert found == list(
-                        fault_propagation._iter_irreducible_faults(
-                            primitives, fault_weight, num_starts, pairs
-                        )
-                    )
+    stabilizers = [stim.PauliString(gg) for gg in ("XXXX", "ZZ__", "_ZZ_", "__ZZ")]
+    for syndrome in (1, 6, 7):
+        assert _true_minimum(stabilizers, [(syndrome >> jj) & 1 for jj in range(4)], False) == 1
+    matrix = np.array([np.concatenate(ss.to_numpy()) for ss in stabilizers], dtype=np.uint8)
+    failure, num_checked = fault_propagation._certify_maps(
+        [1, 3, 2, 2, 3], [9, 14, 7, 1, 15], matrix, False, None
+    )
+    assert failure is None and num_checked == 5
 
 
 @pytest.mark.parametrize("css_weight", [True, False])
@@ -681,24 +646,6 @@ def test_invalid_max_weight_is_rejected(max_weight: int) -> None:
         circuit, output_qubits=[0], max_weight=cast(int, np.int64(2))
     )
     assert result.max_weight == 2 and type(result.max_weight) is int
-
-
-def test_pair_table_compares_flags_when_hashes_collide(pytestconfig: pytest.Config) -> None:
-    """Pairs that share a hash but not a flag sum are not mistaken for closing pairs."""
-    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    for _ in range(20):
-        flags = list(map(int, rng.integers(1, 16, size=8)))
-        primitives = [(flag, 0, index) for index, flag in enumerate(flags)]
-        pairs = fault_propagation._get_pair_table(flags, 2**20)
-        assert pairs is not None
-        # Make every hash zero, so that every lookup returns every pair.
-        pairs._images = [0] * len(pairs._images)
-        pairs.hashes[:] = 0
-        pairs._keys[:] = 0
-        for fault_weight in (4, 5):
-            found = fault_propagation._iter_irreducible_faults(primitives, fault_weight, 8, pairs)
-            expected = [ff for ff in _irreducible_faults(flags, 5) if len(ff) == fault_weight]
-            assert sorted(sorted(indices) for indices, _ in found) == sorted(map(list, expected))
 
 
 def test_memory_limit_does_not_change_results(pytestconfig: pytest.Config) -> None:

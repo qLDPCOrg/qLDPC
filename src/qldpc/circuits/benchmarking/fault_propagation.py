@@ -5,8 +5,7 @@
 from __future__ import annotations
 
 import numbers
-from bisect import bisect_right
-from collections.abc import Collection, Iterator, Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -21,10 +20,8 @@ from qldpc.codes.distance._bounded_weight_search import MinWeightBound, PauliCos
 from ..bookkeeping import DetectorRecord
 from ..common import get_pauli_product_measurements
 from ..encoding import get_state_stabilizers
+from ._fault_enumeration import FaultLister
 from .state_prep_diagnostics import _get_flag_detectors, _get_selected_detectors
-
-# The peak number of bytes per pair of primitive faults while building a table of pairs.
-_BYTES_PER_PAIR = 32
 
 ####################################################################################################
 # bounded fault propagation certification
@@ -282,34 +279,56 @@ def _search_irreducible_faults(
     # one, and light otherwise.  A fault that contains only light primitive faults cannot violate
     # the bound.  Order the primitive faults with the heavy ones first, and each group in DEM order,
     # so that the faults to check are the ones that start with a heavy primitive fault.
-    heavy: list[tuple[int, int, int]] = []
-    light: list[tuple[int, int, int]] = []
-    for primitive in flagged:
-        within_one = oracle.get_min_weight_bound(primitive[1], 1).within_max_weight
-        (light if within_one else heavy).append(primitive)
+    heavy: list[tuple[int, int, int, int]] = []
+    light: list[tuple[int, int, int, int]] = []
+    for flag, syndrome, index in flagged:
+        bound = oracle.get_min_weight_bound(syndrome, 1)
+        primitive = (flag, syndrome, index, bound.representative)
+        (light if bound.within_max_weight else heavy).append(primitive)
 
-    # Check the faults by increasing fault weight.  A syndrome that satisfies the bound at some
-    # fault weight satisfies it at every larger fault weight, so it is not checked again.  Faults of
-    # fault weight four or more are closed with a table of pairs of primitive faults, if it fits.
+    # Each primitive fault also gets an equivalent error, which should have a low Pauli weight, so
+    # that the search can skip more faults.  A light primitive fault has one of Pauli weight at most
+    # one.  A heavy primitive fault whose syndrome is the sum of those of two light primitive faults
+    # gets the product of their errors, which has Pauli weight at most two.
+    light_errors = {syndrome: error for _, syndrome, _, error in light}
+    for jj, (flag, syndrome, index, _) in enumerate(heavy):
+        for other, error in light_errors.items():
+            if syndrome ^ other in light_errors:
+                heavy[jj] = (flag, syndrome, index, error ^ light_errors[syndrome ^ other])
+                break
     primitives = heavy + light
+    lister = FaultLister(
+        [flag for flag, _, _, _ in primitives],
+        [syndrome for _, syndrome, _, _ in primitives],
+        [representative for _, _, _, representative in primitives],
+        oracle.num_qubits,
+        oracle.css_weight,
+        len(heavy),
+        memory_limit // 2,
+    )
+
+    # A syndrome that satisfies the bound at some fault weight satisfies it at every larger fault
+    # weight, so it is not checked again.
     satisfied: set[int] = set()
     # A Python set uses roughly this many bytes for each syndrome of this many bits.
     max_satisfied = memory_limit // 4 // (64 + oracle.num_qubits // 4)
-    pairs = None
+
+    def check(
+        ordinals: tuple[int, ...], syndrome: int
+    ) -> BoundedFaultPropagationCounterexample | None:
+        if syndrome in satisfied:
+            return None
+        failure = _check_fault(tuple(primitives[jj][2] for jj in ordinals), syndrome, oracle)
+        if failure is None and len(satisfied) < max_satisfied:
+            satisfied.add(syndrome)
+        return failure
+
+    # Check the faults by increasing fault weight.
     for fault_weight in range(2, budget + 1):
-        if fault_weight == 4:
-            pairs = _get_pair_table([flag for flag, _, _ in primitives], memory_limit // 2)
-        for indices, syndrome in _iter_irreducible_faults(
-            primitives, fault_weight, len(heavy), pairs
-        ):
-            num_faults_checked += 1
-            if syndrome in satisfied:
-                continue
-            failure = _check_fault(indices, syndrome, oracle)
-            if failure is not None:
-                return failure, num_faults_checked
-            if len(satisfied) < max_satisfied:
-                satisfied.add(syndrome)
+        failure, num_listed = lister.find_first(fault_weight, check)
+        num_faults_checked += num_listed
+        if failure is not None:
+            return failure, num_faults_checked
     return None, num_faults_checked
 
 
@@ -335,184 +354,6 @@ def _get_counterexample(
         bound.lower_bound,
         pauli,
     )
-
-
-def _iter_irreducible_faults(
-    primitives: Sequence[tuple[int, int, int]],
-    fault_weight: int,
-    num_starts: int,
-    pairs: _PairTable | None = None,
-) -> Iterator[tuple[tuple[int, ...], int]]:
-    """Yield each irreducible accepted fault of a given fault weight, with its syndrome.
-
-    The primitive faults are (flags, syndrome, DEM index) tuples in search order.  A fault is built
-    as a prefix of ``fault_weight - 1`` primitive faults with independent flags, closed by a later
-    primitive fault whose flags equal the prefix's flag sum.  Only faults whose first primitive
-    fault is among the first ``num_starts`` are yielded, each as the tuple of its DEM indices.
-
-    With a table of pairs, which must be built from the same primitive faults, the last primitive
-    fault of the prefix and the closing primitive fault are found together, as a pair whose flag sum
-    is that of the rest of the prefix.  The faults are yielded in the same order either way.
-    """
-    # The positions in ``primitives`` of the primitive faults with each flag value, in order.
-    by_flag: dict[int, list[int]] = {}
-    for ordinal, (flag, _, _) in enumerate(primitives):
-        by_flag.setdefault(flag, []).append(ordinal)
-    close_with_pairs = pairs is not None and fault_weight >= 4
-
-    def reduce(flag: int, basis: tuple[int, ...]) -> int:
-        # Reduce the flags by the prefix's reduced flags, as in ``_get_binary_rank``.  The result is
-        # zero exactly when the flags are a sum of some of the prefix's flags.  Then every fault
-        # that contains the prefix and this primitive fault contains a smaller accepted fault, so it
-        # is not irreducible.
-        for row in basis:
-            flag = min(flag, flag ^ row)
-        return flag
-
-    def close_with_pair(
-        indices: tuple[int, ...],
-        start: int,
-        flag: int,
-        syndrome: int,
-        basis: tuple[int, ...],
-    ) -> Iterator[tuple[tuple[int, ...], int]]:
-        # Choose the next primitive fault from position ``start`` on.  A pair then completes the
-        # fault: the last primitive fault of the prefix and the closing primitive fault.  The flags
-        # of the pair must sum to ``flag`` plus the flags of the next primitive fault.  The hash is
-        # linear, so one lookup finds the pairs for every choice of the next primitive fault.
-        assert pairs is not None
-        lows, highs = pairs.find(pairs.hashes[start:] ^ np.uint64(pairs.hash(flag)))
-
-        # Try only the choices that have some pair with a matching hash.
-        for offset in np.flatnonzero(highs > lows).tolist():
-            ordinal = start + offset
-            next_flag, next_syndrome, index = primitives[ordinal]
-
-            # As in ``extend``, the next primitive fault must keep the prefix independent.
-            reduced = reduce(next_flag, basis)
-            if not reduced:
-                continue
-            new_flag = flag ^ next_flag
-            new_basis = tuple(sorted((*basis, reduced), reverse=True))
-
-            # Keep the pairs that come after the next primitive fault, whose flags sum to exactly
-            # ``new_flag`` (different flag sums can share a hash), and whose first primitive fault
-            # keeps the prefix independent.
-            for last, closing in pairs.get_pairs(lows[offset], highs[offset], ordinal + 1):
-                last_flag, last_syndrome, last_index = primitives[last]
-                closing_flag, closing_syndrome, closing_index = primitives[closing]
-                if last_flag ^ closing_flag == new_flag and reduce(last_flag, new_basis):
-                    yield (
-                        indices + (index, last_index, closing_index),
-                        syndrome ^ next_syndrome ^ last_syndrome ^ closing_syndrome,
-                    )
-
-    def extend(
-        indices: tuple[int, ...],
-        start: int,
-        flag: int,
-        syndrome: int,
-        basis: tuple[int, ...],
-    ) -> Iterator[tuple[tuple[int, ...], int]]:
-        if close_with_pairs and len(indices) == fault_weight - 3:
-            yield from close_with_pair(indices, start, flag, syndrome, basis)
-            return
-
-        # Try each primitive fault from position ``start`` on as the next one of the prefix.  If it
-        # completes the prefix, look up the closing primitive faults by their flags before the
-        # costlier independence test.
-        completes_prefix = len(indices) == fault_weight - 2
-        stop = len(primitives) if indices else num_starts
-        for ordinal in range(start, stop):
-            next_flag, next_syndrome, index = primitives[ordinal]
-            new_flag = flag ^ next_flag
-            closing = by_flag.get(new_flag, []) if completes_prefix else []
-            if completes_prefix and (not closing or closing[-1] <= ordinal):
-                continue
-            reduced = reduce(next_flag, basis)
-            if not reduced:
-                continue
-
-            if completes_prefix:
-                for later in closing[bisect_right(closing, ordinal) :]:
-                    _, closing_syndrome, closing_index = primitives[later]
-                    yield (
-                        indices + (index, closing_index),
-                        syndrome ^ next_syndrome ^ closing_syndrome,
-                    )
-            else:
-                yield from extend(
-                    indices + (index,),
-                    ordinal + 1,
-                    new_flag,
-                    syndrome ^ next_syndrome,
-                    tuple(sorted((*basis, reduced), reverse=True)),
-                )
-
-    yield from extend((), 0, 0, 0, ())
-
-
-class _PairTable:
-    """The pairs of primitive faults, sorted by a 64-bit hash of their flag sums.
-
-    The hash is a random linear map of the flags, so the hash of a flag sum is the sum of the hashes
-    of its terms.  Pairs whose flag sums differ can share a hash, so callers must compare the flags
-    of the pairs that they look up.
-    """
-
-    def __init__(self, flags: Sequence[int]) -> None:
-        width = max(flag.bit_length() for flag in flags)
-        self._images = (
-            np.random.default_rng(0).integers(2**64, size=width, dtype=np.uint64).tolist()
-        )
-        self.hashes = np.array([self.hash(flag) for flag in flags], dtype=np.uint64)
-
-        # List the pairs (first, second) with first < second, in this order, and sort them stably by
-        # hash, so that the pairs with each hash stay in order.
-        num = len(flags)
-        first = np.repeat(np.arange(num, dtype=np.int32), np.arange(num - 1, -1, -1))
-        second = np.concatenate(
-            [np.arange(ordinal + 1, num, dtype=np.int32) for ordinal in range(num)]
-        )
-        keys = self.hashes[first] ^ self.hashes[second]
-        order = np.argsort(keys, kind="stable")
-        self._keys = keys[order]
-        del keys
-        self._first = first[order]
-        del first
-        self._second = second[order]
-
-    def hash(self, flag: int) -> int:
-        """Hash flags to 64 bits."""
-        value = 0
-        for bit, image in enumerate(self._images):
-            if flag >> bit & 1:
-                value ^= image
-        return value
-
-    def find(
-        self, keys: npt.NDArray[np.uint64]
-    ) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]:
-        """Find the range of positions of the pairs with each hash."""
-        return np.searchsorted(self._keys, keys, "left"), np.searchsorted(self._keys, keys, "right")
-
-    def get_pairs(self, low: int, high: int, start: int) -> Iterator[tuple[int, int]]:
-        """Yield the pairs in a range of positions, skipping those that start before ``start``.
-
-        A pair starts at its first primitive fault.  The pairs come in the order of the first
-        primitive fault, and then of the second.
-        """
-        for first, second in zip(self._first[low:high].tolist(), self._second[low:high].tolist()):
-            if first >= start:
-                yield first, second
-
-
-def _get_pair_table(flags: Sequence[int], memory_limit: int) -> _PairTable | None:
-    """Build a table of the pairs of these flags if it fits within the memory limit."""
-    num_pairs = len(flags) * (len(flags) - 1) // 2
-    if num_pairs * _BYTES_PER_PAIR > memory_limit:
-        return None
-    return _PairTable(flags)
 
 
 def _get_binary_rank(columns: Sequence[int]) -> int:
