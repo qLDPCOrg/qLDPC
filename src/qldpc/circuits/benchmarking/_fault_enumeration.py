@@ -13,8 +13,9 @@ import numpy.typing as npt
 from qldpc._compilation import always_compiled
 from qldpc.codes.distance._binary import popcount_word, trailing_zeros_word
 
-# The peak number of bytes per pair of primitive faults while building a table of pairs.
-BYTES_PER_PAIR = 32
+# The peak number of bytes per pair of primitive faults while building a table of pairs: the hash
+# and the two primitive faults of each pair, and at most one bucket count per pair.
+BYTES_PER_PAIR = 24
 
 # The largest number of faults in a batch of the compiled listing.
 BATCH_SIZE = 2**12
@@ -135,6 +136,7 @@ class FaultLister:
         return get_closing_table(self._rows[:, 0], 2)
 
 
+@always_compiled
 def get_closing_table(
     hashes: npt.NDArray[np.uint64], size: int
 ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32]]:
@@ -142,16 +144,45 @@ def get_closing_table(
 
     The sets are listed in lexicographic order and sorted stably, so the sets with each hash stay in
     that order.  Return the sorted hashes and the sets.
+
+    The sort is a counting sort into buckets by the high bits of the hash, with about one bucket per
+    set, which keeps the sets of each bucket in order, followed by a stable sort of each bucket.
     """
     num_primitives = len(hashes)
-    if size == 1:
-        members = np.arange(num_primitives, dtype=np.int32)[:, None]
-    else:
-        members = np.empty((num_primitives * (num_primitives - 1) // 2, 2), dtype=np.int32)
-        members[:, 0], members[:, 1] = np.triu_indices(num_primitives, 1)
-    keys = np.bitwise_xor.reduce(hashes[members], axis=1)
-    order = np.argsort(keys, kind="stable")
-    return keys[order], members[order]
+    count = num_primitives if size == 1 else num_primitives * (num_primitives - 1) // 2
+    bits = 1
+    while 2 << bits <= count:
+        bits += 1
+    shift = np.uint64(64 - bits)
+
+    # Count the sets in each bucket, and turn the counts into the start of each bucket.  The sets
+    # are the single primitive faults ``first``, or the pairs ``first < second``.
+    starts = np.zeros((1 << bits) + 1, dtype=np.int64)
+    for first in range(num_primitives):
+        for second in range(first + size - 1, num_primitives if size == 2 else first + 1):
+            key = hashes[first] ^ hashes[second] if size == 2 else hashes[first]
+            starts[np.int64(key >> shift) + 1] += 1
+    for bucket in range(1 << bits):
+        starts[bucket + 1] += starts[bucket]
+
+    # Fill the buckets in the order of the sets, which moves each start to the end of its bucket.
+    keys = np.empty(count, dtype=np.uint64)
+    members = np.empty((count, size), dtype=np.int32)
+    for first in range(num_primitives):
+        for second in range(first + size - 1, num_primitives if size == 2 else first + 1):
+            key = hashes[first] ^ hashes[second] if size == 2 else hashes[first]
+            high_bits = np.int64(key >> shift)
+            slot = starts[high_bits]
+            starts[high_bits] = slot + 1
+            keys[slot] = key
+            members[slot, 0] = first
+            if size == 2:
+                members[slot, 1] = second
+    for bucket in range(1 << bits):
+        start = starts[bucket - 1] if bucket else 0
+        if starts[bucket] - start > 1:
+            _sort_bucket(keys, members, start, starts[bucket])
+    return keys, members
 
 
 def hash_words(words: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
@@ -177,6 +208,33 @@ def to_words(values: Sequence[int], num_words: int) -> npt.NDArray[np.uint64]:
     data = b"".join(value.to_bytes(8 * num_words, "little") for value in values)
     words = np.frombuffer(data, dtype="<u8").reshape(len(values), num_words)
     return words.astype(np.uint64)
+
+
+@always_compiled
+def _sort_bucket(
+    keys: npt.NDArray[np.uint64], members: npt.NDArray[np.int32], start: int, stop: int
+) -> None:
+    """Sort the entries from ``start`` to ``stop`` of a closing table stably by their keys.
+
+    A bucket is usually small or already sorted, and then it is sorted by insertion.  A larger
+    unsorted bucket is merge sorted instead, which takes memory in proportion to its size but avoids
+    the quadratic time of insertion.
+    """
+    if stop - start > 32 and np.any(keys[start + 1 : stop] < keys[start : stop - 1]):
+        order = start + np.argsort(keys[start:stop], kind="mergesort")
+        keys[start:stop] = keys[order]
+        members[start:stop] = members[order]
+        return
+    for entry in range(start + 1, stop):
+        slot = entry
+        while slot > start and keys[slot - 1] > keys[slot]:
+            keys[slot - 1], keys[slot] = keys[slot], keys[slot - 1]
+            for column in range(members.shape[1]):
+                members[slot - 1, column], members[slot, column] = (
+                    members[slot, column],
+                    members[slot - 1, column],
+                )
+            slot -= 1
 
 
 ####################################################################################################

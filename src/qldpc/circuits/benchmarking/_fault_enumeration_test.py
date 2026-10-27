@@ -21,7 +21,8 @@ from . import _fault_enumeration as enumeration
 def kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
     """Run the compiled listing, or its Python version for coverage."""
     if request.param:
-        for name in ("iter_batches", "reduce_flags", "pauli_weight", "add_syndrome"):
+        names = ("iter_batches", "reduce_flags", "pauli_weight", "add_syndrome")
+        for name in (*names, "get_closing_table", "_sort_bucket"):
             monkeypatch.setattr(enumeration, name, getattr(enumeration, name).py_func)
 
 
@@ -113,6 +114,30 @@ def test_listing_matches_brute_force(
                     violation = (expected[stop], _xor(syndromes, expected[stop]))
                     _, result = _check_faults(lister, fault_weight, {violation[1]})
                     assert result == (violation, stop + 1)
+
+
+@pytest.mark.usefixtures("kernels")
+@pytest.mark.parametrize("size", [1, 2])
+def test_closing_tables_sort_sets_stably_by_hash(size: int, pytestconfig: pytest.Config) -> None:
+    """A table lists the sets in lexicographic order, sorted stably by hash, as Python sorts them.
+
+    The hashes are random, drawn from a few values so that many sets share a hash, or small so that
+    the sets with different hashes share their high bits.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for num_primitives in (0, 1, 2, 5, 40):
+        for hashes in (
+            rng.integers(2**64, size=num_primitives, dtype=np.uint64),
+            rng.integers(2**64, size=4, dtype=np.uint64)[rng.integers(4, size=num_primitives)],
+            rng.integers(2**8, size=num_primitives, dtype=np.uint64),
+        ):
+            sets = sorted(
+                itertools.combinations(range(num_primitives), size),
+                key=lambda members: _xor(hashes.tolist(), members),
+            )
+            keys, members = enumeration.get_closing_table(hashes, size)
+            assert keys.tolist() == [_xor(hashes.tolist(), members) for members in sets]
+            assert members.tolist() == [list(members) for members in sets]
 
 
 @pytest.mark.usefixtures("kernels")
