@@ -13,6 +13,7 @@ import numpy.typing as npt
 
 from qldpc._compilation import always_compiled
 from qldpc.codes.distance._binary import popcount_word, trailing_zeros_word
+from qldpc.codes.distance._bounded_weight_search import PauliCosetSearch
 
 # The peak number of bytes per pair of primitive faults while building a table of pairs.
 BYTES_PER_PAIR = 32
@@ -44,8 +45,7 @@ class FaultLister:
         syndromes: The syndrome of each primitive fault, packed into an integer.
         representatives: For each primitive fault, an error with its syndrome, packed as in
             ``PauliCosetSearch``.  Lighter errors let ``find_first`` skip more faults.
-        num_qubits: The number of output qubits.
-        css_weight: Whether the Pauli weight is the CSS weight, or else the physical weight.
+        oracle: The minimum-weight oracle for the output state, with its choice of Pauli weight.
         num_starts: The number of primitive faults that a listed fault can start with.
         memory_limit: The approximate number of bytes for a table of pairs of primitive faults.
     """
@@ -55,8 +55,7 @@ class FaultLister:
         flags: Sequence[int],
         syndromes: Sequence[int],
         representatives: Sequence[int],
-        num_qubits: int,
-        css_weight: bool,
+        oracle: PauliCosetSearch,
         num_starts: int,
         memory_limit: int,
     ) -> None:
@@ -65,10 +64,10 @@ class FaultLister:
         # linear, so the row of a fault is the sum of the rows of its primitive faults.
         flag_words = to_words(flags, get_num_words(flags))
         syndrome_words = to_words(syndromes, get_num_words(syndromes))
-        mask = (1 << num_qubits) - 1
+        mask = (1 << oracle.num_qubits) - 1
         num_qubit_words = get_num_words([mask])
         x_parts = [representative & mask for representative in representatives]
-        z_parts = [representative >> num_qubits for representative in representatives]
+        z_parts = [representative >> oracle.num_qubits for representative in representatives]
         self._rows = np.hstack(
             [
                 hash_words(flag_words)[:, None],
@@ -81,7 +80,7 @@ class FaultLister:
         )
         self._num_flag_words = flag_words.shape[1]
         self._num_syndrome_words = syndrome_words.shape[1]
-        self._css_weight = css_weight
+        self._oracle = oracle
         self._num_starts = num_starts
         self._memory_limit = memory_limit
         self._singles = get_closing_table(self._rows[:, 0], 1)
@@ -94,8 +93,10 @@ class FaultLister:
         The check gets the positions of the primitive faults of a fault and the fault's syndrome,
         and returns None if the fault satisfies the bound.  Its result must depend only on the
         syndrome, so a fault is not checked if an earlier fault in the same batch has its syndrome.
-        Nor is a fault checked if the product of the representatives of its primitive faults has
-        Pauli weight at most its fault weight, since then it satisfies the bound.
+        Nor is a fault checked if an error with its syndrome has Pauli weight at most its fault
+        weight, since then it satisfies the bound.  Such an error is the product of the
+        representatives of its primitive faults, or one that ``quick_within_max_weight`` of the
+        oracle finds.
 
         Returns:
             The first result that is not None, or None if there is none, and the number of faults
@@ -113,18 +114,20 @@ class FaultLister:
             keys,
             members,
             self._num_starts,
-            self._css_weight,
+            self._oracle.css_weight,
             batch_members,
             batch_syndromes,
             batch_positions,
         ):
             count, num_listed = batch
-            faults = batch_members[:count].tolist()
+            within = self._oracle.quick_within_max_weight(batch_syndromes[:count], fault_weight)
+            unresolved = np.flatnonzero(~within)
+            faults = batch_members[unresolved].tolist()
             syndromes = [
                 int.from_bytes(row.tobytes(), "little")
-                for row in batch_syndromes[:count].astype("<u8")
+                for row in batch_syndromes[unresolved].astype("<u8")
             ]
-            positions = batch_positions[:count].tolist()
+            positions = batch_positions[unresolved].tolist()
             for fault, syndrome, position in zip(faults, syndromes, positions, strict=True):
                 result = check(tuple(fault), syndrome)
                 if result is not None:

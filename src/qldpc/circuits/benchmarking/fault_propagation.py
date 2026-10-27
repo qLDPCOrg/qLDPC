@@ -242,10 +242,10 @@ def _certify_maps(
     flag_rank = _get_binary_rank([flag for flag, _ in signatures])
     budget = flag_rank + 1 if max_weight is None else min(max_weight, flag_rank + 1)
 
-    # The oracle may use a quarter of the memory limit.  The search may use half for the table of
-    # pairs of primitive faults, and a quarter for the syndromes that satisfy the bound.
+    # The oracle may use half of the memory limit, and the search the other half for the table of
+    # pairs of primitive faults.
     oracle = PauliCosetSearch(
-        stabilizers, css_weight=css_weight, memory_limit=max(1, memory_limit // 4)
+        stabilizers, css_weight=css_weight, memory_limit=max(1, memory_limit // 2)
     )
     return _search_irreducible_faults(signatures, budget, oracle, memory_limit)
 
@@ -301,27 +301,15 @@ def _search_irreducible_faults(
         [flag for flag, _, _, _ in primitives],
         [syndrome for _, syndrome, _, _ in primitives],
         [representative for _, _, _, representative in primitives],
-        oracle.num_qubits,
-        oracle.css_weight,
+        oracle,
         len(heavy),
         memory_limit // 2,
     )
 
-    # A syndrome that satisfies the bound at some fault weight satisfies it at every larger fault
-    # weight, so it is not checked again.
-    satisfied: set[int] = set()
-    # A Python set uses roughly this many bytes for each syndrome of this many bits.
-    max_satisfied = memory_limit // 4 // (64 + oracle.num_qubits // 4)
-
     def check(
         positions: tuple[int, ...], syndrome: int
     ) -> BoundedFaultPropagationCounterexample | None:
-        if syndrome in satisfied:
-            return None
-        failure = _check_fault(tuple(primitives[jj][2] for jj in positions), syndrome, oracle)
-        if failure is None and len(satisfied) < max_satisfied:
-            satisfied.add(syndrome)
-        return failure
+        return _check_fault(tuple(primitives[jj][2] for jj in positions), syndrome, oracle)
 
     # Check the faults by increasing fault weight.
     for fault_weight in range(2, budget + 1):

@@ -15,7 +15,17 @@ import stim
 
 from qldpc import math
 
-from ._bounded_weight_search import PauliCosetSearch, _iter_fixed_weight_supports
+from . import _bounded_weight_search
+from ._bounded_weight_search import QUICK_DEPTH, PauliCosetSearch, _iter_fixed_weight_supports
+
+
+@pytest.fixture(params=[False, True], ids=["compiled", "python"])
+def quick_kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run the compiled quick search, or its Python version for coverage."""
+    if request.param:
+        for name in ("_quick_search", "_search_layer", "_has_light_sum"):
+            function = getattr(_bounded_weight_search, name).py_func
+            monkeypatch.setattr(_bounded_weight_search, name, function)
 
 
 def _stabilizer_matrix(generators: Sequence[stim.PauliString]) -> npt.NDArray[np.uint8]:
@@ -67,6 +77,13 @@ def _get_syndrome(matrix: npt.NDArray[np.uint8], pauli: int) -> int:
     bits = np.array([(pauli >> jj) & 1 for jj in range(matrix.shape[1])])
     products = matrix @ math.symplectic_conjugate(bits) % 2
     return sum(int(bit) << jj for jj, bit in enumerate(products))
+
+
+def _syndrome_words(syndromes: Sequence[int], num_qubits: int) -> npt.NDArray[np.uint64]:
+    """Split packed syndromes into rows of words, with word ``j`` holding bits ``64 j`` and up."""
+    width = (num_qubits + 63) // 64
+    words = [[(syndrome >> (64 * jj)) % 2**64 for jj in range(width)] for syndrome in syndromes]
+    return np.array(words, dtype=np.uint64).reshape(len(syndromes), width)
 
 
 def _block_generators(block: Sequence[str], num_blocks: int) -> list[stim.PauliString]:
@@ -174,6 +191,59 @@ def test_bounds_match_exhaustive_minima(
                     assert _pauli_weight(bound.representative, num_qubits, css_weight) <= threshold
                 else:
                     assert bound.lower_bound > threshold
+
+
+@pytest.mark.usefixtures("quick_kernels")
+@pytest.mark.parametrize("css_weight", [False, True])
+def test_quick_search_finds_only_light_errors(
+    css_weight: bool, pytestconfig: pytest.Config
+) -> None:
+    """The quick search finds an error within the threshold only if there is one.
+
+    It also finds one whenever there is one and the threshold is at most half of its depth.  Every
+    syndrome is checked at every threshold against exhaustive minima.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for num_qubits in range(1, 7):
+        edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
+        matrix = _graph_state(num_qubits, edges, phase=num_qubits % 2 == 0)
+        oracle = PauliCosetSearch(matrix, css_weight=css_weight)
+        syndromes = range(1 << num_qubits)
+        minima = np.array([_class_weights(matrix, ss, css_weight).min() for ss in syndromes])
+        for threshold in range(num_qubits + 2):
+            within = oracle.quick_within_max_weight(_syndrome_words(syndromes, 1), threshold)
+            assert not np.any(within & (minima > threshold))
+            if 2 * threshold <= QUICK_DEPTH:
+                assert np.array_equal(within, minima <= threshold)
+
+
+@pytest.mark.parametrize("css_weight", [False, True])
+def test_quick_search_reads_syndromes_of_several_words(
+    css_weight: bool, pytestconfig: pytest.Config
+) -> None:
+    """On 17 four-qubit GHZ blocks, quick answers agree with per-block minima.
+
+    The 68 syndrome bits span two words.  Each error acts on at most three random qubits, and blocks
+    that it does not touch add nothing to its minimum weight.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    block, num_blocks = ("XXXX", "ZZ__", "_ZZ_", "__ZZ"), 17
+    generators = _block_generators(block, num_blocks)
+    oracle = PauliCosetSearch(_stabilizer_matrix(generators), css_weight=css_weight)
+    syndromes, minima = [], []
+    for _ in range(30):
+        error = stim.PauliString(4 * num_blocks)
+        for qubit in rng.choice(4 * num_blocks, size=rng.integers(1, 4), replace=False):
+            error[int(qubit)] = int(rng.integers(1, 4))
+        syndromes.append(sum((not error.commutes(gg)) << jj for jj, gg in enumerate(generators)))
+        bits = [(syndromes[-1] >> jj) & 1 for jj in range(4 * num_blocks)]
+        local = [bits[4 * index : 4 * index + 4] for index in range(num_blocks)]
+        minima.append(_block_minimum(block, [ss for ss in local if any(ss)], css_weight))
+    for threshold in range(4):
+        within = oracle.quick_within_max_weight(_syndrome_words(syndromes, 68), threshold)
+        assert not np.any(within & (np.array(minima) > threshold))
+        if 2 * threshold <= QUICK_DEPTH:
+            assert np.array_equal(within, np.array(minima) <= threshold)
 
 
 def test_css_weight_counts_the_larger_sector() -> None:

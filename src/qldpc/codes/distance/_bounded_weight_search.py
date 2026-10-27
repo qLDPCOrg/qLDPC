@@ -15,15 +15,21 @@ import numpy as np
 import numpy.typing as npt
 
 from qldpc import math
+from qldpc._compilation import always_compiled
 
 from . import _information_sets
 from ._binary import (
     as_binary_matrix,
     assert_binary,
     pack_bits,
+    popcount_word,
     row_reduce_binary,
     symplectic_to_hamming,
+    trailing_zeros_word,
 )
+
+# The deepest layer that ``PauliCosetSearch.quick_within_max_weight`` visits.
+QUICK_DEPTH = 3
 
 ####################################################################################################
 # Pauli-coset minimum-weight bounds
@@ -152,6 +158,33 @@ class PauliCosetSearch:
         if max_weight < 2:
             return MinWeightBound(False, self._representative(syndrome), 2)
         return self._search(syndrome, max_weight)
+
+    def quick_within_max_weight(
+        self, syndromes: npt.NDArray[np.uint64], max_weight: int
+    ) -> npt.NDArray[np.bool_]:
+        """Look quickly for errors of weight at most ``max_weight`` with each of many syndromes.
+
+        This visits the first layers of the search of ``get_min_weight_bound``, up to depth
+        ``QUICK_DEPTH``, in compiled code.  An error of weight ``w`` lies within depth ``2 w`` of a
+        full-rank information set, so this finds an error if ``2 * max_weight <= QUICK_DEPTH`` and
+        there is one, and often finds one for larger thresholds.
+
+        Args:
+            syndromes: One packed syndrome (see ``PauliCosetSearch``) per row, split into 64-bit
+                words, with word ``j`` holding bits ``64 j`` and up.
+            max_weight: The weight threshold.
+
+        Returns:
+            For each syndrome, True if the search found an error of weight at most ``max_weight``
+            with that syndrome.  False means only that it found none, and ``get_min_weight_bound``
+            decides.
+        """
+        # An error has CSS weight at most ``max_weight`` if its X and Z parts each have at most that
+        # many ones.  Its embedded word for physical weight has two ones on each qubit that it acts
+        # on, so the error has physical weight at most ``max_weight`` if the whole word has at most
+        # twice that many ones.
+        limit = max_weight if self.css_weight else 2 * max_weight
+        return _quick_search(syndromes, *self._quick_tables, limit, QUICK_DEPTH)
 
     def _search(self, syndrome: int, max_weight: int) -> MinWeightBound:
         """Search a syndrome class with no error of weight at most one.
@@ -302,6 +335,148 @@ class PauliCosetSearch:
         """The certificate for the information sets, prepared on first use."""
         ranks = tuple(len(pivots) for *_, pivots in self._bases)
         return _information_sets.Certificate(self.num_qubits, ranks)
+
+    @functools.cached_property
+    def _quick_tables(
+        self,
+    ) -> tuple[
+        npt.NDArray[np.uint64],
+        npt.NDArray[np.uint64],
+        npt.NDArray[np.int64],
+        npt.NDArray[np.uint64],
+    ]:
+        """The tables of ``_quick_search``, prepared on first use.
+
+        They are the embedded rows of the inverse, the packed generators and the pivots of the
+        information sets, and the sector masks.  They take about as much memory as the bases, which
+        the memory limit leaves out because they are small beside the layers.
+        """
+        width = self._bases[0][0].shape[1]
+        inverse = np.array([_int_to_words(self._embed(row), width) for row in self._inverse])
+        generators = np.array([packed for packed, *_ in self._bases])
+        pivots = np.full(generators.shape[:2], -1, dtype=np.int64)
+        for index, (*_, set_pivots) in enumerate(self._bases):
+            pivots[index, : len(set_pivots)] = set_pivots
+        if self.css_weight:
+            masks = np.array(self._sector_masks)
+        else:
+            masks = np.full((1, width), np.iinfo(np.uint64).max, dtype=np.uint64)
+        return inverse, generators, pivots, masks
+
+
+####################################################################################################
+# compiled quick search
+
+
+@always_compiled
+def _quick_search(
+    syndromes: npt.NDArray[np.uint64],
+    inverse: npt.NDArray[np.uint64],
+    generators: npt.NDArray[np.uint64],
+    pivots: npt.NDArray[np.int64],
+    sector_masks: npt.NDArray[np.uint64],
+    limit: int,
+    max_depth: int,
+) -> npt.NDArray[np.bool_]:
+    """Visit the layers up to ``max_depth`` of the search of each syndrome class, as in ``_search``.
+
+    Row ``j`` of the inverse is the embedded word of an error whose syndrome has only bit ``j`` set,
+    and the generators and the pivots, padded with -1, describe the information sets.  A word is
+    light if each sector mask selects at most ``limit`` of its ones.  Return for each syndrome
+    whether the search found a light word.
+    """
+    num_sets, _, width = generators.shape
+    found = np.zeros(len(syndromes), dtype=np.bool_)
+    zero = np.zeros(width, dtype=np.uint64)
+    error = np.empty(width, dtype=np.uint64)
+    offsets = np.empty((num_sets, width), dtype=np.uint64)
+    sums = np.empty((max_depth, width), dtype=np.uint64)
+    nexts = np.empty(max_depth, dtype=np.int64)
+    for index in range(len(syndromes)):
+        # Add the rows of the inverse for the set bits of the syndrome, to get the embedded word of
+        # an error with it, and reduce that word on each information set, as ``_get_offsets`` does.
+        error[:] = 0
+        for syndrome_word in range(syndromes.shape[1]):
+            bits = syndromes[index, syndrome_word]
+            while bits:
+                bit = 64 * syndrome_word + trailing_zeros_word(bits)
+                for word in range(width):
+                    error[word] ^= inverse[bit, word]
+                bits &= bits - np.uint64(1)
+        for basis in range(num_sets):
+            offsets[basis] = error
+            for row, pivot in enumerate(pivots[basis]):
+                if pivot < 0:
+                    break
+                if offsets[basis, pivot // 64] >> np.uint64(pivot % 64) & np.uint64(1):
+                    for word in range(width):
+                        offsets[basis, word] ^= generators[basis, row, word]
+
+        # Layer zero holds the offsets, and the deeper layers add rows of an information set.
+        found[index] = _has_light_sum(zero, offsets, 0, sector_masks, limit)
+        for depth in range(1, max_depth + 1):
+            for basis in range(num_sets):
+                found[index] = found[index] or _search_layer(
+                    offsets[basis], generators[basis], depth, sector_masks, limit, sums, nexts
+                )
+    return found
+
+
+@always_compiled
+def _search_layer(
+    offset: npt.NDArray[np.uint64],
+    rows: npt.NDArray[np.uint64],
+    depth: int,
+    sector_masks: npt.NDArray[np.uint64],
+    limit: int,
+    sums: npt.NDArray[np.uint64],
+    nexts: npt.NDArray[np.int64],
+) -> bool:
+    """Whether the offset plus some ``depth`` rows, at least one, is light, as in ``_quick_search``.
+
+    The sums and nexts are work space with at least ``depth`` rows.  Row ``level`` of ``sums`` is
+    the offset plus the first ``level`` rows chosen, and ``nexts`` holds the next row to choose at
+    each level, one past the current choice.
+    """
+    sums[0] = offset
+    nexts[0] = 0
+    level = 0
+    while level >= 0:
+        if level == depth - 1:
+            if _has_light_sum(sums[level], rows, nexts[level], sector_masks, limit):
+                return True
+            level -= 1
+        elif nexts[level] > len(rows) - depth + level:
+            level -= 1
+        else:
+            row = nexts[level]
+            nexts[level] = row + 1
+            for word in range(len(offset)):
+                sums[level + 1, word] = sums[level, word] ^ rows[row, word]
+            level += 1
+            nexts[level] = row + 1
+    return False
+
+
+@always_compiled
+def _has_light_sum(
+    base: npt.NDArray[np.uint64],
+    rows: npt.NDArray[np.uint64],
+    start: int,
+    sector_masks: npt.NDArray[np.uint64],
+    limit: int,
+) -> bool:
+    """Whether the base plus one of the rows from ``start`` on is light, as in ``_quick_search``."""
+    for row in range(start, len(rows)):
+        heaviest = np.int64(0)
+        for sector in range(len(sector_masks)):
+            ones = np.int64(0)
+            for word in range(len(base)):
+                ones += popcount_word((base[word] ^ rows[row, word]) & sector_masks[sector, word])
+            heaviest = max(heaviest, ones)
+        if heaviest <= limit:
+            return True
+    return False
 
 
 ####################################################################################################
