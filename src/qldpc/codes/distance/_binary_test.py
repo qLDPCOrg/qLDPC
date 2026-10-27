@@ -186,7 +186,7 @@ def test_word_lowering(name: str) -> None:
 def binary_kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
     """Run the compiled packing and row-reduction kernels, or their Python versions for coverage."""
     if request.param:
-        for name in ("pack_bits", "_unpack_bits", "_row_reduce_packed"):
+        for name in ("pack_bits", "_unpack_bits", "row_reduce_packed"):
             monkeypatch.setattr(binary, name, getattr(binary, name).py_func)
 
 

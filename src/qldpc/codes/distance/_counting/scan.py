@@ -3,10 +3,10 @@
 """The scan of the words of one weight in a sector: its set-up, its loop, and its native chunks.
 
 A sector is a basis whose quotient labels mark its nontrivial words.  ``count_words`` selects
-information sets for the basis, with the stages of ``_information_sets.py``, packs them, and visits
-each word of the given weight once, by enumerating combinations of the rows of every set, layer by
-layer.  ``logical_counts.py`` calls it.  Section 3 of ``brouwer_zimmermann.md`` describes the
-algorithm, and Section 5 states the counting requirement.
+information sets for the basis, with the basis family stages of ``_information_sets.py``, packs
+them, and visits each word of the given weight once, by enumerating
+combinations of the rows of every set, layer by layer.  ``logical_counts.py`` calls it.  Section 3
+of ``brouwer_zimmermann.md`` describes the algorithm, and Section 5 states the counting requirement.
 """
 
 from __future__ import annotations
@@ -17,16 +17,13 @@ import numpy as np
 import numpy.typing as npt
 
 from .. import _information_sets
-from .._binary import pack_bits, popcount_word, row_reduce_binary
+from .._binary import pack_bits, popcount_word, row_reduce_packed
 from .._compilation import always_compiled
 from ..core import DistanceMethod
 from . import local_cliffords
 
 _BinaryMatrix = npt.NDArray[np.uint8]
 _PackedMatrix = npt.NDArray[np.uint64]
-
-# The basis of a homogeneous sector, and its quotient labels.
-_Sector = tuple[_BinaryMatrix, _BinaryMatrix]
 
 # Coefficient combinations visited per native call, which bounds the time between interruptions.
 _CHUNK_SIZE = 1 << 16
@@ -46,7 +43,7 @@ def count_words(
     complement: bool,
     max_exponent: int,
     reject_lighter: bool,
-    get_disjoint: Callable[[], _information_sets.BasisFamily],
+    get_disjoint_basis_family: Callable[[], _information_sets.BasisFamily],
     max_sets: int,
 ) -> npt.NDArray[np.int64] | None:
     """Visit each nontrivial word of one sector with the given weight exactly once.
@@ -58,34 +55,32 @@ def count_words(
     finds a nontrivial one.
     """
     # Select the information sets, or scan the whole basis as one set for brute force.
-    certificate: _information_sets.Certificate | None
     if method == "brute_force":
-        sets, certificate = [(basis, labels)], None
+        rows, packed_labels = pack_bits(basis)[np.newaxis], pack_bits(labels)[np.newaxis]
+        extractors = np.zeros((1, 0, rows.shape[2]), dtype=np.uint64)
+        last_layer = len(basis)
     else:
-        sets, certificate = _get_counting_information_sets(
-            basis, labels, weight, get_disjoint(), max_sets
+        rows, packed_labels, extractors, last_layer = _prepare_scan(
+            basis,
+            labels,
+            weight,
+            get_disjoint_basis_family(),
+            max_sets,
+            _information_sets.MINIMUM_WORK,
+            _information_sets.get_capped_binomials(len(basis)),
+            np.random.default_rng(0),
         )
 
-    # Pack the sets for the native scan.
-    rows = [pack_bits(generators) for generators, _ in sets]
-    tags = [pack_bits(set_labels) for _, set_labels in sets]
-    # Ownership compares sets, so a single set needs no coefficient extractor.
-    extractors = (
-        np.stack([_get_coefficient_extractor(generators) for generators, _ in sets])
-        if len(sets) > 1
-        else np.zeros((1, 0, rows[0].shape[1]), dtype=np.uint64)
-    )
-
-    # Scan the sets layer by layer, until the certificate rules out unvisited words of the weight.
+    # Scan the sets layer by layer, through the last layer that can hold unvisited words.
     histogram = np.zeros(max_exponent + 1, dtype=np.int64)
-    for layer in range(1, len(basis) + 1):
-        for index in range(len(sets)):
+    for layer in range(1, last_layer + 1):
+        for index in range(len(rows)):
             support = np.zeros(layer, dtype=np.int64)
             depth = 0
             while depth >= 0:
                 depth, lighter = _count_chunk(
                     rows[index],
-                    tags[index],
+                    packed_labels[index],
                     extractors,
                     index,
                     support,
@@ -100,9 +95,6 @@ def count_words(
                 )
                 if lighter:
                     return None
-        # Equality would still allow unvisited words of the target weight.
-        if certificate is not None and certificate.lower_bound(layer) > weight:
-            break
     return histogram
 
 
@@ -112,64 +104,132 @@ def transport_basis_family(
     local: npt.NDArray[np.uint64],
     basis: _BinaryMatrix,
 ) -> _information_sets.BasisFamily | None:
-    """The family of a sector after a local gate, or None if one of its sets stops being a set.
+    """The basis family of a sector after a local gate, or None if one of its sets stops being one.
 
     Each set is mapped through the gate and reduced again on its own pivot columns, so the pivots
     stay disjoint and the labels move with their rows.  A set stops being one if its pivot columns
     are no longer independent.
     """
-    sets = []
-    for information_set in basis_family.information_sets:
-        generators = local_cliffords.apply_local(information_set.generators, positions, local)
-        reduced, labels, pivots = row_reduce_binary(
-            generators, information_set.labels, columns=information_set.pivots
-        )
-        if len(pivots) != information_set.rank:
-            return None
-        sets.append(_information_sets.InformationSet(reduced, labels, len(pivots), pivots))
-    return _information_sets.BasisFamily.from_information_sets(
-        sets,
-        dimension=basis_family.certificate.dimension,
+    moved, generators, labels = _transport_sets(
+        basis_family.generators,
+        basis_family.labels,
+        basis_family.pivots,
+        basis_family.ranks,
+        positions,
+        local,
+    )
+    if not moved:
+        return None
+    return basis_family._replace(
+        generators=generators,
+        labels=labels,
         weight_divisor=_information_sets.infer_weight_divisor(basis),
     )
 
 
-def _get_counting_information_sets(
+def _prepare_scan(
     basis: _BinaryMatrix,
     labels: _BinaryMatrix,
     weight: int,
-    disjoint: _information_sets.BasisFamily,
+    basis_family: _information_sets.BasisFamily,
     max_sets: int,
-) -> tuple[list[_Sector], _information_sets.Certificate]:
-    """Select BZ information sets that certify every word of the given weight.
+    minimum_work: int,
+    binomials: npt.NDArray[np.int64],
+    rng: np.random.Generator,
+) -> tuple[_PackedMatrix, _PackedMatrix, _PackedMatrix, int]:
+    """Select BZ information sets that certify every word of the given weight, and pack them.
 
-    Returns the sets and the certificate that bounds the weight of unvisited words after each layer.
-    The family stages aim at the counting stop ``L(t) >= weight + 1``; any family gives an exact
-    count.
+    The basis family stages aim at the counting stop ``L(t) >= weight + 1``; any basis family gives
+    an exact count.  Returns the packed rows and labels of the sets, their coefficient extractors
+    (which are empty for a single set, since ownership compares sets), and the last layer to scan,
+    which is the first one after which the certificate rules out unvisited words of the weight.
     """
-    basis_family = _information_sets.prepare_family(
-        basis, labels, upper_bound=weight + 1, disjoint=disjoint, max_sets=max_sets
+    dimension = basis.shape[0]
+    upper_bound = weight + 1
+    sets = _information_sets.prune_family(basis_family, upper_bound)
+    replacement = _information_sets.get_overlapping_family(
+        basis, labels, sets, upper_bound, max_sets, minimum_work, binomials, rng
     )
-    sets = []
-    for information_set in basis_family.information_sets:
-        assert information_set.labels is not None
-        sets.append((information_set.generators, information_set.labels))
-    return sets, basis_family.certificate
+    if len(replacement.ranks) > 0:
+        sets = replacement
+
+    num_sets = len(sets.ranks)
+    width = (basis.shape[1] + 63) // 64
+    rows = np.empty((num_sets, dimension, width), dtype=np.uint64)
+    packed_labels = np.empty((num_sets, dimension, (labels.shape[1] + 63) // 64), dtype=np.uint64)
+    for index in range(num_sets):
+        rows[index] = pack_bits(sets.generators[index])
+        packed_labels[index] = pack_bits(sets.labels[index])
+
+    bounds = _information_sets.get_certificate_lower_bounds(
+        dimension, sets.ranks, sets.weight_divisor, sets.max_coverage
+    )
+    last_layer = dimension
+    for layer in range(1, dimension + 1):
+        # Equality would still allow unvisited words of the target weight.
+        if bounds[layer] > weight:
+            last_layer = layer
+            break
+    return rows, packed_labels, _get_coefficient_extractors(sets, width), last_layer
 
 
-def _get_coefficient_extractor(generators: _BinaryMatrix) -> _PackedMatrix:
-    """Packed rows ``E.T`` such that ``generators @ E`` is the identity over GF(2).
+def _get_coefficient_extractors(
+    basis_family: _information_sets.BasisFamily, width: int
+) -> _PackedMatrix:
+    """Packed rows ``E.T`` for each set such that ``generators @ E`` is the identity over GF(2).
 
     Bit ``b`` of the coefficient vector of a word ``w`` is then the parity of ``w & E.T[b]``.
     """
-    # Row reduction finds T with T @ generators = R, where R is the identity on its pivot columns P,
-    # so that w[P] @ T recovers the coefficients of w.
-    size = len(generators)
-    _, transform, pivots = row_reduce_binary(generators, np.eye(size, dtype=np.uint8))
-    assert transform is not None
-    extractor = np.zeros((generators.shape[1], size), dtype=np.uint8)
-    extractor[pivots] = transform
-    return pack_bits(extractor.T)
+    num_sets, dimension, num_columns = basis_family.generators.shape
+    if num_sets == 1:
+        return np.zeros((1, 0, width), dtype=np.uint64)
+
+    extractors = np.empty((num_sets, dimension, width), dtype=np.uint64)
+    for index in range(num_sets):
+        if basis_family.ranks[index] == dimension:
+            # A full set is the identity on its pivot columns, which hold its coefficients.
+            one_hot = np.zeros(dimension * num_columns, dtype=np.uint8)
+            one_hot[np.arange(dimension) * num_columns + basis_family.pivots[index]] = 1
+            extractors[index] = pack_bits(one_hot.reshape(dimension, num_columns))
+            continue
+
+        # Row reduction finds T with T @ generators = R, where R is the identity on its pivot
+        # columns P, so that w[P] @ T recovers the coefficients of w.
+        identity = np.eye(dimension, dtype=np.uint8)
+        _, transform, pivots = row_reduce_packed(
+            basis_family.generators[index], identity, np.arange(num_columns)
+        )
+        extractor = np.zeros((dimension, num_columns), dtype=np.uint8)
+        for row in range(len(pivots)):
+            extractor[:, pivots[row]] = transform[row]
+        extractors[index] = pack_bits(extractor)
+    return extractors
+
+
+def _transport_sets(
+    generators: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8],
+    pivots: npt.NDArray[np.int64],
+    ranks: npt.NDArray[np.int64],
+    positions: npt.NDArray[np.int64],
+    local: npt.NDArray[np.uint64],
+) -> tuple[bool, npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
+    """Map every set through a local gate, and reduce it again on its own pivot columns.
+
+    Returns whether every set kept its rank, and the generators and labels of the sets.
+    """
+    moved_generators = np.empty_like(generators)
+    moved_labels = np.empty_like(labels)
+    for index in range(len(ranks)):
+        moved = local_cliffords.apply_local(generators[index], positions, local)
+        reduced, reduced_labels, new_pivots = row_reduce_packed(
+            moved, labels[index], pivots[index, : ranks[index]]
+        )
+        if len(new_pivots) != ranks[index]:
+            return False, moved_generators, moved_labels
+        moved_generators[index] = reduced
+        moved_labels[index] = reduced_labels
+    return True, moved_generators, moved_labels
 
 
 ####################################################################################################

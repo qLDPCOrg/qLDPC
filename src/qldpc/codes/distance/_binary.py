@@ -90,7 +90,7 @@ def row_reduce_binary(
     if len(columns) and (columns.min() < 0 or columns.max() >= width):
         raise IndexError("Row-reduction columns are out of range")
     tags = np.empty((len(matrix), 0), dtype=np.uint8) if labels is None else labels
-    reduced, reduced_tags, pivots = _row_reduce_packed(matrix, tags, columns.astype(np.int64))
+    reduced, reduced_tags, pivots = row_reduce_packed(matrix, tags, columns.astype(np.int64))
     return reduced, None if labels is None else reduced_tags, pivots.astype(int)
 
 
@@ -279,21 +279,16 @@ def pack_bits(matrix: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint64]:
 
 
 @always_compiled
-def _unpack_bits(packed: npt.NDArray[np.uint64], width: int) -> npt.NDArray[np.uint8]:
-    """Inverse of ``pack_bits`` for rows with ``width`` columns."""
-    matrix = np.empty((len(packed), width), dtype=np.uint8)
-    one = np.uint64(1)
-    for row in range(len(packed)):
-        for column in range(width):
-            matrix[row, column] = (packed[row, column // 64] >> np.uint64(column % 64)) & one
-    return matrix
-
-
-@always_compiled
-def _row_reduce_packed(
+def row_reduce_packed(
     matrix: npt.NDArray[np.uint8], labels: npt.NDArray[np.uint8], columns: npt.NDArray[np.int64]
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8], npt.NDArray[np.int64]]:
-    """Implement ``row_reduce_binary`` on packed copies, for in-range columns."""
+    """Row-reduce a binary matrix over the given columns, transforming labels in parallel.
+
+    This is ``row_reduce_binary`` on packed copies, without its checks and defaults: every column
+    must be in range, and ``columns`` and ``labels`` must be arrays, with no columns of labels if
+    there are none.  Returns the reduced matrix, the transformed labels, and the pivot columns.
+    Compiled code calls this function, since it takes only arrays.
+    """
     rows, tags = pack_bits(matrix), pack_bits(labels)
     num_rows = len(rows)
     pivots = np.empty(min(num_rows, len(columns)), dtype=np.int64)
@@ -322,3 +317,14 @@ def _row_reduce_packed(
         pivots[rank] = column
         rank += 1
     return _unpack_bits(rows, matrix.shape[1]), _unpack_bits(tags, labels.shape[1]), pivots[:rank]
+
+
+@always_compiled
+def _unpack_bits(packed: npt.NDArray[np.uint64], width: int) -> npt.NDArray[np.uint8]:
+    """Inverse of ``pack_bits`` for rows with ``width`` columns."""
+    matrix = np.empty((len(packed), width), dtype=np.uint8)
+    one = np.uint64(1)
+    for row in range(len(packed)):
+        for column in range(width):
+            matrix[row, column] = (packed[row, column // 64] >> np.uint64(column % 64)) & one
+    return matrix

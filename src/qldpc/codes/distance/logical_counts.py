@@ -26,9 +26,10 @@ References:
 from __future__ import annotations
 
 import functools
-from collections.abc import Sequence
+import operator
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, SupportsIndex
 
 import numpy as np
 import numpy.typing as npt
@@ -167,7 +168,7 @@ class CSSLogicalCounter:
 
         # Work that is done on demand and kept for later counts.
         self._sectors: tuple[_Sector, _Sector] | None = None
-        self._disjoint_families: dict[int, _information_sets.BasisFamily] = {}
+        self._disjoint_basis_families: dict[int, _information_sets.BasisFamily] = {}
         self._enumerators: macwilliams.CheckEnumerators | None = None
         self._canonical: tuple[_BinaryMatrix, _BinaryMatrix] | None = (self._gauge_x, self._gauge_z)
 
@@ -217,7 +218,7 @@ class CSSLogicalCounter:
         method: LogicalCountMethod = "brouwer_zimmermann",
         count_pauli: bool = False,
         within_distance: bool = False,
-        max_information_sets: int = _information_sets.MAX_SETS,
+        max_information_sets: SupportsIndex = _information_sets.MAX_SETS,
     ) -> CSSLogicalCounts:
         """Count the nontrivial logical operators of a given weight.
 
@@ -250,6 +251,7 @@ class CSSLogicalCounter:
             qubits, the returned weight is the number of qubits and every count is zero.
 
         Raises:
+            TypeError: If ``max_information_sets`` is not an integer.
             ValueError: If the weight is not an integer between zero and the number of qubits, if
                 the method is unknown, if the weight is above the distance and ``count_pauli`` or
                 ``within_distance`` is set, or if the MacWilliams method does not support the code
@@ -265,6 +267,8 @@ class CSSLogicalCounter:
             raise ValueError("The weight must be an integer between zero and the number of qubits")
         if method == "macwilliams":
             self._validate_macwilliams_request(count_pauli)
+        # Compiled code specializes on the type of each argument, so fix it to a Python integer.
+        max_sets = operator.index(max_information_sets)
 
         # A code without logicals needs no scan, and the MacWilliams method needs no sectors.
         if not self.dimension:
@@ -280,7 +284,9 @@ class CSSLogicalCounter:
         sector_x, sector_z = self._get_sectors()
         # The two sectors of a self-dual code are the same, so one of them suffices.
         sectors = [sector_x] if self._self_dual else [sector_x, sector_z]
-        target = int(weight) if weight is not None else _get_distance(sectors, method)
+        # The distance search starts from the disjoint basis families that this counter keeps.
+        get_disjoint = [functools.partial(self._get_disjoint_basis_family, i) for i in range(2)]
+        target = int(weight) if weight is not None else _get_distance(sectors, method, get_disjoint)
 
         # A nontrivial logical Pauli (x, z) of weight d has one of two disjoint forms.  Either x is
         # a nontrivial X logical with support T of size d, and z is one of 2**(d - rank(S_X[:, T]))
@@ -303,8 +309,8 @@ class CSSLogicalCounter:
             complement=False,
             max_exponent=target if weigh else 0,
             reject_lighter=reject_above,
-            get_disjoint=functools.partial(self._get_disjoint_family, 0),
-            max_sets=max_information_sets,
+            get_disjoint_basis_family=functools.partial(self._get_disjoint_basis_family, 0),
+            max_sets=max_sets,
         )
         if self._self_dual or counts_x is None:
             counts_z = counts_x
@@ -317,8 +323,8 @@ class CSSLogicalCounter:
                 complement=True,
                 max_exponent=len(self._gauge_x) if weigh else 0,
                 reject_lighter=reject_above,
-                get_disjoint=functools.partial(self._get_disjoint_family, 1),
-                max_sets=max_information_sets,
+                get_disjoint_basis_family=functools.partial(self._get_disjoint_basis_family, 1),
+                max_sets=max_sets,
             )
         if counts_x is None or counts_z is None:
             raise _get_above_distance_error(target)
@@ -463,7 +469,7 @@ class CSSLogicalCounter:
 
         # Transform the kept work where the gate allows it, and drop the rest.
         counter._sectors = None
-        counter._disjoint_families = {}
+        counter._disjoint_basis_families = {}
         # A gate changes the weight of every check word that touches its qubits, so the weight
         # enumerators are not kept.
         counter._enumerators = None
@@ -480,13 +486,13 @@ class CSSLogicalCounter:
             # The kept families follow the gate.  If one cannot, the sector is prepared again when
             # it is next counted.  A self-dual code keeps one family, for both of its sectors.
             for index, local in ((0, local_x), (1, local_z)):
-                family = self._disjoint_families.get(0 if self._self_dual else index)
-                if family is not None and not (shared and index == 1):
+                basis_family = self._disjoint_basis_families.get(0 if self._self_dual else index)
+                if basis_family is not None and not (shared and index == 1):
                     moved = scan.transport_basis_family(
-                        family, positions, local, counter._sectors[index][0]
+                        basis_family, positions, local, counter._sectors[index][0]
                     )
                     if moved is not None:
-                        counter._disjoint_families[index] = moved
+                        counter._disjoint_basis_families[index] = moved
         return counter
 
     def _validate_macwilliams_request(self, count_pauli: bool) -> None:
@@ -562,17 +568,17 @@ class CSSLogicalCounter:
             self._sectors = (sector_x, sector_z)
         return self._sectors
 
-    def _get_disjoint_family(self, index: int) -> _information_sets.BasisFamily:
-        """The first stage of the information-set family of a sector, which is kept.
+    def _get_disjoint_basis_family(self, index: int) -> _information_sets.BasisFamily:
+        """The disjoint basis family of a sector, the first stage of its basis families, kept.
 
         This stage does not depend on the counted weight, so counting at another weight, as when a
         guessed weight fails, does not repeat it.
         """
-        if index not in self._disjoint_families:
-            self._disjoint_families[index] = _information_sets.get_disjoint_family(
+        if index not in self._disjoint_basis_families:
+            self._disjoint_basis_families[index] = _information_sets.get_disjoint_family(
                 *self._get_sectors()[index]
             )
-        return self._disjoint_families[index]
+        return self._disjoint_basis_families[index]
 
     def _get_canonical_checks(self) -> tuple[_BinaryMatrix, _BinaryMatrix]:
         """The checks in reduced row echelon form, which deformation does not preserve."""
@@ -591,7 +597,7 @@ def count_logical_ops_css(
     method: LogicalCountMethod = "brouwer_zimmermann",
     count_pauli: bool = False,
     within_distance: bool = False,
-    max_information_sets: int = _information_sets.MAX_SETS,
+    max_information_sets: SupportsIndex = _information_sets.MAX_SETS,
 ) -> CSSLogicalCounts:
     """Count the nontrivial logical operators of a given weight in a binary CSS code.
 
@@ -603,7 +609,8 @@ def count_logical_ops_css(
         The counted weight and the counts.
 
     Raises:
-        TypeError: If the code is not a :class:`~qldpc.codes.CSSCode`.
+        TypeError: If the code is not a :class:`~qldpc.codes.CSSCode`, or if
+            ``max_information_sets`` is not an integer.
         ValueError: If the code is not binary, or for invalid arguments as described in
             :meth:`CSSLogicalCounter.count_logical_ops`.
     """
@@ -644,11 +651,23 @@ def _get_above_distance_error(weight: int) -> ValueError:
 # distances of the sectors
 
 
-def _get_distance(sectors: Sequence[_Sector], method: DistanceMethod) -> int:
-    """Minimum weight of a nontrivial word in any of the given sectors."""
+def _get_distance(
+    sectors: Sequence[_Sector],
+    method: DistanceMethod,
+    get_disjoint_families: Sequence[Callable[[], _information_sets.BasisFamily]],
+) -> int:
+    """Minimum weight of a nontrivial word in any of the given sectors.
+
+    ``get_disjoint_families`` returns the disjoint basis family of each sector, for the BZ search.
+    """
     if method == "brute_force":
         return min(_get_brute_force_distance(sector) for sector in sectors)
-    return get_distance_brouwer_zimmermann_many(sectors, cutoff=0, block_size=_BLOCK_SIZE)
+    return get_distance_brouwer_zimmermann_many(
+        sectors,
+        cutoff=0,
+        block_size=_BLOCK_SIZE,
+        get_disjoint_families=get_disjoint_families[: len(sectors)],
+    )
 
 
 def _get_brute_force_distance(sector: _Sector) -> int:

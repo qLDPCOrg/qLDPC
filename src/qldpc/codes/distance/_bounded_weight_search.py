@@ -289,9 +289,12 @@ class PauliCosetSearch:
 
         Each has the packed generators, the generators as integers, and the pivots.
         """
+        basis_family = _information_sets.get_disjoint_family(self._embedded, None)
         return [
-            (pack_bits(item.generators), _row_ints(item.generators), item.pivots.tolist())
-            for item in _information_sets.get_information_set_generators(self._embedded, None)
+            (pack_bits(generators), _row_ints(generators), pivots[:rank].tolist())
+            for generators, pivots, rank in zip(
+                basis_family.generators, basis_family.pivots, basis_family.ranks, strict=True
+            )
         ]
 
     @functools.cached_property
