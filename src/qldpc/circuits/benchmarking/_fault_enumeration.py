@@ -105,7 +105,8 @@ class FaultLister:
         batch_members = np.empty((BATCH_SIZE, fault_weight), dtype=np.int64)
         batch_syndromes = np.empty((BATCH_SIZE, self._num_syndrome_words), dtype=np.uint64)
         batch_positions = np.empty(BATCH_SIZE, dtype=np.int64)
-        batches: Iterator[tuple[int, int]] = iter_batches(
+        num_listed = 0
+        for batch in iter_batches(
             self._rows,
             self._num_flag_words,
             self._num_syndrome_words,
@@ -116,9 +117,7 @@ class FaultLister:
             batch_members,
             batch_syndromes,
             batch_positions,
-        )
-        num_listed = 0
-        for batch in batches:
+        ):
             count, num_listed = batch
             faults = batch_members[:count].tolist()
             syndromes = [
@@ -304,7 +303,7 @@ def reduce_flags(
 ) -> int:
     """Reduce flags by a basis, and return the lowest set bit of the result, or -1 if it is zero.
 
-    Row ``r`` of the basis has bit ``pivots[r]`` set, which every earlier row has clear.  Adding the
+    Row ``r`` of the basis has bit ``pivots[r]`` set, which every later row has clear.  Adding the
     rows in order clears these bits, so the result is zero exactly when the flags are a sum of rows.
     """
     reduced[:] = flags

@@ -83,6 +83,7 @@ We call the primitive faults that remain the **kept primitive faults**.
 ### 4.1 Checking one fault
 
 The search decides exactly whether `μ(S F) ≤ |F|` for a fault `F` with `PauliCosetSearch`, a minimum-weight oracle for the Pauli errors with a given syndrome.
+It skips the oracle when the product of low-weight errors of the primitive faults of `F` has Pauli weight at most `|F|`, since that product has syndrome `S F`, so then `μ(S F) ≤ |F|`.
 It uses the same oracle, with the threshold one, to decide whether a primitive fault is heavy.
 
 ### 4.2 Listing each irreducible accepted fault once

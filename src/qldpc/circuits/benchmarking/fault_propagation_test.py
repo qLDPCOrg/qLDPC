@@ -257,16 +257,14 @@ def test_zero_and_repeated_signatures_are_not_searched_and_the_fault_weight_is_l
         assert num_checked == (0 if max_weight == 2 else 1)
 
 
-def test_syndrome_repeated_at_a_larger_fault_weight_on_a_ghz_state() -> None:
-    """Accepted faults whose errors are equivalent to lighter errors on a GHZ state certify.
+def test_syndromes_repeated_at_larger_fault_weights_certify() -> None:
+    """A fault whose syndrome already satisfied the bound at a smaller fault weight certifies.
 
-    The accepted faults {1, 4}, {0, 1, 2}, {0, 1, 3}, {0, 2, 4}, and {0, 3, 4} leave errors with
-    syndromes 1, 0, 6, 1, and 7, and each of these syndromes has an error of Pauli weight at most
-    one.
+    On a four-qubit GHZ state, the accepted faults {1, 4} and {0, 2, 4} both leave syndrome 1, which
+    has an error of Pauli weight one.
     """
     stabilizers = [stim.PauliString(gg) for gg in ("XXXX", "ZZ__", "_ZZ_", "__ZZ")]
-    for syndrome in (1, 6, 7):
-        assert _true_minimum(stabilizers, [(syndrome >> jj) & 1 for jj in range(4)], False) == 1
+    assert _true_minimum(stabilizers, [1, 0, 0, 0], False) == 1
     matrix = np.array([np.concatenate(ss.to_numpy()) for ss in stabilizers], dtype=np.uint8)
     failure, num_checked = fault_propagation._certify_maps(
         [1, 3, 2, 2, 3], [9, 14, 7, 1, 15], matrix, False, None
