@@ -13,9 +13,9 @@ import functools
 
 import numpy as np
 import numpy.typing as npt
-from numba import njit
 
 from .._binary import pack_bits, popcount_word, row_reduce_binary
+from .._compilation import always_compiled
 
 _BinaryMatrix = npt.NDArray[np.uint8]
 
@@ -93,7 +93,7 @@ def _pack_local(matrix: _BinaryMatrix) -> npt.NDArray[np.uint64]:
 # native functions
 
 
-@njit(cache=True)
+@always_compiled
 def apply_local(
     rows: _BinaryMatrix, positions: npt.NDArray[np.int64], local: npt.NDArray[np.uint64]
 ) -> _BinaryMatrix:

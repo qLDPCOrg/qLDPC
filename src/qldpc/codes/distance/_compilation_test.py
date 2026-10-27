@@ -1,0 +1,272 @@
+# SPDX-License-Identifier: Apache-2.0
+
+"""Tests for the disk cache of compiled functions, and the rules that make it safe."""
+
+from __future__ import annotations
+
+import ast
+import types
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
+
+import numba
+import platformdirs
+import pytest
+
+import qldpc
+from qldpc.conftest import run_python
+
+from . import _compilation
+
+
+def test_always_compiled_functions_are_cached_in_the_directory_of_their_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
+    previous = _compilation._numba_config.CACHE_DIR
+    compiled = _compilation.always_compiled(_add_one)
+    assert _compilation._numba_config.CACHE_DIR == previous
+    cache_path = compiled.stats.cache_path
+    assert cache_path is not None and Path(cache_path).parent == tmp_path / "cache"
+    assert compiled(1) == _add_one(1) == 2
+
+
+def test_the_source_hash_covers_every_source_file_but_no_tests(tmp_path: Path) -> None:
+    assert _compilation._get_source_hash(tmp_path) is None
+    (tmp_path / "source.py").write_text("one")
+    first = _compilation._get_source_hash(tmp_path)
+    assert first is not None and _compilation._get_source_hash(tmp_path) == first
+
+    (tmp_path / "source_test.py").write_text("tests do not change the compiled code")
+    (tmp_path / "conftest.py").write_text("neither do test fixtures")
+    assert _compilation._get_source_hash(tmp_path) == first
+
+    (tmp_path / "source.py").write_text("two")
+    changed = _compilation._get_source_hash(tmp_path)
+    (tmp_path / "package").mkdir()
+    (tmp_path / "package" / "other.py").write_text("a file of a subpackage")
+    assert len({first, changed, _compilation._get_source_hash(tmp_path)}) == 3
+
+
+def test_the_cache_directory_is_named_by_the_source_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """It is in ``NUMBA_CACHE_DIR`` if that is set, and otherwise in the user cache directory."""
+    packages = [tmp_path / "first", tmp_path / "second"]
+    for package in packages:
+        package.mkdir()
+        (package / "source.py").write_text("one")
+    name = f"qldpc-{_compilation._get_source_hash(packages[0])}"
+
+    monkeypatch.setattr(_compilation._numba_config, "CACHE_DIR", str(tmp_path / "numba"))
+    assert _compilation._get_cache_directory(packages[0]) == tmp_path / "numba" / name
+
+    monkeypatch.setattr(_compilation._numba_config, "CACHE_DIR", "")
+    monkeypatch.setattr(platformdirs, "user_cache_dir", lambda: str(tmp_path / "user"))
+    assert _compilation._get_cache_directory(packages[1]) == tmp_path / "user/qldpc/numba" / name
+
+
+def test_there_is_no_cache_directory_without_source_files(tmp_path: Path) -> None:
+    with pytest.warns(RuntimeWarning, match="no source files"):
+        assert _compilation._get_cache_directory(tmp_path) is None
+
+
+def test_an_unwritable_cache_directory_is_not_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "source.py").write_text("one")
+    not_a_directory = tmp_path / "file"
+    not_a_directory.write_text("a file, so that no directory can be made inside it")
+    monkeypatch.setattr(_compilation._numba_config, "CACHE_DIR", str(not_a_directory))
+    with pytest.warns(RuntimeWarning, match="cannot be written"):
+        assert _compilation._get_cache_directory(tmp_path) is None
+
+
+def test_a_read_only_cache_directory_is_not_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Numba would move on to other cache locations, or fail if there were none."""
+    (tmp_path / "source.py").write_text("one")
+    monkeypatch.setattr(_compilation._numba_config, "CACHE_DIR", str(tmp_path / "numba"))
+
+    # The directory exists, but the system refuses to create files in it.
+    def refuse(*args: Any, **kwargs: Any) -> None:
+        raise PermissionError("read-only")
+
+    monkeypatch.setattr(_compilation.tempfile, "TemporaryFile", refuse)
+    with pytest.warns(RuntimeWarning, match="cannot be written"):
+        assert _compilation._get_cache_directory(tmp_path) is None
+
+
+def test_functions_are_not_cached_without_a_cache_directory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: None)
+    compiled = _compilation.always_compiled(_add_one)
+    assert compiled.stats.cache_path is None
+    assert compiled(1) == 2
+
+
+def test_a_function_is_not_cached_if_numba_does_not_use_the_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Numba moves on to its other cache locations, where outdated code could be loaded."""
+    monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
+    njit = numba.njit
+
+    def cache_elsewhere(*args: Any, **kwargs: Any) -> Any:
+        if kwargs.get("cache"):
+            elsewhere = types.SimpleNamespace(cache_path=str(tmp_path / "elsewhere"))
+            return lambda function: types.SimpleNamespace(stats=elsewhere)
+        return njit(*args, **kwargs)
+
+    monkeypatch.setattr(_compilation.numba, "njit", cache_elsewhere)
+    with pytest.warns(RuntimeWarning, match="numba does not use"):
+        compiled = _compilation.always_compiled(_add_one)
+    assert compiled.stats.cache_path is None
+    assert compiled(1) == 2
+
+
+def test_always_compiled_functions_are_plain_python_if_numba_is_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(_compilation._numba_config, "DISABLE_JIT", True)
+    compiled = _compilation.always_compiled(_add_one)
+    assert compiled(1) == 2
+    assert not hasattr(compiled, "stats")
+
+
+def test_editing_a_callee_in_another_file_recompiles_its_caller(tmp_path: Path) -> None:
+    """Numba alone would serve the outdated caller, since it checks only the caller's own file."""
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / "__init__.py").write_text("")
+    (package / "caller.py").write_text(_CALLER)
+    code = f"""
+import pathlib, sys
+from qldpc.codes.distance import _compilation
+_compilation._PACKAGE_DIRECTORY = pathlib.Path({str(package)!r})
+sys.path.insert(0, {str(tmp_path)!r})
+from package import caller
+print(caller.add_to(1))
+"""
+    results = []
+    for increment in (1, 10):
+        (package / "callee.py").write_text(_CALLEE.format(increment=increment))
+        results.append(int(run_python(code, env={"NUMBA_CACHE_DIR": str(tmp_path / "cache")})))
+    assert results == [2, 11]
+
+
+def test_only_always_compiled_asks_numba_for_a_disk_cache() -> None:
+    """Only ``always_compiled`` may ask numba for a disk cache, since it makes that cache safe."""
+    for path, tree in _get_source_trees():
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and _is_njit(node.func)):
+                continue
+            if any(keyword.arg == "cache" for keyword in node.keywords):
+                assert path.name == "_compilation.py", f"{path.name} caches without it"
+
+
+def test_always_compiled_functions_use_nothing_from_outside_their_package() -> None:
+    """The source hash covers this package, so always-compiled code may use only its files."""
+    for path, tree in _get_source_trees():
+        for function in ast.walk(tree):
+            if isinstance(function, ast.FunctionDef) and _is_decorated_by(
+                function, "always_compiled"
+            ):
+                assert _is_in_the_package(path), f"{path.name} is outside the hashed package"
+                outside = _get_names_imported_from_outside_the_package(path, tree)
+                names = {
+                    node.id
+                    for statement in function.body
+                    for node in ast.walk(statement)
+                    if isinstance(node, ast.Name)
+                }
+                assert not names & outside, f"{path.name}: {function.name} uses {names & outside}"
+
+
+def test_names_imported_from_outside_the_package_are_found() -> None:
+    """Absolute imports of qLDPC, and relative imports that climb above the package, are outside."""
+    tree = ast.parse(
+        "import numpy as np\n"
+        "import qldpc.cache\n"
+        "from qldpc.math import first\n"
+        "from ...objects import second\n"
+        "from .. import third\n"
+        "from . import fourth\n"
+    )
+    package = Path(_compilation.__file__).parent
+    in_subpackage = _get_names_imported_from_outside_the_package(package / "_counting/x.py", tree)
+    assert in_subpackage == {"qldpc", "first", "second"}
+    at_the_top = _get_names_imported_from_outside_the_package(package / "x.py", tree)
+    assert at_the_top == {"qldpc", "first", "second", "third"}
+
+
+_CALLEE = """
+import numba
+
+@numba.njit
+def increment(value):
+    return value + {increment}
+"""
+
+_CALLER = """
+from qldpc.codes.distance._compilation import always_compiled
+from .callee import increment
+
+@always_compiled
+def add_to(value):
+    return increment(value)
+"""
+
+
+def _add_one(value: int) -> int:
+    return value + 1
+
+
+def _get_source_trees() -> Iterator[tuple[Path, ast.Module]]:
+    """The syntax tree of every source file of the library that is not a test."""
+    for path in sorted(Path(qldpc.__file__).parent.rglob("*.py")):
+        if not path.name.endswith("_test.py") and path.name != "conftest.py":
+            yield path, ast.parse(path.read_text())
+
+
+def _is_njit(function: ast.expr) -> bool:
+    """Whether an expression is a name or an attribute called ``njit`` or ``jit``."""
+    return getattr(function, "attr", getattr(function, "id", "")) in ("njit", "jit")
+
+
+def _is_decorated_by(function: ast.FunctionDef, name: str) -> bool:
+    """Whether a function has the decorator of the given name, however it was imported."""
+    for decorator in function.decorator_list:
+        decorator_name = (
+            decorator.attr if isinstance(decorator, ast.Attribute) else getattr(decorator, "id", "")
+        )
+        if decorator_name == name:
+            return True
+    return False
+
+
+def _is_in_the_package(path: Path) -> bool:
+    """Whether a source file is in ``qldpc.codes.distance``, which the source hash covers."""
+    return path.is_relative_to(Path(_compilation.__file__).parent)
+
+
+def _get_names_imported_from_outside_the_package(path: Path, tree: ast.Module) -> set[str]:
+    """The names that a module of ``qldpc.codes.distance`` imports from other packages of qLDPC."""
+    # A relative import with a level above the depth of the module reaches beyond the package.
+    depth = len(path.parent.relative_to(Path(_compilation.__file__).parent).parts)
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (
+            node.level > depth + 1 or (node.module or "").split(".")[0] == "qldpc"
+        ):
+            names |= {alias.asname or alias.name for alias in node.names}
+        elif isinstance(node, ast.Import):
+            names |= {
+                alias.asname or "qldpc"
+                for alias in node.names
+                if alias.name.split(".")[0] == "qldpc"
+            }
+    return names

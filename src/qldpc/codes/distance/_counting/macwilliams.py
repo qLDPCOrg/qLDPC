@@ -32,9 +32,9 @@ import math
 
 import numpy as np
 import numpy.typing as npt
-from numba import njit
 
 from .._binary import pack_bits, popcount_word, trailing_zeros_word
+from .._compilation import always_compiled
 
 _BinaryMatrix = npt.NDArray[np.uint8]
 
@@ -196,7 +196,7 @@ def _get_light_krawtchouk_rows(num_bits: int, rank: int) -> npt.NDArray[np.int64
     return matrix
 
 
-@njit(cache=True)
+@always_compiled
 def _add_span_weights(
     generators: npt.NDArray[np.uint64],
     word: npt.NDArray[np.uint64],
@@ -227,7 +227,7 @@ def _add_span_weights(
         weights[weight] += 1
 
 
-@njit(cache=True)
+@always_compiled
 def _transform_weights(
     krawtchouk: npt.NDArray[np.int64], span_weights: npt.NDArray[np.uint64], rank: int
 ) -> npt.NDArray[np.int64]:

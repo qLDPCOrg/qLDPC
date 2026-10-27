@@ -31,10 +31,10 @@ def test_the_local_matrices_are_a_matrix_and_its_inverse_transpose(
 ) -> None:
     """Packing puts entry (i, j) in bit j of word i, and the Z matrix is the X matrix's dual."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    field = galois.GF(2)
-    matrix = rng.integers(0, 2, (size, size))
-    while np.linalg.matrix_rank(field(matrix)) < size:
-        matrix = rng.integers(0, 2, (size, size))
+    # A product of unit triangular matrices is invertible, and so is any permutation of its rows.
+    lower = np.tril(rng.integers(0, 2, (size, size)), -1) + np.eye(size, dtype=int)
+    upper = np.triu(rng.integers(0, 2, (size, size)), 1) + np.eye(size, dtype=int)
+    matrix = (lower @ upper % 2)[rng.permutation(size)]
 
     local_x, local_z = local_cliffords.get_local_matrices(matrix, size)
     dense_x, dense_z = _unpack(local_x), _unpack(local_z)
