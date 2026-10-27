@@ -154,6 +154,7 @@ def get_distance_brouwer_zimmermann(
     cutoff: int,
     block_size: int,
     weight_divisor: int = 1,
+    upper_bound: int | None = None,
 ) -> int:
     """Compute an exact nested-code distance with the Brouwer-Zimmermann algorithm.
 
@@ -161,12 +162,17 @@ def get_distance_brouwer_zimmermann(
     The overlapping-set extension divides pivot occupancy by the maximum coordinate coverage.
     Nonzero ``labels`` identify rows outside an excluded subcode; transforming them alongside the
     generators makes the upper-bound search exact for logical operators modulo stabilizers.
+
+    An ``upper_bound`` starts the search as though a witness of that weight were known, so the
+    search returns ``min(distance, upper_bound)`` and stops once it certifies that no word is
+    lighter than ``upper_bound``.
     """
     return get_distance_brouwer_zimmermann_many(
         [(basis, labels)],
         cutoff=cutoff,
         block_size=block_size,
         weight_divisor=weight_divisor,
+        upper_bound=upper_bound,
     )
 
 

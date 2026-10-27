@@ -569,6 +569,13 @@ With an early-exit cutoff above one, a different search order can find a differe
   The default of one is still exact for a valid nontrivial binary problem, because a distance is at least one.
   A `cutoff` of zero or less never triggers an early exit for such a problem, and `advance` clamps negative values to `-1` before it calls the compiled scan.
   [Section 4.2](#42-flow-and-exit-points) lists where the `cutoff` is checked.
+- **Weight limit.**
+  `get_distance_classical` and `get_distance_quantum` accept `max_weight`, which asks only whether a word of weight at most `max_weight` exists.
+  They pass `upper_bound=max_weight+1` to the BZ route, as though a witness of that weight were known, so the search stops once its certificate reaches that bound, and they clamp the results of the other routes to it.
+  The result is the smaller of the distance and `max_weight+1`, so a limit below the distance avoids the cost of certifying the distance itself.
+  The limit also caps `cutoff` at `max_weight`.
+  Without that cap, a cutoff at or above `max_weight+1` would end the search at once on the assumed witness, even if a lighter word exists.
+  For non-homogeneous input, the BZ route doubles the bound along with `cutoff`.
 - **Units.**
   Homogeneous input represents a pure-X or pure-Z problem with one support bit per qubit.
   Non-homogeneous input (`homogeneous=False`) uses general symplectic Pauli rows, as in [Section 2.7](#27-pauli-weight-as-hamming-weight).
@@ -615,10 +622,12 @@ Changes to the BZ algorithm can use different representations, certificates, and
 - **Preserve the return contract.**
   Return the exact minimum unless taking an early exit permitted by `cutoff`.
   Such an early exit returns the weight of a known eligible witness, an upper bound between the distance and `cutoff` ([Section 4.5](#45-behavior-spanning-files)).
+  Under a weight limit, return the smaller of the distance and `max_weight+1`; an early exit must still return a witness within the limit.
 
 Representative correctness tests check certificate validity against exhaustive words, including rank-deficient blocks, inferred parity, and overlapping coverage (`test_family_certificates` and `test_overlapping_family_certificates` in [_information_sets_test.py](_information_sets_test.py)), and joint-search results with distinct sector certificates (`test_brouwer_zimmermann_sector_certificates` in [_brouwer_zimmermann_test.py](_brouwer_zimmermann_test.py)).
 `test_counting_continues_at_an_equal_lower_bound` in [logical_counts_test.py](logical_counts_test.py) checks the strict counting stop with a count that a stop at `L(t) = w` would miss.
 In [core_test.py](core_test.py), `test_brouwer_zimmermann_random_cross_checks` forces the BZ route and compares both homogeneous and general Pauli problems with exhaustive results.
+`test_max_weight` checks weight-limited results against enumeration on every route, and `test_max_weight_caps_cutoff` checks a case that a weight limit without the `cutoff` cap would get wrong.
 
 Performance tests also check broad work budgets, and helper tests exercise the current implementation's interfaces.
 Those tests can evolve with the implementation; they do not make a particular information-set family, packing order, or optimization a correctness requirement.
