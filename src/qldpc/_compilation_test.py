@@ -167,15 +167,16 @@ def test_always_compiled_functions_are_plain_python_if_numba_is_disabled(
     assert not hasattr(compiled, "stats")
 
 
-def test_editing_a_callee_in_another_file_recompiles_its_caller(tmp_path: Path) -> None:
+def test_editing_a_callee_in_another_subpackage_recompiles_its_caller(tmp_path: Path) -> None:
     """Numba alone would serve the outdated caller, since it checks only the caller's own file."""
     package = tmp_path / "package"
-    package.mkdir()
+    (package / "other").mkdir(parents=True)
     (package / "__init__.py").write_text("")
+    (package / "other" / "__init__.py").write_text("")
     (package / "caller.py").write_text(_CALLER)
     code = f"""
 import pathlib, sys
-from qldpc.codes.distance import _compilation
+from qldpc import _compilation
 _compilation._PACKAGE_DIRECTORY = pathlib.Path({str(package)!r})
 sys.path.insert(0, {str(tmp_path)!r})
 from package import caller
@@ -183,7 +184,7 @@ print(caller.add_to(1))
 """
     results = []
     for increment in (1, 10):
-        (package / "callee.py").write_text(_CALLEE.format(increment=increment))
+        (package / "other" / "callee.py").write_text(_CALLEE.format(increment=increment))
         results.append(int(run_python(code, env={"NUMBA_CACHE_DIR": str(tmp_path / "cache")})))
     assert results == [2, 11]
 
@@ -231,15 +232,14 @@ def test_compiled_on_request_functions_are_not_imported_by_name() -> None:
                 assert not imported, f"{path.name} imports {imported} by name"
 
 
-def test_always_compiled_functions_use_nothing_from_outside_their_package() -> None:
-    """The source hash covers this package, so always-compiled code may use only its files."""
+def test_always_compiled_functions_use_nothing_from_outside_qldpc() -> None:
+    """Only qLDPC's source is hashed, but numba checks its version and implements NumPy itself."""
     for path, tree in _get_source_trees():
+        outside = _get_names_imported_from_outside_qldpc(tree)
         for function in ast.walk(tree):
             if isinstance(function, ast.FunctionDef) and _is_decorated_by(
                 function, "always_compiled"
             ):
-                assert _is_in_the_package(path), f"{path.name} is outside the hashed package"
-                outside = _get_names_imported_from_outside_the_package(path, tree)
                 names = {
                     node.id
                     for statement in function.body
@@ -249,22 +249,20 @@ def test_always_compiled_functions_use_nothing_from_outside_their_package() -> N
                 assert not names & outside, f"{path.name}: {function.name} uses {names & outside}"
 
 
-def test_names_imported_from_outside_the_package_are_found() -> None:
-    """Absolute imports of qLDPC, and relative imports that climb above the package, are outside."""
+def test_names_imported_from_outside_qldpc_are_found() -> None:
     tree = ast.parse(
         "import numpy as np\n"
-        "import qldpc.cache\n"
-        "from qldpc.math import first\n"
-        "from ...objects import second\n"
+        "import numba.types\n"
+        "import scipy.special\n"
+        "from other import first as renamed\n"
+        "from qldpc.math import second\n"
         "from .. import third\n"
-        "from . import fourth\n"
     )
-    package = Path(_compilation.__file__).parent
-    in_subpackage = _get_names_imported_from_outside_the_package(package / "_counting/x.py", tree)
-    assert in_subpackage == {"qldpc", "first", "second"}
-    at_the_top = _get_names_imported_from_outside_the_package(package / "x.py", tree)
-    assert at_the_top == {"qldpc", "first", "second", "third"}
+    assert _get_names_imported_from_outside_qldpc(tree) == {"scipy", "renamed"}
 
+
+# The packages whose functions always-compiled code may use.
+_COMPILABLE_PACKAGES = {"qldpc", "numpy", "numba"}
 
 _CALLEE = """
 import numba
@@ -275,8 +273,8 @@ def increment(value):
 """
 
 _CALLER = """
-from qldpc.codes.distance._compilation import always_compiled
-from .callee import increment
+from qldpc._compilation import always_compiled
+from .other.callee import increment
 
 @always_compiled
 def add_to(value):
@@ -328,25 +326,17 @@ def _get_names_decorated_by(trees: list[tuple[Path, ast.Module]], name: str) -> 
     }
 
 
-def _is_in_the_package(path: Path) -> bool:
-    """Whether a source file is in ``qldpc.codes.distance``, which the source hash covers."""
-    return path.is_relative_to(Path(_compilation.__file__).parent)
-
-
-def _get_names_imported_from_outside_the_package(path: Path, tree: ast.Module) -> set[str]:
-    """The names that a module of ``qldpc.codes.distance`` imports from other packages of qLDPC."""
-    # A relative import with a level above the depth of the module reaches beyond the package.
-    depth = len(path.parent.relative_to(Path(_compilation.__file__).parent).parts)
+def _get_names_imported_from_outside_qldpc(tree: ast.Module) -> set[str]:
+    """The names that a module of qLDPC imports from packages other than qLDPC, NumPy, and numba."""
     names = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and (
-            node.level > depth + 1 or (node.module or "").split(".")[0] == "qldpc"
-        ):
-            names |= {alias.asname or alias.name for alias in node.names}
+        if isinstance(node, ast.ImportFrom) and node.level == 0:
+            if (node.module or "").split(".")[0] not in _COMPILABLE_PACKAGES:
+                names |= {alias.asname or alias.name for alias in node.names}
         elif isinstance(node, ast.Import):
             names |= {
-                alias.asname or "qldpc"
+                alias.asname or alias.name.split(".")[0]
                 for alias in node.names
-                if alias.name.split(".")[0] == "qldpc"
+                if alias.name.split(".")[0] not in _COMPILABLE_PACKAGES
             }
     return names

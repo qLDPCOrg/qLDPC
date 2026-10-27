@@ -463,12 +463,12 @@ The rest of this section describes how the searches use those modules.
 [logical_counts.py](logical_counts.py) counts the logical operators of a given weight exactly.
 It builds its families and certificates with the same stages of [_information_sets.py](_information_sets.py) as the distance search, under the constraint in [Section 5](#5-correctness-requirements).
 It runs the stages in `_prepare_scan` of [_counting/scan.py](_counting/scan.py), and its distance search starts from the disjoint basis families that it keeps for counting.
-The set-up functions of both searches can be compiled on request, through [_compilation.py](_compilation.py).
+The set-up functions of both searches can be compiled on request, through [_compilation.py](../../_compilation.py).
 The code that only counting uses is in the `_counting` package.
 The family policy lives only in that module, so a change to it applies to both consumers.
 [core.py](core.py) calls [_brouwer_zimmermann.py](_brouwer_zimmermann.py) and [_brute_force.py](_brute_force.py), and [_brouwer_zimmermann.py](_brouwer_zimmermann.py) calls [_brute_force.py](_brute_force.py) for its exhaustive routes.
 All three modules, and [_information_sets.py](_information_sets.py), use [_binary.py](_binary.py).
-Every module with compiled functions uses [_compilation.py](_compilation.py).
+Every module with compiled functions uses [_compilation.py](../../_compilation.py).
 `get_distance_css_brouwer_zimmermann` builds an adapted basis ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)) for each nontrivial sector, then passes the resulting problems to `get_distance_brouwer_zimmermann_many`.
 
 ### 4.2 Flow and exit points

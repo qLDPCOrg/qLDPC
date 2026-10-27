@@ -16,9 +16,10 @@ from collections.abc import Callable
 import numpy as np
 import numpy.typing as npt
 
+from qldpc._compilation import always_compiled, compiled_on_request
+
 from .. import _information_sets
 from .._binary import pack_bits, popcount_word, row_reduce_packed
-from .._compilation import always_compiled, compiled_on_request
 from ..core import DistanceMethod
 from . import local_cliffords
 

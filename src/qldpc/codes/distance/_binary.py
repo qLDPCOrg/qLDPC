@@ -13,7 +13,7 @@ from llvmlite import ir
 from numba import types
 from numba.extending import lower_builtin, type_callable
 
-from ._compilation import always_compiled
+from qldpc._compilation import always_compiled
 
 if TYPE_CHECKING:
     from numba.core.base import BaseContext

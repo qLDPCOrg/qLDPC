@@ -2,16 +2,18 @@
 
 """Compiled functions: cached on disk by a hash of the source, or compiled in memory on request.
 
-The distance and counting searches run two kinds of functions that numba compiles.  They are written
-in the subset of Python and NumPy that numba supports.
+qLDPC, for example in its distance and counting searches, runs two kinds of functions that numba
+compiles.  They are written in the subset of Python and NumPy that numba supports.
 
 Always-compiled functions, such as bit packing, row reduction and the scan of a chunk of
 combinations, are compiled by numba the first time that they are used.  :func:`always_compiled`
 caches their compiled code on disk.  Numba checks only the source file of a cached function for
 changes, not the functions that it calls in other files, so a cache that is kept where numba puts it
 could serve outdated code.  :func:`always_compiled` instead keeps the compiled code in a directory
-that is named by a hash of the source files of this package, so that any change to them selects a
-new, empty directory.  Outdated code is never loaded, and old directories can simply be deleted.
+that is named by a hash of the source files of qLDPC, so that any change to them selects a new,
+empty directory.  Outdated code is never loaded, and old directories can simply be deleted.
+Compiled code may therefore call always-compiled functions in any module of qLDPC, but no compiled
+functions of other packages, whose source the hash does not cover.
 
 Compiled-on-request functions, such as the building of overlapping basis families, are registered
 with :func:`compiled_on_request`.  They run as ordinary Python until
@@ -67,7 +69,7 @@ class _NumbaConfig(Protocol):
 # Numba creates the attributes of its settings dynamically, which type checkers cannot see.
 _numba_config = cast(_NumbaConfig, config)
 
-# The package whose source files name the directory of its compiled code.
+# The directory of qLDPC, whose source files name the directory of its compiled code.
 _PACKAGE_DIRECTORY = Path(__file__).parent
 
 # Held while the cache directory of numba, which is a setting of the whole process, is changed.  A
@@ -95,9 +97,9 @@ _ON_REQUEST_FUNCTIONS: list[_OnRequestFunction] = []
 
 
 def always_compiled(function: _Function) -> Dispatcher[_Function]:
-    """Compile a function with numba, and cache its compiled code in a directory of this source.
+    """Compile a function with numba, and cache its compiled code in a directory of qLDPC's source.
 
-    The directory is named by a hash of the source files of this package, so that code compiled from
+    The directory is named by a hash of the source files of qLDPC, so that code compiled from
     outdated source files is never loaded.  It is ``qldpc-<hash>`` inside ``NUMBA_CACHE_DIR`` if
     that is set, and otherwise inside the ``qldpc/numba`` directory of the user's cache directory.
     If the directory cannot be used, qLDPC warns once, and every process compiles the function

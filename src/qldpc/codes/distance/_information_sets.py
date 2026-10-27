@@ -11,7 +11,7 @@ layered search.
 
 A :class:`BasisFamily` stacks its information sets into arrays, so that one set of functions serves
 every caller, in the subset of Python that numba compiles, and some of them are compiled (see
-``_compilation.py``).  Its :class:`Certificate` gives the bound and the work estimate.
+``qldpc/_compilation.py``).  Its :class:`Certificate` gives the bound and the work estimate.
 
 Basis family construction runs in stages, so that a caller can take its own exits between them:
 
@@ -36,8 +36,9 @@ from typing import Any, NamedTuple
 import numpy as np
 import numpy.typing as npt
 
+from qldpc._compilation import always_compiled, compiled_on_request
+
 from ._binary import row_reduce_binary, row_reduce_packed
-from ._compilation import always_compiled, compiled_on_request
 
 # Default limit on the number of sets in a replacement basis family (see get_overlapping_family).
 MAX_SETS = 16

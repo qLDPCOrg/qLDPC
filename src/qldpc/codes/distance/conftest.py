@@ -12,11 +12,11 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from qldpc import codes
+from qldpc import _compilation, codes
 from qldpc.objects import Pauli
 
 from . import _binary as binary
-from . import _compilation, _information_sets
+from . import _information_sets
 from . import logical_counts as lc
 from ._binary import get_kernel
 from .core import DistanceMethod
