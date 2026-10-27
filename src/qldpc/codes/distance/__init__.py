@@ -14,6 +14,8 @@ such as one that many jobs share, to avoid this.
 :func:`~qldpc.codes.distance.compile_search_setup` also compiles the code that sets those loops up,
 in the current process only, for programs that count the logical operators of very many similar
 codes.
+
+Contributors can find a map of the modules in the README.md of this directory.
 """
 
 from typing import TYPE_CHECKING
