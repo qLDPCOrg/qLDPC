@@ -5,10 +5,11 @@
 from __future__ import annotations
 
 import ast
+import os
+import time
 import types
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any
 
 import numba
 import numpy as np
@@ -50,7 +51,7 @@ def test_registered_functions_switch_between_plain_and_compiled(
     assert compiled.stats.cache_path is None
 
 
-def test_always_compiled_functions_are_cached_in_the_directory_of_their_source(
+def test_always_compiled_functions_are_cached_in_the_chosen_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
@@ -58,7 +59,7 @@ def test_always_compiled_functions_are_cached_in_the_directory_of_their_source(
     compiled = _compilation.always_compiled(_add_one)
     assert _compilation._numba_config.CACHE_DIR == previous
     cache_path = compiled.stats.cache_path
-    assert cache_path is not None and Path(cache_path).parent == tmp_path / "cache"
+    assert cache_path is not None and Path(cache_path).is_relative_to(tmp_path / "cache")
     assert compiled(1) == _add_one(1) == 2
 
 
@@ -79,6 +80,28 @@ def test_the_source_hash_covers_every_source_file_but_no_tests(tmp_path: Path) -
     assert len({first, changed, _compilation._get_source_hash(tmp_path)}) == 3
 
 
+def test_the_source_hash_skips_entries_that_are_not_imported(tmp_path: Path) -> None:
+    """Such as the lock files that editors make beside modified files, as in ``.#source.py``."""
+    (tmp_path / "source.py").write_text("one")
+    expected = _compilation._get_source_hash(tmp_path)
+    (tmp_path / ".#source.py").write_text("a hidden file")
+    (tmp_path / "directory.py").mkdir()
+    assert _compilation._get_source_hash(tmp_path) == expected
+
+
+def test_there_is_no_cache_directory_if_the_source_files_cannot_be_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "source.py").write_text("one")
+
+    def refuse(path: Path) -> bytes:
+        raise PermissionError("unreadable")
+
+    monkeypatch.setattr(Path, "read_bytes", refuse)
+    with pytest.warns(RuntimeWarning, match="cannot be read"):
+        assert _compilation._get_cache_directory(tmp_path) is None
+
+
 def test_the_cache_directory_is_named_by_the_source_hash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -95,6 +118,36 @@ def test_the_cache_directory_is_named_by_the_source_hash(
     monkeypatch.setattr(_compilation._numba_config, "CACHE_DIR", "")
     monkeypatch.setattr(platformdirs, "user_cache_dir", lambda: str(tmp_path / "user"))
     assert _compilation._get_cache_directory(packages[1]) == tmp_path / "user/qldpc/numba" / name
+
+
+def test_cache_directories_unused_for_a_week_are_deleted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The directory in use is marked as used, so that other environments keep it too."""
+    (tmp_path / "source.py").write_text("one")
+    source_hash = _compilation._get_source_hash(tmp_path)
+    assert source_hash is not None
+    base = tmp_path / "numba"
+    monkeypatch.setattr(_compilation._numba_config, "CACHE_DIR", str(base))
+
+    in_use = base / f"qldpc-{source_hash}"
+    unused = base / f"qldpc-{'0' * len(source_hash)}"
+    recent = base / f"qldpc-{'1' * len(source_hash)}"
+    other = base / f"qldpc-tools_{'0' * 40}"  # where numba caches code from a folder "qldpc-tools"
+    day = 24 * 60 * 60
+    now = time.time()
+    for directory, age in [(in_use, 8), (unused, 8), (recent, 6), (other, 8)]:
+        (directory / "contents").mkdir(parents=True)
+        os.utime(directory, (now - age * day, now - age * day))
+
+    assert _compilation._get_cache_directory(tmp_path) == in_use
+    assert {path.name for path in base.iterdir()} == {in_use.name, recent.name, other.name}
+    assert in_use.stat().st_mtime > now - day
+
+
+def test_errors_while_deleting_unused_cache_directories_are_ignored(tmp_path: Path) -> None:
+    """For example, another process may have deleted the directory meanwhile."""
+    _compilation._delete_unused_cache_directories(tmp_path / "missing" / "qldpc-0")
 
 
 def test_there_is_no_cache_directory_without_source_files(tmp_path: Path) -> None:
@@ -121,7 +174,7 @@ def test_a_read_only_cache_directory_is_not_used(
     monkeypatch.setattr(_compilation._numba_config, "CACHE_DIR", str(tmp_path / "numba"))
 
     # The directory exists, but the system refuses to create files in it.
-    def refuse(*args: Any, **kwargs: Any) -> None:
+    def refuse(*args: object, **kwargs: object) -> None:
         raise PermissionError("read-only")
 
     monkeypatch.setattr(_compilation.tempfile, "TemporaryFile", refuse)
@@ -145,11 +198,13 @@ def test_a_function_is_not_cached_if_numba_does_not_use_the_directory(
     monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
     njit = numba.njit
 
-    def cache_elsewhere(*args: Any, **kwargs: Any) -> Any:
-        if kwargs.get("cache"):
+    def cache_elsewhere(
+        function: Callable[..., object] | None = None, cache: bool = False
+    ) -> object:
+        if cache:
             elsewhere = types.SimpleNamespace(cache_path=str(tmp_path / "elsewhere"))
             return lambda function: types.SimpleNamespace(stats=elsewhere)
-        return njit(*args, **kwargs)
+        return njit(function)
 
     monkeypatch.setattr(_compilation.numba, "njit", cache_elsewhere)
     with pytest.warns(RuntimeWarning, match="numba does not use"):
@@ -295,9 +350,8 @@ def _add_one(value: int) -> int:
 
 def _get_source_trees() -> Iterator[tuple[Path, ast.Module]]:
     """The syntax tree of every source file of the library that is not a test."""
-    for path in sorted(Path(qldpc.__file__).parent.rglob("*.py")):
-        if not path.name.endswith("_test.py") and path.name != "conftest.py":
-            yield path, ast.parse(path.read_text())
+    for path in _compilation._get_source_paths(Path(qldpc.__file__).parent):
+        yield path, ast.parse(path.read_text(encoding="utf-8"))
 
 
 def _is_njit(function: ast.expr) -> bool:

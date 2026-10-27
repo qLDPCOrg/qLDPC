@@ -133,6 +133,7 @@ Plumbing that one subpackage uses is an underscore name in that subpackage, and 
   Keep these side effects explicit in the docstrings of the public entry points that can trigger them, and in error messages.
 - Expensive reusable computations should use `qldpc.cache.use_disk_cache(cache_name)`.
   Do not hide errors by returning a default value that looks successful.
+- Numba code uses `always_compiled` or `compiled_on_request` from `qldpc/_compilation.py`, never `njit(cache=True)`; that module's docstring says which to use, and `_compilation_test.py` enforces its rules.
 
 ## Tests
 
