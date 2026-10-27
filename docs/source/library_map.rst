@@ -181,11 +181,12 @@ Certify fault-tolerant state preparation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 :func:`qldpc.circuits.certify_bounded_fault_propagation <qldpc.circuits.benchmarking.fault_propagation.certify_bounded_fault_propagation>` certifies bounded fault propagation in a noisy Clifford circuit that prepares a stabilizer state.
-A fault is a set of error mechanisms of the circuit's detector error model.
+A fault is a set of error mechanisms, which are the error instructions of the detector error model that the certificate returns: the circuit's, after adding any flag detectors and one noiseless detector for each stabilizer of the prepared state.
 Propagation is bounded if, for every fault, the error left on the output is equivalent to an error whose Pauli weight is at most the number of error mechanisms in the fault.
 The Pauli weight of an error is either its physical weight or its CSS weight.
 For protocols that post-select on detectors such as measurement flags, only faults that pass post-selection are required to satisfy the bound.
-Bounded fault propagation is a sufficient criterion for fault-tolerant state preparation; see Definition 3 in Section 4.2 of `arXiv:0904.2557 <https://arxiv.org/abs/0904.2557>`_.
+Bounded fault propagation is a sufficient criterion for fault-tolerant state preparation, for CSS weight only if X and Z errors are corrected independently; see Definition 3 in Section 4.2 of `arXiv:0904.2557 <https://arxiv.org/abs/0904.2557>`_.
+The function's docstring states the limitations of the certificate, and a `design note <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/circuits/benchmarking/fault_propagation.md>`_ proves that its search is exact.
 The :doc:`fault-tolerance notebook <examples/logical_error_rates/6_certifying_fault_tolerance>` shows examples.
 
 Support and limitations
@@ -253,7 +254,8 @@ Disk caches
 ~~~~~~~~~~~
 
 qLDPC caches the results of slow or interactive lookups, such as named codes, groups, downloaded code data, and pasted GAP output, in a ``qldpc`` directory under the user's platform cache directory.
-Unless ``NUMBA_CACHE_DIR`` is set, code that numba compiles is cached in its ``numba/qldpc-<hash>`` subdirectory, where the hash is of qLDPC's source files, so directories with another hash are outdated and can be deleted.
+Unless ``NUMBA_CACHE_DIR`` is set, code that numba compiles is cached in its ``numba/qldpc-<hash>`` subdirectory, where the hash is of qLDPC's source files.
+Each import of qLDPC updates the modification time of the directory that it uses, and deletes the other ``qldpc-<hash>`` directories beside it that were last modified more than 7 days earlier.
 A function decorated with :func:`qldpc.cache.use_disk_cache` has a ``refresh`` method, which takes the same arguments, recomputes the result, and overwrites the cached value.
 :func:`qldpc.cache.clear_entry(cache_name, key) <qldpc.cache.clear_entry>` removes a single cached entry.
-Any process that has imported ``pytest`` bypasses the disk caches, so every call recomputes its result and nothing is saved.
+Any process that has imported ``pytest`` bypasses the result caches of ``use_disk_cache``, so every call recomputes its result and saves nothing; compiled code is still cached.
