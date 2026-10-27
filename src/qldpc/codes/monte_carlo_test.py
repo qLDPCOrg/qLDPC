@@ -338,29 +338,38 @@ def _expected_rate_and_error(
     """Recompute a reported rate and uncertainty by an independent route.
 
     Everything here comes from scipy rather than from the module under test: the weight distribution
-    from a binomial mass function, and each per-weight posterior variance from a beta distribution.
-    Only the final propagation is spelled the same way, and spelling it separately is what pins it.
+    from a binomial mass function, and each per-weight posterior from a beta or Dirichlet
+    distribution.  Only the final propagation is spelled the same way, and spelling it separately is
+    what pins it.
     """
     weights = np.arange(func.num_samples.size)
     weight_probs = scipy.stats.binom.pmf(weights, func.num_error_locations, error_rate)
+    samples, failures, discards = func.num_samples, func.num_failures, func.num_discards
+    perfect = weights < func.min_error_weight
+
+    # a weight with no samples is recorded with zero rates, but keeps the prior's variance
+    safe_samples = np.where(samples > 0, samples, 1)
+    failure_rates = np.where(samples > 0, failures / safe_samples, 0.0)
+    discard_rates = np.where(samples > 0, discards / safe_samples, 0.0)
     if discard_rate:
-        events, trials = func.num_discards, func.num_samples
-    else:
-        events, trials = func.num_failures, func.num_samples - func.num_discards
+        variances = scipy.stats.beta(discards + 0.5, samples - discards + 0.5).var()
+        variances = np.where(perfect, 0.0, variances)
+        return float(weight_probs @ discard_rates), float(np.sqrt(weight_probs**2 @ variances))
 
-    # a weight with no trials is recorded with a zero rate, but keeps the prior's variance
-    safe_trials = np.where(trials > 0, trials, 1)
-    rates = np.where(trials > 0, events / safe_trials, 0.0)
-    variances = scipy.stats.beta(events + 0.5, trials - events + 0.5).var()
-    variances = np.where(weights < func.min_error_weight, 0.0, variances)
+    # the rate among kept shots, with every error above the covered range a kept failure
+    tail = scipy.stats.binom.sf(func.max_error_weight, func.num_error_locations, error_rate)
+    kept = 1 - weight_probs @ discard_rates
+    value = (weight_probs @ failure_rates + tail) / kept
 
-    # weights above the covered range are all treated as failures, and only on that path
-    truncation = 0.0
-    if not discard_rate:
-        truncation = float(
-            scipy.stats.binom.sf(func.max_error_weight, func.num_error_locations, error_rate)
-        )
-    return float(weight_probs @ rates) + truncation, float(np.sqrt(weight_probs**2 @ variances))
+    # propagate the covariance of each weight's failure and discard rates, from the Dirichlet
+    # posterior of its failed, discarded and corrected samples
+    variance = 0.0
+    for weight in weights[~perfect]:
+        gradient = weight_probs[weight] / kept * np.array([1, value])
+        corrected = samples[weight] - failures[weight] - discards[weight]
+        alpha = np.array([failures[weight], discards[weight], corrected]) + 0.5
+        variance += gradient @ scipy.stats.dirichlet(alpha).cov()[:2, :2] @ gradient
+    return float(value), float(np.sqrt(variance))
 
 
 def test_reported_uncertainty_is_the_propagated_posterior() -> None:
@@ -438,3 +447,10 @@ def test_error_rate_func_single_weight() -> None:
     assert np.isclose(truncation, 1 - 0.9**5)
     assert func(0.1) == (truncation, 0)
     assert func(0.1, discard_rate=True) == (0, 0)
+
+
+def test_error_rate_when_every_shot_is_discarded() -> None:
+    """With no kept shot, the error rate is undefined."""
+    counts = np.array([0, 1])
+    func = monte_carlo.ErrorRateFunc(counts, np.zeros(2, dtype=int), counts, 1, 1.0)
+    assert all(np.isnan(func(1.0)))
