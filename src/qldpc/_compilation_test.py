@@ -8,8 +8,9 @@ import ast
 import os
 import time
 import types
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Literal
 
 import numba
 import numpy as np
@@ -61,6 +62,18 @@ def test_always_compiled_functions_are_cached_in_the_chosen_directory(
     cache_path = compiled.stats.cache_path
     assert cache_path is not None and Path(cache_path).is_relative_to(tmp_path / "cache")
     assert compiled(1) == _add_one(1) == 2
+
+
+def test_inlined_functions_are_cached_and_their_compiled_callers_include_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
+    inlined = _compilation.always_compiled(inline=True)(_add_one)
+    cache_path = inlined.stats.cache_path
+    assert cache_path is not None and Path(cache_path).is_relative_to(tmp_path / "cache")
+    caller = numba.njit(lambda value: inlined(value) * 2)
+    assert caller(1) == 4
+    assert not any("_add_one" in code for code in caller.inspect_llvm().values())
 
 
 def test_the_source_hash_covers_every_source_file_but_no_tests(tmp_path: Path) -> None:
@@ -225,13 +238,11 @@ def test_a_function_is_not_cached_if_numba_does_not_use_the_directory(
     monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
     njit = numba.njit
 
-    def cache_elsewhere(
-        function: Callable[..., object] | None = None, cache: bool = False
-    ) -> object:
+    def cache_elsewhere(*, cache: bool = False, inline: Literal["always", "never"]) -> object:
         if cache:
             elsewhere = types.SimpleNamespace(cache_path=str(tmp_path / "elsewhere"))
             return lambda function: types.SimpleNamespace(stats=elsewhere)
-        return njit(function)
+        return njit(inline=inline)
 
     monkeypatch.setattr(_compilation.numba, "njit", cache_elsewhere)
     with pytest.warns(RuntimeWarning, match="numba does not use"):
@@ -389,6 +400,8 @@ def _is_njit(function: ast.expr) -> bool:
 def _is_decorated_by(function: ast.FunctionDef, name: str) -> bool:
     """Whether a function has the decorator of the given name, however it was imported."""
     for decorator in function.decorator_list:
+        if isinstance(decorator, ast.Call):  # a decorator with options, such as ``inline=True``
+            decorator = decorator.func
         decorator_name = (
             decorator.attr if isinstance(decorator, ast.Attribute) else getattr(decorator, "id", "")
         )

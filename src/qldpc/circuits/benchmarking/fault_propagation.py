@@ -345,11 +345,7 @@ def _find_smallest_violation(
     flag_rank = _get_binary_rank([flag for flag, _ in signatures])
     max_fault_weight = flag_rank + 1 if max_weight is None else min(max_weight, flag_rank + 1)
 
-    # The oracle may use a quarter of the memory limit.  The search may use half for the table of
-    # pairs of primitive faults, and a quarter for the syndromes that satisfy the bound.
-    oracle = PauliCosetSearch(
-        stabilizers, css_weight=css_weight, memory_limit=max(1, memory_limit // 4)
-    )
+    oracle = PauliCosetSearch(stabilizers, css_weight=css_weight)
     return _search_irreducible_faults(signatures, max_fault_weight, oracle, memory_limit)
 
 
@@ -402,6 +398,8 @@ def _search_irreducible_faults(
     # Order the primitive faults with the heavy ones first, and each group in DEM order, so that the
     # faults to check are the ones that start with a heavy primitive fault.
     primitives = heavy + light
+
+    # The oracle needs only small tables, so the table of pairs may use the whole memory limit.
     lister = FaultLister(
         [flag for flag, _, _, _ in primitives],
         [syndrome for _, syndrome, _, _ in primitives],
@@ -409,30 +407,17 @@ def _search_irreducible_faults(
         oracle.num_qubits,
         oracle.css_weight,
         len(heavy),
-        memory_limit // 2,
+        memory_limit,
     )
-
-    # A syndrome that satisfies the bound at some fault weight satisfies it at every larger fault
-    # weight, so it is not checked again.
-    satisfied: set[int] = set()
-    # A Python set uses roughly this many bytes for each syndrome of this many bits.
-    max_satisfied = memory_limit // 4 // (64 + oracle.num_qubits // 4)
-
-    def check(
-        positions: tuple[int, ...], syndrome: int
-    ) -> BoundedFaultPropagationCounterexample | None:
-        if syndrome in satisfied:
-            return None
-        failure = _check_fault(tuple(primitives[jj][2] for jj in positions), syndrome, oracle)
-        if failure is None and len(satisfied) < max_satisfied:
-            satisfied.add(syndrome)
-        return failure
 
     # Check the faults by increasing fault weight.
     for fault_weight in range(2, max_fault_weight + 1):
-        failure = lister.find_first(fault_weight, check)
-        if failure is not None:
-            return failure
+        violation = lister.find_first(fault_weight, oracle.find_first_not_within)
+        if violation is not None:
+            positions, syndrome = violation
+            indices = tuple(primitives[jj][2] for jj in positions)
+            bound = oracle.get_min_weight_bound(syndrome, fault_weight)
+            return _get_counterexample(indices, syndrome, bound, oracle.num_qubits)
     return None
 
 

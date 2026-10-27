@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable, Collection, Iterator, Sequence
-from typing import TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -14,13 +13,13 @@ import numpy.typing as npt
 from qldpc._compilation import always_compiled
 from qldpc.codes.distance._binary import popcount_word, trailing_zeros_word
 
-# The peak number of bytes per pair of primitive faults while building a table of pairs.
-_BYTES_PER_PAIR = 32
+# The peak number of bytes per pair of primitive faults while building a table of pairs from
+# well-spread hashes: the hash and the two primitive faults of each pair, and at most one bucket
+# count per pair.
+_BYTES_PER_PAIR = 24
 
 # The largest number of faults in a batch of the compiled listing.
 _BATCH_SIZE = 2**12
-
-_Result = TypeVar("_Result")
 
 ####################################################################################################
 # listing irreducible accepted faults
@@ -87,18 +86,21 @@ class FaultLister:
         self._singles = _get_closing_table(self._rows[:, 0], 1)
 
     def find_first(
-        self, fault_weight: int, check: Callable[[tuple[int, ...], int], _Result | None]
-    ) -> _Result | None:
-        """Check the listed faults of a fault weight in order, and return the first result.
+        self, fault_weight: int, find_violation: Callable[[npt.NDArray[np.uint64], int], int]
+    ) -> tuple[tuple[int, ...], int] | None:
+        """Find the first listed fault of a fault weight that violates the bound.
 
-        The check gets the positions of the primitive faults of a fault and the fault's syndrome,
-        and returns None if the fault satisfies the bound.  Its result must depend only on the
-        syndrome, so a fault is not checked if an earlier fault in the same batch has its syndrome.
-        Nor is a fault checked if the product of the representatives of its primitive faults has
-        Pauli weight at most its fault weight, since then it satisfies the bound.
+        The faults are passed to ``find_violation`` in batches.  It gets the syndromes of a batch,
+        one per row of 64-bit words with word ``j`` holding bits ``64 j`` and up, and the fault
+        weight, and returns the index of the first syndrome of a violating fault, or the number of
+        syndromes if there is none.  Its answer must depend only on the syndromes, so a fault is
+        left out of a batch if an earlier fault in the same batch has its syndrome.  A fault is also
+        left out if the product of the representatives of its primitive faults has Pauli weight at
+        most its fault weight, since then it satisfies the bound.
 
         Returns:
-            The first result that is not None, or None if there is none.
+            The positions of the primitive faults of the first violating fault and its syndrome, or
+            None if there is none.
         """
         pairs = self._pairs if fault_weight >= 4 else None
         keys, members = self._singles if pairs is None else pairs
@@ -114,15 +116,11 @@ class FaultLister:
             batch_members,
             batch_syndromes,
         ):
-            faults = batch_members[:count].tolist()
-            syndromes = [
-                int.from_bytes(row.tobytes(), "little")
-                for row in batch_syndromes[:count].astype("<u8")
-            ]
-            for fault, syndrome in zip(faults, syndromes, strict=True):
-                result = check(tuple(fault), syndrome)
-                if result is not None:
-                    return result
+            index = find_violation(batch_syndromes[:count], fault_weight)
+            if index < count:
+                fault = tuple(batch_members[index].tolist())
+                syndrome = int.from_bytes(batch_syndromes[index].astype("<u8").tobytes(), "little")
+                return fault, syndrome
         return None
 
     @functools.cached_property
@@ -134,6 +132,7 @@ class FaultLister:
         return _get_closing_table(self._rows[:, 0], 2)
 
 
+@always_compiled
 def _get_closing_table(
     hashes: npt.NDArray[np.uint64], size: int
 ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32]]:
@@ -141,20 +140,45 @@ def _get_closing_table(
 
     The sets are listed in lexicographic order and sorted stably, so the sets with each hash stay in
     that order.  Return the sorted hashes and the sets.
+
+    The sort is a counting sort into buckets by the high bits of the hash, with about one bucket per
+    set, which keeps the sets of each bucket in order, followed by a stable sort of each bucket.
     """
     num_primitives = len(hashes)
-    if size == 1:
-        members = np.arange(num_primitives, dtype=np.int32)[:, None]
-    else:
-        members = np.empty((num_primitives * (num_primitives - 1) // 2, 2), dtype=np.int32)
-        members[:, 0], members[:, 1] = np.triu_indices(num_primitives, 1)
-    # Replace one array at a time, so that the peak memory stays within _BYTES_PER_PAIR.
-    keys = hashes[members[:, 0]]
-    for column in range(1, size):
-        keys ^= hashes[members[:, column]]
-    order = np.argsort(keys, kind="stable")
-    keys = keys[order]
-    members = members[order]
+    count = num_primitives if size == 1 else num_primitives * (num_primitives - 1) // 2
+    bits = 1
+    while 2 << bits <= count:
+        bits += 1
+    shift = np.uint64(64 - bits)
+
+    # Count the sets in each bucket, and turn the counts into the start of each bucket.  The sets
+    # are the single primitive faults ``first``, or the pairs ``first < second``: for singles, the
+    # inner loop runs only for ``second == first``, and the key is the hash of ``first``.
+    starts = np.zeros((1 << bits) + 1, dtype=np.int64)
+    for first in range(num_primitives):
+        for second in range(first + size - 1, num_primitives if size == 2 else first + 1):
+            key = hashes[first] ^ hashes[second] if size == 2 else hashes[first]
+            starts[np.int64(key >> shift) + 1] += 1
+    for bucket in range(1 << bits):
+        starts[bucket + 1] += starts[bucket]
+
+    # Fill the buckets in the order of the sets, which moves each start to the end of its bucket.
+    keys = np.empty(count, dtype=np.uint64)
+    members = np.empty((count, size), dtype=np.int32)
+    for first in range(num_primitives):
+        for second in range(first + size - 1, num_primitives if size == 2 else first + 1):
+            key = hashes[first] ^ hashes[second] if size == 2 else hashes[first]
+            high_bits = np.int64(key >> shift)
+            slot = starts[high_bits]
+            starts[high_bits] = slot + 1
+            keys[slot] = key
+            members[slot, 0] = first
+            if size == 2:
+                members[slot, 1] = second
+    for bucket in range(1 << bits):
+        start = starts[bucket - 1] if bucket else 0
+        if starts[bucket] - start > 1:
+            _sort_bucket(keys, members, start, starts[bucket])
     return keys, members
 
 
@@ -183,6 +207,33 @@ def _to_words(values: Sequence[int], num_words: int) -> npt.NDArray[np.uint64]:
     return words.astype(np.uint64)
 
 
+@always_compiled
+def _sort_bucket(
+    keys: npt.NDArray[np.uint64], members: npt.NDArray[np.int32], start: int, stop: int
+) -> None:
+    """Sort the entries from ``start`` to ``stop`` of a closing table stably by their keys.
+
+    A bucket is usually small or already sorted, and then it is sorted by insertion.  A larger
+    unsorted bucket is merge sorted instead, which takes memory in proportion to its size but avoids
+    the quadratic time of insertion.
+    """
+    if stop - start > 32 and np.any(keys[start + 1 : stop] < keys[start : stop - 1]):
+        order = start + np.argsort(keys[start:stop], kind="mergesort")
+        keys[start:stop] = keys[order]
+        members[start:stop] = members[order]
+        return
+    for entry in range(start + 1, stop):
+        slot = entry
+        while slot > start and keys[slot - 1] > keys[slot]:
+            keys[slot - 1], keys[slot] = keys[slot], keys[slot - 1]
+            for column in range(members.shape[1]):
+                members[slot - 1, column], members[slot, column] = (
+                    members[slot, column],
+                    members[slot - 1, column],
+                )
+            slot -= 1
+
+
 ####################################################################################################
 # compiled listing
 
@@ -201,9 +252,10 @@ def _iter_irreducible_fault_batches(
     """List irreducible accepted faults into batches, as ``FaultLister.find_first`` describes.
 
     The rows describe the primitive faults, as in ``FaultLister``, and the keys and members are a
-    table from ``_get_closing_table``.  Each listed fault that needs a check gets a row of the batch
-    arrays: its primitive faults and its syndrome.  Yield the number of faults in the batch each
-    time that the batch is full, and once at the end.  The caller must read a batch before resuming.
+    table from ``_get_closing_table``.  Each listed fault that is not left out gets a row of the
+    batch arrays: its primitive faults and its syndrome.  Yield the number of faults in the batch
+    each time that the batch is full, and once at the end.  The caller must read a batch before
+    resuming.
     """
     # Columns 0 and 1 of the rows hold the hashes of the flags and of the syndrome.
     num_primitives, num_words = rows.shape

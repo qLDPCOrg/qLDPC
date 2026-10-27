@@ -22,6 +22,7 @@ from qldpc._compilation import always_compiled, compiled_on_request
 
 from .. import _information_sets
 from .._binary import pack_bits, popcount_word, row_reduce_packed
+from .._information_sets import advance_support
 from ..core import DistanceMethod
 from . import local_cliffords
 
@@ -90,11 +91,14 @@ def count_words(
     cursor = np.zeros(3, dtype=np.int64)
     cursor[_CURSOR_LAYER] = 1
     support = np.zeros(len(basis), dtype=np.int64)
+    # The words of a row are followed by those of its label, so that their sums are kept together.
+    rows_and_labels = np.concatenate((rows, packed_labels), axis=2)
+    prefixes = np.zeros((len(basis), 1, rows_and_labels.shape[2]), dtype=np.uint64)
     status = _SCAN_UNFINISHED
     while status == _SCAN_UNFINISHED:
         status = _scan_coefficient_layers(
-            rows,
-            packed_labels,
+            rows_and_labels,
+            rows.shape[2],
             extractors,
             last_layer,
             weight,
@@ -104,6 +108,7 @@ def count_words(
             reject_lighter,
             cursor,
             support,
+            prefixes,
             histogram,
             _CHUNK_SIZE,
             _CHUNKS_PER_SCAN_CALL,
@@ -223,8 +228,8 @@ def _get_coefficient_extractors(
 
 @compiled_on_request
 def _scan_coefficient_layers(
-    rows: _PackedMatrix,
-    packed_labels: _PackedMatrix,
+    rows_and_labels: _PackedMatrix,
+    width: int,
     extractors: _PackedMatrix,
     last_layer: int,
     target: int,
@@ -234,6 +239,7 @@ def _scan_coefficient_layers(
     reject_lighter: bool,
     cursor: npt.NDArray[np.int64],
     support: npt.NDArray[np.int64],
+    prefixes: npt.NDArray[np.uint64],
     histogram: npt.NDArray[np.int64],
     chunk_size: int,
     max_chunks: int,
@@ -245,28 +251,29 @@ def _scan_coefficient_layers(
     compiled, which saves a call from Python for every chunk.
 
     The scan is resumable, since compiled code cannot be interrupted.  ``cursor`` holds the layer,
-    the set, and the depth at which to resume, and ``support`` holds the current combination, so
-    that a later call continues the scan.  The first call passes a cursor at layer one, set zero and
-    depth zero, and every call passes on the same ``cursor``, ``support`` and ``histogram``.
-    ``support[:layer]`` is the combination of the current layer, which is how ``_count_chunk``
-    knows its length.
+    the set, and the depth at which to resume, and ``support`` and ``prefixes`` hold the current
+    combination and its prefix sums, so that a later call continues the scan.  The first call passes
+    a cursor at layer one, set zero and depth zero, and zero prefixes, and every call passes on the
+    same ``cursor``, ``support``, ``prefixes`` and ``histogram``.  ``support[:layer]`` is the
+    combination of the current layer, which is how ``_count_chunk`` knows its length.
 
     Returns ``_SCAN_FINISHED``, ``_SCAN_UNFINISHED`` if chunks remain, or
     ``_SCAN_FOUND_LIGHTER_WORD``.
     """
     while cursor[_CURSOR_LAYER] <= last_layer:
         layer = cursor[_CURSOR_LAYER]
-        while cursor[_CURSOR_SET] < len(rows):
+        while cursor[_CURSOR_SET] < len(rows_and_labels):
             while cursor[_CURSOR_DEPTH] >= 0:
                 if max_chunks == 0:
                     return _SCAN_UNFINISHED
                 max_chunks -= 1
                 depth, lighter = _count_chunk(
-                    rows[cursor[_CURSOR_SET]],
-                    packed_labels[cursor[_CURSOR_SET]],
+                    rows_and_labels[cursor[_CURSOR_SET] : cursor[_CURSOR_SET] + 1],
+                    width,
                     extractors,
                     cursor[_CURSOR_SET],
                     support[:layer],
+                    prefixes,
                     cursor[_CURSOR_DEPTH],
                     target,
                     rank_rows,
@@ -320,11 +327,12 @@ def _transport_sets(
 
 @always_compiled
 def _count_chunk(
-    rows: _PackedMatrix,
-    tags: _PackedMatrix,
+    rows_and_labels: _PackedMatrix,
+    width: int,
     extractors: npt.NDArray[np.uint64],
     set_index: int,
     support: npt.NDArray[np.int64],
+    prefixes: npt.NDArray[np.uint64],
     depth: int,
     target: int,
     rank_rows: _PackedMatrix,
@@ -336,53 +344,33 @@ def _count_chunk(
 ) -> tuple[int, bool]:
     """Visit up to ``chunk_size`` combinations of ``len(support)`` rows, resuming at ``depth``.
 
-    ``support`` holds the increasing row indices of the current combination; ``depth`` is the
-    position being advanced, or -1 once every combination has been visited.  Each owned nontrivial
-    word of weight ``target`` adds one to ``histogram`` (see ``count_words``).  Returns the depth
-    from which to resume, and whether the scan stopped at a nontrivial word lighter than ``target``,
-    which is checked only with ``reject_lighter``.
+    ``rows_and_labels`` holds the rows of one set, stacked as the only set that ``advance_support``
+    enumerates, and each row has ``width`` words followed by those of its quotient label.
+    ``support`` holds the increasing row indices of the current combination, and ``prefixes`` their
+    prefix sums; ``depth`` is the position being advanced, or -1 once every combination has been
+    visited.  Each owned nontrivial word of weight ``target`` adds one to ``histogram`` (see
+    ``count_words``).  Returns the depth from which to resume, and whether the scan stopped at a
+    nontrivial word lighter than ``target``, which is checked only with ``reject_lighter``.
     """
-    num_rows, width = rows.shape
+    rows = rows_and_labels[0]
+    num_rows, total_width = rows.shape
+    widths = np.full(1, total_width, dtype=np.int64)
     layer = len(support)
-    # Prefixes are recomputed on entry, so only support and depth carry state between calls.
-    prefixes = np.zeros((layer, width), dtype=np.uint64)
-    tag_prefixes = np.zeros((layer, tags.shape[1]), dtype=np.uint64)
-    for position in range(1, depth + 1):
-        row = support[position - 1]
-        for index in range(width):
-            prefixes[position, index] = prefixes[position - 1, index] ^ rows[row, index]
-        for index in range(tags.shape[1]):
-            tag_prefixes[position, index] = tag_prefixes[position - 1, index] ^ tags[row, index]
-
-    # Advance through the combinations until the chunk is used up.
     word = np.empty(width, dtype=np.uint64)
     pivots = np.empty((len(rank_rows), width), dtype=np.uint64)
     visited = 0
-    while depth >= 0 and visited < chunk_size:
-        # Backtrack when no room remains for the rows after this position.
-        if support[depth] > num_rows - layer + depth:
-            depth -= 1
-            if depth >= 0:
-                support[depth] += 1
-            continue
-
-        # Extend the prefix by the row at this position, and advance to the next position.
-        if depth + 1 < layer:
-            row = support[depth]
-            for index in range(width):
-                prefixes[depth + 1, index] = prefixes[depth, index] ^ rows[row, index]
-            for index in range(tags.shape[1]):
-                tag_prefixes[depth + 1, index] = tag_prefixes[depth, index] ^ tags[row, index]
-            depth += 1
-            support[depth] = row + 1
-            continue
+    while visited < chunk_size:
+        depth = advance_support(rows_and_labels, widths, support, prefixes, depth)
+        if depth < 0:
+            break
 
         # Visit the remaining combinations that differ only in their last row.
         stop = min(num_rows, support[depth] + chunk_size - visited)
+        prefix = prefixes[depth, 0]
         for row in range(support[depth], stop):
             weight = np.int64(0)
             for index in range(width):
-                word[index] = prefixes[depth, index] ^ rows[row, index]
+                word[index] = prefix[index] ^ rows[row, index]
                 weight += popcount_word(word[index])
                 # A heavier word is rejected below, so its unwritten words are never read.
                 if weight > target:
@@ -392,8 +380,8 @@ def _count_chunk(
 
             # A nonzero quotient label marks a nontrivial logical rather than a stabilizer.
             nontrivial = False
-            for index in range(tags.shape[1]):
-                if tag_prefixes[depth, index] != tags[row, index]:
+            for index in range(width, total_width):
+                if prefix[index] != rows[row, index]:
                     nontrivial = True
                     break
             if nontrivial and weight < target:

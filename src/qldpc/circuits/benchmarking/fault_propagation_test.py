@@ -261,25 +261,6 @@ def test_max_weight_limits_the_fault_weight() -> None:
         assert (failure is None) == (max_weight == 2)
 
 
-def test_syndromes_repeated_at_larger_fault_weights_certify() -> None:
-    """A fault whose syndrome already satisfied the bound at a smaller fault weight certifies.
-
-    On a four-qubit GHZ state, the accepted faults {1, 4} and {0, 2, 4} both leave syndrome 1, which
-    has an error of Pauli weight one, so neither violates the bound.  This test covers the cache of
-    satisfied syndromes: the search checks {1, 4} at fault weight two, and finds the syndrome of
-    {0, 2, 4} in the cache at fault weight three.  It reaches the cache only because the
-    representatives that ``PauliCosetSearch`` picks make the product for {0, 2, 4} heavier than
-    three, so a change to those representatives can make this test miss the cache.
-    """
-    stabilizers = [stim.PauliString(gg) for gg in ("XXXX", "ZZ__", "_ZZ_", "__ZZ")]
-    assert _true_minimum(stabilizers, [1, 0, 0, 0], False) == 1
-    matrix = np.array([np.concatenate(ss.to_numpy()) for ss in stabilizers], dtype=np.uint8)
-    failure = fault_propagation._find_smallest_violation(
-        [1, 3, 2, 2, 3], [9, 14, 7, 1, 15], matrix, False, None
-    )
-    assert failure is None
-
-
 @pytest.mark.parametrize("css_weight", [True, False])
 @pytest.mark.parametrize("num_qubits", [3, 4])
 def test_ghz_preparation_matches_brute_force_over_primitive_faults(

@@ -527,7 +527,7 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Stored width `N_stored` | `basis.shape[1]` before pivot deletion, including any all-zero columns |
 | Labels `M` | `labels`, which is `None` for a classical problem |
 | Eligible rows | Every row of a classical basis; rows with nonzero labels for a quantum problem |
-| Support, prefix XORs | `support` and `prefixes` in `advance` and `_scan_brouwer_zimmermann` |
+| Support, prefix XORs | `support` and `prefixes` in `advance` and `_scan_brouwer_zimmermann`, which steps through a layer with `advance_support` of [_information_sets.py](_information_sets.py) |
 | Packed generators | `generators` of `_BrouwerZimmermannSearch`: `uint64` words after deleting pivot columns; `widths` counts the valid words for each search basis |
 | Packed labels | `labels` of `_BrouwerZimmermannSearch`: `uint64` quotient-label words, without pivot-column deletion; `label_widths` counts the valid words |
 | Chunk | `batch_size`, equal to `1 << min(block_size, 15)` supports |

@@ -35,9 +35,10 @@ functions that other compiled code calls: every search needs them, and the disk 
 compiling them a one-time cost.  Use :func:`compiled_on_request` for the larger functions that
 orchestrate a search, which select and bound its information sets, build its basis families, and
 drive its scan.  Compiling them pays off only in a program that makes very many searches.  A
-function that is neither runs as ordinary Python.  A compiled-on-request function may call
-always-compiled and compiled-on-request functions.  An always-compiled function may call only
-always-compiled functions, since it is compiled and cached by itself.
+function that is neither runs as ordinary Python.  A small always-compiled helper that hot loops
+call can be marked ``inline=True`` (see :func:`always_compiled`).  A compiled-on-request function
+may call always-compiled and compiled-on-request functions.  An always-compiled function may call
+only always-compiled functions, since it is compiled and cached by itself.
 """
 
 from __future__ import annotations
@@ -54,7 +55,7 @@ import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, TypeVar, cast
+from typing import TYPE_CHECKING, Literal, Protocol, TypeVar, cast, overload
 
 import numba
 from numba.core import config
@@ -115,7 +116,17 @@ _ON_REQUEST_FUNCTIONS: list[_OnRequestFunction] = []
 # functions cached on disk
 
 
-def always_compiled(function: _Function) -> Dispatcher[_Function]:
+@overload
+def always_compiled(function: _Function, /, *, inline: bool = False) -> Dispatcher[_Function]: ...
+
+
+@overload
+def always_compiled(*, inline: bool) -> Callable[[_Function], Dispatcher[_Function]]: ...
+
+
+def always_compiled(
+    function: _Function | None = None, /, *, inline: bool = False
+) -> Dispatcher[_Function] | Callable[[_Function], Dispatcher[_Function]]:
     """Compile a function with numba, and cache its compiled code in a directory of qLDPC's source.
 
     The directory is named by a hash of the source files of qLDPC, so that code compiled from
@@ -123,14 +134,20 @@ def always_compiled(function: _Function) -> Dispatcher[_Function]:
     that is set, and otherwise inside the ``qldpc/numba`` directory of the user's cache directory.
     If the directory cannot be used, qLDPC warns once, and every process compiles the function
     again.
+
+    Used as ``@always_compiled(inline=True)``, it also makes compiled code that calls the function
+    include its code rather than call it, which saves the cost of a call in a hot loop.
     """
+    if function is None:
+        return lambda function: always_compiled(function, inline=inline)
+    mode: Literal["always", "never"] = "always" if inline else "never"
     if _numba_config.DISABLE_JIT:  # numba then runs every function as ordinary Python
-        return numba.njit(function)
+        return numba.njit(inline=mode)(function)
     cache_directory = _get_cache_directory(_PACKAGE_DIRECTORY)
     dispatcher = (
-        None if cache_directory is None else _compile_with_cache_in(function, cache_directory)
+        None if cache_directory is None else _compile_with_cache_in(function, cache_directory, mode)
     )
-    return numba.njit(function) if dispatcher is None else dispatcher
+    return numba.njit(inline=mode)(function) if dispatcher is None else dispatcher
 
 
 ####################################################################################################
@@ -160,18 +177,20 @@ def set_on_request_functions_compiled(compiled: bool) -> None:
 # helper functions
 
 
-def _compile_with_cache_in(function: _Function, directory: Path) -> Dispatcher[_Function] | None:
+def _compile_with_cache_in(
+    function: _Function, directory: Path, inline: Literal["always", "never"]
+) -> Dispatcher[_Function] | None:
     """Compile a function with numba, cached in a directory, or return None if numba ignores it.
 
-    Numba reads its ``CACHE_DIR`` setting, the only way to choose where it caches, when it compiles
-    a function, and reports where it cached in ``stats.cache_path``.  Both are internal to numba,
-    so the result is checked.
+    The function is inlined as numba's option ``inline`` says.  Numba reads its ``CACHE_DIR``
+    setting, the only way to choose where it caches, when it compiles a function, and reports where
+    it cached in ``stats.cache_path``.  Both are internal to numba, so the result is checked.
     """
     with _CACHE_DIRECTORY_LOCK:
         previous_directory = _numba_config.CACHE_DIR
         _numba_config.CACHE_DIR = str(directory)
         try:
-            dispatcher = numba.njit(cache=True)(function)
+            dispatcher = numba.njit(cache=True, inline=inline)(function)
         finally:
             _numba_config.CACHE_DIR = previous_directory
 

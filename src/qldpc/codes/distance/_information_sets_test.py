@@ -214,6 +214,39 @@ def test_the_size_limit_bounds_the_overlapping_basis_family(max_sets: int, num_s
     assert len(overlapping.ranks) == num_sets
 
 
+@pytest.mark.usefixtures("compilation_mode")
+def test_layers_visit_each_support_once_with_its_sums(pytestconfig: pytest.Config) -> None:
+    """A layer visits the combinations of rows in order, each with its sum in every set.
+
+    The second set uses fewer words than the first, and the starting words are random.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    widths = np.array([3, 1], dtype=np.int64)
+    for dimension in range(1, 7):
+        rows = rng.integers(2**64, size=(2, dimension, 3), dtype=np.uint64)
+        start = rng.integers(2**64, size=(2, 3), dtype=np.uint64)
+        for weight in range(1, dimension + 1):
+            support = np.zeros(weight, dtype=np.int64)
+            prefixes = np.zeros((weight, 2, 3), dtype=np.uint64)
+            prefixes[0] = start
+            visited = []
+            depth = _information_sets.advance_support(rows, widths, support, prefixes, 0)
+            while depth >= 0:
+                sums = prefixes[depth] ^ rows[:, support[depth]]
+                visited.append(
+                    (support.tolist(), [sums[jj, : widths[jj]].tolist() for jj in range(2)])
+                )
+                support[depth] += 1
+                depth = _information_sets.advance_support(rows, widths, support, prefixes, depth)
+            expected = []
+            for indices in itertools.combinations(range(dimension), weight):
+                sums = start ^ np.bitwise_xor.reduce(rows[:, list(indices)], axis=1)
+                expected.append(
+                    (list(indices), [sums[jj, : widths[jj]].tolist() for jj in range(2)])
+                )
+            assert visited == expected
+
+
 def test_functions_agree_in_plain_python_and_compiled(pytestconfig: pytest.Config) -> None:
     """Pruned and replacement basis families are identical, bit for bit, plain and compiled."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))

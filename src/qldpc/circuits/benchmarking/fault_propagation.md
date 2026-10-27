@@ -91,14 +91,12 @@ We call the primitive faults that remain the **kept primitive faults**.
 
 The search decides exactly whether `μ(S F) ≤ |F|` for a fault `F` with `PauliCosetSearch`, a minimum-weight oracle for the Pauli errors with a given syndrome.
 It uses the same oracle, with the threshold one, to decide whether a primitive fault is heavy.
-The search skips the oracle for a fault `F` in three cases, each of which cannot hide a violation.
+The search skips the oracle for a fault `F` in two cases, each of which cannot hide a violation.
 
 1. A product of low-weight errors with syndromes `s_j`, one for each primitive fault `j` of `F`, has Pauli weight at most `|F|`.
    That product has syndrome `S F`, so `F` satisfies the bound.
 2. An earlier fault of the same batch, which has the same fault weight, has the syndrome `S F`.
    If that fault violates the bound, the search stops there, and otherwise `F` satisfies the bound too, since whether a fault violates the bound depends only on its syndrome and fault weight.
-3. The syndrome `S F` satisfied the bound for a fault `G` checked earlier, with `|G| ≤ |F|`.
-   Then `μ(S F) ≤ |G| ≤ |F|`, since the bound only loosens as the fault weight grows.
 
 ### Listing each irreducible accepted fault once
 

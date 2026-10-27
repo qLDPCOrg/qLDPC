@@ -3,11 +3,13 @@
 """Basis families of information sets and their certificates, shared by exact BZ and coset searches.
 
 Exact distance search (``_brouwer_zimmermann.py``) and fixed-weight logical counting
-(``_counting/scan.py``) enumerate coefficient layers over the same basis families.  This module owns
-how those basis families are built, pruned, and replaced by overlapping ones, and the certificate
-that bounds the Hamming weight of eligible words that a basis family has not yet visited.  The
-Pauli-coset oracle (``_bounded_weight_search.py``) uses the disjoint information sets for its own
-layered search.
+(``_counting/scan.py``) enumerate coefficient layers over the same basis families.  Layer ``w`` of
+an information set holds the words that add ``w`` of its rows to a starting word, which is zero
+except in the Pauli-coset oracle's search (see ``brouwer_zimmermann.md`` for the terminology).  This
+module owns how those basis families are built, pruned, and replaced by overlapping ones, and the
+certificate that bounds the Hamming weight of eligible words that a basis family has not yet
+visited.  The Pauli-coset oracle (``_bounded_weight_search.py``) uses the disjoint information sets
+for its own layered search.  All three enumerate a layer with :func:`advance_support`.
 
 A :class:`BasisFamily` stacks its information sets into arrays, so that one set of functions serves
 every caller, in the subset of Python that numba compiles, and some of them are compiled (see
@@ -200,11 +202,11 @@ def get_overlapping_family(
 ) -> BasisFamily:
     """Stage three: build a replacement basis family of overlapping full sets that does less work.
 
-    ``basis_family`` holds the full and partial sets of one independent binary basis, whose
-    quotient labels ``labels`` have no columns if it has none.  A replacement holds only full sets,
-    with their labels transformed alongside their rows, and is certified with its maximum coverage
-    of a Hamming coordinate.  ``max_sets`` bounds its size and the effort spent building it: more
-    sets can avoid costly coefficient layers in hard searches, while fewer reduce set-up work.  No
+    ``basis_family`` holds the full and partial sets of one independent binary basis, whose quotient
+    labels ``labels`` have no columns if it has none.  A replacement holds only full sets, with
+    their labels transformed alongside their rows, and is certified with its maximum coverage of a
+    Hamming coordinate.  ``max_sets`` bounds its size and the effort spent building it: more sets
+    can avoid costly coefficient layers in hard searches, while fewer reduce set-up work.  No
     replacement is built if the estimated work of ``basis_family`` is below ``minimum_work``.
 
     Returns the replacement, which has no sets if no replacement does less work.  ``binomials`` are
@@ -550,3 +552,54 @@ def get_retained_set_mask(
     for index in range(len(ranks)):
         retained[index] = ranks[index] == dimension or dimension - ranks[index] < certifying_weight
     return retained
+
+
+####################################################################################################
+# coefficient layers
+
+
+@always_compiled(inline=True)
+def advance_support(
+    rows: npt.NDArray[np.uint64],
+    widths: npt.NDArray[np.int64],
+    support: npt.NDArray[np.int64],
+    prefixes: npt.NDArray[np.uint64],
+    depth: int,
+) -> int:
+    """Move to the next choice of rows in a layer of the search.
+
+    Layer ``w = len(support)`` of a basis family holds a starting word of each information set plus
+    each sum of ``w`` of its rows.  A support lists the indices of such rows in increasing order,
+    and the supports come in lexicographic order.  ``rows`` holds the packed rows of each
+    information set, and set ``j`` uses its first ``widths[j]`` words.  The rows chosen so far are
+    ``support[:depth]``, and ``support[depth]`` is the next row to try at ``depth``.  Row ``level``
+    of ``prefixes`` holds, for each information set, its starting word plus its rows
+    ``support[:level]``, and row zero holds the starting words.
+
+    Return the last depth, ``len(support) - 1``, once ``support`` is complete: its sum in set ``j``
+    is then ``prefixes[depth, j] ^ rows[j, support[depth]]`` at that depth.  To continue, increment
+    ``support[depth]``, possibly several times to visit the supports that differ only in their last
+    row, and call again from that depth.  Return -1 once every support has been visited.
+    """
+    num_rows = rows.shape[1]
+    weight = len(support)
+    while depth >= 0:
+        # Backtrack once the row at this depth leaves too few rows to complete the support.
+        if support[depth] > num_rows - weight + depth:
+            depth -= 1
+            if depth >= 0:
+                support[depth] += 1
+            continue
+        if depth + 1 == weight:
+            return depth
+
+        # Add the row at this depth to the prefixes, and try the next rows at the next depth.
+        row = support[depth]
+        for set_index in range(len(widths)):
+            for word in range(widths[set_index]):
+                prefixes[depth + 1, set_index, word] = (
+                    prefixes[depth, set_index, word] ^ rows[set_index, row, word]
+                )
+        depth += 1
+        support[depth] = row + 1
+    return depth

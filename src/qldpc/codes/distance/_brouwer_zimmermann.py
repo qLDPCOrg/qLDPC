@@ -32,6 +32,7 @@ from ._binary import (
 from ._brute_force import (
     get_distance_quantum_brute_force,
 )
+from ._information_sets import advance_support
 
 ####################################################################################################
 # search entry points
@@ -491,57 +492,47 @@ def _scan_brouwer_zimmermann(
     dimension = generators.shape[1]
     weight = len(support)
     visited = 0
-    while depth >= 0:
-        # Backtrack once the row at this depth leaves too few rows to complete the support.
-        if support[depth] > dimension - weight + depth:
-            depth -= 1
-            if depth >= 0:
-                support[depth] += 1
-            continue
-
-        row = support[depth]
-        if depth + 1 < weight:
-            for set_index in range(len(ranks)):
-                for word in range(widths[set_index]):
-                    prefixes[depth + 1, set_index, word] = (
-                        prefixes[depth, set_index, word] ^ generators[set_index, row, word]
-                    )
-            depth += 1
-            support[depth] = row + 1
-            continue
-
-        # Evaluate the completed support in each information set.
-        for set_index in range(len(ranks)):
-            # Each selected row whose pivot column was deleted contributes one to the Hamming
-            # weight; packed words hold the remaining columns.
-            candidate_weight = np.int64(weight) if ranks[set_index] == dimension else np.int64(0)
-            if ranks[set_index] != dimension:
-                for selected in range(weight):
-                    if support[selected] < ranks[set_index]:
-                        candidate_weight += 1
-            for word in range(widths[set_index]):
-                value = prefixes[depth, set_index, word] ^ generators[set_index, row, word]
-                candidate_weight += popcount_word(value)
-                if candidate_weight >= best:
-                    break
-            if candidate_weight >= best:
-                continue
-
-            # A candidate is eligible when no subcode is excluded or its quotient label is nonzero.
-            eligible = label_widths[set_index] == 0
-            for word in range(label_widths[set_index]):
-                combined = labels[set_index, support[0], word]
-                for selected in range(1, weight):
-                    combined ^= labels[set_index, support[selected], word]
-                if combined:
-                    eligible = True
-                    break
-            if eligible:
-                best = int(candidate_weight)
-
-        # Move to the next support, returning at the cutoff or at the end of this chunk.
-        visited += 1
-        support[depth] += 1
-        if best <= cutoff or visited >= batch_size:
+    while True:
+        depth = advance_support(generators, widths, support, prefixes, depth)
+        if depth < 0:
             return best, depth, visited
-    return best, depth, visited
+
+        # Evaluate each support that a last row completes, in each information set, and move on to
+        # the next one, returning at the cutoff or at the end of this chunk.
+        while support[depth] < dimension:
+            row = support[depth]
+            for set_index in range(len(ranks)):
+                # Each selected row whose pivot column was deleted contributes one to the Hamming
+                # weight; packed words hold the remaining columns.
+                candidate_weight = (
+                    np.int64(weight) if ranks[set_index] == dimension else np.int64(0)
+                )
+                if ranks[set_index] != dimension:
+                    for selected in range(weight):
+                        if support[selected] < ranks[set_index]:
+                            candidate_weight += 1
+                for word in range(widths[set_index]):
+                    value = prefixes[depth, set_index, word] ^ generators[set_index, row, word]
+                    candidate_weight += popcount_word(value)
+                    if candidate_weight >= best:
+                        break
+                if candidate_weight >= best:
+                    continue
+
+                # A candidate is eligible when no subcode is excluded or its quotient label is
+                # nonzero.
+                eligible = label_widths[set_index] == 0
+                for word in range(label_widths[set_index]):
+                    combined = labels[set_index, support[0], word]
+                    for selected in range(1, weight):
+                        combined ^= labels[set_index, support[selected], word]
+                    if combined:
+                        eligible = True
+                        break
+                if eligible:
+                    best = int(candidate_weight)
+
+            visited += 1
+            support[depth] += 1
+            if best <= cutoff or visited >= batch_size:
+                return best, depth, visited
