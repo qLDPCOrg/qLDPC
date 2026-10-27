@@ -161,8 +161,7 @@ def _get_closing_table(
     # pairs ``first < second``, with the sum of their hashes as their key.
     starts = np.zeros((1 << bucket_bits) + 1, dtype=np.int64)
     for first in range(num_primitives):
-        seconds = range(first + 1, num_primitives) if size == 2 else range(first, first + 1)
-        for second in seconds:
+        for second in range(first + size - 1, num_primitives if size == 2 else first + 1):
             key = hashes[first] ^ hashes[second] if size == 2 else hashes[first]
             starts[np.int64(key >> shift) + 1] += 1
     for bucket in range(1 << bucket_bits):
@@ -172,8 +171,7 @@ def _get_closing_table(
     keys = np.empty(num_sets, dtype=np.uint64)
     members = np.empty((num_sets, size), dtype=np.int32)
     for first in range(num_primitives):
-        seconds = range(first + 1, num_primitives) if size == 2 else range(first, first + 1)
-        for second in seconds:
+        for second in range(first + size - 1, num_primitives if size == 2 else first + 1):
             key = hashes[first] ^ hashes[second] if size == 2 else hashes[first]
             set_bucket = np.int64(key >> shift)
             slot = starts[set_bucket]
