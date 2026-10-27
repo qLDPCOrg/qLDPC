@@ -299,7 +299,8 @@ def _get_selected_detectors(
             raise ValueError(f"{invalid}, not {post_select!r}")
         if not add_flags:
             raise ValueError(
-                'post_select="flags" selects the added flag detectors, so it requires add_flags=True'
+                'post_select="flags" selects the added flag detectors, so it requires'
+                " add_flags=True"
             )
         return tuple(detector_record.get_events("flags"))
     num_selectable = len(detector_record.get_events("prep", "flags"))

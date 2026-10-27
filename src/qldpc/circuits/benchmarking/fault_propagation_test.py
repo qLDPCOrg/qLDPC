@@ -262,7 +262,7 @@ def test_max_weight_limits_the_fault_weight() -> None:
 
 
 def test_syndromes_repeated_at_larger_fault_weights_certify() -> None:
-    """A syndrome that satisfied the bound at a smaller fault weight is not checked again.
+    """A fault whose syndrome already satisfied the bound at a smaller fault weight certifies.
 
     On a four-qubit GHZ state, the accepted faults {1, 4} and {0, 2, 4} both leave syndrome 1, which
     has an error of Pauli weight one, so neither violates the bound.  This test covers the cache of
