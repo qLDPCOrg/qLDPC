@@ -18,7 +18,6 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import numpy.typing as npt
-from numba import njit
 
 from . import _information_sets
 from ._binary import (
@@ -31,6 +30,7 @@ from ._binary import (
 from ._brute_force import (
     get_distance_quantum_brute_force,
 )
+from ._compilation import always_compiled
 
 ####################################################################################################
 # search entry points
@@ -421,7 +421,7 @@ def _get_family_upper_bound(family: _information_sets.BasisFamily, upper_bound: 
 # native scan
 
 
-@njit(cache=True)
+@always_compiled
 def _scan_brouwer_zimmermann(
     generators: npt.NDArray[np.uint64],
     labels: npt.NDArray[np.uint64],

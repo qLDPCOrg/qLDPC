@@ -10,8 +10,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 import numpy.typing as npt
 from llvmlite import ir
-from numba import njit, types
+from numba import types
 from numba.extending import lower_builtin, type_callable
+
+from ._compilation import always_compiled
 
 if TYPE_CHECKING:
     from numba.core.base import BaseContext
@@ -256,7 +258,7 @@ def _lower_trailing_zeros_word(
 # native packing and row reduction
 
 
-@njit(cache=True)
+@always_compiled
 def pack_bits(matrix: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint64]:
     """Pack binary rows into uint64 words, with column j in bit j % 64 of word j // 64.
 
@@ -276,7 +278,7 @@ def pack_bits(matrix: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint64]:
     return packed
 
 
-@njit(cache=True)
+@always_compiled
 def _unpack_bits(packed: npt.NDArray[np.uint64], width: int) -> npt.NDArray[np.uint8]:
     """Inverse of ``pack_bits`` for rows with ``width`` columns."""
     matrix = np.empty((len(packed), width), dtype=np.uint8)
@@ -287,7 +289,7 @@ def _unpack_bits(packed: npt.NDArray[np.uint64], width: int) -> npt.NDArray[np.u
     return matrix
 
 
-@njit(cache=True)
+@always_compiled
 def _row_reduce_packed(
     matrix: npt.NDArray[np.uint8], labels: npt.NDArray[np.uint8], columns: npt.NDArray[np.int64]
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8], npt.NDArray[np.int64]]:

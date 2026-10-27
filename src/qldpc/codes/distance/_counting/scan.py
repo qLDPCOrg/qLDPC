@@ -15,10 +15,10 @@ from collections.abc import Callable
 
 import numpy as np
 import numpy.typing as npt
-from numba import njit
 
 from .. import _information_sets
 from .._binary import pack_bits, popcount_word, row_reduce_binary
+from .._compilation import always_compiled
 from ..core import DistanceMethod
 from . import local_cliffords
 
@@ -176,7 +176,7 @@ def _get_coefficient_extractor(generators: _BinaryMatrix) -> _PackedMatrix:
 # native kernels
 
 
-@njit(cache=True)
+@always_compiled
 def _count_chunk(
     rows: _PackedMatrix,
     tags: _PackedMatrix,
@@ -266,7 +266,7 @@ def _count_chunk(
     return depth, False
 
 
-@njit(cache=True)
+@always_compiled
 def _is_owned(
     word: npt.NDArray[np.uint64], extractors: npt.NDArray[np.uint64], set_index: int, layer: int
 ) -> bool:
@@ -294,7 +294,7 @@ def _is_owned(
     return True
 
 
-@njit(cache=True)
+@always_compiled
 def _get_masked_rank(
     rows: _PackedMatrix,
     mask: npt.NDArray[np.uint64],
