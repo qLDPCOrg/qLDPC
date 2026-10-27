@@ -81,7 +81,7 @@ class PauliCosetSearch:
         *,
         metric: Literal["pauli", "css"] = "pauli",
         batch_size: int = 4096,
-        memory_limit: int = 2**29,
+        memory_limit: int = 2**30,  # 1 GiB
     ) -> None:
         if metric not in ("pauli", "css"):
             raise ValueError("metric must be 'pauli' or 'css'")

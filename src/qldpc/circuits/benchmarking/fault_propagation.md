@@ -84,7 +84,6 @@ We call the primitive faults that remain the **kept primitive faults**.
 
 The search decides exactly whether `μ(S F) ≤ |F|` for a fault `F` with `PauliCosetSearch`, a minimum-weight oracle for the Pauli errors with a given syndrome.
 It uses the same oracle, with the threshold one, to decide whether a primitive fault is heavy.
-Since the search checks faults in order of increasing fault weight (see [Section 4.3](#43-why-the-first-violation-has-the-smallest-fault-weight)), a syndrome that satisfied the bound for an earlier fault also satisfies it for every later one, so the search skips the later faults with that syndrome.
 
 ### 4.2 Listing each irreducible accepted fault once
 
@@ -103,9 +102,11 @@ By [Section 3.2](#32-a-violating-fault-contains-a-heavy-primitive-fault), only a
 So the search builds only the prefixes that start with a heavy primitive fault.
 Since the heavy primitive faults come first, such a fault has a heavy `j_1`, so this lists each of them once and lists nothing else.
 
-For fault weight `m ≥ 4`, the search chooses the last primitive fault of the prefix and the closing primitive fault together.
-If it fits within the memory limit, it keeps a table of all pairs of kept primitive faults with nonzero flags, sorted by the sum of their flags, and for each choice of `j_1, ..., j_{m-2}` it looks up the pairs `j_{m-1} < j_m` that come after `j_{m-2}` and whose flags sum to the flags of `j_1, ..., j_{m-2}`.
-This lists the same faults in the same order, with one lookup in place of a loop over `j_{m-1}`.
+Most choices of `j_{m-1}` have no closing primitive fault, so for fault weight `m ≥ 4` the search saves time by choosing `j_{m-1}` and `j_m` together.
+Choosing them together removes about one factor of `N` (the number of primitive faults) from the search time, at the cost of a table whose size is quadratic in `N`.
+The search keeps a table of all pairs of these primitive faults indexed by the sum of their flags, if the table fits within a user-specified memory limit.
+For each choice of `j_1, ..., j_{m-2}`, the search looks up the pairs `j_{m-1} < j_m` that come after `j_{m-2}` and whose flags sum to the flags of `j_1, ..., j_{m-2}`, and keeps the pairs for which the prefix is independent.
+The table lookup lists the same faults in the same order as a loop over `j_{m-1}`.
 
 ### 4.3 Why the first violation has the smallest fault weight
 

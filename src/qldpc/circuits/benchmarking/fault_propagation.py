@@ -38,7 +38,7 @@ def certify_bounded_fault_propagation(
     max_weight: int | None = None,
     add_flags: bool = False,
     post_select: bool | Collection[int] | Literal["flags"] = False,
-    memory_limit: int = 2**30,
+    memory_limit: int = 2**30,  # 1 GiB
 ) -> BoundedFaultPropagationCertificate:
     """Certify bounded fault propagation in a noisy Clifford state-preparation circuit.
 
@@ -224,7 +224,7 @@ def _certify_maps(
     stabilizers: npt.ArrayLike,
     css_weight: bool,
     max_weight: int | None,
-    memory_limit: int = 2**30,
+    memory_limit: int = 2**30,  # 1 GiB
 ) -> tuple[BoundedFaultPropagationCounterexample | None, int]:
     """Prepare the search for an accepted fault that violates the bound, and run it.
 
@@ -256,7 +256,7 @@ def _search_irreducible_faults(
     signatures: dict[tuple[int, int], int],
     budget: int,
     oracle: PauliCosetSearch,
-    memory_limit: int = 2**30,
+    memory_limit: int = 2**30,  # 1 GiB
 ) -> tuple[BoundedFaultPropagationCounterexample | None, int]:
     """Check the irreducible accepted faults that can violate the bound, by increasing fault weight.
 
