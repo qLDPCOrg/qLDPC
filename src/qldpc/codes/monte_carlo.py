@@ -37,9 +37,9 @@ class ErrorRateFunc:
     (1) A logical error rate: the probability that a shot fails given that the decoder keeps it, as
         defined below.
     (2) A statistical uncertainty in that rate: the standard deviation propagated to first order
-        from the Jeffreys posterior over the failed, discarded, and corrected samples of each
-        weight (a Dirichlet distribution), which grows large, and loses meaning, as the discard
-        rate approaches one.
+        from the Jeffreys posterior over the failed, discarded, and corrected samples of each weight
+        (a Dirichlet distribution), which grows large, and loses meaning, as the discard rate
+        approaches one.
 
     If called with an array of physical error rates, this function returns two arrays.  If called
     with ``discard_rate=True``, it computes a discard rate instead of an error rate.

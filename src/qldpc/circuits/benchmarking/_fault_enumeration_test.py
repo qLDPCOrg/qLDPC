@@ -214,6 +214,8 @@ def test_skipped_faults_satisfy_the_bound(css_weight: bool, pytestconfig: pytest
 def test_pair_table_peak_memory_is_within_its_estimate(monkeypatch: pytest.MonkeyPatch) -> None:
     """Building a table of pairs needs at most about ``_BYTES_PER_PAIR`` bytes for each pair.
 
+    The primitive faults have distinct random hashes, so no bucket of the table is merge sorted.
+
     The table is built by the Python versions of its compiled functions, since only allocations by
     Python are traced, and loading compiled code would add allocations of its own.
     """

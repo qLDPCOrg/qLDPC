@@ -14,9 +14,11 @@ from qldpc._compilation import always_compiled
 from qldpc.codes.distance._binary import popcount_word, trailing_zeros_word
 
 # The peak number of bytes per pair of primitive faults while building a table of pairs: the hash
-# and the two primitive faults of each pair, and at most one bucket count per pair.  A bucket that
-# holds several different hashes is merge sorted with extra memory in proportion to its size, which
-# this leaves out; for random hashes such buckets are rare and small.
+# and the two primitive faults of each pair, and at most one bucket count per pair.  A bucket of
+# more than 32 sets that is out of order is merge sorted, with extra memory in proportion to its
+# size, which this leaves out.  That can happen when a key that many pairs share, such as the zero
+# key of the pairs with equal flags, shares its bucket with another key, which then adds extra
+# memory for each pair of that bucket.
 _BYTES_PER_PAIR = 24
 
 # The largest number of faults in a batch of the compiled listing.
@@ -158,7 +160,8 @@ def _get_closing_table(
 
     # Count the sets in each bucket, and turn the counts into the start of each bucket.  The sets
     # are the single primitive faults ``first``, with the hash of ``first`` as their key, or the
-    # pairs ``first < second``, with the sum of their hashes as their key.
+    # pairs ``first < second``, with the sum of their hashes as their key.  For single faults, the
+    # inner loop runs only for ``second == first``.
     starts = np.zeros((1 << bucket_bits) + 1, dtype=np.int64)
     for first in range(num_primitives):
         for second in range(first + size - 1, num_primitives if size == 2 else first + 1):
@@ -219,9 +222,10 @@ def _sort_bucket(
     """Sort the entries from ``start`` to ``stop`` of a closing table stably by their keys.
 
     A bucket usually holds few sets, or many sets with one hash (such as the pairs with equal
-    flags), which are already in order, and then it is sorted by insertion.  A larger bucket that is
-    out of order, which holds several hashes, is merge sorted instead, which takes memory in
-    proportion to its size but avoids the quadratic time of insertion.
+    flags), which are in order unless another hash shares the bucket, and then it is sorted by
+    insertion.  A larger bucket that is out of order, which holds several hashes, is merge sorted
+    instead, which takes memory in proportion to its size but avoids the quadratic time of
+    insertion.
     """
     if stop - start > 32 and np.any(keys[start + 1 : stop] < keys[start : stop - 1]):
         order = start + np.argsort(keys[start:stop], kind="mergesort")

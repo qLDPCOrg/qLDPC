@@ -308,16 +308,16 @@ def _search_coset(
 
     The embedded words of the class form a coset of the embedded stabilizers.  The search starts
     from the sum of the rows of ``inverse`` for the set bits of the syndrome, an error with that
-    syndrome.  The offset of an information set is this error reduced by rows of the set until it
-    is zero on the set's pivot columns.  Every word of the class is the offset plus a unique sum of
+    syndrome.  The offset of an information set is this error reduced by rows of the set until it is
+    zero on the set's pivot columns.  Every word of the class is the offset plus a unique sum of
     rows of the set, and has a one on a pivot column exactly where it adds that pivot's row, so the
     BZ certificate applies to the class as it does to a space.  Layer ``w`` of a set is its offset
     plus each sum of ``w`` of its rows, so layer zero is the offset itself.
 
     The search visits layer zero on every information set, then layer one, and so on.  It keeps the
-    lightest word visited in ``best``, and stops at the first word of weight at most
-    ``max_weight``.  After layer ``w``, every unvisited word weighs at least
-    ``unvisited_bounds[w]``, so the search also stops when that exceeds ``max_weight``.
+    lightest word visited in ``best``, and stops at the first word of weight at most ``max_weight``.
+    After layer ``w``, every unvisited word weighs at least ``unvisited_bounds[w]``, so the search
+    also stops when that exceeds ``max_weight``.
 
     Return a lower bound on the weight of every error in the class: zero, which is at most
     ``max_weight``, if ``best`` has weight at most ``max_weight``, and otherwise a bound that

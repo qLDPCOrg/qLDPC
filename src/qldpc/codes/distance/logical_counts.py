@@ -289,8 +289,8 @@ class CSSLogicalCounter:
         sector_x, sector_z = self._get_sectors()
         # The two sectors of a self-dual code are the same, so one of them suffices.
         sectors = [sector_x] if self._self_dual else [sector_x, sector_z]
-        # The distance search and the scans start from the disjoint basis families that this
-        # counter keeps.
+        # The distance search and the scans start from the disjoint basis families that this counter
+        # keeps.
         get_disjoint_basis_families = [
             functools.partial(self._get_disjoint_basis_family, index) for index in range(2)
         ]
@@ -717,8 +717,8 @@ def _get_distance(
 ) -> int:
     """Minimum weight of a nontrivial word in any of the given sectors.
 
-    ``get_disjoint_basis_families`` holds a function for each sector that returns its disjoint
-    basis family, for the BZ search.
+    ``get_disjoint_basis_families`` holds a function for each sector that returns its disjoint basis
+    family, for the BZ search.
     """
     if method == "brute_force":
         return min(_get_brute_force_distance(sector) for sector in sectors)

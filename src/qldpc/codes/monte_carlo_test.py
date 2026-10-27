@@ -382,11 +382,11 @@ def test_reported_uncertainty_is_the_propagated_posterior() -> None:
     """A reported rate and uncertainty match an independent computation of both.
 
     The counts below are chosen so that the two paths cannot be confused for one another: the error
-    rate counts failures among kept shots while the discard rate counts discards among all shots,
-    so exchanging the paths changes both the rate and its uncertainty.  They also
-    put a weight at each extreme -- one that always fails, one whose every sample is discarded and
-    which therefore has no kept samples at all -- and leave weights above the covered range for the
-    truncation term to act on.
+    rate counts failures among kept shots while the discard rate counts discards among all shots, so
+    exchanging the paths changes both the rate and its uncertainty.  They also put a weight at each
+    extreme -- one that always fails, one whose every sample is discarded and which therefore has no
+    kept samples at all -- and leave weights above the covered range for the truncation term to act
+    on.
     """
     cases = [
         monte_carlo.ErrorRateFunc(

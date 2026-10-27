@@ -12,9 +12,9 @@ changes, not the functions that it calls in other files, so a cache that is kept
 could serve outdated code.  :func:`always_compiled` instead keeps the compiled code in a directory
 that is named by a hash of the source files of qLDPC, so that any change to them selects a new,
 empty directory.  Outdated code is never loaded.  Compiled code may therefore call always-compiled
-functions in any module of qLDPC, but no compiled functions of other packages, whose source the
-hash does not cover.  Each directory names the package directory whose source files it was compiled
-from.  Each import of qLDPC updates the modification time of its directory, and deletes the outdated
+functions in any module of qLDPC, but no compiled functions of other packages, whose source the hash
+does not cover.  Each directory names the package directory whose source files it was compiled from.
+Each import of qLDPC updates the modification time of its directory, and deletes the outdated
 directories of the same package directory, compiled from earlier versions of its source files, that
 were last modified more than 7 days earlier.  Directories of other checkouts or installations are
 kept.
