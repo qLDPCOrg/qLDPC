@@ -460,15 +460,17 @@ Heuristic tunables are identified by parameter name so that their current values
 | --- | --- | --- |
 | [core.py](core.py) | Public interfaces, input validation, adapted bases, method selection, validation of exact-distance method and distance-bound backend selectors, and conversion between symplectic and Hamming units | `get_distance_classical`, `get_distance_quantum`, `_validate_distance_method`, `_validate_distance_backend` |
 | [_brouwer_zimmermann.py](_brouwer_zimmermann.py) | The BZ distance search: preparation exits, witness discovery, scanning, sharing between CSS sectors, and exhaustive cost models | `get_distance_css_brouwer_zimmermann`, `get_distance_brouwer_zimmermann_many`, `_prepare_brouwer_zimmermann_search`, `_BrouwerZimmermannSearch`, `_scan_brouwer_zimmermann` |
-| [_information_sets.py](_information_sets.py) | Families of search bases and their certificates, shared by distance and counting and used by the Pauli-coset oracle: disjoint packing, pruning, overlapping replacement, parity inference, the lower certificate, and the work estimate | `get_disjoint_family`, `prune_family`, `get_overlapping_family`, `prepare_family`, `BasisFamily`, `Certificate` |
+| [_information_sets.py](_information_sets.py) | Families of search bases and their certificates, shared by distance and counting and used by the Pauli-coset oracle: disjoint packing, pruning, overlapping replacement, parity inference, the lower certificate, and the work estimate, on basis families stacked into arrays, in the subset of Python that numba compiles | `get_disjoint_family`, `prune_family`, `get_overlapping_family`, `BasisFamily`, `Certificate` |
 | [_brute_force.py](_brute_force.py) | Exhaustive enumeration | `get_distance_quantum_brute_force` |
 | [_binary.py](_binary.py) | Shared binary helpers: row reduction with labels, independent and adapted bases, packing, weight functions, and the map of [Section 2.7](#27-pauli-weight-as-hamming-weight) | `row_reduce_binary`, `get_independent_rows`, `get_nested_code_basis`, `symplectic_to_hamming` |
 | [_compilation.py](_compilation.py) | Compiled functions: the disk cache of the always-compiled functions, named by a hash of the source files of the package | `always_compiled` |
+| [_counting/scan.py](_counting/scan.py) | The scan of the words of one weight, for counting: its set-up, its loop, and its native chunks | `count_words` |
 
 [`__init__.py`](__init__.py) exports names from [core.py](core.py) and [logical_counts.py](logical_counts.py).
 [logical_counts.py](logical_counts.py) counts the logical operators of a given weight exactly.
-The code that only counting uses is in the `_counting` package, and its scan of the words is in [_counting/scan.py](_counting/scan.py).
 It builds its families and certificates with the same stages of [_information_sets.py](_information_sets.py) as the distance search, under the constraint in [Section 5](#5-correctness-requirements).
+It runs the stages in `_prepare_scan` of [_counting/scan.py](_counting/scan.py), and its distance search starts from the disjoint basis families that it keeps for counting.
+The code that only counting uses is in the `_counting` package.
 The family policy lives only in that module, so a change to it applies to both consumers.
 [core.py](core.py) calls [_brouwer_zimmermann.py](_brouwer_zimmermann.py) and [_brute_force.py](_brute_force.py), and [_brouwer_zimmermann.py](_brouwer_zimmermann.py) calls [_brute_force.py](_brute_force.py) for its exhaustive routes.
 All three modules, and [_information_sets.py](_information_sets.py), use [_binary.py](_binary.py).
@@ -521,12 +523,12 @@ The tests `test_brouwer_zimmermann_setup_dispatches`, `test_brouwer_zimmermann_s
 | --- | --- |
 | Upper bound `U` | `best`, or `upper_bound` as a parameter |
 | Lower certificate `L` | `lower_bound` of a search, computed by `Certificate.lower_bound(completed_weight)` from the certificate's `dimension`, `ranks`, `weight_divisor`, and `max_coverage` |
-| Family of search bases | `BasisFamily`, which holds the search bases and their `Certificate`; a search keeps only the certificate |
+| Family of search bases | `BasisFamily`, which stacks the search bases into arrays and gives their `Certificate`; a search keeps only the certificate |
 | Last completed layer `t`, next layer | `completed_weight`, `next_weight` |
 | Divisor `D` | `Certificate.weight_divisor`, in Hamming units of the searched basis |
 | Maximum coverage `C` | `Certificate.max_coverage` |
-| Dimension `r`, block rank `r_i` | `dimension`, `ranks` (`InformationSet.rank`); a search's `ranks` array is the native copy of its certificate's ranks |
-| Search basis and its block | `InformationSet`, with fields `generators`, `labels`, `rank`, and `pivots`; the recorded block is the pivot subset, as explained below |
+| Dimension `r`, block rank `r_i` | `dimension`, `ranks` (`BasisFamily.ranks`); a search's `ranks` array is the native copy of its certificate's ranks |
+| Search basis and its block | One set of a `BasisFamily`: its entries of `generators`, `labels`, `pivots`, and `ranks`; the recorded block is the pivot subset, as explained below |
 | Number of coordinates `N` | The length of `columns` (or `nonzero_columns`), the array of nonzero columns, in the functions that build families of search bases |
 | Stored width `N_stored` | `basis.shape[1]` before pivot deletion, including any all-zero columns |
 | Labels `M` | `labels`, which is `None` for a classical problem |
@@ -537,7 +539,7 @@ The tests `test_brouwer_zimmermann_setup_dispatches`, `test_brouwer_zimmermann_s
 | Chunk | `batch_size`, equal to `1 << min(block_size, 15)` supports |
 | Candidate/set evaluation | The unit counted by `Certificate.work` |
 
-For the rank-deficient remainder of [Section 2.4](#24-search-bases-and-rank-deficient-blocks), the implementation records only the independent pivot columns in `InformationSet.pivots`.
+For the rank-deficient remainder of [Section 2.4](#24-search-bases-and-rank-deficient-blocks), the implementation records only the independent pivot columns, in the first `rank` entries of the set's row of `BasisFamily.pivots`, and pads the rest with -1.
 The remaining columns of that remainder stay in the generator matrix.
 This smaller block has the same rank and gives the same certificate term `b_i(t)`.
 Coverage and pivot-column deletion both use the recorded pivot subset.
@@ -548,7 +550,7 @@ The certificate is computed from verified ranks and the actual maximum coverage 
 The heuristics below change search work while preserving certificate validity.
 With an early-exit cutoff above one, a different search order can find a different first witness at or below the cutoff, while preserving the upper-bound contract of [Section 4.5](#45-behavior-spanning-files).
 
-- **`get_disjoint_family`** builds the disjoint family greedily in natural column order, through `get_information_set_generators`.
+- **`get_disjoint_family`** builds the disjoint family greedily in natural column order.
   If that does not reach the maximum number of blocks that are information sets, it tries a small fixed number of fixed-seed random column orders and keeps the family with the lexicographically largest tuple of ranks.
   Fixed seeds keep results reproducible, and the bounded retries keep setup cheap.
   It also infers the divisor `2` when every basis row has even weight, and combines it with any divisor supplied by the caller.
@@ -557,7 +559,7 @@ With an early-exit cutoff above one, a different search order can find a differe
   The function removes such a search basis when the blocks that are information sets reach `U` by layer `d`, so the removal leaves the result unchanged and saves enumeration.
   It removes nothing if no block is an information set.
 - **`get_overlapping_family`** tries to lower the work estimate of the disjoint family, with tunables `max_sets` and `minimum_work`.
-  It returns `None` if the existing work is below `minimum_work`, if the blocks already use every nonzero column, if the family is at `max_sets`, or if even the optimistic coverage `ceil(m*r/N)` cannot reduce the estimate.
+  It returns a basis family with no sets if the existing work is below `minimum_work`, if the blocks already use every nonzero column, if the family is at `max_sets`, or if even the optimistic coverage `ceil(m*r/N)` cannot reduce the estimate.
   Otherwise it builds search bases by row reducing on column orders that put the least-used columns first, with seeded tie-breaking, and keeps the cheapest family built.
   A repeated pivot set is discarded, but it still consumes one of a bounded number of attempts.
 - **`Certificate.work`, `_brute_force_is_cheaper`, and `exhaustive_is_cheaper`** are cost models, which [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) explains.
@@ -613,7 +615,7 @@ Changes to the BZ algorithm can use different representations, certificates, and
   Optional rounding requires a divisor valid for every eligible weight ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)).
   A certificate from another CSS sector needs justification for the sector where it is applied, just as any other certificate does.
 - **Keep the strict certificate available to fixed-weight counting.**
-  [_counting/scan.py](_counting/scan.py) builds its family with `prepare_family` of [_information_sets.py](_information_sets.py), which runs the same stages as the distance search, and stops with that family's `Certificate` to count every word of a target weight `w`, which defaults to the distance.
+  [logical_counts.py](logical_counts.py) builds its basis family with the same stages as the distance search, in `_prepare_scan` of [_counting/scan.py](_counting/scan.py), and stops at the first layer after which that basis family's certificate exceeds a target weight `w`, to count every word of weight `w`, which defaults to the distance.
   Distance may stop at `L(t) ≥ U`, but counting must also exhaust words of weight exactly `w`, so it stops only at `L(t) > w`.
   Its bound must use the ranks and actual maximum coverage of the family it scans; it passes `upper_bound=w+1` to the family stages only to aim them at that stopping point.
 - **Preserve the return contract.**

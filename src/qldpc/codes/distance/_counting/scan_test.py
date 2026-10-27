@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import functools
 from typing import Any
 
 import numpy as np
@@ -20,6 +19,7 @@ from ..conftest import (
     METHODS,
     Counts,
     append_frozen_qubits,
+    assert_counts_match_enumeration,
     get_counter,
     get_expected_counts,
     get_random_css_code,
@@ -29,8 +29,7 @@ from . import local_cliffords, scan
 
 def test_overlapping_information_sets(monkeypatch: pytest.MonkeyPatch) -> None:
     """Overlapping information sets, which large searches use, still count every word once."""
-    select = functools.partial(_information_sets.get_overlapping_family, minimum_work=0)
-    monkeypatch.setattr(_information_sets, "get_overlapping_family", select)
+    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
     hamming = np.asarray(codes.HammingCode(4).matrix)
     code = get_counter(*append_frozen_qubits(hamming, hamming, 15)).code
     counter = lc.CSSLogicalCounter(code)
@@ -39,29 +38,73 @@ def test_overlapping_information_sets(monkeypatch: pytest.MonkeyPatch) -> None:
         assert counter.count_logical_ops(weight) == expected
 
 
-def test_information_set_limit_bounds_overlapping_families(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The limit shrinks the overlapping families that a count may use, not the counts."""
+@pytest.mark.usefixtures("compilation_mode")
+@pytest.mark.parametrize("max_sets", [1, 3, 16])
+def test_counts_against_enumeration(
+    monkeypatch: pytest.MonkeyPatch, pytestconfig: pytest.Config, max_sets: int
+) -> None:
+    """Counts match an independent enumeration, as do those of codes deformed after a count."""
+    # Build overlapping basis families even for cheap counts.
+    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    counter = lc.CSSLogicalCounter(get_random_css_code(rng, 12, 4, 4))
+    assert_counts_match_enumeration(counter, max_information_sets=max_sets)
+
+    # The counts above prepared basis families, which the deformed counters transport.
+    for deformed in (counter.deformed_cnot(0, 5), counter.deformed_cnot(2, 7)):
+        assert_counts_match_enumeration(deformed, max_information_sets=max_sets)
+
+
+@pytest.mark.usefixtures("compilation_mode")
+def test_a_deformed_self_dual_counter_shares_its_basis_family() -> None:
+    """A self-dual code stays self-dual under a SWEL-preserving gate, and keeps one basis family."""
+    counter = lc.CSSLogicalCounter(codes.SteaneCode())
+    assert_counts_match_enumeration(counter)
+    deformed = counter.deformed_swel(0, 1, 2, 3)
+    assert deformed.is_self_dual
+    assert_counts_match_enumeration(deformed)
+
+
+@pytest.mark.usefixtures("compilation_mode")
+@pytest.mark.parametrize("max_sets", [4, 16])
+def test_overlapping_basis_families_count_every_word_once(
+    monkeypatch: pytest.MonkeyPatch, max_sets: int
+) -> None:
+    """Large basis families of overlapping sets give the counts of a brute-force scan."""
+    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
+    # This code makes the basis family stages choose basis families of over four overlapping sets.
+    code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
+    counter = lc.CSSLogicalCounter(code)
+    weights = range(len(code) + 1)
+    expected = [counter.count_logical_ops(weight, method="brute_force") for weight in weights]
+    assert [
+        counter.count_logical_ops(w, max_information_sets=max_sets) for w in weights
+    ] == expected
+
+
+def test_the_information_set_limit_bounds_the_basis_families_of_a_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The limit shrinks the overlapping basis families that a count may use, not the counts."""
     sizes: list[int] = []
     original = _information_sets.get_overlapping_family
 
-    def select(*args: Any, **kwargs: Any) -> _information_sets.BasisFamily | None:
-        family = original(*args, minimum_work=0, **kwargs)
-        if family is not None:
-            sizes.append(len(family.information_sets))
-        return family
+    def record(*args: Any) -> _information_sets.BasisFamily:
+        replacement = original(*args)
+        sizes.append(len(replacement.ranks))
+        return replacement
 
-    monkeypatch.setattr(_information_sets, "get_overlapping_family", select)
+    monkeypatch.setattr(_information_sets, "get_overlapping_family", record)
+    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
     code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
-    counter = lc.CSSLogicalCounter(code)
-    expected = [counter.count_logical_ops(weight, method="brute_force") for weight in range(25)]
-    assert [counter.count_logical_ops(weight) for weight in range(25)] == expected
+    weights = range(len(code) + 1)
+    for weight in weights:
+        lc.count_logical_ops_css(code, weight)
     assert max(sizes) > 4
 
     sizes.clear()
-    limited = [
-        lc.count_logical_ops_css(code, weight, max_information_sets=4) for weight in range(25)
-    ]
-    assert limited == expected
+    for weight in weights:
+        lc.count_logical_ops_css(code, weight, max_information_sets=4)
     assert sizes and max(sizes) <= 4
 
 

@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import functools
 import itertools
 from collections.abc import Callable
 from typing import Any
@@ -242,11 +241,7 @@ def test_brouwer_zimmermann_setup_exits(
     monkeypatch.setattr(bz, "exhaustive_is_cheaper", lambda *_: False)
     monkeypatch.setattr(core, "exhaustive_is_cheaper", lambda *_: False)
     if overlap:
-        monkeypatch.setattr(
-            _information_sets,
-            "get_overlapping_family",
-            functools.partial(_information_sets.get_overlapping_family, minimum_work=0),
-        )
+        monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
     distance = qldpc.codes.get_distance_quantum(
         logicals, stabilizers, homogeneous=True, cutoff=cutoff
     )
@@ -431,16 +426,18 @@ def test_brouwer_zimmermann_overlap_improves_quotient_witness() -> None:
         logicals, stabilizers, homogeneous=True, cutoff=0, method="brute_force"
     )
 
-    # Lower only the work threshold so this small oracle exercises production family construction.
+    # Lower only the work threshold so this small oracle exercises production basis family
+    # construction.
     original = _information_sets.get_overlapping_family
 
-    def select(*args: Any, **kwargs: Any) -> _information_sets.BasisFamily | None:
-        selected = original(*args, **kwargs, minimum_work=0)
-        assert selected is not None and selected.certificate.max_coverage > 1
+    def select(*args: Any) -> _information_sets.BasisFamily:
+        basis, labels, basis_family, upper_bound, max_sets, _, binomials, rng = args
+        selected = original(basis, labels, basis_family, upper_bound, max_sets, 0, binomials, rng)
+        assert len(selected.ranks) and selected.max_coverage > 1
         assert (
             min(
-                bz._get_brouwer_zimmermann_initial_upper_bound(item.generators, item.labels)
-                for item in selected.information_sets
+                bz._get_brouwer_zimmermann_initial_upper_bound(generators, labels)
+                for generators, labels in zip(selected.generators, selected.labels, strict=True)
             )
             > expected
         )

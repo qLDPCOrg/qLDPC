@@ -183,26 +183,38 @@ def test_methods_agree_on_random_codes(num_qubits: int, rank_x: int, rank_z: int
         ) == counter.count_logical_ops(count_pauli=True, method="brute_force")
 
 
+def test_max_information_sets_must_be_an_integer() -> None:
+    """The limit is an integer, of any integer type, and a float is rejected."""
+    counter = get_counter(HAND_X, HAND_Z)
+    not_an_integer: Any = 2.5
+    with pytest.raises(TypeError):
+        counter.count_logical_ops(max_information_sets=not_an_integer)
+    expected = counter.count_logical_ops()
+    assert counter.count_logical_ops(max_information_sets=np.int32(4)) == expected
+
+
+@pytest.mark.usefixtures("force_information_sets")
 def test_first_family_stage_is_computed_once_per_sector() -> None:
-    """Counting at other weights, as when a guess fails, does not repeat the first stage."""
+    """The distance search and counts at other weights, as when a guess fails, share the stage."""
     counter = get_counter(HAND_X, HAND_Z)
     with mock.patch.object(
         _information_sets, "get_disjoint_family", wraps=_information_sets.get_disjoint_family
     ) as first_stage:
-        for weight in (2, 3, 1):
+        for weight in (None, 3, 1):
             counter.count_logical_ops(weight)
     assert first_stage.call_count == 2
 
 
+@pytest.mark.usefixtures("force_information_sets")
 @pytest.mark.parametrize("targets, reuses", [((0, 2), True), ((4, 2), False)])
 def test_deformed_counter_reuses_the_first_family_stage(
     targets: tuple[int, int], reuses: bool
 ) -> None:
-    """A gate that keeps the pivot columns of every set independent keeps the families."""
+    """A gate that keeps the pivot columns of every set independent keeps the basis families."""
     counter = get_counter(HAND_X, HAND_Z)
     counter.count_logical_ops()
     deformed = counter.deformed_cnot(*targets)
-    weights = range(counter.num_qubits + 1)
+    weights = [None, *range(counter.num_qubits + 1)]
     fresh = get_counter(deformed.checks_x, deformed.checks_z)
     expected = [fresh.count_logical_ops(weight) for weight in weights]
     with mock.patch.object(

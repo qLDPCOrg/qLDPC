@@ -4,6 +4,7 @@
 
 import itertools
 from collections.abc import Iterator
+from typing import Any
 from unittest import mock
 
 import galois
@@ -15,6 +16,7 @@ from qldpc import codes
 from qldpc.objects import Pauli
 
 from . import _binary as binary
+from . import _information_sets
 from . import logical_counts as lc
 from ._binary import get_kernel
 from .core import DistanceMethod
@@ -32,6 +34,21 @@ def force_information_sets() -> Iterator[None]:
         mock.patch("qldpc.codes.distance.core.exhaustive_is_cheaper", return_value=False),
     ):
         yield
+
+
+@pytest.fixture(params=["python", "compiled"])
+def compilation_mode(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run the always-compiled functions of the basis family stages as Python, or compiled.
+
+    Coverage can trace only the Python mode.
+    """
+    if request.param == "python":
+        for name, function in list(vars(_information_sets).items()):
+            if (
+                hasattr(function, "py_func")
+                and function.py_func.__module__ == _information_sets.__name__
+            ):
+                monkeypatch.setattr(_information_sets, name, function.py_func)
 
 
 def get_random_full_rank_matrix(
@@ -72,6 +89,19 @@ def get_counter(checks_x: npt.ArrayLike, checks_z: npt.ArrayLike) -> lc.CSSLogic
 def get_bits(values: list[int], width: int) -> npt.NDArray[np.uint8]:
     """Binary rows whose bit j is bit j of each integer."""
     return np.array([[value >> jj & 1 for jj in range(width)] for value in values], dtype=np.uint8)
+
+
+def append_frozen_qubits(
+    checks_x: npt.ArrayLike, checks_z: npt.ArrayLike, width: int
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
+    """Append qubits fixed in |0> by a Z check each; no logical of minimum weight touches them."""
+    x, z = np.asarray(checks_x, dtype=np.uint8), np.asarray(checks_z, dtype=np.uint8)
+    extra = width - x.shape[1]
+    padded_x = np.pad(x, ((0, 0), (0, extra)))
+    padded_z = np.vstack(
+        [np.pad(z, ((0, 0), (0, extra))), np.hstack([np.zeros((extra, z.shape[1])), np.eye(extra)])]
+    ).astype(np.uint8)
+    return padded_x, padded_z
 
 
 def get_random_css_code(
@@ -129,17 +159,14 @@ def get_expected_counts(code: codes.CSSCode) -> lc.CSSLogicalCounts:
     return Counts(distance, counts_x[distance], counts_z[distance], full)
 
 
-def append_frozen_qubits(
-    checks_x: npt.ArrayLike, checks_z: npt.ArrayLike, width: int
-) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
-    """Append qubits fixed in |0> by a Z check each; no logical of minimum weight touches them."""
-    x, z = np.asarray(checks_x, dtype=np.uint8), np.asarray(checks_z, dtype=np.uint8)
-    extra = width - x.shape[1]
-    padded_x = np.pad(x, ((0, 0), (0, extra)))
-    padded_z = np.vstack(
-        [np.pad(z, ((0, 0), (0, extra))), np.hstack([np.zeros((extra, z.shape[1])), np.eye(extra)])]
-    ).astype(np.uint8)
-    return padded_x, padded_z
+def assert_counts_match_enumeration(counter: lc.CSSLogicalCounter, **options: Any) -> None:
+    """Check the counts at every weight, and the Pauli counts at the distance, by enumeration."""
+    counts_x, counts_z, distance, full = enumerate_logical_ops(counter.code)
+    for weight in range(counter.num_qubits + 1):
+        result = counter.count_logical_ops(weight, **options)
+        assert (result.count_x, result.count_z) == (counts_x[weight], counts_z[weight])
+    expected = Counts(distance, counts_x[distance], counts_z[distance], full)
+    assert counter.count_logical_ops(count_pauli=True, **options) == expected
 
 
 # X checks {0,1,2,3,4} and {2,4}, and Z checks {1,2,3,4} and {0,1}, on five qubits.  By hand, the
