@@ -28,7 +28,8 @@ def test_always_compiled_functions_are_cached_in_the_directory_of_their_source(
     previous = _compilation._numba_config.CACHE_DIR
     compiled = _compilation.always_compiled(_add_one)
     assert _compilation._numba_config.CACHE_DIR == previous
-    assert Path(compiled.stats.cache_path).parent == tmp_path / "cache"
+    cache_path = compiled.stats.cache_path
+    assert cache_path is not None and Path(cache_path).parent == tmp_path / "cache"
     assert compiled(1) == _add_one(1) == 2
 
 

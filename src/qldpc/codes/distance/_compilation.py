@@ -23,15 +23,28 @@ import threading
 import warnings
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
 
 import numba
 from numba.core import config
 
 import qldpc.cache
 
+if TYPE_CHECKING:
+    from numba.core.dispatcher import Dispatcher
+
+_Function = TypeVar("_Function", bound=Callable[..., Any])
+
+
+class _NumbaConfig(Protocol):
+    """The settings of numba that this module reads and writes."""
+
+    CACHE_DIR: str
+    DISABLE_JIT: bool
+
+
 # Numba creates the attributes of its settings dynamically, which type checkers cannot see.
-_numba_config: Any = config
+_numba_config = cast(_NumbaConfig, config)
 
 # The package whose source files name the directory of its compiled code.
 _PACKAGE_DIRECTORY = Path(__file__).parent
@@ -46,7 +59,7 @@ _CACHE_DIRECTORY_LOCK = threading.Lock()
 # functions cached on disk
 
 
-def always_compiled(function: Callable[..., Any]) -> Any:
+def always_compiled(function: _Function) -> Dispatcher[_Function]:
     """Compile a function with numba, and cache its compiled code in a directory of this source.
 
     The directory is named by a hash of the source files of this package, so that code compiled from
@@ -68,7 +81,7 @@ def always_compiled(function: Callable[..., Any]) -> Any:
 # helper functions
 
 
-def _compile_with_cache_in(function: Callable[..., Any], directory: Path) -> Any:
+def _compile_with_cache_in(function: _Function, directory: Path) -> Dispatcher[_Function] | None:
     """Compile a function with numba, cached in a directory, or return None if numba ignores it.
 
     Numba reads its ``CACHE_DIR`` setting, the only way to choose where it caches, when it compiles
