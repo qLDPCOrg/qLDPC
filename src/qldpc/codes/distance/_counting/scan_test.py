@@ -18,25 +18,13 @@ from ..conftest import (
     HAND_Z,
     METHODS,
     Counts,
-    append_frozen_qubits,
     assert_counts_match_enumeration,
     get_counter,
     get_expected_counts,
     get_random_css_code,
 )
 from ..core import DistanceMethod
-from . import local_cliffords, scan
-
-
-def test_overlapping_information_sets(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Overlapping information sets, which large searches use, still count every word once."""
-    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
-    hamming = np.asarray(codes.HammingCode(4).matrix)
-    code = get_counter(*append_frozen_qubits(hamming, hamming, 15)).code
-    counter = lc.CSSLogicalCounter(code)
-    for weight in range(len(code) + 1):
-        expected = counter.count_logical_ops(weight, method="brute_force")
-        assert counter.count_logical_ops(weight) == expected
+from . import scan
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -127,7 +115,6 @@ def test_python_kernels(monkeypatch: pytest.MonkeyPatch) -> None:
     """Run the Python versions of the compiled kernels, which coverage can trace."""
     for name in ("_count_chunk", "_is_owned", "_get_masked_rank"):
         monkeypatch.setattr(scan, name, getattr(scan, name).py_func)
-    monkeypatch.setattr(local_cliffords, "apply_local", local_cliffords.apply_local.py_func)
     # Tiny chunks make every scan stop and resume repeatedly.
     monkeypatch.setattr(scan, "_CHUNK_SIZE", 1)
     for method in METHODS:

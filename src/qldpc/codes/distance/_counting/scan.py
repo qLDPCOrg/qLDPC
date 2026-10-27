@@ -4,9 +4,11 @@
 
 A sector is a basis whose quotient labels mark its nontrivial words.  ``count_words`` selects
 information sets for the basis, with the basis family stages of ``_information_sets.py``, packs
-them, and visits each word of the given weight once, by enumerating
-combinations of the rows of every set, layer by layer.  ``logical_counts.py`` calls it.  Section 3
-of ``brouwer_zimmermann.md`` describes the algorithm, and Section 5 states the counting requirement.
+them, and visits each word of the given weight once, by enumerating combinations of the rows of
+every set, layer by layer.  ``transport_basis_family`` moves the disjoint basis family that a
+counter keeps for a sector, from which both its counts and its distance searches start, through a
+local gate, for deformed counters.  ``logical_counts.py`` calls both.  Section 3 of
+``brouwer_zimmermann.md`` describes the algorithm, and Section 5 states the counting requirement.
 """
 
 from __future__ import annotations
@@ -80,9 +82,7 @@ def count_words(
             weight,
             get_disjoint_basis_family(),
             max_sets,
-            _information_sets.MINIMUM_WORK,
-            _information_sets.get_capped_binomials(len(basis)),
-            np.random.default_rng(0),
+            *_information_sets.get_overlapping_family_policy(len(basis)),
         )
 
     # Scan in bounded calls, which compiled code cannot be interrupted within.

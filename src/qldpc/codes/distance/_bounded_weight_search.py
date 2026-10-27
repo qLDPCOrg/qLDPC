@@ -300,17 +300,15 @@ class PauliCosetSearch:
     @functools.cached_property
     def _certificate(self) -> _information_sets.Certificate:
         """The certificate for the information sets, prepared on first use."""
+        # Not the certificate of the basis family, whose inferred parity holds for the span of the
+        # stabilizers but not for their cosets, so this certificate uses no divisor.
         ranks = tuple(len(pivots) for *_, pivots in self._bases)
         return _information_sets.Certificate(self.num_qubits, ranks)
 
 
-####################################################################################################
-# helper methods
-
-
 def _iter_fixed_weight_supports(
     dimension: int, weight: int, batch_size: int
-) -> Iterator[npt.NDArray[np.int_]]:
+) -> Iterator[npt.NDArray[np.intp]]:
     """Yield every set of ``weight`` indices below ``dimension`` in lexicographic order, in batches.
 
     Each batch has at most ``batch_size`` sets, one per row.  Weight zero gives one empty set.
@@ -318,7 +316,7 @@ def _iter_fixed_weight_supports(
     combinations = itertools.combinations(range(dimension), weight)
     while batch := list(itertools.islice(combinations, batch_size)):
         indices = itertools.chain.from_iterable(batch)
-        yield np.fromiter(indices, dtype=np.min_scalar_type(dimension)).reshape(len(batch), weight)
+        yield np.fromiter(indices, dtype=np.intp).reshape(len(batch), weight)
 
 
 def _row_ints(matrix: npt.NDArray[np.uint8]) -> tuple[int, ...]:

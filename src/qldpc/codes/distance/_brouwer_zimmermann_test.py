@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import functools
 import itertools
 from collections.abc import Callable
 from typing import Any
@@ -297,6 +298,33 @@ def test_brouwer_zimmermann_shared_search() -> None:
         block_size=2,
     )
     assert actual == min(expected_a, expected_b)
+
+
+@pytest.mark.usefixtures("force_information_sets")
+def test_a_given_disjoint_basis_family_replaces_the_first_stage() -> None:
+    """A search that reaches the first stage takes its result from the given function instead.
+
+    A search that exits before the first stage, here at the weight of a row, does not call it.
+    """
+    rng = np.random.default_rng(121)
+    basis = get_random_full_rank_matrix(rng, 5, 9)
+    labels = np.vstack([np.zeros((2, 3), dtype=np.uint8), np.eye(3, dtype=np.uint8)])
+    expected = bz.get_distance_brouwer_zimmermann_many([(basis, labels)], cutoff=0, block_size=2)
+    get_basis_family = mock.Mock(return_value=_information_sets.get_disjoint_family(basis, labels))
+    search = functools.partial(
+        bz.get_distance_brouwer_zimmermann_many,
+        [(basis, labels)],
+        block_size=2,
+        get_disjoint_basis_families=[get_basis_family],
+    )
+    with mock.patch.object(
+        _information_sets, "get_disjoint_family", wraps=_information_sets.get_disjoint_family
+    ) as first_stage:
+        assert search(cutoff=0) == expected
+        get_basis_family.assert_called_once_with()
+        search(cutoff=basis.shape[1])
+        get_basis_family.assert_called_once_with()
+    first_stage.assert_not_called()
 
 
 @pytest.mark.usefixtures("force_information_sets")

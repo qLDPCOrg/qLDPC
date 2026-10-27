@@ -49,7 +49,8 @@ from ._brute_force import get_distance_quantum_brute_force
 from ._counting import local_cliffords, macwilliams, scan
 from .core import _DISTANCE_METHODS, DistanceMethod
 
-# codes.common imports this package, so CSSCode is imported only where it is used.
+# codes.common imports this package, and codes.quantum imports codes.common, so code classes are
+# imported only where they are used.
 if TYPE_CHECKING:
     from ..common import CSSCode
 
@@ -247,7 +248,7 @@ class CSSLogicalCounter:
                 count may use when it replaces its first, disjoint sets by overlapping ones.  More
                 sets can skip costly layers of a hard count, but each set costs setup work, which
                 dominates a cheap count.  A small limit suits many cheap counts on a large code.
-                This never changes the counts, and the other methods ignore it.  Defaults to
+                This never changes the counts, and the other methods do not use it.  Defaults to
                 {MAX_SETS}.
 
         Returns:
@@ -288,9 +289,16 @@ class CSSLogicalCounter:
         sector_x, sector_z = self._get_sectors()
         # The two sectors of a self-dual code are the same, so one of them suffices.
         sectors = [sector_x] if self._self_dual else [sector_x, sector_z]
-        # The distance search starts from the disjoint basis families that this counter keeps.
-        get_disjoint = [functools.partial(self._get_disjoint_basis_family, i) for i in range(2)]
-        target = int(weight) if weight is not None else _get_distance(sectors, method, get_disjoint)
+        # The distance search and the scans start from the disjoint basis families that this
+        # counter keeps.
+        get_disjoint_basis_families = [
+            functools.partial(self._get_disjoint_basis_family, index) for index in range(2)
+        ]
+        target = (
+            int(weight)
+            if weight is not None
+            else _get_distance(sectors, method, get_disjoint_basis_families)
+        )
 
         # A nontrivial logical Pauli (x, z) of weight d has one of two disjoint forms.  Either x is
         # a nontrivial X logical with support T of size d, and z is one of 2**(d - rank(S_X[:, T]))
@@ -313,7 +321,7 @@ class CSSLogicalCounter:
             complement=False,
             max_exponent=target if weigh else 0,
             reject_lighter=reject_above,
-            get_disjoint_basis_family=functools.partial(self._get_disjoint_basis_family, 0),
+            get_disjoint_basis_family=get_disjoint_basis_families[0],
             max_sets=max_sets,
         )
         if self._self_dual or counts_x is None:
@@ -327,7 +335,7 @@ class CSSLogicalCounter:
                 complement=True,
                 max_exponent=len(self._gauge_x) if weigh else 0,
                 reject_lighter=reject_above,
-                get_disjoint_basis_family=functools.partial(self._get_disjoint_basis_family, 1),
+                get_disjoint_basis_family=get_disjoint_basis_families[1],
                 max_sets=max_sets,
             )
         if counts_x is None or counts_z is None:
@@ -694,9 +702,7 @@ def _warm_up_compiled_functions() -> None:
         basis_family,
         4,
         _information_sets.MAX_SETS,
-        0,
-        _information_sets.get_capped_binomials(len(basis)),
-        np.random.default_rng(0),
+        *_information_sets.get_overlapping_family_policy(len(basis)),
     )
 
 
@@ -707,11 +713,12 @@ def _warm_up_compiled_functions() -> None:
 def _get_distance(
     sectors: Sequence[_Sector],
     method: DistanceMethod,
-    get_disjoint_families: Sequence[Callable[[], _information_sets.BasisFamily]],
+    get_disjoint_basis_families: Sequence[Callable[[], _information_sets.BasisFamily]],
 ) -> int:
     """Minimum weight of a nontrivial word in any of the given sectors.
 
-    ``get_disjoint_families`` returns the disjoint basis family of each sector, for the BZ search.
+    ``get_disjoint_basis_families`` holds a function for each sector that returns its disjoint
+    basis family, for the BZ search.
     """
     if method == "brute_force":
         return min(_get_brute_force_distance(sector) for sector in sectors)
@@ -719,7 +726,7 @@ def _get_distance(
         sectors,
         cutoff=0,
         block_size=_BLOCK_SIZE,
-        get_disjoint_families=get_disjoint_families[: len(sectors)],
+        get_disjoint_basis_families=get_disjoint_basis_families[: len(sectors)],
     )
 
 

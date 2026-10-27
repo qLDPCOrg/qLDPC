@@ -7,9 +7,10 @@ the compiled code is cached on disk.  The cache is a directory named ``qldpc-<ha
 hash is of the Python source files of qLDPC.  It is inside the directory of the
 ``NUMBA_CACHE_DIR`` environment variable if that is set, and otherwise inside the ``qldpc/numba``
 directory of the user's cache directory.  A change to those source files selects a new directory, so
-outdated code is never loaded, and old directories can be deleted.  If the directory cannot be used,
-qLDPC warns, and compiles again in every process.  Set ``NUMBA_CACHE_DIR`` to a writable directory,
-such as one that many jobs share, to avoid this.
+outdated code is never loaded, and each import of qLDPC deletes the directories beside its own that
+no import has used for more than 7 days.  If the directory cannot be used, qLDPC warns, and compiles
+again in every process.  Set ``NUMBA_CACHE_DIR`` to a writable directory, such as one that many jobs
+share, to avoid this.
 
 :func:`~qldpc.codes.distance.compile_search_setup` also compiles the code that sets those loops up,
 in the current process only, for programs that count the logical operators of very many similar

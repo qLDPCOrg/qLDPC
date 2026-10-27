@@ -94,13 +94,16 @@ def get_distance_brouwer_zimmermann_many(
     block_size: int,
     weight_divisor: int = 1,
     upper_bound: int | None = None,
-    get_disjoint_families: Sequence[Callable[[], _information_sets.BasisFamily]] | None = None,
+    get_disjoint_basis_families: Sequence[Callable[[], _information_sets.BasisFamily]]
+    | None = None,
 ) -> int:
     """Advance nested-code searches round-robin while sharing their best upper bound.
 
-    ``get_disjoint_families``, if given, returns the disjoint basis family of each problem, as
-    ``_information_sets.get_disjoint_family`` would with this ``weight_divisor``, so that a caller
-    that keeps them saves the first stage.  It is called only if a search needs it.
+    ``get_disjoint_basis_families``, if given, holds a function for each problem that returns a
+    disjoint basis family of it: sets with pairwise disjoint pivot blocks that span the problem's
+    basis, with quotient labels of the problem, certified with this ``weight_divisor``.  The result
+    of ``_information_sets.get_disjoint_family`` is one, and a caller that keeps such families saves
+    that first stage.  Each function is called only if its search needs it.
     """
     initial_upper_bounds = [
         _get_brouwer_zimmermann_initial_upper_bound(basis, labels) for basis, labels in problems
@@ -121,9 +124,9 @@ def get_distance_brouwer_zimmermann_many(
             weight_divisor=weight_divisor,
             upper_bound=int(best),
             initial_upper_bound=initial_upper_bound,
-            get_disjoint_family=None
-            if get_disjoint_families is None
-            else get_disjoint_families[index],
+            get_disjoint_basis_family=None
+            if get_disjoint_basis_families is None
+            else get_disjoint_basis_families[index],
         )
         if isinstance(prepared, int):
             best = min(best, prepared)
@@ -305,13 +308,13 @@ def _prepare_brouwer_zimmermann_search(
     weight_divisor: int,
     upper_bound: int,
     initial_upper_bound: int | None = None,
-    get_disjoint_family: Callable[[], _information_sets.BasisFamily] | None = None,
+    get_disjoint_basis_family: Callable[[], _information_sets.BasisFamily] | None = None,
 ) -> int | _BrouwerZimmermannSearch:
     """Prepare one BZ search, or return immediately when another route is cheaper.
 
     The basis family stages of ``_information_sets`` run in order, with distance-specific witness,
-    cutoff, certificate, and exhaustive exits between them.  ``get_disjoint_family``, if given,
-    returns the result of the first stage.
+    cutoff, certificate, and exhaustive exits between them.  ``get_disjoint_basis_family``, if
+    given, returns the result of the first stage.
     """
     dimension = len(basis)
     eligible = np.ones(dimension, dtype=bool) if labels is None else np.any(labels, axis=1)
@@ -343,15 +346,16 @@ def _prepare_brouwer_zimmermann_search(
     # The disjoint basis family's certificate also uses any inferred even ambient parity.
     basis_family = (
         _information_sets.get_disjoint_family(basis, labels, weight_divisor=weight_divisor)
-        if get_disjoint_family is None
-        else get_disjoint_family()
+        if get_disjoint_basis_family is None
+        else get_disjoint_basis_family()
     )
     best = _get_basis_family_upper_bound(basis_family, labels, best)
     if best <= cutoff:
         return best
 
     basis_family = _information_sets.prune_family(basis_family, upper_bound=best)
-    completed_weight = 1 if len(basis_family.ranks) else 0
+    # Each basis family of an independent basis has a set, whose systematic rows complete layer one.
+    completed_weight = 1
     lower_bound = basis_family.certificate.lower_bound(completed_weight)
     if lower_bound >= best:
         return best
@@ -363,9 +367,7 @@ def _prepare_brouwer_zimmermann_search(
         basis_family,
         best,
         _information_sets.MAX_SETS,
-        _information_sets.MINIMUM_WORK,
-        _information_sets.get_capped_binomials(dimension),
-        np.random.default_rng(0),
+        *_information_sets.get_overlapping_family_policy(dimension),
     )
     if len(overlapping.ranks):
         basis_family = overlapping
@@ -387,31 +389,24 @@ def _prepare_brouwer_zimmermann_search(
     ):
         return brute_force_distance()
 
-    # Remove systematic pivots; advance() restores their known weight arithmetically.  A basis
-    # without labels has sets whose labels have no columns, and so no packed words.
-    packed_sets = [
-        (pack_bits(np.delete(generators, pivots[:rank], axis=1)), pack_bits(set_labels))
-        for generators, set_labels, pivots, rank in zip(
-            basis_family.generators,
-            basis_family.labels,
-            basis_family.pivots,
-            basis_family.ranks,
-            strict=True,
+    # Remove systematic pivots; advance() restores their known weight arithmetically.
+    packed_rows = [
+        pack_bits(np.delete(generators, pivots[:rank], axis=1))
+        for generators, pivots, rank in zip(
+            basis_family.generators, basis_family.pivots, basis_family.ranks, strict=True
         )
     ]
 
-    # Zero-pad every set to common word widths, so the Numba kernel receives single arrays.
-    widths = np.array([rows.shape[1] for rows, _ in packed_sets], dtype=np.int64)
-    label_widths = np.array([words.shape[1] for _, words in packed_sets], dtype=np.int64)
+    # Zero-pad every set to a common word width, so the Numba kernel receives single arrays.  The
+    # labels of every set already have the same width, which is zero for a basis without labels.
+    widths = np.array([rows.shape[1] for rows in packed_rows], dtype=np.int64)
     packed_generators = np.zeros(
-        (len(packed_sets), dimension, int(widths.max(initial=0))), dtype=np.uint64
+        (len(packed_rows), dimension, int(widths.max(initial=0))), dtype=np.uint64
     )
-    packed_labels = np.zeros(
-        (len(packed_sets), dimension, int(label_widths.max(initial=0))), dtype=np.uint64
-    )
-    for index, (rows, packed_set_labels) in enumerate(packed_sets):
+    for index, rows in enumerate(packed_rows):
         packed_generators[index, :, : widths[index]] = rows
-        packed_labels[index, :, : label_widths[index]] = packed_set_labels
+    packed_labels = np.stack([pack_bits(set_labels) for set_labels in basis_family.labels])
+    label_widths = np.full(len(packed_labels), packed_labels.shape[2], dtype=np.int64)
 
     return _BrouwerZimmermannSearch(
         packed_generators,

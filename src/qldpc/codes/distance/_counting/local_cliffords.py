@@ -29,6 +29,11 @@ _BinaryMatrix = npt.NDArray[np.uint8]
 # Clifford acts by [[1, 1, 1, 0], [1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 1]] on both.
 CNOT = (np.array([1, 3], dtype=np.uint64), np.array([3, 2], dtype=np.uint64))
 SWEL = (np.array([7, 11, 13, 14], dtype=np.uint64),) * 2
+# Like the cached matrices of other gates, these are shared, so they are read-only.  Numba gives
+# read-only arrays a type of their own, so every local matrix then has the same type, and code that
+# is compiled for one gate serves all of them.
+for _matrix in (*CNOT, *SWEL):
+    _matrix.setflags(write=False)
 
 
 def get_local_matrices(

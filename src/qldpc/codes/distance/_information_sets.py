@@ -31,7 +31,7 @@ from __future__ import annotations
 import functools
 import math
 from dataclasses import dataclass
-from typing import Any, NamedTuple
+from typing import NamedTuple, TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -46,14 +46,18 @@ MAX_SETS = 16
 # Estimated work below which a basis family is not replaced by one of overlapping sets.
 MINIMUM_WORK = 100_000
 
-# Caps that keep work estimates, which only compare candidate basis families, within a native
-# integer.  Estimates above a cap compare as equal.  No search is large enough for the choice among
-# basis families with such estimates to matter.
+# Caps that keep work estimates within a native integer.  A binomial above _BINOMIAL_CAP counts as
+# the cap, and a sum saturates at _WORK_CAP, so an estimate is exact only if it reaches neither cap.
+# Searches that reach a cap are infeasible, so their order, against other basis families or
+# exhaustive enumeration, does not matter.
 _BINOMIAL_CAP = 1 << 50
 _WORK_CAP = 1 << 61
 
 # One disjoint information set: its rows, its labels, and its pivot columns.
 _DisjointSet = tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8], npt.NDArray[np.int_]]
+
+# The scalar type of an array.
+_Scalar = TypeVar("_Scalar", bound=np.generic)
 
 
 ####################################################################################################
@@ -204,8 +208,9 @@ def get_overlapping_family(
     replacement is built if the estimated work of ``basis_family`` is below ``minimum_work``.
 
     Returns the replacement, which has no sets if no replacement does less work.  ``binomials`` are
-    ``get_capped_binomials(dimension)``.  ``rng`` breaks ties between equally used columns, so a
-    caller that wants the same choice every time passes a generator with a fixed seed.
+    ``get_capped_binomials(dimension)``, and ``rng`` breaks ties between equally used columns.
+    Searches take ``minimum_work``, ``binomials`` and ``rng`` from
+    :func:`get_overlapping_family_policy`.
     """
     dimension = basis.shape[0]
     columns = np.flatnonzero(basis.sum(axis=0))
@@ -308,12 +313,129 @@ def get_overlapping_family(
     )
 
 
+def get_overlapping_family_policy(
+    dimension: int,
+) -> tuple[int, npt.NDArray[np.int64], np.random.Generator]:
+    """The ``minimum_work``, ``binomials`` and ``rng`` that every search passes to stage three.
+
+    They are ``MINIMUM_WORK``, read at each call, the capped binomials of the dimension, and a new
+    generator with a fixed seed, so that every search, distance or count, chooses the same
+    replacement for the same basis family.
+    """
+    return MINIMUM_WORK, get_capped_binomials(dimension), np.random.default_rng(0)
+
+
 def infer_weight_divisor(basis: npt.NDArray[np.uint8], weight_divisor: int = 1) -> int:
     """Combine a caller's proven Hamming-weight divisor with ambient even parity, if present."""
     # XOR preserves even parity, so an all-even basis spans only even Hamming weights.
     if np.all(np.count_nonzero(basis, axis=1) % 2 == 0):
         return math.lcm(weight_divisor, 2)
     return weight_divisor
+
+
+@compiled_on_request
+def _copy_with_capacity(array: npt.NDArray[_Scalar], capacity: int) -> npt.NDArray[_Scalar]:
+    """A copy of an array with room for ``capacity`` entries along its first axis."""
+    grown = np.empty((capacity,) + array.shape[1:], dtype=array.dtype)
+    grown[: len(array)] = array
+    return grown
+
+
+@compiled_on_request
+def _get_no_replacement(
+    basis_family: BasisFamily, basis: npt.NDArray[np.uint8], labels: npt.NDArray[np.uint8]
+) -> BasisFamily:
+    """The result of ``get_overlapping_family`` when no replacement does less work: no sets."""
+    dimension = basis.shape[0]
+    return BasisFamily(
+        np.empty((0, dimension, basis.shape[1]), dtype=np.uint8),
+        np.empty((0, dimension, labels.shape[1]), dtype=np.uint8),
+        np.empty((0, dimension), dtype=np.int64),
+        np.empty(0, dtype=np.int64),
+        basis_family.weight_divisor,
+        1,
+    )
+
+
+def _get_disjoint_sets(
+    basis: npt.NDArray[np.uint8], labels: npt.NDArray[np.uint8]
+) -> list[_DisjointSet]:
+    """Construct a large deterministic packing of disjoint information sets."""
+    # Only columns that are nonzero in the basis can be pivots.  Pack them in their natural order.
+    nonzero_columns = np.flatnonzero(np.any(basis, axis=0))
+    best = _get_disjoint_sets_for_columns(
+        basis,
+        labels,
+        nonzero_columns,
+    )
+
+    # A full set has ``len(basis)`` pivots, and only the last set of a packing can have fewer.  Full
+    # sets use disjoint nonzero columns, so there are at most this many, and possibly fewer.  Return
+    # if the natural order already reaches this bound.
+    max_full_sets = len(nonzero_columns) // len(basis)
+    if sum(len(pivots) == len(basis) for *_, pivots in best) == max_full_sets:
+        return best
+
+    # Otherwise, try up to 8 random column orders.  The fixed seed makes the result reproducible.
+    rng = np.random.default_rng(0)
+    for _ in range(8):
+        # Keep the packing with the lexicographically larger tuple of ranks: more full sets, or
+        # equally many and a larger last set.
+        candidate = _get_disjoint_sets_for_columns(
+            basis,
+            labels,
+            rng.permutation(nonzero_columns),
+        )
+        candidate_ranks = tuple(len(pivots) for *_, pivots in candidate)
+        best_ranks = tuple(len(pivots) for *_, pivots in best)
+        if candidate_ranks > best_ranks:
+            best = candidate
+
+        # Stop early if the packing reaches the bound.
+        if sum(len(pivots) == len(basis) for *_, pivots in best) == max_full_sets:
+            break
+    return best
+
+
+def _get_disjoint_sets_for_columns(
+    basis: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8],
+    columns: npt.NDArray[np.int_],
+) -> list[_DisjointSet]:
+    """Construct disjoint information sets, with pivots from the nonzero ``columns`` in order."""
+    # Start with every given column available as a pivot, and with the basis as it is.
+    dimension = len(basis)
+    active_columns = columns
+    working = basis
+    working_labels = labels
+    information_sets: list[_DisjointSet] = []
+
+    while len(active_columns):
+        # Row-reduce on the available columns, taking pivots in their order, so that each pivot
+        # column has a single one.  The labels follow the same row operations.
+        working, reduced_labels, pivots = row_reduce_binary(
+            working, working_labels, columns=active_columns
+        )
+        assert reduced_labels is not None  # labels in give labels out
+        working_labels = reduced_labels
+        rank = len(pivots)
+        assert rank  # The available columns are nonzero, so they give at least one pivot.
+        information_sets.append((working, working_labels, pivots))
+
+        # A set with fewer pivots than rows is partial.  The columns that remain span at most
+        # ``rank`` dimensions, so no later set could be full, and this is the last one.
+        if rank < dimension:
+            break
+
+        # Make the pivot columns unavailable, so that later sets are disjoint from this one.  Also
+        # drop columns that are zero in the reduced matrix, so that the next pass has a pivot.
+        pivot_set = set(pivots)
+        active_columns = np.asarray(
+            [col for col in active_columns if col not in pivot_set and np.any(working[:, col])],
+            dtype=int,
+        )
+
+    return information_sets
 
 
 ####################################################################################################
@@ -428,112 +550,3 @@ def get_retained_set_mask(
     for index in range(len(ranks)):
         retained[index] = ranks[index] == dimension or dimension - ranks[index] < certifying_weight
     return retained
-
-
-####################################################################################################
-# helper functions
-
-
-@compiled_on_request
-def _copy_with_capacity(array: Any, capacity: int) -> Any:
-    """A copy of an array with room for ``capacity`` entries along its first axis."""
-    grown = np.empty((capacity,) + array.shape[1:], dtype=array.dtype)
-    grown[: len(array)] = array
-    return grown
-
-
-@compiled_on_request
-def _get_no_replacement(
-    basis_family: BasisFamily, basis: npt.NDArray[np.uint8], labels: npt.NDArray[np.uint8]
-) -> BasisFamily:
-    """The result of ``get_overlapping_family`` when no replacement does less work: no sets."""
-    dimension = basis.shape[0]
-    return BasisFamily(
-        np.empty((0, dimension, basis.shape[1]), dtype=np.uint8),
-        np.empty((0, dimension, labels.shape[1]), dtype=np.uint8),
-        np.empty((0, dimension), dtype=np.int64),
-        np.empty(0, dtype=np.int64),
-        basis_family.weight_divisor,
-        1,
-    )
-
-
-def _get_disjoint_sets(
-    basis: npt.NDArray[np.uint8], labels: npt.NDArray[np.uint8]
-) -> list[_DisjointSet]:
-    """Construct a large deterministic packing of disjoint information sets."""
-    # Only columns that are nonzero in the basis can be pivots.  Pack them in their natural order.
-    nonzero_columns = np.flatnonzero(np.any(basis, axis=0))
-    best = _get_disjoint_sets_for_columns(
-        basis,
-        labels,
-        nonzero_columns,
-    )
-
-    # A full set has ``len(basis)`` pivots, and only the last set of a packing can have fewer.  Full
-    # sets use disjoint nonzero columns, so there are at most this many, and possibly fewer.  Return
-    # if the natural order already reaches this bound.
-    max_full_sets = len(nonzero_columns) // len(basis)
-    if sum(len(pivots) == len(basis) for *_, pivots in best) == max_full_sets:
-        return best
-
-    # Otherwise, try up to 8 random column orders.  The fixed seed makes the result reproducible.
-    rng = np.random.default_rng(0)
-    for _ in range(8):
-        # Keep the packing with the lexicographically larger tuple of ranks: more full sets, or
-        # equally many and a larger last set.
-        candidate = _get_disjoint_sets_for_columns(
-            basis,
-            labels,
-            rng.permutation(nonzero_columns),
-        )
-        candidate_ranks = tuple(len(pivots) for *_, pivots in candidate)
-        best_ranks = tuple(len(pivots) for *_, pivots in best)
-        if candidate_ranks > best_ranks:
-            best = candidate
-
-        # Stop early if the packing reaches the bound.
-        if sum(len(pivots) == len(basis) for *_, pivots in best) == max_full_sets:
-            break
-    return best
-
-
-def _get_disjoint_sets_for_columns(
-    basis: npt.NDArray[np.uint8],
-    labels: npt.NDArray[np.uint8],
-    columns: npt.NDArray[np.int_],
-) -> list[_DisjointSet]:
-    """Construct disjoint information sets, with pivots from the nonzero ``columns`` in order."""
-    # Start with every given column available as a pivot, and with the basis as it is.
-    dimension = len(basis)
-    active_columns = columns
-    working = basis
-    working_labels = labels
-    information_sets: list[_DisjointSet] = []
-
-    while len(active_columns):
-        # Row-reduce on the available columns, taking pivots in their order, so that each pivot
-        # column has a single one.  The labels follow the same row operations.
-        working, reduced_labels, pivots = row_reduce_binary(
-            working, working_labels, columns=active_columns
-        )
-        assert reduced_labels is not None  # labels in give labels out
-        working_labels = reduced_labels
-        rank = len(pivots)
-        assert rank  # The available columns are nonzero, so they give at least one pivot.
-        information_sets.append((working, working_labels, pivots))
-
-        # A set with fewer pivots than rows is partial.  The columns that remain span at most
-        # ``rank`` dimensions, so no later set could be full, and this is the last one.
-        if rank < dimension:
-            break
-
-        # Make the pivot columns unavailable, so that later sets are disjoint from this one.  Also
-        # drop columns that are zero in the reduced matrix, so that the next pass has a pivot.
-        pivot_set = set(pivots)
-        active_columns = np.asarray(
-            [col for col in active_columns if col not in pivot_set and np.any(working[:, col])],
-            dtype=int,
-        )
-
-    return information_sets

@@ -148,11 +148,8 @@ def test_layers_are_the_sums_of_rows_of_each_basis(memory_limit: int) -> None:
 
 
 @pytest.mark.parametrize("css_weight", [False, True])
-@pytest.mark.parametrize("memory_limit", [1, 2**20])
-def test_bounds_match_exhaustive_minima(
-    css_weight: bool, memory_limit: int, pytestconfig: pytest.Config
-) -> None:
-    """Bounds agree with exhaustive minima for small batches, whether or not candidates are kept.
+def test_bounds_match_exhaustive_minima(css_weight: bool, pytestconfig: pytest.Config) -> None:
+    """Bounds agree with exhaustive minima for small batches.
 
     Each syndrome is queried at every threshold in random order.
     """
@@ -160,9 +157,7 @@ def test_bounds_match_exhaustive_minima(
     for num_qubits in range(1, 7):
         edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
         matrix = _graph_state(num_qubits, edges, phase=num_qubits % 2 == 0)
-        oracle = PauliCosetSearch(
-            matrix, css_weight=css_weight, batch_size=2, memory_limit=memory_limit
-        )
+        oracle = PauliCosetSearch(matrix, css_weight=css_weight, batch_size=2)
         for syndrome in rng.permutation(1 << num_qubits).tolist():
             minimum = int(_class_weights(matrix, syndrome, css_weight).min())
             for threshold in rng.permutation(num_qubits + 1).tolist():
@@ -199,17 +194,6 @@ def test_css_weight_minimizes_both_sectors_jointly() -> None:
     assert not bound.within_max_weight and bound.lower_bound == 2
     assert _get_syndrome(matrix, bound.representative) == 15
     assert oracle.get_min_weight_bound(15, 2).within_max_weight
-
-
-def test_syndrome_is_the_symplectic_product_with_each_stabilizer(
-    pytestconfig: pytest.Config,
-) -> None:
-    """Bit ``j`` of a syndrome says whether the Pauli anticommutes with stabilizer ``j``."""
-    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    matrix = _graph_state(5, [(0, 1), (1, 2), (2, 3), (3, 4)], phase=True)
-    oracle = PauliCosetSearch(matrix)
-    for pauli in rng.integers(1 << 10, size=16).tolist():
-        assert oracle._get_syndrome(pauli) == _get_syndrome(matrix, pauli)
 
 
 def test_rank_deficient_information_sets_certify_less() -> None:

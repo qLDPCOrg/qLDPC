@@ -86,16 +86,25 @@ def test_weight_divisor_inference() -> None:
 
 
 @pytest.mark.usefixtures("compilation_mode")
-@pytest.mark.parametrize("ranks, upper_bound", [([10, 6, 2], 6), ([10, 6, 2], 12), ([6, 2], 6)])
-def test_prune_family(ranks: list[int], upper_bound: int) -> None:
-    """Pruning partial search bases does not increase estimated enumeration work."""
+@pytest.mark.parametrize(
+    "ranks, upper_bound, retained",
+    [([10, 6, 2], 6, [10, 6]), ([10, 6, 2], 12, [10, 6, 2]), ([6, 2], 6, [6, 2])],
+)
+def test_prune_family(ranks: list[int], upper_bound: int, retained: list[int]) -> None:
+    """Pruning keeps full sets, and the partial sets that can help certify the target.
+
+    A set of ten rows with rank deficiency ``d`` adds to the bound only once layer ``d`` is
+    complete.  The full set alone certifies 6 once layer 5 is complete, so the set of deficiency 8
+    cannot help with 6, but no layer lets the full set alone certify 12.  Without a full set, every
+    set stays.
+    """
     no_columns = np.empty((len(ranks), 10, 0), dtype=np.uint8)
     pivots = np.full((len(ranks), 10), -1, dtype=np.int64)
     basis_family = _information_sets.BasisFamily(
         no_columns, no_columns, pivots, np.array(ranks, dtype=np.int64), 1, 1
     )
     pruned = _information_sets.prune_family(basis_family, upper_bound)
-    assert len(pruned.ranks)
+    assert pruned.ranks.tolist() == retained
     assert pruned.certificate.work(upper_bound) <= basis_family.certificate.work(upper_bound)
 
 
@@ -253,18 +262,21 @@ def _get_overlapping_family(
     upper_bound: int,
     max_sets: int = _information_sets.MAX_SETS,
     *,
-    minimum_work: int = _information_sets.MINIMUM_WORK,
+    minimum_work: int | None = None,
 ) -> _information_sets.BasisFamily:
-    """Stage three, with the capped binomials and a fixed seed, as the searches call it."""
+    """Stage three, as the searches call it, or with another minimum work if one is given."""
+    policy_minimum_work, binomials, rng = _information_sets.get_overlapping_family_policy(
+        len(basis)
+    )
     return _information_sets.get_overlapping_family(
         basis,
         np.empty((len(basis), 0), dtype=np.uint8) if labels is None else labels,
         basis_family,
         upper_bound,
         max_sets,
-        minimum_work,
-        _information_sets.get_capped_binomials(len(basis)),
-        np.random.default_rng(0),
+        policy_minimum_work if minimum_work is None else minimum_work,
+        binomials,
+        rng,
     )
 
 
