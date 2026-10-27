@@ -66,8 +66,7 @@ def certify_bounded_fault_propagation(
     The certificate covers only the faults of this model: operations without noise are perfect,
     error instructions with probability zero are not faults, and alternatives that exclude each
     other, such as the cases of an ``ELSE_CORRELATED_ERROR`` chain, count as separate error
-    mechanisms that can occur together.  A bound in CSS weight is a sufficient criterion for fault
-    tolerance only if X and Z errors are corrected independently.
+    mechanisms that can occur together.
 
     Args:
         state_prep_circuit: Noisy Stim Clifford circuit starting in Stim's all-zero state.
