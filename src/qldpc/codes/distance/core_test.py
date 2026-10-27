@@ -4,7 +4,11 @@
 
 from __future__ import annotations
 
+import functools
+from collections.abc import Callable
+
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 import qldpc
@@ -182,6 +186,61 @@ def test_brouwer_zimmermann_random_cross_checks() -> None:
         assert qldpc.codes.get_distance_quantum(logical_ops, stabilizers, cutoff=0) == expected
 
 
+def test_max_weight(request: pytest.FixtureRequest) -> None:
+    """A weight limit returns the smaller of the distance and max_weight + 1, on every route."""
+    rng = np.random.default_rng(7)
+    basis = get_random_full_rank_matrix(rng, 4, 7)
+    classical = functools.partial(qldpc.codes.get_distance_classical, basis)
+    classical_distance = min(sum(word) for word in _span(basis) if any(word))
+    css = functools.partial(
+        qldpc.codes.get_distance_quantum, basis[2:], basis[:2], homogeneous=True
+    )
+    css_distance = min(sum(word) for word in _span(basis) - _span(basis[:2]))
+    basis = get_random_full_rank_matrix(rng, 5, 8)
+    pauli = functools.partial(qldpc.codes.get_distance_quantum, basis[2:], basis[:2])
+    pauli_distance = min(
+        sum(x or z for x, z in zip(word[:4], word[4:])) for word in _span(basis) - _span(basis[:2])
+    )
+
+    def check(distance_with_limit: Callable[..., int], distance: int, method: str) -> None:
+        assert distance >= 2
+        for max_weight in [distance - 2, distance]:
+            result = distance_with_limit(cutoff=0, max_weight=max_weight, method=method)
+            assert result == min(distance, max_weight + 1)
+
+    cases = [(classical, classical_distance), (css, css_distance), (pauli, pauli_distance)]
+    for distance_with_limit, distance in cases:
+        for method in ["brouwer_zimmermann", "brute_force"]:
+            check(distance_with_limit, distance, method)
+
+    # Small quantum problems take an exhaustive shortcut by default, so also force the BZ search.
+    request.getfixturevalue("force_information_sets")
+    for distance_with_limit, distance in cases[1:]:
+        check(distance_with_limit, distance, "brouwer_zimmermann")
+
+
+def test_max_weight_caps_cutoff() -> None:
+    """A large cutoff cannot make the search give up on a word within the limit.
+
+    Both basis rows have weight above the limit, but their sum has weight 3.
+    """
+    basis = [[1, 0, 1, 1, 1, 1], [0, 1, 1, 1, 1, 0]]
+    assert qldpc.codes.get_distance_classical(basis, cutoff=6, max_weight=3) == 3
+    distance = qldpc.codes.get_distance_quantum(basis, [], homogeneous=True, cutoff=6, max_weight=3)
+    assert distance == 3
+
+
+def test_max_weight_conventions_and_validation() -> None:
+    """The limit also caps the results returned for inputs without nontrivial words."""
+    assert qldpc.codes.get_distance_classical([[0, 0, 0]], max_weight=1) == 2
+    no_logical_ops = np.zeros((0, 4), dtype=int)
+    assert qldpc.codes.get_distance_quantum(no_logical_ops, [[1, 1, 0, 0]], max_weight=0) == 1
+    with pytest.raises(ValueError, match="max_weight must be nonnegative"):
+        qldpc.codes.get_distance_classical([[1, 1]], max_weight=-1)
+    with pytest.raises(ValueError, match="max_weight must be nonnegative"):
+        qldpc.codes.get_distance_quantum([[1, 1]], [], homogeneous=True, max_weight=-1)
+
+
 def test_distance_backend_validation() -> None:
     """Distance backend and exact-method selectors are restricted to documented values."""
     for backend in ["auto", "decoder", "gap", "sqetch"]:
@@ -194,3 +253,11 @@ def test_distance_backend_validation() -> None:
     assert core._validate_distance_method("information_sets") == "brouwer_zimmermann"
     with pytest.raises(ValueError, match="Unknown distance method"):
         core._validate_distance_method("other")  # type: ignore[arg-type]
+
+
+def _span(rows: npt.NDArray[np.uint8]) -> set[tuple[int, ...]]:
+    """Every vector in the row space of ``rows``, by enumeration."""
+    words = {tuple(np.zeros(rows.shape[1], dtype=int))}
+    for row in rows:
+        words |= {tuple((np.array(word) + row) % 2) for word in words}
+    return words

@@ -48,6 +48,7 @@ def get_distance_classical(
     cutoff: int = 1,
     block_size: int = 15,
     method: DistanceMethod = "brouwer_zimmermann",
+    max_weight: int | None = None,
 ) -> int:
     """Distance of a classical linear binary code.
 
@@ -61,17 +62,24 @@ def get_distance_classical(
             combinations in several information-set bases and stops once its lower and upper bounds
             meet.  ``"brute_force"`` enumerates every nonzero codeword.  ``"information_sets"`` is
             an alias for ``"brouwer_zimmermann"``.
+        max_weight: If given, a nonnegative limit: only look for code words of weight at most
+            ``max_weight``.  The search then stops as soon as it proves that there are none, which
+            can be much faster than computing a large distance exactly.  The limit also caps
+            ``cutoff``.
 
     Returns:
         The minimum Hamming distance between different code words, or equivalently the minimum
-        Hamming weight of a nontrivial code word.
+        Hamming weight of a nontrivial code word.  If ``max_weight`` is given, the result is the
+        smaller of this distance and ``max_weight + 1``, so a result of ``max_weight + 1`` means
+        that every nontrivial code word is heavier than ``max_weight``.
     """
     method = _validate_distance_method(method)
+    cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
     assert_binary(generators, "generators")
     matrix = as_binary_matrix(generators)
     basis = get_independent_rows(matrix)
     if not len(basis):
-        return matrix.shape[1]
+        return _apply_upper_bound(matrix.shape[1], upper_bound)
 
     if method == "brouwer_zimmermann":
         return get_distance_brouwer_zimmermann(
@@ -79,16 +87,18 @@ def get_distance_classical(
             labels=None,
             cutoff=cutoff,
             block_size=block_size,
+            upper_bound=upper_bound,
         )
 
     # The reduced classical basis needs no excluded subspace.
-    return get_distance_quantum_brute_force(
+    distance = get_distance_quantum_brute_force(
         basis,
         np.empty((0, matrix.shape[1]), dtype=np.uint8),
         cutoff=cutoff,
         block_size=block_size,
         homogeneous=True,
     )
+    return _apply_upper_bound(distance, upper_bound)
 
 
 def get_distance_quantum(
@@ -99,6 +109,7 @@ def get_distance_quantum(
     block_size: int = 15,
     homogeneous: bool = False,
     method: DistanceMethod = "brouwer_zimmermann",
+    max_weight: int | None = None,
 ) -> int:
     """Distance of a binary quantum code.
 
@@ -116,6 +127,11 @@ def get_distance_quantum(
             search over the logical space modulo stabilizers.  ``"brute_force"`` enumerates eligible
             words using independent bases constructed internally.  ``"information_sets"`` is an
             alias for ``"brouwer_zimmermann"``.
+        max_weight: If given, a nonnegative limit: only look for nontrivial logical operators
+            of weight at most ``max_weight``.  The search then stops as soon as it proves that there
+            are none, which can be much faster than computing a large distance exactly.  The limit
+            also caps ``cutoff``, so an early exit still returns the weight of an operator within
+            the limit.
 
     Returns:
         The exact minimum weight of a nontrivial logical operator in ``logical_ops`` modulo
@@ -124,7 +140,9 @@ def get_distance_quantum(
         bound on the true distance, in ``[distance, cutoff]``.  With the default ``cutoff=1`` this
         still returns the exact distance for every valid input (an early return can exceed the
         distance only when ``cutoff >= 2``).  Pass ``cutoff=0`` to disable the early exit and force
-        the exact minimum.
+        the exact minimum.  If ``max_weight`` is given, the result is the smaller of this value and
+        ``max_weight + 1``, so a result of ``max_weight + 1`` means that every nontrivial logical
+        operator is heavier than ``max_weight``.
 
     More specifically, if homogeneous is True, then::
 
@@ -139,6 +157,7 @@ def get_distance_quantum(
         (b) the weight of a Pauli string is the symplectic weight of the corresponding bitstring.
     """
     method = _validate_distance_method(method)
+    cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
     assert_binary(logical_ops, "logical_ops")
     assert_binary(stabilizers, "stabilizers")
     logical_matrix = as_binary_matrix(logical_ops)
@@ -148,7 +167,7 @@ def get_distance_quantum(
     if not homogeneous and num_bits % 2:
         raise ValueError("Symplectic operators must have an even number of columns")
     if not len(logical_matrix):
-        return physical_size
+        return _apply_upper_bound(physical_size, upper_bound)
 
     if method == "brouwer_zimmermann":
         # Verify independence before bypassing adapted-basis preparation.
@@ -156,13 +175,14 @@ def get_distance_quantum(
         if exhaustive_is_cheaper(num_rows, num_bits) and num_rows == len(
             get_independent_rows(np.vstack([stabilizer_matrix, logical_matrix]))
         ):
-            return get_distance_quantum_brute_force(
+            distance = get_distance_quantum_brute_force(
                 logical_matrix,
                 stabilizer_matrix,
                 cutoff=cutoff,
                 block_size=block_size,
                 homogeneous=homogeneous,
             )
+            return _apply_upper_bound(distance, upper_bound)
 
     # Separate an independent excluded basis from a complement representing the quotient.
     basis, labels = get_nested_code_basis(logical_matrix, stabilizer_matrix)
@@ -170,13 +190,14 @@ def get_distance_quantum(
         return 0
     if method == "brute_force":
         num_stabilizers = len(basis) - labels.shape[1]
-        return get_distance_quantum_brute_force(
+        distance = get_distance_quantum_brute_force(
             basis[num_stabilizers:],
             basis[:num_stabilizers],
             cutoff=cutoff,
             block_size=block_size,
             homogeneous=homogeneous,
         )
+        return _apply_upper_bound(distance, upper_bound)
 
     divisor = 1
     if not homogeneous:
@@ -189,8 +210,26 @@ def get_distance_quantum(
         cutoff=cutoff * divisor,
         block_size=block_size,
         weight_divisor=divisor,
+        upper_bound=None if upper_bound is None else upper_bound * divisor,
     )
     return distance // divisor
+
+
+def _get_weight_limit(cutoff: int, max_weight: int | None) -> tuple[int, int | None]:
+    """The cutoff to use under a weight limit, and the upper bound ``max_weight + 1`` (or None).
+
+    The limit caps the cutoff, so that an early exit still returns the weight of a word within it.
+    """
+    if max_weight is None:
+        return cutoff, None
+    if max_weight < 0:
+        raise ValueError(f"max_weight must be nonnegative, not {max_weight}")
+    return min(cutoff, max_weight), max_weight + 1
+
+
+def _apply_upper_bound(distance: int, upper_bound: int | None) -> int:
+    """The smaller of a distance and an optional upper bound."""
+    return distance if upper_bound is None else min(distance, upper_bound)
 
 
 ####################################################################################################
