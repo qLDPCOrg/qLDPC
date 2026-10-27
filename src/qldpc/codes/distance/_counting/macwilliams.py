@@ -34,7 +34,7 @@ import numpy as np
 import numpy.typing as npt
 from numba import njit
 
-from ._binary import pack_bits, popcount_word, trailing_zeros_word
+from .._binary import pack_bits, popcount_word, trailing_zeros_word
 
 _BinaryMatrix = npt.NDArray[np.uint8]
 
