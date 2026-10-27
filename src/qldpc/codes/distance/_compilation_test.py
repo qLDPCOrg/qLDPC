@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for the disk cache of compiled functions, and the rules that make it safe."""
+"""Tests for compiled functions: the disk cache, the registry, and the rules that make them safe."""
 
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any
 
 import numba
+import numpy as np
+import numpy.typing as npt
 import platformdirs
 import pytest
 
@@ -18,6 +20,34 @@ import qldpc
 from qldpc.conftest import run_python
 
 from . import _compilation
+
+
+def test_registered_functions_switch_between_plain_and_compiled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A registered function is plain by default, compiled on request, and restorable."""
+    monkeypatch.setattr(_compilation, "_ON_REQUEST_FUNCTIONS", [])
+    plain = _scaled_sum
+    assert _compilation.compiled_on_request(plain) is plain
+    values = np.arange(5, dtype=np.int64)
+
+    _compilation.set_on_request_functions_compiled(True)
+    compiled = globals()["_scaled_sum"]
+    try:
+        assert isinstance(compiled, numba.core.registry.CPUDispatcher)
+        assert compiled(values, 3) == plain(values, 3) == 30
+
+        # Switching back, and on again, reuses the function that was already compiled.
+        _compilation.set_on_request_functions_compiled(False)
+        assert globals()["_scaled_sum"] is plain
+        _compilation.set_on_request_functions_compiled(True)
+        assert globals()["_scaled_sum"] is compiled
+    finally:
+        _compilation.set_on_request_functions_compiled(False)
+    assert globals()["_scaled_sum"] is plain
+
+    # Nothing is cached on disk, so that no outdated function can ever be loaded.
+    assert compiled.stats.cache_path is None
 
 
 def test_always_compiled_functions_are_cached_in_the_directory_of_their_source(
@@ -168,6 +198,39 @@ def test_only_always_compiled_asks_numba_for_a_disk_cache() -> None:
                 assert path.name == "_compilation.py", f"{path.name} caches without it"
 
 
+def test_always_compiled_functions_do_not_call_compiled_on_request_functions() -> None:
+    """An always-compiled function is compiled and cached by itself, in every mode."""
+    trees = list(_get_source_trees())
+    registered = _get_names_decorated_by(trees, "compiled_on_request")
+    assert registered
+    for path, tree in trees:
+        for function in ast.walk(tree):
+            if isinstance(function, ast.FunctionDef) and _is_decorated_by(
+                function, "always_compiled"
+            ):
+                used = {
+                    node.id if isinstance(node, ast.Name) else node.attr
+                    for statement in function.body
+                    for node in ast.walk(statement)
+                    if isinstance(node, ast.Name | ast.Attribute)
+                }
+                assert not used & registered, (
+                    f"{path.name}: {function.name} calls {used & registered}"
+                )
+
+
+def test_compiled_on_request_functions_are_not_imported_by_name() -> None:
+    """A name imported by ``from`` keeps the plain function, since only its module is updated."""
+    trees = list(_get_source_trees())
+    registered = _get_names_decorated_by(trees, "compiled_on_request")
+    assert registered
+    for path, tree in trees:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                imported = {alias.name for alias in node.names} & registered
+                assert not imported, f"{path.name} imports {imported} by name"
+
+
 def test_always_compiled_functions_use_nothing_from_outside_their_package() -> None:
     """The source hash covers this package, so always-compiled code may use only its files."""
     for path, tree in _get_source_trees():
@@ -221,6 +284,13 @@ def add_to(value):
 """
 
 
+def _scaled_sum(values: npt.NDArray[np.int64], scale: int) -> int:
+    total = 0
+    for value in values:
+        total += scale * value
+    return total
+
+
 def _add_one(value: int) -> int:
     return value + 1
 
@@ -246,6 +316,16 @@ def _is_decorated_by(function: ast.FunctionDef, name: str) -> bool:
         if decorator_name == name:
             return True
     return False
+
+
+def _get_names_decorated_by(trees: list[tuple[Path, ast.Module]], name: str) -> set[str]:
+    """The names of the functions in the given syntax trees that have the decorator ``name``."""
+    return {
+        function.name
+        for _, tree in trees
+        for function in ast.walk(tree)
+        if isinstance(function, ast.FunctionDef) and _is_decorated_by(function, name)
+    }
 
 
 def _is_in_the_package(path: Path) -> bool:

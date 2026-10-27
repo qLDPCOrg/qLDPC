@@ -24,6 +24,7 @@ from ..conftest import (
     get_expected_counts,
     get_random_css_code,
 )
+from ..core import DistanceMethod
 from . import local_cliffords, scan
 
 
@@ -63,6 +64,20 @@ def test_a_deformed_self_dual_counter_shares_its_basis_family() -> None:
     deformed = counter.deformed_swel(0, 1, 2, 3)
     assert deformed.is_self_dual
     assert_counts_match_enumeration(deformed)
+
+
+@pytest.mark.usefixtures("compilation_mode")
+@pytest.mark.parametrize("method", METHODS)
+def test_scans_resume_after_every_chunk(
+    monkeypatch: pytest.MonkeyPatch, pytestconfig: pytest.Config, method: DistanceMethod
+) -> None:
+    """A scan that stops after each combination, and after each call, still visits every word."""
+    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
+    monkeypatch.setattr(scan, "_CHUNK_SIZE", 1)
+    monkeypatch.setattr(scan, "_CHUNKS_PER_SCAN_CALL", 1)
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    counter = lc.CSSLogicalCounter(get_random_css_code(rng, 10, 3, 3))
+    assert_counts_match_enumeration(counter, method=method)
 
 
 @pytest.mark.usefixtures("compilation_mode")

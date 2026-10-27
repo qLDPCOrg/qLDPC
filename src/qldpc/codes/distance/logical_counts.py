@@ -45,6 +45,7 @@ from ._binary import (
 )
 from ._brouwer_zimmermann import get_distance_brouwer_zimmermann_many
 from ._brute_force import get_distance_quantum_brute_force
+from ._compilation import set_on_request_functions_compiled
 from ._counting import local_cliffords, macwilliams, scan
 from .core import _DISTANCE_METHODS, DistanceMethod
 
@@ -221,6 +222,9 @@ class CSSLogicalCounter:
         max_information_sets: SupportsIndex = _information_sets.MAX_SETS,
     ) -> CSSLogicalCounts:
         """Count the nontrivial logical operators of a given weight.
+
+        A program that makes very many counts can call
+        :func:`~qldpc.codes.distance.compile_search_setup` first.
 
         Args:
             weight: Weight of the operators to count, between zero and the number of qubits.  If
@@ -623,6 +627,30 @@ def count_logical_ops_css(
     )
 
 
+def compile_search_setup() -> None:
+    """Compile the code that sets up exact distance and logical-operator count searches.
+
+    By default, the inner loops of these searches are compiled by numba, and cached on disk, the
+    first time that they are used.  The code that sets those loops up runs as ordinary Python.  It
+    selects and bounds the information sets of a code, packs them for the scan of its words, and
+    moves them through local gates.  This function compiles that code instead, for the rest of this
+    process.  It does not change any result, and it does not affect the MacWilliams method, which
+    does not use that code.
+
+    Call it once, at the start of a program that makes very many counts of similar codes, such as a
+    search over many deformed codes.  Every process that calls it compiles the code again, so it
+    does not pay off for a few counts.  Counters may be created before or after the call.  The
+    compiled code is never written to disk, so it cannot become outdated.
+    """
+    set_on_request_functions_compiled(True)
+    try:
+        _warm_up_compiled_functions()
+    except BaseException:
+        # Do not leave a process that was refused, or interrupted, partly compiled.
+        set_on_request_functions_compiled(False)
+        raise
+
+
 def _validate_logical_count_method(
     method: LogicalCountMethod,
 ) -> _CanonicalLogicalCountMethod:
@@ -644,6 +672,31 @@ def _get_above_distance_error(weight: int) -> ValueError:
     return ValueError(
         "Counts above the distance are not supported here: the distance is less than"
         f" weight {weight}"
+    )
+
+
+def _warm_up_compiled_functions() -> None:
+    """Compile every function now, by counting on a small code, so that no later call compiles."""
+    from ..quantum import SteaneCode
+
+    counter = CSSLogicalCounter(SteaneCode())
+    counter.count_logical_ops(method="brouwer_zimmermann")
+    counter.deformed_cnot(0, 1).count_logical_ops(method="brouwer_zimmermann")
+
+    # The distance search of so small a code is exhaustive, so call the stages that it uses here.
+    basis, labels = counter._get_sectors()[0]
+    basis_family = _information_sets.prune_family(
+        _information_sets.get_disjoint_family(basis, labels), 4
+    )
+    _information_sets.get_overlapping_family(
+        basis,
+        labels,
+        basis_family,
+        4,
+        _information_sets.MAX_SETS,
+        0,
+        _information_sets.get_capped_binomials(len(basis)),
+        np.random.default_rng(0),
     )
 
 
