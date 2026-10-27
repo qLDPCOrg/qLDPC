@@ -274,7 +274,8 @@ def test_zero_and_repeated_signatures_are_not_searched_and_the_fault_weight_is_l
 def test_irreducible_faults_match_exhaustive_enumeration(pytestconfig: pytest.Config) -> None:
     """The prefix search yields every irreducible accepted fault of a given fault weight, once.
 
-    It yields the faults whose first primitive fault is among the first ``num_starts``.
+    It yields the faults whose first primitive fault is among the first ``num_starts``, in the same
+    order with or without a table of pairs.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_primitives in range(1, 10):
@@ -283,6 +284,7 @@ def test_irreducible_faults_match_exhaustive_enumeration(pytestconfig: pytest.Co
             syndromes = list(map(int, rng.integers(16, size=num_primitives)))
             dem_indices = list(map(int, rng.permutation(np.arange(num_primitives) * 7 + 100)))
             primitives = list(zip(flags, syndromes, dem_indices, strict=True))
+            pairs = fault_propagation._get_pair_table(flags, 2**20)
             faults = _irreducible_faults(flags, 5)
             for num_starts in (num_primitives, num_primitives // 2, 0):
                 for fault_weight in range(2, 6):
@@ -300,6 +302,11 @@ def test_irreducible_faults_match_exhaustive_enumeration(pytestconfig: pytest.Co
                     )
                     assert len(found) == len(expected)
                     assert dict(found) == expected
+                    assert found == list(
+                        fault_propagation._iter_irreducible_faults(
+                            primitives, fault_weight, num_starts, pairs
+                        )
+                    )
 
 
 @pytest.mark.parametrize("css_weight", [True, False])
@@ -674,6 +681,51 @@ def test_invalid_max_weight_is_rejected(max_weight: int) -> None:
         circuit, output_qubits=[0], max_weight=cast(int, np.int64(2))
     )
     assert result.max_weight == 2 and type(result.max_weight) is int
+
+
+def test_pair_table_compares_flags_when_hashes_collide(pytestconfig: pytest.Config) -> None:
+    """Pairs that share a hash but not a flag sum are not mistaken for closing pairs."""
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for _ in range(20):
+        flags = list(map(int, rng.integers(1, 16, size=8)))
+        primitives = [(flag, 0, index) for index, flag in enumerate(flags)]
+        pairs = fault_propagation._get_pair_table(flags, 2**20)
+        assert pairs is not None
+        # Make every hash zero, so that every lookup returns every pair.
+        pairs._images = [0] * len(pairs._images)
+        pairs.hashes[:] = 0
+        pairs._keys[:] = 0
+        for fault_weight in (4, 5):
+            found = fault_propagation._iter_irreducible_faults(primitives, fault_weight, 8, pairs)
+            expected = [ff for ff in _irreducible_faults(flags, 5) if len(ff) == fault_weight]
+            assert sorted(sorted(indices) for indices, _ in found) == sorted(map(list, expected))
+
+
+def test_memory_limit_does_not_change_results(pytestconfig: pytest.Config) -> None:
+    """With almost no memory, the search is slower but finds the same counterexample."""
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    # The first map has flags of rank four, so that its search reaches fault weight five.
+    maps = [([1, 2, 4, 8, 15, 3], [3, 0, 1, 2, 5, 6])]
+    for _ in range(100):
+        num_primitives = int(rng.integers(4, 10))
+        flags = list(map(int, rng.integers(1, 16, size=num_primitives)))
+        maps.append((flags, list(map(int, rng.integers(16, size=num_primitives)))))
+    for flags, syndromes in maps:
+        results = [
+            fault_propagation._certify_maps(flags, syndromes, _z_state(4), False, None, limit)
+            for limit in (1, 2**20)
+        ]
+        assert results[0] == results[1]
+        assert results[0][0] == _certify_map(flags, syndromes, None, 4)
+
+
+@pytest.mark.parametrize("memory_limit", [0, True, 1.5])
+def test_invalid_memory_limit_is_rejected(memory_limit: int) -> None:
+    """The memory limit must be a positive integer, and a bool is not an integer here."""
+    with pytest.raises(ValueError, match="memory_limit"):
+        circuits.certify_bounded_fault_propagation(
+            stim.Circuit("I 0"), output_qubits=[0], memory_limit=memory_limit
+        )
 
 
 @pytest.mark.parametrize("outputs", [0, [], [0, 0], [1], [-1], [True], [0.5]])

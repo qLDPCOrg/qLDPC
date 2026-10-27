@@ -23,6 +23,9 @@ from ..common import get_pauli_product_measurements
 from ..encoding import get_state_stabilizers
 from .state_prep_diagnostics import _get_flag_detectors, _get_selected_detectors
 
+# The peak number of bytes per pair of primitive faults while building a table of pairs.
+_BYTES_PER_PAIR = 32
+
 ####################################################################################################
 # bounded fault propagation certification
 
@@ -35,6 +38,7 @@ def certify_bounded_fault_propagation(
     max_weight: int | None = None,
     add_flags: bool = False,
     post_select: bool | Collection[int] | Literal["flags"] = False,
+    memory_limit: int = 2**30,  # 1 GiB
 ) -> BoundedFaultPropagationCertificate:
     """Certify bounded fault propagation in a noisy Clifford state-preparation circuit.
 
@@ -83,14 +87,17 @@ def certify_bounded_fault_propagation(
             requires ``add_flags=True``.  A fault passes post-selection if none of the selected
             detectors fire, where a detector fires if an odd number of the fault's error mechanisms
             flip it.  Default: False.
+        memory_limit: The approximate number of bytes that the search may use for its lookup tables,
+            a positive integer.  A smaller limit can make the search slower, but never changes the
+            result.  Default: ``2**30`` (1 GiB).
 
     Returns:
         A certificate of bounded fault propagation, which includes a counterexample if applicable.
 
     Raises:
-        ValueError: If ``css_weight``, ``output_qubits``, ``max_weight``, or ``post_select`` has an
-            invalid type or value, if the output qubits do not end in one definite stabilizer state,
-            or if Stim cannot convert the circuit to a DEM.
+        ValueError: If ``css_weight``, ``output_qubits``, ``max_weight``, ``post_select``, or
+            ``memory_limit`` has an invalid type or value, if the output qubits do not end in one
+            definite stabilizer state, or if Stim cannot convert the circuit to a DEM.
     """
     if css_weight is not None and not isinstance(css_weight, bool):
         raise ValueError("css_weight must be a bool or None")
@@ -98,6 +105,8 @@ def certify_bounded_fault_propagation(
         if not _is_integer(max_weight) or max_weight < 1:
             raise ValueError("max_weight must be a positive integer or None")
         max_weight = int(max_weight)
+    if not _is_integer(memory_limit) or memory_limit < 1:
+        raise ValueError("memory_limit must be a positive integer")
     if output_qubits is None:
         output_qubits = _get_unmeasured_qubits(circuit)
         if not output_qubits:
@@ -121,7 +130,9 @@ def certify_bounded_fault_propagation(
     matrix = np.array([math.string_to_op(stabilizer) for stabilizer in stabilizers], dtype=np.uint8)
     css_weight = _is_css_state(matrix) if css_weight is None else css_weight
     dem, flags, syndromes = _get_primitive_fault_maps(circuit, stabilizers, qubits, selected)
-    counterexample, _ = _certify_maps(flags, syndromes, matrix, css_weight, max_weight)
+    counterexample, _ = _certify_maps(
+        flags, syndromes, matrix, css_weight, max_weight, int(memory_limit)
+    )
     return BoundedFaultPropagationCertificate(
         tuple(map(int, qubits)),
         tuple(stabilizers),
@@ -213,6 +224,7 @@ def _certify_maps(
     stabilizers: npt.ArrayLike,
     css_weight: bool,
     max_weight: int | None,
+    memory_limit: int = 2**30,  # 1 GiB
 ) -> tuple[BoundedFaultPropagationCounterexample | None, int]:
     """Prepare the search for an accepted fault that violates the bound, and run it.
 
@@ -233,12 +245,19 @@ def _certify_maps(
     flag_rank = _get_binary_rank([flag for flag, _ in signatures])
     budget = flag_rank + 1 if max_weight is None else min(max_weight, flag_rank + 1)
 
-    oracle = PauliCosetSearch(stabilizers, metric="css" if css_weight else "pauli")
-    return _search_irreducible_faults(signatures, budget, oracle)
+    # The oracle may use a quarter of the memory limit.  The search may use half for the table of
+    # pairs of primitive faults, and a quarter for the syndromes that satisfy the bound.
+    oracle = PauliCosetSearch(
+        stabilizers, css_weight=css_weight, memory_limit=max(1, memory_limit // 4)
+    )
+    return _search_irreducible_faults(signatures, budget, oracle, memory_limit)
 
 
 def _search_irreducible_faults(
-    signatures: dict[tuple[int, int], int], budget: int, oracle: PauliCosetSearch
+    signatures: dict[tuple[int, int], int],
+    budget: int,
+    oracle: PauliCosetSearch,
+    memory_limit: int = 2**30,  # 1 GiB
 ) -> tuple[BoundedFaultPropagationCounterexample | None, int]:
     """Check the irreducible accepted faults that can violate the bound, by increasing fault weight.
 
@@ -269,13 +288,28 @@ def _search_irreducible_faults(
         within_one = oracle.get_min_weight_bound(primitive[1], 1).within_max_weight
         (light if within_one else heavy).append(primitive)
 
-    # Check the faults by increasing fault weight.
+    # Check the faults by increasing fault weight.  A syndrome that satisfies the bound at some
+    # fault weight satisfies it at every larger fault weight, so it is not checked again.  Faults of
+    # fault weight four or more are closed with a table of pairs of primitive faults, if it fits.
+    primitives = heavy + light
+    satisfied: set[int] = set()
+    # A Python set uses roughly this many bytes for each syndrome of this many bits.
+    max_satisfied = memory_limit // 4 // (64 + oracle.num_qubits // 4)
+    pairs = None
     for fault_weight in range(2, budget + 1):
-        for indices, syndrome in _iter_irreducible_faults(heavy + light, fault_weight, len(heavy)):
+        if fault_weight == 4:
+            pairs = _get_pair_table([flag for flag, _, _ in primitives], memory_limit // 2)
+        for indices, syndrome in _iter_irreducible_faults(
+            primitives, fault_weight, len(heavy), pairs
+        ):
             num_faults_checked += 1
+            if syndrome in satisfied:
+                continue
             failure = _check_fault(indices, syndrome, oracle)
             if failure is not None:
                 return failure, num_faults_checked
+            if len(satisfied) < max_satisfied:
+                satisfied.add(syndrome)
     return None, num_faults_checked
 
 
@@ -304,7 +338,10 @@ def _get_counterexample(
 
 
 def _iter_irreducible_faults(
-    primitives: Sequence[tuple[int, int, int]], fault_weight: int, num_starts: int
+    primitives: Sequence[tuple[int, int, int]],
+    fault_weight: int,
+    num_starts: int,
+    pairs: _PairTable | None = None,
 ) -> Iterator[tuple[tuple[int, ...], int]]:
     """Yield each irreducible accepted fault of a given fault weight, with its syndrome.
 
@@ -312,19 +349,78 @@ def _iter_irreducible_faults(
     as a prefix of ``fault_weight - 1`` primitive faults with independent flags, closed by a later
     primitive fault whose flags equal the prefix's flag sum.  Only faults whose first primitive
     fault is among the first ``num_starts`` are yielded, each as the tuple of its DEM indices.
+
+    With a table of pairs, which must be built from the same primitive faults, the last primitive
+    fault of the prefix and the closing primitive fault are found together, as a pair whose flag sum
+    is that of the rest of the prefix.  The faults are yielded in the same order either way.
     """
     # The positions in ``primitives`` of the primitive faults with each flag value, in order.
     by_flag: dict[int, list[int]] = {}
     for ordinal, (flag, _, _) in enumerate(primitives):
         by_flag.setdefault(flag, []).append(ordinal)
+    close_with_pairs = pairs is not None and fault_weight >= 4
+
+    def reduce(flag: int, basis: tuple[int, ...]) -> int:
+        # Reduce the flags by the prefix's reduced flags, as in ``_get_binary_rank``.  The result is
+        # zero exactly when the flags are a sum of some of the prefix's flags.  Then every fault
+        # that contains the prefix and this primitive fault contains a smaller accepted fault, so it
+        # is not irreducible.
+        for row in basis:
+            flag = min(flag, flag ^ row)
+        return flag
+
+    def close_with_pair(
+        indices: tuple[int, ...],
+        start: int,
+        flag: int,
+        syndrome: int,
+        basis: tuple[int, ...],
+    ) -> Iterator[tuple[tuple[int, ...], int]]:
+        # Choose the next primitive fault from position ``start`` on.  A pair then completes the
+        # fault: the last primitive fault of the prefix and the closing primitive fault.  The flags
+        # of the pair must sum to ``flag`` plus the flags of the next primitive fault.  The hash is
+        # linear, so one lookup finds the pairs for every choice of the next primitive fault.
+        assert pairs is not None
+        lows, highs = pairs.find(pairs.hashes[start:] ^ np.uint64(pairs.hash(flag)))
+
+        # Try only the choices that have some pair with a matching hash.
+        for offset in np.flatnonzero(highs > lows).tolist():
+            ordinal = start + offset
+            next_flag, next_syndrome, index = primitives[ordinal]
+
+            # As in ``extend``, the next primitive fault must keep the prefix independent.
+            reduced = reduce(next_flag, basis)
+            if not reduced:
+                continue
+            new_flag = flag ^ next_flag
+            new_basis = tuple(sorted((*basis, reduced), reverse=True))
+
+            # Keep the pairs that come after the next primitive fault, whose flags sum to exactly
+            # ``new_flag`` (different flag sums can share a hash), and whose first primitive fault
+            # keeps the prefix independent.
+            for last, closing in pairs.get_pairs(lows[offset], highs[offset], ordinal + 1):
+                last_flag, last_syndrome, last_index = primitives[last]
+                closing_flag, closing_syndrome, closing_index = primitives[closing]
+                if last_flag ^ closing_flag == new_flag and reduce(last_flag, new_basis):
+                    yield (
+                        indices + (index, last_index, closing_index),
+                        syndrome ^ next_syndrome ^ last_syndrome ^ closing_syndrome,
+                    )
 
     def extend(
-        indices: tuple[int, ...], start: int, flag: int, syndrome: int, basis: tuple[int, ...]
+        indices: tuple[int, ...],
+        start: int,
+        flag: int,
+        syndrome: int,
+        basis: tuple[int, ...],
     ) -> Iterator[tuple[tuple[int, ...], int]]:
+        if close_with_pairs and len(indices) == fault_weight - 3:
+            yield from close_with_pair(indices, start, flag, syndrome, basis)
+            return
+
         # Try each primitive fault from position ``start`` on as the next one of the prefix.  If it
         # completes the prefix, look up the closing primitive faults by their flags before the
-        # costlier independence test.  The basis holds the prefix's reduced flags, as in
-        # ``_get_binary_rank``.
+        # costlier independence test.
         completes_prefix = len(indices) == fault_weight - 2
         stop = len(primitives) if indices else num_starts
         for ordinal in range(start, stop):
@@ -333,13 +429,7 @@ def _iter_irreducible_faults(
             closing = by_flag.get(new_flag, []) if completes_prefix else []
             if completes_prefix and (not closing or closing[-1] <= ordinal):
                 continue
-
-            # The reduction is zero exactly when the flags of this primitive fault are a sum of some
-            # of the prefix's flags.  Then every fault that contains the prefix and this primitive
-            # fault contains a smaller accepted fault, so it is not irreducible.
-            reduced = next_flag
-            for row in basis:
-                reduced = min(reduced, reduced ^ row)
+            reduced = reduce(next_flag, basis)
             if not reduced:
                 continue
 
@@ -360,6 +450,69 @@ def _iter_irreducible_faults(
                 )
 
     yield from extend((), 0, 0, 0, ())
+
+
+class _PairTable:
+    """The pairs of primitive faults, sorted by a 64-bit hash of their flag sums.
+
+    The hash is a random linear map of the flags, so the hash of a flag sum is the sum of the hashes
+    of its terms.  Pairs whose flag sums differ can share a hash, so callers must compare the flags
+    of the pairs that they look up.
+    """
+
+    def __init__(self, flags: Sequence[int]) -> None:
+        width = max(flag.bit_length() for flag in flags)
+        self._images = (
+            np.random.default_rng(0).integers(2**64, size=width, dtype=np.uint64).tolist()
+        )
+        self.hashes = np.array([self.hash(flag) for flag in flags], dtype=np.uint64)
+
+        # List the pairs (first, second) with first < second, in this order, and sort them stably by
+        # hash, so that the pairs with each hash stay in order.
+        num = len(flags)
+        first = np.repeat(np.arange(num, dtype=np.int32), np.arange(num - 1, -1, -1))
+        second = np.concatenate(
+            [np.arange(ordinal + 1, num, dtype=np.int32) for ordinal in range(num)]
+        )
+        keys = self.hashes[first] ^ self.hashes[second]
+        order = np.argsort(keys, kind="stable")
+        self._keys = keys[order]
+        del keys
+        self._first = first[order]
+        del first
+        self._second = second[order]
+
+    def hash(self, flag: int) -> int:
+        """Hash flags to 64 bits."""
+        value = 0
+        for bit, image in enumerate(self._images):
+            if flag >> bit & 1:
+                value ^= image
+        return value
+
+    def find(
+        self, keys: npt.NDArray[np.uint64]
+    ) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]:
+        """Find the range of positions of the pairs with each hash."""
+        return np.searchsorted(self._keys, keys, "left"), np.searchsorted(self._keys, keys, "right")
+
+    def get_pairs(self, low: int, high: int, start: int) -> Iterator[tuple[int, int]]:
+        """Yield the pairs in a range of positions, skipping those that start before ``start``.
+
+        A pair starts at its first primitive fault.  The pairs come in the order of the first
+        primitive fault, and then of the second.
+        """
+        for first, second in zip(self._first[low:high].tolist(), self._second[low:high].tolist()):
+            if first >= start:
+                yield first, second
+
+
+def _get_pair_table(flags: Sequence[int], memory_limit: int) -> _PairTable | None:
+    """Build a table of the pairs of these flags if it fits within the memory limit."""
+    num_pairs = len(flags) * (len(flags) - 1) // 2
+    if num_pairs * _BYTES_PER_PAIR > memory_limit:
+        return None
+    return _PairTable(flags)
 
 
 def _get_binary_rank(columns: Sequence[int]) -> int:

@@ -102,6 +102,12 @@ By [Section 3.2](#32-a-violating-fault-contains-a-heavy-primitive-fault), only a
 So the search builds only the prefixes that start with a heavy primitive fault.
 Since the heavy primitive faults come first, such a fault has a heavy `j_1`, so this lists each of them once and lists nothing else.
 
+Most choices of `j_{m-1}` have no closing primitive fault, so for fault weight `m ≥ 4` the search saves time by choosing `j_{m-1}` and `j_m` together.
+Choosing them together removes about one factor of `N` (the number of primitive faults) from the search time, at the cost of a table whose size is quadratic in `N`.
+The search keeps a table of all pairs of these primitive faults indexed by the sum of their flags, if the table fits within a user-specified memory limit.
+For each choice of `j_1, ..., j_{m-2}`, the search looks up the pairs `j_{m-1} < j_m` that come after `j_{m-2}` and whose flags sum to the flags of `j_1, ..., j_{m-2}`, and keeps the pairs for which the prefix is independent.
+The table lookup lists the same faults in the same order as a loop over `j_{m-1}`.
+
 ### 4.3 Why the first violation has the smallest fault weight
 
 The search checks the kept primitive faults with zero flags first, and then the faults of [Section 4.2](#42-listing-each-irreducible-accepted-fault-once) in order of fault weight 2, 3, and so on, up to `min(K, rank(P) + 1)`.

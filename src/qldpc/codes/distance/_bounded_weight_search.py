@@ -9,7 +9,7 @@ import itertools
 import numbers
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from math import comb
 
 import numpy as np
 import numpy.typing as npt
@@ -66,30 +66,29 @@ class PauliCosetSearch:
 
     Args:
         stabilizers: An independent commuting binary ``n x 2n`` matrix in ``[X|Z]`` order.
-        metric: ``"pauli"`` counts the qubits that an error acts on, and ``"css"`` counts
-            ``max(|x|, |z|)``, where ``x`` and ``z`` are the X and Z parts of the error.
-        cache_size: The number of syndromes whose results are kept between queries, which saves the
-            search when a caller repeats a syndrome.
-        batch_size: The largest number of candidates that a search evaluates at once, which limits
-            its memory usage.
+        css_weight: True to weigh an error by its CSS weight ``max(|x|, |z|)``, where ``x`` and
+            ``z`` are its X and Z parts, or False to weigh it by its physical weight, the number of
+            qubits that it acts on.
+        batch_size: The largest number of candidates that a search evaluates at once.
+        memory_limit: The approximate number of bytes that the oracle may use to keep the sums of
+            rows that every search shares.  A smaller limit can make searches slower, but never
+            changes their results.
     """
 
     def __init__(
         self,
         stabilizers: npt.ArrayLike,
         *,
-        metric: Literal["pauli", "css"] = "pauli",
-        cache_size: int = 4096,
+        css_weight: bool = False,
         batch_size: int = 4096,
+        memory_limit: int = 2**30,  # 1 GiB
     ) -> None:
-        if metric not in ("pauli", "css"):
-            raise ValueError("metric must be 'pauli' or 'css'")
-        for value in (cache_size, batch_size):
+        for value in (batch_size, memory_limit):
             if isinstance(value, bool) or not isinstance(value, numbers.Integral) or value < 1:
-                raise ValueError("cache_size and batch_size must be positive integers")
-        self.metric = metric
-        self.cache_size = cache_size
+                raise ValueError("batch_size and memory_limit must be positive integers")
+        self.css_weight = css_weight
         self.batch_size = batch_size
+        self.memory_limit = memory_limit
         assert_binary(stabilizers, "stabilizers")
         matrix = as_binary_matrix(stabilizers)
         self.num_qubits = len(matrix)
@@ -121,15 +120,16 @@ class PauliCosetSearch:
             self._singles.setdefault(sz, z)
             self._singles.setdefault(sx ^ sz, x ^ z)
 
-        # The search runs on the embedded stabilizers (see ``_embed``).  Weighing a word in the CSS
-        # metric needs a mask for each of its two sectors.
-        self._embedded = symplectic_to_hamming(matrix) if metric == "pauli" else matrix.copy()
-        if metric == "css":
+        # The search runs on the embedded stabilizers (see ``_embed``).  Weighing a word by its CSS
+        # weight needs a mask for each of its two sectors.
+        self._embedded = matrix.copy() if css_weight else symplectic_to_hamming(matrix)
+        if css_weight:
             width = (2 * n + 63) // 64
             self._sector_masks = tuple(
                 _int_to_words(((1 << n) - 1) << shift, width) for shift in (0, n)
             )
-        self._cache: dict[int, MinWeightBound] = {}
+        self._layers: dict[tuple[int, int], list[npt.NDArray[np.uint64]]] = {}
+        self._layer_bytes = 0
 
     def get_min_weight_bound(self, syndrome: int, max_weight: int) -> MinWeightBound:
         """Decide whether some error with this syndrome has weight at most ``max_weight``.
@@ -151,19 +151,7 @@ class PauliCosetSearch:
             return MinWeightBound(self._weight(pauli) <= max_weight, pauli, int(bool(syndrome)))
         if max_weight < 2:
             return MinWeightBound(False, self._representative(syndrome), 2)
-
-        # A cached result answers the query if its error has weight at most ``max_weight``, or if
-        # its lower bound exceeds ``max_weight``.
-        known = self._cache.get(syndrome)
-        if known is not None:
-            weight = self._weight(known.representative)
-            if weight <= max_weight or known.lower_bound > max_weight:
-                return MinWeightBound(weight <= max_weight, known.representative, known.lower_bound)
-        bound = self._search(syndrome, max_weight)
-        self._cache[syndrome] = bound
-        if len(self._cache) > self.cache_size:
-            del self._cache[next(iter(self._cache))]
-        return bound
+        return self._search(syndrome, max_weight)
 
     def _search(self, syndrome: int, max_weight: int) -> MinWeightBound:
         """Search a syndrome class with no error of weight at most one.
@@ -186,11 +174,11 @@ class PauliCosetSearch:
         # Visit the coset in layers, where layer ``depth`` adds ``depth`` rows to the offset.
         for depth in range(n + 1):
             # Visit the layer on every basis in turn, since the certificate below needs all of them.
-            for (packed, _, _), offset in zip(self._bases, offsets, strict=True):
-                # Choose the sets of rows to add, in batches.  Build the word for each set of rows
-                # in a batch, and weigh each word.
-                for supports in _iter_fixed_weight_supports(n, depth, self.batch_size):
-                    candidates = np.bitwise_xor.reduce(packed[supports], axis=1) ^ offset
+            for basis, offset in enumerate(offsets):
+                # Visit the sums of ``depth`` rows of the basis in batches, add the offset to each
+                # sum, and weigh the resulting words.
+                for sums in self._iter_layer(basis, depth):
+                    candidates = sums ^ offset
                     weights = self._candidate_weights(candidates)
 
                     # Remember the lightest word, and return it if its weight is at most
@@ -205,8 +193,8 @@ class PauliCosetSearch:
 
             # Return if the unvisited words are too heavy.  Each of them adds more than ``depth``
             # rows on every basis, so the certificate bounds its Hamming weight from below, and its
-            # weight is at least half of that in either metric.  The smaller of this bound and the
-            # lowest weight visited is then a lower bound on every weight.
+            # weight is at least half of that, by either measure of weight.  The smaller of this
+            # bound and the lowest weight visited is then a lower bound on every weight.
             if depth < n:
                 unseen_lower = (self._certificate.lower_bound(depth) + 1) // 2
                 if unseen_lower > max_weight:
@@ -215,6 +203,28 @@ class PauliCosetSearch:
         # Layer ``n`` can add every row, so every word of the coset has been visited.  None has
         # weight at most ``max_weight``, and the lowest weight visited is the minimum.
         return MinWeightBound(False, best_pauli, best_weight)
+
+    def _iter_layer(self, basis: int, depth: int) -> Iterator[npt.NDArray[np.uint64]]:
+        """Yield the sums of every set of ``depth`` rows of a basis, in batches.
+
+        The sums do not depend on the syndrome, so every search shares them.  They are kept if they
+        fit within the memory limit, and computed again for each search otherwise.
+        """
+        if (basis, depth) in self._layers:
+            yield from self._layers[basis, depth]
+            return
+        packed = self._bases[basis][0]
+        num_bytes = comb(len(packed), depth) * packed.shape[1] * 8
+        batches = (
+            np.bitwise_xor.reduce(packed[supports], axis=1)
+            for supports in _iter_fixed_weight_supports(len(packed), depth, self.batch_size)
+        )
+        if self._layer_bytes + num_bytes > self.memory_limit:
+            yield from batches
+            return
+        self._layer_bytes += num_bytes
+        self._layers[basis, depth] = list(batches)
+        yield from self._layers[basis, depth]
 
     def _get_syndrome(self, pauli: int) -> int:
         """Compute the syndrome of a packed Pauli."""
@@ -228,7 +238,7 @@ class PauliCosetSearch:
         """Find an error of weight zero or one with this syndrome, if there is one."""
         if syndrome in self._singles:
             return self._singles[syndrome]
-        if self.metric == "css":
+        if self.css_weight:
             # CSS weight one also allows X_i Z_j on distinct qubits.  Matching an X-single syndrome
             # with a Z-single syndrome finds these in linear time, without a quadratic table.
             for sx, x in self._x_singles.items():
@@ -240,22 +250,22 @@ class PauliCosetSearch:
     def _weight(self, pauli: int) -> int:
         mask = (1 << self.num_qubits) - 1
         x, z = pauli & mask, (pauli >> self.num_qubits) & mask
-        return max(x.bit_count(), z.bit_count()) if self.metric == "css" else (x | z).bit_count()
+        return max(x.bit_count(), z.bit_count()) if self.css_weight else (x | z).bit_count()
 
     def _candidate_weights(self, candidates: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
-        """Compute the weights of packed embedded words, in the metric."""
-        if self.metric == "pauli":
-            return np.bitwise_count(candidates).sum(axis=-1, dtype=np.uint64) // 2
-        return np.maximum(
-            *(
-                np.bitwise_count(candidates & mask).sum(axis=-1, dtype=np.uint64)
-                for mask in self._sector_masks
+        """Compute the weights of packed embedded words."""
+        if self.css_weight:
+            return np.maximum(
+                *(
+                    np.bitwise_count(candidates & mask).sum(axis=-1, dtype=np.uint64)
+                    for mask in self._sector_masks
+                )
             )
-        )
+        return np.bitwise_count(candidates).sum(axis=-1, dtype=np.uint64) // 2
 
     def _embed(self, pauli: int) -> int:
         """Embed a packed Pauli into the space in which the Hamming weight is searched."""
-        if self.metric == "css":
+        if self.css_weight:
             return pauli
         n = self.num_qubits
         x, z = pauli & ((1 << n) - 1), pauli >> n
@@ -305,7 +315,7 @@ def _iter_fixed_weight_supports(
     combinations = itertools.combinations(range(dimension), weight)
     while batch := list(itertools.islice(combinations, batch_size)):
         indices = itertools.chain.from_iterable(batch)
-        yield np.fromiter(indices, dtype=int).reshape(len(batch), weight)
+        yield np.fromiter(indices, dtype=np.min_scalar_type(dimension)).reshape(len(batch), weight)
 
 
 def _row_ints(matrix: npt.NDArray[np.uint8]) -> tuple[int, ...]:
