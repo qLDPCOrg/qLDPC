@@ -154,7 +154,8 @@ class PauliCosetSearch:
 
         Args:
             syndromes: One packed syndrome (see ``PauliCosetSearch``) per row, split into 64-bit
-                words, with word ``j`` holding bits ``64 j`` and up.
+                words, with word ``j`` holding bits ``64 j`` and up.  Each syndrome must be below
+                ``2**num_qubits``; this is not checked.
             max_weight: The weight threshold.
 
         Returns:
