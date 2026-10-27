@@ -242,11 +242,7 @@ def _certify_maps(
     flag_rank = _get_binary_rank([flag for flag, _ in signatures])
     budget = flag_rank + 1 if max_weight is None else min(max_weight, flag_rank + 1)
 
-    # The oracle may use half of the memory limit, and the search the other half for the table of
-    # pairs of primitive faults.
-    oracle = PauliCosetSearch(
-        stabilizers, css_weight=css_weight, memory_limit=max(1, memory_limit // 2)
-    )
+    oracle = PauliCosetSearch(stabilizers, css_weight=css_weight)
     return _search_irreducible_faults(signatures, budget, oracle, memory_limit)
 
 
@@ -297,26 +293,29 @@ def _search_irreducible_faults(
                 heavy[jj] = (flag, syndrome, index, error ^ light_errors[syndrome ^ other])
                 break
     primitives = heavy + light
+
+    # The oracle needs only small tables, so the table of pairs may use the whole memory limit.
     lister = FaultLister(
         [flag for flag, _, _, _ in primitives],
         [syndrome for _, syndrome, _, _ in primitives],
         [representative for _, _, _, representative in primitives],
-        oracle,
+        oracle.num_qubits,
+        oracle.css_weight,
         len(heavy),
-        memory_limit // 2,
+        memory_limit,
     )
-
-    def check(
-        positions: tuple[int, ...], syndrome: int
-    ) -> BoundedFaultPropagationCounterexample | None:
-        return _check_fault(tuple(primitives[jj][2] for jj in positions), syndrome, oracle)
 
     # Check the faults by increasing fault weight.
     for fault_weight in range(2, budget + 1):
-        failure, num_listed = lister.find_first(fault_weight, check)
+        violation, num_listed = lister.find_first(fault_weight, oracle.find_first_not_within)
         num_faults_checked += num_listed
-        if failure is not None:
-            return failure, num_faults_checked
+        if violation is not None:
+            positions, syndrome = violation
+            indices = tuple(primitives[jj][2] for jj in positions)
+            bound = oracle.get_min_weight_bound(syndrome, fault_weight)
+            return _get_counterexample(
+                indices, syndrome, bound, oracle.num_qubits
+            ), num_faults_checked
     return None, num_faults_checked
 
 

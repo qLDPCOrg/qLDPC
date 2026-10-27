@@ -21,6 +21,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 - **Certificate** (`Certificate`): a lower bound on the weight of the words that a search has not yet visited, which tells the search when it can stop.
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer.
   Counting scans in `_counting/scan.py`, and the distance search in `_brouwer_zimmermann.py`.
+  The distance search and `_bounded_weight_search.py` step through a layer with `advance_support` in `_information_sets.py`.
 
 ## Where to look
 
@@ -30,7 +31,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | The Brouwer–Zimmermann (BZ) distance search | `_brouwer_zimmermann.py` |
 | How basis families and their certificates are built | `_information_sets.py` |
 | Exhaustive enumeration, for small codes, fallbacks, and the `brute_force` method | `_brute_force.py` |
-| Minimum-weight queries for syndrome classes of Pauli errors, used only by the fault-propagation certifier in `src/qldpc/circuits/benchmarking/` | `_bounded_weight_search.py` |
+| Minimum-weight queries for syndrome classes of Pauli errors, used only by `src/qldpc/circuits/benchmarking/fault_propagation.py` | `_bounded_weight_search.py` |
 | The counter, its deformed counters, or `compile_search_setup` | `logical_counts.py` |
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
@@ -57,6 +58,7 @@ Two decorators in `src/qldpc/_compilation.py` mark them, and its docstring says 
 
 - `@always_compiled` marks the per-word loops and their helpers.
   They are compiled on first use and cached on disk, in a directory named by a hash of qLDPC's source, so the first run after an edit anywhere in qLDPC compiles again.
+  A small helper that hot loops call, such as `advance_support`, is marked `@always_compiled(inline=True)`, so that compiled callers include its code rather than pay for a call.
 - `@compiled_on_request` marks parts of the set-up in `_information_sets.py` and `_counting/scan.py`, which run as ordinary Python unless a program calls `compile_search_setup()`.
 
 Numba looks up the functions that compiled code calls when it compiles it, so compiled code may call NumPy and compiled functions, but not plain Python functions of qLDPC.

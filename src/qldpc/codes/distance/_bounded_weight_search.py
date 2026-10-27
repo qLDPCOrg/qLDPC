@@ -4,12 +4,8 @@
 
 from __future__ import annotations
 
-import functools
-import itertools
-import numbers
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
-from math import comb
 
 import numpy as np
 import numpy.typing as npt
@@ -27,9 +23,7 @@ from ._binary import (
     symplectic_to_hamming,
     trailing_zeros_word,
 )
-
-# The deepest layer that ``PauliCosetSearch.quick_within_max_weight`` visits.
-QUICK_DEPTH = 3
+from ._information_sets import advance_support
 
 ####################################################################################################
 # Pauli-coset minimum-weight bounds
@@ -62,10 +56,10 @@ class PauliCosetSearch:
     so the errors with a given syndrome form a syndrome class of equivalent errors.  The oracle
     determines whether a syndrome class has an error of weight at most a given maximum weight.
 
-    The oracle first looks up errors of weight at most one in tables of single-qubit syndromes.  A
-    syndrome class with no such error has minimum weight at least two.  If the maximum weight is at
-    least two, the oracle searches the syndrome class, which is a coset of the stabilizers, with the
-    Brouwer-Zimmermann (BZ) algorithm (see ``brouwer_zimmermann.md``).
+    The oracle searches a syndrome class, which is a coset of the stabilizers, with the
+    Brouwer-Zimmermann (BZ) algorithm (see ``brouwer_zimmermann.md``) in compiled code, as
+    ``_search_coset`` describes.  ``get_min_weight_bound`` first looks up errors of weight at most
+    one in tables of single-qubit syndromes.
 
     A Pauli is packed into an integer with its X part in the low ``n`` bits and its Z part in the
     next ``n`` bits, and a syndrome is packed into an integer with bit ``j`` for stabilizer ``j``.
@@ -75,26 +69,10 @@ class PauliCosetSearch:
         css_weight: True to weigh an error by its CSS weight ``max(|x|, |z|)``, where ``x`` and
             ``z`` are its X and Z parts, or False to weigh it by its physical weight, the number of
             qubits that it acts on.
-        batch_size: The largest number of candidates that a search evaluates at once.
-        memory_limit: The approximate number of bytes that the oracle may use to keep the sums of
-            rows that every search shares.  A smaller limit can make searches slower, but never
-            changes their results.
     """
 
-    def __init__(
-        self,
-        stabilizers: npt.ArrayLike,
-        *,
-        css_weight: bool = False,
-        batch_size: int = 4096,
-        memory_limit: int = 2**30,  # 1 GiB
-    ) -> None:
-        for value in (batch_size, memory_limit):
-            if isinstance(value, bool) or not isinstance(value, numbers.Integral) or value < 1:
-                raise ValueError("batch_size and memory_limit must be positive integers")
+    def __init__(self, stabilizers: npt.ArrayLike, *, css_weight: bool = False) -> None:
         self.css_weight = css_weight
-        self.batch_size = batch_size
-        self.memory_limit = memory_limit
         assert_binary(stabilizers, "stabilizers")
         matrix = as_binary_matrix(stabilizers)
         self.num_qubits = len(matrix)
@@ -126,16 +104,22 @@ class PauliCosetSearch:
             self._singles.setdefault(sz, z)
             self._singles.setdefault(sx ^ sz, x ^ z)
 
-        # The search runs on the embedded stabilizers (see ``_embed``).  Weighing a word by its CSS
-        # weight needs a mask for each of its two sectors.
-        self._embedded = matrix.copy() if css_weight else symplectic_to_hamming(matrix)
-        if css_weight:
-            width = (2 * n + 63) // 64
-            self._sector_masks = tuple(
-                _int_to_words(((1 << n) - 1) << shift, width) for shift in (0, n)
-            )
-        self._layers: dict[tuple[int, int], list[npt.NDArray[np.uint64]]] = {}
-        self._layer_bytes = 0
+        # The tables of ``_search_coset``, which runs on embedded words.
+        if not css_weight:
+            matrix, inverse = symplectic_to_hamming(matrix), symplectic_to_hamming(inverse)
+        family = _information_sets.get_disjoint_family(matrix, None)
+        num_sets, _, num_columns = family.generators.shape
+        generators = pack_bits(family.generators.reshape(-1, num_columns)).reshape(num_sets, n, -1)
+        # The certificate bounds the Hamming weight of every word that adds more than ``depth`` rows
+        # on every information set, and an error weighs at least half of the Hamming weight of its
+        # embedded word, by either measure of weight.  The certificate takes no weight divisor,
+        # since the parity of the stabilizers need not hold on their cosets, and a coverage of one,
+        # since the information sets are disjoint.  After layer ``n``, every word has been visited.
+        certificate_bounds = _information_sets.get_certificate_lower_bounds(n, family.ranks, 1, 1)
+        unvisited_bounds = (certificate_bounds + 1) // 2
+        unvisited_bounds[n] = np.iinfo(np.int64).max
+        x_mask = _int_to_words((1 << n) - 1, generators.shape[2])
+        self._tables = (pack_bits(inverse), generators, family.pivots, unvisited_bounds, x_mask)
 
     def get_min_weight_bound(self, syndrome: int, max_weight: int) -> MinWeightBound:
         """Decide whether some error with this syndrome has weight at most ``max_weight``.
@@ -157,17 +141,16 @@ class PauliCosetSearch:
             return MinWeightBound(self._weight(pauli) <= max_weight, pauli, int(bool(syndrome)))
         if max_weight < 2:
             return MinWeightBound(False, self._representative(syndrome), 2)
-        return self._search(syndrome, max_weight)
 
-    def quick_within_max_weight(
-        self, syndromes: npt.NDArray[np.uint64], max_weight: int
-    ) -> npt.NDArray[np.bool_]:
-        """Look quickly for errors of weight at most ``max_weight`` with each of many syndromes.
+        # The syndrome class has no error of weight at most one, so two is a lower bound.
+        best = np.empty(self._tables[0].shape[1], dtype=np.uint64)
+        words = _int_to_words(syndrome, (self.num_qubits + 63) // 64)
+        lower_bound = int(_search_coset(words, max_weight, best, *self._tables, self.css_weight))
+        pauli = _packed_row_int(best) & ((1 << (2 * self.num_qubits)) - 1)
+        return MinWeightBound(lower_bound <= max_weight, pauli, max(2, lower_bound))
 
-        This visits the first layers of the search of ``get_min_weight_bound``, up to depth
-        ``QUICK_DEPTH``, in compiled code.  An error of weight ``w`` lies within depth ``2 w`` of a
-        full-rank information set, so this finds an error if ``2 * max_weight <= QUICK_DEPTH`` and
-        there is one, and often finds one for larger thresholds.
+    def find_first_not_within(self, syndromes: npt.NDArray[np.uint64], max_weight: int) -> int:
+        """Find the first syndrome whose class has no error of weight at most ``max_weight``.
 
         Args:
             syndromes: One packed syndrome (see ``PauliCosetSearch``) per row, split into 64-bit
@@ -175,89 +158,9 @@ class PauliCosetSearch:
             max_weight: The weight threshold.
 
         Returns:
-            For each syndrome, True if the search found an error of weight at most ``max_weight``
-            with that syndrome.  False means only that it found none, and ``get_min_weight_bound``
-            decides.
+            The index of that syndrome, or the number of syndromes if there is none.
         """
-        # An error has CSS weight at most ``max_weight`` if its X and Z parts each have at most that
-        # many ones.  Its embedded word for physical weight has two ones on each qubit that it acts
-        # on, so the error has physical weight at most ``max_weight`` if the whole word has at most
-        # twice that many ones.
-        limit = max_weight if self.css_weight else 2 * max_weight
-        return _quick_search(syndromes, *self._quick_tables, limit, QUICK_DEPTH)
-
-    def _search(self, syndrome: int, max_weight: int) -> MinWeightBound:
-        """Search a syndrome class with no error of weight at most one.
-
-        The search is for an error of weight at most ``max_weight``.
-        """
-        # Start from one error in the syndrome class, and reduce its embedded word on each basis to
-        # get an offset for that basis.  Every word of the coset is that offset plus some rows of
-        # that basis, and has a one on a pivot column exactly where it adds the row for that pivot.
-        pauli = self._representative(syndrome)
-        offsets = self._get_offsets(self._embed(pauli))
-
-        # The low ``2 n`` bits of an embedded word are its packed Pauli, X part first.
-        n = self.num_qubits
-        mask = (1 << (2 * n)) - 1
-
-        # Track the lightest error visited, starting with the one above.
-        best_pauli, best_weight = pauli, self._weight(pauli)
-
-        # Visit the coset in layers, where layer ``depth`` adds ``depth`` rows to the offset.
-        for depth in range(n + 1):
-            # Visit the layer on every basis in turn, since the certificate below needs all of them.
-            for basis, offset in enumerate(offsets):
-                # Visit the sums of ``depth`` rows of the basis in batches, add the offset to each
-                # sum, and weigh the resulting words.
-                for sums in self._iter_layer(basis, depth):
-                    candidates = sums ^ offset
-                    weights = self._candidate_weights(candidates)
-
-                    # Remember the lightest word, and return it if its weight is at most
-                    # ``max_weight``.  The lower bound is two, because the syndrome class has no
-                    # error of weight at most one.
-                    index = int(weights.argmin())
-                    if weights[index] < best_weight:
-                        best_weight = int(weights[index])
-                        best_pauli = _packed_row_int(candidates[index]) & mask
-                    if best_weight <= max_weight:
-                        return MinWeightBound(True, best_pauli, 2)
-
-            # Return if the unvisited words are too heavy.  Each of them adds more than ``depth``
-            # rows on every basis, so the certificate bounds its Hamming weight from below, and its
-            # weight is at least half of that, by either measure of weight.  The smaller of this
-            # bound and the lowest weight visited is then a lower bound on every weight.
-            if depth < n:
-                unseen_lower = (self._certificate.lower_bound(depth) + 1) // 2
-                if unseen_lower > max_weight:
-                    return MinWeightBound(False, best_pauli, min(best_weight, unseen_lower))
-
-        # Layer ``n`` can add every row, so every word of the coset has been visited.  None has
-        # weight at most ``max_weight``, and the lowest weight visited is the minimum.
-        return MinWeightBound(False, best_pauli, best_weight)
-
-    def _iter_layer(self, basis: int, depth: int) -> Iterator[npt.NDArray[np.uint64]]:
-        """Yield the sums of every set of ``depth`` rows of a basis, in batches.
-
-        The sums do not depend on the syndrome, so every search shares them.  They are kept if they
-        fit within the memory limit, and computed again for each search otherwise.
-        """
-        if (basis, depth) in self._layers:
-            yield from self._layers[basis, depth]
-            return
-        packed = self._bases[basis][0]
-        num_bytes = comb(len(packed), depth) * packed.shape[1] * 8
-        batches = (
-            np.bitwise_xor.reduce(packed[supports], axis=1)
-            for supports in _iter_fixed_weight_supports(len(packed), depth, self.batch_size)
-        )
-        if self._layer_bytes + num_bytes > self.memory_limit:
-            yield from batches
-            return
-        self._layer_bytes += num_bytes
-        self._layers[basis, depth] = list(batches)
-        yield from self._layers[basis, depth]
+        return _find_first_not_within(syndromes, max_weight, *self._tables, self.css_weight)
 
     def _get_syndrome(self, pauli: int) -> int:
         """Compute the syndrome of a packed Pauli."""
@@ -285,215 +188,211 @@ class PauliCosetSearch:
         x, z = pauli & mask, (pauli >> self.num_qubits) & mask
         return max(x.bit_count(), z.bit_count()) if self.css_weight else (x | z).bit_count()
 
-    def _candidate_weights(self, candidates: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
-        """Compute the weights of packed embedded words."""
-        if self.css_weight:
-            return np.maximum(
-                *(
-                    np.bitwise_count(candidates & mask).sum(axis=-1, dtype=np.uint64)
-                    for mask in self._sector_masks
-                )
-            )
-        return np.bitwise_count(candidates).sum(axis=-1, dtype=np.uint64) // 2
-
-    def _embed(self, pauli: int) -> int:
-        """Embed a packed Pauli into the space in which the Hamming weight is searched."""
-        if self.css_weight:
-            return pauli
-        n = self.num_qubits
-        x, z = pauli & ((1 << n) - 1), pauli >> n
-        return x | (z << n) | ((x ^ z) << (2 * n))
-
-    def _get_offsets(self, embedded: int) -> list[npt.NDArray[np.uint64]]:
-        """Reduce an embedded word on each basis, so that it is zero on the pivot columns."""
-        offsets = []
-        for packed, rows, pivots in self._bases:
-            # Clear each pivot bit of the word by adding the row that has a one there.
-            word = embedded
-            for row, pivot in zip(rows, pivots):
-                if (word >> pivot) & 1:
-                    word ^= row
-            offsets.append(_int_to_words(word, packed.shape[1]))
-        return offsets
-
-    @functools.cached_property
-    def _bases(self) -> list[tuple[npt.NDArray[np.uint64], tuple[int, ...], list[int]]]:
-        """The disjoint information sets of the embedded stabilizers, prepared on first use.
-
-        Each has the packed generators, the generators as integers, and the pivots.
-        """
-        basis_family = _information_sets.get_disjoint_family(self._embedded, None)
-        return [
-            (pack_bits(generators), _row_ints(generators), pivots[:rank].tolist())
-            for generators, pivots, rank in zip(
-                basis_family.generators, basis_family.pivots, basis_family.ranks, strict=True
-            )
-        ]
-
-    @functools.cached_property
-    def _certificate(self) -> _information_sets.Certificate:
-        """The certificate for the information sets, prepared on first use."""
-        ranks = tuple(len(pivots) for *_, pivots in self._bases)
-        return _information_sets.Certificate(self.num_qubits, ranks)
-
-    @functools.cached_property
-    def _quick_tables(
-        self,
-    ) -> tuple[
-        npt.NDArray[np.uint64],
-        npt.NDArray[np.uint64],
-        npt.NDArray[np.int64],
-        npt.NDArray[np.uint64],
-    ]:
-        """The tables of ``_quick_search``, prepared on first use.
-
-        They are the embedded rows of the inverse, the packed generators and the pivots of the
-        information sets, and the sector masks.  They take about as much memory as the bases, which
-        the memory limit leaves out because they are small beside the layers.
-        """
-        width = self._bases[0][0].shape[1]
-        inverse = np.array([_int_to_words(self._embed(row), width) for row in self._inverse])
-        generators = np.array([packed for packed, *_ in self._bases])
-        pivots = np.full(generators.shape[:2], -1, dtype=np.int64)
-        for index, (*_, set_pivots) in enumerate(self._bases):
-            pivots[index, : len(set_pivots)] = set_pivots
-        if self.css_weight:
-            masks = np.array(self._sector_masks)
-        else:
-            masks = np.full((1, width), np.iinfo(np.uint64).max, dtype=np.uint64)
-        return inverse, generators, pivots, masks
-
 
 ####################################################################################################
-# compiled quick search
+# compiled coset search
 
 
 @always_compiled
-def _quick_search(
+def _find_first_not_within(
     syndromes: npt.NDArray[np.uint64],
+    max_weight: int,
     inverse: npt.NDArray[np.uint64],
     generators: npt.NDArray[np.uint64],
     pivots: npt.NDArray[np.int64],
-    sector_masks: npt.NDArray[np.uint64],
-    limit: int,
-    max_depth: int,
-) -> npt.NDArray[np.bool_]:
-    """Visit the layers up to ``max_depth`` of the search of each syndrome class, as in ``_search``.
+    unvisited_bounds: npt.NDArray[np.int64],
+    x_mask: npt.NDArray[np.uint64],
+    css_weight: bool,
+) -> int:
+    """Search the class of each syndrome in turn, as ``_search_coset`` does.
 
-    Row ``j`` of the inverse is the embedded word of an error whose syndrome has only bit ``j`` set,
-    and the generators and the pivots, padded with -1, describe the information sets.  A word is
-    light if each sector mask selects at most ``limit`` of its ones.  Return for each syndrome
-    whether the search found a light word.
+    Return the index of the first syndrome whose class has no error of weight at most
+    ``max_weight``, or the number of syndromes if there is none.
     """
-    num_sets, _, width = generators.shape
-    found = np.zeros(len(syndromes), dtype=np.bool_)
-    zero = np.zeros(width, dtype=np.uint64)
-    error = np.empty(width, dtype=np.uint64)
-    offsets = np.empty((num_sets, width), dtype=np.uint64)
-    sums = np.empty((max_depth, width), dtype=np.uint64)
-    nexts = np.empty(max_depth, dtype=np.int64)
+    best = np.empty(inverse.shape[1], dtype=np.uint64)
     for index in range(len(syndromes)):
-        # Add the rows of the inverse for the set bits of the syndrome, to get the embedded word of
-        # an error with it, and reduce that word on each information set, as ``_get_offsets`` does.
-        error[:] = 0
-        for syndrome_word in range(syndromes.shape[1]):
-            bits = syndromes[index, syndrome_word]
-            while bits:
-                bit = 64 * syndrome_word + trailing_zeros_word(bits)
-                for word in range(width):
-                    error[word] ^= inverse[bit, word]
-                bits &= bits - np.uint64(1)
-        for basis in range(num_sets):
-            offsets[basis] = error
-            for row, pivot in enumerate(pivots[basis]):
-                if pivot < 0:
-                    break
-                if offsets[basis, pivot // 64] >> np.uint64(pivot % 64) & np.uint64(1):
-                    for word in range(width):
-                        offsets[basis, word] ^= generators[basis, row, word]
-
-        # Layer zero holds the offsets, and the deeper layers add rows of an information set.
-        found[index] = _has_light_sum(zero, offsets, 0, sector_masks, limit)
-        for depth in range(1, max_depth + 1):
-            for basis in range(num_sets):
-                found[index] = found[index] or _search_layer(
-                    offsets[basis], generators[basis], depth, sector_masks, limit, sums, nexts
-                )
-    return found
+        lower_bound = _search_coset(
+            syndromes[index],
+            max_weight,
+            best,
+            inverse,
+            generators,
+            pivots,
+            unvisited_bounds,
+            x_mask,
+            css_weight,
+        )
+        if lower_bound > max_weight:
+            return index
+    return len(syndromes)
 
 
 @always_compiled
-def _search_layer(
+def _search_coset(
+    syndrome: npt.NDArray[np.uint64],
+    max_weight: int,
+    best: npt.NDArray[np.uint64],
+    inverse: npt.NDArray[np.uint64],
+    generators: npt.NDArray[np.uint64],
+    pivots: npt.NDArray[np.int64],
+    unvisited_bounds: npt.NDArray[np.int64],
+    x_mask: npt.NDArray[np.uint64],
+    css_weight: bool,
+) -> np.int64:
+    """Search the class of a syndrome for an error of weight at most ``max_weight``.
+
+    The syndrome is split into 64-bit words, with word ``j`` holding bits ``64 j`` and up.  The
+    search runs on embedded words: an error's packed Pauli for its CSS weight, and for its physical
+    weight the packed Pauli followed by ``x xor z``, whose Hamming weight is twice the physical
+    weight (see ``symplectic_to_hamming``).  Row ``j`` of ``inverse`` is the embedded word of an
+    error whose syndrome has only bit ``j`` set, and ``generators`` and ``pivots`` are the
+    information sets of the embedded stabilizers, with pivots padded with -1.  ``x_mask`` selects
+    the X part of an embedded word.
+
+    The search visits the class in layers, where layer ``depth`` of an information set adds each sum
+    of ``depth`` of its rows to an offset, as ``_visit_layer`` describes.  It visits layer zero on
+    every information set, then layer one, and so on.  It keeps the lightest word visited in
+    ``best``, and stops at the first word of weight at most ``max_weight``.  After layer ``depth``,
+    every unvisited word weighs at least ``unvisited_bounds[depth]``, so the search also stops when
+    that exceeds ``max_weight``.
+
+    Return zero if ``best`` has weight at most ``max_weight``, and otherwise a lower bound on the
+    weight of every error in the class, which exceeds ``max_weight``.
+    """
+    num_sets, num_rows, width = generators.shape
+    zero = np.zeros(width, dtype=np.uint64)
+
+    # Add the rows of the inverse for the set bits of the syndrome, to get an embedded error with
+    # that syndrome.
+    best[:] = 0
+    for syndrome_word in range(len(syndrome)):
+        bits = syndrome[syndrome_word]
+        while bits:
+            bit = 64 * syndrome_word + trailing_zeros_word(bits)
+            for word in range(width):
+                best[word] ^= inverse[bit, word]
+            bits &= bits - np.uint64(1)
+    best_weight = _get_weight(best, zero, x_mask, css_weight)
+    if best_weight <= max_weight:
+        return np.int64(0)
+
+    # Reduce the error on each information set to an offset that is zero on the pivot columns of the
+    # set.  Every word of the class is that offset plus some rows of the set, and has a one on a
+    # pivot column exactly where it adds the row for that pivot.
+    offsets = np.empty((num_sets, width), dtype=np.uint64)
+    for basis in range(num_sets):
+        offsets[basis] = best
+        for row in range(num_rows):
+            pivot = pivots[basis, row]
+            if pivot < 0:
+                break
+            if offsets[basis, pivot // 64] >> np.uint64(pivot % 64) & np.uint64(1):
+                for word in range(width):
+                    offsets[basis, word] ^= generators[basis, row, word]
+
+    # The arguments of ``_visit_layer``, which visits one information set at a time.
+    widths = np.full(1, width, dtype=np.int64)
+    supports = np.empty(num_rows, dtype=np.int64)
+    prefixes = np.empty((num_rows, 1, width), dtype=np.uint64)
+    for depth in range(num_rows + 1):
+        for basis in range(num_sets):
+            if depth == 0:
+                best_weight = _keep_lighter(
+                    offsets[basis], zero, best, best_weight, x_mask, css_weight
+                )
+            else:
+                best_weight = _visit_layer(
+                    offsets[basis],
+                    generators[basis : basis + 1],
+                    widths,
+                    supports[:depth],
+                    prefixes,
+                    max_weight,
+                    best,
+                    best_weight,
+                    x_mask,
+                    css_weight,
+                )
+            if best_weight <= max_weight:
+                return np.int64(0)
+        if unvisited_bounds[depth] > max_weight:
+            break
+    return min(best_weight, unvisited_bounds[depth])
+
+
+@always_compiled
+def _visit_layer(
     offset: npt.NDArray[np.uint64],
     rows: npt.NDArray[np.uint64],
-    depth: int,
-    sector_masks: npt.NDArray[np.uint64],
-    limit: int,
-    sums: npt.NDArray[np.uint64],
-    nexts: npt.NDArray[np.int64],
-) -> bool:
-    """Whether the offset plus some ``depth`` rows, at least one, is light, as in ``_quick_search``.
+    widths: npt.NDArray[np.int64],
+    support: npt.NDArray[np.int64],
+    prefixes: npt.NDArray[np.uint64],
+    max_weight: int,
+    best: npt.NDArray[np.uint64],
+    best_weight: np.int64,
+    x_mask: npt.NDArray[np.uint64],
+    css_weight: bool,
+) -> np.int64:
+    """Visit the offset plus each sum of ``len(support)`` rows, as in ``_search_coset``.
 
-    The sums and nexts are work space with at least ``depth`` rows.  Row ``level`` of ``sums`` is
-    the offset plus the first ``level`` rows chosen, and ``nexts`` holds the next row to choose at
-    each level, one past the current choice.
+    The rows are those of one information set, stacked as the only set that ``advance_support``
+    enumerates, ``widths`` gives their number of words, and ``support`` and ``prefixes`` are work
+    space for it.  Keep the lightest word in ``best``, as ``_keep_lighter`` does, and stop at the
+    first word of weight at most ``max_weight``.  Return the weight of ``best``.
     """
-    sums[0] = offset
-    nexts[0] = 0
-    level = 0
-    while level >= 0:
-        if level == depth - 1:
-            if _has_light_sum(sums[level], rows, nexts[level], sector_masks, limit):
-                return True
-            level -= 1
-        elif nexts[level] > len(rows) - depth + level:
-            level -= 1
-        else:
-            row = nexts[level]
-            nexts[level] = row + 1
-            for word in range(len(offset)):
-                sums[level + 1, word] = sums[level, word] ^ rows[row, word]
-            level += 1
-            nexts[level] = row + 1
-    return False
+    num_rows = rows.shape[1]
+    prefixes[0, 0] = offset
+    support[0] = 0
+    depth = advance_support(rows, widths, support, prefixes, 0)
+    while depth >= 0:
+        # Visit every last row at once, and then move on to the next prefix.
+        for row in range(support[depth], num_rows):
+            best_weight = _keep_lighter(
+                prefixes[depth, 0], rows[0, row], best, best_weight, x_mask, css_weight
+            )
+            if best_weight <= max_weight:
+                return best_weight
+        support[depth] = num_rows
+        depth = advance_support(rows, widths, support, prefixes, depth)
+    return best_weight
 
 
 @always_compiled
-def _has_light_sum(
-    base: npt.NDArray[np.uint64],
-    rows: npt.NDArray[np.uint64],
-    start: int,
-    sector_masks: npt.NDArray[np.uint64],
-    limit: int,
-) -> bool:
-    """Whether the base plus one of the rows from ``start`` on is light, as in ``_quick_search``."""
-    for row in range(start, len(rows)):
-        heaviest = np.int64(0)
-        for sector in range(len(sector_masks)):
-            ones = np.int64(0)
-            for word in range(len(base)):
-                ones += popcount_word((base[word] ^ rows[row, word]) & sector_masks[sector, word])
-            heaviest = max(heaviest, ones)
-        if heaviest <= limit:
-            return True
-    return False
+def _keep_lighter(
+    first: npt.NDArray[np.uint64],
+    second: npt.NDArray[np.uint64],
+    best: npt.NDArray[np.uint64],
+    best_weight: np.int64,
+    x_mask: npt.NDArray[np.uint64],
+    css_weight: bool,
+) -> np.int64:
+    """Keep ``first ^ second`` in ``best`` if it is lighter, and return the weight of ``best``."""
+    weight = _get_weight(first, second, x_mask, css_weight)
+    if weight >= best_weight:
+        return best_weight
+    for word in range(len(best)):
+        best[word] = first[word] ^ second[word]
+    return weight
+
+
+@always_compiled
+def _get_weight(
+    first: npt.NDArray[np.uint64],
+    second: npt.NDArray[np.uint64],
+    x_mask: npt.NDArray[np.uint64],
+    css_weight: bool,
+) -> np.int64:
+    """The weight of the error with the embedded word ``first ^ second`` (see ``_search_coset``)."""
+    ones = x_ones = np.int64(0)
+    for index in range(len(first)):
+        word = first[index] ^ second[index]
+        ones += popcount_word(word)
+        x_ones += popcount_word(word & x_mask[index])
+    return max(x_ones, ones - x_ones) if css_weight else ones // 2
 
 
 ####################################################################################################
 # helper methods
-
-
-def _iter_fixed_weight_supports(
-    dimension: int, weight: int, batch_size: int
-) -> Iterator[npt.NDArray[np.int_]]:
-    """Yield every set of ``weight`` indices below ``dimension`` in lexicographic order, in batches.
-
-    Each batch has at most ``batch_size`` sets, one per row.  Weight zero gives one empty set.
-    """
-    combinations = itertools.combinations(range(dimension), weight)
-    while batch := list(itertools.islice(combinations, batch_size)):
-        indices = itertools.chain.from_iterable(batch)
-        yield np.fromiter(indices, dtype=np.min_scalar_type(dimension)).reshape(len(batch), weight)
 
 
 def _row_ints(matrix: npt.NDArray[np.uint8]) -> tuple[int, ...]:
@@ -508,7 +407,7 @@ def _packed_row_int(row: npt.NDArray[np.uint64]) -> int:
 
 def _int_to_words(value: int, width: int) -> npt.NDArray[np.uint64]:
     """Split an integer into ``width`` 64-bit words, with word ``j`` in bits ``64 j`` and up."""
-    return np.frombuffer(value.to_bytes(8 * width, "little"), dtype="<u8")
+    return np.frombuffer(value.to_bytes(8 * width, "little"), dtype="<u8").astype(np.uint64)
 
 
 def _xor_selected(rows: Sequence[int], support: int) -> int:

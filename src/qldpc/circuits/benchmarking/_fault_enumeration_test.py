@@ -10,10 +10,9 @@ import operator
 from collections.abc import Collection, Sequence
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 import stim
-
-from qldpc.codes.distance._bounded_weight_search import PauliCosetSearch
 
 from . import _fault_enumeration as enumeration
 
@@ -24,12 +23,6 @@ def kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> 
     if request.param:
         for name in ("iter_batches", "reduce_flags", "pauli_weight", "add_syndrome"):
             monkeypatch.setattr(enumeration, name, getattr(enumeration, name).py_func)
-
-
-def _zero_state_oracle(num_qubits: int) -> PauliCosetSearch:
-    """The oracle of |0...0>, where X on a set of qubits has that set as its syndrome."""
-    zeros, identity = np.zeros((num_qubits, num_qubits), int), np.eye(num_qubits, dtype=int)
-    return PauliCosetSearch(np.hstack([zeros, identity]))
 
 
 def _irreducible_faults(
@@ -58,18 +51,22 @@ def _xor(values: Sequence[int], indices: Sequence[int]) -> int:
 
 def _check_faults(
     lister: enumeration.FaultLister, fault_weight: int, violating: Collection[int]
-) -> tuple[list[tuple[tuple[int, ...], int]], tuple[tuple[int, ...] | None, int]]:
-    """List faults with a check that records each fault, and fails on these syndromes.
+) -> tuple[list[int], tuple[tuple[tuple[int, ...], int] | None, int]]:
+    """List faults, with a search that checks each syndrome in order and stops at one of these.
 
-    Return the checked faults with their syndromes, and the result of the listing.
+    Return the checked syndromes, and the result of the listing.
     """
-    checked = []
+    checked: list[int] = []
 
-    def check(fault: tuple[int, ...], syndrome: int) -> tuple[int, ...] | None:
-        checked.append((fault, syndrome))
-        return fault if syndrome in violating else None
+    def find_violation(syndromes: npt.NDArray[np.uint64], weight: int) -> int:
+        assert weight == fault_weight
+        for index, row in enumerate(syndromes.astype("<u8")):
+            checked.append(int.from_bytes(row.tobytes(), "little"))
+            if checked[-1] in violating:
+                return index
+        return len(syndromes)
 
-    return checked, lister.find_first(fault_weight, check)
+    return checked, lister.find_first(fault_weight, find_violation)
 
 
 @pytest.mark.usefixtures("kernels")
@@ -89,7 +86,6 @@ def test_listing_matches_brute_force(
         )
     monkeypatch.setattr(enumeration, "BATCH_SIZE", 3)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    oracle = _zero_state_oracle(117)
     # The first flags make an accepted fault {0, 1, 2, 3} that contains the accepted fault {0, 2}.
     flag_sets = [[1, 2, 1, 2, 3, 3]]
     flag_sets += [list(rng.integers(1, 16, size=rng.integers(1, 10))) for _ in range(10)]
@@ -99,22 +95,24 @@ def test_listing_matches_brute_force(
             sum(((int(ff) >> bit) & 1) << (70 * bit) for bit in range(4)) for ff in small_flags
         ]
         num_primitives = len(flags)
-        # Errors X on disjoint sets of seven qubits of |0...0>, so that no fault is skipped.
-        syndromes = errors = [0b1111111 << (13 * jj) for jj in range(num_primitives)]
+        # Syndromes of distinct bits, so that each fault has its own syndrome, and errors on
+        # disjoint sets of seven qubits, so that no fault is skipped.
+        syndromes = [1 << (13 * jj) for jj in range(num_primitives)]
+        errors = [0b1111111 << (7 * jj) for jj in range(num_primitives)]
         for memory_limit, num_starts in itertools.product((0, 2**20), (num_primitives, 1)):
             lister = enumeration.FaultLister(
-                flags, syndromes, errors, oracle, num_starts, memory_limit
+                flags, syndromes, errors, 70, False, num_starts, memory_limit
             )
             for fault_weight in range(2, 6):
                 expected = _irreducible_faults(flags, fault_weight, num_starts)
                 checked, result = _check_faults(lister, fault_weight, ())
                 assert result == (None, len(expected))
-                assert checked == [(fault, _xor(syndromes, fault)) for fault in expected]
+                assert checked == [_xor(syndromes, fault) for fault in expected]
                 if expected:
                     stop = int(rng.integers(len(expected)))
-                    violating = {_xor(syndromes, expected[stop])}
-                    _, result = _check_faults(lister, fault_weight, violating)
-                    assert result == (expected[stop], stop + 1)
+                    violation = (expected[stop], _xor(syndromes, expected[stop]))
+                    _, result = _check_faults(lister, fault_weight, {violation[1]})
+                    assert result == (violation, stop + 1)
 
 
 @pytest.mark.usefixtures("kernels")
@@ -123,8 +121,8 @@ def test_repeated_syndromes_are_checked_once() -> None:
 
     The fault {1, 2} leaves no error, so it is not checked either, but all three faults count.
     """
-    lister = enumeration.FaultLister([1, 1, 1], [7, 0, 0], [7, 0, 0], _zero_state_oracle(3), 3, 0)
-    assert _check_faults(lister, 2, ()) == ([((0, 1), 7)], (None, 3))
+    lister = enumeration.FaultLister([1, 1, 1], [7, 0, 0], [7, 0, 0], 3, False, 3, 0)
+    assert _check_faults(lister, 2, ()) == ([7], (None, 3))
 
 
 @pytest.mark.usefixtures("kernels")
@@ -161,21 +159,20 @@ def test_skipped_faults_satisfy_the_bound(css_weight: bool, pytestconfig: pytest
         flags = list(map(int, rng.integers(1, 8, size=8)))
         syndromes = [int(syndrome_of[pauli]) for pauli in rng.integers(4**n, size=8)]
         representatives = [lightest[syndrome] for syndrome in syndromes]
-        oracle = PauliCosetSearch(rows, css_weight=css_weight)
-        lister = enumeration.FaultLister(flags, syndromes, representatives, oracle, 8, 2**20)
+        lister = enumeration.FaultLister(flags, syndromes, representatives, n, css_weight, 8, 2**20)
         for fault_weight in range(2, 5):
             faults = _irreducible_faults(flags, fault_weight, 8)
             fault_syndromes = [_xor(syndromes, fault) for fault in faults]
             violating = [jj for jj, ss in enumerate(fault_syndromes) if minimum[ss] > fault_weight]
 
             checked, _ = _check_faults(lister, fault_weight, ())
-            checked_syndromes = [syndrome for _, syndrome in checked]
-            assert len(set(checked_syndromes)) == len(checked_syndromes)
-            assert {fault_syndromes[jj] for jj in violating} <= set(checked_syndromes)
+            assert len(set(checked)) == len(checked)
+            assert {fault_syndromes[jj] for jj in violating} <= set(checked)
 
             violating_syndromes = {ss for ss, weight in minimum.items() if weight > fault_weight}
             _, result = _check_faults(lister, fault_weight, violating_syndromes)
             if violating:
-                assert result == (faults[violating[0]], violating[0] + 1)
+                first = violating[0]
+                assert result == ((faults[first], fault_syndromes[first]), first + 1)
             else:
                 assert result == (None, len(faults))

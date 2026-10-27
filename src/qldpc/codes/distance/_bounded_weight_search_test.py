@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Sequence
-from typing import cast
 
 import numpy as np
 import numpy.typing as npt
@@ -16,14 +15,20 @@ import stim
 from qldpc import math
 
 from . import _bounded_weight_search
-from ._bounded_weight_search import QUICK_DEPTH, PauliCosetSearch, _iter_fixed_weight_supports
+from ._bounded_weight_search import PauliCosetSearch
 
 
 @pytest.fixture(params=[False, True], ids=["compiled", "python"])
-def quick_kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Run the compiled quick search, or its Python version for coverage."""
+def kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run the compiled search, or its Python version for coverage."""
     if request.param:
-        for name in ("_quick_search", "_search_layer", "_has_light_sum"):
+        for name in (
+            "_find_first_not_within",
+            "_search_coset",
+            "_visit_layer",
+            "_keep_lighter",
+            "_get_weight",
+        ):
             function = getattr(_bounded_weight_search, name).py_func
             monkeypatch.setattr(_bounded_weight_search, name, function)
 
@@ -86,6 +91,18 @@ def _syndrome_words(syndromes: Sequence[int], num_qubits: int) -> npt.NDArray[np
     return np.array(words, dtype=np.uint64).reshape(len(syndromes), width)
 
 
+def _find_each_not_within(
+    oracle: PauliCosetSearch, syndromes: npt.NDArray[np.uint64], max_weight: int
+) -> list[int]:
+    """Find each syndrome whose class has no error within ``max_weight``, one search at a time."""
+    found: list[int] = []
+    index = oracle.find_first_not_within(syndromes, max_weight)
+    while index < len(syndromes):
+        found.append(index)
+        index += 1 + oracle.find_first_not_within(syndromes[index + 1 :], max_weight)
+    return found
+
+
 def _block_generators(block: Sequence[str], num_blocks: int) -> list[stim.PauliString]:
     """Generators of independent copies of a block state, given the generators of one block."""
     size = len(block[0])
@@ -136,40 +153,10 @@ def _block_minimum(
     return min(max(a, b) for a, b in totals)
 
 
-def test_fixed_weight_supports_are_the_combinations() -> None:
-    """Supports are the combinations in lexicographic order, in batches of at most three."""
-    for weight in range(8):
-        batches = list(_iter_fixed_weight_supports(7, weight, batch_size=3))
-        assert all(batch.shape[1] == weight and 0 < len(batch) <= 3 for batch in batches)
-        supports = [tuple(support) for batch in batches for support in batch.tolist()]
-        assert supports == list(itertools.combinations(range(7), weight))
-
-
-@pytest.mark.parametrize("memory_limit", [1, 2**20])
-def test_layers_are_the_sums_of_rows_of_each_basis(memory_limit: int) -> None:
-    """Each layer of a basis holds the sums of every set of that many of its rows, in order."""
-    oracle = PauliCosetSearch(_ghz_blocks(2)[0], batch_size=4, memory_limit=memory_limit)
-    for _ in range(2):
-        for basis, (packed, _, _) in enumerate(oracle._bases):
-            for depth in range(3):
-                layer = [
-                    word.tolist() for batch in oracle._iter_layer(basis, depth) for word in batch
-                ]
-                expected = [
-                    np.bitwise_xor.reduce(packed[list(rows)], axis=0).tolist()
-                    if rows
-                    else [0] * packed.shape[1]
-                    for rows in itertools.combinations(range(len(packed)), depth)
-                ]
-                assert layer == expected
-
-
+@pytest.mark.usefixtures("kernels")
 @pytest.mark.parametrize("css_weight", [False, True])
-@pytest.mark.parametrize("memory_limit", [1, 2**20])
-def test_bounds_match_exhaustive_minima(
-    css_weight: bool, memory_limit: int, pytestconfig: pytest.Config
-) -> None:
-    """Bounds agree with exhaustive minima for small batches, whether or not candidates are kept.
+def test_bounds_match_exhaustive_minima(css_weight: bool, pytestconfig: pytest.Config) -> None:
+    """Bounds agree with exhaustive minima.
 
     Each syndrome is queried at every threshold in random order.
     """
@@ -177,9 +164,7 @@ def test_bounds_match_exhaustive_minima(
     for num_qubits in range(1, 7):
         edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
         matrix = _graph_state(num_qubits, edges, phase=num_qubits % 2 == 0)
-        oracle = PauliCosetSearch(
-            matrix, css_weight=css_weight, batch_size=2, memory_limit=memory_limit
-        )
+        oracle = PauliCosetSearch(matrix, css_weight=css_weight)
         for syndrome in rng.permutation(1 << num_qubits).tolist():
             minimum = int(_class_weights(matrix, syndrome, css_weight).min())
             for threshold in rng.permutation(num_qubits + 1).tolist():
@@ -193,35 +178,32 @@ def test_bounds_match_exhaustive_minima(
                     assert bound.lower_bound > threshold
 
 
-@pytest.mark.usefixtures("quick_kernels")
+@pytest.mark.usefixtures("kernels")
 @pytest.mark.parametrize("css_weight", [False, True])
-def test_quick_search_finds_only_light_errors(
+def test_batches_find_each_class_beyond_the_threshold(
     css_weight: bool, pytestconfig: pytest.Config
 ) -> None:
-    """The quick search finds an error within the threshold only if there is one.
+    """Searching the rest of a batch after each class found finds exactly the classes beyond it.
 
-    It also finds one whenever there is one and the threshold is at most half of its depth.  Every
-    syndrome is checked at every threshold against exhaustive minima.
+    Every syndrome, in random order, is checked at every threshold against exhaustive minima.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 7):
         edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
         matrix = _graph_state(num_qubits, edges, phase=num_qubits % 2 == 0)
         oracle = PauliCosetSearch(matrix, css_weight=css_weight)
-        syndromes = range(1 << num_qubits)
+        syndromes = rng.permutation(1 << num_qubits).tolist()
         minima = np.array([_class_weights(matrix, ss, css_weight).min() for ss in syndromes])
         for threshold in range(num_qubits + 2):
-            within = oracle.quick_within_max_weight(_syndrome_words(syndromes, 1), threshold)
-            assert not np.any(within & (minima > threshold))
-            if 2 * threshold <= QUICK_DEPTH:
-                assert np.array_equal(within, minima <= threshold)
+            found = _find_each_not_within(oracle, _syndrome_words(syndromes, num_qubits), threshold)
+            assert found == np.flatnonzero(minima > threshold).tolist()
 
 
 @pytest.mark.parametrize("css_weight", [False, True])
-def test_quick_search_reads_syndromes_of_several_words(
+def test_batches_read_syndromes_of_several_words(
     css_weight: bool, pytestconfig: pytest.Config
 ) -> None:
-    """On 17 four-qubit GHZ blocks, quick answers agree with per-block minima.
+    """On 17 four-qubit GHZ blocks, batch answers agree with per-block minima.
 
     The 68 syndrome bits span two words.  Each error acts on at most three random qubits, and blocks
     that it does not touch add nothing to its minimum weight.
@@ -240,10 +222,8 @@ def test_quick_search_reads_syndromes_of_several_words(
         local = [bits[4 * index : 4 * index + 4] for index in range(num_blocks)]
         minima.append(_block_minimum(block, [ss for ss in local if any(ss)], css_weight))
     for threshold in range(4):
-        within = oracle.quick_within_max_weight(_syndrome_words(syndromes, 68), threshold)
-        assert not np.any(within & (np.array(minima) > threshold))
-        if 2 * threshold <= QUICK_DEPTH:
-            assert np.array_equal(within, np.array(minima) <= threshold)
+        found = _find_each_not_within(oracle, _syndrome_words(syndromes, 68), threshold)
+        assert found == np.flatnonzero(np.array(minima) > threshold).tolist()
 
 
 def test_css_weight_counts_the_larger_sector() -> None:
@@ -282,6 +262,33 @@ def test_syndrome_is_the_symplectic_product_with_each_stabilizer(
         assert oracle._get_syndrome(pauli) == _get_syndrome(matrix, pauli)
 
 
+@pytest.mark.usefixtures("kernels")
+def test_layers_reach_their_last_combination() -> None:
+    """A layer visits every combination of rows, including the last one.
+
+    The rows are unit words and the offset is the sum of the last ``depth`` rows, so that only the
+    last combination of layer ``depth`` gives the zero word.
+    """
+    for num_rows in range(1, 7):
+        rows = (np.uint64(1) << np.arange(num_rows, dtype=np.uint64)).reshape(1, num_rows, 1)
+        for depth in range(1, num_rows + 1):
+            offset = np.bitwise_xor.reduce(rows[0, num_rows - depth :])
+            best = np.empty(1, dtype=np.uint64)
+            weight = _bounded_weight_search._visit_layer(
+                offset,
+                rows,
+                np.ones(1, dtype=np.int64),
+                np.empty(depth, dtype=np.int64),
+                np.empty((depth, 1, 1), dtype=np.uint64),
+                0,
+                best,
+                np.int64(num_rows),
+                np.zeros(1, dtype=np.uint64),
+                False,
+            )
+            assert weight == 0 and best[0] == 0
+
+
 def test_rank_deficient_information_sets_certify_less() -> None:
     """Qubit 6 is isolated, so an information set is rank-deficient and certifies a weaker bound.
 
@@ -293,6 +300,7 @@ def test_rank_deficient_information_sets_certify_less() -> None:
     assert PauliCosetSearch(matrix).get_min_weight_bound(44, 2).within_max_weight
 
 
+@pytest.mark.usefixtures("kernels")
 def test_exhausted_search_gives_the_exact_minimum() -> None:
     """On |00000>, flipping every qubit has CSS weight five, which only exhaustion can prove."""
     zero_state = np.hstack([np.zeros((5, 5), dtype=np.uint8), np.eye(5, dtype=np.uint8)])
@@ -344,29 +352,11 @@ def test_bounds_match_per_block_minima(css_weight: bool, pytestconfig: pytest.Co
                 assert bound.lower_bound > threshold
 
 
-@pytest.mark.parametrize("css_weight", [False, True])
-def test_candidate_weights_above_one_byte_are_exact(css_weight: bool) -> None:
-    """Weights above 255 must not wrap around in a one-byte sum."""
-    n = 257
-    zero_state = np.hstack([np.zeros((n, n), dtype=np.uint8), np.eye(n, dtype=np.uint8)])
-    oracle = PauliCosetSearch(zero_state, css_weight=css_weight)
-    width = (3 * n + 63) // 64 if not css_weight else (2 * n + 63) // 64
-    all_ones = np.full((1, width), np.iinfo(np.uint64).max, dtype=np.uint64)
-    expected = 64 * width // 2 if not css_weight else n
-    assert oracle._candidate_weights(all_ones).tolist() == [expected]
-
-
 def test_invalid_arguments_are_rejected() -> None:
-    """Malformed states, parameters, and queries raise."""
+    """Malformed states and queries raise."""
     # Not 2n columns, dependent rows, and anticommuting rows.
     for stabilizers in ([[1]], [[0, 0]], [[1, 0, 0, 0], [0, 0, 1, 0]]):
         with pytest.raises(ValueError):
             PauliCosetSearch(stabilizers)
-    # The batch size and memory limit must be positive integers, and a bool is not an integer here.
-    for value in (0, 1.5, True):
-        with pytest.raises(ValueError):
-            PauliCosetSearch([[1, 0]], memory_limit=cast(int, value))
-        with pytest.raises(ValueError):
-            PauliCosetSearch([[1, 0]], batch_size=cast(int, value))
     with pytest.raises(ValueError):
         PauliCosetSearch([[1, 0]]).get_min_weight_bound(2, 1)

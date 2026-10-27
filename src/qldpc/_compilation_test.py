@@ -62,6 +62,18 @@ def test_always_compiled_functions_are_cached_in_the_directory_of_their_source(
     assert compiled(1) == _add_one(1) == 2
 
 
+def test_inlined_functions_are_cached_and_their_compiled_callers_include_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
+    inlined = _compilation.always_compiled(inline=True)(_add_one)
+    cache_path = inlined.stats.cache_path
+    assert cache_path is not None and Path(cache_path).parent == tmp_path / "cache"
+    caller = numba.njit(lambda value: inlined(value) * 2)
+    assert caller(1) == 4
+    assert not any("_add_one" in code for code in caller.inspect_llvm().values())
+
+
 def test_the_source_hash_covers_every_source_file_but_no_tests(tmp_path: Path) -> None:
     assert _compilation._get_source_hash(tmp_path) is None
     (tmp_path / "source.py").write_text("one")
@@ -308,6 +320,8 @@ def _is_njit(function: ast.expr) -> bool:
 def _is_decorated_by(function: ast.FunctionDef, name: str) -> bool:
     """Whether a function has the decorator of the given name, however it was imported."""
     for decorator in function.decorator_list:
+        if isinstance(decorator, ast.Call):  # a decorator with options, such as ``inline=True``
+            decorator = decorator.func
         decorator_name = (
             decorator.attr if isinstance(decorator, ast.Attribute) else getattr(decorator, "id", "")
         )

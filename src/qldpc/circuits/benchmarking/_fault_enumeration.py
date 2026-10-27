@@ -6,22 +6,18 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable, Collection, Iterator, Sequence
-from typing import TypeVar
 
 import numpy as np
 import numpy.typing as npt
 
 from qldpc._compilation import always_compiled
 from qldpc.codes.distance._binary import popcount_word, trailing_zeros_word
-from qldpc.codes.distance._bounded_weight_search import PauliCosetSearch
 
 # The peak number of bytes per pair of primitive faults while building a table of pairs.
 BYTES_PER_PAIR = 32
 
 # The largest number of faults in a batch of the compiled listing.
 BATCH_SIZE = 2**12
-
-Result = TypeVar("Result")
 
 ####################################################################################################
 # listing irreducible accepted faults
@@ -45,7 +41,8 @@ class FaultLister:
         syndromes: The syndrome of each primitive fault, packed into an integer.
         representatives: For each primitive fault, an error with its syndrome, packed as in
             ``PauliCosetSearch``.  Lighter errors let ``find_first`` skip more faults.
-        oracle: The minimum-weight oracle for the output state, with its choice of Pauli weight.
+        num_qubits: The number of output qubits.
+        css_weight: Whether the Pauli weight is the CSS weight, or else the physical weight.
         num_starts: The number of primitive faults that a listed fault can start with.
         memory_limit: The approximate number of bytes for a table of pairs of primitive faults.
     """
@@ -55,7 +52,8 @@ class FaultLister:
         flags: Sequence[int],
         syndromes: Sequence[int],
         representatives: Sequence[int],
-        oracle: PauliCosetSearch,
+        num_qubits: int,
+        css_weight: bool,
         num_starts: int,
         memory_limit: int,
     ) -> None:
@@ -64,10 +62,10 @@ class FaultLister:
         # linear, so the row of a fault is the sum of the rows of its primitive faults.
         flag_words = to_words(flags, get_num_words(flags))
         syndrome_words = to_words(syndromes, get_num_words(syndromes))
-        mask = (1 << oracle.num_qubits) - 1
+        mask = (1 << num_qubits) - 1
         num_qubit_words = get_num_words([mask])
         x_parts = [representative & mask for representative in representatives]
-        z_parts = [representative >> oracle.num_qubits for representative in representatives]
+        z_parts = [representative >> num_qubits for representative in representatives]
         self._rows = np.hstack(
             [
                 hash_words(flag_words)[:, None],
@@ -80,27 +78,28 @@ class FaultLister:
         )
         self._num_flag_words = flag_words.shape[1]
         self._num_syndrome_words = syndrome_words.shape[1]
-        self._oracle = oracle
+        self._css_weight = css_weight
         self._num_starts = num_starts
         self._memory_limit = memory_limit
         self._singles = get_closing_table(self._rows[:, 0], 1)
 
     def find_first(
-        self, fault_weight: int, check: Callable[[tuple[int, ...], int], Result | None]
-    ) -> tuple[Result | None, int]:
-        """Check the listed faults of a fault weight in order, and stop at the first result.
+        self, fault_weight: int, find_violation: Callable[[npt.NDArray[np.uint64], int], int]
+    ) -> tuple[tuple[tuple[int, ...], int] | None, int]:
+        """Find the first listed fault of a fault weight that violates the bound.
 
-        The check gets the positions of the primitive faults of a fault and the fault's syndrome,
-        and returns None if the fault satisfies the bound.  Its result must depend only on the
-        syndrome, so a fault is not checked if an earlier fault in the same batch has its syndrome.
-        Nor is a fault checked if an error with its syndrome has Pauli weight at most its fault
-        weight, since then it satisfies the bound.  Such an error is the product of the
-        representatives of its primitive faults, or one that ``quick_within_max_weight`` of the
-        oracle finds.
+        The faults are passed to ``find_violation`` in batches.  It gets the syndromes of a batch,
+        one per row of 64-bit words with word ``j`` holding bits ``64 j`` and up, and the fault
+        weight, and returns the index of the first syndrome of a violating fault, or the number of
+        syndromes if there is none.  Its answer must depend only on the syndromes, so a fault is
+        left out of a batch if an earlier fault in the same batch has its syndrome.  A fault is also
+        left out if the product of the representatives of its primitive faults has Pauli weight at
+        most its fault weight, since then it satisfies the bound.
 
         Returns:
-            The first result that is not None, or None if there is none, and the number of faults
-            listed up to and including the fault with that result, or of all listed faults.
+            The positions of the primitive faults of the first violating fault and its syndrome, or
+            None if there is none, and the number of faults listed up to and including that fault,
+            or of all listed faults.
         """
         pairs = self._pairs if fault_weight >= 4 else None
         keys, members = self._singles if pairs is None else pairs
@@ -114,24 +113,17 @@ class FaultLister:
             keys,
             members,
             self._num_starts,
-            self._oracle.css_weight,
+            self._css_weight,
             batch_members,
             batch_syndromes,
             batch_positions,
         ):
             count, num_listed = batch
-            within = self._oracle.quick_within_max_weight(batch_syndromes[:count], fault_weight)
-            unresolved = np.flatnonzero(~within)
-            faults = batch_members[unresolved].tolist()
-            syndromes = [
-                int.from_bytes(row.tobytes(), "little")
-                for row in batch_syndromes[unresolved].astype("<u8")
-            ]
-            positions = batch_positions[unresolved].tolist()
-            for fault, syndrome, position in zip(faults, syndromes, positions, strict=True):
-                result = check(tuple(fault), syndrome)
-                if result is not None:
-                    return result, position + 1
+            index = find_violation(batch_syndromes[:count], fault_weight)
+            if index < count:
+                fault = tuple(batch_members[index].tolist())
+                syndrome = int.from_bytes(batch_syndromes[index].astype("<u8").tobytes(), "little")
+                return (fault, syndrome), int(batch_positions[index]) + 1
         return None, num_listed
 
     @functools.cached_property
@@ -206,10 +198,10 @@ def iter_batches(
     """List faults into batches, as ``FaultLister.find_first`` describes.
 
     The rows describe the primitive faults, as in ``FaultLister``, and the keys and members are a
-    table from ``get_closing_table``.  Each listed fault that needs a check gets a row of the batch
-    arrays: its primitive faults, its syndrome, and its position in the listing.  Yield the number
-    of faults in the batch and the number of faults listed so far each time that the batch is full,
-    and once at the end.  The caller must read a batch before resuming.
+    table from ``get_closing_table``.  Each listed fault that is not left out gets a row of the
+    batch arrays: its primitive faults, its syndrome, and its position in the listing.  Yield the
+    number of faults in the batch and the number of faults listed so far each time that the batch is
+    full, and once at the end.  The caller must read a batch before resuming.
     """
     # Columns 0 and 1 of the rows hold the hashes of the flags and of the syndrome.
     num_primitives, num_words = rows.shape
