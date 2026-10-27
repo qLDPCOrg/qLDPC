@@ -130,17 +130,39 @@ def test_fixed_weight_supports_are_the_combinations() -> None:
         assert supports == list(itertools.combinations(range(7), weight))
 
 
-@pytest.mark.parametrize("metric", ["pauli", "css"])
-def test_bounds_match_exhaustive_minima(metric: Metric, pytestconfig: pytest.Config) -> None:
-    """Bounds agree with exhaustive minima for a tiny cache and small batches.
+@pytest.mark.parametrize("memory_limit", [1, 2**20])
+def test_layers_are_the_sums_of_rows_of_each_basis(memory_limit: int) -> None:
+    """Each layer of a basis holds the sums of every set of that many of its rows, in order."""
+    oracle = PauliCosetSearch(_ghz_blocks(2)[0], batch_size=4, memory_limit=memory_limit)
+    for _ in range(2):
+        for basis, (packed, _, _) in enumerate(oracle._bases):
+            for depth in range(3):
+                layer = [
+                    word.tolist() for batch in oracle._iter_layer(basis, depth) for word in batch
+                ]
+                expected = [
+                    np.bitwise_xor.reduce(packed[list(rows)], axis=0).tolist()
+                    if rows
+                    else [0] * packed.shape[1]
+                    for rows in itertools.combinations(range(len(packed)), depth)
+                ]
+                assert layer == expected
 
-    Each syndrome is queried at every threshold in random order, so that cached results are reused.
+
+@pytest.mark.parametrize("metric", ["pauli", "css"])
+@pytest.mark.parametrize("memory_limit", [1, 2**20])
+def test_bounds_match_exhaustive_minima(
+    metric: Metric, memory_limit: int, pytestconfig: pytest.Config
+) -> None:
+    """Bounds agree with exhaustive minima for small batches, whether or not candidates are kept.
+
+    Each syndrome is queried at every threshold in random order.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 7):
         edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
         matrix = _graph_state(num_qubits, edges, phase=num_qubits % 2 == 0)
-        oracle = PauliCosetSearch(matrix, metric=metric, cache_size=3, batch_size=2)
+        oracle = PauliCosetSearch(matrix, metric=metric, batch_size=2, memory_limit=memory_limit)
         for syndrome in rng.permutation(1 << num_qubits).tolist():
             minimum = int(_class_weights(matrix, syndrome, metric).min())
             for threshold in rng.permutation(num_qubits + 1).tolist():
@@ -270,10 +292,10 @@ def test_invalid_arguments_are_rejected() -> None:
             PauliCosetSearch(stabilizers)
     with pytest.raises(ValueError):
         PauliCosetSearch([[1, 0]], metric=cast(Metric, "invalid"))
-    # The cache and batch sizes must be positive integers, and a bool is not an integer here.
+    # The batch size and memory limit must be positive integers, and a bool is not an integer here.
     for value in (0, 1.5, True):
         with pytest.raises(ValueError):
-            PauliCosetSearch([[1, 0]], cache_size=cast(int, value))
+            PauliCosetSearch([[1, 0]], memory_limit=cast(int, value))
         with pytest.raises(ValueError):
             PauliCosetSearch([[1, 0]], batch_size=cast(int, value))
     with pytest.raises(ValueError):
