@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Literal, SupportsIndex
 import numpy as np
 import numpy.typing as npt
 
+from qldpc._compilation import set_on_request_functions_compiled
 from qldpc._utils import format_docstring
 
 from . import _information_sets
@@ -45,7 +46,6 @@ from ._binary import (
 )
 from ._brouwer_zimmermann import get_distance_brouwer_zimmermann_many
 from ._brute_force import get_distance_quantum_brute_force
-from ._compilation import set_on_request_functions_compiled
 from ._counting import local_cliffords, macwilliams, scan
 from .core import _DISTANCE_METHODS, DistanceMethod
 

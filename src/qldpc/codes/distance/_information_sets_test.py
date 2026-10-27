@@ -12,9 +12,10 @@ import numpy.typing as npt
 import pytest
 
 import qldpc
+from qldpc import _compilation
 
 from . import _binary as binary
-from . import _compilation, _information_sets
+from . import _information_sets
 from .conftest import get_random_full_rank_matrix
 
 # Two disjoint full blocks and a rank-two remainder.

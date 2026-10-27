@@ -14,8 +14,9 @@ import functools
 import numpy as np
 import numpy.typing as npt
 
+from qldpc._compilation import always_compiled
+
 from .._binary import pack_bits, popcount_word, row_reduce_binary
-from .._compilation import always_compiled
 
 _BinaryMatrix = npt.NDArray[np.uint8]
 

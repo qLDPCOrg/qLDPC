@@ -253,6 +253,7 @@ Disk caches
 ~~~~~~~~~~~
 
 qLDPC caches the results of slow or interactive lookups, such as named codes, groups, downloaded code data, and pasted GAP output, in a ``qldpc`` directory under the user's platform cache directory.
+Unless ``NUMBA_CACHE_DIR`` is set, code that numba compiles is cached in its ``numba/qldpc-<hash>`` subdirectory, where the hash is of qLDPC's source files, so directories with another hash are outdated and can be deleted.
 A function decorated with :func:`qldpc.cache.use_disk_cache` has a ``refresh`` method, which takes the same arguments, recomputes the result, and overwrites the cached value.
 :func:`qldpc.cache.clear_entry(cache_name, key) <qldpc.cache.clear_entry>` removes a single cached entry.
 Any process that has imported ``pytest`` bypasses the disk caches, so every call recomputes its result and nothing is saved.

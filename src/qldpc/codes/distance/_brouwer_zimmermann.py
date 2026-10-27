@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 import numpy as np
 import numpy.typing as npt
 
+from qldpc._compilation import always_compiled
+
 from . import _information_sets
 from ._binary import (
     as_binary_matrix,
@@ -30,7 +32,6 @@ from ._binary import (
 from ._brute_force import (
     get_distance_quantum_brute_force,
 )
-from ._compilation import always_compiled
 
 ####################################################################################################
 # search entry points

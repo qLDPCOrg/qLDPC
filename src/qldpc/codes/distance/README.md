@@ -36,7 +36,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
 | The MacWilliams counting method | `_counting/macwilliams.py` |
 | Binary algebra, bit packing, or bit counts | `_binary.py` |
-| How numba code is compiled or cached | `_compilation.py` |
+| How numba code is compiled or cached | `src/qldpc/_compilation.py` |
 
 ## How the modules depend on each other
 
@@ -45,7 +45,7 @@ From the top:
 1. `core.py` and `logical_counts.py`, the public interfaces.
 2. `_brouwer_zimmermann.py`, `_brute_force.py`, `_bounded_weight_search.py`, and the `_counting` package, the searches.
 3. `_information_sets.py`, the basis families that the searches share.
-4. `_binary.py` and `_compilation.py`, the foundation.
+4. `_binary.py`, the foundation.
 
 A module imports only modules of its own level or below, except that `_counting/scan.py` takes `DistanceMethod` from `core.py` for an annotation.
 `src/qldpc/codes/common.py`, `src/qldpc/circuits/benchmarking/fault_propagation.py`, and the deprecation registry in `src/qldpc/_deprecations/core.py` use private names of this package, so check them before you move or rename anything.
@@ -53,18 +53,18 @@ A module imports only modules of its own level or below, except that `_counting/
 ## Compiled code
 
 Most searches spend their time in functions that numba compiles.
-Two decorators in `_compilation.py` mark them, and its docstring says when to use each:
+Two decorators in `src/qldpc/_compilation.py` mark them, and its docstring says when to use each:
 
 - `@always_compiled` marks the per-word loops and their helpers.
-  They are compiled on first use and cached on disk, in a directory named by a hash of this package's source, so the first run after an edit compiles again.
+  They are compiled on first use and cached on disk, in a directory named by a hash of qLDPC's source, so the first run after an edit anywhere in qLDPC compiles again.
 - `@compiled_on_request` marks parts of the set-up in `_information_sets.py` and `_counting/scan.py`, which run as ordinary Python unless a program calls `compile_search_setup()`.
 
 Numba looks up the functions that compiled code calls when it compiles it, so compiled code may call NumPy and compiled functions, but not plain Python functions of qLDPC.
-Tests in `_compilation_test.py` check four further rules, and the name of a failing test says which one was broken:
+Tests in `src/qldpc/_compilation_test.py` check four further rules, and the name of a failing test says which one was broken:
 
-- Only `_compilation.py` asks numba for a disk cache, so use `@always_compiled`, not `@njit(cache=True)`.
+- Only `src/qldpc/_compilation.py` asks numba for a disk cache, so use `@always_compiled`, not `@njit(cache=True)`.
 - An always-compiled function may not call a compiled-on-request one.
-- Always-compiled code may use nothing from elsewhere in qLDPC, because the hash covers only this package.
+- Always-compiled code may use nothing from outside qLDPC except NumPy and numba, because the hash covers only qLDPC's source.
 - Other modules must call a compiled-on-request function through its module, and never import it by name.
 
 Set `NUMBA_DISABLE_JIT=1` to run all of this code as plain Python while debugging.
