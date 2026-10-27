@@ -286,10 +286,10 @@ def _search_irreducible_faults(
         primitive = (flag, syndrome, index, bound.representative)
         (light if bound.within_max_weight else heavy).append(primitive)
 
-    # Each primitive fault also gets an equivalent error, which should have a low Pauli weight, so
-    # that the search can skip more faults.  A light primitive fault has one of Pauli weight at most
-    # one.  A heavy primitive fault whose syndrome is the sum of those of two light primitive faults
-    # gets the product of their errors, which has Pauli weight at most two.
+    # Give each primitive fault an error with its syndrome, of low Pauli weight so that the search
+    # can skip more faults.  The error of a light primitive fault has Pauli weight at most one.  A
+    # heavy primitive fault whose syndrome is the sum of those of two light primitive faults gets
+    # the product of their errors, which has Pauli weight at most two.
     light_errors = {syndrome: error for _, syndrome, _, error in light}
     for jj, (flag, syndrome, index, _) in enumerate(heavy):
         for other, error in light_errors.items():
@@ -314,11 +314,11 @@ def _search_irreducible_faults(
     max_satisfied = memory_limit // 4 // (64 + oracle.num_qubits // 4)
 
     def check(
-        ordinals: tuple[int, ...], syndrome: int
+        positions: tuple[int, ...], syndrome: int
     ) -> BoundedFaultPropagationCounterexample | None:
         if syndrome in satisfied:
             return None
-        failure = _check_fault(tuple(primitives[jj][2] for jj in ordinals), syndrome, oracle)
+        failure = _check_fault(tuple(primitives[jj][2] for jj in positions), syndrome, oracle)
         if failure is None and len(satisfied) < max_satisfied:
             satisfied.add(syndrome)
         return failure

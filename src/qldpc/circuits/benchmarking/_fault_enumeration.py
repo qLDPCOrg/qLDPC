@@ -30,19 +30,20 @@ class FaultLister:
     """Lists the irreducible accepted faults that are made of given primitive faults.
 
     The primitive faults have nonzero flags and come in search order.  A fault of fault weight ``m``
-    is listed as its primitive faults ``j_1 < ... < j_m`` in this order, where ``j_1, ..., j_{m-1}``
-    have independent flags and ``j_m`` has flags equal to their sum (see Section 4.2 of
-    ``fault_propagation.md``).  Only faults whose ``j_1`` is among the first ``num_starts``
-    primitive faults are listed, in lexicographic order.
+    is listed as the positions ``j_1 < ... < j_m`` of its primitive faults, made of an independent
+    prefix ``j_1, ..., j_{m-1}`` and a closing primitive fault ``j_m`` whose flags are the sum of
+    the prefix flags, as ``fault_propagation.md`` explains.  Only faults whose ``j_1`` is among the
+    first ``num_starts`` primitive faults are listed, in lexicographic order.
 
-    The last primitive fault, or for fault weight four or more the last two if a table of their
-    pairs fits within the memory limit, are looked up in a table by the hash of their flag sum.
+    The closing primitive fault is looked up in a table by the hash of its flags.  For fault weight
+    four or more, the last two primitive faults are looked up together in a table of pairs, if it
+    fits within the memory limit.
 
     Args:
         flags: The flags of each primitive fault, packed into an integer.
         syndromes: The syndrome of each primitive fault, packed into an integer.
         representatives: For each primitive fault, an error with its syndrome, packed as in
-            ``PauliCosetSearch``.  Lighter errors let the search skip more faults.
+            ``PauliCosetSearch``.  Lighter errors let ``find_first`` skip more faults.
         num_qubits: The number of output qubits.
         css_weight: Whether the Pauli weight is the CSS weight, or else the physical weight.
         num_starts: The number of primitive faults that a listed fault can start with.
@@ -65,6 +66,7 @@ class FaultLister:
         flag_words = to_words(flags, get_num_words(flags))
         syndrome_words = to_words(syndromes, get_num_words(syndromes))
         mask = (1 << num_qubits) - 1
+        num_qubit_words = get_num_words([mask])
         x_parts = [representative & mask for representative in representatives]
         z_parts = [representative >> num_qubits for representative in representatives]
         self._rows = np.hstack(
@@ -73,8 +75,8 @@ class FaultLister:
                 hash_words(syndrome_words)[:, None],
                 flag_words,
                 syndrome_words,
-                to_words(x_parts, get_num_words([mask])),
-                to_words(z_parts, get_num_words([mask])),
+                to_words(x_parts, num_qubit_words),
+                to_words(z_parts, num_qubit_words),
             ]
         )
         self._num_flag_words = flag_words.shape[1]
@@ -89,16 +91,15 @@ class FaultLister:
     ) -> tuple[Result | None, int]:
         """Check the listed faults of a fault weight in order, and stop at the first result.
 
-        The check gets the positions in search order of the primitive faults of a fault, and the
-        fault's syndrome.  It returns None if the fault satisfies the bound, and must depend only on
-        the syndrome.  So a fault is not checked if its syndrome was already checked in the same
-        batch, or if the product of the representatives of its primitive faults has Pauli weight at
-        most its fault weight, since then it satisfies the bound.
+        The check gets the positions of the primitive faults of a fault and the fault's syndrome,
+        and returns None if the fault satisfies the bound.  Its result must depend only on the
+        syndrome, so a fault is not checked if an earlier fault in the same batch has its syndrome.
+        Nor is a fault checked if the product of the representatives of its primitive faults has
+        Pauli weight at most its fault weight, since then it satisfies the bound.
 
         Returns:
-            The first result of the check that is not None, or None if there is none, and the
-            number of faults listed up to and including the fault with that result, or of all
-            listed faults if there is none.
+            The first result that is not None, or None if there is none, and the number of faults
+            listed up to and including the fault with that result, or of all listed faults.
         """
         pairs = self._pairs if fault_weight >= 4 else None
         keys, members = self._singles if pairs is None else pairs
@@ -109,7 +110,6 @@ class FaultLister:
         for batch in iter_batches(
             self._rows,
             self._num_flag_words,
-            self._num_syndrome_words,
             keys,
             members,
             self._num_starts,
@@ -156,8 +156,7 @@ def get_closing_table(
         members[:, 0], members[:, 1] = np.triu_indices(num_primitives, 1)
     keys = np.bitwise_xor.reduce(hashes[members], axis=1)
     order = np.argsort(keys, kind="stable")
-    keys = keys[order]
-    return keys, members[order]
+    return keys[order], members[order]
 
 
 def hash_words(words: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
@@ -193,7 +192,6 @@ def to_words(values: Sequence[int], num_words: int) -> npt.NDArray[np.uint64]:
 def iter_batches(
     rows: npt.NDArray[np.uint64],
     num_flag_words: int,
-    num_syndrome_words: int,
     keys: npt.NDArray[np.uint64],
     members: npt.NDArray[np.int32],
     num_starts: int,
@@ -211,23 +209,23 @@ def iter_batches(
     and once at the end.  The caller must read a batch before resuming.
     """
     # Columns 0 and 1 of the rows hold the hashes of the flags and of the syndrome.
-    num_primitives = len(rows)
+    num_primitives, num_words = rows.shape
     fault_weight = batch_members.shape[1]
     num_closing = members.shape[1]
     depth = fault_weight - num_closing
     flag_start = 2
     syndrome_start = flag_start + num_flag_words
-    x_start = syndrome_start + num_syndrome_words
-    z_start = x_start + (rows.shape[1] - x_start) // 2
+    x_start = syndrome_start + batch_syndromes.shape[1]
+    z_start = x_start + (num_words - x_start) // 2
 
     # The loops choose the first ``depth`` primitive faults, and ``candidates`` holds the next
     # candidate for each, one past the current choice.  Row ``level`` of ``sums`` is the sum of the
     # rows of the first ``level`` choices, and their reduced flags form the basis.
     candidates = np.zeros(depth, dtype=np.int64)
-    sums = np.zeros((depth + 1, rows.shape[1]), dtype=np.uint64)
+    sums = np.zeros((depth + 1, num_words), dtype=np.uint64)
     basis = np.zeros((depth, num_flag_words), dtype=np.uint64)
     pivots = np.zeros(depth, dtype=np.int64)
-    fault = np.empty(rows.shape[1], dtype=np.uint64)
+    fault = np.empty(num_words, dtype=np.uint64)
     reduced = np.empty(num_flag_words, dtype=np.uint64)
 
     # A hash table of the syndromes in the batch, holding their rows or -1 in each slot.
@@ -241,6 +239,8 @@ def iter_batches(
             level -= 1
             continue
         candidates[level] = choice + 1
+
+        # The choice must keep the flags of the chosen primitive faults independent.
         pivot = reduce_flags(
             rows[choice, flag_start:syndrome_start], basis[:level], pivots, reduced
         )
@@ -248,16 +248,17 @@ def iter_batches(
             continue
         basis[level] = reduced
         pivots[level] = pivot
-        for word in range(rows.shape[1]):
+        for word in range(num_words):
             sums[level + 1, word] = sums[level, word] ^ rows[choice, word]
         if level + 1 < depth:
             level += 1
             candidates[level] = choice + 1
             continue
 
-        # Look up the closing primitive faults by the hash of their flags, which must be that of the
-        # chosen ones.  Keep those that come after the last choice, whose flags sum to exactly those
-        # of the chosen ones, and of which all but the last keep the flags independent.
+        # Look up the remaining one or two primitive faults by the hash of their flags, which must
+        # equal that of the chosen ones.  Keep those that come after the last choice and whose flags
+        # sum to exactly those of the chosen ones, since different flags can share a hash.  Of two,
+        # the first must also keep the flags of the prefix independent.
         low = np.searchsorted(keys, sums[depth, 0], "left")
         high = np.searchsorted(keys, sums[depth, 0], "right")
         for entry in range(low, high):
@@ -265,7 +266,7 @@ def iter_batches(
                 continue
             fault[:] = sums[depth]
             for member in members[entry]:
-                for word in range(rows.shape[1]):
+                for word in range(num_words):
                     fault[word] ^= rows[member, word]
             if fault[flag_start:syndrome_start].any():
                 continue
@@ -275,7 +276,8 @@ def iter_batches(
             num_listed += 1
 
             # The product of the representatives is an error with the fault's syndrome, so if its
-            # Pauli weight is at most the fault weight, the fault satisfies the bound.
+            # Pauli weight is at most the fault weight, the fault satisfies the bound.  Otherwise
+            # add the fault to the batch, unless an earlier fault in the batch has its syndrome.
             weight = pauli_weight(fault[x_start:z_start], fault[z_start:], css_weight)
             if weight <= fault_weight:
                 continue
