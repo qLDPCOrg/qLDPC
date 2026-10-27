@@ -21,6 +21,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 - **Certificate** (`Certificate`): a lower bound on the weight of the words that a search has not yet visited, which tells the search when it can stop.
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer.
   Counting scans in `_counting/scan.py`, and the distance search in `_brouwer_zimmermann.py`.
+  Both scans and `_bounded_weight_search.py` step through a layer with `advance_support` in `_information_sets.py`.
 
 ## Where to look
 
@@ -48,7 +49,7 @@ From the top:
 4. `_binary.py`, the foundation.
 
 A module imports only modules of its own level or below, except that `_counting/scan.py` takes `DistanceMethod` from `core.py` for an annotation.
-`src/qldpc/codes/common.py`, `src/qldpc/circuits/benchmarking/fault_propagation.py`, and the deprecation registry in `src/qldpc/_deprecations/core.py` use private names of this package, so check them before you move or rename anything.
+`src/qldpc/codes/common.py`, `src/qldpc/circuits/benchmarking/fault_propagation.py` and `src/qldpc/circuits/benchmarking/_fault_enumeration.py`, and the deprecation registry in `src/qldpc/_deprecations/core.py` use private names of this package, so check them before you move or rename anything.
 
 ## Compiled code
 
@@ -57,6 +58,7 @@ Two decorators in `src/qldpc/_compilation.py` mark them, and its docstring says 
 
 - `@always_compiled` marks the per-word loops and their helpers.
   They are compiled on first use and cached on disk, in a directory named by a hash of qLDPC's source, so the first run after an edit anywhere in qLDPC compiles again.
+  A small helper that hot loops call, such as `advance_support`, is marked `@always_compiled(inline=True)`, so that compiled callers include its code rather than pay for a call.
 - `@compiled_on_request` marks parts of the set-up in `_information_sets.py` and `_counting/scan.py`, which run as ordinary Python unless a program calls `compile_search_setup()`.
 
 Numba looks up the functions that compiled code calls when it compiles it, so compiled code may call NumPy and compiled functions, but not plain Python functions of qLDPC.
