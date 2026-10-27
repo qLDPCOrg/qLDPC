@@ -13,10 +13,11 @@ could serve outdated code.  :func:`always_compiled` instead keeps the compiled c
 that is named by a hash of the source files of qLDPC, so that any change to them selects a new,
 empty directory.  Outdated code is never loaded.  Compiled code may therefore call always-compiled
 functions in any module of qLDPC, but no compiled functions of other packages, whose source the
-hash does not cover.  Each import of qLDPC updates the modification time of its directory, and
-deletes the other directories of this kind beside it that were last modified more than 7 days
-earlier, so that the directories of outdated source files do not accumulate, while those that other
-environments use are kept.
+hash does not cover.  Each directory names the package directory whose source files it was compiled
+from.  Each import of qLDPC updates the modification time of its directory, and deletes the outdated
+directories of the same package directory, compiled from earlier versions of its source files, that
+were last modified more than 7 days earlier.  Directories of other checkouts or installations are
+kept.
 
 Compiled-on-request functions, such as the building of overlapping basis families, are registered
 with :func:`compiled_on_request`.  They run as ordinary Python until
@@ -83,9 +84,12 @@ _PACKAGE_DIRECTORY = Path(__file__).parent
 _HASH_LENGTH = 16
 _CACHE_DIRECTORY_NAME = re.compile(f"qldpc-[0-9a-f]{{{_HASH_LENGTH}}}")
 
-# Other directories of compiled code are deleted if they were last modified more than this many
+# Outdated directories of compiled code are deleted if they were last modified more than this many
 # seconds before the one in use.
 _MAX_UNUSED_SECONDS = 7 * 24 * 60 * 60
+
+# The file in a directory of compiled code that names the package directory whose code it holds.
+_SOURCE_MARKER = "source_directory.txt"
 
 # Held while the cache directory of numba, which is a setting of the whole process, is changed.  A
 # thread that caches another numba function meanwhile caches it in the same directory, which does
@@ -184,8 +188,8 @@ def _get_cache_directory(package: Path) -> Path | None:
     """A directory that can be written for the compiled code of a package, or None with a warning.
 
     Numba needs to be able to write in the directory, and checks this itself only when it has
-    already moved on to another directory.  Other directories of compiled code beside it that are
-    unused are deleted.
+    already moved on to another directory.  Outdated directories of the same package beside it are
+    deleted.
     """
     try:
         source_hash = _get_source_hash(package)
@@ -203,28 +207,44 @@ def _get_cache_directory(package: Path) -> Path | None:
     except OSError as error:
         _warn_not_cached(f"{directory} cannot be written: {error}")
         return None
-    _delete_unused_cache_directories(directory)
+    _delete_outdated_cache_directories(directory, package)
     return directory
 
 
-def _delete_unused_cache_directories(directory: Path) -> None:
-    """Mark a directory of compiled code as used, and delete the unused ones beside it.
+def _delete_outdated_cache_directories(directory: Path, package: Path) -> None:
+    """Mark a directory of compiled code as used by a package, and delete its outdated directories.
 
-    A directory is unused if it was last modified, for example by an import of qLDPC that uses it,
-    more than 7 days before this one.  Deleting a directory that another environment still uses only
-    makes that environment compile its code again, so this is best effort, and errors are ignored.
+    A directory beside this one is outdated if it holds compiled code of the same package directory,
+    whose source files have since changed, and it was last modified, for example by an import of
+    qLDPC that used it, more than 7 days before this one.  The grace period protects processes that
+    still run the old source files.  Directories of other package directories, such as other
+    checkouts or installations, are kept.  This is best effort, and errors are ignored.
     """
     with contextlib.suppress(OSError):
+        source = str(package.resolve())
+        marker = directory / _SOURCE_MARKER
+        if not marker.is_file() or marker.read_text(encoding="utf-8") != source:
+            marker.write_text(source, encoding="utf-8")
         os.utime(directory)
         cutoff = directory.stat().st_mtime - _MAX_UNUSED_SECONDS
         with os.scandir(directory.parent) as entries:
             for entry in entries:
                 if (
-                    _CACHE_DIRECTORY_NAME.fullmatch(entry.name)
+                    entry.name != directory.name
+                    and _CACHE_DIRECTORY_NAME.fullmatch(entry.name)
                     and entry.is_dir(follow_symlinks=False)
                     and entry.stat(follow_symlinks=False).st_mtime < cutoff
+                    and _read_source_marker(Path(entry.path)) == source
                 ):
                     shutil.rmtree(entry.path, ignore_errors=True)
+
+
+def _read_source_marker(directory: Path) -> str | None:
+    """The package directory whose compiled code a directory holds, or None if it is unknown."""
+    try:
+        return (directory / _SOURCE_MARKER).read_text(encoding="utf-8")
+    except OSError:
+        return None
 
 
 def _warn_not_cached(reason: str) -> None:

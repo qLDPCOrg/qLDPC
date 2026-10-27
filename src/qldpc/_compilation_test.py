@@ -120,34 +120,61 @@ def test_the_cache_directory_is_named_by_the_source_hash(
     assert _compilation._get_cache_directory(packages[1]) == tmp_path / "user/qldpc/numba" / name
 
 
-def test_cache_directories_unused_for_a_week_are_deleted(
+def test_outdated_cache_directories_unused_for_a_week_are_deleted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The directory in use is marked as used, so that other environments keep it too."""
-    (tmp_path / "source.py").write_text("one")
-    source_hash = _compilation._get_source_hash(tmp_path)
+    """Only directories of earlier source files of the same package directory are outdated.
+
+    The directory in use is marked as used, so that its age restarts.
+    """
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / "source.py").write_text("one")
+    source_hash = _compilation._get_source_hash(package)
     assert source_hash is not None
     base = tmp_path / "numba"
     monkeypatch.setattr(_compilation._numba_config, "CACHE_DIR", str(base))
 
+    def name(digit: str) -> str:
+        return f"qldpc-{digit * len(source_hash)}"
+
     in_use = base / f"qldpc-{source_hash}"
-    unused = base / f"qldpc-{'0' * len(source_hash)}"
-    recent = base / f"qldpc-{'1' * len(source_hash)}"
+    outdated, recent, elsewhere, unknown = (base / name(digit) for digit in "0123")
     other = base / f"qldpc-tools_{'0' * 40}"  # where numba caches code from a folder "qldpc-tools"
     day = 24 * 60 * 60
     now = time.time()
-    for directory, age in [(in_use, 8), (unused, 8), (recent, 6), (other, 8)]:
+    for directory, source, age in [
+        (in_use, package, 8),
+        (outdated, package, 8),
+        (recent, package, 6),
+        (elsewhere, tmp_path / "other_checkout", 8),
+        (unknown, None, 8),
+        (other, package, 8),
+    ]:
         (directory / "contents").mkdir(parents=True)
+        if source is not None:
+            (directory / _compilation._SOURCE_MARKER).write_text(str(source.resolve()))
         os.utime(directory, (now - age * day, now - age * day))
 
-    assert _compilation._get_cache_directory(tmp_path) == in_use
-    assert {path.name for path in base.iterdir()} == {in_use.name, recent.name, other.name}
+    assert _compilation._get_cache_directory(package) == in_use
+    kept = {in_use, recent, elsewhere, unknown, other}
+    assert {path.name for path in base.iterdir()} == {path.name for path in kept}
     assert in_use.stat().st_mtime > now - day
 
 
-def test_errors_while_deleting_unused_cache_directories_are_ignored(tmp_path: Path) -> None:
+def test_a_new_cache_directory_names_its_package_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "source.py").write_text("one")
+    monkeypatch.setattr(_compilation._numba_config, "CACHE_DIR", str(tmp_path / "numba"))
+    directory = _compilation._get_cache_directory(tmp_path)
+    assert directory is not None
+    assert _compilation._read_source_marker(directory) == str(tmp_path.resolve())
+
+
+def test_errors_while_deleting_outdated_cache_directories_are_ignored(tmp_path: Path) -> None:
     """For example, another process may have deleted the directory meanwhile."""
-    _compilation._delete_unused_cache_directories(tmp_path / "missing" / "qldpc-0")
+    _compilation._delete_outdated_cache_directories(tmp_path / "missing" / "qldpc-0", tmp_path)
 
 
 def test_there_is_no_cache_directory_without_source_files(tmp_path: Path) -> None:
