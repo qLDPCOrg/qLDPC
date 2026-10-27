@@ -247,8 +247,9 @@ def _certify_maps(
 
     # The oracle may use a quarter of the memory limit.  The search may use half for the table of
     # pairs of primitive faults, and a quarter for the syndromes that satisfy the bound.
-    metric: Literal["pauli", "css"] = "css" if css_weight else "pauli"
-    oracle = PauliCosetSearch(stabilizers, metric=metric, memory_limit=max(1, memory_limit // 4))
+    oracle = PauliCosetSearch(
+        stabilizers, css_weight=css_weight, memory_limit=max(1, memory_limit // 4)
+    )
     return _search_irreducible_faults(signatures, budget, oracle, memory_limit)
 
 
@@ -375,18 +376,28 @@ def _iter_irreducible_faults(
         syndrome: int,
         basis: tuple[int, ...],
     ) -> Iterator[tuple[tuple[int, ...], int]]:
-        # Choose the next primitive fault from position ``start`` on, and look up the pairs that can
-        # complete the fault, for all choices at once.
+        # Choose the next primitive fault from position ``start`` on.  A pair then completes the
+        # fault: the last primitive fault of the prefix and the closing primitive fault.  The flags
+        # of the pair must sum to ``flag`` plus the flags of the next primitive fault.  The hash is
+        # linear, so one lookup finds the pairs for every choice of the next primitive fault.
         assert pairs is not None
         lows, highs = pairs.find(pairs.hashes[start:] ^ np.uint64(pairs.hash(flag)))
+
+        # Try only the choices that have some pair with a matching hash.
         for offset in np.flatnonzero(highs > lows).tolist():
             ordinal = start + offset
             next_flag, next_syndrome, index = primitives[ordinal]
+
+            # As in ``extend``, the next primitive fault must keep the prefix independent.
             reduced = reduce(next_flag, basis)
             if not reduced:
                 continue
             new_flag = flag ^ next_flag
             new_basis = tuple(sorted((*basis, reduced), reverse=True))
+
+            # Keep the pairs that come after the next primitive fault, whose flags sum to exactly
+            # ``new_flag`` (different flag sums can share a hash), and whose first primitive fault
+            # keeps the prefix independent.
             for last, closing in pairs.get_pairs(lows[offset], highs[offset], ordinal + 1):
                 last_flag, last_syndrome, last_index = primitives[last]
                 closing_flag, closing_syndrome, closing_index = primitives[closing]

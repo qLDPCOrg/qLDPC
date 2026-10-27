@@ -10,7 +10,6 @@ import numbers
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from math import comb
-from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -67,8 +66,9 @@ class PauliCosetSearch:
 
     Args:
         stabilizers: An independent commuting binary ``n x 2n`` matrix in ``[X|Z]`` order.
-        metric: ``"pauli"`` counts the qubits that an error acts on, and ``"css"`` counts
-            ``max(|x|, |z|)``, where ``x`` and ``z`` are the X and Z parts of the error.
+        css_weight: True to weigh an error by its CSS weight ``max(|x|, |z|)``, where ``x`` and
+            ``z`` are its X and Z parts, or False to weigh it by its physical weight, the number of
+            qubits that it acts on.
         batch_size: The largest number of candidates that a search evaluates at once.
         memory_limit: The approximate number of bytes that the oracle may use to keep the sums of
             rows that every search shares.  A smaller limit can make searches slower, but never
@@ -79,16 +79,14 @@ class PauliCosetSearch:
         self,
         stabilizers: npt.ArrayLike,
         *,
-        metric: Literal["pauli", "css"] = "pauli",
+        css_weight: bool = False,
         batch_size: int = 4096,
         memory_limit: int = 2**30,  # 1 GiB
     ) -> None:
-        if metric not in ("pauli", "css"):
-            raise ValueError("metric must be 'pauli' or 'css'")
         for value in (batch_size, memory_limit):
             if isinstance(value, bool) or not isinstance(value, numbers.Integral) or value < 1:
                 raise ValueError("batch_size and memory_limit must be positive integers")
-        self.metric = metric
+        self.css_weight = css_weight
         self.batch_size = batch_size
         self.memory_limit = memory_limit
         assert_binary(stabilizers, "stabilizers")
@@ -122,10 +120,10 @@ class PauliCosetSearch:
             self._singles.setdefault(sz, z)
             self._singles.setdefault(sx ^ sz, x ^ z)
 
-        # The search runs on the embedded stabilizers (see ``_embed``).  Weighing a word in the CSS
-        # metric needs a mask for each of its two sectors.
-        self._embedded = symplectic_to_hamming(matrix) if metric == "pauli" else matrix.copy()
-        if metric == "css":
+        # The search runs on the embedded stabilizers (see ``_embed``).  Weighing a word by its CSS
+        # weight needs a mask for each of its two sectors.
+        self._embedded = matrix.copy() if css_weight else symplectic_to_hamming(matrix)
+        if css_weight:
             width = (2 * n + 63) // 64
             self._sector_masks = tuple(
                 _int_to_words(((1 << n) - 1) << shift, width) for shift in (0, n)
@@ -195,8 +193,8 @@ class PauliCosetSearch:
 
             # Return if the unvisited words are too heavy.  Each of them adds more than ``depth``
             # rows on every basis, so the certificate bounds its Hamming weight from below, and its
-            # weight is at least half of that in either metric.  The smaller of this bound and the
-            # lowest weight visited is then a lower bound on every weight.
+            # weight is at least half of that, by either measure of weight.  The smaller of this
+            # bound and the lowest weight visited is then a lower bound on every weight.
             if depth < n:
                 unseen_lower = (self._certificate.lower_bound(depth) + 1) // 2
                 if unseen_lower > max_weight:
@@ -240,7 +238,7 @@ class PauliCosetSearch:
         """Find an error of weight zero or one with this syndrome, if there is one."""
         if syndrome in self._singles:
             return self._singles[syndrome]
-        if self.metric == "css":
+        if self.css_weight:
             # CSS weight one also allows X_i Z_j on distinct qubits.  Matching an X-single syndrome
             # with a Z-single syndrome finds these in linear time, without a quadratic table.
             for sx, x in self._x_singles.items():
@@ -252,22 +250,22 @@ class PauliCosetSearch:
     def _weight(self, pauli: int) -> int:
         mask = (1 << self.num_qubits) - 1
         x, z = pauli & mask, (pauli >> self.num_qubits) & mask
-        return max(x.bit_count(), z.bit_count()) if self.metric == "css" else (x | z).bit_count()
+        return max(x.bit_count(), z.bit_count()) if self.css_weight else (x | z).bit_count()
 
     def _candidate_weights(self, candidates: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
-        """Compute the weights of packed embedded words, in the metric."""
-        if self.metric == "pauli":
-            return np.bitwise_count(candidates).sum(axis=-1, dtype=np.uint64) // 2
-        return np.maximum(
-            *(
-                np.bitwise_count(candidates & mask).sum(axis=-1, dtype=np.uint64)
-                for mask in self._sector_masks
+        """Compute the weights of packed embedded words."""
+        if self.css_weight:
+            return np.maximum(
+                *(
+                    np.bitwise_count(candidates & mask).sum(axis=-1, dtype=np.uint64)
+                    for mask in self._sector_masks
+                )
             )
-        )
+        return np.bitwise_count(candidates).sum(axis=-1, dtype=np.uint64) // 2
 
     def _embed(self, pauli: int) -> int:
         """Embed a packed Pauli into the space in which the Hamming weight is searched."""
-        if self.metric == "css":
+        if self.css_weight:
             return pauli
         n = self.num_qubits
         x, z = pauli & ((1 << n) - 1), pauli >> n
