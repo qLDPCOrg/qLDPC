@@ -463,13 +463,14 @@ Heuristic tunables are identified by parameter name so that their current values
 | [_information_sets.py](_information_sets.py) | Families of search bases and their certificates, shared by distance and counting and used by the Pauli-coset oracle: disjoint packing, pruning, overlapping replacement, parity inference, the lower certificate, and the work estimate, on basis families stacked into arrays, in the subset of Python that numba compiles | `get_disjoint_family`, `prune_family`, `get_overlapping_family`, `BasisFamily`, `Certificate` |
 | [_brute_force.py](_brute_force.py) | Exhaustive enumeration | `get_distance_quantum_brute_force` |
 | [_binary.py](_binary.py) | Shared binary helpers: row reduction with labels, independent and adapted bases, packing, weight functions, and the map of [Section 2.7](#27-pauli-weight-as-hamming-weight) | `row_reduce_binary`, `get_independent_rows`, `get_nested_code_basis`, `symplectic_to_hamming` |
-| [_compilation.py](_compilation.py) | Compiled functions: the disk cache of the always-compiled functions, named by a hash of the source files of the package | `always_compiled` |
-| [_counting/scan.py](_counting/scan.py) | The scan of the words of one weight, for counting: its set-up, its loop, and its native chunks | `count_words` |
+| [_compilation.py](_compilation.py) | Compiled functions: the disk cache of the always-compiled functions, named by a hash of the source files of the package, and the registry of functions that run as plain Python unless compiled on request | `always_compiled`, `compiled_on_request` |
+| [_counting/scan.py](_counting/scan.py) | The scan of the words of one weight, for counting: its set-up, its resumable loop, and its native chunks | `count_words` |
 
 [`__init__.py`](__init__.py) exports names from [core.py](core.py) and [logical_counts.py](logical_counts.py).
 [logical_counts.py](logical_counts.py) counts the logical operators of a given weight exactly.
 It builds its families and certificates with the same stages of [_information_sets.py](_information_sets.py) as the distance search, under the constraint in [Section 5](#5-correctness-requirements).
 It runs the stages in `_prepare_scan` of [_counting/scan.py](_counting/scan.py), and its distance search starts from the disjoint basis families that it keeps for counting.
+The set-up functions of both searches can be compiled on request, through [_compilation.py](_compilation.py).
 The code that only counting uses is in the `_counting` package.
 The family policy lives only in that module, so a change to it applies to both consumers.
 [core.py](core.py) calls [_brouwer_zimmermann.py](_brouwer_zimmermann.py) and [_brute_force.py](_brute_force.py), and [_brouwer_zimmermann.py](_brouwer_zimmermann.py) calls [_brute_force.py](_brute_force.py) for its exhaustive routes.

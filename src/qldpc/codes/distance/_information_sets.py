@@ -37,7 +37,7 @@ import numpy as np
 import numpy.typing as npt
 
 from ._binary import row_reduce_binary, row_reduce_packed
-from ._compilation import always_compiled
+from ._compilation import always_compiled, compiled_on_request
 
 # Default limit on the number of sets in a replacement basis family (see get_overlapping_family).
 MAX_SETS = 16
@@ -160,6 +160,7 @@ def get_disjoint_family(
     return BasisFamily(generators, reduced_labels, pivots, ranks, weight_divisor, 1)
 
 
+@compiled_on_request
 def prune_family(basis_family: BasisFamily, upper_bound: int) -> BasisFamily:
     """Stage two: retain partial sets that can strengthen certification of ``upper_bound``."""
     retained = np.flatnonzero(
@@ -181,6 +182,7 @@ def prune_family(basis_family: BasisFamily, upper_bound: int) -> BasisFamily:
     )
 
 
+@compiled_on_request
 def get_overlapping_family(
     basis: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8],
@@ -431,6 +433,7 @@ def get_retained_set_mask(
 # helper functions
 
 
+@compiled_on_request
 def _copy_with_capacity(array: Any, capacity: int) -> Any:
     """A copy of an array with room for ``capacity`` entries along its first axis."""
     grown = np.empty((capacity,) + array.shape[1:], dtype=array.dtype)
@@ -438,6 +441,7 @@ def _copy_with_capacity(array: Any, capacity: int) -> Any:
     return grown
 
 
+@compiled_on_request
 def _get_no_replacement(
     basis_family: BasisFamily, basis: npt.NDArray[np.uint8], labels: npt.NDArray[np.uint8]
 ) -> BasisFamily:

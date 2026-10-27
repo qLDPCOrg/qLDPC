@@ -1,17 +1,37 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Compiled functions, cached on disk by a hash of the source.
+"""Compiled functions: cached on disk by a hash of the source, or compiled in memory on request.
 
-The distance and counting searches run functions that numba compiles.  They are written in the
-subset of Python and NumPy that numba supports, and numba compiles them the first time that they
-are used.
+The distance and counting searches run two kinds of functions that numba compiles.  They are written
+in the subset of Python and NumPy that numba supports.
 
-:func:`always_compiled` caches their compiled code on disk.  Numba checks only the source file of a
-cached function for changes, not the functions that it calls in other files, so a cache that is
-kept where numba puts it could serve outdated code.  :func:`always_compiled` instead keeps the
-compiled code in a directory that is named by a hash of the source files of this package, so that
-any change to them selects a new, empty directory.  Outdated code is never loaded, and old
-directories can simply be deleted.
+Always-compiled functions, such as bit packing, row reduction and the scan of a chunk of
+combinations, are compiled by numba the first time that they are used.  :func:`always_compiled`
+caches their compiled code on disk.  Numba checks only the source file of a cached function for
+changes, not the functions that it calls in other files, so a cache that is kept where numba puts it
+could serve outdated code.  :func:`always_compiled` instead keeps the compiled code in a directory
+that is named by a hash of the source files of this package, so that any change to them selects a
+new, empty directory.  Outdated code is never loaded, and old directories can simply be deleted.
+
+Compiled-on-request functions, such as the building of overlapping basis families, are registered
+with :func:`compiled_on_request`.  They run as ordinary Python until
+:func:`~qldpc.codes.distance.compile_search_setup` replaces each registered name in its module by a
+version compiled in memory, which is never cached on disk.  A function calls other functions by
+their module-level names, which are looked up when it is compiled, so a compiled function calls
+compiled functions.  This is why every function that a compiled-on-request function calls must be
+always-compiled or compiled on request too.  Other modules must call a compiled-on-request function
+through the module that defines it, as in ``_information_sets.get_overlapping_family(...)``, and
+never through a name imported by ``from``, which would keep the version that was current at import
+time.
+
+To choose between them, use :func:`always_compiled` for the per-word loops and for the helper
+functions that other compiled code calls: every search needs them, and the disk cache makes
+compiling them a one-time cost.  Use :func:`compiled_on_request` for the larger functions that
+orchestrate a search, which select and bound its information sets, build its basis families, and
+drive its scan.  Compiling them pays off only in a program that makes very many searches.  A
+function that is neither runs as ordinary Python.  A compiled-on-request function may call
+always-compiled and compiled-on-request functions.  An always-compiled function may call only
+always-compiled functions, since it is compiled and cached by itself.
 """
 
 from __future__ import annotations
@@ -22,6 +42,7 @@ import tempfile
 import threading
 import warnings
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
 
@@ -55,6 +76,20 @@ _PACKAGE_DIRECTORY = Path(__file__).parent
 _CACHE_DIRECTORY_LOCK = threading.Lock()
 
 
+@dataclass
+class _OnRequestFunction:
+    """The module namespace and name of a registered function, with its plain and compiled forms."""
+
+    namespace: dict[str, Any]
+    name: str
+    function: Callable[..., Any]
+    compiled: Callable[..., Any] | None = None
+
+
+# Every registered function, in registration order.
+_ON_REQUEST_FUNCTIONS: list[_OnRequestFunction] = []
+
+
 ####################################################################################################
 # functions cached on disk
 
@@ -75,6 +110,29 @@ def always_compiled(function: _Function) -> Dispatcher[_Function]:
         None if cache_directory is None else _compile_with_cache_in(function, cache_directory)
     )
     return numba.njit(function) if dispatcher is None else dispatcher
+
+
+####################################################################################################
+# functions compiled in memory on request
+
+
+def compiled_on_request(function: _Function) -> _Function:
+    """Register a function that runs as plain Python, or is compiled by numba on request."""
+    _ON_REQUEST_FUNCTIONS.append(
+        _OnRequestFunction(function.__globals__, function.__name__, function)
+    )
+    return function
+
+
+def set_on_request_functions_compiled(compiled: bool) -> None:
+    """Replace every registered function by its compiled, or by its plain Python, version.
+
+    A function is compiled once, when first called after the first request, and kept for later ones.
+    """
+    for item in _ON_REQUEST_FUNCTIONS:
+        if compiled and item.compiled is None:
+            item.compiled = numba.njit(item.function)
+        item.namespace[item.name] = item.compiled if compiled else item.function
 
 
 ####################################################################################################

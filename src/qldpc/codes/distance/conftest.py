@@ -16,7 +16,7 @@ from qldpc import codes
 from qldpc.objects import Pauli
 
 from . import _binary as binary
-from . import _information_sets
+from . import _compilation, _information_sets
 from . import logical_counts as lc
 from ._binary import get_kernel
 from .core import DistanceMethod
@@ -37,10 +37,14 @@ def force_information_sets() -> Iterator[None]:
 
 
 @pytest.fixture(params=["python", "compiled"])
-def compilation_mode(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Run the always-compiled functions of the basis family stages as Python, or compiled.
+def compilation_mode(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    """Run the compiled-on-request functions of the basis family stages and the counts in two modes.
 
-    Coverage can trace only the Python mode.
+    In the plain Python mode, the always-compiled functions that the basis family stages define
+    also run as Python, which coverage can trace.  The compiled mode compiles the functions once per
+    session, and restores plain Python afterwards.
     """
     if request.param == "python":
         for name, function in list(vars(_information_sets).items()):
@@ -49,6 +53,13 @@ def compilation_mode(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyP
                 and function.py_func.__module__ == _information_sets.__name__
             ):
                 monkeypatch.setattr(_information_sets, name, function.py_func)
+        yield
+    else:
+        _compilation.set_on_request_functions_compiled(True)
+        try:
+            yield
+        finally:
+            _compilation.set_on_request_functions_compiled(False)
 
 
 def get_random_full_rank_matrix(

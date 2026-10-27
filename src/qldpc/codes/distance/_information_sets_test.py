@@ -14,7 +14,8 @@ import pytest
 import qldpc
 
 from . import _binary as binary
-from . import _information_sets
+from . import _compilation, _information_sets
+from .conftest import get_random_full_rank_matrix
 
 # Two disjoint full blocks and a rank-two remainder.
 PARTIAL_BASIS = np.hstack(
@@ -201,6 +202,38 @@ def test_the_size_limit_bounds_the_overlapping_basis_family(max_sets: int, num_s
     disjoint = _information_sets.get_disjoint_family(basis, labels)
     overlapping = _get_overlapping_family(basis, labels, disjoint, 3, max_sets, minimum_work=0)
     assert len(overlapping.ranks) == num_sets
+
+
+def test_functions_agree_in_plain_python_and_compiled(pytestconfig: pytest.Config) -> None:
+    """Pruned and replacement basis families are identical, bit for bit, plain and compiled."""
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    # The Hamming code has an overlapping basis family that does less work.  Random bases rarely do.
+    hamming = binary.get_independent_rows(np.asarray(qldpc.codes.HammingCode(4).generator))
+    cases: list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8] | None, int]] = [
+        (hamming, np.eye(len(hamming), dtype=np.uint8), 3)
+    ]
+    for trial in range(12):
+        rows = int(rng.integers(3, 10))
+        basis = get_random_full_rank_matrix(rng, rows, int(rng.integers(2 * rows, 5 * rows)))
+        labels = np.eye(rows, dtype=np.uint8) if trial % 2 else None
+        cases.append((basis, labels, int(rng.integers(2, rows + 2))))
+    for case, (basis, labels, upper_bound) in enumerate(cases):
+        results = []
+        for compiled in (False, True):
+            _compilation.set_on_request_functions_compiled(compiled)
+            try:
+                disjoint = _information_sets.get_disjoint_family(basis, labels)
+                pruned = _information_sets.prune_family(disjoint, upper_bound)
+                replacement = _get_overlapping_family(
+                    basis, labels, pruned, upper_bound, minimum_work=0
+                )
+            finally:
+                _compilation.set_on_request_functions_compiled(False)
+            results.append((pruned, replacement))
+        assert case or len(results[0][1].ranks)
+        for plain, compiled_result in zip(*results, strict=True):
+            for field, value in zip(plain._fields, plain, strict=True):
+                np.testing.assert_array_equal(value, getattr(compiled_result, field), field)
 
 
 def _get_lower_bound_from_definition(

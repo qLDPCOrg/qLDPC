@@ -11,13 +11,15 @@ from typing import Any
 from unittest import mock
 
 import galois
+import numba.core.event
 import numpy as np
 import numpy.typing as npt
 import pytest
 
+import qldpc
 from qldpc import codes
 
-from . import _information_sets
+from . import _compilation, _information_sets
 from . import logical_counts as lc
 from ._binary import get_independent_rows
 from ._counting import macwilliams
@@ -181,6 +183,51 @@ def test_methods_agree_on_random_codes(num_qubits: int, rank_x: int, rank_z: int
         assert counter.count_logical_ops(
             count_pauli=True, method="brouwer_zimmermann"
         ) == counter.count_logical_ops(count_pauli=True, method="brute_force")
+
+
+def test_compile_search_setup() -> None:
+    """Compiling up front gives the same counts and distances, and nothing compiles afterwards."""
+    code = qldpc.codes.SurfaceCode(5)
+
+    def get_results() -> list[qldpc.codes.CSSLogicalCounts]:
+        counter = qldpc.codes.CSSLogicalCounter(code)
+        deformed = counter.deformed_cnot(0, 1)
+        return [
+            counter.count_logical_ops(),
+            counter.count_logical_ops(count_pauli=True, max_information_sets=4),
+            deformed.count_logical_ops(),
+            deformed.count_logical_ops(counter.count_logical_ops().weight + 1),
+        ]
+
+    expected = get_results()
+    try:
+        qldpc.codes.distance.compile_search_setup()
+        with numba.core.event.install_recorder("numba:compile") as recorder:
+            assert get_results() == expected
+    finally:
+        _compilation.set_on_request_functions_compiled(False)
+    late_compilations = [
+        event.data["dispatcher"].py_func.__qualname__
+        for _, event in recorder.buffer
+        if event.is_start and event.data["dispatcher"].py_func.__module__.startswith("qldpc.")
+    ]
+    assert not late_compilations
+    assert get_results() == expected
+
+
+def test_a_failed_compilation_leaves_the_set_up_code_as_plain_python(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A process that could not compile is not left half compiled."""
+
+    def refuse() -> None:
+        raise RuntimeError("compilation refused")
+
+    monkeypatch.setattr(lc, "_warm_up_compiled_functions", refuse)
+    with pytest.raises(RuntimeError, match="refused"):
+        qldpc.codes.distance.compile_search_setup()
+    select = _information_sets.get_overlapping_family
+    assert not isinstance(select, numba.core.registry.CPUDispatcher)
 
 
 def test_max_information_sets_must_be_an_integer() -> None:

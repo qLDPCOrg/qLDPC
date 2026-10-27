@@ -10,6 +10,10 @@ directory of the user's cache directory.  A change to those source files selects
 outdated code is never loaded, and old directories can be deleted.  If the directory cannot be used,
 qLDPC warns, and compiles again in every process.  Set ``NUMBA_CACHE_DIR`` to a writable directory,
 such as one that many jobs share, to avoid this.
+
+:func:`~qldpc.codes.distance.compile_search_setup` also compiles the code that sets those loops up,
+in the current process only, for programs that count the logical operators of very many similar
+codes.
 """
 
 from typing import TYPE_CHECKING
@@ -26,6 +30,7 @@ from .logical_counts import (
     CSSLogicalCounter,
     CSSLogicalCounts,
     LogicalCountMethod,
+    compile_search_setup,
     count_logical_ops_css,
 )
 
@@ -35,6 +40,7 @@ __all__ = [
     "DistanceBackend",
     "DistanceMethod",
     "LogicalCountMethod",
+    "compile_search_setup",
     "count_logical_ops_css",
     "get_distance_classical",
     "get_distance_quantum",

@@ -18,15 +18,28 @@ import numpy.typing as npt
 
 from .. import _information_sets
 from .._binary import pack_bits, popcount_word, row_reduce_packed
-from .._compilation import always_compiled
+from .._compilation import always_compiled, compiled_on_request
 from ..core import DistanceMethod
 from . import local_cliffords
 
 _BinaryMatrix = npt.NDArray[np.uint8]
 _PackedMatrix = npt.NDArray[np.uint64]
 
-# Coefficient combinations visited per native call, which bounds the time between interruptions.
+# Coefficient combinations that one call of ``_count_chunk`` visits.
 _CHUNK_SIZE = 1 << 16
+
+# Chunks that one call of ``_scan_coefficient_layers`` visits before it returns, unless the scan
+# ends sooner.  Compiled code cannot be interrupted, so a compiled scan is interruptible only
+# between its calls.
+_CHUNKS_PER_SCAN_CALL = 64
+
+# How a scan call ends: with every layer visited, after its allowance of chunks, or at a word that
+# is lighter than the target and nontrivial.
+_SCAN_FINISHED, _SCAN_UNFINISHED, _SCAN_FOUND_LIGHTER_WORD = 0, 1, 2
+
+# The positions in the cursor of a scan, which marks where a later call resumes it: the layer, the
+# set, and the depth within the combinations of that layer.
+_CURSOR_LAYER, _CURSOR_SET, _CURSOR_DEPTH = 0, 1, 2
 
 
 ####################################################################################################
@@ -71,31 +84,30 @@ def count_words(
             np.random.default_rng(0),
         )
 
-    # Scan the sets layer by layer, through the last layer that can hold unvisited words.
+    # Scan in bounded calls, which compiled code cannot be interrupted within.
     histogram = np.zeros(max_exponent + 1, dtype=np.int64)
-    for layer in range(1, last_layer + 1):
-        for index in range(len(rows)):
-            support = np.zeros(layer, dtype=np.int64)
-            depth = 0
-            while depth >= 0:
-                depth, lighter = _count_chunk(
-                    rows[index],
-                    packed_labels[index],
-                    extractors,
-                    index,
-                    support,
-                    depth,
-                    weight,
-                    rank_rows,
-                    complement,
-                    max_exponent,
-                    histogram,
-                    reject_lighter,
-                    _CHUNK_SIZE,
-                )
-                if lighter:
-                    return None
-    return histogram
+    cursor = np.zeros(3, dtype=np.int64)
+    cursor[_CURSOR_LAYER] = 1
+    support = np.zeros(len(basis), dtype=np.int64)
+    status = _SCAN_UNFINISHED
+    while status == _SCAN_UNFINISHED:
+        status = _scan_coefficient_layers(
+            rows,
+            packed_labels,
+            extractors,
+            last_layer,
+            weight,
+            rank_rows,
+            complement,
+            max_exponent,
+            reject_lighter,
+            cursor,
+            support,
+            histogram,
+            _CHUNK_SIZE,
+            _CHUNKS_PER_SCAN_CALL,
+        )
+    return None if status == _SCAN_FOUND_LIGHTER_WORD else histogram
 
 
 def transport_basis_family(
@@ -127,6 +139,7 @@ def transport_basis_family(
     )
 
 
+@compiled_on_request
 def _prepare_scan(
     basis: _BinaryMatrix,
     labels: _BinaryMatrix,
@@ -173,6 +186,7 @@ def _prepare_scan(
     return rows, packed_labels, _get_coefficient_extractors(sets, width), last_layer
 
 
+@compiled_on_request
 def _get_coefficient_extractors(
     basis_family: _information_sets.BasisFamily, width: int
 ) -> _PackedMatrix:
@@ -206,6 +220,73 @@ def _get_coefficient_extractors(
     return extractors
 
 
+@compiled_on_request
+def _scan_coefficient_layers(
+    rows: _PackedMatrix,
+    packed_labels: _PackedMatrix,
+    extractors: _PackedMatrix,
+    last_layer: int,
+    target: int,
+    rank_rows: _PackedMatrix,
+    complement: bool,
+    max_exponent: int,
+    reject_lighter: bool,
+    cursor: npt.NDArray[np.int64],
+    support: npt.NDArray[np.int64],
+    histogram: npt.NDArray[np.int64],
+    chunk_size: int,
+    max_chunks: int,
+) -> int:
+    """Visit the combinations of each layer in each set, for at most ``max_chunks`` chunks.
+
+    The layers run from one to ``last_layer``, and each set visits all of its combinations of that
+    many rows (see ``_count_chunk``).  This loop is a function of its own so that it can be
+    compiled, which saves a call from Python for every chunk.
+
+    The scan is resumable, since compiled code cannot be interrupted.  ``cursor`` holds the layer,
+    the set, and the depth at which to resume, and ``support`` holds the current combination, so
+    that a later call continues the scan.  The first call passes a cursor at layer one, set zero and
+    depth zero, and every call passes on the same ``cursor``, ``support`` and ``histogram``.
+    ``support[:layer]`` is the combination of the current layer, which is how ``_count_chunk``
+    knows its length.
+
+    Returns ``_SCAN_FINISHED``, ``_SCAN_UNFINISHED`` if chunks remain, or
+    ``_SCAN_FOUND_LIGHTER_WORD``.
+    """
+    while cursor[_CURSOR_LAYER] <= last_layer:
+        layer = cursor[_CURSOR_LAYER]
+        while cursor[_CURSOR_SET] < len(rows):
+            while cursor[_CURSOR_DEPTH] >= 0:
+                if max_chunks == 0:
+                    return _SCAN_UNFINISHED
+                max_chunks -= 1
+                depth, lighter = _count_chunk(
+                    rows[cursor[_CURSOR_SET]],
+                    packed_labels[cursor[_CURSOR_SET]],
+                    extractors,
+                    cursor[_CURSOR_SET],
+                    support[:layer],
+                    cursor[_CURSOR_DEPTH],
+                    target,
+                    rank_rows,
+                    complement,
+                    max_exponent,
+                    histogram,
+                    reject_lighter,
+                    chunk_size,
+                )
+                cursor[_CURSOR_DEPTH] = depth
+                if lighter:
+                    return _SCAN_FOUND_LIGHTER_WORD
+            cursor[_CURSOR_SET] += 1
+            cursor[_CURSOR_DEPTH] = 0
+            support[:] = 0
+        cursor[_CURSOR_LAYER] += 1
+        cursor[_CURSOR_SET] = 0
+    return _SCAN_FINISHED
+
+
+@compiled_on_request
 def _transport_sets(
     generators: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8],
