@@ -9,6 +9,7 @@ import itertools
 import operator
 from collections.abc import Collection, Sequence
 from typing import Literal, cast
+from unittest import mock
 
 import numpy as np
 import numpy.typing as npt
@@ -237,12 +238,11 @@ def test_light_primitive_faults_are_never_searched(monkeypatch: pytest.MonkeyPat
     flags = [3, 5, 6, 9, 10, 12, 1, 2, 4, 8, 7, 11]
     syndromes = [1, 2, 4, 8, 0, 1, 2, 4, 8, 0, 1, 2]
 
-    def fail(*args: object) -> None:
-        pytest.fail("faults were listed although no primitive fault is heavy")
-
     with monkeypatch.context() as patch:
-        patch.setattr(fault_propagation, "FaultLister", fail)
+        lister = mock.Mock(wraps=fault_propagation.FaultLister)
+        patch.setattr(fault_propagation, "FaultLister", lister)
         assert _certify_map(flags, syndromes, None, 4) is None
+    lister.assert_not_called()
 
     # One primitive fault whose error has Pauli weight three brings back the search, and it fails
     # together with the primitive fault that has the same flags.
