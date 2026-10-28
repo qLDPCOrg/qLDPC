@@ -400,7 +400,7 @@ def _search_irreducible_faults(
     # faults to check are the ones that start with a heavy primitive fault.
     primitives = heavy + light
 
-    # The oracle needs only small tables, so the table of pairs may use the whole memory limit.
+    # The oracle needs only small tables, so the lister may use the whole memory limit.
     lister = FaultLister(
         [flag for flag, _, _, _ in primitives],
         [syndrome for _, syndrome, _, _ in primitives],
