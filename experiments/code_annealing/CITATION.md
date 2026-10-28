@@ -1,6 +1,6 @@
 # Citation
 
-If you use this experiment, or the codes that it finds, please cite the paper:
+If you use this experiment, or the codes that it finds, please cite the paper [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574) (arXiv:2607.19574):
 
 ```bibtex
 @misc{perlin2026quantum,

@@ -6,9 +6,19 @@ It implements the paper's code search, and builds the paper's table and figures 
 The experiment searches for quantum error-correcting codes with high encoding rates and large distances by adaptive simulated annealing.
 It searches two classes of codes: CSS codes, and self-dual CSS codes with equivalent logicals (SWEL codes), which admit transversal logical Hadamard and phase gates.
 Each search fixes the numbers `n` of physical and `k` of logical qubits, and walks over local Clifford conjugations of a code, lowering an energy that stands in for the logical error rate of the code.
-Every proposed code is scored exactly, by its distance and its number of minimum-weight logical operators, so no result relies on sampling or approximation.
+Every proposed code is scored exactly, by its distance and its number of minimum-weight logical operators, so the search relies on no sampling or approximation.
 
-To cite the paper, see [CITATION.md](CITATION.md).
+## Where to start
+
+| To | Read |
+| --- | --- |
+| Set up and run the scripts | [Installation](#installation), then [ENVIRONMENT.md](ENVIRONMENT.md) for details |
+| Reproduce the paper's table and figures, or check its headline claims | [Reproducing the paper](#reproducing-the-paper), then [REPRODUCTION.md](REPRODUCTION.md) for every figure and table |
+| Know what the paper's data files are | [paper_data/README.md](paper_data/README.md) |
+| Rerun the code searches, at any scale | [The searches, at any scale](#the-searches-at-any-scale) |
+| Find the code of each part of the paper's method | [How the experiment implements the paper](#how-the-experiment-implements-the-paper) |
+| Know what each file and directory holds | [Layout](#layout) |
+| Cite the paper | [CITATION.md](CITATION.md) |
 
 ## Installation
 
