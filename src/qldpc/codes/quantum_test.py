@@ -946,13 +946,15 @@ def test_balanced_product_code() -> None:
     assert np.array_equal(code.matrix_z, hgp_code.matrix_z)
 
     # with symmetries that generate a group acting freely, a balanced product code is a lifted
-    # product code
+    # product code: pairing a cyclic shift within each block of one lifted matrix with the inverse
+    # shift in the other gives the lifted product of the two matrices
     group = abstract.CyclicGroup(3)
     ring = abstract.GroupRing(group)
     one, shift, shift_squared = (abstract.RingMember(ring, member) for member in group.generate())
     matrix = abstract.RingArray.build([[one + shift, shift_squared]], ring)
-    symmetry = ([1, 2, 0], [1, 2, 0, 4, 5, 3])  # cyclic shifts within each block of matrix.lift()
-    code = codes.BPCode(matrix.lift(), matrix.lift(), [symmetry], [symmetry])
+    symmetry = ([1, 2, 0], [1, 2, 0, 4, 5, 3])
+    inverse_symmetry = ([2, 0, 1], [2, 0, 1, 5, 3, 4])
+    code = codes.BPCode(matrix.lift(), matrix.lift(), [symmetry], [inverse_symmetry])
     assert code.get_code_params() == codes.LPCode(matrix, matrix).get_code_params() == (15, 3, 3)
 
     # over GF(2), from_seed constructs the code in Definition 1 of arXiv:2505.13679v2, up to qudit
