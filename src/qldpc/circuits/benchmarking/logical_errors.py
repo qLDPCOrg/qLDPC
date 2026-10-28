@@ -167,8 +167,8 @@ def get_logical_error_and_discard_rate(
         TypeError: If ``post_select`` or ``post_select_observables`` is neither a bool nor a
             collection of integer indices.
         ValueError: If ``dem_to_decode`` has a different number of detectors or observables than
-            the detector error model to sample, or if ``post_select`` or
-            ``post_select_observables`` has an index outside the detectors or observables.
+            the detector error model to sample, or if ``post_select`` or ``post_select_observables``
+            has an index outside the detectors or observables.
     """
     # identify and simplify the DEM to sample
     dem_arrays = decoders.DetectorErrorModelArrays(circuit_or_dem, simplify=True)
