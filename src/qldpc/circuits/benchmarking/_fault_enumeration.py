@@ -24,6 +24,15 @@ _BYTES_PER_PAIR = 24
 # The largest number of faults in a batch of the compiled listing.
 _BATCH_SIZE = 2**12
 
+# The number of syndromes that the table of listed syndromes starts with room for.
+_INITIAL_SYNDROME_TABLE_SIZE = 2**10
+
+# An odd 32-bit constant, near 2**32 divided by the golden ratio.  The slot of a syndrome in a table
+# comes from the product of this and the low 32 bits of its hash, which mixes these bits.  The
+# hashes are linear, so their bits alone can place the syndromes of a table in long runs of slots,
+# which makes lookups slow.
+_HASH_MULTIPLIER = np.uint64(0x9E3779B9)
+
 ####################################################################################################
 # listing irreducible accepted faults
 
@@ -39,7 +48,8 @@ class FaultLister:
 
     The closing primitive fault is looked up in a table by the hash of its flags.  For fault weight
     four or more, the last two primitive faults are looked up together in a table of pairs, if it
-    fits within the memory limit.
+    fits within the memory limit.  The lister also keeps a table of the syndromes of the faults that
+    it has listed, which grows within the rest of the memory limit.
 
     Args:
         flags: The flags of each primitive fault, packed into an integer.
@@ -49,7 +59,9 @@ class FaultLister:
         num_qubits: The number of output qubits.
         css_weight: Whether the Pauli weight is the CSS weight, or else the physical weight.
         num_starts: The number of primitive faults that a listed fault can start with.
-        memory_limit: The approximate number of bytes for a table of pairs of primitive faults.
+        memory_limit: The approximate number of bytes for the table of pairs of primitive faults,
+            which has first claim on them if it fits, since it saves more time, and the table of
+            syndromes.
     """
 
     def __init__(
@@ -85,8 +97,20 @@ class FaultLister:
         self._num_syndrome_words = syndrome_words.shape[1]
         self._css_weight = css_weight
         self._num_starts = num_starts
-        self._memory_limit = memory_limit
         self._singles = _get_closing_table(self._rows[:, 0], 1)
+
+        # Each syndrome in the table takes a row of its hash and its words, and two slots, and the
+        # slots are numbered by 32 bits (see ``_find_syndrome``).
+        num_primitives = len(self._rows)
+        pair_bytes = num_primitives * (num_primitives - 1) // 2 * _BYTES_PER_PAIR
+        self._pairs_fit = pair_bytes <= memory_limit
+        free_bytes = memory_limit - pair_bytes if self._pairs_fit else memory_limit
+        bytes_per_syndrome = 8 * (self._num_syndrome_words + 3)
+        self._max_syndromes = min(free_bytes // bytes_per_syndrome, 2**31)
+        self._syndrome_rows, self._syndrome_slots = _get_empty_syndrome_table(
+            self._num_syndrome_words
+        )
+        self._num_syndromes = 0
 
     def find_first(
         self, fault_weight: int, find_violation: Callable[[npt.NDArray[np.uint64], int], int]
@@ -96,10 +120,17 @@ class FaultLister:
         The faults are passed to ``find_violation(syndromes, fault_weight)`` in batches, one
         syndrome per row, split into 64-bit words with word ``j`` holding bits ``64 j`` and up.  It
         returns the index of the first syndrome that violates the bound at this fault weight, or the
-        number of rows if there is none.  Its answer must depend only on the syndromes and the fault
-        weight, so a fault is left out of a batch if an earlier fault in the same batch has its
-        syndrome.  A fault is also left out if the product of the representatives of its primitive
-        faults has Pauli weight at most its fault weight, since then it satisfies the bound.
+        number of rows if there is none.  A fault is left out if the product of the representatives
+        of its primitive faults has Pauli weight at most its fault weight, since then it satisfies
+        the bound.
+
+        A fault is also left out if a fault listed earlier, by this call or by an earlier call
+        without a violation, has its syndrome, unless the table of syndromes had no room for it.
+        That fault had the same or a smaller fault weight, so this is exact if the fault weight
+        never decreases from one call to the next, if every call uses the same ``find_violation``,
+        and if a syndrome that does not violate the bound at one fault weight does not violate it at
+        any larger one, as for the bound ``μ(s) ≤ fault_weight``.  A call that finds a violation
+        clears the table, since it holds syndromes of faults that were not checked.
 
         Returns:
             The positions of the primitive faults of the first violating fault and its syndrome, or
@@ -109,7 +140,7 @@ class FaultLister:
         keys, members = self._singles if pairs is None else pairs
         batch_members = np.empty((_BATCH_SIZE, fault_weight), dtype=np.int64)
         batch_syndromes = np.empty((_BATCH_SIZE, self._num_syndrome_words), dtype=np.uint64)
-        for count in _iter_irreducible_fault_batches(
+        for count, syndrome_rows, syndrome_slots, num_syndromes in _iter_irreducible_fault_batches(
             self._rows,
             self._num_flag_words,
             keys,
@@ -118,9 +149,22 @@ class FaultLister:
             self._css_weight,
             batch_members,
             batch_syndromes,
+            self._syndrome_rows,
+            self._syndrome_slots,
+            self._num_syndromes,
+            self._max_syndromes,
         ):
+            self._syndrome_rows, self._syndrome_slots, self._num_syndromes = (
+                syndrome_rows,
+                syndrome_slots,
+                num_syndromes,
+            )
             index = find_violation(batch_syndromes[:count], fault_weight)
             if index < count:
+                self._syndrome_rows, self._syndrome_slots = _get_empty_syndrome_table(
+                    self._num_syndrome_words
+                )
+                self._num_syndromes = 0
                 positions = tuple(batch_members[index].tolist())
                 syndrome = int.from_bytes(batch_syndromes[index].astype("<u8").tobytes(), "little")
                 return positions, syndrome
@@ -129,10 +173,7 @@ class FaultLister:
     @functools.cached_property
     def _pairs(self) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32]] | None:
         """The table of pairs of primitive faults, if it fits within the memory limit."""
-        num_primitives = len(self._rows)
-        if num_primitives * (num_primitives - 1) // 2 * _BYTES_PER_PAIR > self._memory_limit:
-            return None
-        return _get_closing_table(self._rows[:, 0], 2)
+        return _get_closing_table(self._rows[:, 0], 2) if self._pairs_fit else None
 
 
 @always_compiled
@@ -188,6 +229,14 @@ def _get_closing_table(
         if starts[bucket] - start > 1:
             _sort_bucket(keys, members, start, starts[bucket])
     return keys, members
+
+
+def _get_empty_syndrome_table(
+    num_words: int,
+) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int64]]:
+    """An empty table of syndromes of this many words (see ``_find_syndrome``)."""
+    size = _INITIAL_SYNDROME_TABLE_SIZE
+    return np.empty((size, 1 + num_words), dtype=np.uint64), np.full(2 * size, -1, dtype=np.int64)
 
 
 def _hash_words(words: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
@@ -258,14 +307,23 @@ def _iter_irreducible_fault_batches(
     css_weight: bool,
     batch_members: npt.NDArray[np.int64],
     batch_syndromes: npt.NDArray[np.uint64],
-) -> Iterator[int]:
+    syndrome_rows: npt.NDArray[np.uint64],
+    syndrome_slots: npt.NDArray[np.int64],
+    num_syndromes: int,
+    max_syndromes: int,
+) -> Iterator[tuple[int, npt.NDArray[np.uint64], npt.NDArray[np.int64], int]]:
     """List irreducible accepted faults into batches, as ``FaultLister.find_first`` describes.
 
     The rows describe the primitive faults, as in ``FaultLister``, and the keys and members are a
     table from ``_get_closing_table``.  Each listed fault that is not left out gets a row of the
-    batch arrays: its primitive faults and its syndrome.  Yield the number of faults in the batch
-    each time that the batch is full, and once at the end.  The caller must read a batch before
-    resuming.
+    batch arrays: its primitive faults and its syndrome.  The first ``num_syndromes`` rows of
+    ``syndrome_rows``, with ``syndrome_slots``, form the table of syndromes of ``_find_syndrome``.
+    Each time that the batch is full, and once at the end, yield the number of faults in the batch
+    and the table.  The caller must read a batch before resuming.
+
+    Once the table is half full, the next fault that is added to the batch yields it early, and the
+    table then doubles in size, while the old and the new table together have at most
+    ``max_syndromes`` rows.  A full table takes no more syndromes.
     """
     # Columns 0 and 1 of the rows hold the hashes of the flags and of the syndrome.
     num_primitives, num_words = rows.shape
@@ -285,10 +343,8 @@ def _iter_irreducible_fault_batches(
     basis = np.zeros((depth, num_flag_words), dtype=np.uint64)
     pivots = np.zeros(depth, dtype=np.int64)
     fault = np.empty(num_words, dtype=np.uint64)
+    syndrome = np.empty(x_start - syndrome_start, dtype=np.uint64)
     reduced = np.empty(num_flag_words, dtype=np.uint64)
-
-    # A hash table of the syndromes in the batch, holding their rows or -1 in each slot.
-    slots = np.full(2 * len(batch_members), -1, dtype=np.int64)
     count = 0
 
     level = 0
@@ -323,34 +379,69 @@ def _iter_irreducible_fault_batches(
         for entry in range(low, high):
             if members[entry, 0] <= choice:
                 continue
-            fault[:] = sums[depth]
+            closes = True
+            for word in range(flag_start, syndrome_start):
+                flags = sums[depth, word]
+                for member in members[entry]:
+                    flags ^= rows[member, word]
+                closes = closes and not flags
+            if not closes:
+                continue
+
+            # Leave out the fault if a fault listed earlier has its syndrome.  This comes before the
+            # costlier test of independence, which a fault left out here does not need.
+            hashed = sums[depth, 1]
             for member in members[entry]:
-                for word in range(num_words):
-                    fault[word] ^= rows[member, word]
-            if fault[flag_start:syndrome_start].any():
+                hashed ^= rows[member, 1]
+            for word in range(len(syndrome)):
+                syndrome[word] = sums[depth, syndrome_start + word]
+                for member in members[entry]:
+                    syndrome[word] ^= rows[member, syndrome_start + word]
+            slot = _find_syndrome(hashed, syndrome, syndrome_rows, syndrome_slots)
+            if slot < 0:
                 continue
             first_flags = rows[members[entry, 0], flag_start:syndrome_start]
             if num_closing == 2 and _reduce_flags(first_flags, basis, pivots, reduced) < 0:
                 continue
 
+            # The fault is listed, so add its syndrome to the table if there is room, also if the
+            # fault is left out below, since it satisfies the bound then.
+            if num_syndromes < len(syndrome_rows):
+                syndrome_rows[num_syndromes, 0] = hashed
+                syndrome_rows[num_syndromes, 1:] = syndrome
+                syndrome_slots[slot] = num_syndromes
+                num_syndromes += 1
+
             # The product of the representatives is an error with the fault's syndrome, so if its
             # Pauli weight is at most the fault weight, the fault satisfies the bound.  Otherwise
-            # add the fault to the batch, unless an earlier fault in the batch has its syndrome.
+            # add the fault to the batch.
+            for word in range(x_start, num_words):
+                fault[word] = sums[depth, word]
+                for member in members[entry]:
+                    fault[word] ^= rows[member, word]
             weight = _pauli_weight(fault[x_start:z_start], fault[z_start:], css_weight)
             if weight <= fault_weight:
                 continue
-            batch_syndromes[count] = fault[syndrome_start:x_start]
-            if not _add_syndrome(batch_syndromes, count, slots, fault[1]):
-                continue
+            batch_syndromes[count] = syndrome
             for index in range(depth):
                 batch_members[count, index] = candidates[index] - 1
             batch_members[count, depth:] = members[entry]
             count += 1
-            if count == len(batch_members):
-                yield count
+
+            # Yield the batch when it is full, or early when the table should grow, and then grow
+            # the table.  Growing it anywhere else, or keeping a flag across the yield, makes numba
+            # compile this loop to slower code.
+            num_rows = len(syndrome_rows)
+            grow = 2 * num_syndromes >= num_rows and 3 * num_rows <= max_syndromes
+            if count == len(batch_members) or grow:
+                yield count, syndrome_rows, syndrome_slots, num_syndromes
                 count = 0
-                slots[:] = -1
-    yield count
+                num_rows = len(syndrome_rows)
+                if 2 * num_syndromes >= num_rows and 3 * num_rows <= max_syndromes:
+                    syndrome_rows, syndrome_slots = _grow_syndrome_table(
+                        syndrome_rows, num_syndromes
+                    )
+    yield count, syndrome_rows, syndrome_slots, num_syndromes
 
 
 @always_compiled
@@ -391,22 +482,45 @@ def _pauli_weight(
 
 
 @always_compiled
-def _add_syndrome(
-    syndromes: npt.NDArray[np.uint64], row: int, slots: npt.NDArray[np.int64], hashed: np.uint64
-) -> bool:
-    """Add a row of syndromes to a hash table of the earlier rows, unless an equal row is there.
+def _find_syndrome(
+    hashed: np.uint64,
+    syndrome: npt.NDArray[np.uint64],
+    syndrome_rows: npt.NDArray[np.uint64],
+    syndrome_slots: npt.NDArray[np.int64],
+) -> int:
+    """Look up a syndrome with this hash in a table of syndromes.
 
-    The hash table has more slots than rows, and finds a row in the first empty or matching slot
-    from the slot that its hash picks.  Return whether the row was added.
+    Each row of ``syndrome_rows`` that is in the table holds the hash of a syndrome and then its
+    words.  ``syndrome_slots`` has twice as many entries as ``syndrome_rows`` has rows, each a row
+    or -1 for none, and a syndrome is in the first slot, from the one that its hash picks, that is
+    empty or holds it.  Return -1 if the syndrome is in the table, and otherwise the empty slot for
+    it.
     """
-    slot = np.int64(hashed % np.uint64(len(slots)))
-    while slots[slot] >= 0:
-        other = syndromes[slots[slot]]
-        equal = True
-        for word in range(len(other)):
-            equal = equal and other[word] == syndromes[row, word]
+    # The number of slots is a power of two, at most 2**32, and the slot is the top bits of the low
+    # 32 bits of the product, which fits in 64 bits.
+    low_bits = np.uint64(0xFFFFFFFF)
+    shift = np.uint64(32 - trailing_zeros_word(np.uint64(len(syndrome_slots))))
+    slot = np.int64((((hashed & low_bits) * _HASH_MULTIPLIER) & low_bits) >> shift)
+    while syndrome_slots[slot] >= 0:
+        row = syndrome_slots[slot]
+        equal = syndrome_rows[row, 0] == hashed
+        for word in range(len(syndrome)):
+            equal = equal and syndrome_rows[row, 1 + word] == syndrome[word]
         if equal:
-            return False
-        slot = (slot + 1) % len(slots)
-    slots[slot] = row
-    return True
+            return -1
+        slot = (slot + 1) % len(syndrome_slots)
+    return int(slot)
+
+
+@always_compiled
+def _grow_syndrome_table(
+    syndrome_rows: npt.NDArray[np.uint64], num_syndromes: int
+) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int64]]:
+    """Copy a table of ``num_syndromes`` syndromes (see ``_find_syndrome``) into a larger one."""
+    larger_rows = np.empty((2 * len(syndrome_rows), syndrome_rows.shape[1]), dtype=np.uint64)
+    larger_rows[:num_syndromes] = syndrome_rows[:num_syndromes]
+    larger_slots = np.full(2 * len(larger_rows), -1, dtype=np.int64)
+    for row in range(num_syndromes):
+        hashed, syndrome = larger_rows[row, 0], larger_rows[row, 1:]
+        larger_slots[_find_syndrome(hashed, syndrome, larger_rows, larger_slots)] = row
+    return larger_rows, larger_slots
