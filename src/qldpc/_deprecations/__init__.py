@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Deprecated names, methods, arguments, and decoder construction of qLDPC, and pending changes.
+"""Deprecated names, methods, arguments, and decoder construction of qLDPC, and future changes.
 
 All deprecation code lives in this private package.  The core module registers deprecated names,
 defines deprecated methods, and provides the helpers that inline deprecated-argument blocks and
-pending-change blocks call.
+future-change blocks call.
 The decoders module holds deprecated decoder construction, which qldpc.decoders serves through the
 registry.  Modules with deprecated decoder arguments import it directly, and
 install_deprecated_methods imports it when it runs, so this package does not import it when it is

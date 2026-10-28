@@ -243,16 +243,18 @@ def test_defunct_methods() -> None:
 
 
 def test_warn_future_change() -> None:
-    """Pending changes issue a FutureWarning with a stacklevel relative to the warning function."""
+    """Future changes issue a FutureWarning attributed to the caller of the changing function."""
 
     def changing_function() -> None:
         _deprecations.warn_future_change("this will change", stacklevel=2)
 
     frame = inspect.currentframe()
     assert frame is not None
+    call_line = frame.f_lineno + 2  # the line that calls changing_function below
     with pytest.warns(FutureWarning, match="this will change") as warning_records:
         changing_function()
-    assert warning_records[0].lineno == frame.f_lineno - 1  # the line that calls changing_function
+    assert len(warning_records) == 1
+    assert warning_records[0].filename == __file__ and warning_records[0].lineno == call_line
 
 
 def _get_from_package(module_name: str, name: str) -> object:
