@@ -3,7 +3,7 @@ qLDPC documentation
 
 ``qLDPC`` is a Python toolkit for constructing and analyzing finite-size `quantum low-density parity-check codes <https://errorcorrectionzoo.org/c/qldpc>`_, as well as `stabilizer <https://errorcorrectionzoo.org/c/stabilizer>`_ and `subsystem <https://errorcorrectionzoo.org/c/oecc>`_ codes more broadly.
 It provides shared implementations and scientific conventions that researchers and their AI assistants can inspect, combine, and extend.
-The `project goals <https://github.com/qLDPCOrg/qLDPC/blob/main/README.md#goals>`_ guide its support for exploration, scientific clarity, checking and reproduction, and learning.
+The `project goals <https://github.com/qLDPCOrg/qLDPC/blob/main/README.md#-goals>`_ guide its support for exploration, scientific clarity, checking and reproduction, and learning.
 
 Use the :doc:`library map <library_map>` to understand qLDPC's data model and package structure, the :doc:`examples <examples/index>` to learn concepts and adapt complete workflows, and the :doc:`API reference <autoapi/index>` for exact signatures and construction-specific literature.
 

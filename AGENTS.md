@@ -1,7 +1,7 @@
 # Agent and contributor guide
 
 This guide is for people and agents changing qLDPC.
-Before proposing, implementing, or reviewing changes, read the [project purpose and goals](README.md#goals) and keep them in mind.
+Before proposing, implementing, or reviewing changes, read the [project purpose and goals](README.md#-goals) and keep them in mind.
 Use them to guide scope, design, validation, and explanation.
 Apply the goals to the requested work rather than using them to justify unrelated changes.
 

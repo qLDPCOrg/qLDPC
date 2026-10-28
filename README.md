@@ -6,7 +6,7 @@ It provides shared implementations and scientific conventions that researchers a
 Most code-level tools work over arbitrary finite fields.
 Circuit tools currently only support qubit codes.
 
-## Goals
+## 🎯 Goals
 
 - **Enable exploration.**
   Favor small, composable tools and extension points that let users investigate new ideas without adopting a prescribed workflow or adding a built-in feature.
