@@ -240,7 +240,8 @@ Keep deprecated code in one place, so that it is easy to find and to remove.
 
 ## Future changes
 
-To change the behavior or a default of a released public API, warn users first:
+A deprecation suits old usage that will fail with an error once removed, but a change that makes the same call silently behave differently needs a `FutureWarning`.
+To make such a change to a released public API, warn users first:
 
 1. Add a keyword argument that selects the old or the new behavior, with a default of `None` that keeps the old behavior and calls `_deprecations.warn_future_change` in a block marked `# FUTURE CHANGE: see qldpc._deprecations`.
    Describe both behaviors in the docstring, and the change in the "Future changes" section of the [library map](docs/source/library_map.rst).
