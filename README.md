@@ -193,6 +193,13 @@ Some searches are expensive, some bounds are heuristic, experimental APIs can ch
 
 Questions, feedback, and ideas are welcome through [GitHub issues](https://github.com/qLDPCOrg/qLDPC/issues/new) or by email at [mika.perlin@gmail.com](mailto:mika.perlin@gmail.com).
 
+## AI usage
+
+AI assistants are used in qLDPC's development and maintenance.
+Human maintainers direct and approve changes, but may rely on AI-assisted review and automated checks rather than reviewing every implementation detail.
+AI-assisted contributions are held to the same [standards for scientific correctness, testing, documentation, and compatibility](AGENTS.md) as other contributions.
+Project maintainers remain responsible for accepting contributions and communicating their assumptions and limitations.
+
 ## ⚓ Attribution
 
 If you use qLDPC in your work, please follow the [citation instructions](CITATION.md).
