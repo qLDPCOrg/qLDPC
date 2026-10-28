@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -225,7 +226,7 @@ class _WrappedErrorDecoder(ErrorDecoder):
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.decoder!r})"
 
-    def decode_errors(self, syndrome: npt.NDArray[np.int_], *args: Any, **kwargs: Any) -> Any:
+    def decode_errors(self, syndrome: npt.NDArray[np.int_], *args: object, **kwargs: object) -> Any:
         """Decode an error syndrome and return an inferred error."""
         name = "decode" if hasattr(self.decoder, "decode") else "decode_errors"
         return getattr(self.decoder, name)(syndrome, *args, **kwargs)
@@ -265,6 +266,8 @@ def _supports_batch_decoding(decoder: ErrorDecoder) -> bool:
     return _get_batch_decoding_method(decoder) is not None
 
 
-def _get_batch_decoding_method(decoder: ErrorDecoder) -> Any:
+def _get_batch_decoding_method(
+    decoder: ErrorDecoder,
+) -> Callable[[npt.NDArray[np.int_]], object] | None:
     """The decode_errors_batch method of an error decoder, its alias decode_batch, or None."""
     return getattr(decoder, "decode_errors_batch", None) or getattr(decoder, "decode_batch", None)

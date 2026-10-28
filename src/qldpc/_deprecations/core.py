@@ -44,9 +44,11 @@ if TYPE_CHECKING:
     import networkx as nx
     import numpy as np
     import numpy.typing as npt
+    import stim
 
     from qldpc.abstract.groups import NestedSequence
     from qldpc.codes import QuditCode
+    from qldpc.decoders.dems import ErrorMechanism
     from qldpc.objects import TannerGraph
 
 # the type of physical error rates that qldpc.codes.monte_carlo.ErrorRateFunc formerly accepted
@@ -184,6 +186,9 @@ ALIASES: dict[str, dict[str, str]] = {
         "Decoder": "qldpc.decoders.protocols:ErrorDecoder",
         "PLACEHOLDER_ERROR_RATE": "qldpc.decoders.common:_PLACEHOLDER_ERROR_RATE",
         "RelayBPDecoder": "qldpc.decoders.external.relay_bp:RelayBPDecoder",
+    },
+    "qldpc.decoders.dems": {
+        "CircuitError": "qldpc.decoders.dems:ErrorMechanism",
     },
     "qldpc.decoders.sinter": {
         "Decoder": "qldpc.decoders.protocols:ErrorDecoder",
@@ -340,6 +345,7 @@ def install_deprecated_methods() -> None:
     from qldpc.abstract import SmallGroup, TrivialGroup
     from qldpc.codes import AbstractCode, BBCode, ClassicalCode, CSSCode, QuditCode
     from qldpc.decoders.custom import DirectDecoder, GUFDecoder
+    from qldpc.decoders.dems import DetectorErrorModelArrays
 
     _attach_tanner_graph_methods(ClassicalCode, symplectic=False)
     _attach_tanner_graph_methods(QuditCode, symplectic=True)
@@ -434,6 +440,28 @@ def install_deprecated_methods() -> None:
             "TrivialGroup.to_ring_array(data) is DEFUNCT; use"
             " qldpc.abstract.RingArray.build(data) instead"
         )
+
+    @_deprecated_method(DetectorErrorModelArrays, static=True)
+    def get_circuit_errors(
+        dem: stim.DetectorErrorModel, *, decompose_errors: bool = False
+    ) -> list[ErrorMechanism]:
+        """Deprecated alias for DetectorErrorModelArrays.get_error_mechanisms."""
+        warn_deprecated(
+            "DetectorErrorModelArrays.get_circuit_errors is DEPRECATED; use"
+            " DetectorErrorModelArrays.get_error_mechanisms instead",
+            stacklevel=get_external_caller_stacklevel(),
+        )
+        return DetectorErrorModelArrays.get_error_mechanisms(dem, decompose_errors=decompose_errors)
+
+    @_deprecated_method(DetectorErrorModelArrays, static=True)
+    def get_merged_circuit_errors(errors: list[ErrorMechanism]) -> list[ErrorMechanism]:
+        """Deprecated alias for DetectorErrorModelArrays.get_merged_error_mechanisms."""
+        warn_deprecated(
+            "DetectorErrorModelArrays.get_merged_circuit_errors is DEPRECATED; use"
+            " DetectorErrorModelArrays.get_merged_error_mechanisms instead",
+            stacklevel=get_external_caller_stacklevel(),
+        )
+        return DetectorErrorModelArrays.get_merged_error_mechanisms(errors)
 
     @_deprecated_method(GUFDecoder, attribute=True)
     def code(self: GUFDecoder) -> AbstractCode:

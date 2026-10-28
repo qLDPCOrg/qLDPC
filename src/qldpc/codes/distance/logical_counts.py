@@ -121,7 +121,8 @@ class CSSLogicalCounter:
 
     Counts are of physical operators ignoring phase, not of logical classes.  At the default weight,
     ``d`` is the minimum over both sectors, so ``count_x`` or ``count_z`` may be zero.  Counting
-    generally takes an exponentially long time.
+    generally takes an exponentially long time.  A counter remembers the distance that each search
+    method finds, so later counts at the default weight with that method do not search again.
 
     In a subsystem code, the checks ``G_X`` and ``G_Z`` are gauge generators, and the stabilizers
     ``S_X`` and ``S_Z`` are the gauge operators that commute with all gauge operators of the other
@@ -130,7 +131,7 @@ class CSSLogicalCounter:
     methods support subsystem codes, but the MacWilliams method does not.
 
     Counters for codes deformed by local CSS-preserving Cliffords (see :meth:`deformed`) reuse the
-    work of this counter.
+    work of this counter, except for the distance, which they search for again.
 
     Args:
         code: A binary CSS code, which may be a subsystem code and may have redundant checks.
@@ -169,6 +170,7 @@ class CSSLogicalCounter:
         self._dimension = self._num_qubits - len(self._gauge_x) - len(self._stabilizers_z)
 
         # Work that is done on demand and kept for later counts.
+        self._distances: dict[DistanceMethod, int] = {}
         self._sectors: tuple[_Sector, _Sector] | None = None
         self._disjoint_basis_families: dict[int, _information_sets.BasisFamily] = {}
         self._enumerators: macwilliams.CheckEnumerators | None = None
@@ -256,7 +258,7 @@ class CSSLogicalCounter:
             qubits, the returned weight is the number of qubits and every count is zero.
 
         Raises:
-            TypeError: If ``max_information_sets`` is not an integer.
+            TypeError: If ``max_information_sets`` is not an integer, or is a bool.
             ValueError: If the weight is not an integer between zero and the number of qubits, if
                 the method is unknown, if the weight is above the distance and ``count_pauli`` or
                 ``within_distance`` is set, or if the MacWilliams method does not support the code
@@ -272,6 +274,8 @@ class CSSLogicalCounter:
             raise ValueError("The weight must be an integer between zero and the number of qubits")
         if method == "macwilliams":
             self._validate_macwilliams_request(count_pauli)
+        if isinstance(max_information_sets, bool):
+            raise TypeError(f"max_information_sets must be an integer, not {max_information_sets}")
         # Compiled code specializes on the type of each argument, so fix it to a Python integer.
         max_sets = operator.index(max_information_sets)
 
@@ -294,11 +298,15 @@ class CSSLogicalCounter:
         get_disjoint_basis_families = [
             functools.partial(self._get_disjoint_basis_family, index) for index in range(2)
         ]
-        target = (
-            int(weight)
-            if weight is not None
-            else _get_distance(sectors, method, get_disjoint_basis_families)
-        )
+        # Each search method remembers its own distance, so that brute force stays an independent
+        # reference for the Brouwer-Zimmermann search.
+        if weight is not None:
+            target = int(weight)
+        elif method in self._distances:
+            target = self._distances[method]
+        else:
+            target = _get_distance(sectors, method, get_disjoint_basis_families)
+            self._distances[method] = target
 
         # A nontrivial logical Pauli (x, z) of weight d has one of two disjoint forms.  Either x is
         # a nontrivial X logical with support T of size d, and z is one of 2**(d - rank(S_X[:, T]))
@@ -370,6 +378,7 @@ class CSSLogicalCounter:
             A new counter.  This counter is not modified.
 
         Raises:
+            TypeError: If the targets are not a collection of qubit indices.
             ValueError: If the targets are invalid, or if ``matrix_x`` is not an invertible binary
                 matrix that matches the number of targets.
         """
@@ -422,7 +431,12 @@ class CSSLogicalCounter:
 
     def _get_positions(self, targets: Sequence[int]) -> npt.NDArray[np.int64]:
         """Validate deformation targets."""
-        positions = list(targets)
+        try:
+            positions = list(targets)
+        except TypeError as error:
+            raise TypeError(
+                f"Clifford targets must be a collection of qubit indices (got {targets!r})"
+            ) from error
         if (
             not 1 <= len(positions) <= 64
             or any(
@@ -479,7 +493,9 @@ class CSSLogicalCounter:
                 self._stabilizers_z, positions, local_z
             )
 
-        # Transform the kept work where the gate allows it, and drop the rest.
+        # Transform the kept work where the gate allows it, and drop the rest.  A gate can change
+        # the distance, so the deformed counter searches for it again.
+        counter._distances = {}
         counter._sectors = None
         counter._disjoint_basis_families = {}
         # A gate changes the weight of every check word that touches its qubits, so the weight
@@ -622,7 +638,7 @@ def count_logical_ops_css(
 
     Raises:
         TypeError: If the code is not a :class:`~qldpc.codes.CSSCode`, or if
-            ``max_information_sets`` is not an integer.
+            ``max_information_sets`` is not an integer, or is a bool.
         ValueError: If the code is not binary, or for invalid arguments as described in
             :meth:`CSSLogicalCounter.count_logical_ops`.
     """

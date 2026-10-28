@@ -239,11 +239,12 @@ def test_a_failed_compilation_leaves_the_set_up_code_as_plain_python(
 
 
 def test_max_information_sets_must_be_an_integer() -> None:
-    """The limit is an integer, of any integer type, and a float is rejected."""
+    """The limit is an integer, of any integer type, and a float or a bool is rejected."""
     counter = get_counter(HAND_X, HAND_Z)
-    not_an_integer: Any = 2.5
-    with pytest.raises(TypeError):
-        counter.count_logical_ops(max_information_sets=not_an_integer)
+    for value in (2.5, True):
+        not_an_integer: Any = value
+        with pytest.raises(TypeError, match="integer"):
+            counter.count_logical_ops(max_information_sets=not_an_integer)
     expected = counter.count_logical_ops()
     assert counter.count_logical_ops(max_information_sets=np.int32(4)) == expected
 
@@ -264,6 +265,22 @@ def test_later_counts_reuse_the_first_family_stage() -> None:
         assert counter.count_logical_ops() == Counts(5, 5, 5, None)
     assert num_first_stages > 0
     assert first_stage.call_count == num_first_stages
+
+
+def test_counters_remember_the_distance_of_each_method() -> None:
+    """Default-weight counts search once per method, and a deformed counter searches again."""
+    counter = get_counter(HAND_X, HAND_Z)
+    expected = counter.count_logical_ops(count_pauli=True)
+    with mock.patch.object(lc, "_get_distance", wraps=lc._get_distance) as search:
+        assert counter.count_logical_ops(count_pauli=True) == expected
+        assert counter.count_logical_ops(method="information_sets") == replace(
+            expected, count_pauli=None
+        )
+        assert search.call_count == 0
+        assert counter.count_logical_ops(method="brute_force", count_pauli=True) == expected
+        assert search.call_count == 1
+        counter.deformed_cnot(0, 2).count_logical_ops()
+        assert search.call_count == 2
 
 
 def test_deformed_counter_reuses_the_first_family_stage() -> None:
@@ -575,3 +592,6 @@ def test_invalid_inputs() -> None:
             (wide if len(targets) == 65 else steane).deformed(invalid_targets, [[1]])
     with pytest.raises(ValueError, match="1 to 64 distinct"):
         steane.deformed_swel(0, 1, 1, 2)
+    not_a_collection: Any = 3
+    with pytest.raises(TypeError, match="collection of qubit indices"):
+        steane.deformed(not_a_collection, [[1]])

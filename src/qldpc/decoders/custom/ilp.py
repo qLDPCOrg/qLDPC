@@ -4,8 +4,9 @@
 
 from __future__ import annotations
 
+import types
 import warnings
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import galois
 import numpy as np
@@ -119,7 +120,7 @@ class ILPDecoder(ErrorDecoder):
 
             num_bits = (max_offset // self.modulus).bit_length() if max_offset > 0 else 0
             if not num_bits:
-                zero_mod_q: Any = 0
+                zero_mod_q: int | cvxpy.Expression = 0
             else:
                 slack_bits = cvxpy.Variable(num_bits, boolean=True)
                 zero_mod_q = [self.modulus * 2**jj for jj in range(num_bits)] @ slack_bits
@@ -201,7 +202,7 @@ Returns:
 )
 
 
-def _get_cvxpy() -> Any:
+def _get_cvxpy() -> types.ModuleType:
     """Import the optional cvxpy package or raise an actionable error."""
     try:
         import cvxpy

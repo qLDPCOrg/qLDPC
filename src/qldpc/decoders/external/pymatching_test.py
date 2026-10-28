@@ -156,7 +156,8 @@ def test_matching_backend_option_validation() -> None:
         ) -> None:
             """Accept an option that a future PyMatching release might add."""
 
-    future_pymatching = types.SimpleNamespace(Matching=FutureMatching)
+    future_pymatching = types.ModuleType("pymatching")
+    vars(future_pymatching)["Matching"] = FutureMatching
     pymatching._validate_backend_options(future_pymatching, {"new_option": 1})
     with pytest.raises(ValueError, match="kwargs"):
         pymatching._validate_backend_options(future_pymatching, {"kwargs": 1})

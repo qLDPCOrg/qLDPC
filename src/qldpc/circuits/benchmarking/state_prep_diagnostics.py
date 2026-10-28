@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import numbers
 from collections.abc import Callable, Collection, Mapping, Sequence
 from typing import Literal
 
@@ -23,7 +22,7 @@ from ..common import (
 )
 from ..encoding import get_logical_state_stabilizers, get_state_stabilizers
 from ..noise_model import DepolarizingNoiseModel, NoiseModel, as_noiseless_circuit
-from .logical_errors import _get_postselection_mask
+from .logical_errors import _get_postselection_mask, _is_integer
 
 ####################################################################################################
 # state preparation diagnostics
@@ -89,6 +88,12 @@ def get_state_prep_diagnostic_circuit(
     Returns:
         stim.Circuit: An annotated circuit for stim/sinter simulations of logical error rates.
         circuits.DetectorRecord: A record of the circuit's detectors (keys described above).
+
+    Raises:
+        ValueError: If the code is not a qubit code; if ``qubit_ids`` does not match the code; if
+            ``skip_validation`` is False and the circuit does not deterministically prepare a pure
+            logical state of the code; or if an observable is the identity, has a symplectic row
+            that is not binary, or is not a Pauli operator on ``len(code)`` qubits.
     """
     qubit_ids = QubitIDs.validated(qubit_ids or QubitIDs.from_code(code), code)
     if not skip_validation:
@@ -106,6 +111,10 @@ def get_state_prep_diagnostic_circuit(
                 for obs in observables
             ],
         ).astype(int)
+
+    # observables are Pauli operators, so their symplectic rows are binary
+    if not all(np.isin(np.array(obs, dtype=int), (0, 1)).all() for obs in observables):
+        raise ValueError("Observables must be Pauli operators, with binary symplectic rows")
 
     # initialize a record of the detectors in the circuit
     detector_record = DetectorRecord({"prep": range(state_prep_circuit.num_detectors)})
@@ -243,6 +252,18 @@ def get_state_prep_diagnostic_tasks(
     Returns:
         A list of sinter Tasks, one-to-one with the provided error_rates.  The error rate of an
             individual task is task.json_metadata["p"].
+
+    Raises:
+        TypeError: If ``post_select`` is not a bool, "flags", or a collection of integer detector
+            indices, or if ``post_select_observables`` is neither a bool nor a collection of integer
+            observable indices.
+        ValueError: If the code is not a qubit code; if ``qubit_ids`` does not match the code; if
+            ``skip_validation`` is False and the circuit does not deterministically prepare a pure
+            logical state of the code; if an observable is the identity, has a symplectic row that
+            is not binary, or is not a Pauli operator on ``len(code)`` qubits; if ``post_select`` is
+            a string other than "flags", is "flags" without ``add_flags=True``, or has an index
+            outside the selectable detectors; or if ``post_select_observables`` has an index outside
+            the observables.
     """
     diagnostic_circuit, detector_record = get_state_prep_diagnostic_circuit(
         code,
@@ -319,11 +340,6 @@ def _get_selected_detectors(
             f"in the range [-{num_selectable}, {num_selectable}); requested: {list(indices)}"
         )
     return tuple(sorted({int(index) % num_selectable for index in indices}))
-
-
-def _is_integer(value: object) -> bool:
-    """Test whether a value is an integer, which a bool is not."""
-    return isinstance(value, numbers.Integral) and not isinstance(value, bool)
 
 
 def _assert_pure_logical_state(

@@ -13,6 +13,7 @@ import galois
 import networkx as nx
 import numpy as np
 import pytest
+import stim
 from sympy.abc import x, y
 
 from qldpc import _deprecations, abstract, codes, decoders, math
@@ -205,6 +206,27 @@ def test_deprecated_small_group_methods() -> None:
             groups = list(abstract.SmallGroup.generator(2))  # type: ignore[attr-defined]
         assert caught[0].filename == __file__
     assert len(groups) == 1 and groups[0].equiv(group)
+
+
+def test_deprecated_dem_methods() -> None:
+    """Deprecated DetectorErrorModelArrays methods warn and delegate to their replacements."""
+    dem = stim.DetectorErrorModel("""
+        error(0.1) D0 ^ D1 L0
+        error(0.2) D0 D1 L0
+        error(0.1) D0 ^ D1 L0
+    """)
+    dem_arrays = decoders.DetectorErrorModelArrays
+    for decompose_errors in [False, True]:
+        with pytest.warns(DeprecationWarning, match="use .*get_error_mechanisms") as caught:
+            errors = dem_arrays.get_circuit_errors(  # type: ignore[attr-defined]
+                dem, decompose_errors=decompose_errors
+            )
+        assert caught[0].filename == __file__
+        assert errors == dem_arrays.get_error_mechanisms(dem, decompose_errors=decompose_errors)
+    with pytest.warns(DeprecationWarning, match="use .*get_merged_error_mechanisms") as caught:
+        merged = dem_arrays.get_merged_circuit_errors(errors)  # type: ignore[attr-defined]
+    assert caught[0].filename == __file__
+    assert merged == dem_arrays.get_merged_error_mechanisms(errors)
 
 
 def test_defunct_methods() -> None:

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import functools
+import types
 import warnings
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
@@ -174,7 +175,7 @@ class RelayBPDecoder(BatchErrorDecoder):
         inner_func = getattr(self.decoder, name)
 
         @functools.wraps(inner_func)
-        def outer_func(*args: object, **kwargs: object) -> Any:
+        def outer_func(*args: object, **kwargs: object) -> object:
             if args:
                 args = (np.asarray(args[0], dtype=np.uint8), *args[1:])
             return inner_func(*args, **kwargs)
@@ -391,7 +392,7 @@ class RelayBPDecoder(BatchErrorDecoder):
         return np.all(residuals == detectors, axis=1)
 
 
-def _get_relay_bp() -> Any:
+def _get_relay_bp() -> types.ModuleType:
     """Import the optional relay-bp package or raise an actionable error."""
     try:
         import relay_bp
