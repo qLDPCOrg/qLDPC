@@ -41,7 +41,7 @@ Plumbing that one subpackage uses is an underscore name in that subpackage, and 
 - A name is public if it is broadly useful to researchers and engineers, and private if it is plumbing that makes qLDPC work.
   Where a name is used, such as in other modules or in notebooks, does not decide this.
 - Plain names defined in public modules (no underscore anywhere in the import path) are public API.
-  Keep them working, and retire a released public name through a tested shim rather than breaking its import (see [Deprecations](#deprecations)).
+  Keep them working, and retire a released public name through a tested shim rather than breaking its import (see [Deprecations and future changes](#deprecations-and-future-changes)).
 - [`src/qldpc/__init__.py`](src/qldpc/__init__.py) exports subpackages, and each subpackage's `__all__` lists the public names that it re-exports.
   Re-export only what typical users reach for, leave specialized public tools at their module path, give each public object one canonical public path, and put utilities that several packages share in a neutral top-level module such as `qldpc.math`.
   Preserve public import paths when moving implementation code.
@@ -142,7 +142,8 @@ Plumbing that one subpackage uses is an underscore name in that subpackage, and 
 - Tests run with network sockets disabled.
   Mock only external boundaries such as web, subprocess, clipboard, prompt, and optional-package paths, or a module's own thin wrappers around them, never the logic under test, and do not add a live-service test.
 - Disk caches are bypassed while pytest is imported, so tests must not depend on cache persistence.
-- Pytest turns every `DeprecationWarning` into an error, so tests use the modern API and test deprecated paths with `pytest.warns(DeprecationWarning, ...)` (see [Deprecations](#deprecations)).
+- Pytest turns every `DeprecationWarning` and `FutureWarning` into an error, so tests use the modern API, and test deprecated usage and future-change warnings with `pytest.warns` (see [Deprecations and future changes](#deprecations-and-future-changes)).
+  This applies to warnings from other packages too; avoid the call that triggers one, or add a narrow `ignore` entry to `filterwarnings` in `pyproject.toml`.
 - A test should guard behavior that matters: results, invariants, documented errors, and contracts between modules.
   Do not pin implementation choices such as internal call order, cache layouts, or incidental error-message wording.
   A test may call a private helper of the module that it tests to check the helper's contract or reach coverage, and may set private state of objects to construct a case, but should not assert on private state.
@@ -197,45 +198,33 @@ In addition, do not change generic resolution for an ordinary backend, and decid
 4. When a public limitation changes, update the relevant function or class docstring and every README or guide that repeats it in the same pull request.
 5. Run the strict documentation build before considering the change complete.
 
-## Deprecations
+## Deprecations and future changes
 
-Deprecated APIs remain supported, but the library and its documentation are written as if they do not exist.
-Keep deprecated code in one place, so that it is easy to find and to remove.
+Never break callers of a released public API without warning.
+Removing or renaming a name, argument, or mode is a deprecation: old usage keeps working with a `DeprecationWarning`, and fails once the deprecation is removed.
+Making the same call silently behave differently, as when a default changes, is a future change, which warns with a `FutureWarning`, also while its old behavior is phased out.
 
-- All deprecated code and APIs live under the private package [`qldpc/_deprecations/`](src/qldpc/_deprecations/).
-  [`core.py`](src/qldpc/_deprecations/core.py) holds the registry of renamed and moved names, `warn_deprecated`, `defunct`, and the deprecated methods and DEFUNCT stubs that `install_deprecated_methods` attaches to their classes; its module docstring explains the mechanics.
-  [`decoders.py`](src/qldpc/_deprecations/decoders.py) holds the deprecated decoder API and its translation into decoder specifications.
-  It is the only module allowed to use other subpackages' underscore names: it calls private decoder builders, so that deprecated APIs pass options to them unchecked.
-  [`lookup.py`](src/qldpc/_deprecations/lookup.py) holds the deprecated direct construction of `LookupDecoder` and `WeightedLookupDecoder`, and the lookup decoders that the deprecated `predict_observable_flips=True` option builds.
-  It imports `qldpc.decoders`, so other modules import it only within the functions that use it.
-- Only the following deprecation code lives outside `qldpc/_deprecations/`:
-  1. Each module that still serves a deprecated name ends with this identical marked stub, which looks the name up in the registry:
-
-     ```python
-     if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations
-
-         def __getattr__(name: str) -> object:
-             return _deprecations.get_deprecated_attribute(__name__, name)
-     ```
-
-  2. Deprecated arguments, modes, and calling conventions of functions that are not themselves deprecated are handled inline, as small blocks that call `_deprecations.warn_deprecated` or raise `_deprecations.defunct(...)`.
-     Substantial translation logic, such as that for deprecated decoder keywords, belongs in `qldpc/_deprecations/`, and the inline block calls into it.
-  3. [`qldpc/__init__.py`](src/qldpc/__init__.py) calls `_deprecations.install_deprecated_methods()` once, after importing all subpackages.
 - Add a shim only for a name that was public in a released version, at its released path: listed in a package `__all__`, or used in released examples or docs.
-  Names added since the last release may change without a shim.
-- Register a renamed or moved name, or a moved submodule, in `ALIASES`, which warns on access.
-  The warning names the replacement if it is public, and otherwise says that the name will be removed from the public API.
-  Use `SILENT_ALIASES` instead for deprecated functions that warn when called.
-- No `__all__` lists a deprecated name, so star imports do not warn.
-  Type checkers must reject deprecated names, so do not add `TYPE_CHECKING` aliases; the stub defines `__getattr__` only under `if not TYPE_CHECKING`.
-- `.rst` pages and the README do not mention deprecated APIs.
-  Docstrings carry no deprecation notes, except one line in `Args` that calls out a deprecated option and what to use instead.
-- The data-driven tests in [`core_test.py`](src/qldpc/_deprecations/core_test.py) cover every registry entry and the attached methods, and [`decoders_test.py`](src/qldpc/_deprecations/decoders_test.py) covers the deprecated decoder API.
-  [`lookup_test.py`](src/qldpc/_deprecations/lookup_test.py) covers the deprecated direct construction of lookup decoders and the lookup decoders that `predict_observable_flips=True` builds.
-  [`decoders/legacy_api_test.py`](src/qldpc/decoders/legacy_api_test.py) checks that the `qldpc.decoders` root names of v0.3.3 and v0.4.1 remain importable.
-  Tests of inline deprecations stay beside their modules; name new ones `test_deprecated_*`.
-- To remove deprecations, grep for `_deprecations` and, case-insensitively, for `deprecat`.
-  Delete the registry entries, attached methods, inline blocks, and `Args` notes, the stubs of modules that no longer serve deprecated names, and the matching tests.
+  Names added since the last release may change without one.
+- Deprecation code lives in the private package [`qldpc/_deprecations/`](src/qldpc/_deprecations/), whose module docstrings explain its mechanics: register renamed and moved names in `ALIASES`, deprecated functions that warn when called in `SILENT_ALIASES`, and deprecated methods in `install_deprecated_methods`.
+  Code in that package may use other subpackages' underscore names, to reproduce old behavior.
+- Elsewhere, handle deprecated arguments, modes, and calling conventions, and future changes, in small blocks that call `_deprecations` helpers such as `warn_deprecated`, `warn_future_change`, and `defunct`, and move any substantial logic into `qldpc/_deprecations/`.
+  Mark each such block, and the parameter that it handles, with `# DEPRECATED: see qldpc._deprecations` or `# FUTURE CHANGE: see qldpc._deprecations`.
+- The library and its docs, including the README, are written as if deprecated APIs do not exist, and tests use deprecated APIs only to test them.
+  No `__all__` lists a deprecated name, and no `TYPE_CHECKING` alias exposes one, so that star imports do not warn and type checkers reject deprecated names.
+  A docstring mentions a deprecated option or old value in at most one `Args` entry, which names its replacement.
+- Warning messages and docs say "in a future release" rather than naming a version.
+- A future change takes three steps, at least one minor release apart:
+  1. Give the keyword that selects the behavior (a new keyword, or the one whose default changes) a default of `None` that keeps the old behavior and warns; explicit values select the old or the new behavior without a warning.
+     Describe both behaviors in the docstring, and the change in a "Future changes" section of the [library map](docs/source/library_map.rst), which is added when needed and removed when empty.
+  2. Make `None` select the new behavior without a warning, keep the old value working with a `FutureWarning` that it will be removed, update the docstring, and remove the library-map entry.
+  3. Make the old value raise `_deprecations.defunct(...)`, mark the block `DEPRECATED`, and rename its tests `test_deprecated_*`.
+     If the new value is the only one left, also deprecate the keyword.
+
+  From step 1 until step 3, qLDPC code, tests, and notebooks pass the new value explicitly.
+- Name new tests of inline deprecations `test_deprecated_*`, and tests of future changes `test_future_change_*`.
+  [`_deprecations/core_test.py`](src/qldpc/_deprecations/core_test.py) tests every registry entry automatically; add a case there for each new deprecated method.
+- To remove deprecations, grep for `_deprecations` and, case-insensitively, for `deprecat`, and delete the deprecated code, `Args` notes, and tests, but leave `FUTURE CHANGE` blocks alone.
 
 ## Validation commands
 

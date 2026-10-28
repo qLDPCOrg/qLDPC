@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Deprecated names, methods, arguments, and decoder construction of qLDPC.
+"""Deprecated names, methods, arguments, and decoder construction of qLDPC, and future changes.
 
-All deprecation code lives in this private package.  The core module registers deprecated names,
-defines deprecated methods, and provides the helpers that inline deprecated-argument blocks call.
+All deprecation logic lives in this private package, apart from the marked blocks and module stubs
+that call it.  The core module registers deprecated names, defines deprecated methods, and provides
+the helpers that inline deprecated-argument blocks and future-change blocks call.
 The decoders module holds deprecated decoder construction, which qldpc.decoders serves through the
 registry.  Modules with deprecated decoder arguments import it directly, and
 install_deprecated_methods imports it when it runs, so this package does not import it when it is
@@ -19,6 +20,7 @@ from .core import (
     get_deprecated_attribute,
     install_deprecated_methods,
     warn_deprecated,
+    warn_future_change,
 )
 
 __all__ = [
@@ -28,4 +30,5 @@ __all__ = [
     "get_deprecated_attribute",
     "install_deprecated_methods",
     "warn_deprecated",
+    "warn_future_change",
 ]
