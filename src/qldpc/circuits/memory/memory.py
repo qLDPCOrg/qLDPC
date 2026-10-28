@@ -51,50 +51,12 @@ class MemoryExperimentParts(NamedTuple):
 class CheckKey(int):
     """The key of the detectors in a memory experiment that track the outcome of one check.
 
-    A CheckKey is the index of a check qubit (an element of ``QubitIDs.check``), and behaves as that
-    integer in every way: it is equal to the integer, has the same hash, and supports arithmetic and
-    sorting.  Records can therefore be indexed with plain integers, as in
-    ``detector_record[check_id]``.  The attributes of a CheckKey describe the detectors that it
-    labels.  Detectors that track a product of several checks are labeled by a CheckProductKey
-    instead, which has the same attributes.
-
-    Detection events.  In a memory experiment with num_rounds rounds of syndrome measurement, the
-    detectors that track one check, or one product of checks, over time are:
-
-    - One detector for each round.  In the first round, this detector checks the outcome against its
-      known value, and in each later round, it compares the outcome to that of the previous round.
-    - Unless the key is a relation (see below), one final readout detector, which compares the
-      outcome of the last round to its value inferred from the final measurement of the data qubits
-      (or, if the memory experiment tracks both X-type and Z-type logical operators, from a final
-      measurement of the stabilizer).
-
-    Readout detectors.  By default, a detector record (see get_memory_experiment_parts) maps a key
-    to all of these detectors, so the readout detector of a key that is not a relation is the last
-    detector of the key, ``detector_record[key][-1]``, which is also the default of
-    ``detector_record.get_detector(key)``.  Likewise, if the memory experiment tracks both X-type
-    and Z-type logical operators, the final measurement of the stabilizer is the last measurement
-    of the key in the measurement record.  This layout matches earlier releases of qLDPC, whose
-    records were keyed by plain integer check indices.  In a future release, the readout detector
-    and the final measurement of a stabilizer will instead have a key of their own,
-    ``ReadoutKey(key)``, so that a CheckKey or CheckProductKey maps to exactly one detector for each
-    round.  Pass ``readout_keys=True`` to get_memory_experiment_parts to use this layout now, or
-    ``readout_keys=False`` to keep the current layout; get_memory_experiment_parts issues a
-    FutureWarning if neither is specified.
-
-    Relations.  The checks of a subsystem code are gauge operators, which a memory experiment
-    measures in layers of mutually commuting checks (see
-    SyndromeMeasurementStrategy.get_gauge_layers).  If the checks in a layer are linearly
-    dependent, some products of these checks equal the identity operator.  Such a product is called
-    a relation, and its outcome has the same fixed value in every round.  The detectors of a
-    relation therefore check the outcome of each round on its own, without comparing it to the
-    previous round, and a relation has no readout detector, since the identity operator has no value
-    to infer from the final measurement of the data qubits.  A key with ``is_relation == True``
-    thus has num_rounds detectors in either layout, while (with ``readout_keys=False``) other keys
-    have num_rounds + 1 detectors.  Relation
-    detectors flag errors that flip the outcomes of an odd number of the checks in a relation during
-    one round, such as a single measurement error.  The checks of a stabilizer code are never
-    relations.  One check is a relation only if it is the identity operator, so relations are
-    usually labeled by a CheckProductKey.
+    A CheckKey is the index of a check qubit (an element of ``QubitIDs.check``).  It compares,
+    hashes, and sorts as that integer, so records can be indexed with plain integers, as in
+    ``detector_record[check_id]``, although arithmetic with a CheckKey returns a plain integer.
+    Detectors that track a product of several checks are labeled by a CheckProductKey instead, which
+    has the same attributes.  See help(qldpc.circuits.get_memory_experiment_parts) for the detectors
+    that a key labels.
 
     Example::
 
@@ -109,18 +71,33 @@ class CheckKey(int):
     Attributes:
         check_ids: The index of the check qubit, as a tuple with one element, like
             CheckProductKey.check_ids.
-        is_relation: Whether the check is a relation (the identity operator), as described above.
+        is_relation: Whether the check is a relation, which is a product of checks that equals the
+            identity operator.  One check is a relation only if it is the identity operator.
     """
 
-    check_ids: tuple[int, ...]
-    is_relation: bool
+    _is_relation: bool
 
     def __new__(cls, check_id: int, is_relation: bool = False) -> Self:
         """Construct the key of the detectors that track the outcome of a check."""
         key = super().__new__(cls, check_id)
-        key.check_ids = (check_id,)
-        key.is_relation = is_relation
+        object.__setattr__(key, "_is_relation", bool(is_relation))
         return key
+
+    @property
+    def check_ids(self) -> tuple[int, ...]:
+        """The index of the check qubit, as a tuple with one element."""
+        return (int(self),)
+
+    @property
+    def is_relation(self) -> bool:
+        """Whether the check is the identity operator."""
+        return self._is_relation
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError(f"{type(self).__name__} is immutable")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError(f"{type(self).__name__} is immutable")
 
     def __reduce__(self) -> tuple[type[Self], tuple[int, bool]]:
         """Copy or pickle a CheckKey together with its attributes."""
@@ -132,19 +109,27 @@ class CheckProductKey:
     """The key of the detectors in a memory experiment that track a product of several checks.
 
     Memory experiments for subsystem codes track products of the (gauge) checks in one layer of the
-    gauge measurement schedule, which may be stabilizers of the code or relations (products that
-    equal the identity operator).  The detection events of a CheckProductKey are as described for
-    CheckKey: one detector for each round, followed by one readout detector unless the key is a
-    relation.
+    gauge measurement schedule.  See help(qldpc.circuits.get_memory_experiment_parts) for the
+    detectors that a key labels.  Two keys are equal if they multiply the same checks.
 
     Attributes:
-        check_ids: The indices of the check qubits (elements of ``QubitIDs.check``) whose outcomes
-            the detectors multiply.
-        is_relation: Whether the product of the checks is the identity operator (see CheckKey).
+        check_ids: The sorted indices of the check qubits (elements of ``QubitIDs.check``) whose
+            outcomes the detectors multiply.  There are at least two of them.
+        is_relation: Whether the product of the checks is a relation, which equals the identity
+            operator.
     """
 
     check_ids: tuple[int, ...]
-    is_relation: bool = False
+    is_relation: bool = dataclasses.field(default=False, compare=False)
+
+    def __post_init__(self) -> None:
+        check_ids = tuple(sorted(int(check_id) for check_id in self.check_ids))
+        if len(check_ids) < 2 or len(set(check_ids)) != len(check_ids):
+            raise ValueError(
+                f"A CheckProductKey needs at least two distinct check qubits (got {self.check_ids})"
+            )
+        object.__setattr__(self, "check_ids", check_ids)
+        object.__setattr__(self, "is_relation", bool(self.is_relation))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -152,12 +137,9 @@ class ReadoutKey:
     """The key of a readout detector, or a final stabilizer measurement, in a memory experiment.
 
     With ``readout_keys=True``, get_memory_experiment_parts keys the readout detector of the
-    detectors with a key ``key`` (a CheckKey or CheckProductKey that is not a relation) by
-    ``ReadoutKey(key)``.  If the memory experiment tracks both X-type and Z-type logical operators,
-    the measurement record likewise keys the final measurement of the stabilizer that these
-    detectors track by ``ReadoutKey(key)``.  See help(qldpc.circuits.CheckKey).
-
-    A CheckKey is equal to the index of its check qubit, so ``ReadoutKey(check_id)`` with a plain
+    detectors with a key ``key`` by ``ReadoutKey(key)``, as does the measurement record for the
+    final measurement of a stabilizer.  See help(qldpc.circuits.get_memory_experiment_parts).
+    Since a CheckKey is equal to the index of its check qubit, ``ReadoutKey(check_id)`` with a plain
     integer is equal to ``ReadoutKey(CheckKey(check_id))``, and finds the same record entries.
 
     Attributes:
@@ -327,7 +309,7 @@ def get_memory_experiment(
         num_rounds=num_rounds,
         qubit_ids=qubit_ids,
         syndrome_measurement_strategy=syndrome_measurement_strategy,
-        readout_keys=True,
+        readout_keys=True,  # the records are unused, so only avoid the FutureWarning
     )
 
     # Add noise to the assembled fixed-basis experiment so the boundaries between initialization,
@@ -358,26 +340,46 @@ def get_memory_experiment_parts(
     *,
     qubit_ids: QubitIDs | None = None,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy = _DEFAULT_STRATEGY,
-    readout_keys: bool | None = None,
+    readout_keys: bool | None = None,  # FUTURE CHANGE: see qldpc._deprecations
 ) -> MemoryExperimentParts:
     """Noiseless components of a memory experiment.
 
-    See help(qldpc.circuits.get_memory_experiment) for additional information, including the
-    arguments that this function shares with get_memory_experiment.
+    See help(qldpc.circuits.get_memory_experiment) for additional information.
 
-    The detector record labels the detectors that track one check by a CheckKey, which is the index
-    of the check qubit (and behaves as that integer), and labels the detectors that track a product
-    of several checks of a subsystem code by a CheckProductKey.  Each key maps to its detector in
-    each round, and the readout detector of the key (if any) is keyed as determined by
-    readout_keys.  If basis is None, the measurement record keys the final measurement of each
-    tracked stabilizer in the same way as its readout detector.
+    The detector record labels the detectors that track the outcome of one check by a CheckKey,
+    which is equal to the index of the check qubit, and labels the detectors that track a product of
+    several checks of a subsystem code by a CheckProductKey.  Each such key labels one detector for
+    each round of syndrome measurement.  In the first round, this detector checks the outcome
+    against its known value, and in each later round, it compares the outcome to that of the
+    previous round.  Unless the key is a relation, it also has a readout detector, which compares
+    the outcome of the last round to its value inferred from the final measurement of the data
+    qubits, or (if basis is None) from a final measurement of the stabilizer, which the measurement
+    record keys in the same way as the readout detector.  How readout detectors and final
+    stabilizer measurements are keyed is determined by readout_keys.
 
-    If readout_keys is True, each readout detector, and (if basis is None) each final measurement of
-    a stabilizer, is keyed by ``ReadoutKey(key)``, where ``key`` is the key of the detectors that
-    track the same check or checks in each round.  If readout_keys is False, they are appended to
-    the entries of ``key`` instead.  If readout_keys is None (the default), they are appended to the
-    entries of ``key``, and a FutureWarning is issued, because the default will change to the
-    behavior of readout_keys=True in a future release.  See help(qldpc.circuits.CheckKey).
+    A relation is a product of checks that equals the identity operator.  If the checks in one layer
+    of a subsystem code's gauge measurement schedule are linearly dependent, some of their products
+    are relations, which have the same fixed outcome in every round.  The detectors of a relation
+    (``key.is_relation == True``) therefore check each round on its own, and a relation has no
+    readout detector.  These detectors flag errors that flip the outcomes of an odd number of the
+    checks in a relation during one round, such as a single measurement error.  The checks of a
+    stabilizer code are never relations.
+
+    Args:
+        code: The code, as for get_memory_experiment.
+        basis: The type of logical operators to track, as for get_memory_experiment.
+        num_rounds: The number of syndrome measurement rounds, as for get_memory_experiment.
+        qubit_ids: The indices of the qubits, as for get_memory_experiment.
+        syndrome_measurement_strategy: The syndrome measurement strategy, as for
+            get_memory_experiment.
+        readout_keys: If True, key each readout detector, and (if basis is None) each final
+            stabilizer measurement, by ``ReadoutKey(key)``, where ``key`` is the key of the
+            detectors that track the same check or checks in each round.  Each key then maps to
+            exactly one detector for each round.  If False, append them to the entries of ``key``
+            instead, so that the readout detector of a key is ``detector_record[key][-1]``, as in
+            earlier releases of qLDPC.  If None (the default), behave as for False and issue a
+            FutureWarning, because the default will change to the behavior of True in a future
+            release.
 
     Returns:
         initialization: A circuit that sets the coordinates and initializes data qubit state.
@@ -403,7 +405,8 @@ def get_memory_experiment_parts(
             " None, each final stabilizer measurement) to the record entries of the check(s) that"
             " it tracks.  In a future release, it will key them by circuits.ReadoutKey instead."
             "  Pass readout_keys=True to use the new layout now, or readout_keys=False to keep the"
-            " current layout and silence this warning.  See help(qldpc.circuits.CheckKey).",
+            " current layout and silence this warning."
+            "  See help(qldpc.circuits.get_memory_experiment_parts).",
             stacklevel=get_external_caller_stacklevel(),
         )
         readout_keys = False
@@ -616,7 +619,7 @@ def _get_basis_memory_experiment_parts(
         )
     detector_record.append(
         {
-            _get_readout_key(detector.key, readout_keys): dd
+            _get_readout_record_key(detector.key, readout_keys): dd
             for dd, detector in enumerate(readout_detectors)
         }
     )
@@ -708,7 +711,7 @@ def _get_combined_memory_simulation_parts(
     # update the measurement record, add detectors, and update the detector record
     readout.append("SHIFT_COORDS", [], (1, 0, 0))
     readout_record_keys = [
-        _get_readout_key(detector.key, readout_keys) for detector in readout_detectors
+        _get_readout_record_key(detector.key, readout_keys) for detector in readout_detectors
     ]
     measurement_record.append({key: mm for mm, key in enumerate(readout_record_keys)})
     measurement_count = qec_cycle.num_measurements + readout.num_measurements
@@ -1068,7 +1071,7 @@ def _get_detector_key(
     return CheckProductKey(check_ids, is_relation)
 
 
-def _get_readout_key(key: CheckKey | CheckProductKey, readout_keys: bool) -> Hashable:
+def _get_readout_record_key(key: CheckKey | CheckProductKey, readout_keys: bool) -> Hashable:
     """The record key of the readout detector, or final stabilizer measurement, of a key."""
     return ReadoutKey(key) if readout_keys else key
 

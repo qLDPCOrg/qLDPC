@@ -231,7 +231,7 @@ Future changes
 ~~~~~~~~~~~~~~
 
 * In a future release, :func:`~qldpc.circuits.memory.memory.get_memory_experiment_parts` will key each readout detector, and each final stabilizer measurement, by a :class:`~qldpc.circuits.memory.memory.ReadoutKey` of its own, rather than appending it to the record entries of the check or checks that it tracks.
-  Pass ``readout_keys=True`` to use this layout now, as described in :class:`~qldpc.circuits.memory.memory.CheckKey`.
+  Pass ``readout_keys=True`` to use this layout now, as described in :func:`~qldpc.circuits.memory.memory.get_memory_experiment_parts`.
 
 External tools, side effects, and caching
 -----------------------------------------
