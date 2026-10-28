@@ -180,13 +180,13 @@ The :doc:`code-capacity <examples/logical_error_rates/1_code_capacity>`, :doc:`q
 Certify fault-tolerant state preparation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-:func:`qldpc.circuits.certify_bounded_fault_propagation <qldpc.circuits.benchmarking.fault_propagation.certify_bounded_fault_propagation>` certifies bounded fault propagation in a noisy Clifford circuit that prepares a stabilizer state.
+:func:`qldpc.circuits.certify_bounded_fault_propagation <qldpc.circuits.certification.fault_propagation.certify_bounded_fault_propagation>` certifies bounded fault propagation in a noisy Clifford circuit that prepares a stabilizer state.
 A fault is a set of error mechanisms, which are the error instructions of the detector error model that the certificate returns: the circuit's, after adding any flag detectors and one noiseless detector for each stabilizer of the prepared state.
 Propagation is bounded if, for every fault, the error left on the output is equivalent to an error whose Pauli weight is at most the number of error mechanisms in the fault.
 The Pauli weight of an error is either its physical weight or its CSS weight.
 For protocols that post-select on detectors such as measurement flags, only faults that pass post-selection are required to satisfy the bound.
 Bounded fault propagation is a sufficient criterion for fault-tolerant state preparation; see Definition 3 in Section 4.2 of `arXiv:0904.2557 <https://arxiv.org/abs/0904.2557>`_.
-The function's docstring states the limitations of the certificate, and a `design note <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/circuits/benchmarking/fault_propagation.md>`_ proves that its search is exact.
+The function's docstring states the limitations of the certificate, and a `design note <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/circuits/certification/fault_propagation.md>`_ proves that its search is exact.
 The :doc:`fault-tolerance notebook <examples/logical_error_rates/6_certifying_fault_tolerance>` shows examples.
 
 Support and limitations
