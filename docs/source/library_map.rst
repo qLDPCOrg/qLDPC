@@ -248,7 +248,7 @@ Pass ``refresh=True`` to ``ClassicalCode.from_name``, ``QuditCode.from_qecdb_id`
 ~~~~~~~~~~
 
 The optional ``sqetch`` distance-bound backend for binary CSS codes requires a CUDA GPU and is not published on PyPI.
-See the `README <https://github.com/qLDPCOrg/qLDPC#sqetch-distance-estimation>`_ for the tested installation command.
+See :ref:`GPU distance estimation <installation-sqetch>` for the tested installation command.
 
 Disk caches
 ~~~~~~~~~~~
