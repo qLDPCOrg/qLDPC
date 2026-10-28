@@ -4113,7 +4113,7 @@ def _as_pauli_bias_zxy(
 
 def _resolve_distance_backend(
     backend: DistanceBackend,
-    bound_kwargs: Mapping[str, Any],
+    bound_kwargs: Mapping[str, object],
     *,
     is_binary: bool,
 ) -> DistanceBackend:

@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import functools
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import galois
 import numpy as np
@@ -30,8 +30,8 @@ _MIN_MATMUL_COEFFICIENT_WORK = 128
 
 
 def coefficient_matmul(
-    matrix_a: npt.NDArray[Any],
-    matrix_b: npt.NDArray[Any],
+    matrix_a: npt.NDArray[np.generic],
+    matrix_b: npt.NDArray[np.generic],
     *,
     ring: GroupRing,
     right: bool = False,
@@ -194,7 +194,7 @@ def _use_coefficient_matmul(shape: _MatmulShape, ring: GroupRing) -> bool:
     return num_coefficients * item_size <= _MAX_MATMUL_COEFFICIENT_BYTES
 
 
-def _is_coefficient_operand(array: npt.NDArray[Any], ring: GroupRing) -> bool:
+def _is_coefficient_operand(array: npt.NDArray[np.generic], ring: GroupRing) -> bool:
     """Does a matmul operand have a direct representation by coefficients in the given ring?
 
     Arrays over other finite fields are excluded, since their integer storage need not encode
@@ -207,7 +207,7 @@ def _is_coefficient_operand(array: npt.NDArray[Any], ring: GroupRing) -> bool:
     )
 
 
-def _to_coefficients(array: npt.NDArray[Any], ring: GroupRing) -> galois.FieldArray:
+def _to_coefficients(array: npt.NDArray[np.generic], ring: GroupRing) -> galois.FieldArray:
     """Represent a matmul operand by a coefficient vector for each entry."""
     if isinstance(array, ring_array.RingArray):
         return ring_array_to_field_array(array, ring)

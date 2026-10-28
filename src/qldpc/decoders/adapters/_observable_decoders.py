@@ -88,7 +88,7 @@ def validate_observable_decoder(decoder: object, source: str) -> ObservableDecod
 
 
 def validate_decoder_output(
-    output: npt.NDArray[Any],
+    output: npt.NDArray[np.generic],
     num_values: int,
     num_erasure_bits: int,
     field: type[galois.FieldArray],

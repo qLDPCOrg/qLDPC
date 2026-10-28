@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import functools
+import types
 from collections.abc import Sequence
 from typing import Any, Literal, cast
 
@@ -241,7 +242,7 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
         return validated_syndromes
 
 
-def _get_tesseract() -> Any:
+def _get_tesseract() -> types.ModuleType:
     """Import the optional Tesseract package or raise an actionable error."""
     try:
         import tesseract_decoder

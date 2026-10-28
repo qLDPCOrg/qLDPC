@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import inspect
 import threading
+import types
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
@@ -60,7 +61,7 @@ class MatchingObservableDecoder(ObservableDecoder):
     <https://github.com/oscarhiggott/PyMatching#correlated-matching>`_ for correlated matching.
     """
 
-    def __init__(self, matching: Any, *, enable_correlations: bool = False) -> None:
+    def __init__(self, matching: pymatching.Matching, *, enable_correlations: bool = False) -> None:
         self.matching = matching
         self.enable_correlations = enable_correlations
 
@@ -109,11 +110,11 @@ class MatchingObservableDecoder(ObservableDecoder):
 # subclass on first use instead of importing PyMatching during every qldpc import, and create it
 # under a lock so that concurrent first uses share one class, which pickling requires.
 
-_MATCHING_TYPE: type[Any] | None = None
+_MATCHING_TYPE: type[Matching] | None = None
 _MATCHING_TYPE_LOCK = threading.Lock()
 
 
-def _get_pymatching() -> Any:
+def _get_pymatching() -> types.ModuleType:
     """Import PyMatching or report a broken qLDPC installation."""
     try:
         import pymatching
@@ -126,7 +127,7 @@ def _get_pymatching() -> Any:
     return pymatching
 
 
-def _get_matching_type() -> type[Any]:
+def _get_matching_type() -> type[Matching]:
     """Return the protocol-compatible PyMatching subclass, creating it on first use."""
     global _MATCHING_TYPE
     if _MATCHING_TYPE is not None:
@@ -174,7 +175,7 @@ def _get_matching_type() -> type[Any]:
 if not TYPE_CHECKING:
     # Static type checkers see the backend classes declared above, rather than an Any fallback.
 
-    def __getattr__(name: str) -> Any:
+    def __getattr__(name: str) -> type[Matching]:
         """Load the protocol-compatible PyMatching subclass only when requested."""
         if name != "Matching":
             raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
@@ -380,7 +381,9 @@ def _build_matching(
     return matching
 
 
-def _validate_backend_options(pymatching: Any, backend_options: Mapping[str, object]) -> None:
+def _validate_backend_options(
+    pymatching: types.ModuleType, backend_options: Mapping[str, object]
+) -> None:
     """Reject backend options that load_from_check_matrix would silently ignore."""
     if "faults_matrix" in backend_options:
         raise ValueError(_FAULTS_MATRIX_MESSAGE)

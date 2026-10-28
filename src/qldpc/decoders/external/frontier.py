@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import types
 from collections.abc import Callable, Mapping
 from typing import Any, Literal
 
@@ -222,7 +223,7 @@ _METRIC_MODES = ("logsumexp_float", "frontier_lite")
 _COLUMN_ORDERS = ("deadline_reorder", "time_order")
 
 
-def _get_frontier() -> Any:
+def _get_frontier() -> types.ModuleType:
     """Import the optional upstream dependency or raise an actionable error."""
     try:
         import frontier
@@ -262,7 +263,7 @@ def _validate_frontier_options(
 
 
 def _get_scan(
-    frontier: Any, columns: list[Any], num_detectors: int, column_order: str
+    frontier: types.ModuleType, columns: list[Any], num_detectors: int, column_order: str
 ) -> tuple[list[Any], Any]:
     """Order the columns of one Frontier scan, and build the layout for that order."""
     if column_order == "deadline_reorder":

@@ -661,7 +661,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         return self
 
 
-def _iter_ring_arrays(obj: Any) -> Iterator[RingArray]:
+def _iter_ring_arrays(obj: object) -> Iterator[RingArray]:
     """Yield every RingArray in a (possibly nested) numpy-function argument.
 
     Functions such as ``np.concatenate`` and ``np.stack`` take a *sequence* of arrays as a single
@@ -675,7 +675,7 @@ def _iter_ring_arrays(obj: Any) -> Iterator[RingArray]:
             yield from _iter_ring_arrays(item)
 
 
-def _unwrap_ring_arrays(obj: Any) -> Any:
+def _unwrap_ring_arrays(obj: object) -> object:
     """Replace every RingArray in a (possibly nested) argument with its plain-ndarray view."""
     if isinstance(obj, RingArray):
         return obj.view(np.ndarray)
