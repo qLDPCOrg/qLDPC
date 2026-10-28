@@ -174,6 +174,11 @@ Stim converts the circuit into a ``stim.DetectorErrorModel`` with ``circuit.dete
        circuit, sinter_decoder, num_samples=1000
    )
 
+Memory experiments also accept subsystem codes.
+Each round measures commuting layers of gauge checks in sequence (by default, all X-type and then all Z-type checks of a CSS code), and detectors track products of gauge checks within one layer that are stabilizers.
+Operations of consecutive layers on disjoint qubits share TICK-separated moments, which reduces the errors added by noise models with idle errors.
+Products that equal the identity, which arise from redundant gauge generators, get detectors in every round unless other detectors already determine them.
+
 For larger studies, pass the ``SinterDecoder`` to ``sinter.collect``.
 The :doc:`code-capacity <examples/logical_error_rates/1_code_capacity>`, :doc:`quantum-memory <examples/logical_error_rates/2_quantum_memory_x_or_z>`, and :doc:`sliding-window <examples/logical_error_rates/specialized/sliding_window_decoding>` notebooks develop these workflows, and the :doc:`noise-model notebook <examples/noise_models>` explains the noise models.
 
@@ -201,7 +206,7 @@ Codes            Yes                          Yes                             Ye
 Exact distance   Brouwer--Zimmermann          Exhaustive enumeration          Exhaustive enumeration               Yes
 Distance bounds  Decoder, GAP, or ``sqetch``  Decoder or GAP                  Decoder or GAP                       CSS codes only
 Decoders         All built-in decoders        GUF (default), ILP, and lookup  GUF (default) and lookup             Yes, in code-capacity estimates
-Circuits         Yes                          No                              No                                   No memory experiments
+Circuits         Yes                          No                              No                                   Yes, measured in commuting gauge layers
 ===============  ===========================  ==============================  ===================================  ========================================
 
 Other limitations:
@@ -221,6 +226,12 @@ What qLDPC computes exactly, bounds, and trusts
 * Trusted, not verified: recorded parameters of built-in families and online lookups, promises such as ``promise_equal_distance_xz``, an explicit ``is_subsystem_code=True`` hint to ``QuditCode`` or ``CSSCode``, a code-capacity ``min_error_weight`` below which errors are assumed to be corrected, and an explicit ``detector_to_time`` mapping.
   An explicit ``is_subsystem_code=False`` is verified instead, and raises a ``ValueError`` if some checks do not commute.
   Omit ``is_subsystem_code`` to have it computed when first needed.
+
+Future changes
+~~~~~~~~~~~~~~
+
+* In a future release, :func:`~qldpc.circuits.memory.memory.get_memory_experiment_parts` will key each readout detector, and each final stabilizer measurement, by a :class:`~qldpc.circuits.memory.memory.ReadoutKey` of its own, rather than appending it to the record entries of the check or checks that it tracks.
+  Pass ``readout_keys=True`` to use this layout now, as described in :func:`~qldpc.circuits.memory.memory.get_memory_experiment_parts`.
 
 External tools, side effects, and caching
 -----------------------------------------

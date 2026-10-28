@@ -62,8 +62,118 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
         circuits.EdgeColoring().get_circuit(code=codes.SurfaceCode(2, field=3))
 
 
+def test_gauge_layers() -> None:
+    """Partition the checks of a code into layers of commuting checks."""
+    strategy = circuits.EdgeColoring()
+
+    # CSS codes measure all X-type checks and then all Z-type checks, skipping empty layers
+    bacon_shor = codes.BaconShorCode(2, 3)
+    assert strategy.get_gauge_layers(bacon_shor) == (
+        tuple(range(bacon_shor.num_checks_x)),
+        tuple(range(bacon_shor.num_checks_x, bacon_shor.num_checks)),
+    )
+    repetition = codes.CSSCode.classical(codes.RepetitionCode(3), Pauli.Z)
+    assert strategy.get_gauge_layers(repetition) == ((0, 1),)
+
+    # the checks of non-CSS codes are colored such that each layer consists of commuting checks
+    code = codes.QuditCode(codes.BaconShorCode(3).matrix, is_subsystem_code=True)
+    layers = strategy.get_gauge_layers(code)
+    assert len(layers) == 2
+    syndrome_measurement._validate_gauge_layers(code, layers)
+    assert strategy.get_gauge_layers(codes.FiveQubitCode()) == (tuple(range(4)),)
+
+    # layers must partition the checks of a code into sets of commuting checks
+    with pytest.raises(ValueError, match="partition"):
+        syndrome_measurement._validate_gauge_layers(code, layers[:1])
+    with pytest.raises(ValueError, match="partition"):
+        syndrome_measurement._validate_gauge_layers(code, layers + ((0,),))
+    with pytest.raises(ValueError, match="do not commute"):
+        syndrome_measurement._validate_gauge_layers(code, (tuple(range(code.num_checks)),))
+    with pytest.raises(ValueError, match="do not commute"):
+        strategy.get_subsystem_circuit(code, layers=(tuple(range(code.num_checks)),))
+
+
+def test_subsystem_circuit(pytestconfig: pytest.Config) -> None:
+    """Measure the checks of a code one commuting layer at a time."""
+    seed = pytestconfig.getoption("randomly_seed")
+
+    # the layers of stabilizer codes are measured correctly
+    for code in [codes.FiveQubitCode(), codes.SteaneCode(), codes.SurfaceCode(3)]:
+        assert syndrome_measurement_is_valid(code, subsystem=True)
+    code_a = codes.ClassicalCode.random(5, 3, seed=seed)
+    code_b = codes.ClassicalCode.random(3, 2, seed=seed + 1)
+    assert syndrome_measurement_is_valid(
+        codes.HGPCode(code_a, code_b), circuits.EdgeColoringXZ(), subsystem=True
+    )
+
+    # layers are measured sequentially, one layer of checks at a time
+    code = codes.BaconShorCode(2, 3)
+    qubit_ids = circuits.QubitIDs.from_code(code, shift=5)
+    circuit, record = circuits.EdgeColoring().get_subsystem_circuit(code, qubit_ids)
+    measured_qubits = [
+        target.qubit_value
+        for instruction in circuit.flattened()
+        if instruction.name == "MX"
+        for target in instruction.targets_copy()
+    ]
+    assert measured_qubits == list(qubit_ids.checks_x + qubit_ids.checks_z)
+    gates_on_data: dict[int, list[str]] = {qubit: [] for qubit in qubit_ids.data}
+    for instruction in circuit:
+        if instruction.name in ["CX", "CZ"]:
+            for _check, data in instruction.target_groups():
+                gates_on_data[data.value].append(instruction.name)
+    for gates in gates_on_data.values():
+        assert gates == sorted(gates)  # every CX (X-type layer) precedes every CZ (Z-type layer)
+    assert record == circuits.MeasurementRecord(
+        {check_id: [mm] for mm, check_id in enumerate(measured_qubits)}
+    )
+    assert circuit.num_measurements == record.num_events == code.num_checks
+
+    # EdgeColoringXZ only supports CSS codes
+    code = codes.QuditCode(codes.BaconShorCode(2).matrix, is_subsystem_code=True)
+    with pytest.raises(TypeError, match="only supports CSS codes"):
+        circuits.EdgeColoringXZ().get_subsystem_circuit(code)
+
+    # layer circuits must be synchronized with their measurement records
+    class BadStrategy(circuits.SyndromeMeasurementStrategy):
+        def get_circuit(
+            self, code: codes.QuditCode, qubit_ids: circuits.QubitIDs | None = None
+        ) -> tuple[stim.Circuit, circuits.MeasurementRecord]:
+            circuit, record = circuits.EdgeColoring().get_circuit(code, qubit_ids)
+            circuit.append("M", 0)
+            return circuit, record
+
+    with pytest.raises(ValueError, match="record contains"):
+        BadStrategy().get_subsystem_circuit(codes.BaconShorCode(2))
+
+
+def test_subsystem_circuit_scheduling(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Consecutive gauge layers share moments without changing the action of the circuit."""
+    code = codes.BaconShorCode(3)
+    noise_model = circuits.DepolarizingNoiseModel(1e-3)
+    scheduled = circuits.get_memory_experiment(code, None, num_rounds=2, noise_model=noise_model)
+    monkeypatch.setattr(syndrome_measurement, "_schedule_as_soon_as_possible", stim.Circuit.copy)
+    sequential = circuits.get_memory_experiment(code, None, num_rounds=2, noise_model=noise_model)
+    assert scheduled.num_ticks < sequential.num_ticks
+    assert get_error_mechanisms(scheduled) == pytest.approx(get_error_mechanisms(sequential))
+
+
+def get_error_mechanisms(circuit: stim.Circuit) -> dict[str, float]:
+    """Map the symptoms of each error mechanism in a circuit to its probability."""
+    return {
+        " ".join(
+            sorted(str(target) for target in instruction.targets_copy())
+        ): instruction.args_copy()[0]
+        for instruction in circuit.detector_error_model().flattened()
+        if instruction.type == "error"
+    }
+
+
 def syndrome_measurement_is_valid(
-    code: codes.QuditCode, strategy: circuits.SyndromeMeasurementStrategy = DEFAULT_STRATEGY
+    code: codes.QuditCode,
+    strategy: circuits.SyndromeMeasurementStrategy = DEFAULT_STRATEGY,
+    *,
+    subsystem: bool = False,
 ) -> bool:
     """Check the validity of syndrome measurement in a given code."""
     # prepare a logical |0> state
@@ -76,7 +186,9 @@ def syndrome_measurement_is_valid(
         error_ops.append(f"{pauli}_error", [qubit], [1])
 
     # measure syndromes
-    syndrome_extraction, record = strategy.get_circuit(code)
+    syndrome_extraction, record = (
+        strategy.get_subsystem_circuit(code) if subsystem else strategy.get_circuit(code)
+    )
     for check in range(len(code), len(code) + code.num_checks):
         syndrome_extraction.append("DETECTOR", record.get_target_rec(check))
 
@@ -147,3 +259,47 @@ def test_validate_syndrome_qubit_ids() -> None:
 
     with pytest.raises(ValueError, match="subsystem"):
         syndrome_measurement._validate_syndrome_qubit_ids(codes.BaconShorCode(2))
+
+
+def test_schedule_as_soon_as_possible() -> None:
+    """Operations move to the earliest moment that preserves their order on each qubit."""
+    # gates move earlier, but measurements stay in order
+    circuit = stim.Circuit(
+        "R 0 1 2\nTICK\nCX 0 1\nTICK\nCX 0 1\nTICK\nH[tag] 2\nTICK\nM 1\nM 2\nTICK"
+    )
+    scheduled = syndrome_measurement._schedule_as_soon_as_possible(circuit)
+    assert scheduled == stim.Circuit(
+        "R 0 1 2\nTICK\nCX 0 1\nH[tag] 2\nTICK\nCX 0 1\nTICK\nM 1 2\nTICK"
+    )
+
+    # broadcast gates are split into individual gate applications
+    for before, after in [
+        ("H 0\nTICK\nH 0 1", "H 0 1\nTICK\nH 0"),
+        ("CX 0 1\nTICK\nCX 0 1 2 3", "CX 0 1 2 3\nTICK\nCX 0 1"),
+    ]:
+        assert syndrome_measurement._schedule_as_soon_as_possible(
+            stim.Circuit(before)
+        ) == stim.Circuit(after)
+
+    # each Pauli product moves separately, but measurements stay in order
+    for before, after in [
+        ("MPP X0*X1 Z2\nTICK\nH 3", "MPP X0*X1 Z2\nH 3"),
+        ("H 2\nTICK\nMPP X0*X1 Z2", "H 2\nMPP X0*X1\nTICK\nMPP Z2"),
+        ("H 0\nTICK\nMPP X0*X1 Z2", "H 0\nTICK\nMPP X0*X1 Z2"),
+    ]:
+        assert syndrome_measurement._schedule_as_soon_as_possible(
+            stim.Circuit(before)
+        ) == stim.Circuit(after)
+
+    # trailing TICKs are only kept if present
+    assert syndrome_measurement._schedule_as_soon_as_possible(stim.Circuit()) == stim.Circuit()
+
+    # circuits with other instructions are not rescheduled
+    for text in [
+        "H 0\nTICK\nX_ERROR(0.1) 1",
+        "M 0\nTICK\nDETECTOR rec[-1]",
+        "M 0\nTICK\nCX rec[-1] 1",
+        "H 0\nTICK\nREPEAT 2 {\n    H 1\n}",
+    ]:
+        circuit = stim.Circuit(text)
+        assert syndrome_measurement._schedule_as_soon_as_possible(circuit) == circuit

@@ -8,7 +8,10 @@ from qldpc import _deprecations
 
 from .alpha_syndrome import AlphaSyndrome
 from .memory import (
+    CheckKey,
+    CheckProductKey,
     MemoryExperimentParts,
+    ReadoutKey,
     get_logical_bell_prep,
     get_memory_experiment,
     get_memory_experiment_parts,
@@ -23,9 +26,12 @@ from .syndrome_measurement import (
 
 __all__ = [
     "AlphaSyndrome",
+    "CheckKey",
+    "CheckProductKey",
     "EdgeColoring",
     "EdgeColoringXZ",
     "MemoryExperimentParts",
+    "ReadoutKey",
     "SyndromeMeasurementStrategy",
     "get_logical_bell_prep",
     "get_memory_experiment",

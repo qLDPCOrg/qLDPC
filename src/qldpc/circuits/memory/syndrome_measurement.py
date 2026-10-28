@@ -6,19 +6,30 @@ from __future__ import annotations
 
 import abc
 import collections
+from collections.abc import Sequence
 
+import numpy as np
 import stim
 
-from qldpc import codes
+from qldpc import codes, math
 from qldpc._utils import networkx as nx
 from qldpc.objects import Pauli
 
 from ..bookkeeping import MeasurementRecord, QubitIDs
 from ..common import _restrict_to_qubits
+from ..noise_model._moments import gate_qubits, split_targets_if_needed
+from ..noise_model._operations import GATE_OP_TYPES, op_type
 
 
 class SyndromeMeasurementStrategy(abc.ABC):
-    """Base class for a syndrome measurement strategy."""
+    """Base class for a syndrome measurement strategy.
+
+    Subclasses define how to measure the (mutually commuting) parity checks of a stabilizer code by
+    implementing get_circuit.  The gauge checks of a subsystem code need not commute, so they cannot
+    all be measured at once.  Instead, get_subsystem_circuit partitions the gauge checks of a code
+    into layers of mutually commuting checks (see get_gauge_layers), and then measures one layer at
+    a time with get_circuit.
+    """
 
     @_restrict_to_qubits
     @abc.abstractmethod
@@ -36,6 +47,126 @@ class SyndromeMeasurementStrategy(abc.ABC):
             stim.Circuit: A syndrome measurement circuit.
             circuits.MeasurementRecord: The record of measurements in the circuit.
         """
+
+    def get_gauge_layers(self, code: codes.QuditCode) -> tuple[tuple[int, ...], ...]:
+        """Partition the parity checks of a code into layers of mutually commuting checks.
+
+        The layers are measured one at a time, in the returned order, by get_subsystem_circuit.  A
+        memory experiment uses these layers to define detectors: any product of the checks in a
+        single layer that is a stabilizer of the code should have the same value in consecutive
+        rounds of syndrome measurement.  A subsystem-code memory experiment therefore requires that
+        such single-layer products of checks generate all of the stabilizers that it tracks.
+
+        By default, the checks of a CSS code are split into a layer of all X-type checks followed by
+        a layer of all Z-type checks, as in the gauge measurement schedule for Bacon-Shor codes in
+        arXiv:quant-ph/0610063.  The checks of a non-CSS code are split into layers by greedily
+        coloring a graph whose edges connect non-commuting checks.  Subclasses may override this
+        method to choose a different schedule.
+
+        Args:
+            code: The code whose checks we want to partition.
+
+        Returns:
+            tuple[tuple[int, ...], ...]: The indices (rows of code.matrix) of the checks in each
+            layer.
+        """
+        if isinstance(code, codes.CSSCode):
+            layers = (range(code.num_checks_x), range(code.num_checks_x, code.num_checks))
+            return tuple(tuple(layer) for layer in layers if layer)
+
+        # color a graph whose vertices are checks and whose edges connect non-commuting checks
+        commutators = code.matrix @ math.symplectic_conjugate(code.matrix).T
+        graph = nx.Graph()
+        graph.add_nodes_from(range(code.num_checks))
+        graph.add_edges_from(zip(*map(np.ndarray.tolist, np.nonzero(commutators))))
+        coloring = nx.greedy_color(graph, "smallest_last")
+        color_to_checks: dict[int, list[int]] = collections.defaultdict(list)
+        for check, color in sorted(coloring.items()):
+            color_to_checks[color].append(check)
+        return tuple(tuple(color_to_checks[color]) for color in sorted(color_to_checks))
+
+    @_restrict_to_qubits
+    def get_subsystem_circuit(
+        self,
+        code: codes.QuditCode,
+        qubit_ids: QubitIDs | None = None,
+        *,
+        layers: Sequence[Sequence[int]] | None = None,
+    ) -> tuple[stim.Circuit, MeasurementRecord]:
+        """Construct a circuit that measures the checks of a code one commuting layer at a time.
+
+        The checks in each layer define a stabilizer code, whose checks are measured with
+        self.get_circuit.  The circuits for different layers are applied sequentially, so every
+        operation of one layer on a qubit precedes every operation of the next layer on that qubit.
+        This method thereby supports subsystem codes, whose (gauge) checks need not commute.
+
+        Every operation of the combined circuit then moves to the earliest moment (block of
+        operations between TICK instructions) that preserves the sequence of operations on each
+        qubit and the order of all measurements.  Operations of consecutive layers can thereby share
+        moments if they address disjoint qubits.  For example, the check qubits of one layer can be
+        reset, and the first gates of that layer can be applied to data qubits that the previous
+        layer is done with, while the previous layer is still in progress.  This rescheduling only
+        applies if the circuits of all layers consist of unitary gates, resets, and measurements on
+        qubits.
+
+        Rescheduling does not change the action of the circuit, and Stim attaches no meaning to
+        moments.  However, noise models that act on each moment, such as models with idle errors
+        (see NoiseModel), add fewer errors to a circuit with fewer moments.  Treating moments as
+        time steps assumes that every operation takes the same amount of time, and that resets and
+        measurements can occur at the same time as gates on other qubits.
+
+        Since self.get_circuit only sees the stabilizer code defined by one layer at a time, any
+        code-specific scheduling (such as a code's custom get_syndrome_subgraphs) or optimization
+        (such as the logical error rates targeted by AlphaSyndrome) is with respect to the
+        stabilizer code of each layer rather than the full subsystem code.  In particular, the
+        logical operators of the stabilizer code of a layer may include operators, such as
+        stabilizers of the subsystem code, that are not logical operators of the subsystem code.
+
+        Args:
+            code: The code whose checks we want to measure.
+            qubit_ids: Integer indices for the data and check (syndrome readout) qubits, with one
+                check qubit per row of code.matrix.  Defaults to QubitIDs.from_code(code).
+            layers: A partition of the checks of the code (identified by their rows in code.matrix)
+                into layers of mutually commuting checks.  Defaults to self.get_gauge_layers(code).
+
+        Returns:
+            stim.Circuit: A circuit that measures all checks of the code.
+            circuits.MeasurementRecord: The record of measurements in the circuit.
+
+        Raises:
+            ValueError: If the layers do not partition the checks of the code, if a layer contains
+                checks that do not commute, or if the measurement record of a layer does not match
+                its circuit.  Errors from self.get_circuit for the stabilizer code of a layer (for
+                example, from a strategy that only supports CSS codes) propagate unchanged.
+        """
+        qubit_ids = QubitIDs.validated(qubit_ids or QubitIDs.from_code(code), code)
+        layers = self.get_gauge_layers(code) if layers is None else layers
+        _validate_gauge_layers(code, layers)
+
+        circuit = stim.Circuit()
+        measurement_record = MeasurementRecord()
+        for layer in layers:
+            checks = sorted(layer)
+            layer_code: codes.QuditCode
+            if isinstance(code, codes.CSSCode):
+                checks_x = [check for check in checks if check < code.num_checks_x]
+                checks_z = [check - code.num_checks_x for check in checks[len(checks_x) :]]
+                layer_code = codes.CSSCode(
+                    code.matrix_x[checks_x], code.matrix_z[checks_z], is_subsystem_code=False
+                )
+            else:
+                layer_code = codes.QuditCode(code.matrix[checks], is_subsystem_code=False)
+            layer_qubit_ids = QubitIDs(
+                qubit_ids.data,
+                [qubit_ids.check[check] for check in checks],
+                qubit_ids.ancilla,
+                reference=qubit_ids.reference,
+            )
+            layer_circuit, layer_record = self.get_circuit(layer_code, layer_qubit_ids)
+            layer_record.validate_num_measurements(layer_circuit.num_measurements)
+            circuit += layer_circuit
+            measurement_record.append(layer_record)
+        return _schedule_as_soon_as_possible(circuit), measurement_record
 
 
 class EdgeColoring(SyndromeMeasurementStrategy):
@@ -207,5 +338,98 @@ def _validate_syndrome_qubit_ids(
         ValueError: If the code is a subsystem code or the qubit layout is invalid.
     """
     if code.is_subsystem_code:
-        raise ValueError("Syndrome measurement strategies require a non-subsystem code")
+        raise ValueError(
+            "Syndrome measurement strategies require a non-subsystem code (measure the gauge checks"
+            " of a subsystem code with SyndromeMeasurementStrategy.get_subsystem_circuit)"
+        )
     return QubitIDs.validated(qubit_ids or QubitIDs.from_code(code), code)
+
+
+def _validate_gauge_layers(code: codes.QuditCode, layers: Sequence[Sequence[int]]) -> None:
+    """Validate a partition of the checks of a code into layers of mutually commuting checks.
+
+    Args:
+        code: The code whose checks are partitioned.
+        layers: The indices (rows of code.matrix) of the checks in each layer.
+
+    Raises:
+        ValueError: If the layers do not partition the checks of the code, or if a layer contains
+            checks that do not commute.
+    """
+    if sorted(check for layer in layers for check in layer) != list(range(code.num_checks)):
+        raise ValueError("Gauge layers must partition the parity checks of the code")
+    for layer in layers:
+        checks = code.matrix[list(layer)]
+        if np.any(checks @ math.symplectic_conjugate(checks).T):
+            raise ValueError(f"Gauge layer {tuple(layer)} contains checks that do not commute")
+
+
+def _schedule_as_soon_as_possible(circuit: stim.Circuit) -> stim.Circuit:
+    """Move every operation in a circuit to the earliest possible moment.
+
+    Each operation (one application of a gate to its targets) moves to the moment after the last
+    preceding operation that addresses one of its qubits.  The sequence of operations on each qubit
+    is therefore unchanged.  Measurements additionally keep their order in the measurement record.
+    Reordering operations on disjoint qubits does not change the action of a circuit, so the
+    rescheduled circuit is equivalent to the original circuit, but may have fewer moments.
+
+    Circuits that contain anything other than unitary gates, resets, and measurements on qubits (and
+    TICK instructions that separate moments) are returned unchanged.
+    """
+    instructions = [
+        instruction for instruction in circuit if isinstance(instruction, stim.CircuitInstruction)
+    ]
+    if len(instructions) < len(circuit) or not all(map(_can_reschedule, instructions)):
+        return circuit.copy()
+
+    scheduled_circuit = stim.Circuit()
+    for mm, moment_operations in enumerate(_get_earliest_moments(instructions)):
+        if mm:
+            scheduled_circuit.append("TICK")
+        for operation in moment_operations:
+            scheduled_circuit.append(operation)
+    if instructions and instructions[-1].name == "TICK":
+        scheduled_circuit.append("TICK")
+    return scheduled_circuit
+
+
+def _get_earliest_moments(
+    instructions: Sequence[stim.CircuitInstruction],
+) -> list[list[stim.CircuitInstruction]]:
+    """Group the operations of some instructions into their earliest possible moments.
+
+    See _schedule_as_soon_as_possible for the rules that determine the earliest moments.
+    """
+    moments: list[list[stim.CircuitInstruction]] = []
+    next_free_moment: dict[int, int] = collections.defaultdict(int)
+    last_measurement_moment = 0
+    for instruction in instructions:
+        if instruction.name == "TICK":
+            continue
+        produces_measurements = stim.gate_data(instruction.name).produces_measurements
+        for operation in split_targets_if_needed(instruction, frozenset(), None, force_split=True):
+            qubits = gate_qubits(operation)
+            moment = max((next_free_moment[qubit] for qubit in qubits), default=0)
+            if produces_measurements:
+                moment = last_measurement_moment = max(moment, last_measurement_moment)
+            moments.extend([] for _ in range(moment + 1 - len(moments)))
+            moments[moment].append(operation)
+            for qubit in qubits:
+                next_free_moment[qubit] = moment + 1
+    return moments
+
+
+def _can_reschedule(instruction: stim.CircuitInstruction) -> bool:
+    """Can _schedule_as_soon_as_possible move this instruction without changing its action?
+
+    Gates, resets, and measurements can move if they only address qubits, rather than (for example)
+    measurement records.
+    """
+    if instruction.name == "TICK":
+        return True
+    targets = instruction.targets_copy()
+    return (
+        op_type(instruction.name) in GATE_OP_TYPES
+        and bool(targets)
+        and all(target.qubit_value is not None or target.is_combiner for target in targets)
+    )
