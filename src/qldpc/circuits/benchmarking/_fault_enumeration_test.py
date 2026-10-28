@@ -163,20 +163,13 @@ def test_repeated_syndromes_are_checked_once() -> None:
 
 @pytest.mark.usefixtures("kernels")
 @pytest.mark.parametrize("css_weight", [False, True])
-def test_skipped_faults_satisfy_the_bound(
-    css_weight: bool, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_skipped_faults_satisfy_the_bound(css_weight: bool, pytestconfig: pytest.Config) -> None:
     """Calls with increasing fault weights check each syndrome once, and find the first violation.
 
     The primitive faults have random errors on a random three-qubit stabilizer state, and minimum
-    Pauli weight representatives.  Brute force over all Paulis gives the minimum Pauli weights.
-
-    One lister checks every syndrome that it passes, and another searches for violations, twice at
-    each fault weight, since a violation clears the table of syndromes.  The table of syndromes
-    starts with room for all of them, or for one, and then grows or, with no memory, does not, so
-    that syndromes may be checked again.
+    Pauli weight representatives.  Brute force over all Paulis gives the minimum Pauli weights.  One
+    lister checks every syndrome that it passes, and another searches for violations.
     """
-    table_sizes = [(enumeration._INITIAL_SYNDROME_TABLE_SIZE, 2**20), (1, 2**20), (1, 0)]
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     n = 3
     paulis = (np.arange(4**n)[:, None] >> np.arange(2 * n)) & 1
@@ -203,39 +196,68 @@ def test_skipped_faults_satisfy_the_bound(
         flags = list(map(int, rng.integers(1, 8, size=8)))
         syndromes = [int(syndrome_of[pauli]) for pauli in rng.integers(4**n, size=8)]
         representatives = [lightest[syndrome] for syndrome in syndromes]
-        for table_size, memory_limit in table_sizes:
-            monkeypatch.setattr(enumeration, "_INITIAL_SYNDROME_TABLE_SIZE", table_size)
-            lister, searcher = (
-                enumeration.FaultLister(
-                    flags, syndromes, representatives, n, css_weight, 8, memory_limit
-                )
-                for _ in range(2)
-            )
-            passed: set[int] = set()
-            for fault_weight in range(2, 5):
-                faults = _irreducible_faults(flags, fault_weight, 8)
-                fault_syndromes = [_xor(syndromes, fault) for fault in faults]
-                violating = [
-                    jj for jj, ss in enumerate(fault_syndromes) if minimum[ss] > fault_weight
-                ]
+        lister, searcher = (
+            enumeration.FaultLister(flags, syndromes, representatives, n, css_weight, 8, 2**20)
+            for _ in range(2)
+        )
+        passed: set[int] = set()
+        for fault_weight in range(2, 5):
+            faults = _irreducible_faults(flags, fault_weight, 8)
+            fault_syndromes = [_xor(syndromes, fault) for fault in faults]
+            violating = [jj for jj, ss in enumerate(fault_syndromes) if minimum[ss] > fault_weight]
 
-                checked, _ = _check_faults(lister, fault_weight, ())
-                if table_size > 1:
-                    assert len(set(checked)) == len(checked)
-                    assert not passed & set(checked)
-                assert {fault_syndromes[jj] for jj in violating} - passed <= set(checked)
-                passed |= set(checked)
+            checked, _ = _check_faults(lister, fault_weight, ())
+            assert len(set(checked)) == len(checked)
+            assert not passed & set(checked)
+            assert {fault_syndromes[jj] for jj in violating} - passed <= set(checked)
+            passed |= set(checked)
 
-                violating_syndromes = {
-                    ss for ss, weight in minimum.items() if weight > fault_weight
-                }
-                for _ in range(2):
-                    _, result = _check_faults(searcher, fault_weight, violating_syndromes)
-                    if violating:
-                        first = violating[0]
-                        assert result == (faults[first], fault_syndromes[first])
-                    else:
-                        assert result is None
+            violating_syndromes = {ss for ss, weight in minimum.items() if weight > fault_weight}
+            _, result = _check_faults(searcher, fault_weight, violating_syndromes)
+            if violating:
+                first = violating[0]
+                assert result == (faults[first], fault_syndromes[first])
+            else:
+                assert result is None
+
+
+@pytest.mark.usefixtures("kernels")
+def test_syndromes_of_listed_faults_are_not_checked_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fault is not checked if an earlier listed fault of smaller fault weight has its syndrome.
+
+    On |0...0>, the minimum Pauli weight of a syndrome is its number of ones.  Primitive faults 0-3
+    have flags 1 and flip one qubit each, and 4 and 5 have flags 2 and 3 and flip qubits {4} and
+    {0, 4}.  So the faults of fault weight two are the pairs of 0-3, with distinct syndromes, and
+    those of fault weight three add 4 and 5 to one of 0-3, which flips the qubits of a pair with 0.
+    Each representative also has Z on two qubits of its own, so that no fault is left out for the
+    weight of its representatives.
+
+    The table of syndromes starts with room for one syndrome, so that it grows, unless there is no
+    memory for it.  A search that finds a violation finds it again, since it clears the table.
+    """
+    monkeypatch.setattr(enumeration, "_INITIAL_SYNDROME_TABLE_SIZE", 1)
+    flags = [1, 1, 1, 1, 2, 3]
+    syndromes = [1, 2, 4, 8, 16, 17]
+    num_qubits = 5 + 2 * len(flags)
+    representatives = [
+        syndrome | (0b11 << (num_qubits + 5 + 2 * jj)) for jj, syndrome in enumerate(syndromes)
+    ]
+    pairs = [syndromes[aa] ^ syndromes[bb] for aa, bb in itertools.combinations(range(4), 2)]
+    for memory_limit in (2**20, 0):
+        lister = enumeration.FaultLister(
+            flags, syndromes, representatives, num_qubits, False, 6, memory_limit
+        )
+        assert _check_faults(lister, 2, ()) == (pairs, None)
+        checked, _ = _check_faults(lister, 3, ())
+        # Fault {0, 4, 5} has no syndrome, and {jj, 4, 5} has that of the pair {0, jj}.  Without
+        # memory, the table keeps only the syndrome of the first pair, {0, 1}.
+        assert checked == ([0] if memory_limit else [0, 1 ^ 4, 1 ^ 8])
+
+    searcher = enumeration.FaultLister(
+        flags, syndromes, representatives, num_qubits, False, 6, 2**20
+    )
+    for _ in range(2):
+        assert _check_faults(searcher, 2, {1 ^ 4})[1] == ((0, 2), 1 ^ 4)
 
 
 def test_pair_table_peak_memory_is_within_its_estimate(monkeypatch: pytest.MonkeyPatch) -> None:

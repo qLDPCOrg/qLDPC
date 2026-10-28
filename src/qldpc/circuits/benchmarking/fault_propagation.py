@@ -94,8 +94,9 @@ def certify_bounded_fault_propagation(
             fire, where a detector fires if an odd number of the fault's error mechanisms flip it.
             Default: False.
         memory_limit: The approximate number of bytes that the search may use for its lookup tables,
-            a positive integer.  A smaller limit can make the search slower, but never changes the
-            result.  Default: ``2**34`` (16 GiB).
+            a positive integer.  The search allocates up to about this much memory when that makes
+            it faster, so lower the limit on a machine with less memory available.  A smaller limit
+            can make the search slower, but never changes the result.  Default: ``2**34`` (16 GiB).
 
     Returns:
         A certificate of bounded fault propagation, which includes a counterexample if applicable.
