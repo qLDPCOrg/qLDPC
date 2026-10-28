@@ -10,7 +10,8 @@ prints what it observes:
    recounted exactly.
 2. How many codes of each code type meet or exceed the stabilizer and the CSS Gilbert-Varshamov
    bounds (the columns delta_QGV and delta_CSS of the paper's table).
-3. How many codes of each code type beat every code that qecdb.org listed before the paper.
+3. How many codes of each code type beat every code that qecdb.org listed before the paper, by the
+   parameters that the database listed, which are a trusted input rather than recomputed.
 4. The order of the group of logical Clifford gates, modulo logical Pauli gates, that the
    SWAP-transversal automorphisms of the [[20, 6, 4]] SWEL code generate; the paper reports 2304.
 """
