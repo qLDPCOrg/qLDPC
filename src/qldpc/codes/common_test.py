@@ -299,7 +299,8 @@ def test_matrix_automorphism_group() -> None:
         p_checks, p_bits = member.array_form[:6], [col - 6 for col in member.array_form[6:]]
         assert np.array_equal(code.matrix[p_checks][:, p_bits], code.matrix)
 
-    # without automorphisms, the group is trivial, but acts on every check and bit
+    # a matrix without nontrivial automorphisms has a trivial automorphism group, which still acts
+    # on every check and bit
     with unittest.mock.patch(
         "qldpc.external._bliss.get_matrix_automorphism_generators", return_value=[]
     ):

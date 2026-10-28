@@ -2159,18 +2159,21 @@ class SLPCode(CSSCode):
 class BPCode(CSSCode):
     """Balanced product code.
 
-    A balanced product code is built from two classical codes, each with a list of symmetries.  A
-    symmetry of a classical code is a pair of permutations ``(p_checks, p_bits)`` of its checks and
-    bits that leaves its parity check matrix ``H`` invariant, in the sense that
+    A balanced product code is a quotient of the hypergraph product code of two classical codes
+    (see :class:`HGPCode`) by symmetries that the classical codes share.  This quotient has fewer
+    qudits than the hypergraph product code, and with suitable classical codes and distance
+    balancing (see :class:`DistanceBalancedCode`), it yields codes whose distance grows faster than
+    the square root of their length (https://arxiv.org/abs/2012.09271).
+
+    A symmetry of a classical code is a pair of permutations ``(p_checks, p_bits)`` of its checks
+    and bits that leaves its parity check matrix ``H`` invariant, in the sense that
     ``H[p_checks][:, p_bits] == H``.  Here each permutation ``p`` is a sequence that lists the image
     ``p[j]`` of every index ``j``, or a SymPy permutation, which fixes the indices beyond its size.
-
-    Pairing the symmetries of the two classical codes, a balanced product code is the quotient of
-    the hypergraph product code (see :class:`HGPCode`) that identifies qudits and checks related by
-    every pair of symmetries.  See :meth:`qldpc.objects.ChainComplex.balanced_product` for details.
-    Without symmetries, a balanced product code is a hypergraph product code.  If the pairs of
-    symmetries generate a group that acts freely on both codes, a balanced product code is a lifted
-    product code (see :class:`LPCode`).
+    The balanced product code identifies the qudits and checks of the hypergraph product code that
+    are related by pairs of symmetries of the two classical codes (see
+    :meth:`qldpc.objects.ChainComplex.balanced_product`).  Without symmetries, a balanced product
+    code is a hypergraph product code.  If the pairs of symmetries generate a group that acts freely
+    on both classical codes, a balanced product code is a lifted product code (see :class:`LPCode`).
 
     The static method :meth:`from_seed` constructs balanced product codes from a single seed matrix
     with a symmetry, as in https://arxiv.org/abs/2505.13679, and :meth:`get_seed_symmetries` finds
@@ -2279,6 +2282,11 @@ class BPCode(CSSCode):
         ``R = GroupMember(p_rows).to_matrix()`` and ``C = GroupMember(p_cols).to_matrix().T`` (see
         :meth:`qldpc.abstract.GroupMember.to_matrix`).  Symmetries of a seed matrix can be found
         with :meth:`get_seed_symmetries`.
+
+        Args:
+            seed_matrix: The seed matrix.
+            symmetry: A symmetry ``(p_rows, p_cols)`` of the seed matrix.
+            field: The finite field of the seed matrix, if it is not a ``galois.FieldArray``.
         """
         seed = ClassicalCode(seed_matrix, field)
         # validate the symmetry, as a symmetry of the seed's chain complex, before using its orders
@@ -2303,6 +2311,11 @@ class BPCode(CSSCode):
         seed matrix, which can take a long time if the group is large.  Computing automorphisms
         requires the optional ``pybliss`` package, which can be installed with
         ``pip install 'qldpc[bliss]'``.
+
+        Args:
+            seed_matrix: The seed matrix.
+            order: The order of the symmetries to find.
+            field: The finite field of the seed matrix, if it is not a ``galois.FieldArray``.
         """
         seed = ClassicalCode(seed_matrix, field)
         group = seed.get_matrix_automorphism_group()
@@ -2324,18 +2337,25 @@ class DistanceBalancedCode(CSSCode):
     """Distance-balanced code, obtained from a CSS code and a classical code.
 
     Distance balancing multiplies the X-distance or Z-distance of a CSS code by the distance of a
-    classical code, while preserving its other distance.  If ``pauli`` is X, the CSS code defines a
-    chain complex ``C_2 --[H_X.T]--> C_1 --[H_Z]--> C_0`` and the classical code defines a chain
-    complex ``D_1 --[H]--> D_0``, where ``H_X``, ``H_Z``, and ``H`` are parity-check matrices.  The
-    distance-balanced code then has Z-type checks, qudits, and X-type checks in degrees 1, 2, and 3
-    of the tensor product ``C ⨂ D``.  If ``pauli`` is Z, the roles of X and Z are exchanged.
+    classical code, while preserving the other distance of the CSS code.  If ``pauli`` is X, the CSS
+    code defines a chain complex ``C_2 --[H_X.T]--> C_1 --[H_Z]--> C_0`` and the classical code
+    defines a chain complex ``D_1 --[H]--> D_0``, where ``H_X``, ``H_Z``, and ``H`` are parity-check
+    matrices.  The distance-balanced code then has Z-type checks, qudits, and X-type checks in
+    degrees 1, 2, and 3 of the tensor product ``C ⨂ D``.  If ``pauli`` is Z, the roles of X and Z
+    are exchanged.
 
-    Suppose that ``pauli`` is X, the CSS code has parameters ``[[n, k, (d_X, d_Z)]]`` and
-    ``m_X = len(H_X)`` X-type checks, and the classical code has parameters ``[n_C, k_C, d_C]`` and
-    ``m_C = len(H)`` checks.  The distance-balanced code then has ``n * n_C + m_X * m_C`` qudits and
-    ``k * k_C + (m_X - rank(H_X)) * (m_C - rank(H))`` logical qudits.  If the rows of ``H`` are
-    linearly independent, the distance-balanced code therefore has ``k * k_C`` logical qudits, and
-    if this number is nonzero, it has distances ``(d_X * d_C, d_Z)``.
+    Suppose that ``pauli`` is X, that the CSS code has parameters ``[[n, k, (d_X, d_Z)]]`` and
+    ``m_X = len(H_X)`` X-type checks, and that the classical code has parameters
+    ``[n_C, k_C, d_C]`` and ``m_C = len(H)`` checks.  The distance-balanced code then has
+    ``n * n_C + m_X * m_C`` qudits and ``k * k_C + (m_X - rank(H_X)) * (m_C - rank(H))`` logical
+    qudits.  If the rows of ``H`` are linearly independent, the distance-balanced code therefore has
+    ``k * k_C`` logical qudits, and if this number is nonzero, it has distances
+    ``(d_X * d_C, d_Z)``.
+
+    Args:
+        code: The CSS code, which must not be a subsystem code.
+        auxiliary_code: The classical code.
+        pauli: The Pauli type, X or Z, whose distance to multiply.
 
     References:
 
