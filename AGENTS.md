@@ -255,11 +255,11 @@ Pass it `stacklevel=get_external_caller_stacklevel()` from [`qldpc/_utils.py`](s
    The old value keeps working, but its inline block calls `warn_future_change` with a message that the old behavior will be removed in a future release.
    Remove the library-map entry (and the section, if it is then empty), and reduce the docstring to the new behavior and one line in `Args` that calls out the old value.
 3. At least one minor release later, remove the old behavior, so that the old value raises `_deprecations.defunct(...)`.
-   If the keyword then has only one valid value, also deprecate the keyword itself with `_deprecations.warn_deprecated`, re-mark the block `# DEPRECATED: see qldpc._deprecations`, and rename its test `test_deprecated_*`, so that removing deprecations later deletes the keyword and the block together.
+   If the old value was the only alternative to the new one (other than `None`), also deprecate the keyword itself with `_deprecations.warn_deprecated`, stop passing it in qLDPC code, tests, and examples, re-mark the block `# DEPRECATED: see qldpc._deprecations`, and rename its test `test_deprecated_*`, so that removing deprecations later deletes the keyword and the block together.
    Otherwise, replace the block with ordinary argument validation that rejects the old value.
 
 Warning messages, docstrings, and docs say "in a future release", without naming version numbers.
-Tests and other qLDPC code pass the new value explicitly.
+Until step 3, tests and other qLDPC code pass the new value explicitly.
 A test of the old behavior and its warning stays beside its module, uses `pytest.warns(FutureWarning, ...)`, and is named `test_future_change_*`.
 Pytest turns every `FutureWarning` into an error, including those of third-party packages; avoid the call that triggers a third-party `FutureWarning`, or add a narrow `ignore` entry to `filterwarnings` in `pyproject.toml`.
 Notebooks run in separate kernels that do not inherit the warning filters of pytest, so grep the examples for a changing API, and pass the new value there too.
