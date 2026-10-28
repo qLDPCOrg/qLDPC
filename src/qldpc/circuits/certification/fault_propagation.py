@@ -14,14 +14,13 @@ import numpy.typing as npt
 import stim
 
 from qldpc import math
-from qldpc.codes.distance._bounded_weight_search import MinWeightBound, PauliCosetSearch
+from qldpc.codes.distance._bounded_weight_search import MinWeightBound
 
+from .._post_selection import get_flag_detectors, get_selected_detectors, is_integer
 from ..bookkeeping import DetectorRecord
 from ..common import get_pauli_product_measurements
 from ..encoding import get_state_stabilizers
-from ._fault_enumeration import FaultLister
-from .logical_errors import _is_integer
-from .state_prep_diagnostics import _get_flag_detectors, _get_selected_detectors
+from ._fault_search import find_smallest_violation
 
 ####################################################################################################
 # bounded fault propagation certification
@@ -62,7 +61,7 @@ def certify_bounded_fault_propagation(
     each fire a detector can pass together, so the search also considers the irreducible accepted
     faults, which are the faults that pass and contain no other nonempty fault that passes.  The
     proof that this is enough is in the `design note
-    <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/circuits/benchmarking/fault_propagation.md>`_.
+    <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/circuits/certification/fault_propagation.md>`_.
 
     The certificate covers only the faults of this model: operations without noise are perfect,
     error instructions with probability zero are not faults, and alternatives that exclude each
@@ -113,12 +112,12 @@ def certify_bounded_fault_propagation(
     if css_weight is not None and not isinstance(css_weight, bool):
         raise TypeError("css_weight must be a bool or None")
     if max_weight is not None:
-        if not _is_integer(max_weight):
+        if not is_integer(max_weight):
             raise TypeError("max_weight must be an integer or None")
         if max_weight < 1:
             raise ValueError("max_weight must be positive")
         max_weight = int(max_weight)
-    if not _is_integer(memory_limit):
+    if not is_integer(memory_limit):
         raise TypeError("memory_limit must be an integer")
     if memory_limit < 1:
         raise ValueError("memory_limit must be positive")
@@ -130,9 +129,9 @@ def certify_bounded_fault_propagation(
 
     # Flag detectors come after the detectors that the circuit already has.
     detector_record = DetectorRecord({"prep": range(state_prep_circuit.num_detectors)})
-    flag_detectors = _get_flag_detectors(state_prep_circuit) if add_flags else stim.Circuit()
+    flag_detectors = get_flag_detectors(state_prep_circuit) if add_flags else stim.Circuit()
     detector_record.append({"flags": range(flag_detectors.num_detectors)})
-    selected = _get_selected_detectors(post_select, detector_record, add_flags)
+    selected = get_selected_detectors(post_select, detector_record, add_flags)
     circuit = state_prep_circuit + flag_detectors
 
     stabilizers = get_state_stabilizers(circuit, qubits)
@@ -141,14 +140,14 @@ def certify_bounded_fault_propagation(
     matrix = np.array([math.string_to_op(stabilizer) for stabilizer in stabilizers], dtype=np.uint8)
     css_weight = _is_css_state(matrix) if css_weight is None else css_weight
     dem, flags, syndromes = _get_primitive_fault_signatures(circuit, stabilizers, qubits, selected)
-    counterexample = _find_smallest_violation(
+    violation = find_smallest_violation(
         flags, syndromes, matrix, css_weight, max_weight, int(memory_limit)
     )
     return BoundedFaultPropagationCertificate(
         qubits,
         tuple(stabilizers),
         dem,
-        counterexample,
+        None if violation is None else _get_counterexample(*violation, len(qubits)),
         css_weight,
         max_weight,
         selected,
@@ -226,6 +225,20 @@ class BoundedFaultPropagationCounterexample:
         return len(self.fault_indices)
 
 
+def _get_counterexample(
+    indices: tuple[int, ...], syndrome: int, bound: MinWeightBound, num_qubits: int
+) -> BoundedFaultPropagationCounterexample:
+    """Describe a violating fault by its DEM indices and an error on the output qubits."""
+    n = num_qubits
+    pauli = math.op_to_string(np.array([(bound.representative >> jj) & 1 for jj in range(2 * n)]))
+    return BoundedFaultPropagationCounterexample(
+        tuple(sorted(indices)),
+        tuple((syndrome >> jj) & 1 for jj in range(n)),
+        bound.lower_bound,
+        pauli,
+    )
+
+
 def _get_primitive_fault_signatures(
     circuit: stim.Circuit,
     stabilizers: Sequence[stim.PauliString],
@@ -291,7 +304,7 @@ def _validate_output_qubits(output_qubits: Sequence[int], num_qubits: int) -> tu
         qubits = tuple(output_qubits)
     except TypeError as error:
         raise TypeError("output_qubits must be a sequence of integer qubit indices") from error
-    if not all(_is_integer(jj) for jj in qubits):
+    if not all(is_integer(jj) for jj in qubits):
         raise TypeError("output_qubits must contain integer qubit indices")
     if (
         not qubits
@@ -313,149 +326,3 @@ def _is_css_state(stabilizers: npt.NDArray[np.uint8]) -> bool:
         for sector in (stabilizers[:, :n], stabilizers[:, n:])
     ]
     return sum(ranks) == n
-
-
-####################################################################################################
-# exact search for a violating fault
-
-
-def _find_smallest_violation(
-    flags: Sequence[int],
-    syndromes: Sequence[int],
-    stabilizers: npt.ArrayLike,
-    css_weight: bool,
-    max_weight: int | None,
-    memory_limit: int = 2**30,  # 1 GiB
-) -> BoundedFaultPropagationCounterexample | None:
-    """Find a violating accepted fault of the smallest fault weight, or None if there is none.
-
-    The search keeps one primitive fault for each distinct nonzero signature, and limits the fault
-    weight to ``max_weight`` and to what an irreducible accepted fault can have.  Then it runs
-    ``_search_irreducible_faults``.
-    """
-    # A primitive fault with zero flags and zero syndrome does nothing, and two primitive faults
-    # with equal (flags, syndrome) signatures cancel.  Keeping one primitive fault for each distinct
-    # nonzero signature cannot hide a violation, and each signature keeps the index of its first
-    # primitive fault.
-    signatures: dict[tuple[int, int], int] = {}
-    for index, signature in enumerate(zip(flags, syndromes, strict=True)):
-        if any(signature):
-            signatures.setdefault(signature, index)
-
-    # An irreducible accepted fault has fault weight at most one more than the rank of the flags.
-    flag_rank = _get_binary_rank([flag for flag, _ in signatures])
-    max_fault_weight = flag_rank + 1 if max_weight is None else min(max_weight, flag_rank + 1)
-
-    oracle = PauliCosetSearch(stabilizers, css_weight=css_weight)
-    return _search_irreducible_faults(signatures, max_fault_weight, oracle, memory_limit)
-
-
-def _search_irreducible_faults(
-    signatures: dict[tuple[int, int], int],
-    max_fault_weight: int,
-    oracle: PauliCosetSearch,
-    memory_limit: int = 2**30,  # 1 GiB
-) -> BoundedFaultPropagationCounterexample | None:
-    """Check the irreducible accepted faults that can violate the bound, by increasing fault weight.
-
-    The signatures map the (flags, syndrome) of each kept primitive fault to its DEM index, and
-    ``max_fault_weight`` is the largest fault weight to check.  Return a violating fault of the
-    smallest fault weight, or None if there is none.
-    """
-    # A primitive fault that fires no post-selection detector is an irreducible accepted fault by
-    # itself, and no larger irreducible accepted fault contains it.  Check these first.
-    flagged: list[tuple[int, int, int]] = []
-    for (flag, syndrome), index in signatures.items():
-        if flag:
-            flagged.append((flag, syndrome, index))
-            continue
-        failure = _check_fault((index,), syndrome, oracle)
-        if failure is not None:
-            return failure
-
-    # A primitive fault is heavy if its own error has no equivalent error of Pauli weight at most
-    # one, and light otherwise.  A fault that contains only light primitive faults cannot violate
-    # the bound, so without a heavy primitive fault there is nothing more to check.
-    heavy: list[tuple[int, int, int, int]] = []
-    light: list[tuple[int, int, int, int]] = []
-    for flag, syndrome, index in flagged:
-        bound = oracle.get_min_weight_bound(syndrome, 1)
-        primitive = (flag, syndrome, index, bound.representative)
-        (light if bound.within_max_weight else heavy).append(primitive)
-    if not heavy:
-        return None
-
-    # Give each primitive fault an error with its syndrome, of low Pauli weight so that the search
-    # can skip more faults.  The error of a light primitive fault has Pauli weight at most one.  A
-    # heavy primitive fault whose syndrome is the sum of those of two light primitive faults gets
-    # the product of their errors, which has Pauli weight at most two.
-    light_errors = {syndrome: error for _, syndrome, _, error in light}
-    for jj, (flag, syndrome, index, _) in enumerate(heavy):
-        for other, error in light_errors.items():
-            if syndrome ^ other in light_errors:
-                heavy[jj] = (flag, syndrome, index, error ^ light_errors[syndrome ^ other])
-                break
-
-    # Order the primitive faults with the heavy ones first, and each group in DEM order, so that the
-    # faults to check are the ones that start with a heavy primitive fault.
-    primitives = heavy + light
-
-    # The oracle needs only small tables, so the table of pairs may use the whole memory limit.
-    lister = FaultLister(
-        [flag for flag, _, _, _ in primitives],
-        [syndrome for _, syndrome, _, _ in primitives],
-        [representative for _, _, _, representative in primitives],
-        oracle.num_qubits,
-        oracle.css_weight,
-        len(heavy),
-        memory_limit,
-    )
-
-    # Check the faults by increasing fault weight.
-    for fault_weight in range(2, max_fault_weight + 1):
-        violation = lister.find_first(fault_weight, oracle.find_first_not_within_max_weight)
-        if violation is not None:
-            positions, syndrome = violation
-            indices = tuple(primitives[jj][2] for jj in positions)
-            bound = oracle.get_min_weight_bound(syndrome, fault_weight)
-            return _get_counterexample(indices, syndrome, bound, oracle.num_qubits)
-    return None
-
-
-def _check_fault(
-    indices: tuple[int, ...], syndrome: int, oracle: PauliCosetSearch
-) -> BoundedFaultPropagationCounterexample | None:
-    """Return a counterexample if the fault with these indices and syndrome violates the bound."""
-    bound = oracle.get_min_weight_bound(syndrome, len(indices))
-    if bound.within_max_weight:
-        return None
-    return _get_counterexample(indices, syndrome, bound, oracle.num_qubits)
-
-
-def _get_counterexample(
-    indices: tuple[int, ...], syndrome: int, bound: MinWeightBound, num_qubits: int
-) -> BoundedFaultPropagationCounterexample:
-    """Describe a violating fault by its DEM indices and an error on the output qubits."""
-    n = num_qubits
-    pauli = math.op_to_string(np.array([(bound.representative >> jj) & 1 for jj in range(2 * n)]))
-    return BoundedFaultPropagationCounterexample(
-        tuple(sorted(indices)),
-        tuple((syndrome >> jj) & 1 for jj in range(n)),
-        bound.lower_bound,
-        pauli,
-    )
-
-
-def _get_binary_rank(columns: Sequence[int]) -> int:
-    """Get the GF(2) rank of binary columns that are packed into integers."""
-    # The basis holds columns with distinct leading bits, largest first.  Reducing a column by each
-    # basis column in turn clears these leading bits from it, so a nonzero result is independent of
-    # the basis.
-    basis: list[int] = []
-    for column in columns:
-        for row in basis:
-            column = min(column, column ^ row)
-        if column:
-            basis.append(column)
-            basis.sort(reverse=True)
-    return len(basis)

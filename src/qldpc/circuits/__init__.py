@@ -1,16 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Stim circuits: encoders, memory experiments, noise models, benchmarks, and transversal gates."""
+"""Stim circuits: encoding, memory, noise, benchmarking, certification, and transversal gates."""
 
 from typing import TYPE_CHECKING
 
 from qldpc import _deprecations
 
 from .benchmarking import (
-    BoundedFaultPropagationCertificate,
-    BoundedFaultPropagationCounterexample,
-    certify_bounded_fault_propagation,
-    get_fault_distance,
     get_logical_error_and_discard_rate,
     get_state_prep_diagnostic_circuit,
     get_state_prep_diagnostic_tasks,
@@ -20,6 +16,12 @@ from .bookkeeping import (
     MeasurementRecord,
     QubitIDs,
     Record,
+)
+from .certification import (
+    BoundedFaultPropagationCertificate,
+    BoundedFaultPropagationCounterexample,
+    certify_bounded_fault_propagation,
+    get_fault_distance,
 )
 from .common import (
     StimCircuitLike,

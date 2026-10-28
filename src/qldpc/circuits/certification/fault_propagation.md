@@ -95,8 +95,12 @@ The search skips the oracle for a fault `F` in two cases, each of which cannot h
 
 1. A product of low-weight errors with syndromes `s_j`, one for each primitive fault `j` of `F`, has Pauli weight at most `|F|`.
    That product has syndrome `S F`, so `F` satisfies the bound.
-2. An earlier fault of the same batch, which has the same fault weight, has the syndrome `S F`.
-   If that fault violates the bound, the search stops there, and otherwise `F` satisfies the bound too, since whether a fault violates the bound depends only on its syndrome and fault weight.
+2. A fault `G` that the search listed earlier has the syndrome `S F`.
+   The search lists faults by increasing fault weight, so `|G| ≤ |F|`.
+   If `G` violates the bound, the search stops there.
+   Otherwise `μ(S F) = μ(S G) ≤ |G| ≤ |F|`, so `F` satisfies the bound.
+   The search remembers the syndromes of the faults that it lists in a table, which grows within a user-specified memory limit.
+   A full table takes no more syndromes, so the search may check some syndromes more than once.
 
 ### Listing each irreducible accepted fault once
 
@@ -119,7 +123,7 @@ The search looks up the closing primitive fault in a table of the primitive faul
 Different flags can share a hash, so the search compares the flags of every primitive fault that it finds with the sum of the prefix flags.
 Most choices of `j_{m-1}` have no closing primitive fault, so for fault weight `m ≥ 4` the search saves time by choosing `j_{m-1}` and `j_m` together.
 Choosing them together removes about one factor of `N` (the number of primitive faults) from the search time, at the cost of a table whose size is quadratic in `N`.
-The search keeps a table of all pairs of these primitive faults, sorted by the hash of the sum of their flags, if the table fits within a user-specified memory limit.
+The search keeps a table of all pairs of these primitive faults, sorted by the hash of the sum of their flags, if the table fits within the memory limit, which it has first claim on.
 The hash is linear, so the hash of the sum of two flags is the sum of their hashes.
 For each choice of `j_1, ..., j_{m-2}`, the search looks up the pairs `j_{m-1} < j_m` with the hash of the flags of `j_1, ..., j_{m-2}`, keeps those that come after `j_{m-2}` and whose flags sum exactly to the flags of `j_1, ..., j_{m-2}`, and of these keeps the pairs for which the prefix is independent.
 The table keeps the pairs with each hash in lexicographic order, so the table lookup lists the same faults in the same order as a loop over `j_{m-1}`.
