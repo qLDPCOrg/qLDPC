@@ -257,13 +257,13 @@ Pass ``refresh=True`` to ``ClassicalCode.from_name``, ``QuditCode.from_qecdb_id`
 ~~~~~~~~~~
 
 The optional ``sqetch`` distance-bound backend for binary CSS codes requires a CUDA GPU and is not published on PyPI.
-See the `README <https://github.com/qLDPCOrg/qLDPC#sqetch-distance-estimation>`_ for the tested installation command.
+See :ref:`GPU distance estimation <installation-sqetch>` for the tested installation command.
 
 ``pybliss``
 ~~~~~~~~~~~
 
-:meth:`ClassicalCode.get_matrix_automorphism_group <qldpc.codes.common.ClassicalCode.get_matrix_automorphism_group>`, and hence ``BPCode.get_seed_symmetries``, compute automorphisms of a parity check matrix with the optional `pybliss <https://pypi.org/project/pybliss/>`_ package.
-Install it with ``pip install 'qldpc[bliss]'``; unlike qLDPC, ``pybliss`` is distributed under the GPL/LGPL v3 licenses.
+:meth:`ClassicalCode.get_matrix_automorphism_group <qldpc.codes.common.ClassicalCode.get_matrix_automorphism_group>`, and hence ``BPCode.get_seed_symmetries``, compute automorphisms of a parity check matrix in process with the optional `pybliss <https://pypi.org/project/pybliss/>`_ package, without other side effects.
+See :ref:`Matrix automorphisms <installation-bliss>` for its installation, platforms, and license.
 
 Disk caches
 ~~~~~~~~~~~

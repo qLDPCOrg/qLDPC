@@ -12,7 +12,7 @@ They are not part of the installed `qldpc` package, and the test suite does not 
 Each script's module docstring summarizes its method and outputs; run it with `--help` to see its options.
 The quantum Tanner `run_search.py` and `verify_codes.py` require [GAP](https://www.gap-system.org) for their groups (the SmallGroups library) and Cordaro–Wagner base codes (the GUAVA package), whereas `collect_results.py` only reads saved files.
 Both code searches bound distances with the default backend of `get_distance_bound`, which uses `sqetch` if installed, then GAP's QDistRnd package if available, and a decoder-based method otherwise.
-See the [GAP integration](../README.md#gap-integration) section of the main README to set up GAP, for example with `pip install 'qldpc[gap]'`.
+See the [GAP integration instructions](../docs/source/installation.rst#gap-integration) to set up GAP, for example with `pip install 'qldpc[gap]'`.
 Commands below are written relative to the repository root.
 
 ## Results

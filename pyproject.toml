@@ -151,7 +151,9 @@ show_error_codes = true
 ini_options.addopts = "--disable-socket"  # forbid tests from making network calls
 ini_options.filterwarnings = [
   "error::DeprecationWarning",                                                # tests use the modern API
+  "error::FutureWarning",                                                     # tests opt in to future changes
   "ignore:(?s).*The problem is either infeasible or unbounded.*:UserWarning", # from cvxpy
+  "ignore::DeprecationWarning:nbmake",                                        # deprecated asyncio calls of nbmake on Windows
 ]
 
 [tool.coverage]
