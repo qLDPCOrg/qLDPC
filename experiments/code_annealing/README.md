@@ -12,9 +12,7 @@ To cite the paper, see [CITATION.md](CITATION.md).
 
 ## Installation
 
-The experiment lives in the [qLDPC repository](https://github.com/qLDPCOrg/qLDPC), and uses the `qldpc` package of the same repository.
-It requires Python 3.11 or later, and matplotlib for the figures.
-Clone the repository, and install `qldpc` from the clone, so that the library matches the experiment:
+Clone the qLDPC repository, install its `qldpc` package with matplotlib, and run every command from the root of the repository:
 
 ```bash
 git clone https://github.com/qLDPCOrg/qLDPC.git
@@ -22,13 +20,7 @@ cd qLDPC
 python -m pip install . matplotlib
 ```
 
-Run every command below from the root of the repository, with the Python environment in which you installed `qldpc`.
-
-Developers of the experiment instead install the clone in editable mode with its development tools, from the root of the repository, and run its tests (see [Tests](#tests)):
-
-```bash
-python -m pip install -e '.[dev]' matplotlib
-```
+[ENVIRONMENT.md](ENVIRONMENT.md) is the source of truth for the environment: the tested platform, developer setup, threads and caches, and running on a server.
 
 ## Reproducing the paper
 
@@ -45,12 +37,9 @@ It recounts the distance and the minimum-weight logical operators of every code 
 The table takes moments, whereas the figures take a while: they simulate every code with many sampled errors, and these simulations take most of the time.
 Add `--skip-figures` for the table alone, or a small `--num-samples` and `--max-qubits` for a quick look at the figures.
 
-| In the paper | From `reproduce_paper` |
-| --- | --- |
-| The table of the best CSS and SWEL codes | The two `tabular` environments that it prints |
-| The figures of the logical error rates of the CSS and SWEL codes | `error_rates_css.pdf` and `error_rates_swel.pdf` |
-| The figure of simulated and estimated logical error rates | `error_estimates.pdf` |
-| The appendix of the best codes | `paper_data/annealed_codes.txt` (CSS) and `paper_data/annealed_codes_swel.txt` (SWEL) |
+[REPRODUCTION.md](REPRODUCTION.md) maps every figure and table of the paper to its command, input and output, and records whether it reproduces.
+`python -m experiments.code_annealing.check_claims` checks the paper's headline claims against its codes in seconds, without changing any file.
+[paper_data/README.md](paper_data/README.md) describes the data, and shows how to load the codes into qLDPC.
 
 ### The searches, at any scale
 
@@ -144,21 +133,6 @@ A search is named `{code_type}_n{n}_k{k}_s{seed}`, with `k` padded to two digits
 
 Keep a results directory private to you, because `jobs.txt` holds shell commands and `cache/` holds pickled simulations.
 
-### Running on a server
-
-Copy the repository to the server, and install it as above, without matplotlib if you plot elsewhere.
-qLDPC caches its compiled kernels in the user's cache directory, and `analysis/min_weight_supports.py` caches its kernel in the repository.
-Set `NUMBA_CACHE_DIR` to a writable directory if either is read-only, or to one that all jobs share.
-
-```bash
-python -m experiments.code_annealing.write_jobs
-nohup parallel -j "$(nproc)" --joblog experiments/code_annealing/results/logs/joblog.txt \
-  < experiments/code_annealing/results/logs/jobs.txt > /dev/null 2>&1 &
-```
-
-Here `--joblog` is an option of `parallel` that records the exit status of every job.
-Copy `results/logs/` back to a local copy of the repository to collect the data and plot the figures there.
-
 ### Optional scripts
 
 - `baseline/run_random.py` samples random codes of one size as a baseline, and `make_figures` plots a histogram for every size that was sampled.
@@ -168,12 +142,15 @@ Copy `results/logs/` back to a local copy of the repository to collect the data 
 
 ```text
 experiments/code_annealing/
+├── REPRODUCTION.md       the figures and tables of the paper, and how each reproduces
+├── ENVIRONMENT.md        setting up and running
 ├── reproduce_paper.py    the table and figures of the paper, from its codes
+├── check_claims.py       check the headline claims of the paper against its codes
 ├── write_jobs.py         step 1: write the jobs of a campaign
 ├── progress_report.py    check the progress of a campaign
 ├── collect_data.py       step 2: collect the best codes and compute tables
 ├── make_figures.py       step 3: plot figures
-├── paper_data/           the codes of the paper, and qecdb.org before the paper
+├── paper_data/           the codes of the paper, qecdb.org before the paper, and automorphisms
 ├── core/                 the search, its command line, and the files and paths that all steps share
 ├── analysis/             what collect_data.py runs, and other tools for saved runs
 ├── figures/              what make_figures.py runs

@@ -1,0 +1,31 @@
+# Reproducing the paper's figures and tables
+
+This file maps every figure and table of [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574) to the command that reproduces it, and records whether it reproduces.
+Set up the environment as in [ENVIRONMENT.md](ENVIRONMENT.md), and run every command from the root of the repository.
+The inputs are the files of [`paper_data/`](paper_data/), which its README describes.
+Outputs go to `experiments/code_annealing/results/paper/`, which Git ignores.
+
+## Map
+
+| Paper artifact | Command | Inputs | Output | Status | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Table of the best CSS and SWEL codes (`tab:codes`) | `python -m experiments.code_annealing.reproduce_paper --skip-figures` | `paper_data/annealed_codes*.txt`, `paper_data/scrape_qecdb_2026-05-21.txt` | two LaTeX `tabular` environments, printed | `runs-but-differs` | Takes seconds.  Every cell matches the paper except the mean stabilizer weights of the SWEL codes [[22, 6, 4]] and [[24, 4, 4]], which the paper gives as 7.0 and the codes give as 7.50 and 7.20. |
+| Figure of logical error rates and discard rates (`fig:error_rates`, CSS and SWEL panels) | `python -m experiments.code_annealing.figures.plot_error_rates_by_code_type --results-dir experiments/code_annealing/results/paper`, after the table command | the code files, copied by the table command | `results/paper/figures/error_rates_css.pdf`, `error_rates_swel.pdf` | `runs-but-differs` | Heavy: the default of 10^7 sampled errors per code takes many hours on one core; pass a small `--num-samples` and `--max-qubits` for a quick look.  The paper's curves were computed before qLDPC corrected its logical error rate for decoders that discard shots, which lowered the rates, so the figures differ from the paper. |
+| Figure of simulated and estimated logical error rates (`fig:error_estimates`) | `python -m experiments.code_annealing.figures.plot_error_estimates --results-dir experiments/code_annealing/results/paper`, after the table command | the code files, and `results/paper/data/half_supports.txt` from the table command | `results/paper/figures/error_estimates.pdf` | `runs-but-differs` | Heavy, as above.  The estimates are unchanged, but the simulated points differ from the paper for the same reason. |
+| Appendix of the best codes (CSS and SWEL listings) | `python -m experiments.code_annealing.check_claims` | `paper_data/annealed_codes*.txt` | printed | `reproduced` | The listings are the code files, whose distances and counts the command recounts exactly. |
+| Appendix on automorphisms of the [[20, 6, 4]] SWEL code (2304 logical Clifford gates) | `python -m experiments.code_annealing.check_claims` | `paper_data/annealed_codes_swel.txt`, `paper_data/automorphisms_swel_n20_k06.txt` | printed | `reproduced` | Finds a group of 2304 logical Clifford gates modulo logical Pauli gates, as the paper reports. |
+
+`reproduce_paper` is a grouped wrapper of the first three rows: it copies `paper_data/`, recounts every code, prints the table, and plots both figures; it accepts `--num-samples` and `--max-qubits` for a quick look.
+
+Not computational, so not reproduced by code: the algorithms of adaptive annealing and of the proofs, and the circuit diagram of the elementary SWEL-preserving gate.
+
+## Quick checks of the headline claims
+
+`python -m experiments.code_annealing.check_claims` reads `paper_data/`, takes seconds, changes no file, and prints:
+
+| Claim of the paper | What the command reports |
+| --- | --- |
+| The codes have the distances and numbers of minimum-weight logical operators that the paper lists | each code recounted exactly against its file |
+| The distances frequently meet or exceed the Gilbert-Varshamov bounds | for each code type, how many codes meet the stabilizer bound and the CSS bound (the columns delta_QGV and delta_CSS of the table): 22 and 26 of 26 CSS codes, 17 and 26 of 26 SWEL codes |
+| Many codes improve on the best codes known before the paper | for each code type, how many codes beat every code that qecdb.org listed on 2026-05-21: 12 of 26 CSS codes, 14 of 26 SWEL codes |
+| The [[20, 6, 4]] SWEL code has at least 2304 SWAP-transversal logical Clifford gates modulo logical Pauli gates | the order of the group that the five generators generate: 2304 |
