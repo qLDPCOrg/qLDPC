@@ -90,15 +90,15 @@ def _match_error_decoder_to_dem(
     num_erasure_bits = int(getattr(decoder, "has_erasure_bit", False))
     test_error = decoder.decode_errors(np.zeros(dem.num_detectors, dtype=int))
     num_inferred_errors = len(test_error) - num_erasure_bits
-    circuit_errors = DetectorErrorModelArrays.get_circuit_errors(dem)
-    num_merged_errors = len(DetectorErrorModelArrays.get_merged_circuit_errors(circuit_errors))
-    if num_inferred_errors == len(circuit_errors):
+    error_mechanisms = DetectorErrorModelArrays.get_error_mechanisms(dem)
+    num_merged_errors = len(DetectorErrorModelArrays.get_merged_error_mechanisms(error_mechanisms))
+    if num_inferred_errors == len(error_mechanisms):
         return decoder
     if num_inferred_errors == num_merged_errors:
         return _ExpandedErrorDecoder(decoder, dem)
     raise ValueError(
         f"An error decoder inferred an error of length {num_inferred_errors} for a detector error"
-        f" model with {len(circuit_errors)} error mechanisms ({num_merged_errors} after merging"
+        f" model with {len(error_mechanisms)} error mechanisms ({num_merged_errors} after merging"
         " equivalent mechanisms).  If the decoder predicts observable flips rather than errors,"
         " give it a decode_observables method, and pass it where an observable decoder is accepted"
     )
@@ -119,8 +119,8 @@ class _ExpandedErrorDecoder(BatchErrorDecoder):
         self._decoder = decoder
         self.has_erasure_bit = bool(getattr(decoder, "has_erasure_bit", False))
 
-        original_errors = DetectorErrorModelArrays.get_circuit_errors(dem)
-        simplified_errors = DetectorErrorModelArrays.get_merged_circuit_errors(original_errors)
+        original_errors = DetectorErrorModelArrays.get_error_mechanisms(dem)
+        simplified_errors = DetectorErrorModelArrays.get_merged_error_mechanisms(original_errors)
         self._num_original_errors = len(original_errors)
         signature_to_original_error_index = {
             signature: original_error_index

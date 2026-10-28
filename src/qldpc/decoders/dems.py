@@ -10,12 +10,14 @@ import itertools
 import numbers
 from collections.abc import Collection, Hashable, Iterable
 from collections.abc import Set as AbstractSet
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 import numpy as np
 import numpy.typing as npt
 import scipy.sparse
 import stim
+
+from qldpc import _deprecations
 
 _HashableType = TypeVar("_HashableType", bound=Hashable)
 
@@ -83,9 +85,11 @@ class DetectorErrorModelArrays:
             if isinstance(circuit_or_dem, stim.Circuit)
             else circuit_or_dem
         )
-        errors = DetectorErrorModelArrays.get_circuit_errors(dem, decompose_errors=decompose_errors)
+        errors = DetectorErrorModelArrays.get_error_mechanisms(
+            dem, decompose_errors=decompose_errors
+        )
         if simplify:
-            errors = DetectorErrorModelArrays.get_merged_circuit_errors(errors)
+            errors = DetectorErrorModelArrays.get_merged_error_mechanisms(errors)
         self.detector_flip_matrix, self.observable_flip_matrix, self.error_probs = (
             DetectorErrorModelArrays.get_arrays_from_errors(
                 errors, dem.num_detectors, dem.num_observables
@@ -410,9 +414,9 @@ class DetectorErrorModelArrays:
         )
 
     @staticmethod
-    def get_circuit_errors(
+    def get_error_mechanisms(
         dem: stim.DetectorErrorModel, *, decompose_errors: bool = False
-    ) -> list[CircuitError]:
+    ) -> list[ErrorMechanism]:
         """Collect all error mechanisms in a stim.DetectorErrorModel into a list.
 
         Each error mechanism is nominally identified by:
@@ -435,7 +439,7 @@ class DetectorErrorModelArrays:
         If a detector or observable appears multiple times within one component, its occurrences are
         reduced to the original value mod 2.
         """
-        errors: list[CircuitError] = []
+        errors: list[ErrorMechanism] = []
         for instruction in dem.flattened():
             if instruction.type != "error":
                 continue
@@ -466,7 +470,7 @@ class DetectorErrorModelArrays:
         return errors
 
     @staticmethod
-    def get_merged_circuit_errors(errors: list[CircuitError]) -> list[CircuitError]:
+    def get_merged_error_mechanisms(errors: list[ErrorMechanism]) -> list[ErrorMechanism]:
         """Merge error mechanisms that have the same targets.
 
         Targets include suggested decompositions, so two errors that flip the same detectors and
@@ -484,7 +488,7 @@ class DetectorErrorModelArrays:
 
     @staticmethod
     def get_arrays_from_errors(
-        errors: list[CircuitError], num_detectors: int, num_observables: int
+        errors: list[ErrorMechanism], num_detectors: int, num_observables: int
     ) -> tuple[scipy.sparse.csc_matrix, scipy.sparse.csc_matrix, npt.NDArray[np.floating]]:
         """Convert error mechanisms into DetectorErrorModelArrays data."""
         # initialize empty arrays
@@ -725,7 +729,7 @@ def _combined_flips(components: Iterable[FlipPattern]) -> FlipPattern:
 
 
 ####################################################################################################
-# circuit errors
+# error mechanisms
 
 
 @dataclasses.dataclass(frozen=True, init=False)
@@ -762,7 +766,7 @@ class FlipPattern:
         return det_targets, obs_targets
 
 
-CircuitError = tuple[float, frozenset[FlipPattern]]
+ErrorMechanism = tuple[float, frozenset[FlipPattern]]
 
 
 ####################################################################################################
@@ -772,3 +776,9 @@ CircuitError = tuple[float, frozenset[FlipPattern]]
 def _xor_reduce(items: Iterable[_HashableType]) -> frozenset[_HashableType]:
     """Subset of items that occur an odd number of times."""
     return frozenset([item for item, count in collections.Counter(items).items() if count % 2])
+
+
+if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations
+
+    def __getattr__(name: str) -> object:
+        return _deprecations.get_deprecated_attribute(__name__, name)
