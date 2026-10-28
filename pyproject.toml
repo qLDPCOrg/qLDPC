@@ -145,9 +145,10 @@ show_error_codes = true
 [tool.pytest]
 ini_options.addopts = "--disable-socket"  # forbid tests from making network calls
 ini_options.filterwarnings = [
-  "error::DeprecationWarning",                                                # tests use the modern API
-  "error::FutureWarning",                                                     # tests opt in to future changes
-  "ignore:(?s).*The problem is either infeasible or unbounded.*:UserWarning", # from cvxpy
+  "error::DeprecationWarning",                                                        # tests use the modern API
+  "error::FutureWarning",                                                             # tests opt in to future changes
+  "ignore:'asyncio.WindowsSelectorEventLoopPolicy' is deprecated:DeprecationWarning", # from nbmake on Windows
+  "ignore:(?s).*The problem is either infeasible or unbounded.*:UserWarning",         # from cvxpy
 ]
 
 [tool.coverage]
