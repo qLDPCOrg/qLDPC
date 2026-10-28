@@ -3,6 +3,7 @@
 """Unit tests for memory.py."""
 
 import collections
+import copy
 import itertools
 import random
 
@@ -13,6 +14,7 @@ import pytest
 import stim
 
 from qldpc import circuits, codes, math
+from qldpc.circuits import CheckKey, CheckProductKey
 from qldpc.circuits.memory import memory
 from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ
 
@@ -323,11 +325,11 @@ def test_subsystem_memory_redundant_generators() -> None:
     parts = circuits.get_memory_experiment_parts(code, Pauli.Z, num_rounds=num_rounds)
     assert_detectors_track_stabilizers(code, Pauli.Z, parts.detector_record, num_rounds)
     detector_types = collections.Counter(
-        (len(key), len(parts.detector_record[key]))
+        (len(key.check_ids), key.is_relation, len(parts.detector_record[key]))
         for key in parts.detector_record
-        if isinstance(key, tuple)
+        if isinstance(key, CheckProductKey)
     )
-    assert detector_types == {(4, num_rounds + 1): 21, (4, num_rounds): 12}
+    assert detector_types == {(4, False, num_rounds + 1): 21, (4, True, num_rounds): 12}
 
     # relation detectors only multiply outcomes from a single round
     detector_sizes = collections.Counter(
@@ -355,6 +357,56 @@ def test_low_weight_products() -> None:
     assert memory._get_rank(galois.GF2(np.vstack([reduced, result ^ vector]))) == 3
     assert memory._reduce_weight(vector, basis[:1]).tolist() == [0, 0, 0, 0, 1]  # unique minimum
     assert memory._reduce_weight(vector, basis[:0]).tolist() == vector.tolist()
+
+
+def test_detector_keys() -> None:
+    """Detector keys of stabilizer codes behave as the integer keys of qLDPC v0.4.1."""
+    num_rounds = 3
+    bases: list[PauliXZ | None] = [Pauli.Z, None]
+    for basis in bases:
+        parts = circuits.get_memory_experiment_parts(codes.SurfaceCode(2), basis, num_rounds)
+        num_round_detectors = parts.qec_cycle.num_detectors
+        for check_id in parts.qubit_ids.checks_z:
+            # look up detectors by the plain integer index of a check qubit
+            detectors = parts.detector_record[int(check_id)]
+            assert len(detectors) == num_rounds + 1
+            assert parts.detector_record.get_detector(check_id) >= num_round_detectors  # readout
+            assert all(detector < num_round_detectors for detector in detectors[:-1])
+        assert all(type(key) is CheckKey for key in parts.detector_record)
+
+    # a CheckKey is equal to an integer, and carries the attributes of a key
+    key = CheckKey(5)
+    assert key == 5 and hash(key) == hash(5) and isinstance(key, int) and repr(key) == "5"
+    assert key.check_ids == (5,) and not key.is_relation
+    record = circuits.DetectorRecord({key: [0, 1]})
+    assert record[5] == [0, 1] and 5 in record
+    relation_keys: list[CheckKey | CheckProductKey] = [
+        CheckKey(7, is_relation=True),
+        CheckProductKey((1, 2), is_relation=True),
+    ]
+    for relation_key in relation_keys:
+        copied_key = copy.deepcopy(relation_key)
+        assert copied_key == relation_key and type(copied_key) is type(relation_key)
+        assert copied_key.check_ids == relation_key.check_ids and copied_key.is_relation
+
+    # a subsystem check that is a stabilizer gets a CheckKey, and other detectors get product keys
+    bacon_shor = codes.BaconShorCode(2)
+    matrix_x = np.vstack([bacon_shor.matrix_x, bacon_shor.get_stabilizer_ops(Pauli.X)])
+    code = codes.CSSCode(matrix_x, bacon_shor.matrix_z, is_subsystem_code=True)
+    parts = circuits.get_memory_experiment_parts(code, None, num_rounds)
+    assert_detectors_track_stabilizers(code, None, parts.detector_record, num_rounds)
+    stabilizer_check_id = parts.qubit_ids.checks_x[-1]
+    keys = [key for key in parts.detector_record if isinstance(key, CheckKey | CheckProductKey)]
+    assert len(keys) == len(parts.detector_record)
+    key_types = {(type(key), key.is_relation, len(parts.detector_record[key])) for key in keys}
+    assert key_types == {
+        (CheckKey, False, num_rounds + 1),
+        (CheckProductKey, False, num_rounds + 1),
+        (CheckProductKey, True, num_rounds),
+    }
+    assert (
+        type(next(key for key in parts.detector_record if key == stabilizer_check_id)) is CheckKey
+    )
 
 
 def test_non_css_subsystem_memory_experiment() -> None:
@@ -412,12 +464,17 @@ def assert_detectors_track_stabilizers(
     check_to_row = {check_id: row for row, check_id in enumerate(qubit_ids.check)}
     gauge_ops = code.matrix
 
-    keys = [key for key in detector_record if isinstance(key, tuple)]
+    keys = [key for key in detector_record if isinstance(key, CheckKey | CheckProductKey)]
     assert len(keys) == len(detector_record)
+    assert all(isinstance(key, CheckKey) == (len(key.check_ids) == 1) for key in keys)
     products = code.field(
-        [np.sum(gauge_ops[[check_to_row[check_id] for check_id in key]], axis=0) for key in keys]
+        [
+            np.sum(gauge_ops[[check_to_row[check_id] for check_id in key.check_ids]], axis=0)
+            for key in keys
+        ]
     )
     is_relation = ~np.any(products, axis=1)
+    assert [key.is_relation for key in keys] == is_relation.tolist()
     stabilizer_keys = [key for key, relation in zip(keys, is_relation) if not relation]
     relation_keys = [key for key, relation in zip(keys, is_relation) if relation]
     stabilizers = products[~is_relation]
@@ -451,9 +508,9 @@ def assert_detectors_track_stabilizers(
         layer_check_ids = {qubit_ids.check[cc] for cc in layer}
         layer_vectors: dict[bool, list[npt.NDArray[np.int_]]] = {False: [], True: []}
         for key, relation in zip(keys, is_relation):
-            if set(key) <= layer_check_ids:
+            if set(key.check_ids) <= layer_check_ids:
                 vector = np.zeros(len(gauge_ops), dtype=int)
-                vector[[check_to_row[check_id] for check_id in key]] = 1
+                vector[[check_to_row[check_id] for check_id in key.check_ids]] = 1
                 layer_vectors[bool(relation)].append(vector)
                 num_keys_in_layers += 1
         stabilizer_vectors = code.field(

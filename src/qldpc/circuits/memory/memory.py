@@ -4,8 +4,9 @@
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Hashable, Sequence
-from typing import NamedTuple
+from typing import NamedTuple, Self
 
 import galois
 import numpy as np
@@ -45,6 +46,101 @@ class MemoryExperimentParts(NamedTuple):
     measurement_record: MeasurementRecord
     detector_record: DetectorRecord
     qubit_ids: QubitIDs
+
+
+class CheckKey(int):
+    """The key of the detectors in a memory experiment that track the outcome of one check.
+
+    A CheckKey is the index of a check qubit (an element of ``QubitIDs.check``), and behaves as that
+    integer in every way: it is equal to the integer, has the same hash, and supports arithmetic and
+    sorting.  Records can therefore be indexed with plain integers, as in
+    ``detector_record[check_id]``.  The attributes of a CheckKey describe the detectors that it
+    labels.  Detectors that track a product of several checks are labeled by a CheckProductKey
+    instead, which has the same attributes.
+
+    Detection events.  In a memory experiment with num_rounds rounds of syndrome measurement, a
+    detector record (see get_memory_experiment_parts) maps a key to the indices of the detectors
+    that track one check, or one product of checks, over time:
+
+    - One detector for each round.  In the first round, this detector checks the outcome against its
+      known value, and in each later round, it compares the outcome to that of the previous round.
+    - Unless the key is a relation (see below), one final readout detector, which compares the
+      outcome of the last round to its value inferred from the final measurement of the data qubits
+      (or, if the memory experiment tracks both X-type and Z-type logical operators, from a final
+      measurement of the stabilizer).
+
+    The readout detector of a key that is not a relation is therefore the last detector of the
+    key, ``detector_record[key][-1]``, which is also the default of
+    ``detector_record.get_detector(key)``.
+    The readout detector shares the key of the per-round detectors, rather than getting a key of its
+    own, because this is how memory experiments for stabilizer codes labeled detectors in qLDPC
+    v0.4.1, whose detector records were keyed by plain integer check indices.  If the memory
+    experiment tracks both X-type and Z-type logical operators, the final measurement of the
+    stabilizer is likewise the last measurement of the key in the measurement record.
+
+    Relations.  The checks of a subsystem code are gauge operators, which a memory experiment
+    measures in layers of mutually commuting checks (see
+    SyndromeMeasurementStrategy.get_gauge_layers).  If the checks in a layer are linearly
+    dependent, some products of these checks equal the identity operator.  Such a product is called
+    a relation, and its outcome has the same fixed value in every round.  The detectors of a
+    relation therefore check the outcome of each round on its own, without comparing it to the
+    previous round, and a relation has no readout detector, since the identity operator has no value
+    to infer from the final measurement of the data qubits.  A key with ``is_relation == True``
+    thus has num_rounds detectors, while other keys have num_rounds + 1 detectors.  Relation
+    detectors flag errors that flip the outcomes of an odd number of the checks in a relation during
+    one round, such as a single measurement error.  The checks of a stabilizer code are never
+    relations.  One check is a relation only if it is the identity operator, so relations are
+    usually labeled by a CheckProductKey.
+
+    Example::
+
+        from qldpc import circuits, codes
+
+        code = codes.SurfaceCode(2)
+        parts = circuits.get_memory_experiment_parts(code, "Z", num_rounds=3)
+        check_id = parts.qubit_ids.checks_z[0]
+        round_detectors = parts.detector_record[check_id][:-1]  # one for each of the 3 rounds
+        readout_detector = parts.detector_record.get_detector(check_id)
+
+    Attributes:
+        check_ids: The index of the check qubit, as a tuple with one element, like
+            CheckProductKey.check_ids.
+        is_relation: Whether the check is a relation (the identity operator), as described above.
+    """
+
+    check_ids: tuple[int, ...]
+    is_relation: bool
+
+    def __new__(cls, check_id: int, is_relation: bool = False) -> Self:
+        """Construct the key of the detectors that track the outcome of a check."""
+        key = super().__new__(cls, check_id)
+        key.check_ids = (check_id,)
+        key.is_relation = is_relation
+        return key
+
+    def __reduce__(self) -> tuple[type[Self], tuple[int, bool]]:
+        """Copy or pickle a CheckKey together with its attributes."""
+        return type(self), (int(self), self.is_relation)
+
+
+@dataclasses.dataclass(frozen=True)
+class CheckProductKey:
+    """The key of the detectors in a memory experiment that track a product of several checks.
+
+    Memory experiments for subsystem codes track products of the (gauge) checks in one layer of the
+    gauge measurement schedule, which may be stabilizers of the code or relations (products that
+    equal the identity operator).  The detection events of a CheckProductKey are as described for
+    CheckKey: one detector for each round, followed by one readout detector unless the key is a
+    relation.
+
+    Attributes:
+        check_ids: The indices of the check qubits (elements of ``QubitIDs.check``) whose outcomes
+            the detectors multiply.
+        is_relation: Whether the product of the checks is the identity operator (see CheckKey).
+    """
+
+    check_ids: tuple[int, ...]
+    is_relation: bool = False
 
 
 @format_docstring(DEFAULT_IMMUNE_OP_TAG=DEFAULT_IMMUNE_OP_TAG)
@@ -241,13 +337,13 @@ def get_memory_experiment_parts(
 
     See help(qldpc.circuits.get_memory_experiment) for additional information.
 
-    For a stabilizer code, the detector record keys detectors by the check qubit whose stabilizer
-    they track.  For a subsystem code, the detector record keys detectors by the tuple of check
-    qubits whose (gauge) measurement outcomes multiply to the stabilizer that they track.  Detectors
-    for products of checks that equal the identity operator appear in every round, but not in the
-    readout, so their keys have one fewer detection event than other keys.  If basis is None, the
-    measurement record keys the final measurement of each tracked stabilizer by the key of its
-    detector.
+    The detector record labels the detectors that track one check by a CheckKey, which is the index
+    of the check qubit (and behaves as that integer), and labels the detectors that track a product
+    of several checks of a subsystem code by a CheckProductKey.  Each key maps to one detector per
+    round followed by one readout detector, except that keys of relations (products of checks that
+    equal the identity operator) have no readout detector; see help(qldpc.circuits.CheckKey).  If
+    basis is None, the measurement record keys the final measurement of each tracked stabilizer by
+    the key of its detectors.
 
     Returns:
         initialization: A circuit that sets the coordinates and initializes data qubit state.
@@ -590,10 +686,18 @@ def _get_combined_memory_simulation_parts(
 class _StabilizerDetector(NamedTuple):
     """A stabilizer whose value is the product of the most recent outcomes of some checks."""
 
-    key: int | tuple[int, ...]  # the key for this detector in a DetectorRecord
-    check_ids: tuple[int, ...]  # the check qubits whose measurement outcomes we multiply
-    stabilizer: galois.FieldArray  # the stabilizer, as a symplectic vector
-    is_relation: bool = False  # whether subsystem checks multiply to the identity (a relation)
+    key: CheckKey | CheckProductKey  # the key for this detector in a DetectorRecord
+    stabilizer: galois.FieldArray  # the stabilizer (or identity), as a symplectic vector
+
+    @property
+    def check_ids(self) -> tuple[int, ...]:
+        """The check qubits whose measurement outcomes we multiply."""
+        return self.key.check_ids
+
+    @property
+    def is_relation(self) -> bool:
+        """Whether the checks multiply to the identity operator."""
+        return self.key.is_relation
 
 
 class _LayerProduct(NamedTuple):
@@ -708,7 +812,7 @@ def _get_check_detectors(
         detector_check_ids = qubit_ids.checks_x if basis is Pauli.X else qubit_ids.checks_z
     check_to_row = {check_id: row for row, check_id in enumerate(qubit_ids.check)}
     return [
-        _StabilizerDetector(check_id, (check_id,), code.matrix[check_to_row[check_id]])
+        _StabilizerDetector(CheckKey(check_id), code.matrix[check_to_row[check_id]])
         for check_id in detector_check_ids
     ]
 
@@ -722,8 +826,8 @@ def _get_subsystem_detectors(
     """Detectors for products of the checks in single gauge layers of a subsystem code.
 
     See help(qldpc.circuits.get_memory_experiment) for the products that get detectors.  Each
-    detector is keyed by the tuple of check qubits in its product.  If a basis is provided, only
-    products of that type get detectors.
+    detector is keyed by the CheckKey or CheckProductKey of the check qubits in its product.  If a
+    basis is provided, only products of that type get detectors.
 
     Raises:
         ValueError: If products of the checks in single layers do not generate all stabilizers of
@@ -753,7 +857,7 @@ def _get_subsystem_detectors(
         check_vector = _reduce_weight(product.check_vector, relations)
         layer_check_vectors[product.layer_index].append(check_vector)
         check_ids = _get_check_ids(qubit_ids, layers[product.layer_index], check_vector)
-        detectors.append(_StabilizerDetector(check_ids, check_ids, product.stabilizer))
+        detectors.append(_StabilizerDetector(_get_detector_key(check_ids), product.stabilizer))
 
     # Relations that are products of the stabilizer detectors of a layer get no detectors: in the
     # first round they are products of stabilizer detectors, and in each later round they follow
@@ -763,7 +867,8 @@ def _get_subsystem_detectors(
         implied = _get_implied_relations(code, layer, check_vectors)
         for index in _get_span_extension(implied, code.field(relations)):
             check_ids = _get_check_ids(qubit_ids, layer, relations[index])
-            detectors.append(_StabilizerDetector(check_ids, check_ids, identity_op, True))
+            key = _get_detector_key(check_ids, is_relation=True)
+            detectors.append(_StabilizerDetector(key, identity_op))
     return detectors
 
 
@@ -895,6 +1000,15 @@ def _get_check_ids(
 ) -> tuple[int, ...]:
     """The check qubits of the checks in a layer that are multiplied in a product."""
     return tuple(qubit_ids.check[layer[int(cc)]] for cc in np.flatnonzero(check_vector))
+
+
+def _get_detector_key(
+    check_ids: tuple[int, ...], is_relation: bool = False
+) -> CheckKey | CheckProductKey:
+    """The key of the detectors that track the product of the outcomes of some checks."""
+    if len(check_ids) == 1:
+        return CheckKey(check_ids[0], is_relation)
+    return CheckProductKey(check_ids, is_relation)
 
 
 def _get_low_weight_basis(vectors: npt.NDArray[np.integer]) -> npt.NDArray[np.uint8]:

@@ -40,6 +40,8 @@ from .encoding import (
 )
 from .memory import (
     AlphaSyndrome,
+    CheckKey,
+    CheckProductKey,
     EdgeColoring,
     EdgeColoringXZ,
     MemoryExperimentParts,
@@ -77,6 +79,8 @@ __all__ = [
     "AlphaSyndrome",
     "BoundedFaultPropagationCertificate",
     "BoundedFaultPropagationCounterexample",
+    "CheckKey",
+    "CheckProductKey",
     "DepolarizingNoiseModel",
     "DetectorRecord",
     "EdgeColoring",
