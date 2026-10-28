@@ -139,3 +139,25 @@ Suppose that some violating accepted fault of fault weight at most `K` exists, a
 
 So the reported fault has the smallest fault weight of any violating accepted fault.
 If the search finds no violation, steps 1 to 3 show that no violating accepted fault of fault weight at most `K` exists, so fault propagation is bounded up to fault weight `K`.
+
+## A speed-up that the search does not use
+
+### Skipping faults whose heavy part is light enough
+
+Split a fault `F` into three faults, `F = G + L0 + L1`.
+The **heavy part** `G` contains the heavy primitive faults of `F`.
+`L0` contains its light primitive faults with zero syndrome, and `L1` its light primitive faults with nonzero syndrome, each of which has `μ(s_j) = 1`.
+By [subadditivity](#pauli-weight-is-subadditive), `μ(S F) ≤ μ(S G) + |L1|`.
+Since `|F| = |G| + |L0| + |L1|`, the fault `F` satisfies the bound whenever `μ(S G) ≤ |G| + |L0|`.
+
+In the search order, the heavy primitive faults come before the light ones.
+So once a prefix contains a light primitive fault, every fault that extends the prefix has the same heavy part as the prefix, and contains every zero-syndrome light primitive fault of the prefix.
+The search could therefore skip such a prefix, together with every fault that extends it, if it finds an error with syndrome `S G` whose Pauli weight is at most `|G|` plus the number of zero-syndrome light primitive faults in the prefix.
+Every skipped fault satisfies the bound, so skipping them would change neither the result nor the reported counterexample.
+
+The search does not use this rule, because the time that it saves does not justify the added complexity.
+A trial implementation in the compiled listing looked for such an error in the first two layers of the coset search of `PauliCosetSearch`, at each light primitive fault added to a prefix, and reused the answer for each heavy part.
+On color-code state preparations, certifications up to fault weight four took about as long as without the rule.
+In benchmarks that treated every listed fault as satisfying the bound, so that the search listed every fault, the rule made the search 1.1 to 1.2 times faster at fault weight five, and 1.7 times faster at fault weight six.
+Two variants were slower: deciding exactly whether `μ(S G)` is small enough, and also applying the rule to closing primitive faults.
+The speed-up grows with the fault weight, so the rule may pay off for searches at larger fault weights.
