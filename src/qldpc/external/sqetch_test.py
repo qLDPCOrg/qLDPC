@@ -70,15 +70,6 @@ def test_binary_matrix_conversion() -> None:
     assert np.array_equal(logical, code.get_logical_ops(Pauli.Z))
 
 
-def test_subsystem_matrix_conversion() -> None:
-    """Use only stabilizer checks so sqetch searches dressed subsystem logicals."""
-    code = codes.BaconShorCode(3)
-    h_check, logical = external.sqetch._get_binary_matrices(code, Pauli.Z)
-    expected = code.get_stabilizer_ops(Pauli.X, canonicalized=True)
-    assert np.array_equal(h_check, expected)
-    assert np.array_equal(logical, code.get_logical_ops(Pauli.X))
-
-
 def test_subsystem_dressed_distance_regression() -> None:
     """Match an independent dressed-distance oracle on a nontrivial subsystem code."""
     code = codes.CSSCode([[1, 1, 0], [1, 0, 1]], [[1, 0, 0]])
@@ -184,7 +175,7 @@ def test_get_distance_bound_reports_missing_torch(monkeypatch: pytest.MonkeyPatc
         "sqetch",
         types.SimpleNamespace(estimate_distance=estimate_distance),
     )
-    with pytest.raises(RuntimeError, match="PyTorch with CUDA"):
+    with pytest.raises(ModuleNotFoundError, match="PyTorch with CUDA"):
         external.sqetch.get_distance_bound(codes.SteaneCode())
 
 

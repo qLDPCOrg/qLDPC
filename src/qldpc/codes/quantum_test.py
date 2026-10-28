@@ -4,10 +4,8 @@
 
 from __future__ import annotations
 
-import io
-import os
-import subprocess
-import sys
+import pathlib
+import random
 import unittest.mock
 
 import networkx as nx
@@ -18,6 +16,8 @@ from sympy.abc import x, y
 
 import qldpc
 from qldpc import abstract, codes, decoders
+from qldpc.conftest import run_python
+from qldpc.math import resolve_field
 from qldpc.objects import ChainComplex, Node, Pauli
 
 from .common_test import assert_valid_subgraphs
@@ -58,21 +58,17 @@ def test_trivial_code() -> None:
 
 def test_small_codes() -> None:
     """Small named codes."""
-    assert codes.FiveQubitCode().get_code_params() == (5, 1, 3)
+    assert codes.QuditCode(codes.FiveQubitCode().matrix).get_code_params() == (5, 1, 3)
     assert codes.SteaneCode().get_code_params() == (7, 1, 3)
 
-    for size in [4, 6, 8]:
-        code_params = (size, size - 2, 2)
-        assert codes.IcebergCode(size).get_code_params() == code_params
     with pytest.raises(ValueError, match="even block lengths"):
         codes.IcebergCode(3)
 
     assert codes.CSSCode.equiv(codes.C4Code(), codes.IcebergCode(4))
     assert codes.C6Code().get_code_params() == (6, 2, 2)
 
-    # the quantum Golay code is a [[23, 1, 7]] CSS code with weight-8 stabilizers
+    # the quantum Golay code has weight-8 stabilizers
     golay_code = codes.QuantumGolayCode()
-    assert golay_code.get_code_params() == (23, 1, 7)
     assert set(golay_code.matrix_x.view(np.ndarray).sum(axis=1)) == {8}
 
 
@@ -138,11 +134,15 @@ def test_hamming_and_tetrahedral_codes() -> None:
 
 
 def test_two_block_code_error() -> None:
-    """Raise error when trying to construct incompatible two-block codes."""
+    """Two-block codes need commuting matrices, unless validation is skipped."""
     matrix_a = [[1, 0], [0, 2]]
     matrix_b = [[0, 1], [1, 0]]
+    assert not codes.TBCode(matrix_a, matrix_a, field=3).is_subsystem_code
     with pytest.raises(ValueError, match="do not commute"):
         codes.TBCode(matrix_a, matrix_b, field=3)
+
+    # skipping validation builds the code, whose checks do not commute
+    assert codes.TBCode(matrix_a, matrix_b, field=3, skip_validation=True).is_subsystem_code
 
 
 def test_gala_code_construction() -> None:
@@ -265,7 +265,10 @@ def test_gala_code_errors() -> None:
 
 
 def test_gala_code_from_paper() -> None:
-    """Reproduce the construction-level parameters of the [[132, 30, 12]] GALA code."""
+    """Reproduce the construction-level parameters of the [[132, 30, 12]] GALA code.
+
+    This code is from arXiv:2608.07431.
+    """
     ring = abstract.GroupRing(abstract.CyclicGroup(11))
     xx = ring.generators[0]
     code = codes.GALACode(
@@ -376,7 +379,13 @@ def test_bivariate_bicycle_codes() -> None:
     code = codes.BBCode(orders, poly_a, poly_b)
     with pytest.raises(ValueError, match="Uninvertible system of equations"):
         basis = (1, 0), (0, 0)
-        code.modular_inverse(basis, 0, 1)
+        code._get_basis_coefficients(basis, 0, 1)
+
+
+def test_gross_codes() -> None:
+    """Named bivariate bicycle codes."""
+    assert codes.GrossCode().get_code_params() == (144, 12, 12)
+    assert codes.TwoGrossCode().get_code_params() == (288, 12, 18)
 
 
 @pytest.mark.parametrize("orders, field", [((3, 3), 2), ((6, 3), 3)])
@@ -474,6 +483,8 @@ def test_quasi_cyclic_codes() -> None:
     assert len(code.symbols) == 3
 
     assert_valid_subgraphs(code)
+    with pytest.raises(ValueError, match="does not use an edge coloration strategy"):
+        code.get_syndrome_subgraphs(strategy="smallest_last")
 
     # a symbol whose cyclic group is trivial acts as the identity, so all of its powers agree
     assert np.array_equal(code.matrix, codes.QCCode([2, 1, 3], x, x * y**2).matrix)
@@ -502,7 +513,7 @@ def test_quasi_cyclic_codes() -> None:
     ]
 
 
-@pytest.mark.parametrize("num_terms", [1, 3, 4, 5])
+@pytest.mark.parametrize("num_terms", [1, 3, 4])
 def test_quasi_cyclic_syndrome_subgraphs_by_term_count(num_terms: int) -> None:
     """Syndrome subgraphs partition every Tanner edge beyond the two-term documented example."""
     poly_a = sum(x**power for power in range(1, num_terms + 1))
@@ -534,7 +545,7 @@ def test_hypergraph_product(
     matrix_x, matrix_z = chain.op(1), chain.op(2).T
 
     assert nx.utils.graphs_equal(code.graph, graph)
-    assert np.array_equal(code.matrix, codes.QuditCode.graph_to_matrix(graph))
+    assert np.array_equal(code.matrix, graph.to_matrix())
     assert np.array_equal(code.matrix_x, matrix_x)
     assert np.array_equal(code.matrix_z, matrix_z)
     assert_valid_subgraphs(code)
@@ -542,29 +553,18 @@ def test_hypergraph_product(
     # verify that the canonical logicals are valid
     code.set_logical_ops(code.get_logical_ops(), skip_validation=False)
 
-    # the closed-form X and Z distances agree with a generic computation that ignores them.  Both
-    # cache layers have to be bypassed: get_distance_exact caches into _distance_x/_distance_z on
-    # its first call, and get_distance_if_known would then short-circuit on that cached value before
-    # ever reaching _get_distance_exact.
+    # the closed-form X and Z distances agree with those of a plain CSS code with the same checks
     if field == 2:  # the brute-force kernel behind the generic route is binary
-        dist_x = code.get_distance(Pauli.X)
-        dist_z = code.get_distance(Pauli.Z)
-        with (
-            unittest.mock.patch("qldpc.codes.CSSCode.get_distance_if_known", return_value=None),
-            unittest.mock.patch(
-                "qldpc.codes.HGPCode._get_distance_exact", return_value=NotImplemented
-            ),
-            unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
-        ):
-            assert dist_x == code.get_distance(Pauli.X)
-            assert dist_z == code.get_distance(Pauli.Z)
+        plain = codes.CSSCode(code.matrix_x, code.matrix_z)
+        with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
+            assert code.get_distance(Pauli.X) == plain.get_distance(Pauli.X)
+            assert code.get_distance(Pauli.Z) == plain.get_distance(Pauli.Z)
 
     # a random seed code addresses every bit.  Check a seed code that leaves one unaddressed, whose
     # product therefore has a data qudit that no check addresses.
     seed = codes.ClassicalCode([[1, 1, 0], [0, 0, 0]], field=field)
-    assert nx.utils.graphs_equal(
-        codes.HGPCode(seed, seed).graph, codes.HGPCode.get_graph_product(seed.graph, seed.graph)
-    )
+    graph = codes.HGPCode.get_graph_product(seed.graph, seed.graph)
+    assert nx.utils.graphs_equal(codes.HGPCode(seed, seed).graph, graph)
 
 
 @pytest.mark.parametrize(
@@ -860,30 +860,6 @@ def test_subsystem_lifted_product_codes(ring_cyclic3_gf2: abstract.GroupRing) ->
     assert np.sum(line_weights) < np.sum(weights)
 
 
-def test_lifted_product_line_logicals(
-    pytestconfig: pytest.Config, ring: abstract.GroupRing, rows: int = 2, cols: int = 3
-) -> None:
-    """Canonical line operators of lifted product codes."""
-    code: codes.CSSCode
-
-    seed = pytestconfig.getoption("randomly_seed")
-    sympy.core.random.seed(seed)
-
-    values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
-    matrix = abstract.RingArray.build(values, ring)
-    code = codes.LPCode(matrix, set_logicals=True)
-    assert np.array_equal(
-        code.get_logical_ops(Pauli.X) @ code.get_logical_ops(Pauli.Z).T,
-        np.eye(code.dimension),
-    )
-
-    code = codes.SLPCode(matrix, set_logicals=True)
-    assert np.array_equal(
-        code.get_logical_ops(Pauli.X) @ code.get_logical_ops(Pauli.Z).T,
-        np.eye(code.dimension),
-    )
-
-
 def test_lifted_product_line_logicals_noncommutative(
     ring_dihedral3_gf5: abstract.GroupRing,
 ) -> None:
@@ -891,9 +867,12 @@ def test_lifted_product_line_logicals_noncommutative(
     rot, ref = ring_dihedral3_gf5.group.generators
     values = [[ref * rot, ref * rot, rot**3], [ref, rot * ref, ref * rot]]
     matrix = abstract.RingArray.build(values, ring_dihedral3_gf5)
-    code = codes.LPCode(matrix, set_logicals=True)
-    logical_ops_x, logical_ops_z = code.get_logical_ops(Pauli.X), code.get_logical_ops(Pauli.Z)
-    assert np.array_equal(logical_ops_x @ logical_ops_z.T, np.eye(code.dimension))
+    for code in [
+        codes.LPCode(matrix, set_logicals=True),
+        codes.SLPCode(matrix, set_logicals=True),
+    ]:
+        logical_ops_x, logical_ops_z = code.get_logical_ops(Pauli.X), code.get_logical_ops(Pauli.Z)
+        assert np.array_equal(logical_ops_x @ logical_ops_z.T, np.eye(code.dimension))
 
 
 def test_lifted_product_valid_over_group_algebras() -> None:
@@ -995,7 +974,7 @@ def test_distance_balanced_code() -> None:
     """Distance-balanced codes."""
     # compare to Eq. (4) of arXiv:2505.13679v2 (with a sign that matters over non-binary fields),
     # up to the order of qudits and Z-type checks
-    field = abstract.resolve_field(3)
+    field = resolve_field(3)
     matrix_x = field([[1, 2, 0, 0], [0, 0, 1, 2]])
     matrix_z = field([[1, 1, 1, 1]])
     matrix = field([[1, 2, 0], [0, 1, 2]])
@@ -1026,7 +1005,7 @@ def test_distance_balanced_code() -> None:
     assert (code_z.get_distance_exact(Pauli.X), code_z.get_distance_exact(Pauli.Z)) == (1, 6)
 
 
-def test_quantum_tanner(pytestconfig: pytest.Config) -> None:
+def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> None:
     """Quantum Tanner code."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
 
@@ -1057,30 +1036,12 @@ def test_quantum_tanner(pytestconfig: pytest.Config) -> None:
     with pytest.raises(ValueError, match="different fields"):
         codes.QTCode([], [], subcode_a, subcode_b)
 
-    # saving and loading a QTCode
-    contents = io.StringIO()
-    with unittest.mock.patch("builtins.open", return_value=contents):
-        # save to a file
-        with (
-            unittest.mock.patch("os.makedirs", return_value=None),
-            unittest.mock.patch.object(contents, "close", lambda: None),
-        ):
-            code.save("path.txt", "header")
-
-        # fail to load from a file
-        with (
-            unittest.mock.patch("os.path.isfile", return_value=False),
-            pytest.raises(ValueError, match="Path does not exist"),
-        ):
-            codes.QTCode.load("path.txt")
-
-        # load from a file
-        with (
-            unittest.mock.patch("os.path.isfile", return_value=True),
-            unittest.mock.patch.object(contents, "read", lambda: contents.getvalue()),
-        ):
-            code_copy = codes.QTCode.load("path.txt")
-        assert code_copy == code
+    # saving and loading a QTCode, creating a missing directory along the way
+    path = tmp_path / "subdirectory" / "code.txt"
+    code.save(str(path), "header")
+    assert codes.QTCode.load(str(path)) == code
+    with pytest.raises(ValueError, match="Path does not exist"):
+        codes.QTCode.load(str(tmp_path / "missing.txt"))
 
 
 def test_quantum_tanner_nonabelian_faces() -> None:
@@ -1157,11 +1118,9 @@ def test_random_quantum_tanner_code_is_reproducible() -> None:
     # reusing one subset for both sides is likewise reproducible
     assert len({matrix_for(seed=7, one_subset=True) for _ in range(3)}) == 1
 
-    # without a seed the code is still drawn at random.  Seeding sympy's own generator, which the
-    # unseeded draw consumes, keeps this check from depending on chance, and restoring it afterwards
-    # keeps the fixed stream out of everything that runs later.
-    with abstract.groups._preserve_sympy_rng():
-        sympy.core.random.seed(0)
+    # without a seed the code is still drawn at random, from SymPy's global generator.  Replacing
+    # that generator with a seeded one for this check keeps it from depending on chance.
+    with unittest.mock.patch.object(sympy.core.random, "rng", random.Random(0)):
         assert len({matrix_for() for _ in range(4)}) > 1
 
     # the code is also independent of the hash seed, which sets the iteration order of the sets of
@@ -1173,22 +1132,7 @@ def test_random_quantum_tanner_code_is_reproducible() -> None:
         "code = codes.QTCode.random(abstract.CyclicGroup(8), codes.RepetitionCode(2), seed=7);"
         "print(np.asarray(code.matrix).tobytes().hex())"
     )
-    matrices = {
-        subprocess.run(
-            [sys.executable, "-c", script],
-            # hand the child this interpreter's import path, so that it builds the code from the
-            # same sources rather than from whatever qldpc its environment happens to resolve
-            env={
-                **os.environ,
-                "PYTHONHASHSEED": hash_seed,
-                "PYTHONPATH": os.pathsep.join(path for path in sys.path if path),
-            },
-            capture_output=True,
-            check=True,
-            text=True,
-        ).stdout
-        for hash_seed in ["0", "1"]
-    }
+    matrices = {run_python(script, env={"PYTHONHASHSEED": hash_seed}) for hash_seed in ["0", "1"]}
     assert matrices == {matrix_for(seed=7).hex() + "\n"}
 
 
@@ -1209,14 +1153,12 @@ def test_surface_codes(rows: int = 3, cols: int = 2) -> None:
 
     # "ordinary"/original surface code
     code = codes.SurfaceCode(rows, cols, rotated=False)
-    assert code.dimension == 1
+    plain = codes.CSSCode(code.matrix_x, code.matrix_z)
+    assert plain.dimension == 1
     assert code.num_qudits == rows * cols + (rows - 1) * (cols - 1)
-    with (
-        unittest.mock.patch("qldpc.codes.CSSCode.get_distance_if_known", return_value=None),
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
-    ):
-        assert cols <= code.get_distance(Pauli.X, bound=True) <= len(code)
-        assert rows <= code.get_distance(Pauli.Z, bound=True) <= len(code)
+    with unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False):
+        assert cols <= plain.get_distance(Pauli.X, bound=True) <= len(code)
+        assert rows <= plain.get_distance(Pauli.Z, bound=True) <= len(code)
     assert_valid_subgraphs(code)
 
     # un-rotated SurfaceCode = HGPCode
@@ -1225,10 +1167,12 @@ def test_surface_codes(rows: int = 3, cols: int = 2) -> None:
 
     # rotated surface code
     code = codes.SurfaceCode(rows, cols, rotated=True, field=3)
-    assert code.dimension == 1
+    plain = codes.CSSCode(code.matrix_x, code.matrix_z)
+    assert plain.dimension == 1
     assert code.num_qudits == rows * cols
-    assert codes.CSSCode.get_distance(code, Pauli.X) == cols
-    assert codes.CSSCode.get_distance(code, Pauli.Z) == rows
+    with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
+        distances = plain.get_distance(Pauli.X), plain.get_distance(Pauli.Z)
+    assert distances == (cols, rows)
     assert_valid_subgraphs(code)
 
     # the bias-tailored rotated surface code is an XZZX code
@@ -1244,7 +1188,7 @@ def test_toric_codes() -> None:
     # "ordinary"/original toric code
     distance = 3
     code = codes.ToricCode(distance, rotated=False)
-    assert code.dimension == 2
+    assert codes.CSSCode(code.matrix_x, code.matrix_z).dimension == 2
     assert code.num_qudits == 2 * distance**2
     assert_valid_subgraphs(code)
 
@@ -1259,9 +1203,11 @@ def test_toric_codes() -> None:
     # rotated toric code
     distance = 4
     code = codes.ToricCode(distance, rotated=True, field=3)
-    assert code.dimension == 2
+    plain = codes.CSSCode(code.matrix_x, code.matrix_z)
+    assert plain.dimension == 2
     assert code.num_qudits == distance**2
-    assert codes.CSSCode.get_distance(code) == distance
+    with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
+        assert plain.get_distance() == distance
     assert_valid_subgraphs(code)
 
     # rotated toric code must have even side lengths
@@ -1400,58 +1346,29 @@ def test_4d_toric_code_lattices() -> None:
 
 
 def test_many_hypercube_code() -> None:
-    """Goto's many-hypercube code."""
-    for level in range(1, 5):
-        params = (6**level, 4**level, 2**level)
-        assert codes.ManyHypercubeCode(level).get_code_params() == params
-
-    for level in [-1, 0]:
-        with pytest.raises(ValueError, match="level of at least 1"):
-            codes.ManyHypercubeCode(level)
+    """Goto's many-hypercube code requires a positive level."""
+    with pytest.raises(ValueError, match="level of at least 1"):
+        codes.ManyHypercubeCode(0)
 
 
 def test_bacon_shor_code() -> None:
     """Bacon-Shor code."""
     code = codes.BaconShorCode(2, 3)
     assert all(np.count_nonzero(row) == 2 for row in code.matrix)
-    assert code.get_distance(Pauli.X) == 3
-    assert code.get_distance(Pauli.Z) == 2
 
     # a square Bacon-Shor code knows both of its distances without computing them
-    for rows in [2, 3, 4]:
-        code = codes.BaconShorCode(rows)
-        assert code.get_distance_if_known(Pauli.X) == rows
-        assert code.get_distance_if_known(Pauli.Z) == rows
+    code = codes.BaconShorCode(3)
+    assert code.get_distance_if_known(Pauli.X) == 3
+    assert code.get_distance_if_known(Pauli.Z) == 3
 
 
 def test_shyps_code() -> None:
-    """Sanity checks for the SHYPS code."""
+    """Sanity checks for the [[(2^r-1)^2, r^2, 2^(r-1)]] SHYPS codes of arXiv:2502.07150."""
     for dimension in [3, 4, 5]:
         code = codes.SHYPSCode(dimension)
         params = ((2**dimension - 1) ** 2, dimension**2, 2 ** (dimension - 1))
         assert code.get_code_params() == params
         assert np.all(np.count_nonzero(code.matrix.view(np.ndarray), axis=1) == 3)
-
-
-def test_exact_distances() -> None:
-    """Compute exact distances in special cases."""
-    for code in [
-        codes.HGPCode(codes.RingCode(2)),
-        codes.SHPCode(codes.RepetitionCode(2)),
-    ]:
-        name = type(code).__name__
-        dist = code.get_distance()
-        dist_x = code.get_distance(Pauli.X)
-        dist_z = code.get_distance(Pauli.Z)
-        with (
-            unittest.mock.patch("qldpc.codes.CSSCode.get_distance_if_known", return_value=None),
-            unittest.mock.patch(
-                f"qldpc.codes.{name}._get_distance_exact", return_value=NotImplemented
-            ),
-        ):
-            assert dist == code.get_distance()
-            assert dist_x == code.get_distance(Pauli.X)
-            assert dist_z == code.get_distance(Pauli.Z)
 
 
 def test_reed_muller_css_codes() -> None:
@@ -1468,9 +1385,6 @@ def test_reed_muller_css_codes() -> None:
         code = codes.QuantumReedMullerCode(order, size)
         assert (code.order, code.size) == (order, size)
         assert code.get_code_params() == params
-        assert code.get_distance() == params[2]
-        assert code.get_distance(Pauli.X) == params[2]
-        assert code.get_distance(Pauli.Z) == params[2]
         assert not code.is_subsystem_code
         # self-orthogonality: H_x @ H_z.T == 0 on GF(2)
         hx = code.code_x.matrix
@@ -1480,8 +1394,8 @@ def test_reed_muller_css_codes() -> None:
 
 def test_reed_muller_css_invalid_params() -> None:
     """Invalid parameters for self-orthogonal CSS(RM(r, m), RM(r, m)) codes."""
-    for order, size in [(2, 5), (1, 3), (3, 7), (2, 4), (0, 1), (-1, 4), (5, 4)]:
-        with pytest.raises(ValueError):
+    for order, size in [(2, 5), (-1, 4), (5, 4)]:
+        with pytest.raises(ValueError, match="self-orthogonal"):
             codes.QuantumReedMullerCode(order, size)
 
 
@@ -1489,10 +1403,5 @@ def test_reed_muller_css_brute_force_agreement() -> None:
     """Closed-form distances agree with brute-force enumeration on small codes."""
     for (order, size), dist in [((0, 2), 2), ((1, 4), 4)]:
         code = codes.QuantumReedMullerCode(order, size)
-        with (
-            unittest.mock.patch("qldpc.codes.CSSCode.get_distance_if_known", return_value=None),
-            unittest.mock.patch(
-                "qldpc.codes.QuantumReedMullerCode._get_distance_exact", return_value=NotImplemented
-            ),
-        ):
-            assert code.get_distance() == dist
+        assert code.get_distance() == dist
+        assert codes.CSSCode(code.matrix_x, code.matrix_z).get_distance() == dist

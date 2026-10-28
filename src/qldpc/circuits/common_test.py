@@ -12,22 +12,10 @@ import stim
 import sympy.combinatorics as comb
 
 from qldpc import circuits, codes
+from qldpc.circuits import common
 from qldpc.circuits.conftest import StimCircuitWrapper
 from qldpc.math import symplectic_conjugate
 from qldpc.objects import Pauli
-
-
-def test_restriction() -> None:
-    """restrict_to_qubits passes through for qubit codes and raises for qudit codes."""
-
-    @circuits.restrict_to_qubits
-    def get_empty_circuit(code: codes.QuditCode) -> stim.Circuit:
-        return stim.Circuit()
-
-    get_empty_circuit(codes.SurfaceCode(2, field=2))  # this does not raise an error
-
-    with pytest.raises(ValueError, match="only supported for qubit codes"):
-        get_empty_circuit(codes.SurfaceCode(2, field=3))
 
 
 def test_pauli_product_measurements(pytestconfig: pytest.Config) -> None:
@@ -106,8 +94,23 @@ def test_finding_unaddressed_measurements() -> None:
     assert circuits.get_pauli_product_measurements([[1, 0, 0, 1]]) == stim.Circuit("MPP X0*Z1")
     with pytest.raises(ValueError, match="all-identity"):
         circuits.get_pauli_product_measurements([[0, 0, 0, 0]])
+    with pytest.raises(ValueError, match="2 qubits, but 3 qubit labels"):
+        circuits.get_pauli_product_measurements([[1, 0, 0, 1]], qubits=[3, 4, 5])
 
     mpad = stim.Circuit("MPAD 1 0")
     assert circuits.with_remapped_qubits(mpad, [1, 0]) == mpad
     with pytest.raises(ValueError, match="injective"):
         circuits.with_remapped_qubits(stim.Circuit("H 0 1"), [0, 0])
+
+
+def test_restriction() -> None:
+    """_restrict_to_qubits passes through for qubit codes and raises for qudit codes."""
+
+    @common._restrict_to_qubits
+    def get_empty_circuit(code: codes.QuditCode) -> stim.Circuit:
+        return stim.Circuit()
+
+    get_empty_circuit(codes.SurfaceCode(2, field=2))  # this does not raise an error
+
+    with pytest.raises(ValueError, match="only supported for qubit codes"):
+        get_empty_circuit(codes.SurfaceCode(2, field=3))

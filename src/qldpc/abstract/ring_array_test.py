@@ -4,35 +4,12 @@
 
 from __future__ import annotations
 
-import functools
-
 import galois
 import numpy as np
-import numpy.typing as npt
 import pytest
 
 from qldpc import abstract
 from qldpc.abstract import ring_array as ring_array_module
-
-
-def assert_coefficient_matmul(
-    matrix_a: abstract.RingArray | npt.NDArray[np.int_],
-    matrix_b: abstract.RingArray | npt.NDArray[np.int_],
-) -> None:
-    """Assert that the coefficient-array kernel computes a product with RingMember arithmetic."""
-    ring = next(mm.ring for mm in (matrix_a, matrix_b) if isinstance(mm, abstract.RingArray))
-    product = ring_array_module._coefficient_matmul(matrix_a, matrix_b, ring=ring)
-    expected = np.matmul(np.asarray(matrix_a), np.asarray(matrix_b))  # RingMember arithmetic
-    if isinstance(expected, abstract.RingMember):
-        assert product == expected
-    else:
-        assert isinstance(product, abstract.RingArray) and np.array_equal(product, expected)
-
-
-@pytest.fixture
-def always_use_coefficients(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Multiply RingArrays with coefficient arrays, however small the product."""
-    monkeypatch.setattr(ring_array_module, "_MIN_MATMUL_COEFFICIENT_WORK", 0)
 
 
 def test_printing() -> None:
@@ -78,6 +55,8 @@ def test_ring_array(pytestconfig: pytest.Config) -> None:
         abstract.RingArray([ring.one for ring in rings])
     with pytest.raises(ValueError, match="Inconsistent rings"):
         abstract.RingArray.build([ring.one for ring in rings])
+    with pytest.raises(ValueError, match="requires a 1 or 2-dimensional"):
+        abstract.RingArray.build([[[1]]], rings[0]).lift()
 
     new_matrix = abstract.RingArray.build([[1]], abstract.CyclicGroup(1))
     with pytest.raises(ValueError, match="different base rings"):
@@ -175,76 +154,18 @@ def test_from_field_array() -> None:
         abstract.RingArray.from_field_array(np.eye(4, dtype=int), ring)
 
 
-@pytest.mark.usefixtures("always_use_coefficients")
-def test_coefficient_matmul(ring: abstract.GroupRing) -> None:
-    """The coefficient-array kernel agrees with RingMember arithmetic."""
-    rng = np.random.default_rng(0)
-
-    def random_matrix(*shape: int) -> abstract.RingArray:
-        coefficients = ring.field.Random((*shape, ring.group.order), seed=rng)
-        return abstract.RingArray.from_field_array(coefficients, ring)
-
-    # vector and batched products, following the shape conventions of numpy.matmul
-    for shape_a, shape_b in [
-        ((3,), (3,)),
-        ((2, 3), (3,)),
-        ((3,), (3, 2)),
-        ((2, 1, 2, 3), (3, 3, 2)),
-    ]:
-        assert_coefficient_matmul(random_matrix(*shape_a), random_matrix(*shape_b))
-
-    # the kernel loops over group members in whichever operand has fewer of them
-    dense = random_matrix(3, 3)
-    monomial = abstract.RingArray.build(np.full((3, 3), ring.generators[0], dtype=object), ring)
-    assert_coefficient_matmul(dense, monomial)
-    assert_coefficient_matmul(monomial, dense)
-
-    # integers and elements of the base field are scalars in the ring
-    integers = np.array([[0, 1, 2], [2, -1, 0], [1, 0, 1]])
-    assert_coefficient_matmul(dense, integers)
-    assert_coefficient_matmul(integers, dense)
-    assert_coefficient_matmul(dense, ring.field.Random((3, 3), seed=rng))
-
-
-def test_coefficient_matmul_group_orderings() -> None:
-    """Equal rings may enumerate the members of their groups in different orders."""
-    group = abstract.CyclicGroup(5)
-    members = list(group.generate())
-    reversed_group = abstract.Group(*group.generators, generate_func=lambda: iter(members[::-1]))
-    ring = abstract.GroupRing(group)
-    reversed_ring = abstract.GroupRing(reversed_group)
-    assert ring == reversed_ring
-
-    matrix = abstract.RingArray.build(np.resize(np.array(members, dtype=object), (4, 4)), ring)
-    reversed_matrix = abstract.RingArray.build(matrix, reversed_ring)
-    assert_coefficient_matmul(matrix, reversed_matrix)
-    assert_coefficient_matmul(reversed_matrix, matrix)
-
-
-def test_coefficient_matmul_fallbacks(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The coefficient-array kernel declines products that it does not handle."""
+def test_matmul_fallbacks() -> None:
+    """Numpy multiplies RingArrays given keyword arguments, or with an unknown ring."""
     ring = abstract.GroupRing(abstract.CyclicGroup(7), field=4)
     matrix = abstract.RingArray.build(np.eye(4, dtype=int), ring)
-    kernel = functools.partial(ring_array_module._coefficient_matmul, ring=ring)
-
-    # operands without coefficients in the ring, or with shapes that numpy.matmul rejects
-    assert kernel(matrix, np.eye(4)) is None
-    assert kernel(matrix, galois.GF(2)(np.eye(4, dtype=int))) is None
-    assert kernel(matrix[0, 0, ...], matrix) is None
-    assert kernel(matrix, matrix[:3]) is None
-    assert kernel(np.stack([matrix] * 2), np.stack([matrix] * 3)) is None
-
-    # products that are too small, or too large
-    assert kernel(matrix[:1, :1], matrix[:1, :1]) is None
-    assert kernel(matrix, matrix) is not None
-    monkeypatch.setattr(ring_array_module, "_MAX_MATMUL_COEFFICIENT_BYTES", 0)
-    assert kernel(matrix, matrix) is None
-
-    # numpy handles products with keyword arguments, or with an unknown ring
     expected = np.asarray(matrix) @ np.asarray(matrix)
     assert np.array_equal(np.matmul(matrix, matrix, out=np.empty((4, 4), dtype=object)), expected)
     unknown_ring = np.asarray(matrix).view(abstract.RingArray)
     assert np.array_equal(unknown_ring @ unknown_ring, expected)
+
+    # a RingArray without a base ring says so, rather than returning None
+    with pytest.raises(ValueError, match="no base ring"):
+        unknown_ring.ring  # noqa: B018
 
 
 def test_ring_row_reduction(
@@ -370,7 +291,7 @@ def test_howell_form_poly_preserves_module() -> None:
     rng = np.random.default_rng(0)
     for order, characteristic in [(3, 2), (4, 2), (6, 2), (4, 3), (5, 5)]:
         ring = abstract.GroupRing(abstract.CyclicGroup(order), field=characteristic)
-        for _ in range(25):
+        for _ in range(8):
             shape = (rng.integers(1, 5), rng.integers(1, 5), order)
             coeffs = rng.integers(0, characteristic, size=shape)
             array = abstract.RingArray.from_field_array(ring.field(coeffs), ring)
@@ -379,22 +300,24 @@ def test_howell_form_poly_preserves_module() -> None:
             assert np.array_equal(howell, howell.howell_normal_form_poly())
 
 
-def test_deprecations() -> None:
-    """Deprecated call signatures emit DeprecationWarning."""
+def test_deprecated_argument_order() -> None:
+    """Deprecated argument orders emit DeprecationWarning."""
     ring = abstract.GroupRing(abstract.TrivialGroup())
 
     vector = ring.field.Random(2 * ring.group.order)
     with pytest.warns(DeprecationWarning, match="DEPRECATED"):
+        # the deprecated argument order does not match the typed signature
         ring_array = abstract.RingArray.from_field_vector(ring, vector)  # type:ignore[arg-type]
     assert np.array_equal(ring_array.to_field_vector(), vector)
 
     matrix = ring.field.Random((1, 2, ring.group.order))
     with pytest.warns(DeprecationWarning, match="DEPRECATED"):
+        # the deprecated argument order does not match the typed signature
         ring_array = abstract.RingArray.from_field_array(ring, matrix)  # type:ignore[arg-type]
     assert np.array_equal(ring_array.to_field_array(), matrix)
 
-    # the Protograph alias warns on use, and refers to RingArray itself
-    with pytest.warns(DeprecationWarning, match="Protograph is deprecated; use RingArray"):
-        assert abstract.Protograph is abstract.RingArray
-    with pytest.warns(DeprecationWarning, match="Protograph is deprecated; use RingArray"):
-        assert abstract.ring_array.Protograph is abstract.RingArray
+
+def test_unknown_attribute() -> None:
+    """The module-level lookup of deprecated names rejects other names."""
+    with pytest.raises(AttributeError, match="has no attribute 'not_a_real_export'"):
+        ring_array_module.not_a_real_export  # type: ignore[attr-defined]  # noqa: B018

@@ -36,6 +36,8 @@ Quickstart
    print("physical qubits:", len(code))     # number of physical qubits, n
    print("logical qubits:", code.dimension) # number of logical qubits, k
 
+The gross code is also available as the named construction, ``codes.GrossCode()``.
+
 Where to go next
 ----------------
 

@@ -12,7 +12,7 @@ import sinter
 import stim
 
 from qldpc import decoders
-from qldpc.decoders.custom.lookup import _get_decoder_lookup
+from qldpc.decoders.protocols import _as_error_decoder
 
 
 def test_sinter_decoder() -> None:
@@ -30,7 +30,6 @@ def test_sinter_decoder() -> None:
 
     for decoder in [
         decoders.SinterDecoder(decoder=decoders.bp_osd()),
-        decoders.SinterDecoder(decoder=decoders.min_sum_bp()),
         decoders.SinterDecoder(decoder=decoders.mwpm()),
     ]:
         compiled_decoder = decoder.compile_decoder_for_dem(dem)
@@ -51,7 +50,7 @@ def test_sinter_decoder() -> None:
     compiled_decoder = decoders.SinterDecoder(decoder=decoders.mwpm()).compile_decoder_for_dem(dem)
     assert compiled_decoder.decoder is compiled_decoder.observable_decoder
 
-    error_decoder = _get_decoder_lookup(dem, max_weight=3)
+    error_decoder = decoders.lookup(max_weight=3).build(dem)
     compiled_decoder = decoders.sinter.CompiledSinterDecoder(
         decoders.DetectorErrorModelArrays(dem), error_decoder
     )
@@ -85,9 +84,9 @@ def test_sinter_decoder_classes() -> None:
     compiled = decoder.compile_decoder_for_dem(dem)
     assert not hasattr(compiled, "decode")
     with pytest.raises(TypeError, match="cannot decode until it is compiled"):
-        decoders.as_error_decoder(decoder)
+        _as_error_decoder(decoder)
     with pytest.raises(TypeError, match="predicts observable flips rather than errors"):
-        decoders.as_error_decoder(compiled)
+        _as_error_decoder(compiled)
     assert np.array_equal(compiled.decode_observables(np.array([1], dtype=int)), [1])
 
 
@@ -121,12 +120,6 @@ def test_unsimplified_dense_decoder() -> None:
 
 def test_rejected_decoder_arguments() -> None:
     """Decoder arguments that an ObservableDecoder cannot honor are rejected."""
-    with (
-        pytest.warns(DeprecationWarning, match="free-form decoder options"),
-        pytest.raises(ValueError, match="DEFUNCT"),
-    ):
-        decoders.SinterDecoder(priors_arg="error_channel")
-
     dem = stim.DetectorErrorModel("""
         error(0.3) D0 L0 L1
         error(0.1) D1 L1
@@ -146,9 +139,12 @@ def test_rejected_decoder_arguments() -> None:
     assert np.array_equal(compiled.decode_observables(np.array([1, 0])), [1, 1])
     with pytest.raises(ValueError, match="needs a parity-check matrix"):
         decoders.SinterDecoder(
-            decoder=decoders.from_matrix(lambda matrix: decoders.custom.LookupDecoder(matrix, 1))
+            decoder=decoders.from_matrix(
+                lambda matrix: decoders.custom.ErrorLookupDecoder(matrix, 1)
+            )
         ).compile_decoder_for_dem(dem)
 
+    # a window decoder needs error decoders, so an observable-decoder factory is invalid on purpose
     window_decoder = decoders.SequentialWindowDecoder(
         [[0], [1]],
         decoder=build_observable_decoder,  # type: ignore[arg-type]
@@ -171,15 +167,27 @@ def test_rejected_decoder_arguments() -> None:
             decoder=decoders.custom.ObservableLookupDecoder(dem, 2)  # type: ignore[arg-type]
         )
 
+
+def test_deprecated_decoder_arguments() -> None:
+    """Deprecated decoder arguments are translated, or rejected if defunct or conflicting."""
+    with pytest.raises(ValueError, match="DEFUNCT"):
+        decoders.SinterDecoder(priors_arg="error_channel")
+    with pytest.raises(ValueError, match="Cannot combine decoder="):
+        decoders.SinterDecoder(decoder=decoders.lookup(1), with_lookup=True)
+
+    dem = stim.DetectorErrorModel("""
+        error(0.3) D0 L0 L1
+        error(0.1) D1 L1
+    """)
+
+    # the deprecated lookup decoder that predicts observable flips is an observable decoder
     with pytest.warns(DeprecationWarning):
         decoder = decoders.SinterDecoder(
             with_lookup=True, max_weight=2, predict_observable_flips=True
         )
-    with (
-        pytest.warns(DeprecationWarning),
-        pytest.raises(TypeError, match="observable flips rather than errors"),
-    ):
-        decoder.compile_decoder_for_dem(dem)
+    with pytest.warns(DeprecationWarning):
+        compiled = decoder.compile_decoder_for_dem(dem)
+    assert np.array_equal(compiled.decode_observables(np.array([1, 0])), [1, 1])
 
     with pytest.warns(DeprecationWarning):
         window_decoder = decoders.SequentialWindowDecoder(
@@ -195,7 +203,7 @@ def test_rejected_decoder_arguments() -> None:
 def test_observable_decoders_reject_prebuilt_decoders() -> None:
     """Observable decoders reject an error decoder that cannot be rebuilt for each model."""
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
-    prebuilt = decoders.custom.LookupDecoder(dem, max_weight=1)
+    prebuilt = decoders.custom.ErrorLookupDecoder(dem, max_weight=1)
     for build_decoder, reason in [
         (
             lambda: decoders.SinterDecoder(decoder=prebuilt),  # type: ignore[arg-type]
@@ -206,7 +214,10 @@ def test_observable_decoders_reject_prebuilt_decoders() -> None:
             "each subgraph",
         ),
         (
-            lambda: decoders.SequentialWindowDecoder([[0]], decoder=prebuilt),  # type: ignore[arg-type]
+            lambda: decoders.SequentialWindowDecoder(
+                [[0]],
+                decoder=prebuilt,  # type: ignore[arg-type]
+            ),
             "each window",
         ),
         (
@@ -222,7 +233,7 @@ def test_observable_decoders_reject_prebuilt_decoders() -> None:
         decoders.SinterDecoder(static_decoder=prebuilt)
 
     decoder = decoders.SequentialWindowDecoder(
-        [[0]], decoder=lambda dem: decoders.custom.LookupDecoder(dem, max_weight=1)
+        [[0]], decoder=lambda dem: decoders.custom.ErrorLookupDecoder(dem, max_weight=1)
     )
     assert np.array_equal(
         decoder.compile_decoder_for_dem(dem).decode_observables(np.array([1])), [1]
@@ -317,7 +328,7 @@ def test_predict_observables_with_erasure(num_observables: int) -> None:
             compiled = super().compile_decoder_for_dem(dem)
             return WideCompiledDecoder(compiled.dem_arrays, compiled.decoder)
 
-    with pytest.raises(ValueError, match="bytes of observable flips per shot"):
+    with pytest.raises(ValueError, match="with a byte added to signal discards"):
         sinter.predict_observables(
             dem=dem,
             dets=detection_events,

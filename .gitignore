@@ -1,10 +1,8 @@
 notes.txt
 .trash.*
 
-# code search experiments
-.code_cache
-experiments/bivariate_bicycle/codes.csv
-experiments/quantum_tanner/codes
+# experiment results
+experiments/*/results
 
 # python cache
 __pycache__

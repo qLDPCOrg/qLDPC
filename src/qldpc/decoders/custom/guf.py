@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Callable
-from typing import TYPE_CHECKING
 
 import galois
 import numpy as np
@@ -15,14 +14,11 @@ import stim
 
 from qldpc import math
 from qldpc.math import IntegerArray
-from qldpc.objects import Node
+from qldpc.objects import Node, TannerGraph
 
 from ..common import _erasure_bit_support, _to_pcm, with_erasure_bits
 from ..construction.specs import decoder_spec
 from ..protocols import ErrorDecoder
-
-if TYPE_CHECKING:
-    from qldpc import codes
 
 
 class GUFDecoder(ErrorDecoder):
@@ -57,25 +53,27 @@ class GUFDecoder(ErrorDecoder):
         symplectic: bool = False,
         add_erasure_bit: bool = False,
     ) -> None:
-        from qldpc import codes
-
         matrix = np.asanyarray(matrix)
 
         self.default_max_weight = max_weight
         self.symplectic = symplectic
         self.has_erasure_bit = add_erasure_bit
 
+        # the field, the matrix that maps errors to syndromes, and the number of (qu)dits
+        self._field = type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
         self.get_weight: Callable[[npt.NDArray[np.int_]], np.intp | npt.NDArray[np.int_]]
-        self.code: codes.AbstractCode
         if not symplectic:
             self.get_weight = np.count_nonzero
-            self.code = codes.ClassicalCode(matrix)
+            if matrix.dtype == bool:
+                matrix = matrix.astype(np.uint8)  # galois rejects bool dtypes
+            self._matrix = matrix.view(self._field)
+            self._length = self._matrix.shape[1]
         else:
             self.get_weight = math.symplectic_weight
-            field = type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
-            self.code = codes.QuditCode(-math.symplectic_conjugate(matrix.view(field)))
+            self._matrix = -math.symplectic_conjugate(matrix.view(self._field))
+            self._length = self._matrix.shape[1] // 2
 
-        self.graph = self.code.graph.to_undirected()
+        self.graph = TannerGraph.from_matrix(self._matrix, symplectic=symplectic).to_undirected()
 
     def decode_errors(
         self, syndrome: npt.NDArray[np.int_], *, max_weight: int | None = None
@@ -86,18 +84,18 @@ class GUFDecoder(ErrorDecoder):
         the all-zero error, whose appended erasure bit is set if this decoder tracks one.
         """
         max_weight = max_weight if max_weight is not None else self.default_max_weight
-        syndrome = syndrome.view(self.code.field)
+        syndrome = syndrome.view(self._field)
         syndrome_bits = np.flatnonzero(syndrome)
 
         error_set = {Node(int(index), is_data=False) for index in syndrome_bits}
-        solutions = np.zeros((0, len(self.code)), dtype=int)
+        solutions = np.zeros((0, self._length), dtype=int)
         last_error_set_size = 0
         while solutions.size == 0:
             error_set |= {neighbor for node in error_set for neighbor in self.graph.neighbors(node)}
 
             if len(error_set) == last_error_set_size:
                 exhausted = np.zeros(
-                    len(self.code) * (2 if self.symplectic else 1) + self.has_erasure_bit,
+                    self._length * (2 if self.symplectic else 1) + self.has_erasure_bit,
                     dtype=syndrome.dtype,
                 )
                 if self.has_erasure_bit and syndrome_bits.size:
@@ -105,15 +103,15 @@ class GUFDecoder(ErrorDecoder):
                 return exhausted
             last_error_set_size = len(error_set)
 
-            checks, bits = self.get_sub_problem_indices(syndrome, error_set)
-            sub_matrix = self.code.matrix[np.ix_(checks, bits)]
+            checks, bits = self._get_sub_problem_indices(syndrome, error_set)
+            sub_matrix = self._matrix[np.ix_(checks, bits)]
             sub_syndrome = syndrome[checks]
 
-            augmented_matrix = np.column_stack([sub_matrix, -sub_syndrome]).view(self.code.field)
+            augmented_matrix = np.column_stack([sub_matrix, -sub_syndrome]).view(self._field)
             candidate_solutions = augmented_matrix.null_space()
             solutions = candidate_solutions[np.where(candidate_solutions[:, -1])]
 
-        if self.code.field is galois.GF2:
+        if self._field is galois.GF2:
             converted_solutions = solutions[:, :-1]
         else:
             converted_solutions = solutions[:, :-1] / solutions[:, -1][:, None]
@@ -127,11 +125,11 @@ class GUFDecoder(ErrorDecoder):
             min_weight = weight
             one_solution = min_weight_solution.copy()
             null_vector_coefficients = itertools.product(
-                self.code.field.elements, repeat=len(null_vectors)
+                self._field.elements, repeat=len(null_vectors)
             )
             next(null_vector_coefficients)
             for coefficients in null_vector_coefficients:
-                solution = one_solution + self.code.field(coefficients) @ null_vectors
+                solution = one_solution + self._field(coefficients) @ null_vectors
                 weight = self.get_weight(solution)
                 if weight < min_weight:
                     min_weight = weight
@@ -139,7 +137,7 @@ class GUFDecoder(ErrorDecoder):
                     if weight <= max_weight:
                         break
 
-        error = self.code.field.Zeros(len(self.code) * (2 if self.symplectic else 1))
+        error = self._field.Zeros(self._length * (2 if self.symplectic else 1))
         error[bits] = min_weight_solution
         decoded_error = error.view(np.ndarray).astype(syndrome.dtype)
         if self.has_erasure_bit:
@@ -152,7 +150,7 @@ class GUFDecoder(ErrorDecoder):
         """Decode an error syndrome and return an inferred error (alias for decode_errors)."""
         return self.decode_errors(syndrome, max_weight=max_weight)
 
-    def get_sub_problem_indices(
+    def _get_sub_problem_indices(
         self, syndrome: npt.NDArray[np.int_], error_set: set[Node]
     ) -> tuple[list[int], list[int]]:
         """Syndrome and data bit indices for decoding on the interior of the given error set."""
@@ -167,7 +165,7 @@ class GUFDecoder(ErrorDecoder):
         bits = [node.index for node in interior_data_nodes]
 
         if self.symplectic:
-            bits += [bit + len(self.code) for bit in bits]
+            bits += [bit + self._length for bit in bits]
 
         return sorted(checks, reverse=True), sorted(bits, reverse=True)
 
@@ -176,25 +174,8 @@ class GUFDecoder(ErrorDecoder):
 def _get_decoder_guf(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: object
 ) -> GUFDecoder:
-    """Build a generalized union-find (GUF) decoder.
-
-    Args:
-        pcm_or_dem: A parity-check matrix or detector error model to decode.  A DEM is converted to
-            its dense detector-flip matrix.
-        max_weight: Maximum weight of a candidate error, or None for no limit.
-        symplectic: Whether to treat the parity-check matrix as that of a QuditCode, whose first and
-            last halves of columns denote the X and Z support of a stabilizer.
-        add_erasure_bit: Whether to append a flag when the search is exhausted without finding an
-            error that reproduces the syndrome.
-        **decoder_args: The options above, passed to :class:`~qldpc.decoders.custom.guf.GUFDecoder`.
-
-    Returns:
-        A :class:`~qldpc.decoders.custom.guf.GUFDecoder`.
-
-    Supplying ``max_weight`` can make the search exponential.  See
-    :class:`~qldpc.decoders.custom.guf.GUFDecoder` and
-    `arXiv:2103.08049 <https://arxiv.org/abs/2103.08049>`_.
-    """
+    """Build a GUF decoder; see ``decoders.guf`` for its options."""
+    # the typed signature of the specification helper, not this builder, checks the options
     return GUFDecoder(_to_pcm(pcm_or_dem), **decoder_args)  # type: ignore[arg-type]
 
 

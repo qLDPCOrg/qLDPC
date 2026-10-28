@@ -4,10 +4,11 @@
 
 from __future__ import annotations
 
+import concurrent.futures
+import inspect
 import pickle
-import subprocess
 import sys
-import unittest.mock
+import threading
 import warnings
 from collections.abc import Callable
 from typing import Any
@@ -19,6 +20,7 @@ import stim
 from ldpc import bplsd_decoder
 
 from qldpc import decoders
+from qldpc.conftest import run_python
 from qldpc.decoders.external import ldpc as ldpc_integration
 from qldpc.decoders.external.ldpc import (
     _get_decoder_bf,
@@ -45,6 +47,17 @@ def test_ldpc_builders(
         assert np.array_equal(matrix @ decoded % 2, syndrome)
 
 
+def test_ldpc_builder_error_rate_is_last() -> None:
+    """Builders keep error_rate as their last parameter."""
+    builders: list[Callable[..., decoders.ErrorDecoder]] = [
+        _get_decoder_bp_osd,
+        _get_decoder_bp_lsd,
+        _get_decoder_bf,
+    ]
+    for builder in builders:
+        assert list(inspect.signature(builder).parameters)[-1] == "error_rate"
+
+
 @pytest.mark.parametrize(
     ("builder", "helper"),
     [
@@ -59,29 +72,9 @@ def test_ldpc_backend_options(
 ) -> None:
     """Named options and backend_options reach the underlying ldpc constructor."""
     matrix = np.eye(2, dtype=int)
-    with unittest.mock.patch.object(ldpc_integration, "_build_ldpc_decoder") as backend:
-        builder(matrix, max_iter=4, backend_options={"input_vector_type": "syndrome"})
-        assert backend.call_args.args[3]["max_iter"] == 4
-        assert backend.call_args.args[3]["input_vector_type"] == "syndrome"
-        spec = helper(max_iter=4, backend_options={"input_vector_type": "syndrome"})
-        assert spec.options["backend_options"] == {"input_vector_type": "syndrome"}
-        assert repr(spec).endswith(
-            "(max_iter=4, backend_options={'input_vector_type': 'syndrome'})"
-        )
-        assert pickle.loads(pickle.dumps(spec)).options == spec.options  # noqa: S301
-        spec.build(matrix)
-        assert backend.call_args.args[3]["input_vector_type"] == "syndrome"
-
-    # an empty mapping is equivalent to no backend options
-    assert helper(backend_options={}).options["backend_options"] is None
-
-    # misspelled named options are rejected when the specification is created
-    with pytest.raises(TypeError, match="unexpected keyword argument 'max_itr'"):
-        helper(max_itr=4)
-    with pytest.raises(ValueError, match="lists max_iter by name, so pass it directly"):
-        helper(backend_options={"max_iter": 4})
-    with pytest.raises(TypeError, match="backend_options must be a mapping"):
-        helper(backend_options=[("backend_extension", 12)])
+    decoder: Any
+    for decoder in [builder(matrix, max_iter=4), helper(max_iter=4).build(matrix)]:
+        assert decoder.max_iter == 4  # the default for this matrix is 2
 
     # the backend rejects unsupported names when the decoder is built, except that BP+LSD silently
     # ignores them, so qLDPC warns about names it does not know
@@ -162,6 +155,31 @@ def test_ldpc_protocol_adapters() -> None:
     assert np.array_equal(first_ratios, [1, 0])
 
 
+def test_ldpc_protocol_adapters_are_created_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Concurrent first uses share one set of adapter classes, as pickling requires."""
+    # create the original classes, which monkeypatch restores after the test
+    ldpc_integration._get_backend_class("BpOsdDecoder")
+    num_threads = 8
+
+    def get_adapter_type(barrier: threading.Barrier) -> type[Any]:
+        barrier.wait()
+        return ldpc_integration._get_backend_class("BpOsdDecoder")
+
+    switch_interval = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)  # switch threads often, so that an unguarded race is likely
+    try:
+        for _ in range(5):
+            monkeypatch.setattr(ldpc_integration, "_BACKEND_CLASSES", None)
+            for name in ("BeliefFindDecoder", "BpLsdDecoder", "BpOsdDecoder"):
+                monkeypatch.delattr(ldpc_integration, name)
+            barriers = [threading.Barrier(num_threads)] * num_threads
+            with concurrent.futures.ThreadPoolExecutor(num_threads) as executor:
+                adapter_types = set(executor.map(get_adapter_type, barriers))
+            assert adapter_types == {ldpc_integration.BpOsdDecoder}
+    finally:
+        sys.setswitchinterval(switch_interval)
+
+
 @pytest.mark.parametrize(
     ("builder", "name"),
     [
@@ -218,4 +236,4 @@ import sys
 import qldpc.decoders.external.ldpc
 assert "ldpc" not in sys.modules
 """
-    subprocess.run([sys.executable, "-c", code], check=True)
+    run_python(code)

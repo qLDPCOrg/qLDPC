@@ -5,13 +5,14 @@
 from __future__ import annotations
 
 import builtins
+import concurrent.futures
 import pickle
-import subprocess
 import sys
+import threading
 import types
 import unittest.mock
 from collections.abc import Callable
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 import galois
 import numpy as np
@@ -20,6 +21,7 @@ import pytest
 import stim
 
 from qldpc import decoders
+from qldpc.conftest import run_python
 from qldpc.decoders.external import pymatching
 from qldpc.decoders.external.pymatching import (
     _get_decoder_mwpm,
@@ -84,6 +86,8 @@ def test_matching_builder_validation() -> None:
     dem = stim.DetectorErrorModel("error(0.1) D0 ^ D1 L0\nerror(0.2) D0")
     with pytest.raises(ValueError, match="Cannot set error weights"):
         _get_decoder_mwpm(dem, weights=[1.0, 1.0])
+    with pytest.raises(ValueError, match="Cannot set error probabilities"):
+        decoders.mwpm(error_probabilities=[0.1, 0.2]).build_observable_decoder(dem)
 
     decomposed = _get_decoder_mwpm(dem, decompose_errors=True)
     assert getattr(decomposed, "_infers_decomposed_errors", False)
@@ -122,21 +126,23 @@ def test_matching_backend_options() -> None:
     matrix = np.eye(2, dtype=int)
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
     backend_options = {"backend_extension": 12}
-    with (
-        unittest.mock.patch.object(pymatching, "_validate_backend_options") as validate,
-        unittest.mock.patch.object(pymatching_package.Matching, "load_from_check_matrix") as load,
+    calls: list[dict[str, object]] = []
+
+    def load_from_check_matrix(
+        self: object, check_matrix: object = None, *, backend_extension: int = 0, **kwargs: object
+    ) -> None:
+        """Accept an option that a future PyMatching release might add."""
+        calls.append({"backend_extension": backend_extension, **kwargs})
+
+    with unittest.mock.patch.object(
+        pymatching_package.Matching, "load_from_check_matrix", load_from_check_matrix
     ):
         _get_decoder_mwpm(matrix, backend_options=backend_options)
-        assert validate.call_args.args[1] == backend_options
-        assert load.call_args.kwargs["backend_extension"] == 12
-        spec = decoders.mwpm(backend_options=backend_options)
-        assert spec.options["backend_options"] == backend_options
-        spec.build(matrix)
-        assert load.call_args.kwargs["backend_extension"] == 12
-        observable = spec.build_observable_decoder(dem)
-        assert isinstance(observable, pymatching.MatchingObservableDecoder)
-        assert load.call_args.kwargs["backend_extension"] == 12
-        assert load.call_args.kwargs["faults_matrix"] is not None
+        decoders.mwpm(backend_options=backend_options).build(matrix)
+        observable = decoders.mwpm(backend_options=backend_options).build_observable_decoder(dem)
+    assert isinstance(observable, pymatching.MatchingObservableDecoder)
+    assert [call["backend_extension"] for call in calls] == [12, 12, 12]
+    assert calls[-1]["faults_matrix"] is not None
 
 
 def test_matching_backend_option_validation() -> None:
@@ -150,7 +156,8 @@ def test_matching_backend_option_validation() -> None:
         ) -> None:
             """Accept an option that a future PyMatching release might add."""
 
-    future_pymatching = types.SimpleNamespace(Matching=FutureMatching)
+    future_pymatching = types.ModuleType("pymatching")
+    vars(future_pymatching)["Matching"] = FutureMatching
     pymatching._validate_backend_options(future_pymatching, {"new_option": 1})
     with pytest.raises(ValueError, match="kwargs"):
         pymatching._validate_backend_options(future_pymatching, {"kwargs": 1})
@@ -187,7 +194,31 @@ import types
 import qldpc.decoders.external.pymatching
 assert "pymatching" not in sys.modules
 """
-    subprocess.run([sys.executable, "-c", code], check=True)
+    run_python(code)
+
+
+def test_pymatching_protocol_adapter_is_created_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Concurrent first uses share one adapter class, as pickling requires."""
+    # create the original classes, which monkeypatch restores after the test
+    pymatching._get_matching_type()
+    num_threads = 8
+
+    def get_adapter_type(barrier: threading.Barrier) -> type[Any]:
+        barrier.wait()
+        return pymatching._get_matching_type()
+
+    switch_interval = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)  # switch threads often, so that an unguarded race is likely
+    try:
+        for _ in range(5):
+            monkeypatch.setattr(pymatching, "_MATCHING_TYPE", None)
+            monkeypatch.delattr(pymatching, "Matching")
+            barriers = [threading.Barrier(num_threads)] * num_threads
+            with concurrent.futures.ThreadPoolExecutor(num_threads) as executor:
+                adapter_types = set(executor.map(get_adapter_type, barriers))
+            assert adapter_types == {pymatching.Matching}
+    finally:
+        sys.setswitchinterval(switch_interval)
 
 
 def test_pymatching_missing_dependency_message(monkeypatch: pytest.MonkeyPatch) -> None:

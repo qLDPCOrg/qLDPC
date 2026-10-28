@@ -50,7 +50,7 @@ class SubgraphDecoder(SinterDecoder):
         simplify: bool = True,
         decompose_errors: bool = False,
         decoder: DeferredDecoderInput = None,
-        **decoder_kwargs: object,
+        **decoder_kwargs: object,  # DEPRECATED: see qldpc._deprecations
     ) -> None:
         """Initialize an observable decoder that splits a model into disjoint subgraphs.
 
@@ -77,7 +77,7 @@ class SubgraphDecoder(SinterDecoder):
             simplify=simplify,
             decompose_errors=decompose_errors,
             decoder=decoder,
-            **decoder_kwargs,
+            **decoder_kwargs,  # DEPRECATED: see qldpc._deprecations
         )
 
         # consistency checks

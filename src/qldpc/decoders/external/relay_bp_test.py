@@ -6,8 +6,6 @@ from __future__ import annotations
 
 import copy
 import functools
-import subprocess
-import sys
 import unittest.mock
 import warnings
 from collections.abc import Callable
@@ -21,12 +19,14 @@ import scipy.sparse
 import stim
 
 from qldpc import decoders
+from qldpc.conftest import run_python
 from qldpc.decoders.conftest import ToyProblem
-from qldpc.decoders.construction.resolution import _get_error_decoder
+from qldpc.decoders.construction._resolution import build_error_decoder
 from qldpc.decoders.external.relay_bp import (
+    RelayBPDecoder,
     _get_decoder_min_sum_bp,
-    _get_decoder_rbp,
     _get_decoder_relay_bp,
+    _get_relay_bp,
 )
 
 
@@ -36,7 +36,7 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
     errors = np.array([error, error])
     syndromes = np.array([syndrome, syndrome])
 
-    decoder = _get_decoder_rbp(matrix)
+    decoder = RelayBPDecoder(matrix)
     assert np.array_equal(error, decoder.decode(syndrome))
     assert np.array_equal(errors, decoder.decode_batch(syndromes))
     detailed = decoder.decode_errors_detailed(syndrome)
@@ -45,35 +45,41 @@ def test_relay_bp(toy_problem: ToyProblem) -> None:
     iterations = cast(int, detailed.diagnostics["relay_bp.iterations"])
     assert iterations <= cast(int, detailed.diagnostics["relay_bp.max_iterations"])
     # erasure is flagged for a syndrome that no error reproduces, even without an erasure bit
-    unreproducible = _get_decoder_rbp(np.ones((2, 1), dtype=int))
+    unreproducible = RelayBPDecoder(np.ones((2, 1), dtype=int))
     assert unreproducible.decode_errors_detailed(np.array([1, 0])).erasure
-    decoder = _get_decoder_rbp(matrix)
+    decoder = RelayBPDecoder(matrix)
     assert np.array_equal(error, copy.copy(decoder).decode(syndrome))
 
-    with pytest.raises(TypeError, match="missing 1 required positional argument"):
-        decoder.compute_observables()
+    # batch methods show no progress bar by default
+    with unittest.mock.patch.object(decoder, "decoder") as runner:
+        runner.decode_batch.return_value = errors
+        decoder.decode_errors_batch(syndromes)
+        decoder.decode_batch(syndromes)
+    assert [call.args[2] for call in runner.decode_batch.call_args_list] == [False, False]
 
-    decoder = _get_decoder_rbp(scipy.sparse.dok_matrix(matrix))
+    decoder = RelayBPDecoder(scipy.sparse.dok_matrix(matrix))
     assert np.array_equal(error, decoder.decode_detailed(syndrome).decoding)
 
     dem = decoders.DetectorErrorModelArrays.from_arrays(matrix, None, 1e-3).to_dem()
-    decoder = _get_decoder_rbp(dem)
+    decoder = RelayBPDecoder(dem)
     assert np.array_equal(error, decoder.decode(syndrome))
 
     with (
         unittest.mock.patch.dict("sys.modules", {"relay_bp": None}),
-        pytest.raises(ImportError, match="Failed to import relay-bp"),
+        pytest.raises(ModuleNotFoundError, match=r"qldpc\[relay-bp\]") as exc_info,
     ):
-        _get_error_decoder(np.array([[]]), decoder=decoders.relay_bp())
+        build_error_decoder(np.array([[]]), decoder=decoders.relay_bp())
+    assert isinstance(exc_info.value.__cause__, ModuleNotFoundError)
 
     with pytest.raises(ValueError, match="name not recognized"):
-        _get_decoder_rbp(np.array([[]]), name="invalid_name")
+        RelayBPDecoder(np.array([[]]), name="invalid_name")
 
-    with pytest.raises(TypeError, match="breaking change"):
+    with pytest.raises(TypeError, match="not a string"):
         decoders.external.RelayBPDecoder("MinSumBPDecoderF32")
 
-    with pytest.warns(UserWarning, match="will override"):
-        decoders.external.RelayBPDecoder(dem, error_priors=[0.1, 0.1])
+    with pytest.warns(UserWarning, match="will override") as caught:
+        decoders.relay_bp(error_priors=[0.1, 0.1]).build(dem)
+    assert caught[0].filename == __file__
 
     with pytest.raises(ValueError, match="Cannot specify an observable_error_matrix"):
         decoders.external.RelayBPDecoder(dem, observable_error_matrix=np.eye(2, dtype=np.uint8))
@@ -100,7 +106,7 @@ def test_relay_bp_observables() -> None:
     for add_erasure_bit in [False, True]:
         # Relay-BP draws random relay parameters from a generator that persists across calls, so
         # compare fresh decoders that have decoded the same syndromes in the same order.
-        get_decoder = functools.partial(_get_decoder_rbp, dem, add_erasure_bit=add_erasure_bit)
+        get_decoder = functools.partial(RelayBPDecoder, dem, add_erasure_bit=add_erasure_bit)
         predicted_flips = get_decoder().decode_observables_batch(syndromes, progress_bar=False)
         assert predicted_flips.shape == (len(syndromes), dem.num_observables + add_erasure_bit)
         decoder = get_decoder()
@@ -130,11 +136,11 @@ def test_relay_bp_observables() -> None:
         assert decoder.decode_observables_detailed_batch(no_syndromes) == ()
 
     with pytest.raises(ValueError, match="requires an observable_error_matrix"):
-        _get_decoder_rbp(np.eye(2, dtype=int)).decode_observables(np.zeros(2, dtype=int))
+        RelayBPDecoder(np.eye(2, dtype=int)).decode_observables(np.zeros(2, dtype=int))
 
 
-def test_erasure_bit_marks_an_unexplained_syndrome(pytestconfig: pytest.Config) -> None:
-    """Generalized Union-Find and Relay-BP mark exactly the syndromes their errors miss."""
+def test_relay_bp_erasure_bit_marks_an_unexplained_syndrome(pytestconfig: pytest.Config) -> None:
+    """Relay-BP marks exactly the syndromes that its errors miss."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
 
     def check_erasure_bits(
@@ -156,18 +162,14 @@ def test_erasure_bit_marks_an_unexplained_syndrome(pytestconfig: pytest.Config) 
             dtype=int,
         )
 
-        guf_decoder = decoders.custom.GUFDecoder(galois.GF(2)(matrix), add_erasure_bit=True)
         relay_bp_decoder = decoders.external.RelayBPDecoder(matrix, add_erasure_bit=True)
-
-        guf_errors = np.array([guf_decoder.decode(syndrome) for syndrome in syndromes])
         relay_bp_errors = np.array([relay_bp_decoder.decode(syndrome) for syndrome in syndromes])
-        check_erasure_bits(matrix, syndromes, guf_errors)
         check_erasure_bits(matrix, syndromes, relay_bp_errors)
 
         decoded_batch = relay_bp_decoder.decode_batch(syndromes)
         check_erasure_bits(matrix, syndromes, decoded_batch)
 
-        num_erasures += int(guf_errors[:, -1].sum()) + int(relay_bp_errors[:, -1].sum())
+        num_erasures += int(relay_bp_errors[:, -1].sum())
 
     assert num_erasures
 
@@ -183,18 +185,12 @@ def test_relay_backend_options(
     builder: Callable[..., decoders.external.RelayBPDecoder],
     helper: Callable[..., decoders.DecoderSpec[decoders.external.RelayBPDecoder]],
 ) -> None:
-    """Named options and backend_options survive deferred construction."""
+    """Immediate and deferred builders forward backend_options to the Relay-BP backend."""
     matrix = np.eye(2, dtype=int)
     backend_options = {"backend_extension": 12}
-    with unittest.mock.patch("qldpc.decoders.external.relay_bp._get_relay_decoder") as backend:
+    # the backend receives backend_options, and rejects unsupported names
+    with pytest.raises(TypeError, match="backend_extension"):
         builder(matrix, backend_options=backend_options)
-        assert backend.call_args.kwargs["backend_extension"] == 12
-        spec = helper(backend_options=backend_options)
-        assert spec.options["backend_options"] == backend_options
-        spec.build(matrix)
-        assert backend.call_args.kwargs["backend_extension"] == 12
-
-    # the backend rejects unsupported names when the decoder is built
     with pytest.raises(TypeError, match="backend_extension"):
         helper(backend_options=backend_options).build(matrix)
 
@@ -206,7 +202,17 @@ import sys
 import qldpc.decoders.external.relay_bp
 assert "relay_bp" not in sys.modules
 """
-    subprocess.run([sys.executable, "-c", code], check=True)
+    run_python(code)
+
+
+def test_relay_bp_nested_import_failure() -> None:
+    """A module missing inside relay-bp is reported as is, rather than as a missing relay-bp."""
+    nested_error = ModuleNotFoundError("No module named 'nested'", name="nested")
+    with (
+        pytest.raises(ModuleNotFoundError, match="nested"),
+        unittest.mock.patch("builtins.__import__", side_effect=nested_error),
+    ):
+        _get_relay_bp()
 
 
 def test_relay_bp_unsorted_observables() -> None:
@@ -216,7 +222,7 @@ def test_relay_bp_unsorted_observables() -> None:
     with warnings.catch_warnings():
         # reordering indices alone does not warn
         warnings.filterwarnings("error", ".*Reducing these entries mod 2")
-        decoder = _get_decoder_rbp(np.array([[1]]), observable_error_matrix=observable_matrix)
+        decoder = RelayBPDecoder(np.array([[1]]), observable_error_matrix=observable_matrix)
     assert np.array_equal(decoder.decode_observables(np.array([1])), [1, 1])
 
 
@@ -228,7 +234,7 @@ def test_relay_bp_noncanonical_sparse_matrices() -> None:
     )
     indices = matrix.indices.copy()
     with pytest.warns(UserWarning, match="Reducing these entries mod 2"):
-        decoder = _get_decoder_rbp(matrix)
+        decoder = RelayBPDecoder(matrix)
     assert np.array_equal(decoder.decode(np.array([1, 1])), [1, 0])
     assert np.array_equal(matrix.indices, indices)
 
@@ -237,7 +243,7 @@ def test_relay_bp_reads_entries_mod_2() -> None:
     """Relay-BP reads a dense matrix mod 2, and warns if that changes an entry."""
     matrix = np.array([[2, 1]])
     with pytest.warns(UserWarning, match="Reducing these entries mod 2"):
-        decoder = _get_decoder_rbp(matrix)
+        decoder = RelayBPDecoder(matrix)
     assert np.array_equal(decoder.decode(np.array([1])), [0, 1])
     assert np.array_equal(matrix, [[2, 1]])
 
@@ -246,6 +252,6 @@ def test_relay_bp_rejects_invalid_matrices() -> None:
     """Relay-BP rejects non-integer entries and fields other than GF(2)."""
     for matrix in (np.array([[0.5]]), scipy.sparse.csc_matrix([[0.5]])):
         with pytest.raises(ValueError, match="integer entries"):
-            _get_decoder_rbp(matrix)
+            RelayBPDecoder(matrix)
     with pytest.raises(ValueError, match="requires a binary matrix"):
-        _get_decoder_rbp(galois.GF(3)([[1]]))
+        RelayBPDecoder(galois.GF(3)([[1]]))

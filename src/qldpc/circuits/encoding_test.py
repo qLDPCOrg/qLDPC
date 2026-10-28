@@ -26,7 +26,7 @@ def test_encoding_circuit(pytestconfig: pytest.Config) -> None:
         if not only_zero:
             # choose random logical and gauge Paulis that should be +1 after encoding
             bases = np.random.choice(
-                [Pauli.Z, Pauli.X, Pauli.Y],  # type:ignore[arg-type]
+                [Pauli.Z, Pauli.X, Pauli.Y],  # type:ignore[arg-type]  # NumPy expects array-likes
                 size=code.dimension + code.gauge_dimension,
             )
             basis_prep = stim.Circuit()
@@ -144,7 +144,7 @@ def test_state_stabilizers(pytestconfig: pytest.Config, monkeypatch: pytest.Monk
         assert simulator.peek_observable_expectation(stab) == 1
 
     # all logical stabilizers of the state have expectation value +1
-    logical_stabs = circuits.get_logical_state_stabilizers(circuit, code)
+    logical_stabs = circuits.get_logical_state_stabilizers(code, circuit)
     assert len(logical_stabs) == code.dimension
     for stab in logical_stabs:
         assert simulator.peek_observable_expectation(stab) == 1
@@ -170,16 +170,6 @@ def test_state_stabilizers(pytestconfig: pytest.Config, monkeypatch: pytest.Monk
         circuits.get_state_stabilizers(stim.Circuit("H 0"), [0])
 
 
-def test_logical_tableau_validation() -> None:
-    """Invalid encoder/decoder dimensions fail before tableau restriction."""
-    with pytest.raises(ValueError, match="incompatible dimensions"):
-        encoding._get_logical_tableau_from_code_data(
-            1, 0, stim.Tableau(1), stim.Tableau(2), stim.Circuit()
-        )
-    with pytest.raises(ValueError, match="does not implement a logical operation"):
-        circuits.get_logical_tableau(codes.FiveQubitCode(), stim.Circuit("H 0 1"))
-
-
 def test_state_stabilizer_failure_regressions() -> None:
     """Exercise row-space, detector-parity, noisy-sign, and zero-logical edge cases."""
     ghz = circuits.get_state_stabilizers(stim.Circuit("H 0\nCX 0 1"), [0, 1])
@@ -195,21 +185,47 @@ def test_state_stabilizer_failure_regressions() -> None:
     assert all(signs == noisy_signs[0] for signs in noisy_signs)
 
     zero_logical = codes.TrivialCode(1, num_stabs_x=1)
-    assert circuits.get_logical_state_stabilizers(stim.Circuit("R 0"), zero_logical) == []
+    assert circuits.get_logical_state_stabilizers(zero_logical, stim.Circuit("R 0")) == []
 
     code = codes.SteaneCode()
     data = tuple(range(3, 3 + len(code)))
     prep = circuits.with_remapped_qubits(circuits.get_encoding_circuit(code, only_zero=True), data)
     qids = circuits.QubitIDs(data, tuple(range(20, 20 + code.num_checks)))
-    assert len(circuits.get_logical_state_stabilizers(prep, code, qids)) == code.dimension
+    assert len(circuits.get_logical_state_stabilizers(code, prep, qids)) == code.dimension
 
 
-def test_only_zero_subsystem_generator_positions() -> None:
-    """Only-zero encoding places logical-Z generators after stabilizers, before gauges."""
-    for distance in (2, 3):
-        code = codes.BaconShorCode(distance)
-        tableau = circuits.get_encoding_tableau(code, only_zero=True)
-        stabilizer_count = len(code.get_stabilizer_ops())
-        assert tableau.z_output(stabilizer_count) == math.op_to_string(
-            code.get_logical_ops(Pauli.Z, symplectic=True)[0]
+def test_deprecated_logical_state_stabilizers_argument_order() -> None:
+    """The released argument order (state_prep_circuit, code, qubit_ids) warns and still works."""
+    code = codes.SteaneCode()
+    data = tuple(range(3, 3 + len(code)))
+    prep = circuits.with_remapped_qubits(circuits.get_encoding_circuit(code, only_zero=True), data)
+    qids = circuits.QubitIDs(data, tuple(range(20, 20 + code.num_checks)))
+    expected = circuits.get_logical_state_stabilizers(code, prep, qids)
+
+    # the released keyword names still work in any order, without warning
+    assert expected == circuits.get_logical_state_stabilizers(
+        state_prep_circuit=prep, code=code, qubit_ids=qids
+    )
+
+    with pytest.warns(DeprecationWarning, match="DEPRECATED") as record:
+        stabilizers = circuits.get_logical_state_stabilizers(prep, code, qids)
+    assert stabilizers == expected
+    assert len(record) == 1 and record[0].filename == __file__
+
+
+def test_get_logical_tableau_from_code_data() -> None:
+    """Identify a logical tableau, and reject invalid encoders and non-logical circuits."""
+    code = codes.FiveQubitCode()
+    encoder, decoder = circuits.get_encoder_and_decoder(code)
+    logical_x = math.op_to_string(code.get_logical_ops(Pauli.X, symplectic=True)[0])
+    logical_tableau = encoding._get_logical_tableau_from_code_data(
+        1, 0, encoder, decoder, logical_x.to_tableau().to_circuit()
+    )
+    assert logical_tableau == stim.Tableau.from_named_gate("X")
+
+    with pytest.raises(ValueError, match="does not implement a logical operation"):
+        encoding._get_logical_tableau_from_code_data(1, 0, encoder, decoder, stim.Circuit("X 0"))
+    with pytest.raises(ValueError, match="incompatible dimensions"):
+        encoding._get_logical_tableau_from_code_data(
+            1, 0, stim.Tableau(1), stim.Tableau(2), stim.Circuit()
         )

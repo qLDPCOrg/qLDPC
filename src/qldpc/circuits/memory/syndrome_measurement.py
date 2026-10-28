@@ -10,38 +10,17 @@ import collections
 import stim
 
 from qldpc import codes
-from qldpc._util import networkx as nx
+from qldpc._utils import networkx as nx
 from qldpc.objects import Pauli
 
 from ..bookkeeping import MeasurementRecord, QubitIDs
-from ..common import restrict_to_qubits
-
-
-def validate_syndrome_qubit_ids(
-    code: codes.QuditCode, qubit_ids: QubitIDs | None = None
-) -> QubitIDs:
-    """Validate the qubit layout for a syndrome-measurement strategy.
-
-    Args:
-        code: The code whose syndromes will be measured.
-        qubit_ids: Integer indices for the data and check qubits.  Defaults to
-            ``QubitIDs.from_code(code)``.
-
-    Returns:
-        A validated qubit layout.
-
-    Raises:
-        ValueError: If the code is a subsystem code or the qubit layout is invalid.
-    """
-    if code.is_subsystem_code:
-        raise ValueError("Syndrome measurement strategies require a non-subsystem code")
-    return QubitIDs.validated(qubit_ids or QubitIDs.from_code(code), code)
+from ..common import _restrict_to_qubits
 
 
 class SyndromeMeasurementStrategy(abc.ABC):
     """Base class for a syndrome measurement strategy."""
 
-    @restrict_to_qubits
+    @_restrict_to_qubits
     @abc.abstractmethod
     def get_circuit(
         self, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
@@ -86,7 +65,7 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         self.strategy = strategy
         self.subgraph_kwargs = subgraph_kwargs
 
-    @restrict_to_qubits
+    @_restrict_to_qubits
     def get_circuit(
         self, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
     ) -> tuple[stim.Circuit, MeasurementRecord]:
@@ -101,28 +80,10 @@ class EdgeColoring(SyndromeMeasurementStrategy):
             stim.Circuit: A syndrome measurement circuit.
             circuits.MeasurementRecord: The record of measurements in the circuit.
         """
-        qubit_ids = validate_syndrome_qubit_ids(code, qubit_ids)
+        qubit_ids = _validate_syndrome_qubit_ids(code, qubit_ids)
+        # subgraph_kwargs are meant for custom overrides, whose signatures mypy cannot know
         subgraphs = code.get_syndrome_subgraphs(**self.subgraph_kwargs)  # type:ignore[arg-type]
         return self._get_circuit_from_subgraphs(qubit_ids, subgraphs)
-
-    def _get_circuit_from_subgraphs(
-        self,
-        qubit_ids: QubitIDs,
-        subgraphs: tuple[nx.DiGraph, ...],
-    ) -> tuple[stim.Circuit, MeasurementRecord]:
-        """Build a circuit and record from an already selected subgraph sequence."""
-        circuit = stim.Circuit()
-        circuit.append("RX", qubit_ids.check)
-        circuit.append("TICK")
-        for subgraph in subgraphs:
-            circuit += EdgeColoring.graph_to_circuit(subgraph, qubit_ids, self.strategy)
-        circuit.append("MX", qubit_ids.check)
-        circuit.append("TICK")
-
-        measurement_record = MeasurementRecord(
-            {qubit: [mm] for mm, qubit in enumerate(qubit_ids.check)}
-        )
-        return circuit, measurement_record
 
     @staticmethod
     def graph_to_circuit(graph: nx.DiGraph, qubit_ids: QubitIDs, strategy: str) -> stim.Circuit:
@@ -161,6 +122,25 @@ class EdgeColoring(SyndromeMeasurementStrategy):
             circuit.append("TICK")  # separate scheduled gate layers
         return circuit
 
+    def _get_circuit_from_subgraphs(
+        self,
+        qubit_ids: QubitIDs,
+        subgraphs: tuple[nx.DiGraph, ...],
+    ) -> tuple[stim.Circuit, MeasurementRecord]:
+        """Build a circuit and record from an already selected subgraph sequence."""
+        circuit = stim.Circuit()
+        circuit.append("RX", qubit_ids.check)
+        circuit.append("TICK")
+        for subgraph in subgraphs:
+            circuit += EdgeColoring.graph_to_circuit(subgraph, qubit_ids, self.strategy)
+        circuit.append("MX", qubit_ids.check)
+        circuit.append("TICK")
+
+        measurement_record = MeasurementRecord(
+            {qubit: [mm] for mm, qubit in enumerate(qubit_ids.check)}
+        )
+        return circuit, measurement_record
+
 
 class EdgeColoringXZ(EdgeColoring):
     """Edge coloration syndrome measurement strategy in Algorithm 1 of arXiv:2109.14609.
@@ -186,7 +166,7 @@ class EdgeColoringXZ(EdgeColoring):
         self.strategy = strategy
         self.subgraph_kwargs: dict[str, object] = {}
 
-    @restrict_to_qubits
+    @_restrict_to_qubits
     def get_circuit(
         self, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
     ) -> tuple[stim.Circuit, MeasurementRecord]:
@@ -206,5 +186,26 @@ class EdgeColoringXZ(EdgeColoring):
                 "The EdgeColoringXZ strategy for syndrome measurement only supports CSS codes"
             )
 
-        qubit_ids = validate_syndrome_qubit_ids(code, qubit_ids)
+        qubit_ids = _validate_syndrome_qubit_ids(code, qubit_ids)
         return self._get_circuit_from_subgraphs(qubit_ids, (code.graph_x, code.graph_z))
+
+
+def _validate_syndrome_qubit_ids(
+    code: codes.QuditCode, qubit_ids: QubitIDs | None = None
+) -> QubitIDs:
+    """Validate the qubit layout for a syndrome-measurement strategy.
+
+    Args:
+        code: The code whose syndromes will be measured.
+        qubit_ids: Integer indices for the data and check qubits.  Defaults to
+            ``QubitIDs.from_code(code)``.
+
+    Returns:
+        A validated qubit layout.
+
+    Raises:
+        ValueError: If the code is a subsystem code or the qubit layout is invalid.
+    """
+    if code.is_subsystem_code:
+        raise ValueError("Syndrome measurement strategies require a non-subsystem code")
+    return QubitIDs.validated(qubit_ids or QubitIDs.from_code(code), code)

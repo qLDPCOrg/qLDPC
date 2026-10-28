@@ -4,15 +4,12 @@
 
 from __future__ import annotations
 
-import io
-import pickle
-
 import numpy as np
 import pytest
 import sympy
 
 from qldpc import abstract
-from qldpc.abstract import ring_array, rings
+from qldpc.abstract import rings
 
 
 def test_ring() -> None:
@@ -37,17 +34,13 @@ def test_ring() -> None:
     with pytest.raises(ValueError, match="integer power >= 0"):
         one ** (-1)
 
-    # test inverses
-    for ring in [
-        abstract.GroupRing(abstract.TrivialGroup(), field=3),
-        abstract.GroupRing(abstract.AbelianGroup(2, 3), field=4),
-        abstract.GroupRing(abstract.QuaternionGroup()),
-    ]:
-        for group_member in ring.group.generate():
-            ring_member = abstract.RingMember(ring, group_member)
-            ring_member_inverse = ring_member.inverse()
-            assert ring_member_inverse is not None
-            assert ring_member * ring_member_inverse == ring.one
+    # inverses of group members in a noncommutative ring
+    ring = abstract.GroupRing(abstract.QuaternionGroup())
+    for group_member in ring.group.generate():
+        ring_member = abstract.RingMember(ring, group_member)
+        ring_member_inverse = ring_member.inverse()
+        assert ring_member_inverse is not None
+        assert ring_member * ring_member_inverse == ring.one
 
     # nontrivial inverse
     group = abstract.CyclicGroup(2)
@@ -101,9 +94,6 @@ def test_ring_equality() -> None:
     assert ring != abstract.GroupRing(group, field=4)  # different field
     assert ring != "not a ring"
 
-    with pytest.raises(ValueError, match="DEFUNCT"):
-        abstract.TrivialGroup.to_ring_array([])
-
 
 def test_printing() -> None:
     """Convert ring members into human-readable strings."""
@@ -151,43 +141,18 @@ def test_transpose() -> None:
         assert element.T.T == element
 
 
-def test_deprecations() -> None:
-    """Deprecated call signatures emit DeprecationWarning."""
+def test_deprecated_argument_order() -> None:
+    """Deprecated argument orders emit DeprecationWarning."""
     ring = abstract.GroupRing(abstract.TrivialGroup())
 
     vector = ring.field.Random(ring.group.order)
     with pytest.warns(DeprecationWarning, match="DEPRECATED"):
+        # the deprecated argument order does not match the typed signature
         ring_member = abstract.RingMember.from_vector(ring, vector)  # type:ignore[arg-type]
     assert np.array_equal(ring_member.to_vector(), vector)
 
-    # the Element alias warns on use, and refers to RingMember itself
-    with pytest.warns(DeprecationWarning, match="Element is deprecated; use RingMember"):
-        assert abstract.Element is abstract.RingMember
-    with pytest.warns(DeprecationWarning, match="Element is deprecated; use RingMember"):
-        assert rings.Element is abstract.RingMember
 
-
-def test_ring_array_compat_shim() -> None:
-    """RingArray/Protograph remain importable from rings.py, the module they moved out of."""
-    from qldpc.abstract.rings import RingArray
-
-    assert RingArray is ring_array.RingArray is abstract.RingArray
-    with pytest.warns(DeprecationWarning, match="Protograph is deprecated"):
-        from qldpc.abstract.rings import Protograph
-    assert Protograph is abstract.RingArray
-
-    with pytest.raises(AttributeError, match=r"module .* has no attribute 'not_a_real_export'"):
-        rings.not_a_real_export  # type: ignore[attr-defined]  # noqa: B018 (trigger __getattr__)
-
-
-def test_ring_array_pickle_compat() -> None:
-    """Objects pickled under the pre-split ``qldpc.abstract.rings.RingArray`` path still unpickle.
-
-    Pickle locates a class by looking up its recorded ``(module, qualname)`` via
-    ``Unpickler.find_class``, so exercising that lookup directly confirms compatibility without
-    depending on whether the ring/group objects involved are themselves picklable.
-    """
-    unpickler = pickle.Unpickler(io.BytesIO())  # noqa: S301
-    assert unpickler.find_class("qldpc.abstract.rings", "RingArray") is ring_array.RingArray
-    with pytest.warns(DeprecationWarning, match="Protograph is deprecated"):
-        assert unpickler.find_class("qldpc.abstract.rings", "Protograph") is ring_array.RingArray
+def test_unknown_attribute() -> None:
+    """The module-level lookup of deprecated names rejects other names."""
+    with pytest.raises(AttributeError, match="has no attribute 'not_a_real_export'"):
+        rings.not_a_real_export  # type: ignore[attr-defined]  # noqa: B018

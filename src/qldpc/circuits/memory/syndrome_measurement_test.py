@@ -10,6 +10,7 @@ import stim
 import sympy
 
 from qldpc import circuits, codes, math
+from qldpc.circuits.memory import syndrome_measurement
 from qldpc.objects import Pauli
 
 # default strategy used by the validity-checking helper below
@@ -59,17 +60,6 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
         circuits.EdgeColoring().get_circuit(codes.BaconShorCode(2))
     with pytest.raises(ValueError, match="only supported for qubit codes"):
         circuits.EdgeColoring().get_circuit(code=codes.SurfaceCode(2, field=3))
-
-
-def test_validate_syndrome_qubit_ids() -> None:
-    """Validate default, explicit, and unsupported syndrome-measurement layouts."""
-    code = codes.SurfaceCode(2)
-    qubit_ids = circuits.QubitIDs.from_code(code)
-    assert circuits.validate_syndrome_qubit_ids(code) == qubit_ids
-    assert circuits.validate_syndrome_qubit_ids(code, qubit_ids) is not qubit_ids
-
-    with pytest.raises(ValueError, match="subsystem"):
-        circuits.validate_syndrome_qubit_ids(codes.BaconShorCode(2))
 
 
 def syndrome_measurement_is_valid(
@@ -146,3 +136,14 @@ def gate_schedule_is_valid(circuit: stim.Circuit) -> bool:
                         return False
                     is_addressed_in_current_moment[target.qubit_value] = True
     return True
+
+
+def test_validate_syndrome_qubit_ids() -> None:
+    """Validate default, explicit, and unsupported syndrome-measurement layouts."""
+    code = codes.SurfaceCode(2)
+    qubit_ids = circuits.QubitIDs.from_code(code)
+    assert syndrome_measurement._validate_syndrome_qubit_ids(code) == qubit_ids
+    assert syndrome_measurement._validate_syndrome_qubit_ids(code, qubit_ids) is not qubit_ids
+
+    with pytest.raises(ValueError, match="subsystem"):
+        syndrome_measurement._validate_syndrome_qubit_ids(codes.BaconShorCode(2))

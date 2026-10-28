@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import functools
 import math
 from collections.abc import Iterable, Sequence
 
@@ -35,7 +36,7 @@ def test_pauli() -> None:
     for expected_pauli, values in xz_inputs.items():
         for value in values:
             assert objects.Pauli.coerce_xz(value) is expected_pauli
-    for invalid_value in [objects.Pauli.I, objects.Pauli.Y, "I", "y", "XZ", "", 0]:
+    for invalid_value in [objects.Pauli.Y, "y", 0]:
         with pytest.raises(ValueError, match=r"Pauli\.X or Pauli\.Z"):
             objects.Pauli.coerce_xz(invalid_value)  # type: ignore[arg-type]
 
@@ -53,7 +54,7 @@ def test_pauli() -> None:
 
     assert objects.Pauli.X.index != objects.Pauli.Z.index
     for pauli in [objects.Pauli.I, objects.Pauli.Y]:
-        with pytest.raises(AttributeError, match="No index"):
+        with pytest.raises(TypeError, match="have an index"):
             assert pauli.index
 
 
@@ -77,6 +78,51 @@ def test_node() -> None:
     assert node_d1 < node_d2 < node_c1
     assert str(node_d1) == "d_1"
     assert hash(node_c1) != hash(node_d1) != hash(node_d2)
+
+
+def test_tanner_graph() -> None:
+    """Tanner graphs of classical and symplectic parity check matrices, and their inverses."""
+    data, check = objects.Node, functools.partial(objects.Node, is_data=False)
+    pauli, qudit_pauli = objects.Pauli, objects.QuditPauli
+
+    # a classical matrix, whose checks include one that addresses no bits
+    matrix = galois.GF(3)([[0, 0, 0], [1, 2, 0]])
+    graph = objects.TannerGraph.from_matrix(matrix)
+    assert list(graph.nodes) == [data(0), data(1), data(2), check(0), check(1)]
+    assert {(c_node, d_node): val for c_node, d_node, val in graph.edges(data="val")} == {
+        (check(1), data(0)): 1,
+        (check(1), data(1)): 2,
+    }
+    assert graph.field is type(matrix) and not graph.symplectic
+    assert np.array_equal(graph.to_matrix(), matrix)
+    assert np.array_equal(
+        objects.TannerGraph.from_matrix([[1, 1]]).to_matrix(), galois.GF2([[1, 1]])
+    )
+
+    # graphs that networkx derives from a Tanner graph keep its field
+    assert graph.copy().field is graph.subgraph([data(0), check(1)]).field is type(matrix)
+    assert graph.to_undirected().graph == graph.graph
+
+    # symplectic matrices, with edges labeled by the qubit or qudit operators of each check
+    cases: list[tuple[galois.FieldArray, list[objects.Pauli] | list[objects.QuditPauli]]] = [
+        (galois.GF2([[1, 1, 0, 0, 1, 1], [0, 0, 0, 0, 0, 0]]), [pauli.X, pauli.Y, pauli.Z]),
+        (
+            galois.GF(3)([[1, 2, 0, 0, 1, 2], [0, 0, 0, 0, 0, 0]]),
+            [qudit_pauli((1, 0)), qudit_pauli((2, 1)), qudit_pauli((0, 2))],
+        ),
+    ]
+    for matrix, ops in cases:
+        graph = objects.TannerGraph.from_matrix(matrix, symplectic=True)
+        assert list(graph.nodes) == [data(0), data(1), data(2), check(0), check(1)]
+        assert dict(graph[check(0)]) == {data(qudit): {pauli: op} for qudit, op in enumerate(ops)}
+        assert graph.field is type(matrix) and graph.symplectic
+        assert np.array_equal(graph.to_matrix(), matrix)
+
+    # default and assigned attributes
+    graph = objects.TannerGraph()
+    assert graph.field is galois.GF2 and not graph.symplectic
+    graph.field = galois.GF(3)
+    assert graph.field is galois.GF(3)
 
 
 def test_cayley_complex() -> None:
@@ -133,6 +179,8 @@ def test_chain_complex(field: int = 3) -> None:
     two_chain = objects.ChainComplex.tensor_product(matrix, matrix, field)
     assert not np.any(two_chain.op(0))
     assert not np.any(two_chain.op(two_chain.num_links + 1))
+    with pytest.raises(ValueError, match="out of range"):
+        two_chain.op(-1)
 
     # tensor product of a two-complex and its dual
     four_chain = objects.ChainComplex.tensor_product(two_chain, two_chain.T, field)

@@ -9,6 +9,7 @@ import collections
 import copy
 import functools
 import itertools
+import numbers
 import operator
 import random
 import warnings
@@ -22,27 +23,38 @@ import scipy.linalg
 import scipy.sparse
 import stim
 
-from qldpc import abstract, decoders, external, math
-from qldpc._util import format_docstring, get_external_caller_stacklevel
-from qldpc._util import networkx as nx
-from qldpc.decoders.construction.resolution import _resolve_error_decoder
-from qldpc.math import IntegerArray
-from qldpc.objects import PAULIS_XZ, Node, Pauli, PauliXZ, PauliXZLike, QuditPauli
+from qldpc import _deprecations, abstract, decoders, external, math
+from qldpc._deprecations.decoders import (
+    merge_legacy_css_decoder_args,
+    merge_legacy_decoder_args,
+    selects_legacy_decoder,
+)
+from qldpc._utils import format_docstring, get_external_caller_stacklevel
+from qldpc._utils import networkx as nx
+from qldpc.decoders._capabilities import is_prebuilt_decoder, is_prebuilt_observable_decoder
+from qldpc.decoders.construction._resolution import build_error_decoder, reject_prebuilt_decoder
+from qldpc.external import _bliss, _codes
+from qldpc.math import IntegerArray, resolve_field
+from qldpc.objects import (
+    PAULIS_XZ,
+    Node,
+    Pauli,
+    PauliXZ,
+    PauliXZLike,
+    QuditPauli,
+    TannerGraph,
+)
 
-from .code_capacity import CodeCapacityDecoder, get_code_capacity_decoder
+from ._code_capacity import CodeCapacityDecoder, get_code_capacity_decoder
 from .distance import (
     DistanceBackend,
     DistanceMethod,
     get_distance_classical,
-    get_distance_css_brouwer_zimmermann,
     get_distance_quantum,
-    validate_distance_backend,
-    validate_distance_method,
 )
-from .monte_carlo import (
-    ErrorRateFunc,
-    get_sample_allocation,
-)
+from .distance._brouwer_zimmermann import get_distance_css_brouwer_zimmermann
+from .distance.core import _validate_distance_backend, _validate_distance_method
+from .monte_carlo import ErrorRateFunc
 
 Slice = slice | npt.NDArray[np.int_] | list[int]
 
@@ -69,32 +81,6 @@ _QUDIT_SYNDROME_MATRIX_REASON = "errors are decoded against an internal syndrome
 
 # the number of times to decode a (possibly randomized) syndrome before giving up
 _MAX_DECODING_ATTEMPTS = 100
-
-
-def get_scrambled_seed(seed: int) -> int:
-    """Scramble a seed, allowing us to safely increment seeds in repeat-until-success protocols."""
-    state = np.random.get_state()
-    np.random.seed(seed)
-    new_seed = np.random.randint(np.iinfo(np.int32).max + 1)
-    np.random.set_state(state)
-    return new_seed
-
-
-def get_random_array(
-    field: type[galois.FieldArray],
-    shape: int | tuple[int, ...],
-    *,
-    satisfy: Callable[[galois.FieldArray], bool | np.bool_] = lambda _: True,
-    seed: int | None = None,
-) -> galois.FieldArray:
-    """Get a random array over a given finite field with a given shape.
-
-    If passed a condition that the array must satisfy, re-sample until the condition is met.
-    """
-    seed = get_scrambled_seed(seed) if seed is not None else None
-    while not satisfy(array := field.Random(shape, seed=seed)):
-        seed = seed + 1 if seed is not None else None  # pragma: no cover
-    return array
 
 
 ####################################################################################################
@@ -130,7 +116,7 @@ class AbstractCode(abc.ABC):
             self._distance = matrix._distance
             self._distance_bound = matrix._distance_bound
 
-            if field is not None and abstract.resolve_field(field) is not matrix._field:
+            if field is not None and resolve_field(field) is not matrix._field:
                 raise ValueError(
                     f"Field argument {field} is inconsistent with the given code, which is defined"
                     f" over F_{self._field.order}"
@@ -141,7 +127,7 @@ class AbstractCode(abc.ABC):
         elif isinstance(matrix, galois.FieldArray):
             # preserve or canonically embed explicitly typed finite-field arrays
             matrix_field = type(matrix)
-            self._field = abstract.resolve_field(field) if field is not None else type(matrix)
+            self._field = resolve_field(field) if field is not None else type(matrix)
             if self._field is matrix_field:
                 self._matrix = matrix.view(self._field)
             elif (
@@ -157,10 +143,10 @@ class AbstractCode(abc.ABC):
                 )
 
         else:
-            self._field = abstract.resolve_field(field)
-            array = np.asanyarray(
-                matrix.todense() if scipy.sparse.issparse(matrix) else matrix,  # type:ignore[union-attr]
-            )
+            self._field = resolve_field(field)
+            if scipy.sparse.issparse(matrix):
+                matrix = matrix.todense()  # type:ignore[union-attr]  # issparse does not narrow
+            array = np.asanyarray(matrix)
             if array.dtype == bool:
                 # galois rejects bool dtypes, so treat booleans as 0/1 integers
                 array = array.astype(np.uint8)
@@ -238,20 +224,18 @@ class AbstractCode(abc.ABC):
         """Rank of this code's parity check matrix."""
         return len(self.canonicalized.matrix)
 
-    @functools.cached_property
-    def graph(self) -> nx.DiGraph:
-        """Tanner graph of this code."""
-        return self.matrix_to_graph(self.matrix)
-
-    @staticmethod
-    @abc.abstractmethod
-    def matrix_to_graph(matrix: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> nx.DiGraph:
-        """Convert a parity check matrix into a Tanner graph."""
-
-    @staticmethod
-    @abc.abstractmethod
-    def graph_to_matrix(graph: nx.DiGraph) -> galois.FieldArray:
-        """Convert a Tanner graph into a parity check matrix."""
+    @property
+    def graph(self) -> TannerGraph:
+        """Tanner graph of this code, which subclasses define."""
+        matrix_to_graph = getattr(type(self), "matrix_to_graph", None)
+        if matrix_to_graph is not None:  # DEPRECATED: see qldpc._deprecations
+            _deprecations.warn_deprecated(
+                f"{type(self).__name__}.matrix_to_graph is deprecated; define the graph property"
+                " instead, for example with qldpc.objects.TannerGraph.from_matrix",
+                stacklevel=get_external_caller_stacklevel(),
+            )
+            return matrix_to_graph(self.matrix)
+        raise NotImplementedError(f"{type(self).__name__} does not define its Tanner graph")
 
     @functools.cached_property
     @abc.abstractmethod
@@ -320,7 +304,7 @@ class ClassicalCode(AbstractCode):
     @functools.cached_property
     def canonicalized(self) -> ClassicalCode:
         """The same code with its parity matrix in reduced row echelon form."""
-        if self._is_canonicalized:  # pragma: no cover
+        if self._is_canonicalized:
             return self
         matrix = self.matrix.row_space()
         code = ClassicalCode(matrix, self.field)
@@ -346,46 +330,10 @@ class ClassicalCode(AbstractCode):
             return len(self) - self._dimension
         return super().rank
 
-    @staticmethod
-    def matrix_to_graph(matrix: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> nx.DiGraph:
-        """Convert a parity check matrix into a Tanner graph.
-
-        The Tanner graph is a bipartite graph with (num_checks, num_bits) vertices, respectively
-        identified with the checks and bits of the code.  The check vertex c and the bit vertex b
-        share an edge iff c addresses b; that is, edge (c, b) is in the graph iff ``H[c, b] != 0``.
-
-        A check that addresses no bits, as an all-zero row of H defines, is an isolated vertex of
-        the graph.  Seeding a vertex for every row puts the check vertices in one-to-one
-        correspondence with the rows of H, so the graph records how many checks there are even when
-        some of them address no bits.
-        """
-        matrix = np.asanyarray(matrix)
-
-        # initialize graph with nodes, data before checks
-        graph = nx.DiGraph()
-        for bit in range(matrix.shape[-1]):
-            graph.add_node(Node(index=bit, is_data=True))
-        for check in range(len(matrix)):
-            graph.add_node(Node(index=check, is_data=False))
-
-        # add edges
-        for row, col in zip(*np.nonzero(matrix)):
-            node_c = Node(index=int(row), is_data=False)
-            node_d = Node(index=int(col), is_data=True)
-            graph.add_edge(node_c, node_d, val=matrix[row][col])
-        graph.field = type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
-        return graph
-
-    @staticmethod
-    def graph_to_matrix(graph: nx.DiGraph) -> galois.FieldArray:
-        """Convert a Tanner graph into a parity check matrix."""
-        num_bits = sum(node.is_data for node in graph.nodes())
-        num_checks = len(graph.nodes()) - num_bits
-        field = getattr(graph, "field", galois.GF2)
-        matrix = field.Zeros((num_checks, num_bits))
-        for node_c, node_b, data in graph.edges(data=True):
-            matrix[node_c.index, node_b.index] = data.get("val", 1)
-        return matrix
+    @functools.cached_property
+    def graph(self) -> TannerGraph:
+        """Tanner graph of this code."""
+        return TannerGraph.from_matrix(self.matrix)
 
     def get_weight(self) -> int:
         """Compute the weight of the largest parity check."""
@@ -433,7 +381,7 @@ class ClassicalCode(AbstractCode):
     def get_random_word(self, *, seed: int | None = None) -> galois.FieldArray:
         """Random code word: a sum of all generating words with random field coefficients."""
         num_words = self.generator.shape[0]
-        return get_random_array(self.field, num_words, seed=seed) @ self.generator
+        return _get_random_array(self.field, num_words, seed=seed) @ self.generator
 
     def dual(self) -> ClassicalCode:
         """Dual to this code.
@@ -511,20 +459,20 @@ class ClassicalCode(AbstractCode):
                 Hamming distance between this vector and a code word.  Default: None.
             decoder: Decoder input used to bound distance; see help(get_distance_bound).
             method: Binary exact-distance method, unused when bounding the distance.
-                ``"brouwer_zimmermann"`` is the default; ``"brute_force"`` enumerates every nonzero
-                code word.  Nonbinary and vector-distance calculations always use exhaustive
-                enumeration.
+                ``"brouwer_zimmermann"`` is the default, with alias ``"information_sets"``;
+                ``"brute_force"`` enumerates every nonzero code word.  Nonbinary and vector-distance
+                calculations always use exhaustive enumeration.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
         """
-        validate_distance_method(method)
+        method = _validate_distance_method(method)
         if not bound:
             if decoder is not None or bound_kwargs:
                 warnings.warn(
                     "Distance bounding arguments are ignored when computing an exact distance",
-                    stacklevel=2,
+                    stacklevel=get_external_caller_stacklevel(),
                 )
             return self.get_distance_exact(vector=vector, method=method)
         return self.get_distance_bound(
@@ -544,14 +492,14 @@ class ClassicalCode(AbstractCode):
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
-            method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
-                ``"brute_force"`` enumerates every nonzero code word.  Nonbinary and vector-distance
-                calculations always use exhaustive enumeration.
+            method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
+                alias ``"information_sets"``; ``"brute_force"`` enumerates every nonzero code word.
+                Nonbinary and vector-distance calculations always use exhaustive enumeration.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
         """
-        validate_distance_method(method)
+        method = _validate_distance_method(method)
         if (known_distance := self.get_distance_if_known(vector)) is not None:
             return known_distance
 
@@ -612,7 +560,7 @@ class ClassicalCode(AbstractCode):
         vector: Sequence[int] | npt.NDArray[np.int_] | None = None,
         decoder: decoders.ErrorDecoderInput = None,
         backend: DistanceBackend = "auto",
-        **decoder_kwargs: Any,
+        **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
     ) -> int | float:
         """Use a randomized algorithm to compute an upper bound on code distance.
 
@@ -645,13 +593,14 @@ class ClassicalCode(AbstractCode):
             distance, the returned bound is never worse than the best bound already known for this
             code, and the best bound is remembered for later calls.
         """
-        validate_distance_backend(backend)
+        _validate_distance_backend(backend)
+        _validate_num_trials(num_trials)
         if backend not in ("auto", "decoder"):
             raise ValueError(
-                f"The {backend!r} distance backend is only available for CSSCode instances."
+                f"ClassicalCode only supports the 'decoder' distance backend (provided: {backend!r})"
             )
         if vector is None:
-            decoders.reject_prebuilt_decoder(decoder, _CLASSICAL_DISTANCE_BOUND_REASON)
+            reject_prebuilt_decoder(decoder, _CLASSICAL_DISTANCE_BOUND_REASON)
         if (known_distance := self.get_distance_if_known(vector)) is not None:
             return known_distance
         known_bound = None if vector is not None else self._distance_bound
@@ -666,12 +615,14 @@ class ClassicalCode(AbstractCode):
         else:
             check_matrix = np.vstack([self.matrix, self.generator]).view(self.field)
             syndrome = np.zeros(len(check_matrix), dtype=int).view(self.field)
-        error_decoder = _resolve_error_decoder(check_matrix, decoder, decoder_kwargs)
+        if decoder_kwargs:  # DEPRECATED: see qldpc._deprecations
+            decoder = merge_legacy_decoder_args(check_matrix, decoder, decoder_kwargs)
+        error_decoder = build_error_decoder(check_matrix, decoder=decoder)
 
         def get_syndrome() -> npt.NDArray[np.int_]:
             """Get a syndrome to decode, randomizing its overlap with code words if necessary."""
             if vector is None:
-                syndrome[-len(self.generator) :] = get_random_array(
+                syndrome[-len(self.generator) :] = _get_random_array(
                     self.field, len(self.generator), satisfy=lambda vec: vec.any()
                 )
             return syndrome
@@ -701,13 +652,13 @@ class ClassicalCode(AbstractCode):
         Reject any code with trivial checks or unchecked bits, identified by an all-zero row or
         column in the code's parity check matrix.
         """
-        field = abstract.resolve_field(field)
+        field = resolve_field(field)
 
         def nontrivial(matrix: galois.FieldArray) -> bool:
             """Return True iff all rows and columns are nonzero."""
             return all(np.any(row) for row in matrix) and all(np.any(col) for col in matrix.T)
 
-        matrix = get_random_array(field, (checks, bits), satisfy=nontrivial, seed=seed)
+        matrix = _get_random_array(field, (checks, bits), satisfy=nontrivial, seed=seed)
         return ClassicalCode(matrix)
 
     @staticmethod
@@ -719,10 +670,29 @@ class ClassicalCode(AbstractCode):
         return ~ClassicalCode(generator, field)
 
     @staticmethod
-    def from_name(name: str) -> ClassicalCode:
-        """Named code in the GAP computer algebra system."""
+    def from_name(name: str, *, refresh: bool = False) -> ClassicalCode:
+        """Named code in the GAP computer algebra system.
+
+        The name is a GAP expression that constructs a code with GAP's GUAVA package, such as
+        ``"HammingCode(3, GF(2))"``.  Retrieving the code runs GAP: in process if
+        ``passagemath-gap`` is installed, or else in a subprocess that calls the ``gap`` executable.
+        If GUAVA is missing, this method asks for confirmation on standard input and then downloads
+        and installs GUAVA, which requires network access.  If GAP cannot be called at all, this
+        method asks on standard input whether to proceed manually, and if so prints the GAP
+        commands, copies them to the system clipboard, and reads GAP's output from standard input.
+        Retrieved codes are cached on disk, in qLDPC's user cache directory, so they persist between
+        sessions: later calls with the same name return the cached code without running GAP, unless
+        they pass ``refresh=True``.  See help(qldpc.external.gap.get_output) and
+        help(qldpc.external.gap.require_package) for details and the errors that GAP can raise.
+
+        Args:
+            name: A GAP expression that constructs a code with GUAVA.
+            refresh: If True, run GAP even if the code is cached, and replace the cached code.
+        """
         standardized_name = name.strip().replace(" ", "")  # strip whitespace
-        matrix, field = external.codes.get_classical_code(standardized_name)
+        get_guava_code = _codes.get_guava_code
+        retrieve = get_guava_code.refresh if refresh else get_guava_code
+        matrix, field = retrieve(standardized_name)
         code = ClassicalCode(matrix, field)
         code._name = name
         return code
@@ -732,6 +702,10 @@ class ClassicalCode(AbstractCode):
 
         The automorphism group of a classical linear code is the group of permutations of bits that
         preserve the code space.
+
+        This computation may run GAP, install GAP packages, access GroupNames.org, or prompt on
+        standard input, or with ``with_magma=True`` prompt for MAGMA output on standard input; see
+        help(qldpc.abstract.Group.from_name).
         """
         matrix_str = self.canonicalized.matrix_as_string()
         if with_magma:
@@ -755,9 +729,8 @@ class ClassicalCode(AbstractCode):
                 return abstract.Group.from_name(
                     f"AutomorphismGroup({code_str})", warning_to_raise_if_calling_gap=warning
                 )
-            except ValueError as error:
-                if "Error encountered when running GAP" not in str(error):
-                    raise
+            except external.gap.GAPError:
+                pass
 
         # fall back to GAP/GAUAVA's PermutationAutomorphismGroup method
         return abstract.Group.from_name(
@@ -774,7 +747,7 @@ class ClassicalCode(AbstractCode):
         the choice of parity checks.  Computing this group requires the optional ``pybliss``
         package, which can be installed with ``pip install 'qldpc[bliss]'``.
         """
-        generators = external.bliss.get_matrix_automorphisms(self.matrix)
+        generators = _bliss.get_matrix_automorphisms(self.matrix)
         size = sum(self.matrix.shape)
         return abstract.Group(
             *[abstract.GroupMember(perm) for perm in generators or [list(range(size))]]
@@ -812,9 +785,8 @@ class ClassicalCode(AbstractCode):
         Altogether, we puncture this code by shortening its dual code, applying the shortening steps
         above to the parity check matrix of the code.
         """
-        assert all(0 <= bit < len(self) for bit in bits)
         new_matrix = self.matrix.copy()
-        for bit in sorted(bits, reverse=True):
+        for bit in reversed(_get_sorted_unique_bits(bits, len(self))):
             nonzero_rows = np.flatnonzero(new_matrix[:, bit])
             if nonzero_rows.size:
                 pivot_row, rows_to_reduce = nonzero_rows[0], nonzero_rows[1:]
@@ -829,15 +801,6 @@ class ClassicalCode(AbstractCode):
             new_matrix = np.delete(new_matrix, bit, axis=1).view(self.field)
         return ClassicalCode(new_matrix)
 
-    def puncture(self, bits: Collection[int]) -> ClassicalCode:
-        """Deprecated alias for ClassicalCode.punctured."""
-        warnings.warn(
-            "ClassicalCode.puncture is DEPRECATED; use ClassicalCode.punctured instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.punctured(bits)
-
     def shortened(self, bits: Collection[int]) -> ClassicalCode:
         """Shorten a code to the words that are zero on the specified bits, and delete those bits.
 
@@ -847,18 +810,9 @@ class ClassicalCode(AbstractCode):
         Altogether, to shorten this code at the given bits, we remove the corresponding columns from
         its parity check matrix.
         """
-        assert all(0 <= bit < len(self) for bit in bits)
-        new_matrix = np.delete(self.matrix, list(bits), axis=1).view(self.field)
+        bits = _get_sorted_unique_bits(bits, len(self))
+        new_matrix = np.delete(self.matrix, bits, axis=1).view(self.field)
         return ClassicalCode(new_matrix)
-
-    def shorten(self, bits: Collection[int]) -> ClassicalCode:
-        """Deprecated alias for ClassicalCode.shortened."""
-        warnings.warn(
-            "ClassicalCode.shorten is DEPRECATED; use ClassicalCode.shortened instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.shortened(bits)
 
     def get_logical_error_rate_func(
         self,
@@ -867,7 +821,7 @@ class ClassicalCode(AbstractCode):
         *,
         min_error_weight: int = 1,
         decoder: decoders.DecoderInput = None,
-        **decoder_kwargs: Any,
+        **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
@@ -889,17 +843,24 @@ class ClassicalCode(AbstractCode):
         each bit experiences a bit-flip error.  The constructed function will throw an error if
         given a physical error rate larger than max_error_rate.
 
-        The logical error rate returned by the constructed function is the probability with which a
-        code error (obtained by sampling independent errors on all bits) is decoded incorrectly.
+        The logical error rate returned by the constructed function is the probability that a code
+        error (obtained by sampling independent errors on all bits) is decoded incorrectly, given
+        that the decoder does not discard it.  Without discards, it is simply the probability that
+        the code error is decoded incorrectly.
 
         Here each error location is an observable, so decoding succeeds only if the decoder predicts
         the error at every location.  Pass a decoder specification such as ``decoders.bp_osd(...)``
         as ``decoder=``.  With no specification, the default is BP+OSD for binary codes and GUF
-        otherwise.  A specification that predicts observables natively is used that way when it can
-        be built for this code; otherwise it decodes errors, with a warning (see
-        help(qldpc.codes.code_capacity.get_code_capacity_decoder)).
+        otherwise.  For a binary code, a specification that predicts observables natively is built
+        as an observable decoder for the code-capacity detector error model, which has one error
+        mechanism per bit.  If that build raises a ValueError, an ObservableDecodingFallbackWarning
+        is emitted and the specification decodes errors instead; wrap it as
+        ``decoders.from_matrix(spec.build)`` to select error decoding explicitly.  A Sinter-style
+        decoder is compiled for the same detector error model, and a prebuilt observable decoder
+        must be built for the syndromes and observables of this code.
 
-        The basic idea in this method is to think of the fidelity
+        The basic idea in this method, written here for a decoder that never discards, is to think
+        of the fidelity
 
             ``F(p) = 1 - logical_error_rate(p)``
 
@@ -927,27 +888,23 @@ class ClassicalCode(AbstractCode):
         ``k >= min_error_weight`` when a caller sets that higher, since ``F_k = 1`` for every weight
         declared to be decoded perfectly.  The sum runs only as far as the heaviest weight the
         budget reached, and ``F_k = 0`` is assumed above that.
+
+        With a decoder that discards, ``F_k`` is instead the probability that a weight-k error is
+        corrected or discarded, and the reported rate is ``(1 - F(p)) / (1 - D(p))``, where ``D(p)``
+        is the discard rate; see help(qldpc.codes.ErrorRateFunc).
         """
-        code_capacity_decoder = get_code_capacity_decoder(
-            self.matrix, None, decoder, decoder_kwargs
-        )
+        if decoder_kwargs:  # DEPRECATED: see qldpc._deprecations
+            decoder = merge_legacy_decoder_args(self.matrix, decoder, decoder_kwargs)
+        code_capacity_decoder = get_code_capacity_decoder(self.matrix, None, decoder)
 
         # sample errors of fixed weight and record failure/discard counts
-        sample_allocation = get_sample_allocation(
-            num_samples, len(self), max_error_rate, min_error_weight
-        )
-        num_failures = np.zeros(sample_allocation.size, dtype=int)
-        num_discards = np.zeros(sample_allocation.size, dtype=int)
-        for weight in np.nonzero(sample_allocation)[0].tolist():
-            num_failures[weight], num_discards[weight] = self._sample_failure_and_discard_counts(
-                weight, sample_allocation[weight], code_capacity_decoder
-            )
-        return ErrorRateFunc(
-            sample_allocation,
-            num_failures,
-            num_discards,
+        return ErrorRateFunc.from_sampler(
+            functools.partial(
+                self._sample_failure_and_discard_counts, decoder=code_capacity_decoder
+            ),
+            num_samples,
             len(self),
-            float(max_error_rate),
+            max_error_rate,
             min_error_weight,
         )
 
@@ -972,6 +929,13 @@ class ClassicalCode(AbstractCode):
             num_discards += erasure
 
         return num_failures, num_discards
+
+
+def _get_sorted_unique_bits(bits: Collection[int], num_bits: int) -> list[int]:
+    """Sort and deduplicate bit indices, rejecting any outside of range(num_bits)."""
+    if invalid := sorted({bit for bit in bits if not 0 <= bit < num_bits}):
+        raise ValueError(f"Bit indices must lie in range({num_bits}); invalid indices: {invalid}")
+    return sorted(set(bits))
 
 
 ####################################################################################################
@@ -1025,7 +989,14 @@ class QuditCode(AbstractCode):
         *,
         is_subsystem_code: bool | None = None,
     ) -> None:
-        """Construct a qudit code from a parity check matrix over a finite field."""
+        """Construct a qudit code from a parity check matrix over a finite field.
+
+        ``is_subsystem_code`` records whether the parity checks fail to commute, making this a
+        subsystem code.  If omitted, it is computed when first needed.  An explicit ``True`` is a
+        trusted hint, which is safe even if wrong: a stabilizer code treated as a subsystem code
+        just has no gauge qudits.  An explicit ``False`` is verified, and raises a ValueError if
+        some parity checks do not commute.
+        """
         super().__init__(matrix, field)
 
         if isinstance(matrix, QuditCode):
@@ -1033,10 +1004,13 @@ class QuditCode(AbstractCode):
             self._gauge_ops = matrix._gauge_ops
             self._logical_ops = matrix._logical_ops
             self._is_subsystem_code = matrix._is_subsystem_code
-            assert not (matrix._is_subsystem_code and is_subsystem_code is False)
+            if matrix._is_subsystem_code and is_subsystem_code is False:
+                raise ValueError("is_subsystem_code=False contradicts the subsystem code provided")
 
         if is_subsystem_code:
-            self._is_subsystem_code = is_subsystem_code
+            self._is_subsystem_code = True
+        elif is_subsystem_code is not None and self.is_subsystem_code:
+            raise ValueError("is_subsystem_code=False, but some parity checks do not commute")
 
     def __eq__(self, other: object) -> bool:
         """Equality test between two code instances."""
@@ -1071,11 +1045,12 @@ class QuditCode(AbstractCode):
     @functools.cached_property
     def canonicalized(self) -> QuditCode:
         """The same code with its parity matrix in reduced row echelon form."""
-        if self._is_canonicalized:  # pragma: no cover
+        if self._is_canonicalized:
             return self
         is_subsystem_code = self.is_subsystem_code
         matrix = self.matrix.row_space()
-        code = QuditCode(matrix, self.field, is_subsystem_code=is_subsystem_code)
+        code = QuditCode(matrix, self.field)
+        code._is_subsystem_code = is_subsystem_code  # known, so not re-verified
         if not is_subsystem_code:
             code._dimension = len(code) - len(matrix)
         code._distance = self._distance
@@ -1086,50 +1061,10 @@ class QuditCode(AbstractCode):
         code._is_canonicalized = True
         return code
 
-    @staticmethod
-    def matrix_to_graph(matrix: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> nx.DiGraph:
-        """Convert a parity check matrix into a Tanner graph.
-
-        A check that addresses no qudits, as an all-zero row defines, is an isolated vertex of the
-        graph.  Seeding a vertex for every row puts the check vertices in one-to-one correspondence
-        with the rows, so the graph records how many checks there are even when some of them address
-        no qudits.
-        """
-        matrix = np.asanyarray(matrix)
-        matrix = np.reshape(matrix, (len(matrix), 2, matrix.shape[-1] // 2))
-
-        # initialize graph with nodes
-        graph = nx.DiGraph()
-        graph.field = type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
-        for qudit in range(matrix.shape[-1]):
-            graph.add_node(Node(index=qudit, is_data=True))
-        for check in range(len(matrix)):
-            graph.add_node(Node(index=check, is_data=False))
-
-        # add edges
-        _Pauli = Pauli if graph.field is galois.GF2 else QuditPauli
-        for row, xz, col in zip(*np.nonzero(matrix)):
-            node_check = Node(index=int(row), is_data=False)
-            node_qudit = Node(index=int(col), is_data=True)
-            graph.add_edge(node_check, node_qudit)
-
-            qudit_op = graph[node_check][node_qudit].get(Pauli, _Pauli((0, 0)))
-            vals_xz = list(qudit_op.value)
-            vals_xz[xz] += int(matrix[row, xz, col])
-            graph[node_check][node_qudit][Pauli] = _Pauli(tuple(vals_xz))
-
-        return graph
-
-    @staticmethod
-    def graph_to_matrix(graph: nx.DiGraph) -> galois.FieldArray:
-        """Convert a Tanner graph into a parity check matrix."""
-        num_qudits = sum(1 for node in graph.nodes() if node.is_data)
-        num_checks = len(graph.nodes()) - num_qudits
-        matrix = np.zeros((num_checks, 2, num_qudits), dtype=int)
-        for node_check, node_qudit, data in graph.edges(data=True):
-            matrix[node_check.index, :, node_qudit.index] = data.get(Pauli).value
-        field = getattr(graph, "field", galois.GF2)
-        return field(matrix.reshape(num_checks, 2 * num_qudits))
+    @functools.cached_property
+    def graph(self) -> TannerGraph:
+        """Tanner graph of this code."""
+        return TannerGraph.from_matrix(self.matrix, symplectic=True)
 
     def maybe_to_css(self) -> QuditCode:
         """Try to convert this QuditCode into a CSSCode.
@@ -1142,7 +1077,8 @@ class QuditCode(AbstractCode):
         zs = np.any(matrix_z, axis=1)
         if np.any(xs & zs):
             return self
-        code = CSSCode(matrix_x[xs], matrix_z[zs], is_subsystem_code=self._is_subsystem_code)
+        code = CSSCode(matrix_x[xs], matrix_z[zs])
+        code._is_subsystem_code = self._is_subsystem_code  # known, so not re-verified
         code._dimension = self._dimension
         code._distance = self._distance
         code._distance_bound = self._distance_bound
@@ -1222,7 +1158,7 @@ class QuditCode(AbstractCode):
         coloring = nx.greedy_color(check_graph, strategy)
 
         # collect all edges incident to each color, and return the corresponding subgraphs
-        color_to_edges: dict[int, nx.DiGraph] = collections.defaultdict(list)
+        color_to_edges: dict[int, list[tuple[Node, Node]]] = collections.defaultdict(list)
         for check_node, color in coloring.items():
             color_to_edges[color].extend(self.graph.edges(check_node))
         return tuple(self.graph.edge_subgraph(edges) for edges in color_to_edges.values())
@@ -1255,7 +1191,7 @@ class QuditCode(AbstractCode):
         the Galois field ``GF(field)``, such as "Z(1) _ Y(3) X(2)".  In this case "Y(a)" is an alias
         for "X(a)*Z(a)", and strings such as "Z(1) _ X(1)*Z(3) X(2)" are also valid.
         """
-        field = abstract.resolve_field(field)
+        field = resolve_field(field)
         operator: type[Pauli | QuditPauli] = Pauli if field is galois.GF2 else QuditPauli
 
         def parse_check(check: str) -> list[str]:
@@ -1284,9 +1220,27 @@ class QuditCode(AbstractCode):
         return QuditCode(matrix.reshape(num_checks, 2 * num_qudits), field)
 
     @staticmethod
-    def from_qecdb_id(code_id: str) -> QuditCode:
-        """Retrieve a code by ID from qecdb.org."""
-        strings, distance, is_css = external.codes.get_quantum_code(code_id)
+    def from_qecdb_id(code_id: str, *, refresh: bool = False) -> QuditCode:
+        """Retrieve a code by ID from qecdb.org.
+
+        This method queries QECDB's API at https://qecdb.org, so it requires network access.  The
+        code is a CSSCode if QECDB marks it as CSS, and it remembers the distance that QECDB
+        reports, if any.  Retrieved data is cached on disk, in qLDPC's user cache directory, so it
+        persists between sessions: later calls with the same ID return the cached data without
+        accessing the network, even if QECDB has changed since, unless they pass ``refresh=True``.
+
+        Args:
+            code_id: The ID of the code on qecdb.org.
+            refresh: If True, retrieve the latest data from QECDB even if data for this ID is
+                cached, and replace the cached data.
+
+        Raises:
+            RuntimeError: If qecdb.org cannot be accessed.
+            ValueError: If QECDB has no stabilizer data for the code.
+        """
+        get_qecdb_code = _codes.get_qecdb_code
+        retrieve = get_qecdb_code.refresh if refresh else get_qecdb_code
+        strings, distance, is_css = retrieve(code_id)
         code = QuditCode.from_strings(strings, field=2)
         if is_css:
             code = code.to_css()
@@ -1294,13 +1248,31 @@ class QuditCode(AbstractCode):
         return code
 
     @staticmethod
-    def from_qldpc_challenge_id(code_id: str) -> QuditCode:
+    def from_qldpc_challenge_id(code_id: str, *, refresh: bool = False) -> QuditCode:
         """Retrieve a code by ID from the Unitary Foundation qLDPC Challenge.
 
-        The code remembers the upper bounds on distance from its submission, but its exact distance
-        is recorded only if the challenge has certified it.
+        This method fetches the data that the challenge publishes at
+        https://unitaryfoundation.github.io/qldpc-challenge/codes/, so it requires network access.
+        The code is a CSSCode if the challenge lists it as CSS.  The code remembers the upper bounds
+        on distance from its submission, but a submitted distance is only an upper bound, so the
+        exact distance is recorded only if the challenge has certified it.  Until then the distance
+        is unknown (``None``), and :meth:`get_distance` computes it when asked.  Retrieved data is
+        cached on disk, in qLDPC's user cache directory, so it persists between sessions: later
+        calls with the same ID return the cached data without accessing the network, and so miss a
+        distance that the challenge has certified since, unless they pass ``refresh=True``.
+
+        Args:
+            code_id: The ID of the code in the qLDPC Challenge.
+            refresh: If True, retrieve the latest data from the challenge even if data for this ID
+                is cached, and replace the cached data.
+
+        Raises:
+            RuntimeError: If the challenge data cannot be accessed.
+            ValueError: If the challenge data for the code cannot be parsed.
         """
-        matrix, distance, is_css, distance_bounds = external.codes.get_qldpc_challenge_code(code_id)
+        get_challenge_code = _codes.get_qldpc_challenge_code
+        retrieve = get_challenge_code.refresh if refresh else get_challenge_code
+        matrix, distance, is_css, distance_bounds = retrieve(code_id)
         code = QuditCode(matrix)
         if is_css:
             css_code = code.to_css()
@@ -1326,7 +1298,8 @@ class QuditCode(AbstractCode):
         if self.field is not galois.GF2:
             raise ValueError(
                 "You asked for the number of qubits in this code, but this code is built out of "
-                f"{self.field.order}-dimensional qudits.  Try calling {type(self).__name__}.num_qudits."
+                f"{self.field.order}-dimensional qudits.  Try calling"
+                f" {type(self).__name__}.num_qudits."
             )
         return len(self)
 
@@ -1368,7 +1341,7 @@ class QuditCode(AbstractCode):
         The symplectic argument is provided for compatibility with CSSCode.get_logical_ops, and must
         always be True for a non-CSS code.
         """
-        assert symplectic is True
+        _require_symplectic(symplectic)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
 
         # if requested, retrieve logical operators of one type only
@@ -1549,7 +1522,8 @@ class QuditCode(AbstractCode):
         else:
             # X-type and Z-type stabilizers in standard form
             stabilizer_ops = self.get_stabilizer_ops()
-            code = QuditCode(stabilizer_ops, is_subsystem_code=False)
+            code = QuditCode(stabilizer_ops)
+            code._is_subsystem_code = False  # stabilizers commute
             (
                 standard_stabilizer_ops,
                 qudit_locs,
@@ -1646,14 +1620,6 @@ class QuditCode(AbstractCode):
         self._dimension = len(logical_ops) // 2
         return self
 
-    def _validate_logical_ops_shape(self, logical_ops: galois.FieldArray) -> None:
-        """Require a 2D matrix with one row per logical qudit."""
-        if logical_ops.ndim != 2 or len(logical_ops) != self.dimension:
-            raise ValueError(
-                f"Expected {self.dimension} logical operators, got an array of shape "
-                f"{logical_ops.shape}"
-            )
-
     def set_logical_ops_x(
         self,
         logicals_ops_x: npt.NDArray[np.int_] | Sequence[Sequence[int]],
@@ -1747,15 +1713,22 @@ class QuditCode(AbstractCode):
         If ``canonicalized is True``, guarantee that the stabilizer matrix is canonicalized (i.e.,
         row reduced) such that its rows are a minimal generating set for the stabilizer group.
 
+        If a Pauli is provided, return the stabilizer generators whose first nonzero entry lies in
+        the X-type (for Pauli.X) or Z-type (for Pauli.Z) half of their symplectic vectors.  When
+        ``canonicalized is True``, the Pauli.Z generators are therefore exactly the Z-type
+        generators of a canonical generating set, and the Pauli.X generators are the remainder.
+
         The symplectic argument is provided for compatibility with CSSCode.get_stabilizer_ops, and
         must always be True for a non-CSS code.
         """
-        assert symplectic is True
+        _require_symplectic(symplectic)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
 
         # if requested, retrieve stabilizer operators of one type only
         if pauli is not None:
-            stabilizer_ops = self.get_stabilizer_ops()
+            stabilizer_ops = self.get_stabilizer_ops(
+                canonicalized=canonicalized, recompute=recompute
+            )
             pivots_x = math.first_nonzero_cols(stabilizer_ops) < len(self)
             return stabilizer_ops[pivots_x if pauli is Pauli.X else ~pivots_x]
 
@@ -1776,17 +1749,22 @@ class QuditCode(AbstractCode):
         return self._stabilizer_ops
 
     def get_gauge_ops(
-        self, pauli: PauliXZLike | None = None, *, symplectic: bool = True
+        self,
+        pauli: PauliXZLike | None = None,
+        *,
+        recompute: bool = False,
+        symplectic: bool = True,
     ) -> galois.FieldArray:
         """Basis of nontrivial logical Pauli operators for the gauge qudits of this code.
 
         Nontrivial logical Pauli operators for the gauge qudits are organized similarly to the
-        logical Pauli operators computed by QuditCode.get_logical_ops.
+        logical Pauli operators computed by QuditCode.get_logical_ops.  If ``recompute is True``,
+        recompute these operators rather than returning cached values.
 
         The symplectic argument is provided for compatibility with CSSCode.get_gauge_ops, and must
         always be True for a non-CSS code.
         """
-        assert symplectic is True
+        _require_symplectic(symplectic)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
 
         if not self.is_subsystem_code:
@@ -1794,13 +1772,10 @@ class QuditCode(AbstractCode):
 
         # if requested, retrieve gauge operators of one type only
         if pauli is not None:
-            return self.get_gauge_ops().reshape(2, -1, 2 * len(self))[pauli]
+            return self.get_gauge_ops(recompute=recompute).reshape(2, -1, 2 * len(self))[pauli]
 
-        # return gauge operators if known
-        if self._gauge_ops is not None:
-            return self._gauge_ops
-
-        self._gauge_ops = self.dual().get_logical_ops()
+        if self._gauge_ops is None or recompute:
+            self._gauge_ops = self.dual().get_logical_ops(recompute=recompute)
         return self._gauge_ops
 
     def get_destabilizer_ops(
@@ -1822,7 +1797,7 @@ class QuditCode(AbstractCode):
         The symplectic argument is provided for compatibility with CSSCode.get_destabilizer_ops, and
         must always be True for a non-CSS code.
         """
-        assert symplectic is True
+        _require_symplectic(symplectic)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
 
         # if requested, retrieve destabilizer operators of one type only
@@ -1894,20 +1869,12 @@ class QuditCode(AbstractCode):
         gauge operators of the original code.
         """
         matrix = np.vstack([self.get_stabilizer_ops(), self.get_logical_ops()])
-        code = QuditCode(matrix, is_subsystem_code=self.dimension != 0)
+        code = QuditCode(matrix)
+        code._is_subsystem_code = self.dimension != 0  # logical operators do not all commute
         code._stabilizer_ops = self._stabilizer_ops
         code._logical_ops = self._gauge_ops
         code._gauge_ops = self._logical_ops
         return code
-
-    def get_dual_subsystem_code(self) -> QuditCode:
-        """Deprecated alias for self.dual()."""
-        warnings.warn(
-            "QuditCode.get_dual_subsystem_code is DEPRECATED; use QuditCode.dual instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.dual()
 
     @functools.cached_property
     def dimension(self) -> int:
@@ -1964,20 +1931,20 @@ class QuditCode(AbstractCode):
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
             method: Binary exact-distance method, unused when bounding the distance.
-                ``"brouwer_zimmermann"`` is the default; ``"brute_force"`` enumerates every
-                nontrivial logical operator.  Nonbinary calculations always use exhaustive
-                enumeration.
+                ``"brouwer_zimmermann"`` is the default, with alias ``"information_sets"``;
+                ``"brute_force"`` enumerates every nontrivial logical operator.  Nonbinary
+                calculations always use exhaustive enumeration.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
         """
-        validate_distance_method(method)
+        method = _validate_distance_method(method)
         if not bound:
             if bound_kwargs:
                 warnings.warn(
                     "Distance bounding arguments are ignored when computing an exact distance",
-                    stacklevel=2,
+                    stacklevel=get_external_caller_stacklevel(),
                 )
             return self.get_distance_exact(method=method)
         return self.get_distance_bound(num_trials=int(bound), **bound_kwargs)
@@ -1992,14 +1959,14 @@ class QuditCode(AbstractCode):
 
         Args:
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
-            method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
-                ``"brute_force"`` enumerates every nontrivial logical operator.  Nonbinary
-                calculations always use exhaustive enumeration.
+            method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
+                alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
+                operator.  Nonbinary calculations always use exhaustive enumeration.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
         """
-        validate_distance_method(method)
+        method = _validate_distance_method(method)
         if (known_distance := self.get_distance_if_known()) is not None:
             return known_distance
 
@@ -2021,7 +1988,7 @@ class QuditCode(AbstractCode):
         else:
             warnings.warn(
                 "Computing the exact distance of a non-binary code may take a (very) long time",
-                stacklevel=2,
+                stacklevel=get_external_caller_stacklevel(),
             )
             distance = len(self)
             code_logical_ops = ClassicalCode.from_generator(logical_ops)
@@ -2052,6 +2019,7 @@ class QuditCode(AbstractCode):
 
         return self._distance
 
+    @format_docstring(gap_options=sorted(_GAP_DISTANCE_BOUND_KWARGS))
     def get_distance_bound(
         self,
         num_trials: int | None = None,
@@ -2062,25 +2030,39 @@ class QuditCode(AbstractCode):
     ) -> int | float:
         """Use a randomized algorithm to compute an upper bound on code distance.
 
-        Specifically, use GAP's QDistRnd package to compute a distance bound.  Raise an error
-        otherwise.  The ``sqetch`` backend is available only on :class:`CSSCode`.
+        Specifically, use GAP's QDistRnd package to compute a distance bound.  By default,
+        ``backend="auto"`` uses GAP only if a GAP binding or executable can be called (see
+        :func:`qldpc.external.gap.is_callable`), and raises an error otherwise.  An explicit
+        ``backend="gap"`` instead falls back to a manual workflow when GAP cannot be called: after
+        asking on standard input whether to proceed, it prints GAP commands, copies them to the
+        system clipboard, and reads GAP's output from standard input (see
+        :func:`qldpc.external.gap.get_output`).  With either backend, GAP may ask on standard input
+        before installing a missing GUAVA or QDistRnd package.
 
         Args:
             num_trials: Minimize over this many independent upper bounds.  If ``None`` (the
                 default), return the best known upper bound on distance, or compute a single upper
                 bound if no bound is known.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
-            backend: Distance-bound backend.  ``"auto"`` and ``"gap"`` use GAP/QDistRnd;
-                ``"decoder"`` and ``"sqetch"`` require a CSSCode and are rejected here.
-            **bound_kwargs: Keyword arguments to pass to the downstream distance bounding method.
-                See https://qec-pages.github.io/QDistRnd/doc/chap4.html.
+            backend: Distance-bound backend.  ``"auto"`` (the default) and ``"gap"`` use
+                GAP/QDistRnd as described above; ``"decoder"`` and ``"sqetch"`` require a CSSCode
+                and are rejected here.
+            **bound_kwargs: Keyword arguments to pass to GAP/QDistRnd.  Recognized options are
+                {gap_options}; see https://qec-pages.github.io/QDistRnd/doc/chap4.html.
 
         Returns:
             An upper bound on distance if it is defined, or np.nan otherwise.  The returned bound is
             never worse than the best bound already known for this code, and the best bound is
             remembered for later calls.
+
+        Raises:
+            NotImplementedError: If GAP cannot be called with ``backend="auto"``, or if the manual
+                workflow is declined with ``backend="gap"``.
+            ValueError: If given options that GAP/QDistRnd does not recognize, or options for GAP
+                with ``backend="auto"`` when GAP cannot be called.
         """
-        validate_distance_backend(backend)
+        _validate_distance_backend(backend)
+        _validate_num_trials(num_trials)
         if backend not in ("auto", "gap"):
             raise ValueError(
                 f"The {backend!r} distance backend is only available for CSSCode instances."
@@ -2095,15 +2077,26 @@ class QuditCode(AbstractCode):
         if num_trials == 0 or (cutoff is not None and best_bound <= cutoff):
             return best_bound
 
+        if unknown_gap := sorted(set(bound_kwargs) - _GAP_DISTANCE_BOUND_KWARGS):
+            raise ValueError(f"Arguments not recognized by GAP/QDistRnd: {unknown_gap}")
+        if _resolve_distance_backend(backend, bound_kwargs, is_binary=False) != "gap":
+            raise NotImplementedError(
+                "Bounding the code distance of non-CSS codes requires GAP/QDistRnd, but GAP cannot"
+                ' be called; pass backend="gap" to use GAP manually'
+            )
         if not external.gap.is_installed():
             raise NotImplementedError(
                 "Bounding the code distance of non-CSS codes without GAP is not supported"
             )
 
-        maxav = bound_kwargs.pop("maxav", "fail")
-        if bound_kwargs:
-            raise ValueError(f"Arguments not recognized for distance bounding: {bound_kwargs}")
-        bound = external.codes.get_distance_bound(self, num_trials, cutoff=cutoff, maxav=maxav)
+        maxav = bound_kwargs.get("maxav", "fail")
+        bound = _codes.get_qdistrnd_distance_bound(
+            self.matrix,
+            num_trials,
+            is_subsystem_code=self.is_subsystem_code,
+            cutoff=cutoff,
+            maxav=maxav,
+        )
         self._distance_bound = min(best_bound, bound)
         return self._distance_bound
 
@@ -2124,7 +2117,8 @@ class QuditCode(AbstractCode):
             return result.reshape(-1, 2 * len(self)).view(self.field)
 
         # transform the parity check matrix, and any other operators that are already known
-        code = QuditCode(transform_ops(self.matrix), is_subsystem_code=self._is_subsystem_code)
+        code = QuditCode(transform_ops(self.matrix))
+        code._is_subsystem_code = self._is_subsystem_code  # preserved by the transformation
         if self._logical_ops is not None:
             code._logical_ops = transform_ops(self.get_logical_ops())
         if self._stabilizer_ops is not None:
@@ -2135,16 +2129,6 @@ class QuditCode(AbstractCode):
         code._distance = self._distance
         code._distance_bound = self._distance_bound
         return code
-
-    def conjugate(self) -> QuditCode:
-        """Deprecated alias for ``conjugated()``."""
-        warnings.warn(
-            f"{type(self).__name__}.conjugate is DEPRECATED; use {type(self).__name__}.conjugated "
-            "instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.conjugated()
 
     def deformed(
         self, circuit: str | stim.Circuit, *, preserve_logicals: bool = False
@@ -2174,7 +2158,8 @@ class QuditCode(AbstractCode):
                 new_ops.append(np.concatenate(xs_zs))
             return self.field(new_ops)
 
-        code = QuditCode(transform_ops(self.matrix), is_subsystem_code=self._is_subsystem_code)
+        code = QuditCode(transform_ops(self.matrix))
+        code._is_subsystem_code = self._is_subsystem_code  # preserved by the transformation
 
         # preserve or update logical operators, as applicable
         if preserve_logicals:
@@ -2205,7 +2190,8 @@ class QuditCode(AbstractCode):
         code_z = ClassicalCode.stack(codes_z)
         matrix = np.hstack([code_x.matrix, code_z.matrix])
         is_subsystem_code = any(code.is_subsystem_code for code in codes)
-        code = QuditCode(matrix, is_subsystem_code=is_subsystem_code)
+        code = QuditCode(matrix)
+        code._is_subsystem_code = is_subsystem_code  # known, so not re-verified
         if inherit_logicals:
             logicals_xx = [
                 code.get_logical_ops(Pauli.X, symplectic=True)[:, : len(code)] for code in codes
@@ -2268,13 +2254,119 @@ class QuditCode(AbstractCode):
         inner_checks = inner.matrix @ outer.get_logical_ops()
 
         # combine parity checks of the outer and inner codes
-        code = QuditCode(
-            np.vstack([outer.matrix, inner_checks]), is_subsystem_code=is_subsystem_code
-        )
+        code = QuditCode(np.vstack([outer.matrix, inner_checks]))
+        code._is_subsystem_code = is_subsystem_code  # known, so not re-verified
 
         if inherit_logicals:
             code._logical_ops = inner.get_logical_ops() @ outer.get_logical_ops()
         return code
+
+    def get_logical_error_rate_func(
+        self,
+        num_samples: int,
+        max_error_rate: float = 0.1,
+        pauli_bias: Sequence[float] | None = None,
+        *,
+        min_error_weight: int = 1,
+        decoder: decoders.DeferredDecoderInput = None,
+        **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
+    ) -> ErrorRateFunc:
+        """Construct a function from physical --> logical error rate in a code capacity model.
+
+        In addition to the logical error rate, the constructed function returns an uncertainty in
+        that logical error rate: a posterior standard deviation covering statistical error alone
+        (see help(qldpc.codes.ErrorRateFunc)).
+
+        The physical error rate provided to the constructed function is the probability with which
+        each qubit experiences a Pauli error.  The constructed function will throw an error if given
+        a physical error rate larger than max_error_rate.  If a pauli_bias is provided, it is
+        treated as the relative probabilities of an X, Y, and Z error on each qubit; otherwise,
+        these errors occur with equal probability, corresponding to a depolarizing error.
+
+        The logical error rate returned by the constructed function is the probability that a code
+        error (obtained by sampling independent errors on all qubits) is converted into a logical
+        error by the decoder, given that the decoder does not discard it.
+
+        Decoding succeeds if the decoder predicts the logical action of the sampled error, that is,
+        its symplectic products with the logical operators of the code.  Pass a decoder
+        specification such as ``decoders.bp_osd(...)`` as ``decoder=``.  With no specification, the
+        default is BP+OSD for binary codes and GUF otherwise.  For a binary code, a specification
+        that predicts observables natively is built as an observable decoder for the code-capacity
+        detector error model, which has one X, Z, and Y error mechanism per qubit.  If that build
+        raises a ValueError, an ObservableDecodingFallbackWarning is emitted and the specification
+        decodes errors instead; wrap it as ``decoders.from_matrix(spec.build)`` to select error
+        decoding explicitly.  A Sinter-style decoder is compiled for the same detector error model.
+        Prebuilt decoders are rejected, because errors are decoded against an internal syndrome
+        matrix.
+
+        For a subsystem code, errors are decoded against the stabilizer generators of the code, so a
+        syndrome has one entry per stabilizer generator.  These generators can be high-weight (for
+        example, the stabilizers of a Bacon-Shor code have weight proportional to the code's linear
+        size), which general-purpose decoders may handle poorly.  The estimate is still computed
+        correctly, but it can overestimate the logical error rate achievable with a decoder tailored
+        to the code.
+
+        Errors of weight below min_error_weight are taken to be decoded perfectly and are not
+        sampled; the claim is taken on trust.  An error's weight here is the number of qudits it
+        acts on, so a single-qudit error has weight one whichever Pauli it applies.
+
+        Errors heavier than the sample budget could reach go unsampled and are all treated as
+        failures, making the reported rate a high estimate by an amount the constructed function's
+        truncation_error_bound method reports.  See help(qldpc.codes.ErrorRateFunc).
+
+        See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
+        this method works.
+        """
+        pauli_bias_zxy = _as_pauli_bias_zxy(pauli_bias)
+
+        # Build the matrices that take an error to its syndrome against the stabilizer generators of
+        # the code, and to its observable values against the logical operators of the code.  The
+        # syndrome of an error e against a generator s is their symplectic product
+        # ``s @ symplectic_conjugate(e)``, which equals ``-symplectic_conjugate(s) @ e``, and
+        # likewise for logical operators.  An error decoder is built to invert the syndrome matrix,
+        # so a decoded error is a solution to the syndrome it was handed.  The matrix is a field
+        # array, from which the default decoder is selected appropriately to the field.
+        syndrome_matrix = -math.symplectic_conjugate(self.get_stabilizer_ops())
+        observable_matrix = -math.symplectic_conjugate(self.get_logical_ops())
+
+        # A detector error model uses single-qudit X, Z, and Y error mechanisms.  Their fixed
+        # relative probabilities match the requested bias; their overall placeholder scale is
+        # independent of the physical rates at which the returned estimator is evaluated.
+        dem_error_weights = None
+        if pauli_bias_zxy is not None:
+            weights_xzy = 3 * pauli_bias_zxy[[1, 0, 2]]
+            dem_error_weights = np.repeat(weights_xzy, len(self))
+        if decoder_kwargs:  # DEPRECATED: see qldpc._deprecations
+            decoder = merge_legacy_decoder_args(syndrome_matrix, decoder, decoder_kwargs)
+        code_capacity_decoder = get_code_capacity_decoder(
+            syndrome_matrix,
+            observable_matrix,
+            decoder,
+            symplectic_dem_errors=True,
+            dem_error_weights=dem_error_weights,
+            prebuilt_rejection_reason=_QUDIT_SYNDROME_MATRIX_REASON,
+        )
+
+        # sample errors of fixed weight and record failure/discard counts
+        return ErrorRateFunc.from_sampler(
+            functools.partial(
+                self._sample_failure_and_discard_counts,
+                decoder=code_capacity_decoder,
+                pauli_bias_zxy=pauli_bias_zxy,
+            ),
+            num_samples,
+            len(self),
+            max_error_rate,
+            min_error_weight,
+        )
+
+    def _validate_logical_ops_shape(self, logical_ops: galois.FieldArray) -> None:
+        """Require a 2D matrix with one row per logical qudit."""
+        if logical_ops.ndim != 2 or len(logical_ops) != self.dimension:
+            raise ValueError(
+                f"Expected {self.dimension} logical operators, got an array of shape "
+                f"{logical_ops.shape}"
+            )
 
     @staticmethod
     def _standardize_concatenation_inputs(
@@ -2322,8 +2414,8 @@ class QuditCode(AbstractCode):
                 ) from error
             if sorted(inner_physical_to_outer_logical) != list(range(num_qudits)):
                 raise ValueError(
-                    "Code concatenation requires inner_physical_to_outer_logical to be a permutation"
-                    f" of the intermediate qudit indices 0 through {num_qudits - 1}"
+                    "Code concatenation requires inner_physical_to_outer_logical to be a"
+                    f" permutation of the intermediate qudit indices 0 through {num_qudits - 1}"
                 )
 
         # stack copies of the outer and inner codes, if necessary
@@ -2342,109 +2434,6 @@ class QuditCode(AbstractCode):
         ).view(outer.field)
 
         return outer, inner
-
-    def get_logical_error_rate_func(
-        self,
-        num_samples: int,
-        max_error_rate: float = 0.1,
-        pauli_bias: Sequence[float] | None = None,
-        *,
-        min_error_weight: int = 1,
-        decoder: decoders.DeferredDecoderInput = None,
-        **decoder_kwargs: Any,
-    ) -> ErrorRateFunc:
-        """Construct a function from physical --> logical error rate in a code capacity model.
-
-        In addition to the logical error rate, the constructed function returns an uncertainty in
-        that logical error rate: a posterior standard deviation covering statistical error alone
-        (see help(qldpc.codes.ErrorRateFunc)).
-
-        The physical error rate provided to the constructed function is the probability with which
-        each qubit experiences a Pauli error.  The constructed function will throw an error if given
-        a physical error rate larger than max_error_rate.  If a pauli_bias is provided, it is
-        treated as the relative probabilities of an X, Y, and Z error on each qubit; otherwise,
-        these errors occur with equal probability, corresponding to a depolarizing error.
-
-        The logical error rate returned by the constructed function is the probability with which a
-        code error (obtained by sampling independent errors on all qubits) is converted into a
-        logical error by the decoder.
-
-        Decoding succeeds if the decoder predicts the logical action of the sampled error, that is,
-        its symplectic products with the logical operators of the code.  Pass a decoder
-        specification such as ``decoders.bp_osd(...)`` as ``decoder=``.  With no specification, the
-        default is BP+OSD for binary codes and GUF otherwise.  A specification that predicts
-        observables natively is used that way when it can be built for this code; otherwise it
-        decodes errors, with a warning (see
-        help(qldpc.codes.code_capacity.get_code_capacity_decoder)).
-
-        For a subsystem code, errors are decoded against the stabilizer generators of the code, so a
-        syndrome has one entry per stabilizer generator.  These generators can be high-weight (for
-        example, the stabilizers of a Bacon-Shor code have weight proportional to the code's linear
-        size), which general-purpose decoders may handle poorly.  The estimate is still computed
-        correctly, but it can overestimate the logical error rate achievable with a decoder tailored
-        to the code.
-
-        Errors of weight below min_error_weight are taken to be decoded perfectly and are not
-        sampled; the claim is taken on trust.  An error's weight here is the number of qudits it
-        acts on, so a single-qudit error has weight one whichever Pauli it applies.
-
-        Errors heavier than the sample budget could reach go unsampled and are all treated as
-        failures, making the reported rate a high estimate by an amount the constructed function's
-        truncation_error_bound method reports.  See help(qldpc.codes.ErrorRateFunc).
-
-        See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
-        this method works.
-        """
-        pauli_bias_zxy = _as_pauli_bias_zxy(pauli_bias)
-
-        # Build the matrices that take an error to its syndrome against the stabilizer generators of
-        # the code, and to its observable values against the logical operators of the code.  The
-        # syndrome of an error e against a generator s is their symplectic product
-        # ``s @ symplectic_conjugate(e)``, which equals ``-symplectic_conjugate(s) @ e``, and
-        # likewise for logical operators.  An error decoder is built to invert the syndrome matrix,
-        # so a decoded error is a solution to the syndrome it was handed.  The matrix is a field
-        # array, from which the default decoder is selected appropriately to the field.
-        syndrome_matrix = -math.symplectic_conjugate(self.get_stabilizer_ops())
-        observable_matrix = -math.symplectic_conjugate(self.get_logical_ops())
-
-        # A detector error model uses single-qudit X, Z, and Y error mechanisms.  Their fixed
-        # relative probabilities match the requested bias; their overall placeholder scale is
-        # independent of the physical rates at which the returned estimator is evaluated.
-        dem_error_weights = None
-        if pauli_bias_zxy is not None:
-            weights_xzy = 3 * pauli_bias_zxy[[1, 0, 2]]
-            dem_error_weights = np.repeat(weights_xzy, len(self))
-        code_capacity_decoder = get_code_capacity_decoder(
-            syndrome_matrix,
-            observable_matrix,
-            decoder,
-            decoder_kwargs,
-            symplectic_dem_errors=True,
-            dem_error_weights=dem_error_weights,
-            prebuilt_rejection_reason=_QUDIT_SYNDROME_MATRIX_REASON,
-        )
-
-        # sample errors of fixed weight and record failure/discard counts
-        sample_allocation = get_sample_allocation(
-            num_samples, len(self), max_error_rate, min_error_weight
-        )
-        num_failures = np.zeros(sample_allocation.size, dtype=int)
-        num_discards = np.zeros(sample_allocation.size, dtype=int)
-        for weight in np.nonzero(sample_allocation)[0].tolist():
-            num_failures[weight], num_discards[weight] = self._sample_failure_and_discard_counts(
-                weight,
-                sample_allocation[weight],
-                code_capacity_decoder,
-                pauli_bias_zxy,
-            )
-        return ErrorRateFunc(
-            sample_allocation,
-            num_failures,
-            num_discards,
-            len(self),
-            float(max_error_rate),
-            min_error_weight,
-        )
 
     def _sample_failure_and_discard_counts(
         self,
@@ -2503,6 +2492,11 @@ class CSSCode(QuditCode):
     If all parity checks of a CSSCode commute, ``H_x @ H_z.T == 0``, then the CSSCode is a
     stabilizer code; otherwise, the CSSCode is a subsystem code.
 
+    Given a Pauli type, methods such as ``get_logical_ops``, ``get_stabilizer_ops``, and
+    ``get_gauge_ops`` default to ``symplectic=False`` for a CSSCode, returning matrices with one
+    column per qudit, whereas a QuditCode only supports ``symplectic=True``, which returns matrices
+    with two columns per qudit.
+
     References:
 
     - https://errorcorrectionzoo.org/c/galois_subsystem_css
@@ -2532,6 +2526,12 @@ class CSSCode(QuditCode):
     ) -> None:
         """Build a CSSCode from classical subcodes that specify X-type and Z-type parity checks.
 
+        ``is_subsystem_code`` records whether some X-type and Z-type parity checks fail to commute,
+        making this a subsystem code.  If omitted, it is computed when first needed.  An explicit
+        ``True`` is a trusted hint, which is safe even if wrong: a stabilizer code treated as a
+        subsystem code just has no gauge qudits.  An explicit ``False`` is verified, and raises a
+        ValueError if some parity checks do not commute.
+
         If ``promise_equal_distance_xz is True``, the X-type and Z-type logical operators are
         assumed to have equal minimum weight, which lets the code distance be computed from one type
         alone.  This promise is trusted rather than verified: passing ``True`` when it does not hold
@@ -2543,7 +2543,11 @@ class CSSCode(QuditCode):
         if len(self.code_x) != len(self.code_z) or self.code_x.field is not self.code_z.field:
             raise ValueError("The sub-codes provided for this CSSCode are incompatible")
 
-        self._is_subsystem_code = is_subsystem_code
+        self._is_subsystem_code = None
+        if is_subsystem_code:
+            self._is_subsystem_code = True
+        elif is_subsystem_code is not None and self.is_subsystem_code:
+            raise ValueError("is_subsystem_code=False, but some parity checks do not commute")
         self._equal_distance_xz = promise_equal_distance_xz or self.code_x == self.code_z
 
     def __eq__(self, other: object) -> bool:
@@ -2655,7 +2659,7 @@ class CSSCode(QuditCode):
     @staticmethod
     def from_strings(
         checks: Sequence[str], field: int | type[galois.FieldArray] | None = None
-    ) -> QuditCode:
+    ) -> CSSCode:
         """Construct a CSSCode from the provided parity checks.
 
         Alias for QuditCode.from_strings(checks, field).to_css().  See help(QuditCode.from_strings).
@@ -2663,14 +2667,34 @@ class CSSCode(QuditCode):
         return QuditCode.from_strings(checks, field).to_css()
 
     @staticmethod
-    def from_qecdb_id(code_id: str) -> CSSCode:
-        """Retrieve a CSS code by ID from qecdb.org."""
-        return QuditCode.from_qecdb_id(code_id).to_css()
+    def from_qecdb_id(code_id: str, *, refresh: bool = False) -> CSSCode:
+        """Retrieve a CSS code by ID from qecdb.org.
+
+        This method requires network access, and caches retrieved data on disk, where it persists
+        between sessions until a call passes ``refresh=True``.  See help(QuditCode.from_qecdb_id).
+
+        Args:
+            code_id: The ID of the code on qecdb.org.
+            refresh: If True, retrieve the latest data from QECDB even if data for this ID is
+                cached, and replace the cached data.
+        """
+        return QuditCode.from_qecdb_id(code_id, refresh=refresh).to_css()
 
     @staticmethod
-    def from_qldpc_challenge_id(code_id: str) -> CSSCode:
-        """Retrieve a CSS code by ID from the Unitary Foundation qLDPC Challenge."""
-        return QuditCode.from_qldpc_challenge_id(code_id).to_css()
+    def from_qldpc_challenge_id(code_id: str, *, refresh: bool = False) -> CSSCode:
+        """Retrieve a CSS code by ID from the Unitary Foundation qLDPC Challenge.
+
+        This method requires network access, and caches retrieved data on disk, where it persists
+        between sessions until a call passes ``refresh=True``.  The distance of the code is unknown
+        (``None``) until the challenge has certified it.  See
+        help(QuditCode.from_qldpc_challenge_id).
+
+        Args:
+            code_id: The ID of the code in the qLDPC Challenge.
+            refresh: If True, retrieve the latest data from the challenge even if data for this ID
+                is cached, and replace the cached data.
+        """
+        return QuditCode.from_qldpc_challenge_id(code_id, refresh=refresh).to_css()
 
     @property
     def is_subsystem_code(self) -> bool:
@@ -2716,7 +2740,7 @@ class CSSCode(QuditCode):
     def get_swel_logical_ops(self) -> galois.FieldArray:
         """Find a self-dual basis of logical operators for this code: (Lx, Lz) = (L, L).  Return L.
 
-        Raise a ValueError if no such basis exists (see QuditCode.is_swel).
+        Raise a ValueError if no such basis exists (see CSSCode.is_swel).
         """
         supports = (
             math.get_orthonormal_basis(self.get_logical_ops(Pauli.X), promise_full_rank=True)
@@ -2733,7 +2757,7 @@ class CSSCode(QuditCode):
     def set_swel_logical_ops(self) -> Self:
         """Set the logical operators of this code to those of a self-dual logical operator basis.
 
-        Raise a ValueError if this code is not SWEL (see QuditCode.is_swel).
+        Raise a ValueError if this code is not SWEL (see CSSCode.is_swel).
         """
         supports = self.get_swel_logical_ops()
         return self.set_logical_ops_xz(supports, supports)
@@ -2741,14 +2765,11 @@ class CSSCode(QuditCode):
     @functools.cached_property
     def canonicalized(self) -> CSSCode:
         """The same code with its parity matrices in reduced row echelon form."""
-        if self._is_canonicalized:  # pragma: no cover
+        if self._is_canonicalized:
             return self
         is_subsystem_code = self.is_subsystem_code
-        code = CSSCode(
-            self.code_x.canonicalized,
-            self.code_z.canonicalized,
-            is_subsystem_code=is_subsystem_code,
-        )
+        code = CSSCode(self.code_x.canonicalized, self.code_z.canonicalized)
+        code._is_subsystem_code = is_subsystem_code  # known, so not re-verified
         if not is_subsystem_code:
             code._dimension = len(self) - code.num_checks
         code._distance = self._distance
@@ -2971,7 +2992,8 @@ class CSSCode(QuditCode):
             # X-type and Z-type stabilizers in standard form
             stabilizers_x: npt.NDArray[np.int_] = self.get_stabilizer_ops(Pauli.X)
             stabilizers_z: npt.NDArray[np.int_] = self.get_stabilizer_ops(Pauli.Z)
-            code = CSSCode(stabilizers_x, stabilizers_z, is_subsystem_code=False)
+            code = CSSCode(stabilizers_x, stabilizers_z)
+            code._is_subsystem_code = False  # stabilizers commute
             (
                 stabilizers_x,
                 stabilizers_z,
@@ -3167,7 +3189,7 @@ class CSSCode(QuditCode):
         logical Pauli operators computed by CSSCode.get_logical_ops.
         """
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
-        gauge_ops = QuditCode.get_gauge_ops(self, pauli)
+        gauge_ops = QuditCode.get_gauge_ops(self, pauli, recompute=recompute)
         if symplectic or pauli is None:
             return gauge_ops
         return gauge_ops.reshape(-1, 2, len(self))[:, pauli, :].view(self.field)
@@ -3192,7 +3214,8 @@ class CSSCode(QuditCode):
         """
         matrix_x = np.vstack([self.get_stabilizer_ops(Pauli.X), self.get_logical_ops(Pauli.X)])
         matrix_z = np.vstack([self.get_stabilizer_ops(Pauli.Z), self.get_logical_ops(Pauli.Z)])
-        code = CSSCode(matrix_x, matrix_z, is_subsystem_code=self.dimension != 0)
+        code = CSSCode(matrix_x, matrix_z)
+        code._is_subsystem_code = self.dimension != 0  # logical operators do not all commute
         code._stabilizer_ops = self._stabilizer_ops
         code._logical_ops = self._gauge_ops
         code._gauge_ops = self._logical_ops
@@ -3245,20 +3268,20 @@ class CSSCode(QuditCode):
                 randomized upper bounds; see help(get_distance_bound).
             decoder: Decoder input used to bound distance; see help(get_distance_bound).
             method: Binary exact-distance method, unused when bounding the distance.
-                ``"brouwer_zimmermann"`` is the default; ``"brute_force"`` enumerates every
-                nontrivial logical operator.  Nonbinary calculations always use exhaustive
-                enumeration.
+                ``"brouwer_zimmermann"`` is the default, with alias ``"information_sets"``;
+                ``"brute_force"`` enumerates every nontrivial logical operator.  Nonbinary
+                calculations always use exhaustive enumeration.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
         """
-        validate_distance_method(method)
+        method = _validate_distance_method(method)
         if not bound:
             if decoder is not None or bound_kwargs:
                 warnings.warn(
                     "Distance bounding arguments are ignored when computing an exact distance",
-                    stacklevel=2,
+                    stacklevel=get_external_caller_stacklevel(),
                 )
             return self.get_distance_exact(pauli, method=method)
         return self.get_distance_bound(
@@ -3280,14 +3303,14 @@ class CSSCode(QuditCode):
                 The strings "X" and "Z" (case-insensitive) are also accepted.  If None (the
                 default), minimize over X and Z.
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
-            method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default;
-                ``"brute_force"`` enumerates every nontrivial logical operator.  Nonbinary
-                calculations always use exhaustive enumeration.
+            method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
+                alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
+                operator.  Nonbinary calculations always use exhaustive enumeration.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
         """
-        validate_distance_method(method)
+        method = _validate_distance_method(method)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
         if (known_distance := self.get_distance_if_known(pauli)) is not None:
             return known_distance
@@ -3362,7 +3385,7 @@ class CSSCode(QuditCode):
         else:
             warnings.warn(
                 "Computing the exact distance of a non-binary code may take a (very) long time",
-                stacklevel=2,
+                stacklevel=get_external_caller_stacklevel(),
             )
             distance = len(self)
             code_logical_ops = ClassicalCode.from_generator(logical_ops)
@@ -3386,10 +3409,6 @@ class CSSCode(QuditCode):
 
         return distance
 
-    def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
-        """Method for subclasses to compute specialized exact distance calculations."""
-        return NotImplemented
-
     def get_distance_if_known(self, pauli: PauliXZLike | None = None) -> int | float | None:
         """Retrieve a distance, if known.
 
@@ -3411,33 +3430,6 @@ class CSSCode(QuditCode):
             else self._distance
         )
 
-    def _get_distance_bound_if_known(self, pauli: PauliXZ | None = None) -> int | float | None:
-        """Retrieve the best known upper bound on (X-, Z-, or ordinary) distance, or ``None``."""
-        if pauli is Pauli.X:
-            candidates = [self._distance_x, self._distance_bound_x]
-        elif pauli is Pauli.Z:
-            candidates = [self._distance_z, self._distance_bound_z]
-        else:
-            candidates = [
-                self._distance,
-                self._distance_bound,
-                self._distance_x,
-                self._distance_z,
-                self._distance_bound_x,
-                self._distance_bound_z,
-            ]
-        return min((bound for bound in candidates if bound is not None), default=None)
-
-    def _update_distance_bound(self, bound: float, pauli: PauliXZ) -> float:
-        """Remember an upper bound on the X-distance or Z-distance, and return the best bound."""
-        known_bound = self._get_distance_bound_if_known(None if self._equal_distance_xz else pauli)
-        bound = bound if known_bound is None else min(bound, known_bound)
-        if pauli is Pauli.X or self._equal_distance_xz:
-            self._distance_bound_x = bound
-        if pauli is Pauli.Z or self._equal_distance_xz:
-            self._distance_bound_z = bound
-        return bound
-
     @format_docstring(
         gap_options=sorted(_GAP_DISTANCE_BOUND_KWARGS),
         sqetch_options=sorted(_SQETCH_DISTANCE_BOUND_KWARGS),
@@ -3456,8 +3448,12 @@ class CSSCode(QuditCode):
 
         Set ``backend="gap"`` to use GAP's QDistRnd package or ``backend="sqetch"`` to use the
         optional GPU-accelerated random-ISD estimator.  By default, ``backend="auto"`` chooses the
-        first applicable backend in this order: an installed sqetch for binary CSS codes, available
-        GAP/QDistRnd, then the decoder-based algorithm.
+        first applicable backend in this order: an installed sqetch for binary CSS codes,
+        GAP/QDistRnd if a GAP binding or executable can be called (see
+        :func:`qldpc.external.gap.is_callable`), then the decoder-based algorithm.  Automatic
+        selection therefore never falls back to the manual copy/paste GAP workflow, which requires
+        ``backend="gap"``, but GAP may still ask on standard input before installing a missing
+        GUAVA or QDistRnd package.
 
         Args:
             num_trials: Minimize over this many independent upper bounds.  If ``None`` (the
@@ -3477,17 +3473,18 @@ class CSSCode(QuditCode):
                 ``"sqetch"`` backends cannot be combined with ``decoder``.
             **bound_kwargs: Keyword arguments to pass to the downstream distance bounding method.
                 For ``"gap"``, recognized options are {gap_options}.  For ``"sqetch"``, recognized
-                options are {sqetch_options}.  With ``"auto"``, supplied keywords limit selection to
-                backends that accept them.
+                options are {sqetch_options}.  With ``"auto"``, options for sqetch or GAP select
+                that backend, and raise a ValueError if it is unavailable.
 
         Returns:
             An upper bound on distance if it is defined, or np.nan otherwise.  The returned bound is
             never worse than the best bound already known for this code, and the best bound is
             remembered for later calls.
         """
-        validate_distance_backend(backend)
+        _validate_distance_backend(backend)
+        _validate_num_trials(num_trials)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
-        decoders.reject_prebuilt_decoder(decoder, _CSS_DISTANCE_BOUND_REASON)
+        reject_prebuilt_decoder(decoder, _CSS_DISTANCE_BOUND_REASON)
         if (known_distance := self.get_distance_if_known(pauli)) is not None:
             return known_distance
         known_bound = self._get_distance_bound_if_known(pauli)
@@ -3548,13 +3545,18 @@ class CSSCode(QuditCode):
             )
 
         # GAP estimates the Z-distance of CSS codes, so flip X/Z if necessary
-        code = (
-            self
-            if pauli is Pauli.Z
-            else CSSCode(self.matrix_z, self.matrix_x, is_subsystem_code=self._is_subsystem_code)
-        )
+        code = self
+        if pauli is not Pauli.Z:
+            code = CSSCode(self.matrix_z, self.matrix_x)
+            code._is_subsystem_code = self._is_subsystem_code  # known, so not re-verified
         maxav = bound_kwargs.get("maxav", "fail")
-        bound = external.codes.get_distance_bound(code, num_trials, cutoff=cutoff, maxav=maxav)
+        bound = _codes.get_qdistrnd_distance_bound(
+            code.get_stabilizer_ops(Pauli.X),
+            num_trials,
+            matrix_z=code.matrix_z,
+            cutoff=cutoff,
+            maxav=maxav,
+        )
         return self._update_distance_bound(bound, pauli)
 
     def get_distance_bound_with_decoder(
@@ -3564,7 +3566,7 @@ class CSSCode(QuditCode):
         *,
         cutoff: int | None = None,
         decoder: decoders.DeferredErrorDecoderInput = None,
-        **decoder_kwargs: Any,
+        **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
     ) -> int | float:
         r"""Use a randomized algorithm to compute an upper bound on code distance.
 
@@ -3619,7 +3621,7 @@ class CSSCode(QuditCode):
         choice of the logical operators in ``L_z``.
         """
         pauli = Pauli.coerce_xz(pauli)
-        decoders.reject_prebuilt_decoder(decoder, _CSS_DISTANCE_BOUND_REASON)
+        reject_prebuilt_decoder(decoder, _CSS_DISTANCE_BOUND_REASON)
         cutoff = cutoff or 0
 
         # pretend without loss of generality that we are computing the X-distance
@@ -3629,12 +3631,14 @@ class CSSCode(QuditCode):
 
         # initialize a decoder and a trivial effective syndrome
         effective_check_matrix = np.vstack([matrix_z, logical_ops_z])
-        error_decoder = _resolve_error_decoder(effective_check_matrix, decoder, decoder_kwargs)
+        if decoder_kwargs:  # DEPRECATED: see qldpc._deprecations
+            decoder = merge_legacy_decoder_args(effective_check_matrix, decoder, decoder_kwargs)
+        error_decoder = build_error_decoder(effective_check_matrix, decoder=decoder)
         effective_syndrome = np.zeros(len(effective_check_matrix), dtype=int)
 
         def get_effective_syndrome() -> npt.NDArray[np.int_]:
             """Get an effective syndrome from a random X-type logical operator."""
-            effective_syndrome[-self.dimension :] = get_random_array(
+            effective_syndrome[-self.dimension :] = _get_random_array(
                 self.field, self.dimension, satisfy=lambda vec: vec.any()
             )
             return effective_syndrome
@@ -3663,7 +3667,7 @@ class CSSCode(QuditCode):
         logical_index: int,
         *,
         decoder: decoders.DeferredErrorDecoderInput = None,
-        **decoder_kwargs: Any,
+        **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
     ) -> Self:
         """Reduce the weight of a logical operator.
 
@@ -3685,8 +3689,11 @@ class CSSCode(QuditCode):
             This code, with a reduced logical operator.
         """
         pauli = Pauli.coerce_xz(pauli)
-        assert 0 <= logical_index < self.dimension
-        decoders.reject_prebuilt_decoder(decoder, _REDUCE_LOGICAL_OP_REASON)
+        if not 0 <= logical_index < self.dimension:
+            raise ValueError(
+                f"logical_index must lie in range({self.dimension}) (provided: {logical_index})"
+            )
+        reject_prebuilt_decoder(decoder, _REDUCE_LOGICAL_OP_REASON)
 
         # effective check matrix = syndromes and dual-pauli logical operators
         code = self.get_code(pauli.swap_xz())
@@ -3698,7 +3705,9 @@ class CSSCode(QuditCode):
         effective_syndrome = np.zeros((code.num_checks + self.dimension), dtype=int)
         effective_syndrome[dual_op_index] = 1
 
-        error_decoder = _resolve_error_decoder(effective_check_matrix, decoder, decoder_kwargs)
+        if decoder_kwargs:  # DEPRECATED: see qldpc._deprecations
+            decoder = merge_legacy_decoder_args(effective_check_matrix, decoder, decoder_kwargs)
+        error_decoder = build_error_decoder(effective_check_matrix, decoder=decoder)
         candidate_logical_op = _decode_consistently(
             error_decoder, effective_check_matrix, lambda: effective_syndrome, self.field
         )
@@ -3713,7 +3722,7 @@ class CSSCode(QuditCode):
         pauli: PauliXZLike | None = None,
         *,
         decoder: decoders.DeferredErrorDecoderInput = None,
-        **decoder_kwargs: Any,
+        **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
     ) -> Self:
         """Reduce the weight of all logical operators.
 
@@ -3723,18 +3732,21 @@ class CSSCode(QuditCode):
                 (case-insensitive) are also accepted.
             decoder: Decoder input used to reduce each logical operator; see
                 help(reduce_logical_op).
-            **decoder_kwargs: Deprecated decoder-selection and construction arguments to pass to
-                qldpc.decoders.get_decoder.
+            **decoder_kwargs: Deprecated decoder-selection options; pass a specification as
+                ``decoder=`` instead.
 
         Returns:
             This code, with reduced logical operators.
         """
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
         if pauli is None:
+            # DEPRECATED: see qldpc._deprecations
             self.reduce_logical_ops(Pauli.X, decoder=decoder, **decoder_kwargs)
+            # DEPRECATED: see qldpc._deprecations
             self.reduce_logical_ops(Pauli.Z, decoder=decoder, **decoder_kwargs)
         else:
             for logical_index in range(self.dimension):
+                # DEPRECATED: see qldpc._deprecations
                 self.reduce_logical_op(pauli, logical_index, decoder=decoder, **decoder_kwargs)
         return self
 
@@ -3755,16 +3767,6 @@ class CSSCode(QuditCode):
                 code._distance_bound_x = self._distance_bound_z
                 code._distance_bound_z = self._distance_bound_x
         return code
-
-    def conjugate(self) -> CSSCode:
-        """Deprecated alias for ``conjugated()``."""
-        warnings.warn(
-            f"{type(self).__name__}.conjugate is DEPRECATED; use {type(self).__name__}.conjugated "
-            "instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.conjugated().to_css()
 
     def deformed(
         self, circuit: str | stim.Circuit, *, preserve_logicals: bool = False
@@ -3792,12 +3794,13 @@ class CSSCode(QuditCode):
             raise TypeError("CSSCode.stack requires CSSCode inputs")
         code_x = ClassicalCode.stack([code.code_x for code in css_codes])
         code_z = ClassicalCode.stack([code.code_z for code in css_codes])
+        is_subsystem_code = any(code.is_subsystem_code for code in codes)
         code = CSSCode(
             code_x,
             code_z,
-            is_subsystem_code=any(code.is_subsystem_code for code in codes),
             promise_equal_distance_xz=all(code._equal_distance_xz for code in css_codes),
         )
+        code._is_subsystem_code = is_subsystem_code  # known, so not re-verified
         if inherit_logicals:
             logicals_x = [code.get_logical_ops(Pauli.X) for code in css_codes]
             logicals_z = [code.get_logical_ops(Pauli.Z) for code in css_codes]
@@ -3870,9 +3873,9 @@ class CSSCode(QuditCode):
         decoder: decoders.DecoderInput = None,
         decoder_x: decoders.DecoderInput = None,
         decoder_z: decoders.DecoderInput = None,
-        decoder_x_kwargs: dict[str, Any] | None = None,
-        decoder_z_kwargs: dict[str, Any] | None = None,
-        **decoder_kwargs: Any,
+        decoder_x_kwargs: dict[str, Any] | None = None,  # DEPRECATED: see qldpc._deprecations
+        decoder_z_kwargs: dict[str, Any] | None = None,  # DEPRECATED: see qldpc._deprecations
+        **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
@@ -3886,17 +3889,21 @@ class CSSCode(QuditCode):
         treated as the relative probabilities of an X, Y, and Z error on each qubit; otherwise,
         these errors occur with equal probability, corresponding to a depolarizing error.
 
-        The logical error rate returned by the constructed function is the probability with which a
-        code error (obtained by sampling independent errors on all qubits) is converted into a
-        logical error by the decoder.
+        The logical error rate returned by the constructed function is the probability that a code
+        error (obtained by sampling independent errors on all qubits) is converted into a logical
+        error by the decoder, given that the decoder does not discard it.
 
         The X and Z sectors are decoded independently.  Pass a decoder specification such as
         ``decoders.bp_osd(...)`` as ``decoder=`` for both sectors, or set ``decoder_x=`` and
         ``decoder_z=`` separately.  An omitted sector uses the shared ``decoder=`` specification.
-        With no specification, the default is BP+OSD for binary codes and GUF otherwise.  A
-        specification that predicts observables natively is used that way when it can be built for
-        this code; otherwise it decodes errors, with a warning (see
-        help(qldpc.codes.code_capacity.get_code_capacity_decoder)).
+        With no specification, the default is BP+OSD for binary codes and GUF otherwise.  For a
+        binary code, a specification that predicts observables natively is built as an observable
+        decoder for the code-capacity detector error model of each sector, which has one error
+        mechanism per qubit.  If that build raises a ValueError, an
+        ObservableDecodingFallbackWarning is emitted and the specification decodes errors instead;
+        wrap it as ``decoders.from_matrix(spec.build)`` to select error decoding explicitly.  A
+        Sinter-style decoder is compiled for the detector error model of each sector, and a prebuilt
+        decoder must be built for the syndromes and observables of the sector that it decodes.
 
         For a subsystem code, errors are decoded against the stabilizer generators of the code, so a
         syndrome has one entry per stabilizer generator.  These generators can be high-weight (for
@@ -3926,7 +3933,7 @@ class CSSCode(QuditCode):
         if (
             decoder_x is None
             and decoder_z is None
-            and decoders.is_prebuilt_decoder(decoder)
+            and is_prebuilt_decoder(decoder)
             and not np.array_equal(stabilizer_ops_x, stabilizer_ops_z)
         ):
             raise ValueError(
@@ -3936,31 +3943,21 @@ class CSSCode(QuditCode):
                 " decoder=decoders.bp_osd(...)"
             )
 
-        # Construct decoders.  Sector-specific decoder inputs override the shared input: decoder_x
-        # and decoder_z override decoder, and the legacy decoder_x_kwargs and decoder_z_kwargs
-        # override shared legacy keyword arguments.  The two decoders can be shared when their
-        # matrices, decoder inputs, and legacy arguments coincide.
+        # Construct decoders.  Sector-specific decoder inputs override the shared input, and the two
+        # decoders can be shared when their matrices and decoder inputs coincide.
         decoder_x_input = decoder if decoder_x is None else decoder_x
         decoder_z_input = decoder if decoder_z is None else decoder_z
-
-        # reject removed arguments, and warn about deprecated arguments, naming their replacements
-        for removed_args in [decoder_kwargs, decoder_x_kwargs or {}, decoder_z_kwargs or {}]:
-            decoders.reject_removed_decoder_args(removed_args)
-        for argument_name, matrix, legacy_args in [
-            ("decoder", stabilizer_ops_z, decoder_kwargs),
-            ("decoder_x", stabilizer_ops_z, decoder_x_kwargs),
-            ("decoder_z", stabilizer_ops_x, decoder_z_kwargs),
-        ]:
-            if legacy_args:
-                warnings.warn(
-                    decoders.get_legacy_decoder_migration_message(
-                        matrix, legacy_args, argument_name=argument_name
-                    ),
-                    DeprecationWarning,
-                    stacklevel=get_external_caller_stacklevel(),
-                )
-        decoder_x_kwargs = decoder_kwargs | (decoder_x_kwargs or {})
-        decoder_z_kwargs = decoder_kwargs | (decoder_z_kwargs or {})
+        # DEPRECATED: see qldpc._deprecations
+        if decoder_kwargs or decoder_x_kwargs or decoder_z_kwargs:
+            decoder_x_input, decoder_z_input = merge_legacy_css_decoder_args(
+                stabilizer_ops_z,
+                stabilizer_ops_x,
+                decoder_x_input,
+                decoder_z_input,
+                decoder_kwargs,
+                decoder_x_kwargs,
+                decoder_z_kwargs,
+            )
 
         # identify logical operators
         logicals_x = self.get_logical_ops(Pauli.X)
@@ -3969,10 +3966,9 @@ class CSSCode(QuditCode):
         same_x_and_z = (
             np.array_equal(stabilizer_ops_x, stabilizer_ops_z)
             and decoder_x_input is decoder_z_input
-            and decoder_x_kwargs == decoder_z_kwargs
         )
         code_capacity_decoder_x = get_code_capacity_decoder(
-            stabilizer_ops_z, logicals_z, decoder_x_input, decoder_x_kwargs, warn_deprecated=False
+            stabilizer_ops_z, logicals_z, decoder_x_input
         )
         code_capacity_decoder_z = (
             code_capacity_decoder_x.reuse_for(stabilizer_ops_x, logicals_x)
@@ -3980,7 +3976,7 @@ class CSSCode(QuditCode):
             else None
         )
         if code_capacity_decoder_z is None:
-            if same_x_and_z and decoders.is_prebuilt_observable_decoder(decoder_z_input):
+            if same_x_and_z and is_prebuilt_observable_decoder(decoder_z_input):
                 raise ValueError(
                     "A shared prebuilt observable decoder cannot decode both CSS sectors, whose"
                     " logical operators differ.  Pass decoder_x= and decoder_z= with observable"
@@ -3988,37 +3984,53 @@ class CSSCode(QuditCode):
                     " such as decoder=decoders.bp_osd(...)"
                 )
             code_capacity_decoder_z = get_code_capacity_decoder(
-                stabilizer_ops_x,
-                logicals_x,
-                decoder_z_input,
-                decoder_z_kwargs,
-                warn_deprecated=False,
+                stabilizer_ops_x, logicals_x, decoder_z_input
             )
 
         # sample errors of fixed weight and record failure/discard counts
-        sample_allocation = get_sample_allocation(
-            num_samples, len(self), max_error_rate, min_error_weight
-        )
-        num_failures = np.zeros(sample_allocation.size, dtype=int)
-        num_discards = np.zeros(sample_allocation.size, dtype=int)
-        for weight in np.nonzero(sample_allocation)[0].tolist():
-            num_failures[weight], num_discards[weight] = (
-                self._sample_css_failure_and_discard_counts(
-                    weight,
-                    sample_allocation[weight],
-                    code_capacity_decoder_x,
-                    code_capacity_decoder_z,
-                    pauli_bias_zxy,
-                )
-            )
-        return ErrorRateFunc(
-            sample_allocation,
-            num_failures,
-            num_discards,
+        return ErrorRateFunc.from_sampler(
+            functools.partial(
+                self._sample_css_failure_and_discard_counts,
+                decoder_x=code_capacity_decoder_x,
+                decoder_z=code_capacity_decoder_z,
+                pauli_bias_zxy=pauli_bias_zxy,
+            ),
+            num_samples,
             len(self),
-            float(max_error_rate),
+            max_error_rate,
             min_error_weight,
         )
+
+    def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
+        """Method for subclasses to compute specialized exact distance calculations."""
+        return NotImplemented
+
+    def _get_distance_bound_if_known(self, pauli: PauliXZ | None = None) -> int | float | None:
+        """Retrieve the best known upper bound on (X-, Z-, or ordinary) distance, or ``None``."""
+        if pauli is Pauli.X:
+            candidates = [self._distance_x, self._distance_bound_x]
+        elif pauli is Pauli.Z:
+            candidates = [self._distance_z, self._distance_bound_z]
+        else:
+            candidates = [
+                self._distance,
+                self._distance_bound,
+                self._distance_x,
+                self._distance_z,
+                self._distance_bound_x,
+                self._distance_bound_z,
+            ]
+        return min((bound for bound in candidates if bound is not None), default=None)
+
+    def _update_distance_bound(self, bound: float, pauli: PauliXZ) -> float:
+        """Remember an upper bound on the X-distance or Z-distance, and return the best bound."""
+        known_bound = self._get_distance_bound_if_known(None if self._equal_distance_xz else pauli)
+        bound = bound if known_bound is None else min(bound, known_bound)
+        if pauli is Pauli.X or self._equal_distance_xz:
+            self._distance_bound_x = bound
+        if pauli is Pauli.Z or self._equal_distance_xz:
+            self._distance_bound_z = bound
+        return bound
 
     def _sample_css_failure_and_discard_counts(
         self,
@@ -4078,37 +4090,6 @@ class CSSCode(QuditCode):
         return num_failures, num_discards
 
 
-####################################################################################################
-# helper methods
-
-
-def _decode_consistently(
-    decoder: decoders.ErrorDecoder,
-    check_matrix: npt.NDArray[np.int_],
-    get_syndrome: Callable[[], npt.NDArray[np.int_]],
-    field: type[galois.FieldArray],
-) -> galois.FieldArray:
-    """Decode syndromes until the decoder infers an error that reproduces its syndrome.
-
-    Each attempt decodes a new syndrome from get_syndrome, which may be randomized.  An attempt
-    fails if the decoder signals erasure, or infers an error that does not reproduce its syndrome.
-
-    Raises:
-        ValueError: If the decoder fails _MAX_DECODING_ATTEMPTS times in a row.
-    """
-    check_matrix = np.asanyarray(check_matrix).view(field)
-    for _ in range(_MAX_DECODING_ATTEMPTS):
-        syndrome = np.asanyarray(get_syndrome()).view(field)
-        error, erased = decoders.get_error_and_erasure(decoder, syndrome)
-        if not erased and np.array_equal(check_matrix @ error.view(field), syndrome):
-            return error.view(field)
-    raise ValueError(
-        f"The decoder failed to infer an error that reproduces its syndrome in {_MAX_DECODING_ATTEMPTS}"
-        " attempts.  Try a more thorough decoder, such as"
-        " decoder=decoders.bp_osd(osd_method='OSD_CS', osd_order=5)"
-    )
-
-
 def _join_slices(*sectors: Slice) -> npt.NDArray[np.int_]:
     """Join index slices together into one slice."""
     return np.concatenate(
@@ -4140,24 +4121,121 @@ def _as_pauli_bias_zxy(
     """
     if pauli_bias is None:
         return None
-    assert len(pauli_bias) == 3
+    if len(pauli_bias) != 3:
+        raise ValueError(f"pauli_bias must have three entries (provided: {len(pauli_bias)})")
     pauli_bias_zxy = np.array([pauli_bias[2], pauli_bias[0], pauli_bias[1]], dtype=float)
     return pauli_bias_zxy / np.sum(pauli_bias_zxy)
 
 
 def _resolve_distance_backend(
     backend: DistanceBackend,
-    bound_kwargs: Mapping[str, Any],
+    bound_kwargs: Mapping[str, object],
     *,
     is_binary: bool,
 ) -> DistanceBackend:
-    """Resolve the automatic distance-bound backend."""
+    """Resolve the automatic distance-bound backend.
+
+    Automatic selection only uses GAP when a GAP binding or executable can be called, so that the
+    default backend never falls back to the manual copy/paste GAP workflow, which is available by
+    requesting ``backend="gap"`` explicitly.  Options that only sqetch or only GAP accepts select
+    that backend, and raise a ValueError if it is unavailable.
+    """
     if backend != "auto":
         return backend
 
+    if selects_legacy_decoder(bound_kwargs):  # DEPRECATED: see qldpc._deprecations
+        return "decoder"
     options = set(bound_kwargs)
+    backend_specific = options & (_SQETCH_DISTANCE_BOUND_KWARGS | _GAP_DISTANCE_BOUND_KWARGS)
+    if backend_specific and not (
+        options <= _SQETCH_DISTANCE_BOUND_KWARGS or options <= _GAP_DISTANCE_BOUND_KWARGS
+    ):
+        raise ValueError(
+            f"Distance-bound options {sorted(options)} mix options of different backends; pass"
+            " options of one backend (sqetch, GAP/QDistRnd, or the decoder) at a time"
+        )
     if is_binary and options <= _SQETCH_DISTANCE_BOUND_KWARGS and external.sqetch.is_installed():
         return "sqetch"
-    if options <= _GAP_DISTANCE_BOUND_KWARGS and external.gap.is_installed():
+    if options <= _GAP_DISTANCE_BOUND_KWARGS and external.gap.is_callable():
         return "gap"
+    if options and options <= _SQETCH_DISTANCE_BOUND_KWARGS:
+        reason = "sqetch is not installed" if is_binary else "sqetch only supports binary codes"
+        raise ValueError(f"sqetch options {sorted(options)} were given, but {reason}")
+    if options and options <= _GAP_DISTANCE_BOUND_KWARGS:
+        raise ValueError(
+            f"GAP/QDistRnd options {sorted(options)} were given, but GAP cannot be called; pass"
+            ' backend="gap" to use GAP manually'
+        )
     return "decoder"
+
+
+def _require_symplectic(symplectic: bool) -> None:
+    """Reject non-symplectic operator layouts, which only CSS codes support."""
+    if not symplectic:
+        raise ValueError("Non-CSS codes only support symplectic=True; use a CSSCode instead")
+
+
+####################################################################################################
+# helper methods
+
+
+def _get_random_array(
+    field: type[galois.FieldArray],
+    shape: int | tuple[int, ...],
+    *,
+    satisfy: Callable[[galois.FieldArray], bool | np.bool_] = lambda _: True,
+    seed: int | None = None,
+) -> galois.FieldArray:
+    """Get a random array over a given finite field with a given shape.
+
+    If passed a condition that the array must satisfy, re-sample until the condition is met.
+    """
+    seed = _get_scrambled_seed(seed) if seed is not None else None
+    while not satisfy(array := field.Random(shape, seed=seed)):
+        seed = seed + 1 if seed is not None else None  # pragma: no cover
+    return array
+
+
+def _decode_consistently(
+    decoder: decoders.ErrorDecoder,
+    check_matrix: npt.NDArray[np.int_],
+    get_syndrome: Callable[[], npt.NDArray[np.int_]],
+    field: type[galois.FieldArray],
+) -> galois.FieldArray:
+    """Decode syndromes until the decoder infers an error that reproduces its syndrome.
+
+    Each attempt decodes a new syndrome from get_syndrome, which may be randomized.  An attempt
+    fails if the decoder signals erasure, or infers an error that does not reproduce its syndrome.
+
+    Raises:
+        ValueError: If the decoder fails _MAX_DECODING_ATTEMPTS times in a row.
+    """
+    check_matrix = np.asanyarray(check_matrix).view(field)
+    for _ in range(_MAX_DECODING_ATTEMPTS):
+        syndrome = np.asanyarray(get_syndrome()).view(field)
+        error, erased = decoders.get_error_and_erasure(decoder, syndrome)
+        if not erased and np.array_equal(check_matrix @ error.view(field), syndrome):
+            return error.view(field)
+    raise ValueError(
+        "The decoder failed to infer an error that reproduces its syndrome in"
+        f" {_MAX_DECODING_ATTEMPTS} attempts.  Try a more thorough decoder, such as"
+        " decoder=decoders.bp_osd(osd_method='OSD_CS', osd_order=5)"
+    )
+
+
+def _validate_num_trials(num_trials: object) -> None:
+    """Reject a non-integer number of trials, such as a Pauli sector passed positionally."""
+    if num_trials is not None and not isinstance(num_trials, numbers.Integral):
+        raise TypeError(
+            f"num_trials must be an integer or None, not {num_trials!r}; to bound the distance of"
+            " a single Pauli sector, pass it by keyword as pauli=..."
+        )
+
+
+def _get_scrambled_seed(seed: int) -> int:
+    """Scramble a seed, allowing us to safely increment seeds in repeat-until-success protocols."""
+    state = np.random.get_state()
+    np.random.seed(seed)
+    new_seed = np.random.randint(np.iinfo(np.int32).max + 1)
+    np.random.set_state(state)
+    return new_seed

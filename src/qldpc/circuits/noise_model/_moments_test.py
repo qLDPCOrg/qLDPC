@@ -7,11 +7,7 @@ import stim
 
 from qldpc import circuits
 from qldpc.circuits.conftest import circuits_are_equivalent
-from qldpc.circuits.noise_model._moments import (
-    _categorize_moment_qubits,
-    _get_immune_qubits,
-    _idle_barrier_qubits,
-)
+from qldpc.circuits.noise_model import _moments
 
 
 def test_classical_controls() -> None:
@@ -126,9 +122,9 @@ def test_repeat_blocks() -> None:
 def test_moment_qubits() -> None:
     """Qubits are categorized by their role in a moment, and qubit reuse is rejected."""
     moment = list(stim.Circuit("MPP X0*Z0\nR 1\nH 2\nI 3\nCX rec[-1] 4\nDETECTOR rec[-1]"))
-    assert _categorize_moment_qubits(moment) == ([0, 1], [2])
+    assert _moments.categorize_moment_qubits(moment) == ([0, 1], [2])
     with pytest.raises(ValueError, match="multiple uses"):
-        _categorize_moment_qubits(list(stim.Circuit("I 0\nH 0")))
+        _moments.categorize_moment_qubits(list(stim.Circuit("I 0\nH 0")))
 
     circuit = stim.Circuit("""
         QUBIT_COORDS[immune](0) 0
@@ -139,5 +135,29 @@ def test_moment_qubits() -> None:
             H 4
         }
     """)
-    assert _get_immune_qubits(circuit, "immune") == {0, 1}
-    assert _idle_barrier_qubits(circuit) == {3, 4}
+    assert _moments.get_immune_qubits(circuit, "immune") == {0, 1}
+    assert _moments.idle_barrier_qubits(circuit) == {3, 4}
+
+
+def test_repeated_idle_channel() -> None:
+    """Repeating a Pauli channel raises the eigenvalues of its Pauli transfer matrix to a power."""
+    p_x, p_y, p_z = 0.1, 0.2, 0.3
+    eigenvalues = (1 - 2 * (p_y + p_z), 1 - 2 * (p_x + p_z), 1 - 2 * (p_x + p_y))
+    for repetitions in [1, 2, 3, 2**40]:
+        l_x, l_y, l_z = (eigenvalue**repetitions for eigenvalue in eigenvalues)
+        expected = {
+            "X": (1 + l_x - l_y - l_z) / 4,
+            "Y": (1 - l_x + l_y - l_z) / 4,
+            "Z": (1 - l_x - l_y + l_z) / 4,
+        }
+        channel = circuits.PauliChannel({"X": p_x, "Y": p_y, "Z": p_z})
+        assert _moments.repeated_idle_channel(channel, repetitions).probabilities == pytest.approx(
+            expected
+        )
+
+        # a sequence of one independent error is a Pauli channel with one component
+        sequence = _moments.repeated_idle_channel(
+            circuits.PauliChannelSequence({"X": p_x}), repetitions
+        )
+        single = _moments.repeated_idle_channel(circuits.PauliChannel({"X": p_x}), repetitions)
+        assert sequence.probabilities == pytest.approx(single.probabilities)
