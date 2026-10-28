@@ -281,11 +281,17 @@ def test_schedule_as_soon_as_possible() -> None:
             stim.Circuit(before)
         ) == stim.Circuit(after)
 
-    # multi-qubit products move together, and trailing TICKs are only kept if present
-    circuit = stim.Circuit("MPP X0*X1 Z2\nTICK\nH 3")
-    assert syndrome_measurement._schedule_as_soon_as_possible(circuit) == stim.Circuit(
-        "MPP X0*X1 Z2\nH 3"
-    )
+    # each Pauli product moves separately, but measurements stay in order
+    for before, after in [
+        ("MPP X0*X1 Z2\nTICK\nH 3", "MPP X0*X1 Z2\nH 3"),
+        ("H 2\nTICK\nMPP X0*X1 Z2", "H 2\nMPP X0*X1\nTICK\nMPP Z2"),
+        ("H 0\nTICK\nMPP X0*X1 Z2", "H 0\nTICK\nMPP X0*X1 Z2"),
+    ]:
+        assert syndrome_measurement._schedule_as_soon_as_possible(
+            stim.Circuit(before)
+        ) == stim.Circuit(after)
+
+    # trailing TICKs are only kept if present
     assert syndrome_measurement._schedule_as_soon_as_possible(stim.Circuit()) == stim.Circuit()
 
     # circuits with other instructions are not rescheduled

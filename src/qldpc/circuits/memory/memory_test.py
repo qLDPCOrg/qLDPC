@@ -3,6 +3,7 @@
 """Unit tests for memory.py."""
 
 import collections
+import itertools
 import random
 
 import galois
@@ -136,10 +137,10 @@ def test_qubit_ids(pytestconfig: pytest.Config) -> None:
     """)
 
     for code in [codes.SurfaceCode(2, rotated=True), codes.BaconShorCode(2, 3)]:
-        _check_qubit_ids(code)
+        check_qubit_ids(code)
 
 
-def _check_qubit_ids(code: codes.CSSCode) -> None:
+def check_qubit_ids(code: codes.CSSCode) -> None:
     """Memory experiments with random qubit IDs agree with remapped default experiments."""
     # pick a number of "extra" unused qubits and a number of QEC rounds
     num_unused_qubits = 3
@@ -175,12 +176,12 @@ def _check_qubit_ids(code: codes.CSSCode) -> None:
 
         if code.is_subsystem_code:
             # layer codes may order the commuting gates within a moment by qubit index
-            assert _sort_gate_targets(circuit_a) == _sort_gate_targets(circuit_b)
+            assert sort_gate_targets(circuit_a) == sort_gate_targets(circuit_b)
         else:
             assert circuit_a.flattened() == circuit_b.flattened()
 
 
-def _sort_gate_targets(circuit: stim.Circuit) -> stim.Circuit:
+def sort_gate_targets(circuit: stim.Circuit) -> stim.Circuit:
     """Flatten a circuit and sort the (commuting) target pairs of each two-qubit gate instruction.
 
     Syndrome measurement strategies may order the gates within a single moment by qubit index.
@@ -273,20 +274,27 @@ def test_subsystem_memory_experiment(basis: PauliXZ | None) -> None:
     with pytest.raises(ValueError, match="does not determine all"):
         circuits.get_memory_experiment(code, basis, syndrome_measurement_strategy=SingletonLayers())
 
-    # the circuit and its detectors share one schedule, even if layers are not reproducible
-    class ShuffledLayers(circuits.EdgeColoring):
+    # The circuit and its detectors share one schedule, even if layers are not reproducible.  After
+    # the default layers, this strategy alternates single Z-type and X-type checks, which determine
+    # no stabilizers, and which make the detectors of the default layers nondeterministic.
+    checks_x, checks_z = circuits.EdgeColoring().get_gauge_layers(code)
+    alternating_layers = tuple(
+        (check,)
+        for pair in itertools.zip_longest(checks_z, checks_x)
+        for check in pair
+        if check is not None
+    )
+
+    class NonReproducibleLayers(circuits.EdgeColoring):
         num_calls = 0
 
         def get_gauge_layers(self, code: codes.QuditCode) -> tuple[tuple[int, ...], ...]:
             self.num_calls += 1
-            layers = super().get_gauge_layers(code)
-            return layers if self.num_calls % 2 else layers[::-1]
+            return super().get_gauge_layers(code) if self.num_calls == 1 else alternating_layers
 
-    strategy = ShuffledLayers()
     circuits.get_memory_experiment(
-        code, basis, num_rounds=2, syndrome_measurement_strategy=strategy
+        code, basis, num_rounds=2, syndrome_measurement_strategy=NonReproducibleLayers()
     ).detector_error_model()
-    assert strategy.num_calls == 1
 
 
 @pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z, None])
@@ -331,15 +339,22 @@ def test_subsystem_memory_redundant_generators() -> None:
 
 
 def test_low_weight_products() -> None:
-    """Greedy weight reduction preserves spans and reduces Hamming weights."""
-    basis = np.array([[1, 1, 1, 1, 0], [1, 1, 1, 0, 0], [0, 1, 1, 0, 1]])
+    """Greedy weight reduction preserves spans and does not increase Hamming weights."""
+    # reducing a basis preserves its span, and reduces the weight of some basis vectors
+    basis = np.array([[1, 1, 1, 1, 0], [1, 1, 1, 0, 0], [0, 1, 1, 0, 1]], dtype=np.uint8)
     reduced = memory._get_low_weight_basis(basis)
-    assert reduced.tolist() == [[0, 0, 0, 1, 0], [1, 0, 0, 0, 1], [0, 1, 1, 0, 1]]
-    assert get_rank(galois.GF2(np.vstack([basis, reduced]))) == 3
+    assert memory._get_rank(galois.GF2(reduced)) == 3
+    assert memory._get_rank(galois.GF2(np.vstack([basis, reduced]))) == 3
+    assert np.all(np.count_nonzero(reduced, axis=1) <= np.count_nonzero(basis, axis=1))
+    assert np.count_nonzero(reduced) < np.count_nonzero(basis)
 
-    vector = np.array([1, 1, 1, 1, 1])
-    assert memory._reduce_weight(vector, reduced).tolist() == [1, 0, 0, 0, 0]
-    assert memory._reduce_weight(vector, reduced[:0]).tolist() == vector.tolist()
+    # reducing a vector adds an element of the span of other vectors, and does not increase weight
+    vector = np.ones(5, dtype=np.uint8)
+    result = memory._reduce_weight(vector, reduced)
+    assert np.count_nonzero(result) <= np.count_nonzero(vector)
+    assert memory._get_rank(galois.GF2(np.vstack([reduced, result ^ vector]))) == 3
+    assert memory._reduce_weight(vector, basis[:1]).tolist() == [0, 0, 0, 0, 1]  # unique minimum
+    assert memory._reduce_weight(vector, basis[:0]).tolist() == vector.tolist()
 
 
 def test_non_css_subsystem_memory_experiment() -> None:
@@ -451,15 +466,10 @@ def assert_detectors_track_stabilizers(
         if len(stabilizer_vectors):
             implied = (stabilizer_vectors @ gauge_ops).T.null_space() @ stabilizer_vectors
         tracked_layer = [cc for cc in layer if is_tracked[cc]]
-        num_relations = len(tracked_layer) - get_rank(gauge_ops[tracked_layer])
-        assert get_rank(code.field(np.vstack([implied, relation_vectors]))) == num_relations
-        assert get_rank(implied) + len(relation_vectors) == num_relations
+        num_relations = len(tracked_layer) - memory._get_rank(gauge_ops[tracked_layer])
+        assert memory._get_rank(code.field(np.vstack([implied, relation_vectors]))) == num_relations
+        assert memory._get_rank(implied) + len(relation_vectors) == num_relations
     assert num_keys_in_layers == len(keys)
-
-
-def get_rank(matrix: galois.FieldArray) -> int:
-    """The rank of a matrix, which may have no rows."""
-    return int(np.linalg.matrix_rank(matrix)) if matrix.size else 0
 
 
 def get_circuit_distance(circuit: stim.Circuit) -> int:

@@ -17,6 +17,8 @@ from qldpc.objects import Pauli
 
 from ..bookkeeping import MeasurementRecord, QubitIDs
 from ..common import _restrict_to_qubits
+from ..noise_model._moments import gate_qubits, split_targets_if_needed
+from ..noise_model._operations import GATE_OP_TYPES, op_type
 
 
 class SyndromeMeasurementStrategy(abc.ABC):
@@ -129,6 +131,12 @@ class SyndromeMeasurementStrategy(abc.ABC):
         Returns:
             stim.Circuit: A circuit that measures all checks of the code.
             circuits.MeasurementRecord: The record of measurements in the circuit.
+
+        Raises:
+            ValueError: If the layers do not partition the checks of the code, if a layer contains
+                checks that do not commute, or if the measurement record of a layer does not match
+                its circuit.  Errors from self.get_circuit for the stabilizer code of a layer (for
+                example, from a strategy that only supports CSS codes) propagate unchanged.
         """
         qubit_ids = QubitIDs.validated(qubit_ids or QubitIDs.from_code(code), code)
         layers = self.get_gauge_layers(code) if layers is None else layers
@@ -367,71 +375,60 @@ def _schedule_as_soon_as_possible(circuit: stim.Circuit) -> stim.Circuit:
     Circuits that contain anything other than unitary gates, resets, and measurements on qubits (and
     TICK instructions that separate moments) are returned unchanged.
     """
-    instructions = list(circuit)
-    if not all(_can_reschedule(instruction) for instruction in instructions):
+    instructions = [
+        instruction for instruction in circuit if isinstance(instruction, stim.CircuitInstruction)
+    ]
+    if len(instructions) < len(circuit) or not all(map(_can_reschedule, instructions)):
         return circuit.copy()
 
-    moments: list[list[stim.CircuitInstruction]] = []
-    next_free_moment: dict[int, int] = collections.defaultdict(int)
-    last_measurement_moment = 0
-    for instruction in instructions:
-        assert isinstance(instruction, stim.CircuitInstruction)
-        if instruction.name == "TICK":
-            continue
-        gate_data = stim.gate_data(instruction.name)
-        for targets in _split_targets(instruction, gate_data):
-            qubits = [target.qubit_value for target in targets if target.qubit_value is not None]
-            moment = max((next_free_moment[qubit] for qubit in qubits), default=0)
-            if gate_data.produces_measurements:
-                moment = last_measurement_moment = max(moment, last_measurement_moment)
-            moments.extend([] for _ in range(moment + 1 - len(moments)))
-            moments[moment].append(
-                stim.CircuitInstruction(
-                    instruction.name, targets, instruction.gate_args_copy(), tag=instruction.tag
-                )
-            )
-            for qubit in qubits:
-                next_free_moment[qubit] = moment + 1
-
     scheduled_circuit = stim.Circuit()
-    for mm, moment_instructions in enumerate(moments):
+    for mm, moment_operations in enumerate(_get_earliest_moments(instructions)):
         if mm:
             scheduled_circuit.append("TICK")
-        for instruction in moment_instructions:
-            scheduled_circuit.append(instruction)
-    if (
-        instructions
-        and isinstance(instructions[-1], stim.CircuitInstruction)
-        and (instructions[-1].name == "TICK")
-    ):
+        for operation in moment_operations:
+            scheduled_circuit.append(operation)
+    if instructions and instructions[-1].name == "TICK":
         scheduled_circuit.append("TICK")
     return scheduled_circuit
 
 
-def _can_reschedule(instruction: stim.CircuitInstruction | stim.CircuitRepeatBlock) -> bool:
-    """Can _schedule_as_soon_as_possible move this instruction without changing its action?"""
-    if isinstance(instruction, stim.CircuitRepeatBlock):
-        return False
+def _get_earliest_moments(
+    instructions: Sequence[stim.CircuitInstruction],
+) -> list[list[stim.CircuitInstruction]]:
+    """Group the operations of some instructions into their earliest possible moments.
+
+    See _schedule_as_soon_as_possible for the rules that determine the earliest moments.
+    """
+    moments: list[list[stim.CircuitInstruction]] = []
+    next_free_moment: dict[int, int] = collections.defaultdict(int)
+    last_measurement_moment = 0
+    for instruction in instructions:
+        if instruction.name == "TICK":
+            continue
+        produces_measurements = stim.gate_data(instruction.name).produces_measurements
+        for operation in split_targets_if_needed(instruction, frozenset(), None, force_split=True):
+            qubits = gate_qubits(operation)
+            moment = max((next_free_moment[qubit] for qubit in qubits), default=0)
+            if produces_measurements:
+                moment = last_measurement_moment = max(moment, last_measurement_moment)
+            moments.extend([] for _ in range(moment + 1 - len(moments)))
+            moments[moment].append(operation)
+            for qubit in qubits:
+                next_free_moment[qubit] = moment + 1
+    return moments
+
+
+def _can_reschedule(instruction: stim.CircuitInstruction) -> bool:
+    """Can _schedule_as_soon_as_possible move this instruction without changing its action?
+
+    Gates, resets, and measurements can move if they only address qubits, rather than (for example)
+    measurement records.
+    """
     if instruction.name == "TICK":
         return True
-    gate_data = stim.gate_data(instruction.name)
-    return (
-        (gate_data.is_unitary or gate_data.is_reset or gate_data.produces_measurements)
-        and bool(instruction.targets_copy())
-        and all(
-            target.qubit_value is not None or target.is_combiner
-            for target in instruction.targets_copy()
-        )
-    )
-
-
-def _split_targets(
-    instruction: stim.CircuitInstruction, gate_data: stim.GateData
-) -> list[list[stim.GateTarget]]:
-    """Split the targets of an instruction into the targets of individual gate applications."""
     targets = instruction.targets_copy()
-    if gate_data.is_single_qubit_gate:
-        return [[target] for target in targets]
-    if gate_data.is_two_qubit_gate:
-        return [targets[tt : tt + 2] for tt in range(0, len(targets), 2)]
-    return [targets]
+    return (
+        op_type(instruction.name) in GATE_OP_TYPES
+        and bool(targets)
+        and all(target.qubit_value is not None or target.is_combiner for target in targets)
+    )

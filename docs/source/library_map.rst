@@ -177,7 +177,7 @@ Stim converts the circuit into a ``stim.DetectorErrorModel`` with ``circuit.dete
 Memory experiments also accept subsystem codes.
 Each round measures commuting layers of gauge checks in sequence (by default, all X-type and then all Z-type checks of a CSS code), and detectors track products of gauge outcomes within one layer that equal stabilizers.
 Operations of consecutive layers on disjoint qubits share TICK-separated moments, which reduces the errors added by noise models with idle errors.
-Products that equal the identity, which arise from redundant gauge generators, get detectors in every round.
+Products that equal the identity, which arise from redundant gauge generators, get detectors in every round unless other detectors already determine them.
 
 For larger studies, pass the ``SinterDecoder`` to ``sinter.collect``.
 The :doc:`code-capacity <examples/logical_error_rates/1_code_capacity>`, :doc:`quantum-memory <examples/logical_error_rates/2_quantum_memory_x_or_z>`, and :doc:`sliding-window <examples/logical_error_rates/specialized/sliding_window_decoding>` notebooks develop these workflows, and the :doc:`noise-model notebook <examples/noise_models>` explains the noise models.
