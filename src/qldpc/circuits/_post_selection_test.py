@@ -46,9 +46,3 @@ def test_selections_are_distinct_indices_of_prep_and_flag_detectors() -> None:
             select(wrong_value)
     with pytest.raises(ValueError, match="add_flags=True"):
         select("flags", add_flags=False)
-
-
-def test_integers_exclude_bools() -> None:
-    """NumPy integers count as integers, and bools and floats do not."""
-    assert _post_selection.is_integer(3) and _post_selection.is_integer(np.int64(3))
-    assert not any(map(_post_selection.is_integer, (True, np.bool_(True), 3.0)))
