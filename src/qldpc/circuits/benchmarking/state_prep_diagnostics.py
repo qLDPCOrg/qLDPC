@@ -243,6 +243,16 @@ def get_state_prep_diagnostic_tasks(
     Returns:
         A list of sinter Tasks, one-to-one with the provided error_rates.  The error rate of an
             individual task is task.json_metadata["p"].
+
+    Raises:
+        TypeError: If ``post_select`` is not a bool, "flags", or a collection of integer detector
+            indices, or if ``post_select_observables`` is not a bool or a collection.
+        ValueError: If the code is not a qubit code; if ``qubit_ids`` does not match the code; if
+            ``skip_validation`` is False and the circuit does not deterministically prepare a pure
+            logical state of the code; if an observable is the identity or is not a Pauli operator
+            on ``len(code)`` qubits; if ``post_select`` is a string other than "flags", is "flags"
+            without ``add_flags=True``, or has an index outside the selectable detectors; or if
+            ``post_select_observables`` has an index outside the observables.
     """
     diagnostic_circuit, detector_record = get_state_prep_diagnostic_circuit(
         code,

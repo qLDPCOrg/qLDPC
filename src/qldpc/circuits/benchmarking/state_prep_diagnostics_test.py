@@ -4,7 +4,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Collection
+from typing import Literal, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -79,8 +80,21 @@ def test_state_prep_post_selection() -> None:
     circuit += stim.Circuit("R 7 8\nM 7 8\nDETECTOR rec[-1]")
     num_detectors = 2 + len(code.get_stabilizer_ops())
 
-    def get_task(**kwargs: Any) -> sinter.Task:
-        return circuits.get_state_prep_diagnostic_tasks(code, circuit, [0.01], **kwargs)[0]
+    def get_task(
+        *,
+        add_flags: bool = False,
+        post_select: object = False,
+        post_select_observables: bool = False,
+    ) -> sinter.Task:
+        return circuits.get_state_prep_diagnostic_tasks(
+            code,
+            circuit,
+            [0.01],
+            add_flags=add_flags,
+            # invalid selections are passed on unchanged, to test their errors
+            post_select=cast("bool | Collection[int] | Literal['flags']", post_select),
+            post_select_observables=post_select_observables,
+        )[0]
 
     task = get_task(add_flags=True)
     assert task.postselection_mask is None and task.postselected_observables_mask is None
