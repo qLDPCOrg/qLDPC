@@ -29,6 +29,11 @@ def test_get_matrix_automorphism_generators() -> None:
     assert _bliss.get_matrix_automorphism_generators(np.array([[1, 1]])) == [[0, 2, 1]]
     assert _bliss.get_matrix_automorphism_generators(np.array([[1, 2]])) == []
 
+    # the only nontrivial automorphism swaps rows 0, 1 and columns 1, 2; entry colors must differ
+    # from the colors of rows and columns, or a spurious automorphism appears
+    three_valued_matrix = np.array([[0, 2, 3], [0, 3, 2], [1, 0, 0]])
+    assert _bliss.get_matrix_automorphism_generators(three_valued_matrix) == [[1, 0, 2, 3, 5, 4]]
+
 
 def test_missing_pybliss(monkeypatch: pytest.MonkeyPatch) -> None:
     """Explain how to install pybliss if it is missing, but not if a dependency of it is."""

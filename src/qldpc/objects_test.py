@@ -244,11 +244,20 @@ def test_balanced_product() -> None:
     )
     assert not np.any(balanced.op(2))
 
+    # without symmetries, the balanced product is the tensor product, here of a two-link complex
+    # (with an empty module) over a field in which signs matter
+    chain_c = objects.ChainComplex([np.zeros((0, 2), dtype=int), np.array([[1], [2]])], field=3)
+    chain_d = objects.ChainComplex([np.array([[1, 1]])], field=3)
+    assert_valid_balanced_product(chain_c, chain_d, [], [], [0, 2, 5, 2])
+    balanced = objects.ChainComplex.balanced_product(chain_c, chain_d, [], [])
+    tensor = objects.ChainComplex.tensor_product(chain_c, chain_d)
+    assert all(np.array_equal(op, tensor_op) for op, tensor_op in zip(balanced.ops, tensor.ops))
+
     with pytest.raises(ValueError, match="over rings are not supported"):
         ring_chain = objects.ChainComplex(
             [abstract.RingArray.build([[1]], abstract.GroupRing(abstract.TrivialGroup()))]
         )
-        objects.ChainComplex.balanced_product(ring_chain, ring_chain, [], [])
+        objects.ChainComplex.balanced_product(chain_a, ring_chain, [], [])
     with pytest.raises(ValueError, match="same field"):
         objects.ChainComplex.balanced_product(chain_a, chain, [], [])
     with pytest.raises(ValueError, match="same number of symmetries"):
@@ -271,6 +280,7 @@ def assert_valid_balanced_product(
     """Check that projecting onto orbits maps a tensor product onto a balanced product."""
     tensor = objects.ChainComplex.tensor_product(chain_a, chain_b)
     balanced = objects.ChainComplex.balanced_product(chain_a, chain_b, symmetries_a, symmetries_b)
+    assert balanced.num_links == tensor.num_links
     assert [balanced.dim(degree) for degree in range(len(dims))] == dims
 
     projections = []
@@ -289,8 +299,11 @@ def assert_valid_balanced_product(
                 )
                 for perms_a, perms_b in zip(symmetries_a, symmetries_b)
             ]
-            orbits = sorted(comb.PermutationGroup(perms).orbits(), key=min)
-            block = np.zeros((len(orbits), math.prod(shape)), dtype=int)
+            # without symmetries, use the identity on one extra point, whose orbit is dropped
+            size = math.prod(shape)
+            group = comb.PermutationGroup(perms or [comb.Permutation(size)])
+            orbits = sorted((orbit for orbit in group.orbits() if min(orbit) < size), key=min)
+            block = np.zeros((len(orbits), size), dtype=int)
             for index, orbit in enumerate(orbits):
                 block[index, list(orbit)] = 1
             blocks.append(block)
