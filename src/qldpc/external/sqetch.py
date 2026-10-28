@@ -11,7 +11,8 @@ dressed rather than bare logical operators.
 from __future__ import annotations
 
 import importlib.util
-from typing import TYPE_CHECKING, Any
+import types
+from typing import TYPE_CHECKING
 
 import galois
 import numpy as np
@@ -72,7 +73,7 @@ def get_distance_bound(
         device: CUDA device ordinal.
 
     Raises:
-        ModuleNotFoundError: If the optional dependency is not installed.
+        ModuleNotFoundError: If sqetch, or PyTorch with CUDA extension support, is not installed.
         RuntimeError: If no nontrivial logical operator is found.
         ValueError: If the code or backend arguments are unsupported.
 
@@ -108,7 +109,7 @@ def get_distance_bound(
     except ModuleNotFoundError as error:
         if error.name != "torch":
             raise
-        raise RuntimeError(
+        raise ModuleNotFoundError(
             "The sqetch backend requires PyTorch with CUDA extension support. "
             f"Install it with `{_INSTALL_COMMAND}`."
         ) from error
@@ -124,7 +125,7 @@ def get_distance_bound(
 # helper methods
 
 
-def _get_sqetch() -> Any:
+def _get_sqetch() -> types.ModuleType:
     """Import the optional upstream dependency or raise an actionable error."""
     try:
         import sqetch

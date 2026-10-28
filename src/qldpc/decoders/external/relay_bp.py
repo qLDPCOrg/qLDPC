@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import functools
+import types
 import warnings
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
@@ -15,16 +16,16 @@ import numpy.typing as npt
 import scipy.sparse
 import stim
 
-from qldpc._util import get_external_caller_stacklevel
+from qldpc._utils import get_external_caller_stacklevel
 from qldpc.math import IntegerArray
 
-from ..common import PLACEHOLDER_ERROR_RATE, _erasure_bit_support, with_erasure_bits
+from ..common import _PLACEHOLDER_ERROR_RATE, with_erasure_bits
 from ..construction.specs import decoder_spec
 from ..dems import DetectorErrorModelArrays
 from ..protocols import BatchErrorDecoder, ErrorDecodeResult, ObservableDecodeResult
 
 ####################################################################################################
-# public decoder and specifications
+# Relay-BP decoder
 
 
 class RelayBPDecoder(BatchErrorDecoder):
@@ -72,6 +73,10 @@ class RelayBPDecoder(BatchErrorDecoder):
 
     If initialized with ``add_erasure_bit=True``, this decoder appends a bit to all decoded errors,
     set to 1 when the error Relay-BP settles on does not reproduce the syndrome and to 0 otherwise.
+
+    Unlike the batch methods of ``relay_bp.ObservableDecoderRunner``, the batch methods of this
+    class show no progress bar by default, since Sinter decoders call them for every batch of shots.
+    Pass ``progress_bar=True`` to show one.
     """
 
     def __init__(
@@ -96,9 +101,9 @@ class RelayBPDecoder(BatchErrorDecoder):
                 under ``help(relay_bp.bp)``.
             observable_error_matrix: A binary matrix whose rows specify which error mechanisms flip
                 which observables, or None.  If ``pcm_or_dem`` is a DEM, this matrix is extracted
-                from the DEM.  If ``pcm_or_dem`` is a matrix and
-                ``observable_error_matrix is None``, the constructed ``RelayBPDecoder`` will not be
-                able to predict observable flips (or logical error rates).
+                from the DEM.  If ``pcm_or_dem`` is a matrix and ``observable_error_matrix`` is
+                None, the constructed ``RelayBPDecoder`` will not be able to predict observable
+                flips (or logical error rates).
             include_decode_result: Argument passed to ``relay_bp.ObservableDecoderRunner``.
             add_erasure_bit: Whether to append a bit to all decoded errors, set to 1 when the error
                 Relay-BP settles on does not reproduce the syndrome and to 0 otherwise.  Without
@@ -107,12 +112,7 @@ class RelayBPDecoder(BatchErrorDecoder):
                 relay_bp.  See help(relay_bp.RelayDecoderF32) or https://pypi.org/project/relay-bp/
                 for the options (alpha, alpha_iteration_scaling_factor, gamma0, etc.).
         """
-        try:
-            import relay_bp
-        except ModuleNotFoundError:
-            raise ModuleNotFoundError(
-                "Failed to import relay-bp.  Try installing 'qldpc[relay-bp]'"
-            )
+        relay_bp = _get_relay_bp()
         if not isinstance(name, str) or not hasattr(relay_bp, name):
             raise ValueError(
                 f"Relay-BP decoder name not recognized: {name}\n"
@@ -120,9 +120,8 @@ class RelayBPDecoder(BatchErrorDecoder):
             )
         if isinstance(pcm_or_dem, str):
             raise TypeError(
-                "I think you provided a Relay-BP decoder decoder name in place of a parity check"
-                " matrix.  There was breaking change to this API.  See"
-                " help(qldpc.decoders.external.relay_bp.RelayBPDecoder)"
+                "pcm_or_dem must be a parity-check matrix or detector error model, not a string;"
+                " pass a Relay-BP decoder class name as name= instead"
             )
 
         if isinstance(pcm_or_dem, stim.DetectorErrorModel):
@@ -140,23 +139,23 @@ class RelayBPDecoder(BatchErrorDecoder):
                 warnings.warn(
                     "Explicitly provided error_priors will override the error probabilities of the "
                     "provided detector error model",
-                    stacklevel=2,
+                    stacklevel=get_external_caller_stacklevel(),
                 )
         else:
             pcm = pcm_or_dem
             if error_priors is None:
-                error_priors = [PLACEHOLDER_ERROR_RATE] * pcm.shape[1]
+                error_priors = [_PLACEHOLDER_ERROR_RATE] * pcm.shape[1]
 
         pcm = _as_relay_bp_matrix(pcm)
-        self.has_observable_error_matrix = observable_error_matrix is not None
+        self._has_observable_error_matrix = observable_error_matrix is not None
         if observable_error_matrix is None:
             observable_error_matrix = np.empty((0, 0), dtype=np.uint8)
         else:
             observable_error_matrix = _as_relay_bp_matrix(observable_error_matrix)
 
         self.has_erasure_bit = add_erasure_bit
-        self.pcm_transposed = scipy.sparse.csr_matrix(pcm, dtype=np.uint8).T.tocsr()
-        self.observable_error_matrix_transposed = scipy.sparse.csr_matrix(
+        self._pcm_transposed = scipy.sparse.csr_matrix(pcm, dtype=np.uint8).T.tocsr()
+        self._observable_error_matrix_transposed = scipy.sparse.csr_matrix(
             observable_error_matrix, dtype=np.uint8
         ).T.tocsr()
         self.decoder = relay_bp.ObservableDecoderRunner(
@@ -176,7 +175,7 @@ class RelayBPDecoder(BatchErrorDecoder):
         inner_func = getattr(self.decoder, name)
 
         @functools.wraps(inner_func)
-        def outer_func(*args: object, **kwargs: object) -> Any:
+        def outer_func(*args: object, **kwargs: object) -> object:
             if args:
                 args = (np.asarray(args[0], dtype=np.uint8), *args[1:])
             return inner_func(*args, **kwargs)
@@ -208,7 +207,7 @@ class RelayBPDecoder(BatchErrorDecoder):
         /,
         detectors: npt.NDArray[np.int_],
         parallel: bool = False,
-        progress_bar: bool = True,
+        progress_bar: bool = False,
         leave_progress_bar_on_finish: bool = False,
     ) -> npt.NDArray[np.int_]:
         """Decode a batch of error syndromes and return inferred errors.
@@ -217,7 +216,7 @@ class RelayBPDecoder(BatchErrorDecoder):
         """
         detectors = np.asarray(detectors, dtype=np.uint8)
         if len(detectors) == 0:
-            num_errors = self.pcm_transposed.shape[0]
+            num_errors = self._pcm_transposed.shape[0]
             return np.zeros((0, num_errors + self.has_erasure_bit), dtype=np.uint8)
         errors = self.decoder.decode_batch(
             detectors, parallel, progress_bar, leave_progress_bar_on_finish
@@ -232,7 +231,7 @@ class RelayBPDecoder(BatchErrorDecoder):
         /,
         detectors: npt.NDArray[np.int_],
         parallel: bool = False,
-        progress_bar: bool = True,
+        progress_bar: bool = False,
         leave_progress_bar_on_finish: bool = False,
     ) -> npt.NDArray[np.int_]:
         """Decode a batch of error syndromes (alias for decode_errors_batch)."""
@@ -309,13 +308,10 @@ class RelayBPDecoder(BatchErrorDecoder):
 
         If initialized with ``add_erasure_bit=True``, append an erasure bit to each prediction that
         is set to 1 when the inferred error does not reproduce the syndrome.
-
-        Unlike relay_bp.ObservableDecoderRunner.decode_observables_batch, this method shows no
-        progress bar by default, since Sinter decoders call it for every batch of shots.
         """
         self._require_observables()
         if len(detectors) == 0:
-            num_observables = self.observable_error_matrix_transposed.shape[1]
+            num_observables = self._observable_error_matrix_transposed.shape[1]
             return np.zeros((0, num_observables + self.has_erasure_bit), dtype=np.uint8)
         if not self.has_erasure_bit:
             return np.asarray(
@@ -359,7 +355,7 @@ class RelayBPDecoder(BatchErrorDecoder):
 
     def _require_observables(self) -> None:
         """Raise an error if this decoder was not given observables to predict."""
-        if not self.has_observable_error_matrix:
+        if not self._has_observable_error_matrix:
             raise ValueError(
                 "Predicting observable flips with a RelayBPDecoder requires an"
                 " observable_error_matrix, or a detector error model with observables"
@@ -379,7 +375,7 @@ class RelayBPDecoder(BatchErrorDecoder):
         read.
         """
         errors = np.asarray(errors, dtype=np.uint8)
-        return (errors @ self.observable_error_matrix_transposed) & 1
+        return (errors @ self._observable_error_matrix_transposed) & 1
 
     def _reproduces_syndrome(
         self, errors: npt.NDArray[np.int_], detectors: npt.NDArray[np.int_]
@@ -392,35 +388,62 @@ class RelayBPDecoder(BatchErrorDecoder):
         The parity accumulates in uint8 and overflows for a check that many error mechanisms
         address.  That is harmless: overflow reduces modulo 256, and only the low bit is read.
         """
-        residuals = np.asarray(errors.astype(np.uint8, copy=False) @ self.pcm_transposed) & 1
+        residuals = np.asarray(errors.astype(np.uint8, copy=False) @ self._pcm_transposed) & 1
         return np.all(residuals == detectors, axis=1)
 
 
-@_erasure_bit_support("RBP", supported=True)
-def _get_decoder_rbp(
-    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
-    error_priors: npt.NDArray[np.floating] | Sequence[float] | None = None,
-    **decoder_args: object,
-) -> RelayBPDecoder:
-    """Build a Relay-BP decoder.
+def _get_relay_bp() -> types.ModuleType:
+    """Import the optional relay-bp package or raise an actionable error."""
+    try:
+        import relay_bp
+    except ModuleNotFoundError as error:
+        if error.name != "relay_bp":
+            raise
+        raise ModuleNotFoundError(
+            "The Relay-BP decoders require the optional 'relay-bp' package.  Install it with"
+            " `pip install 'qldpc[relay-bp]'`"
+        ) from error
+    return relay_bp
 
-    See the `relay-bp package documentation <https://pypi.org/project/relay-bp>`_ and
-    `arXiv:2506.01779 <https://arxiv.org/abs/2506.01779>`_.
 
-    Args:
-        pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
-        error_priors: Prior probabilities for each error.  A DEM supplies these by default.
-        **decoder_args: Arguments passed to :class:`RelayBPDecoder`, including the backend class
-            ``name``, observable matrix, and ``add_erasure_bit``.
+def _as_relay_bp_matrix(matrix: IntegerArray) -> IntegerArray:
+    """Return a binary matrix in a form that relay_bp accepts, leaving the given matrix unmodified.
 
-    Returns:
-        A :class:`RelayBPDecoder`, which can infer errors and, when observable metadata is
-        available, predict observable flips.
-
-    With ``add_erasure_bit=True``, the decoder appends a flag set when the inferred error does not
-    reproduce the syndrome.
+    relay_bp panics on sparse matrices with unsorted or duplicate indices, so this function copies
+    sparse inputs into a canonical CSC matrix.  This function also reduces entries mod 2 (after
+    summing sparse duplicates) and warns if that changes them, so that relay_bp decodes the same
+    GF(2) matrix that the RelayBPDecoder uses to check syndromes.  Finally, this function rejects
+    matrices with non-integer entries, and field arrays over fields other than GF(2).
     """
-    return RelayBPDecoder(pcm_or_dem, error_priors, **decoder_args)  # type: ignore[arg-type]
+    if isinstance(matrix, galois.FieldArray):
+        if type(matrix).order != 2:
+            raise ValueError(
+                f"Relay-BP requires a binary matrix, but received a matrix over {type(matrix).name}"
+            )
+        return matrix.view(np.ndarray)
+    output: IntegerArray
+    if scipy.sparse.issparse(matrix):
+        output = scipy.sparse.csc_matrix(matrix, copy=True)
+        output.sum_duplicates()
+        entries = output.data
+    else:
+        output = entries = np.array(matrix)  # copy, so that reducing entries leaves matrix intact
+    if np.any(entries % 1):
+        raise ValueError("Relay-BP requires a matrix with integer entries")
+    if np.any((entries != 0) & (entries != 1)):
+        warnings.warn(
+            "RelayBPDecoder received a matrix with entries other than 0 and 1 (after summing"
+            " duplicate sparse entries, if applicable).  Reducing these entries mod 2.",
+            stacklevel=get_external_caller_stacklevel(),
+        )
+        entries %= 2
+    if scipy.sparse.issparse(output):
+        output.eliminate_zeros()
+    return output.astype(np.uint8, copy=False)
+
+
+####################################################################################################
+# decoder specifications
 
 
 def _get_decoder_relay_bp(
@@ -447,50 +470,14 @@ def _get_decoder_relay_bp(
     seed: int = 0,
     backend_options: Mapping[str, object] | None = None,
 ) -> RelayBPDecoder:
-    """Build a Relay-BP decoder from the relay-bp package.
-
-    See the `relay-bp package documentation <https://pypi.org/project/relay-bp>`_ and
-    `arXiv:2506.01779 <https://arxiv.org/abs/2506.01779>`_.
-
-    Args:
-        pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
-        precision: Numeric precision of the ``relay_bp.RelayDecoder<precision>`` backend class.
-        error_priors: Prior probability of each error mechanism.  Defaults to the probabilities of a
-            detector error model, or to a placeholder probability for a matrix.
-        observable_error_matrix: Binary matrix whose rows specify which error mechanisms flip which
-            observables, for a matrix input.  A detector error model supplies its own.
-        include_decode_result: Argument passed to ``relay_bp.ObservableDecoderRunner``.
-        add_erasure_bit: Whether to append a flag set when the error that Relay-BP settles on does
-            not reproduce the syndrome.
-        alpha: Backend option; see ``help(relay_bp.RelayDecoderF32)``.
-        alpha_iteration_scaling_factor: Backend option.
-        gamma0: Backend option.
-        data_scale_value: Backend option.
-        max_data_value: Backend option.
-        pre_iter: Backend option.
-        num_sets: Backend option.
-        set_max_iter: Backend option.
-        gamma_dist_interval: Backend option, or None for the backend default.
-        explicit_gammas: Backend option.
-        stop_nconv: Backend option.
-        stopping_criterion: Backend option, or None for the backend default.
-        logging: Backend option.
-        seed: Backend option.
-        backend_options: Additional options for the selected Relay-BP backend that are not listed
-            above.  The backend rejects unsupported names when the decoder is built.
-
-    Returns:
-        A :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when
-        observable metadata is available, predicts observable flips.
-    """
+    """Build a Relay-BP decoder; see ``decoders.relay_bp`` for its options."""
     optional_args = {
         "gamma_dist_interval": gamma_dist_interval,
         "stopping_criterion": stopping_criterion,
     }
-    return _get_relay_decoder(
+    return RelayBPDecoder(
         pcm_or_dem,
-        decoder_class_prefix="RelayDecoder",
-        precision=precision,
+        name=f"RelayDecoder{precision}",
         error_priors=error_priors,
         observable_error_matrix=observable_error_matrix,
         include_decode_result=include_decode_result,
@@ -530,40 +517,10 @@ def _get_decoder_min_sum_bp(
     frac_bits: int | None = None,
     backend_options: Mapping[str, object] | None = None,
 ) -> RelayBPDecoder:
-    """Build a min-sum belief-propagation decoder from the relay-bp package.
-
-    See the `relay-bp package documentation <https://pypi.org/project/relay-bp>`_ and
-    `arXiv:2506.01779 <https://arxiv.org/abs/2506.01779>`_.
-
-    Args:
-        pcm_or_dem: A parity-check matrix or detector error model (DEM) to decode.
-        precision: Numeric precision of the ``relay_bp.MinSumBPDecoder<precision>`` backend class.
-        error_priors: Prior probability of each error mechanism.  Defaults to the probabilities of a
-            detector error model, or to a placeholder probability for a matrix.
-        observable_error_matrix: Binary matrix whose rows specify which error mechanisms flip which
-            observables, for a matrix input.  A detector error model supplies its own.
-        include_decode_result: Argument passed to ``relay_bp.ObservableDecoderRunner``.
-        add_erasure_bit: Whether to append a flag set when the error that belief propagation settles
-            on does not reproduce the syndrome.
-        max_iter: Backend option; see ``help(relay_bp.MinSumBPDecoderF32)``.
-        alpha: Backend option.
-        alpha_iteration_scaling_factor: Backend option.
-        gamma0: Backend option.
-        data_scale_value: Backend option.
-        max_data_value: Backend option.
-        int_bits: Backend option for fixed-point precision.
-        frac_bits: Backend option for fixed-point precision.
-        backend_options: Additional options for the selected Relay-BP backend that are not listed
-            above.  The backend rejects unsupported names when the decoder is built.
-
-    Returns:
-        A :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`, which infers errors and, when
-        observable metadata is available, predicts observable flips.
-    """
-    return _get_relay_decoder(
+    """Build a min-sum BP decoder; see ``decoders.min_sum_bp`` for its options."""
+    return RelayBPDecoder(
         pcm_or_dem,
-        decoder_class_prefix="MinSumBPDecoder",
-        precision=precision,
+        name=f"MinSumBPDecoder{precision}",
         error_priors=error_priors,
         observable_error_matrix=observable_error_matrix,
         include_decode_result=include_decode_result,
@@ -591,7 +548,8 @@ the backend options.
 
 Args:
     precision: Numeric precision of the ``relay_bp.RelayDecoder<precision>`` backend.
-    error_priors: Prior error probabilities.  A DEM supplies its own unless overridden.
+    error_priors: Prior error probabilities.  A DEM supplies its own unless overridden, and a
+        matrix defaults to a placeholder probability.
     observable_error_matrix: Observable flips for each matrix-column error.  A DEM supplies
         its own matrix; do not pass this option with a DEM.
     include_decode_result: Whether the upstream observable runner retains decode results.
@@ -620,6 +578,7 @@ Returns:
 """,
 )
 
+
 min_sum_bp = decoder_spec(
     "min_sum_bp",
     _get_decoder_min_sum_bp,
@@ -631,7 +590,8 @@ the backend options.
 
 Args:
     precision: Numeric precision of the ``relay_bp.MinSumBPDecoder<precision>`` backend.
-    error_priors: Prior error probabilities.  A DEM supplies its own unless overridden.
+    error_priors: Prior error probabilities.  A DEM supplies its own unless overridden, and a
+        matrix defaults to a placeholder probability.
     observable_error_matrix: Observable flips for each matrix-column error.  A DEM supplies
         its own matrix; do not pass this option with a DEM.
     include_decode_result: Whether the upstream observable runner retains decode results.
@@ -653,54 +613,3 @@ Returns:
     :class:`~qldpc.decoders.external.relay_bp.RelayBPDecoder`.
 """,
 )
-
-
-####################################################################################################
-# private builder helpers
-
-
-def _get_relay_decoder(
-    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
-    *,
-    decoder_class_prefix: str,
-    precision: str,
-    **decoder_args: Any,
-) -> RelayBPDecoder:
-    """Build a RelayBPDecoder from a class-name prefix and precision."""
-    return _get_decoder_rbp(pcm_or_dem, name=f"{decoder_class_prefix}{precision}", **decoder_args)
-
-
-def _as_relay_bp_matrix(matrix: IntegerArray) -> IntegerArray:
-    """Return a binary matrix in a form that relay_bp accepts, leaving the given matrix unmodified.
-
-    relay_bp panics on sparse matrices with unsorted or duplicate indices, so this function copies
-    sparse inputs into a canonical CSC matrix.  This function also reduces entries mod 2 (after
-    summing sparse duplicates) and warns if that changes them, so that relay_bp decodes the same
-    GF(2) matrix that the RelayBPDecoder uses to check syndromes.  Finally, this function rejects
-    matrices with non-integer entries, and field arrays over fields other than GF(2).
-    """
-    if isinstance(matrix, galois.FieldArray):
-        if type(matrix).order != 2:
-            raise ValueError(
-                f"Relay-BP requires a binary matrix, but received a matrix over {type(matrix).name}"
-            )
-        return matrix.view(np.ndarray)
-    output: IntegerArray
-    if scipy.sparse.issparse(matrix):
-        output = scipy.sparse.csc_matrix(matrix, copy=True)
-        output.sum_duplicates()
-        entries = output.data
-    else:
-        output = entries = np.array(matrix)  # copy, so that reducing entries leaves matrix intact
-    if np.any(entries % 1):
-        raise ValueError("Relay-BP requires a matrix with integer entries")
-    if np.any((entries != 0) & (entries != 1)):
-        warnings.warn(
-            "RelayBPDecoder received a matrix with entries other than 0 and 1 (after summing"
-            " duplicate sparse entries, if applicable).  Reducing these entries mod 2.",
-            stacklevel=get_external_caller_stacklevel(),
-        )
-        entries %= 2
-    if scipy.sparse.issparse(output):
-        output.eliminate_zeros()
-    return output.astype(np.uint8, copy=False)

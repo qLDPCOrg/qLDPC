@@ -1,14 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Protocols for error and observable decoders, and helpers that coerce objects into them."""
+"""Decoder protocols and detailed results, with helpers that coerce and batch error decoders."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 import numpy.typing as npt
+
+from qldpc._deprecations.decoders import decode_returns_observables
 
 ####################################################################################################
 # detailed decode results
@@ -55,9 +58,9 @@ class ErrorDecoder(Protocol):
     An error decoder has a ``decode_errors`` method, and a ``decode`` method that is an alias for
     it.  A subclass of ErrorDecoder may implement either one, and inherits the other.
 
-    Methods of qLDPC that accept an error decoder also accept any object whose ``decode`` method
-    returns an inferred error, such as a decoder from the ldpc package, and wrap it to provide
-    ``decode_errors``.
+    Methods of qLDPC that accept an error decoder also accept an object that implements only one of
+    these methods, such as a decoder from the ldpc package, whose ``decode`` method returns an
+    inferred error, and wrap it to provide the other.
     """
 
     def decode_errors(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
@@ -171,13 +174,11 @@ class SupportsDecode(Protocol):
 # coercion into error decoders
 
 
-def as_error_decoder(decoder: object, source: str = "A decoder") -> ErrorDecoder:
+def _as_error_decoder(decoder: object, source: str = "A decoder") -> ErrorDecoder:
     """Coerce an object into an error decoder, or raise an error if it is not one.
 
-    An ErrorDecoder is returned as is.  Another object with a decode method is wrapped in a
-    WrappedErrorDecoder.  An object that predicts observable flips is rejected; this includes an
-    object whose decode_returns_observables attribute is True, which declares that its decode method
-    returns observable flips.
+    An ErrorDecoder is returned as is.  Another object with a decode_errors or decode method is
+    wrapped in a _WrappedErrorDecoder.  An object that predicts observable flips is rejected.
 
     Args:
         decoder: The object to coerce.
@@ -186,63 +187,64 @@ def as_error_decoder(decoder: object, source: str = "A decoder") -> ErrorDecoder
     predicts_observables = TypeError(
         f"{source} predicts observable flips rather than errors.  " + _OBSERVABLE_DECODER_ADVICE
     )
-    if getattr(decoder, "decode_returns_observables", False):
+    if decode_returns_observables(decoder):  # DEPRECATED: see qldpc._deprecations
         raise predicts_observables
     if isinstance(decoder, ErrorDecoder):
         return decoder
-    if not isinstance(decoder, SupportsDecode) and callable(
-        getattr(decoder, "compile_decoder_for_dem", None)
-    ):
+    if isinstance(decoder, SupportsDecode) or callable(getattr(decoder, "decode_errors", None)):
+        return _WrappedErrorDecoder(decoder)
+    if callable(getattr(decoder, "compile_decoder_for_dem", None)):
         raise TypeError(f"{source} cannot decode until it is compiled for a detector error model")
-    if isinstance(decoder, SupportsDecode):
-        return WrappedErrorDecoder(decoder)
     if isinstance(decoder, ObservableDecoder):
         raise predicts_observables
     raise TypeError(f"{source} must be an ErrorDecoder, or have a decode method")
 
 
-_OBSERVABLE_DECODER_ADVICE = (
-    "Pass an error-decoder specification such as decoders.bp_osd(...), or pass the observable decoder where"
-    " one is accepted, such as to decoders.SinterDecoder"
-)
+class _WrappedErrorDecoder(ErrorDecoder):
+    """Error decoder that wraps an object with only one of the decode and decode_errors methods.
 
-
-class WrappedErrorDecoder(ErrorDecoder):
-    """Error decoder that wraps an object whose decode method returns an inferred error.
-
-    The wrapped object is the .decoder attribute.  Its decode method provides decode_errors, its
-    decode_batch method (if any) provides decode_errors_batch, and its other attributes are readable
-    from the wrapper.
+    The wrapped object is the .decoder attribute.  Its decode or decode_errors method provides both
+    decoding methods, its decode_batch or decode_errors_batch method (if any) provides both batch
+    decoding methods, and its other attributes are readable from the wrapper.
     """
 
-    def __init__(self, decoder: SupportsDecode) -> None:
+    def __init__(self, decoder: object) -> None:
         self.decoder = decoder
 
-    def __getattr__(self, name: str) -> Any:
-        """Read an attribute of the wrapped object, reading decode_errors_batch as decode_batch.
+    def __getattr__(self, name: str) -> object:
+        """Read an attribute of the wrapped object, reading both batch methods as its batch method.
 
         Special (dunder) attributes are not read from the wrapped object, which keeps copying and
         unpickling from recursing before the wrapped object is set.
         """
         if name == "decoder" or (name.startswith("__") and name.endswith("__")):
             raise AttributeError(name)
-        return getattr(self.decoder, "decode_batch" if name == "decode_errors_batch" else name)
+        if name in ("decode_batch", "decode_errors_batch"):
+            name = "decode_batch" if hasattr(self.decoder, "decode") else "decode_errors_batch"
+        return getattr(self.decoder, name)
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.decoder!r})"
 
-    def decode_errors(self, syndrome: npt.NDArray[np.int_], *args: Any, **kwargs: Any) -> Any:
+    def decode_errors(self, syndrome: npt.NDArray[np.int_], *args: object, **kwargs: object) -> Any:
         """Decode an error syndrome and return an inferred error."""
-        return self.decoder.decode(syndrome, *args, **kwargs)
+        name = "decode" if hasattr(self.decoder, "decode") else "decode_errors"
+        return getattr(self.decoder, name)(syndrome, *args, **kwargs)
 
     decode = decode_errors
+
+
+_OBSERVABLE_DECODER_ADVICE = (
+    "Pass an error-decoder specification such as decoders.bp_osd(...), or pass the observable"
+    " decoder where one is accepted, such as to decoders.SinterDecoder"
+)
 
 
 ####################################################################################################
 # batch decoding
 
 
-def batch_decode_errors(
+def _batch_decode_errors(
     decoder: ErrorDecoder, syndromes: npt.NDArray[np.int_]
 ) -> npt.NDArray[np.int_]:
     """Decode a batch of syndromes, one per row, and return inferred errors, one per row.
@@ -259,11 +261,13 @@ def batch_decode_errors(
     return np.array([decoder.decode_errors(syndrome) for syndrome in syndromes])
 
 
-def supports_batch_decoding(decoder: ErrorDecoder) -> bool:
+def _supports_batch_decoding(decoder: ErrorDecoder) -> bool:
     """Whether an error decoder has a decode_errors_batch method, or its alias decode_batch."""
     return _get_batch_decoding_method(decoder) is not None
 
 
-def _get_batch_decoding_method(decoder: ErrorDecoder) -> Any:
+def _get_batch_decoding_method(
+    decoder: ErrorDecoder,
+) -> Callable[[npt.NDArray[np.int_]], object] | None:
     """The decode_errors_batch method of an error decoder, its alias decode_batch, or None."""
     return getattr(decoder, "decode_errors_batch", None) or getattr(decoder, "decode_batch", None)

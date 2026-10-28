@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-import warnings
+import re
 from typing import Any
 
 import galois
@@ -14,9 +14,8 @@ import pytest
 import stim
 
 from qldpc import decoders
+from qldpc._deprecations import decoders as deprecated_decoders
 from qldpc.decoders import common
-from qldpc.decoders.common import _deprecate_error_rate_option
-from qldpc.decoders.external.ldpc import _get_decoder_bp_osd
 
 
 def test_get_error_and_erasure() -> None:
@@ -63,12 +62,16 @@ def test_with_erasure_bits() -> None:
 def test_erasure_bit_support_decorator() -> None:
     """Erasure support declarations enforce capabilities and use an explicit display name."""
 
+    class NoErasureDecoder(decoders.ErrorDecoder):
+        def decode_errors(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return syndrome
+
     @common._erasure_bit_support("Friendly Name", supported=True)
     def unusually_named_builder(
         matrix: npt.NDArray[np.int_], *, add_erasure_bit: bool = False
     ) -> decoders.ErrorDecoder:
-        del add_erasure_bit
-        return _get_decoder_bp_osd(matrix)
+        del matrix, add_erasure_bit
+        return NoErasureDecoder()
 
     with pytest.raises(ValueError, match="The Friendly Name decoder cannot signal erasure"):
         unusually_named_builder(np.eye(1, dtype=int), add_erasure_bit=True)
@@ -77,10 +80,11 @@ def test_erasure_bit_support_decorator() -> None:
     def unsupported_builder(
         matrix: npt.NDArray[np.int_], *, add_erasure_bit: bool = False
     ) -> decoders.ErrorDecoder:
-        del add_erasure_bit
-        return _get_decoder_bp_osd(matrix)
+        del matrix, add_erasure_bit
+        return NoErasureDecoder()
 
-    assert unsupported_builder(np.eye(1, dtype=int), add_erasure_bit=False)
+    decoder = unsupported_builder(np.eye(1, dtype=int), add_erasure_bit=False)
+    assert np.array_equal(decoder.decode_errors(np.array([1])), [1])
     with pytest.raises(ValueError, match="The unsupported decoder cannot signal erasure"):
         unsupported_builder(np.eye(1, dtype=int), add_erasure_bit=True)
 
@@ -101,7 +105,7 @@ def test_get_matrix_error_channel() -> None:
     assert default_channel is not None
     assert np.array_equal(
         default_channel,
-        [common.PLACEHOLDER_ERROR_RATE] * 2,
+        [common._PLACEHOLDER_ERROR_RATE] * 2,
     )
     channel = np.array([0.1, 0.2])
     normalized_channel = common._get_matrix_error_channel(matrix, channel, None)
@@ -129,14 +133,8 @@ def test_get_matrix_error_channel() -> None:
         (0.2, None, "error_channel=0.2"),
         (0.2, 0.3, "error_channel=0.2 and error_rate=0.3"),
     ):
-        with pytest.raises(ValueError) as error:
+        with pytest.raises(ValueError, match=f"so {re.escape(specified)} cannot"):
             common._get_matrix_error_channel(dem, error_channel, error_rate)
-        message = str(error.value)
-        assert message.startswith(
-            f"A detector error model supplies its own error probabilities, so {specified} cannot"
-        )
-        assert "SinterDecoder" in message
-        assert "DetectorErrorModelArrays(dem).detector_flip_matrix" in message
 
 
 def test_dem_error_probabilities_through_public_paths() -> None:
@@ -152,45 +150,9 @@ def test_dem_error_probabilities_through_public_paths() -> None:
     with pytest.raises(ValueError, match=match):
         legacy_sinter_decoder.compile_decoder_for_dem(dem)
     with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match=match):
-        decoders.get_decoder(dem, with_BP_LSD=True, error_rate=0.1)
+        deprecated_decoders.get_decoder(dem, with_BP_LSD=True, error_rate=0.1)
 
     # the suggested alternative decodes the detector-flip matrix with the given probabilities
     matrix = decoders.DetectorErrorModelArrays(dem).detector_flip_matrix
     decoder: Any = decoders.bp_osd(error_channel=0.3).build(matrix)
     assert np.array_equal(decoder.error_channel, [0.3, 0.3, 0.3])
-
-
-def test_deprecate_error_rate_option() -> None:
-    """Deferred options translate explicit error_rate values and reject ambiguity."""
-    options: dict[str, object] = {"error_channel": None, "error_rate": None}
-    assert _deprecate_error_rate_option(options, frozenset()) == {"error_channel": None}
-
-    with pytest.warns(DeprecationWarning, match="error_rate=0.2.*error_channel=0.2") as caught:
-        translated = _deprecate_error_rate_option(
-            {"error_channel": None, "error_rate": 0.2},
-            frozenset({"error_rate"}),
-        )
-    assert caught[0].filename == __file__
-    assert translated == {"error_channel": 0.2}
-
-    with pytest.raises(ValueError, match="cannot both be specified"):
-        _deprecate_error_rate_option(
-            {"error_channel": 0.1, "error_rate": 0.2},
-            frozenset({"error_channel", "error_rate"}),
-        )
-
-    # an explicit error_rate=None is equivalent to omitting it
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        translated = _deprecate_error_rate_option(
-            {"error_channel": 0.1, "error_rate": None},
-            frozenset({"error_channel", "error_rate"}),
-        )
-        assert translated == {"error_channel": 0.1}
-        for helper in (decoders.bp_osd, decoders.tesseract):
-            assert helper(error_rate=None).options == helper().options
-            assert helper(error_rate=None, error_channel=0.1).options["error_channel"] == 0.1
-        assert (
-            decoders.tesseract_preset(error_rate=None, error_channel=0.1).options["error_channel"]
-            == 0.1
-        )

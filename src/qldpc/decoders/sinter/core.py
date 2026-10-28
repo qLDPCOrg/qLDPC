@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import pathlib
-import warnings
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -13,17 +12,15 @@ import numpy.typing as npt
 import sinter
 import stim
 
-from qldpc._util import get_external_caller_stacklevel
+from qldpc import _deprecations
+from qldpc._deprecations.decoders import merge_legacy_decoder_args, reject_removed_decoder_args
 
+from ..adapters._observable_decoders import split_discard_byte
 from ..adapters.error_decoders import ErrorsToObservablesDecoder
-from ..construction.legacy import (
-    get_legacy_decoder_migration_message,
-    reject_removed_decoder_args,
-)
-from ..construction.resolution import _resolve_observable_decoder, reject_prebuilt_decoder
+from ..construction._resolution import build_observable_decoder, reject_prebuilt_decoder
 from ..construction.specs import DecoderSpec, DeferredDecoderInput
 from ..dems import DetectorErrorModelArrays
-from ..protocols import ErrorDecoder, ObservableDecoder, as_error_decoder
+from ..protocols import ErrorDecoder, ObservableDecoder, _as_error_decoder
 
 # sinter does not ship type information, so mypy treats sinter.Decoder and sinter.CompiledDecoder as
 # Any.  A subclass of Any is assumed to have every attribute, so it would structurally satisfy the
@@ -56,26 +53,25 @@ class SinterDecoder(_SinterDecoder):
     def __init__(
         self,
         *,
+        decoder: DeferredDecoderInput = None,
         simplify: bool = True,
         decompose_errors: bool = False,
-        decoder: DeferredDecoderInput = None,
-        **decoder_kwargs: object,
+        **decoder_kwargs: object,  # DEPRECATED: see qldpc._deprecations
     ) -> None:
         """Initialize a SinterDecoder.
 
         See help(sinter.Decoder) for additional information.
 
         Args:
+            decoder: A decoder specification such as ``decoders.mwpm(...)``, or None for the default
+                decoder.  It is built for each (simplified) detector error model.
             simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for that
                 DEM.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
-            decoder: A decoder specification such as ``decoders.mwpm(...)``, or None for the default
-                decoder.  It is built for each (simplified) detector error model.
             **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
                 ``decoder=`` instead.
         """
-        reject_removed_decoder_args(decoder_kwargs)
         reject_prebuilt_decoder(decoder, self._prebuilt_decoder_rejection_reason)
         if (
             decompose_errors
@@ -90,19 +86,18 @@ class SinterDecoder(_SinterDecoder):
         self.simplify = simplify
         self.decompose_errors = decompose_errors
         self.decoder_input = decoder
+
+        # DEPRECATED: see qldpc._deprecations
         self.decoder_kwargs = decoder_kwargs
         if decoder_kwargs:
-            warnings.warn(
-                get_legacy_decoder_migration_message(None, decoder_kwargs),
-                DeprecationWarning,
-                stacklevel=get_external_caller_stacklevel(),
-            )
-        if "priors_arg" in decoder_kwargs or "log_likelihood_priors" in decoder_kwargs:
-            raise ValueError(
-                "The 'priors_arg' and 'log_likelihood_priors' arguments to a SinterDecoder are"
-                " DEFUNCT and should no longer be necessary.\nIf you need these arguments restored,"
-                " please open an issue at https://github.com/qLDPCOrg/qLDPC/issues"
-            )
+            reject_removed_decoder_args(decoder_kwargs)
+            if "priors_arg" in decoder_kwargs or "log_likelihood_priors" in decoder_kwargs:
+                raise _deprecations.defunct(
+                    "The 'priors_arg' and 'log_likelihood_priors' arguments to a SinterDecoder are"
+                    " DEFUNCT and should no longer be necessary.\nIf you need these arguments"
+                    " restored, please open an issue at https://github.com/qLDPCOrg/qLDPC/issues"
+                )
+            self.decoder_input = merge_legacy_decoder_args(None, decoder, decoder_kwargs)
 
     def compile_decoder_for_dem(self, dem: stim.DetectorErrorModel) -> CompiledSinterDecoder:
         """Creates a decoder preconfigured for the given detector error model.
@@ -112,11 +107,8 @@ class SinterDecoder(_SinterDecoder):
         dem_arrays = DetectorErrorModelArrays(
             dem, simplify=self.simplify, decompose_errors=self.decompose_errors
         )
-        observable_decoder = _resolve_observable_decoder(
-            dem_arrays.to_dem(),
-            self.decoder_input,
-            self.decoder_kwargs.copy(),
-            warn_deprecated=False,
+        observable_decoder = build_observable_decoder(
+            dem_arrays.to_dem(), decoder=self.decoder_input
         )
         return CompiledSinterDecoder(dem_arrays, observable_decoder)
 
@@ -142,20 +134,13 @@ class SinterDecoder(_SinterDecoder):
         shots discarded instead of predicted.
         """
         num_detector_bytes = -(-num_dets // 8)
-        num_observable_bytes = -(-num_obs // 8)
         detection_event_data = np.fromfile(
             dets_b8_in_path, dtype=np.uint8, count=num_shots * num_detector_bytes
         ).reshape(num_shots, num_detector_bytes)
 
         compiled_decoder = self.compile_decoder_for_dem(stim.DetectorErrorModel.from_file(dem_path))
         predicted_flips = compiled_decoder.decode_shots_bit_packed(detection_event_data)
-        if predicted_flips.shape[1] not in (num_observable_bytes, num_observable_bytes + 1):
-            raise ValueError(
-                f"This decoder predicted {predicted_flips.shape[1]} bytes of observable flips per"
-                f" shot, but {num_obs} observables take {num_observable_bytes} bytes, or"
-                f" {num_observable_bytes + 1} bytes with a byte added to signal discards"
-            )
-        observable_flips = predicted_flips[:, :num_observable_bytes]
+        observable_flips, _ = split_discard_byte(predicted_flips, num_shots, num_obs)
         observable_flips.tofile(obs_predictions_b8_out_path)
 
 
@@ -206,7 +191,7 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
         else:
             self.decoder = decoder
             self.observable_decoder = ErrorsToObservablesDecoder(
-                as_error_decoder(decoder, "The decoder"), dem_arrays.to_dem()
+                _as_error_decoder(decoder, "The decoder"), dem_arrays.to_dem()
             )
         self.num_detectors = dem_arrays.num_detectors
         self.num_observables = dem_arrays.num_observables
@@ -350,7 +335,7 @@ class CompiledTrivialDecoder(CompiledSinterDecoder):
     def __init__(self, num_detectors: int, num_observables: int) -> None:
         self.num_detectors = num_detectors  # for compatibility with the parent class
         self.num_observables = num_observables
-        self.packed_observable_size = (num_observables + 7) // 8
+        self._packed_observable_size = (num_observables + 7) // 8
 
     def decode_shots_bit_packed(
         self, bit_packed_detection_event_data: npt.NDArray[np.uint8]
@@ -361,7 +346,7 @@ class CompiledTrivialDecoder(CompiledSinterDecoder):
 
         See help(sinter.CompiledDecoder) for additional information.
         """
-        shape = (len(bit_packed_detection_event_data), self.packed_observable_size)
+        shape = (len(bit_packed_detection_event_data), self._packed_observable_size)
         return np.zeros(shape, dtype=np.uint8)
 
     def decode_shots(self, detection_event_data: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:

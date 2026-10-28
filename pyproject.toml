@@ -4,7 +4,7 @@ requires = [ "uv-build>=0.9.18,<0.13" ]
 
 [project]
 name = "qldpc"
-version = "0.4.2.dev20261004"
+version = "0.4.2.dev20261023"
 description = "Tools for constructing and analyzing quantum low density parity check (qLDPC) codes."
 readme = "README.md"
 keywords = [
@@ -30,22 +30,23 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
-  "cvxpy>=1.3.2",
   "diskcache>=5",
-  "galois>=0.4.2",
+  "galois>=0.4.11",
   "ldpc>=2.4.1",
-  "networkx>=2.6.2",
-  "numpy>=1.24",
+  "networkx>=2.7",
+  "numba>=0.61.2",   # floor tested with Python 3.11 and NumPy 2.1
+  "numpy>=2.1",
   "platformdirs>=4",
   "pymatching>=2.3",
   "pyperclip>=1.11",
-  "scipy>=1.14.1",
+  "scipy>=1.16",     # earlier MILP solvers can return non-solutions to ILP decoding
   "sinter>=1.16",
   "stim>=1.16",
-  "sympy>=1.12",
+  "sympy>=1.12.1",   # 1.12 accepts mpmath 1.4, which it cannot import
   "tqdm>=4",
 ]
 optional-dependencies.decoders = [
+  "qldpc[ilp]",
   "qldpc[relay-bp]",
   """\
   qldpc[tesseract]; ((sys_platform=='darwin' and platform_machine=='arm64') or (sys_platform=='linux' and \
@@ -72,6 +73,9 @@ optional-dependencies.docs = [
 ]
 optional-dependencies.gap = [
   "passagemath-gap==10.8.12; python_version=='3.13' and sys_platform!='win32'",
+]
+optional-dependencies.ilp = [
+  "cvxpy>=1.5.3", # earlier releases do not import with NumPy 2
 ]
 optional-dependencies.relay-bp = [ "relay-bp[stim]==0.2.2" ]
 optional-dependencies.tesseract = [
@@ -150,8 +154,8 @@ run.include = [ "./*" ]
 run.parallel = true
 run.patch = [ "subprocess" ]
 # Statement coverage only.  Branch coverage is deliberately not gated: a handful of arcs flip with
-# the pytest-randomly seed and with the installed numpy version, so gating it would make pass/fail
-# nondeterministic.  Audit it on demand with "checks/coverage_.py --branch".
+# the pytest-randomly seed, so gating it would make pass/fail nondeterministic.  Audit it on demand
+# with "checks/coverage_.py --branch".
 report.fail_under = 100
 report.skip_covered = true
 report.show_missing = true

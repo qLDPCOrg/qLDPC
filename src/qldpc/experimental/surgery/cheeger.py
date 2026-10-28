@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Cheeger and distance boost transformations for surgery gadgets.
 
 References:
@@ -8,23 +10,9 @@ References:
 
     Williamson & Yoder arXiv:2410.02213 — augmenting the auxiliary graph to preserve distance:
         random edges until h(G) ≥ 1 (proof of Thm 3 step 2), with d* ≥ min(h(G), 1)·d (Methods
-        Lemma 2), and BP+OSD-screened random augmentation (Suppl. "BB code examples —
-        Gross code").  That paper has no numbered sections.  The greedy worst-cut search here is
-        neither paper's.
-
-Copyright 2026 The qLDPC Authors
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+        Lemma 2), and BP+OSD-screened random augmentation (Suppl. "BB code examples — Gross
+        code").  That paper has no numbered sections.  The greedy worst-cut search here is neither
+        paper's.
 """
 
 from __future__ import annotations
@@ -71,9 +59,9 @@ def cheeger_constant(g: GadgetLayout) -> float:
     if incidence.shape[1] > 26:
         raise ValueError(
             f"cheeger_constant requires |V_0| ≤ 26 for an exact value; got "
-            f"|V_0|={incidence.shape[1]}. Enumeration cost quadruples per additional 2 columns, and "
-            f"no bound on h(F) is computed in its place, so no value can be returned; compute the "
-            f"exact code distance instead."
+            f"|V_0|={incidence.shape[1]}. Enumeration cost quadruples per additional 2 columns, "
+            f"and no bound on h(F) is computed in its place, so no value can be returned; compute "
+            f"the exact code distance instead."
         )
     h, _ = _exact_boundary_cheeger(incidence)
     return h

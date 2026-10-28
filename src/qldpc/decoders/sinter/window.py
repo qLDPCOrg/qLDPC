@@ -12,11 +12,11 @@ import numpy as np
 import numpy.typing as npt
 import stim
 
-from ..adapters.error_decoders import match_error_decoder_to_dem
-from ..construction.resolution import _resolve_error_decoder
+from ..adapters.error_decoders import _match_error_decoder_to_dem
+from ..construction._resolution import build_error_decoder
 from ..construction.specs import DeferredErrorDecoderInput
 from ..dems import DetectorErrorModelArrays
-from ..protocols import ErrorDecoder, batch_decode_errors
+from ..protocols import ErrorDecoder, _batch_decode_errors
 from .core import CompiledSinterDecoder, SinterDecoder
 
 
@@ -64,7 +64,7 @@ class SequentialWindowDecoder(SinterDecoder):
         simplify: bool = True,
         decompose_errors: bool = False,
         decoder: DeferredErrorDecoderInput = None,
-        **decoder_kwargs: object,
+        **decoder_kwargs: object,  # DEPRECATED: see qldpc._deprecations
     ) -> None:
         """Initialize an observable decoder that splits a detector error model into windows.
 
@@ -94,7 +94,7 @@ class SequentialWindowDecoder(SinterDecoder):
             simplify=simplify,
             decompose_errors=decompose_errors,
             decoder=decoder,
-            **decoder_kwargs,
+            **decoder_kwargs,  # DEPRECATED: see qldpc._deprecations
         )
 
         if commit_regions is not None and len(detection_regions) != len(commit_regions):
@@ -117,6 +117,12 @@ class SequentialWindowDecoder(SinterDecoder):
 
         See help(sinter.Decoder) for additional information.
         """
+        return self._compile_windows(dem, self.windows)
+
+    def _compile_windows(
+        self, dem: stim.DetectorErrorModel, windows: Sequence[tuple[list[int], list[int]]]
+    ) -> CompiledSequentialWindowDecoder:
+        """Compile a decoder for each (detection region, commit region) window of a model."""
         dem_arrays = DetectorErrorModelArrays(
             dem, simplify=self.simplify, decompose_errors=self.decompose_errors
         )
@@ -126,7 +132,7 @@ class SequentialWindowDecoder(SinterDecoder):
         window_errors = []
         window_decoders = []
         addressed_errors = np.zeros(dem_arrays.num_errors, dtype=bool)
-        for d_detectors, c_detectors in self.windows:
+        for d_detectors, c_detectors in windows:
             # identify errors in the detection region
             d_errors = dem_arrays.detector_flip_matrix[d_detectors].getnnz(axis=0) != 0
             d_errors[addressed_errors] = False
@@ -138,16 +144,11 @@ class SequentialWindowDecoder(SinterDecoder):
                 dem_arrays.error_probs[d_errors],
             )
             window_dem = window_dem_arrays.to_dem()
-            window_decoder = _resolve_error_decoder(
-                window_dem,
-                self.decoder_input,
-                self.decoder_kwargs.copy(),
-                warn_deprecated=False,
-            )
+            window_decoder = build_error_decoder(window_dem, decoder=self.decoder_input)
             # Windows commit inferred errors, so they need error decoders.  Restricting the DEM to
             # this window may leave equivalent error mechanisms, which the window_decoder may merge
             # into one, so align the errors that it infers with the error mechanisms of the window.
-            window_decoder = match_error_decoder_to_dem(window_decoder, window_dem)
+            window_decoder = _match_error_decoder_to_dem(window_decoder, window_dem)
 
             # identify errors in the commit region
             c_errors = dem_arrays.detector_flip_matrix[c_detectors].getnnz(axis=0) != 0
@@ -266,7 +267,7 @@ class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
             ) % 2
 
             # decode this syndrome and update the net error appropriately
-            decoded_error = batch_decode_errors(decoder, syndromes)
+            decoded_error = _batch_decode_errors(decoder, syndromes)
             if getattr(decoder, "has_erasure_bit", False):
                 erased |= decoded_error[:, -1] != 0
                 decoded_error = decoded_error[:, :-1]
@@ -320,7 +321,7 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
         simplify: bool = True,
         decompose_errors: bool = False,
         decoder: DeferredErrorDecoderInput = None,
-        **decoder_kwargs: object,
+        **decoder_kwargs: object,  # DEPRECATED: see qldpc._deprecations
     ) -> None:
         """Initialize an observable decoder that splits a model into temporal windows.
 
@@ -364,7 +365,7 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             simplify=simplify,
             decompose_errors=decompose_errors,
             decoder=decoder,
-            **decoder_kwargs,
+            **decoder_kwargs,  # DEPRECATED: see qldpc._deprecations
         )
 
         if not window_size >= stride > 0:
@@ -415,7 +416,7 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             detector_to_time = coordinate_to_time
 
         # construct windows defined by "detection" and "commit" regions
-        self.windows = []
+        windows: list[tuple[list[int], list[int]]] = []
         for detectors in self.detector_subsets or [range(dem.num_detectors)]:
             # collect detectors according to their time index
             time_to_dets: dict[int, list[int]] = collections.defaultdict(list)
@@ -426,6 +427,8 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                         f"detector {detector} has an invalid (non-integer) time index: {time}"
                     )
                 time_to_dets[int(time)].append(detector)
+            if not time_to_dets:
+                continue
 
             # add one window at a time (except the last window)
             start_time = min(time_to_dets)
@@ -439,22 +442,18 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                     [det for dets in window_time_to_dets for det in dets],
                     [det for dets in window_time_to_dets[: self.stride] for det in dets],
                 )
-                self.windows.append(window)
+                windows.append(window)
                 start_time += self.stride
 
             # add last window
             window_time_to_dets = [time_to_dets[tt] for tt in range(start_time, end_time)]
             last_dets = [det for dets in window_time_to_dets for det in dets]
-            self.windows.append((last_dets, last_dets))
+            windows.append((last_dets, last_dets))
 
         # drop windows with nothing to commit, which arise from gaps between time indices
-        self.windows = [(d_dets, c_dets) for d_dets, c_dets in self.windows if c_dets]
+        windows = [(d_dets, c_dets) for d_dets, c_dets in windows if c_dets]
 
-        return SequentialWindowDecoder.compile_decoder_for_dem(self, dem)
-
-
-####################################################################################################
-# helper methods
+        return self._compile_windows(dem, windows)
 
 
 def _time_coordinate(dem_coords: dict[int, list[float]]) -> int:

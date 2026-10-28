@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Miscellaneous circuit utilities."""
+"""Circuit types, qubit remapping, measurement utilities, and the guard for qubit-only methods."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ import stim
 
 from qldpc import codes, math
 
-CircuitOrTableau = TypeVar("CircuitOrTableau", stim.Circuit, stim.Tableau)
-Params = ParamSpec("Params")
+_ReturnType = TypeVar("_ReturnType")
+_Params = ParamSpec("_Params")
 
 
 class StimCircuitProtocol(Protocol):
@@ -64,23 +64,6 @@ class StimCircuitProtocol(Protocol):
 # type functions that are generic over stim.Circuit and stim-wrapping circuits while preserving the
 # concrete circuit type of their input.
 StimCircuitLike = TypeVar("StimCircuitLike", bound=StimCircuitProtocol)
-
-
-def restrict_to_qubits(
-    func: Callable[Params, CircuitOrTableau],
-) -> Callable[Params, CircuitOrTableau]:
-    """Restrict a circuit or tableau constructor to qubit-based codes."""
-
-    @functools.wraps(func)
-    def qubit_func(*args: Params.args, **kwargs: Params.kwargs) -> CircuitOrTableau:
-        if any(
-            isinstance(arg, codes.QuditCode) and arg.field is not galois.GF2
-            for arg in itertools.chain(args, kwargs.values())
-        ):
-            raise ValueError("Circuit methods are only supported for qubit codes")
-        return func(*args, **kwargs)
-
-    return qubit_func
 
 
 def with_remapped_qubits(
@@ -176,6 +159,10 @@ def get_pauli_product_measurements(
     Args:
         pauli_strings: Pauli strings or symplectic rows to measure.
         qubits: Optional physical-qubit labels corresponding to the columns of each Pauli string.
+
+    Raises:
+        ValueError: If a Pauli string is the identity, or if qubits is provided and a Pauli string
+            does not act on exactly len(qubits) qubits.
     """
     if isinstance(pauli_strings, np.ndarray):
         pauli_strings = [math.op_to_string(op) for op in np.atleast_2d(pauli_strings)]
@@ -185,6 +172,11 @@ def get_pauli_product_measurements(
     for string in pauli_strings:
         if not any(pauli in "XYZ" for pauli in str(string)):
             raise ValueError("Pauli-product measurements cannot contain an all-identity row")
+        if qubits is not None and len(string) != len(qubits):
+            raise ValueError(
+                f"A Pauli string acts on {len(string)} qubits, but {len(qubits)} qubit labels were"
+                " provided"
+            )
         circuit.append("MPP", stim.target_combined_paulis(string))
     return circuit if qubits is None else with_remapped_qubits(circuit, qubits)
 
@@ -208,3 +200,20 @@ def get_unaddressed_measurements(circuit: stim.Circuit) -> list[int]:
                 if target.is_measurement_record_target
             }
     return sorted(set(measurements) - addressed_measurements)
+
+
+def _restrict_to_qubits(
+    func: Callable[_Params, _ReturnType],
+) -> Callable[_Params, _ReturnType]:
+    """Restrict a circuit or tableau constructor to qubit-based codes."""
+
+    @functools.wraps(func)
+    def qubit_func(*args: _Params.args, **kwargs: _Params.kwargs) -> _ReturnType:
+        if any(
+            isinstance(arg, codes.QuditCode) and arg.field is not galois.GF2
+            for arg in itertools.chain(args, kwargs.values())
+        ):
+            raise ValueError("Circuit methods are only supported for qubit codes")
+        return func(*args, **kwargs)
+
+    return qubit_func

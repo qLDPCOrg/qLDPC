@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Classes to define the AlphaSyndrome syndrome measurement strategies."""
+"""The AlphaSyndrome syndrome measurement strategy, based on Monte Carlo tree search."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import random
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 import sinter
@@ -20,17 +21,17 @@ from qldpc import codes, decoders
 from qldpc.objects import Pauli, PauliXZ
 
 from ..bookkeeping import MeasurementRecord, QubitIDs
-from ..common import get_pauli_product_measurements, restrict_to_qubits, with_remapped_qubits
+from ..common import _restrict_to_qubits, get_pauli_product_measurements, with_remapped_qubits
 from ..noise_model import NoiseModel, as_noiseless_circuit
-from .syndrome_measurement import SyndromeMeasurementStrategy, validate_syndrome_qubit_ids
+from .syndrome_measurement import SyndromeMeasurementStrategy, _validate_syndrome_qubit_ids
 
 # Scrappy type to represent a schedule of two-qubit gates: A list whose t-th entry is a list of
 # gates to apply at time t.  For the purposes of this schedule, a "gate" is just an ordered pair of
 # target qubits.
-GateSchedule = list[list[tuple[int, int]]]
+_GateSchedule = list[list[tuple[int, int]]]
 
 # default decoder used to estimate logical error rates while searching for a measurement schedule
-DEFAULT_SINTER_DECODER = decoders.SinterDecoder()
+_DEFAULT_SINTER_DECODER = decoders.SinterDecoder()
 
 
 ####################################################################################################
@@ -52,7 +53,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
     def __init__(
         self,
         noise_model: NoiseModel,
-        decoder: sinter.Decoder | str = DEFAULT_SINTER_DECODER,
+        decoder: sinter.Decoder | str | decoders.DeferredDecoderInput = _DEFAULT_SINTER_DECODER,
         iters_per_step: int = 1000,
         shots_per_iter: int = 10000,
         exploration_weight: float = math.sqrt(2),
@@ -74,7 +75,8 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             noise_model: The noise model to append to the syndrome measurement circuit.
             decoder: The decoder that Sinter will use to compute logical error rates.  If this
                 argument is a string, it must be a decoder name recognized by Sinter, such as
-                "pymatching" or "fusion_blossom".
+                "pymatching" or "fusion_blossom".  A qLDPC decoder input, such as the specification
+                ``decoders.bp_osd()``, is wrapped in ``decoders.SinterDecoder(decoder=decoder)``.
             iters_per_step: Cumulative visit budget for each MCTS root as scheduling advances
                 (default: 1000).  Existing subtree visits count toward this budget.
             shots_per_iter: Number of times to sample evaluation circuits (default: 10000).
@@ -103,12 +105,15 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         if isinstance(decoder, str):
             self.sinter_decoding_kwargs = {"decoder": decoder}
         else:
+            # sinter.predict_observables decodes by calling decode_via_files
+            if not hasattr(decoder, "decode_via_files"):
+                decoder = decoders.SinterDecoder(decoder=decoder)
             self.sinter_decoding_kwargs = {
                 "decoder": "custom",
-                "custom_decoders": {"custom": decoder},
+                "custom_decoders": {"custom": cast(sinter.Decoder, decoder)},
             }
 
-    @restrict_to_qubits
+    @_restrict_to_qubits
     def get_circuit(
         self, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
     ) -> tuple[stim.Circuit, MeasurementRecord]:
@@ -127,7 +132,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             raise TypeError(
                 "The AlphaSyndrome strategy for syndrome measurement only supports CSS codes"
             )
-        qubit_ids = validate_syndrome_qubit_ids(code, qubit_ids)
+        qubit_ids = _validate_syndrome_qubit_ids(code, qubit_ids)
 
         # the heavy lifting: schedule gates
         schedule_cx = self._build_schedule(code, Pauli.X)
@@ -147,7 +152,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         record = MeasurementRecord({qubit: [mm] for mm, qubit in enumerate(qubit_ids.check)})
         return circuit, record
 
-    def _build_schedule(self, code: codes.CSSCode, basis: PauliXZ) -> GateSchedule:
+    def _build_schedule(self, code: codes.CSSCode, basis: PauliXZ) -> _GateSchedule:
         """Schedule the gates that extract basis-type stabilizers of a CSS code."""
         # identify gates that need to be scheduled, as (control, target) pairs
         graph = code.get_graph(basis)
@@ -159,7 +164,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             print(f"Building gate schedule for {basis}-type syndrome extraction circuit...")
 
         # schedule one gate at a time with MCTS
-        node = TreeNode(TreeState.head(gates))
+        node = _TreeNode(_TreeState.head(gates))
         evaluation_data = self._get_evaluation_data(code, basis)
         for step in range(len(gates)):
             node = self._schedule_one_gate(
@@ -177,11 +182,11 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         self,
         code: codes.CSSCode,
         basis: PauliXZ,
-        root: TreeNode,
+        root: _TreeNode,
         *,
         step: int,
         evaluation_data: tuple[stim.Circuit, int, int],
-    ) -> TreeNode:
+    ) -> _TreeNode:
         """Schedule one gate by penalizing its contribution to logical error rates."""
         exploration_iterator = range(self.iters_per_step - root.visits)
 
@@ -241,7 +246,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         self,
         code: codes.CSSCode,
         basis: PauliXZ,
-        schedule: GateSchedule,
+        schedule: _GateSchedule,
         evaluation_data: tuple[stim.Circuit, int, int] | None = None,
     ) -> stim.Circuit:
         """Build the circuit used to evaluate a gate schedule.
@@ -288,22 +293,22 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         return measurements, len(stabilizers), len(logical_ops)
 
 
-class TreeNode:
+class _TreeNode:
     """Node of a tree for Monte Carlo tree search (MCTS).
 
-    TreeNode is agnostic to the problem being solved by MCTS.  All problem data is handled by the
-    TreeState.
+    _TreeNode is agnostic to the problem being solved by MCTS.  All problem data is handled by the
+    _TreeState.
 
     References:
 
     - https://en.wikipedia.org/wiki/Monte_Carlo_tree_search
     """
 
-    def __init__(self, state: TreeState, parent: TreeNode | None = None) -> None:
+    def __init__(self, state: _TreeState, parent: _TreeNode | None = None) -> None:
         self.state = state
         self.parent = parent
 
-        self.children: list[TreeNode] = []
+        self.children: list[_TreeNode] = []
         self.unvisited = state.transitions()
 
         self.visits = 0
@@ -317,10 +322,10 @@ class TreeNode:
         """Have we constructed all children of this node?"""
         return len(self.unvisited) == 0
 
-    def expand(self) -> TreeNode:
+    def expand(self) -> _TreeNode:
         """Construct a child of this node."""
         child_state = self.state.select(self.unvisited.pop())
-        child_node = TreeNode(child_state, self)
+        child_node = _TreeNode(child_state, self)
         self.children.append(child_node)
         return child_node
 
@@ -331,7 +336,7 @@ class TreeNode:
         if self.parent:
             self.parent.backpropagate(reward)
 
-    def simulate(self, rng: random.Random | None = None) -> TreeState:
+    def simulate(self, rng: random.Random | None = None) -> _TreeState:
         """Select transitions at random until we reach a terminal node, and return its state."""
         rng = rng or random.Random()
         state = self.state
@@ -339,11 +344,11 @@ class TreeNode:
             state = state.select(rng.choice(state.transitions()))
         return state
 
-    def best_child(self, exploration_weight: float) -> TreeNode:
+    def best_child(self, exploration_weight: float) -> _TreeNode:
         """Select a child of this node with the highest UCB score."""
         assert self.children
 
-        def ucb_score(child: TreeNode) -> float:
+        def ucb_score(child: _TreeNode) -> float:
             if child.visits == 0:
                 return float("inf")
             return child.value / child.visits + exploration_weight * math.sqrt(
@@ -354,7 +359,7 @@ class TreeNode:
 
 
 @dataclass(slots=True)
-class TreeState:
+class _TreeState:
     """The state of an MCTS tree, representing a (possibly incomplete) gate schedule."""
 
     gates: list[tuple[int, int]]
@@ -362,11 +367,11 @@ class TreeState:
     target_to_min_time: list[int]  # minimum time index for a new gate on a target
 
     @staticmethod
-    def head(gates: Sequence[tuple[int, int]]) -> TreeState:
-        """A TreeState in which no gates have been scheduled."""
+    def head(gates: Sequence[tuple[int, int]]) -> _TreeState:
+        """A _TreeState in which no gates have been scheduled."""
         num_gates = len(gates)
         num_targets = max((target for gate in gates for target in gate), default=-1) + 1
-        return TreeState(list(gates), [None] * num_gates, [0] * num_targets)
+        return _TreeState(list(gates), [None] * num_gates, [0] * num_targets)
 
     def is_terminal(self) -> bool:
         """Have all gates been scheduled?"""
@@ -380,7 +385,7 @@ class TreeState:
             if time_index is None
         ]
 
-    def select(self, gate_index: int) -> TreeState:
+    def select(self, gate_index: int) -> _TreeState:
         """Append the gate at the given index to the gate schedule."""
         target_a, target_b = self.gates[gate_index]
         time_index = max(self.target_to_min_time[target_a], self.target_to_min_time[target_b])
@@ -392,10 +397,10 @@ class TreeState:
         min_time_for_target[target_a] = time_index + 1
         min_time_for_target[target_b] = time_index + 1
 
-        return TreeState(self.gates, gate_to_time, min_time_for_target)
+        return _TreeState(self.gates, gate_to_time, min_time_for_target)
 
-    def to_schedule(self) -> GateSchedule:
-        """Convert this TreeState into a gate schedule.
+    def to_schedule(self) -> _GateSchedule:
+        """Convert this _TreeState into a gate schedule.
 
         The schedule is provided as a list whose t-th entry is a list of gates to apply at time t.
         Unscheduled gates are excluded from the returned schedule.
@@ -410,11 +415,7 @@ class TreeState:
         return [time_to_gates[time] for time in sorted(time_to_gates.keys())]
 
 
-####################################################################################################
-# helper methods
-
-
-def _schedule_to_circuit(schedule: GateSchedule, target_pauli: Pauli) -> stim.Circuit:
+def _schedule_to_circuit(schedule: _GateSchedule, target_pauli: Pauli) -> stim.Circuit:
     """Convert a schedule of controlled-Pauli gates into a circuit."""
     circuit = stim.Circuit("TICK")
     for gates in schedule:

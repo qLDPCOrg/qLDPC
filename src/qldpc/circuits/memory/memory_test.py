@@ -110,6 +110,22 @@ def test_memory_experiment() -> None:
         circuits.get_memory_experiment(codes.FiveQubitCode())
 
 
+def test_memory_experiment_circuit_distance() -> None:
+    """Default memory experiments preserve the distance of a distance-3 surface code.
+
+    Building a detector error model requires deterministic detectors and observables, and an
+    observable that is a stabilizer would have no undetectable error at all.
+    """
+    code = codes.SurfaceCode(3, rotated=True)
+    noise_model = circuits.DepolarizingNoiseModel(1e-3)
+    for basis in PAULIS_XZ + [None]:
+        circuit = circuits.get_memory_experiment(
+            code, basis=basis, num_rounds=2, noise_model=noise_model
+        )
+        assert circuit.num_observables == (2 if basis is None else 1)
+        assert len(circuit.shortest_graphlike_error()) == 3
+
+
 def test_qubit_ids(pytestconfig: pytest.Config) -> None:
     """We can construct memory experiments with different qubit IDs."""
     random.seed(pytestconfig.getoption("randomly_seed"))
@@ -187,9 +203,8 @@ def test_errors() -> None:
         circuits.get_observables(codes.FiveQubitCode(), basis=Pauli.X, on_measurements=True)
     with pytest.raises(ValueError, match="fixed measurement basis"):
         circuits.get_observables(codes.SteaneCode(), basis=None, on_measurements=True)
-    for invalid_basis in ["test", "y", 0]:
-        with pytest.raises(ValueError, match=r"Pauli\.X or Pauli\.Z"):
-            circuits.get_observables(codes.SteaneCode(), basis=invalid_basis)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=r"Pauli\.X or Pauli\.Z"):
+        circuits.get_observables(codes.SteaneCode(), basis="y")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="num_rounds"):
         circuits.get_memory_experiment_parts(codes.RepetitionCode(3), Pauli.X, num_rounds=0)
     with pytest.raises(ValueError, match="one target per data qubit"):
@@ -300,7 +315,9 @@ def test_subsystem_memory_redundant_generators() -> None:
     parts = circuits.get_memory_experiment_parts(code, Pauli.Z, num_rounds=num_rounds)
     assert_detectors_track_stabilizers(code, Pauli.Z, parts.detector_record, num_rounds)
     detector_types = collections.Counter(
-        (len(key), len(parts.detector_record[key])) for key in parts.detector_record
+        (len(key), len(parts.detector_record[key]))
+        for key in parts.detector_record
+        if isinstance(key, tuple)
     )
     assert detector_types == {(4, num_rounds + 1): 21, (4, num_rounds): 12}
 

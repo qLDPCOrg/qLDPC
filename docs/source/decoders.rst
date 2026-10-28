@@ -27,8 +27,10 @@ qLDPC provides the following methods to construct decoder specifications:
 .. autofunction:: qldpc.decoders.guf
 
 See, for example, ``help(qldpc.decoders.bp_osd)`` for configuration options.
+Specification helpers accept the options that they list, and the helpers for ldpc, PyMatching, and Relay-BP decoders accept other backend options in a ``backend_options`` mapping.
 ``pip install 'qldpc[decoders]'`` installs all optional decoders published as qLDPC extras for your platform.
 You can install individual extras with, for example, ``pip install 'qldpc[relay-bp]'``.
+The ILP decoder needs the ``ilp`` extra, which installs ``cvxpy``: ``pip install 'qldpc[ilp]'``.
 The Frontier decoder is not available on PyPI, and must be installed manually; see `Backend limitations`_.
 
 The default decoder in qLDPC (with an argument of ``decoder=None``, where applicable), is BP+OSD for binary codes, and generalized union-find for codes over nonbinary finite fields.
@@ -75,6 +77,9 @@ Other specifications infer errors under the hood, and return the induced observa
 Some decoders (such as Frontier) support observable predictions but not error inference.
 ``DecoderSpec.predicts_observables_natively`` identifies native observable prediction support; ``DecoderSpec.infers_errors`` identifies specifications that can build error decoders.
 
+A detector error model supplies its own error probabilities, so passing ``error_channel`` together with a detector error model raises a ``ValueError``.
+To override these probabilities, decode the detector-flip matrix of the model instead, as in ``decoders.bp_osd(error_channel=p).build(decoders.DetectorErrorModelArrays(dem).detector_flip_matrix)``.
+
 Code-capacity logical error rate estimates
 ------------------------------------------
 
@@ -93,6 +98,8 @@ To use a built-in decoder family, you can pass a specification such as ``decoder
 To use your own decoder, pass a class or factory directly as ``decoder=MyErrorDecoder``.
 This factory must accept a parity-check matrix and return an error decoder, with a ``.decoder_errors`` method (as in `Inferring errors`_).
 To instead build a custom observable decoder from a binary code-capacity detector error model (DEM), pass ``decoder=qldpc.decoders.from_dem(MyObservableDecoder)``.
+Wrapping a factory with ``decoders.from_matrix(factory)`` is optional, and makes its matrix-only contract explicit; return annotations do not affect which input a factory receives.
+Prebuilt decoders are accepted where the caller knows the matrix being decoded, but not where a method decodes a matrix that it constructs internally, or by a ``SinterDecoder``, which builds a decoder for each detector error model.
 
 Using decoders with Sinter
 --------------------------
@@ -132,6 +139,7 @@ Pass the configured decoder to Sinter under the same name used by the task:
    )
 
 When Sinter compiles a ``SinterDecoder``, its ``decoder=`` class or factory receives a ``stim.DetectorErrorModel``.
+A ``SinterDecoder`` uses native observable prediction when its specification supports it, so the ``decoder`` attribute of the compiled decoder predicts observable flips for specifications such as ``decoders.mwpm()`` and ``decoders.lookup(...)``.
 Pass your own observable-decoder class or factory directly as ``decoders.SinterDecoder(decoder=MyObservableDecoder)``.
 See the :doc:`quantum-memory notebook <examples/logical_error_rates/2_quantum_memory_x_or_z>` for a circuit-level sampling example.
 
@@ -140,6 +148,7 @@ Use a built-in error-decoding specification or a custom error-decoder factory th
 
 The :doc:`adding a decoder guide <adding_decoders>` covers custom decoder contracts, optional batch and erasure support, and tested examples.
 The generated :doc:`API reference <autoapi/index>` documents concrete backend classes and low-level adapters.
+Import backend classes from ``qldpc.decoders.custom`` or ``qldpc.decoders.external``, as in ``from qldpc.decoders.custom import ErrorLookupDecoder``, and compiled Sinter decoders from ``qldpc.decoders.sinter``.
 
 Backend limitations
 -------------------
@@ -231,129 +240,9 @@ For observable predictions from a detector error model:
    observable_lookup = decoders.lookup(max_weight=2).build_observable_decoder(dem)
    predicted_flips = observable_lookup.decode_observables(events)
 
+The observable builder of a lookup specification requires a detector error model.
+For a parity-check matrix with an observable flip matrix, use ``qldpc.decoders.custom.ObservableLookupDecoder``, or ``qldpc.decoders.custom.WeightedObservableLookupDecoder`` to choose a penalty function at decode time.
+To weight candidate errors otherwise, pass ``decoders.lookup(..., error_channel=log_probability)`` a callable that returns a normalized log probability.
+
 Erasure-aware decoders append their erasure flag after the inferred error or observable vector.
 Compiled Sinter decoders translate that flag into a discarded shot.
-
-Migrating from qLDPC 0.3.3
---------------------------
-
-This section describes how the decoder API differs from that of ``qldpc==0.3.3``, and how to update code written for it.
-
-Breaking changes
-~~~~~~~~~~~~~~~~
-
-The following changes take effect without a deprecation period:
-
-* The ``static_decoder`` argument has been removed, except from the deprecated ``decoders.get_decoder`` and ``decoders.decode``.
-  Pass a decoder specification as ``decoder=`` instead.
-  Prebuilt decoders remain accepted where the caller knows the matrix being decoded, but cannot be rebuilt for internally constructed matrices or Sinter detector error models.
-* When the deprecated ``decoder_x_kwargs`` or ``decoder_z_kwargs`` of a CSS code set the same option as its shared keyword arguments, the sector-specific value now takes precedence, just as ``decoder_x=`` and ``decoder_z=`` take precedence over ``decoder=``.
-* A ``SinterDecoder`` whose specification supports native observable prediction (``mwpm``, ``relay_bp``, ``min_sum_bp``, and ``lookup``) now uses it.
-  For ``mwpm`` and ``lookup`` specifications, however, the ``decoder`` attribute of the resulting ``CompiledSinterDecoder`` is now a decoder that predicts observable flips rather than errors.
-  For other specifications, the ``decoder`` attribute remains the decoder that the specification builds.
-
-Deprecated usage
-~~~~~~~~~~~~~~~~
-
-The keyword-based decoder API of ``qldpc==0.3.3`` remains available during a deprecation period, and each use emits a ``DeprecationWarning`` that names its replacement.
-Defunct Sinter ``decode`` methods have been removed; use ``decode_observables`` on a compiled decoder.
-Compatibility is provided for the names exported from the package root, ``qldpc.decoders``, in that release; internal module paths are not part of this guarantee.
-In particular, ``decoders.get_decoder`` and ``decoders.decode`` behave as they did in ``qldpc==0.3.3``, except that ``error_rate`` and ``error_channel`` are rejected for a detector error model (see `Migrating from qLDPC 0.4.0`_):
-
-.. list-table::
-   :header-rows: 1
-
-   * - Deprecated usage
-     - Replacement
-   * - ``decoders.get_decoder(pcm_or_dem, with_BP_LSD=True, max_iter=30)``
-     - ``decoders.bp_lsd(max_iter=30).build(pcm_or_dem)``
-   * - ``decoders.decode(pcm_or_dem, syndrome, with_BP_LSD=True, max_iter=30)``
-     - ``decoders.bp_lsd(max_iter=30).build(pcm_or_dem).decode(syndrome)``
-   * - ``with_BP_LSD=True, max_iter=30``
-     - ``decoder=decoders.bp_lsd(max_iter=30)``
-   * - free-form decoder options without ``with_<NAME>``
-     - ``decoder=decoders.bp_osd(...)``, or ``decoders.guf(...)`` for nonbinary codes
-   * - ``decoder_constructor=MyDecoder``
-     - ``decoder=MyDecoder``
-   * - ``decoders.get_decoder_BP_OSD(pcm_or_dem, ...)`` (and the other uppercase builder names)
-     - ``decoders.bp_osd(...).build(pcm_or_dem)`` (and the corresponding specification helper)
-   * - ``decoder_x_kwargs={...}`` and ``decoder_z_kwargs={...}``
-     - ``decoder_x=...`` and ``decoder_z=...``
-   * - ``LookupDecoder(..., predict_observable_flips=True)``
-     - ``decoders.lookup(...).build_observable_decoder(dem)`` for a DEM.
-       For a matrix with an ``observable_flip_matrix`` and ``error_channel``, use ``qldpc.decoders.custom.lookup.ObservableLookupDecoder`` and ``decode_observables``; the specification's observable builder requires a DEM.
-   * - ``WeightedLookupDecoder(..., predict_observable_flips=True)``
-     - ``qldpc.decoders.custom.lookup.WeightedObservableLookupDecoder(...)`` and its ``decode_observables`` method for late-bound penalty functions; the ordinary lookup specification does not support choosing a new penalty at decode time.
-   * - ``LookupDecoder(..., penalty_func=penalty)``
-     - ``decoders.lookup(max_weight=..., error_channel=log_probability)`` with a callable returning a normalized log probability.
-       An arbitrary penalty cannot be substituted without first turning it into a valid probability distribution.
-   * - ``decoders.bp_osd(error_rate=p)`` (also ``bp_lsd``, ``bf``, and ``tesseract``)
-     - ``decoders.bp_osd(error_channel=p)`` (or the corresponding specification helper)
-   * - ``SinterDecoder.decode`` and ``CompiledSinterDecoder.decode`` (removed)
-     - Compile the ``SinterDecoder``, then call ``CompiledSinterDecoder.decode_observables``
-   * - ``SubgraphSinterDecoder`` and ``SequentialSinterDecoder``
-     - ``SubgraphDecoder`` and ``SequentialWindowDecoder``
-   * - ``Decoder`` and ``BatchDecoder``
-     - ``ErrorDecoder`` and ``BatchErrorDecoder``
-
-Migrating from qLDPC 0.4.0
---------------------------
-
-This section describes how the decoder API differs from that of ``qldpc==0.4.0``.
-
-The following changes take effect without a deprecation period:
-
-* The subpackages ``qldpc.decoders.construction``, ``qldpc.decoders.custom``, and ``qldpc.decoders.external``, and the module ``qldpc.decoders.construction.specs``, no longer re-export decoder builders, specification helpers, or resolution functions.
-  Import these names from ``qldpc.decoders`` instead.
-* Builders that were not exported from ``qldpc.decoders``, such as ``get_error_decoder_mwpm``, ``get_observable_decoder_mwpm``, ``get_relay_bp_decoder``, ``get_min_sum_bp_decoder``, and ``get_observable_decoder_lookup``, have been removed.
-  Use decoder specifications and their ``build`` and ``build_observable_decoder`` methods instead.
-* A detector error model supplies its own error probabilities, so passing ``error_channel`` or ``error_rate`` together with a detector error model raises a ``ValueError``.
-  Previously, the ldpc decoders (BP+OSD, BP+LSD, and BF) ignored ``error_rate`` for a detector error model, and let ``error_channel`` override its probabilities.
-  This affects every path that builds such a decoder for a detector error model, including the deprecated keyword arguments: for example, ``decoders.SinterDecoder(error_rate=p)``, ``decoders.SinterDecoder(decoder=decoders.bp_osd(error_rate=p))``, and ``decoders.get_decoder(dem, with_BP_OSD=True, error_rate=p)`` now fail when the decoder is built for a detector error model.
-  Remove the option to use the probabilities of the detector error model, as a ``SinterDecoder`` should.
-  To override them, decode the detector-flip matrix of the model instead, as in ``decoders.bp_osd(error_channel=p).build(decoders.DetectorErrorModelArrays(dem).detector_flip_matrix)``.
-* The deprecated builder ``get_decoder_mwpm`` and ``get_decoder(..., with_MWPM=True)`` now reject options that PyMatching would silently ignore, and reserve ``faults_matrix`` for ``decoders.mwpm(...).build_observable_decoder(dem)``.
-  The corresponding paths for BP+LSD warn about options that ldpc's BP+LSD decoder would silently ignore.
-
-Specification helpers accept the options that they list, and helpers for ldpc, PyMatching, and Relay-BP accept other backend options in a ``backend_options`` mapping (see `Built-in decoders`_).
-Deprecated builders such as ``get_decoder_bp_osd(pcm_or_dem, **options)`` still accept backend options as keyword arguments.
-
-The following usage remains available during a deprecation period, and each use emits a ``DeprecationWarning`` that names its replacement:
-
-.. list-table::
-   :header-rows: 1
-
-   * - Deprecated usage
-     - Replacement
-   * - ``error_rate=p``
-     - ``error_channel=p``
-   * - ``decoders.get_decoder_bp_osd(pcm_or_dem, ...)`` (and the other ``get_decoder_<NAME>`` builders)
-     - ``decoders.bp_osd(...).build(pcm_or_dem)`` (and the corresponding specification helper)
-   * - ``decoders.get_decoder_rbp(pcm_or_dem, ...)``
-     - ``decoders.relay_bp(...).build(pcm_or_dem)`` or ``decoders.min_sum_bp(...).build(pcm_or_dem)``
-   * - ``decoders.get_error_decoder(pcm_or_dem, decoder=spec)``
-     - ``spec.build(pcm_or_dem)``
-   * - ``decoders.get_observable_decoder(dem, decoder=spec)``
-     - ``spec.build_observable_decoder(dem)``
-   * - ``decoders.get_observable_decoder(dem, decoder=error_decoder)``
-     - ``decoders.ErrorsToObservablesDecoder(error_decoder, dem)``
-   * - ``decoders.decode_observables(dem, syndrome, decoder=spec)``
-     - ``spec.build_observable_decoder(dem).decode_observables(syndrome)``
-   * - ``decoders.lookup_table(...)``
-     - ``decoders.lookup(...)``
-
-Migrating custom code-capacity factories
-----------------------------------------
-
-Custom code-capacity factories that relied on a return annotation to receive a detector error model must now be wrapped with ``decoders.from_dem(factory)``, which returns a :class:`decoders.DEMDecoderFactory <qldpc.decoders.construction.factories.DEMDecoderFactory>`.
-Bare code-capacity factories receive the parity-check matrix and must build error decoders; ``decoders.from_matrix(factory)`` is optional for these custom factories and returns a :class:`decoders.MatrixDecoderFactory <qldpc.decoders.construction.factories.MatrixDecoderFactory>` with an explicit matrix-only contract.
-Annotations no longer control this routing, without a deprecation period.
-
-Migrating backend class imports
--------------------------------
-
-Backend implementation classes formerly exported from ``qldpc.decoders``, such as ``LookupDecoder`` and ``RelayBPDecoder``, remain importable at the package root, including through star imports, but now warn on access.
-Workflow classes such as ``SinterDecoder`` remain direct root exports.
-The compiled Sinter decoders, such as ``CompiledSinterDecoder``, also warn at the package root; they are returned by ``compile_decoder_for_dem`` rather than constructed directly, and remain available from ``qldpc.decoders.sinter``.
-Import backend classes from their defining modules instead: ``from qldpc.decoders.custom.lookup import LookupDecoder`` or ``from qldpc.decoders.external.relay_bp import RelayBPDecoder``.
-The objects and their constructor signatures are unchanged.

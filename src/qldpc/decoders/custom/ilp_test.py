@@ -14,7 +14,8 @@ import scipy.sparse
 
 from qldpc import decoders
 from qldpc.decoders.conftest import ToyProblem
-from qldpc.decoders.construction.resolution import _get_error_decoder
+from qldpc.decoders.construction._resolution import build_error_decoder
+from qldpc.decoders.custom import ilp
 from qldpc.decoders.custom.ilp import _get_decoder_ilp
 
 
@@ -74,10 +75,6 @@ def test_ilp_decoder_early_termination() -> None:
     assert len(decoded) == matrix.shape[1] + 1
     assert decoded[-1] == 1
 
-    decoded = decoders.custom.ILPDecoder(matrix, add_erasure_bit=True).decode(syndrome)
-    assert decoded[-1] == 0
-    assert np.array_equal(matrix @ decoded[:-1] % 2, syndrome)
-
 
 def test_ilp_decoder_unreproducible_syndrome() -> None:
     """A syndrome that no error reproduces is erased with a warning, rather than refused."""
@@ -113,7 +110,7 @@ def test_ilp_decoder_near_integral_values() -> None:
     def solve_then_perturb(problem: cvxpy.Problem, **kwargs: object) -> float:
         """Solve, then report the solution the way a solver at its tolerance would."""
         result = solve(problem, **kwargs)
-        decoder.variables.value = np.asarray(decoder.variables.value) - 4e-16
+        decoder._variables.value = np.asarray(decoder._variables.value) - 4e-16
         return float(result)
 
     with unittest.mock.patch.object(cvxpy.Problem, "solve", solve_then_perturb):
@@ -127,15 +124,26 @@ def test_ilp_decoder_near_integral_values() -> None:
 
 
 def test_invalid_ilp() -> None:
-    """Fail to solve invalid integer linear programming problems."""
+    """ILP decoding rejects a field that is not prime."""
     matrix = np.ones((2, 2), dtype=int)
     syndrome = np.array([0, 1], dtype=int)
-
-    with pytest.raises(ValueError, match="could not be found"):
-        _get_error_decoder(matrix, decoder=decoders.ilp()).decode(syndrome)
-
     with pytest.raises(ValueError, match="ILP decoding only supports prime number fields"):
-        _get_error_decoder(galois.GF(4)(matrix), decoder=decoders.ilp()).decode(syndrome)
+        build_error_decoder(galois.GF(4)(matrix), decoder=decoders.ilp()).decode(syndrome)
+
+
+def test_ilp_requires_cvxpy() -> None:
+    """A missing cvxpy gets an install hint, but a module missing inside cvxpy is reported as is."""
+    with (
+        unittest.mock.patch.dict("sys.modules", {"cvxpy": None}),
+        pytest.raises(ModuleNotFoundError, match=r"qldpc\[ilp\]"),
+    ):
+        decoders.custom.ILPDecoder(np.eye(2, dtype=int))
+    nested_error = ModuleNotFoundError("No module named 'nested'", name="nested")
+    with (
+        pytest.raises(ModuleNotFoundError, match="nested"),
+        unittest.mock.patch("builtins.__import__", side_effect=nested_error),
+    ):
+        ilp._get_cvxpy()
 
 
 def test_ilp_builder() -> None:

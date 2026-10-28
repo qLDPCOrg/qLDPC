@@ -11,6 +11,7 @@ from typing import NamedTuple
 import galois
 import numpy as np
 import numpy.typing as npt
+import scipy.sparse
 
 from qldpc import math
 from qldpc.math import IntegerArray
@@ -39,7 +40,11 @@ class _ErrorSelection(NamedTuple):
     error: tuple[int, ...]
 
 
-def _iter_errors_and_syndromes(
+####################################################################################################
+# error and syndrome enumeration
+
+
+def iter_errors_and_syndromes(
     matrix: IntegerArray,
     max_weight: int,
     syndrome_mask: npt.NDArray[np.bool_] | None,
@@ -57,12 +62,16 @@ def _iter_errors_and_syndromes(
     post-selecting, errors whose syndrome is nontrivial on any dropped bit are skipped, and dropped
     bits are omitted from the yielded syndrome.
     """
-    from qldpc import codes
-
     dtype = matrix.dtype
+    # convert the checks to a dense finite-field array, over GF(2) unless they have a field
+    if isinstance(matrix, scipy.sparse.spmatrix | scipy.sparse.sparray):
+        matrix = matrix.todense()
+    if not isinstance(matrix, galois.FieldArray):
+        matrix = np.asanyarray(matrix).view(galois.GF2)
+    field = type(matrix)
     # rewrite the checks so multiplying by an error produces its syndrome
-    code = codes.ClassicalCode(matrix) if not symplectic else codes.QuditCode(matrix)
-    matrix = code.matrix if not symplectic else -math.symplectic_conjugate(code.matrix)
+    if symplectic:
+        matrix = -math.symplectic_conjugate(matrix)
     repeat = 2 if symplectic else 1
     block_length = matrix.shape[1] // repeat
 
@@ -70,7 +79,7 @@ def _iter_errors_and_syndromes(
     if probability_cutoff:
         assert error_channel is not None
         errors = _iter_errors_above_probability_cutoff(
-            code.field,
+            field,
             block_length,
             repeat,
             max_weight,
@@ -79,12 +88,10 @@ def _iter_errors_and_syndromes(
             probability_cutoff,
         )
     else:
-        errors = _iter_errors_up_to_weight(
-            code.field.order, block_length, repeat, max_weight, dtype
-        )
+        errors = _iter_errors_up_to_weight(field.order, block_length, repeat, max_weight, dtype)
 
     for error in errors:
-        syndrome = (matrix @ error.view(code.field)).view(np.ndarray)
+        syndrome = (matrix @ error.view(field)).view(np.ndarray)
         if syndrome_mask is not None:
             if np.any(syndrome[~syndrome_mask]):
                 continue  # a post-selected syndrome bit is nontrivial

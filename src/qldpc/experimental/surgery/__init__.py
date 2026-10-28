@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Lattice-surgery constructions for CSS / quantum LDPC codes.
 
 EXPERIMENTAL: this subpackage is under active development; its public API is unstable and may

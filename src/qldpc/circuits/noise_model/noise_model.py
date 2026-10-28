@@ -12,36 +12,36 @@ from collections.abc import Callable, Collection, Iterable, Mapping
 
 import stim
 
-from qldpc._util import format_docstring
+from qldpc._utils import format_docstring
 
 from ..common import StimCircuitLike
 from ._moments import (
-    _categorize_moment_qubits,
-    _gate_qubits,
-    _get_immune_qubits,
-    _idle_barrier_qubits,
-    _split_targets_if_needed,
+    categorize_moment_qubits,
+    gate_qubits,
+    get_immune_qubits,
+    idle_barrier_qubits,
+    repeated_idle_channel,
+    split_targets_if_needed,
 )
-from .channels import PauliChannel, PauliChannelSequence, _repeated_idle_channel
-from .operations import (
+from ._operations import (
     ANNOTATION,
     CLIFFORD_1Q,
     CLIFFORD_2Q,
     CLIFFORD_PP,
-    DEFAULT_IMMUNE_OP_TAG,
-    DEFAULT_IMMUNE_QUBIT_TAG,
     GATE_OP_TYPES,
     IDLE_OPS,
     JUST_MEASURE_OPS,
+    JUST_MEASURE_PP,
     JUST_RESET_OPS,
     MEASURE_AND_RESET_OPS,
     NOISE,
-    _canonical_rule_key,
-    _get_gate_aliases,
-    _involves_classical_bits,
-    _known_gate_shape,
+    canonical_rule_key,
+    get_gate_aliases,
+    involves_classical_bits,
+    known_gate_shape,
     op_type,
 )
+from .channels import PauliChannel, PauliChannelSequence
 from .rules import (
     ErrorSpec,
     NoiseRule,
@@ -51,6 +51,11 @@ from .rules import (
     _validate_custom_rule,
     _validate_rule_for_arity,
 )
+
+# Tags that, by default, make an operation or repeat block noiseless, or declare that the qubits of
+# a tagged QUBIT_COORDS annotation are immune to noise.
+DEFAULT_IMMUNE_OP_TAG = "__IMMUNE_TO_NOISE__"
+DEFAULT_IMMUNE_QUBIT_TAG = "__IMMUNE_QUBIT_TO_NOISE__"
 
 ####################################################################################################
 # primary methods and classes: as_noiseless_circuit and NoiseModel
@@ -152,11 +157,11 @@ class NoiseModel:
             # X*Y).  Bare ``"MPP"`` / ``"SPP"`` / ``"SPP_DAG"`` are variable-arity and deferred to
             # emission-time checks via ``emit_after``.
             for op_name, rule in rules.items():
-                canonical_name = _canonical_rule_key(op_name)
+                canonical_name = canonical_rule_key(op_name)
                 if canonical_name in normalized_rules:
                     raise ValueError(f"Duplicate noise rules after canonicalization: {op_name!r}")
                 normalized_rules[canonical_name] = rule
-                shape = _known_gate_shape(canonical_name)
+                shape = known_gate_shape(canonical_name)
                 if shape is not None:
                     arity, can_measure, can_reset = shape
                     _validate_rule_for_arity(
@@ -294,7 +299,7 @@ class NoiseModel:
             product (e.g. ``MPP X0*Y1*Z2``, not ``MPP X0*Y1 Z2*X3``).  Multi-product instructions
             are decomposed upstream by ``_split_targets_pp`` before this method is invoked;
             hand-calling with an unsplit multi-product op raises ``ValueError`` from
-            ``_get_gate_aliases``.
+            ``get_gate_aliases``.
 
         Args:
             op: The circuit instruction to find a noise rule for.
@@ -302,43 +307,48 @@ class NoiseModel:
         Returns:
             The NoiseRule to apply for the given operation, or None for no noise.
         """
-        if op_type(op.name) in (ANNOTATION, NOISE) or _involves_classical_bits(op):
+        this_op_type = op_type(op.name)
+        if this_op_type in (ANNOTATION, NOISE) or involves_classical_bits(op):
             return None
+        # the number of qubits in the Pauli product of an MPP, SPP, or SPP_DAG instruction
+        product_arity = (
+            sum(1 for target in op.targets_copy() if not target.is_combiner)
+            if this_op_type in (CLIFFORD_PP, JUST_MEASURE_PP)
+            else 0
+        )
 
-        if self.rule_func is not None and op_type(op.name) in GATE_OP_TYPES:
+        if self.rule_func is not None and this_op_type in GATE_OP_TYPES:
             rule = self.rule_func(op)
             if rule is not None:
                 _validate_custom_rule(rule, op)
                 return rule
 
         if self.rules is not None:
-            for name in _get_gate_aliases(op):
+            for name in get_gate_aliases(op):
                 rule = self.rules.get(name)
                 if rule is not None:
                     if name in {"MPP", "SPP", "SPP_DAG"}:
-                        arity = sum(1 for target in op.targets_copy() if not target.is_combiner)
-                        if rule.after is not None and rule.after.num_qubits != arity:
+                        if rule.after is not None and rule.after.num_qubits != product_arity:
                             raise ValueError(
-                                f"This NoiseRule expects a multiple of {rule.after.num_qubits} "
-                                f"qubits but {op.name!r} has {arity} qubit targets"
+                                f"This NoiseRule has arity {rule.after.num_qubits}, but"
+                                f" {op.name!r} has {product_arity} qubit targets"
                             )
                         if rule.readout_error is not None and op.name not in JUST_MEASURE_OPS:
                             raise ValueError(f"`readout_error` is not valid on {op.name!r}")
-                        if rule.reset_error is not None and op.name not in MEASURE_AND_RESET_OPS:
+                        if rule.reset_error is not None:
                             raise ValueError(f"`reset_error` is not valid on {op.name!r}")
                     return rule
 
         if op.name in IDLE_OPS:
             return None
 
-        this_op_type = op_type(op.name)
         if this_op_type in (CLIFFORD_1Q, CLIFFORD_2Q, CLIFFORD_PP):
             if this_op_type == CLIFFORD_1Q:
                 num_qubits = 1
             elif this_op_type == CLIFFORD_2Q:
                 num_qubits = 2
             else:
-                num_qubits = sum(1 for target in op.targets_copy() if not target.is_combiner)
+                num_qubits = product_arity
             if num_qubits in self.clifford_nq_error:
                 return self.clifford_nq_error[num_qubits]
 
@@ -426,7 +436,7 @@ class NoiseModel:
             range(circuit.num_qubits) if system_qubits is None else system_qubits
         )
         immune_qubits = frozenset(immune_qubits) | (
-            _get_immune_qubits(circuit, immune_qubit_tag)
+            get_immune_qubits(circuit, immune_qubit_tag)
             if immune_qubit_tag is not None
             else frozenset()
         )
@@ -480,7 +490,7 @@ class NoiseModel:
                 TICK in between (violating the "each qubit at most once per moment" invariant that
                 noise application relies on).
         """
-        collapsed_qubits, operation_qubits = _categorize_moment_qubits(moment)
+        collapsed_qubits, operation_qubits = categorize_moment_qubits(moment)
 
         noise_after_moment = stim.Circuit()
         for op in moment:
@@ -530,7 +540,7 @@ class NoiseModel:
 
         This method identifies which qubits are idle during a moment and applies noise to them
         according to the noise model parameters.  The qubit categorization is precomputed by
-        ``_categorize_moment_qubits`` and passed in.
+        ``categorize_moment_qubits`` and passed in.
 
         Args:
             circuit: The circuit to append idle error operations to.
@@ -579,8 +589,163 @@ class NoiseModel:
             rule = self.idle_error
             if count > 1:
                 assert isinstance(rule.after, (PauliChannel, PauliChannelSequence))
-                rule = NoiseRule(after=_repeated_idle_channel(rule.after, count))
+                rule = NoiseRule(after=repeated_idle_channel(rule.after, count))
             rule.emit_after(circuit, targets, context="idle qubits")
+
+
+class _NoisyCircuitBuilder:
+    """Adds noise to a circuit moment by moment, as though its repeat blocks were flattened.
+
+    Repeat blocks are nonetheless kept compact.  The noise of an iteration of a repeat block is
+    determined by the state of this builder at the start of the iteration: the open moment, whether
+    a TICK must precede the next moment, and the pending idle moments of the qubits that the repeat
+    block uses (the qubits that it never uses do not affect its noise).  Once an iteration ends in
+    the same state that it started in, all remaining iterations are identical to it.
+    """
+
+    def __init__(
+        self,
+        noise_model: NoiseModel,
+        *,
+        system_qubits: frozenset[int],
+        immune_qubits: frozenset[int],
+        immune_op_tag: str | None,
+        immunize_gates: bool,
+        insert_ticks: bool,
+    ) -> None:
+        self.noise_model = noise_model
+        self.system_qubits = system_qubits
+        self.immune_qubits = immune_qubits
+        self.immune_op_tag = immune_op_tag
+        self.immunize_gates = immunize_gates
+        self.insert_ticks = insert_ticks
+
+        self.moment: list[stim.CircuitInstruction | stim.CircuitRepeatBlock] = []  # the open moment
+        self.used_qubits: set[int] = set()  # qubits that gates in the open moment act on
+        self.idle_moments: dict[int, int] = {}  # idle moments not yet emitted as noise, by qubit
+        self.needs_tick = False  # whether the next moment must be preceded by a TICK
+
+    def append(self, circuit: stim.Circuit, output: stim.Circuit) -> None:
+        """Add noise to the operations of a circuit, and append completed moments to the output."""
+        for op in circuit:
+            if isinstance(op, stim.CircuitRepeatBlock):
+                if self.immune_op_tag is not None and self.immune_op_tag in op.tag:
+                    self.close_moment(output)
+                    self.noise_model._flush_idle_errors(
+                        output, self.idle_moments, idle_barrier_qubits([op])
+                    )
+                    if self.needs_tick:
+                        output.append("TICK")
+                    output.append(op)
+                    self.needs_tick = False
+                elif not _is_gate_free(op.body_copy(), self.immune_op_tag):
+                    self.append_repeat_block(op, output)
+                elif not _is_empty(op.body_copy()):
+                    self.moment.append(op)
+            elif op.name == "TICK":
+                self.close_moment(output)
+            else:
+                for gate in (
+                    split_targets_if_needed(op, frozenset({-1}), self.immune_op_tag)
+                    if self.insert_ticks
+                    else [op]
+                ):
+                    qubits = gate_qubits(gate)
+                    if qubits & self.used_qubits:
+                        if not self.insert_ticks:
+                            raise ValueError(
+                                "Qubits were operated on multiple times without a TICK in between:"
+                                f"\nmultiple uses: {sorted(qubits & self.used_qubits)}"
+                                f"\nmoment:\n{[*self.moment, gate]}"
+                            )
+                        self.close_moment(output)
+                    self.used_qubits |= qubits
+                    self.moment.extend(
+                        split_targets_if_needed(
+                            gate,
+                            self.immune_qubits,
+                            self.immune_op_tag,
+                            force_split=self.noise_model.rule_func is not None,
+                        )
+                    )
+
+    def append_repeat_block(self, block: stim.CircuitRepeatBlock, output: stim.Circuit) -> None:
+        """Add noise to a repeat block, and append its completed moments to the output."""
+        body = block.body_copy()
+        body_qubits = idle_barrier_qubits(body)
+
+        def get_state() -> str:
+            idle_moments = sorted(
+                (qubit, count) for qubit, count in self.idle_moments.items() if qubit in body_qubits
+            )
+            return str((self.moment, self.needs_tick, idle_moments))
+
+        state = get_state()
+        for iteration in range(block.repeat_count):
+            idle_moments = dict(self.idle_moments)
+            noisy_body = stim.Circuit()
+            self.append(body, noisy_body)
+            previous_state, state = state, get_state()
+            if state != previous_state:
+                output += noisy_body
+                continue
+
+            # this iteration started and ended in the same state, so it repeats until the end
+            num_iterations = block.repeat_count - iteration
+            if num_iterations > 1 and noisy_body:
+                output.append(stim.CircuitRepeatBlock(num_iterations, noisy_body, tag=block.tag))
+            else:
+                output += noisy_body
+            for qubit, count in self.idle_moments.items():
+                if qubit not in body_qubits:
+                    increment = count - idle_moments.get(qubit, 0)
+                    self.idle_moments[qubit] = count + increment * (num_iterations - 1)
+            return
+
+    def close_moment(self, output: stim.Circuit) -> None:
+        """Add noise to the open moment (if nonempty), and append it to the output."""
+        if not self.moment:
+            return
+        self.noise_model._flush_idle_errors(
+            output, self.idle_moments, idle_barrier_qubits(self.moment)
+        )
+        if self.needs_tick:
+            output.append("TICK")
+        self.noise_model._inplace_append_noisy_moment(
+            circuit=output,
+            moment=self.moment,
+            system_qubits=self.system_qubits,
+            immune_qubits=self.immune_qubits,
+            immune_op_tag=self.immune_op_tag,
+            immunize_gates=self.immunize_gates,
+            pending_idle_moments=self.idle_moments,
+        )
+        self.moment = []
+        self.used_qubits = set()
+        self.needs_tick = True
+
+    def finish(self, output: stim.Circuit) -> None:
+        """Close the open moment, and emit all pending idle errors."""
+        self.close_moment(output)
+        self.noise_model._flush_idle_errors(output, self.idle_moments)
+
+
+def _is_gate_free(circuit: stim.Circuit, immune_op_tag: str | None) -> bool:
+    """Does a circuit consist of annotations (other than TICKs) and noise, at any depth?"""
+    return all(
+        not (immune_op_tag is not None and immune_op_tag in op.tag)
+        and _is_gate_free(op.body_copy(), immune_op_tag)
+        if isinstance(op, stim.CircuitRepeatBlock)
+        else op.name != "TICK" and op_type(op.name) in (ANNOTATION, NOISE)
+        for op in circuit
+    )
+
+
+def _is_empty(circuit: stim.Circuit) -> bool:
+    """Is a circuit empty when flattened?"""
+    return all(
+        isinstance(op, stim.CircuitRepeatBlock) and _is_empty(op.body_copy()) for op in circuit
+    )
 
 
 ####################################################################################################
@@ -643,162 +808,3 @@ class SI1000NoiseModel(NoiseModel):
             idle_error=p / 10,
             additional_error_waiting_for_m_or_r=2 * p,
         )
-
-
-####################################################################################################
-# helper methods
-
-
-class _NoisyCircuitBuilder:
-    """Adds noise to a circuit moment by moment, as though its repeat blocks were flattened.
-
-    Repeat blocks are nonetheless kept compact.  The noise of an iteration of a repeat block is
-    determined by the state of this builder at the start of the iteration: the open moment, whether
-    a TICK must precede the next moment, and the pending idle moments of the qubits that the repeat
-    block uses (the qubits that it never uses do not affect its noise).  Once an iteration ends in
-    the same state that it started in, all remaining iterations are identical to it.
-    """
-
-    def __init__(
-        self,
-        noise_model: NoiseModel,
-        *,
-        system_qubits: frozenset[int],
-        immune_qubits: frozenset[int],
-        immune_op_tag: str | None,
-        immunize_gates: bool,
-        insert_ticks: bool,
-    ) -> None:
-        self.noise_model = noise_model
-        self.system_qubits = system_qubits
-        self.immune_qubits = immune_qubits
-        self.immune_op_tag = immune_op_tag
-        self.immunize_gates = immunize_gates
-        self.insert_ticks = insert_ticks
-
-        self.moment: list[stim.CircuitInstruction | stim.CircuitRepeatBlock] = []  # the open moment
-        self.used_qubits: set[int] = set()  # qubits that gates in the open moment act on
-        self.idle_moments: dict[int, int] = {}  # idle moments not yet emitted as noise, by qubit
-        self.needs_tick = False  # whether the next moment must be preceded by a TICK
-
-    def append(self, circuit: stim.Circuit, output: stim.Circuit) -> None:
-        """Add noise to the operations of a circuit, and append completed moments to the output."""
-        for op in circuit:
-            if isinstance(op, stim.CircuitRepeatBlock):
-                if self.immune_op_tag is not None and self.immune_op_tag in op.tag:
-                    self.close_moment(output)
-                    self.noise_model._flush_idle_errors(
-                        output, self.idle_moments, _idle_barrier_qubits([op])
-                    )
-                    if self.needs_tick:
-                        output.append("TICK")
-                    output.append(op)
-                    self.needs_tick = False
-                elif not _is_gate_free(op.body_copy(), self.immune_op_tag):
-                    self.append_repeat_block(op, output)
-                elif not _is_empty(op.body_copy()):
-                    self.moment.append(op)
-            elif op.name == "TICK":
-                self.close_moment(output)
-            else:
-                for gate in (
-                    _split_targets_if_needed(op, frozenset({-1}), self.immune_op_tag)
-                    if self.insert_ticks
-                    else [op]
-                ):
-                    qubits = _gate_qubits(gate)
-                    if qubits & self.used_qubits:
-                        if not self.insert_ticks:
-                            raise ValueError(
-                                "Qubits were operated on multiple times without a TICK in between:"
-                                f"\nmultiple uses: {sorted(qubits & self.used_qubits)}"
-                                f"\nmoment:\n{[*self.moment, gate]}"
-                            )
-                        self.close_moment(output)
-                    self.used_qubits |= qubits
-                    self.moment.extend(
-                        _split_targets_if_needed(
-                            gate,
-                            self.immune_qubits,
-                            self.immune_op_tag,
-                            force_split=self.noise_model.rule_func is not None,
-                        )
-                    )
-
-    def append_repeat_block(self, block: stim.CircuitRepeatBlock, output: stim.Circuit) -> None:
-        """Add noise to a repeat block, and append its completed moments to the output."""
-        body = block.body_copy()
-        body_qubits = _idle_barrier_qubits(body)
-
-        def get_state() -> str:
-            idle_moments = sorted(
-                (qubit, count) for qubit, count in self.idle_moments.items() if qubit in body_qubits
-            )
-            return str((self.moment, self.needs_tick, idle_moments))
-
-        state = get_state()
-        for iteration in range(block.repeat_count):
-            idle_moments = dict(self.idle_moments)
-            noisy_body = stim.Circuit()
-            self.append(body, noisy_body)
-            previous_state, state = state, get_state()
-            if state != previous_state:
-                output += noisy_body
-                continue
-
-            # this iteration started and ended in the same state, so it repeats until the end
-            num_iterations = block.repeat_count - iteration
-            if num_iterations > 1 and noisy_body:
-                output.append(stim.CircuitRepeatBlock(num_iterations, noisy_body, tag=block.tag))
-            else:
-                output += noisy_body
-            for qubit, count in self.idle_moments.items():
-                if qubit not in body_qubits:
-                    increment = count - idle_moments.get(qubit, 0)
-                    self.idle_moments[qubit] = count + increment * (num_iterations - 1)
-            return
-
-    def close_moment(self, output: stim.Circuit) -> None:
-        """Add noise to the open moment (if nonempty), and append it to the output."""
-        if not self.moment:
-            return
-        self.noise_model._flush_idle_errors(
-            output, self.idle_moments, _idle_barrier_qubits(self.moment)
-        )
-        if self.needs_tick:
-            output.append("TICK")
-        self.noise_model._inplace_append_noisy_moment(
-            circuit=output,
-            moment=self.moment,
-            system_qubits=self.system_qubits,
-            immune_qubits=self.immune_qubits,
-            immune_op_tag=self.immune_op_tag,
-            immunize_gates=self.immunize_gates,
-            pending_idle_moments=self.idle_moments,
-        )
-        self.moment = []
-        self.used_qubits = set()
-        self.needs_tick = True
-
-    def finish(self, output: stim.Circuit) -> None:
-        """Close the open moment, and emit all pending idle errors."""
-        self.close_moment(output)
-        self.noise_model._flush_idle_errors(output, self.idle_moments)
-
-
-def _is_gate_free(circuit: stim.Circuit, immune_op_tag: str | None) -> bool:
-    """Does a circuit consist of annotations (other than TICKs) and noise, at any depth?"""
-    return all(
-        not (immune_op_tag is not None and immune_op_tag in op.tag)
-        and _is_gate_free(op.body_copy(), immune_op_tag)
-        if isinstance(op, stim.CircuitRepeatBlock)
-        else op.name != "TICK" and op_type(op.name) in (ANNOTATION, NOISE)
-        for op in circuit
-    )
-
-
-def _is_empty(circuit: stim.Circuit) -> bool:
-    """Is a circuit empty when flattened?"""
-    return all(
-        isinstance(op, stim.CircuitRepeatBlock) and _is_empty(op.body_copy()) for op in circuit
-    )

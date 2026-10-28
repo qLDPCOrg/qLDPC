@@ -13,12 +13,12 @@ from collections.abc import Hashable
 import pytest
 
 import qldpc.cache
-import qldpc.external.codes
+import qldpc.external._codes
 
 
 def test_pytest() -> None:
     """Disk caching is bypassed when running under pytest."""
-    assert qldpc.cache.running_with_pytest()
+    assert qldpc.cache._running_with_pytest()
     assert qldpc.cache.get_disk_cache("test") == {}
 
     calls = []
@@ -39,7 +39,7 @@ def test_use_disk_cache(tmp_path: pathlib.Path) -> None:
 
     cache: dict[Hashable, int] = {}
     with (
-        unittest.mock.patch("qldpc.cache.running_with_pytest", return_value=False),
+        unittest.mock.patch("qldpc.cache._running_with_pytest", return_value=False),
         unittest.mock.patch("diskcache.Cache", return_value=cache),
     ):
 
@@ -76,7 +76,7 @@ def test_refresh() -> None:
 
     cache: dict[Hashable, int] = {}
     with (
-        unittest.mock.patch("qldpc.cache.running_with_pytest", return_value=False),
+        unittest.mock.patch("qldpc.cache._running_with_pytest", return_value=False),
         unittest.mock.patch("diskcache.Cache", return_value=cache),
     ):
         calls: list[tuple[int, int]] = []
@@ -115,7 +115,7 @@ def test_refresh() -> None:
 
 def test_pickle() -> None:
     """Cached module-level functions are pickled by reference."""
-    function = qldpc.external.codes.get_classical_code
+    function = qldpc.external._codes.get_guava_code
     assert pickle.dumps(function)
     assert copy.deepcopy(function) is function
-    assert function.__wrapped__.__name__ == "get_classical_code"
+    assert function.__wrapped__.__name__ == "get_guava_code"

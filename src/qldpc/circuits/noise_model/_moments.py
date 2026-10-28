@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Decomposition of circuits into moments for noise application.
+"""Decomposition of circuits into moments, and idle errors accumulated over moments.
 
 See :mod:`qldpc.circuits.noise_model` for attribution and license information.
 """
@@ -8,11 +8,12 @@ See :mod:`qldpc.circuits.noise_model` for attribution and license information.
 from __future__ import annotations
 
 import collections
+import math
 from collections.abc import Collection, Iterable, Iterator
 
 import stim
 
-from .operations import (
+from ._operations import (
     ANNOTATION,
     CLIFFORD_2Q,
     CLIFFORD_PP,
@@ -21,24 +22,28 @@ from .operations import (
     JUST_MEASURE_2Q,
     JUST_MEASURE_PP,
     NOISE,
-    _involves_classical_bits,
+    involves_classical_bits,
     op_type,
 )
+from .channels import PauliChannel, PauliChannelSequence
+
+####################################################################################################
+# moments and their qubits
 
 
-def _idle_barrier_qubits(
+def idle_barrier_qubits(
     instructions: Iterable[stim.CircuitInstruction | stim.CircuitRepeatBlock],
 ) -> set[int]:
     """Qubits that pending idle errors may not be deferred past, at any depth of repeat blocks.
 
-    These are the qubits targeted by any instruction other than an explicit idle (``I``/``II``) or
-    a ``QUBIT_COORDS`` annotation.  Annotations such as ``OBSERVABLE_INCLUDE`` with Pauli targets
-    are included, since they depend on the state of their target qubits.
+    These are the qubits targeted by any instruction other than an explicit idle (``I``/``II``) or a
+    ``QUBIT_COORDS`` annotation.  Annotations such as ``OBSERVABLE_INCLUDE`` with Pauli targets are
+    included, since they depend on the state of their target qubits.
     """
     qubits: set[int] = set()
     for instruction in instructions:
         if isinstance(instruction, stim.CircuitRepeatBlock):
-            qubits.update(_idle_barrier_qubits(instruction.body_copy()))
+            qubits.update(idle_barrier_qubits(instruction.body_copy()))
         elif instruction.name not in IDLE_OPS and instruction.name != "QUBIT_COORDS":
             qubits.update(
                 target.qubit_value
@@ -48,12 +53,12 @@ def _idle_barrier_qubits(
     return qubits
 
 
-def _get_immune_qubits(circuit: stim.Circuit, immune_qubit_tag: str) -> frozenset[int]:
+def get_immune_qubits(circuit: stim.Circuit, immune_qubit_tag: str) -> frozenset[int]:
     """Identify qubits declared immune to noise by tagged coordinate annotations."""
     immune_qubits: set[int] = set()
     for instruction in circuit:
         if isinstance(instruction, stim.CircuitRepeatBlock):
-            immune_qubits.update(_get_immune_qubits(instruction.body_copy(), immune_qubit_tag))
+            immune_qubits.update(get_immune_qubits(instruction.body_copy(), immune_qubit_tag))
         elif instruction.name == "QUBIT_COORDS" and immune_qubit_tag in instruction.tag:
             immune_qubits.update(
                 target.qubit_value
@@ -63,7 +68,7 @@ def _get_immune_qubits(circuit: stim.Circuit, immune_qubit_tag: str) -> frozense
     return frozenset(immune_qubits)
 
 
-def _categorize_moment_qubits(
+def categorize_moment_qubits(
     moment: Collection[stim.CircuitInstruction | stim.CircuitRepeatBlock],
 ) -> tuple[list[int], list[int]]:
     """Categorize a moment's qubit targets and check for reuse.
@@ -103,7 +108,7 @@ def _categorize_moment_qubits(
             target_qubits = list(dict.fromkeys(target_qubits))
         if op.name in COLLAPSING_OPS:
             qubits = collapsed_qubits
-        elif _involves_classical_bits(op):
+        elif involves_classical_bits(op):
             qubits = classically_controlled_qubits
         elif op.name in IDLE_OPS:
             qubits = explicit_idle_qubits
@@ -124,7 +129,7 @@ def _categorize_moment_qubits(
     return collapsed_qubits, operation_qubits
 
 
-def _gate_qubits(op: stim.CircuitInstruction | stim.CircuitRepeatBlock) -> set[int]:
+def gate_qubits(op: stim.CircuitInstruction | stim.CircuitRepeatBlock) -> set[int]:
     """The qubits that an operation acts on, for the purpose of identifying qubit reuse."""
     if isinstance(op, stim.CircuitRepeatBlock) or op_type(op.name) in (ANNOTATION, NOISE):
         return set()
@@ -135,7 +140,11 @@ def _gate_qubits(op: stim.CircuitInstruction | stim.CircuitRepeatBlock) -> set[i
     }
 
 
-def _split_targets_if_needed(
+####################################################################################################
+# splitting operations into individual gate applications
+
+
+def split_targets_if_needed(
     op: stim.CircuitInstruction,
     immune_qubits: frozenset[int],
     immune_op_tag: str | None,
@@ -258,3 +267,50 @@ def _split_targets_pp(op: stim.CircuitInstruction) -> Iterator[stim.CircuitInstr
         else:
             end += 2
     assert end == len(targets)
+
+
+####################################################################################################
+# idle errors
+
+
+def repeated_idle_channel(
+    channel: PauliChannel | PauliChannelSequence, repetitions: int
+) -> PauliChannel | PauliChannelSequence:
+    """Compose ``repetitions`` independent applications of a one-qubit Pauli channel."""
+    if isinstance(channel, PauliChannelSequence):
+        # an independent Pauli event that fires with probability p in each of n repetitions has a
+        # net effect with probability (1 - (1 - 2p)^n) / 2
+        return PauliChannelSequence(
+            {
+                pauli: (1 - (1 - 2 * probability) ** repetitions) / 2
+                for pauli, probability in channel.probabilities.items()
+            }
+        )
+
+    # compose the distribution over (I, X, Y, Z) by repeated squaring
+    probabilities = tuple(channel.probabilities.get(pauli, 0.0) for pauli in "XYZ")
+    single: tuple[float, ...] = (max(0.0, 1 - math.fsum(probabilities)), *probabilities)
+    result: tuple[float, ...] = (1.0, 0.0, 0.0, 0.0)
+    while repetitions:
+        if repetitions & 1:
+            result = _compose_pauli_distributions(result, single)
+        repetitions >>= 1
+        if repetitions:
+            single = _compose_pauli_distributions(single, single)
+    return PauliChannel(dict(zip("XYZ", result[1:], strict=True)))
+
+
+def _compose_pauli_distributions(
+    left: tuple[float, ...], right: tuple[float, ...]
+) -> tuple[float, ...]:
+    """Distribution of the product of independent Paulis, indexed as (I, X, Y, Z).
+
+    Up to phase, Paulis multiply by XOR-ing their indices: e.g. X * Z ~ (1 ^ 3) = 2 ~ Y.  The result
+    is renormalized to prevent rounding errors from compounding over repeated compositions.
+    """
+    distribution = [
+        math.fsum(left[index] * right[index ^ outcome] for index in range(4))
+        for outcome in range(4)
+    ]
+    total = math.fsum(distribution)
+    return tuple(probability / total for probability in distribution)

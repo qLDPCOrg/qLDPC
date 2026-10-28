@@ -112,7 +112,8 @@ def test_group_intersection_keywords() -> None:
     group_a = abstract.SymmetricGroup(3)
     group_b = abstract.CyclicGroup(3)
     generators = transversal._sympy_group_intersection_generators(group_a, group_b)
-    assert generators  # the cyclic group is a nontrivial subgroup of the symmetric group
+    # the cyclic group is a subgroup of the symmetric group, so it is the intersection
+    assert abstract.Group(*map(abstract.GroupMember, generators)).order == 3
     assert generators == transversal._sympy_group_intersection_generators(
         group_a=group_a, group_b=group_b
     )
@@ -185,13 +186,10 @@ def test_finding_circuit(
         )
 
     zero_logical_code = codes.CSSCode([[1]], [[0]])
-    monkeypatch.setattr(
-        transversal,
-        "get_transversal_automorphism_group",
-        lambda *_args, **_kwargs: abstract.Group(abstract.GroupMember(range(3))),
+    assert (
+        circuits.get_transversal_circuits(zero_logical_code, [stim.Circuit()], local_gates=["H"])[0]
+        is not None
     )
-    assert circuits.get_transversal_circuits(zero_logical_code, [stim.Circuit()])[0] is not None
-    monkeypatch.undo()
     assert circuits.get_transversal_circuit(codes.FiveQubitCode(), stim.Circuit("X 0")) is not None
     assert circuits.get_transversal_circuit(codes.FiveQubitCode(), stim.Circuit("Z 0")) is not None
 

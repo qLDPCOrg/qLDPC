@@ -121,6 +121,28 @@ jobs:
           uv run --group ci-test --group ci-notebooks python checks/pytest_.py --notebook
           examples/decoders.ipynb examples/basics.ipynb examples/noise_models.ipynb
 
+  gap:
+    name: GAP integration (Python 3.13)
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          # the gap extra (passagemath-gap) is only available for Python 3.13
+          python-version: 3.13
+          enable-cache: true
+      - name: Install package and dependencies
+        run: uv sync --extra gap --group ci-test
+      - name: Check that libgap is available
+        run: >-
+          uv run --extra gap --group ci-test python -c
+          "import qldpc.external.gap as gap; assert gap._get_libgap() is not None"
+      - name: Run GAP tests
+        run: uv run --extra gap --group ci-test python checks/pytest_.py src/qldpc/external/
+
   coverage:
     name: Pytest and coverage check
     if: github.event.pull_request.draft == false

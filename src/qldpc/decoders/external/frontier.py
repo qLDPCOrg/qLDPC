@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import types
 from collections.abc import Callable, Mapping
 from typing import Any, Literal
 
@@ -25,7 +26,7 @@ from ..dems import DetectorErrorModelArrays
 from ..protocols import ObservableDecoder, ObservableDecodeResult
 
 ####################################################################################################
-# public decoder and specifications
+# Frontier decoder
 
 
 class FrontierObservableDecoder(ObservableDecoder):
@@ -111,6 +112,10 @@ class FrontierObservableDecoder(ObservableDecoder):
         return flips, erased, result
 
 
+####################################################################################################
+# decoder specifications
+
+
 def _get_observable_decoder_frontier(
     dem: stim.DetectorErrorModel,
     *,
@@ -123,40 +128,7 @@ def _get_observable_decoder_frontier(
     committee: bool = False,
     add_erasure_bit: bool = False,
 ) -> FrontierObservableDecoder:
-    """Build a Frontier decoder that predicts the observable flips of a detector error model.
-
-    Frontier (https://github.com/aleverrier/frontier) scans the error mechanisms of a binary
-    detector error model in a fixed order.  After each step, it groups partial solutions by the
-    detectors and observables that they flip, and prunes unlikely groups.  It then predicts the most
-    likely observable flips among the remaining groups that are consistent with the syndrome.
-    Pruning makes this prediction approximate.
-
-    Frontier is not a qLDPC dependency.  If it is missing, building the decoder raises an error that
-    shows how to install the version that qLDPC is tested against.
-
-    Args:
-        dem: The binary detector error model to decode.
-        K: The maximum number of groups of partial solutions to keep after each step.
-        Delta: The maximum gap between the score of a kept group and the best score.  A score is the
-            log-probability of a group, plus score_alpha times an estimate of how likely the
-            remaining error mechanisms are to resolve the detectors that it flips.
-        score_alpha: The weight of the estimate of future consistency in a score.
-        metric_mode: ``"logsumexp_float"`` to add the probabilities of merged partial solutions, or
-            ``"frontier_lite"`` to keep only the largest, using integer arithmetic.
-            ``"frontier_lite"`` requires the native extension of Frontier.
-        int_metric_scale: The scale of the integer log-probabilities used by ``"frontier_lite"``.
-        column_order: ``"deadline_reorder"`` to let Frontier reorder error mechanisms so that
-            detectors are resolved as early as possible, or ``"time_order"`` to scan them in the
-            order of the detector error model.
-        committee: If True, also scan the error mechanisms in reverse order (reordered again if
-            column_order is ``"deadline_reorder"``), and keep the prediction of the scan that
-            retains more probability.
-        add_erasure_bit: If True, append an erasure flag to every prediction.  The flag is set if no
-            remaining group is consistent with the syndrome, in which case the prediction is no
-            observable flips, and is clear otherwise.
-
-    Returns:
-        A :class:`~qldpc.decoders.external.frontier.FrontierObservableDecoder`."""
+    """Build a Frontier observable decoder; see ``decoders.frontier`` for its options."""
     _validate_frontier_options(
         K=K,
         Delta=Delta,
@@ -210,22 +182,29 @@ frontier = observable_decoder_spec(
     _get_observable_decoder_frontier,
     doc="""Configure approximate maximum-likelihood observable decoding.
 
-Frontier prunes low-probability partial solutions while scanning a binary detector error model.
-The optional package is imported only when the decoder is built.
+`Frontier <https://github.com/aleverrier/frontier>`_ prunes low-probability partial solutions
+while scanning a binary detector error model.  It is not a qLDPC dependency, and is imported only
+when the decoder is built; if it is missing, building the decoder raises an error that shows how to
+install the version that qLDPC is tested against.
 
 See `arXiv:2606.20513 <https://arxiv.org/abs/2606.20513>`_ for a discussion of decoder options.
 
 Args:
     K: Maximum number of groups of partial solutions retained after each scan step.
-    Delta: Maximum allowed score gap from the best group.
+    Delta: Maximum allowed score gap from the best group.  A score is the log-probability of a
+        group, plus ``score_alpha`` times an estimate of how likely the remaining error mechanisms
+        are to resolve the detectors that it flips.
     score_alpha: Weight of the estimated probability of resolving remaining detectors.
     metric_mode: ``"logsumexp_float"`` sums probabilities of merged groups;
-        ``"frontier_lite"`` keeps only the best using integer arithmetic.
+        ``"frontier_lite"`` keeps only the best using integer arithmetic, and requires the native
+        extension of Frontier.
     int_metric_scale: Integer log-probability scale for ``"frontier_lite"``.
     column_order: ``"deadline_reorder"`` resolves detectors early, while ``"time_order"``
         preserves the model's error-mechanism order.
-    committee: Whether to also scan the mechanisms in reverse and keep the better result.
-    add_erasure_bit: Whether to append a flag when no retained group explains the syndrome.
+    committee: Whether to also scan the mechanisms in reverse and keep the result of the scan
+        that retains more probability.
+    add_erasure_bit: Whether to append a flag when no retained group explains the syndrome, in
+        which case the prediction is no observable flips.
 
 Returns:
     A decoder specification.  ``build_observable_decoder(dem)`` returns a
@@ -234,9 +213,6 @@ Returns:
 """,
 )
 
-
-####################################################################################################
-# private builder helpers
 
 # PyPI rejects direct-URL dependencies, so frontier cannot be a qldpc extra.
 _INSTALL_COMMAND = (
@@ -247,7 +223,7 @@ _METRIC_MODES = ("logsumexp_float", "frontier_lite")
 _COLUMN_ORDERS = ("deadline_reorder", "time_order")
 
 
-def _get_frontier() -> Any:
+def _get_frontier() -> types.ModuleType:
     """Import the optional upstream dependency or raise an actionable error."""
     try:
         import frontier
@@ -287,7 +263,7 @@ def _validate_frontier_options(
 
 
 def _get_scan(
-    frontier: Any, columns: list[Any], num_detectors: int, column_order: str
+    frontier: types.ModuleType, columns: list[Any], num_detectors: int, column_order: str
 ) -> tuple[list[Any], Any]:
     """Order the columns of one Frontier scan, and build the layout for that order."""
     if column_order == "deadline_reorder":

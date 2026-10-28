@@ -12,35 +12,11 @@ import numpy as np
 import stim
 
 from qldpc import codes, math
-from qldpc._util import networkx as nx
+from qldpc._utils import networkx as nx
 from qldpc.objects import Pauli
 
 from ..bookkeeping import MeasurementRecord, QubitIDs
-from ..common import restrict_to_qubits
-
-
-def validate_syndrome_qubit_ids(
-    code: codes.QuditCode, qubit_ids: QubitIDs | None = None
-) -> QubitIDs:
-    """Validate the qubit layout for a syndrome-measurement strategy.
-
-    Args:
-        code: The code whose syndromes will be measured.
-        qubit_ids: Integer indices for the data and check qubits.  Defaults to
-            ``QubitIDs.from_code(code)``.
-
-    Returns:
-        A validated qubit layout.
-
-    Raises:
-        ValueError: If the code is a subsystem code or the qubit layout is invalid.
-    """
-    if code.is_subsystem_code:
-        raise ValueError(
-            "Syndrome measurement strategies require a non-subsystem code (measure the gauge checks"
-            " of a subsystem code with SyndromeMeasurementStrategy.get_subsystem_circuit)"
-        )
-    return QubitIDs.validated(qubit_ids or QubitIDs.from_code(code), code)
+from ..common import _restrict_to_qubits
 
 
 class SyndromeMeasurementStrategy(abc.ABC):
@@ -53,7 +29,7 @@ class SyndromeMeasurementStrategy(abc.ABC):
     a time with get_circuit.
     """
 
-    @restrict_to_qubits
+    @_restrict_to_qubits
     @abc.abstractmethod
     def get_circuit(
         self, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
@@ -107,7 +83,7 @@ class SyndromeMeasurementStrategy(abc.ABC):
             color_to_checks[color].append(check)
         return tuple(tuple(color_to_checks[color]) for color in sorted(color_to_checks))
 
-    @restrict_to_qubits
+    @_restrict_to_qubits
     def get_subsystem_circuit(
         self,
         code: codes.QuditCode,
@@ -156,7 +132,7 @@ class SyndromeMeasurementStrategy(abc.ABC):
         """
         qubit_ids = QubitIDs.validated(qubit_ids or QubitIDs.from_code(code), code)
         layers = self.get_gauge_layers(code) if layers is None else layers
-        validate_gauge_layers(code, layers)
+        _validate_gauge_layers(code, layers)
 
         circuit = stim.Circuit()
         measurement_record = MeasurementRecord()
@@ -182,25 +158,6 @@ class SyndromeMeasurementStrategy(abc.ABC):
             circuit += layer_circuit
             measurement_record.append(layer_record)
         return _schedule_as_soon_as_possible(circuit), measurement_record
-
-
-def validate_gauge_layers(code: codes.QuditCode, layers: Sequence[Sequence[int]]) -> None:
-    """Validate a partition of the checks of a code into layers of mutually commuting checks.
-
-    Args:
-        code: The code whose checks are partitioned.
-        layers: The indices (rows of code.matrix) of the checks in each layer.
-
-    Raises:
-        ValueError: If the layers do not partition the checks of the code, or if a layer contains
-            checks that do not commute.
-    """
-    if sorted(check for layer in layers for check in layer) != list(range(code.num_checks)):
-        raise ValueError("Gauge layers must partition the parity checks of the code")
-    for layer in layers:
-        checks = code.matrix[list(layer)]
-        if np.any(checks @ math.symplectic_conjugate(checks).T):
-            raise ValueError(f"Gauge layer {tuple(layer)} contains checks that do not commute")
 
 
 class EdgeColoring(SyndromeMeasurementStrategy):
@@ -230,7 +187,7 @@ class EdgeColoring(SyndromeMeasurementStrategy):
         self.strategy = strategy
         self.subgraph_kwargs = subgraph_kwargs
 
-    @restrict_to_qubits
+    @_restrict_to_qubits
     def get_circuit(
         self, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
     ) -> tuple[stim.Circuit, MeasurementRecord]:
@@ -245,28 +202,10 @@ class EdgeColoring(SyndromeMeasurementStrategy):
             stim.Circuit: A syndrome measurement circuit.
             circuits.MeasurementRecord: The record of measurements in the circuit.
         """
-        qubit_ids = validate_syndrome_qubit_ids(code, qubit_ids)
+        qubit_ids = _validate_syndrome_qubit_ids(code, qubit_ids)
+        # subgraph_kwargs are meant for custom overrides, whose signatures mypy cannot know
         subgraphs = code.get_syndrome_subgraphs(**self.subgraph_kwargs)  # type:ignore[arg-type]
         return self._get_circuit_from_subgraphs(qubit_ids, subgraphs)
-
-    def _get_circuit_from_subgraphs(
-        self,
-        qubit_ids: QubitIDs,
-        subgraphs: tuple[nx.DiGraph, ...],
-    ) -> tuple[stim.Circuit, MeasurementRecord]:
-        """Build a circuit and record from an already selected subgraph sequence."""
-        circuit = stim.Circuit()
-        circuit.append("RX", qubit_ids.check)
-        circuit.append("TICK")
-        for subgraph in subgraphs:
-            circuit += EdgeColoring.graph_to_circuit(subgraph, qubit_ids, self.strategy)
-        circuit.append("MX", qubit_ids.check)
-        circuit.append("TICK")
-
-        measurement_record = MeasurementRecord(
-            {qubit: [mm] for mm, qubit in enumerate(qubit_ids.check)}
-        )
-        return circuit, measurement_record
 
     @staticmethod
     def graph_to_circuit(graph: nx.DiGraph, qubit_ids: QubitIDs, strategy: str) -> stim.Circuit:
@@ -305,6 +244,25 @@ class EdgeColoring(SyndromeMeasurementStrategy):
             circuit.append("TICK")  # separate scheduled gate layers
         return circuit
 
+    def _get_circuit_from_subgraphs(
+        self,
+        qubit_ids: QubitIDs,
+        subgraphs: tuple[nx.DiGraph, ...],
+    ) -> tuple[stim.Circuit, MeasurementRecord]:
+        """Build a circuit and record from an already selected subgraph sequence."""
+        circuit = stim.Circuit()
+        circuit.append("RX", qubit_ids.check)
+        circuit.append("TICK")
+        for subgraph in subgraphs:
+            circuit += EdgeColoring.graph_to_circuit(subgraph, qubit_ids, self.strategy)
+        circuit.append("MX", qubit_ids.check)
+        circuit.append("TICK")
+
+        measurement_record = MeasurementRecord(
+            {qubit: [mm] for mm, qubit in enumerate(qubit_ids.check)}
+        )
+        return circuit, measurement_record
+
 
 class EdgeColoringXZ(EdgeColoring):
     """Edge coloration syndrome measurement strategy in Algorithm 1 of arXiv:2109.14609.
@@ -330,7 +288,7 @@ class EdgeColoringXZ(EdgeColoring):
         self.strategy = strategy
         self.subgraph_kwargs: dict[str, object] = {}
 
-    @restrict_to_qubits
+    @_restrict_to_qubits
     def get_circuit(
         self, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
     ) -> tuple[stim.Circuit, MeasurementRecord]:
@@ -350,12 +308,51 @@ class EdgeColoringXZ(EdgeColoring):
                 "The EdgeColoringXZ strategy for syndrome measurement only supports CSS codes"
             )
 
-        qubit_ids = validate_syndrome_qubit_ids(code, qubit_ids)
+        qubit_ids = _validate_syndrome_qubit_ids(code, qubit_ids)
         return self._get_circuit_from_subgraphs(qubit_ids, (code.graph_x, code.graph_z))
 
 
-####################################################################################################
-# private helper functions
+def _validate_syndrome_qubit_ids(
+    code: codes.QuditCode, qubit_ids: QubitIDs | None = None
+) -> QubitIDs:
+    """Validate the qubit layout for a syndrome-measurement strategy.
+
+    Args:
+        code: The code whose syndromes will be measured.
+        qubit_ids: Integer indices for the data and check qubits.  Defaults to
+            ``QubitIDs.from_code(code)``.
+
+    Returns:
+        A validated qubit layout.
+
+    Raises:
+        ValueError: If the code is a subsystem code or the qubit layout is invalid.
+    """
+    if code.is_subsystem_code:
+        raise ValueError(
+            "Syndrome measurement strategies require a non-subsystem code (measure the gauge checks"
+            " of a subsystem code with SyndromeMeasurementStrategy.get_subsystem_circuit)"
+        )
+    return QubitIDs.validated(qubit_ids or QubitIDs.from_code(code), code)
+
+
+def _validate_gauge_layers(code: codes.QuditCode, layers: Sequence[Sequence[int]]) -> None:
+    """Validate a partition of the checks of a code into layers of mutually commuting checks.
+
+    Args:
+        code: The code whose checks are partitioned.
+        layers: The indices (rows of code.matrix) of the checks in each layer.
+
+    Raises:
+        ValueError: If the layers do not partition the checks of the code, or if a layer contains
+            checks that do not commute.
+    """
+    if sorted(check for layer in layers for check in layer) != list(range(code.num_checks)):
+        raise ValueError("Gauge layers must partition the parity checks of the code")
+    for layer in layers:
+        checks = code.matrix[list(layer)]
+        if np.any(checks @ math.symplectic_conjugate(checks).T):
+            raise ValueError(f"Gauge layer {tuple(layer)} contains checks that do not commute")
 
 
 def _schedule_as_soon_as_possible(circuit: stim.Circuit) -> stim.Circuit:

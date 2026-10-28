@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Adapter and builder for the optional Tesseract decoder."""
+"""Adapter and decoder specifications for the optional Tesseract decoder."""
 
 from __future__ import annotations
 
+import functools
+import types
 from collections.abc import Sequence
 from typing import Any, Literal, cast
 
@@ -13,12 +15,12 @@ import numpy.typing as npt
 import scipy.sparse
 import stim
 
-from qldpc._util import format_docstring
+from qldpc._deprecations.decoders import deprecate_error_rate_option, translate_error_rate
+from qldpc._utils import format_docstring
 from qldpc.math import IntegerArray
 
 from ..common import (
-    PLACEHOLDER_ERROR_RATE,
-    _deprecate_error_rate_option,
+    _PLACEHOLDER_ERROR_RATE,
     _erasure_bit_support,
     _get_matrix_error_channel,
     _reject_dem_error_probabilities,
@@ -34,7 +36,7 @@ from ..protocols import (
 )
 
 ####################################################################################################
-# public decoder and specifications
+# Tesseract decoder
 
 
 TesseractDetectorOrderMethod = Literal["bfs", "index", "coordinate"]
@@ -68,7 +70,7 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
     could report a column other than the most likely one, and it is disabled by default.
     """
 
-    @format_docstring(PLACEHOLDER_ERROR_RATE=PLACEHOLDER_ERROR_RATE)
+    @format_docstring(PLACEHOLDER_ERROR_RATE=_PLACEHOLDER_ERROR_RATE)
     def __init__(
         self,
         pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
@@ -91,7 +93,7 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
         num_det_orders: int | None = None,
         det_order_method: TesseractDetectorOrderMethod | None = None,
         seed: int | None = None,
-        error_rate: float | None = None,
+        error_rate: float | None = None,  # DEPRECATED: see qldpc._deprecations
     ) -> None:
         """Initialize a Tesseract decoder.
 
@@ -99,7 +101,7 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
             pcm_or_dem: A binary parity-check matrix or detector error model to decode.
             error_channel: One probability for every matrix-column error, or one probability per
                 column.  Defaults to {PLACEHOLDER_ERROR_RATE}.  A DEM supplies its own
-                probabilities, so neither probability argument can be specified with one.
+                probabilities, so ``error_channel`` cannot be specified with one.
             add_erasure_bit: Whether to append Tesseract's low-confidence flag to each result.
             det_beam: Beam-search cutoff.
             beam_climbing: Whether to retry with increasing beam sizes.
@@ -123,6 +125,7 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
         """
         backend = _get_tesseract()
         is_dem = isinstance(pcm_or_dem, stim.DetectorErrorModel)
+        # DEPRECATED: see qldpc._deprecations
         dem, num_errors = _get_dem_and_num_errors(pcm_or_dem, error_channel, error_rate)
         backend_order_method = (
             None
@@ -239,21 +242,89 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
         return validated_syndromes
 
 
+def _get_tesseract() -> types.ModuleType:
+    """Import the optional Tesseract package or raise an actionable error."""
+    try:
+        import tesseract_decoder
+    except ModuleNotFoundError as error:
+        if error.name != "tesseract_decoder":
+            raise
+        raise ModuleNotFoundError(
+            "The Tesseract decoder requires the optional 'tesseract-decoder' package.  Install it"
+            " with `pip install 'qldpc[tesseract]'`.  The pinned release publishes wheels for"
+            " CPython 3.12-3.14 on macOS arm64 and Linux x86-64; for other environments, see"
+            " https://github.com/quantumlib/tesseract-decoder#installation"
+        ) from error
+    return tesseract_decoder
+
+
+def _get_dem_and_num_errors(
+    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
+    error_channel: float | npt.NDArray[np.floating] | Sequence[float] | None,
+    error_rate: float | None,  # DEPRECATED: see qldpc._deprecations
+) -> tuple[stim.DetectorErrorModel, int]:
+    """Convert an input to Tesseract's DEM while preserving its error indexing."""
+    if isinstance(pcm_or_dem, stim.DetectorErrorModel):
+        # DEPRECATED: see qldpc._deprecations
+        _reject_dem_error_probabilities(error_channel, error_rate)
+        return pcm_or_dem, pcm_or_dem.num_errors
+
+    _validate_binary_matrix(pcm_or_dem)
+    probabilities = cast(
+        npt.NDArray[np.floating],
+        # DEPRECATED: see qldpc._deprecations
+        _get_matrix_error_channel(pcm_or_dem, error_channel, error_rate),
+    )
+    dem_arrays = DetectorErrorModelArrays.from_arrays(pcm_or_dem, None, probabilities)
+    return dem_arrays.to_dem(), dem_arrays.num_errors
+
+
+def _validate_binary_matrix(matrix: IntegerArray) -> None:
+    """Reject matrix inputs that Stim cannot represent as a binary DEM."""
+    if len(matrix.shape) != 2:
+        raise ValueError(
+            f"A Tesseract parity-check matrix must be two-dimensional, got {matrix.shape}"
+        )
+    if isinstance(matrix, galois.FieldArray) and type(matrix).order != 2:
+        raise ValueError("The Tesseract decoder only supports binary parity-check matrices")
+    values = (
+        matrix.tocoo().data
+        if isinstance(matrix, scipy.sparse.sparray | scipy.sparse.spmatrix)
+        else matrix
+    )
+    array = np.asarray(values)
+    if not (np.issubdtype(array.dtype, np.integer) or np.issubdtype(array.dtype, np.bool_)):
+        raise ValueError("A Tesseract parity-check matrix must contain binary integers")
+    if np.any((array != 0) & (array != 1)):
+        raise ValueError("A Tesseract parity-check matrix must contain only 0 and 1")
+
+
+_DETECTOR_ORDER_NAMES: dict[TesseractDetectorOrderMethod, str] = {
+    "bfs": "BFS",
+    "coordinate": "Coordinate",
+    "index": "Index",
+}
+
+
+def _get_detector_order_name(method: TesseractDetectorOrderMethod) -> str:
+    """Translate qLDPC's typed detector-order name to Tesseract's enum attribute."""
+    if method not in _DETECTOR_ORDER_NAMES:
+        options = ", ".join(repr(option) for option in _DETECTOR_ORDER_NAMES)
+        raise ValueError(
+            f"Unknown Tesseract det_order_method {method!r}; expected one of {options}"
+        )
+    return _DETECTOR_ORDER_NAMES[method]
+
+
+####################################################################################################
+# decoder specifications
+
+
 @_erasure_bit_support("Tesseract", supported=True)
 def _get_decoder_tesseract(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel, **decoder_args: Any
 ) -> TesseractDecoder:
-    """Build a Tesseract search-based decoder.
-
-    The options are those of :class:`~qldpc.decoders.external.tesseract.TesseractDecoder`.
-
-    Returns:
-        A :class:`~qldpc.decoders.external.tesseract.TesseractDecoder`, which infers errors and
-        predicts observable flips natively.
-
-    Tesseract requires the optional ``tesseract-decoder`` package, which can be installed with
-    ``pip install 'qldpc[tesseract]'``.
-    """
+    """Build a Tesseract decoder; see ``decoders.tesseract`` for its options."""
     return TesseractDecoder(pcm_or_dem, **decoder_args)
 
 
@@ -262,7 +333,7 @@ tesseract = decoder_spec(
     _get_decoder_tesseract,
     _get_decoder_tesseract,
     signature_source=TesseractDecoder,
-    option_transform=_deprecate_error_rate_option,
+    option_transform=deprecate_error_rate_option,
     doc="""Configure Tesseract decoding for a binary code.
 
 Tesseract searches for likely errors within beam and priority-queue limits.  Its native
@@ -312,7 +383,7 @@ def tesseract_preset(
     sparsify: Literal["surface-code-like", "color-code-like"] | None = None,
     error_channel: float | npt.NDArray[np.floating] | Sequence[float] | None = None,
     add_erasure_bit: bool = False,
-    error_rate: float | None = None,
+    error_rate: float | None = None,  # DEPRECATED: see qldpc._deprecations
 ) -> DecoderSpec[TesseractDecoder]:
     """Configure one of Tesseract's named Sinter presets.
 
@@ -357,20 +428,8 @@ def tesseract_preset(
             " 'surface-code-like', or 'color-code-like'"
         ) from None
 
-    explicitly_provided: set[str] = set()
-    if error_channel is not None:
-        explicitly_provided.add("error_channel")
-    if error_rate is not None:
-        explicitly_provided.add("error_rate")
-    probability_options = _deprecate_error_rate_option(
-        {"error_channel": error_channel, "error_rate": error_rate},
-        frozenset(explicitly_provided),
-    )
-    return tesseract(
-        error_channel=cast(
-            float | npt.NDArray[np.floating] | Sequence[float] | None,
-            probability_options["error_channel"],
-        ),
+    make_spec = functools.partial(
+        tesseract,
         add_erasure_bit=add_erasure_bit,
         det_beam=det_beam,
         beam_climbing=True,
@@ -381,79 +440,7 @@ def tesseract_preset(
         det_order_method="index",
         seed=2_384_753,
     )
-
-
-####################################################################################################
-# private builder helpers
-
-
-def _get_tesseract() -> Any:
-    """Import the optional Tesseract package or raise an actionable error."""
-    try:
-        import tesseract_decoder
-    except ModuleNotFoundError as error:
-        if error.name != "tesseract_decoder":
-            raise
-        raise ModuleNotFoundError(
-            "The Tesseract decoder requires the optional 'tesseract-decoder' package.  Install it"
-            " with `pip install 'qldpc[tesseract]'`.  The pinned release publishes wheels for"
-            " CPython 3.12-3.14 on macOS arm64 and Linux x86-64; for other environments, see"
-            " https://github.com/quantumlib/tesseract-decoder#installation"
-        ) from error
-    return tesseract_decoder
-
-
-def _get_dem_and_num_errors(
-    pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
-    error_channel: float | npt.NDArray[np.floating] | Sequence[float] | None,
-    error_rate: float | None,
-) -> tuple[stim.DetectorErrorModel, int]:
-    """Convert an input to Tesseract's DEM while preserving its error indexing."""
-    if isinstance(pcm_or_dem, stim.DetectorErrorModel):
-        _reject_dem_error_probabilities(error_channel, error_rate)
-        return pcm_or_dem, pcm_or_dem.num_errors
-
-    _validate_binary_matrix(pcm_or_dem)
-    probabilities = cast(
-        npt.NDArray[np.floating],
-        _get_matrix_error_channel(pcm_or_dem, error_channel, error_rate),
-    )
-    dem_arrays = DetectorErrorModelArrays.from_arrays(pcm_or_dem, None, probabilities)
-    return dem_arrays.to_dem(), dem_arrays.num_errors
-
-
-def _validate_binary_matrix(matrix: IntegerArray) -> None:
-    """Reject matrix inputs that Stim cannot represent as a binary DEM."""
-    if len(matrix.shape) != 2:
-        raise ValueError(
-            f"A Tesseract parity-check matrix must be two-dimensional, got {matrix.shape}"
-        )
-    if isinstance(matrix, galois.FieldArray) and type(matrix).order != 2:
-        raise ValueError("The Tesseract decoder only supports binary parity-check matrices")
-    values = (
-        matrix.tocoo().data
-        if isinstance(matrix, scipy.sparse.sparray | scipy.sparse.spmatrix)
-        else matrix
-    )
-    array = np.asarray(values)
-    if not (np.issubdtype(array.dtype, np.integer) or np.issubdtype(array.dtype, np.bool_)):
-        raise ValueError("A Tesseract parity-check matrix must contain binary integers")
-    if np.any((array != 0) & (array != 1)):
-        raise ValueError("A Tesseract parity-check matrix must contain only 0 and 1")
-
-
-_DETECTOR_ORDER_NAMES: dict[TesseractDetectorOrderMethod, str] = {
-    "bfs": "BFS",
-    "coordinate": "Coordinate",
-    "index": "Index",
-}
-
-
-def _get_detector_order_name(method: TesseractDetectorOrderMethod) -> str:
-    """Translate qLDPC's typed detector-order name to Tesseract's enum attribute."""
-    if method not in _DETECTOR_ORDER_NAMES:
-        options = ", ".join(repr(option) for option in _DETECTOR_ORDER_NAMES)
-        raise ValueError(
-            f"Unknown Tesseract det_order_method {method!r}; expected one of {options}"
-        )
-    return _DETECTOR_ORDER_NAMES[method]
+    # DEPRECATED: see qldpc._deprecations
+    if error_rate is not None:
+        error_channel = translate_error_rate(error_rate, error_channel is not None)
+    return make_spec(error_channel=error_channel)

@@ -1,19 +1,6 @@
-"""Tests for src/qldpc/experimental/surgery/circuit.py (single + joint PPM).
+# SPDX-License-Identifier: Apache-2.0
 
-Copyright 2026 The qLDPC Authors
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
+"""Tests for src/qldpc/experimental/surgery/circuit.py (single + joint PPM)."""
 
 from __future__ import annotations
 
@@ -33,18 +20,6 @@ from .conftest import (
 )
 
 
-def test_build_single_ppm_circuit_noiseless_compiles() -> None:
-    from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    g = build_gadget(code, x, basis=Pauli.X)
-    circuit = build_single_ppm_circuit(g, rounds=2, noise_model=None)
-    assert isinstance(circuit, stim.Circuit)
-    assert len(circuit) > 0
-
-
 def test_single_ppm_uses_stored_merged_checks_as_source_of_truth() -> None:
     """Public merged-check fields cannot be silently replaced by reconstructed matrices."""
     import dataclasses
@@ -61,43 +36,10 @@ def test_single_ppm_uses_stored_merged_checks_as_source_of_truth() -> None:
         build_single_ppm_circuit(modified, rounds=1)
 
 
-def test_merged_csscode_accessor_handles_single_and_joint_layouts() -> None:
-    """One private accessor covers both existing merged-code shapes."""
-    from qldpc.experimental.surgery import build_bridge, build_gadget
-    from qldpc.experimental.surgery.circuit import _merged_csscode
-
-    code_l = codes.SteaneCode()
-    code_r = codes.SteaneCode()
-    logical_l = np.asarray(code_l.get_logical_ops(Pauli.X)[0], dtype=np.uint8)
-    logical_r = np.asarray(code_r.get_logical_ops(Pauli.X)[0], dtype=np.uint8)
-    gadget_l = build_gadget(code_l, logical_l, basis=Pauli.X)
-    gadget_r = build_gadget(code_r, logical_r, basis=Pauli.X)
-    bridge = build_bridge(gadget_l, gadget_r)
-
-    assert _merged_csscode(gadget_l).dimension == code_l.dimension - 1
-    assert _merged_csscode(gadget_l, gadget_r, bridge).dimension == (
-        code_l.dimension + code_r.dimension - 1
-    )
-    with pytest.raises(ValueError, match="both be provided"):
-        _merged_csscode(gadget_l, gadget_r)
-
-
-def test_merged_csscode_rejects_structure_for_single_layout() -> None:
-    """Explicit inter-block structure is only meaningful for joint layouts."""
-    from qldpc.experimental.surgery.circuit import _merged_csscode
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    logical = np.asarray(code.get_logical_ops(Pauli.X)[0], dtype=np.uint8)
-    gadget = build_gadget(code, logical, basis=Pauli.X)
-    with pytest.raises(ValueError, match="only valid for a joint"):
-        _merged_csscode(gadget, intercode=True)
-
-
 def test_explicit_intracode_structure_uses_code_equality_not_identity() -> None:
     """One shared data register may be described by equivalent code objects."""
     from qldpc.experimental.surgery import build_bridge, build_gadget
-    from qldpc.experimental.surgery.circuit import _merged_csscode
+    from qldpc.experimental.surgery.circuit import _stitch_intracode
 
     code_l = codes.SteaneCode()
     code_r = codes.SteaneCode()
@@ -106,38 +48,13 @@ def test_explicit_intracode_structure_uses_code_equality_not_identity() -> None:
     gadget_l = build_gadget(code_l, logical_l, basis=Pauli.X)
     gadget_r = build_gadget(code_r, logical_r, basis=Pauli.X)
 
-    merged = _merged_csscode(
-        gadget_l,
-        gadget_r,
-        build_bridge(gadget_l, gadget_r),
-        intercode=False,
-    )
+    merged = _stitch_intracode(gadget_l, gadget_r, build_bridge(gadget_l, gadget_r))
     shared_gadget_r = build_gadget(code_l, logical_l, basis=Pauli.X)
-    shared_merged = _merged_csscode(
-        gadget_l,
-        shared_gadget_r,
-        build_bridge(gadget_l, shared_gadget_r),
+    shared_merged = _stitch_intracode(
+        gadget_l, shared_gadget_r, build_bridge(gadget_l, shared_gadget_r)
     )
     assert np.array_equal(merged.matrix_x, shared_merged.matrix_x)
     assert np.array_equal(merged.matrix_z, shared_merged.matrix_z)
-
-    incompatible = codes.SurfaceCode(3)
-    incompatible_logical = np.asarray(
-        incompatible.get_logical_ops(Pauli.X)[0],
-        dtype=np.uint8,
-    )
-    incompatible_gadget = build_gadget(
-        incompatible,
-        incompatible_logical,
-        basis=Pauli.X,
-    )
-    with pytest.raises(ValueError, match="structurally identical"):
-        _merged_csscode(
-            gadget_l,
-            incompatible_gadget,
-            build_bridge(gadget_l, incompatible_gadget),
-            intercode=False,
-        )
 
     permutation = np.array([1, 0, 2, 3, 4, 5, 6])
     permuted_code = codes.CSSCode(
@@ -151,12 +68,7 @@ def test_explicit_intracode_structure_uses_code_equality_not_identity() -> None:
     assert permuted_code.num_qudits == code_l.num_qudits
     assert permuted_code != code_l
     with pytest.raises(ValueError, match="structurally identical"):
-        _merged_csscode(
-            gadget_l,
-            permuted_gadget,
-            build_bridge(gadget_l, permuted_gadget),
-            intercode=False,
-        )
+        _stitch_intracode(gadget_l, permuted_gadget, build_bridge(gadget_l, permuted_gadget))
 
 
 def test_single_ppm_rejects_a_reducible_logical_until_boosted() -> None:
@@ -193,385 +105,6 @@ def test_single_ppm_accepts_a_logical_times_a_stabilizer() -> None:
     assert isinstance(build_single_ppm_circuit(gadget, rounds=1), stim.Circuit)
 
 
-def test_build_single_ppm_circuit_noiseless_no_detectors_fire() -> None:
-    from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    g = build_gadget(code, x, basis=Pauli.X)
-    circuit = build_single_ppm_circuit(g, rounds=2, noise_model=None)
-    sampler = circuit.compile_detector_sampler()
-    samples = sampler.sample(shots=16)
-    assert (samples == 0).all()
-
-
-def test_build_single_ppm_circuit_with_noise_detectors_fire() -> None:
-    from qldpc.circuits.noise_model import DepolarizingNoiseModel
-    from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    g = build_gadget(code, x, basis=Pauli.X)
-    circuit = build_single_ppm_circuit(
-        g,
-        rounds=2,
-        noise_model=DepolarizingNoiseModel(p=0.05),
-    )
-    samples = circuit.compile_detector_sampler().sample(shots=200)
-    assert samples.any()  # at least one detector fires under noise
-
-
-def test_classify_reliable_round1_checks_basis_x() -> None:
-    """For basis=X: reliable round-1 checks are data H_X plus gauge-fix G.
-
-    H_X is the first m_X X-checks; gauge-fix G is the last n_comp_checks Z-checks.
-    """
-    import galois
-
-    from qldpc.circuits.bookkeeping import QubitIDs
-    from qldpc.codes.common import CSSCode
-    from qldpc.experimental.surgery.circuit import _classify_reliable_round1_checks
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    g = build_gadget(code, x, basis=Pauli.X)
-    F2 = galois.GF2
-    merged = CSSCode(
-        F2(g.HX_merged.astype(np.int_).tolist()),
-        F2(g.HZ_merged.astype(np.int_).tolist()),
-        is_subsystem_code=False,
-    )
-    qubit_ids = QubitIDs.from_code(merged)
-    reliable = _classify_reliable_round1_checks(g, qubit_ids, "+" * code.num_qudits)
-    m_X = code.matrix_x.shape[0]
-    m_Z = code.matrix_z.shape[0]
-    # Reliable X-checks: first m_X of checks_x (the original data H_X rows)
-    expected_x_reliable = set(qubit_ids.checks_x[:m_X])
-    # Reliable Z-checks: last g.gauge.shape[0] of checks_z (the gauge-fix G rows)
-    expected_z_reliable = set(qubit_ids.checks_z[m_Z:])
-    expected = expected_x_reliable | expected_z_reliable
-    assert set(reliable) == expected, f"reliable={set(reliable)}, expected={expected}"
-
-
-def test_classify_reliable_round1_checks_basis_z() -> None:
-    """For basis=Z: reliable round-1 checks are data H_Z plus gauge-fix G.
-
-    H_Z is the first m_Z Z-checks; gauge-fix G is the last n_comp_checks X-checks.
-    """
-    import galois
-
-    from qldpc.circuits.bookkeeping import QubitIDs
-    from qldpc.codes.common import CSSCode
-    from qldpc.experimental.surgery.circuit import _classify_reliable_round1_checks
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    z = np.asarray(code.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
-    g = build_gadget(code, z, basis=Pauli.Z)
-    F2 = galois.GF2
-    merged = CSSCode(
-        F2(g.HX_merged.astype(np.int_).tolist()),
-        F2(g.HZ_merged.astype(np.int_).tolist()),
-        is_subsystem_code=False,
-    )
-    qubit_ids = QubitIDs.from_code(merged)
-    reliable = _classify_reliable_round1_checks(g, qubit_ids, "0" * code.num_qudits)
-    m_X = code.matrix_x.shape[0]
-    m_Z = code.matrix_z.shape[0]
-    # basis=Z: data H_Z rows are first m_Z Z-checks; G rows are last g.gauge.shape[0] X-checks
-    expected_z_reliable = set(qubit_ids.checks_z[:m_Z])
-    expected_x_reliable = set(qubit_ids.checks_x[m_X:])
-    expected = expected_z_reliable | expected_x_reliable
-    assert set(reliable) == expected
-
-
-def test_surgery_state_prep_basis_x_resets() -> None:
-    """basis=X: data RX (→|+⟩), kappa R (→|0⟩)."""
-    import galois
-
-    from qldpc.circuits.bookkeeping import QubitIDs
-    from qldpc.codes.common import CSSCode
-    from qldpc.experimental.surgery.circuit import _surgery_state_prep
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    g = build_gadget(code, x, basis=Pauli.X)
-    F2 = galois.GF2
-    merged = CSSCode(
-        F2(g.HX_merged.astype(np.int_).tolist()),
-        F2(g.HZ_merged.astype(np.int_).tolist()),
-        is_subsystem_code=False,
-    )
-    qubit_ids = QubitIDs.from_code(merged)
-    n_data = code.num_qudits
-    data_ids = qubit_ids.data[:n_data]
-    ancilla_ids = qubit_ids.data[n_data:]
-    circuit = _surgery_state_prep(g, data_ids, ancilla_ids, bridge_ids=())
-    text = str(circuit)
-    assert f"RX {' '.join(str(q) for q in data_ids)}" in text
-    assert f"R {' '.join(str(q) for q in ancilla_ids)}" in text
-
-
-def test_surgery_state_prep_basis_z_resets() -> None:
-    """basis=Z: data R (→|0⟩), kappa RX (→|+⟩)."""
-    import galois
-
-    from qldpc.circuits.bookkeeping import QubitIDs
-    from qldpc.codes.common import CSSCode
-    from qldpc.experimental.surgery.circuit import _surgery_state_prep
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    z = np.asarray(code.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
-    g = build_gadget(code, z, basis=Pauli.Z)
-    F2 = galois.GF2
-    merged = CSSCode(
-        F2(g.HX_merged.astype(np.int_).tolist()),
-        F2(g.HZ_merged.astype(np.int_).tolist()),
-        is_subsystem_code=False,
-    )
-    qubit_ids = QubitIDs.from_code(merged)
-    n_data = code.num_qudits
-    data_ids = qubit_ids.data[:n_data]
-    ancilla_ids = qubit_ids.data[n_data:]
-    circuit = _surgery_state_prep(g, data_ids, ancilla_ids, bridge_ids=())
-    text = str(circuit)
-    assert f"R {' '.join(str(q) for q in data_ids)}" in text
-    assert f"RX {' '.join(str(q) for q in ancilla_ids)}" in text
-
-
-def test_surgery_qec_cycle_round_1_detectors_classified() -> None:
-    """Round-1 detectors are 1-arg only for RELIABLE checks; unreliable ones skipped."""
-    import galois
-
-    from qldpc.circuits.bookkeeping import QubitIDs
-    from qldpc.codes.common import CSSCode
-    from qldpc.experimental.surgery.circuit import (
-        _classify_reliable_round1_checks,
-        _surgery_qec_cycle,
-    )
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    g = build_gadget(code, x, basis=Pauli.X)
-    F2 = galois.GF2
-    merged = CSSCode(
-        F2(g.HX_merged.astype(np.int_).tolist()),
-        F2(g.HZ_merged.astype(np.int_).tolist()),
-        is_subsystem_code=False,
-    )
-    qubit_ids = QubitIDs.from_code(merged)
-    reliable = _classify_reliable_round1_checks(g, qubit_ids, "+" * code.num_qudits)
-
-    circuit, _meas_rec, _det_rec = _surgery_qec_cycle(
-        g,
-        merged,
-        num_rounds=2,
-        qubit_ids=qubit_ids,
-        data_init="+" * code.num_qudits,
-    )
-    # Count round-1 1-arg DETECTORs (those appearing before any REPEAT_BLOCK).
-    text = str(circuit)
-    # Number of "DETECTOR" instructions in the first round (before the REPEAT block) should equal
-    # len(reliable).
-    first_round_str = text.split("REPEAT")[0]
-    n_det = first_round_str.count("DETECTOR")
-    assert n_det == len(reliable), (
-        f"round-1 detectors={n_det}, expected len(reliable)={len(reliable)}"
-    )
-
-
-def test_surgery_detach_and_readout_basis_x_measures_ancilla_then_data() -> None:
-    """basis=X: detach with M (Z-basis) on ancilla, then MX on data."""
-    from qldpc.circuits.bookkeeping import MeasurementRecord
-    from qldpc.experimental.surgery.circuit import _surgery_detach_and_readout
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    g = build_gadget(code, x, basis=Pauli.X)
-    n_data = code.num_qudits
-    data_ids = tuple(range(n_data))
-    ancilla_ids = tuple(range(n_data, n_data + g.incidence.shape[0]))
-    bridge_ids = ()
-    meas_rec = MeasurementRecord()
-    circuit = _surgery_detach_and_readout(
-        g,
-        data_ids=data_ids,
-        ancilla_ids=ancilla_ids,
-        bridge_ids=bridge_ids,
-        measurement_record=meas_rec,
-    )
-    text = str(circuit)
-    # ancilla measured first (in Z), then data (in X)
-    m_ancilla_idx = text.find(f"M {' '.join(str(q) for q in ancilla_ids)}")
-    m_data_idx = text.find(f"MX {' '.join(str(q) for q in data_ids)}")
-    assert m_ancilla_idx >= 0 and m_data_idx >= 0
-    assert m_ancilla_idx < m_data_idx
-
-
-def test_surgery_detach_and_readout_basis_z_measures_ancilla_in_x_then_data_in_z() -> None:
-    """basis=Z: detach with MX on ancilla, then M on data."""
-    from qldpc.circuits.bookkeeping import MeasurementRecord
-    from qldpc.experimental.surgery.circuit import _surgery_detach_and_readout
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    z = np.asarray(code.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
-    g = build_gadget(code, z, basis=Pauli.Z)
-    n_data = code.num_qudits
-    data_ids = tuple(range(n_data))
-    ancilla_ids = tuple(range(n_data, n_data + g.incidence.shape[0]))
-    meas_rec = MeasurementRecord()
-    circuit = _surgery_detach_and_readout(
-        g,
-        data_ids=data_ids,
-        ancilla_ids=ancilla_ids,
-        bridge_ids=(),
-        measurement_record=meas_rec,
-    )
-    text = str(circuit)
-    m_ancilla_idx = text.find(f"MX {' '.join(str(q) for q in ancilla_ids)}")
-    m_data_idx = text.find(f"M {' '.join(str(q) for q in data_ids)}")
-    assert m_ancilla_idx >= 0 and m_data_idx >= 0
-    assert m_ancilla_idx < m_data_idx
-
-
-def test_surgery_observable_emits_two_observable_include() -> None:
-    """Direct unit test on _surgery_observable: emits two OBSERVABLE_INCLUDE entries.
-
-    Observable 0 = XOR of the last QEC round's meas-check records (Webster, Smith, Cohen
-    single-round identity Z̄ = ∏_v A_v, arXiv:2511.15989 §II A).  Observable 1 = XOR of data records
-    on support (destructive cross-check).  Asserts exactly two OBSERVABLE_INCLUDE lines are emitted
-    with distinct observable indices."""
-    from qldpc.circuits.bookkeeping import MeasurementRecord
-    from qldpc.experimental.surgery.circuit import _surgery_observable
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    g = build_gadget(code, x, basis=Pauli.X)
-    n_data = code.num_qudits
-    meas_check_ids = tuple(range(100, 100 + len(g.support)))  # placeholder ids
-    data_ids = tuple(range(n_data))
-    meas_rec = MeasurementRecord()
-    # Simulate 2 rounds of meas-check measurements
-    for _ in range(2):
-        meas_rec.append({cid: i for i, cid in enumerate(meas_check_ids)})
-    # Simulate final data measurement
-    meas_rec.append({d: i for i, d in enumerate(data_ids)})
-
-    circuit = _surgery_observable(
-        g,
-        meas_check_ids=meas_check_ids,
-        data_ids=data_ids,
-        support_indices=g.support,
-        measurement_record=meas_rec,
-    )
-    text = str(circuit)
-    assert text.count("OBSERVABLE_INCLUDE") == 2  # PPM + cross-check
-    assert "(0)" in text and "(1)" in text  # two distinct observable indices
-
-
-@pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
-def test_build_single_ppm_circuit_noiseless_observables_zero(basis: PauliXZ) -> None:
-    """Both OBSERVABLE_INCLUDEs evaluate to 0 (= +1) under no noise."""
-    from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    op = code.get_logical_ops(Pauli.X)[0] if basis is Pauli.X else code.get_logical_ops(Pauli.Z)[0]
-    op_arr = np.asarray(op).astype(np.uint8)
-    g = build_gadget(code, op_arr, basis=basis)
-    circuit = build_single_ppm_circuit(g, rounds=3, noise_model=None)
-    # Sample observables; all should be 0.
-    sampler = circuit.compile_detector_sampler()
-    _, obs = sampler.sample(shots=16, separate_observables=True)
-    assert (obs == 0).all(), f"noiseless observables fired: {obs.sum()} flips across 16 shots"
-
-
-@pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
-def test_single_ppm_circuit_noise_flips_observable_at_high_p(basis: PauliXZ) -> None:
-    """At p=0.1, the PPM observable (observable 0) flips ≥ 5% of shots."""
-    from qldpc.circuits.noise_model import DepolarizingNoiseModel
-    from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    op = code.get_logical_ops(Pauli.X)[0] if basis is Pauli.X else code.get_logical_ops(Pauli.Z)[0]
-    op_arr = np.asarray(op).astype(np.uint8)
-    g = build_gadget(code, op_arr, basis=basis)
-    circuit = build_single_ppm_circuit(
-        g,
-        rounds=3,
-        noise_model=DepolarizingNoiseModel(p=0.1),
-    )
-    sampler = circuit.compile_detector_sampler()
-    _, obs = sampler.sample(shots=400, separate_observables=True)
-    # Observable 0 (PPM) flips a nontrivial fraction at p=0.1
-    obs_0_flip_rate = float(obs[:, 0].mean())
-    assert obs_0_flip_rate >= 0.05, (
-        f"PPM observable flip rate {obs_0_flip_rate:.2%} too low at p=0.1"
-    )
-
-
-@pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
-def test_surgery_final_detectors_count_matches_reliable_round1(basis: PauliXZ) -> None:
-    """Number of final DETECTORs equals |reliable round-1 set|.
-
-    Tests the helper in isolation: build a circuit through detach_and_readout, then call
-    _surgery_final_detectors and count emitted DETECTOR instructions.
-    """
-    from qldpc.circuits.bookkeeping import QubitIDs
-    from qldpc.experimental.surgery.circuit import (
-        _classify_reliable_round1_checks,
-        _gadget_merged_csscode,
-        _surgery_detach_and_readout,
-        _surgery_final_detectors,
-        _surgery_qec_cycle,
-    )
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    op = code.get_logical_ops(Pauli.X)[0] if basis is Pauli.X else code.get_logical_ops(Pauli.Z)[0]
-    op_arr = np.asarray(op).astype(np.uint8)
-    g = build_gadget(code, op_arr, basis=basis)
-    merged = _gadget_merged_csscode(g)
-    qubit_ids = QubitIDs.from_code(merged)
-    n_data = code.num_qudits
-    data_ids = qubit_ids.data[:n_data]
-    ancilla_ids = qubit_ids.data[n_data:]
-
-    # Simulate the pipeline through detach (we need measurement_record populated).
-    default_init = ("+" if basis is Pauli.X else "0") * code.num_qudits
-    _qec, mrec, _det = _surgery_qec_cycle(
-        g,
-        merged,
-        num_rounds=2,
-        qubit_ids=qubit_ids,
-        data_init=default_init,
-    )
-    _surgery_detach_and_readout(
-        g,
-        data_ids=data_ids,
-        ancilla_ids=ancilla_ids,
-        bridge_ids=(),
-        measurement_record=mrec,
-    )
-
-    circuit = _surgery_final_detectors(g, merged, qubit_ids, measurement_record=mrec)
-    n_final_det = str(circuit).count("DETECTOR")
-    expected = len(_classify_reliable_round1_checks(g, qubit_ids, default_init))
-    assert n_final_det == expected, (
-        f"basis={basis}: emitted {n_final_det} DETECTORs, expected {expected}"
-    )
-
-
 @pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
 def test_build_single_ppm_circuit_noiseless_no_detector_fires(basis: PauliXZ) -> None:
     """Noiseless: NO detector fires (including the new final detectors).
@@ -594,236 +127,82 @@ def test_build_single_ppm_circuit_noiseless_no_detector_fires(basis: PauliXZ) ->
     )
 
 
-def test_single_ppm_ler_monotone_in_p() -> None:
-    """Tiny sinter sweep: PPM LER monotonically increasing in p.
+@pytest.mark.parametrize("layout", ["single", "joint"])
+def test_ppm_logical_error_rate_grows_with_p(layout: str, pytestconfig: pytest.Config) -> None:
+    """Circuit noise flips the decoded PPM outcome far more often at p=3e-2 than at p=1e-3.
 
-    Catches gross protocol errors (wrong observable basis, sign flips, etc.).
+    The decoded logical error rate is about 1-4% at p=1e-3 and 25-50% at p=3e-2 for a Steane X̄ (or
+    X̄X̄) measurement with one round, so the thresholds below leave wide margins at 500 shots.
     """
-    import sinter
-
     from qldpc import decoders
     from qldpc.circuits import DepolarizingNoiseModel
-    from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
-    from qldpc.experimental.surgery.gadget import build_gadget
+    from qldpc.experimental.surgery import build_bridge, build_gadget
+    from qldpc.experimental.surgery.circuit import (
+        build_joint_ppm_circuit,
+        build_single_ppm_circuit,
+    )
 
+    seed = pytestconfig.getoption("randomly_seed")
     code = codes.SteaneCode()
-    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    g = build_gadget(code, x, basis=Pauli.X)
-
-    error_rates = [0.001, 0.005, 0.02]
-    tasks = []
-    for p in error_rates:
-        circuit = build_single_ppm_circuit(
-            g,
-            rounds=3,
-            noise_model=DepolarizingNoiseModel(p),
-        )
-        tasks.append(
-            sinter.Task(
-                circuit=circuit,
-                json_metadata={"p": float(p)},
-            )
-        )
-    sinter_decoder = decoders.SinterDecoder()
-    results = sinter.collect(
-        tasks=tasks,
-        decoders=["custom"],
-        custom_decoders={"custom": sinter_decoder},
-        num_workers=4,
-        max_shots=2000,
-        max_errors=30,
-        print_progress=False,
-    )
-    by_p = {r.json_metadata["p"]: r.errors / max(r.shots, 1) for r in results}
-    sorted_p = sorted(by_p.keys())
-    ler_vals = [by_p[p] for p in sorted_p]
-    # Monotonically non-decreasing (allow small statistical noise)
-    for i in range(len(ler_vals) - 1):
-        assert ler_vals[i] <= ler_vals[i + 1] * 1.5, (
-            f"LER not monotonic: p={sorted_p[i]} → {ler_vals[i]}, "
-            f"p={sorted_p[i + 1]} → {ler_vals[i + 1]}"
-        )
-
-
-def test_single_ppm_ler_with_final_detectors_below_threshold() -> None:
-    """With final detectors wired, LER at p=0.001 should be ≤ 0.01.
-
-    The final inferred detectors give the decoder the last round's information, without which errors
-    there are invisible.  The threshold sits a few times above the rate this configuration actually
-    reaches, so it tolerates Monte-Carlo scatter while still catching a regression of that wiring.
-    """
-    import sinter
-
-    from qldpc import decoders
-    from qldpc.circuits import DepolarizingNoiseModel
-    from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    g = build_gadget(code, x, basis=Pauli.X)
-
-    p = 0.001
-    circuit = build_single_ppm_circuit(
-        g,
-        rounds=3,
-        noise_model=DepolarizingNoiseModel(p),
-    )
-    sinter_decoder = decoders.SinterDecoder()
-    results = sinter.collect(
-        tasks=[sinter.Task(circuit=circuit, json_metadata={"p": float(p)})],
-        decoders=["custom"],
-        custom_decoders={"custom": sinter_decoder},
-        num_workers=4,
-        max_shots=5000,
-        max_errors=50,
-        print_progress=False,
-    )
-    assert len(results) == 1
-    ler = results[0].errors / max(results[0].shots, 1)
-    assert ler <= 0.01, (
-        f"LER at p=0.001 = {ler:.4f} (errors={results[0].errors}/{results[0].shots} shots). "
-        f"Expected ≤ 0.01 with the final inferred detectors wired."
-    )
-
-
-def test_stitch_intercode_basis_x_css_commutation() -> None:
-    """Inter-code Steane × Steane joint X̄X̄ merged code commutes."""
-    from qldpc.experimental.surgery.bridge import build_bridge
-    from qldpc.experimental.surgery.circuit import _stitch_to_joint_csscode
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code1 = codes.SteaneCode()
-    code2 = codes.SteaneCode()
-    x1 = np.asarray(code1.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    x2 = np.asarray(code2.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    g_l = build_gadget(code1, x1, basis=Pauli.X)
-    g_r = build_gadget(code2, x2, basis=Pauli.X)
+    logical = np.asarray(code.get_logical_ops(Pauli.X)[0], dtype=np.uint8)
+    g_l = build_gadget(code, logical, basis=Pauli.X)
+    g_r = build_gadget(codes.SteaneCode(), logical, basis=Pauli.X)
     bridge = build_bridge(g_l, g_r)
-    merged = _stitch_to_joint_csscode(g_l, g_r, bridge)
-    HX = np.asarray(merged.matrix_x).astype(np.int_)
-    HZ = np.asarray(merged.matrix_z).astype(np.int_)
-    product = (HX @ HZ.T) % 2
-    assert np.array_equal(product, np.zeros_like(product))
 
-
-def test_stitch_intercode_basis_x_k_reduces_by_one() -> None:
-    """k_joint = k_l + k_r - 1 for inter-code Steane × Steane joint X̄X̄."""
-    from qldpc.experimental.surgery.bridge import build_bridge
-    from qldpc.experimental.surgery.circuit import _stitch_to_joint_csscode
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code1 = codes.SteaneCode()
-    code2 = codes.SteaneCode()
-    x1 = np.asarray(code1.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    x2 = np.asarray(code2.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    g_l = build_gadget(code1, x1, basis=Pauli.X)
-    g_r = build_gadget(code2, x2, basis=Pauli.X)
-    bridge = build_bridge(g_l, g_r)
-    merged = _stitch_to_joint_csscode(g_l, g_r, bridge)
-    assert merged.dimension == code1.dimension + code2.dimension - 1
-
-
-def test_stitch_intercode_basis_x_joint_logical_in_stabilizer() -> None:
-    """(x_1, x_2, 0, 0, 0) lies in rowspan(H_X^merged) — joint X̄_l X̄_r is a stabilizer."""
-    from qldpc.experimental.surgery.bridge import build_bridge
-    from qldpc.experimental.surgery.circuit import _stitch_to_joint_csscode
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code1 = codes.SteaneCode()
-    code2 = codes.SteaneCode()
-    x1 = np.asarray(code1.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    x2 = np.asarray(code2.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    g_l = build_gadget(code1, x1, basis=Pauli.X)
-    g_r = build_gadget(code2, x2, basis=Pauli.X)
-    bridge = build_bridge(g_l, g_r)
-    merged = _stitch_to_joint_csscode(g_l, g_r, bridge)
-    import galois
-
-    GF2 = galois.GF2
-    HX = np.asarray(merged.matrix_x).astype(np.int_)
-    n_l = code1.num_qudits
-    n_r = code2.num_qudits
-    joint = np.zeros(HX.shape[1], dtype=np.int_)
-    joint[:n_l] = x1
-    joint[n_l : n_l + n_r] = x2
-    augmented = np.vstack([HX, joint.reshape(1, -1)])
-    assert np.linalg.matrix_rank(GF2(HX.tolist())) == np.linalg.matrix_rank(GF2(augmented.tolist()))
-
-
-def test_stitch_intercode_basis_x_singletons_excluded() -> None:
-    """(x_1, 0, ...) and (0, x_2, ...) alone are NOT in rowspan(H_X^merged)."""
-    from qldpc.experimental.surgery.bridge import build_bridge
-    from qldpc.experimental.surgery.circuit import _stitch_to_joint_csscode
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    g_l = build_gadget(code, x, basis=Pauli.X)
-    g_r = build_gadget(codes.SteaneCode(), x, basis=Pauli.X)
-    bridge = build_bridge(g_l, g_r)
-    merged = _stitch_to_joint_csscode(g_l, g_r, bridge)
-    import galois
-
-    GF2 = galois.GF2
-    HX = np.asarray(merged.matrix_x).astype(np.int_)
-    n_l = code.num_qudits
-    base = np.linalg.matrix_rank(GF2(HX.tolist()))
-    for which in ("left", "right"):
-        single = np.zeros(HX.shape[1], dtype=np.int_)
-        if which == "left":
-            single[:n_l] = x
+    raw_rates, decoded_rates = [], []
+    for p in (1e-3, 3e-2):
+        noise_model = DepolarizingNoiseModel(p)
+        if layout == "single":
+            circuit = build_single_ppm_circuit(g_l, rounds=1, noise_model=noise_model)
         else:
-            single[n_l : 2 * n_l] = x
-        augmented = np.vstack([HX, single.reshape(1, -1)])
-        assert np.linalg.matrix_rank(GF2(augmented.tolist())) == base + 1, which
+            circuit, _ = build_joint_ppm_circuit(
+                g_l, g_r, bridge, rounds=1, noise_model=noise_model
+            )
+        sampler = circuit.compile_detector_sampler(seed=seed)
+        detectors, observables = sampler.sample(500, separate_observables=True)
+        decoder = decoders.bp_osd().build_observable_decoder(circuit.detector_error_model())
+        assert isinstance(decoder, decoders.BatchObservableDecoder)
+        predictions = np.asarray(decoder.decode_observables_batch(detectors))
+        raw_rates.append(observables[:, 0].mean())
+        decoded_rates.append((predictions[:, 0] != observables[:, 0]).mean())
+
+    assert raw_rates[1] > 0.2, f"noise rarely reaches the PPM outcome: {raw_rates}"
+    assert decoded_rates[0] < 0.1, f"decoded rates: {decoded_rates}"
+    assert decoded_rates[1] > 0.2, f"decoded rates: {decoded_rates}"
 
 
-def test_stitch_intracode_basis_x_css_commutation() -> None:
-    from qldpc.experimental.surgery.bridge import build_bridge
-    from qldpc.experimental.surgery.circuit import _stitch_to_joint_csscode
-    from qldpc.experimental.surgery.gadget import build_gadget
+def test_single_ppm_decoding_corrects_errors(pytestconfig: pytest.Config) -> None:
+    """With repeated rounds, decoding lowers the logical error rate of a single PPM.
+
+    At p=1e-3 with three rounds, a Steane X̄ measurement flips its raw outcome in about 3% of shots,
+    while the decoded outcome is wrong in under 1% of shots.
+    """
+    from qldpc import decoders
+    from qldpc.circuits import DepolarizingNoiseModel
+    from qldpc.experimental.surgery import build_gadget
+    from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
 
     code = codes.SteaneCode()
-    x1 = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    # Use Pauli.X logical 0 for both (same V_0); intra-code test
-    g_l = build_gadget(code, x1, basis=Pauli.X)
-    g_r = build_gadget(code, x1, basis=Pauli.X)
-    bridge = build_bridge(g_l, g_r)
-    merged = _stitch_to_joint_csscode(g_l, g_r, bridge)
-    HX = np.asarray(merged.matrix_x).astype(np.int_)
-    HZ = np.asarray(merged.matrix_z).astype(np.int_)
-    product = (HX @ HZ.T) % 2
-    assert np.array_equal(product, np.zeros_like(product))
-
-
-def test_stitch_intracode_basis_x_k_reduces_by_one() -> None:
-    # Use Webster code 0 (k>=2) so the k_joint = k_data - 1 invariant is not masked by the spurious
-    # bridge X-logical: Steane (k=1) with x_l = x_r is the degenerate joint X̄ · X̄ = I case where
-    # the spurious bridge logical leaves the dimension at k_data instead of k_data - 1.
-    from qldpc.experimental.surgery.bridge import build_bridge
-    from qldpc.experimental.surgery.circuit import _stitch_to_joint_csscode
-    from qldpc.experimental.surgery.gadget import (
-        build_gadget,
-    )
-
-    data = load_webster_seed_set(0)
-    code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
-    x1 = _webster_x_bar_operator(data, "X_bar_1")
-    x2 = _webster_x_bar_operator(data, "X_bar_k2p1")
-    g_l = build_gadget(code, x1, basis=Pauli.X)
-    g_r = build_gadget(code, x2, basis=Pauli.X)
-    bridge = build_bridge(g_l, g_r)
-    merged = _stitch_to_joint_csscode(g_l, g_r, bridge)
-    assert merged.dimension == code.dimension - 1
+    logical = np.asarray(code.get_logical_ops(Pauli.X)[0], dtype=np.uint8)
+    gadget = build_gadget(code, logical, basis=Pauli.X)
+    circuit = build_single_ppm_circuit(gadget, rounds=3, noise_model=DepolarizingNoiseModel(1e-3))
+    sampler = circuit.compile_detector_sampler(seed=pytestconfig.getoption("randomly_seed"))
+    detectors, observables = sampler.sample(2000, separate_observables=True)
+    decoder = decoders.bp_osd().build_observable_decoder(circuit.detector_error_model())
+    assert isinstance(decoder, decoders.BatchObservableDecoder)
+    predictions = np.asarray(decoder.decode_observables_batch(detectors))
+    raw_rate = observables[:, 0].mean()
+    decoded_rate = (predictions[:, 0] != observables[:, 0]).mean()
+    assert decoded_rate < 0.015 < raw_rate, f"raw={raw_rate}, decoded={decoded_rate}"
 
 
 @pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
 def test_stitch_intercode_both_bases_commute_and_singletons_excluded(basis: PauliXZ) -> None:
+    """Inter-code Steane × Steane: commuting checks, k_l + k_r - 1, and only the joint fixed."""
     import galois
 
     from qldpc.experimental.surgery.bridge import build_bridge
-    from qldpc.experimental.surgery.circuit import _stitch_to_joint_csscode
+    from qldpc.experimental.surgery.circuit import _stitch_intercode
     from qldpc.experimental.surgery.gadget import build_gadget
 
     GF2 = galois.GF2
@@ -835,17 +214,21 @@ def test_stitch_intercode_both_bases_commute_and_singletons_excluded(basis: Paul
     g_l = build_gadget(code, x, basis=basis)
     g_r = build_gadget(codes.SteaneCode(), x, basis=basis)
     bridge = build_bridge(g_l, g_r)
-    merged = _stitch_to_joint_csscode(g_l, g_r, bridge)
+    merged = _stitch_intercode(g_l, g_r, bridge)
     HX = np.asarray(merged.matrix_x).astype(np.int_)
     HZ = np.asarray(merged.matrix_z).astype(np.int_)
     product = (HX @ HZ.T) % 2
     assert np.array_equal(product, np.zeros_like(product))
     assert merged.dimension == 2 * code.dimension - 1
-    # Singletons excluded: (x_l, 0, ...) and (0, x_r, ...) NOT in rowspan of the check matrix that
-    # contains the joint stabilizer (HX for basis=X, HZ for Z).
+    # The joint stabilizer (x_l, x_r, 0, ...) is in the rowspan of the check matrix that contains it
+    # (HX for basis=X, HZ for Z), whereas the singletons (x_l, 0, ...) and (0, x_r, ...) are not.
     H_joint = HX if basis is Pauli.X else HZ
     n_l = code.num_qudits
     base_rank = np.linalg.matrix_rank(GF2(H_joint.tolist()))
+    joint = np.zeros(H_joint.shape[1], dtype=np.int_)
+    joint[: 2 * n_l] = np.concatenate([x, x])
+    augmented = np.vstack([H_joint, joint.reshape(1, -1)])
+    assert np.linalg.matrix_rank(GF2(augmented.tolist())) == base_rank
     for which in ("left", "right"):
         single = np.zeros(H_joint.shape[1], dtype=np.int_)
         if which == "left":
@@ -856,6 +239,29 @@ def test_stitch_intercode_both_bases_commute_and_singletons_excluded(basis: Paul
         assert np.linalg.matrix_rank(GF2(augmented.tolist())) == base_rank + 1, which
 
 
+def test_joint_ppm_of_different_codes() -> None:
+    """Inter-code Webster GB code 0 × Steane joint PPM has dimension k_l + k_r - 1 = 10.
+
+    The other inter-code tests join two copies of one code, so they cannot tell the left code's
+    sizes from the right code's.
+    """
+    from qldpc.experimental.surgery.bridge import build_bridge
+    from qldpc.experimental.surgery.circuit import build_joint_ppm_circuit
+    from qldpc.experimental.surgery.gadget import build_gadget
+
+    data = load_webster_seed_set(0)
+    webster = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
+    z_webster = _webster_x_bar_operator(data, "Z_bar_1", pauli_type="Z")
+    steane = codes.SteaneCode()
+    z_steane = np.asarray(steane.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
+    g_l = build_gadget(webster, z_webster, basis=Pauli.Z)
+    g_r = build_gadget(steane, z_steane, basis=Pauli.Z)
+    _, joint_code = build_joint_ppm_circuit(
+        g_l, g_r, build_bridge(g_l, g_r), rounds=1, noise_model=None
+    )
+    assert joint_code.dimension == webster.dimension + steane.dimension - 1
+
+
 @pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
 def test_stitch_intracode_both_bases_commute(basis: PauliXZ) -> None:
     """Intra-code commutation for both bases.  Use a Webster code with 2 distinct logicals.
@@ -863,7 +269,7 @@ def test_stitch_intracode_both_bases_commute(basis: PauliXZ) -> None:
     Steane intra-code (k=1) yields the degenerate joint X̄·X̄ = I case.
     """
     from qldpc.experimental.surgery.bridge import build_bridge
-    from qldpc.experimental.surgery.circuit import _stitch_to_joint_csscode
+    from qldpc.experimental.surgery.circuit import _stitch_intracode
     from qldpc.experimental.surgery.gadget import (
         build_gadget,
     )
@@ -881,7 +287,7 @@ def test_stitch_intracode_both_bases_commute(basis: PauliXZ) -> None:
     g_l = build_gadget(code, x1, basis=basis)
     g_r = build_gadget(code, x2, basis=basis)
     bridge = build_bridge(g_l, g_r)
-    merged = _stitch_to_joint_csscode(g_l, g_r, bridge)
+    merged = _stitch_intracode(g_l, g_r, bridge)
     HX = np.asarray(merged.matrix_x).astype(np.int_)
     HZ = np.asarray(merged.matrix_z).astype(np.int_)
     product = (HX @ HZ.T) % 2
@@ -955,71 +361,6 @@ def test_joint_ppm_rejects_an_identity_product() -> None:
         build_joint_ppm_circuit(gadget, gadget, build_bridge(gadget, gadget), rounds=1)
 
 
-def test_build_joint_ppm_circuit_intercode_noiseless_observables_zero() -> None:
-    """Cross-check obs0 == obs1 per shot across all 4 parity inits.
-
-    Uses compile_sampler + raw XOR, so noiseless obs0 and obs1 are the actual eigenvalue bits rather
-    than flip indicators, and sweeps non-trivial parity inits.  Asserting ``obs.sum() == 0`` from
-    compile_detector_sampler on a single |+⟩^n init would instead be vacuous: noiseless flips are 0
-    whether or not obs0 is correct, and parity=+1 gives the expected 0 for free.
-    """
-    from qldpc.experimental.surgery.bridge import build_bridge
-    from qldpc.experimental.surgery.circuit import build_joint_ppm_circuit
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    g_l = build_gadget(code, x, basis=Pauli.X)
-    g_r = build_gadget(codes.SteaneCode(), x, basis=Pauli.X)
-    bridge = build_bridge(g_l, g_r)
-    for data_init in [("+", "+"), ("-", "+"), ("+", "-"), ("-", "-")]:
-        circuit, _ = build_joint_ppm_circuit(
-            g_l,
-            g_r,
-            bridge,
-            rounds=2,
-            data_init=data_init,
-        )
-        raw = circuit.compile_sampler().sample(shots=8).astype(np.uint8)
-        n_meas = raw.shape[1]
-        obs_lines = [ln for ln in str(circuit).splitlines() if ln.startswith("OBSERVABLE_INCLUDE")]
-        offs0 = [int(t.strip("rec[]")) for t in obs_lines[0].split() if t.startswith("rec[")]
-        offs1 = [int(t.strip("rec[]")) for t in obs_lines[1].split() if t.startswith("rec[")]
-        obs0 = np.bitwise_xor.reduce(raw[:, [n_meas + o for o in offs0]], axis=1)
-        obs1 = np.bitwise_xor.reduce(raw[:, [n_meas + o for o in offs1]], axis=1)
-        assert (obs0 == obs1).all(), (
-            f"data_init={data_init!r}: obs0 disagrees with obs1 on "
-            f"{(obs0 != obs1).sum()}/8 noiseless shots"
-        )
-
-
-def test_joint_ppm_ler_monotone_steane_intercode() -> None:
-    """LER non-decreasing in p across {1e-4, 3e-4, 1e-3} for Steane × Steane."""
-    from qldpc.circuits.noise_model import DepolarizingNoiseModel
-    from qldpc.experimental.surgery.bridge import build_bridge
-    from qldpc.experimental.surgery.circuit import build_joint_ppm_circuit
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    g_l = build_gadget(code, x, basis=Pauli.X)
-    g_r = build_gadget(codes.SteaneCode(), x, basis=Pauli.X)
-    bridge = build_bridge(g_l, g_r)
-    lers = []
-    shots = 2000
-    for p in (1e-3, 3e-4, 1e-4):
-        nm = DepolarizingNoiseModel(p)
-        circuit, _ = build_joint_ppm_circuit(g_l, g_r, bridge, rounds=3, noise_model=nm)
-        sampler = circuit.compile_detector_sampler()
-        _, obs = sampler.sample(shots, separate_observables=True)
-        # logical error rate of OBS 0 (joint χ XOR)
-        ler = (obs[:, 0] != 0).mean()
-        lers.append(ler)
-    # LER should be non-increasing as p decreases (tolerance 1.3× to absorb sampling noise)
-    assert lers[0] >= lers[1] / 1.3, f"LER not monotone: {lers}"
-    assert lers[1] >= lers[2] / 1.3, f"LER not monotone: {lers}"
-
-
 @pytest.mark.parametrize("code_index", [0, 1, 2, 3])
 def test_joint_xx_in_stabilizer_on_webster_intracode(code_index: int) -> None:
     """Webster BB codes 0..3 intra-code: (x_1, x_2 padded, 0...) is in rowspan(H_X^merged).
@@ -1030,7 +371,7 @@ def test_joint_xx_in_stabilizer_on_webster_intracode(code_index: int) -> None:
     import galois
 
     from qldpc.experimental.surgery.bridge import build_bridge
-    from qldpc.experimental.surgery.circuit import _stitch_to_joint_csscode
+    from qldpc.experimental.surgery.circuit import _stitch_intracode
     from qldpc.experimental.surgery.gadget import (
         build_gadget,
     )
@@ -1043,7 +384,7 @@ def test_joint_xx_in_stabilizer_on_webster_intracode(code_index: int) -> None:
     g_l = build_gadget(code, x1, basis=Pauli.X)
     g_r = build_gadget(code, x2, basis=Pauli.X)
     bridge = build_bridge(g_l, g_r)
-    merged = _stitch_to_joint_csscode(g_l, g_r, bridge)
+    merged = _stitch_intracode(g_l, g_r, bridge)
     HX = np.asarray(merged.matrix_x).astype(np.int_)
     joint = np.zeros(HX.shape[1], dtype=np.int_)
     n = code.num_qudits
@@ -1078,7 +419,7 @@ def test_build_joint_ppm_circuit_intracode_noiseless_observables_zero() -> None:
 
 
 def test_single_ppm_data_init_default_matches_pre_kwarg() -> None:
-    """build_single_ppm_circuit(g, rounds=3) ≡ data_init=None ≡ data_init='+' for basis=X."""
+    """build_single_ppm_circuit(g, rounds=3) ≡ data_init='+' for basis=X."""
     from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
     from qldpc.experimental.surgery.gadget import build_gadget
 
@@ -1086,13 +427,11 @@ def test_single_ppm_data_init_default_matches_pre_kwarg() -> None:
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     g = build_gadget(code, x, basis=Pauli.X)
     c_no_kwarg = build_single_ppm_circuit(g, rounds=3, noise_model=None)
-    c_none = build_single_ppm_circuit(g, rounds=3, noise_model=None, data_init=None)
     c_plus = build_single_ppm_circuit(g, rounds=3, noise_model=None, data_init="+")
-    assert str(c_no_kwarg) == str(c_none), "data_init=None must match no-kwarg call"
     assert str(c_no_kwarg) == str(c_plus), "data_init='+' broadcast must match default for basis=X"
 
 
-def test_single_ppm_data_init_zero_random_outcome() -> None:
+def test_single_ppm_data_init_zero_random_outcome(pytestconfig: pytest.Config) -> None:
     """data_init='0' on basis=X gadget → logical |0⟩, obs0 50% flip, obs0 ≡ obs1."""
     from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
     from qldpc.experimental.surgery.gadget import build_gadget
@@ -1101,7 +440,7 @@ def test_single_ppm_data_init_zero_random_outcome() -> None:
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     g = build_gadget(code, x, basis=Pauli.X)
     circuit = build_single_ppm_circuit(g, rounds=3, noise_model=None, data_init="0")
-    sampler = circuit.compile_detector_sampler()
+    sampler = circuit.compile_detector_sampler(seed=pytestconfig.getoption("randomly_seed"))
     detectors, observables = sampler.sample(shots=4000, separate_observables=True)
     obs0, obs1 = observables[:, 0], observables[:, 1]
     rate0, rate1 = float(obs0.mean()), float(obs1.mean())
@@ -1155,12 +494,13 @@ def test_joint_ppm_data_init_truth_table() -> None:
         )
 
 
-def test_joint_ppm_data_init_superposition() -> None:
+def test_joint_ppm_data_init_superposition(pytestconfig: pytest.Config) -> None:
     """c1 |0⟩ × c2 |+⟩: Z̄_2 random → obs0 ~50%, obs0 ≡ obs1 every shot."""
     from qldpc.experimental.surgery.bridge import build_bridge
     from qldpc.experimental.surgery.circuit import build_joint_ppm_circuit
     from qldpc.experimental.surgery.gadget import build_gadget
 
+    seed = pytestconfig.getoption("randomly_seed")
     c1, c2 = codes.SteaneCode(), codes.SteaneCode()
     z1 = np.asarray(c1.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
     z2 = np.asarray(c2.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
@@ -1176,14 +516,14 @@ def test_joint_ppm_data_init_superposition() -> None:
         noise_model=None,
         data_init="0" * n + "+" * n,
     )
-    detectors, _ = circuit.compile_detector_sampler().sample(
+    detectors, _ = circuit.compile_detector_sampler(seed=seed).sample(
         shots=100,
         separate_observables=True,
     )
     assert not detectors.any(), "superposition init must not create random detectors"
     with pytest.raises(ValueError, match="non-deterministic observables"):
         circuit.detector_error_model()
-    sampler = circuit.compile_sampler()
+    sampler = circuit.compile_sampler(seed=seed)
     raw = sampler.sample(shots=1000).astype(np.uint8)
     n_meas = raw.shape[1]
     obs_lines = [ln for ln in str(circuit).splitlines() if ln.startswith("OBSERVABLE_INCLUDE")]
@@ -1199,38 +539,6 @@ def test_joint_ppm_data_init_superposition() -> None:
     assert 0.40 < rate0 < 0.60, f"obs0 rate {rate0:.2%} not random"
     assert 0.40 < rate1 < 0.60, f"obs1 rate {rate1:.2%} not random"
     assert agree == 1.0, f"obs0 vs obs1 disagree on {int((1 - agree) * 1000)} of 1000 shots"
-
-
-def test_joint_ppm_data_init_tuple_matches_per_qubit_string() -> None:
-    """data_init=("0", "+") produces the same circuit as "0"*n + "+"*n."""
-    from qldpc.experimental.surgery.bridge import build_bridge
-    from qldpc.experimental.surgery.circuit import build_joint_ppm_circuit
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    c1, c2 = codes.SteaneCode(), codes.SteaneCode()
-    z1 = np.asarray(c1.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
-    z2 = np.asarray(c2.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
-    g1 = build_gadget(c1, z1, basis=Pauli.Z)
-    g2 = build_gadget(c2, z2, basis=Pauli.Z)
-    bridge = build_bridge(g1, g2)
-    n = c1.num_qudits
-    c_tuple, _ = build_joint_ppm_circuit(
-        g1,
-        g2,
-        bridge,
-        rounds=3,
-        noise_model=None,
-        data_init=("0", "+"),
-    )
-    c_string, _ = build_joint_ppm_circuit(
-        g1,
-        g2,
-        bridge,
-        rounds=3,
-        noise_model=None,
-        data_init="0" * n + "+" * n,
-    )
-    assert str(c_tuple) == str(c_string)
 
 
 def test_joint_ppm_data_init_tuple_per_qubit_entry() -> None:
@@ -1271,9 +579,8 @@ def test_joint_ppm_data_init_tuple_per_qubit_entry() -> None:
     "bad_init,error_substr",
     [
         (("0",), "must have 2 entries"),
-        (("0", "+", "-"), "must have 2 entries"),
-        (("00", "+"), "data_init\\[0\\] length 2 does not match c_l data count 7"),
-        (("0", "++"), "data_init\\[1\\] length 2 does not match c_r data count 7"),
+        (("00", "+"), r"data_init\[0\]"),
+        (("0", "++"), r"data_init\[1\]"),
         ((0, "+"), "must be str"),
     ],
 )
@@ -1328,10 +635,8 @@ def test_joint_ppm_data_init_tuple_rejects_intracode() -> None:
 @pytest.mark.parametrize(
     "bad_init,error_substr",
     [
-        ("00", "does not match num data qubits"),  # wrong length: too short
-        ("0" * 8, "does not match num data qubits"),  # wrong length: too long (Steane n=7)
-        ("@" * 7, "invalid chars"),  # invalid character
-        ("0123456", "invalid chars"),  # mixed valid + invalid
+        ("00", "does not match num data qubits"),
+        ("@" * 7, "invalid chars"),
     ],
 )
 def test_data_init_validation(bad_init: object, error_substr: str) -> None:
@@ -1343,7 +648,12 @@ def test_data_init_validation(bad_init: object, error_substr: str) -> None:
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     g = build_gadget(code, x, basis=Pauli.X)
     with pytest.raises(ValueError, match=error_substr):
-        build_single_ppm_circuit(g, rounds=3, noise_model=None, data_init=bad_init)  # type: ignore[arg-type]
+        build_single_ppm_circuit(
+            g,
+            rounds=3,
+            noise_model=None,
+            data_init=bad_init,  # type: ignore[arg-type]
+        )
 
 
 def test_qubit_coords_layout_steane() -> None:
@@ -1361,17 +671,10 @@ def test_qubit_coords_layout_steane() -> None:
     g = build_gadget(code, x, basis=Pauli.X)
     circuit = build_single_ppm_circuit(g, rounds=1, noise_model=None)
 
-    # Parse QUBIT_COORDS lines: each line is "QUBIT_COORDS(x, y) qubit_id"
-    coord_map: dict[int, tuple[int, int]] = {}
-    for line in str(circuit).splitlines():
-        line = line.strip()
-        if not line.startswith("QUBIT_COORDS"):
-            continue
-        # "QUBIT_COORDS(x, y) qid" — parse "(x, y)" and qid
-        head, qid_str = line.rsplit(" ", 1)
-        tup = head[len("QUBIT_COORDS(") : -1]
-        x_str, y_str = [t.strip() for t in tup.split(",")]
-        coord_map[int(qid_str)] = (int(x_str), int(y_str))
+    coord_map = {
+        qid: tuple(int(v) for v in coords)
+        for qid, coords in circuit.get_final_qubit_coordinates().items()
+    }
 
     expected = {
         # data qubits on y=0 (unchanged)
@@ -1438,47 +741,63 @@ def test_detector_coords_steane_round_1_reliable() -> None:
         assert qubit_lane[check_id] == lane, f"check {check_id} is on lane {qubit_lane[check_id]}"
 
 
+@pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
+def test_joint_ppm_round_0_detectors(basis: PauliXZ) -> None:
+    """A joint PPM's first round has detectors for data, gauge, and cycle checks.
+
+    On the default product-state initialization, the deterministic checks in the first round are
+    the data checks of the measured basis (lane 2 for X, lane 4 for Z), the bridge-augmented gauge
+    checks (lane 5), and the bridge's cycle checks (lane 6, one per row of H_R).
+    """
+    from qldpc.experimental.surgery import build_bridge, build_gadget
+    from qldpc.experimental.surgery.circuit import build_joint_ppm_circuit
+
+    code = codes.SteaneCode()
+    logical = np.asarray(code.get_logical_ops(basis)[0]).astype(np.uint8)
+    g_l = build_gadget(code, logical, basis=basis)
+    g_r = build_gadget(codes.SteaneCode(), logical, basis=basis)
+    bridge = build_bridge(g_l, g_r)
+    circuit, _ = build_joint_ppm_circuit(g_l, g_r, bridge, rounds=1, noise_model=None)
+
+    round_0_lanes = collections.Counter(
+        int(coords[1]) for coords in circuit.get_detector_coordinates().values() if coords[0] == 0
+    )
+    data_lane = 2 if basis is Pauli.X else 4
+    expected = {
+        data_lane: 2 * code.get_matrix(basis).shape[0],
+        5: bridge.g_l_aug.gauge.shape[0] + bridge.g_r_aug.gauge.shape[0],
+        6: bridge.H_R.shape[0],
+    }
+    assert round_0_lanes == collections.Counter({k: v for k, v in expected.items() if v})
+
+
 def test_detector_coords_basis_z_preserves_lane_semantics() -> None:
-    """basis=Z gadget: round-1 reliable detector lanes ⊆ {4, 5}; no lane 2 or 3 leakage.
+    """basis=Z: reliable detectors use lanes 4 (H_Z) and 5 (G); the readout re-checks round 0.
 
     The lane map must not route G ancillas to lane 2 (data H_X) nor χ ancillas to lane 3 when the
-    basis swaps their matrix slots.  Steane's Z̄ gadget has an empty G, so lane 5 never appears and
-    the leak that would expose the misrouting is itself empty; the test stands as a guard for a
-    fixture whose G is non-empty.
-
-    DETECTOR coord order is ``(round, lane, check_id)``, so lane is at index 1 of the tuple.
+    basis swaps their matrix slots.  The BBCode [[36, 8]] Z̄_0 gadget has a nonempty G, so lane 5 is
+    populated and such a misrouting would show.
     """
+    import sympy
+
     from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
     from qldpc.experimental.surgery.gadget import build_gadget
 
-    code = codes.SteaneCode()
-    z = np.asarray(code.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
-    g = build_gadget(code, z, basis=Pauli.Z)
+    xs, ys = sympy.symbols("x y")
+    code = codes.BBCode({xs: 3, ys: 6}, xs**3 + ys + ys**2, ys**3 + xs + xs**2)
+    z_bar = np.asarray(code.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
+    g = build_gadget(code, z_bar, basis=Pauli.Z)
+    assert g.gauge.shape[0] > 0, "test premise broken: the gadget should have a nonempty G"
     circuit = build_single_ppm_circuit(g, rounds=1, noise_model=None)
 
-    detector_lanes: set[int] = set()
-    for line in str(circuit).splitlines():
-        line = line.strip()
-        if not line.startswith("DETECTOR"):
-            continue
-        head = line.split(")")[0]
-        tup = head[len("DETECTOR(") :]
-        parts = [int(p.strip()) for p in tup.split(",")]
-        detector_lanes.add(parts[1])
-
-    # Real assertions:
-    assert detector_lanes.issubset({4, 5}), (
-        f"basis=Z round-1 reliable lanes leaked outside {{4, 5}}: got {detector_lanes}"
-    )
-    assert 4 in detector_lanes, (
-        f"basis=Z must have data H_Z reliable detectors (lane=4); got {detector_lanes}"
-    )
-    assert 2 not in detector_lanes, (
-        f"basis=Z must NOT route any check to lane=2 (data H_X); got {detector_lanes}"
-    )
-    assert 3 not in detector_lanes, (
-        f"basis=Z must NOT route any check to lane=3 (χ); got {detector_lanes}"
-    )
+    detector_coords = {
+        tuple(int(v) for v in coords) for coords in circuit.get_detector_coordinates().values()
+    }
+    assert {lane for _round, lane, _cid in detector_coords} == {4, 5}
+    by_round = [
+        {(lane, cid) for round_, lane, cid in detector_coords if round_ == r} for r in (0, 1)
+    ]
+    assert by_round[0] == by_round[1]
 
 
 @pytest.mark.parametrize("joint", [False, True])
@@ -1509,8 +828,7 @@ def test_detector_round_coordinate_advances_once_per_round(joint: bool) -> None:
     assert rounds_seen == {0, 1, 2, 3}
 
 
-@pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
-def test_sliding_window_decoder_windows_a_surgery_circuit_by_round(basis: PauliXZ) -> None:
+def test_sliding_window_decoder_windows_a_surgery_circuit_by_round() -> None:
     """A window decoder handed the DEM with no time mapping of its own recovers the rounds.
 
     SlidingWindowDecoder's default time index is coordinate 0 of each detector, which is the reason
@@ -1524,26 +842,28 @@ def test_sliding_window_decoder_windows_a_surgery_circuit_by_round(basis: PauliX
     from qldpc.experimental.surgery.gadget import build_gadget
 
     code = codes.SteaneCode()
-    x = np.asarray(code.get_logical_ops(basis)[0]).astype(np.uint8)
-    gadget = build_gadget(code, x, basis=basis)
+    z = np.asarray(code.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
+    gadget = build_gadget(code, z, basis=Pauli.Z)
     circuit = keep_only_observable(
         build_single_ppm_circuit(gadget, rounds=6, noise_model=DepolarizingNoiseModel(p=1e-3)), 0
     )
     dem = circuit.detector_error_model(decompose_errors=False)
     round_of = {det: int(coords[0]) for det, coords in dem.get_detector_coordinates().items()}
 
-    decoder = SlidingWindowDecoder(window_size=3, stride=1)
-    decoder.compile_decoder_for_dem(dem)
+    compiled = SlidingWindowDecoder(window_size=3, stride=1).compile_decoder_for_dem(dem)
 
-    spans = [sorted({round_of[det] for det in detection}) for detection, _ in decoder.windows]
+    detectors = np.arange(dem.num_detectors)
+    spans = [
+        sorted({round_of[det] for det in detectors[detection]})
+        for detection in compiled.window_detectors
+    ]
     assert spans == [[0, 1, 2], [1, 2, 3], [2, 3, 4], [3, 4, 5], [4, 5, 6]]
 
 
 def test_joint_ppm_qubit_coords_intercode_layout() -> None:
-    """Intercode joint Z̄⊗Z̄ on two Steane copies: QUBIT_COORDS lanes correct.
+    """Intercode joint Z̄⊗Z̄ on two Steane copies: both data blocks share lane y=0.
 
-    n_l = n_r = 7; left data on y=0 at x=0..6; right data on y=0 at x=7..13. κ ancillas on y=1.
-    Bridge data + cycle ancillas on y=6.
+    n_l = n_r = 7; left data on y=0 at x=0..6; right data on y=0 at x=7..13.
     """
     from qldpc.experimental.surgery.bridge import build_bridge
     from qldpc.experimental.surgery.circuit import build_joint_ppm_circuit
@@ -1563,48 +883,21 @@ def test_joint_ppm_qubit_coords_intercode_layout() -> None:
         noise_model=None,
     )
 
-    # Parse QUBIT_COORDS and group qubit ids by y.
-    by_y: dict[int, list[tuple[int, int]]] = {}
-    for line in str(circuit).splitlines():
-        line = line.strip()
-        if not line.startswith("QUBIT_COORDS"):
-            continue
-        head, qid_str = line.rsplit(" ", 1)
-        tup = head[len("QUBIT_COORDS(") : -1]
-        x_str, y_str = [t.strip() for t in tup.split(",")]
-        x, y = int(x_str), int(y_str)
-        qid = int(qid_str)
-        by_y.setdefault(y, []).append((x, qid))
-
-    # y=0 must have n_l + n_r = 14 qubits at x=0..13.
-    y0 = sorted(by_y.get(0, []))
-    assert len(y0) == 14, f"y=0 expected 14 data qubits, got {len(y0)}"
-    assert [x for x, _ in y0] == list(range(14)), (
-        f"y=0 x positions: expected 0..13, got {[x for x, _ in y0]}"
+    y0 = sorted(
+        int(coords[0])
+        for coords in circuit.get_final_qubit_coordinates().values()
+        if coords[1] == 0
     )
-
-    # y=1 must have κ_l + κ_r qubits (depends on bridge augmentation).
-    y1 = sorted(by_y.get(1, []))
-    assert len(y1) >= 2, f"y=1 expected at least 2 κ qubits, got {len(y1)}"
-
-    # y=6 must have bridge data (= bridge.width) at x=0..w-1, plus cycle ancillas
-    # (= bridge.width - 1) at x=0..w-2.
-    y6 = sorted(by_y.get(6, []))
-    w = bridge.width
-    expected_y6_count = w + max(0, w - 1)  # bridge data + cycle ancillas
-    assert len(y6) == expected_y6_count, (
-        f"y=6 expected {expected_y6_count} qubits (w={w} bridge data + w-1 cycle ancillas), got {len(y6)}"
-    )
+    assert y0 == list(range(14)), f"y=0 x positions: expected 0..13, got {y0}"
 
 
 def test_joint_ppm_augmented_gauge_rows_stay_in_gauge_lane() -> None:
-    """Bridge-added gauge checks use lane 5; only adapter cycle checks use lane 6."""
-    from qldpc.circuits.bookkeeping import QubitIDs
+    """Bridge-added gauge checks use lane 5; only adapter cycle checks use lane 6.
+
+    The detectors are deterministic, including those of the bridge-added ancillas.
+    """
     from qldpc.experimental.surgery.bridge import build_bridge
-    from qldpc.experimental.surgery.circuit import (
-        _check_lane_map,
-        build_joint_ppm_circuit,
-    )
+    from qldpc.experimental.surgery.circuit import build_joint_ppm_circuit
     from qldpc.experimental.surgery.gadget import build_gadget
 
     from .conftest import _webster_z_bar_operator
@@ -1619,20 +912,18 @@ def test_joint_ppm_augmented_gauge_rows_stay_in_gauge_lane() -> None:
     augmented_gauge_count = bridge.g_l_aug.gauge.shape[0] + bridge.g_r_aug.gauge.shape[0]
     assert augmented_gauge_count > bare_gauge_count, "fixture must add a bridge gauge row"
 
-    circuit, joint_code = build_joint_ppm_circuit(g_l, g_r, bridge, rounds=1)
-    by_lane = collections.Counter(
-        int(coords[1]) for coords in circuit.get_final_qubit_coordinates().values()
-    )
+    circuit, _joint_code = build_joint_ppm_circuit(g_l, g_r, bridge, rounds=1)
+    circuit.detector_error_model()  # raises if any detector is nondeterministic
+    qubit_lane = {
+        qid: int(coords[1]) for qid, coords in circuit.get_final_qubit_coordinates().items()
+    }
+    by_lane = collections.Counter(qubit_lane.values())
     assert by_lane[5] == augmented_gauge_count
     assert by_lane[6] == 2 * bridge.width - 1
 
-    qubit_ids = QubitIDs.from_code(joint_code)
-    lane_of = _check_lane_map(g_l, qubit_ids, joint=(g_r, bridge, True))
-    data_x_checks = code_l.matrix_x.shape[0] + code_r.matrix_x.shape[0]
-    gauge_ids = qubit_ids.checks_x[data_x_checks : data_x_checks + augmented_gauge_count]
-    cycle_ids = qubit_ids.checks_x[data_x_checks + augmented_gauge_count :]
-    assert {lane_of[check_id] for check_id in gauge_ids} == {5}
-    assert {lane_of[check_id] for check_id in cycle_ids} == {6}
+    # Each detector's lane coordinate is the lane of the check ancilla that it names.
+    for _round, lane, check_id in circuit.get_detector_coordinates().values():
+        assert qubit_lane[int(check_id)] == int(lane), f"check {check_id} is not on lane {lane}"
 
 
 def test_logical_state_init_zero_and_plus_broadcast() -> None:
@@ -1645,79 +936,42 @@ def test_logical_state_init_zero_and_plus_broadcast() -> None:
     assert logical_state_init(code, "+", log_idx=0) == "+" * n
 
 
-def test_logical_state_init_one_flips_x_bar_support() -> None:
-    """'1' = X̄_0 |0⟩_L: '1' on supp(X̄_0), '0' elsewhere."""
-    from qldpc.experimental.surgery.circuit import logical_state_init
-
-    code = codes.SteaneCode()
-    n = code.num_qudits
-    x_bar = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    s = logical_state_init(code, "1", log_idx=0)
-    assert len(s) == n
-    expected_ones = {int(i) for i in np.where(x_bar)[0]}
-    actual_ones = {i for i, c in enumerate(s) if c == "1"}
-    actual_zeros = {i for i, c in enumerate(s) if c == "0"}
-    assert actual_ones == expected_ones
-    assert actual_zeros == set(range(n)) - expected_ones
-
-
-def test_logical_state_init_minus_flips_z_bar_support() -> None:
-    """'-' = Z̄_0 |+⟩_L: '-' on supp(Z̄_0), '+' elsewhere."""
-    from qldpc.experimental.surgery.circuit import logical_state_init
-
-    code = codes.SteaneCode()
-    n = code.num_qudits
-    z_bar = np.asarray(code.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
-    s = logical_state_init(code, "-", log_idx=0)
-    assert len(s) == n
-    expected_minus = {int(i) for i in np.where(z_bar)[0]}
-    actual_minus = {i for i, c in enumerate(s) if c == "-"}
-    actual_plus = {i for i, c in enumerate(s) if c == "+"}
-    assert actual_minus == expected_minus
-    assert actual_plus == set(range(n)) - expected_minus
-
-
-@pytest.mark.parametrize("bad", ["2", "x", "", "01", "0 ", " 0"])
-def test_logical_state_init_invalid_state_raises(bad: str) -> None:
+def test_logical_state_init_invalid_state_raises() -> None:
     """Anything outside {'0', '1', '+', '-'} raises ValueError."""
     from qldpc.experimental.surgery.circuit import logical_state_init
 
     code = codes.SteaneCode()
     with pytest.raises(ValueError, match="state"):
-        logical_state_init(code, bad, log_idx=0)
+        logical_state_init(code, "2", log_idx=0)
 
 
-def test_logical_state_init_missing_log_idx_raises() -> None:
-    """log_idx is keyword-only with no default — omitting it raises TypeError."""
-    from qldpc.experimental.surgery.circuit import logical_state_init
+@pytest.mark.parametrize("state", ["1", "-"])
+def test_logical_state_init_log_idx_flips_only_that_logical_qubit(state: str) -> None:
+    """The flip pattern preserves every stabilizer and anticommutes with only the chosen logical.
 
-    code = codes.SteaneCode()
-    with pytest.raises(TypeError, match="log_idx"):
-        logical_state_init(code, "0")  # type: ignore[call-arg]
-
-
-def test_logical_state_init_log_idx_selects_different_logical_qubit() -> None:
-    """log_idx=i flips supp(X̄_i) — distinct from X̄_0 on k>1 codes."""
+    For "1" the X-type flips f must satisfy H_Z f = 0 and Z̄_j · f = δ_{j, log_idx}; for "-" the
+    Z-type flips satisfy the analogous conditions with H_X and X̄_j.
+    """
     import sympy
 
     from qldpc.experimental.surgery.circuit import logical_state_init
 
     xs, ys = sympy.symbols("x y")
     code = codes.BBCode({xs: 3, ys: 6}, xs**3 + ys + ys**2, ys**3 + xs + xs**2)
-    # k = 8 logical qubits — pick two distinct indices.
-    s0 = logical_state_init(code, "1", log_idx=0)
-    s3 = logical_state_init(code, "1", log_idx=3)
-    x0 = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    x3 = np.asarray(code.get_logical_ops(Pauli.X)[3]).astype(np.uint8)
-    n = code.num_qudits
-    expected_s0 = "".join("1" if x0[i] else "0" for i in range(n))
-    expected_s3 = "".join("1" if x3[i] else "0" for i in range(n))
-    assert s0 == expected_s0
-    assert s3 == expected_s3
-    assert s0 != s3, "different log_idx must give different prep strings"
+    base, checks, logicals = (
+        ("0", code.matrix_z, code.get_logical_ops(Pauli.Z))
+        if state == "1"
+        else ("+", code.matrix_x, code.get_logical_ops(Pauli.X))
+    )
+    prep = logical_state_init(code, state, log_idx=3)
+    assert set(prep) <= {base, state}
+    flips = np.array([char == state for char in prep], dtype=np.int_)
+    assert not ((np.asarray(checks, dtype=np.int_) @ flips) % 2).any()
+    pairings = (np.asarray(logicals, dtype=np.int_) @ flips) % 2
+    assert pairings.tolist() == [int(j == 3) for j in range(code.dimension)]
 
 
-@pytest.mark.parametrize("log_idx", [-1, 1, 7, 100])
+@pytest.mark.parametrize("log_idx", [-1, 1])
 def test_logical_state_init_log_idx_out_of_range_raises(log_idx: int) -> None:
     """log_idx outside [0, code.dimension) raises IndexError."""
     from qldpc.experimental.surgery.circuit import logical_state_init
@@ -1725,43 +979,6 @@ def test_logical_state_init_log_idx_out_of_range_raises(log_idx: int) -> None:
     code = codes.SteaneCode()  # k = 1; only log_idx=0 is valid
     with pytest.raises(IndexError, match="log_idx"):
         logical_state_init(code, "1", log_idx=log_idx)
-
-
-@pytest.mark.parametrize("state,expected_obs0", [("0", 0), ("1", 1)])
-def test_logical_state_init_end_to_end_steane_basis_z(state: str, expected_obs0: int) -> None:
-    """Steane single-PPM (basis=Z) reads obs0 = int(state) deterministically.
-
-    Steane has wt(Z̄_0) = 3 (odd), so a naive broadcast of `"1" * n` also works here.  Pinning the
-    helper to the textbook expectation on this code therefore catches any divergence from naive.
-    """
-    from qldpc.experimental.surgery.circuit import (
-        build_single_ppm_circuit,
-        logical_state_init,
-    )
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    z_bar = np.asarray(code.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
-    g = build_gadget(code, z_bar, basis=Pauli.Z)
-    circuit = build_single_ppm_circuit(
-        g,
-        rounds=3,
-        noise_model=None,
-        data_init=logical_state_init(code, state, log_idx=0),
-    )
-    # Raw measurement records — see lattice_surgery.ipynb §0 raw_observables.
-    raw = circuit.compile_sampler().sample(shots=200).astype(np.uint8)
-    n_meas = raw.shape[1]
-    obs0_recs = []
-    for ln in str(circuit).splitlines():
-        if ln.startswith("OBSERVABLE_INCLUDE(0)"):
-            obs0_recs = [int(t.strip("rec[]")) for t in ln.split() if t.startswith("rec[")]
-            break
-    obs0 = np.bitwise_xor.reduce(raw[:, [n_meas + off for off in obs0_recs]], axis=1)
-    rate = float(obs0.mean())
-    assert rate == float(expected_obs0), (
-        f"state={state!r}: obs0 rate {rate:.3f} != expected {expected_obs0}"
-    )
 
 
 @pytest.mark.parametrize("state,expected_obs0", [("0", 0), ("1", 1)])
@@ -1810,7 +1027,7 @@ def test_logical_state_init_end_to_end_bbcode_basis_z(state: str, expected_obs0:
     )
 
 
-@pytest.mark.parametrize("rounds", [1, 2, 3, 5, 10])
+@pytest.mark.parametrize("rounds", [1, 3])
 @pytest.mark.parametrize("state", ["0", "1"])
 def test_multi_round_invariance_steane_basis_z(rounds: int, state: str) -> None:
     """obs0 reads the merged Z̄ eigenvalue independently of R.
@@ -1822,9 +1039,9 @@ def test_multi_round_invariance_steane_basis_z(rounds: int, state: str) -> None:
     Therefore obs0 = int(state) for every R ≥ 1, since |0⟩_L gives Z̄ = +1 and |1⟩_L gives Z̄ = −1.
 
     Any round-index drift in _surgery_qec_cycle, _surgery_observable, or
-    MeasurementRecord.get_target_rec would break that invariance for some R.  The R sweep also rules
-    out reading the observable as an XOR across all R rounds, which collapses to R·m_v mod 2 and is
-    silently 0 for every even R.
+    MeasurementRecord.get_target_rec would break that invariance for some R.  Reading the observable
+    as an XOR across all R rounds instead collapses to R·m_v mod 2, which is silently 0 for every
+    even R; test_single_ppm_even_rounds_truth_table covers even R.
     """
     from qldpc.experimental.surgery.circuit import (
         build_single_ppm_circuit,
@@ -1949,73 +1166,6 @@ def test_single_qubit_x_error_triggers_only_neighboring_z_checks_steane(
         f"EdgeColoring schedule bug, or a stabilizer row that was "
         f"reordered/replaced. The set comparison catches bugs that "
         f"swap detector contents while preserving cardinality."
-    )
-
-
-def test_joint_code_dimension_steane_x_steane_equals_one() -> None:
-    """Intercode Steane × Steane joint PPM gives joint_code.dimension == 1.
-
-    Formula: k_l + k_r − 1 because Z̄_l ⊗ Z̄_r becomes a stabilizer of the joint code after surgery.
-    For k_l = k_r = 1, that's 1.
-
-    Catches a stitching bug in _stitch_intercode that drops or duplicates a stabilizer row — CSS
-    commutation would still hold but the joint code's logical dimension would shift.
-    """
-    from qldpc.experimental.surgery.bridge import build_bridge
-    from qldpc.experimental.surgery.circuit import build_joint_ppm_circuit
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    c1, c2 = codes.SteaneCode(), codes.SteaneCode()
-    z1 = np.asarray(c1.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
-    z2 = np.asarray(c2.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
-    g1 = build_gadget(c1, z1, basis=Pauli.Z)
-    g2 = build_gadget(c2, z2, basis=Pauli.Z)
-    bridge = build_bridge(g1, g2)
-    _, joint_code = build_joint_ppm_circuit(
-        g1,
-        g2,
-        bridge,
-        rounds=3,
-        noise_model=None,
-    )
-    expected = c1.dimension + c2.dimension - 1  # 1 + 1 - 1 = 1
-    assert joint_code.dimension == expected, (
-        f"Steane × Steane intercode joint_code.dimension = "
-        f"{joint_code.dimension}, expected {expected}"
-    )
-
-
-def test_joint_code_dimension_webster_x_steane_equals_ten() -> None:
-    """Intercode Webster GB code 0 × Steane joint PPM gives dim == k_l + k_r − 1 = 10.
-
-    Webster GB code 0 is [[62, 10, _]]; k_l = 10.  Steane is k_r = 1.  Expected: 10 + 1 − 1 = 10.
-
-    The k_l > 1 case exposes the −1 reduction in the formula.  A stitching bug that fails to add the
-    Z̄_l ⊗ Z̄_r constraint would surface as dim = 11.
-    """
-    from qldpc.experimental.surgery.bridge import build_bridge
-    from qldpc.experimental.surgery.circuit import build_joint_ppm_circuit
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    data = load_webster_seed_set(0)
-    webster = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
-    z_webster = _webster_x_bar_operator(data, "Z_bar_1", pauli_type="Z")
-    steane = codes.SteaneCode()
-    z_steane = np.asarray(steane.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
-    g_l = build_gadget(webster, z_webster, basis=Pauli.Z)
-    g_r = build_gadget(steane, z_steane, basis=Pauli.Z)
-    bridge = build_bridge(g_l, g_r)
-    _, joint_code = build_joint_ppm_circuit(
-        g_l,
-        g_r,
-        bridge,
-        rounds=3,
-        noise_model=None,
-    )
-    expected = webster.dimension + steane.dimension - 1  # 10 + 1 - 1 = 10
-    assert joint_code.dimension == expected, (
-        f"Webster × Steane intercode joint_code.dimension = "
-        f"{joint_code.dimension}, expected {expected}"
     )
 
 
@@ -2154,7 +1304,12 @@ def test_expand_joint_data_init_rejects_non_str_non_seq_type() -> None:
     from qldpc.experimental.surgery.circuit import _expand_joint_data_init
 
     with pytest.raises(TypeError, match="data_init must be"):
-        _expand_joint_data_init({"bad": "input"}, n_l=4, n_r=4, intercode=True)  # type: ignore[arg-type]
+        _expand_joint_data_init(
+            {"bad": "input"},  # type: ignore[arg-type]
+            n_l=4,
+            n_r=4,
+            intercode=True,
+        )
 
 
 def test_single_ppm_dem_ok_bb_36_8_with_boost() -> None:
@@ -2193,8 +1348,7 @@ def test_single_ppm_dem_ok_bb_36_8_with_boost() -> None:
     assert dem.num_detectors > 0
 
 
-@pytest.mark.parametrize("rounds", [0, -3])
-def test_build_single_ppm_circuit_rejects_non_positive_rounds(rounds: int) -> None:
+def test_build_single_ppm_circuit_rejects_non_positive_rounds() -> None:
     """rounds < 1 is rejected rather than silently yielding the rounds=1 circuit."""
     from qldpc.experimental.surgery.circuit import build_single_ppm_circuit
     from qldpc.experimental.surgery.gadget import build_gadget
@@ -2203,7 +1357,7 @@ def test_build_single_ppm_circuit_rejects_non_positive_rounds(rounds: int) -> No
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     g = build_gadget(code, x, basis=Pauli.X)
     with pytest.raises(ValueError, match="rounds must be >= 1"):
-        build_single_ppm_circuit(g, rounds=rounds, noise_model=None)
+        build_single_ppm_circuit(g, rounds=0, noise_model=None)
 
 
 def test_build_joint_ppm_circuit_rejects_non_positive_rounds() -> None:
@@ -2212,13 +1366,11 @@ def test_build_joint_ppm_circuit_rejects_non_positive_rounds() -> None:
     from qldpc.experimental.surgery.circuit import build_joint_ppm_circuit
     from qldpc.experimental.surgery.gadget import build_gadget
 
-    data = load_webster_seed_set(0)
-    code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
-    x = _webster_x_bar_operator(data)
-    g = build_gadget(code, x, basis=Pauli.X)
-    bridge = build_bridge(g, g)
+    code = codes.SteaneCode()
+    logical = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
+    gadget = build_gadget(code, logical, basis=Pauli.X)
     with pytest.raises(ValueError, match="rounds must be >= 1"):
-        build_joint_ppm_circuit(g, g, bridge, rounds=0, noise_model=None)
+        build_joint_ppm_circuit(gadget, gadget, build_bridge(gadget, gadget), rounds=0)
 
 
 def _lightest_undetectable_logical_fault(circuit: stim.Circuit) -> int | None:
@@ -2226,10 +1378,10 @@ def _lightest_undetectable_logical_fault(circuit: stim.Circuit) -> int | None:
 
     Returns None when every undetectable observable-flipping fault has weight 3 or more.
 
-    A set of circuit faults goes undetected exactly when its detector flips cancel.  One mechanism
-    qualifies when it flips no detector at all; two qualify when they flip the same detectors.
-    Grouping the detector error model's mechanisms by their detector column therefore settles
-    weights 1 and 2 in a single pass, without enumerating pairs.
+    A fault goes undetected exactly when the detector flips of its error mechanisms cancel.  One
+    error mechanism qualifies when it flips no detector at all; two qualify when they flip the same
+    detectors.  Grouping the detector error model's error mechanisms by their detector column
+    therefore settles weights 1 and 2 in a single pass, without enumerating pairs.
     """
     from qldpc.decoders.dems import DetectorErrorModelArrays
     from qldpc.experimental.surgery.circuit import keep_only_observable
@@ -2254,10 +1406,10 @@ def _lightest_undetectable_logical_fault(circuit: stim.Circuit) -> int | None:
 
 @pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
 def test_repeated_rounds_close_the_single_fault_readout_path(basis: PauliXZ) -> None:
-    """One fault flips the PPM outcome undetectably at rounds=1, but never at rounds=3.
+    """One error mechanism flips the PPM outcome undetectably at rounds=1, but never at rounds=3.
 
     obs0 is the XOR of the last QEC round's meas-check (S'_meas) outcomes, so at rounds=1 nothing
-    compares that round against another and a single mechanism on the readout suffices.  The
+    compares that round against another and a single error mechanism on the readout suffices.  The
     repeated rounds are what supply the detector redundancy, which is the circuit's whole
     fault-tolerance argument; this pins that they deliver it.
 

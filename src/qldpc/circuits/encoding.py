@@ -10,17 +10,18 @@ import galois
 import numpy as np
 import stim
 
-from qldpc import codes, math
+from qldpc import _deprecations, codes, math
+from qldpc._utils import get_external_caller_stacklevel
 from qldpc.objects import Pauli
 
 from .bookkeeping import QubitIDs
-from .common import restrict_to_qubits, with_remapped_qubits
+from .common import _restrict_to_qubits, with_remapped_qubits
 
 ####################################################################################################
 # encoding circuits, logical tableaus, and logical states
 
 
-@restrict_to_qubits
+@_restrict_to_qubits
 def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> stim.Tableau:
     """Tableau to encode physical states at its input into logical states of the given code.
 
@@ -59,7 +60,7 @@ def get_encoding_tableau(code: codes.QuditCode, *, only_zero: bool = False) -> s
     return stim.Tableau.from_conjugated_generators(xs=strings_x, zs=strings_z)
 
 
-@restrict_to_qubits
+@_restrict_to_qubits
 def get_encoding_circuit(code: codes.QuditCode, *, only_zero: bool = False) -> stim.Circuit:
     """Circuit to encode physical states at its input into logical states of the given code.
 
@@ -76,11 +77,37 @@ def get_encoding_circuit(code: codes.QuditCode, *, only_zero: bool = False) -> s
     return get_encoding_tableau(code, only_zero=only_zero).to_circuit()
 
 
-@restrict_to_qubits
+@_restrict_to_qubits
 def get_encoder_and_decoder(
     code: codes.QuditCode, deformation: stim.Circuit | stim.Tableau | None = None
 ) -> tuple[stim.Tableau, stim.Tableau]:
-    """Encoder for a code, and decoder either the same code or a deformed code."""
+    """Encoder for a code, and decoder for either the same code or a deformed code.
+
+    The encoder is the tableau of :func:`get_encoding_tableau`, which maps weight-one ``X_j`` and
+    ``Z_j`` operators at its input to the logical operators, gauge operators, stabilizers, and
+    destabilizers of the code.  Without a deformation, the decoder is the inverse of the encoder.
+    With a deformation, the decoder is the inverse of the encoding tableau of the deformed code
+    ``code.deformed(deformation, preserve_logicals=True)``, whose stabilizers are those of the code
+    transformed by the deformation, and whose logical operators are those of the original code.
+
+    Use this pair to view a physical circuit in the encoded frame: the first ``code.dimension``
+    qubits of ``encoder.then(physical_tableau).then(decoder)`` carry the logical operation that the
+    physical circuit implements, as in :func:`get_logical_tableau`.  Pass the physical circuit as
+    the deformation if it maps the code to a different code, rather than to itself.
+
+    Args:
+        code: The qubit code to encode and decode.
+        deformation: A physical circuit or tableau that deforms the code before decoding, or None
+            (the default) to decode the original code.
+
+    Returns:
+        stim.Tableau: The encoder of the code.
+        stim.Tableau: The decoder of the code, or of the deformed code if a deformation is given.
+
+    Raises:
+        ValueError: If the code is not a qubit code, or if the logical operators of the code are not
+            valid logical operators of the deformed code.
+    """
     encoder = get_encoding_tableau(code)
     if deformation is None:
         return encoder, encoder.inverse()
@@ -90,7 +117,7 @@ def get_encoder_and_decoder(
     return encoder, decoder
 
 
-@restrict_to_qubits
+@_restrict_to_qubits
 def get_logical_tableau(
     code: codes.QuditCode,
     physical_circuit_or_tableau: stim.Circuit | stim.Tableau,
@@ -168,20 +195,22 @@ def get_state_stabilizers(
         A list of Pauli strings supported on the specified qubits.  The strings are compacted into
         the requested-qubit frame: position ``i`` refers to ``qubits[i]`` in the input circuit.
     """
-    resets = stim.Circuit("R " + " ".join(map(str, range(state_prep_circuit.num_qubits))))
+    state_qubits = (
+        np.arange(qubits, dtype=int) if isinstance(qubits, int) else np.asarray(qubits, dtype=int)
+    )
+
+    # reset every qubit, including requested qubits that the circuit leaves untouched in |0>
+    num_qubits = max(state_prep_circuit.num_qubits, int(state_qubits.max(initial=-1)) + 1)
+    resets = stim.Circuit("R " + " ".join(map(str, range(num_qubits))))
     flow_generators = (resets + state_prep_circuit.without_noise()).flow_generators()
 
     # identify some useful numbers
-    num_qubits = state_prep_circuit.num_qubits
     num_measurements = state_prep_circuit.num_measurements
     num_observables = state_prep_circuit.num_observables
     num_columns = 2 * num_qubits + num_measurements + num_observables
     num_rows = len(flow_generators) + state_prep_circuit.num_detectors
 
     # identify where all qubits live
-    state_qubits = (
-        np.arange(qubits, dtype=int) if isinstance(qubits, int) else np.asarray(qubits, dtype=int)
-    )
     other_qubits = np.array([qq for qq in range(num_qubits) if qq not in state_qubits], dtype=int)
     cols_state_x = state_qubits
     cols_other_x = other_qubits
@@ -242,7 +271,7 @@ def get_state_stabilizers(
     simulator = stim.TableauSimulator()
     simulator.do(state_prep_circuit.without_noise())
     for ss, stabilizer in enumerate(stabilizers):
-        physical_stabilizer = stim.PauliString(state_prep_circuit.num_qubits)
+        physical_stabilizer = stim.PauliString(num_qubits)
         for qubit, pauli in zip(state_qubits, str(stabilizer)[1:], strict=True):
             physical_stabilizer[qubit] = pauli
         expectation = simulator.peek_observable_expectation(physical_stabilizer)
@@ -254,33 +283,43 @@ def get_state_stabilizers(
     return stabilizers
 
 
-@restrict_to_qubits
+@_restrict_to_qubits
 def get_logical_state_stabilizers(
-    state_prep_circuit: stim.Circuit, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
+    code: codes.QuditCode, state_prep_circuit: stim.Circuit, qubit_ids: QubitIDs | None = None
 ) -> list[stim.PauliString]:
     """Identify pure logical operators that stabilize the state prepared by the provided circuit.
 
-    The first len(code) qubits addressed by the circuit must be the data qubits of the code.
+    The data qubits of the code are those specified by qubit_ids, and the circuit may address other
+    qubits as well.
 
     Args:
-        state_prep_circuit: A circuit that prepares a logical state of the provided code.
         code: The code whose logical state is prepared by the provided state_prep_circuit.
+        state_prep_circuit: A circuit that prepares a logical state of the provided code.  The
+            argument order (state_prep_circuit, code) is deprecated; pass the code first.
         qubit_ids: A QubitIDs object specifying the indices of the data qubits of the code.  If
             None, the data qubits of the code are assumed to be range(len(code)).
 
     Returns:
-        A list of Pauli strings supported on the data qubits of the provided code.
+        A list of Pauli strings on len(code) qubits, whose j-th qubit is the data qubit
+        qubit_ids.data[j] of the provided code.
     """
+    # DEPRECATED: see qldpc._deprecations
+    if isinstance(code, stim.Circuit) and isinstance(state_prep_circuit, codes.QuditCode):
+        _deprecations.warn_deprecated(
+            "Check argument order: it should be"
+            " get_logical_state_stabilizers(code, state_prep_circuit, qubit_ids).  The order"
+            " (state_prep_circuit, code, qubit_ids) is DEPRECATED and will throw an error in the"
+            " future!",
+            stacklevel=get_external_caller_stacklevel(),
+        )
+        code, state_prep_circuit = state_prep_circuit, code
+
     qubit_ids = QubitIDs.validated(qubit_ids or QubitIDs.from_code(code), code)
     encoder = get_encoding_circuit(code)
     circuit = state_prep_circuit + with_remapped_qubits(encoder.inverse(), qubit_ids.data)
     decoded_stabilizers = get_state_stabilizers(circuit, qubit_ids.data[: code.dimension])
     identity = stim.PauliString(num_qubits=len(code))
     return [(string * identity).after(encoder) for string in decoded_stabilizers]
-
-
-####################################################################################################
-# helper methods
 
 
 def _get_logical_tableau_from_code_data(

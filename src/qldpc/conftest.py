@@ -4,9 +4,65 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+from collections.abc import Iterator, Mapping
+
 import pytest
 
-from qldpc import abstract
+from qldpc import abstract, external
+
+
+def run_python(
+    code: str, *options: str, env: Mapping[str, str] | None = None, timeout: float = 600
+) -> str:
+    """Run Python code in a fresh interpreter that imports qLDPC from this checkout.
+
+    The child interpreter receives this interpreter's import path as its PYTHONPATH, so that it
+    imports the same qLDPC sources rather than whatever qldpc its environment happens to resolve.
+
+    Args:
+        code: The code to run, passed to the interpreter with -c.
+        *options: Interpreter options that precede -c, such as "-W", "error".
+        env: Environment variables to set in the child, in addition to this process's environment.
+        timeout: The number of seconds after which to abort the child.  Default: 600.
+
+    Returns:
+        The standard output of the child.
+
+    Raises:
+        AssertionError: If the child exits with a nonzero return code, showing its standard error.
+    """
+    import_path = os.pathsep.join(path for path in sys.path if path)
+    result = subprocess.run(
+        [sys.executable, *options, "-c", code],
+        capture_output=True,
+        check=False,
+        env={**os.environ, "PYTHONPATH": import_path, **(env or {})},
+        text=True,
+        timeout=timeout,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+@pytest.fixture(autouse=True)
+def isolate_gap_probe_state() -> Iterator[None]:
+    """Reset cached GAP availability probes and backend registries around every test.
+
+    These caches and registries are process-wide, so without a reset, one test's mocked (or real)
+    GAP availability would leak into later tests that run in the same worker process.
+    """
+    external.gap.clear_cache()
+    yield
+    external.gap.clear_cache()
+
+
+@pytest.fixture(autouse=True)
+def block_clipboard(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep tests of the manual GAP and MAGMA workflows from overwriting the user's clipboard."""
+    monkeypatch.setattr("pyperclip.copy", lambda text: None)
 
 
 @pytest.fixture(scope="session")
