@@ -20,7 +20,8 @@ from ..bookkeeping import DetectorRecord
 from ..common import get_pauli_product_measurements
 from ..encoding import get_state_stabilizers
 from ._fault_enumeration import FaultLister
-from .state_prep_diagnostics import _get_flag_detectors, _get_selected_detectors, _is_integer
+from .logical_errors import _is_integer
+from .state_prep_diagnostics import _get_flag_detectors, _get_selected_detectors
 
 ####################################################################################################
 # bounded fault propagation certification

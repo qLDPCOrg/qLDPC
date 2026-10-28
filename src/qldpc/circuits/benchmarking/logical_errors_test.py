@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
+from typing import cast
+
 import numpy as np
 import pytest
 import sinter
@@ -126,8 +129,14 @@ def test_erasure_counts_as_a_discard() -> None:
 def test_postselection_mask() -> None:
     """Post-selection masks are bit-packed, accept negative indices, and reject other indices."""
     assert logical_errors._get_postselection_mask((), 3, "Detector") is None
-    mask = logical_errors._get_postselection_mask([0, -1], 10, "Detector")
+    mask = logical_errors._get_postselection_mask(np.array([0, -1]), 10, "Detector")
     assert mask is not None
     assert np.array_equal(mask, [1, 2])
     with pytest.raises(ValueError, match="Observable post-selection"):
         logical_errors._get_postselection_mask([1], 1, "Observable")
+    # invalid indices are passed on unchanged, to test their errors
+    for indices in (0, [0.5], [True]):
+        with pytest.raises(TypeError, match="Observable post-selection"):
+            logical_errors._get_postselection_mask(
+                cast("Collection[int]", indices), 1, "Observable"
+            )

@@ -51,6 +51,10 @@ def test_state_prep_benchmarks() -> None:
     )
     for error_rate, task in zip(error_rates, tasks):
         assert task.json_metadata["p"] == error_rate
+    with pytest.raises(ValueError, match="binary"):
+        circuits.get_state_prep_diagnostic_circuit(
+            code, circuit, observables=2 * observables.view(np.ndarray)
+        )
     float32_rates = np.array([0.01], dtype=np.float32)
     assert circuits.get_state_prep_diagnostic_tasks(code, circuit, float32_rates)[0].circuit
     assert (

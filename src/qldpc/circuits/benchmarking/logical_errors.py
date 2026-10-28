@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import numbers
 from collections.abc import Collection
 from typing import cast
 
@@ -161,6 +162,13 @@ def get_logical_error_and_discard_rate(
         decoder, which signals that a shot should be discarded by predicting observable flips in one
         more byte than the observables of the sampled circuit require.  These are point estimates.
         Use ``sinter.collect`` when counts or confidence intervals are needed.
+
+    Raises:
+        TypeError: If ``post_select`` or ``post_select_observables`` is neither a bool nor a
+            collection of integer indices.
+        ValueError: If ``dem_to_decode`` has a different number of detectors or observables than
+            the detector error model to sample, or if ``post_select`` or
+            ``post_select_observables`` has an index outside the detectors or observables.
     """
     # identify and simplify the DEM to sample
     dem_arrays = decoders.DetectorErrorModelArrays(circuit_or_dem, simplify=True)
@@ -244,10 +252,20 @@ def _get_postselection_mask(
 
     Returns:
         A little-endian bit-packed mask with ``size`` bits, or None if no index is selected.
+
+    Raises:
+        TypeError: If ``indices`` is neither a bool nor a collection of integers.
+        ValueError: If an index is outside the range [-size, size).
     """
     if isinstance(indices, bool):
         indices = range(size) if indices else ()
-    indices = list(indices)
+    invalid = f"{name} post-selection accepts a bool or a collection of integer indices"
+    try:
+        indices = list(indices)
+    except TypeError as error:
+        raise TypeError(f"{invalid}, not {indices!r}") from error
+    if not all(_is_integer(index) for index in indices):
+        raise TypeError(f"{invalid}; requested: {indices}")
     if not indices:
         return None
     if not all(-size <= index < size for index in indices):
@@ -258,3 +276,8 @@ def _get_postselection_mask(
     mask = np.zeros(size, dtype=np.uint8)
     mask[indices] = 1
     return np.packbits(mask, bitorder="little")
+
+
+def _is_integer(value: object) -> bool:
+    """Test whether a value is an integer, which a bool is not."""
+    return isinstance(value, numbers.Integral) and not isinstance(value, bool)
