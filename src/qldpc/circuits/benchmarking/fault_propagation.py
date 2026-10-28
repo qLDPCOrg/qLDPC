@@ -35,7 +35,7 @@ def certify_bounded_fault_propagation(
     max_weight: int | None = None,
     add_flags: bool = False,
     post_select: bool | Collection[int] | Literal["flags"] = False,
-    memory_limit: int = 2**30,  # 1 GiB
+    memory_limit: int = 2**34,  # 16 GiB
 ) -> BoundedFaultPropagationCertificate:
     """Certify bounded fault propagation in a noisy Clifford state-preparation circuit.
 
@@ -95,7 +95,7 @@ def certify_bounded_fault_propagation(
             Default: False.
         memory_limit: The approximate number of bytes that the search may use for its lookup tables,
             a positive integer.  A smaller limit can make the search slower, but never changes the
-            result.  Default: ``2**30`` (1 GiB).
+            result.  Default: ``2**34`` (16 GiB).
 
     Returns:
         A certificate of bounded fault propagation, which includes a counterexample if applicable.
@@ -325,7 +325,7 @@ def _find_smallest_violation(
     stabilizers: npt.ArrayLike,
     css_weight: bool,
     max_weight: int | None,
-    memory_limit: int = 2**30,  # 1 GiB
+    memory_limit: int = 2**34,  # 16 GiB
 ) -> BoundedFaultPropagationCounterexample | None:
     """Find a violating accepted fault of the smallest fault weight, or None if there is none.
 
@@ -354,7 +354,7 @@ def _search_irreducible_faults(
     signatures: dict[tuple[int, int], int],
     max_fault_weight: int,
     oracle: PauliCosetSearch,
-    memory_limit: int = 2**30,  # 1 GiB
+    memory_limit: int = 2**34,  # 16 GiB
 ) -> BoundedFaultPropagationCounterexample | None:
     """Check the irreducible accepted faults that can violate the bound, by increasing fault weight.
 
