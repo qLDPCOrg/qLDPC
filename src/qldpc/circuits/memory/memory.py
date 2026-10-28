@@ -71,8 +71,8 @@ class CheckKey(int):
     Attributes:
         check_ids: The index of the check qubit, as a tuple with one element, like
             CheckProductKey.check_ids.
-        is_relation: Whether the check is a relation, which is a product of checks that equals the
-            identity operator.  One check is a relation only if it is the identity operator.
+        is_relation: Whether the check is the identity operator, which makes it a relation (see
+            get_memory_experiment_parts).
     """
 
     _is_relation: bool
@@ -115,8 +115,8 @@ class CheckProductKey:
     Attributes:
         check_ids: The sorted indices of the check qubits (elements of ``QubitIDs.check``) whose
             outcomes the detectors multiply.  There are at least two of them.
-        is_relation: Whether the product of the checks is a relation, which equals the identity
-            operator.
+        is_relation: Whether the product of the checks is the identity operator, which makes it a
+            relation (see get_memory_experiment_parts).
     """
 
     check_ids: tuple[int, ...]
@@ -136,9 +136,14 @@ class CheckProductKey:
 class ReadoutKey:
     """The key of a readout detector, or a final stabilizer measurement, in a memory experiment.
 
-    With ``readout_keys=True``, get_memory_experiment_parts keys the readout detector of the
-    detectors with a key ``key`` by ``ReadoutKey(key)``, as does the measurement record for the
-    final measurement of a stabilizer.  See help(qldpc.circuits.get_memory_experiment_parts).
+    At the end of a memory experiment, a readout detector compares the last outcome of a check, or
+    product of checks, with its value inferred from the final readout.  With ``readout_keys=True``,
+    get_memory_experiment_parts keys this readout detector by ``ReadoutKey(key)``, where ``key``
+    labels the detectors of the same check or checks in each round.  If the memory experiment tracks
+    both X-type and Z-type logical operators, the measurement record likewise keys the final
+    measurement of the corresponding stabilizer.  See
+    help(qldpc.circuits.get_memory_experiment_parts).
+
     Since a CheckKey is equal to the index of its check qubit, ``ReadoutKey(check_id)`` with a plain
     integer is equal to ``ReadoutKey(CheckKey(check_id))``, and finds the same record entries.
 
@@ -229,27 +234,30 @@ def get_memory_experiment(
     supported on the data qubits alone.
 
     For a subsystem code, the parity checks of the code are gauge operators that need not commute,
-    so each round of QEC measures one layer of mutually commuting checks at a time, in the order set
-    by ``syndrome_measurement_strategy.get_gauge_layers(code)`` (by default, all X-type checks and
-    then all Z-type checks of a CSS code).  Operations of consecutive layers on disjoint qubits may
+    so they cannot all be measured at once.  Each round of QEC instead measures one layer of
+    mutually commuting checks at a time, in the order set by
+    ``syndrome_measurement_strategy.get_gauge_layers(code)`` (by default, all X-type checks and then
+    all Z-type checks of a CSS code).  Operations of consecutive layers on disjoint qubits may
     nonetheless share TICK-separated moments (see
-    SyndromeMeasurementStrategy.get_subsystem_circuit).  Individual gauge measurement outcomes may
-    then be random, but any product of checks in a single layer that is a stabilizer of the code has
-    a deterministic value.  Detectors therefore track such products of checks, rather than
-    individual checks.  Every distinct (basis-type) stabilizer generator in
-    ``code.get_stabilizer_ops()`` that is a product of checks in a single layer gets a detector,
-    even if these generators are redundant, since redundant detectors can help decoders (as with
-    redundant checks of a stabilizer code).  Other products are added as necessary to generate all
-    (basis-type) stabilizers of the code, and each stabilizer is represented by a product of few
-    checks, which are chosen greedily.  If the checks in a layer are linearly dependent, products of
-    these checks that equal the identity operator have deterministic values in every round, so
-    additional detectors check these products within each round, unless their values follow from
-    other detectors.  If stabilizers are products of many checks, a single fault can flip many
-    detectors, in which case the detector error model of the circuit may not be decomposable into
-    graphlike errors (as required, for example, by matching decoders).  A ValueError is raised if
-    the gauge layers do not partition the checks of the code into sets of mutually commuting checks,
-    or if products of the checks in single layers do not generate all (basis-type) stabilizers of
-    the code.
+    SyndromeMeasurementStrategy.get_subsystem_circuit).
+
+    Since checks in different layers need not commute, the outcomes of individual checks may be
+    random, but any product of checks in a single layer that is a stabilizer of the code has a
+    deterministic value.  Detectors therefore track such products of checks.  Every distinct
+    (basis-type) stabilizer generator in ``code.get_stabilizer_ops()`` that is a product of checks
+    in a single layer gets a detector, even if these generators are redundant, since redundant
+    detectors can help decoders (as with redundant checks of a stabilizer code).  Other products are
+    added as necessary to generate all (basis-type) stabilizers of the code, and each stabilizer is
+    represented by a product of few checks, which are chosen greedily.  If the checks in a layer are
+    linearly dependent, products of these checks that equal the identity operator have deterministic
+    values in every round, so additional detectors check these products within each round, unless
+    their values follow from other detectors.
+
+    If stabilizers are products of many checks, a single fault can flip many detectors, in which
+    case the detector error model of the circuit may not be decomposable into graphlike errors (as
+    required, for example, by matching decoders).  A ValueError is raised if the gauge layers do not
+    partition the checks of the code into sets of mutually commuting checks, or if products of the
+    checks in single layers do not generate all (basis-type) stabilizers of the code.
 
     Qubits and detectors are assigned coordinates as follows:
 
@@ -351,11 +359,11 @@ def get_memory_experiment_parts(
     several checks of a subsystem code by a CheckProductKey.  Each such key labels one detector for
     each round of syndrome measurement.  In the first round, this detector checks the outcome
     against its known value, and in each later round, it compares the outcome to that of the
-    previous round.  Unless the key is a relation, it also has a readout detector, which compares
-    the outcome of the last round to its value inferred from the final measurement of the data
-    qubits, or (if basis is None) from a final measurement of the stabilizer, which the measurement
-    record keys in the same way as the readout detector.  How readout detectors and final
-    stabilizer measurements are keyed is determined by readout_keys.
+    previous round.  Unless the key is a relation (see below), it also has a readout detector, which
+    compares the outcome of the last round to its value inferred from the final measurement of the
+    data qubits, or (if basis is None) from a final measurement of the stabilizer, which the
+    measurement record keys in the same way as the readout detector.  How readout detectors and
+    final stabilizer measurements are keyed is determined by readout_keys.
 
     A relation is a product of checks that equals the identity operator.  If the checks in one layer
     of a subsystem code's gauge measurement schedule are linearly dependent, some of their products
@@ -1027,9 +1035,10 @@ def _get_completing_products(
 def _get_implied_relations(
     code: codes.QuditCode, layer: Sequence[int], check_vectors: Sequence[npt.NDArray[np.uint8]]
 ) -> galois.FieldArray:
-    """Products of the given products of checks in a layer that are the identity.
+    """Relations implied by some products of checks in a layer.
 
-    Each product is an indicator vector over the checks of the layer.
+    Each relation is a product of the given products that equals the identity operator, returned as
+    an indicator vector over the checks of the layer.
     """
     vectors = code.field(np.array(check_vectors, dtype=np.uint8).reshape(-1, len(layer)))
     if not len(vectors):

@@ -117,9 +117,10 @@ class SyndromeMeasurementStrategy(abc.ABC):
 
         Since self.get_circuit only sees the stabilizer code defined by one layer at a time, any
         code-specific scheduling (such as a code's custom get_syndrome_subgraphs) or optimization
-        (such as the logical error rates targeted by AlphaSyndrome) is with respect to that layer
-        code rather than the full subsystem code.  In particular, the layer code treats the gauge
-        operators of the subsystem code as logical operators.
+        (such as the logical error rates targeted by AlphaSyndrome) is with respect to the
+        stabilizer code of each layer rather than the full subsystem code.  In particular, the
+        logical operators of the stabilizer code of a layer may include operators, such as
+        stabilizers of the subsystem code, that are not logical operators of the subsystem code.
 
         Args:
             code: The code whose checks we want to measure.
