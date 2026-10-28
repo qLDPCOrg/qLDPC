@@ -157,9 +157,9 @@ jobs:
           python-version: 3.14
           enable-cache: true
       - name: Install package and dependencies
-        run: uv sync --extra decoders --extra gap --group ci-test
+        run: uv sync --extra bliss --extra decoders --extra gap --group ci-test
       - name: Run coverage
         # Use every CPU of the dedicated runner (the check defaults to half of them).
         run: >-
-          uv run --extra decoders --extra gap --group ci-test python checks/coverage_.py
+          uv run --extra bliss --extra decoders --extra gap --group ci-test python checks/coverage_.py
           --jobs "$(nproc)"

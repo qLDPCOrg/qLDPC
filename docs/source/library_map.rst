@@ -119,6 +119,17 @@ Every ``RingArray`` has one base ring, and arithmetic between arrays over differ
 :class:`~qldpc.codes.quantum.QTCode` builds a :class:`~qldpc.objects.CayleyComplex` from two subsets of a group, and families such as :class:`~qldpc.codes.quantum.T4Code` (built from a 4×4 integer lattice matrix) build a :class:`~qldpc.objects.ChainComplex` internally and expose it as ``code.chain``.
 The API reference documents each family's conventions and literature.
 
+Balanced products
+~~~~~~~~~~~~~~~~~
+
+A balanced product code is a quotient of the hypergraph product code of two classical codes by symmetries that the classical codes share.
+This quotient has fewer qudits than the hypergraph product code, and with suitable classical codes and distance balancing, it yields codes whose distance grows faster than the square root of their length (`arXiv:2012.09271 <https://arxiv.org/abs/2012.09271>`_).
+More generally, :meth:`ChainComplex.balanced_product <qldpc.objects.ChainComplex.balanced_product>` takes the quotient of the tensor product of two chain complexes by symmetries, which are permutations of basis elements that preserve the boundary operators.
+:class:`~qldpc.codes.quantum.BPCode` is the CSS code obtained in this way from two classical codes.
+Without symmetries it is a hypergraph product code, and if the symmetries generate a group that acts freely on both classical codes, it is a lifted product code.
+:meth:`BPCode.from_seed <qldpc.codes.quantum.BPCode.from_seed>` builds the cyclic construction of `arXiv:2505.13679 <https://arxiv.org/abs/2505.13679>`_ from a seed matrix, and :meth:`BPCode.get_seed_symmetries <qldpc.codes.quantum.BPCode.get_seed_symmetries>` finds symmetries of the seed matrix from its automorphisms.
+:class:`~qldpc.codes.quantum.DistanceBalancedCode` multiplies either distance of a CSS code by the distance of a classical code whose parity checks are linearly independent, which can even out the different X and Z distances that balanced product codes often have.
+
 Distances across packages
 -------------------------
 
@@ -249,6 +260,12 @@ Pass ``refresh=True`` to ``ClassicalCode.from_name``, ``QuditCode.from_qecdb_id`
 
 The optional ``sqetch`` distance-bound backend for binary CSS codes requires a CUDA GPU and is not published on PyPI.
 See :ref:`GPU distance estimation <installation-sqetch>` for the tested installation command.
+
+``pybliss``
+~~~~~~~~~~~
+
+:meth:`ClassicalCode.get_matrix_automorphism_group <qldpc.codes.common.ClassicalCode.get_matrix_automorphism_group>`, and hence ``BPCode.get_seed_symmetries``, compute automorphisms of a parity check matrix in process with the optional `pybliss <https://pypi.org/project/pybliss/>`_ package, without other side effects.
+See :ref:`Matrix automorphisms <installation-bliss>` for its installation, platforms, and license.
 
 Disk caches
 ~~~~~~~~~~~

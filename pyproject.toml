@@ -45,6 +45,7 @@ dependencies = [
   "sympy>=1.12.1",   # 1.12 accepts mpmath 1.4, which it cannot import
   "tqdm>=4",
 ]
+optional-dependencies.bliss = [ "pybliss>=2025.5" ]
 optional-dependencies.decoders = [
   "qldpc[ilp]",
   "qldpc[relay-bp]",
@@ -62,6 +63,10 @@ optional-dependencies.dev = [
   "pytest-randomly>=3.10",        # tests that need reproducibility read its randomly_seed option
   "pytest-socket>=0.7",           # implements the --disable-socket in [tool.pytest] addopts below
   "python-lsp-server[all]>=1.14",
+  """\
+  qldpc[bliss]; (sys_platform=='darwin' and platform_machine=='arm64') or (sys_platform=='linux' and \
+  platform_machine=='x86_64')\
+  """,
   "qldpc[decoders,docs,gap]",
 ]
 optional-dependencies.docs = [

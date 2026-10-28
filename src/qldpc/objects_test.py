@@ -5,10 +5,14 @@
 from __future__ import annotations
 
 import functools
+import math
+from collections.abc import Iterable, Sequence
 
 import galois
 import numpy as np
 import pytest
+import scipy.linalg
+import sympy.combinatorics as comb
 
 from qldpc import abstract, objects
 
@@ -217,3 +221,107 @@ def test_chain_complex(field: int = 3) -> None:
         ring = abstract.GroupRing(abstract.DihedralGroup(3), field=2)
         ring_matrix = abstract.RingArray.build([[1]], ring)
         objects.ChainComplex.tensor_product(ring_matrix, ring_matrix)
+
+
+def test_balanced_product() -> None:
+    """Balanced products of chain complexes are quotients of tensor products."""
+    # non-free symmetries
+    chain_a = objects.ChainComplex(
+        [np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 1], [0, 0, 0, 0]])], field=3
+    )
+    chain_b = objects.ChainComplex(
+        [np.array([[1, 0, 0, 0], [1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]])], field=3
+    )
+    swap_one, swap_two = [1, 0, 2, 3], [1, 0, 3, 2]
+    symmetries_a = [(swap_one, swap_two)]
+    symmetries_b = [(swap_one, comb.Permutation(3))]
+    assert_valid_balanced_product(chain_a, chain_b, symmetries_a, symmetries_b, [10, 20, 8])
+
+    # orbits that contribute to the same boundary operator entry, whose contributions cancel
+    chain = objects.ChainComplex([np.ones((2, 1), dtype=int)])
+    balanced = assert_valid_balanced_product(
+        chain, chain, [([1, 0], [0])], [([1, 0], [0])], [2, 2, 1]
+    )
+    assert not np.any(balanced.op(2))
+
+    # without symmetries, the balanced product is the tensor product, here of a two-link complex
+    # (with an empty module) over a field in which signs matter
+    chain_c = objects.ChainComplex([np.zeros((0, 2), dtype=int), np.array([[1], [2]])], field=3)
+    chain_d = objects.ChainComplex([np.array([[1, 1]])], field=3)
+    assert_valid_balanced_product(chain_c, chain_d, [], [], [0, 2, 5, 2])
+    balanced = objects.ChainComplex.balanced_product(chain_c, chain_d, [], [])
+    tensor = objects.ChainComplex.tensor_product(chain_c, chain_d)
+    assert all(np.array_equal(op, tensor_op) for op, tensor_op in zip(balanced.ops, tensor.ops))
+
+    with pytest.raises(ValueError, match="over rings are not supported"):
+        ring_chain = objects.ChainComplex(
+            [abstract.RingArray.build([[1]], abstract.GroupRing(abstract.TrivialGroup()))]
+        )
+        objects.ChainComplex.balanced_product(chain_a, ring_chain, [], [])
+    with pytest.raises(ValueError, match="same field"):
+        objects.ChainComplex.balanced_product(chain_a, chain, [], [])
+    with pytest.raises(ValueError, match="same number of symmetries"):
+        objects.ChainComplex.balanced_product(chain_a, chain_b, symmetries_a, [])
+    with pytest.raises(ValueError, match=r"symmetries_a\[0\] must have 2 permutations"):
+        objects.ChainComplex.balanced_product(chain_a, chain_b, [(swap_one,)], symmetries_b)
+    # permutations are integer sequences that list every image, or SymPy permutations that fit
+    for permutation, error in [
+        ("1023", TypeError),
+        ([1.0, 0.0, 2.0, 3.0], TypeError),
+        ([1, 0], ValueError),
+        (comb.Permutation(4), ValueError),
+    ]:
+        with pytest.raises(error, match=r"symmetries_a\[0\]\[0\]"):
+            objects.ChainComplex.balanced_product(
+                chain_a, chain_b, [(permutation, swap_two)], symmetries_b
+            )
+    with pytest.raises(ValueError, match=r"symmetries_a\[0\] is not a symmetry"):
+        objects.ChainComplex.balanced_product(
+            chain_a, chain_b, [(swap_two, swap_one)], symmetries_b
+        )
+
+
+def assert_valid_balanced_product(
+    chain_a: objects.ChainComplex,
+    chain_b: objects.ChainComplex,
+    symmetries_a: Sequence[Sequence[Iterable[int]]],
+    symmetries_b: Sequence[Sequence[Iterable[int]]],
+    dims: list[int],
+) -> objects.ChainComplex:
+    """Check that projecting onto orbits maps a tensor product onto a balanced product."""
+    tensor = objects.ChainComplex.tensor_product(chain_a, chain_b)
+    balanced = objects.ChainComplex.balanced_product(chain_a, chain_b, symmetries_a, symmetries_b)
+    assert balanced.num_links == tensor.num_links
+    assert [balanced.dim(degree) for degree in range(len(dims))] == dims
+
+    projections = []
+    for degree in range(tensor.num_links + 1):
+        blocks = []
+        for deg_a, deg_b in objects._get_degree_pairs(chain_a, chain_b, degree):
+            shape = (chain_a.dim(deg_a), chain_b.dim(deg_b))
+            perms = [
+                comb.Permutation(
+                    [
+                        np.ravel_multi_index(
+                            (list(perms_a[deg_a])[aa], list(perms_b[deg_b])[bb]), shape
+                        )
+                        for aa, bb in np.ndindex(shape)
+                    ]
+                )
+                for perms_a, perms_b in zip(symmetries_a, symmetries_b)
+            ]
+            # without symmetries, use the identity on one extra point, whose orbit is dropped
+            size = math.prod(shape)
+            group = comb.PermutationGroup(perms or [comb.Permutation(size)])
+            orbits = sorted((orbit for orbit in group.orbits() if min(orbit) < size), key=min)
+            block = np.zeros((len(orbits), size), dtype=int)
+            for index, orbit in enumerate(orbits):
+                block[index, list(orbit)] = 1
+            blocks.append(block)
+        projections.append(chain_a.field(scipy.linalg.block_diag(*blocks)))
+
+    for degree in range(1, tensor.num_links + 1):
+        assert np.array_equal(
+            balanced.op(degree) @ projections[degree], projections[degree - 1] @ tensor.op(degree)
+        )
+    return balanced

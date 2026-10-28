@@ -33,7 +33,7 @@ from qldpc._utils import format_docstring, get_external_caller_stacklevel
 from qldpc._utils import networkx as nx
 from qldpc.decoders._capabilities import is_prebuilt_decoder, is_prebuilt_observable_decoder
 from qldpc.decoders.construction._resolution import build_error_decoder, reject_prebuilt_decoder
-from qldpc.external import _codes
+from qldpc.external import _bliss, _codes
 from qldpc.math import IntegerArray, resolve_field
 from qldpc.objects import (
     PAULIS_XZ,
@@ -735,6 +735,22 @@ class ClassicalCode(AbstractCode):
         # fall back to GAP/GAUAVA's PermutationAutomorphismGroup method
         return abstract.Group.from_name(
             f"PermutationAutomorphismGroup({code_str})", warning_to_raise_if_calling_gap=warning
+        )
+
+    def get_matrix_automorphism_group(self) -> abstract.Group:
+        """Get the automorphism group of the parity check matrix of this code.
+
+        An automorphism of an ``m × n`` parity check matrix ``H`` is a permutation ``p`` of the
+        ``m`` checks and ``n`` bits (in that order) that leaves ``H`` invariant, in the sense that
+        ``H[p[:m]][:, p[m:] - m] == H``.  Unlike the automorphism group of a code (see
+        :meth:`get_automorphism_group`), the automorphism group of a parity check matrix depends on
+        the choice of parity checks.  Computing this group requires the optional ``pybliss``
+        package, which can be installed with ``pip install 'qldpc[bliss]'``.
+        """
+        generators = _bliss.get_matrix_automorphism_generators(self.matrix)
+        size = sum(self.matrix.shape)
+        return abstract.Group(
+            *[abstract.GroupMember(perm) for perm in generators or [list(range(size))]]
         )
 
     @staticmethod

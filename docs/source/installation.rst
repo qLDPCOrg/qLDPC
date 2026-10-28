@@ -38,6 +38,8 @@ Choose tools for the task
      - :ref:`Additional decoders <installation-decoders>`.
    * - Use algebra tools, named-code lookups, or distance estimates that require GAP
      - :ref:`GAP integration <installation-gap>`.
+   * - Find symmetries of parity check matrices, as for some balanced product codes
+     - :ref:`Matrix automorphisms <installation-bliss>`.
    * - Estimate binary CSS code distances with the GPU-based ``sqetch`` backend
      - :ref:`GPU distance estimation <installation-sqetch>`.
    * - Modify qLDPC itself
@@ -83,6 +85,20 @@ The in-process binding requires Python 3.13 on a non-Windows platform.
 Without that binding, qLDPC can call a GAP executable on ``PATH`` (possibly obtainable with ``conda install -c conda-forge gap``), or offer a manual copy/paste fallback for operations that support it.
 GAP integration on Windows remains limited; see `issue #294 <https://github.com/qLDPCOrg/qLDPC/issues/294>`_.
 See the :doc:`library map <library_map>` for GAP calls, prompts, other side effects, and caching.
+
+.. _installation-bliss:
+
+Matrix automorphisms
+--------------------
+
+Finding the automorphisms (symmetries) of a parity check matrix, as needed to construct some balanced product codes, requires the optional `pybliss <https://pypi.org/project/pybliss/>`_ package:
+
+.. code-block:: bash
+
+   python -m pip install 'qldpc[bliss]'
+
+``pybliss`` publishes wheels for macOS arm64 and Linux x86-64; on other platforms, ``pip`` attempts to build it from source.
+Unlike qLDPC, ``pybliss`` is distributed under the GPL/LGPL v3 licenses.
 
 .. _installation-sqetch:
 

@@ -17,6 +17,7 @@ from sympy.abc import x, y
 import qldpc
 from qldpc import abstract, codes, decoders
 from qldpc.conftest import run_python
+from qldpc.math import resolve_field
 from qldpc.objects import ChainComplex, Node, Pauli
 
 from .common_test import assert_valid_subgraphs
@@ -932,6 +933,105 @@ def test_unsupported_line_logicals(rows: int = 2, cols: int = 3) -> None:
         codes.LPCode(matrix, set_logicals=True)
     with pytest.raises(ValueError, match="not yet supported"):
         codes.SLPCode(matrix, set_logicals=True)
+
+
+def test_balanced_product_code() -> None:
+    """Balanced product codes."""
+    # without symmetries, a balanced product code is a hypergraph product code
+    code_a = codes.ClassicalCode([[1, 1, 0], [0, 1, 1]], field=3)
+    code_b = codes.ClassicalCode([[1, 0], [1, 2], [0, 1]], field=3)
+    code = codes.BPCode(code_a, code_b)
+    hgp_code = codes.HGPCode(code_a, code_b)
+    assert np.array_equal(code.matrix_x, hgp_code.matrix_x)
+    assert np.array_equal(code.matrix_z, hgp_code.matrix_z)
+
+    # with symmetries that generate a group acting freely, a balanced product code is a lifted
+    # product code: pairing a cyclic shift within each block of one lifted matrix with the inverse
+    # shift in the other gives the lifted product of the two matrices
+    group = abstract.CyclicGroup(3)
+    ring = abstract.GroupRing(group)
+    one, shift, shift_squared = (abstract.RingMember(ring, member) for member in group.generate())
+    matrix = abstract.RingArray.build([[one + shift, shift_squared]], ring)
+    symmetry = ([1, 2, 0], [1, 2, 0, 4, 5, 3])
+    inverse_symmetry = ([2, 0, 1], [2, 0, 1, 5, 3, 4])
+    code = codes.BPCode(matrix.lift(), matrix.lift(), [symmetry], [inverse_symmetry])
+    assert code.get_code_params() == codes.LPCode(matrix, matrix).get_code_params() == (15, 3, 3)
+
+    # over GF(2), from_seed constructs the code in Definition 1 of arXiv:2505.13679v2, up to qudit
+    # order, even if the symmetry of the seed matrix has orbits of different lengths
+    for seed, (p_rows, p_cols) in [
+        (codes.RingCode(6).matrix.view(np.ndarray), ([2, 3, 4, 5, 0, 1], [2, 3, 4, 5, 0, 1])),
+        (np.array([[1, 0, 1, 0], [0, 1, 1, 0], [0, 0, 1, 1]]), ([1, 0, 2], [1, 0, 2, 3])),
+    ]:
+        num_checks, num_bits = seed.shape
+        mat_rows = abstract.GroupMember(p_rows, size=num_checks).to_matrix()
+        mat_cols = abstract.GroupMember(p_cols, size=num_bits).to_matrix().T
+        code = codes.BPCode.from_seed(seed, (p_rows, p_cols))
+        matrix_x = code.field(np.hstack([seed.T, np.eye(num_bits, dtype=int) + mat_cols]) % 2)
+        matrix_z = code.field(np.hstack([np.eye(num_checks, dtype=int) + mat_rows, seed]) % 2)
+        qudit_order = [*range(num_bits, num_bits + num_checks), *p_cols]
+        assert np.array_equal(code.matrix_x[:, qudit_order].row_space(), matrix_x.row_space())
+        assert np.array_equal(code.matrix_z[:, qudit_order].row_space(), matrix_z.row_space())
+
+    with pytest.raises(ValueError, match="symmetry is not a symmetry"):
+        codes.BPCode.from_seed(seed, ([1, 0, 2], [0, 1, 2, 3]))
+
+
+def test_balanced_product_seed_symmetries() -> None:
+    """Find the symmetry of the [[12, 2, 3]] code in Example 1 of arXiv:2505.13679v2."""
+    # mock the optional pybliss boundary with generators of the dihedral symmetries of a 6-cycle
+    seed = codes.RingCode(6).matrix
+    generators = [[0, 5, 4, 3, 2, 1, 7, 6, 11, 10, 9, 8], [1, 2, 3, 4, 5, 0, 7, 8, 9, 10, 11, 6]]
+    with unittest.mock.patch(
+        "qldpc.external._bliss.get_matrix_automorphism_generators", return_value=generators
+    ):
+        [symmetry] = codes.BPCode.get_seed_symmetries(seed, 3)
+        assert codes.BPCode.get_seed_symmetries(seed, 5) == []
+    assert codes.BPCode.from_seed(seed, symmetry).get_code_params() == (12, 2, 3)
+
+
+def test_distance_balanced_code() -> None:
+    """Distance-balanced codes."""
+    # compare to Eq. (4) of arXiv:2505.13679v2 (with a sign that matters over non-binary fields),
+    # up to the order of qudits and Z-type checks
+    field = resolve_field(3)
+    matrix_x = field([[1, 2, 0, 0], [0, 0, 1, 2]])
+    matrix_z = field([[1, 1, 1, 1]])
+    matrix = field([[1, 2, 0], [0, 1, 2]])
+    balanced_code = codes.DistanceBalancedCode(
+        codes.CSSCode(matrix_x, matrix_z), codes.ClassicalCode(matrix), Pauli.X
+    )
+    iden_n, iden_m = np.eye(3, dtype=int), np.eye(2, dtype=int)
+    assert np.array_equal(
+        balanced_code.matrix_x,
+        np.hstack([np.kron(iden_m, matrix.T), np.kron(matrix_x, iden_n)]),
+    )
+    assert np.array_equal(
+        balanced_code.matrix_z,
+        np.block(
+            [
+                [np.kron(matrix_x.T, iden_m), -np.kron(field.Identity(4), matrix)],
+                [field.Zeros((3, 4)), np.kron(matrix_z, iden_n)],
+            ]
+        ),
+    )
+
+    # distance balancing amplifies only the distance of the selected Pauli type
+    code = codes.CSSCode(codes.RepetitionCode(3), np.zeros((0, 3), dtype=int))
+    assert (code.get_distance_exact(Pauli.X), code.get_distance_exact(Pauli.Z)) == (1, 3)
+    code_x = codes.DistanceBalancedCode(code, codes.RepetitionCode(2), "x")
+    code_z = codes.DistanceBalancedCode(code, codes.RepetitionCode(2), "z")
+    assert (code_x.get_distance_exact(Pauli.X), code_x.get_distance_exact(Pauli.Z)) == (2, 3)
+    assert (code_z.get_distance_exact(Pauli.X), code_z.get_distance_exact(Pauli.Z)) == (1, 6)
+
+    # redundant checks contribute (m_X - rank(H_X)) * (m_C - rank(H)) = 1 more logical qudit to
+    # the k * k_C = 1 logical qudits of the distance-balanced code
+    code = codes.CSSCode([[1, 1], [1, 1]], np.zeros((0, 2), dtype=int))
+    assert codes.DistanceBalancedCode(code, [[1, 1], [1, 1]], "x").dimension == 2
+
+    with pytest.raises(ValueError, match="not a subsystem code"):
+        subsystem_code = codes.CSSCode([[1]], [[1]], is_subsystem_code=True)
+        codes.DistanceBalancedCode(subsystem_code, codes.RepetitionCode(2), "x")
 
 
 def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> None:
