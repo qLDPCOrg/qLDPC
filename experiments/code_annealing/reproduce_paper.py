@@ -2,10 +2,10 @@
 
 """Check the codes that the paper reports, and rebuild its table and figures from them.
 
-Run with ``python -m experiments.code_annealing.reproduce_paper [--skip-figures]``.
-The paper's best codes and its snapshot of qecdb.org, taken before the paper, are kept in
-``paper_data/``, which no script writes.  This copies them to the ``paper/data/`` subdirectory of
-the results directory, and runs three scripts on that subdirectory, in order:
+Run with ``python -m experiments.code_annealing.reproduce_paper [--skip-figures]``.  The paper's
+best codes and its snapshot of qecdb.org, taken before the paper, are kept in ``paper_data/``,
+which no script writes.  The script copies them to the ``paper/data/`` subdirectory of the results
+directory, and runs three scripts on that subdirectory, in order:
 
 1. ``analysis/half_supports`` recounts every code exactly, which checks the distance and the number
    of minimum-weight logical operators that the paper reports, and counts the half supports that

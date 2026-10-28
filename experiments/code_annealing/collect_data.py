@@ -2,8 +2,8 @@
 
 """Turn the logs of a campaign into data: the best codes, and tables computed from them.
 
-Run with ``python -m experiments.code_annealing.collect_data [--scrape] [--test]``.
-It runs the scripts of ``analysis/``, in order, on the same results directory:
+Run with ``python -m experiments.code_annealing.collect_data [--scrape] [--test]``.  The script
+runs the scripts of ``analysis/``, in order, on the same results directory:
 
 1. ``collect_annealed_codes`` saves the best code of each size that the logs hold, with the codes
    that earlier collections found, to ``data/annealed_codes.txt`` (CSS) and
@@ -17,9 +17,8 @@ It runs the scripts of ``analysis/``, in order, on the same results directory:
    newest scrape.  This step is skipped if there is no scrape, or if the codes changed since the
    newest one.
 
-Pass ``--test`` to collect the data of the smoke-test campaign of ``write_jobs.py --test``.
-Every step can be run alone, with more options, as ``python -m
-experiments.code_annealing.analysis.NAME``.
+Pass ``--test`` to collect the data of the smoke-test campaign of ``write_jobs.py --test``.  Every
+step can be run alone, with more options, as ``python -m experiments.code_annealing.analysis.NAME``.
 """
 
 from __future__ import annotations

@@ -5,7 +5,7 @@ No script writes them: `reproduce_paper` and `check_claims` read them, and `repr
 
 | File | What it is | How it was produced | Used by |
 | --- | --- | --- | --- |
-| `annealed_codes.txt` | The 26 best CSS codes of the paper, one block per code | Found by an earlier version of the annealing search, and listed in the paper's appendix of best codes; generators lowered with `reduce_weights` | `reproduce_paper`, `check_claims`, the table and the figures |
+| `annealed_codes.txt` | The 26 best CSS codes of the paper, one block per code | Found by an earlier version of the annealing search, and listed in the paper's appendix of best codes; stabilizer weights lowered with `reduce_weights` of `core/code_files.py` | `reproduce_paper`, `check_claims`, the table and the figures |
 | `annealed_codes_swel.txt` | The 26 best SWEL codes of the paper, in the same format | As above | As above |
 | `scrape_qecdb_2026-05-21.txt` | For each code, the best known neighbors at [qecdb.org](https://qecdb.org) before the paper: the smallest `n`, largest `k` and largest `d` among codes that are at least as good in the other two parameters | Scraped from the qecdb.org API by `analysis/scrape_qecdb.py`, with self-dual codes as the neighbors of SWEL codes; the date is that of the scrape.  The parameters are those that the database listed, a trusted input that is not recomputed | `latex_tables` (the comparison columns of the table), `check_claims` |
 | `automorphisms_swel_n20_k06.txt` | Five Stim circuits that generate SWAP-transversal logical Clifford gates of the [[20, 6, 4]] SWEL code | Found by a non-exhaustive search for automorphisms, and listed in the paper's appendix on automorphisms | `check_claims` |
@@ -34,5 +34,5 @@ swel = code.to_swel()  # with a basis of logical operators whose X and Z parts a
 
 ## Data that is not shipped
 
-The searches write their checkpoints, records, collected codes and simulations under `results/`, which Git ignores; see the "What the scripts write" section of the guide.
+The searches write their checkpoints, records, collected codes and simulations under `results/`, which Git ignores; see [What the scripts write](../README.md#what-the-scripts-write) in the experiment's README.
 qecdb.org grows, and may come to list the codes of the paper, so a new scrape is saved under its own date instead of replacing the snapshot here.

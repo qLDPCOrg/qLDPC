@@ -1,9 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""List the half-weight subsets of the supports of the minimum-weight logical operators.
+"""Count the half-weight subsets of the supports of the minimum-weight logical operators.
 
-Run with ``python -m experiments.code_annealing.analysis.half_supports [--max-qubits N]``.
-For every code of the two text files of annealed codes, this prints one line, and saves the same
+These counts estimate the logical error rates of the annealed codes at low physical error rates
+(see ``figures/plot_error_estimates.py``).  The simulations decode each sector by a lookup table of
+the errors of weight up to ``(d - 1) // 2`` and discard every other syndrome, so the decoder
+completes a minimum-weight logical operator when ``d // 2 + 1`` qubits of its support err.  For odd
+``d``, these subsets are the half supports, of ``(d + 1) // 2`` qubits.  For even ``d``, errors on
+the ``d // 2`` qubits of a half support are discarded instead, so both sizes are counted.
+
+Run with ``python -m experiments.code_annealing.analysis.half_supports [--max-qubits N]``.  For
+every code of the two text files of annealed codes, the script prints one line, and saves the same
 text to ``data/half_supports.txt`` of the results directory (with ``--max-qubits``, which selects
 only some of the codes, it only prints)::
 
@@ -14,9 +21,9 @@ Z-only logical operators, which are the numbers of their distinct supports.  The
 ``hz`` are those of the distinct subsets of ``(d + 1) // 2`` qubits that lie in the supports of the
 X-only and Z-only operators, respectively.  For even ``d``, the subsets have ``d // 2`` qubits, and
 the numbers for ``d // 2 + 1`` qubits follow in parentheses.  Everything is recomputed exactly, and
-a code whose distance or number of minimum-weight logical operators differs from the claims in the
-header of its block is an error.  The text has one block for each code
-file: a line with the file name, a line for each code, and a blank line.  For example::
+a code whose distance or number of minimum-weight logical operators differs from the claims of its
+code file is an error.  The text has one block for each code file: a line with the file name, a
+line for each code, and a blank line.  For example::
 
     annealed_codes.txt
     [7, 1, 3] 7/7 21/21
@@ -76,10 +83,11 @@ _CODE_LINE = re.compile(
 class HalfSupportCounts:
     """The numbers of minimum-weight logical operators of a code and of subsets of their supports.
 
-    There are ``count_x`` X-only and ``count_z`` Z-only minimum-weight logical operators.  The half
-    supports are the distinct subsets of size ``(d + 1) // 2`` of their supports, so that a subset
-    that several operators share counts once.  The majority supports are the distinct subsets of
-    size ``d // 2 + 1``, which are the half supports if d is odd.
+    There are ``count_x`` X-only and ``count_z`` Z-only minimum-weight logical operators.  For a
+    code of distance ``d``, the half supports are the distinct subsets of size ``(d + 1) // 2`` of
+    their supports, so that a subset that several operators share counts once.  The majority
+    supports are the distinct subsets of size ``d // 2 + 1``, which are the half supports if ``d``
+    is odd.
     """
 
     num_qubits: int
@@ -98,11 +106,21 @@ HalfSupportCountsByFile: TypeAlias = dict[str, dict[CodeParams, HalfSupportCount
 
 
 def read_half_supports(path: str | Path) -> HalfSupportCountsByFile:
-    """Read the counts of a text file, by the name of the code file and the code parameters.
+    """Read the counts of a text file that this script writes.
 
     A line with a file name starts a block, each following line is a code, and a blank line ends
     the block.  A code line is ``[n, k, d] mx/mz hx/hz``, followed by ``(hx2/hz2)`` if and only if
     d is even.  See the module docstring for the meaning of these numbers.
+
+    Args:
+        path: The text file to read.
+
+    Returns:
+        The counts of each code, by the name of the code file and then by the code parameters
+        ``(n, k, d)``.
+
+    Raises:
+        ValueError: If a code line is malformed, or a code file or code is listed twice.
     """
     counts: HalfSupportCountsByFile = {}
     block: dict[CodeParams, HalfSupportCounts] | None = None
@@ -134,7 +152,8 @@ def _get_lines(paths: Iterable[Path], max_qubits: int | None) -> Iterator[str]:
         for entry in read_code_file(path):
             if max_qubits is None or entry.num_qubits <= max_qubits:
                 supports = get_min_weight_supports(entry.code)
-                # The header is an exact recount by collect_annealed_codes: an independent check.
+                # collect_annealed_codes wrote these claims from its own exact count, so this
+                # recount checks them independently.
                 count = len(supports.supports_x) + len(supports.supports_z)
                 check_claims(entry, supports.distance, count)
                 yield _format_line(entry.num_qubits, entry.num_logicals, supports)

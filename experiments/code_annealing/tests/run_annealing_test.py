@@ -62,7 +62,10 @@ def _save_run(directory: Path) -> Path:
 
 
 def _run(args: list[str]) -> None:
-    """Run a search without compiling, which changes no result and would stay on for the process."""
+    """Run a search without compiling the set-up code of the counts.
+
+    Compiling changes no result, but would stay on for the rest of the test process.
+    """
     main([*args, "--skip-compile"])
 
 

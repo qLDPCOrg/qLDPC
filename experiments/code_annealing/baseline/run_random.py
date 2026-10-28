@@ -31,19 +31,24 @@ _FILE_NAME = re.compile(rf"random_({'|'.join(CODE_TYPES)})_n(\d+)_k(\d+)_d(\d+)_
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Write the distance and multiplicity of a random code for each seed."""
+    """Save the distance and number of minimum-weight logical operators of each random code."""
     parser = make_parser(__doc__)
     parser.add_argument("num_qubits", type=int, help="number of physical qubits")
     parser.add_argument("num_logicals", type=int, help="number of logical qubits")
     parser.add_argument(
         "min_distance", type=int, nargs="?", default=1, help="least distance of the codes"
     )
-    parser.add_argument("--first-seed", type=int, default=0, help="(default: %(default)s)")
+    parser.add_argument(
+        "--first-seed", type=int, default=0, help="seed of the first code (default: %(default)s)"
+    )
     parser.add_argument(
         "--num-seeds", type=int, default=100, help="codes to draw (default: %(default)s)"
     )
     parser.add_argument(
-        "--code-type", choices=CODE_TYPES, default="css", help="(default: %(default)s)"
+        "--code-type",
+        choices=CODE_TYPES,
+        default="css",
+        help="code type of the random codes (default: %(default)s)",
     )
     add_results_dir_argument(parser)
     args = parser.parse_args(argv)
@@ -87,10 +92,21 @@ def read_random_counts(
 ) -> dict[int, list[int]]:
     """The numbers of minimum-weight logical operators of random codes, by code distance.
 
-    Read the files of this script in the logs directory for this code type and code size.  Codes are
-    drawn again for each minimum distance that a file requires, and are identified by that and
-    their seed, so that overlapping files count a code once.  The distances of the result are in
-    increasing order.
+    The counts come from the files that ``run_random`` saved in the logs directory.  A seed can
+    draw a different code for each minimum distance, so a code is identified by its seed and the
+    minimum distance of its file, and overlapping files count a code once.
+
+    Args:
+        logs_dir: The logs directory of a results directory.
+        code_type: The code type of the random codes.
+        num_qubits: The number of physical qubits of the random codes.
+        num_logicals: The number of logical qubits of the random codes.
+
+    Returns:
+        The counts of the random codes of each distance, by distance in increasing order.
+
+    Raises:
+        ValueError: If a line of a file is not ``seed distance count``.
     """
     results: dict[tuple[int, int], tuple[int, int]] = {}  # (min distance, seed) -> (d, count)
     for path in sorted(Path(logs_dir).glob("random_*.txt")):

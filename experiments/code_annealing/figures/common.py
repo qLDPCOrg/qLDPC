@@ -2,12 +2,11 @@
 
 """What the plotting scripts share: the annealed codes, their simulations, and figure helpers.
 
-``load_annealed_codes`` reads the annealed codes of the results directory.
-``get_error_rate_func`` simulates a code in a code-capacity depolarizing noise model, and caches the
-result on disk in ``cache/`` of the results directory, so that every figure script reuses the
-simulations of the others.  ``_get_rate_bands`` turns a simulation into the rates and uncertainties
-to plot.  The rest are helpers of the figures, and the command-line options that the scripts have in
-common.
+``load_annealed_codes`` reads the annealed codes of the results directory.  ``get_error_rate_func``
+simulates a code in a code-capacity depolarizing noise model, and caches the result on disk in
+``cache/`` of the results directory, so that every figure script reuses the simulations of the
+others.  Helpers turn a simulation into rates and uncertainties to plot, and the rest are helpers of
+the figures and the command-line options that the scripts have in common.
 """
 
 from __future__ import annotations
@@ -153,8 +152,13 @@ def add_legend(
 ) -> None:
     """Add a legend above an axis, with columns of ``nrow`` entries that fill left to right.
 
-    The legend has ``ncol`` columns, or as many as the entries need.  Each column takes entries
-    in order, so empty entries pad the last one.  The legend sits ``offset`` axis heights up.
+    Each column takes entries in order, so empty entries pad the last one.
+
+    Args:
+        axis: The axis whose lines the legend lists.
+        nrow: The number of entries in each column.
+        ncol: The least number of columns; the legend has more if its entries need them.
+        offset: The height of the bottom of the legend above the axis, in axis heights.
     """
     handles, labels = _get_legend_entries_padded(axis, nrow, ncol)
     axis.legend(
@@ -177,7 +181,16 @@ def format_error_rate_axes(
     min_logical_rate: float = 1e-12,
     min_discard_rate: float = 1e-10,
 ) -> None:
-    """Format a grid of logical error rate axes (top row) and discard rate axes (bottom row)."""
+    """Format a grid of logical error rate axes (top row) and discard rate axes (bottom row).
+
+    Args:
+        axes: A grid of two rows of axes, which share their x-axes, and their y-axes within each
+            row.
+        error_rates: The physical error rates, whose first and last set the range of the x-axes.
+        max_rate: The top of every y-axis.
+        min_logical_rate: The bottom of the y-axes of logical error rates.
+        min_discard_rate: The bottom of the y-axes of discard rates.
+    """
     for axis in axes.ravel():
         axis.loglog()
         axis.grid(which="both")

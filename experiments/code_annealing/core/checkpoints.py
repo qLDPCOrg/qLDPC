@@ -4,8 +4,8 @@
 
 A chain checkpoint (``kind="chain"``) holds everything needed for an exact restart.  A
 ``lowest-energy`` or ``greatest-distance`` record preserves one code each, immediately, without
-pretending to be restartable.  All of them use schema version 2 and store every code as
-hexadecimal strings, so physical widths above 64 bits never pass through imprecise JSON numbers.
+pretending to be restartable.  All of them carry the current ``SCHEMA_VERSION`` and store every code
+as hexadecimal strings, so codes of more than 64 qubits never pass through imprecise JSON numbers.
 """
 
 from __future__ import annotations
@@ -48,7 +48,8 @@ RECORD_KINDS: tuple[RecordKind, ...] = get_args(RecordKind)
 # The kinds of saved file: a chain checkpoint, or a record.
 SavedKind = Literal["chain", RecordKind]
 
-# The codes that a chain checkpoint holds, which are the keys of their records.
+# The ``SearchState`` attributes that hold the codes of a chain checkpoint, which are also their
+# keys in its JSON data.
 _CHAIN_CODE_ROLES = ("current", "lowest_energy", "greatest_distance")
 
 ####################################################################################################
@@ -176,13 +177,24 @@ def save_checkpoint(state: SearchState, path: str | Path) -> None:
 
 
 def save_record(state: SearchState, chain_path: str | Path, kind: RecordKind) -> bool:
-    """Preserve the lowest-energy or greatest-distance code of a chain immediately, beside it.
+    """Preserve the lowest-energy or greatest-distance code of a chain immediately, as a record.
 
-    The record is not a restartable chain.  A previous unfinished epoch can have saved a better
-    code than the last chain checkpoint, so an existing record is replaced only by a strictly better
+    The record is not a restartable chain.  A previous unfinished epoch can have saved a better code
+    than the last chain checkpoint, so an existing record is replaced only by a strictly better
     code, and a replayed epoch never overwrites it with a worse one.  The greatest-distance code is
-    the one of the lowest energy at its distance.  Return whether the file was updated; reject
-    incompatible or inconsistent existing data.
+    the one of the lowest energy at its distance.
+
+    Args:
+        state: The chain whose code to preserve.
+        chain_path: The checkpoint of the chain, beside which the record is saved.
+        kind: Which code of the chain to preserve.
+
+    Returns:
+        Whether the record file was written.
+
+    Raises:
+        ValueError: If an existing record has another kind, policy, schema version or code size, is
+            malformed, or has a score that does not match its code.
     """
     by_distance = kind == "greatest-distance"
     candidate = state.greatest_distance if by_distance else state.lowest_energy
@@ -220,12 +232,16 @@ def save_record(state: SearchState, chain_path: str | Path, kind: RecordKind) ->
 
 
 def load_checkpoint(path: str | Path) -> SearchState:
-    """Restore and independently validate exact scores, policy and RNG state.
+    """Restore a chain from its checkpoint, recomputing every score and checking its state.
 
-    Generator bases may be canonicalized on import; the physical code trajectory and decisions
-    are preserved, rather than the ordering of a redundant generator presentation.
+    Stabilizer generators may be put in a canonical form on import; the codes and decisions of the
+    chain are preserved, not the order of its generators.
+
+    Raises:
+        ValueError: If the file is a record, was written by another numerical runtime or schema
+            version, or is malformed or inconsistent.
     """
-    # Reject files that cannot restart this chain, before spending any time on exact scoring.
+    # Reject a file that cannot restart a chain, before spending any time on exact scoring.
     kind, data = read_saved_file(path)
     if kind != "chain":
         raise ValueError(f"{path} is a record of a code, not a chain checkpoint; use --refine")
@@ -333,7 +349,11 @@ def _decode_history(records: list[dict[str, Any]]) -> list[EpochStatistics]:
 
 
 def _get_runtime_versions() -> dict[str, str]:
-    """A restored RNG state alone cannot reproduce changed samplers or temperature solvers."""
+    """The library and platform versions that a resumed chain must match.
+
+    A restored random state alone cannot reproduce a chain whose samplers or temperature solver
+    changed.
+    """
     return {
         "python": platform.python_version(),
         "numpy": np.__version__,

@@ -44,7 +44,7 @@ def test_a_random_initial_code_has_at_least_the_minimum_distance() -> None:
     def distance(counter: codes.CSSLogicalCounter) -> int:
         return counter.count_logical_ops(method="brute_force").weight
 
-    # The first code of a seed that is rejected, so that the search for another code is exercised.
+    # Find a seed whose first code is rejected, so that the search for another code is exercised.
     seeds = range(100)
     seed = next(
         seed for seed in seeds if distance(next(p.random_initial_codes(7, 1, seed=seed))) < 2

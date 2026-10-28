@@ -54,7 +54,14 @@ class CodeEntry:
 
 
 def format_code(checks_x: npt.ArrayLike, checks_z: npt.ArrayLike, distance: int, count: int) -> str:
-    """The text block of a code with the given binary X and Z generators."""
+    """The text block of a code with the given binary X and Z generators.
+
+    Args:
+        checks_x: Binary X-type generators, one row per generator.
+        checks_z: Binary Z-type generators, one row per generator.
+        distance: Distance d of the code, for the header.
+        count: Number m of minimum-weight X-only plus Z-only logical operators, for the header.
+    """
     rows_x, rows_z = (np.asarray(checks, dtype=np.uint8) for checks in (checks_x, checks_z))
     num_qubits = (rows_x if len(rows_x) else rows_z).shape[1]
     num_logicals = num_qubits - len(rows_x) - len(rows_z)

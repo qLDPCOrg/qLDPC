@@ -2,9 +2,9 @@
 
 """Save the best code of each size that saved annealing runs found.
 
-Run with ``python -m experiments.code_annealing.analysis.collect_annealed_codes``.
-The best code of each code type, number of qubits and number of logical qubits has the greatest
-distance, and among those the fewest minimum-weight logical operators.  The codes go to
+Run with ``python -m experiments.code_annealing.analysis.collect_annealed_codes``.  The best code
+of each code type, number of qubits and number of logical qubits has the greatest distance, and
+among those the fewest minimum-weight logical operators.  The codes go to
 ``data/annealed_codes.txt`` (CSS) and ``data/annealed_codes_swel.txt`` (SWEL) of the results
 directory, with generators of low weight.  Codes that are already in those files compete with those
 of the runs, and every code is rechecked, so collecting only ever improves the files.  Pass

@@ -15,15 +15,15 @@ Outputs go to `experiments/code_annealing/results/paper/`, which Git ignores.
 | Appendix of the best codes (CSS and SWEL listings) | `python -m experiments.code_annealing.check_claims` | `paper_data/annealed_codes*.txt` | printed | `reproduced` | The listings are the code files, whose distances and counts the command recounts exactly. |
 | Appendix on automorphisms of the [[20, 6, 4]] SWEL code (2304 logical Clifford gates) | `python -m experiments.code_annealing.check_claims` | `paper_data/annealed_codes_swel.txt`, `paper_data/automorphisms_swel_n20_k06.txt` | printed | `reproduced` | Finds a group of 2304 logical Clifford gates modulo logical Pauli gates, as the paper reports. |
 
+`reproduce_paper` is a grouped wrapper of the first three rows: it copies `paper_data/`, recounts every code, prints the table, and plots both figures; it accepts `--num-samples` and `--max-qubits` for a quick look.
+
+Not computational, so not reproduced by code: the algorithms of adaptive annealing and of the proofs, and the circuit diagram of the elementary SWEL-preserving gate.
+
 ## What kind of evidence each result is
 
 - Exact: the distances and counts of minimum-weight logical operators, which are recounted rather than read from the code files; the comparisons with the Gilbert-Varshamov bounds, which compare these exact distances with bounds computed from their formulas; and the order of the group of logical Clifford gates, given its generators.
 - Trusted input: the best known codes at qecdb.org, whose parameters are those that the database listed on the date of the scrape, and are not recomputed.
 - Estimates: the logical error rates and discard rates of the figures, which are Monte Carlo estimates with statistical error bars, and an upper bound on the error from errors too heavy to sample; and the estimates of logical error rates from counts of minimum-weight logical operators, which are leading-order approximations.
-
-`reproduce_paper` is a grouped wrapper of the first three rows: it copies `paper_data/`, recounts every code, prints the table, and plots both figures; it accepts `--num-samples` and `--max-qubits` for a quick look.
-
-Not computational, so not reproduced by code: the algorithms of adaptive annealing and of the proofs, and the circuit diagram of the elementary SWEL-preserving gate.
 
 ## Quick checks of the headline claims
 

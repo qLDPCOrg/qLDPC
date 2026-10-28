@@ -4,7 +4,8 @@
 
 Every file that a script writes goes to a subdirectory of ``results/``, which Git ignores:
 
-- ``logs/`` holds the files of annealing runs (chains, code records, logs) and the jobs file.
+- ``logs/`` holds the files of annealing runs (chains, code records, logs) and the file of jobs that
+  ``write_jobs.py`` writes.
 - ``data/`` holds the best code of each size, and the tables that are computed from those codes.
 - ``figures/`` holds the PDF files of the plotting scripts.
 - ``cache/`` holds simulations that the plotting scripts reuse.

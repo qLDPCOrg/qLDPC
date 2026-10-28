@@ -5,11 +5,8 @@
 The nontrivial X-only logical operators of a CSS stabilizer code with checks ``H_X`` and ``H_Z``
 are the words of ``ker(H_Z)`` outside ``row(H_X)``, and likewise for Z with X and Z exchanged.
 ``get_min_weight_supports`` lists the supports of all such operators of weight equal to the code
-distance, with no sampling.  It builds a basis of ``ker(H_Z)`` from the independent rows of ``H_X``
-and one representative per logical qubit, and walks all ``2**dim`` combinations of that basis in
-Gray-code order.  A combination is a nontrivial logical operator exactly when it involves a
-representative, so the walk costs ``2**dim`` steps with ``dim = n - rank(H_Z)`` for X (and
-``n - rank(H_X)`` for Z).
+distance, with no sampling.  For X, the search walks all ``2**dim`` combinations of a basis of
+``ker(H_Z)``, where ``dim = n - rank(H_Z)``, and likewise for Z.
 
 A support is an integer bit mask, in which bit ``q`` is set when qubit ``q`` is in the support.
 ``count_support_subsets`` counts the distinct subsets of a given size that lie in the supports.
@@ -55,6 +52,12 @@ def get_min_weight_supports(code: CSSCode) -> MinWeightSupports:
     larger.  Each support is the support of a distinct operator, so the numbers of supports are the
     counts of such operators.
 
+    Args:
+        code: A binary CSS stabilizer code with at most 64 qubits.
+
+    Returns:
+        The distance of the code and the sorted supports of each sector.
+
     Raises:
         ValueError: If the code is not a binary stabilizer code with at most 64 qubits and at
             least one logical qubit.
@@ -83,7 +86,13 @@ def get_min_weight_supports(code: CSSCode) -> MinWeightSupports:
 
 
 def count_support_subsets(supports: Iterable[int], size: int) -> int:
-    """The number of distinct subsets of ``size`` qubits that lie in at least one support."""
+    """The number of distinct subsets of ``size`` qubits that lie in at least one support.
+
+    Args:
+        supports: Supports as bit masks, in which bit ``q`` is set when qubit ``q`` is in the
+            support.
+        size: The number of qubits of each subset.
+    """
     subsets: set[int] = set()
     for support in supports:
         # The bits of the qubits are distinct powers of two, so their sum is their union.

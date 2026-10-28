@@ -2,13 +2,13 @@
 
 """Report how many annealing runs of each code size have finished.
 
-Run with ``python -m experiments.code_annealing.progress_report [--test]``.
-For each code type, number of qubits and number of logical qubits that the logs hold, the table
-shows the runs that have finished all their epochs out of all runs that have started, and the best
-code of any of them so far: the greatest distance with its number of minimum-weight logical
-operators.  A search appears once it has saved a checkpoint, so searches that have not started, or
-that failed before their first checkpoint, are missing: look for the reason in the ``.log`` files of
-the logs.  It reads the chain checkpoints only, so it is fast and does not recheck any code.  Pass
+Run with ``python -m experiments.code_annealing.progress_report [--test]``.  The script prints a
+table with a row for each code size that the logs hold, which shows for each code type the runs
+that have finished all their epochs out of all runs that have started, and the best code of any of
+them so far: the greatest distance with its number of minimum-weight logical operators.  A search
+appears once it has saved a checkpoint, so searches that have not started, or that failed before
+their first checkpoint, are missing: look for the reason in the ``.log`` files of the logs.  The
+script reads the chain checkpoints only, so it is fast and does not recheck any code.  Pass
 ``--test`` to report on the smoke-test campaign of ``write_jobs.py --test``.
 """
 

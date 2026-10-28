@@ -21,6 +21,11 @@ def write_atomic(destination: Path, write: Callable[[IO[str]], None], *, newline
     """Replace a file only after ``write`` has produced a complete, flushed file.
 
     Temporary files are removed on every exit, so a failure leaves the previous file untouched.
+
+    Args:
+        destination: The file to replace, whose directory is created if needed.
+        write: Writes the complete contents of the file to the stream that it is given.
+        newline: Newline translation of the stream, as for ``open``.
     """
     destination.parent.mkdir(parents=True, exist_ok=True)
     mode = _get_file_mode(destination)
@@ -75,7 +80,8 @@ def write_text_atomic(destination: str | Path, text: str) -> None:
 def _get_file_mode(destination: Path) -> int:
     """The permissions of the file to replace, or those that a new file gets with the umask.
 
-    A temporary file is private to its owner, so the permissions are set explicitly instead.
+    A temporary file is created private to its owner, so ``write_atomic`` gives it these permissions
+    before it replaces the destination.
     """
     if destination.exists():
         return stat.S_IMODE(destination.stat().st_mode)

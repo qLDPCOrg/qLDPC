@@ -6,9 +6,9 @@ Run with ``python -m experiments.code_annealing.figures.plot_random_histogram N 
 codes are those that ``baseline/run_random.py`` saved in the logs of the results directory, in
 files named like ``random_css_n30_k04_d5_s0-99.txt`` with a line ``seed distance count`` for each
 code.  The figure ``random_counts_css_n30_k04.pdf`` is a histogram of ``count``, the number of
-minimum-weight X-only plus Z-only logical operators, over the random codes of the code type with
-N qubits and K logical qubits.  The bars are stacked by the distance of the code.  A code that
-appears in several files with overlapping seeds is counted once.
+minimum-weight X-only plus Z-only logical operators, over the random codes of the code type that
+``--code-type`` selects, with N qubits and K logical qubits.  The bars are stacked by the distance
+of the code.  A code that appears in several files with overlapping seeds is counted once.
 """
 
 from __future__ import annotations
@@ -33,9 +33,14 @@ from .common import (
 def main(argv: Sequence[str] | None = None) -> None:
     """Save a histogram of the numbers of minimum-weight logical operators of random codes."""
     parser = make_parser(__doc__)
-    parser.add_argument("num_qubits", type=int)
-    parser.add_argument("num_logicals", type=int)
-    parser.add_argument("--code-type", choices=CODE_TYPES, default="css")
+    parser.add_argument("num_qubits", type=int, help="number of physical qubits")
+    parser.add_argument("num_logicals", type=int, help="number of logical qubits")
+    parser.add_argument(
+        "--code-type",
+        choices=CODE_TYPES,
+        default="css",
+        help="code type of the random codes (default: %(default)s)",
+    )
     add_results_dir_argument(parser)
     args = parser.parse_args(argv)
 

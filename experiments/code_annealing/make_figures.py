@@ -17,10 +17,10 @@ their PDF files to ``figures/`` of that directory:
    random codes that ``baseline/run_random.py`` saved to the logs: how many minimum-weight logical
    operators random codes have.
 
-The simulations of the first three dominate the time, and are cached in ``cache/``.  Pass a small
-``--max-qubits`` and ``--num-samples`` for a quick look.  ``--test`` plots the data of the
-smoke-test campaign of ``write_jobs.py --test``, with 1000 samples for each code.  Each plotting
-script can be run alone, with more options, as
+The simulations of the first three scripts take most of the running time, and are cached in
+``cache/``.  Pass a small ``--max-qubits`` and ``--num-samples`` for a quick look.  ``--test`` plots
+the data of the smoke-test campaign of ``write_jobs.py --test``, with 1000 samples for each code.
+Each plotting script can be run alone, with more options, as
 ``python -m experiments.code_annealing.figures.NAME``.
 """
 

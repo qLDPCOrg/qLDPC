@@ -2,9 +2,10 @@
 
 """Command-line options that the scripts of the experiment share.
 
-Every script accepts ``--results-dir`` to use another directory instead of ``results/``.  The four
-high-level scripts also accept ``--test``, which runs them at smoke-test scale in the ``test/``
-subdirectory of the results directory, so that a trial never mixes with the real results.
+Every script accepts ``--results-dir`` to use another directory instead of ``results/``.  The
+scripts ``write_jobs``, ``collect_data``, ``progress_report`` and ``make_figures`` also accept
+``--test``, which runs them at smoke-test scale in the ``test/`` subdirectory of the results
+directory, so that a trial never mixes with the real results.
 """
 
 from __future__ import annotations

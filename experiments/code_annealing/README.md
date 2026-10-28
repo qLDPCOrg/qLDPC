@@ -6,7 +6,7 @@ It implements the paper's code search, and builds the paper's table and figures 
 The experiment searches for quantum error-correcting codes with high encoding rates and large distances by adaptive simulated annealing.
 It searches two classes of codes: CSS codes, and self-dual CSS codes with equivalent logicals (SWEL codes), which admit transversal logical Hadamard and phase gates.
 Each search fixes the numbers `n` of physical and `k` of logical qubits, and walks over local Clifford conjugations of a code, lowering an energy that stands in for the logical error rate of the code.
-Every proposed code is scored exactly, by its distance and its number of minimum-weight logical operators, so the search relies on no sampling or approximation.
+Every proposed code is scored exactly, by its distance and its number of minimum-weight logical operators, so the search uses no sampled estimates or approximations of a code's quality.
 
 ## Where to start
 
@@ -53,7 +53,7 @@ Add `--skip-figures` for the table alone, or a small `--num-samples` and `--max-
 
 ### The searches, at any scale
 
-The paper's code search runs a campaign of many independent searches, one for each code type, code size and seed.
+The paper's code search runs a campaign of many independent searches, one for each code type (CSS or SWEL), code size and seed.
 The searches are random, so a rerun finds its own codes, which need not match those of the paper one for one.
 The full campaign takes many CPU hours, but every part of it can run on its own, at a smaller scale, on a laptop.
 

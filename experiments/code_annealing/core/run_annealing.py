@@ -5,18 +5,16 @@
 Run with ``python -m experiments.code_annealing.core.run_annealing N K [options]`` to search codes
 with N physical and K logical qubits, or with ``--help`` for the options.  Exact enumeration is
 exponential, so use small ``--epochs`` and ``--steps-per-epoch`` for smoke tests, and ``--dry-run``,
-which writes nothing.  Numba compiles its kernels on first use, which is not a steady-state cost.
-Every search but a dry run also compiles the set-up code of the counts when it starts (see
-:func:`qldpc.codes.distance.compile_search_setup`), which pays off over the many counts of a search
-and changes no result; ``--skip-compile`` skips it for a short search.  Compiling stays on for the
-rest of the process.
+which writes nothing.  Every search but a dry run first compiles the set-up code of the counts,
+which pays off over a long search and changes no result; ``--skip-compile`` skips it for a short
+one.
 
 Starting code.  A new search starts from the first random code that it draws, which has at least
 ``--min-distance``, or from the lowest-energy code of ``--init-samples`` random codes, which are
-scored exactly.  The energy of a random code varies a lot, and so does the temperature that the
-pilot epoch fits to the neighbors of the starting code, so the lowest-energy code of many makes the
-first epochs less erratic.  ``--init-samples`` cannot be combined with ``--min-distance`` or
-``--max-attempts``.
+scored exactly.  The energy of a random code varies a lot, and so does the first temperature, which
+a pilot fits to one epoch's worth of proposals from the starting code, so the lowest-energy code of
+many makes the first epochs less erratic.  ``--init-samples`` cannot be combined with
+``--min-distance`` or ``--max-attempts``.
 
 Files.  A run saves its chain checkpoint, such as ``css_n20_k04_s003.json`` for the code type css,
 20 qubits, 4 logical qubits and seed 3, after every completed epoch, and records of its
@@ -35,8 +33,9 @@ uninterrupted one, and it rejects new code or policy options.  An interruption l
 unfinished epoch, never a record, and a replayed epoch never replaces a better record with a worse
 one.  ``--stop-after-epochs N`` stops after N more complete epochs.  Exact restart needs the same
 numerical runtime, operating system and architecture, and the same version of this code.  Otherwise,
-or to try new settings, ``--refine RECORD`` starts a new chain from the lowest-energy code of a
-chain, or the code of either record.
+or to try new settings, ``--refine PATH`` starts a new chain from the lowest-energy code of a chain
+checkpoint or from the code of a record, either of which may come from another runtime or schema
+version.
 
 Scoring.  ``--method`` is ``auto`` (the default), ``brouwer_zimmermann``, ``macwilliams`` or
 ``brute_force``, the methods of ``CSSLogicalCounter.count_logical_ops`` and all exact, and
@@ -450,7 +449,8 @@ def _run_search(
             ),
             flush=True,
         )
-        # The choice depends on timing, so it goes to stderr, which keeps the results deterministic.
+        # The method that ``auto`` chooses depends on timing, so it goes to stderr, which keeps
+        # stdout deterministic.
         if state.config.method == "auto":
             print(
                 f"epoch {state.completed_epochs}: scored with {state.epoch_method}", file=sys.stderr

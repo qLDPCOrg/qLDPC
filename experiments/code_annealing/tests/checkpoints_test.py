@@ -38,7 +38,7 @@ def _weak_code(num_qubits: int = 7) -> CSSLogicalCounter:
 def _set_codes(
     state: SearchState, *, current: CSSLogicalCounter, best: CSSLogicalCounter
 ) -> SearchState:
-    """Make a code the current one of a chain, and another one its lowest-energy and greatest."""
+    """Set a chain's current code, and its lowest-energy and greatest-distance code to ``best``."""
     for role, code in zip(ROLES, (current, best, best)):
         setattr(state, role, ScoredCode(code, score_code(code, state.config)))
     return state

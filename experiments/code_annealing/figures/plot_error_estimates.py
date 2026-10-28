@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Compare simulated logical error rates of the annealed codes with estimates from their counts.
+"""Compare simulated logical error rates with estimates from minimum-weight logical operators.
+
+The annealing ranks codes of one distance by their numbers of minimum-weight logical operators, on
+the premise that fewer such operators mean fewer logical errors at low physical error rates.  This
+figure checks that premise against simulations of the annealed codes.
 
 Run with ``python -m experiments.code_annealing.figures.plot_error_estimates``.  The figure
 ``error_estimates.pdf`` has a panel for each code type, with the logical error rate per logical
@@ -9,9 +13,10 @@ minimum-weight logical operators, and a refined estimate from the numbers of dis
 their supports.  The codes are grouped by distance, and sorted by their simulated rates within each
 group.  Their colors identify the code sizes ``(n, k)``, in the order of the other figures.
 
-The counts come from ``data/half_supports.txt`` of the results directory, which
-``analysis/half_supports.py`` writes and reads.  Codes without counts are skipped.  The simulations,
-their cache and the options are those of ``plot_error_rates``, which see.
+The counts of operators and subsets come from ``data/half_supports.txt`` of the results directory,
+which ``analysis/half_supports.py`` writes and reads.  Codes without counts are skipped.  The
+simulations and their cache are those of ``plot_error_rates`` (see ``common.py``), and
+``--error-rate`` sets the physical error rate of the comparison.
 """
 
 from __future__ import annotations
@@ -163,9 +168,9 @@ def _estimate_error_rate(
     The estimate multiplies the number of minimum-weight operators by the ``comb(d, w)`` subsets of
     each support and by ``r**w``, the probability that every qubit in a subset errs.  The refined
     estimate counts the distinct subsets of all supports, which is fewer if supports overlap, and
-    gives each the probability ``r**w * (1 - r)**(n - w)`` that exactly its qubits err.  It
-    combines the sectors as if they were independent, ``1 - (1 - P_x) * (1 - P_z)``, which is an
-    approximation: a Y error is both an X-type and a Z-type error.
+    gives each the probability ``r**w * (1 - r)**(n - w)`` that exactly its qubits err.  The refined
+    estimate combines the sectors as if they were independent, ``1 - (1 - P_x) * (1 - P_z)``, which
+    is an approximation: a Y error is both an X-type and a Z-type error.
     """
     num_qubits, distance = counts.num_qubits, counts.distance
     weight = distance // 2 + 1

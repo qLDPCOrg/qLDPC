@@ -21,11 +21,12 @@ of 100 proposals, starting from the lowest-energy code of 10 random codes, with 
 ``test/`` subdirectory of the results directory.  Give the same flag to the other high-level
 scripts to follow that campaign.
 
-The campaign below lists each code size with its number of epochs and its final target acceptance
-of uphill proposals.  Every code size runs both code types, CSS (starting from a self-dual code)
-and SWEL, with the seeds of ``CampaignRow.num_seeds``, and every search starts from the
-lowest-energy code of ``INIT_SAMPLES`` random codes, drawn with its own seed.  Running all of it
-takes a very long time: choose jobs with ``--qubits``, ``--max-seeds`` and ``--code-types``.
+The campaign, ``CAMPAIGN`` in this script, lists each code size with its number of epochs and its
+final target acceptance of uphill proposals.  Every code size runs both code types, CSS (starting
+from a self-dual code) and SWEL, with the seeds of ``CampaignRow.num_seeds``, and every search
+starts from the lowest-energy code of ``INIT_SAMPLES`` random codes, drawn with its own seed.
+Running all of it takes a very long time: choose jobs with ``--qubits``, ``--max-seeds`` and
+``--code-types``.
 """
 
 from __future__ import annotations
@@ -161,7 +162,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         help=f"random codes to choose the starting code of a search from (default: {INIT_SAMPLES},"
         f" or {SMOKE_SCALE.init_samples} with --test)",
     )
-    parser.add_argument("--tag", default="", help="suffix of the file names, to tell batches apart")
+    parser.add_argument(
+        "--tag", default="", help="suffix of the search names and files, to tell campaigns apart"
+    )
     parser.add_argument("--python", default="python", help="the Python command of the jobs")
     add_results_dir_argument(parser)
     add_test_argument(parser)
@@ -220,7 +223,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
 @dataclass(frozen=True)
 class _JobSettings:
-    """What the jobs share, beyond the code size: the scale of every search, and the Python."""
+    """What the jobs share beyond the code size: the scale of a search and the Python command."""
 
     epochs: int | None
     """Epochs of every search, or None for those of its code size."""
@@ -267,6 +270,15 @@ def _get_job(python: str, arguments: list[str], log: Path, *, append: bool) -> s
 
     The job imports ``qldpc`` from the repository that it runs in, so a copy of the repository
     works without being installed.
+
+    Args:
+        python: The Python command that runs the job.
+        arguments: The arguments of ``run_annealing``.
+        log: The file that receives the output of the job.
+        append: Whether to append to the log, as a resumed run does, rather than overwrite it.
+
+    Returns:
+        The shell command, with every argument quoted.
     """
     quoted = " ".join(shlex.quote(argument) for argument in arguments)
     root = shlex.quote(str(_REPO_ROOT))

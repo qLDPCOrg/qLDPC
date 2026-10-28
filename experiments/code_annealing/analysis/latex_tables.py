@@ -18,9 +18,9 @@ order, with:
   beats the database is wrapped in ``\\hlgreen{...}``, and the database value that it beats in
   ``\\hlred{...}``, so a document needs to define both commands.
 
-Every distance and count is recomputed exactly, and a code that disagrees with the header of its
-block is an error.  The data file of qecdb.org must describe the current codes: run
-``collect_data --scrape`` to update it.
+Every distance and count is recomputed exactly, and a code whose distance or count differs from the
+claims of its code file is an error.  The data file of qecdb.org must describe the current codes:
+run ``collect_data --scrape`` to update it.
 """
 
 from __future__ import annotations
@@ -79,6 +79,13 @@ def get_qgv_distance(num_qubits: int, num_logicals: int) -> int:
 
     This is the largest ``d`` with ``sum(3**w * comb(n, w) for w < d) <= 2**(n - k)``, so that an
     ``[[n, k, d]]`` stabilizer code exists.
+
+    Args:
+        num_qubits: The number ``n`` of physical qubits.
+        num_logicals: The number ``k`` of logical qubits.
+
+    Returns:
+        The largest distance ``d`` that the bound guarantees.
     """
     distance, errors = 1, 1
     while distance < num_qubits:
@@ -95,6 +102,13 @@ def get_css_gv_distance(num_qubits: int, num_logicals: int) -> int:
     This is the largest ``d`` with ``2 * sum(comb(n, w) for 0 < w < d) < (2**n - 1) / D``, where
     ``D = 2**k_x - 2**(n - k_x) + 2**k_z - 2**(n - k_z)`` and ``k_x`` and ``k_z`` are the floor and
     ceiling of ``(n + k) / 2``, so that an ``[[n, k, d]]`` CSS code exists.
+
+    Args:
+        num_qubits: The number ``n`` of physical qubits.
+        num_logicals: The number ``k`` of logical qubits.
+
+    Returns:
+        The largest distance ``d`` that the bound guarantees.
     """
     nn = num_qubits
     k_x, k_z = (nn + num_logicals) // 2, (nn + num_logicals + 1) // 2

@@ -2,15 +2,16 @@
 
 """Exact CSS/SWEL code annealing: the chain, its energy, and how proposals are scored.
 
-The chain minimizes the logical-error-rate energy E_L of arXiv:2607.19574 over local Clifford
-conjugations of a binary CSS stabilizer code.  Every proposal is scored exactly by its distance and
-its number of minimum-weight logical operators, so there are no approximate or cached scores.  By
-default the operators are the X-only and Z-only ones; the ``pauli`` objective instead counts every
-physical Pauli representative, including mixed and Y-only ones.
+A Markov chain of codes minimizes the logical-error-rate energy E_L of arXiv:2607.19574 over local
+Clifford conjugations of a binary CSS stabilizer code.  Every proposal is scored exactly by its
+distance and its number of minimum-weight logical operators, so there are no approximate or cached
+scores.  By default the operators are the X-only and Z-only ones; the ``pauli`` objective instead
+counts every physical Pauli representative, including mixed and Y-only ones.
 
-Independently of the chain, the search records the lowest-energy code and the greatest-distance
-code (ties broken by the lowest multiplicity) among *all* evaluated proposals, including pilot and
-rejected ones.
+Before the first epoch, a pilot scores one epoch's worth of proposals from the initial code to fit
+the first temperature, without moving the chain.  Independently of the chain, the search records the
+lowest-energy code and the greatest-distance code (ties broken by the lowest multiplicity) among
+*all* evaluated proposals, including pilot and rejected ones.
 
 Scoring takes most of a step, and it has two exact methods that give identical scores, so the
 method changes only the running time.  Brouwer-Zimmermann counts at a guess of the distance, and
@@ -80,12 +81,12 @@ _clock = time.process_time
 
 @dataclass(frozen=True)
 class SearchConfig:
-    """Search policy; seeds and actual code state live in the checkpoint.
+    """Search policy; the seed and codes of a chain live in ``SearchState`` and its checkpoint.
 
-    The homogeneous objective counts the minimum-weight X-only and Z-only logical operators, and
-    the pauli objective counts every minimum physical Pauli representative.  Neither counts
-    logical equivalence classes modulo stabilizers.  The objective is recorded in every checkpoint
-    so that saved results state exactly what was optimized.
+    The homogeneous objective counts the minimum-weight X-only and Z-only logical operators, and the
+    pauli objective counts every minimum physical Pauli representative.  Neither counts logical
+    equivalence classes modulo stabilizers.  The objective is recorded in every checkpoint so that
+    saved results state exactly what was optimized.
 
     Attributes:
         code_type: ``css`` searches general CSS codes with CNOT or CSS gates; ``swel`` searches
@@ -252,15 +253,16 @@ class SearchState:
 
 
 def start_search(initial: CSSLogicalCounter, config: SearchConfig, *, seed: int = 0) -> SearchState:
-    """Create a chain and sample the independent pilot landscape.
+    """Create a chain at an initial code, and run its pilot.
+
+    The pilot scores one epoch's worth of neighbors of the initial code, each proposed from that
+    code, and fits the first temperature to their energy jumps.  It never moves the chain, but its
+    proposals can set the optimum records.
 
     Args:
         initial: Owned code counter, with at least one logical qubit.
         config: Exact scoring and proposal policy.
         seed: NumPy search seed.
-
-    The pilot scores one epoch's worth of neighbors of the fixed initial code to fit the initial
-    temperature.  It never moves the chain, but its proposals can set the optimum records.
     """
     config.validate_code(initial)
     start = ScoredCode(initial, score_code(initial, config))
@@ -297,12 +299,18 @@ def run_epochs(
 ) -> SearchState:
     """Continue a chain, optionally stopping at a reproducible completed-epoch boundary.
 
-    Every proposal contributes its actual energy jump to the next temperature fit.
-    No lazy rejection or approximate score is used.  A callback may atomically persist state.
-    ``on_lowest_energy`` can preserve a new lowest-energy code immediately, separately from
-    restartable epoch-boundary state.
-    ``on_greatest_distance`` does the same for a new greatest-distance code, even if its energy is
-    not the lowest.
+    Every proposal is scored exactly, whether or not it is accepted, and its energy jump enters the
+    temperature fit of the next epoch.
+
+    Args:
+        state: The chain, which is updated in place and returned.
+        stop_after_epochs: Number of further epochs to run, or None to run the remaining epochs of
+            the policy.
+        on_epoch: Called after every completed epoch, such as to save a restartable checkpoint.
+        on_lowest_energy: Called as soon as a proposal sets a new lowest-energy code, such as to
+            preserve that code before its epoch completes.
+        on_greatest_distance: The same for a new greatest-distance code, even if its energy is not
+            the lowest.
     """
     if stop_after_epochs is not None and stop_after_epochs < 0:
         raise ValueError("stop_after_epochs must be nonnegative")
@@ -334,9 +342,15 @@ def score_code(
 ) -> Score:
     """Exact distance and multiplicity of the minimum-weight logicals for the objective.
 
-    With the ``auto`` method, a count outside a chain is Brouwer--Zimmermann on a copy of the code.
-    A count prepares state that every deformed child of the code inherits and keeps up to date
-    (see ``_start_epoch``), which only helps if that method scores the chain.
+    A Brouwer--Zimmermann count leaves state in its counter that the codes deformed from it inherit
+    (see ``_start_epoch``), which helps only if Brouwer--Zimmermann also scores the chain.  The
+    ``auto`` method can choose either method in each epoch, so its default count runs on a copy of
+    the code and leaves the given counter as it is.
+
+    Args:
+        counter: The code to score.
+        config: Search policy, whose objective is scored.
+        method: Library counting method, by default that of ``get_library_method``.
     """
     if method is None:
         method = get_library_method(config)
@@ -356,10 +370,10 @@ def energy(score: Score, config: SearchConfig) -> float:
     With w = d // 2 + 1, a majority of the support of a minimum-weight operator, return
     (log(m) + log(binomial(d, w))) / log(1 / p) - w, where m is the multiplicity that the objective
     counts and p is the physical error rate.
-    Compute logarithms separately to avoid forming a tiny probability or a large product.
     """
     count = _get_multiplicity(score, config)
     weight = score.distance // 2 + 1
+    # Logarithms are added separately, so that no tiny probability or large product is formed.
     return (math.log(count) + math.log(math.comb(score.distance, weight))) / -math.log(
         config.physical_error_rate
     ) - weight
@@ -370,10 +384,10 @@ def get_lowest_energy_code(
 ) -> CSSLogicalCounter:
     """The code of the lowest energy among codes that are scored exactly, the first if tied.
 
-    A chain that starts from the lowest-energy code of many random codes begins in a good region,
-    which is what an epoch at infinite temperature, which accepts every proposal, would find,
-    without the codes being correlated.  The codes are consumed one at a time, so they can be an
-    endless stream cut short by ``itertools.islice``.
+    Starting a chain from the lowest-energy code of many independent random codes puts it in a good
+    region, much like a first epoch at infinite temperature, which accepts every proposal, but with
+    uncorrelated codes.  The codes are consumed one at a time, so they can be an endless stream cut
+    short by ``itertools.islice``.
 
     Raises:
         ValueError: If there are no codes.
@@ -400,8 +414,8 @@ def distance_rank(distance: int, count: int) -> tuple[int, int]:
 def score_rank(score: Score, config: SearchConfig) -> tuple[int, int]:
     """The ``distance_rank`` of a score, compared as exact integers instead of rounded energies.
 
-    The energy at a fixed distance increases strictly with the multiplicity, so the two rank codes
-    of one distance alike.
+    The energy increases strictly with the multiplicity at a fixed distance, so among codes of one
+    distance this rank orders codes as the energy does.
     """
     return distance_rank(score.distance, _get_multiplicity(score, config))
 
@@ -566,9 +580,10 @@ def _start_epoch(state: SearchState) -> None:
     """Choose the method of the epoch, and prepare the current code for it.
 
     The children of a code inherit the Brouwer--Zimmermann state of their parent, and update it at
-    every deformation.  The current code gets that state when the epoch uses the method, so that its
-    children start prepared, and loses it when the epoch uses the MacWilliams method, which
-    has no use for it, by continuing from a copy.
+    every deformation.  With the ``auto`` method, the current code gets that state when the epoch
+    uses Brouwer--Zimmermann, so that its children start prepared.  When the epoch uses the
+    MacWilliams method instead, which has no use for that state, the chain drops it by continuing
+    from a copy of the current code.
     """
     previous = state.epoch_method
     method = _select_method(state)
@@ -599,8 +614,8 @@ def _select_method(state: SearchState) -> LogicalCountMethod:
     if config.method != "auto":
         return config.method
     counter = state.current.counter
-    # Physical Pauli counts of the MacWilliams method need self-dual codes, which only the
-    # SWEL gate keeps.
+    # Physical Pauli counts of the MacWilliams method need self-dual codes, which only the SWEL gate
+    # keeps.
     if max(len(counter.checks_x), len(counter.checks_z)) > _RACE_MAX_RANK or (
         config.objective == "pauli" and config.code_type != "swel"
     ):
@@ -685,9 +700,9 @@ def _get_multiplicity(score: Score, config: SearchConfig) -> int:
 def _fit_log_temperature(jumps: npt.ArrayLike, target: float) -> float:
     """Fit log T so that the mean uphill acceptance probability equals ``target``.
 
-    The fit is bounded by ``LOG_TEMPERATURE_BOUNDS``.  Nonpositive proposals do not enter the
-    fit.  If there are no uphill proposals, return log T=0.  Every rejected uphill proposal must
-    still be supplied.
+    The fit is bounded by ``LOG_TEMPERATURE_BOUNDS``.  Jumps that do not raise the energy are
+    ignored.  If there are no uphill jumps, return log T=0.  The jumps of rejected uphill proposals
+    must still be supplied.
     """
     values = np.asarray(jumps, dtype=float)
     uphill = values[values > 0]

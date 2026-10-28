@@ -108,7 +108,8 @@ class RunProgress:
     """Greatest distance saved so far, which this module does not recheck."""
 
     greatest_distance_count_homogeneous: int
-    """Its number of minimum-weight X-only plus Z-only logical operators."""
+    """Number of minimum-weight X-only plus Z-only logical operators of the greatest-distance
+    code."""
 
     @property
     def finished(self) -> bool:
@@ -133,11 +134,19 @@ def get_saved_run_paths(logs_dir: Path, explicit: Sequence[Path] = ()) -> list[P
 
 
 def load_saved_codes(paths: Iterable[Path]) -> list[SavedCode]:
-    """Validate each saved optimum against its actual code, keeping its exact count columns.
+    """Load the codes of saved chains and records, recomputing every score exactly.
 
-    Only chain and immediate records of the current schema are accepted.  Resource, malformed-data
-    and exact-score failures propagate instead of silently omitting codes.  The runtime of the run
-    need not match the current one: loading verifies scores, not seeded restart equivalence.
+    The runtime of a run need not match the current one: loading verifies scores, not that a seeded
+    restart would reproduce the chain.  No failure is skipped silently.
+
+    Returns:
+        The lowest-energy and greatest-distance codes of every chain checkpoint, and the code of
+        every record, in the order of their sorted paths.
+
+    Raises:
+        OSError: If a file cannot be read.
+        ValueError: If a file is not a chain checkpoint or record of the current schema version, is
+            malformed, or has a score that does not match its code.
     """
     saved = []
     for path in sorted(set(paths)):
@@ -202,7 +211,7 @@ def load_progress(logs_dir: Path) -> list[RunProgress]:
 
 
 def write_csv(saved: Sequence[SavedCode], destination: Path) -> None:
-    """Replace the CSV of saved codes only after the complete file has been flushed."""
+    """Write the ``CSV_FIELDS`` header and one row per saved code to ``destination``, atomically."""
 
     def write(stream: IO[str]) -> None:
         writer = csv.writer(stream)

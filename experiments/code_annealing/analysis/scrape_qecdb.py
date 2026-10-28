@@ -19,12 +19,8 @@ database on the date of its scrape (in UTC), which its name carries.  ``latex_ta
 newest data file, and earlier ones are kept, so that a table can be rebuilt from the snapshot behind
 it.  The snapshot behind the paper's table is in ``paper_data/``.
 
-Scraping needs no packages beyond the standard library.  For each annealed code, it asks the JSON
-API of the database three questions, one for each neighbor, whereas
-``qldpc.codes.QuditCode.from_qecdb_id`` retrieves the code of one ID.  Each question restricts the
-codes by parameter bounds and sorts them by the neighbor's parameter, so the database does the
-search and one code of the answer is enough.  The requests are paced by ``_REQUEST_DELAY`` seconds,
-and the data file is written only after all of them have succeeded.
+Scraping uses only the standard library, makes three paced requests to the database for each
+annealed code, and writes the data file only after every request has succeeded.
 """
 
 from __future__ import annotations
@@ -150,6 +146,13 @@ def query_best_known(params: CodeParams, code_type: CodeType) -> BestKnown:
     The ``css`` code type holds all of the CSS codes of the database, and the ``swel`` code type
     those that are self-dual.  Each neighbor is one request.
 
+    Args:
+        params: The parameters ``(n, k, d)`` of the code.
+        code_type: The code type, which selects the codes of the database to compare with.
+
+    Returns:
+        The parameters of the code and of its best known neighbors.
+
     Raises:
         RuntimeError: If the database cannot be reached or answers in an unexpected format.
     """
@@ -226,8 +229,14 @@ def _scrape_data_file(code_files: Mapping[CodeType, Path], data_file: Path) -> N
 def _query_extreme(field: str, direction: str, code_type: CodeType, **bounds: int) -> int | None:
     """The first value of a parameter of the codes within bounds, sorted by that parameter.
 
-    The bounds are query parameters of the database such as ``nMax`` or ``kMin``, and ``None`` means
-    that no code matches.
+    Args:
+        field: The parameter, ``n``, ``k`` or ``d``, to sort by and return.
+        direction: The sort order, ``asc`` or ``desc``.
+        code_type: The code type, which selects all CSS codes or only the self-dual ones.
+        **bounds: Query parameters of the database, such as ``nMax`` or ``kMin``.
+
+    Returns:
+        The parameter of the first code, or ``None`` if no code matches.
 
     Raises:
         RuntimeError: If the database cannot be reached, answers in an unexpected format, or does

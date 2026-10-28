@@ -258,7 +258,8 @@ def test_stopping_after_some_epochs_and_continuing_equals_one_run() -> None:
 
 def test_the_pilot_records_the_best_of_all_its_proposals_and_keeps_the_first_of_equals() -> None:
     config = a.SearchConfig(method="brouwer_zimmermann", epochs=1, steps_per_epoch=30)
-    initial, rng = steane_counter(), np.random.default_rng(5)  # the pilot proposes from the seed
+    # The same random generator as the pilot of a search with seed 5.
+    initial, rng = steane_counter(), np.random.default_rng(5)
     candidates = [initial]
     candidates += [propose(initial, rng, code_type="css", gate_size=2) for _ in range(30)]
     scores = [_brute_force_score(counter) for counter in candidates]

@@ -2,10 +2,14 @@
 
 """Initial codes and local Clifford proposal distributions.
 
+A search moves between codes of the same size by proposals: each proposal conjugates the current
+code by a random gate on a few qubits, which keeps its numbers of physical and logical qubits.  A
+search starts from a random initial code, drawn by conjugating a trivial code by a random Clifford.
+
 A SWEL code is a self-dual CSS code that has a basis of logical operators with equal X and Z parts
-(self-dual with equivalent logicals), so that a transversal Hadamard gate acts as a logical
-Hadamard gate on each logical qubit.  The SWEL search keeps every code SWEL by applying only gates
-that preserve this property.
+(self-dual with equivalent logicals), so that a transversal Hadamard gate acts as a logical Hadamard
+gate on each logical qubit.  The SWEL search keeps every code SWEL by applying only gates that
+preserve this property.
 """
 
 from __future__ import annotations
@@ -59,9 +63,12 @@ def random_initial_code(
         self_dual: Draw a self-dual (SWEL) code, by scrambling a code of trivial logical qubits and
             Bell pairs with SWEL gates, instead of a general CSS code.
         min_distance: Reject codes below this exactly computed distance.
-        max_attempts: Raise RuntimeError after this many unsuccessful code samples.
+        max_attempts: Number of codes to draw before giving up.
         walk_steps: Number of SWEL gates of the walk, defaulting to 30*num_qubits.
         method: Exact distance method used by the rejection test.
+
+    Raises:
+        RuntimeError: If no code reaches ``min_distance`` within ``max_attempts`` draws.
     """
     if not 1 <= min_distance <= num_qubits or max_attempts < 1:
         raise ValueError("Invalid distance threshold or number of attempts")
@@ -92,8 +99,9 @@ def random_initial_codes(
 ) -> Iterator[CSSLogicalCounter]:
     """An endless stream of random initial codes, which are not checked for their distance.
 
-    Each code scrambles the trivial code of the given size by a random Clifford, drawn as in
-    ``random_initial_code``, which takes the first code of this stream that has a minimum distance.
+    Each code is the trivial code of the given size conjugated by a random Clifford: a uniformly
+    random invertible matrix for a general CSS code, or a random walk of SWEL gates for a self-dual
+    code.  ``random_initial_code`` takes the first code of this stream that has a minimum distance.
     The stream is determined by the seed.
 
     Args:
@@ -133,11 +141,18 @@ def propose(
     code_type: CodeType,
     gate_size: int,
 ) -> CSSLogicalCounter:
-    """Sample one CSS gate or the ordered SWEL gate without mutating the source counter.
+    """Sample a neighbor of a code: the code conjugated by one random gate on random qubits.
 
-    Three-qubit CSS gates use six gate classes with relative frequencies 2:2:2:1:1:1.  General
-    four-qubit gates are uniform GL(4,2) matrices; successive rows are sampled uniformly outside
-    the span of preceding rows.  The counter derives the Z action, the inverse transpose, itself.
+    The source counter is not changed.
+
+    Args:
+        counter: The current code.
+        rng: Random generator of the search.
+        code_type: ``css`` for a CNOT or a random CSS gate, or ``swel`` for the SWEL gate on four
+            qubits in random order.
+        gate_size: Number of qubits of the gate: 2 for a CNOT, 3 for a random three-qubit CNOT
+            circuit, or 4 for a uniformly random invertible matrix on X, which acts on Z by its
+            inverse transpose.
     """
     targets = list(map(int, rng.choice(counter.num_qubits, gate_size, replace=False)))
     if code_type == "swel":
