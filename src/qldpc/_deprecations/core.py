@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Registry of deprecated names, deprecated methods, and helpers that warn about deprecated usage.
+"""Registry of deprecated names and methods, and helpers that warn about deprecations and changes.
 
 A module with deprecated names ends with this marked stub, which serves the names that ALIASES and
 SILENT_ALIASES list for that module:
@@ -24,6 +24,13 @@ defined at the bottom of this module, and attached to their classes by install_d
 which qldpc/__init__.py calls once all subpackages are imported.
 Deprecated arguments and modes are handled where they are accepted, by calling warn_deprecated or
 raising defunct(...).
+
+A future change, which makes the same call silently behave differently (rather than fail with an
+error, as deprecated usage eventually does), is likewise handled where its keyword is accepted: a
+keyword argument selects the old or the new behavior, and if the caller does not specify it, the old
+behavior is used and warn_future_change issues a FutureWarning.  Such blocks are marked with the
+comment "# FUTURE CHANGE: see qldpc._deprecations"; the "Deprecations and future changes" section
+of AGENTS.md describes the steps of a future change.
 """
 
 from __future__ import annotations
@@ -292,6 +299,15 @@ def _is_import_probe(frame: FrameType | None) -> bool:
 def warn_deprecated(message: str, *, stacklevel: int) -> None:
     """Issue a DeprecationWarning, with a stacklevel relative to the caller of this function."""
     warnings.warn(message, DeprecationWarning, stacklevel=stacklevel + 1)
+
+
+def warn_future_change(message: str, *, stacklevel: int) -> None:
+    """Issue a FutureWarning about a future change, with a stacklevel relative to the caller.
+
+    Pass stacklevel=get_external_caller_stacklevel() from qldpc._utils, so that the warning points
+    at the user code that called into qLDPC.
+    """
+    warnings.warn(message, FutureWarning, stacklevel=stacklevel + 1)
 
 
 def defunct(message: str) -> ValueError:

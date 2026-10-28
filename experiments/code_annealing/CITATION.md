@@ -21,4 +21,4 @@ Alternatively:
 Michael A. Perlin, Matthew Steinberg, and Ben Criger. Quantum codes from classical annealing. arXiv:2607.19574, 2026.
 ```
 
-The experiment is built on qLDPC; to cite qLDPC as well, see the [attribution section](../../README.md#-attribution) of its README.
+The experiment is built on qLDPC; to cite qLDPC as well, see its [citation file](../../CITATION.md).

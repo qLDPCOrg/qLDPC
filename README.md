@@ -1,12 +1,21 @@
 # qLDPC
 
 `qLDPC` is a Python toolkit for constructing and analyzing finite-size [quantum low-density parity-check codes](https://errorcorrectionzoo.org/c/qldpc), as well as stabilizer and subsystem codes more broadly.
-It aims to make constructions and algorithms from the quantum error-correction literature easier to explore, reproduce, and build on.
-You can define codes using parity-check matrices or higher-level ingredients such as polynomials, group rings, Tanner graphs, and chain complexes.
-From there, you can inspect logical operators, compute or bound code distance, choose a decoder, estimate logical error rates, and—for qubit codes—build [`stim`](https://github.com/quantumlib/Stim) circuits.
+It provides shared implementations and scientific conventions that researchers and their AI assistants can inspect, combine, and extend.
 
 Most code-level tools work over arbitrary finite fields.
 Circuit tools currently only support qubit codes.
+
+## 🎯 Goals
+
+- **Enable exploration.**
+  Favor small, composable tools and extension points that let users investigate new ideas without adopting a prescribed workflow or adding a built-in feature.
+- **Make scientific meaning explicit.**
+  Expose conventions, assumptions, and limitations, and distinguish exact results, bounds, estimates, and trusted inputs.
+- **Support checking and reproduction.**
+  Provide independent evidence for maintained behavior and make the configuration needed to interpret and reproduce experiments clear.
+- **Support learning.**
+  Use small examples and explanations to connect computations to ideas, literature, and implementations.
 
 ## ✨ A few things to try
 
@@ -71,87 +80,22 @@ The [library map](https://qldpc.readthedocs.io/library_map.html) explains the da
 
 ## 📦 Installation
 
-### Standard installation
-
 qLDPC requires Python 3.11 or later:
 
 ```bash
 python -m pip install qldpc
 ```
 
-### Optional extras
-
-#### Decoders
-
-qLDPC installs `ldpc` and `pymatching` by default, which provide several decoding algorithms.
-Install the optional decoder integrations published as qLDPC extras for your platform with:
-
-```bash
-python -m pip install 'qldpc[decoders]'
-```
-
-You can also use individual extras to install a specific optional decoder:
-
-```bash
-python -m pip install 'qldpc[ilp]'
-python -m pip install 'qldpc[relay-bp]'
-python -m pip install 'qldpc[tesseract]'
-```
-
-The [Tesseract](https://github.com/quantumlib/tesseract-decoder) decoder requires CPython 3.12–3.14 on macOS arm64 or Linux x86-64.
-[Frontier](https://github.com/aleverrier/frontier) is not published on PyPI and is not included in an extra; see the [decoder guide](https://qldpc.readthedocs.io/decoders.html) for availability and build-time installation guidance.
-
-#### GAP integration
-
-Some algebra tools, code lookups, and distance estimates require [GAP](https://www.gap-system.org).
-For the recommended in-process integration, install qLDPC with its maintained libgap extra:
-
-```bash
-python -m pip install 'qldpc[gap]'
-```
-
-qLDPC uses `passagemath-gap` when available, so supported GAP operations do not launch a separate process.
-The in-process binding requires Python 3.13 on a non-Windows platform.
-If `passagemath-gap` is unavailable, qLDPC relies on a GAP executable in your `PATH` (possibly obtainable with `conda install -c conda-forge gap`), and a manual copy/paste fallback.
-GAP integration on Windows remains limited; see [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
-
-#### `sqetch` distance estimation
-
-You can install the optional `sqetch` distance-estimation backend with:
-
-```bash
-python -m pip install 'sqetch[gpu] @ git+https://github.com/a7b/yarn.git@e9ce9d0fcecc973988558bfee27fab6d6b8d7f97#subdirectory=sqetch'
-```
-
-This command installs the upstream version of `sqetch` that qLDPC is tested against, with GPU support.
-`sqetch` is not published on PyPI, so it is not available as a qLDPC extra.
-For binary CSS codes, you can select this backend with `code.get_distance_bound(backend="sqetch")`.
-
-### Troubleshooting
-
-On macOS, you may need to install `cvxpy`, which the ILP decoder requires, manually by following its [installation instructions](https://www.cvxpy.org/install) before installing `qldpc[ilp]` or `qldpc[decoders]`.
-If you use Conda to manage your Python environment, install `cvxpy` with:
-
-```bash
-conda install -c conda-forge cvxpy
-```
-
-### Development installation
-
-For a development installation:
-
-```bash
-git clone https://github.com/qLDPCOrg/qLDPC.git
-cd qLDPC
-python -m pip install -e '.[dev]'
-```
+The standard installation includes the `ldpc` and `pymatching` decoders.
+See the [installation guide](https://qldpc.readthedocs.io/installation.html) for optional decoders, GAP integration, GPU distance estimation with `sqetch`, and troubleshooting.
+For a development checkout, follow the [contributor reference](https://qldpc.readthedocs.io/contributing.html#development-installation).
 
 ## 🧭 Find your way around
 
 | Goal | Start here |
 | --- | --- |
 | Understand code representations and how packages fit together | [Library map](https://qldpc.readthedocs.io/library_map.html) |
-| Learn by running complete workflows | [Examples](https://qldpc.readthedocs.io/examples/index.html) |
+| Learn the concepts through runnable examples | [Examples](https://qldpc.readthedocs.io/examples/index.html) |
 | Browse code families, functions, and exact signatures | [API reference](https://qldpc.readthedocs.io/autoapi/index.html) |
 | Construct and analyze a code | [qLDPC basics](https://qldpc.readthedocs.io/examples/basics.html) |
 | Estimate logical error rates | [Logical-error-rate examples](https://qldpc.readthedocs.io/examples/index.html#logical-error-rates) |
@@ -184,26 +128,15 @@ Some searches are expensive, some bounds are heuristic, experimental APIs can ch
 
 Questions, feedback, and ideas are welcome through [GitHub issues](https://github.com/qLDPCOrg/qLDPC/issues/new) or by email at [mika.perlin@gmail.com](mailto:mika.perlin@gmail.com).
 
+## AI usage
+
+AI assistants are used in qLDPC's development and maintenance.
+Human maintainers direct and approve changes, but may rely on AI-assisted review and automated checks rather than reviewing every implementation detail.
+AI-assisted contributions are held to the same [standards for scientific correctness, testing, documentation, and compatibility](AGENTS.md) as other contributions.
+Project maintainers remain responsible for accepting contributions and communicating their assumptions and limitations.
+
 ## ⚓ Attribution
 
-If you use this software in your work, please cite with:
-
-```bibtex
-@misc{perlin2023qldpc,
-  author = {Perlin, Michael A.},
-  title = {{qLDPC}},
-  year = {2023},
-  publisher = {GitHub},
-  journal = {GitHub repository},
-  howpublished = {\url{https://github.com/qLDPCOrg/qLDPC}},
-}
-```
-
-This may require adding `\usepackage{url}` to your LaTeX file header.
-Alternatively:
-
-```text
-Michael A. Perlin. qLDPC. https://github.com/qLDPCOrg/qLDPC, 2023.
-```
+If you use qLDPC in your work, please follow the [citation instructions](CITATION.md).
 
 qLDPC is distributed under the [Apache License 2.0](https://github.com/qLDPCOrg/qLDPC/blob/main/LICENSE).

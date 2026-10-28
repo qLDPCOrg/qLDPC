@@ -242,6 +242,21 @@ def test_defunct_methods() -> None:
             getattr(obj, method_name)(*args)
 
 
+def test_warn_future_change() -> None:
+    """Future changes issue a FutureWarning attributed to the caller of the changing function."""
+
+    def changing_function() -> None:
+        _deprecations.warn_future_change("this will change", stacklevel=2)
+
+    frame = inspect.currentframe()
+    assert frame is not None
+    call_line = frame.f_lineno + 2  # the line that calls changing_function below
+    with pytest.warns(FutureWarning, match="this will change") as warning_records:
+        changing_function()
+    assert len(warning_records) == 1
+    assert warning_records[0].filename == __file__ and warning_records[0].lineno == call_line
+
+
 def _get_from_package(module_name: str, name: str) -> object:
     """Get a name from a module, or else from the closest package in qldpc that provides it."""
     parts = module_name.split(".")
