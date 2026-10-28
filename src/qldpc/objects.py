@@ -16,6 +16,7 @@ import numpy as np
 import numpy.typing as npt
 import scipy.sparse
 import scipy.sparse.csgraph
+import sympy.combinatorics as comb
 
 from qldpc._utils import networkx as nx
 from qldpc.math import resolve_field
@@ -690,8 +691,9 @@ class ChainComplex:
 
         A symmetry of a chain complex is a list of permutations ``(p_0, p_1, ..., p_n)`` of the
         bases of its modules ``(A_0, A_1, ..., A_n)``, such that every boundary operator satisfies
-        ``d_k[p_{k-1}][:, p_k] == d_k``.  Here each permutation is an integer sequence or a SymPy
-        permutation, which maps basis element ``j`` to ``p_k[j]``.
+        ``d_k[p_{k-1}][:, p_k] == d_k``.  Here each permutation ``p_k`` is a sequence that lists the
+        image ``p_k[j]`` of every basis element ``j``, or a SymPy permutation, which fixes the basis
+        elements beyond its size.
 
         Pairing symmetries ``g_a`` and ``g_b`` from ``zip(symmetries_a, symmetries_b)``, the
         balanced product is the quotient of the tensor product of two chain complexes that
@@ -768,12 +770,10 @@ class ChainComplex:
 
     def _get_symmetry_perms(self, symmetry: Sequence[Iterable[int]], name: str) -> list[list[int]]:
         """Validate a symmetry of this chain complex, and return its permutations as lists."""
-        from qldpc import abstract
-
         if len(symmetry) != self.num_links + 1:
             raise ValueError(f"{name} must have {self.num_links + 1} permutations")
         perms = [
-            abstract.GroupMember(list(perm), size=self.dim(degree)).array_form
+            _get_permutation(perm, self.dim(degree), f"{name}[{degree}]")
             for degree, perm in enumerate(symmetry)
         ]
         for degree in range(1, self.num_links + 1):
@@ -783,6 +783,24 @@ class ChainComplex:
                     f"{name} is not a symmetry: it changes the boundary operator on degree {degree}"
                 )
         return perms
+
+
+def _get_permutation(perm: Iterable[int], size: int, name: str) -> list[int]:
+    """Validate a permutation of range(size), given as an integer sequence or SymPy permutation.
+
+    An integer sequence lists the image of every point, so that it must have length ``size``.  A
+    SymPy permutation fixes the points beyond its own size, which must not exceed ``size``.
+    """
+    if isinstance(perm, comb.Permutation):
+        if perm.size > size:
+            raise ValueError(f"{name} permutes {perm.size} points, but should permute {size}")
+        return perm.array_form + list(range(perm.size, size))
+    images = np.asarray(list(perm))
+    if isinstance(perm, str) or (images.size and images.dtype.kind not in "iu"):
+        raise TypeError(f"{name} must be a sequence of integers or a SymPy permutation")
+    if images.shape != (size,) or not np.array_equal(np.sort(images), np.arange(size)):
+        raise ValueError(f"{name} must be a permutation of range({size})")
+    return [int(image) for image in images]
 
 
 def _get_degree_pairs(

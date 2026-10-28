@@ -973,15 +973,20 @@ def test_balanced_product_code() -> None:
         assert np.array_equal(code.matrix_x[:, qudit_order].row_space(), matrix_x.row_space())
         assert np.array_equal(code.matrix_z[:, qudit_order].row_space(), matrix_z.row_space())
 
-    with pytest.raises(ValueError, match="does not leave the seed matrix invariant"):
+    with pytest.raises(ValueError, match="symmetry is not a symmetry"):
         codes.BPCode.from_seed(seed, ([1, 0, 2], [0, 1, 2, 3]))
 
 
 def test_balanced_product_seed_symmetries() -> None:
     """Find the symmetry of the [[12, 2, 3]] code in Example 1 of arXiv:2505.13679v2."""
-    pytest.importorskip("pybliss")
+    # mock the optional pybliss boundary with generators of the dihedral symmetries of a 6-cycle
     seed = codes.RingCode(6).matrix
-    [symmetry] = codes.BPCode.get_seed_symmetries(seed, 3)
+    generators = [[0, 5, 4, 3, 2, 1, 7, 6, 11, 10, 9, 8], [1, 2, 3, 4, 5, 0, 7, 8, 9, 10, 11, 6]]
+    with unittest.mock.patch(
+        "qldpc.external._bliss.get_matrix_automorphism_generators", return_value=generators
+    ):
+        [symmetry] = codes.BPCode.get_seed_symmetries(seed, 3)
+        assert codes.BPCode.get_seed_symmetries(seed, 5) == []
     assert codes.BPCode.from_seed(seed, symmetry).get_code_params() == (12, 2, 3)
 
 

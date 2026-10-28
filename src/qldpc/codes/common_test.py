@@ -287,11 +287,24 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
 
 def test_matrix_automorphism_group() -> None:
     """Automorphisms of parity check matrices, which permute checks and bits separately."""
-    pytest.importorskip("pybliss")
-    assert codes.RingCode(6).get_matrix_automorphism_group().order == 12
-    assert codes.HammingCode(3).get_matrix_automorphism_group().order == 6
-    group = codes.ClassicalCode([[1, 1, 0], [0, 1, 1], [0, 0, 1]]).get_matrix_automorphism_group()
-    assert group.order == 1 and group.degree == 6
+    # mock the optional pybliss boundary with generators of the dihedral symmetries of a 6-cycle
+    code = codes.RingCode(6)
+    generators = [[0, 5, 4, 3, 2, 1, 7, 6, 11, 10, 9, 8], [1, 2, 3, 4, 5, 0, 7, 8, 9, 10, 11, 6]]
+    with unittest.mock.patch(
+        "qldpc.external._bliss.get_matrix_automorphism_generators", return_value=generators
+    ):
+        group = code.get_matrix_automorphism_group()
+    assert group.order == 12
+    for member in group.generate():
+        p_checks, p_bits = member.array_form[:6], [col - 6 for col in member.array_form[6:]]
+        assert np.array_equal(code.matrix[p_checks][:, p_bits], code.matrix)
+
+    # without automorphisms, the group is trivial, but acts on every check and bit
+    with unittest.mock.patch(
+        "qldpc.external._bliss.get_matrix_automorphism_generators", return_value=[]
+    ):
+        group = codes.ClassicalCode([[1, 1, 0], [0, 1, 1]]).get_matrix_automorphism_group()
+    assert group.order == 1 and group.degree == 5
 
 
 def test_classical_capacity() -> None:

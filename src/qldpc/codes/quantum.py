@@ -2162,8 +2162,8 @@ class BPCode(CSSCode):
     A balanced product code is built from two classical codes, each with a list of symmetries.  A
     symmetry of a classical code is a pair of permutations ``(p_checks, p_bits)`` of its checks and
     bits that leaves its parity check matrix ``H`` invariant, in the sense that
-    ``H[p_checks][:, p_bits] == H``.  Here each permutation is an integer sequence or a SymPy
-    permutation, which maps index ``j`` to ``p[j]``.
+    ``H[p_checks][:, p_bits] == H``.  Here each permutation ``p`` is a sequence that lists the image
+    ``p[j]`` of every index ``j``, or a SymPy permutation, which fixes the indices beyond its size.
 
     Pairing the symmetries of the two classical codes, a balanced product code is the quotient of
     the hypergraph product code (see :class:`HGPCode`) that identifies qudits and checks related by
@@ -2281,21 +2281,12 @@ class BPCode(CSSCode):
         with :meth:`get_seed_symmetries`.
         """
         seed = ClassicalCode(seed_matrix, field)
-        p_rows, p_cols = symmetry
-        member_rows = abstract.GroupMember(list(p_rows), size=seed.num_checks)
-        member_cols = abstract.GroupMember(list(p_cols), size=len(seed))
-        if not np.array_equal(
-            seed.matrix[member_rows.array_form][:, member_cols.array_form], seed.matrix
-        ):
-            raise ValueError("The given symmetry does not leave the seed matrix invariant")
+        # validate the symmetry, as a symmetry of the seed's chain complex, before using its orders
+        p_rows, p_cols = ChainComplex([seed.matrix])._get_symmetry_perms(symmetry, "symmetry")
+        member_rows, member_cols = abstract.GroupMember(p_rows), abstract.GroupMember(p_cols)
         length = math.lcm(int(member_rows.order()), int(member_cols.order()))
         shift = [length - 1, *range(length - 1)]
-        return BPCode(
-            RingCode(length, seed.field),
-            seed,
-            [(shift, shift)],
-            [(member_rows.array_form, member_cols.array_form)],
-        )
+        return BPCode(RingCode(length, seed.field), seed, [(shift, shift)], [(p_rows, p_cols)])
 
     @staticmethod
     def get_seed_symmetries(

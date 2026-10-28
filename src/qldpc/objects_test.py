@@ -264,6 +264,17 @@ def test_balanced_product() -> None:
         objects.ChainComplex.balanced_product(chain_a, chain_b, symmetries_a, [])
     with pytest.raises(ValueError, match=r"symmetries_a\[0\] must have 2 permutations"):
         objects.ChainComplex.balanced_product(chain_a, chain_b, [(swap_one,)], symmetries_b)
+    # permutations are integer sequences that list every image, or SymPy permutations that fit
+    for permutation, error in [
+        ("1023", TypeError),
+        ([1.0, 0.0, 2.0, 3.0], TypeError),
+        ([1, 0], ValueError),
+        (comb.Permutation(4), ValueError),
+    ]:
+        with pytest.raises(error, match=r"symmetries_a\[0\]\[0\]"):
+            objects.ChainComplex.balanced_product(
+                chain_a, chain_b, [(permutation, swap_two)], symmetries_b
+            )
     with pytest.raises(ValueError, match=r"symmetries_a\[0\] is not a symmetry"):
         objects.ChainComplex.balanced_product(
             chain_a, chain_b, [(swap_two, swap_one)], symmetries_b
