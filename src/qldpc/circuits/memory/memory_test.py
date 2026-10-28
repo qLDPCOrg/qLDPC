@@ -529,8 +529,8 @@ def resolve_measurements(
     Returns:
         detectors: The set of (absolute) measurement indices whose parity each detector reads.
         measured_qubits: The qubit of each single-qubit measurement, or None for a product.
-        measured_products: The symplectic vector, on the data qubits, of each MPP product of Pauli
-            operators on data qubits, by measurement index.
+        measured_products: The symplectic vector, on the data qubits, of each MPP product, by
+            measurement index.
     """
     detectors: list[set[int]] = []
     measured_qubits: list[int | None] = []
@@ -547,13 +547,10 @@ def resolve_measurements(
             for group in instruction.target_groups():
                 product = np.zeros(2 * num_qubits, dtype=int)
                 for target in group:
-                    if target.qubit_value not in data_qubits:
-                        break
                     qq = data_qubits.index(target.qubit_value)
                     product[qq] = target.is_x_target or target.is_y_target
                     product[num_qubits + qq] = target.is_z_target or target.is_y_target
-                else:
-                    measured_products[len(measured_qubits)] = product
+                measured_products[len(measured_qubits)] = product
                 measured_qubits.append(None)
         elif stim.gate_data(instruction.name).produces_measurements:
             assert stim.gate_data(instruction.name).is_single_qubit_gate
