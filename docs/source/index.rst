@@ -14,9 +14,9 @@ Installation
 
 .. code-block:: bash
 
-   pip install qldpc
+   python -m pip install qldpc
 
-Some features additionally require the `GAP <https://www.gap-system.org>`_ computer algebra system; see the `README <https://github.com/qLDPCOrg/qLDPC#-installation>`_ for details.
+See the :doc:`installation guide <installation>` for optional decoders, GAP integration, GPU distance estimation, and troubleshooting.
 
 Quickstart
 ----------
@@ -39,6 +39,7 @@ The gross code is also available as the named construction, ``codes.GrossCode()`
 Where to go next
 ----------------
 
+* :doc:`Installation <installation>` explains the standard setup and optional tools for specific tasks.
 * :doc:`Library map <library_map>` explains how qLDPC represents codes, what each package does, common tasks, and current limitations.
 * :doc:`Choosing a decoder <decoders>` explains error and observable decoding APIs.
 * :doc:`Adding a decoder <adding_decoders>` explains the shortest custom-decoder path and how to contribute a backend.
@@ -51,6 +52,7 @@ Where to go next
    :hidden:
    :caption: User guide
 
+   installation
    library_map
    decoders
 

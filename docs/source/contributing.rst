@@ -196,10 +196,22 @@ Making the same call silently behave differently, as when a default changes, is 
   ``_deprecations/core_test.py`` tests every registry entry automatically; add a case there for each new deprecated method.
 * To remove deprecations, grep for ``_deprecations`` and, case-insensitively, for ``deprecat``, and delete the deprecated code, ``Args`` notes, and tests, but leave ``FUTURE CHANGE`` blocks alone.
 
+.. _development-installation:
+
+Development installation
+------------------------
+
+For work on qLDPC itself, clone the repository and install it in editable mode with its development dependencies:
+
+.. code-block:: bash
+
+   git clone https://github.com/qLDPCOrg/qLDPC.git
+   cd qLDPC
+   python -m pip install -e '.[dev]'
+
 Validation commands
 -------------------
 
-Install the development environment with ``python -m pip install -e '.[dev]'``.
 CI's exact environments and commands are in ``.github/workflows/``.
 Use the `validation commands in the agent and contributor guide <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md#validation-commands>`_.
 

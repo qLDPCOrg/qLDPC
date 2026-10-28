@@ -80,80 +80,15 @@ The [library map](https://qldpc.readthedocs.io/library_map.html) explains the da
 
 ## 📦 Installation
 
-### Standard installation
-
 qLDPC requires Python 3.11 or later:
 
 ```bash
 python -m pip install qldpc
 ```
 
-### Optional extras
-
-#### Decoders
-
-qLDPC installs `ldpc` and `pymatching` by default, which provide several decoding algorithms.
-Install the optional decoder integrations published as qLDPC extras for your platform with:
-
-```bash
-python -m pip install 'qldpc[decoders]'
-```
-
-You can also use individual extras to install a specific optional decoder:
-
-```bash
-python -m pip install 'qldpc[ilp]'
-python -m pip install 'qldpc[relay-bp]'
-python -m pip install 'qldpc[tesseract]'
-```
-
-The [Tesseract](https://github.com/quantumlib/tesseract-decoder) decoder requires CPython 3.12–3.14 on macOS arm64 or Linux x86-64.
-[Frontier](https://github.com/aleverrier/frontier) is not published on PyPI and is not included in an extra; see the [decoder guide](https://qldpc.readthedocs.io/decoders.html) for availability and build-time installation guidance.
-
-#### GAP integration
-
-Some algebra tools, code lookups, and distance estimates require [GAP](https://www.gap-system.org).
-For the recommended in-process integration, install qLDPC with its maintained libgap extra:
-
-```bash
-python -m pip install 'qldpc[gap]'
-```
-
-qLDPC uses `passagemath-gap` when available, so supported GAP operations do not launch a separate process.
-The in-process binding requires Python 3.13 on a non-Windows platform.
-If `passagemath-gap` is unavailable, qLDPC relies on a GAP executable in your `PATH` (possibly obtainable with `conda install -c conda-forge gap`), and a manual copy/paste fallback.
-GAP integration on Windows remains limited; see [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
-
-#### `sqetch` distance estimation
-
-You can install the optional `sqetch` distance-estimation backend with:
-
-```bash
-python -m pip install 'sqetch[gpu] @ git+https://github.com/a7b/yarn.git@e9ce9d0fcecc973988558bfee27fab6d6b8d7f97#subdirectory=sqetch'
-```
-
-This command installs the upstream version of `sqetch` that qLDPC is tested against, with GPU support.
-`sqetch` is not published on PyPI, so it is not available as a qLDPC extra.
-For binary CSS codes, you can select this backend with `code.get_distance_bound(backend="sqetch")`.
-
-### Troubleshooting
-
-On macOS, you may need to install `cvxpy`, which the ILP decoder requires, manually by following its [installation instructions](https://www.cvxpy.org/install) before installing `qldpc[ilp]` or `qldpc[decoders]`.
-If you use Conda to manage your Python environment, install `cvxpy` with:
-
-```bash
-conda install -c conda-forge cvxpy
-```
-
-### Development installation
-
-For a development installation:
-
-```bash
-git clone https://github.com/qLDPCOrg/qLDPC.git
-cd qLDPC
-python -m pip install -e '.[dev]'
-```
+The standard installation includes the `ldpc` and `pymatching` decoders.
+See the [installation guide](https://qldpc.readthedocs.io/installation.html) for optional decoders, GAP integration, GPU distance estimation with `sqetch`, and troubleshooting.
+For a development checkout, follow the [contributor reference](https://qldpc.readthedocs.io/contributing.html#development-installation).
 
 ## 🧭 Find your way around
 
