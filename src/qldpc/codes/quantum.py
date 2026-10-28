@@ -2172,12 +2172,11 @@ class BPCode(CSSCode):
     symmetries generate a group that acts freely on both codes, a balanced product code is a lifted
     product code (see :class:`LPCode`).
 
-    The class method :meth:`from_seed` constructs balanced product codes from a single seed matrix
-    with a cyclic symmetry, as in https://arxiv.org/abs/2505.13679, and
-    :meth:`get_seed_permutations` finds such symmetries with the optional ``pybliss`` package.  For
-    example, the following constructs the ``[[12, 2, 3]]`` code in Example 1 of
-    https://arxiv.org/abs/2505.13679 from the incidence matrix of a cycle graph with six vertices,
-    which has a symmetry of order 3:
+    The static method :meth:`from_seed` constructs balanced product codes from a single seed matrix
+    with a symmetry, as in https://arxiv.org/abs/2505.13679, and :meth:`get_seed_symmetries` finds
+    such symmetries with the optional ``pybliss`` package.  For example, the following constructs
+    the ``[[12, 2, 3]]`` code in Example 1 of https://arxiv.org/abs/2505.13679 from the incidence
+    matrix of a cycle graph with six vertices, which has a symmetry of order 3:
 
     .. code-block:: python
 
@@ -2185,10 +2184,8 @@ class BPCode(CSSCode):
         from qldpc import codes
 
         seed: galois.FieldArray = codes.RingCode(6).matrix
-        permutations: list[tuple[list[int], list[int]]] = codes.BPCode.get_seed_permutations(
-            seed, 3
-        )
-        code: codes.BPCode = codes.BPCode.from_seed(seed, *permutations[0])
+        symmetries: list[tuple[list[int], list[int]]] = codes.BPCode.get_seed_symmetries(seed, 3)
+        code: codes.BPCode = codes.BPCode.from_seed(seed, symmetries[0])
         assert code.get_code_params() == (12, 2, 3)
 
     Similarly, the following constructs the ``[[360, 26, 5]]`` code in Example 2 of
@@ -2217,10 +2214,10 @@ class BPCode(CSSCode):
         graph: nx.Graph = CayleyComplex.build_cayley_graph(group.generators)
         incidence: npt.NDArray[np.int_] = nx.incidence_matrix(graph).toarray().astype(int)
 
-        permutations: list[tuple[list[int], list[int]]] = codes.BPCode.get_seed_permutations(
+        symmetries: list[tuple[list[int], list[int]]] = codes.BPCode.get_seed_symmetries(
             incidence, 5
         )
-        code: codes.BPCode = codes.BPCode.from_seed(incidence, *permutations[0])
+        code: codes.BPCode = codes.BPCode.from_seed(incidence, symmetries[0])
         assert code.get_code_params() == (360, 26, 5)
 
     Args:
@@ -2267,62 +2264,65 @@ class BPCode(CSSCode):
     @staticmethod
     def from_seed(
         seed_matrix: npt.NDArray[np.int_] | Sequence[Sequence[int]],
-        perm_rows: Iterable[int],
-        perm_cols: Iterable[int],
+        symmetry: tuple[Iterable[int], Iterable[int]],
         field: int | type[galois.FieldArray] | None = None,
     ) -> BPCode:
         """Balanced product of a cycle graph with a seed matrix.
 
-        Here ``perm_rows`` and ``perm_cols`` permute the rows and columns of the seed matrix, and
-        their permutation matrices ``R`` and ``C`` (see
-        :meth:`qldpc.abstract.GroupMember.to_matrix`) must satisfy
-        ``R @ seed_matrix == seed_matrix @ C.T``.  If ``l`` is the least common multiple of the
-        orders of ``R`` and ``C``, this method constructs the balanced product of the parity check
-        matrix of a length-``l`` cycle graph with the seed matrix, pairing a cyclic shift of the
-        cycle graph with ``(R^{-1}, C)``.  Over GF(2), the result is the code in Definition 1 of
-        https://arxiv.org/abs/2505.13679, up to a permutation of qudits.  Candidate permutations can
-        be found with :meth:`get_seed_permutations`.
+        Here ``symmetry = (p_rows, p_cols)`` is a symmetry of the seed matrix ``I``, in the sense
+        that ``I[p_rows][:, p_cols] == I`` (see :class:`BPCode`).  If ``l`` is the least common
+        multiple of the orders of ``p_rows`` and ``p_cols``, this method constructs the balanced
+        product of the parity check matrix of a length-``l`` cycle graph with the seed matrix,
+        pairing a cyclic shift of the cycle graph with the symmetry of the seed matrix.  Over GF(2),
+        the result is the code in Definition 1 of https://arxiv.org/abs/2505.13679, up to a
+        permutation of qudits, with the permutation matrices ``R`` and ``C`` of that work given by
+        ``R = GroupMember(p_rows).to_matrix()`` and ``C = GroupMember(p_cols).to_matrix().T`` (see
+        :meth:`qldpc.abstract.GroupMember.to_matrix`).  Symmetries of a seed matrix can be found
+        with :meth:`get_seed_symmetries`.
         """
         seed = ClassicalCode(seed_matrix, field)
-        perm_rows = abstract.GroupMember(list(perm_rows), size=seed.num_checks)
-        perm_cols = abstract.GroupMember(list(perm_cols), size=len(seed))
-        length = math.lcm(int(perm_rows.order()), int(perm_cols.order()))
-        shift = [*range(1, length), 0]
+        p_rows, p_cols = symmetry
+        member_rows = abstract.GroupMember(list(p_rows), size=seed.num_checks)
+        member_cols = abstract.GroupMember(list(p_cols), size=len(seed))
+        if not np.array_equal(
+            seed.matrix[member_rows.array_form][:, member_cols.array_form], seed.matrix
+        ):
+            raise ValueError("The given symmetry does not leave the seed matrix invariant")
+        length = math.lcm(int(member_rows.order()), int(member_cols.order()))
+        shift = [length - 1, *range(length - 1)]
         return BPCode(
             RingCode(length, seed.field),
             seed,
             [(shift, shift)],
-            [((perm_rows**-1).array_form, perm_cols.array_form)],
+            [(member_rows.array_form, member_cols.array_form)],
         )
 
     @staticmethod
-    def get_seed_permutations(
+    def get_seed_symmetries(
         seed_matrix: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         order: int,
         field: int | type[galois.FieldArray] | None = None,
     ) -> list[tuple[list[int], list[int]]]:
-        """Find permutations ``(perm_rows, perm_cols)`` of a seed matrix for :meth:`from_seed`.
+        """Find symmetries ``(p_rows, p_cols)`` of a seed matrix for :meth:`from_seed`.
 
         This method finds the automorphisms of order ``order`` of the seed matrix (see
-        :meth:`ClassicalCode.get_matrix_automorphism_group`), and returns the arguments
-        ``(perm_rows, perm_cols)`` of :meth:`from_seed` for one automorphism in each conjugacy
-        class.  Conjugate automorphisms yield equal codes, up to a permutation of qudits.  This
-        method enumerates the automorphism group of the seed matrix, which can take a long time if
-        the group is large.  Computing automorphisms requires the optional ``pybliss`` package,
-        which can be installed with ``pip install 'qldpc[bliss]'``.
+        :meth:`ClassicalCode.get_matrix_automorphism_group`), and returns one automorphism in each
+        conjugacy class as a symmetry ``(p_rows, p_cols)``.  Conjugate automorphisms yield equal
+        codes, up to a permutation of qudits.  This method enumerates the automorphism group of the
+        seed matrix, which can take a long time if the group is large.  Computing automorphisms
+        requires the optional ``pybliss`` package, which can be installed with
+        ``pip install 'qldpc[bliss]'``.
         """
         seed = ClassicalCode(seed_matrix, field)
         group = seed.get_matrix_automorphism_group()
-        permutations = []
+        symmetries = []
         for conjugacy_class in group.to_sympy().conjugacy_classes():
-            member = min(conjugacy_class, key=lambda member: member.array_form)
-            if member.order() == order:
-                # an automorphism satisfies seed[p_rows][:, p_cols] == seed, or equivalently
-                # R @ seed == seed @ C.T with perm_rows = p_rows and perm_cols = p_cols**-1
-                perm_rows = member.array_form[: seed.num_checks]
-                perm_cols = np.argsort(member.array_form[seed.num_checks :]).tolist()
-                permutations.append((perm_rows, perm_cols))
-        return permutations
+            if next(iter(conjugacy_class)).order() == order:
+                member = min(conjugacy_class, key=lambda perm: perm.array_form)
+                p_rows = member.array_form[: seed.num_checks]
+                p_cols = [col - seed.num_checks for col in member.array_form[seed.num_checks :]]
+                symmetries.append((p_rows, p_cols))
+        return symmetries
 
 
 ####################################################################################################
@@ -2357,16 +2357,24 @@ class DistanceBalancedCode(CSSCode):
     pauli: PauliXZ
     chain: ChainComplex
 
-    def __init__(self, code: CSSCode, auxiliary_code: ClassicalCode, pauli: PauliXZLike) -> None:
+    def __init__(
+        self,
+        code: CSSCode,
+        auxiliary_code: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        pauli: PauliXZLike,
+    ) -> None:
+        if code.is_subsystem_code:
+            raise ValueError("Distance balancing requires a stabilizer code, not a subsystem code")
         self.code = code
-        self.auxiliary_code = auxiliary_code
+        self.auxiliary_code = ClassicalCode(auxiliary_code, code.field)
         self.pauli = Pauli.coerce_xz(pauli)
 
         code_x, code_z = code.matrix_x, code.matrix_z
         if self.pauli is Pauli.Z:
             code_x, code_z = code_z, code_x
         css_chain = ChainComplex([code_z, code_x.T])
-        self.chain = ChainComplex.tensor_product(css_chain, ChainComplex([auxiliary_code.matrix]))
+        auxiliary_chain = ChainComplex([self.auxiliary_code.matrix])
+        self.chain = ChainComplex.tensor_product(css_chain, auxiliary_chain)
 
         matrix_x, matrix_z = self.chain.op(3).T, self.chain.op(2)
         assert not isinstance(matrix_x, abstract.RingArray)

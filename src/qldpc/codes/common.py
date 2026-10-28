@@ -747,7 +747,7 @@ class ClassicalCode(AbstractCode):
         the choice of parity checks.  Computing this group requires the optional ``pybliss``
         package, which can be installed with ``pip install 'qldpc[bliss]'``.
         """
-        generators = _bliss.get_matrix_automorphisms(self.matrix)
+        generators = _bliss.get_matrix_automorphism_generators(self.matrix)
         size = sum(self.matrix.shape)
         return abstract.Group(
             *[abstract.GroupMember(perm) for perm in generators or [list(range(size))]]

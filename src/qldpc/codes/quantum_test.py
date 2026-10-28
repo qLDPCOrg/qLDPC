@@ -945,29 +945,42 @@ def test_balanced_product_code() -> None:
     assert np.array_equal(code.matrix_x, hgp_code.matrix_x)
     assert np.array_equal(code.matrix_z, hgp_code.matrix_z)
 
+    # with symmetries that generate a group acting freely, a balanced product code is a lifted
+    # product code
+    group = abstract.CyclicGroup(3)
+    ring = abstract.GroupRing(group)
+    one, shift, shift_squared = (abstract.RingMember(ring, member) for member in group.generate())
+    matrix = abstract.RingArray.build([[one + shift, shift_squared]], ring)
+    symmetry = ([1, 2, 0], [1, 2, 0, 4, 5, 3])  # cyclic shifts within each block of matrix.lift()
+    code = codes.BPCode(matrix.lift(), matrix.lift(), [symmetry], [symmetry])
+    assert code.get_code_params() == codes.LPCode(matrix, matrix).get_code_params() == (15, 3, 3)
+
     # over GF(2), from_seed constructs the code in Definition 1 of arXiv:2505.13679v2, up to qudit
-    # order, even if the permutations of the seed matrix have orbits of different lengths
-    for seed, perm_rows, perm_cols in [
-        (codes.RingCode(6).matrix.view(np.ndarray), [2, 3, 4, 5, 0, 1], [4, 5, 0, 1, 2, 3]),
-        (np.array([[1, 0, 1, 0], [0, 1, 1, 0], [0, 0, 1, 1]]), [1, 0, 2], [1, 0, 2, 3]),
+    # order, even if the symmetry of the seed matrix has orbits of different lengths
+    for seed, (p_rows, p_cols) in [
+        (codes.RingCode(6).matrix.view(np.ndarray), ([2, 3, 4, 5, 0, 1], [2, 3, 4, 5, 0, 1])),
+        (np.array([[1, 0, 1, 0], [0, 1, 1, 0], [0, 0, 1, 1]]), ([1, 0, 2], [1, 0, 2, 3])),
     ]:
         num_checks, num_bits = seed.shape
-        mat_rows = abstract.GroupMember(perm_rows, size=num_checks).to_matrix()
-        mat_cols = abstract.GroupMember(perm_cols, size=num_bits).to_matrix()
-        code = codes.BPCode.from_seed(seed, perm_rows, perm_cols)
+        mat_rows = abstract.GroupMember(p_rows, size=num_checks).to_matrix()
+        mat_cols = abstract.GroupMember(p_cols, size=num_bits).to_matrix().T
+        code = codes.BPCode.from_seed(seed, (p_rows, p_cols))
         matrix_x = code.field(np.hstack([seed.T, np.eye(num_bits, dtype=int) + mat_cols]) % 2)
         matrix_z = code.field(np.hstack([np.eye(num_checks, dtype=int) + mat_rows, seed]) % 2)
-        qudit_order = [*range(num_bits, num_bits + num_checks), *np.argsort(perm_cols)]
+        qudit_order = [*range(num_bits, num_bits + num_checks), *p_cols]
         assert np.array_equal(code.matrix_x[:, qudit_order].row_space(), matrix_x.row_space())
         assert np.array_equal(code.matrix_z[:, qudit_order].row_space(), matrix_z.row_space())
 
+    with pytest.raises(ValueError, match="does not leave the seed matrix invariant"):
+        codes.BPCode.from_seed(seed, ([1, 0, 2], [0, 1, 2, 3]))
 
-def test_balanced_product_seed_permutations() -> None:
+
+def test_balanced_product_seed_symmetries() -> None:
     """Find the symmetry of the [[12, 2, 3]] code in Example 1 of arXiv:2505.13679v2."""
     pytest.importorskip("pybliss")
     seed = codes.RingCode(6).matrix
-    [(perm_rows, perm_cols)] = codes.BPCode.get_seed_permutations(seed, 3)
-    assert codes.BPCode.from_seed(seed, perm_rows, perm_cols).get_code_params() == (12, 2, 3)
+    [symmetry] = codes.BPCode.get_seed_symmetries(seed, 3)
+    assert codes.BPCode.from_seed(seed, symmetry).get_code_params() == (12, 2, 3)
 
 
 def test_distance_balanced_code() -> None:
@@ -1003,6 +1016,15 @@ def test_distance_balanced_code() -> None:
     code_z = codes.DistanceBalancedCode(code, codes.RepetitionCode(2), "z")
     assert (code_x.get_distance_exact(Pauli.X), code_x.get_distance_exact(Pauli.Z)) == (2, 3)
     assert (code_z.get_distance_exact(Pauli.X), code_z.get_distance_exact(Pauli.Z)) == (1, 6)
+
+    # redundant checks contribute (m_X - rank(H_X)) * (m_C - rank(H)) = 1 more logical qudit to
+    # the k * k_C = 1 logical qudits of the distance-balanced code
+    code = codes.CSSCode([[1, 1], [1, 1]], np.zeros((0, 2), dtype=int))
+    assert codes.DistanceBalancedCode(code, [[1, 1], [1, 1]], "x").dimension == 2
+
+    with pytest.raises(ValueError, match="not a subsystem code"):
+        subsystem_code = codes.CSSCode([[1]], [[1]], is_subsystem_code=True)
+        codes.DistanceBalancedCode(subsystem_code, codes.RepetitionCode(2), "x")
 
 
 def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> None:

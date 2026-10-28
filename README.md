@@ -115,6 +115,17 @@ The in-process binding requires Python 3.13 on a non-Windows platform.
 If `passagemath-gap` is unavailable, qLDPC relies on a GAP executable in your `PATH` (possibly obtainable with `conda install -c conda-forge gap`), and a manual copy/paste fallback.
 GAP integration on Windows remains limited; see [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
 
+#### Matrix automorphisms
+
+Finding the symmetries of a parity check matrix, as needed to construct some balanced product codes, requires the optional [pybliss](https://pypi.org/project/pybliss/) package:
+
+```bash
+python -m pip install 'qldpc[bliss]'
+```
+
+`pybliss` publishes wheels for macOS arm64 and Linux x86-64; on other platforms, `pip` attempts to build it from source.
+Unlike qLDPC, `pybliss` is distributed under the GPL/LGPL v3 licenses.
+
 #### `sqetch` distance estimation
 
 You can install the optional `sqetch` distance-estimation backend with:

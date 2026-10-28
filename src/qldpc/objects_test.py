@@ -244,13 +244,18 @@ def test_balanced_product() -> None:
     )
     assert not np.any(balanced.op(2))
 
-    with pytest.raises(ValueError, match="same finite field"):
+    with pytest.raises(ValueError, match="over rings are not supported"):
+        ring_chain = objects.ChainComplex(
+            [abstract.RingArray.build([[1]], abstract.GroupRing(abstract.TrivialGroup()))]
+        )
+        objects.ChainComplex.balanced_product(ring_chain, ring_chain, [], [])
+    with pytest.raises(ValueError, match="same field"):
         objects.ChainComplex.balanced_product(chain_a, chain, [], [])
     with pytest.raises(ValueError, match="same number of symmetries"):
         objects.ChainComplex.balanced_product(chain_a, chain_b, symmetries_a, [])
-    with pytest.raises(ValueError, match="must have 2 permutations"):
+    with pytest.raises(ValueError, match=r"symmetries_a\[0\] must have 2 permutations"):
         objects.ChainComplex.balanced_product(chain_a, chain_b, [(swap_one,)], symmetries_b)
-    with pytest.raises(ValueError, match="not symmetric"):
+    with pytest.raises(ValueError, match=r"symmetries_a\[0\] is not a symmetry"):
         objects.ChainComplex.balanced_product(
             chain_a, chain_b, [(swap_two, swap_one)], symmetries_b
         )

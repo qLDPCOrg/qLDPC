@@ -4,13 +4,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+import types
 
 import numpy as np
 import numpy.typing as npt
 
 
-def get_matrix_automorphisms(matrix: npt.NDArray[np.int_]) -> list[list[int]]:
+def get_matrix_automorphism_generators(matrix: npt.NDArray[np.int_]) -> list[list[int]]:
     """Generators of the automorphism group of a matrix.
 
     An automorphism of an ``m × n`` matrix ``H`` is a permutation ``p`` of ``range(m + n)`` that
@@ -24,7 +24,7 @@ def get_matrix_automorphisms(matrix: npt.NDArray[np.int_]) -> list[list[int]]:
     - https://users.aalto.fi/~tjunttil/bliss/
     """
     pybliss = _get_pybliss()
-    matrix = np.asarray(matrix).view(np.ndarray)
+    matrix = np.asarray(matrix)
     num_rows, num_cols = matrix.shape
     rows, cols = np.nonzero(matrix)
     values = matrix[rows, cols]
@@ -50,11 +50,13 @@ def get_matrix_automorphisms(matrix: npt.NDArray[np.int_]) -> list[list[int]]:
     return generators
 
 
-def _get_pybliss() -> Any:
+def _get_pybliss() -> types.ModuleType:
     """Import the optional pybliss package or raise an actionable error."""
     try:
         import pybliss
     except ModuleNotFoundError as error:
+        if error.name != "pybliss":
+            raise
         raise ModuleNotFoundError(
             "Matrix automorphisms require the optional 'pybliss' package.  Install it with"
             " `pip install 'qldpc[bliss]'`."
