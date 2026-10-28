@@ -139,3 +139,19 @@ Suppose that some violating accepted fault of fault weight at most `K` exists, a
 
 So the reported fault has the smallest fault weight of any violating accepted fault.
 If the search finds no violation, steps 1 to 3 show that no violating accepted fault of fault weight at most `K` exists, so fault propagation is bounded up to fault weight `K`.
+
+## A speed-up that the search does not use
+
+### Skipping faults whose heavy part is light enough
+
+Write a fault `F` as `G + L0 + L1`, where `G` contains its heavy primitive faults, `L0` its light primitive faults with zero syndrome, and `L1` its light primitive faults with nonzero syndrome.
+By [subadditivity](#pauli-weight-is-subadditive), `μ(S F) ≤ μ(S G) + |L1|`, so `F` satisfies the bound if `μ(S G) ≤ |G| + |L0|`.
+The heavy primitive faults come first in the search order, so once a prefix reaches its light primitive faults, its heavy part is fixed, and its number of zero-syndrome light primitive faults can only grow as the prefix is extended.
+So the search could skip a prefix, with every fault that extends it, as soon as it finds an error with syndrome `S G` whose Pauli weight is at most `|G|` plus the number of zero-syndrome light primitive faults chosen so far.
+The skipped faults satisfy the bound, so this would change neither the result nor the reported counterexample.
+
+The search does not use this rule because it saves too little for its code.
+An implementation in the compiled listing searched the first two layers of the coset search of `PauliCosetSearch` at each light choice, and remembered its answers for each heavy part.
+On color-code state preparations it did not change the time of certifications up to fault weight four, and it made the search 1.1 to 1.2 times faster at fault weight five and 1.7 times faster at fault weight six, when every listed fault satisfied the bound.
+Searching for `μ(S G)` exactly, or testing closing primitive faults as well, cost more than it saved.
+The gain grows with fault weight, so the rule may pay off for searches at larger fault weights.
