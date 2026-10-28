@@ -1,0 +1,187 @@
+# SPDX-License-Identifier: Apache-2.0
+
+"""Print the LaTeX tables of the best codes, one ``tabular`` environment for each code type.
+
+Run with ``python -m experiments.code_annealing.analysis.latex_tables``.  The tables are those of
+the paper of the experiment, arXiv:2607.19574.  Each row is a code of the code files, in their
+order, with:
+
+- ``n``, ``k`` and ``d``;
+- ``delta_QGV`` and ``delta_CSS``, the excess of ``d`` over the stabilizer and CSS
+  Gilbert-Varshamov bounds of ``(n, k)`` (see ``get_qgv_distance`` and ``get_css_gv_distance``),
+  with a dot for zero;
+- the numbers of minimum-weight X-only and Z-only logical operators, in bold if neither exceeds
+  ``--few-logicals``;
+- the mean and maximum weight of the stabilizer generators, after ``reduce_weights``;
+- the best known neighbors of the code at qecdb.org, from the newest scrape of the database,
+  ``data/scrape_qecdb_YYYY-MM-DD.txt`` (see ``scrape_qecdb.py``).  A parameter in which the code
+  beats the database is wrapped in ``\\hlgreen{...}``, and the database value that it beats in
+  ``\\hlred{...}``, so a document needs to define both commands.
+
+Every distance and count is recomputed exactly, and a code that disagrees with the header of its
+block is an error.  The data file of qecdb.org must describe the current codes: run
+``collect_data --scrape`` to update it.
+"""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Sequence
+
+from ..core.cli import add_results_dir_argument, make_parser
+from ..core.code_files import CodeEntry, get_reduced_weights, read_code_file, recount
+from ..core.paths import find_code_files, get_data_dir
+from .scrape_qecdb import BestKnown, find_data_file, read_best_known
+
+_INDENT = " " * 4
+_HEADER = (
+    r"$n$ & $k$ & $d$ & $\delta_{\mathrm{QGV}}$ & $\delta_{\mathrm{CSS}}$"
+    r" & \thead{min-weight\\nontrivial\\logicals} & \thead{mean\\stab.\\weight}"
+    r" & \thead{max\\stab.\\weight} & $n_\mathrm{best}^{\mathrm{prior}}$"
+    r" & $k_\mathrm{best}^{\mathrm{prior}}$ & $d_\mathrm{best}^{\mathrm{prior}}$"
+)
+_COLUMNS = "c|c|c||c|c||c|c|c||c|c|c"
+_MAX_WEIGHT_COLUMN = 7
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    """Print the table of each code type, separated by blank lines."""
+    parser = make_parser(__doc__)
+    parser.add_argument(
+        "--few-logicals",
+        type=int,
+        default=5,
+        help="bold the counts of minimum-weight logical operators that are at most this"
+        " (default: %(default)s)",
+    )
+    add_results_dir_argument(parser)
+    args = parser.parse_args(argv)
+
+    code_files = find_code_files(args.results_dir)
+    data_file = find_data_file(args.results_dir)
+    if data_file is None:
+        raise SystemExit(
+            f"No scrape of qecdb.org in {get_data_dir(args.results_dir)}: run collect_data --scrape"
+        )
+    try:
+        best_known = read_best_known(code_files, data_file)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+    tables = [
+        _format_table(read_code_file(code_files[code_type]), neighbors, args.few_logicals)
+        for code_type, neighbors in best_known.items()
+    ]
+    print("\n\n".join(tables))
+
+
+def get_qgv_distance(num_qubits: int, num_logicals: int) -> int:
+    """The stabilizer Gilbert-Varshamov bound: the largest guaranteed distance of a code.
+
+    This is the largest ``d`` with ``sum(3**w * comb(n, w) for w < d) <= 2**(n - k)``, so that an
+    ``[[n, k, d]]`` stabilizer code exists.
+    """
+    distance, errors = 1, 1
+    while distance < num_qubits:
+        errors += 3**distance * math.comb(num_qubits, distance)
+        if errors > 2 ** (num_qubits - num_logicals):
+            break
+        distance += 1
+    return distance
+
+
+def get_css_gv_distance(num_qubits: int, num_logicals: int) -> int:
+    """The CSS Gilbert-Varshamov bound: the largest guaranteed distance of a CSS code.
+
+    This is the largest ``d`` with ``2 * sum(comb(n, w) for 0 < w < d) < (2**n - 1) / D``, where
+    ``D = 2**k_x - 2**(n - k_x) + 2**k_z - 2**(n - k_z)`` and ``k_x`` and ``k_z`` are the floor and
+    ceiling of ``(n + k) / 2``, so that an ``[[n, k, d]]`` CSS code exists.
+    """
+    nn = num_qubits
+    k_x, k_z = (nn + num_logicals) // 2, (nn + num_logicals + 1) // 2
+    denominator = 2**k_x - 2 ** (nn - k_x) + 2**k_z - 2 ** (nn - k_z)
+    distance, words = 1, 0
+    while distance < nn:
+        words += math.comb(nn, distance)
+        if 2 * words * denominator >= 2**nn - 1:
+            break
+        distance += 1
+    return distance
+
+
+####################################################################################################
+# helper methods
+
+
+def _format_table(
+    entries: Sequence[CodeEntry], neighbors: Sequence[BestKnown], few_logicals: int
+) -> str:
+    """The ``tabular`` environment of the codes of one code file, with aligned columns."""
+    rows = [
+        _get_cells(entry, best_known, few_logicals)
+        for entry, best_known in zip(entries, neighbors, strict=True)
+    ]
+    widths = [max(len(row[column]) for row in rows) for column in range(len(rows[0]))]
+    lines = [
+        " & ".join(
+            cell.rjust(width) if column == _MAX_WEIGHT_COLUMN else cell.ljust(width)
+            for column, (cell, width) in enumerate(zip(row, widths, strict=True))
+        )
+        for row in rows
+    ]
+    body = [rf"{line} \\ \hline" for line in lines[:-1]] + [lines[-1].rstrip()]
+    return "\n".join(
+        [
+            rf"{_INDENT}\begin{{tabular}}{{{_COLUMNS}}}",
+            rf"{_INDENT}  {_HEADER} \\ \hline\hline",
+            *(f"{_INDENT}  {line}" for line in body),
+            rf"{_INDENT}\end{{tabular}}",
+        ]
+    )
+
+
+def _get_cells(entry: CodeEntry, best_known: BestKnown, few_logicals: int) -> list[str]:
+    """The cells of the row of a code, unpadded except for the decimal point of the mean weight."""
+    nn, kk, dd = entry.num_qubits, entry.num_logicals, entry.distance
+    if best_known.params != (nn, kk, dd):
+        raise ValueError(f"The neighbors of {best_known.params} are not those of {(nn, kk, dd)}")
+    counts = recount(entry)
+    logicals = f"{counts.count_x} / {counts.count_z}"
+    if max(counts.count_x, counts.count_z) <= few_logicals:
+        logicals = rf"\textbf{{{logicals}}}"
+    weights = get_reduced_weights(entry.code)
+    best = [
+        "--" if value is None else str(value)
+        for value in (best_known.n_best, best_known.k_best, best_known.d_best)
+    ]
+    wins = best_known.wins
+    return [
+        *(_highlight("hlgreen", str(value), win) for value, win in zip((nn, kk, dd), wins)),
+        _format_excess(dd - get_qgv_distance(nn, kk)),
+        _format_excess(dd - get_css_gv_distance(nn, kk)),
+        logicals,
+        _format_mean(sum(weights) / len(weights)),
+        str(max(weights)),
+        *(_highlight("hlred", text, win) for text, win in zip(best, wins)),
+    ]
+
+
+def _highlight(command: str, text: str, win: bool) -> str:
+    """A cell wrapped in a highlighting command if the annealed code wins in its parameter."""
+    return rf"\{command}{{{text}}}" if win else text
+
+
+def _format_excess(excess: int) -> str:
+    """The excess of a distance over a bound: a dot for zero, and math mode for a negative one."""
+    if excess == 0:
+        return r"$\cdot$"
+    return f"${excess}$" if excess < 0 else str(excess)
+
+
+def _format_mean(mean: float) -> str:
+    """A mean weight with two decimals, or none if it is a whole number, aligned on its point."""
+    rounded = round(mean, 2)
+    return f"{int(rounded):2d}   " if rounded == int(rounded) else f"{rounded:5.2f}"
+
+
+if __name__ == "__main__":
+    main()

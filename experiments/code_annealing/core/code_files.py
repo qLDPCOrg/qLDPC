@@ -1,0 +1,179 @@
+# SPDX-License-Identifier: Apache-2.0
+
+"""Text files of codes, one block per code, and low-weight generators for them.
+
+A block starts with a comment line ``# (n, k, d) m min-weight logicals`` and continues with one
+line per stabilizer generator: X-type generators first, then Z-type generators, with ``_`` for
+the identity and ``X`` or ``Z`` on the support.  Blocks are separated by blank lines::
+
+    # (7, 1, 3) 14 min-weight logicals
+    XXXX___
+    _XX_XX_
+    XX__X_X
+    ZZZZ___
+    _ZZ_ZZ_
+    ZZ__Z_Z
+
+``m`` is the number of minimum-weight X-only plus Z-only logical operators.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TypeAlias
+
+import numpy as np
+import numpy.typing as npt
+
+from qldpc.codes import CSSCode, CSSLogicalCounter, CSSLogicalCounts
+
+from .atomic import write_text_atomic
+
+# The parameters (n, k, d) of a code: its numbers of qubits and logical qubits, and its distance.
+CodeParams: TypeAlias = tuple[int, int, int]
+
+_HEADER = re.compile(r"#\s*\((\d+),\s*(\d+),\s*(\d+)\)\s*(\d+)\s*min-weight logicals")
+
+
+@dataclass(frozen=True)
+class CodeEntry:
+    """A code from a text file, with the parameters that its header claims."""
+
+    path: Path
+    """The file that holds the code."""
+
+    code: CSSCode
+    num_qubits: int
+    num_logicals: int
+    distance: int
+    count_homogeneous: int
+    """Number of minimum-weight X-only plus Z-only logical operators."""
+
+
+def format_code(checks_x: npt.ArrayLike, checks_z: npt.ArrayLike, distance: int, count: int) -> str:
+    """The text block of a code with the given binary X and Z generators."""
+    rows_x, rows_z = (np.asarray(checks, dtype=np.uint8) for checks in (checks_x, checks_z))
+    num_qubits = (rows_x if len(rows_x) else rows_z).shape[1]
+    num_logicals = num_qubits - len(rows_x) - len(rows_z)
+    lines = [f"# ({num_qubits}, {num_logicals}, {distance}) {count} min-weight logicals"]
+    for pauli, rows in (("X", rows_x), ("Z", rows_z)):
+        lines.extend("".join(pauli if bit else "_" for bit in row) for row in rows)
+    return "\n".join(lines) + "\n"
+
+
+def write_code_file(path: str | Path, blocks: Iterable[str]) -> None:
+    """Write text blocks from ``format_code``, separated by blank lines, to a file, atomically."""
+    write_text_atomic(path, "\n".join(blocks))
+
+
+def read_code_file(path: str | Path) -> list[CodeEntry]:
+    """Read the codes of a text file.
+
+    The header of each block claims the parameters of its code.  Reading checks that the generators
+    have the claimed number of qubits and encode the claimed number of logical qubits, but trusts
+    the claimed distance and count, which only an exact recount can check.
+    """
+    entries = []
+    for lines in _split_blocks(Path(path).read_text()):
+        match = _HEADER.fullmatch(lines[0])
+        if match is None:
+            raise ValueError(
+                f"{path}: a code block must start with a header such as '# (7, 1, 3) 14"
+                f" min-weight logicals', not {lines[0]!r}"
+            )
+        num_qubits, num_logicals, distance, count = map(int, match.groups())
+        rows_x: list[list[bool]] = []
+        rows_z: list[list[bool]] = []
+        for line in lines[1:]:
+            paulis = set(line) - {"_"}
+            if len(line) != num_qubits or paulis not in ({"X"}, {"Z"}):
+                raise ValueError(
+                    f"{path}: a generator must be X-type or Z-type with {num_qubits} qubits, not"
+                    f" {line!r}"
+                )
+            (rows_x if paulis == {"X"} else rows_z).append([char != "_" for char in line])
+        code = CSSCode(_as_matrix(rows_x, num_qubits), _as_matrix(rows_z, num_qubits))
+        if code.dimension != num_logicals:
+            raise ValueError(
+                f"{path}: a header claims {num_logicals} logical qubits, but its code has"
+                f" {code.dimension}"
+            )
+        entries.append(CodeEntry(Path(path), code, num_qubits, num_logicals, distance, count))
+    return entries
+
+
+def recount(entry: CodeEntry) -> CSSLogicalCounts:
+    """Count the minimum-weight logical operators of a code exactly, and check its header.
+
+    Raises:
+        ValueError: If the distance or count differs from the claims of the header.
+    """
+    counts = CSSLogicalCounter(entry.code).count_logical_ops()
+    check_claims(entry, counts.weight, counts.count_x + counts.count_z)
+    return counts
+
+
+def check_claims(entry: CodeEntry, distance: int, count: int) -> None:
+    """Check a distance and count of a code, found independently, against those of its header.
+
+    Raises:
+        ValueError: If either differs from the claims of the header.
+    """
+    if (distance, count) != (entry.distance, entry.count_homogeneous):
+        raise ValueError(
+            f"{entry.path}: the header of the code [[{entry.num_qubits}, {entry.num_logicals}]]"
+            f" claims (d, count) = {(entry.distance, entry.count_homogeneous)}, but the code has"
+            f" {(distance, count)}: run collect_data again"
+        )
+
+
+def get_reduced_weights(code: CSSCode) -> list[int]:
+    """The weights of the X-type and then the Z-type generators of a code, after reduce_weights."""
+    return [
+        int(row.sum())
+        for checks in (code.matrix_x, code.matrix_z)
+        for row in reduce_weights(checks.view(np.ndarray))
+    ]
+
+
+def reduce_weights(matrix: npt.ArrayLike) -> npt.NDArray[np.uint8]:
+    """Lower the weights of independent generators by adding rows to each other.
+
+    A row is replaced by its sum with another row whenever that is lighter, until no sum is.  The
+    result spans the same space, with greedily low weights; it need not be the lowest possible.
+    """
+    rows = np.array(matrix, dtype=np.uint8)
+    improved = True
+    while improved:
+        improved = False
+        for ii in range(len(rows)):
+            sums = rows ^ rows[ii]
+            sums[ii] = rows[ii]
+            weights = sums.sum(axis=1, dtype=int)
+            jj = int(np.argmin(weights))
+            if weights[jj] < rows[ii].sum(dtype=int):
+                rows[ii] = sums[jj]
+                improved = True
+    return rows
+
+
+####################################################################################################
+# helper methods
+
+
+def _split_blocks(text: str) -> list[list[str]]:
+    """The stripped lines of each block of text, where blank lines (or lines of spaces) separate."""
+    blocks: list[list[str]] = [[]]
+    for line in text.splitlines():
+        if line.strip():
+            blocks[-1].append(line.strip())
+        elif blocks[-1]:
+            blocks.append([])
+    return [block for block in blocks if block]
+
+
+def _as_matrix(rows: Sequence[Sequence[bool]], width: int) -> npt.NDArray[np.int_]:
+    return np.array(rows, dtype=np.int_).reshape(-1, width)

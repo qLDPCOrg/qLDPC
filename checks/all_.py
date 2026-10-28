@@ -4,6 +4,8 @@
 """Run every repository check: formatting, lint, mypy, tests, coverage, and the docs build."""
 
 import sys
+from functools import partial
+from unittest import mock
 
 import build_docs
 import checks_superstaq
@@ -15,7 +17,15 @@ if __name__ == "__main__":
     build_docs.ensure_sphinx_on_path()
     build_docs.ensure_pandoc_on_path()
     skip_files = ["--sysmon", "--skip", "configs", "requirements"]
-    check_result = checks_superstaq.all_.run(*skip_files, *sys.argv[1:])
+    # The generic aggregate runs its own coverage check, which does not know pytest_.EXCLUDE.  Bind
+    # those exclusions, so that the local-only tests of experiments/ are neither run nor measured.
+    # The directory glob "experiments/*" also matches explicit pytest node IDs, unlike "*.py".
+    with mock.patch.object(
+        checks_superstaq.coverage_,
+        "run",
+        partial(checks_superstaq.coverage_.run, exclude=(*pytest_.EXCLUDE, "experiments/*")),
+    ):
+        check_result = checks_superstaq.all_.run(*skip_files, *sys.argv[1:])
     # Rendered docstrings exist only after a full run, which builds the docs; file or incremental
     # runs skip the docs build, so they skip this validation too.
     full_run = not any(
