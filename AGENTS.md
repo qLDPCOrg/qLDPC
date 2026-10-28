@@ -221,6 +221,7 @@ Keep deprecated code in one place, so that it is easy to find and to remove.
 
   2. Deprecated arguments, modes, and calling conventions of functions that are not themselves deprecated are handled inline, as small blocks that call `_deprecations.warn_deprecated` or raise `_deprecations.defunct(...)`.
      Substantial translation logic, such as that for deprecated decoder keywords, belongs in `qldpc/_deprecations/`, and the inline block calls into it.
+     The exception is the old value of a [future change](#future-changes), which warns with `_deprecations.warn_future_change` until it becomes defunct.
   3. [`qldpc/__init__.py`](src/qldpc/__init__.py) calls `_deprecations.install_deprecated_methods()` once, after importing all subpackages.
   4. Blocks marked `# FUTURE CHANGE: see qldpc._deprecations` call `_deprecations.warn_future_change`, as described in [Future changes](#future-changes).
 - Add a shim only for a name that was public in a released version, at its released path: listed in a package `__all__`, or used in released examples or docs.
@@ -254,7 +255,8 @@ Pass it `stacklevel=get_external_caller_stacklevel()` from [`qldpc/_utils.py`](s
    The old value keeps working, but its inline block calls `warn_future_change` with a message that the old behavior will be removed in a future release.
    Remove the library-map entry (and the section, if it is then empty), and reduce the docstring to the new behavior and one line in `Args` that calls out the old value.
 3. At least one minor release later, remove the old behavior, so that the old value raises `_deprecations.defunct(...)`.
-   The keyword then accepts only its new value, and may later be deprecated like any other argument.
+   If the keyword then has only one valid value, also deprecate the keyword itself with `_deprecations.warn_deprecated`, re-mark the block `# DEPRECATED: see qldpc._deprecations`, and rename its test `test_deprecated_*`, so that removing deprecations later deletes the keyword and the block together.
+   Otherwise, replace the block with ordinary argument validation that rejects the old value.
 
 Warning messages, docstrings, and docs say "in a future release", without naming version numbers.
 Tests and other qLDPC code pass the new value explicitly.

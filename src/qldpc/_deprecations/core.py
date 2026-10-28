@@ -25,12 +25,12 @@ which qldpc/__init__.py calls once all subpackages are imported.
 Deprecated arguments and modes are handled where they are accepted, by calling warn_deprecated or
 raising defunct(...).
 
-A future change to the behavior of a released API is likewise handled where the API is called: a
-keyword argument selects the old or the new behavior, and if the caller does not specify it, the old
-behavior is used and warn_future_change issues a FutureWarning.  Python shows FutureWarnings to end
-users by default, unlike DeprecationWarnings.  Such blocks are marked with the comment
-"# FUTURE CHANGE: see qldpc._deprecations"; the "Future changes" section of AGENTS.md describes the
-steps of a future change.
+A future change to the behavior of a released API is likewise handled where its keyword is
+accepted: a keyword argument selects the old or the new behavior, and if the caller does not specify
+it, the old behavior is used and warn_future_change issues a FutureWarning.  Python shows
+FutureWarnings to end users by default, unlike DeprecationWarnings.  Such blocks are marked with the
+comment "# FUTURE CHANGE: see qldpc._deprecations"; the "Future changes" section of AGENTS.md
+describes the steps of a future change.
 """
 
 from __future__ import annotations
