@@ -124,9 +124,9 @@ Balanced products
 
 :meth:`ChainComplex.balanced_product <qldpc.objects.ChainComplex.balanced_product>` takes the quotient of the tensor product of two chain complexes that identifies basis elements related by pairs of their symmetries.
 :class:`~qldpc.codes.quantum.BPCode` is the CSS code obtained in this way from two classical codes.
-Without symmetries it is a hypergraph product code, and if the symmetries generate a group that acts freely, it is a lifted product code.
+Without symmetries it is a hypergraph product code, and if the symmetries generate a group that acts freely on both classical codes, it is a lifted product code.
 :meth:`BPCode.from_seed <qldpc.codes.quantum.BPCode.from_seed>` builds the cyclic construction of `arXiv:2505.13679 <https://arxiv.org/abs/2505.13679>`_ from a seed matrix, and :meth:`BPCode.get_seed_symmetries <qldpc.codes.quantum.BPCode.get_seed_symmetries>` finds symmetries of the seed matrix from its automorphisms.
-Balanced product codes often have different X and Z distances, and :class:`~qldpc.codes.quantum.DistanceBalancedCode` multiplies either distance of a CSS code by the distance of a classical code.
+Balanced product codes often have different X and Z distances, and :class:`~qldpc.codes.quantum.DistanceBalancedCode` multiplies either distance of a CSS code by the distance of a classical code whose parity checks are linearly independent.
 
 Distances across packages
 -------------------------

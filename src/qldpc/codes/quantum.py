@@ -2342,8 +2342,9 @@ class DistanceBalancedCode(CSSCode):
     Suppose that ``pauli`` is X, the CSS code has parameters ``[[n, k, (d_X, d_Z)]]`` and
     ``m_X = len(H_X)`` X-type checks, and the classical code has parameters ``[n_C, k_C, d_C]`` and
     ``m_C = len(H)`` checks.  The distance-balanced code then has ``n * n_C + m_X * m_C`` qudits and
-    ``k * k_C + (m_X - rank(H_X)) * (m_C - rank(H))`` logical qudits.  If ``H_X`` and ``H`` have
-    full rank, the distance-balanced code has distances ``(d_X * d_C, d_Z)``.
+    ``k * k_C + (m_X - rank(H_X)) * (m_C - rank(H))`` logical qudits.  If the rows of ``H`` are
+    linearly independent, the distance-balanced code therefore has ``k * k_C`` logical qudits, and
+    if this number is nonzero, it has distances ``(d_X * d_C, d_Z)``.
 
     References:
 
