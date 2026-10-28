@@ -96,7 +96,7 @@ To use a built-in decoder family, you can pass a specification such as ``decoder
    logical_error_rate, stderr = estimator(np.logspace(-4, -2, 5))
 
 To use your own decoder, pass a class or factory directly as ``decoder=MyErrorDecoder``.
-This factory must accept a parity-check matrix and return an error decoder, with a ``.decoder_errors`` method (as in `Inferring errors`_).
+This factory must accept a parity-check matrix and return an error decoder, with a ``.decode_errors`` method (as in `Inferring errors`_).
 To instead build a custom observable decoder from a binary code-capacity detector error model (DEM), pass ``decoder=qldpc.decoders.from_dem(MyObservableDecoder)``.
 Wrapping a factory with ``decoders.from_matrix(factory)`` is optional, and makes its matrix-only contract explicit; return annotations do not affect which input a factory receives.
 Prebuilt decoders are accepted where the caller knows the matrix being decoded, but not where a method decodes a matrix that it constructs internally, or by a ``SinterDecoder``, which builds a decoder for each detector error model.
