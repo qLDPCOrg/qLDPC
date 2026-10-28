@@ -14,7 +14,7 @@ import pytest
 import stim
 
 from qldpc import circuits, codes, math
-from qldpc.circuits import CheckKey, CheckProductKey
+from qldpc.circuits import CheckKey, CheckProductKey, ReadoutKey
 from qldpc.circuits.memory import memory
 from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ
 
@@ -51,7 +51,9 @@ def test_memory_experiment() -> None:
     dem_1 = circuit.detector_error_model()
     dem_2 = noise_model.noisy_circuit(noiseless_circuit).detector_error_model()
     assert dem_1 == dem_2
-    parts = circuits.get_memory_experiment_parts(rep_code, basis=Pauli.X, num_rounds=1)
+    parts = circuits.get_memory_experiment_parts(
+        rep_code, basis=Pauli.X, num_rounds=1, readout_keys=True
+    )
     assembled = parts.initialization + parts.qec_cycle + parts.readout
     assert circuits.get_memory_experiment(
         rep_code, basis=Pauli.X, num_rounds=1, noise_model=noise_model
@@ -102,6 +104,7 @@ def test_memory_experiment() -> None:
             basis=None,
             qubit_ids=qubit_ids,
             syndrome_measurement_strategy=AncillaStrategy(use_reference=True),
+            readout_keys=True,
         )
 
     # Pauli.Y basis measurements are not supported
@@ -163,7 +166,7 @@ def check_qubit_ids(code: codes.CSSCode) -> None:
     for basis in PAULIS_XZ + [None]:
         # produce a memory experiment with the requested qubit IDs
         init, cycle, readout, *_, qubit_ids = circuits.get_memory_experiment_parts(
-            code, basis=basis, num_rounds=num_qec_rounds, qubit_ids=qubit_ids
+            code, basis=basis, num_rounds=num_qec_rounds, qubit_ids=qubit_ids, readout_keys=True
         )
         circuit_a = init + cycle + readout
 
@@ -209,7 +212,9 @@ def test_errors() -> None:
     with pytest.raises(ValueError, match=r"Pauli\.X or Pauli\.Z"):
         circuits.get_observables(codes.SteaneCode(), basis="y")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="num_rounds"):
-        circuits.get_memory_experiment_parts(codes.RepetitionCode(3), Pauli.X, num_rounds=0)
+        circuits.get_memory_experiment_parts(
+            codes.RepetitionCode(3), Pauli.X, num_rounds=0, readout_keys=True
+        )
     with pytest.raises(ValueError, match="one target per data qubit"):
         circuits.get_observables(codes.SteaneCode(), data_qubits=[0], basis=Pauli.X)
     with pytest.raises(ValueError, match="one target per data qubit"):
@@ -228,6 +233,7 @@ def test_errors() -> None:
             toric_code,
             basis=None,
             qubit_ids=circuits.QubitIDs.from_code(toric_code, num_references=1),
+            readout_keys=True,
         )
 
 
@@ -247,6 +253,7 @@ def test_memory_rejects_unsynchronized_strategy_records() -> None:
             codes.SurfaceCode(2),
             basis=Pauli.X,
             syndrome_measurement_strategy=BadStrategy(),
+            readout_keys=True,
         )
 
 
@@ -255,7 +262,7 @@ def test_subsystem_memory_experiment(basis: PauliXZ | None) -> None:
     """Memory experiments for subsystem codes have deterministic and complete detectors."""
     code = codes.BaconShorCode(3, 4)
     for num_rounds in [1, 3]:
-        parts = circuits.get_memory_experiment_parts(code, basis, num_rounds)
+        parts = circuits.get_memory_experiment_parts(code, basis, num_rounds, readout_keys=True)
         circuit = parts.initialization + parts.qec_cycle + parts.readout
         assert_detectors_track_stabilizers(code, basis, parts.detector_record, num_rounds)
 
@@ -305,7 +312,7 @@ def test_subsystem_product_memory_experiments(basis: PauliXZ | None) -> None:
     code_a = codes.ClassicalCode.random(5, 3, seed=0)
     code_b = codes.ClassicalCode.random(4, 2, seed=1)
     for code in [codes.SHYPSCode(3), codes.SHPCode(code_a, code_b)]:
-        parts = circuits.get_memory_experiment_parts(code, basis, num_rounds=2)
+        parts = circuits.get_memory_experiment_parts(code, basis, num_rounds=2, readout_keys=True)
         assert_detectors_track_stabilizers(code, basis, parts.detector_record, num_rounds=2)
         circuit = parts.initialization + parts.qec_cycle + parts.readout
         circuit.detector_error_model()
@@ -322,14 +329,17 @@ def test_subsystem_memory_redundant_generators() -> None:
     """
     code = codes.SHYPSCode(3)
     num_rounds = 2
-    parts = circuits.get_memory_experiment_parts(code, Pauli.Z, num_rounds=num_rounds)
+    parts = circuits.get_memory_experiment_parts(
+        code, Pauli.Z, num_rounds=num_rounds, readout_keys=True
+    )
     assert_detectors_track_stabilizers(code, Pauli.Z, parts.detector_record, num_rounds)
     detector_types = collections.Counter(
         (len(key.check_ids), key.is_relation, len(parts.detector_record[key]))
         for key in parts.detector_record
         if isinstance(key, CheckProductKey)
     )
-    assert detector_types == {(4, False, num_rounds + 1): 21, (4, True, num_rounds): 12}
+    assert detector_types == {(4, False, num_rounds): 21, (4, True, num_rounds): 12}
+    assert sum(isinstance(key, ReadoutKey) for key in parts.detector_record) == 21
 
     # relation detectors only multiply outcomes from a single round
     detector_sizes = collections.Counter(
@@ -359,27 +369,55 @@ def test_low_weight_products() -> None:
     assert memory._reduce_weight(vector, basis[:0]).tolist() == vector.tolist()
 
 
-def test_detector_keys() -> None:
-    """Detector keys of stabilizer codes behave as the integer keys of qLDPC v0.4.1."""
+def test_future_change_readout_keys() -> None:
+    """Readout detectors are appended to the entries of their checks, with a warning by default."""
     num_rounds = 3
+    code = codes.SurfaceCode(2)
     bases: list[PauliXZ | None] = [Pauli.Z, None]
     for basis in bases:
-        parts = circuits.get_memory_experiment_parts(codes.SurfaceCode(2), basis, num_rounds)
+        # if readout_keys is not specified, warn that the default will change
+        with pytest.warns(FutureWarning, match="readout_keys=True"):
+            default_parts = circuits.get_memory_experiment_parts(code, basis, num_rounds)
+        parts = circuits.get_memory_experiment_parts(code, basis, num_rounds, readout_keys=False)
+        assert default_parts.detector_record == parts.detector_record
+        assert default_parts.measurement_record == parts.measurement_record
+
+        # keys are plain check indices, followed by their readout detector
         num_round_detectors = parts.qec_cycle.num_detectors
+        assert all(type(key) is CheckKey for key in parts.detector_record)
         for check_id in parts.qubit_ids.checks_z:
-            # look up detectors by the plain integer index of a check qubit
             detectors = parts.detector_record[int(check_id)]
             assert len(detectors) == num_rounds + 1
-            assert parts.detector_record.get_detector(check_id) >= num_round_detectors  # readout
             assert all(detector < num_round_detectors for detector in detectors[:-1])
-        assert all(type(key) is CheckKey for key in parts.detector_record)
+            assert parts.detector_record.get_detector(check_id) >= num_round_detectors
+
+
+def test_detector_keys() -> None:
+    """Detector keys, and the readout keys that label readout detectors and measurements."""
+    num_rounds = 3
+    code = codes.SurfaceCode(2)
+    bases: list[PauliXZ | None] = [Pauli.Z, None]
+    for basis in bases:
+        # each readout detector, and final stabilizer measurement, has a key of its own
+        parts = circuits.get_memory_experiment_parts(code, basis, num_rounds, readout_keys=False)
+        new_parts = circuits.get_memory_experiment_parts(code, basis, num_rounds, readout_keys=True)
+        assert new_parts.qec_cycle + new_parts.readout == parts.qec_cycle + parts.readout
+        for check_id in parts.qubit_ids.checks_z:
+            detectors = parts.detector_record[check_id]
+            assert new_parts.detector_record[check_id] == detectors[:-1]
+            assert new_parts.detector_record[ReadoutKey(check_id)] == detectors[-1:]
+            if basis is None:
+                # the final measurement of the stabilizer also has a key of its own
+                measurements = parts.measurement_record[check_id]
+                assert new_parts.measurement_record[check_id] == measurements[:-1]
+                assert new_parts.measurement_record[ReadoutKey(check_id)] == measurements[-1:]
 
     # a CheckKey is equal to an integer, and carries the attributes of a key
     key = CheckKey(5)
     assert key == 5 and hash(key) == hash(5) and isinstance(key, int) and repr(key) == "5"
     assert key.check_ids == (5,) and not key.is_relation
-    record = circuits.DetectorRecord({key: [0, 1]})
-    assert record[5] == [0, 1] and 5 in record
+    record = circuits.DetectorRecord({key: [0, 1], ReadoutKey(key): [2]})
+    assert record[5] == [0, 1] and 5 in record and record[ReadoutKey(5)] == [2]
     relation_keys: list[CheckKey | CheckProductKey] = [
         CheckKey(7, is_relation=True),
         CheckProductKey((1, 2), is_relation=True),
@@ -392,21 +430,18 @@ def test_detector_keys() -> None:
     # a subsystem check that is a stabilizer gets a CheckKey, and other detectors get product keys
     bacon_shor = codes.BaconShorCode(2)
     matrix_x = np.vstack([bacon_shor.matrix_x, bacon_shor.get_stabilizer_ops(Pauli.X)])
-    code = codes.CSSCode(matrix_x, bacon_shor.matrix_z, is_subsystem_code=True)
-    parts = circuits.get_memory_experiment_parts(code, None, num_rounds)
-    assert_detectors_track_stabilizers(code, None, parts.detector_record, num_rounds)
-    stabilizer_check_id = parts.qubit_ids.checks_x[-1]
-    keys = [key for key in parts.detector_record if isinstance(key, CheckKey | CheckProductKey)]
-    assert len(keys) == len(parts.detector_record)
-    key_types = {(type(key), key.is_relation, len(parts.detector_record[key])) for key in keys}
-    assert key_types == {
-        (CheckKey, False, num_rounds + 1),
-        (CheckProductKey, False, num_rounds + 1),
-        (CheckProductKey, True, num_rounds),
-    }
-    assert (
-        type(next(key for key in parts.detector_record if key == stabilizer_check_id)) is CheckKey
+    subsystem_code = codes.CSSCode(matrix_x, bacon_shor.matrix_z, is_subsystem_code=True)
+    parts = circuits.get_memory_experiment_parts(
+        subsystem_code, None, num_rounds, readout_keys=True
     )
+    assert_detectors_track_stabilizers(subsystem_code, None, parts.detector_record, num_rounds)
+    keys = [key for key in parts.detector_record if isinstance(key, CheckKey | CheckProductKey)]
+    assert {(type(key), key.is_relation) for key in keys} == {
+        (CheckKey, False),
+        (CheckProductKey, False),
+        (CheckProductKey, True),
+    }
+    assert type(next(key for key in keys if key == parts.qubit_ids.checks_x[-1])) is CheckKey
 
 
 def test_non_css_subsystem_memory_experiment() -> None:
@@ -417,7 +452,7 @@ def test_non_css_subsystem_memory_experiment() -> None:
     support_x, support_z = code.matrix.reshape(-1, 2, len(code)).transpose(1, 0, 2)
     assert np.any(np.any(support_x, axis=1) & np.any(support_z, axis=1))  # a check is not CSS
 
-    parts = circuits.get_memory_experiment_parts(code, None, num_rounds=3)
+    parts = circuits.get_memory_experiment_parts(code, None, num_rounds=3, readout_keys=True)
     assert_detectors_track_stabilizers(
         code, None, parts.detector_record, num_rounds=3, generators_in_layers=False
     )
@@ -437,7 +472,7 @@ def test_subsystem_memory_non_generating_stabilizers() -> None:
     stabilizer_ops[0] += stabilizer_ops[-1]  # mix X-type and Z-type stabilizers
     code._stabilizer_ops = stabilizer_ops
 
-    parts = circuits.get_memory_experiment_parts(code, None, num_rounds=2)
+    parts = circuits.get_memory_experiment_parts(code, None, num_rounds=2, readout_keys=True)
     assert_detectors_track_stabilizers(
         code, None, parts.detector_record, num_rounds=2, generators_in_layers=False
     )
@@ -455,17 +490,20 @@ def assert_detectors_track_stabilizers(
 ) -> None:
     """Assert that detectors of a subsystem-code memory experiment are complete.
 
-    Detectors should track a generating set of stabilizers of the tracked type, including all
-    tracked generators in code.get_stabilizer_ops() if these are products of checks in single gauge
-    layers.  Together with the stabilizer detectors in each default gauge layer, relation detectors
-    should generate all relations among the checks (of the tracked type) in that layer.
+    The memory experiment should use readout_keys=True.  Detectors should track a generating set of
+    stabilizers of the tracked type, including all tracked generators in code.get_stabilizer_ops()
+    if these are products of checks in single gauge layers.  Together with the stabilizer detectors
+    in each default gauge layer, relation detectors should generate all relations among the checks
+    (of the tracked type) in that layer.  Every stabilizer, but no relation, should have a readout
+    detector keyed by a ReadoutKey.
     """
     qubit_ids = circuits.QubitIDs.from_code(code)
     check_to_row = {check_id: row for row, check_id in enumerate(qubit_ids.check)}
     gauge_ops = code.matrix
 
     keys = [key for key in detector_record if isinstance(key, CheckKey | CheckProductKey)]
-    assert len(keys) == len(detector_record)
+    readout_keys = [key for key in detector_record if isinstance(key, ReadoutKey)]
+    assert len(keys) + len(readout_keys) == len(detector_record)
     assert all(isinstance(key, CheckKey) == (len(key.check_ids) == 1) for key in keys)
     products = code.field(
         [
@@ -476,12 +514,13 @@ def assert_detectors_track_stabilizers(
     is_relation = ~np.any(products, axis=1)
     assert [key.is_relation for key in keys] == is_relation.tolist()
     stabilizer_keys = [key for key, relation in zip(keys, is_relation) if not relation]
-    relation_keys = [key for key, relation in zip(keys, is_relation) if relation]
     stabilizers = products[~is_relation]
 
-    # stabilizers are compared with readout, but relations are not
-    assert all(len(detector_record[key]) == num_rounds + 1 for key in stabilizer_keys)
-    assert all(len(detector_record[key]) == num_rounds for key in relation_keys)
+    # every key has one detector for each round, and stabilizers (but not relations) are compared
+    # with the final readout by a readout detector of their own
+    assert all(len(detector_record[key]) == num_rounds for key in keys)
+    assert {readout_key.key for readout_key in readout_keys} == set(stabilizer_keys)
+    assert all(len(detector_record[key]) == 1 for key in readout_keys)
 
     # every detector tracks a stabilizer, which commutes with all gauge operators
     assert not np.any(stabilizers @ math.symplectic_conjugate(gauge_ops).T)

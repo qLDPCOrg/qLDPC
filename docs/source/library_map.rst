@@ -227,6 +227,12 @@ What qLDPC computes exactly, bounds, and trusts
   An explicit ``is_subsystem_code=False`` is verified instead, and raises a ``ValueError`` if some checks do not commute.
   Omit ``is_subsystem_code`` to have it computed when first needed.
 
+Future changes
+~~~~~~~~~~~~~~
+
+* In a future release, :func:`~qldpc.circuits.memory.memory.get_memory_experiment_parts` will key each readout detector, and each final stabilizer measurement, by a :class:`~qldpc.circuits.memory.memory.ReadoutKey` of its own, rather than appending it to the record entries of the check or checks that it tracks.
+  Pass ``readout_keys=True`` to use this layout now, as described in :class:`~qldpc.circuits.memory.memory.CheckKey`.
+
 External tools, side effects, and caching
 -----------------------------------------
 
