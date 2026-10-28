@@ -29,8 +29,8 @@ A future change, which makes the same call silently behave differently (rather t
 error, as deprecated usage eventually does), is likewise handled where its keyword is accepted: a
 keyword argument selects the old or the new behavior, and if the caller does not specify it, the old
 behavior is used and warn_future_change issues a FutureWarning.  Such blocks are marked with the
-comment "# FUTURE CHANGE: see qldpc._deprecations"; the "Future changes" section of AGENTS.md
-describes the steps of a future change.
+comment "# FUTURE CHANGE: see qldpc._deprecations"; the "Deprecations and future changes" section
+of AGENTS.md describes the steps of a future change.
 """
 
 from __future__ import annotations
