@@ -151,14 +151,22 @@ def _search_irreducible_faults(
         memory_limit,
     )
 
-    # Check the faults by increasing fault weight.
+    # Check the faults by increasing fault weight, and keep the oracle's bound for a violating
+    # syndrome, so that it is not searched again.
+    bounds: list[MinWeightBound] = []
+
+    def find_violation(syndromes: npt.NDArray[np.uint64], max_weight: int) -> int:
+        index, bound = oracle.find_first_not_within_max_weight(syndromes, max_weight)
+        if bound is not None:
+            bounds.append(bound)
+        return index
+
     for fault_weight in range(2, max_fault_weight + 1):
-        violation = lister.find_first(fault_weight, oracle.find_first_not_within_max_weight)
+        violation = lister.find_first(fault_weight, find_violation)
         if violation is not None:
             positions, syndrome = violation
             indices = tuple(primitives[jj][2] for jj in positions)
-            bound = oracle.get_min_weight_bound(syndrome, fault_weight)
-            return Violation(indices, syndrome, bound)
+            return Violation(indices, syndrome, bounds[-1])
     return None
 
 

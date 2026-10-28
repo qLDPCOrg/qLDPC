@@ -41,7 +41,7 @@ Read the [style and organization rules](docs/source/contributing.rst#code-style-
 Source files need an SPDX license header and a module docstring.
 Sections use a line of exactly 100 `#` characters and a title; plain names precede underscore names unless import-time dependencies require otherwise.
 [`code_style_test.py`](src/qldpc/code_style_test.py) checks these layout rules.
-Keep one prose sentence per physical source line in documentation and Markdown notebook cells.
+Follow the [prose style rules](docs/source/contributing.rst#prose-style) when writing comments, docstrings, or documentation.
 
 ## Core invariants
 
@@ -83,6 +83,10 @@ Read the [full compatibility procedure](docs/source/contributing.rst#deprecation
 Deprecations use `DeprecationWarning`; changes that would silently alter the same call use `FutureWarning`.
 Future changes move through an old default that warns, a new default that warns on explicit old usage, and defunct old usage, at least one minor release apart.
 Keep substantial compatibility code in [`qldpc/_deprecations/`](src/qldpc/_deprecations/).
+
+## Pull requests
+
+Follow the [PR-summary guidance](docs/source/contributing.rst#pull-request-summaries) when preparing a PR description.
 
 ## Validation commands
 

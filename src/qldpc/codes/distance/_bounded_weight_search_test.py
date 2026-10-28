@@ -79,13 +79,24 @@ def _syndrome_words(syndromes: Sequence[int], num_qubits: int) -> npt.NDArray[np
 def _find_each_not_within_max_weight(
     oracle: PauliCosetSearch, syndromes: npt.NDArray[np.uint64], max_weight: int
 ) -> list[int]:
-    """Find each syndrome whose class has no error of weight at most ``max_weight``, in turn."""
+    """Find each syndrome whose class has no error of weight at most ``max_weight``, in turn.
+
+    Each bound that a search returns has the syndrome and exceeds ``max_weight``, and from a maximum
+    weight of two up, it is the bound of ``get_min_weight_bound``.
+    """
     found: list[int] = []
-    index = oracle.find_first_not_within_max_weight(syndromes, max_weight)
-    while index < len(syndromes):
-        found.append(index)
-        index += 1 + oracle.find_first_not_within_max_weight(syndromes[index + 1 :], max_weight)
-    return found
+    while True:
+        start = found[-1] + 1 if found else 0
+        index, bound = oracle.find_first_not_within_max_weight(syndromes[start:], max_weight)
+        if bound is None:
+            assert start + index == len(syndromes)
+            return found
+        found.append(start + index)
+        syndrome = int.from_bytes(syndromes[found[-1]].astype("<u8").tobytes(), "little")
+        assert not bound.within_max_weight and bound.lower_bound > max_weight
+        assert oracle._get_syndrome(bound.representative) == syndrome
+        if max_weight >= 2:
+            assert bound == oracle.get_min_weight_bound(syndrome, max_weight)
 
 
 def _block_generators(block: Sequence[str], num_blocks: int) -> list[stim.PauliString]:
@@ -185,6 +196,19 @@ def test_batches_find_each_class_above_max_weight(
             words = _syndrome_words(syndromes, num_qubits)
             found = _find_each_not_within_max_weight(oracle, words, max_weight)
             assert found == np.flatnonzero(minima > max_weight).tolist()
+
+
+def test_batches_return_bounds_above_max_weight_plus_one() -> None:
+    """On |0000> with CSS weight, the syndrome 1111 needs X on every qubit, so weight four.
+
+    A search at maximum weight two proves this exactly, and returns the same bound of four as
+    ``get_min_weight_bound``, which ``_find_each_not_within_max_weight`` checks.
+    """
+    matrix = np.hstack([np.zeros((4, 4), dtype=np.uint8), np.eye(4, dtype=np.uint8)])
+    oracle = PauliCosetSearch(matrix, css_weight=True)
+    words = _syndrome_words([0b0011, 0b1111], 4)
+    assert _find_each_not_within_max_weight(oracle, words, 2) == [1]
+    assert oracle.get_min_weight_bound(0b1111, 2).lower_bound == 4
 
 
 @pytest.mark.parametrize("css_weight", [False, True])

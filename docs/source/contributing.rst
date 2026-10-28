@@ -37,10 +37,7 @@ Code style and organization
 ---------------------------
 
 * Every source file starts with ``# SPDX-License-Identifier: Apache-2.0``, a blank line, and a module docstring whose first line summarizes the module.
-* Docstrings follow the Google convention, and lines are at most 100 columns long.
-* Python comments and docstrings use ordinary paragraphs: separate sentences with two spaces and fill lines to the 100-column limit.
-* Keep one prose sentence per physical source line in ``.rst``, ``.md``, and Markdown notebook cells.
-  Put ``First sentence.`` and ``Second sentence.`` on separate source lines; leave code blocks, equations, and table syntax intact.
+* Keep Python source lines at most 100 columns long.
 * Preserve a module's existing section headings and organization when adding code, and add a section when new functionality does not fit an existing one.
 * Start each section with a line of 100 ``#`` characters followed by a one-line ``# title`` comment.
 * Put important user-facing APIs first within modules and sections, and keep related public entry points together.
@@ -49,6 +46,25 @@ Code style and organization
   Private constants and types may sit near the imports.
 * Within a class, put public methods first (for decoders, the decode methods) and private helper methods after them.
 * ``src/qldpc/code_style_test.py`` checks license headers, section headers, and the order of plain and underscore names.
+
+Prose style
+~~~~~~~~~~~
+
+* Choose material for a document's audience and purpose.
+  Keep docstrings focused on documented objects and contributor guidance focused on contribution decisions; omit tangents and prose that merely restates implementation details.
+* In substantial scientific exposition, introduce a problem and explain why it matters before describing implementation details.
+  Include background only where it helps intended readers.
+* Introduce or explicitly identify an object, quantity, or concept before using a definite reference or pronoun.
+  A clear name or defining description is sufficient; identical wording need not appear earlier.
+
+  * **Unclear without prior context:** ``Run a simulation and check the estimate.``
+  * **Clear:** ``Run a simulation to estimate a failure rate, then check that estimate.``
+
+* Docstrings follow the Google convention.
+* Python comments and docstrings use ordinary paragraphs: separate sentences with two spaces and fill lines to the 100-column limit.
+* Keep one prose sentence per physical source line in repository ``.rst`` and ``.md`` files and notebook Markdown cells.
+  Put ``First sentence.`` and ``Second sentence.`` on separate source lines; leave code blocks, equations, and table syntax intact.
+  For PR-summary text, use the paragraph formatting in `Pull request summaries`_ instead.
 
 .. _core-invariants:
 
@@ -231,3 +247,23 @@ The TQEC notebook (``examples/logical_error_rates/specialized/decoding_tqec_circ
 Some check wrappers discover files through Git.
 Add new source and test files to the index before relying on the full gate to include them.
 Do not weaken a failure with ``noqa``, ``type: ignore``, or coverage exclusions unless the exceptional condition is real and documented.
+
+Pull request summaries
+----------------------
+
+Use a PR summary as a guide to review, not a second set of documentation or an execution log.
+Normally use the following structure:
+
+* **Motivation or Background:** explain why the change is needed and provide context necessary to review it.
+* **Changes:** outline what the full PR does, grouping related changes rather than listing individual commits.
+  Point readers toward important details instead of reproducing explanations from changed documentation.
+* **Testing or Validation, when useful:** explain how consequential decisions were made, tested, or validated, such as alternatives compared, independent controls, experiments, or manual exploration.
+  Do not list routine CI checks or results.
+  A check that also runs in CI can deserve mention when its design or interpretation matters; explain what it establishes and why it was chosen, not merely that it passed.
+* **Additional notes, when needed:** include material tradeoffs, limitations, compatibility considerations, or review questions that do not fit naturally above.
+
+Write PR-summary prose in paragraphs, with two spaces between sentences within each paragraph.
+Do not insert line breaks merely at sentence boundaries; the one-sentence-per-source-line convention is for repository documentation, not PR summaries.
+
+Use bulleted lists for independent points and numbered lists when order matters.
+Keep the structure proportional to the PR, and omit sections that add no information.
