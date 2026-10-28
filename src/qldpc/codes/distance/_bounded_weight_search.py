@@ -150,12 +150,11 @@ class PauliCosetSearch:
         best = np.empty(self._tables.inverse.shape[1], dtype=np.uint64)
         words = _int_to_words(syndrome, (self.num_qubits + 63) // 64)
         lower_bound = int(_search_coset(words, max_weight, best, *self._tables, self.css_weight))
-        pauli = _packed_row_int(best) & ((1 << (2 * self.num_qubits)) - 1)
-        return MinWeightBound(lower_bound <= max_weight, pauli, max(2, lower_bound))
+        return MinWeightBound(lower_bound <= max_weight, self._pauli(best), max(2, lower_bound))
 
     def find_first_not_within_max_weight(
         self, syndromes: npt.NDArray[np.uint64], max_weight: int
-    ) -> int:
+    ) -> tuple[int, MinWeightBound | None]:
         """Find the first syndrome whose class has no error of weight at most ``max_weight``.
 
         Args:
@@ -165,11 +164,17 @@ class PauliCosetSearch:
             max_weight: The largest weight that the query accepts.
 
         Returns:
-            The index of that syndrome, or the number of syndromes if there is none.
+            The index of that syndrome, or the number of syndromes if there is none, and the
+            ``MinWeightBound`` of that syndrome, or None if there is none.  For ``max_weight`` of
+            two or more, the bound is the one that ``get_min_weight_bound`` gives.
         """
-        return _find_first_not_within_max_weight(
-            syndromes, max_weight, *self._tables, self.css_weight
+        best = np.empty(self._tables.inverse.shape[1], dtype=np.uint64)
+        index, lower_bound = _find_first_not_within_max_weight(
+            syndromes, max_weight, best, *self._tables, self.css_weight
         )
+        if index == len(syndromes):
+            return index, None
+        return index, MinWeightBound(False, self._pauli(best), int(lower_bound))
 
     def _get_syndrome(self, pauli: int) -> int:
         """Compute the syndrome of a packed Pauli."""
@@ -191,6 +196,10 @@ class PauliCosetSearch:
                 if z is not None:
                     return x ^ z
         return None
+
+    def _pauli(self, best: npt.NDArray[np.uint64]) -> int:
+        """The packed Pauli of the embedded word that ``_search_coset`` left in ``best``."""
+        return _packed_row_int(best) & ((1 << (2 * self.num_qubits)) - 1)
 
     def _weight(self, pauli: int) -> int:
         mask = (1 << self.num_qubits) - 1
@@ -252,19 +261,20 @@ def _xor_selected(rows: Sequence[int], support: int) -> int:
 def _find_first_not_within_max_weight(
     syndromes: npt.NDArray[np.uint64],
     max_weight: int,
+    best: npt.NDArray[np.uint64],
     inverse: npt.NDArray[np.uint64],
     generators: npt.NDArray[np.uint64],
     pivots: npt.NDArray[np.int64],
     unvisited_bounds: npt.NDArray[np.int64],
     x_mask: npt.NDArray[np.uint64],
     css_weight: bool,
-) -> int:
+) -> tuple[int, np.int64]:
     """Search the class of each syndrome in turn, as ``_search_coset`` does.
 
     Return the index of the first syndrome whose class has no error of weight at most
-    ``max_weight``, or the number of syndromes if there is none.
+    ``max_weight``, and the lower bound that ``_search_coset`` returns for it, with its lightest
+    error left in ``best``.  If there is no such syndrome, return the number of syndromes and zero.
     """
-    best = np.empty(inverse.shape[1], dtype=np.uint64)
     for index in range(len(syndromes)):
         lower_bound = _search_coset(
             syndromes[index],
@@ -278,8 +288,8 @@ def _find_first_not_within_max_weight(
             css_weight,
         )
         if lower_bound > max_weight:
-            return index
-    return len(syndromes)
+            return index, lower_bound
+    return len(syndromes), np.int64(0)
 
 
 @always_compiled
