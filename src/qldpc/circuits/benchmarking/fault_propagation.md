@@ -144,14 +144,20 @@ If the search finds no violation, steps 1 to 3 show that no violating accepted f
 
 ### Skipping faults whose heavy part is light enough
 
-Write a fault `F` as `G + L0 + L1`, where `G` contains its heavy primitive faults, `L0` its light primitive faults with zero syndrome, and `L1` its light primitive faults with nonzero syndrome.
-By [subadditivity](#pauli-weight-is-subadditive), `μ(S F) ≤ μ(S G) + |L1|`, so `F` satisfies the bound if `μ(S G) ≤ |G| + |L0|`.
-The heavy primitive faults come first in the search order, so once a prefix reaches its light primitive faults, its heavy part is fixed, and its number of zero-syndrome light primitive faults can only grow as the prefix is extended.
-So the search could skip a prefix, with every fault that extends it, as soon as it finds an error with syndrome `S G` whose Pauli weight is at most `|G|` plus the number of zero-syndrome light primitive faults chosen so far.
-The skipped faults satisfy the bound, so this would change neither the result nor the reported counterexample.
+Split a fault `F` into three faults, `F = G + L0 + L1`.
+The **heavy part** `G` contains the heavy primitive faults of `F`.
+`L0` contains its light primitive faults with zero syndrome, and `L1` its light primitive faults with nonzero syndrome, each of which has `μ(s_j) = 1`.
+By [subadditivity](#pauli-weight-is-subadditive), `μ(S F) ≤ μ(S G) + |L1|`.
+Since `|F| = |G| + |L0| + |L1|`, the fault `F` satisfies the bound whenever `μ(S G) ≤ |G| + |L0|`.
 
-The search does not use this rule because it saves too little for its code.
-An implementation in the compiled listing searched the first two layers of the coset search of `PauliCosetSearch` at each light choice, and remembered its answers for each heavy part.
-On color-code state preparations it did not change the time of certifications up to fault weight four, and it made the search 1.1 to 1.2 times faster at fault weight five and 1.7 times faster at fault weight six, when every listed fault satisfied the bound.
-Searching for `μ(S G)` exactly, or testing closing primitive faults as well, cost more than it saved.
-The gain grows with fault weight, so the rule may pay off for searches at larger fault weights.
+In the search order, the heavy primitive faults come before the light ones.
+So once a prefix contains a light primitive fault, every fault that extends the prefix has the same heavy part as the prefix, and contains every zero-syndrome light primitive fault of the prefix.
+The search could therefore skip such a prefix, together with every fault that extends it, if it finds an error with syndrome `S G` whose Pauli weight is at most `|G|` plus the number of zero-syndrome light primitive faults in the prefix.
+Every skipped fault satisfies the bound, so skipping them would change neither the result nor the reported counterexample.
+
+The search does not use this rule, because the time that it saves does not justify the added complexity.
+A trial implementation in the compiled listing looked for such an error in the first two layers of the coset search of `PauliCosetSearch`, at each light primitive fault added to a prefix, and reused the answer for each heavy part.
+On color-code state preparations, certifications up to fault weight four took about as long as without the rule.
+In benchmarks that treated every listed fault as satisfying the bound, so that the search listed every fault, the rule made the search 1.1 to 1.2 times faster at fault weight five, and 1.7 times faster at fault weight six.
+Two variants were slower: deciding exactly whether `μ(S G)` is small enough, and also applying the rule to closing primitive faults.
+The speed-up grows with the fault weight, so the rule may pay off for searches at larger fault weights.
