@@ -1,12 +1,21 @@
 # qLDPC
 
 `qLDPC` is a Python toolkit for constructing and analyzing finite-size [quantum low-density parity-check codes](https://errorcorrectionzoo.org/c/qldpc), as well as stabilizer and subsystem codes more broadly.
-It aims to make constructions and algorithms from the quantum error-correction literature easier to explore, reproduce, and build on.
-You can define codes using parity-check matrices or higher-level ingredients such as polynomials, group rings, Tanner graphs, and chain complexes.
-From there, you can inspect logical operators, compute or bound code distance, choose a decoder, estimate logical error rates, and—for qubit codes—build [`stim`](https://github.com/quantumlib/Stim) circuits.
+It provides shared implementations and scientific conventions that researchers and their AI assistants can inspect, combine, and extend.
 
 Most code-level tools work over arbitrary finite fields.
 Circuit tools currently only support qubit codes.
+
+## Goals
+
+- **Enable exploration.**
+  Favor small, composable tools and extension points that let users investigate new ideas without adopting a prescribed workflow or adding a built-in feature.
+- **Make scientific meaning explicit.**
+  Expose conventions, assumptions, and limitations, and distinguish exact results, bounds, estimates, and trusted inputs.
+- **Support checking and reproduction.**
+  Provide independent evidence for maintained behavior and make the configuration needed to interpret and reproduce experiments clear.
+- **Support learning.**
+  Use small examples and explanations to connect computations to ideas, literature, and implementations.
 
 ## ✨ A few things to try
 
@@ -151,7 +160,7 @@ python -m pip install -e '.[dev]'
 | Goal | Start here |
 | --- | --- |
 | Understand code representations and how packages fit together | [Library map](https://qldpc.readthedocs.io/library_map.html) |
-| Learn by running complete workflows | [Examples](https://qldpc.readthedocs.io/examples/index.html) |
+| Learn the concepts through runnable examples | [Examples](https://qldpc.readthedocs.io/examples/index.html) |
 | Browse code families, functions, and exact signatures | [API reference](https://qldpc.readthedocs.io/autoapi/index.html) |
 | Construct and analyze a code | [qLDPC basics](https://qldpc.readthedocs.io/examples/basics.html) |
 | Estimate logical error rates | [Logical-error-rate examples](https://qldpc.readthedocs.io/examples/index.html#logical-error-rates) |
@@ -186,24 +195,6 @@ Questions, feedback, and ideas are welcome through [GitHub issues](https://githu
 
 ## ⚓ Attribution
 
-If you use this software in your work, please cite with:
-
-```bibtex
-@misc{perlin2023qldpc,
-  author = {Perlin, Michael A.},
-  title = {{qLDPC}},
-  year = {2023},
-  publisher = {GitHub},
-  journal = {GitHub repository},
-  howpublished = {\url{https://github.com/qLDPCOrg/qLDPC}},
-}
-```
-
-This may require adding `\usepackage{url}` to your LaTeX file header.
-Alternatively:
-
-```text
-Michael A. Perlin. qLDPC. https://github.com/qLDPCOrg/qLDPC, 2023.
-```
+If you use qLDPC in your work, please follow the [citation instructions](CITATION.md).
 
 qLDPC is distributed under the [Apache License 2.0](https://github.com/qLDPCOrg/qLDPC/blob/main/LICENSE).
