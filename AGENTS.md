@@ -237,6 +237,22 @@ Keep deprecated code in one place, so that it is easy to find and to remove.
 - To remove deprecations, grep for `_deprecations` and, case-insensitively, for `deprecat`.
   Delete the registry entries, attached methods, inline blocks, and `Args` notes, the stubs of modules that no longer serve deprecated names, and the matching tests.
 
+### Pending changes
+
+A change to the behavior or a default of a released public API never breaks callers without warning.
+
+1. Add a keyword argument that opts in to the new behavior, and keep the old behavior as the default.
+   If the caller does not specify the keyword, an inline block marked `# FUTURE CHANGE: see qldpc._deprecations` uses the old behavior and calls `_deprecations.warn_future_change`, which issues a `FutureWarning`.
+   Python shows a `FutureWarning` to end users by default, unlike a `DeprecationWarning`.
+2. Keep warning for at least one minor release.
+   Then make the new behavior the default, keep accepting the keyword's new value, and deprecate its old value with `_deprecations.warn_deprecated`.
+3. Remove the old behavior in a later minor release.
+
+Warnings, docstrings, and docs say "in a future release", without naming version numbers.
+The docstring of the changing API describes both behaviors, and an entry in the "Upcoming changes" section of the [library map](docs/source/library_map.rst) describes the change; add that section if it does not exist.
+Tests, examples, and other qLDPC code opt in to the new behavior explicitly, and pytest turns every `FutureWarning` into an error; a focused test covers the old behavior and the warning.
+To find pending changes, grep for `FUTURE CHANGE` and `warn_future_change`.
+
 ## Validation commands
 
 Install the development environment with `python -m pip install -e '.[dev]'`.

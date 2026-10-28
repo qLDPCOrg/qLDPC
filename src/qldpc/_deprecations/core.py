@@ -24,6 +24,12 @@ defined at the bottom of this module, and attached to their classes by install_d
 which qldpc/__init__.py calls once all subpackages are imported.
 Deprecated arguments and modes are handled where they are accepted, by calling warn_deprecated or
 raising defunct(...).
+
+A pending change to the behavior of a released API is likewise handled where the API is called: a
+keyword argument opts in to the new behavior, and if the caller does not specify it, the old
+behavior is used and warn_future_change issues a FutureWarning.  Python shows FutureWarnings to end
+users by default, unlike DeprecationWarnings.  Such blocks are marked with the comment
+"# FUTURE CHANGE: see qldpc._deprecations".
 """
 
 from __future__ import annotations
@@ -292,6 +298,11 @@ def _is_import_probe(frame: FrameType | None) -> bool:
 def warn_deprecated(message: str, *, stacklevel: int) -> None:
     """Issue a DeprecationWarning, with a stacklevel relative to the caller of this function."""
     warnings.warn(message, DeprecationWarning, stacklevel=stacklevel + 1)
+
+
+def warn_future_change(message: str, *, stacklevel: int) -> None:
+    """Issue a FutureWarning about a pending change, with a stacklevel relative to the caller."""
+    warnings.warn(message, FutureWarning, stacklevel=stacklevel + 1)
 
 
 def defunct(message: str) -> ValueError:
