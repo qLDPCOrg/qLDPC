@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for the compiled listing of irreducible accepted faults."""
+"""Tests for the exact search for a violating fault, and its compiled listing of faults."""
 
 from __future__ import annotations
 
@@ -9,13 +9,14 @@ import itertools
 import operator
 import tracemalloc
 from collections.abc import Collection, Sequence
+from unittest import mock
 
 import numpy as np
 import numpy.typing as npt
 import pytest
 import stim
 
-from . import _fault_enumeration as enumeration
+from . import _fault_search
 
 
 @pytest.fixture(params=[False, True], ids=["compiled", "python"])
@@ -32,7 +33,7 @@ def kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> 
             "_sort_bucket",
         )
         for name in names:
-            monkeypatch.setattr(enumeration, name, getattr(enumeration, name).py_func)
+            monkeypatch.setattr(_fault_search, name, getattr(_fault_search, name).py_func)
 
 
 def _irreducible_faults(
@@ -60,7 +61,7 @@ def _xor(values: Sequence[int], indices: Sequence[int]) -> int:
 
 
 def _check_faults(
-    lister: enumeration.FaultLister, fault_weight: int, violating: Collection[int]
+    lister: _fault_search.FaultLister, fault_weight: int, violating: Collection[int]
 ) -> tuple[list[int], tuple[tuple[int, ...], int] | None]:
     """List faults, with a search that checks each syndrome in order and stops at one of these.
 
@@ -93,9 +94,9 @@ def test_listing_matches_brute_force(
     """
     if collide:
         monkeypatch.setattr(
-            enumeration, "_hash_words", lambda words: np.zeros(len(words), np.uint64)
+            _fault_search, "_hash_words", lambda words: np.zeros(len(words), np.uint64)
         )
-    monkeypatch.setattr(enumeration, "_BATCH_SIZE", 3)
+    monkeypatch.setattr(_fault_search, "_BATCH_SIZE", 3)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     # The first flags make an accepted fault {0, 1, 2, 3} that contains the accepted fault {0, 2}.
     flag_sets = [[1, 2, 1, 2, 3, 3]]
@@ -112,7 +113,7 @@ def test_listing_matches_brute_force(
         errors = [0b1111111 << (7 * jj) for jj in range(num_primitives)]
         for memory_limit, num_starts in itertools.product((0, 2**20), (num_primitives, 1)):
             args = (flags, syndromes, errors, 70, False, num_starts, memory_limit)
-            lister = enumeration.FaultLister(*args)
+            lister = _fault_search.FaultLister(*args)
             for fault_weight in range(2, 6):
                 expected = _irreducible_faults(flags, fault_weight, num_starts)
                 checked, result = _check_faults(lister, fault_weight, ())
@@ -122,7 +123,7 @@ def test_listing_matches_brute_force(
                     stop = int(rng.integers(len(expected)))
                     violation = (expected[stop], _xor(syndromes, expected[stop]))
                     _, result = _check_faults(
-                        enumeration.FaultLister(*args), fault_weight, {violation[1]}
+                        _fault_search.FaultLister(*args), fault_weight, {violation[1]}
                     )
                     assert result == violation
 
@@ -146,7 +147,7 @@ def test_closing_tables_sort_sets_stably_by_hash(size: int, pytestconfig: pytest
                 itertools.combinations(range(num_primitives), size),
                 key=lambda members: _xor(hashes.tolist(), members),
             )
-            keys, members = enumeration._get_closing_table(hashes, size)
+            keys, members = _fault_search._get_closing_table(hashes, size)
             assert keys.tolist() == [_xor(hashes.tolist(), members) for members in sets]
             assert members.tolist() == [list(members) for members in sets]
 
@@ -157,7 +158,7 @@ def test_repeated_syndromes_are_checked_once() -> None:
 
     The fault {1, 2} leaves no error, so it is not checked either.
     """
-    lister = enumeration.FaultLister([1, 1, 1], [7, 0, 0], [7, 0, 0], 3, False, 3, 0)
+    lister = _fault_search.FaultLister([1, 1, 1], [7, 0, 0], [7, 0, 0], 3, False, 3, 0)
     assert _check_faults(lister, 2, ()) == ([7], None)
 
 
@@ -197,7 +198,7 @@ def test_skipped_faults_satisfy_the_bound(css_weight: bool, pytestconfig: pytest
         syndromes = [int(syndrome_of[pauli]) for pauli in rng.integers(4**n, size=8)]
         representatives = [lightest[syndrome] for syndrome in syndromes]
         lister, searcher = (
-            enumeration.FaultLister(flags, syndromes, representatives, n, css_weight, 8, 2**20)
+            _fault_search.FaultLister(flags, syndromes, representatives, n, css_weight, 8, 2**20)
             for _ in range(2)
         )
         passed: set[int] = set()
@@ -235,7 +236,7 @@ def test_syndromes_of_listed_faults_are_not_checked_again(monkeypatch: pytest.Mo
     The table of syndromes starts with room for one syndrome, so that it grows, unless there is no
     memory for it.  A search that finds a violation finds it again, since it clears the table.
     """
-    monkeypatch.setattr(enumeration, "_INITIAL_SYNDROME_TABLE_SIZE", 1)
+    monkeypatch.setattr(_fault_search, "_INITIAL_SYNDROME_TABLE_SIZE", 1)
     flags = [1, 1, 1, 1, 2, 3]
     syndromes = [1, 2, 4, 8, 16, 17]
     num_qubits = 5 + 2 * len(flags)
@@ -244,7 +245,7 @@ def test_syndromes_of_listed_faults_are_not_checked_again(monkeypatch: pytest.Mo
     ]
     pairs = [syndromes[aa] ^ syndromes[bb] for aa, bb in itertools.combinations(range(4), 2)]
     for memory_limit in (2**20, 0):
-        lister = enumeration.FaultLister(
+        lister = _fault_search.FaultLister(
             flags, syndromes, representatives, num_qubits, False, 6, memory_limit
         )
         assert _check_faults(lister, 2, ()) == (pairs, None)
@@ -253,7 +254,7 @@ def test_syndromes_of_listed_faults_are_not_checked_again(monkeypatch: pytest.Mo
         # memory, the table keeps only the syndrome of the first pair, {0, 1}.
         assert checked == ([0] if memory_limit else [0, 1 ^ 4, 1 ^ 8])
 
-    searcher = enumeration.FaultLister(
+    searcher = _fault_search.FaultLister(
         flags, syndromes, representatives, num_qubits, False, 6, 2**20
     )
     for _ in range(2):
@@ -268,15 +269,159 @@ def test_pair_table_peak_memory_is_within_its_estimate(monkeypatch: pytest.Monke
     The table is built by the Python versions of its compiled functions, since only allocations by
     Python are traced, and loading compiled code would add allocations of its own.
     """
-    monkeypatch.setattr(enumeration, "_sort_bucket", enumeration._sort_bucket.py_func)
+    monkeypatch.setattr(_fault_search, "_sort_bucket", _fault_search._sort_bucket.py_func)
     num_primitives = 200
     hashes = np.random.default_rng(0).integers(2**64, size=num_primitives, dtype=np.uint64)
     tracemalloc.start()
     try:
-        enumeration._get_closing_table.py_func(hashes, 2)
+        _fault_search._get_closing_table.py_func(hashes, 2)
         _, peak = tracemalloc.get_traced_memory()
     finally:
         tracemalloc.stop()
     # Allow a few kilobytes that do not grow with the number of pairs.
     num_pairs = num_primitives * (num_primitives - 1) // 2
-    assert peak <= num_pairs * enumeration._BYTES_PER_PAIR + 2**14
+    assert peak <= num_pairs * _fault_search._BYTES_PER_PAIR + 2**14
+
+
+def _z_state(num_qubits: int) -> npt.NDArray[np.int_]:
+    """Stabilizers of |0...0>.
+
+    The smallest Pauli weight of an error with a given syndrome is the syndrome's number of ones.
+    """
+    return np.hstack([np.zeros((num_qubits, num_qubits), dtype=int), np.eye(num_qubits, dtype=int)])
+
+
+def _smallest_violation(
+    flags: Sequence[int], syndromes: Sequence[int], max_weight: int | None
+) -> int | None:
+    """The smallest fault weight of an accepted fault that violates the bound on |0...0>."""
+    limit = len(flags) if max_weight is None else min(max_weight, len(flags))
+    for fault_weight in range(1, limit + 1):
+        for indices in itertools.combinations(range(len(flags)), fault_weight):
+            flag = functools.reduce(operator.xor, (flags[jj] for jj in indices))
+            syndrome = functools.reduce(operator.xor, (syndromes[jj] for jj in indices))
+            if flag == 0 and syndrome.bit_count() > fault_weight:
+                return fault_weight
+    return None
+
+
+def _certify_map(
+    flags: Sequence[int], syndromes: Sequence[int], max_weight: int | None, num_qubits: int
+) -> _fault_search.Violation | None:
+    """Search primitive faults with these flags and syndromes on |0...0> against brute force."""
+    violation = _fault_search.find_smallest_violation(
+        flags, syndromes, _z_state(num_qubits), False, max_weight
+    )
+    smallest = _smallest_violation(flags, syndromes, max_weight)
+    assert (violation is None) == (smallest is None)
+    if violation is not None:
+        indices = violation.fault_indices
+        flag = functools.reduce(operator.xor, (flags[jj] for jj in indices))
+        syndrome = functools.reduce(operator.xor, (syndromes[jj] for jj in indices))
+        assert len(indices) == len(set(indices)) == smallest
+        assert flag == 0
+        assert violation.syndrome == syndrome
+        assert len(indices) < violation.bound.lower_bound <= syndrome.bit_count()
+        # X on a qubit anticommutes with that qubit's stabilizer Z.
+        assert violation.bound.representative & ((1 << num_qubits) - 1) == syndrome
+    return violation
+
+
+def test_search_without_flags_checks_primitive_faults() -> None:
+    """With zero flags, a primitive fault whose error has Pauli weight above one fails."""
+    # Primitive faults whose errors have Pauli weight at most one certify, and those with Pauli
+    # weight three do not.
+    assert _certify_map([0] * 5, [0, 1, 2, 4, 2], None, 3) is None
+    assert _certify_map([0] * 5, [1, 2, 7, 4, 7], None, 3) is not None
+
+
+def test_search_with_flags_matches_exhaustive_search(pytestconfig: pytest.Config) -> None:
+    """Random maps with repeated flags and flag rank above ``max_weight`` match brute force."""
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for n, rank in itertools.product((3, 5), range(5)):
+        for _ in range(12):
+            flags = list(map(int, rng.integers(1 << rank, size=8)))
+            syndromes = list(map(int, rng.integers(1 << n, size=8)))
+            for max_weight in (1, 2, 3, 5, None):
+                _certify_map(flags, syndromes, max_weight, n)
+
+
+def test_hand_derived_dependency_cases() -> None:
+    """Faults of two or three primitive faults, repeated and zero signatures, and limits.
+
+    The limits are values of ``max_weight``.
+    """
+    for flags, syndromes, max_weight, certified in (
+        ([0, 0, 0], [1, 2, 4], 4, True),  # zero flags; each error has Pauli weight one
+        ([1, 2, 3, 1, 2, 3], [1, 2, 3, 4, 8, 12], 4, False),
+        # the accepted faults have fault weight two and errors of Pauli weight two
+        ([1, 1, 2, 2, 4, 4], [1, 2, 1, 2, 1, 2], 4, True),
+        # the heavy primitive faults 4 and 5 are in no violating fault
+        ([1, 1, 2, 2, 3, 3], [1, 2, 1, 2, 5, 6], None, True),
+        ([1, 1, 1, 0], [1, 1, 1, 0], 4, True),  # equal signatures cancel each other
+        ([0, 0], [0, 0], 4, True),  # primitive faults with no effect
+        ([1, 2, 4, 3, 5], [0, 0, 0, 7, 56], 3, True),
+        ([1, 2, 4, 3, 5], [0, 0, 0, 7, 56], 4, False),  # fault weight 4, error of Pauli weight 6
+        ([1, 2, 4, 3, 5], [0, 0, 0, 7, 56], None, False),
+    ):
+        failure = _certify_map(flags, syndromes, max_weight, 6)
+        assert (failure is None) == certified
+
+
+def test_failures_report_the_smallest_faults() -> None:
+    """The smallest fault weight is reported.
+
+    A fault of two primitive faults is reported although a fault of three primitive faults also
+    violates the bound.
+    """
+    # The primitive faults 0-2 form an accepted fault whose error has Pauli weight four, and the
+    # primitive faults 3 and 4 the only accepted fault of fault weight two, whose error has Pauli
+    # weight three.
+    failure = _certify_map([1, 2, 3, 4, 4], [1, 2, 12, 1, 6], None, 6)
+    assert failure is not None and set(failure.fault_indices) == {3, 4}
+
+
+def test_light_primitive_faults_are_never_searched(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without a heavy primitive fault, no fault can violate the bound, so none is listed."""
+    flags = [3, 5, 6, 9, 10, 12, 1, 2, 4, 8, 7, 11]
+    syndromes = [1, 2, 4, 8, 0, 1, 2, 4, 8, 0, 1, 2]
+
+    with monkeypatch.context() as patch:
+        lister = mock.Mock(wraps=_fault_search.FaultLister)
+        patch.setattr(_fault_search, "FaultLister", lister)
+        assert _certify_map(flags, syndromes, None, 4) is None
+    lister.assert_not_called()
+
+    # One primitive fault whose error has Pauli weight three brings back the search, and it fails
+    # together with the primitive fault that has the same flags.
+    failure = _certify_map(flags + [3], syndromes + [14], None, 4)
+    assert failure is not None and len(failure.fault_indices) == 2
+
+
+def test_max_weight_limits_the_fault_weight() -> None:
+    """Only faults of fault weight at most ``max_weight`` are checked.
+
+    The flags 1, 2, and 3 have rank two, and only the fault of all three primitive faults is
+    accepted.
+    """
+    for max_weight in (None, 30, 2):
+        failure = _certify_map([1, 2, 3], [1, 2, 12], max_weight, 4)
+        assert (failure is None) == (max_weight == 2)
+
+
+def test_memory_limit_does_not_change_results(pytestconfig: pytest.Config) -> None:
+    """With almost no memory, the search is slower but finds the same counterexample."""
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    # The first map has flags of rank four, and its only accepted fault has fault weight five and an
+    # error of Pauli weight six, so that the search finds it with the table of pairs if it fits.
+    maps = [([1, 2, 4, 8, 15], [3, 12, 48, 0, 0])]
+    for _ in range(10):
+        num_primitives = int(rng.integers(4, 10))
+        flags = list(map(int, rng.integers(1, 16, size=num_primitives)))
+        maps.append((flags, list(map(int, rng.integers(64, size=num_primitives)))))
+    for flags, syndromes in maps:
+        results = [
+            _fault_search.find_smallest_violation(flags, syndromes, _z_state(6), False, None, limit)
+            for limit in (1, 2**20)
+        ]
+        assert results[0] == results[1] == _certify_map(flags, syndromes, None, 6)
