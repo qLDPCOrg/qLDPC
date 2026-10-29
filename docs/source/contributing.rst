@@ -192,6 +192,11 @@ Use these criteria when writing new notebooks and reviewing existing ones:
 * **Purpose:** introduce the question an example answers and why it is useful before presenting implementation details.
   Explain why the chosen code, model, or comparison helps answer that question.
   Orient introductions toward readers exploring the possibilities, not only those who have already adopted qLDPC or chosen a workflow.
+* **Framing:** state what an example enables without inventing a mistaken approach or assuming the reader needs correction.
+  Show readers what they can explore or accomplish, rather than prescribing what they should do.
+  Describe the choices made in an example as choices for that example; reserve imperatives for procedural steps and genuine requirements.
+  Avoid straw-man motivation: a contrast such as "do X rather than Y" needs a reason to discuss Y beyond making X sound useful.
+  Retain contrasts that clarify scientific assumptions, genuine alternatives, or limitations.
 * **Background and assumptions:** introduce the concepts, quantities, and notation needed to follow the example before using them.
   State the scientific assumptions that affect its meaning, without turning a focused example into a textbook chapter.
 * **Interpretation:** explain how outputs, assertions, and figures answer the question.
