@@ -52,9 +52,9 @@ Packages at a glance
      - ``external.gap``, ``external.sqetch``, and ``cache.clear_entry``.
      - `External tools, side effects, and caching`_
    * - ``qldpc.experimental``
-     - Unstable research code, currently lattice surgery.
-     - ``experimental.surgery``.
-     - :doc:`Lattice surgery <examples/lattice_surgery>`
+     - Unstable research code: lattice surgery, and decoder-free benchmarks of state-preparation circuits.
+     - ``experimental.surgery`` and ``experimental.circuits.estimate_residual_weight_histogram``.
+     - :doc:`Lattice surgery <examples/lattice_surgery>` and :doc:`benchmarking state preparation <examples/experimental/logical_state_preparation>`
 
 The arrows below show which objects pass between packages.
 
@@ -190,6 +190,10 @@ For circuits that post-select on detectors such as measurement flags, only fault
 The docstring of ``certify_bounded_fault_propagation`` defines these terms precisely and states the limitations of its check, and the :doc:`state-preparation notebook <examples/logical_error_rates/5_state_preparation>` brings certificates and sampled diagnostics together.
 For annotated memory circuits, :func:`~qldpc.circuits.certification.fault_distance.get_fault_distance` instead computes the minimum number of detector-error-model mechanisms causing an undetected logical-observable flip.
 The :doc:`memory fault-distance notebook <examples/logical_error_rates/4_memory_fault_distance>` illustrates why this circuit property need not equal the code distance.
+
+Bounded fault propagation is a yes-or-no criterion.
+To compare preparation circuits, including those that satisfy it, the experimental :func:`qldpc.experimental.circuits.estimate_residual_weight_histogram <qldpc.experimental.circuits.benchmarking.residual_weights.estimate_residual_weight_histogram>` estimates, over the shots that pass post-selection, the probability distribution of the residual weight of the fault that occurs in a shot.
+The residual weight needs no decoder, and it accounts for Pauli errors that a chosen logical readout cannot detect, such as Z errors on a logical :math:`|0\rangle` state.
 
 Support and limitations
 -----------------------
