@@ -52,9 +52,9 @@ Packages at a glance
      - ``external.gap``, ``external.sqetch``, and ``cache.clear_entry``.
      - `External tools, side effects, and caching`_
    * - ``qldpc.experimental``
-     - Unstable research code, currently lattice surgery.
-     - ``experimental.surgery``.
-     - :doc:`Lattice surgery <examples/lattice_surgery>`
+     - Unstable research code: lattice surgery, and decoder-free benchmarks of state-preparation circuits.
+     - ``experimental.surgery`` and ``experimental.circuits.estimate_residual_weight_histogram``.
+     - :doc:`Lattice surgery <examples/lattice_surgery>` and :doc:`benchmarking state preparation <examples/experimental/logical_state_preparation>`
 
 The arrows below show which objects pass between packages.
 
@@ -188,6 +188,10 @@ The residual weight of the fault is the smallest weight of that Pauli error afte
 Fault propagation is bounded if the residual weight of every fault is at most its number of error mechanisms.
 For circuits that post-select on detectors such as measurement flags, only faults that pass post-selection count.
 The docstring of ``certify_bounded_fault_propagation`` defines these terms precisely and states the limitations of its check, and the :doc:`fault-tolerance notebook <examples/logical_error_rates/6_certifying_fault_tolerance>` shows examples.
+
+Bounded fault propagation is a yes-or-no criterion.
+To compare preparation circuits, including those that satisfy it, the experimental :func:`qldpc.experimental.circuits.estimate_residual_weight_histogram <qldpc.experimental.circuits.benchmarking.residual_weights.estimate_residual_weight_histogram>` estimates, over the shots that pass post-selection, the probability distribution of the residual weight of the fault that occurs in a shot.
+The residual weight needs no decoder, and it accounts for Pauli errors that a chosen logical readout cannot detect, such as Z errors on a logical :math:`|0\rangle` state.
 
 Support and limitations
 -----------------------
