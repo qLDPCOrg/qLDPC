@@ -9,7 +9,7 @@ Circuit tools currently only support qubit codes.
 ## 🎯 Goals
 
 - **Enable exploration.**
-  Favor small, composable tools and extension points that let users investigate new ideas without adopting a prescribed workflow or adding a built-in feature.
+  Favor small, composable tools and extension points that let users quickly investigate and prototype new ideas.
 - **Make scientific meaning explicit.**
   Expose conventions, assumptions, and limitations, and distinguish exact results, bounds, estimates, and trusted inputs.
 - **Support checking and reproduction.**
