@@ -804,8 +804,8 @@ class ClassicalCode(AbstractCode):
         max_error_rate: float = 0.1,
         *,
         min_error_weight: int = 1,
-        seed: np.random.Generator | int | None = None,
         decoder: decoders.DecoderInput = None,
+        seed: np.random.Generator | int | None = None,
         **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
@@ -817,11 +817,8 @@ class ClassicalCode(AbstractCode):
         ``value + error``, because such errors are all treated as failures, which makes the rate a
         high estimate.  See help(qldpc.codes.ErrorRateFunc).
 
-        An integer seed uses a local NumPy generator for reproducible error sampling.  A supplied
-        numpy.random.Generator is used and advanced directly.  With seed=None, sampling uses NumPy's
-        global RNG, preserving control through numpy.random.seed.  The seed does not control
-        randomness inside a decoder; exact replay also requires deterministic decoding and the same
-        configuration and software versions.
+        An integer seed starts a local sampling RNG; a supplied numpy.random.Generator is advanced.
+        With seed=None, sampling uses NumPy's global RNG.  Decoder randomness is separate.
 
         If the decoder is known to correct every error of weight below min_error_weight, saying so
         skips sampling those weights and drops their contribution to the reported uncertainty, which
@@ -2266,8 +2263,8 @@ class QuditCode(AbstractCode):
         pauli_bias: Sequence[float] | None = None,
         *,
         min_error_weight: int = 1,
-        seed: np.random.Generator | int | None = None,
         decoder: decoders.DeferredDecoderInput = None,
+        seed: np.random.Generator | int | None = None,
         **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
@@ -2286,11 +2283,8 @@ class QuditCode(AbstractCode):
         error (obtained by sampling independent errors on all qubits) is converted into a logical
         error by the decoder, given that the decoder does not discard it.
 
-        An integer seed uses a local NumPy generator for reproducible error sampling.  A supplied
-        numpy.random.Generator is used and advanced directly.  With seed=None, sampling uses NumPy's
-        global RNG, preserving control through numpy.random.seed.  The seed does not control
-        randomness inside a decoder; exact replay also requires deterministic decoding and the same
-        configuration and software versions.
+        An integer seed starts a local sampling RNG; a supplied numpy.random.Generator is advanced.
+        With seed=None, sampling uses NumPy's global RNG.  Decoder randomness is separate.
 
         Decoding succeeds if the decoder predicts the logical action of the sampled error, that is,
         its symplectic products with the logical operators of the code.  Pass a decoder
@@ -3874,10 +3868,10 @@ class CSSCode(QuditCode):
         pauli_bias: Sequence[float] | None = None,
         *,
         min_error_weight: int = 1,
-        seed: np.random.Generator | int | None = None,
         decoder: decoders.DecoderInput = None,
         decoder_x: decoders.DecoderInput = None,
         decoder_z: decoders.DecoderInput = None,
+        seed: np.random.Generator | int | None = None,
         decoder_x_kwargs: dict[str, Any] | None = None,  # DEPRECATED: see qldpc._deprecations
         decoder_z_kwargs: dict[str, Any] | None = None,  # DEPRECATED: see qldpc._deprecations
         **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
@@ -3898,11 +3892,8 @@ class CSSCode(QuditCode):
         error (obtained by sampling independent errors on all qubits) is converted into a logical
         error by the decoder, given that the decoder does not discard it.
 
-        An integer seed uses a local NumPy generator for reproducible error sampling.  A supplied
-        numpy.random.Generator is used and advanced directly.  With seed=None, sampling uses NumPy's
-        global RNG, preserving control through numpy.random.seed.  The seed does not control
-        randomness inside a decoder; exact replay also requires deterministic decoding and the same
-        configuration and software versions.
+        An integer seed starts a local sampling RNG; a supplied numpy.random.Generator is advanced.
+        With seed=None, sampling uses NumPy's global RNG.  Decoder randomness is separate.
 
         The X and Z sectors are decoded independently.  Pass a decoder specification such as
         ``decoders.bp_osd(...)`` as ``decoder=`` for both sectors, or set ``decoder_x=`` and
