@@ -804,6 +804,7 @@ class ClassicalCode(AbstractCode):
         max_error_rate: float = 0.1,
         *,
         min_error_weight: int = 1,
+        seed: np.random.Generator | int | None = None,
         decoder: decoders.DecoderInput = None,
         **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
     ) -> ErrorRateFunc:
@@ -815,6 +816,12 @@ class ClassicalCode(AbstractCode):
         should be drawn from ``max(value - error - func.truncation_error_bound(p), 0)`` up to
         ``value + error``, because such errors are all treated as failures, which makes the rate a
         high estimate.  See help(qldpc.codes.ErrorRateFunc).
+
+        An integer seed uses a local NumPy generator for reproducible error sampling.  A supplied
+        numpy.random.Generator is used and advanced directly.  With seed=None, sampling uses NumPy's
+        global RNG, preserving control through numpy.random.seed.  The seed does not control
+        randomness inside a decoder; exact replay also requires deterministic decoding and the same
+        configuration and software versions.
 
         If the decoder is known to correct every error of weight below min_error_weight, saying so
         skips sampling those weights and drops their contribution to the reported uncertainty, which
@@ -884,7 +891,9 @@ class ClassicalCode(AbstractCode):
         # sample errors of fixed weight and record failure/discard counts
         return ErrorRateFunc.from_sampler(
             functools.partial(
-                self._sample_failure_and_discard_counts, decoder=code_capacity_decoder
+                self._sample_failure_and_discard_counts,
+                decoder=code_capacity_decoder,
+                rng=None if seed is None else np.random.default_rng(seed),
             ),
             num_samples,
             len(self),
@@ -893,7 +902,11 @@ class ClassicalCode(AbstractCode):
         )
 
     def _sample_failure_and_discard_counts(
-        self, error_weight: int, num_samples: int, decoder: CodeCapacityDecoder
+        self,
+        error_weight: int,
+        num_samples: int,
+        decoder: CodeCapacityDecoder,
+        rng: np.random.Generator | None,
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.
 
@@ -901,11 +914,12 @@ class ClassicalCode(AbstractCode):
         """
         num_failures = 0
         num_discards = 0
+        choice = np.random.choice if rng is None else rng.choice
         for _ in range(num_samples):
             # construct an error
-            error_locations = np.random.choice(range(len(self)), size=error_weight, replace=False)
+            error_locations = choice(range(len(self)), size=error_weight, replace=False)
             error = self.field.Zeros(len(self))
-            error[error_locations] = np.random.choice(self.field.elements[1:], size=error_weight)
+            error[error_locations] = choice(self.field.elements[1:], size=error_weight)
 
             # decode the error
             failure, erasure = decoder.get_failure_and_erasure(error)
@@ -2252,6 +2266,7 @@ class QuditCode(AbstractCode):
         pauli_bias: Sequence[float] | None = None,
         *,
         min_error_weight: int = 1,
+        seed: np.random.Generator | int | None = None,
         decoder: decoders.DeferredDecoderInput = None,
         **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
     ) -> ErrorRateFunc:
@@ -2270,6 +2285,12 @@ class QuditCode(AbstractCode):
         The logical error rate returned by the constructed function is the probability that a code
         error (obtained by sampling independent errors on all qubits) is converted into a logical
         error by the decoder, given that the decoder does not discard it.
+
+        An integer seed uses a local NumPy generator for reproducible error sampling.  A supplied
+        numpy.random.Generator is used and advanced directly.  With seed=None, sampling uses NumPy's
+        global RNG, preserving control through numpy.random.seed.  The seed does not control
+        randomness inside a decoder; exact replay also requires deterministic decoding and the same
+        configuration and software versions.
 
         Decoding succeeds if the decoder predicts the logical action of the sampled error, that is,
         its symplectic products with the logical operators of the code.  Pass a decoder
@@ -2337,6 +2358,7 @@ class QuditCode(AbstractCode):
                 self._sample_failure_and_discard_counts,
                 decoder=code_capacity_decoder,
                 pauli_bias_zxy=pauli_bias_zxy,
+                rng=None if seed is None else np.random.default_rng(seed),
             ),
             num_samples,
             len(self),
@@ -2425,6 +2447,7 @@ class QuditCode(AbstractCode):
         num_samples: int,
         decoder: CodeCapacityDecoder,
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
+        rng: np.random.Generator | None,
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.
 
@@ -2437,22 +2460,19 @@ class QuditCode(AbstractCode):
         """
         num_failures = 0
         num_discards = 0
+        choice = np.random.choice if rng is None else rng.choice
         for _ in range(num_samples):
             # construct an error
-            error_locations = np.random.choice(range(len(self)), size=error_weight, replace=False)
-            error_paulis = np.random.choice([1, 2, 3], size=error_weight, p=pauli_bias_zxy)
+            error_locations = choice(range(len(self)), size=error_weight, replace=False)
+            error_paulis = choice([1, 2, 3], size=error_weight, p=pauli_bias_zxy)
 
             # decode errors
             error_locs_x = error_locations[error_paulis > 1]
             error_x = np.zeros(len(self), dtype=int)
-            error_x[error_locs_x] = np.random.choice(
-                range(1, self.field.order), size=len(error_locs_x)
-            )
+            error_x[error_locs_x] = choice(range(1, self.field.order), size=len(error_locs_x))
             error_locs_z = error_locations[(error_paulis % 2).astype(bool)]
             error_z = np.zeros(len(self), dtype=int)
-            error_z[error_locs_z] = np.random.choice(
-                range(1, self.field.order), size=len(error_locs_z)
-            )
+            error_z[error_locs_z] = choice(range(1, self.field.order), size=len(error_locs_z))
 
             error = np.concatenate([error_x, error_z]).view(self.field)
             failure, erasure = decoder.get_failure_and_erasure(error)
@@ -3854,6 +3874,7 @@ class CSSCode(QuditCode):
         pauli_bias: Sequence[float] | None = None,
         *,
         min_error_weight: int = 1,
+        seed: np.random.Generator | int | None = None,
         decoder: decoders.DecoderInput = None,
         decoder_x: decoders.DecoderInput = None,
         decoder_z: decoders.DecoderInput = None,
@@ -3876,6 +3897,12 @@ class CSSCode(QuditCode):
         The logical error rate returned by the constructed function is the probability that a code
         error (obtained by sampling independent errors on all qubits) is converted into a logical
         error by the decoder, given that the decoder does not discard it.
+
+        An integer seed uses a local NumPy generator for reproducible error sampling.  A supplied
+        numpy.random.Generator is used and advanced directly.  With seed=None, sampling uses NumPy's
+        global RNG, preserving control through numpy.random.seed.  The seed does not control
+        randomness inside a decoder; exact replay also requires deterministic decoding and the same
+        configuration and software versions.
 
         The X and Z sectors are decoded independently.  Pass a decoder specification such as
         ``decoders.bp_osd(...)`` as ``decoder=`` for both sectors, or set ``decoder_x=`` and
@@ -3978,6 +4005,7 @@ class CSSCode(QuditCode):
                 decoder_x=code_capacity_decoder_x,
                 decoder_z=code_capacity_decoder_z,
                 pauli_bias_zxy=pauli_bias_zxy,
+                rng=None if seed is None else np.random.default_rng(seed),
             ),
             num_samples,
             len(self),
@@ -4023,6 +4051,7 @@ class CSSCode(QuditCode):
         decoder_x: CodeCapacityDecoder,
         decoder_z: CodeCapacityDecoder,
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
+        rng: np.random.Generator | None,
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.
 
@@ -4036,17 +4065,24 @@ class CSSCode(QuditCode):
         """
         num_failures = 0
         num_discards = 0
+        choice = np.random.choice if rng is None else rng.choice
         for _ in range(num_samples):
             # construct an error
-            error_locations = np.random.choice(range(len(self)), size=error_weight, replace=False)
-            error_paulis = np.random.choice([1, 2, 3], size=error_weight, p=pauli_bias_zxy)
+            error_locations = choice(range(len(self)), size=error_weight, replace=False)
+            error_paulis = choice([1, 2, 3], size=error_weight, p=pauli_bias_zxy)
 
             # decode Z-type errors
             error_locs_z = error_locations[(error_paulis % 2).astype(bool)]
             error_z = self.field.Zeros(len(self))
-            error_z[error_locs_z] = np.random.choice(
-                range(1, self.field.order), size=len(error_locs_z)
-            )
+            error_z[error_locs_z] = choice(range(1, self.field.order), size=len(error_locs_z))
+
+            # Complete seeded errors before decoding so early exits cannot change later samples.
+            error_x = None
+            if rng is not None:
+                error_locs_x = error_locations[error_paulis > 1]
+                error_x = self.field.Zeros(len(self))
+                error_x[error_locs_x] = choice(range(1, self.field.order), size=len(error_locs_x))
+
             failure_z, erasure = decoder_z.get_failure_and_erasure(error_z)
             if erasure:
                 num_discards += 1
@@ -4059,11 +4095,10 @@ class CSSCode(QuditCode):
                 continue
 
             # decode X-type errors
-            error_locs_x = error_locations[error_paulis > 1]
-            error_x = self.field.Zeros(len(self))
-            error_x[error_locs_x] = np.random.choice(
-                range(1, self.field.order), size=len(error_locs_x)
-            )
+            if error_x is None:
+                error_locs_x = error_locations[error_paulis > 1]
+                error_x = self.field.Zeros(len(self))
+                error_x[error_locs_x] = choice(range(1, self.field.order), size=len(error_locs_x))
             failure_x, erasure = decoder_x.get_failure_and_erasure(error_x)
             if erasure:
                 num_discards += 1

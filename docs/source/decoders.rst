@@ -92,8 +92,16 @@ To use a built-in decoder family, you can pass a specification such as ``decoder
    estimator = code.get_logical_error_rate_func(
        num_samples=10_000,
        decoder=qldpc.decoders.mwpm(),
+       seed=0,
    )
    logical_error_rate, stderr = estimator(np.logspace(-4, -2, 5))
+
+The ``seed=`` keyword accepts an integer or a NumPy ``Generator``.
+An integer starts a repeatable local stream of physical errors, while a supplied generator is consumed and advanced.
+Explicitly seeded sampling is independent of NumPy's global random state and of decoder early exits, including erasure decisions.
+With ``seed=None`` (the default), sampling retains its existing global-NumPy behavior, so ``np.random.seed(...)`` still applies.
+The seed controls error sampling, not randomness inside a decoder; exact replay also requires deterministic decoder settings and the same software versions and experiment configuration.
+Sampling happens when the estimator is constructed; evaluating it at different physical error rates reuses those samples.
 
 To use your own decoder, pass a class or factory directly as ``decoder=MyErrorDecoder``.
 This factory must accept a parity-check matrix and return an error decoder, with a ``.decode_errors`` method (as in `Inferring errors`_).
