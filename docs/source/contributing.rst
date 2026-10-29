@@ -53,6 +53,7 @@ Prose style
 * Choose material for a document's audience and purpose.
   Keep docstrings focused on documented objects and contributor guidance focused on contribution decisions; omit tangents and prose that merely restates implementation details.
 * In substantial scientific exposition, introduce a problem and explain why it matters before describing implementation details.
+  Worked examples also need enough context to explain the question they answer and what their results establish.
   Include background only where it helps intended readers.
 * Introduce or explicitly identify an object, quantity, or concept before using a definite reference or pronoun.
   A clear name or defining description is sufficient; identical wording need not appear earlier.
@@ -181,6 +182,25 @@ Add documentation or an example
 
 Use the smallest meaningful example and explain the scientific choices and limitations, with pointers to the relevant literature and implementation.
 Make examples easy to adapt to a new question rather than requiring users to adopt a complete workflow.
+
+Example notebooks
+^^^^^^^^^^^^^^^^^
+
+Example notebooks should help readers understand and adapt a scientific workflow, not merely show that API calls run.
+Use these criteria when writing new notebooks and reviewing existing ones:
+
+* **Purpose:** introduce the question an example answers and why it is useful before presenting implementation details.
+  Explain why the chosen code, model, or comparison helps answer that question.
+  Orient introductions toward readers exploring the possibilities, not only those who have already adopted qLDPC or chosen a workflow.
+* **Background and assumptions:** introduce the concepts, quantities, and notation needed to follow the example before using them.
+  State the scientific assumptions that affect its meaning, without turning a focused example into a textbook chapter.
+* **Interpretation:** explain how outputs, assertions, and figures answer the question.
+  Distinguish demonstrations of an interface from scientific checks, and exact results from estimates or bounds.
+  State what a result does not establish when that affects its interpretation.
+
+Review the prose, code, and saved outputs together from the intended reader's perspective; successful execution alone does not establish that an example is clear or meaningful.
+Keep explanations focused on the ideas and decisions, rather than narrating each API call.
+Related cells may share an introduction or interpretation, and a few focused sentences can be enough.
 
 Deprecations and future changes
 -------------------------------
