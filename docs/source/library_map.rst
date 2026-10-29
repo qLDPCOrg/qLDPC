@@ -180,14 +180,14 @@ The :doc:`code-capacity <examples/logical_error_rates/1_code_capacity>`, :doc:`q
 Certify fault-tolerant state preparation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-:func:`qldpc.circuits.certify_bounded_fault_propagation <qldpc.circuits.certification.fault_propagation.certify_bounded_fault_propagation>` certifies bounded fault propagation in a noisy Clifford circuit that prepares a stabilizer state.
-A fault is a set of error mechanisms, which are the error instructions of the detector error model that the certificate returns: the circuit's, after adding any flag detectors and one noiseless detector for each stabilizer of the prepared state.
-Propagation is bounded if, for every fault, the error left on the output is equivalent to an error whose Pauli weight is at most the number of error mechanisms in the fault.
-The Pauli weight of an error is either its physical weight or its CSS weight.
-For protocols that post-select on detectors such as measurement flags, only faults that pass post-selection are required to satisfy the bound.
+:func:`qldpc.circuits.certify_bounded_fault_propagation <qldpc.circuits.certification.fault_propagation.certify_bounded_fault_propagation>` checks whether a noisy Clifford circuit that prepares a stabilizer state has bounded fault propagation.
 Bounded fault propagation is a sufficient criterion for fault-tolerant state preparation; see Definition 3 in Section 4.2 of `arXiv:0904.2557 <https://arxiv.org/abs/0904.2557>`_.
-The function's docstring states the limitations of the certificate, and a `design note <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/circuits/certification/fault_propagation.md>`_ proves that its search is exact.
-The :doc:`fault-tolerance notebook <examples/logical_error_rates/6_certifying_fault_tolerance>` shows examples.
+An error mechanism is an error instruction of the circuit's detector error model, and a fault is a set of error mechanisms.
+A fault leaves a Pauli error on the prepared state.
+The residual weight of the fault is the smallest weight of that Pauli error after multiplying it by any stabilizer of the state.
+Fault propagation is bounded if the residual weight of every fault is at most its number of error mechanisms.
+For circuits that post-select on detectors such as measurement flags, only faults that pass post-selection count.
+The docstring of ``certify_bounded_fault_propagation`` defines these terms precisely and states the limitations of its check, and the :doc:`fault-tolerance notebook <examples/logical_error_rates/6_certifying_fault_tolerance>` shows examples.
 
 Support and limitations
 -----------------------
