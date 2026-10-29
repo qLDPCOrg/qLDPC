@@ -187,7 +187,9 @@ A fault leaves a Pauli error on the prepared state.
 The residual weight of the fault is the smallest weight of that Pauli error after multiplying it by any stabilizer of the state.
 Fault propagation is bounded if the residual weight of every fault is at most its number of error mechanisms.
 For circuits that post-select on detectors such as measurement flags, only faults that pass post-selection count.
-The docstring of ``certify_bounded_fault_propagation`` defines these terms precisely and states the limitations of its check, and the :doc:`fault-tolerance notebook <examples/logical_error_rates/6_certifying_fault_tolerance>` shows examples.
+The docstring of ``certify_bounded_fault_propagation`` defines these terms precisely and states the limitations of its check, and the :doc:`state-preparation notebook <examples/logical_error_rates/5_state_preparation>` brings certificates and sampled diagnostics together.
+For annotated memory circuits, :func:`~qldpc.circuits.certification.fault_distance.get_fault_distance` instead computes the minimum number of detector-error-model mechanisms causing an undetected logical-observable flip.
+The :doc:`memory fault-distance notebook <examples/logical_error_rates/4_memory_fault_distance>` illustrates why this circuit property need not equal the code distance.
 
 Support and limitations
 -----------------------
