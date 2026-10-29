@@ -91,9 +91,9 @@ def _assert_valid_counterexample(
     pauli = failure.output_pauli
     stabilizers = certificate.state_stabilizers
     assert tuple(int(not pauli.commutes(ss)) for ss in stabilizers) == failure.output_syndrome
-    assert failure.output_weight_lower_bound > failure.fault_weight
+    assert failure.residual_weight_lower_bound > failure.fault_weight
     minimum = _true_minimum(certificate.state_stabilizers, syndrome, certificate.css_weight)
-    assert failure.output_weight_lower_bound <= minimum
+    assert failure.residual_weight_lower_bound <= minimum
 
 
 def _assert_matches_brute_force(certificate: circuits.BoundedFaultPropagationCertificate) -> None:
@@ -255,13 +255,13 @@ def test_unmeasured_qubits_account_for_every_kind_of_measurement() -> None:
 
 
 def test_correlated_mechanism_is_one_primitive_fault() -> None:
-    """A two-qubit error mechanism is one primitive fault whose error has Pauli weight two."""
+    """A two-qubit error mechanism is one primitive fault, with an output error of weight two."""
     circuit = stim.Circuit("I 0 1\nCORRELATED_ERROR(0.01) X0 Y1")
     result = circuits.certify_bounded_fault_propagation(circuit, output_qubits=[1, 0])
     _assert_valid_counterexample(result, circuit)
     failure = result.counterexample
     assert failure is not None
-    assert failure.fault_indices == (0,) and failure.output_weight_lower_bound == 2
+    assert failure.fault_indices == (0,) and failure.residual_weight_lower_bound == 2
     assert result.output_qubits == (1, 0)
 
 
@@ -297,7 +297,8 @@ def test_existing_observables_do_not_enter_the_syndrome() -> None:
 def test_primitive_faults_inside_repeat_blocks_are_certified() -> None:
     """Primitive faults in a loop count although Stim folds the loop into a repeat block."""
     looped = stim.Circuit("REPEAT 3 {\n    CORRELATED_ERROR(0.01) X0 X1\n}")
-    # A loop without detectors keeps its errors in a repeat block, which would hide them.
+    # A loop without detectors keeps its error instructions in a repeat block, which would hide
+    # them.
     readout = stim.Circuit("M 0 1\nDETECTOR rec[-2]\nDETECTOR rec[-1]")
     folded = (looped + readout).detector_error_model(approximate_disjoint_errors=True)
     assert any(instruction.type == "repeat" for instruction in folded)
@@ -309,8 +310,8 @@ def test_primitive_faults_inside_repeat_blocks_are_certified() -> None:
     assert result.counterexample is not None and written_out.counterexample is not None
     assert result.counterexample.output_syndrome == written_out.counterexample.output_syndrome
     assert (
-        result.counterexample.output_weight_lower_bound
-        == written_out.counterexample.output_weight_lower_bound
+        result.counterexample.residual_weight_lower_bound
+        == written_out.counterexample.residual_weight_lower_bound
     )
 
 

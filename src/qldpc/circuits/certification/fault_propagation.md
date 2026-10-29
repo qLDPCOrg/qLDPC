@@ -2,7 +2,8 @@
 
 ## Purpose and scope
 
-A noisy Clifford circuit that prepares a stabilizer state has bounded fault propagation if every fault leaves an output error equivalent to an error whose Pauli weight is at most its fault weight.
+A noisy Clifford circuit that prepares a stabilizer state has bounded fault propagation if every fault has [residual weight](#syndromes-and-pauli-weight) at most its fault weight.
+The residual weight of a fault is the smallest Pauli weight of the Pauli error that the fault leaves on the output qubits, after multiplying that error by any stabilizer of the prepared state.
 With post-selection, only the faults that fire none of the post-selection detectors count.
 This guide explains why the certifier can decide this exactly, and how it searches for a violation.
 It is for contributors who need to understand or modify the certifier in this directory.
@@ -30,12 +31,14 @@ The **syndrome** of a Pauli error is the binary vector whose entry `i` is 1 if t
 Two errors are **equivalent** if they differ by an element of the stabilizer group, up to a phase, because then they leave the same state.
 Errors are equivalent exactly when they have the same syndrome, because an operator that commutes with `g_1, ..., g_n` is a stabilizer up to a phase.
 
-Let `S` be the **fault syndrome matrix**: an `n × N` binary matrix whose column `j` is the `n`-bit syndrome `s_j` of the output Pauli error induced by primitive fault `j`.
+The **output error** of a fault is the Pauli error that it leaves on the output qubits.
+Let `S` be the **fault syndrome matrix**: an `n × N` binary matrix whose column `j` is the `n`-bit syndrome `s_j` of the output error of primitive fault `j`.
 The syndrome of the output error of a fault `F` is then `S F`.
 
-The **Pauli weight** of an error is either its **physical weight**, the number of qubits that it acts on, or its **CSS weight** `max(|x|, |z|)`, where `x` and `z` are the X and Z support vectors of the error.
-For a syndrome `s`, let `μ(s)` be the smallest Pauli weight of an error with syndrome `s`, that is, of an error in that equivalence class.
-A fault `F` **violates** the fault propagation bound if `μ(S F) > |F|`.
+The **Pauli weight** of a Pauli error is either its **physical weight**, the number of qubits that it acts on, or its **CSS weight** `max(|x|, |z|)`, where `x` and `z` are the X and Z support vectors of the error.
+For a syndrome `s`, let `μ(s)` be the smallest Pauli weight of a Pauli error with syndrome `s`, that is, of a Pauli error in that equivalence class.
+The **residual weight** of a fault `F` is `μ(S F)`, the smallest Pauli weight of an error equivalent to its output error.
+A fault `F` **violates** the fault propagation bound if its residual weight exceeds its fault weight, `μ(S F) > |F|`.
 Fault propagation is bounded up to fault weight `K`, the largest fault weight to certify (a positive integer, or ∞ for no limit), if no nonzero accepted fault of fault weight at most `K` violates the bound.
 
 ### Physical faults
@@ -56,7 +59,7 @@ So `μ(S F) ≤ Σ μ(s_j)` over the primitive faults `j` of `F`.
 
 ### A violating fault contains a heavy primitive fault
 
-Call a primitive fault **heavy** if `μ(s_j) ≥ 2`.
+Call a primitive fault **heavy** if its residual weight is at least two, `μ(s_j) ≥ 2`, and **light** otherwise.
 By [subadditivity](#pauli-weight-is-subadditive), `μ(S F) ≤ |F|` if `F` contains no heavy primitive fault, since every term of the sum is then at most one.
 So every fault `F` that violates the bound contains a heavy primitive fault.
 
@@ -156,11 +159,11 @@ Since `|F| = |G| + |L0| + |L1|`, the fault `F` satisfies the bound whenever `μ(
 
 In the search order, the heavy primitive faults come before the light ones.
 So once a prefix contains a light primitive fault, every fault that extends the prefix has the same heavy part as the prefix, and contains every zero-syndrome light primitive fault of the prefix.
-The search could therefore skip such a prefix, together with every fault that extends it, if it finds an error with syndrome `S G` whose Pauli weight is at most `|G|` plus the number of zero-syndrome light primitive faults in the prefix.
+The search could therefore skip such a prefix, together with every fault that extends it, if it finds a Pauli error with syndrome `S G` whose Pauli weight is at most `|G|` plus the number of zero-syndrome light primitive faults in the prefix.
 Every skipped fault satisfies the bound, so skipping them would change neither the result nor the reported counterexample.
 
 The search does not use this rule, because the time that it saves does not justify the added complexity.
-A trial implementation in the compiled listing looked for such an error in the first two layers of the coset search of `PauliCosetSearch`, at each light primitive fault added to a prefix, and reused the answer for each heavy part.
+A trial implementation in the compiled listing looked for such a Pauli error in the first two layers of the coset search of `PauliCosetSearch`, at each light primitive fault added to a prefix, and reused the answer for each heavy part.
 On color-code state preparations, certifications up to fault weight four took about as long as without the rule.
 In benchmarks that treated every listed fault as satisfying the bound, so that the search listed every fault, the rule made the search 1.1 to 1.2 times faster at fault weight five, and 1.7 times faster at fault weight six.
 Two variants were slower: deciding exactly whether `μ(S G)` is small enough, and also applying the rule to closing primitive faults.

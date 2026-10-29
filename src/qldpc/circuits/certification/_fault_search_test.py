@@ -286,7 +286,9 @@ def test_pair_table_peak_memory_is_within_its_estimate(monkeypatch: pytest.Monke
 def _z_state(num_qubits: int) -> npt.NDArray[np.int_]:
     """Stabilizers of |0...0>.
 
-    The smallest Pauli weight of an error with a given syndrome is the syndrome's number of ones.
+    The smallest Pauli weight of a Pauli error with a given syndrome, in either physical or CSS
+    weight, is the syndrome's number of ones, so the residual weight of a fault is the number of
+    ones in the syndrome of its output error.
     """
     return np.hstack([np.zeros((num_qubits, num_qubits), dtype=int), np.eye(num_qubits, dtype=int)])
 
@@ -328,9 +330,9 @@ def _certify_map(
 
 
 def test_search_without_flags_checks_primitive_faults() -> None:
-    """With zero flags, a primitive fault whose error has Pauli weight above one fails."""
-    # Primitive faults whose errors have Pauli weight at most one certify, and those with Pauli
-    # weight three do not.
+    """With zero flags, a primitive fault whose residual weight exceeds one fails."""
+    # Primitive faults of residual weight at most one certify, and those of residual weight three
+    # do not.
     assert _certify_map([0] * 5, [0, 1, 2, 4, 2], None, 3) is None
     assert _certify_map([0] * 5, [1, 2, 7, 4, 7], None, 3) is not None
 
@@ -352,16 +354,16 @@ def test_hand_derived_dependency_cases() -> None:
     The limits are values of ``max_weight``.
     """
     for flags, syndromes, max_weight, certified in (
-        ([0, 0, 0], [1, 2, 4], 4, True),  # zero flags; each error has Pauli weight one
+        ([0, 0, 0], [1, 2, 4], 4, True),  # zero flags; each has residual weight one
         ([1, 2, 3, 1, 2, 3], [1, 2, 3, 4, 8, 12], 4, False),
-        # the accepted faults have fault weight two and errors of Pauli weight two
+        # the accepted faults have fault weight two and residual weight two
         ([1, 1, 2, 2, 4, 4], [1, 2, 1, 2, 1, 2], 4, True),
         # the heavy primitive faults 4 and 5 are in no violating fault
         ([1, 1, 2, 2, 3, 3], [1, 2, 1, 2, 5, 6], None, True),
         ([1, 1, 1, 0], [1, 1, 1, 0], 4, True),  # equal signatures cancel each other
         ([0, 0], [0, 0], 4, True),  # primitive faults with no effect
         ([1, 2, 4, 3, 5], [0, 0, 0, 7, 56], 3, True),
-        ([1, 2, 4, 3, 5], [0, 0, 0, 7, 56], 4, False),  # fault weight 4, error of Pauli weight 6
+        ([1, 2, 4, 3, 5], [0, 0, 0, 7, 56], 4, False),  # fault weight 4, residual weight 6
         ([1, 2, 4, 3, 5], [0, 0, 0, 7, 56], None, False),
     ):
         failure = _certify_map(flags, syndromes, max_weight, 6)
@@ -374,9 +376,8 @@ def test_failures_report_the_smallest_faults() -> None:
     A fault of two primitive faults is reported although a fault of three primitive faults also
     violates the bound.
     """
-    # The primitive faults 0-2 form an accepted fault whose error has Pauli weight four, and the
-    # primitive faults 3 and 4 the only accepted fault of fault weight two, whose error has Pauli
-    # weight three.
+    # The primitive faults 0-2 form an accepted fault of residual weight four, and the primitive
+    # faults 3 and 4 the only accepted fault of fault weight two, which has residual weight three.
     failure = _certify_map([1, 2, 3, 4, 4], [1, 2, 12, 1, 6], None, 6)
     assert failure is not None and set(failure.fault_indices) == {3, 4}
 
@@ -392,7 +393,7 @@ def test_light_primitive_faults_are_never_searched(monkeypatch: pytest.MonkeyPat
         assert _certify_map(flags, syndromes, None, 4) is None
     lister.assert_not_called()
 
-    # One primitive fault whose error has Pauli weight three brings back the search, and it fails
+    # One primitive fault of residual weight three brings back the search, and it fails
     # together with the primitive fault that has the same flags.
     failure = _certify_map(flags + [3], syndromes + [14], None, 4)
     assert failure is not None and len(failure.fault_indices) == 2
@@ -412,8 +413,8 @@ def test_max_weight_limits_the_fault_weight() -> None:
 def test_memory_limit_does_not_change_results(pytestconfig: pytest.Config) -> None:
     """With almost no memory, the search is slower but finds the same counterexample."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    # The first map has flags of rank four, and its only accepted fault has fault weight five and an
-    # error of Pauli weight six, so that the search finds it with the table of pairs if it fits.
+    # The first map has flags of rank four, and its only accepted fault has fault weight five and
+    # residual weight six, so that the search finds it with the table of pairs if it fits.
     maps = [([1, 2, 4, 8, 15], [3, 12, 48, 0, 0])]
     for _ in range(10):
         num_primitives = int(rng.integers(4, 10))
