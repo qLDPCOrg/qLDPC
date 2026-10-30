@@ -115,16 +115,16 @@ applied once per idle moment.  ``additional_error_waiting_for_m_or_r`` applies a
 non-collapsing qubits during a moment that contains a measurement or reset; it is always applied
 once per such moment.
 
-``quadratic_idle_error`` models idle errors from slow noise, such as dephasing by a fluctuating
-qubit frequency, which rotates an idle qubit by an angle that grows linearly with the number of
-consecutive idle moments.  Averaged over the random rate of rotation, the resulting error has a
-probability that grows quadratically while it is small and saturates at 1/2.  It is emitted after
-the combined ``idle_error``.
-
 Explicit identity gates (``I`` and ``II``) are treated as idle for this accounting.  ``rules`` can
 append errors after these gates, and ``rule_func`` can select errors based on an identity's tag or
 encoded duration.  A rule returned by the callback takes precedence over a matching named rule.
 Identity rules and ``idle_error`` stack: when both match, both are applied.
+
+``quadratic_idle_error`` models idle errors from slow noise, such as a qubit frequency that
+fluctuates from one shot to the next.  Such noise rotates an idle qubit at a random rate, by an
+angle that grows linearly with the number of consecutive idle moments.  Averaged over that rate,
+the resulting error has a probability that grows quadratically while it is small and saturates at
+1/2.  It is emitted after the combined ``idle_error``.
 
 .. rubric:: Attribution and license
 

@@ -43,7 +43,7 @@ from ._operations import (
     known_gate_shape,
     op_type,
 )
-from .channels import PauliChannel, PauliChannelSequence
+from .channels import _ABSOLUTE_ERROR_TOLERANCE, PauliChannel, PauliChannelSequence
 from .rules import (
     ErrorSpec,
     NoiseRule,
@@ -133,21 +133,21 @@ class NoiseModel:
                 idle qubits (its readout_error/reset_error fields are ignored).  Consecutive
                 Pauli-channel idle errors on a qubit are composed into one equivalent error; custom
                 Stim noise fragments are applied once per idle moment.
-            quadratic_idle_error: Error on each idling qubit in any given moment whose probability
-                grows quadratically with the number of consecutive idle moments, as for dephasing
-                by a slowly fluctuating qubit frequency.  A float ``p`` is a uniform channel of
-                total error probability ``p``, and a ``Mapping[str, float]`` or one-qubit
-                ``PauliChannel`` such as ``{"Z": p}`` sets the probability of each Pauli error in
-                one moment.  The total probability ``p`` of one moment must be at most 1/2.  Over
-                ``k`` consecutive idle moments, the total probability of this error becomes
-                ``(1 - (1 - 2 * p)**(k**2)) / 2``, which is approximately ``k**2 * p`` while small
-                and never exceeds 1/2, split among Paulis as in one moment.  This law is the Pauli
-                twirl of a rotation by an angle that grows linearly in time at a random, Gaussian
-                rate, about an axis that is fixed for each idle period and may vary between periods
-                (for example, if a compiler changes the frame of a qubit).  A run of idle moments
-                ends at any instruction other than ``I``, ``II``, or ``QUBIT_COORDS`` that targets
-                the qubit, including annotations.  This error is applied after the ``idle_error`` of
-                the same moments.
+            quadratic_idle_error: Error on each idling qubit in one moment, whose probability grows
+                quadratically over consecutive idle moments.  A float ``p`` is a uniform channel of
+                total error probability ``p``, and a ``Mapping[str, float]`` such as ``{"Z": p}`` or
+                a one-qubit ``PauliChannel`` sets the probability of each Pauli error.  The total
+                probability ``p`` of one moment must be at most 1/2.  Over ``k`` consecutive idle
+                moments, this error has total probability ``(1 - (1 - 2 * p)**(k**2)) / 2``, which
+                is approximately ``k**2 * p`` while small and never exceeds 1/2, split among Paulis
+                as in one moment.  This law is the Pauli twirl of a rotation, such as dephasing by
+                a slowly fluctuating qubit frequency, whose angle grows linearly in time at a
+                Gaussian random rate, about an axis that is fixed within each run of idle moments.
+                Runs are independent of each other, and every moment counts equally, regardless of
+                its duration.  A run ends at any instruction that targets the qubit other than
+                ``I``, ``II``, or ``QUBIT_COORDS``, including noise, annotations, and classically
+                controlled operations, which do not otherwise interrupt idling.  This error is
+                applied after the ``idle_error`` of the same moments.
             additional_error_waiting_for_m_or_r: Additional noise rule or depolarization probability
                 applied to every non-collapsing qubit while another qubit undergoes measurement or
                 reset, including qubits undergoing a unitary operation.  Accepts the same NoiseRule
@@ -237,30 +237,22 @@ class NoiseModel:
                     f"`{field_name}` does not support a multi-qubit `after` rule "
                     f"(arity={idle_rule.after.num_qubits})."
                 )
+        # A quadratic idle error is a one-qubit Pauli channel that flips a qubit at most half the
+        # time in one moment.
+        self.quadratic_idle_error: PauliChannel | None = None
+        quadratic_idle_rule = _as_noise_rule(quadratic_idle_error, 1)
+        if quadratic_idle_rule is not None and quadratic_idle_rule.after is not None:
+            channel = quadratic_idle_rule.after
+            if not isinstance(channel, PauliChannel) or channel.num_qubits != 1:
+                raise ValueError("`quadratic_idle_error` must be a one-qubit PauliChannel")
+            if math.fsum(channel.probabilities.values()) > 0.5 + _ABSOLUTE_ERROR_TOLERANCE:
+                raise ValueError(
+                    "`quadratic_idle_error` must have a total probability of at most 1/2"
+                )
+            self.quadratic_idle_error = channel or None
         # Guards done — now trivialize.
         self.idle_error = self.idle_error or None
         self.additional_error_waiting_for_m_or_r = self.additional_error_waiting_for_m_or_r or None
-
-        if quadratic_idle_error is None or isinstance(quadratic_idle_error, PauliChannel):
-            channel = quadratic_idle_error
-        elif isinstance(quadratic_idle_error, Mapping):
-            channel = PauliChannel(quadratic_idle_error)
-        elif isinstance(quadratic_idle_error, (int, float)) and not isinstance(
-            quadratic_idle_error, bool
-        ):
-            channel = PauliChannel.depolarizing(1, float(quadratic_idle_error))
-        else:
-            raise TypeError(
-                "expected a float, PauliChannel, or Mapping[str, float] for `quadratic_idle_error`;"
-                f" got {type(quadratic_idle_error).__name__!r}"
-            )
-        if channel is not None and channel.num_qubits > 1:
-            raise ValueError(
-                f"`quadratic_idle_error` must be a one-qubit channel (arity={channel.num_qubits})."
-            )
-        if channel is not None and math.fsum(channel.probabilities.values()) > 0.5:
-            raise ValueError("`quadratic_idle_error` must have a total probability of at most 1/2")
-        self.quadratic_idle_error = channel or None
 
     @property
     def clifford_1q_error(self) -> NoiseRule | None:

@@ -300,19 +300,16 @@ def repeated_idle_channel(
     return PauliChannel(dict(zip("XYZ", result[1:], strict=True)))
 
 
-def quadratic_idle_channel(channel: PauliChannel, moments: int) -> PauliChannel:
-    """The error of ``moments`` consecutive idle moments, given the quadratic idle error of one.
+def quadratic_idle_channel(channel: PauliChannel, num_moments: int) -> PauliChannel:
+    """The error of a run of consecutive idle moments, given the quadratic idle error of one.
 
-    Over one idle period, slow noise rotates a qubit about a fixed axis ``n`` by an angle that grows
-    linearly with time, at a rate that is random (Gaussian) from one period to the next.  The Pauli
-    twirl of this rotation applies each Pauli ``P`` with probability ``w_P * q`` where ``w_P`` is
-    the mean of ``n_P**2``, and ``q = (1 - (1 - 2 * p)**(moments**2)) / 2`` for the total error
-    probability ``p`` of one moment.  The weights ``w_P`` are those of ``channel``.
+    If ``channel`` applies Paulis with total probability ``p``, the result applies the same Paulis
+    in the same proportions with total probability ``(1 - (1 - 2 * p)**(num_moments**2)) / 2``.
+    This is the Pauli twirl of a rotation about a fixed axis by an angle that grows linearly over
+    the run, at a Gaussian random rate whose spread is set by ``p``.
     """
     total = math.fsum(channel.probabilities.values())
-    if not total:
-        return channel
-    scale = (1 - (1 - 2 * total) ** (moments**2)) / (2 * total)
+    scale = (1 - (1 - 2 * total) ** (num_moments**2)) / (2 * total)
     return PauliChannel(
         {pauli: probability * scale for pauli, probability in channel.probabilities.items()}
     )
