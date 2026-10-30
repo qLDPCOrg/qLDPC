@@ -20,7 +20,7 @@ from __future__ import annotations
 import dataclasses
 import math
 from collections.abc import Collection, Sequence
-from typing import Literal, Protocol
+from typing import Protocol
 
 import galois
 import numpy as np
@@ -299,7 +299,7 @@ def estimate_residual_weight_histogram(
     output_qubits: Sequence[int] | None = None,
     css_weight: bool | None = None,
     add_flags: bool = False,
-    post_select: bool | Collection[int] | Literal["flags"] = False,
+    post_select: bool | Collection[int] | None = None,
     max_fault_weight: int | None = None,
     max_exact_faults: int = 10**6,
     seed: int | None = None,
@@ -349,12 +349,13 @@ def estimate_residual_weight_histogram(
             weight.  Default: the CSS weight if the prepared state is a CSS state in the physical
             Pauli basis, and the physical weight otherwise.
         add_flags: Whether to add a flag detector for each measurement that no detector or
-            observable addresses, as in ``qldpc.circuits.get_state_prep_diagnostic_circuit``.
-            Default: False.
-        post_select: The detectors to post-select on, among the circuit's detectors followed by any
-            added flag detectors: True for all of them, False (the default) for none, a collection
-            of indices (negative indices count back from the last detector), or "flags" for exactly
-            the added flag detectors, which requires ``add_flags=True``.
+            observable addresses, as in ``qldpc.circuits.get_state_prep_diagnostic_circuit``.  By
+            default, ``post_select`` then selects these flag detectors.  Default: False.
+        post_select: The detectors to post-select on, among the circuit's own detectors followed by
+            any added flag detectors: None for exactly the added flag detectors, True for all of
+            them, False for none, or a collection of their indices (negative indices count back from
+            the last detector).  Default: None, which post-selects on the added flag detectors, if
+            any, but never on the circuit's own detectors.
         max_fault_weight: The largest fault weight to cover; the ``truncated_probability`` of the
             histogram is the probability of larger fault weights.  Default: the smallest fault
             weight from ``max_residual_weight + 1`` on beyond which the remaining probability is
@@ -394,7 +395,7 @@ def estimate_residual_weight_histogram(
     detector_record = DetectorRecord({"prep": range(circuit.num_detectors)})
     flag_detectors = get_flag_detectors(circuit) if add_flags else stim.Circuit()
     detector_record.append({"flags": range(flag_detectors.num_detectors)})
-    selected = get_selected_detectors(post_select, detector_record, add_flags)
+    selected = get_selected_detectors(post_select, detector_record)
     full_circuit = circuit + flag_detectors
 
     stabilizers = circuits.get_state_stabilizers(full_circuit, qubits)
@@ -416,7 +417,7 @@ def estimate_residual_weight_histogram(
     else:
         oracle = _CosetSearchWeights(matrix, css_weight, max_residual_weight)
 
-    dem, flags, syndromes = _get_primitive_fault_signatures(
+    _, dem, flags, syndromes = _get_primitive_fault_signatures(
         full_circuit, stabilizers, qubits, selected
     )
     probabilities = [

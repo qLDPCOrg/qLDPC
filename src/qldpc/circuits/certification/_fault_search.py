@@ -63,8 +63,8 @@ def find_smallest_violation(
     flags: Sequence[int],
     syndromes: Sequence[int],
     stabilizers: npt.ArrayLike,
-    css_weight: bool,
     max_weight: int | None,
+    css_weight: bool,
     memory_limit: int = 2**30,  # 1 GiB
 ) -> Violation | None:
     """Find a violating accepted fault of the smallest fault weight, or None if there is none.

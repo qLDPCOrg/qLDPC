@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping, Sequence
-from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -157,7 +156,7 @@ def get_state_prep_diagnostic_tasks(
     noise_model_family: Callable[[float], NoiseModel] = DepolarizingNoiseModel,
     *,
     add_flags: bool = False,
-    post_select: bool | Collection[int] | Literal["flags"] = False,
+    post_select: bool | Collection[int] | None = None,
     post_select_observables: bool | Collection[int] = False,
     qubit_ids: QubitIDs | None = None,
     observables: npt.NDArray[np.int_]
@@ -220,13 +219,14 @@ def get_state_prep_diagnostic_tasks(
 
     Keyword args:
         add_flags: Whether to add a flag detector for each unaddressed measurement in the circuit,
-            as in get_state_prep_diagnostic_circuit.
-        post_select: The detectors to post-select on, out of the selectable detectors: those
-            already present in the provided circuit followed by any added flag detectors.  True
-            selects all selectable detectors, False (the default) selects none, a collection of
-            integers selects the selectable detectors with those indices (counted in the order
-            above, and possibly negative to count back from the last of them), and "flags" selects
-            exactly the added flag detectors, which requires ``add_flags=True``.  The final
+            as in get_state_prep_diagnostic_circuit.  By default, ``post_select`` then selects these
+            flag detectors, so that shots in which a flag fires are discarded.
+        post_select: The detectors to post-select on, out of the selectable detectors: those already
+            present in the provided circuit followed by any added flag detectors.  None (the
+            default) selects exactly the added flag detectors, if any; True selects all selectable
+            detectors; False selects none, which leaves any flag detectors to the decoder; and a
+            collection of integers selects the selectable detectors with those indices (counted in
+            the order above, and possibly negative to count back from the last of them).  The final
             (noiseless) stabilizer detectors are never selectable.  Shots in which any selected
             detector fires are discarded.
         post_select_observables: The observables to post-select on: True for all observables,
@@ -251,16 +251,15 @@ def get_state_prep_diagnostic_tasks(
             individual task is task.json_metadata["p"].
 
     Raises:
-        TypeError: If ``post_select`` is not a bool, "flags", or a collection of integer detector
+        TypeError: If ``post_select`` is not None, a bool, or a collection of integer detector
             indices, or if ``post_select_observables`` is neither a bool nor a collection of integer
             observable indices.
         ValueError: If the code is not a qubit code; if ``qubit_ids`` does not match the code; if
             ``skip_validation`` is False and the circuit does not deterministically prepare a pure
             logical state of the code; if an observable is the identity, has a symplectic row that
-            is not binary, or is not a Pauli operator on ``len(code)`` qubits; if ``post_select`` is
-            a string other than "flags", is "flags" without ``add_flags=True``, or has an index
-            outside the selectable detectors; or if ``post_select_observables`` has an index outside
-            the observables.
+            is not binary, or is not a Pauli operator on ``len(code)`` qubits; if ``post_select``
+            has an index outside the selectable detectors; or if ``post_select_observables`` has an
+            index outside the observables.
     """
     diagnostic_circuit, detector_record = get_state_prep_diagnostic_circuit(
         code,
@@ -271,7 +270,7 @@ def get_state_prep_diagnostic_tasks(
         skip_validation=skip_validation,
     )
     postselection_mask = _get_postselection_mask(
-        get_selected_detectors(post_select, detector_record, add_flags),
+        get_selected_detectors(post_select, detector_record),
         detector_record.num_events,
         "Detector",
     )
