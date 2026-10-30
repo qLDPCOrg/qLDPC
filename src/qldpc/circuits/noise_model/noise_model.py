@@ -8,6 +8,7 @@ See :mod:`qldpc.circuits.noise_model` for attribution and license information.
 from __future__ import annotations
 
 import collections
+import math
 from collections.abc import Callable, Collection, Iterable, Mapping
 
 import stim
@@ -17,9 +18,11 @@ from qldpc._utils import format_docstring
 from ..common import StimCircuitLike
 from ._moments import (
     categorize_moment_qubits,
+    compose_idle_channels,
     gate_qubits,
     get_immune_qubits,
     idle_barrier_qubits,
+    quadratic_idle_channel,
     repeated_idle_channel,
     split_targets_if_needed,
 )
@@ -41,7 +44,7 @@ from ._operations import (
     known_gate_shape,
     op_type,
 )
-from .channels import PauliChannel, PauliChannelSequence
+from .channels import _ABSOLUTE_ERROR_TOLERANCE, PauliChannel, PauliChannelSequence
 from .rules import (
     ErrorSpec,
     NoiseRule,
@@ -100,6 +103,7 @@ class NoiseModel:
         *,
         clifford_nq_error: Mapping[int, ErrorSpec] | None = None,
         idle_error: ErrorSpec | None = None,
+        quadratic_idle_error: float | Mapping[str, float] | PauliChannel | None = None,
         additional_error_waiting_for_m_or_r: ErrorSpec | None = None,
         rules: Mapping[str, NoiseRule] | None = None,
         rule_func: Callable[[stim.CircuitInstruction], NoiseRule | None] | None = None,
@@ -130,6 +134,13 @@ class NoiseModel:
                 idle qubits (its readout_error/reset_error fields are ignored).  Consecutive
                 Pauli-channel idle errors on a qubit are composed into one equivalent error; custom
                 Stim noise fragments are applied once per idle moment.
+            quadratic_idle_error: Error on each idling qubit in one moment, given as a float ``p``
+                (a uniform channel of total error probability ``p``), a ``Mapping[str, float]``
+                such as ``{"Z": p}``, or a one-qubit ``PauliChannel``, with total probability at
+                most 1/2.  Over a run of ``k`` consecutive idle moments, this error has total
+                probability ``(1 - (1 - 2 * p)**(k**2)) / 2``, split among Paulis as in one moment,
+                and is combined with the ``idle_error`` of the same moments.  See
+                :mod:`qldpc.circuits.noise_model` for its physical model and assumptions.
             additional_error_waiting_for_m_or_r: Additional noise rule or depolarization probability
                 applied to every non-collapsing qubit while another qubit undergoes measurement or
                 reset, including qubits undergoing a unitary operation.  Accepts the same NoiseRule
@@ -219,6 +230,19 @@ class NoiseModel:
                     f"`{field_name}` does not support a multi-qubit `after` rule "
                     f"(arity={idle_rule.after.num_qubits})."
                 )
+        # A quadratic idle error is a one-qubit Pauli channel that flips a qubit at most half the
+        # time in one moment.
+        self.quadratic_idle_error: PauliChannel | None = None
+        quadratic_idle_rule = _as_noise_rule(quadratic_idle_error, 1)
+        if quadratic_idle_rule is not None and quadratic_idle_rule.after is not None:
+            channel = quadratic_idle_rule.after
+            if not isinstance(channel, PauliChannel) or channel.num_qubits != 1:
+                raise ValueError("`quadratic_idle_error` must be a one-qubit PauliChannel")
+            if math.fsum(channel.probabilities.values()) > 0.5 + _ABSOLUTE_ERROR_TOLERANCE:
+                raise ValueError(
+                    "`quadratic_idle_error` must have a total probability of at most 1/2"
+                )
+            self.quadratic_idle_error = channel or None
         # Guards done — now trivialize.
         self.idle_error = self.idle_error or None
         self.additional_error_waiting_for_m_or_r = self.additional_error_waiting_for_m_or_r or None
@@ -242,6 +266,7 @@ class NoiseModel:
             or bool(self.readout_error)
             or bool(self.reset_error)
             or bool(self.idle_error)
+            or bool(self.quadratic_idle_error)
             or bool(self.additional_error_waiting_for_m_or_r)
         )
 
@@ -263,6 +288,8 @@ class NoiseModel:
             args.append(f"reset_error={self.reset_error!r}")
         if self.idle_error is not None:
             args.append(f"idle_error={self.idle_error!r}")
+        if self.quadratic_idle_error is not None:
+            args.append(f"quadratic_idle_error={self.quadratic_idle_error!r}")
         if self.additional_error_waiting_for_m_or_r is not None:
             args.append(
                 f"additional_error_waiting_for_m_or_r={self.additional_error_waiting_for_m_or_r!r}"
@@ -516,7 +543,9 @@ class NoiseModel:
             isinstance(op, stim.CircuitInstruction) and op_type(op.name) in GATE_OP_TYPES
             for op in moment
         )
-        if moment_was_noisy and (self.idle_error or self.additional_error_waiting_for_m_or_r):
+        if moment_was_noisy and (
+            self.idle_error or self.quadratic_idle_error or self.additional_error_waiting_for_m_or_r
+        ):
             self._inplace_append_idle_errors(
                 circuit=circuit,
                 collapsed_qubits=collapsed_qubits,
@@ -549,18 +578,22 @@ class NoiseModel:
             system_qubits: Set of all qubits in the system that can experience idle errors.
             immune_qubits: Qubits that are declared to be immune to noise.
             pending_idle_moments: Map from each qubit to its number of idle moments that have not
-                yet been emitted as noise.  Pauli idle errors are counted here, to be composed and
-                emitted by ``_flush_idle_errors``; other idle noise is emitted immediately.
+                yet been emitted as noise.  Pauli and quadratic idle errors are counted here, to be
+                composed and emitted by ``_flush_idle_errors``; other idle noise is emitted
+                immediately.
         """
         non_collapse_qubits = system_qubits - immune_qubits - set(collapsed_qubits)
         idle_qubits = sorted(non_collapse_qubits - set(operation_qubits))
 
-        if self.idle_error and idle_qubits:
-            if not isinstance(self.idle_error.after, (PauliChannel, PauliChannelSequence)):
+        count_idle_moments = self.quadratic_idle_error is not None
+        if self.idle_error is not None:
+            if isinstance(self.idle_error.after, (PauliChannel, PauliChannelSequence)):
+                count_idle_moments = True
+            elif idle_qubits:
                 self.idle_error.emit_after(circuit, idle_qubits, context="idle qubits")
-            else:
-                for qubit in idle_qubits:
-                    pending_idle_moments[qubit] = pending_idle_moments.get(qubit, 0) + 1
+        if count_idle_moments:
+            for qubit in idle_qubits:
+                pending_idle_moments[qubit] = pending_idle_moments.get(qubit, 0) + 1
         if self.additional_error_waiting_for_m_or_r and collapsed_qubits and non_collapse_qubits:
             self.additional_error_waiting_for_m_or_r.emit_after(
                 circuit, sorted(non_collapse_qubits), context="qubits waiting for m/r"
@@ -574,23 +607,29 @@ class NoiseModel:
     ) -> None:
         """Emit and clear the pending idle errors on the given qubits (by default, on all qubits).
 
-        Pending idle errors must be emitted before any instruction that targets their qubit, other
-        than ``I``, ``II``, or ``QUBIT_COORDS``.  They may be deferred past identity-gate and
-        waiting noise added by this model, since Stim noise channels commute with Pauli errors.
+        Pending idle errors must be emitted before any instruction that depends on the state of
+        their qubit, as identified by ``idle_barrier_qubits``.  They may be deferred past noise and
+        classically controlled Paulis, since Pauli errors commute with these up to signs that do
+        not affect detectors or observables.
         """
         if not pending_idle_moments:
             return
-        assert self.idle_error is not None
         qubits_by_count: dict[int, list[int]] = collections.defaultdict(list)
         for qubit in sorted(pending_idle_moments.keys() if qubits is None else qubits):
             if (count := pending_idle_moments.pop(qubit, None)) is not None:
                 qubits_by_count[count].append(qubit)
+        idle_channel = None if self.idle_error is None else self.idle_error.after
         for count, targets in qubits_by_count.items():
-            rule = self.idle_error
-            if count > 1:
-                assert isinstance(rule.after, (PauliChannel, PauliChannelSequence))
-                rule = NoiseRule(after=repeated_idle_channel(rule.after, count))
-            rule.emit_after(circuit, targets, context="idle qubits")
+            channels: list[PauliChannel | PauliChannelSequence] = []
+            if isinstance(idle_channel, (PauliChannel, PauliChannelSequence)):
+                channels.append(
+                    idle_channel if count == 1 else repeated_idle_channel(idle_channel, count)
+                )
+            if self.quadratic_idle_error is not None:
+                channels.append(quadratic_idle_channel(self.quadratic_idle_error, count))
+            if channels:
+                after = channels[0] if len(channels) == 1 else compose_idle_channels(*channels)
+                NoiseRule(after=after).emit_after(circuit, targets, context="idle qubits")
 
 
 class _NoisyCircuitBuilder:
