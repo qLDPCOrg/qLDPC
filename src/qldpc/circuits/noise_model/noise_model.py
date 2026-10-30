@@ -147,6 +147,11 @@ class NoiseModel:
                 pure-noise instructions, or classically controlled operations.  Returning ``None``
                 continues with named and default rule lookup.  Identities can fall back to named
                 rules, but not to Clifford defaults.
+
+        Raises:
+            ValueError: If readout_error or reset_error is not between 0 and 1, if a noise
+                specification is ambiguous or duplicated, or if a rule does not fit the gates that
+                it applies to.
         """
         self.rules = rules
         self.rule_func = rule_func
@@ -755,26 +760,36 @@ def _is_empty(circuit: stim.Circuit) -> bool:
 class DepolarizingNoiseModel(NoiseModel):
     """Creates a near-standard circuit depolarizing noise model.
 
-    All operations have the same error parameter p:
+    All operations have the same error probability p:
 
     - One-qubit Clifford gates get one-qubit depolarization.
     - Two-qubit Clifford gates get two-qubit depolarization.
-    - Measurements have their outcomes probabilistically flipped.
+    - Measurements have their outcomes flipped, including multi-qubit measurements such as MXX and
+      MPP, which get no depolarization.
     - Reset gates probabilistically reset qubits to the wrong (orthogonal) state.
-    - If applicable, every idling qubit in a given moment gets depolarized.
+    - If include_idling_error is True, every idling qubit in a given moment gets depolarized.
 
-    Multi-qubit Cliffords can also be depolarized by increasing the max_gate_size.
+    Unitary Clifford gates on more qubits, including Pauli-product rotations (SPP), can also be
+    depolarized by increasing the max_gate_size; otherwise, they are noiseless.
 
     Explicit ``I`` and ``II`` instructions are treated as idle markers: they are preserved, do not
-    receive gate noise, and their target qubits receive the configured idle noise.  Multi-qubit
-    measurement and Pauli-product rules are configured explicitly through ``rules`` (for example,
-    ``"MXX"`` or ``"SXYZ"``); arity-based Clifford defaults apply only to unitary Clifford gates.
+    receive gate noise, and their target qubits receive the configured idle noise.
     """
 
     def __init__(
         self, p: float, *, include_idling_error: bool = False, max_gate_size: int = 2
     ) -> None:
-        """Instantiate a depolarizing noise model."""
+        """Instantiate a depolarizing noise model.
+
+        Args:
+            p: The error probability of every noisy operation.
+            include_idling_error: Whether to depolarize idling qubits.  Default: False.
+            max_gate_size: The largest number of qubits of a unitary Clifford gate that gets
+                depolarized.  Default: 2.
+
+        Raises:
+            ValueError: If max_gate_size is less than 1, or p is not between 0 and 1.
+        """
         if max_gate_size < 1:
             raise ValueError("max_gate_size must be at least 1")
         self.p = p
@@ -790,7 +805,13 @@ class DepolarizingNoiseModel(NoiseModel):
 class SI1000NoiseModel(NoiseModel):
     """A superconducting-inspired noise model defined in "A Fault-Tolerant Honeycomb Memory".
 
-    This noise model is defined by a two-qubit gate infidelity that determines all error rates.
+    This noise model is defined by a two-qubit gate infidelity p that determines all error rates:
+
+    - One-qubit Clifford gates get one-qubit depolarization with probability ``p/10``.
+    - Two-qubit Clifford gates get two-qubit depolarization with probability ``p``.
+    - Measurements have their outcomes flipped with probability ``5*p``.
+    - Reset gates reset qubits to the wrong (orthogonal) state with probability ``2*p``.
+    - Every idling qubit in a given moment gets depolarized with probability ``p/10``.
 
     See https://arxiv.org/abs/2108.10457.  A qubit waiting while another qubit is measured or reset
     receives both the ordinary idling rate ``p/10`` and the additional waiting rate ``2*p``; this
@@ -798,7 +819,11 @@ class SI1000NoiseModel(NoiseModel):
     """
 
     def __init__(self, p: float) -> None:
-        """Instantiate a superconducting-inspired noise model."""
+        """Instantiate a superconducting-inspired noise model.
+
+        Args:
+            p: The two-qubit gate error probability, which sets all other error rates.
+        """
         self.p = p
         super().__init__(
             clifford_1q_error=p / 10,
