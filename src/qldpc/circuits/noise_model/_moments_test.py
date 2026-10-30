@@ -2,6 +2,9 @@
 
 """Unit tests for _moments.py."""
 
+import math
+
+import numpy as np
 import pytest
 import stim
 
@@ -161,3 +164,36 @@ def test_repeated_idle_channel() -> None:
         )
         single = _moments.repeated_idle_channel(circuits.PauliChannel({"X": p_x}), repetitions)
         assert sequence.probabilities == pytest.approx(single.probabilities)
+
+
+def test_quadratic_idle_channel() -> None:
+    """The twirl of a rotation by a Gaussian random angle that grows linearly over idle moments."""
+    paulis = {
+        "X": np.array([[0, 1], [1, 0]]),
+        "Y": np.array([[0, -1j], [1j, 0]]),
+        "Z": np.diag([1, -1]),
+    }
+    channel = circuits.PauliChannel({"X": 0.01, "Y": 0.02, "Z": 0.03})
+    total = math.fsum(channel.probabilities.values())
+    axis = sum(math.sqrt(p / total) * paulis[pauli] for pauli, p in channel.probabilities.items())
+
+    # one moment rotates by an angle with standard deviation sigma, which flips a qubit with total
+    # probability (1 - exp(-sigma**2 / 2)) / 2; average the twirl of k moments over the angle
+    sigma = math.sqrt(-2 * math.log(1 - 2 * total))
+    angles = np.linspace(-12 * sigma, 12 * sigma, 4001)
+    weights = np.exp(-(angles**2) / (2 * sigma**2))
+    weights /= weights.sum()
+    for moments in [1, 2, 7, 30]:
+        expected = dict.fromkeys(paulis, 0.0)
+        for angle, weight in zip(moments * angles, weights, strict=True):
+            unitary = math.cos(angle / 2) * np.eye(2) - 1j * math.sin(angle / 2) * axis
+            for pauli, matrix in paulis.items():
+                expected[pauli] += weight * abs(np.trace(matrix @ unitary) / 2) ** 2
+        repeated = _moments.quadratic_idle_channel(channel, moments)
+        assert repeated.probabilities == pytest.approx(expected, rel=1e-6)
+
+    # a fully dephasing moment stays fully dephasing, and a trivial channel stays trivial
+    dephased = _moments.quadratic_idle_channel(circuits.PauliChannel({"Z": 0.5}), 3)
+    assert dephased.probabilities == pytest.approx({"Z": 0.5})
+    trivial_channel = circuits.PauliChannel({}, num_qubits=1)
+    assert _moments.quadratic_idle_channel(trivial_channel, 5) == trivial_channel
