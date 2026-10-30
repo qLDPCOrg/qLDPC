@@ -28,18 +28,18 @@ The other notebooks in this group are standalone technical examples.
 Logical error rates
 --------------------
 
-The numbered route starts with sampled logical error rates and then introduces exact structural checks on circuits.
+The numbered route progresses from sampled logical error rates of codes and memory circuits to state preparation, exact fault-tolerance certificates, and a complete error-correction workflow.
 Each notebook answers a different scientific question, and none relies on files or state produced by an earlier notebook.
 
 * :doc:`Code capacity <logical_error_rates/1_code_capacity>` isolates the code and decoder with perfect checks.
 * :doc:`Fixed-basis memory <logical_error_rates/2_quantum_memory_x_or_z>` includes circuit-level faults and tracks one logical basis at a time.
 * :doc:`Combined-basis memory <logical_error_rates/3_quantum_memory_combined>` uses ideal reference qubits to track both logical bases in one diagnostic experiment.
-* :doc:`Memory fault distance <logical_error_rates/4_memory_fault_distance>` computes the minimum number of modeled mechanisms causing an undetected logical flip.
-* :doc:`State preparation <logical_error_rates/5_state_preparation>` brings sampled quality, discard rates, and bounded-propagation certificates together for a flagged preparation circuit.
+* :doc:`State preparation <logical_error_rates/4_state_preparation>` samples logical error and discard rates of a flagged preparation circuit.
+* :doc:`Fault-tolerance certificates <logical_error_rates/5_fault_tolerance_certificates>` computes the fault distance of memory circuits and checks bounded fault propagation in state preparation.
 * :doc:`Steane-swap QEC <logical_error_rates/6_steane_qec>` uses fresh encoded blocks in a complete correction workflow.
 
-For a memory study, start with code capacity and follow the first four notebooks.
-For preparation protocols, start directly with state preparation and continue to Steane-swap QEC; its ideal-reference construction is explained in the combined-basis memory notebook.
+For a memory study, follow the first three notebooks and then the fault-distance section of the certificates notebook.
+For preparation protocols, start directly with state preparation, then continue to its certificate and to Steane-swap QEC; the ideal-reference construction of Steane-swap QEC is explained in the combined-basis memory notebook.
 These are suggested reading routes, not execution prerequisites.
 The Sinter examples on this route use one worker by default and keep collected statistics separate from plotting.
 
@@ -49,8 +49,8 @@ The Sinter examples on this route use one worker by default and keep collected s
    logical_error_rates/1_code_capacity
    logical_error_rates/2_quantum_memory_x_or_z
    logical_error_rates/3_quantum_memory_combined
-   logical_error_rates/4_memory_fault_distance
-   logical_error_rates/5_state_preparation
+   logical_error_rates/4_state_preparation
+   logical_error_rates/5_fault_tolerance_certificates
    logical_error_rates/6_steane_qec
 
 Specialized topics
