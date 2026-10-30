@@ -92,8 +92,12 @@ To use a built-in decoder family, you can pass a specification such as ``decoder
    estimator = code.get_logical_error_rate_func(
        num_samples=10_000,
        decoder=qldpc.decoders.mwpm(),
+       seed=0,
    )
    logical_error_rate, stderr = estimator(np.logspace(-4, -2, 5))
+
+An integer ``seed`` starts a repeatable local sampling stream; a supplied NumPy ``Generator`` is advanced.
+With ``seed=None``, sampling uses NumPy's global RNG; decoder randomness is configured separately.
 
 To use your own decoder, pass a class or factory directly as ``decoder=MyErrorDecoder``.
 This factory must accept a parity-check matrix and return an error decoder, with a ``.decode_errors`` method (as in `Inferring errors`_).
