@@ -304,8 +304,15 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                                       v
                                      ...
 
-    If provided a sequence of subsets of detectors, construct sliding windows for each subset.  This
-    functionality is used to independently decode X and Z sectors of a CSS code.
+    The last window spans all remaining time steps, which can number up to
+    ``window_size + stride - 1``, and commits to all of them.  Time steps are consecutive integers,
+    so a gap in the time indices of detectors still counts toward the size of a window.
+
+    If provided a collection of subsets of detectors, construct sliding windows for each subset.
+    This functionality is used to decode the X and Z sectors of a CSS code separately.  The windows
+    of all subsets are still decoded in sequence, one subset after another, so an error mechanism
+    committed in a window of one subset is removed from the windows of later subsets, whose
+    syndromes are updated accordingly.
 
     This decoding method is known as the "overlapping recovery method" in arXiv:quant-ph/0110143,
     which is explained more nicely in arXiv:2012.15403 and arXiv:2209.08552.
@@ -335,9 +342,10 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             stride: The number of time steps by which to slide each window forward to get the next
                 window.  Equivalently, the size of each commit region.
             detector_subsets: A collection of subsets of detectors from a detector error model, or
-                None.  If not None, each provided subset is decoded independently.  If None, all
-                detectors are decoded together, as if the detector_subsets was a one-element list
-                containing the set of all detectors.  Default: None.
+                None.  If not None, windows are constructed separately for each provided subset, and
+                decoded one subset after another.  If None, all detectors are decoded together, as
+                if the detector_subsets was a one-element list containing the set of all detectors.
+                Default: None.
             detector_to_time: A function that maps each detector to a time coordinate that is used
                 to decide window boundaries, or None.  If None, the time index of each detector is
                 read from its coordinates in DetectorErrorModel.get_detector_coordinates(): the
@@ -356,9 +364,13 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
             decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None for
-                the default.  Each window builds its own decoder to infer errors it can commit.
+                the default (BP+OSD).  Each window builds its own decoder to infer errors it can
+                commit, so prebuilt decoders are rejected.
             **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
                 ``decoder=`` instead.
+
+        Raises:
+            ValueError: If window_size >= stride > 0 does not hold, or if decoder is prebuilt.
         """
         SinterDecoder.__init__(
             self,

@@ -41,7 +41,10 @@ class SinterDecoder(_SinterDecoder):
     """Sinter-compatible configuration that builds observable decoders.
 
     Pass a decoder specification as ``decoder=``.  Sinter compiles it for each detector error model
-    and uses the compiled decoder to predict observable flips.
+    and uses the compiled decoder to predict observable flips.  A specification that supports native
+    observable prediction, such as ``decoders.mwpm()``, builds an observable decoder; otherwise, the
+    errors that its decoder infers are converted into observable flips.  With no specification, the
+    default decoder is BP+OSD.
     """
 
     # completes the error message "A prebuilt decoder cannot be passed as decoder= here because ..."
@@ -64,13 +67,18 @@ class SinterDecoder(_SinterDecoder):
 
         Args:
             decoder: A decoder specification such as ``decoders.mwpm(...)``, or None for the default
-                decoder.  It is built for each (simplified) detector error model.
+                decoder.  It is built for each (simplified) detector error model, so prebuilt
+                decoders are rejected.
             simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for that
-                DEM.
+                DEM.  Default: True.
             decompose_errors: Whether to decompose errors according to their suggested decomposition
-                when compiling a decoder for a DEM.
+                when compiling a decoder for a DEM.  Default: False.
             **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
                 ``decoder=`` instead.
+
+        Raises:
+            ValueError: If decoder is prebuilt, or if decompose_errors is True for a specification
+                with ``enable_correlations=True``.
         """
         reject_prebuilt_decoder(decoder, self._prebuilt_decoder_rejection_reason)
         if (

@@ -36,8 +36,9 @@ class SubgraphDecoder(SinterDecoder):
     predictions cancel.  Compiling a SubgraphDecoder warns when a detector error model and a
     partition permit that, and when a detector belongs to no subgraph at all.
 
-    As an example, a SubgraphDecoder is useful for independently decoding the X and Z sectors of a
-    CSS code, where each sector owns the observables of the opposite type.
+    As an example, a SubgraphDecoder is useful for independently decoding the X-type and Z-type
+    errors of a CSS code: the subgraph of the detectors of Z-type checks, which witness X-type
+    errors, owns the Z-type observables that X-type errors flip, and likewise with X and Z swapped.
     """
 
     _prebuilt_decoder_rejection_reason = "a SubgraphDecoder builds a new decoder for each subgraph"
@@ -52,7 +53,7 @@ class SubgraphDecoder(SinterDecoder):
         decoder: DeferredDecoderInput = None,
         **decoder_kwargs: object,  # DEPRECATED: see qldpc._deprecations
     ) -> None:
-        """Initialize an observable decoder that splits a model into disjoint subgraphs.
+        """Initialize an observable decoder that splits a model into subgraphs.
 
         A SubgraphDecoder is used by Sinter to decode detection events from a detector error model
         to predict observable flips.
@@ -68,9 +69,14 @@ class SubgraphDecoder(SinterDecoder):
             decompose_errors: Whether to decompose errors according to their suggested decomposition
                 when compiling a decoder for a DEM.
             decoder: A decoder specification such as ``decoders.mwpm(...)``, or None for the
-                default.  A decoder is built for each subgraph's detector error model.
+                default.  A decoder is built for each subgraph's detector error model.  Prebuilt
+                decoders are rejected.
             **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
                 ``decoder=`` instead.
+
+        Raises:
+            ValueError: If subgraph_observables does not have one set of observables per subgraph,
+                or if decoder is prebuilt.
         """
         SinterDecoder.__init__(
             self,
