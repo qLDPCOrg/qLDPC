@@ -489,14 +489,14 @@ class ClassicalCode(AbstractCode):
         """Compute the exact minimum Hamming weight of nontrivial code words.
 
         The cost of this computation generally grows exponentially with the size of the code.  The
-        computed code distance is remembered for later calls.
+        computed code distance is remembered for later calls unless cutoff is greater than 1.
 
         Args:
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
                 With a cutoff greater than 1, a result at or below the cutoff may therefore be only
-                an upper bound on distance, which is not remembered.
+                an upper bound on distance, and no result is remembered.
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
                 alias ``"information_sets"``; ``"brute_force"`` enumerates every nonzero code word.
                 Nonbinary and vector-distance calculations always use exhaustive enumeration.
@@ -1992,12 +1992,12 @@ class QuditCode(AbstractCode):
         The weight of an operator is the number of qudits on which it acts nontrivially.  For a
         subsystem code, logical operators are dressed: they may be multiplied by gauge operators.
         The cost of this computation generally grows exponentially with the size of the code.  The
-        computed distance is remembered for later calls.
+        computed distance is remembered for later calls unless cutoff is greater than 1.
 
         Args:
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
                 With a cutoff greater than 1, a result at or below the cutoff may therefore be only
-                an upper bound on distance, which is not remembered.
+                an upper bound on distance, and no result is remembered.
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
                 alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
                 operator.  Nonbinary calculations always use exhaustive enumeration.
@@ -3368,7 +3368,7 @@ class CSSCode(QuditCode):
 
         For a subsystem code, logical operators are dressed: they may be multiplied by gauge
         operators.  The cost of this computation generally grows exponentially with the size of the
-        code.  Computed distances are remembered for later calls.
+        code.  Computed distances are remembered for later calls unless cutoff is greater than 1.
 
         Args:
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
@@ -3377,7 +3377,7 @@ class CSSCode(QuditCode):
                 default), minimize over X and Z.
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
                 With a cutoff greater than 1, a result at or below the cutoff may therefore be only
-                an upper bound on distance, which is not remembered.
+                an upper bound on distance, and no result is remembered.
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
                 alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
                 operator.  Nonbinary calculations always use exhaustive enumeration.
