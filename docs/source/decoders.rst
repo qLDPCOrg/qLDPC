@@ -1,7 +1,8 @@
 Choosing a decoder
 ==================
 
-Decoder-based distance bounds and logical error rate estimates require a decoder.
+A decoder interprets syndromes or detection events to infer errors or predict their effect on logical observables.
+qLDPC uses decoders to estimate logical error rates and to bound code distances.
 qLDPC lets you choose a decoder by creating a :class:`decoder specification <qldpc.decoders.construction.specs.DecoderSpec>`, such as ``spec = qldpc.decoders.bp_osd(...)``, which defines a decoding algorithm and its options.
 Any method with a ``decoder=`` argument, such as :meth:`qldpc.codes.CSSCode.get_logical_error_rate_func <qldpc.codes.common.CSSCode.get_logical_error_rate_func>` (see, for example, the :doc:`code-capacity notebook <examples/logical_error_rates/1_code_capacity>`), accepts and uses a decoder specification to internally compile a decoder for a fixed parity check matrix or detector error model.
 You can also pass your own decoder class or factory as ``decoder=``; see `Code-capacity logical error rate estimates`_ and `Using decoders with Sinter`_ for the inputs each workflow supplies.
@@ -33,12 +34,12 @@ You can install individual extras with, for example, ``pip install 'qldpc[relay-
 The ILP decoder needs the ``ilp`` extra, which installs ``cvxpy``: ``pip install 'qldpc[ilp]'``.
 The Frontier decoder is not available on PyPI, and must be installed manually; see `Backend limitations`_.
 
-The default decoder in qLDPC (with an argument of ``decoder=None``, where applicable), is BP+OSD for binary codes, and generalized union-find for codes over nonbinary finite fields.
+The default decoder in qLDPC (with an argument of ``decoder=None``, where applicable) is BP+OSD for binary codes, and generalized union-find for codes over nonbinary finite fields.
 
 Inferring errors
 ~~~~~~~~~~~~~~~~
 
-An :class:`error decoder <qldpc.decoders.protocols.ErrorDecoder>` inferrs errors from a syndrome with ``.decode_errors``.
+An :class:`error decoder <qldpc.decoders.protocols.ErrorDecoder>` infers errors from a syndrome with ``.decode_errors``.
 You can compile an error decoder for a parity check matrix with ``.build(parity_check_matrix)``:
 
 .. code-block:: python
@@ -91,7 +92,7 @@ To use a built-in decoder family, you can pass a specification such as ``decoder
    code = codes.SurfaceCode(3)
    estimator = code.get_logical_error_rate_func(
        num_samples=10_000,
-       decoder=qldpc.decoders.mwpm(),
+       decoder=decoders.mwpm(),
    )
    logical_error_rate, stderr = estimator(np.logspace(-4, -2, 5))
 
@@ -183,7 +184,7 @@ The pinned upstream release provides wheels for CPython 3.12--3.14 on macOS arm6
 By default, Tesseract merges interchangeable error mechanisms of a detector error model, but not identical columns of a parity-check matrix, for which merging could report a column other than the most likely one.
 Set ``merge_errors`` to override this choice.
 Tesseract reports a low-confidence result if its search does not converge within its configured beam or priority-queue limits; set ``add_erasure_bit=True`` to expose it as qLDPC's appended erasure flag.
-Named Sinter configurations of ``tessarect`` are available as named decoder specifications:
+Upstream's named Sinter configurations of Tesseract are available as decoder specifications:
 
 .. code-block:: python
 
@@ -208,7 +209,7 @@ These methods return a detailed result for one syndrome, while ``decode_errors``
 
 Relay-BP and PyMatching decoders also have ``decode_errors_detailed_batch`` and ``decode_observables_detailed_batch`` methods, which use their native batch decoding and return a tuple of detailed results in syndrome order.
 
-An :class:`decoders.ErrorDecodeResult <qldpc.decoders.protocols.ErrorDecodeResult>` contains ``error``.
+A :class:`decoders.ErrorDecodeResult <qldpc.decoders.protocols.ErrorDecodeResult>` contains ``error``.
 An :class:`decoders.ObservableDecodeResult <qldpc.decoders.protocols.ObservableDecodeResult>` contains ``observable_flips``.
 Both also contain an ``erasure`` boolean and a namespaced ``diagnostics`` dictionary.
 Each detailed-result prediction is the array that the corresponding hard method returns, which ends with an erasure bit only if erasure signaling is enabled.
