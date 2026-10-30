@@ -48,6 +48,28 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
     .. warning::
         This strategy is extremely slow because of unresolved multiprocessing and MCTS performance
         problems.
+
+    This strategy uses a Monte Carlo tree search (MCTS) to construct a syndrome measurement
+    circuit that minimizes logical error rates.
+
+    The MCTS requires building and simulating noisy evaluation circuits, which naturally
+    requires defining a noise model.  Computing a logical error rate, in turn, requires
+    specifying a decoder.  These are provided by the ``noise_model`` and ``decoder`` arguments
+    described below.
+
+    Args:
+        noise_model: The noise model to append to the syndrome measurement circuit.
+        decoder: The decoder that Sinter will use to compute logical error rates.  If this
+            argument is a string, it must be a decoder name recognized by Sinter, such as
+            "pymatching" or "fusion_blossom".  A qLDPC decoder input, such as the specification
+            ``decoders.bp_osd()``, is wrapped in ``decoders.SinterDecoder(decoder=decoder)``.
+        iters_per_step: Cumulative visit budget for each MCTS root as scheduling advances
+            (default: 1000).  Existing subtree visits count toward this budget.
+        shots_per_iter: Number of times to sample evaluation circuits (default: 10000).
+        exploration_weight: Exploration parameter of MCTS (default: sqrt(2)).
+        verbose: If True, print updates when constructing a syndrome extraction circuit.
+        seed: Seed for the schedule-search random number generator.  If None, use an
+            independently seeded generator.
     """
 
     def __init__(
@@ -61,30 +83,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         verbose: bool = True,
         seed: int | None = None,
     ) -> None:
-        """Initialize an AlphaSyndrome syndrome measurement strategy, based on arXiv:2601.12509.
-
-        This strategy uses a Monte Carlo tree search (MCTS) to construct a syndrome measurement
-        circuit that minimizes logical error rates.
-
-        The MCTS requires building and simulating noisy evaluation circuits, which naturally
-        requires defining a noise model.  Computing a logical error rate, in turn, requires
-        specifying a decoder.  These are provided by the ``noise_model`` and ``decoder`` arguments
-        described below.
-
-        Args:
-            noise_model: The noise model to append to the syndrome measurement circuit.
-            decoder: The decoder that Sinter will use to compute logical error rates.  If this
-                argument is a string, it must be a decoder name recognized by Sinter, such as
-                "pymatching" or "fusion_blossom".  A qLDPC decoder input, such as the specification
-                ``decoders.bp_osd()``, is wrapped in ``decoders.SinterDecoder(decoder=decoder)``.
-            iters_per_step: Cumulative visit budget for each MCTS root as scheduling advances
-                (default: 1000).  Existing subtree visits count toward this budget.
-            shots_per_iter: Number of times to sample evaluation circuits (default: 10000).
-            exploration_weight: Exploration parameter of MCTS (default: sqrt(2)).
-            verbose: If True, print updates when constructing a syndrome extraction circuit.
-            seed: Seed for the schedule-search random number generator.  If None, use an
-                independently seeded generator.
-        """
+        """Initialize an AlphaSyndrome syndrome measurement strategy, based on arXiv:2601.12509."""
         self.noise_model = noise_model
         if iters_per_step < 1:
             raise ValueError("iters_per_step must be at least 1")

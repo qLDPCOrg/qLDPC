@@ -41,7 +41,27 @@ class SinterDecoder(_SinterDecoder):
     """Sinter-compatible configuration that builds observable decoders.
 
     Pass a decoder specification as ``decoder=``.  Sinter compiles it for each detector error model
-    and uses the compiled decoder to predict observable flips.
+    and uses the compiled decoder to predict observable flips.  A specification that supports native
+    observable prediction, such as ``decoders.mwpm()``, builds an observable decoder; otherwise, the
+    errors that its decoder infers are converted into observable flips.  With no specification, the
+    default decoder is BP+OSD.
+
+    See help(sinter.Decoder) for additional information.
+
+    Args:
+        decoder: A decoder specification such as ``decoders.mwpm(...)``, or None for the default
+            decoder.  It is built for each (simplified) detector error model, so prebuilt
+            decoders are rejected.
+        simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for that
+            DEM.  Default: True.
+        decompose_errors: Whether to decompose errors according to their suggested decomposition
+            when compiling a decoder for a DEM.  Default: False.
+        **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
+            ``decoder=`` instead.
+
+    Raises:
+        ValueError: If decoder is prebuilt, or if decompose_errors is True for a specification
+            with ``enable_correlations=True``.
     """
 
     # completes the error message "A prebuilt decoder cannot be passed as decoder= here because ..."
@@ -58,20 +78,7 @@ class SinterDecoder(_SinterDecoder):
         decompose_errors: bool = False,
         **decoder_kwargs: object,  # DEPRECATED: see qldpc._deprecations
     ) -> None:
-        """Initialize a SinterDecoder.
-
-        See help(sinter.Decoder) for additional information.
-
-        Args:
-            decoder: A decoder specification such as ``decoders.mwpm(...)``, or None for the default
-                decoder.  It is built for each (simplified) detector error model.
-            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for that
-                DEM.
-            decompose_errors: Whether to decompose errors according to their suggested decomposition
-                when compiling a decoder for a DEM.
-            **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
-                ``decoder=`` instead.
-        """
+        """Initialize a SinterDecoder."""
         reject_prebuilt_decoder(decoder, self._prebuilt_decoder_rejection_reason)
         if (
             decompose_errors
@@ -159,6 +166,16 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
 
     If the inner observable decoder has a decode_shots_bit_packed method, .decode_shots_bit_packed
     uses it directly, unless a subclass customizes how shots are unpacked, decoded, or packed.
+
+    The decoder is exposed as the .decoder attribute, and the observable decoder that predicts
+    observable flips as the .observable_decoder attribute.  These coincide for a decoder that
+    predicts observable flips natively.
+
+    Args:
+        dem_arrays: The detector error model to decode.
+        decoder: A decoder for that detector error model.  A decoder with a decode_observables
+            method predicts observable flips natively.  Otherwise, the decoder is an error
+            decoder, whose inferred errors are converted into observable flips.
     """
 
     num_detectors: int
@@ -168,18 +185,7 @@ class CompiledSinterDecoder(_SinterCompiledDecoder, ObservableDecoder):
     def __init__(
         self, dem_arrays: DetectorErrorModelArrays, decoder: ErrorDecoder | ObservableDecoder
     ) -> None:
-        """Initialize a decoder compiled to a specific detector error model.
-
-        Args:
-            dem_arrays: The detector error model to decode.
-            decoder: A decoder for that detector error model.  A decoder with a decode_observables
-                method predicts observable flips natively.  Otherwise, the decoder is an error
-                decoder, whose inferred errors are converted into observable flips.
-
-        The decoder is exposed as the .decoder attribute, and the observable decoder that predicts
-        observable flips as the .observable_decoder attribute.  These coincide for a decoder that
-        predicts observable flips natively.
-        """
+        """Initialize a decoder compiled to a specific detector error model."""
         self.dem_arrays = dem_arrays
         self.decoder: ErrorDecoder | ObservableDecoder
         self.observable_decoder: ObservableDecoder

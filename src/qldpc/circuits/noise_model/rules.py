@@ -25,6 +25,42 @@ class NoiseRule:
 
     This class encapsulates the noise channels and measurement error probabilities that should be
     applied to a particular type of quantum operation.
+
+    Args:
+        after: Noise applied after each matching operation.  The noise is broadcast across all
+            of the instruction's qubit targets.  May be any of the following:
+
+            - ``PauliChannel``: a joint Pauli channel of some definite arity ``k``.  Emitted
+              natively via ``PAULI_CHANNEL_1`` / ``PAULI_CHANNEL_2`` when ``k ≤ 2`` or as a
+              ``CORRELATED_ERROR`` / ``ELSE_CORRELATED_ERROR`` chain per ``k``-qubit block for
+              ``k ≥ 3``.
+            - ``PauliChannelSequence``: a sequence of independent Pauli-string error mechanisms.
+            - ``Mapping[str, float]``: syntactic sugar for a ``PauliChannel``.  Keys are
+              non-identity Pauli strings (e.g., ``"X"``, ``"IZ"``, ``"XYZ"``); values are
+              probabilities.  Passed directly to ``PauliChannel(mapping)``.
+            - ``stim.Circuit``: a fragment of noise instructions emitted verbatim after each
+              ``k``-qubit block, with qubit indices remapped from ``[0, k)`` in the fragment
+              to the corresponding block's targets.  The fragment's arity is inferred from
+              ``circuit.num_qubits``.  Every instruction must be a Stim noise channel, such as
+              ``X_ERROR``, ``DEPOLARIZE1``, or ``PAULI_CHANNEL_1``.  Gates, measurements,
+              resets, annotations such as ``TICK``, heralded noise channels (which produce
+              measurement results), repeat blocks, and fragments that address no qubits are
+              rejected.  ``PauliChannel`` and ``Mapping`` arguments are preferred when they
+              suffice, as the ``stim.Circuit`` form skips native broadcasting.
+
+        readout_error: The probability that a measurement result is reported incorrectly.  Only
+            allowed for operations that produce measurement results.  ``None`` (the default)
+            means the field is unset (validation ignores it); ``0.0`` is an explicit no-op flip
+            probability that is still validated against the gate type.
+        reset_error: The probability that a qubit is reset to the wrong state.  Only allowed for
+            operations that reset qubits.  Same ``None`` vs. ``0.0`` distinction as
+            ``readout_error``.
+
+    Raises:
+        ValueError: If any Pauli string is invalid, any probability is not in [0, 1], or the
+            ``stim.Circuit`` form contains an instruction other than a noise channel without
+            measurement results or addresses no qubits.
+        TypeError: If the ``stim.Circuit`` form contains a repeat block.
     """
 
     def __init__(
@@ -34,44 +70,7 @@ class NoiseRule:
         readout_error: float | None = None,
         reset_error: float | None = None,
     ) -> None:
-        """Initializes a noise rule with specified error channels.
-
-        Args:
-            after: Noise applied after each matching operation.  The noise is broadcast across all
-                of the instruction's qubit targets.  May be any of the following:
-
-                - ``PauliChannel``: a joint Pauli channel of some definite arity ``k``.  Emitted
-                    natively via ``PAULI_CHANNEL_1`` / ``PAULI_CHANNEL_2`` when ``k ≤ 2`` or as a
-                    ``CORRELATED_ERROR`` / ``ELSE_CORRELATED_ERROR`` chain per ``k``-qubit block for
-                    ``k ≥ 3``.
-                - ``PauliChannelSequence``: a sequence of independent Pauli-string error mechanisms.
-                - ``Mapping[str, float]``: syntactic sugar for a ``PauliChannel``.  Keys are
-                    non-identity Pauli strings (e.g., ``"X"``, ``"IZ"``, ``"XYZ"``); values are
-                    probabilities.  Passed directly to ``PauliChannel(mapping)``.
-                - ``stim.Circuit``: a fragment of noise instructions emitted verbatim after each
-                    ``k``-qubit block, with qubit indices remapped from ``[0, k)`` in the fragment
-                    to the corresponding block's targets.  The fragment's arity is inferred from
-                    ``circuit.num_qubits``.  Every instruction must be a Stim noise channel, such as
-                    ``X_ERROR``, ``DEPOLARIZE1``, or ``PAULI_CHANNEL_1``.  Gates, measurements,
-                    resets, annotations such as ``TICK``, heralded noise channels (which produce
-                    measurement results), repeat blocks, and fragments that address no qubits are
-                    rejected.  ``PauliChannel`` and ``Mapping`` arguments are preferred when they
-                    suffice, as the ``stim.Circuit`` form skips native broadcasting.
-
-            readout_error: The probability that a measurement result is reported incorrectly.  Only
-                allowed for operations that produce measurement results.  ``None`` (the default)
-                means the field is unset (validation ignores it); ``0.0`` is an explicit no-op flip
-                probability that is still validated against the gate type.
-            reset_error: The probability that a qubit is reset to the wrong state.  Only allowed for
-                operations that reset qubits.  Same ``None`` vs. ``0.0`` distinction as
-                ``readout_error``.
-
-        Raises:
-            ValueError: If any Pauli string is invalid, any probability is not in [0, 1], or the
-                ``stim.Circuit`` form contains an instruction other than a noise channel without
-                measurement results or addresses no qubits.
-            TypeError: If the ``stim.Circuit`` form contains a repeat block.
-        """
+        """Initializes a noise rule with specified error channels."""
         self.readout_error = readout_error
         if readout_error is not None and not (0 <= readout_error <= 1):
             raise ValueError(f"{readout_error=} is not between 0 and 1")

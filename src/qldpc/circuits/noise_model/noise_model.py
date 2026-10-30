@@ -92,6 +92,60 @@ class NoiseModel:
     are assumed to NOT occur, so the corresponding qubits pick up idling errors, if applicable.
     Explicit ``I`` and ``II`` markers are likewise treated as idle time rather than ordinary
     Clifford gates, but ``rules`` and ``rule_func`` may assign additional custom noise to them.
+
+    Args:
+        clifford_1q_error: Default noise applied after each one-qubit unitary Clifford gate.  A
+            float ``p`` is a uniform 1-qubit depolarizing channel of total error probability
+            ``p``.  Also accepts a ``Mapping[str, float]`` from one-qubit non-identity
+            Pauli-strings to probabilities, a ``PauliChannel``, or a ``NoiseRule``.
+        clifford_2q_error: Default noise applied after each two-qubit unitary Clifford gate.  A
+            float ``p`` is a uniform 2-qubit depolarizing channel of total error probability
+            ``p``.  Also accepts a ``Mapping[str, float]`` from two-qubit non-identity
+            Pauli-strings to probabilities, a ``PauliChannel``, or a ``NoiseRule``.
+        readout_error: Default probability of flipping measurement results.
+        reset_error: Default probability of resetting qubits to the wrong state.
+        clifford_nq_error: Optional mapping from a qubit count ``k`` to the noise applied after
+            each ``k``-qubit unitary Clifford gate, similarly to ``clifford_?q_error``.
+            Specifying both ``clifford_nq_error[1]`` and ``clifford_1q_error`` raises an
+            ambiguity error; likewise with ``clifford_nq_error[2]`` and ``clifford_2q_error``.
+            This dispatch intentionally excludes MXX/MYY/MZZ and MPP measurements.  SPP uses
+            this dispatch when a matching arity is configured; there is no fallback for an
+            unconfigured multi-qubit arity.  Configure basis-specific rules explicitly when
+            needed.
+        idle_error: Noise rule or depolarization probability applied to each idling qubit in any
+            given moment.  If a NoiseRule is provided, its `after` channels are appended to the
+            idle qubits (its readout_error/reset_error fields are ignored).  Consecutive
+            Pauli-channel idle errors on a qubit are composed into one equivalent error; custom
+            Stim noise fragments are applied once per idle moment.
+        quadratic_idle_error: Error on each idling qubit in one moment, given as a float ``p``
+            (a uniform channel of total error probability ``p``), a ``Mapping[str, float]``
+            such as ``{"Z": p}``, or a one-qubit ``PauliChannel``, with total probability at
+            most 1/2.  Over a run of ``k`` consecutive idle moments, this error has total
+            probability ``(1 - (1 - 2 * p)**(k**2)) / 2``, split among Paulis as in one moment,
+            and is combined with the ``idle_error`` of the same moments.  See
+            :mod:`qldpc.circuits.noise_model` for its physical model and assumptions.
+        additional_error_waiting_for_m_or_r: Additional noise rule or depolarization probability
+            applied to every non-collapsing qubit while another qubit undergoes measurement or
+            reset, including qubits undergoing a unitary operation.  Accepts the same NoiseRule
+            fields as ``idle_error``, but is always applied once per moment.
+        rules: Dictionary mapping specific gate names to their noise rules.  Overrides the
+            arity-based defaults for unitary, measurement, and reset gates.  Explicit ``I`` and
+            ``II`` markers accept one- and two-qubit ``after`` rules, respectively.  If
+            ``idle_error`` is also configured, both kinds of noise are applied.
+        rule_func: Optional callback function that maps a ``stim.CircuitInstruction`` to a
+            ``NoiseRule``.  The callback is evaluated before named and default rules.  Broadcast
+            instructions are split first, so each callback input represents one gate
+            application: one target for a one-qubit gate, two for a two-qubit gate, or one Pauli
+            product for an SPP/MPP instruction.  The callback receives unitary Cliffords,
+            measurements, resets, and explicit ``I`` / ``II`` idle markers, but not annotations,
+            pure-noise instructions, or classically controlled operations.  Returning ``None``
+            continues with named and default rule lookup.  Identities can fall back to named
+            rules, but not to Clifford defaults.
+
+    Raises:
+        ValueError: If readout_error or reset_error is not between 0 and 1, if a noise
+            specification is ambiguous or duplicated, or if a rule does not fit the gates that
+            it applies to.
     """
 
     def __init__(
@@ -108,57 +162,7 @@ class NoiseModel:
         rules: Mapping[str, NoiseRule] | None = None,
         rule_func: Callable[[stim.CircuitInstruction], NoiseRule | None] | None = None,
     ) -> None:
-        """Initializes a noise model with specified parameters.
-
-        Args:
-            clifford_1q_error: Default noise applied after each one-qubit unitary Clifford gate.  A
-                float ``p`` is a uniform 1-qubit depolarizing channel of total error probability
-                ``p``.  Also accepts a ``Mapping[str, float]`` from one-qubit non-identity
-                Pauli-strings to probabilities, a ``PauliChannel``, or a ``NoiseRule``.
-            clifford_2q_error: Default noise applied after each two-qubit unitary Clifford gate.  A
-                float ``p`` is a uniform 2-qubit depolarizing channel of total error probability
-                ``p``.  Also accepts a ``Mapping[str, float]`` from two-qubit non-identity
-                Pauli-strings to probabilities, a ``PauliChannel``, or a ``NoiseRule``.
-            readout_error: Default probability of flipping measurement results.
-            reset_error: Default probability of resetting qubits to the wrong state.
-            clifford_nq_error: Optional mapping from a qubit count ``k`` to the noise applied after
-                each ``k``-qubit unitary Clifford gate, similarly to ``clifford_?q_error``.
-                Specifying both ``clifford_nq_error[1]`` and ``clifford_1q_error`` raises an
-                ambiguity error; likewise with ``clifford_nq_error[2]`` and ``clifford_2q_error``.
-                This dispatch intentionally excludes MXX/MYY/MZZ and MPP measurements.  SPP uses
-                this dispatch when a matching arity is configured; there is no fallback for an
-                unconfigured multi-qubit arity.  Configure basis-specific rules explicitly when
-                needed.
-            idle_error: Noise rule or depolarization probability applied to each idling qubit in any
-                given moment.  If a NoiseRule is provided, its `after` channels are appended to the
-                idle qubits (its readout_error/reset_error fields are ignored).  Consecutive
-                Pauli-channel idle errors on a qubit are composed into one equivalent error; custom
-                Stim noise fragments are applied once per idle moment.
-            quadratic_idle_error: Error on each idling qubit in one moment, given as a float ``p``
-                (a uniform channel of total error probability ``p``), a ``Mapping[str, float]``
-                such as ``{"Z": p}``, or a one-qubit ``PauliChannel``, with total probability at
-                most 1/2.  Over a run of ``k`` consecutive idle moments, this error has total
-                probability ``(1 - (1 - 2 * p)**(k**2)) / 2``, split among Paulis as in one moment,
-                and is combined with the ``idle_error`` of the same moments.  See
-                :mod:`qldpc.circuits.noise_model` for its physical model and assumptions.
-            additional_error_waiting_for_m_or_r: Additional noise rule or depolarization probability
-                applied to every non-collapsing qubit while another qubit undergoes measurement or
-                reset, including qubits undergoing a unitary operation.  Accepts the same NoiseRule
-                fields as ``idle_error``, but is always applied once per moment.
-            rules: Dictionary mapping specific gate names to their noise rules.  Overrides the
-                arity-based defaults for unitary, measurement, and reset gates.  Explicit ``I`` and
-                ``II`` markers accept one- and two-qubit ``after`` rules, respectively.  If
-                ``idle_error`` is also configured, both kinds of noise are applied.
-            rule_func: Optional callback function that maps a ``stim.CircuitInstruction`` to a
-                ``NoiseRule``.  The callback is evaluated before named and default rules.  Broadcast
-                instructions are split first, so each callback input represents one gate
-                application: one target for a one-qubit gate, two for a two-qubit gate, or one Pauli
-                product for an SPP/MPP instruction.  The callback receives unitary Cliffords,
-                measurements, resets, and explicit ``I`` / ``II`` idle markers, but not annotations,
-                pure-noise instructions, or classically controlled operations.  Returning ``None``
-                continues with named and default rule lookup.  Identities can fall back to named
-                rules, but not to Clifford defaults.
-        """
+        """Initializes a noise model with specified parameters."""
         self.rules = rules
         self.rule_func = rule_func
         if rules is not None:
@@ -794,20 +798,29 @@ def _is_empty(circuit: stim.Circuit) -> bool:
 class DepolarizingNoiseModel(NoiseModel):
     """Creates a near-standard circuit depolarizing noise model.
 
-    All operations have the same error parameter p:
+    All operations have the same error probability p:
 
     - One-qubit Clifford gates get one-qubit depolarization.
     - Two-qubit Clifford gates get two-qubit depolarization.
-    - Measurements have their outcomes probabilistically flipped.
+    - Measurements have their outcomes flipped, including multi-qubit measurements such as MXX and
+      MPP, which get no depolarization.
     - Reset gates probabilistically reset qubits to the wrong (orthogonal) state.
-    - If applicable, every idling qubit in a given moment gets depolarized.
+    - If include_idling_error is True, every idling qubit in a given moment gets depolarized.
 
-    Multi-qubit Cliffords can also be depolarized by increasing the max_gate_size.
+    Unitary Clifford gates on more qubits, including Pauli-product rotations (SPP), can also be
+    depolarized by increasing the max_gate_size; otherwise, they are noiseless.
 
     Explicit ``I`` and ``II`` instructions are treated as idle markers: they are preserved, do not
-    receive gate noise, and their target qubits receive the configured idle noise.  Multi-qubit
-    measurement and Pauli-product rules are configured explicitly through ``rules`` (for example,
-    ``"MXX"`` or ``"SXYZ"``); arity-based Clifford defaults apply only to unitary Clifford gates.
+    receive gate noise, and their target qubits receive the configured idle noise.
+
+    Args:
+        p: The error probability of every noisy operation.
+        include_idling_error: Whether to depolarize idling qubits.  Default: False.
+        max_gate_size: The largest number of qubits of a unitary Clifford gate that gets
+            depolarized.  Default: 2.
+
+    Raises:
+        ValueError: If max_gate_size is less than 1, or p is not between 0 and 1.
     """
 
     def __init__(
@@ -829,11 +842,20 @@ class DepolarizingNoiseModel(NoiseModel):
 class SI1000NoiseModel(NoiseModel):
     """A superconducting-inspired noise model defined in "A Fault-Tolerant Honeycomb Memory".
 
-    This noise model is defined by a two-qubit gate infidelity that determines all error rates.
+    This noise model is defined by a two-qubit gate infidelity p that determines all error rates:
+
+    - One-qubit Clifford gates get one-qubit depolarization with probability ``p/10``.
+    - Two-qubit Clifford gates get two-qubit depolarization with probability ``p``.
+    - Measurements have their outcomes flipped with probability ``5*p``.
+    - Reset gates reset qubits to the wrong (orthogonal) state with probability ``2*p``.
+    - Every idling qubit in a given moment gets depolarized with probability ``p/10``.
 
     See https://arxiv.org/abs/2108.10457.  A qubit waiting while another qubit is measured or reset
     receives both the ordinary idling rate ``p/10`` and the additional waiting rate ``2*p``; this
     matches the cited reference implementation.
+
+    Args:
+        p: The two-qubit gate error probability, which sets all other error rates.
     """
 
     def __init__(self, p: float) -> None:

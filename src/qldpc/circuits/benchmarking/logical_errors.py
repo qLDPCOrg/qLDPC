@@ -89,7 +89,8 @@ def get_logical_error_and_discard_rate(
             with the (simplified) DEM sampled from ``circuit_or_dem``.
 
     Returns:
-        A fraction of the retained samples in which at least one observable was decoded incorrectly.
+        A fraction of the retained samples in which at least one observable was decoded incorrectly,
+        or NaN if no sample was retained.
         A fraction of samples that were discarded, either by post-selection or at the request of the
         decoder, which signals that a shot should be discarded by predicting observable flips in one
         more byte than the observables of the sampled circuit require.  These are point estimates.

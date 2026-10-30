@@ -43,7 +43,8 @@ def get_state_prep_diagnostic_circuit(
     provided circuit:
 
     - If ``add_flags is True``, a detector for each measurement that is not addressed by an existing
-      detector in the provided circuit.  The added detectors are called "flag detectors".
+      detector or observable in the provided circuit.  The added detectors are called "flag
+      detectors".
     - Noiseless measurements of all stabilizers of the code.
     - A detector for each of the noiseless stabilizer measurements.
     - Noiseless measurements of observables that stabilize the state prepared by
@@ -69,7 +70,8 @@ def get_state_prep_diagnostic_circuit(
         state_prep_circuit: A circuit that prepares a logical state of the provided code.
 
     Keyword args:
-        add_flags: Whether to add a flag detector for each unaddressed measurement in the circuit.
+        add_flags: Whether to add a flag detector for each measurement in the circuit that no
+            detector or observable addresses.  Default: False.
         qubit_ids: A QubitIDs object specifying the indices of the data qubits of the code.  If
             None, the data qubits of the code are assumed to be range(len(code)).
         observables: The observables that should stabilize the prepared state, or (by default) None.
