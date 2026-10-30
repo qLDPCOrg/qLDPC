@@ -6,14 +6,13 @@ They serve three purposes: an introduction to using ``qLDPC``, pedagogical mater
 
 Each notebook runs independently from a fresh kernel.
 Setup cells install qLDPC and any additional packages needed by that notebook into the active kernel.
-The decoder introduction uses an already installed checkout and runs offline.
 Workflow cells use ordinary Python, but a script must place calls to ``sinter.collect`` or TQEC's Sinter runner under an ``if __name__ == "__main__":`` guard because Sinter starts worker processes with Python's spawn method.
 The stored simulations use bounded sample budgets for documentation; they are not publication-quality benchmarks.
 
 Getting started
 ---------------
 
-Start with :doc:`basics` for matrix-defined classical and CSS codes, logical operators, Tanner graphs, and subsystem-code terminology.
+Start with :doc:`basics` for matrix-defined classical and CSS codes, logical operators, Tanner graphs, subsystem-code terminology, and codes over other finite fields.
 The other notebooks in this group are standalone technical examples.
 
 .. toctree::
