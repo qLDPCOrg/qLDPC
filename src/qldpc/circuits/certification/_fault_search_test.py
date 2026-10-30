@@ -312,7 +312,7 @@ def _certify_map(
 ) -> _fault_search.Violation | None:
     """Search primitive faults with these flags and syndromes on |0...0> against brute force."""
     violation = _fault_search.find_smallest_violation(
-        flags, syndromes, _z_state(num_qubits), False, max_weight
+        flags, syndromes, _z_state(num_qubits), max_weight, False
     )
     smallest = _smallest_violation(flags, syndromes, max_weight)
     assert (violation is None) == (smallest is None)
@@ -422,7 +422,7 @@ def test_memory_limit_does_not_change_results(pytestconfig: pytest.Config) -> No
         maps.append((flags, list(map(int, rng.integers(64, size=num_primitives)))))
     for flags, syndromes in maps:
         results = [
-            _fault_search.find_smallest_violation(flags, syndromes, _z_state(6), False, None, limit)
+            _fault_search.find_smallest_violation(flags, syndromes, _z_state(6), None, False, limit)
             for limit in (1, 2**20)
         ]
         assert results[0] == results[1] == _certify_map(flags, syndromes, None, 6)

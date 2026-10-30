@@ -413,7 +413,9 @@ def test_certificate_prints_a_summary_and_locates_counterexample_faults() -> Non
     certificate = circuits.certify_bounded_fault_propagation(
         circuit, output_qubits=[3, 2, 1, 0, 9], add_flags=True, post_select="flags"
     )
-    # The faults are listed in DEM order, and Stim names CORRELATED_ERROR by its alias E.
+    # The faults are listed in DEM order, and Stim names CORRELATED_ERROR by its alias E.  The
+    # instruction indices point into the certified circuit.
+    assert [circuit[index].name for index in (2, 3)] == ["E", "E"]
     header, faults, first, second, error, bound = str(certificate).splitlines()
     assert header == (
         "Bounded fault propagation violated at fault weight 2"
@@ -421,8 +423,8 @@ def test_certificate_prints_a_summary_and_locates_counterexample_faults() -> Non
     )
     assert faults == "  fault of 2 error mechanisms, which passes post-selection:"
     assert {first, second} == {
-        "    X0 X1 X4 from E on qubits [0, 1, 4] at tick 0",
-        "    X2 X3 X4 from E on qubits [2, 3, 4] at tick 0",
+        "    X0 X1 X4 from E on qubits [0, 1, 4] at instruction 2, tick 0",
+        "    X2 X3 X4 from E on qubits [2, 3, 4] at instruction 3, tick 0",
     }
     assert error == "  output error, up to stabilizers: X on [3, 2, 1, 0], Z on []"
     assert certificate.counterexample is not None
@@ -439,12 +441,32 @@ def test_certificate_prints_a_summary_and_locates_counterexample_faults() -> Non
     assert str(limited).startswith("Bounded fault propagation certified up to fault weight 1")
 
 
-def test_error_mechanism_descriptions_cover_measurement_flips_and_unexplained_errors() -> None:
-    """Measurement flips are named, and a mechanism that Stim cannot place is shown as is."""
+def test_error_mechanism_descriptions_name_measurements_and_loops() -> None:
+    """Measurement flips and REPEAT iterations are named, and unplaced mechanisms shown as is."""
     circuit = stim.Circuit("M(0.1) 0\nDETECTOR rec[-1]")
     error = circuit.detector_error_model()[0]
     description = fault_propagation._describe_error_mechanism(circuit, error)
-    assert description == "flip of measurement 0 from M on qubits [0] at tick 0"
+    assert description == "flip of measurement 0 from M on qubits [0] at instruction 0, tick 0"
+
+    # Detector 5 is in iteration 1 of the outer loop and iteration 2 of the inner loop.
+    nested = stim.Circuit("""
+        REPEAT 2 {
+            TICK
+            REPEAT 3 {
+                R 0
+                X_ERROR(0.1) 0
+                M 0
+                DETECTOR rec[-1]
+            }
+        }
+    """)
+    error = stim.DetectorErrorModel("error(0.1) D5")[0]
+    assert fault_propagation._describe_error_mechanism(nested, error) == (
+        "X0 from X_ERROR on qubits [0]"
+        " at instruction 1 in iteration 2 of REPEAT instruction 1"
+        " in iteration 1 of REPEAT instruction 0, tick 2"
+    )
+
     unexplained = stim.DetectorErrorModel("error(0.1) D0 D1")[0]
     noiseless = stim.Circuit("M 0 1\nDETECTOR rec[-1]\nDETECTOR rec[-2]")
     assert fault_propagation._describe_error_mechanism(noiseless, unexplained) == str(unexplained)
