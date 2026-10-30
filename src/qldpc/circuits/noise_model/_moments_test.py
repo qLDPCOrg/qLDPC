@@ -205,6 +205,18 @@ def test_quadratic_idle_channel() -> None:
         assert _compose(prior, rest) == pytest.approx(whole.probabilities)
 
 
+def test_compose_idle_channels() -> None:
+    """Independent idle errors compose into one channel, whether exclusive or independent events."""
+    exclusive = circuits.PauliChannel({"X": 0.1, "Z": 0.2})
+    independent = circuits.PauliChannelSequence({"X": 0.1, "Z": 0.2})
+    other = circuits.PauliChannel({"Y": 0.05, "Z": 0.3})
+    composed = _moments.compose_idle_channels(exclusive, other)
+    assert composed.probabilities == pytest.approx(_compose(exclusive, other))
+    events = _compose(circuits.PauliChannel({"X": 0.1}), circuits.PauliChannel({"Z": 0.2}))
+    composed = _moments.compose_idle_channels(independent, other)
+    assert composed.probabilities == pytest.approx(_compose(circuits.PauliChannel(events), other))
+
+
 def test_saturated_run_length() -> None:
     """Beyond a saturated run length, a quadratic idle error is exactly 1/2 in floating point."""
     for probability in [1e-9, 0.01, 0.4]:

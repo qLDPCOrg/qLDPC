@@ -18,6 +18,7 @@ from qldpc._utils import format_docstring
 from ..common import StimCircuitLike
 from ._moments import (
     categorize_moment_qubits,
+    compose_idle_channels,
     gate_qubits,
     get_immune_qubits,
     idle_barrier_qubits,
@@ -149,8 +150,8 @@ class NoiseModel:
                 the qubit as idle, so it ends only when a gate, measurement, or reset acts on the
                 qubit; before an instruction that a pending idle error must precede, such as a
                 noise channel or a Pauli-target annotation, the error of the run so far is applied,
-                and later moments complete the error of the whole run.  This error is applied after
-                the ``idle_error`` of the same moments.
+                and later moments complete the error of the whole run.  If ``idle_error`` is a
+                Pauli channel, the two errors of the same moments are combined into one.
             additional_error_waiting_for_m_or_r: Additional noise rule or depolarization probability
                 applied to every non-collapsing qubit while another qubit undergoes measurement or
                 reset, including qubits undergoing a unitary operation.  Accepts the same NoiseRule
@@ -635,17 +636,22 @@ class NoiseModel:
                 qubits_by_counts[count, run_moments.get(qubit, 0)].append(qubit)
         idle_channel = None if self.idle_error is None else self.idle_error.after
         for (count, prior_count), targets in qubits_by_counts.items():
+            channels: list[PauliChannel | PauliChannelSequence] = []
             if isinstance(idle_channel, (PauliChannel, PauliChannelSequence)):
-                after = idle_channel if count == 1 else repeated_idle_channel(idle_channel, count)
-                NoiseRule(after=after).emit_after(circuit, targets, context="idle qubits")
+                channels.append(
+                    idle_channel if count == 1 else repeated_idle_channel(idle_channel, count)
+                )
             if self.quadratic_idle_error is not None:
-                after = quadratic_idle_channel(self.quadratic_idle_error, count, prior_count)
-                if after:
-                    NoiseRule(after=after).emit_after(circuit, targets, context="idle qubits")
+                channel = quadratic_idle_channel(self.quadratic_idle_error, count, prior_count)
+                if channel:
+                    channels.append(channel)
                 run_length = min(
                     prior_count + count, saturated_run_length(self.quadratic_idle_error)
                 )
                 run_moments.update(dict.fromkeys(targets, run_length))
+            if channels:
+                after = channels[0] if len(channels) == 1 else compose_idle_channels(*channels)
+                NoiseRule(after=after).emit_after(circuit, targets, context="idle qubits")
 
 
 class _NoisyCircuitBuilder:

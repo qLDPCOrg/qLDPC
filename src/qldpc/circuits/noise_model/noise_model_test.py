@@ -328,19 +328,19 @@ def test_quadratic_idle_errors() -> None:
     assert noisy.approx_equals(expected, atol=1e-12)
 
     # Over a long idle run, the flip probability saturates: it is (1 - exp(-2)) / 2 rather than
-    # 1000**2 * 1e-6 = 1.  It follows the composed idle_error.
+    # 1000**2 * 1e-6 = 1.  It is combined with the independent idle_error into one channel.
     circuit = stim.Circuit("R 0\nTICK")
     circuit.append(stim.CircuitRepeatBlock(1000, stim.Circuit("X 1\nTICK")))
     circuit += stim.Circuit("M 0")
     model = circuits.NoiseModel(idle_error={"X": 0.01}, quadratic_idle_error={"Z": 1e-6})
+    p_x, p_z = (1 - 0.98**1000) / 2, (1 - math.exp(-2)) / 2
     expected = stim.Circuit(f"""
         R 0
         REPEAT 1000 {{
             TICK
             X 1
         }}
-        X_ERROR({(1 - 0.98**1000) / 2}) 0
-        Z_ERROR({(1 - math.exp(-2)) / 2}) 0
+        PAULI_CHANNEL_1({p_x * (1 - p_z)}, {p_x * p_z}, {(1 - p_x) * p_z}) 0
         TICK
         M 0
     """)

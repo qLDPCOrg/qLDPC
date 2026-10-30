@@ -124,7 +124,7 @@ Identity rules and ``idle_error`` stack: when both match, both are applied.
 fluctuates from one shot to the next.  Such noise rotates an idle qubit at a random rate, by an
 angle that grows linearly with the number of consecutive idle moments.  Averaged over that rate,
 the resulting error has a probability that grows quadratically while it is small and saturates at
-1/2.  It is emitted after the combined ``idle_error``.
+1/2.  It is combined with the ``idle_error`` of the same moments into one equivalent error.
 
 .. rubric:: Attribution and license
 

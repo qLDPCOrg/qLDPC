@@ -351,6 +351,25 @@ def saturated_run_length(channel: PauliChannel) -> int:
     return math.ceil(math.sqrt(746 / -math.log1p(-2 * total)))
 
 
+def compose_idle_channels(
+    first: PauliChannel | PauliChannelSequence, second: PauliChannel | PauliChannelSequence
+) -> PauliChannel:
+    """The one-qubit Pauli channel that applies independent errors from two one-qubit channels."""
+    distribution: tuple[float, ...] = (1.0, 0.0, 0.0, 0.0)
+    for channel in (first, second):
+        if isinstance(channel, PauliChannelSequence):
+            # a sequence of independent Pauli events, each of which fires with its own probability
+            for pauli, probability in channel.probabilities.items():
+                event = [1 - probability, 0.0, 0.0, 0.0]
+                event["IXYZ".index(pauli)] = probability
+                distribution = _compose_pauli_distributions(distribution, tuple(event))
+        else:
+            probabilities = tuple(channel.probabilities.get(pauli, 0.0) for pauli in "XYZ")
+            single = (max(0.0, 1 - math.fsum(probabilities)), *probabilities)
+            distribution = _compose_pauli_distributions(distribution, single)
+    return PauliChannel(dict(zip("XYZ", distribution[1:], strict=True)))
+
+
 def _compose_pauli_distributions(
     left: tuple[float, ...], right: tuple[float, ...]
 ) -> tuple[float, ...]:
