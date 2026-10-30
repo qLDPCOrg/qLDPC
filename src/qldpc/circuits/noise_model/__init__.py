@@ -128,8 +128,10 @@ qubit about a fixed axis by an angle that grows linearly at a random rate.  Aver
 (Gaussian) rate, the Pauli twirl of this rotation has a probability that grows quadratically while
 it is small and saturates at 1/2.  For a channel with several Paulis, the axis may vary from one run
 to the next, for example as a compiler changes the frame of a qubit, and the channel sets the mean
-squared components of the axis.  A run ends where the combined ``idle_error`` above is emitted.
-Runs are independent of each other, and every moment counts equally, regardless of its duration.
+squared components of the axis.  A run ends where the combined ``idle_error`` above is emitted.  In
+particular, a Pauli-target annotation in the middle of an idle period splits the run there, which
+underestimates the quadratic idle error of that period by up to a factor of two.  Runs are
+independent of each other, and every moment counts equally, regardless of its duration.
 The quadratic idle error of a run is combined with its ``idle_error`` into one equivalent error.
 
 .. rubric:: Attribution and license
