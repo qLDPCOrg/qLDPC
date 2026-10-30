@@ -167,6 +167,23 @@ def test_repeated_idle_channel() -> None:
         assert sequence.probabilities == pytest.approx(single.probabilities)
 
 
+def test_idle_barrier_qubits() -> None:
+    """Idle errors may be deferred past instructions that commute with Pauli errors."""
+    circuit = stim.Circuit("""
+        H 0
+        OBSERVABLE_INCLUDE(0) X1
+        X_ERROR(0.1) 2
+        CX rec[-1] 3 4 5
+        CZ 6 sweep[0]
+        I 7
+        QUBIT_COORDS(0, 0) 8
+        REPEAT 2 {
+            M 9
+        }
+    """)
+    assert _moments.idle_barrier_qubits(circuit) == {0, 1, 4, 5, 9}
+
+
 def test_quadratic_idle_channel() -> None:
     """The twirl of a rotation by a Gaussian random angle that grows linearly over idle moments."""
     paulis = {
@@ -197,13 +214,6 @@ def test_quadratic_idle_channel() -> None:
     dephased = _moments.quadratic_idle_channel(circuits.PauliChannel({"Z": 0.5}), 3)
     assert dephased.probabilities == pytest.approx({"Z": 0.5})
 
-    # the error of a run's later moments completes the error of the whole run
-    for num_prior_moments, num_moments in [(1, 1), (2, 5)]:
-        prior = _moments.quadratic_idle_channel(channel, num_prior_moments)
-        rest = _moments.quadratic_idle_channel(channel, num_moments, num_prior_moments)
-        whole = _moments.quadratic_idle_channel(channel, num_prior_moments + num_moments)
-        assert _compose(prior, rest) == pytest.approx(whole.probabilities)
-
 
 def test_compose_idle_channels() -> None:
     """Independent idle errors compose into one channel, whether exclusive or independent events."""
@@ -215,16 +225,6 @@ def test_compose_idle_channels() -> None:
     events = _compose(circuits.PauliChannel({"X": 0.1}), circuits.PauliChannel({"Z": 0.2}))
     composed = _moments.compose_idle_channels(independent, other)
     assert composed.probabilities == pytest.approx(_compose(circuits.PauliChannel(events), other))
-
-
-def test_saturated_run_length() -> None:
-    """Beyond a saturated run length, a quadratic idle error is exactly 1/2 in floating point."""
-    for probability in [1e-9, 0.01, 0.4]:
-        channel = circuits.PauliChannel({"Z": probability})
-        length = _moments.saturated_run_length(channel)
-        assert _moments.quadratic_idle_channel(channel, length).probabilities == {"Z": 0.5}
-        assert not _moments.quadratic_idle_channel(channel, 7, length)
-    assert _moments.saturated_run_length(circuits.PauliChannel({"Z": 0.5})) == 1
 
 
 def _compose(first: circuits.PauliChannel, second: circuits.PauliChannel) -> dict[str, float]:

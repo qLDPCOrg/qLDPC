@@ -977,26 +977,29 @@ def test_pauli_channel_idle_error_rejection() -> None:
 
 
 def test_quadratic_idle_error_runs() -> None:
-    """An idle run continues across instructions that do not act on the idle qubit.
+    """An idle run continues past instructions that commute with Pauli errors.
 
-    Pending idle errors must precede noise, annotations, and classically controlled operations on
-    the idle qubit, but the qubit keeps idling, so the error of its whole run is the same as if
-    those instructions were absent.
+    Noise channels and classically controlled Paulis on an idle qubit do not depend on when a Pauli
+    error occurs, so the error of the qubit's whole run is the same as if they were absent.  A Pauli
+    annotation depends on that, so it ends the run.
     """
     noise_model = circuits.NoiseModel(quadratic_idle_error={"Z": 0.01})
     step = "H 1\nTICK\n"
-    unsplit = noise_model.noisy_circuit(stim.Circuit(f"R 0\nTICK\n{step * 5}M 0"))
-    expected = _get_z_error(unsplit, 0)
-    assert expected == pytest.approx((1 - 0.98**25) / 2)
-    for interruption in ["X_ERROR(0) 0", "OBSERVABLE_INCLUDE(0) Z0", "M 2\nCX rec[-1] 0"]:
-        split = stim.Circuit(f"R 0\nTICK\n{step * 2}{interruption}\n{step * 3}M 0")
-        assert _get_z_error(noise_model.noisy_circuit(split), 0) == pytest.approx(expected)
 
-    # a run that never ends keeps repeat blocks compact once its error saturates
+    def get_error(interruption: str) -> float:
+        circuit = stim.Circuit(f"R 0\nTICK\n{step * 2}{interruption}\n{step * 3}M 0")
+        return _get_z_error(noise_model.noisy_circuit(circuit), 0)
+
+    for commuting in ["X_ERROR(0.2) 0", "M 2\nCX rec[-1] 0"]:
+        assert get_error(commuting) == pytest.approx((1 - 0.98**25) / 2)
+    q_2, q_3 = (1 - 0.98**4) / 2, (1 - 0.98**9) / 2
+    assert get_error("OBSERVABLE_INCLUDE(0) Z0") == pytest.approx(q_2 + q_3 - 2 * q_2 * q_3)
+
+    # a repeat block that applies noise to an idle qubit stays compact
     circuit = stim.Circuit("R 0")
     circuit.append(stim.CircuitRepeatBlock(10**4, stim.Circuit("TICK\nX_ERROR(0) 0\nH 1")))
     noisy = noise_model.noisy_circuit(circuit)
-    assert len(str(noisy).splitlines()) < len(noisy.flattened()) / 10
+    assert len(str(noisy).splitlines()) < 20
     assert _get_z_error(noisy, 0) == pytest.approx(0.5)
 
 
