@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection
-from typing import Literal, cast
+from typing import cast
 
 import numpy as np
 import numpy.typing as npt
@@ -87,7 +87,7 @@ def test_state_prep_post_selection() -> None:
     def get_task(
         *,
         add_flags: bool = False,
-        post_select: object = False,
+        post_select: object = None,
         post_select_observables: bool = False,
     ) -> sinter.Task:
         return circuits.get_state_prep_diagnostic_tasks(
@@ -96,18 +96,19 @@ def test_state_prep_post_selection() -> None:
             [0.01],
             add_flags=add_flags,
             # invalid selections are passed on unchanged, to test their errors
-            post_select=cast("bool | Collection[int] | Literal['flags']", post_select),
+            post_select=cast("bool | Collection[int] | None", post_select),
             post_select_observables=post_select_observables,
         )[0]
 
-    task = get_task(add_flags=True)
+    # By default, only added flag detectors are selected, so nothing is selected without them.
+    task = get_task()
     assert task.postselection_mask is None and task.postselected_observables_mask is None
+    assert np.array_equal(_selected(get_task(add_flags=True), num_detectors), [0, 1] + [0] * 6)
+    # False selects nothing, leaving the flag detectors to the decoder.
+    assert get_task(add_flags=True, post_select=False).postselection_mask is None
     assert np.array_equal(_selected(get_task(post_select=True), num_detectors - 1), [1] + [0] * 6)
     assert np.array_equal(
         _selected(get_task(add_flags=True, post_select=True), num_detectors), [1, 1] + [0] * 6
-    )
-    assert np.array_equal(
-        _selected(get_task(add_flags=True, post_select="flags"), num_detectors), [0, 1] + [0] * 6
     )
     assert np.array_equal(
         _selected(get_task(add_flags=True, post_select=[-2]), num_detectors), [1, 0] + [0] * 6
@@ -119,11 +120,7 @@ def test_state_prep_post_selection() -> None:
     )
     with pytest.raises(ValueError, match="selectable prep/flag detectors"):
         get_task(add_flags=True, post_select=[2])
-    with pytest.raises(ValueError, match="add_flags=True"):
-        get_task(post_select="flags")
-    with pytest.raises(ValueError, match="post_select"):
-        get_task(add_flags=True, post_select="all")
-    for post_select in (0, [0.5], [True]):
+    for post_select in ("flags", 0, [0.5], [True]):
         with pytest.raises(TypeError, match="post_select"):
             get_task(post_select=post_select)
 

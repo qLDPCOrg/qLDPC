@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import numbers
 from collections.abc import Collection
-from typing import Literal
 
 import stim
 
@@ -27,28 +26,21 @@ def get_flag_detectors(circuit: stim.Circuit) -> stim.Circuit:
 
 
 def get_selected_detectors(
-    post_select: bool | Collection[int] | Literal["flags"],
-    detector_record: DetectorRecord,
-    add_flags: bool,
+    post_select: bool | Collection[int] | None, detector_record: DetectorRecord
 ) -> tuple[int, ...]:
     """Identify the detectors of a state-prep diagnostic circuit to post-select on.
 
-    ``post_select="flags"`` selects the flag detectors, which requires ``add_flags=True``.
-    Otherwise, ``post_select`` selects among the prep and flag detectors, which come first in the
-    detector record: True selects all of them, False none, and explicit integer indices may be
-    negative to count back from the last of them.  Return the distinct selected detectors in
-    increasing order.  Raise a TypeError for an invalid type, and a ValueError for an invalid value.
+    ``post_select`` selects among the prep and flag detectors, which come first in the detector
+    record: None selects the flag detectors (none if no flags were added), True all of them, False
+    none, and explicit integer indices may be negative to count back from the last of them.  Return
+    the distinct selected detectors in increasing order.  Raise a TypeError for an invalid type, and
+    a ValueError for an invalid value.
     """
-    invalid = 'post_select must be a bool, "flags", or a collection of detector indices'
-    if isinstance(post_select, str):
-        if post_select != "flags":
-            raise ValueError(f"{invalid}, not {post_select!r}")
-        if not add_flags:
-            raise ValueError(
-                'post_select="flags" selects the added flag detectors, so it requires'
-                " add_flags=True"
-            )
+    invalid = "post_select must be None, a bool, or a collection of detector indices"
+    if post_select is None:
         return tuple(detector_record.get_events("flags"))
+    if isinstance(post_select, str):
+        raise TypeError(f"{invalid}, not {post_select!r}")
     num_selectable = len(detector_record.get_events("prep", "flags"))
     if isinstance(post_select, bool):
         return tuple(range(num_selectable)) if post_select else ()

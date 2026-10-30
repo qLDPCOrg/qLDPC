@@ -155,7 +155,7 @@ def test_added_flags() -> None:
     circuit = stim.Circuit(
         f"H 0\nCX 0 1\nX_ERROR({flagged}) 0\nCX 0 2 1 2\nM 2\nZ_ERROR({unflagged}) 1"
     )
-    histogram = estimate_residual_weight_histogram(circuit, 1, add_flags=True, post_select="flags")
+    histogram = estimate_residual_weight_histogram(circuit, 1, add_flags=True)
     assert histogram.discard_probability == pytest.approx(flagged)
     assert np.allclose(histogram.get_residual_weight_distribution(), [1 - unflagged, unflagged, 0])
 

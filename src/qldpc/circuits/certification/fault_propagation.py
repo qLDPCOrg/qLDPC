@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
-from typing import Literal
 
 import galois
 import numpy as np
@@ -30,7 +29,7 @@ def certify_bounded_fault_propagation(
     state_prep_circuit: stim.Circuit,
     *,
     add_flags: bool = False,
-    post_select: bool | Collection[int] | Literal["flags"] = False,
+    post_select: bool | Collection[int] | None = None,
     max_weight: int | None = None,
     css_weight: bool | None = None,
     output_qubits: Sequence[int] | None = None,
@@ -75,14 +74,15 @@ def certify_bounded_fault_propagation(
 
     Keyword args:
         add_flags: Whether to add a flag detector for each measurement that no detector or
-            observable addresses, as in ``get_state_prep_diagnostic_circuit``.  Default: False.
-        post_select: The detectors to post-select on, among the circuit's detectors followed by any
-            added flag detectors.  True selects all of them, False selects none, a collection of
-            integers selects the detectors with those indices (negative indices count back from the
-            last detector), and "flags" selects exactly the added flag detectors, which requires
-            ``add_flags=True``.  A fault passes post-selection if none of the selected detectors
+            observable addresses, as in ``get_state_prep_diagnostic_circuit``.  By default,
+            ``post_select`` then selects these flag detectors.  Default: False.
+        post_select: The detectors to post-select on, among the circuit's own detectors followed by
+            any added flag detectors: None for exactly the added flag detectors, True for all of
+            them, False for none, or a collection of their indices (negative indices count back from
+            the last detector).  A fault passes post-selection if none of the selected detectors
             fire, where a detector fires if an odd number of the fault's error mechanisms flip it.
-            Default: False.
+            Default: None, which post-selects on the added flag detectors, if any, but never on the
+            circuit's own detectors.
         max_weight: The largest fault weight to certify, a positive integer.  Default: None, for no
             limit.  It does not change the result without post-selection.  With post-selection, the
             search time can grow exponentially with the fault weight, so a limit bounds it.
@@ -104,12 +104,11 @@ def certify_bounded_fault_propagation(
     Raises:
         TypeError: If ``max_weight`` or ``memory_limit`` is not an integer, which a bool is not
             here, if ``css_weight`` is not a bool or None, or if ``output_qubits`` or
-            ``post_select`` has an invalid type, such as a non-integer index.
+            ``post_select`` has an invalid type, such as a string or a non-integer index.
         ValueError: If ``max_weight`` or ``memory_limit`` is not positive, if ``output_qubits`` is
-            empty, repeats a qubit, or has an index out of range, if ``post_select`` is a string
-            other than "flags", is "flags" without ``add_flags=True``, or has an index out of range,
-            if the output qubits do not end in one definite stabilizer state, or if Stim cannot
-            convert the circuit to a DEM.
+            empty, repeats a qubit, or has an index out of range, if ``post_select`` has an index
+            out of range, if the output qubits do not end in one definite stabilizer state, or if
+            Stim cannot convert the circuit to a DEM.
     """
     if max_weight is not None:
         if not is_integer(max_weight):
@@ -133,7 +132,7 @@ def certify_bounded_fault_propagation(
     detector_record = DetectorRecord({"prep": range(state_prep_circuit.num_detectors)})
     flag_detectors = get_flag_detectors(state_prep_circuit) if add_flags else stim.Circuit()
     detector_record.append({"flags": range(flag_detectors.num_detectors)})
-    selected = get_selected_detectors(post_select, detector_record, add_flags)
+    selected = get_selected_detectors(post_select, detector_record)
     circuit = state_prep_circuit + flag_detectors
 
     stabilizers = get_state_stabilizers(circuit, qubits)
