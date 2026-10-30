@@ -575,8 +575,7 @@ class ClassicalCode(AbstractCode):
         rows of a dual basis of a basis of the code equal a random nonzero vector, which excludes
         the all-0 word as a candidate.  These overlaps are the coefficients of the code word in
         that basis, so they determine the code word, and each trial yields a uniformly random
-        nonzero code word.  The weight of that code word is an upper bound on
-        distance.
+        nonzero code word.  The weight of that code word is an upper bound on distance.
 
         If bounding the minimum distance between a vector and a code word, we can interpret the
         vector as an error, and find a minimal-weight correction from decoding the syndrome induced
