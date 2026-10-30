@@ -572,9 +572,10 @@ class ClassicalCode(AbstractCode):
         The code distance is the minimum Hamming distance between two code words, or equivalently
         the minimum Hamming weight of nonzero code words.  To find a low-weight nonzero code word we
         decode a trivial (all-0) syndrome, but enforce that the overlaps of the code word with the
-        rows of a generator matrix of the code equal a random nonzero vector, which excludes the
-        all-0 word as a candidate.  Each trial decodes a new random vector of overlaps, and the
-        weight of the decoded code word is an upper bound on distance.
+        rows of a dual basis of a basis of the code equal a random nonzero vector, which excludes
+        the all-0 word as a candidate.  These overlaps are the coefficients of the code word in
+        that basis, so they determine the code word, and each trial yields a uniformly random
+        nonzero code word.  The weight of that code word is an upper bound on distance.
 
         If bounding the minimum distance between a vector and a code word, we can interpret the
         vector as an error, and find a minimal-weight correction from decoding the syndrome induced
@@ -630,7 +631,9 @@ class ClassicalCode(AbstractCode):
             check_matrix = self.matrix
             syndrome = self.matrix @ np.asanyarray(vector).view(self.field)
         else:
-            check_matrix = np.vstack([self.matrix, self.generator]).view(self.field)
+            # a generator matrix may have dependent rows, so dualize a basis of the code instead
+            basis = self.generator.row_reduce()[: self.dimension]
+            check_matrix = np.vstack([self.matrix, math.get_dual_basis(basis)]).view(self.field)
             syndrome = np.zeros(len(check_matrix), dtype=int).view(self.field)
         if decoder_kwargs:  # DEPRECATED: see qldpc._deprecations
             decoder = merge_legacy_decoder_args(check_matrix, decoder, decoder_kwargs)
@@ -639,8 +642,8 @@ class ClassicalCode(AbstractCode):
         def get_syndrome() -> npt.NDArray[np.int_]:
             """Get a syndrome to decode, randomizing its overlap with code words if necessary."""
             if vector is None:
-                syndrome[-len(self.generator) :] = _get_random_array(
-                    self.field, len(self.generator), satisfy=lambda vec: vec.any()
+                syndrome[-self.dimension :] = _get_random_array(
+                    self.field, self.dimension, satisfy=lambda vec: vec.any()
                 )
             return syndrome
 

@@ -215,6 +215,20 @@ def test_distance_classical(bits: int = 3) -> None:
     assert rep_code.get_distance_exact(cutoff=bits) == rep_code.get_distance_exact() == bits
 
 
+def test_distance_bound_of_self_orthogonal_code() -> None:
+    """A distance bound can find code words that are orthogonal to the whole code."""
+    # every code word of the self-dual [8, 4, 4] extended Hamming code is orthogonal to the code
+    code = codes.ClassicalCode(codes.ReedMullerCode(1, 3).matrix)
+    assert not np.any(code.generator @ code.generator.T)
+    assert code.get_distance_bound(num_trials=20) == 4
+
+
+def test_distance_bound_with_redundant_generator() -> None:
+    """A distance bound accepts a generator matrix with linearly dependent rows."""
+    code = codes.ClassicalCode([[1, 1, 1]]).set_generator([[1, 1, 0], [0, 1, 1], [1, 0, 1]])
+    assert code.get_distance_bound(num_trials=10) == 2
+
+
 def test_conversions_classical(bits: int = 5, checks: int = 3) -> None:
     """Conversions between matrix and graph representations of a classical code."""
     code = codes.ClassicalCode.random(bits, checks)
