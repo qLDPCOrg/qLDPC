@@ -46,7 +46,7 @@ def certify_bounded_fault_propagation(
     Faults are sets of error mechanisms, which are the error instructions of the detector error
     model (DEM) of the circuit after adding any flag detectors and one noiseless detector for each
     stabilizer of the prepared state.  The certificate stores this DEM as ``detector_error_model``,
-    and the circuit with those detectors as ``diagnostic_circuit``.  Stim merges physical faults
+    and the circuit with those detectors as ``diagnostic_circuit``.  Stim merges physical errors
     that flip the same detectors and observables into one error mechanism, which does not change the
     result.  A fault is represented by a binary vector over the error mechanisms, its fault weight
     is its number of error mechanisms, and a primitive fault is a fault of fault weight one.

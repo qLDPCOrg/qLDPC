@@ -192,10 +192,10 @@ def get_min_max_communication_distance(
 ) -> float:
     """Minimize the maximum communication distance for a given placement matrix.
 
-    The optimization stategy is to initialize lower and upper bounds for the min-max communication
+    The optimization strategy is to initialize lower and upper bounds for the min-max communication
     distance, and repeatedly bisect these bounds until we reach a desired precision for the min-max.
 
-    The distance_cutoff argument is used for early stopping: if the lower bound for the  min-max is
+    The distance_cutoff argument is used for early stopping: if the lower bound for the min-max is
     greater than the distance_cutoff, then quit early and return a number greater than the
     distance_cutoff.
 
@@ -241,11 +241,9 @@ def get_placement_matrix(
     orders = code.get_order(vec_a), code.get_order(vec_b)
     squared_distance_matrix = get_squared_distance_matrix(folded_layout, orders)[:, inverse_perm]
 
-    """
-    Compute a tensor of squared distances, with shape (num_sites, num_checks, num_neighbors), for
-    which squared_distance_tensor[loc_index, check_index, neighbor_index] is the squared distance
-    between a check qubit and one of its neighbors when the check qubit in a given location.
-    """
+    # Compute a tensor of squared distances, with shape (num_sites, num_checks, num_neighbors), for
+    # which squared_distance_tensor[loc_index, check_index, neighbor_index] is the squared distance
+    # between a check qubit and one of its neighbors when the check qubit is in a given location.
     check_supports = check_supports if check_supports is not None else get_check_supports(code)
     squared_distance_tensor = squared_distance_matrix[:, check_supports]
 
@@ -256,7 +254,7 @@ def get_placement_matrix(
 def get_data_qubit_locs(
     code: qldpc.codes.BBCode, layout_params: LayoutParams, *, skip_validation: bool = False
 ) -> npt.NDArray[np.int_]:
-    """Get the locations of data qubits in particular layout of a BBCode."""
+    """Get the locations of data qubits in a particular layout of a BBCode."""
     folded_layout, basis_l, basis_r, shift_lr = layout_params
     orders = (code.get_order(basis_l[0]), code.get_order(basis_l[1]))
     if not skip_validation:
@@ -343,9 +341,9 @@ def get_squared_distance_matrix(
 def get_default_qubit_locs(
     folded_layout: bool, torus_shape: tuple[int, int], *, data: bool
 ) -> npt.NDArray[np.int_]:
-    """Identify the default locations qubits when placed on a torus with the given dimensions."""
-    num_checks = 2 * torus_shape[0] * torus_shape[1]
-    nodes = [qldpc.objects.Node(index, is_data=data) for index in range(num_checks)]
+    """Identify the default locations of qubits placed on a torus with the given dimensions."""
+    num_nodes = 2 * torus_shape[0] * torus_shape[1]
+    nodes = [qldpc.objects.Node(index, is_data=data) for index in range(num_nodes)]
     locs = [
         qldpc.codes.BBCode.get_qubit_pos_from_orders(node, folded_layout, torus_shape)
         for node in nodes
@@ -357,8 +355,8 @@ def get_default_qubit_locs(
 
 
 def has_perfect_matching(biadjacency_matrix: npt.NDArray[np.bool_]) -> bool | np.bool_:
-    """Does a bipartite graph with the given biadjacenty matrix have a perfect matching?"""
-    # quit early if any vertex has no indicent edges <--> any row/column is all zeros
+    """Does a bipartite graph with the given biadjacency matrix have a perfect matching?"""
+    # quit early if any vertex has no incident edges <--> any row/column is all zeros
     if np.any(~np.any(biadjacency_matrix, axis=0)) or np.any(~np.any(biadjacency_matrix, axis=1)):
         return False
     rows, cols = scipy.optimize.linear_sum_assignment(biadjacency_matrix, maximize=True)
@@ -373,7 +371,7 @@ def get_qubit_pos_func(
     precision: float = DEFAULT_PRECISION,
     skip_validation: bool = False,
 ) -> Callable[[qldpc.objects.Node], tuple[int, int]]:
-    """Construct a function that gives positions of qubits in particular layout of a BBCode.
+    """Construct a function that gives positions of qubits in a particular layout of a BBCode.
 
     Check qubits are required to satisfy a maximum communication distance constraint.  If no such
     constraint is provided, minimize the maximum communication distance.
@@ -413,7 +411,7 @@ def get_qubit_pos_func(
 def get_max_comm_distance(
     code: qldpc.codes.BBCode, layout_params: LayoutParams, *, precision: float = DEFAULT_PRECISION
 ) -> float:
-    """Get the maximum qubit communication distance in particular BBCode layout."""
+    """Get the maximum qubit communication distance in a particular BBCode layout."""
     get_qubit_pos = get_qubit_pos_func(code, layout_params, precision=precision)
 
     max_squared_distance = 0
@@ -462,7 +460,7 @@ def get_completed_qubit_pos_func(
     data_qubit_loc_indices = np.ravel_multi_index(tuple(data_qubit_locs.T), dims=lattice_shape)
 
     # identify unoccupied lattice sites and the indices of those lattice sites
-    all_loc_indices = np.arange(len(code), dtype=int)
+    all_loc_indices = np.arange(lattice_shape[0] * lattice_shape[1], dtype=int)
     check_qubit_loc_indices = all_loc_indices[~np.isin(all_loc_indices, data_qubit_loc_indices)]
     candidate_locs = np.array(
         np.unravel_index(check_qubit_loc_indices, shape=lattice_shape), dtype=int
@@ -503,7 +501,7 @@ def get_completed_qubit_pos_func(
 
 @functools.cache
 def get_full_squared_distance_matrix(lattice_shape: tuple[int, int]) -> npt.NDArray[np.int_]:
-    """Construct a matrix of squared distances between all pair of lattice points."""
+    """Construct a matrix of squared distances between all pairs of lattice points."""
     locs = np.array(list(np.ndindex(lattice_shape)))
     displacements = locs[:, None, :] - locs[None, :, :]
     return np.einsum("...i,...i->...", displacements, displacements)

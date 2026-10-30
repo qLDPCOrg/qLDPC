@@ -2328,6 +2328,78 @@ def test_capacity_min_error_weight() -> None:
     assert func(0.1) == (0, 0)
 
 
+@pytest.mark.parametrize("kind", ["classical", "quantum", "css"])
+@pytest.mark.parametrize("field", [2, 4])
+def test_capacity_seed(kind: str, field: int) -> None:
+    """Integer and generator seeds reproduce sampling without consuming global random state."""
+    surface_code = codes.SurfaceCode(2, field=field)
+    if kind == "classical":
+        code: codes.ClassicalCode | codes.QuditCode = codes.ClassicalCode(surface_code.matrix_x)
+    elif kind == "quantum":
+        code = codes.QuditCode(surface_code.matrix)
+    else:
+        code = surface_code
+    decoder = decoders.lookup(max_weight=2)
+
+    global_state = np.random.get_state()
+    baseline = code.get_logical_error_rate_func(100, 0.3, decoder=decoder, seed=0)
+    np.testing.assert_equal(np.random.get_state(), global_state)
+
+    np.random.random(10)
+    global_state = np.random.get_state()
+    generator = np.random.default_rng(0)
+    initial_generator_state = generator.bit_generator.state
+    replay = code.get_logical_error_rate_func(100, 0.3, decoder=decoder, seed=generator)
+    np.testing.assert_equal(np.random.get_state(), global_state)
+    assert generator.bit_generator.state != initial_generator_state
+    for attribute in ("num_samples", "num_failures", "num_discards"):
+        np.testing.assert_array_equal(getattr(replay, attribute), getattr(baseline, attribute))
+
+    state_after_sampling = generator.bit_generator.state
+    np.testing.assert_array_equal(replay([0.01, 0.1]), baseline([0.01, 0.1]))
+    assert generator.bit_generator.state == state_after_sampling
+
+
+def test_css_capacity_seed_independent_of_early_exits() -> None:
+    """Failures and erasures do not change the seeded stream of physical errors."""
+    code = codes.CSSCode([[1, 1, 1]], [[1, 1, 1]], field=3, is_subsystem_code=False)
+    generators = [np.random.default_rng(0) for _ in range(3)]
+    specifications = [
+        decoders.lookup(max_weight=1),
+        decoders.lookup(max_weight=0),
+        decoders.lookup(max_weight=0, add_erasure_bit=True),
+    ]
+    results = [
+        code.get_logical_error_rate_func(100, 0.3, decoder=decoder, seed=generator)
+        for decoder, generator in zip(specifications, generators)
+    ]
+    assert results[1].num_failures.any()
+    assert results[2].num_discards.any()
+    assert generators[0].bit_generator.state == generators[1].bit_generator.state
+    assert generators[0].bit_generator.state == generators[2].bit_generator.state
+
+
+def test_capacity_seed_isolated_from_decoder_randomness() -> None:
+    """A decoder's unrelated global draws do not change explicitly seeded physical errors."""
+    specification = decoders.lookup(max_weight=1)
+
+    class GlobalRNGDecoder(decoders.ErrorDecoder):
+        def __init__(self, matrix: galois.FieldArray) -> None:
+            self.decoder = specification.build(matrix)
+
+        def decode_errors(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            np.random.random(10)
+            return self.decoder.decode_errors(syndrome)
+
+    code = codes.SurfaceCode(3)
+    baseline = code.get_logical_error_rate_func(
+        100, 0.3, decoder=decoders.from_matrix(specification.build), seed=0
+    )
+    with_global_draws = code.get_logical_error_rate_func(100, 0.3, decoder=GlobalRNGDecoder, seed=0)
+    np.testing.assert_array_equal(with_global_draws.num_failures, baseline.num_failures)
+    np.testing.assert_array_equal(with_global_draws.num_discards, baseline.num_discards)
+
+
 def test_get_scrambled_seed() -> None:
     """Scrambled seeds are deterministic, and leave the global random state untouched."""
     state = np.random.get_state()

@@ -1,7 +1,7 @@
 Adding a decoder
 ================
 
-There are two paths.
+You can use a decoder of your own in qLDPC workflows, or add a decoder to qLDPC itself.
 To **use your own decoder**, implement one decoding method and pass its constructor as ``decoder=``.
 To **ship a decoder with qLDPC**, add an implementation, a public specification helper, and tests.
 No registration, specification helper, or change to qLDPC itself is needed for an experiment.
@@ -45,7 +45,6 @@ The code-capacity estimator calls ``IdentityDecoder(matrix)`` when it builds its
 For configurable construction, pass a factory such as ``functools.partial`` as ``decoder=``.
 The factory receives the parity-check matrix.
 Wrapping it with ``decoders.from_matrix(factory)`` is optional and makes its matrix-only contract explicit.
-This identity-matrix example demonstrates the interface, not a useful code or a decoder benchmark.
 
 Choose the workflow contract
 ----------------------------
@@ -81,6 +80,7 @@ An ordinary Sinter decoder supplies a Stim detector error model (DEM) to its con
    import numpy as np
    import numpy.typing as npt
    import stim
+
    from qldpc import decoders
 
    class NoFlipDecoder:

@@ -15,8 +15,8 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 ## Terms
 
 - **Sector:** a basis of the words that a search examines, with labels that tell nontrivial words from trivial ones, such as the logical operators of one type of a CSS code from its stabilizers.
-- **Information set:** the basis of a sector, row reduced so that a block of its columns forms an identity matrix.
-  `brouwer_zimmermann.md` calls this a search basis.
+- **Information set:** in the code, the basis of a sector, row reduced so that a block of its columns forms an identity matrix.
+  `brouwer_zimmermann.md` calls this basis a search basis, and uses "information set" for the block of columns itself.
 - **Basis family** (`BasisFamily`): the information sets that one search uses together, stacked into arrays.
 - **Certificate** (`Certificate`): a lower bound on the weight of the words that a search has not yet visited, which tells the search when it can stop.
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer.

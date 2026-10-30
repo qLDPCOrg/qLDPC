@@ -3,6 +3,7 @@
 ## Purpose and scope
 
 A noisy Clifford circuit that prepares a stabilizer state has bounded fault propagation if every fault has [residual weight](#syndromes-and-pauli-weight) at most its fault weight.
+Bounded fault propagation is a sufficient criterion for fault-tolerant state preparation (Definition 3 in Section 4.2 of [arXiv:0904.2557](https://arxiv.org/abs/0904.2557)): a few faults can leave only correspondingly few errors on the prepared state.
 The residual weight of a fault is the smallest Pauli weight of the Pauli error that the fault leaves on the output qubits, after multiplying that error by any stabilizer of the prepared state.
 With post-selection, only the faults that fire none of the post-selection detectors count.
 This guide explains why the certifier can decide this exactly, and how it searches for a violation.
@@ -41,12 +42,12 @@ The **residual weight** of a fault `F` is `μ(S F)`, the smallest Pauli weight o
 A fault `F` **violates** the fault propagation bound if its residual weight exceeds its fault weight, `μ(S F) > |F|`.
 Fault propagation is bounded up to fault weight `K`, the largest fault weight to certify (a positive integer, or ∞ for no limit), if no nonzero accepted fault of fault weight at most `K` violates the bound.
 
-### Physical faults
+### Physical errors
 
-A physical fault is one case of one noise instruction of the circuit, such as one Pauli error of a `DEPOLARIZE1` instruction on one qubit.
-Stim merges physical faults that flip the same detectors and observables into one error mechanism, which does not change the result.
-A set of `t` physical faults has the same flags and syndrome as the sum of their error mechanisms, a fault of fault weight at most `t`, and each error mechanism is the effect of a single physical fault.
-So the smallest fault weight of a violating accepted fault is also the smallest number of physical faults that together pass post-selection and violate the bound.
+A **physical error** is one case of one noise instruction of the circuit, such as one Pauli error of a `DEPOLARIZE1` instruction on one qubit.
+Each error mechanism is the effect of a single physical error, and Stim merges physical errors that flip the same detectors and observables into one error mechanism, which does not change the result.
+A set of `t` physical errors therefore has the same flags and syndrome as the sum of their error mechanisms, which is a fault of fault weight at most `t`, and conversely every fault of fault weight `t` arises from `t` physical errors.
+So the smallest fault weight of a violating accepted fault is also the smallest number of physical errors that together pass post-selection and violate the bound.
 
 ## Facts that the search relies on
 
@@ -96,9 +97,9 @@ The search decides exactly whether `μ(S F) ≤ |F|` for a fault `F` with `Pauli
 It uses the same oracle, with the threshold one, to decide whether a primitive fault is heavy.
 The search skips the oracle for a fault `F` in two cases, each of which cannot hide a violation.
 
-1. A product of low-weight errors with syndromes `s_j`, one for each primitive fault `j` of `F`, has Pauli weight at most `|F|`.
-   That product has syndrome `S F`, so `F` satisfies the bound.
-2. A fault `G` that the search listed earlier has the syndrome `S F`.
+1. For each primitive fault `j`, the search keeps one Pauli error with syndrome `s_j`, its **representative**.
+   If the product of the representatives of the primitive faults of `F` has Pauli weight at most `|F|`, then `F` satisfies the bound, because that product has syndrome `S F`.
+2. If a fault `G` that the search listed earlier has the syndrome `S F`, then `F` cannot be the first violation.
    The search lists faults by increasing fault weight, so `|G| ≤ |F|`.
    If `G` violates the bound, the search stops there.
    Otherwise `μ(S F) = μ(S G) ≤ |G| ≤ |F|`, so `F` satisfies the bound.
@@ -119,14 +120,14 @@ Conversely, if `j_1 < ... < j_{m-1}` are independent and a later primitive fault
 So the irreducible accepted faults of fault weight `m ≥ 2` correspond one to one to the independent prefixes with a later primitive fault of matching flags, since the closing primitive fault is the last one in the order.
 
 Only a fault that [contains a heavy primitive fault](#a-violating-fault-contains-a-heavy-primitive-fault) can violate the bound.
-So the search builds only the prefixes that start with a heavy primitive fault.
-Since the heavy primitive faults come first, such a fault has a heavy `j_1`, so this lists each of them once and lists nothing else.
+Since the heavy primitive faults come first in the order, a fault contains a heavy primitive fault exactly when its `j_1` is heavy.
+So the search builds only the prefixes that start with a heavy primitive fault, which lists each such irreducible accepted fault once and lists nothing else.
 
 The search looks up the closing primitive fault in a table of the primitive faults, sorted by a 64-bit linear hash of their flags.
 Different flags can share a hash, so the search compares the flags of every primitive fault that it finds with the sum of the prefix flags.
 Most choices of `j_{m-1}` have no closing primitive fault, so for fault weight `m ≥ 4` the search saves time by choosing `j_{m-1}` and `j_m` together.
 Choosing them together removes about one factor of `N` (the number of primitive faults) from the search time, at the cost of a table whose size is quadratic in `N`.
-The search keeps a table of all pairs of these primitive faults, sorted by the hash of the sum of their flags, if the table fits within the memory limit, which it has first claim on.
+If it fits within the memory limit, the search keeps a table of all pairs of these primitive faults, sorted by the hash of the sum of their flags; this table has first claim on the memory limit.
 The hash is linear, so the hash of the sum of two flags is the sum of their hashes.
 For each choice of `j_1, ..., j_{m-2}`, the search looks up the pairs `j_{m-1} < j_m` with the hash of the flags of `j_1, ..., j_{m-2}`, keeps those that come after `j_{m-2}` and whose flags sum exactly to the flags of `j_1, ..., j_{m-2}`, and of these keeps the pairs for which the prefix is independent.
 The table keeps the pairs with each hash in lexicographic order, so the table lookup lists the same faults in the same order as a loop over `j_{m-1}`.

@@ -36,9 +36,9 @@ Packages at a glance
      - Specifications such as ``bp_osd``, ``mwpm``, ``guf``, and ``tesseract``; their ``build`` and ``build_observable_decoder`` methods; ``SinterDecoder``.
      - :doc:`Choosing a decoder <decoders>` and the :doc:`decoders notebook <examples/decoders>`
    * - ``qldpc.circuits``
-     - Qubit-only Stim circuits: memory experiments, noise models, encoders, state-preparation diagnostics, and transversal gates.
-     - ``get_memory_experiment``, ``DepolarizingNoiseModel``, ``SI1000NoiseModel``, ``get_encoding_circuit``, and ``get_transversal_ops``.
-     - :doc:`Noise models <examples/noise_models>` and :doc:`transversal gates <examples/transversal_gates>`
+     - Qubit-only Stim circuits: memory experiments, noise models, encoders, state-preparation diagnostics, fault-tolerance certificates, and transversal gates.
+     - ``get_memory_experiment``, ``DepolarizingNoiseModel``, ``SI1000NoiseModel``, ``get_encoding_circuit``, ``get_fault_distance``, ``certify_bounded_fault_propagation``, and ``get_transversal_ops``.
+     - :doc:`Noise models <examples/noise_models>`, :doc:`fault-tolerance certificates <examples/logical_error_rates/5_fault_tolerance_certificates>`, and :doc:`transversal gates <examples/transversal_gates>`
    * - ``qldpc.abstract``
      - Finite groups, group rings, matrices over group algebras, and semisimple-ring linear algebra.
      - ``Group``, ``GroupRing``, and ``RingArray``.
@@ -161,6 +161,8 @@ Stim converts the circuit into a ``stim.DetectorErrorModel`` with ``circuit.dete
 
 .. code-block:: python
 
+   import sinter
+
    from qldpc import circuits, codes, decoders
    from qldpc.objects import Pauli
 
@@ -170,15 +172,18 @@ Stim converts the circuit into a ``stim.DetectorErrorModel`` with ``circuit.dete
        code, basis=Pauli.Z, num_rounds=3, noise_model=noise_model
    )
    sinter_decoder = decoders.SinterDecoder(decoder=decoders.mwpm())
-   logical_error_rate, discard_rate = circuits.get_logical_error_and_discard_rate(
-       circuit, sinter_decoder, num_samples=1000
+   (stats,) = sinter.collect(
+       tasks=[sinter.Task(circuit=circuit, decoder="mwpm")],
+       custom_decoders={"mwpm": sinter_decoder},
+       num_workers=1,
+       max_shots=1000,
    )
+   logical_error_rate = stats.errors / stats.shots
 
-For larger studies, pass the ``SinterDecoder`` to ``sinter.collect``.
 The :doc:`code-capacity <examples/logical_error_rates/1_code_capacity>`, :doc:`quantum-memory <examples/logical_error_rates/2_quantum_memory_x_or_z>`, and :doc:`sliding-window <examples/logical_error_rates/specialized/sliding_window_decoding>` notebooks develop these workflows, and the :doc:`noise-model notebook <examples/noise_models>` explains the noise models.
 
-Certify fault-tolerant state preparation
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Certify fault tolerance
+~~~~~~~~~~~~~~~~~~~~~~~
 
 :func:`qldpc.circuits.certify_bounded_fault_propagation <qldpc.circuits.certification.fault_propagation.certify_bounded_fault_propagation>` checks whether a noisy Clifford circuit that prepares a stabilizer state has bounded fault propagation.
 Bounded fault propagation is a sufficient criterion for fault-tolerant state preparation; see Definition 3 in Section 4.2 of `arXiv:0904.2557 <https://arxiv.org/abs/0904.2557>`_.
@@ -187,7 +192,9 @@ A fault leaves a Pauli error on the prepared state.
 The residual weight of the fault is the smallest weight of that Pauli error after multiplying it by any stabilizer of the state.
 Fault propagation is bounded if the residual weight of every fault is at most its number of error mechanisms.
 For circuits that post-select on detectors such as measurement flags, only faults that pass post-selection count.
-The docstring of ``certify_bounded_fault_propagation`` defines these terms precisely and states the limitations of its check, and the :doc:`fault-tolerance notebook <examples/logical_error_rates/6_certifying_fault_tolerance>` shows examples.
+The docstring of ``certify_bounded_fault_propagation`` defines these terms precisely and states the limitations of its check, and the :doc:`fault-tolerance certificates notebook <examples/logical_error_rates/5_fault_tolerance_certificates>` applies it to a flagged preparation circuit.
+For annotated memory circuits, :func:`~qldpc.circuits.certification.fault_distance.get_fault_distance` instead computes the minimum number of detector-error-model mechanisms causing an undetected logical-observable flip.
+The same notebook illustrates why this circuit property need not equal the code distance.
 
 Bounded fault propagation is a yes-or-no criterion.
 To compare preparation circuits, including those that satisfy it, the experimental :func:`qldpc.experimental.circuits.estimate_residual_weight_histogram <qldpc.experimental.circuits.benchmarking.residual_weights.estimate_residual_weight_histogram>` estimates, over the shots that pass post-selection, the probability distribution of the residual weight of the fault that occurs in a shot.
@@ -218,7 +225,7 @@ Other limitations:
 What qLDPC computes exactly, bounds, and trusts
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-* Exact: ``get_distance_exact`` with ``cutoff <= 1`` (the default is 1), or whenever its result exceeds the cutoff, which ``get_distance`` calls unless it is given ``bound=``, and logical-operator counts.
+* Exact: ``get_distance_exact`` with ``cutoff <= 1`` (the default is 1), or whenever its result exceeds the cutoff, which ``get_distance`` calls unless it is given ``bound=``; logical-operator counts; circuit fault distances from ``get_fault_distance``; and bounded-propagation certificates up to their ``max_weight``, if one is given.
 * Upper bounds: ``get_distance_bound`` with every backend.
 * Estimates: code-capacity and circuit-level logical error rates are sampled.
   A code-capacity estimate treats unsampled heavy errors as failures, so it can be high by up to the amount that its ``truncation_error_bound`` method reports.
