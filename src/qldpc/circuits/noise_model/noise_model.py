@@ -23,6 +23,7 @@ from ._moments import (
     idle_barrier_qubits,
     quadratic_idle_channel,
     repeated_idle_channel,
+    saturated_run_length,
     split_targets_if_needed,
 )
 from ._operations import (
@@ -144,10 +145,12 @@ class NoiseModel:
                 a slowly fluctuating qubit frequency, whose angle grows linearly in time at a
                 Gaussian random rate, about an axis that is fixed within each run of idle moments.
                 Runs are independent of each other, and every moment counts equally, regardless of
-                its duration.  A run ends at any instruction that targets the qubit other than
-                ``I``, ``II``, or ``QUBIT_COORDS``, including noise, annotations, and classically
-                controlled operations, which do not otherwise interrupt idling.  This error is
-                applied after the ``idle_error`` of the same moments.
+                its duration.  A run is a stretch of consecutive moments in which this model counts
+                the qubit as idle, so it ends only when a gate, measurement, or reset acts on the
+                qubit; before an instruction that a pending idle error must precede, such as a
+                noise channel or a Pauli-target annotation, the error of the run so far is applied,
+                and later moments complete the error of the whole run.  This error is applied after
+                the ``idle_error`` of the same moments.
             additional_error_waiting_for_m_or_r: Additional noise rule or depolarization probability
                 applied to every non-collapsing qubit while another qubit undergoes measurement or
                 reset, including qubits undergoing a unitary operation.  Accepts the same NoiseRule
@@ -610,6 +613,7 @@ class NoiseModel:
         self,
         circuit: stim.Circuit,
         pending_idle_moments: dict[int, int],
+        run_moments: dict[int, int],
         qubits: Iterable[int] | None = None,
     ) -> None:
         """Emit and clear the pending idle errors on the given qubits (by default, on all qubits).
@@ -617,21 +621,31 @@ class NoiseModel:
         Pending idle errors must be emitted before any instruction that targets their qubit, other
         than ``I``, ``II``, or ``QUBIT_COORDS``.  They may be deferred past identity-gate and
         waiting noise added by this model, since Stim noise channels commute with Pauli errors.
+
+        A quadratic idle error depends on the length of a qubit's whole run of idle moments, which
+        an instruction that does not end the run (such as an annotation) can split.  ``run_moments``
+        maps each qubit to the number of idle moments of its current run whose quadratic idle error
+        has been emitted, and is updated in place.  Its counts are capped once that error saturates.
         """
         if not pending_idle_moments:
             return
-        qubits_by_count: dict[int, list[int]] = collections.defaultdict(list)
+        qubits_by_counts: dict[tuple[int, int], list[int]] = collections.defaultdict(list)
         for qubit in sorted(pending_idle_moments.keys() if qubits is None else qubits):
             if (count := pending_idle_moments.pop(qubit, None)) is not None:
-                qubits_by_count[count].append(qubit)
+                qubits_by_counts[count, run_moments.get(qubit, 0)].append(qubit)
         idle_channel = None if self.idle_error is None else self.idle_error.after
-        for count, targets in qubits_by_count.items():
+        for (count, prior_count), targets in qubits_by_counts.items():
             if isinstance(idle_channel, (PauliChannel, PauliChannelSequence)):
                 after = idle_channel if count == 1 else repeated_idle_channel(idle_channel, count)
                 NoiseRule(after=after).emit_after(circuit, targets, context="idle qubits")
             if self.quadratic_idle_error is not None:
-                after = quadratic_idle_channel(self.quadratic_idle_error, count)
-                NoiseRule(after=after).emit_after(circuit, targets, context="idle qubits")
+                after = quadratic_idle_channel(self.quadratic_idle_error, count, prior_count)
+                if after:
+                    NoiseRule(after=after).emit_after(circuit, targets, context="idle qubits")
+                run_length = min(
+                    prior_count + count, saturated_run_length(self.quadratic_idle_error)
+                )
+                run_moments.update(dict.fromkeys(targets, run_length))
 
 
 class _NoisyCircuitBuilder:
@@ -639,9 +653,10 @@ class _NoisyCircuitBuilder:
 
     Repeat blocks are nonetheless kept compact.  The noise of an iteration of a repeat block is
     determined by the state of this builder at the start of the iteration: the open moment, whether
-    a TICK must precede the next moment, and the pending idle moments of the qubits that the repeat
-    block uses (the qubits that it never uses do not affect its noise).  Once an iteration ends in
-    the same state that it started in, all remaining iterations are identical to it.
+    a TICK must precede the next moment, and the pending idle moments and idle runs of the qubits
+    that the repeat block uses (the qubits that it never uses do not affect its noise).  Once an
+    iteration ends in the same state that it started in, all remaining iterations are identical to
+    it.
     """
 
     def __init__(
@@ -664,6 +679,7 @@ class _NoisyCircuitBuilder:
         self.moment: list[stim.CircuitInstruction | stim.CircuitRepeatBlock] = []  # the open moment
         self.used_qubits: set[int] = set()  # qubits that gates in the open moment act on
         self.idle_moments: dict[int, int] = {}  # idle moments not yet emitted as noise, by qubit
+        self.run_moments: dict[int, int] = {}  # emitted moments of each qubit's current idle run
         self.needs_tick = False  # whether the next moment must be preceded by a TICK
 
     def append(self, circuit: stim.Circuit, output: stim.Circuit) -> None:
@@ -672,9 +688,11 @@ class _NoisyCircuitBuilder:
             if isinstance(op, stim.CircuitRepeatBlock):
                 if self.immune_op_tag is not None and self.immune_op_tag in op.tag:
                     self.close_moment(output)
+                    block_qubits = idle_barrier_qubits([op])
                     self.noise_model._flush_idle_errors(
-                        output, self.idle_moments, idle_barrier_qubits([op])
+                        output, self.idle_moments, self.run_moments, block_qubits
                     )
+                    self.end_idle_runs(block_qubits)
                     if self.needs_tick:
                         output.append("TICK")
                     output.append(op)
@@ -716,10 +734,11 @@ class _NoisyCircuitBuilder:
         body_qubits = idle_barrier_qubits(body)
 
         def get_state() -> str:
-            idle_moments = sorted(
-                (qubit, count) for qubit, count in self.idle_moments.items() if qubit in body_qubits
+            idle_moments, run_moments = (
+                sorted((qubit, count) for qubit, count in counts.items() if qubit in body_qubits)
+                for counts in (self.idle_moments, self.run_moments)
             )
-            return str((self.moment, self.needs_tick, idle_moments))
+            return str((self.moment, self.needs_tick, idle_moments, run_moments))
 
         state = get_state()
         for iteration in range(block.repeat_count):
@@ -748,8 +767,10 @@ class _NoisyCircuitBuilder:
         if not self.moment:
             return
         self.noise_model._flush_idle_errors(
-            output, self.idle_moments, idle_barrier_qubits(self.moment)
+            output, self.idle_moments, self.run_moments, idle_barrier_qubits(self.moment)
         )
+        collapsed_qubits, operation_qubits = categorize_moment_qubits(self.moment)
+        self.end_idle_runs(collapsed_qubits + operation_qubits)
         if self.needs_tick:
             output.append("TICK")
         self.noise_model._inplace_append_noisy_moment(
@@ -768,7 +789,12 @@ class _NoisyCircuitBuilder:
     def finish(self, output: stim.Circuit) -> None:
         """Close the open moment, and emit all pending idle errors."""
         self.close_moment(output)
-        self.noise_model._flush_idle_errors(output, self.idle_moments)
+        self.noise_model._flush_idle_errors(output, self.idle_moments, self.run_moments)
+
+    def end_idle_runs(self, qubits: Iterable[int]) -> None:
+        """End the idle runs of qubits that an operation acts on."""
+        for qubit in qubits:
+            self.run_moments.pop(qubit, None)
 
 
 def _is_gate_free(circuit: stim.Circuit, immune_op_tag: str | None) -> bool:

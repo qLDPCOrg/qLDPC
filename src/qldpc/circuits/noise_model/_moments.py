@@ -300,19 +300,55 @@ def repeated_idle_channel(
     return PauliChannel(dict(zip("XYZ", result[1:], strict=True)))
 
 
-def quadratic_idle_channel(channel: PauliChannel, num_moments: int) -> PauliChannel:
-    """The error of a run of consecutive idle moments, given the quadratic idle error of one.
+def quadratic_idle_channel(
+    channel: PauliChannel, num_moments: int, num_prior_moments: int = 0
+) -> PauliChannel:
+    """The error of ``num_moments`` idle moments that extend a run of ``num_prior_moments``.
 
-    If ``channel`` applies Paulis with total probability ``p``, the result applies the same Paulis
-    in the same proportions with total probability ``(1 - (1 - 2 * p)**(num_moments**2)) / 2``.
-    This is the Pauli twirl of a rotation about a fixed axis by an angle that grows linearly over
-    the run, at a Gaussian random rate whose spread is set by ``p``.
+    If ``channel`` applies Paulis with total probability ``p``, a run of ``n`` idle moments applies
+    the same Paulis in the same proportions with total probability ``q(n)``, where
+    ``q(n) = (1 - (1 - 2 * p)**(n**2)) / 2``.  This is the Pauli twirl of a rotation about a fixed
+    axis by an angle that grows linearly over the run, at a Gaussian random rate whose spread is set
+    by ``p``.
+
+    Applied after the error of the first ``num_prior_moments`` moments of a run, the returned error
+    completes the error of the first ``num_prior_moments + num_moments`` moments exactly: Pauli
+    channels compose by multiplying the eigenvalues of their Pauli transfer matrices.
     """
     total = math.fsum(channel.probabilities.values())
-    scale = (1 - (1 - 2 * total) ** (num_moments**2)) / (2 * total)
+    log_eigenvalue = math.log1p(-2 * total) if total < 0.5 else -math.inf
+
+    def get_eigenvalue_minus_one(moments: int) -> float:
+        """The value of ``(1 - 2 * p)**(moments**2) - 1``, to full relative precision."""
+        return math.expm1(moments**2 * log_eigenvalue) if moments else 0.0
+
+    start, end = num_prior_moments, num_prior_moments + num_moments
+    start_error = -get_eigenvalue_minus_one(start) / 2
+    growth = (get_eigenvalue_minus_one(start) - get_eigenvalue_minus_one(end)) / 2
+
+    # The eigenvalue for Pauli P is 1 - 2 * error * (1 - w_P), where w_P is the weight of P.  Find
+    # one minus the ratio of the eigenvalues at the end and at the start of the new moments.
+    decays = {}
+    for pauli in "XYZ":
+        complement = 1 - channel.probabilities.get(pauli, 0.0) / total
+        start_eigenvalue = 1 - 2 * start_error * complement
+        decays[pauli] = 2 * complement * growth / start_eigenvalue if start_eigenvalue else 0.0
+    net_decay = math.fsum(decays.values())
     return PauliChannel(
-        {pauli: probability * scale for pauli, probability in channel.probabilities.items()}
+        {pauli: max(0.0, (net_decay - 2 * decay) / 4) for pauli, decay in decays.items()}
     )
+
+
+def saturated_run_length(channel: PauliChannel) -> int:
+    """A number of idle moments after which a quadratic idle error is saturated in floating point.
+
+    Beyond this many moments, ``(1 - 2 * p)**(n**2)`` underflows to zero, so that extending a run
+    adds no error.
+    """
+    total = math.fsum(channel.probabilities.values())
+    if total >= 0.5:
+        return 1
+    return math.ceil(math.sqrt(746 / -math.log1p(-2 * total)))
 
 
 def _compose_pauli_distributions(

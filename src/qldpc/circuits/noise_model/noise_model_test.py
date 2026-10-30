@@ -976,6 +976,40 @@ def test_pauli_channel_idle_error_rejection() -> None:
         )
 
 
+def test_quadratic_idle_error_runs() -> None:
+    """An idle run continues across instructions that do not act on the idle qubit.
+
+    Pending idle errors must precede noise, annotations, and classically controlled operations on
+    the idle qubit, but the qubit keeps idling, so the error of its whole run is the same as if
+    those instructions were absent.
+    """
+    noise_model = circuits.NoiseModel(quadratic_idle_error={"Z": 0.01})
+    step = "H 1\nTICK\n"
+    unsplit = noise_model.noisy_circuit(stim.Circuit(f"R 0\nTICK\n{step * 5}M 0"))
+    expected = _get_z_error(unsplit, 0)
+    assert expected == pytest.approx((1 - 0.98**25) / 2)
+    for interruption in ["X_ERROR(0) 0", "OBSERVABLE_INCLUDE(0) Z0", "M 2\nCX rec[-1] 0"]:
+        split = stim.Circuit(f"R 0\nTICK\n{step * 2}{interruption}\n{step * 3}M 0")
+        assert _get_z_error(noise_model.noisy_circuit(split), 0) == pytest.approx(expected)
+
+    # a run that never ends keeps repeat blocks compact once its error saturates
+    circuit = stim.Circuit("R 0")
+    circuit.append(stim.CircuitRepeatBlock(10**4, stim.Circuit("TICK\nX_ERROR(0) 0\nH 1")))
+    noisy = noise_model.noisy_circuit(circuit)
+    assert len(str(noisy).splitlines()) < len(noisy.flattened()) / 10
+    assert _get_z_error(noisy, 0) == pytest.approx(0.5)
+
+
+def _get_z_error(circuit: stim.Circuit, qubit: int) -> float:
+    """The net probability of independent Z errors on a qubit."""
+    probability = 0.0
+    for instruction in circuit.flattened():
+        if instruction.name == "Z_ERROR" and stim.GateTarget(qubit) in instruction.targets_copy():
+            new = instruction.gate_args_copy()[0]
+            probability += new - 2 * probability * new
+    return probability
+
+
 def test_quadratic_idle_error_specifications() -> None:
     """A quadratic idle error is a one-qubit Pauli channel that flips a qubit at most half the time.
 

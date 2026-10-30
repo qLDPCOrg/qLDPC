@@ -2,6 +2,7 @@
 
 """Unit tests for _moments.py."""
 
+import itertools
 import math
 
 import numpy as np
@@ -195,3 +196,38 @@ def test_quadratic_idle_channel() -> None:
     # a fully dephasing moment stays fully dephasing
     dephased = _moments.quadratic_idle_channel(circuits.PauliChannel({"Z": 0.5}), 3)
     assert dephased.probabilities == pytest.approx({"Z": 0.5})
+
+    # the error of a run's later moments completes the error of the whole run
+    for num_prior_moments, num_moments in [(1, 1), (2, 5)]:
+        prior = _moments.quadratic_idle_channel(channel, num_prior_moments)
+        rest = _moments.quadratic_idle_channel(channel, num_moments, num_prior_moments)
+        whole = _moments.quadratic_idle_channel(channel, num_prior_moments + num_moments)
+        assert _compose(prior, rest) == pytest.approx(whole.probabilities)
+
+
+def test_saturated_run_length() -> None:
+    """Beyond a saturated run length, a quadratic idle error is exactly 1/2 in floating point."""
+    for probability in [1e-9, 0.01, 0.4]:
+        channel = circuits.PauliChannel({"Z": probability})
+        length = _moments.saturated_run_length(channel)
+        assert _moments.quadratic_idle_channel(channel, length).probabilities == {"Z": 0.5}
+        assert not _moments.quadratic_idle_channel(channel, 7, length)
+    assert _moments.saturated_run_length(circuits.PauliChannel({"Z": 0.5})) == 1
+
+
+def _compose(first: circuits.PauliChannel, second: circuits.PauliChannel) -> dict[str, float]:
+    """The probabilities of the product of independent one-qubit Pauli errors.
+
+    Indexing Paulis as (I, X, Y, Z), the product of Paulis ``i`` and ``j`` is ``i ^ j`` up to phase.
+    """
+
+    def get_distribution(channel: circuits.PauliChannel) -> list[float]:
+        probabilities = [channel.probabilities.get(pauli, 0.0) for pauli in "XYZ"]
+        return [1 - sum(probabilities), *probabilities]
+
+    result = [0.0] * 4
+    for (i, p_i), (j, p_j) in itertools.product(
+        enumerate(get_distribution(first)), enumerate(get_distribution(second))
+    ):
+        result[i ^ j] += p_i * p_j
+    return dict(zip("XYZ", result[1:], strict=True))
