@@ -57,7 +57,7 @@ Specialized topics
 
 Self-contained logical-error-rate examples on narrower topics that fall outside the progressive series above.
 Use :doc:`individual-observable rates <logical_error_rates/specialized/per_observable_error_rates>` to unpack aggregate memory failures, and :doc:`sliding-window decoding <logical_error_rates/specialized/sliding_window_decoding>` for longer detector histories.
-The :doc:`AlphaSyndrome example <logical_error_rates/specialized/alpha_syndrome>` explores extraction schedules, while the :doc:`Clifford preparation proxy <logical_error_rates/specialized/clifford_state_preparation_proxy>` applies preparation diagnostics to a circuit inspired by a non-Clifford protocol without simulating that protocol.
+The :doc:`AlphaSyndrome example <logical_error_rates/specialized/alpha_syndrome>` explores extraction schedules, while the :doc:`magic-state preparation proxy <logical_error_rates/specialized/magic_state_proxy>` applies preparation diagnostics to a circuit inspired by a non-Clifford protocol without simulating that protocol.
 The :doc:`TQEC example <logical_error_rates/specialized/decoding_tqec_circuits>` connects externally generated lattice-surgery circuits to qLDPC decoders.
 The TQEC example requires Python 3.11--3.13 because its pinned ``tqec==0.2.0`` dependency does not support Python 3.14.
 
@@ -65,8 +65,8 @@ The TQEC example requires Python 3.11--3.13 because its pinned ``tqec==0.2.0`` d
    :maxdepth: 1
 
    logical_error_rates/specialized/alpha_syndrome
-   logical_error_rates/specialized/clifford_state_preparation_proxy
    logical_error_rates/specialized/decoding_tqec_circuits
+   logical_error_rates/specialized/magic_state_proxy
    logical_error_rates/specialized/per_observable_error_rates
    logical_error_rates/specialized/sliding_window_decoding
 

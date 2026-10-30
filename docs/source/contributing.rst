@@ -199,9 +199,12 @@ Use these criteria when writing new notebooks and reviewing existing ones:
   Retain contrasts that clarify scientific assumptions, genuine alternatives, or limitations.
 * **Background and assumptions:** introduce the concepts, quantities, and notation needed to follow the example before using them.
   State the scientific assumptions that affect its meaning, without turning a focused example into a textbook chapter.
+* **Terminology:** define metrics and any conditioning, such as on accepted shots, where they are introduced, then use concise names consistently.
+  Retain qualifiers only where they distinguish quantities.
 * **Interpretation:** explain how outputs, assertions, and figures answer the question.
   Distinguish demonstrations of an interface from scientific checks, and exact results from estimates or bounds.
   State what a result does not establish when that affects its interpretation.
+* **Figures:** explain shared plot conventions, such as reference lines and uncertainty bands, before the first figure that uses them.
 
 Review the prose, code, and saved outputs together from the intended reader's perspective; successful execution alone does not establish that an example is clear or meaningful.
 Keep explanations focused on the ideas and decisions, rather than narrating each API call.

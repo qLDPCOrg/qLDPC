@@ -26,11 +26,11 @@ Circuit tools currently only support qubit codes.
 - **Code structure and analysis.**
   Work with check matrices, Tanner graphs, canonical logical operators, subsystem gauge operators, and code-capacity error estimates.
 - **Circuits and decoding workflows.**
-  Build memory experiments, encoding circuits, Pauli noise models, and state-preparation diagnostics; use Sinter and sliding-window decoders, or search for transversal Clifford gates.
+  Build memory experiments, encoding circuits, Pauli noise models, and state-preparation diagnostics; use Sinter and sliding-window decoders; certify fault distances and bounded fault propagation exactly; or search for transversal Clifford gates.
 - **Algebraic tools.**
   Work with finite groups, group rings, lifted matrices, Cayley complexes, chain complexes, and optional GAP integration.
 
-The [example notebooks](https://qldpc.readthedocs.io/examples/index.html) cover (among other things) code construction, custom noise models, and circuit-level logical error rates.
+The [example notebooks](https://qldpc.readthedocs.io/examples/index.html) cover (among other things) code construction, custom noise models, circuit-level logical error rates, and fault-tolerance certificates.
 
 ## 🚀 Quickstart
 
@@ -110,7 +110,7 @@ Some searches are expensive, some bounds are heuristic, experimental APIs can ch
 - Circuit and tableau tools only work with qubit codes, even though other parts of qLDPC support prime-power-dimensional qudits.
 - Circuits returned by `get_encoding_circuit` are not fault-tolerant.
   Fault-tolerant encoding is tracked in [issue #327](https://github.com/qLDPCOrg/qLDPC/issues/327).
-- Exact distance calculations and transversal-gate searches can be exponential.
+- Exact distance calculations, fault-tolerance certificates, and transversal-gate searches can take exponential time.
   When a method returns a bound rather than an exact distance, its docstring explains what kind of bound it is.
 - Features that use GAP may start subprocesses, access online resources, or ask for manual input or permission to install a package.
 - Code lookups such as `QuditCode.from_qecdb_id` access online resources and cache results on disk; pass `refresh=True` to fetch the latest data.
