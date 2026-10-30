@@ -416,7 +416,7 @@ def estimate_residual_weight_histogram(
     else:
         oracle = _CosetSearchWeights(matrix, css_weight, max_residual_weight)
 
-    dem, flags, syndromes = _get_primitive_fault_signatures(
+    _, dem, flags, syndromes = _get_primitive_fault_signatures(
         full_circuit, stabilizers, qubits, selected
     )
     probabilities = [

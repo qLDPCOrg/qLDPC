@@ -45,11 +45,11 @@ def certify_bounded_fault_propagation(
 
     Faults are sets of error mechanisms, which are the error instructions of the detector error
     model (DEM) of the circuit after adding any flag detectors and one noiseless detector for each
-    stabilizer of the prepared state.  The certificate stores this DEM as ``detector_error_model``.
-    Stim merges physical faults that flip the same detectors and observables into one error
-    mechanism, which does not change the result.  A fault is represented by a binary vector over the
-    error mechanisms, its fault weight is its number of error mechanisms, and a primitive fault is a
-    fault of fault weight one.
+    stabilizer of the prepared state.  The certificate stores this DEM as ``detector_error_model``,
+    and the circuit with those detectors as ``diagnostic_circuit``.  Stim merges physical faults
+    that flip the same detectors and observables into one error mechanism, which does not change the
+    result.  A fault is represented by a binary vector over the error mechanisms, its fault weight
+    is its number of error mechanisms, and a primitive fault is a fault of fault weight one.
 
     A fault leaves a Pauli error, its output error, on the output qubits that hold the prepared
     state.  The Pauli weight of a Pauli error is either its physical weight (the number of qubits
@@ -141,7 +141,9 @@ def certify_bounded_fault_propagation(
         raise ValueError("Selected outputs must have a definite pure, complete stabilizer state")
     matrix = np.array([math.string_to_op(stabilizer) for stabilizer in stabilizers], dtype=np.uint8)
     css_weight = _is_css_state(matrix) if css_weight is None else css_weight
-    dem, flags, syndromes = _get_primitive_fault_signatures(circuit, stabilizers, qubits, selected)
+    diagnostic_circuit, dem, flags, syndromes = _get_primitive_fault_signatures(
+        circuit, stabilizers, qubits, selected
+    )
     violation = find_smallest_violation(
         flags, syndromes, matrix, css_weight, max_weight, int(memory_limit)
     )
@@ -153,6 +155,7 @@ def certify_bounded_fault_propagation(
         css_weight,
         max_weight,
         selected,
+        diagnostic_circuit,
     )
 
 
@@ -178,6 +181,10 @@ class BoundedFaultPropagationCertificate:
         max_weight: The largest fault weight that the certificate covers, or None for no limit.
         post_selection_detectors: The post-selection detectors, as indices in increasing order among
             the detectors of ``detector_error_model``.
+        diagnostic_circuit: The circuit whose detector error model is ``detector_error_model``: the
+            noisy circuit, followed by any flag detectors and noiseless measurements of the state
+            stabilizers with one detector each.  Pass it to Stim's
+            ``explain_detector_error_model_errors`` to locate the faults of a counterexample.
     """
 
     output_qubits: tuple[int, ...]
@@ -187,11 +194,42 @@ class BoundedFaultPropagationCertificate:
     css_weight: bool
     max_weight: int | None
     post_selection_detectors: tuple[int, ...]
+    diagnostic_circuit: stim.Circuit
 
     @property
     def certified(self) -> bool:
         """Whether fault propagation is bounded, within the limit ``max_weight``."""
         return self.counterexample is None
+
+    def __str__(self) -> str:
+        """Summarize the certificate, and locate the faults of a counterexample in the circuit."""
+        limit = "any fault weight" if self.max_weight is None else f"fault weight {self.max_weight}"
+        metric = "CSS weight" if self.css_weight else "physical weight"
+        num_selected = len(self.post_selection_detectors)
+        selection = (
+            f"post-selecting on {_count(num_selected, 'detector')}"
+            if num_selected
+            else "no post-selection"
+        )
+        settings = f"({metric}, {selection})"
+        counterexample = self.counterexample
+        if counterexample is None:
+            return f"Bounded fault propagation certified up to {limit} {settings}"
+
+        weight = counterexample.fault_weight
+        lines = [f"Bounded fault propagation violated at fault weight {weight} {settings}"]
+        passes = ", which passes post-selection" if num_selected else ""
+        lines.append(f"  fault of {_count(weight, 'error mechanism')}{passes}:")
+        errors = [inst for inst in self.detector_error_model if inst.type == "error"]
+        for index in counterexample.fault_indices:
+            lines.append(f"    {_describe_error_mechanism(self.diagnostic_circuit, errors[index])}")
+        pauli = counterexample.output_pauli
+        x_support = [self.output_qubits[qq] for qq in pauli.pauli_indices("XY")]
+        z_support = [self.output_qubits[qq] for qq in pauli.pauli_indices("YZ")]
+        lines.append(f"  output error, up to stabilizers: X on {x_support}, Z on {z_support}")
+        bound = counterexample.residual_weight_lower_bound
+        lines.append(f"  residual weight >= {bound} > fault weight {weight}")
+        return "\n".join(lines)
 
 
 @dataclass(frozen=True)
@@ -240,13 +278,40 @@ def _get_counterexample(
     )
 
 
+def _count(number: int, noun: str) -> str:
+    """Count a noun, as in "1 detector" or "2 detectors"."""
+    return f"{number} {noun}" if number == 1 else f"{number} {noun}s"
+
+
+def _describe_error_mechanism(circuit: stim.Circuit, error: stim.DemInstruction) -> str:
+    """Describe one circuit location of an error mechanism, or the mechanism if Stim finds none."""
+    explained = circuit.explain_detector_error_model_errors(
+        dem_filter=stim.DetectorErrorModel(str(error)), reduce_to_one_representative_error=True
+    )
+    locations = [loc for explanation in explained for loc in explanation.circuit_error_locations]
+    if not locations:
+        return str(error)
+    location = locations[0]
+    flips = [
+        f"{tt.gate_target.pauli_type}{tt.gate_target.value}"
+        for tt in location.flipped_pauli_product
+    ]
+    if location.flipped_measurement is not None:
+        flips.append(f"flip of measurement {location.flipped_measurement.record_index}")
+    targets = location.instruction_targets
+    qubits = [tt.gate_target.value for tt in targets.targets_in_range]
+    return (
+        f"{' '.join(flips)} from {targets.gate} on qubits {qubits} at tick {location.tick_offset}"
+    )
+
+
 def _get_primitive_fault_signatures(
     circuit: stim.Circuit,
     stabilizers: Sequence[stim.PauliString],
     qubits: Sequence[int],
     selected: Sequence[int],
-) -> tuple[stim.DetectorErrorModel, list[int], list[int]]:
-    """Get the certificate's DEM, and the flags and syndrome of each primitive fault.
+) -> tuple[stim.Circuit, stim.DetectorErrorModel, list[int], list[int]]:
+    """Get the certificate's circuit and DEM, and the flags and syndrome of each primitive fault.
 
     The flags of a primitive fault have bit ``j`` for the ``j``-th selected detector, and its
     syndrome has bit ``j`` for stabilizer ``j``.  Both lists follow the order of the DEM's error
@@ -279,7 +344,7 @@ def _get_primitive_fault_signatures(
                 syndrome ^= 1 << (target.val - circuit.num_detectors)
         flags.append(flag)
         syndromes.append(syndrome)
-    return dem, flags, syndromes
+    return diagnostic_circuit, dem, flags, syndromes
 
 
 def _get_unmeasured_qubits(circuit: stim.Circuit) -> tuple[int, ...]:

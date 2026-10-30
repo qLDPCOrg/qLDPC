@@ -368,6 +368,88 @@ def test_post_selection_can_accept_a_damaging_fault() -> None:
     assert default == certify(None, False)
 
 
+def test_diagnostic_circuit_locates_counterexample_faults() -> None:
+    """The diagnostic circuit has the certificate's DEM, so Stim can explain each fault in it."""
+    circuit = stim.Circuit("""
+        I 0 1 2 3 4
+        CORRELATED_ERROR(0.01) X0 X1 X4
+        CORRELATED_ERROR(0.01) X2 X3 X4
+        M 4
+    """)
+    certificate = circuits.certify_bounded_fault_propagation(
+        circuit, output_qubits=[0, 1, 2, 3], add_flags=True, post_select="flags"
+    )
+    diagnostic_circuit = certificate.diagnostic_circuit
+    assert diagnostic_circuit.num_detectors == 1 + len(certificate.state_stabilizers)
+    dem = diagnostic_circuit.detector_error_model(approximate_disjoint_errors=True)
+    assert dem.flattened() == certificate.detector_error_model
+
+    counterexample = certificate.counterexample
+    assert counterexample is not None
+    errors = [inst for inst in certificate.detector_error_model if inst.type == "error"]
+    explained = diagnostic_circuit.explain_detector_error_model_errors(
+        dem_filter=stim.DetectorErrorModel(
+            "\n".join(str(errors[index]) for index in counterexample.fault_indices)
+        )
+    )
+    offsets = {
+        location.stack_frames[0].instruction_offset
+        for explanation in explained
+        for location in explanation.circuit_error_locations
+    }
+    assert offsets == {1, 2}
+
+
+def test_certificate_prints_a_summary_and_locates_counterexample_faults() -> None:
+    """A violation lists each fault's circuit location and the output error on the qubit indices."""
+    circuit = stim.Circuit("""
+        R 9
+        I 0 1 2 3 4
+        CORRELATED_ERROR(0.01) X0 X1 X4
+        CORRELATED_ERROR(0.01) X2 X3 X4
+        TICK
+        M 4
+    """)
+    certificate = circuits.certify_bounded_fault_propagation(
+        circuit, output_qubits=[3, 2, 1, 0, 9], add_flags=True, post_select="flags"
+    )
+    # The faults are listed in DEM order, and Stim names CORRELATED_ERROR by its alias E.
+    header, faults, first, second, error, bound = str(certificate).splitlines()
+    assert header == (
+        "Bounded fault propagation violated at fault weight 2"
+        " (CSS weight, post-selecting on 1 detector)"
+    )
+    assert faults == "  fault of 2 error mechanisms, which passes post-selection:"
+    assert {first, second} == {
+        "    X0 X1 X4 from E on qubits [0, 1, 4] at tick 0",
+        "    X2 X3 X4 from E on qubits [2, 3, 4] at tick 0",
+    }
+    assert error == "  output error, up to stabilizers: X on [3, 2, 1, 0], Z on []"
+    assert certificate.counterexample is not None
+    lower_bound = certificate.counterexample.residual_weight_lower_bound
+    assert bound == f"  residual weight >= {lower_bound} > fault weight 2"
+
+    certified = circuits.certify_bounded_fault_propagation(stim.Circuit("X_ERROR(0.1) 0"))
+    assert str(certified) == (
+        "Bounded fault propagation certified up to any fault weight (CSS weight, no post-selection)"
+    )
+    limited = circuits.certify_bounded_fault_propagation(
+        circuit, max_weight=1, add_flags=True, post_select="flags"
+    )
+    assert str(limited).startswith("Bounded fault propagation certified up to fault weight 1")
+
+
+def test_error_mechanism_descriptions_cover_measurement_flips_and_unexplained_errors() -> None:
+    """Measurement flips are named, and a mechanism that Stim cannot place is shown as is."""
+    circuit = stim.Circuit("M(0.1) 0\nDETECTOR rec[-1]")
+    error = circuit.detector_error_model()[0]
+    description = fault_propagation._describe_error_mechanism(circuit, error)
+    assert description == "flip of measurement 0 from M on qubits [0] at tick 0"
+    unexplained = stim.DetectorErrorModel("error(0.1) D0 D1")[0]
+    noiseless = stim.Circuit("M 0 1\nDETECTOR rec[-1]\nDETECTOR rec[-2]")
+    assert fault_propagation._describe_error_mechanism(noiseless, unexplained) == str(unexplained)
+
+
 def test_flagged_circuit_with_permuted_signed_outputs() -> None:
     """Many flags, a signed Y stabilizer, and permuted outputs.
 
