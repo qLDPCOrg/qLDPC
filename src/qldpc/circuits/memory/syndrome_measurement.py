@@ -50,18 +50,17 @@ class EdgeColoring(SyndromeMeasurementStrategy):
 
     .. warning::
         This strategy is not guaranteed to be distance-preserving or fault-tolerant.
+
+    Args:
+        strategy: The graph coloration strategy passed to nx.greedy_color when coloring edges.
+            Defaults to "smallest_last".
+        subgraph_kwargs: Keyword arguments to pass to custom ``code.get_syndrome_subgraphs``
+            overrides.  Built-in code families accept only their own ``strategy`` argument; this
+            extension point is intentionally not used by them.
     """
 
     def __init__(self, strategy: str = "smallest_last", **subgraph_kwargs: object) -> None:
-        """Initialize an EdgeColoring syndrome measurement strategy.
-
-        Args:
-            strategy: The graph coloration strategy passed to nx.greedy_color when coloring edges.
-                Defaults to "smallest_last".
-            subgraph_kwargs: Keyword arguments to pass to custom ``code.get_syndrome_subgraphs``
-                overrides.  Built-in code families accept only their own ``strategy`` argument; this
-                extension point is intentionally not used by them.
-        """
+        """Initialize an EdgeColoring syndrome measurement strategy."""
         self.strategy = strategy
         self.subgraph_kwargs = subgraph_kwargs
 
@@ -154,15 +153,14 @@ class EdgeColoringXZ(EdgeColoring):
 
     .. warning::
         This strategy is not guaranteed to be distance-preserving or fault-tolerant.
+
+    Args:
+        strategy: The graph coloration strategy passed to nx.greedy_color when coloring edges.
+            Defaults to "smallest_last".
     """
 
     def __init__(self, strategy: str = "smallest_last") -> None:
-        """Initialize an EdgeColoringXZ syndrome measurement strategy.
-
-        Args:
-            strategy: The graph coloration strategy passed to nx.greedy_color when coloring edges.
-                Defaults to "smallest_last".
-        """
+        """Initialize an EdgeColoringXZ syndrome measurement strategy."""
         self.strategy = strategy
         self.subgraph_kwargs: dict[str, object] = {}
 
