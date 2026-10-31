@@ -329,17 +329,21 @@ def test_quadratic_idle_errors() -> None:
 def test_noise_commutes_with_flattening() -> None:
     """Adding noise to a circuit is equivalent to adding noise to its flattened circuit.
 
-    Moreover, combining idle errors does not change the detector error model.
+    This holds whether or not single-qubit gates take time.  Moreover, combining idle errors does
+    not change the detector error model.
     """
-    noise_model = circuits.NoiseModel(
-        clifford_1q_error=0.01,
-        clifford_2q_error=0.02,
-        readout_error=0.03,
-        idle_error={"X": 0.005, "Z": 0.007},
-        quadratic_idle_error={"Z": 0.003},
-        additional_error_waiting_for_m_or_r=0.04,
-        scheduler=TICKS,
-    )
+    noise_models = [
+        circuits.NoiseModel(
+            clifford_1q_error=0.01,
+            clifford_2q_error=0.02,
+            readout_error=0.03,
+            idle_error={"X": 0.005, "Z": 0.007},
+            quadratic_idle_error={"Z": 0.003},
+            additional_error_waiting_for_m_or_r=0.04,
+            scheduler=scheduler,
+        )
+        for scheduler in [TICKS, circuits.Scheduler.preserve_ticks()]
+    ]
     combined_idle_noise = circuits.NoiseModel(
         idle_error=circuits.PauliChannelSequence({"X": 0.05, "Z": 0.1}), scheduler=TICKS
     )
@@ -351,8 +355,9 @@ def test_noise_commutes_with_flattening() -> None:
     for _ in range(100):
         circuit = _random_circuit(rng)
         flattened_circuit = flatten_repeat_blocks(circuit, circuits.DEFAULT_IMMUNE_OP_TAG)
-        expected = noise_model.noisy_circuit(flattened_circuit)
-        assert noise_model.noisy_circuit(circuit).flattened() == expected.flattened()
+        for noise_model in noise_models:
+            expected = noise_model.noisy_circuit(flattened_circuit)
+            assert noise_model.noisy_circuit(circuit).flattened() == expected.flattened()
 
         combined = combined_idle_noise.noisy_circuit(circuit)
         per_moment = per_moment_idle_noise.noisy_circuit(circuit)
@@ -1117,6 +1122,31 @@ def test_untimed_gates() -> None:
         PAULI_CHANNEL_2(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.02) 1 2
         Z_ERROR(0.1) 0
     """)
+
+    # a repeat block of gates that take no time stays within a moment, and compact, after the noise
+    # of the gates before it
+    noise_model = circuits.NoiseModel(
+        clifford_1q_error={"X": 0.01},
+        idle_error={"Z": 0.1},
+        scheduler=circuits.Scheduler.preserve_ticks(),
+    )
+    circuit = stim.Circuit("CX 1 2\nS 0\nREPEAT 1000000 {\nH 0\n}\nCX 1 2")
+    expected = stim.Circuit("""
+        CX 1 2
+        S 0
+        X_ERROR(0.01) 0
+        REPEAT 1000000 {
+            H 0
+            X_ERROR(0.01) 0
+        }
+        TICK
+        CX 1 2
+        Z_ERROR(0.18) 0
+    """)
+    assert noise_model.noisy_circuit(circuit).approx_equals(expected, atol=1e-12)
+    circuit = stim.Circuit("REPEAT 2 {\nH 0\nREPEAT 3 {\nS 0\n}\n}\nCX 0 1")
+    flattened_noisy_circuit = noise_model.noisy_circuit(circuit.flattened())
+    assert noise_model.noisy_circuit(circuit).flattened() == flattened_noisy_circuit.flattened()
 
     # repeated gates on a qubit get noise after each of them
     noise_model = circuits.NoiseModel(

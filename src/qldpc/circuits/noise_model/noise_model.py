@@ -520,14 +520,62 @@ class NoiseModel:
         collapsed_qubits, operation_qubits = categorize_moment_qubits(
             moment, self.scheduler.takes_time
         )
+        self._inplace_append_noisy_operations(
+            circuit=circuit,
+            operations=moment,
+            immune_qubits=immune_qubits,
+            immune_op_tag=immune_op_tag,
+            immunize_gates=immunize_gates,
+        )
 
-        # noise is appended after the moment, or before a later gate on the same qubit
-        noise_after_moment = stim.Circuit()
+        moment_was_noisy = any(
+            not _is_gate_free(op.body_copy(), immune_op_tag)
+            if isinstance(op, stim.CircuitRepeatBlock)
+            else op_type(op.name) in GATE_OP_TYPES
+            for op in moment
+        )
+        if moment_was_noisy and (
+            self.idle_error or self.quadratic_idle_error or self.additional_error_waiting_for_m_or_r
+        ):
+            self._inplace_append_idle_errors(
+                circuit=circuit,
+                collapsed_qubits=collapsed_qubits,
+                operation_qubits=operation_qubits,
+                system_qubits=system_qubits,
+                immune_qubits=immune_qubits,
+                pending_idle_moments=pending_idle_moments,
+            )
+
+    def _inplace_append_noisy_operations(
+        self,
+        *,
+        circuit: stim.Circuit,
+        operations: Iterable[stim.CircuitInstruction | stim.CircuitRepeatBlock],
+        immune_qubits: frozenset[int],
+        immune_op_tag: str | None,
+        immunize_gates: bool,
+    ) -> None:
+        """Apply noise to operations and append them to a circuit (in-place).
+
+        The noise of an operation is appended after the operations, or before a later operation on
+        the same qubits.  Repeat blocks are appended as they are, since a repeat block with gates
+        that take time has its own moments, and the gates of any other repeat block are already
+        noisy.
+        """
+        noise_after = stim.Circuit()
         noisy_qubits: set[int] = set()
-        for op in moment:
-            if gate_qubits(op) & noisy_qubits:
-                circuit += noise_after_moment
-                noise_after_moment = stim.Circuit()
+        for op in operations:
+            if isinstance(op, stim.CircuitRepeatBlock):
+                op_qubits = (
+                    set()
+                    if _is_gate_free(op.body_copy(), immune_op_tag)
+                    else idle_barrier_qubits([op])
+                )
+            else:
+                op_qubits = gate_qubits(op)
+            if op_qubits & noisy_qubits:
+                circuit += noise_after
+                noise_after = stim.Circuit()
                 noisy_qubits = set()
             if (
                 isinstance(op, stim.CircuitRepeatBlock)
@@ -544,25 +592,9 @@ class NoiseModel:
                 continue
             noisy_op, after = effective_rule.noisy_operation(op)
             circuit.append(noisy_op)
-            noise_after_moment += after
-            noisy_qubits |= gate_qubits(op)
-        circuit += noise_after_moment
-
-        moment_was_noisy = any(
-            isinstance(op, stim.CircuitInstruction) and op_type(op.name) in GATE_OP_TYPES
-            for op in moment
-        )
-        if moment_was_noisy and (
-            self.idle_error or self.quadratic_idle_error or self.additional_error_waiting_for_m_or_r
-        ):
-            self._inplace_append_idle_errors(
-                circuit=circuit,
-                collapsed_qubits=collapsed_qubits,
-                operation_qubits=operation_qubits,
-                system_qubits=system_qubits,
-                immune_qubits=immune_qubits,
-                pending_idle_moments=pending_idle_moments,
-            )
+            noise_after += after
+            noisy_qubits |= op_qubits
+        circuit += noise_after
 
     def _inplace_append_idle_errors(
         self,
@@ -685,7 +717,14 @@ class _NoisyCircuitBuilder:
                     output.append(op)
                     self.needs_tick = False
                 elif not _is_gate_free(op.body_copy(), self.immune_op_tag):
-                    self.append_repeat_block(op, output)
+                    if self.takes_time(op.body_copy()):
+                        self.append_repeat_block(op, output)
+                    else:
+                        # a block that takes no time stays in the open moment, already noisy
+                        noisy_body = self.get_noisy_untimed_circuit(op.body_copy())
+                        self.moment.append(
+                            stim.CircuitRepeatBlock(op.repeat_count, noisy_body, tag=op.tag)
+                        )
                 elif not _is_empty(op.body_copy()):
                     self.moment.append(op)
             elif op.name == "TICK":
@@ -708,6 +747,51 @@ class _NoisyCircuitBuilder:
                             force_split=self.noise_model.rule_func is not None or untimed,
                         )
                     )
+
+    def takes_time(self, circuit: stim.Circuit) -> bool:
+        """Does a circuit (or repeat block body) take time, by ending or starting a moment?"""
+        for op in circuit:
+            if isinstance(op, stim.CircuitRepeatBlock):
+                if (
+                    self.immune_op_tag is not None and self.immune_op_tag in op.tag
+                ) or self.takes_time(op.body_copy()):
+                    return True
+            elif op.name == "TICK" or (
+                op_type(op.name) in GATE_OP_TYPES
+                and any(
+                    self.noise_model.scheduler.takes_time(gate)
+                    for gate in split_targets_if_needed(op, frozenset({-1}), self.immune_op_tag)
+                )
+            ):
+                return True
+        return False
+
+    def get_noisy_untimed_circuit(self, circuit: stim.Circuit) -> stim.Circuit:
+        """Add noise to a circuit (or repeat block body) that takes no time, without idle noise."""
+        operations: list[stim.CircuitInstruction | stim.CircuitRepeatBlock] = []
+        for op in circuit:
+            if isinstance(op, stim.CircuitRepeatBlock):
+                body = self.get_noisy_untimed_circuit(op.body_copy())
+                operations.append(stim.CircuitRepeatBlock(op.repeat_count, body, tag=op.tag))
+            else:
+                for gate in split_targets_if_needed(op, frozenset({-1}), self.immune_op_tag):
+                    operations.extend(
+                        split_targets_if_needed(
+                            gate,
+                            self.immune_qubits,
+                            self.immune_op_tag,
+                            force_split=op_type(gate.name) in GATE_OP_TYPES,
+                        )
+                    )
+        noisy_circuit = stim.Circuit()
+        self.noise_model._inplace_append_noisy_operations(
+            circuit=noisy_circuit,
+            operations=operations,
+            immune_qubits=self.immune_qubits,
+            immune_op_tag=self.immune_op_tag,
+            immunize_gates=self.immunize_gates,
+        )
+        return noisy_circuit
 
     def append_repeat_block(self, block: stim.CircuitRepeatBlock, output: stim.Circuit) -> None:
         """Add noise to a repeat block, and append its completed moments to the output."""
