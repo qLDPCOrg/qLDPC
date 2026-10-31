@@ -13,7 +13,8 @@ accounts for Pauli errors that a chosen logical readout cannot detect, such as Z
 X-type or Z-type part of the error alone.
 
 ``ResidualWeightHistogram.get_excess_failure_probability`` turns a histogram into a single figure of
-merit for a ``ConsumerProfile``, a model of the circuits that consume the prepared state.
+merit for a ``ConsumerProfile``, a model of the circuits that consume the prepared state.  See
+``consumer_calibration.md`` for consumer calibrations, which score histograms of each Pauli type.
 """
 
 from __future__ import annotations
@@ -406,18 +407,7 @@ def estimate_residual_weight_histogram(
     if css_weight is not None and not isinstance(css_weight, bool):
         raise TypeError("css_weight must be a bool or None")
     pauli = None if pauli is None else Pauli.coerce_xz(pauli)
-    if output_qubits is None:
-        output_qubits = _get_unmeasured_qubits(circuit)
-        if not output_qubits:
-            raise ValueError("The circuit has no unmeasured qubits to use as output_qubits")
-    qubits = _validate_output_qubits(output_qubits, circuit.num_qubits)
-
-    # flag detectors come after the detectors that the circuit already has
-    detector_record = DetectorRecord({"prep": range(circuit.num_detectors)})
-    flag_detectors = get_flag_detectors(circuit) if add_flags else stim.Circuit()
-    detector_record.append({"flags": range(flag_detectors.num_detectors)})
-    selected = get_selected_detectors(post_select, detector_record)
-    full_circuit = circuit + flag_detectors
+    full_circuit, qubits, selected = _get_selection(circuit, output_qubits, add_flags, post_select)
 
     stabilizers = circuits.get_state_stabilizers(full_circuit, qubits)
     if len(stabilizers) != len(qubits):
@@ -439,7 +429,7 @@ def estimate_residual_weight_histogram(
     mechanisms = _Mechanisms.from_signatures(probabilities, flags, syndromes, len(selected), oracle)
 
     probabilities_by_fault_weight, truncated_probability = _get_fault_weight_probabilities(
-        mechanisms.probabilities, max_residual_weight, max_fault_weight
+        mechanisms.probabilities, max_fault_weight, max_residual_weight + 1
     )
     max_fault_weight = len(probabilities_by_fault_weight) - 1
     num_columns = max_residual_weight + 3
@@ -573,16 +563,46 @@ def _get_combinations(num_items: int, size: int) -> npt.NDArray[np.intp]:
     return combinations
 
 
+def _get_selection(
+    circuit: stim.Circuit,
+    output_qubits: Sequence[int] | None,
+    add_flags: bool,
+    post_select: bool | Collection[int] | None,
+) -> tuple[stim.Circuit, tuple[int, ...], tuple[int, ...]]:
+    """The circuit with any added flag detectors, its output qubits, and the selected detectors.
+
+    The arguments are as for ``estimate_residual_weight_histogram``.
+    """
+    if output_qubits is None:
+        output_qubits = _get_unmeasured_qubits(circuit)
+        if not output_qubits:
+            raise ValueError("The circuit has no unmeasured qubits to use as output_qubits")
+    qubits = _validate_output_qubits(output_qubits, circuit.num_qubits)
+
+    # flag detectors come after the detectors that the circuit already has
+    detector_record = DetectorRecord({"prep": range(circuit.num_detectors)})
+    flag_detectors = get_flag_detectors(circuit) if add_flags else stim.Circuit()
+    detector_record.append({"flags": range(flag_detectors.num_detectors)})
+    selected = get_selected_detectors(post_select, detector_record)
+    return circuit + flag_detectors, qubits, selected
+
+
 def _get_fault_weight_probabilities(
-    probabilities: npt.NDArray[np.float64], max_residual_weight: int, max_fault_weight: int | None
+    probabilities: npt.NDArray[np.float64],
+    max_fault_weight: int | None,
+    base_fault_weight: int = 0,
 ) -> tuple[npt.NDArray[np.float64], float]:
     """The probability of each fault weight up to a maximum, and of any larger fault weight.
 
-    If ``max_fault_weight`` is None, choose it as ``estimate_residual_weight_histogram`` describes.
+    If ``max_fault_weight`` is None, the maximum is the smallest fault weight, from
+    ``base_fault_weight`` on, beyond which the remaining probability is at most
+    ``_TRUNCATION_TOLERANCE`` times the probability of ``base_fault_weight``.  The search stops at
+    ``base_fault_weight + _MAX_EXTRA_FAULT_WEIGHT`` or at the number of error mechanisms, whichever
+    is smaller.
     """
     num_mechanisms = len(probabilities)
     cap = (
-        min(num_mechanisms, max_residual_weight + 1 + _MAX_EXTRA_FAULT_WEIGHT)
+        min(num_mechanisms, base_fault_weight + _MAX_EXTRA_FAULT_WEIGHT)
         if max_fault_weight is None
         else max_fault_weight
     )
@@ -598,7 +618,7 @@ def _get_fault_weight_probabilities(
     if max_fault_weight is None:
         # tails[f] is the probability of more than f error mechanisms
         tails = np.cumsum(distribution[::-1])[::-1][1:]
-        base = min(max_residual_weight + 1, cap)
+        base = min(base_fault_weight, cap)
         small = np.flatnonzero(tails[base:] <= _TRUNCATION_TOLERANCE * distribution[base])
         max_fault_weight = base + int(small[0]) if len(small) else cap
         return distribution[: max_fault_weight + 1], float(tails[max_fault_weight])
