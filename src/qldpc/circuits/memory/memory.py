@@ -15,7 +15,7 @@ from qldpc._utils import format_docstring
 from qldpc.objects import Node, Pauli, PauliXZ, PauliXZLike, TannerGraph
 
 from ..bookkeeping import DetectorRecord, MeasurementRecord, QubitIDs
-from ..common import _restrict_to_qubits, get_pauli_product_measurements, with_remapped_qubits
+from ..common import _restrict_to_qubits, get_pauli_product_measurements
 from ..encoding import get_encoding_circuit
 from ..noise_model import (
     DEFAULT_IMMUNE_OP_TAG,
@@ -24,6 +24,7 @@ from ..noise_model import (
     as_noiseless_circuit,
 )
 from ..noise_model._operations import GATE_OP_TYPES, op_type
+from ..transforms import with_remapped_qubits
 from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
 
 # default strategy used to schedule the two-qubit gates of a syndrome measurement circuit

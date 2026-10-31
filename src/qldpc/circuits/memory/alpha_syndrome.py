@@ -21,8 +21,9 @@ from qldpc import codes, decoders
 from qldpc.objects import Pauli, PauliXZ
 
 from ..bookkeeping import MeasurementRecord, QubitIDs
-from ..common import _restrict_to_qubits, get_pauli_product_measurements, with_remapped_qubits
+from ..common import _restrict_to_qubits, get_pauli_product_measurements
 from ..noise_model import NoiseModel, as_noiseless_circuit
+from ..transforms import with_remapped_qubits
 from .syndrome_measurement import SyndromeMeasurementStrategy, _validate_syndrome_qubit_ids
 
 # Scrappy type to represent a schedule of two-qubit gates: A list whose t-th entry is a list of

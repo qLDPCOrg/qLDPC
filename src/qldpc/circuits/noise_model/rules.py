@@ -12,7 +12,8 @@ from typing import TypeAlias
 
 import stim
 
-from ..common import StimCircuitLike, with_remapped_qubits
+from ..common import StimCircuitLike
+from ..transforms import with_remapped_qubits
 from ._operations import JUST_MEASURE_OPS, JUST_RESET_OPS, MEASURE_AND_RESET_OPS, NOISE, op_type
 from .channels import AbstractPauliChannel, PauliChannel
 

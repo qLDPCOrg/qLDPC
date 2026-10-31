@@ -9,8 +9,7 @@ from collections.abc import Collection
 
 import stim
 
-from .bookkeeping import DetectorRecord
-from .common import get_unaddressed_measurements
+from .bookkeeping import DetectorRecord, get_unaddressed_measurements
 
 ####################################################################################################
 # flag detectors and post-selection
