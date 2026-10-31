@@ -109,55 +109,22 @@ def test_gate_errors() -> None:
         circuits.NoiseModel(rules={"CNOTT": circuits.NoiseRule()})
 
 
-def test_explicit_idle_rules() -> None:
-    """Named identity rules add marker-specific noise without suppressing automatic idle noise."""
-    noise_model = circuits.NoiseModel(
-        rules={
-            "I": circuits.NoiseRule(after={"X": 0.1}),
-            "II": circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(2, 0.2)),
-        },
-        idle_error=0.3,
-    )
-    circuit = stim.Circuit("I 0 1\nII 2 3\nH 4")
+def test_identity_gates() -> None:
+    """Identity gates get the noise of ordinary one- and two-qubit Clifford gates."""
+    noise_model = circuits.NoiseModel(clifford_1q_error=0.1, clifford_2q_error=0.2, idle_error=0.3)
+    circuit = stim.Circuit("I 0\nII 1 2\nH 3")
     noisy_circuit = stim.Circuit("""
-        I 0 1
-        II 2 3
-        H 4
-        X_ERROR(0.1) 0 1
-        DEPOLARIZE2(0.2) 2 3
-        DEPOLARIZE1(0.3) 0 1 2 3
+        I 0
+        II 1 2
+        H 3
+        DEPOLARIZE1(0.1) 0
+        DEPOLARIZE2(0.2) 1 2
+        DEPOLARIZE1(0.1) 3
+        DEPOLARIZE1(0.3) 4
     """)
-    assert circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
-
-    # The callback overrides the named rule only for the tagged identity.
-    def override_tagged_idle(op: stim.CircuitInstruction) -> circuits.NoiseRule | None:
-        if op.name == "I" and op.tag == "override":
-            return circuits.NoiseRule(after={"Y": 0.4})
-        return None
-
-    noise_model = circuits.NoiseModel(
-        rules={"I": circuits.NoiseRule(after={"X": 0.2})},
-        rule_func=override_tagged_idle,
+    assert circuits_are_equivalent(
+        noisy_circuit, noise_model.noisy_circuit(circuit, system_qubits=range(5))
     )
-    circuit = stim.Circuit("I[default] 0\nI[override] 1")
-    noisy_circuit = stim.Circuit("""
-        I[default] 0
-        I[override] 1
-        X_ERROR(0.2) 0
-        Y_ERROR(0.4) 1
-    """)
-    assert circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
-
-    with pytest.raises(ValueError, match=r"rules\['I'\].*arity 2.*expected 1"):
-        circuits.NoiseModel(
-            rules={"I": circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(2, 0.1))}
-        )
-    with pytest.raises(ValueError, match=r"rules\['II'\].*arity 1.*expected 2"):
-        circuits.NoiseModel(rules={"II": circuits.NoiseRule(after={"X": 0.1})})
-    with pytest.raises(ValueError, match=r"rules\['I'\].*readout_error"):
-        circuits.NoiseModel(rules={"I": circuits.NoiseRule(readout_error=0.1)})
-    with pytest.raises(ValueError, match=r"rules\['II'\].*reset_error"):
-        circuits.NoiseModel(rules={"II": circuits.NoiseRule(reset_error=0.1)})
 
 
 def test_idle_errors() -> None:
@@ -195,15 +162,6 @@ def test_idle_errors() -> None:
     assert "DEPOLARIZE1(0.2) 1" in str(noisy_annotated)
     unprotected = annotated_noise.noisy_circuit(annotated, immune_qubit_tag=None)
     assert "DEPOLARIZE1(0.1) 0" in str(unprotected)
-
-    idle_marker_model = circuits.NoiseModel(clifford_1q_error=0.2, idle_error=0.1)
-    idle_marker_circuit = idle_marker_model.noisy_circuit(
-        stim.Circuit("I 0\nH 1"), system_qubits=[0, 1]
-    )
-    assert circuits_are_equivalent(
-        stim.Circuit("I 0\nH 1\nDEPOLARIZE1(0.2) 1\nDEPOLARIZE1(0.1) 0"),
-        idle_marker_circuit,
-    )
 
     moment_model = circuits.NoiseModel(idle_error=0.01)
     assert moment_model.noisy_circuit(stim.Circuit("QUBIT_COORDS(0) 0")) == stim.Circuit(
@@ -759,7 +717,8 @@ def test_rule_func() -> None:
         noisy_circuit, noise_model.noisy_circuit(circuit, immune_qubits={1})
     )
 
-    # The callback sees explicit idle markers, but not annotations or classically-controlled ops.
+    # The callback sees gates, including identities, but not annotations or classically-controlled
+    # ops.
     consulted: list[str] = []
 
     def record(op: stim.CircuitInstruction) -> circuits.NoiseRule:
@@ -779,44 +738,6 @@ def test_rule_func() -> None:
     assert circuits_are_equivalent(noisy_circuit, identity_rule.noisy_circuit(circuit))
     with pytest.raises(ValueError, match="operated on multiple times"):
         identity_rule.noisy_circuit(circuit, insert_ticks=False)
-
-    # Tagged broadcast idle markers are split per application.  The callback-selected noise and
-    # automatic idle_error are both emitted.
-    seen_idle_ops: list[tuple[str, str, tuple[int, ...]]] = []
-
-    def tagged_idle(op: stim.CircuitInstruction) -> circuits.NoiseRule | None:
-        if op.name not in ("I", "II"):
-            return None
-        targets = tuple(target.qubit_value for target in op.targets_copy())
-        seen_idle_ops.append((op.name, op.tag, targets))
-        return circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(len(targets), 0.2))
-
-    noise_model = circuits.NoiseModel(
-        clifford_1q_error=0.1,
-        idle_error=0.3,
-        rule_func=tagged_idle,
-    )
-    circuit = stim.Circuit("I[idle_us=5] 0 1\nII[idle_us=10] 2 3\nH 4")
-    noisy_circuit = stim.Circuit("""
-        I[idle_us=5] 0 1
-        II[idle_us=10] 2 3
-        H 4
-        DEPOLARIZE1(0.2) 0 1
-        DEPOLARIZE2(0.2) 2 3
-        DEPOLARIZE1(0.1) 4
-        DEPOLARIZE1(0.3) 0 1 2 3
-    """)
-    assert circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
-    assert seen_idle_ops == [
-        ("I", "idle_us=5", (0,)),
-        ("I", "idle_us=5", (1,)),
-        ("II", "idle_us=10", (2, 3)),
-    ]
-
-    # Returning None for an identity does not fall through to the Clifford default.
-    noise_model = circuits.NoiseModel(clifford_1q_error=0.1, rule_func=lambda op: None)
-    circuit = stim.Circuit("I[idle_us=5] 0")
-    assert noise_model.noisy_circuit(circuit) == circuit
 
     # A returned rule's readout_error/reset_error must match the gate it is assigned to.
     bad_readout = circuits.NoiseModel(rule_func=lambda op: circuits.NoiseRule(readout_error=0.1))
@@ -1169,23 +1090,22 @@ def test_instantaneous_1q_gates() -> None:
     assert noisy_circuit == stim.Circuit("H 0\nZ_ERROR(0.01) 0\nH 0\nZ_ERROR(0.01) 0")
 
     # I takes no time, II takes a moment, and a moment between TICKs lasts a moment regardless of
-    # its operations, so qubits idle for two moments before the last CX
+    # its operations, so qubits idle only in the second moment
     noise_model = circuits.NoiseModel(
         idle_error={"Z": 0.1}, scheduler=circuits.Scheduler(instantaneous_1q_gates=True)
     )
     circuit = stim.Circuit("I 0\nCX 0 1\nTICK\nI 0\nTICK\nII 0 1\nCX 0 1")
-    expected = stim.Circuit("""
+    assert noise_model.noisy_circuit(circuit) == stim.Circuit("""
         I 0
         CX 0 1
         TICK
         I 0
+        Z_ERROR(0.1) 0 1
         TICK
         II 0 1
-        Z_ERROR(0.18) 0 1
         TICK
         CX 0 1
     """)
-    assert noise_model.noisy_circuit(circuit).approx_equals(expected, atol=1e-12)
 
 
 def test_noise_model_str() -> None:

@@ -19,7 +19,6 @@ from ._operations import (
     CLIFFORD_2Q,
     CLIFFORD_PP,
     COLLAPSING_OPS,
-    IDLE_OPS,
     JUST_MEASURE_2Q,
     JUST_MEASURE_PP,
     NOISE,
@@ -38,20 +37,15 @@ def idle_barrier_qubits(
     """Qubits that pending idle errors may not be deferred past, at any depth of repeat blocks.
 
     These are the qubits whose state an instruction acts on or depends on.  Annotations such as
-    ``OBSERVABLE_INCLUDE`` with Pauli targets are included.  Explicit idles (``I``/``II``),
-    ``QUBIT_COORDS`` annotations, noise channels, and the targets of classically controlled Paulis
-    are not, since Pauli errors commute with these up to signs that do not affect detectors or
-    observables.
+    ``OBSERVABLE_INCLUDE`` with Pauli targets are included.  ``QUBIT_COORDS`` annotations, noise
+    channels, and the targets of classically controlled Paulis are not, since Pauli errors commute
+    with these up to signs that do not affect detectors or observables.
     """
     qubits: set[int] = set()
     for instruction in instructions:
         if isinstance(instruction, stim.CircuitRepeatBlock):
             qubits.update(idle_barrier_qubits(instruction.body_copy()))
-        elif (
-            instruction.name not in IDLE_OPS
-            and instruction.name != "QUBIT_COORDS"
-            and op_type(instruction.name) != NOISE
-        ):
+        elif instruction.name != "QUBIT_COORDS" and op_type(instruction.name) != NOISE:
             for group in instruction.target_groups():
                 if not any(
                     target.is_measurement_record_target or target.is_sweep_bit_target
@@ -85,12 +79,12 @@ def categorize_moment_qubits(
 ) -> tuple[list[int], list[int]]:
     """Categorize a moment's qubit targets and check for reuse.
 
-    Iterates every non-annotation instruction and buckets its qubit targets into four lists —
-    collapsed (measurement / reset), classically-controlled, explicit-idle, and everything else
-    ("operation").  Raises if any qubit is used more than once across the four buckets, since noise
-    application relies on the "each qubit at most once per moment" invariant that
-    ``NoiseModel.noisy_circuit`` enforces when ``insert_ticks=True``.  The classically-controlled
-    and explicit-idle buckets contribute only to the reuse check.
+    Iterates every non-annotation instruction and buckets its qubit targets into three lists —
+    collapsed (measurement / reset), classically-controlled, and everything else ("operation").
+    Raises if any qubit is used more than once across the three buckets, since noise application
+    relies on the "each qubit at most once per moment" invariant that ``NoiseModel.noisy_circuit``
+    enforces when ``insert_ticks=True``.  The classically-controlled bucket contributes only to the
+    reuse check.
 
     Args:
         moment: The moment's operations.
@@ -108,7 +102,6 @@ def categorize_moment_qubits(
     collapsed_qubits: list[int] = []
     operation_qubits: list[int] = []
     classically_controlled_qubits: list[int] = []
-    explicit_idle_qubits: list[int] = []
     for op in moment:
         if (
             isinstance(op, stim.CircuitRepeatBlock)
@@ -127,14 +120,12 @@ def categorize_moment_qubits(
             qubits = collapsed_qubits
         elif involves_classical_bits(op):
             qubits = classically_controlled_qubits
-        elif op.name in IDLE_OPS:
-            qubits = explicit_idle_qubits
         else:
             qubits = operation_qubits
         qubits.extend(target_qubits)
 
     usage_counts = collections.Counter(
-        collapsed_qubits + operation_qubits + classically_controlled_qubits + explicit_idle_qubits
+        collapsed_qubits + operation_qubits + classically_controlled_qubits
     )
     qubits_used_multiple_times = {qubit for qubit, count in usage_counts.items() if count != 1}
     if qubits_used_multiple_times:
@@ -147,7 +138,7 @@ def categorize_moment_qubits(
 
 
 def is_instantaneous_1q_gate(op: stim.CircuitInstruction | stim.CircuitRepeatBlock) -> bool:
-    """Is an operation a single-qubit gate, including ``I``, which may take no time?"""
+    """Is an operation a single-qubit gate, which may take no time?"""
     return isinstance(op, stim.CircuitInstruction) and op_type(op.name) == CLIFFORD_1Q
 
 

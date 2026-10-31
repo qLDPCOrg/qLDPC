@@ -33,7 +33,6 @@ from ._operations import (
     CLIFFORD_2Q,
     CLIFFORD_PP,
     GATE_OP_TYPES,
-    IDLE_OPS,
     JUST_MEASURE_OPS,
     JUST_MEASURE_PP,
     JUST_RESET_OPS,
@@ -92,8 +91,7 @@ class NoiseModel:
     This class provides a framework for adding various types of noise to quantum circuits, including
     gate errors, readout errors, reset errors, and idling errors.  Classically controlled operations
     are assumed to NOT occur, so the corresponding qubits pick up idling errors, if applicable.
-    Explicit ``I`` and ``II`` markers are likewise treated as idle time rather than ordinary
-    Clifford gates, but ``rules`` and ``rule_func`` may assign additional custom noise to them.
+    Identity gates (``I`` and ``II``) are treated as ordinary one- and two-qubit Clifford gates.
 
     Args:
         clifford_1q_error: Default noise applied after each one-qubit unitary Clifford gate.  A
@@ -131,18 +129,15 @@ class NoiseModel:
             reset, including qubits undergoing a unitary operation.  Accepts the same NoiseRule
             fields as ``idle_error``, but is always applied once per moment.
         rules: Dictionary mapping specific gate names to their noise rules.  Overrides the
-            arity-based defaults for unitary, measurement, and reset gates.  Explicit ``I`` and
-            ``II`` markers accept one- and two-qubit ``after`` rules, respectively.  If
-            ``idle_error`` is also configured, both kinds of noise are applied.
+            arity-based defaults for unitary, measurement, and reset gates.
         rule_func: Optional callback function that maps a ``stim.CircuitInstruction`` to a
             ``NoiseRule``.  The callback is evaluated before named and default rules.  Broadcast
             instructions are split first, so each callback input represents one gate
             application: one target for a one-qubit gate, two for a two-qubit gate, or one Pauli
             product for an SPP/MPP instruction.  The callback receives unitary Cliffords,
-            measurements, resets, and explicit ``I`` / ``II`` idle markers, but not annotations,
-            pure-noise instructions, or classically controlled operations.  Returning ``None``
-            continues with named and default rule lookup.  Identities can fall back to named
-            rules, but not to Clifford defaults.
+            measurements, and resets, but not annotations, pure-noise instructions, or classically
+            controlled operations.  Returning ``None`` continues with named and default rule
+            lookup.
         scheduler: The :class:`~qldpc.circuits.Scheduler` that divides circuits into the moments
             in which qubits idle.  By default, a circuit keeps its own moments.
 
@@ -329,10 +324,6 @@ class NoiseModel:
         3. ``clifford_nq_error`` (arity-based NoiseRules for unitary Cliffords).
         4. ``readout_error`` and/or ``reset_error`` (per-gate defaults for measurement/reset ops).
 
-        For explicit idle markers (``I`` and ``II``), ``rule_func`` is consulted first, followed by
-        named ``rules``.  Clifford defaults do not apply.  Because automatic ``idle_error`` is
-        evaluated separately, an identity can receive both kinds of noise.
-
         .. note::
             MPP / SPP / SPP_DAG instructions passed to this method must contain exactly one Pauli
             product (e.g. ``MPP X0*Y1*Z2``, not ``MPP X0*Y1 Z2*X3``).  Multi-product instructions
@@ -377,9 +368,6 @@ class NoiseModel:
                         if rule.reset_error is not None:
                             raise ValueError(f"`reset_error` is not valid on {op.name!r}")
                     return rule
-
-        if op.name in IDLE_OPS:
-            return None
 
         if this_op_type in (CLIFFORD_1Q, CLIFFORD_2Q, CLIFFORD_PP):
             if this_op_type == CLIFFORD_1Q:
@@ -836,9 +824,6 @@ class DepolarizingNoiseModel(NoiseModel):
 
     Unitary Clifford gates on more qubits, including Pauli-product rotations (SPP), can also be
     depolarized by increasing the max_gate_size; otherwise, they are noiseless.
-
-    Explicit ``I`` and ``II`` instructions are treated as idle markers: they are preserved, do not
-    receive gate noise, and their target qubits receive the configured idle noise.
 
     Args:
         p: The error probability of every noisy operation.

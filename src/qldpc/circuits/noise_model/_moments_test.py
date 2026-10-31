@@ -126,7 +126,7 @@ def test_repeat_blocks() -> None:
 def test_moment_qubits() -> None:
     """Qubits are categorized by their role in a moment, and qubit reuse is rejected."""
     moment = list(stim.Circuit("MPP X0*Z0\nR 1\nH 2\nI 3\nCX rec[-1] 4\nDETECTOR rec[-1]"))
-    assert _moments.categorize_moment_qubits(moment) == ([0, 1], [2])
+    assert _moments.categorize_moment_qubits(moment) == ([0, 1], [2, 3])
     with pytest.raises(ValueError, match="multiple uses"):
         _moments.categorize_moment_qubits(list(stim.Circuit("I 0\nH 0")))
 
@@ -138,7 +138,6 @@ def test_moment_qubits() -> None:
         QUBIT_COORDS[immune](0) 0
         REPEAT 2 {
             QUBIT_COORDS[immune](1) 1
-            I 2
             OBSERVABLE_INCLUDE(0) X3
             H 4
         }
@@ -179,7 +178,6 @@ def test_idle_barrier_qubits() -> None:
         X_ERROR(0.1) 2
         CX rec[-1] 3 4 5
         CZ 6 sweep[0]
-        I 7
         QUBIT_COORDS(0, 0) 8
         REPEAT 2 {
             M 9
