@@ -107,7 +107,7 @@ def get_pauli_product_measurements(
                     f"A Pauli string acts on {len(string)} qubits, but {len(qubits)} qubit labels"
                     " were provided"
                 )
-            # relabel qubits here, rather than with qubit remapping, which builds on this module
+            # if applicable, assign qubit indices as provided
             targets = [
                 target
                 if target.is_combiner
