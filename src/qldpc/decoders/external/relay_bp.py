@@ -77,6 +77,26 @@ class RelayBPDecoder(BatchErrorDecoder):
     Unlike the batch methods of ``relay_bp.ObservableDecoderRunner``, the batch methods of this
     class show no progress bar by default, since Sinter decoders call them for every batch of shots.
     Pass ``progress_bar=True`` to show one.
+
+    Args:
+        pcm_or_dem: A parity check matrix or detector error model (DEM).
+        error_priors: Prior probabilities for each error, or None.  If ``error_priors is None``
+            and ``pcm_or_dem`` is a DEM, these are set to the error probabilities in the DEM by
+            default.
+        name: The name of the RelayBP decoder to instantiate.  Must be one of the classes listed
+            under ``help(relay_bp.bp)``.
+        observable_error_matrix: A binary matrix whose rows specify which error mechanisms flip
+            which observables, or None.  If ``pcm_or_dem`` is a DEM, this matrix is extracted
+            from the DEM.  If ``pcm_or_dem`` is a matrix and ``observable_error_matrix`` is
+            None, the constructed ``RelayBPDecoder`` will not be able to predict observable
+            flips (or logical error rates).
+        include_decode_result: Argument passed to ``relay_bp.ObservableDecoderRunner``.
+        add_erasure_bit: Whether to append a bit to all decoded errors, set to 1 when the error
+            Relay-BP settles on does not reproduce the syndrome and to 0 otherwise.  Without
+            that bit, such a shot is reported as an ordinary inferred error.
+        **decoder_args: Arguments passed to the "inner" (syndrome -> error) decoder from
+            relay_bp.  See help(relay_bp.RelayDecoderF32) or https://pypi.org/project/relay-bp/
+            for the options (alpha, alpha_iteration_scaling_factor, gamma0, etc.).
     """
 
     def __init__(
@@ -90,28 +110,7 @@ class RelayBPDecoder(BatchErrorDecoder):
         add_erasure_bit: bool = False,
         **decoder_args: object,
     ) -> None:
-        """Initialize a RelayBP decoder from the relay_bp package.
-
-        Args:
-            pcm_or_dem: A parity check matrix or detector error model (DEM).
-            error_priors: Prior probabilities for each error, or None.  If ``error_priors is None``
-                and ``pcm_or_dem`` is a DEM, these are set to the error probabilities in the DEM by
-                default.
-            name: The name of the RelayBP decoder to instantiate.  Must be one of the classes listed
-                under ``help(relay_bp.bp)``.
-            observable_error_matrix: A binary matrix whose rows specify which error mechanisms flip
-                which observables, or None.  If ``pcm_or_dem`` is a DEM, this matrix is extracted
-                from the DEM.  If ``pcm_or_dem`` is a matrix and ``observable_error_matrix`` is
-                None, the constructed ``RelayBPDecoder`` will not be able to predict observable
-                flips (or logical error rates).
-            include_decode_result: Argument passed to ``relay_bp.ObservableDecoderRunner``.
-            add_erasure_bit: Whether to append a bit to all decoded errors, set to 1 when the error
-                Relay-BP settles on does not reproduce the syndrome and to 0 otherwise.  Without
-                that bit, such a shot is reported as an ordinary inferred error.
-            **decoder_args: Arguments passed to the "inner" (syndrome -> error) decoder from
-                relay_bp.  See help(relay_bp.RelayDecoderF32) or https://pypi.org/project/relay-bp/
-                for the options (alpha, alpha_iteration_scaling_factor, gamma0, etc.).
-        """
+        """Initialize a RelayBP decoder from the relay_bp package."""
         relay_bp = _get_relay_bp()
         if not isinstance(name, str) or not hasattr(relay_bp, name):
             raise ValueError(

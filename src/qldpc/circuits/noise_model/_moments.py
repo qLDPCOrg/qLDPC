@@ -36,20 +36,29 @@ def idle_barrier_qubits(
 ) -> set[int]:
     """Qubits that pending idle errors may not be deferred past, at any depth of repeat blocks.
 
-    These are the qubits targeted by any instruction other than an explicit idle (``I``/``II``) or a
-    ``QUBIT_COORDS`` annotation.  Annotations such as ``OBSERVABLE_INCLUDE`` with Pauli targets are
-    included, since they depend on the state of their target qubits.
+    These are the qubits whose state an instruction acts on or depends on.  Annotations such as
+    ``OBSERVABLE_INCLUDE`` with Pauli targets are included.  Explicit idles (``I``/``II``),
+    ``QUBIT_COORDS`` annotations, noise channels, and the targets of classically controlled Paulis
+    are not, since Pauli errors commute with these up to signs that do not affect detectors or
+    observables.
     """
     qubits: set[int] = set()
     for instruction in instructions:
         if isinstance(instruction, stim.CircuitRepeatBlock):
             qubits.update(idle_barrier_qubits(instruction.body_copy()))
-        elif instruction.name not in IDLE_OPS and instruction.name != "QUBIT_COORDS":
-            qubits.update(
-                target.qubit_value
-                for target in instruction.targets_copy()
-                if target.qubit_value is not None
-            )
+        elif (
+            instruction.name not in IDLE_OPS
+            and instruction.name != "QUBIT_COORDS"
+            and op_type(instruction.name) != NOISE
+        ):
+            for group in instruction.target_groups():
+                if not any(
+                    target.is_measurement_record_target or target.is_sweep_bit_target
+                    for target in group
+                ):
+                    qubits.update(
+                        target.qubit_value for target in group if target.qubit_value is not None
+                    )
     return qubits
 
 
@@ -298,6 +307,42 @@ def repeated_idle_channel(
         if repetitions:
             single = _compose_pauli_distributions(single, single)
     return PauliChannel(dict(zip("XYZ", result[1:], strict=True)))
+
+
+def quadratic_idle_channel(channel: PauliChannel, num_moments: int) -> PauliChannel:
+    """The error of a run of consecutive idle moments, given the quadratic idle error of one.
+
+    If ``channel`` applies Paulis with total probability ``p``, the result applies the same Paulis
+    in the same proportions with total probability ``(1 - (1 - 2 * p)**(num_moments**2)) / 2``.
+    This is the Pauli twirl of a rotation about a fixed axis by an angle that grows linearly over
+    the run, at a Gaussian random rate whose spread is set by ``p``.
+    """
+    total = math.fsum(channel.probabilities.values())
+    # compute (1 - 2 * total)**(num_moments**2) - 1 to full relative precision
+    decay = math.expm1(num_moments**2 * math.log1p(-2 * total)) if total < 0.5 else -1.0
+    scale = -decay / (2 * total)
+    return PauliChannel(
+        {pauli: probability * scale for pauli, probability in channel.probabilities.items()}
+    )
+
+
+def compose_idle_channels(
+    first: PauliChannel | PauliChannelSequence, second: PauliChannel | PauliChannelSequence
+) -> PauliChannel:
+    """The one-qubit Pauli channel that applies independent errors from two one-qubit channels."""
+    distribution: tuple[float, ...] = (1.0, 0.0, 0.0, 0.0)
+    for channel in (first, second):
+        if isinstance(channel, PauliChannelSequence):
+            # a sequence of independent Pauli events, each of which fires with its own probability
+            for pauli, probability in channel.probabilities.items():
+                event = [1 - probability, 0.0, 0.0, 0.0]
+                event["IXYZ".index(pauli)] = probability
+                distribution = _compose_pauli_distributions(distribution, tuple(event))
+        else:
+            probabilities = tuple(channel.probabilities.get(pauli, 0.0) for pauli in "XYZ")
+            single = (max(0.0, 1 - math.fsum(probabilities)), *probabilities)
+            distribution = _compose_pauli_distributions(distribution, single)
+    return PauliChannel(dict(zip("XYZ", distribution[1:], strict=True)))
 
 
 def _compose_pauli_distributions(

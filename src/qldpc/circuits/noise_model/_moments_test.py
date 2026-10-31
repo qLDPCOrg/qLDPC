@@ -2,6 +2,10 @@
 
 """Unit tests for _moments.py."""
 
+import itertools
+import math
+
+import numpy as np
 import pytest
 import stim
 
@@ -161,3 +165,81 @@ def test_repeated_idle_channel() -> None:
         )
         single = _moments.repeated_idle_channel(circuits.PauliChannel({"X": p_x}), repetitions)
         assert sequence.probabilities == pytest.approx(single.probabilities)
+
+
+def test_idle_barrier_qubits() -> None:
+    """Idle errors may be deferred past instructions that commute with Pauli errors."""
+    circuit = stim.Circuit("""
+        H 0
+        OBSERVABLE_INCLUDE(0) X1
+        X_ERROR(0.1) 2
+        CX rec[-1] 3 4 5
+        CZ 6 sweep[0]
+        I 7
+        QUBIT_COORDS(0, 0) 8
+        REPEAT 2 {
+            M 9
+        }
+    """)
+    assert _moments.idle_barrier_qubits(circuit) == {0, 1, 4, 5, 9}
+
+
+def test_quadratic_idle_channel() -> None:
+    """The twirl of a rotation by a Gaussian random angle that grows linearly over idle moments."""
+    paulis = {
+        "X": np.array([[0, 1], [1, 0]]),
+        "Y": np.array([[0, -1j], [1j, 0]]),
+        "Z": np.diag([1, -1]),
+    }
+    channel = circuits.PauliChannel({"X": 0.01, "Y": 0.02, "Z": 0.03})
+    total = math.fsum(channel.probabilities.values())
+    axis = sum(math.sqrt(p / total) * paulis[pauli] for pauli, p in channel.probabilities.items())
+
+    # one moment rotates by an angle with standard deviation sigma, which flips a qubit with total
+    # probability (1 - exp(-sigma**2 / 2)) / 2; average the twirl of k moments over the angle
+    sigma = math.sqrt(-2 * math.log(1 - 2 * total))
+    angles = np.linspace(-12 * sigma, 12 * sigma, 4001)
+    weights = np.exp(-(angles**2) / (2 * sigma**2))
+    weights /= weights.sum()
+    for moments in [2, 30]:
+        expected = dict.fromkeys(paulis, 0.0)
+        for angle, weight in zip(moments * angles, weights, strict=True):
+            unitary = math.cos(angle / 2) * np.eye(2) - 1j * math.sin(angle / 2) * axis
+            for pauli, matrix in paulis.items():
+                expected[pauli] += weight * abs(np.trace(matrix @ unitary) / 2) ** 2
+        repeated = _moments.quadratic_idle_channel(channel, moments)
+        assert repeated.probabilities == pytest.approx(expected, rel=1e-6)
+
+    # a fully dephasing moment stays fully dephasing
+    dephased = _moments.quadratic_idle_channel(circuits.PauliChannel({"Z": 0.5}), 3)
+    assert dephased.probabilities == pytest.approx({"Z": 0.5})
+
+
+def test_compose_idle_channels() -> None:
+    """Independent idle errors compose into one channel, whether exclusive or independent events."""
+    exclusive = circuits.PauliChannel({"X": 0.1, "Z": 0.2})
+    independent = circuits.PauliChannelSequence({"X": 0.1, "Z": 0.2})
+    other = circuits.PauliChannel({"Y": 0.05, "Z": 0.3})
+    composed = _moments.compose_idle_channels(exclusive, other)
+    assert composed.probabilities == pytest.approx(_compose(exclusive, other))
+    events = _compose(circuits.PauliChannel({"X": 0.1}), circuits.PauliChannel({"Z": 0.2}))
+    composed = _moments.compose_idle_channels(independent, other)
+    assert composed.probabilities == pytest.approx(_compose(circuits.PauliChannel(events), other))
+
+
+def _compose(first: circuits.PauliChannel, second: circuits.PauliChannel) -> dict[str, float]:
+    """The probabilities of the product of independent one-qubit Pauli errors.
+
+    Indexing Paulis as (I, X, Y, Z), the product of Paulis ``i`` and ``j`` is ``i ^ j`` up to phase.
+    """
+
+    def get_distribution(channel: circuits.PauliChannel) -> list[float]:
+        probabilities = [channel.probabilities.get(pauli, 0.0) for pauli in "XYZ"]
+        return [1 - sum(probabilities), *probabilities]
+
+    result = [0.0] * 4
+    for (i, p_i), (j, p_j) in itertools.product(
+        enumerate(get_distribution(first)), enumerate(get_distribution(second))
+    ):
+        result[i ^ j] += p_i * p_j
+    return dict(zip("XYZ", result[1:], strict=True))

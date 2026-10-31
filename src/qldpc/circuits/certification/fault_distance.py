@@ -22,15 +22,15 @@ def get_fault_distance(
     r"""Compute the exact fault distance of a noisy circuit.
 
     Consider a noisy Stim circuit annotated with detectors and logical observables.  Calling
-    ``circuit.detector_error_model()`` converts it into a detector error model (DEM).  The DEM lists
-    error mechanisms, their probabilities, and the detectors and observables flipped by each
-    mechanism.
+    ``circuit.detector_error_model(approximate_disjoint_errors=True)`` converts it into a detector
+    error model (DEM).  The DEM lists error mechanisms, their probabilities, and the detectors and
+    observables flipped by each mechanism.
 
     ``decoders.DetectorErrorModelArrays`` collects this data into two binary flip matrices and a
-    vector of error probabilities.  Specifically, its ``detector_flip_matrix`` has one column per
-    error mechanism and one row per detector, with each row specifying which error mechanisms flip
-    that detector.  Its ``observable_flip_matrix`` similarly specifies how error mechanisms flip
-    observables.
+    vector of error probabilities, after merging error mechanisms with identical effects.
+    Specifically, its ``detector_flip_matrix`` has one column per error mechanism and one row per
+    detector, with each row specifying which error mechanisms flip that detector.  Its
+    ``observable_flip_matrix`` similarly specifies how error mechanisms flip observables.
 
     Denote these matrices by :math:`D` and :math:`L`, respectively.  Let :math:`e` be a fault: a
     binary vector indicating which error mechanisms have occurred.  The detector and observable
@@ -64,7 +64,9 @@ def get_fault_distance(
 
     Args:
         circuit: A noisy Stim circuit annotated with detectors and logical observables.
-        method: The method used to compute the Z-distance of an auxiliary fault code.
+        method: The exact-distance method used to compute the Z-distance of the auxiliary code
+            :math:`C`: ``"brouwer_zimmermann"`` (the default, with alias ``"information_sets"``) or
+            ``"brute_force"``.
 
     Returns:
         The minimum number of DEM error mechanisms causing an undetected observable flip, or np.nan

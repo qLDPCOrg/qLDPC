@@ -40,32 +40,31 @@ class AbstractPauliChannel(abc.ABC):
     the ``AbstractPauliChannel`` subclass.
 
     Subclasses of ``AbstractPauliChannel`` are required to define a ``.to_circuit`` method.
+
+    Performs only *per-entry* validation (string shape / alphabet, not-identity, each
+    probability in [0, 1]).  Any aggregate constraint (such as normalization) is left to the
+    subclass.
+
+    Args:
+        probabilities: Mapping from non-identity Pauli strings to their probabilities.  All
+            strings must have the same length ``n`` and contain only ``I``, ``X``, ``Y``, or
+            ``Z``.  The all-identity string ``"I" * n`` must not appear.  Entries with
+            probability zero are silently dropped.
+        num_qubits: The arity of the channel.  Required only for an empty ``probabilities`` on a
+            nontrivial number of qubits — otherwise defaults to the length of the Pauli strings
+            when ``probabilities`` is non-empty, or ``0`` when empty.  If both are supplied and
+            inconsistent, a ``ValueError`` is raised.
+
+    Raises:
+        ValueError: If the input contains an invalid Pauli string, contains the identity string,
+            any probability is not in [0, 1], or ``num_qubits`` disagrees with the length of the
+            Pauli strings.
     """
 
     def __init__(
         self, probabilities: Mapping[str, float], *, num_qubits: int | None = None
     ) -> None:
-        """Validate and store a sparse Pauli-string -> probability mapping.
-
-        Performs only *per-entry* validation (string shape / alphabet, not-identity, each
-        probability in [0, 1]).  Any aggregate constraint (such as normalization) is left to the
-        subclass.
-
-        Args:
-            probabilities: Mapping from non-identity Pauli strings to their probabilities.  All
-                strings must have the same length ``n`` and contain only ``I``, ``X``, ``Y``, or
-                ``Z``.  The all-identity string ``"I" * n`` must not appear.  Entries with
-                probability zero are silently dropped.
-            num_qubits: The arity of the channel.  Required only for an empty ``probabilities`` on a
-                nontrivial number of qubits — otherwise defaults to the length of the Pauli strings
-                when ``probabilities`` is non-empty, or ``0`` when empty.  If both are supplied and
-                inconsistent, a ``ValueError`` is raised.
-
-        Raises:
-            ValueError: If the input contains an invalid Pauli string, contains the identity string,
-                any probability is not in [0, 1], or ``num_qubits`` disagrees with the length of the
-                Pauli strings.
-        """
+        """Validate and store a sparse Pauli-string -> probability mapping."""
         if num_qubits is not None and num_qubits < 0:
             raise ValueError(f"num_qubits={num_qubits} must be >= 0")
         if not probabilities:
@@ -179,28 +178,27 @@ class PauliChannel(AbstractPauliChannel):
     The strings name mutually exclusive outcomes: this channel applies exactly one Pauli string
     (possibly the identity).  The all-identity string is implicit; its probability is
     ``1 - sum(others)``, so the listed probabilities must sum to at most 1.
+
+    Args:
+        probabilities: Mapping from non-identity Pauli strings to their probabilities.  All
+            strings must have the same length ``n`` and contain only ``I``, ``X``, ``Y``, or
+            ``Z``.  The all-identity string ``"I" * n`` must not appear.  Entries with
+            probability zero are silently dropped.
+        num_qubits: The arity of the channel.  Required only for an empty ``probabilities`` on a
+            nontrivial number of qubits — otherwise defaults to the length of the Pauli strings
+            when ``probabilities`` is non-empty, or ``0`` when empty.  If both are supplied and
+            inconsistent, a ``ValueError`` is raised.
+
+    Raises:
+        ValueError: If the input contains an invalid Pauli string, contains the identity string,
+            any probability is not in [0, 1], the sum of probabilities is not in [0, 1], or
+            ``num_qubits`` disagrees with the length of the Pauli strings.
     """
 
     def __init__(
         self, probabilities: Mapping[str, float], *, num_qubits: int | None = None
     ) -> None:
-        """Instantiate a Pauli channel.
-
-        Args:
-            probabilities: Mapping from non-identity Pauli strings to their probabilities.  All
-                strings must have the same length ``n`` and contain only ``I``, ``X``, ``Y``, or
-                ``Z``.  The all-identity string ``"I" * n`` must not appear.  Entries with
-                probability zero are silently dropped.
-            num_qubits: The arity of the channel.  Required only for an empty ``probabilities`` on a
-                nontrivial number of qubits — otherwise defaults to the length of the Pauli strings
-                when ``probabilities`` is non-empty, or ``0`` when empty.  If both are supplied and
-                inconsistent, a ``ValueError`` is raised.
-
-        Raises:
-            ValueError: If the input contains an invalid Pauli string, contains the identity string,
-                any probability is not in [0, 1], the sum of probabilities is not in [0, 1], or
-                ``num_qubits`` disagrees with the length of the Pauli strings.
-        """
+        """Instantiate a Pauli channel."""
         super().__init__(probabilities, num_qubits=num_qubits)
 
         # Ensure the sum of all probabilities does not exceed 1.  Use math.fsum for a precise sum,

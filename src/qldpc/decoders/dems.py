@@ -46,6 +46,24 @@ class DetectorErrorModelArrays:
             decomposition is part of its targets (which can be disabled with
             ``simplify=False``), and
         (b) does not preserve detector coordinate data.
+
+    Args:
+        circuit_or_dem: an error model, or a circuit whose error model is extracted with
+            ``stim.Circuit.detector_error_model(approximate_disjoint_errors=True)``.  qLDPC
+            noise channels may contain correlated ``ELSE_CORRELATED_ERROR`` chains, so the
+            disjoint-error approximation is enabled for this convenience path.  A model
+            extracted here carries no decomposition suggestions; to obtain those, extract it
+            yourself by calling ``circuit.detector_error_model(decompose_errors=True)`` and pass
+            the result.
+        simplify: If ``True``, merge equivalent error mechanisms (see
+            ``DetectorErrorModelArrays.simplified``).  Defaults to ``True``.
+        decompose_errors: If ``True``, split every error into the components that the error
+            model suggests for it, leaving errors with no suggestion alone.  Each component
+            inherits the probability of the error it came from, and the correlation between
+            components is discarded, so a split model addresses fewer detectors per error -- as
+            a matching decoder requires -- at the cost of no longer sampling like the model it
+            came from.  Simplifying afterwards then merges components that coincide, combining
+            their probabilities.  Defaults to ``False``.
     """
 
     detector_flip_matrix: scipy.sparse.csc_matrix  # maps errors to detector flips
@@ -60,26 +78,7 @@ class DetectorErrorModelArrays:
         simplify: bool = True,
         decompose_errors: bool = False,
     ) -> None:
-        """Initialize from a ``stim.Circuit`` or a ``stim.DetectorErrorModel``.
-
-        Args:
-            circuit_or_dem: an error model, or a circuit whose error model is extracted with
-                ``stim.Circuit.detector_error_model(approximate_disjoint_errors=True)``.  qLDPC
-                noise channels may contain correlated ``ELSE_CORRELATED_ERROR`` chains, so the
-                disjoint-error approximation is enabled for this convenience path.  A model
-                extracted here carries no decomposition suggestions; to obtain those, extract it
-                yourself by calling ``circuit.detector_error_model(decompose_errors=True)`` and pass
-                the result.
-            simplify: If ``True``, merge equivalent error mechanisms (see
-                ``DetectorErrorModelArrays.simplified``).  Defaults to ``True``.
-            decompose_errors: If ``True``, split every error into the components that the error
-                model suggests for it, leaving errors with no suggestion alone.  Each component
-                inherits the probability of the error it came from, and the correlation between
-                components is discarded, so a split model addresses fewer detectors per error -- as
-                a matching decoder requires -- at the cost of no longer sampling like the model it
-                came from.  Simplifying afterwards then merges components that coincide, combining
-                their probabilities.  Defaults to ``False``.
-        """
+        """Initialize from a ``stim.Circuit`` or a ``stim.DetectorErrorModel``."""
         dem = (
             circuit_or_dem.detector_error_model(approximate_disjoint_errors=True)
             if isinstance(circuit_or_dem, stim.Circuit)
