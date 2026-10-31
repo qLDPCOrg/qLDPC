@@ -20,7 +20,7 @@ from qldpc.experimental.circuits.benchmarking.residual_weights import (
     ResidualWeightHistogram,
     estimate_residual_weight_histogram,
 )
-from qldpc.objects import Pauli
+from qldpc.objects import Pauli, PauliXZLike
 
 # A flagged preparation of the CSS state with stabilizers Z0*Z1, Z1*Z2, and X0*X1*X2, given as
 # layers with (layer, Pauli, probability) error mechanisms after them.  Qubit 3 checks Z0*Z2 as a
@@ -49,12 +49,14 @@ _NON_CSS_MECHANISMS = [
 
 
 @pytest.mark.parametrize(
-    "layers, mechanisms, num_data_qubits, css_weight, post_select",
+    "layers, mechanisms, num_data_qubits, css_weight, post_select, pauli",
     [
-        (_CSS_LAYERS, _CSS_MECHANISMS, 3, None, True),
-        (_CSS_LAYERS, _CSS_MECHANISMS, 3, False, True),
-        (_NON_CSS_LAYERS, _NON_CSS_MECHANISMS, 3, None, False),
-        (_NON_CSS_LAYERS, _NON_CSS_MECHANISMS, 3, True, False),
+        (_CSS_LAYERS, _CSS_MECHANISMS, 3, None, True, None),
+        (_CSS_LAYERS, _CSS_MECHANISMS, 3, False, True, None),
+        (_CSS_LAYERS, _CSS_MECHANISMS, 3, False, True, "X"),
+        (_CSS_LAYERS, _CSS_MECHANISMS, 3, None, True, "Z"),
+        (_NON_CSS_LAYERS, _NON_CSS_MECHANISMS, 3, None, False, None),
+        (_NON_CSS_LAYERS, _NON_CSS_MECHANISMS, 3, True, False, None),
     ],
 )
 def test_matches_brute_force(
@@ -63,8 +65,15 @@ def test_matches_brute_force(
     num_data_qubits: int,
     css_weight: bool | None,
     post_select: bool,
+    pauli: PauliXZLike | None,
 ) -> None:
-    """Exact histograms match a brute-force simulation of every fault."""
+    """Exact histograms match a brute-force simulation of every fault.
+
+    The residual weight of one Pauli type is the least weight of that type of any Pauli error that
+    maps the ideal state to the actual one, whatever ``css_weight`` is.  For a CSS state, the Pauli
+    errors that do so are the output error times X-type and Z-type stabilizers, so its two parts
+    reduce independently.
+    """
     circuit = _build_circuit(layers, mechanisms)
     max_residual_weight = 1
     histogram = estimate_residual_weight_histogram(
@@ -73,13 +82,15 @@ def test_matches_brute_force(
         output_qubits=range(num_data_qubits),
         css_weight=css_weight,
         post_select=post_select,
+        pauli=pauli,
     )
     assert np.all(histogram.exact)
     use_css_weight = bool(css_weight) if css_weight is not None else layers is _CSS_LAYERS
     assert histogram.css_weight == use_css_weight
+    assert histogram.pauli is (None if pauli is None else Pauli.coerce_xz(pauli))
 
     acceptance, distribution = _brute_force(
-        layers, mechanisms, num_data_qubits, use_css_weight, max_residual_weight
+        layers, mechanisms, num_data_qubits, use_css_weight, max_residual_weight, pauli
     )
     assert histogram.acceptance_probability == pytest.approx(acceptance, rel=1e-12)
     assert histogram.discard_probability == pytest.approx(1 - acceptance, abs=1e-15)
@@ -211,13 +222,27 @@ def test_standard_error() -> None:
 
 
 def test_more_than_64_qubits() -> None:
-    """States on more than 64 qubits use the general residual-weight search."""
-    probability = 1e-3
-    circuit = stim.Circuit(f"X_ERROR({probability}) 64")
-    histogram = estimate_residual_weight_histogram(circuit, 1, output_qubits=range(65))
-    assert np.allclose(
-        histogram.get_residual_weight_distribution(), [1 - probability, probability, 0]
+    """States on more than 64 qubits use the general residual-weight search.
+
+    Qubit 0 is in |+> and the others are in |0>, so an X error on qubit 64 and the X part of a Y
+    error on qubit 1 leave X-type residual errors, and a Z error on qubit 0 leaves a Z-type one.
+    """
+    x_probability, y_probability, z_probability = 1e-3, 2e-3, 3e-3
+    circuit = stim.Circuit(
+        f"H 0\nX_ERROR({x_probability}) 64\nY_ERROR({y_probability}) 1\nZ_ERROR({z_probability}) 0"
     )
+    no_x_error = (1 - x_probability) * (1 - y_probability)
+    overflow = x_probability * y_probability
+    cases: list[tuple[PauliXZLike | None, float]] = [
+        (None, no_x_error * (1 - z_probability)),
+        ("X", no_x_error),
+    ]
+    for pauli, no_error in cases:
+        histogram = estimate_residual_weight_histogram(
+            circuit, 1, output_qubits=range(65), pauli=pauli
+        )
+        expected = [no_error, 1 - no_error - overflow, overflow]
+        assert np.allclose(histogram.get_residual_weight_distribution(), expected)
 
 
 def test_excess_failure_probability() -> None:
@@ -265,10 +290,12 @@ def test_invalid_arguments() -> None:
         estimate_residual_weight_histogram(stim.Circuit("H 0\nCX 0 1"), 1, output_qubits=[0])
     with pytest.raises(ValueError, match="probability one"):
         estimate_residual_weight_histogram(stim.Circuit("X_ERROR(1) 0"), 1)
+    with pytest.raises(ValueError, match="CSS"):
+        estimate_residual_weight_histogram(_build_circuit(_NON_CSS_LAYERS, []), 1, pauli="X")
 
 
 def test_invalid_histograms() -> None:
-    """Histograms with inconsistent shapes, or with negative or non-finite data, are rejected."""
+    """Histograms with inconsistent shapes, invalid data, or invalid Pauli types are rejected."""
     histogram = ResidualWeightHistogram(
         max_residual_weight=0,
         css_weight=True,
@@ -285,6 +312,9 @@ def test_invalid_histograms() -> None:
         dataclasses.replace(histogram, truncated_probability=-0.1)
     with pytest.raises(ValueError, match="must be finite"):
         dataclasses.replace(histogram, weight_sums=np.array([[0.0, np.nan, 0.0]]))
+    assert dataclasses.replace(histogram, pauli="x").pauli is Pauli.X
+    with pytest.raises(ValueError, match="Pauli"):
+        dataclasses.replace(histogram, pauli=Pauli.Y)  # type: ignore[arg-type]
 
 
 def test_weight_oracles(pytestconfig: pytest.Config) -> None:
@@ -364,19 +394,20 @@ def _brute_force(
     num_data_qubits: int,
     css_weight: bool,
     max_residual_weight: int,
+    pauli_type: PauliXZLike | None = None,
 ) -> tuple[float, np.ndarray]:
     """The acceptance probability and residual-weight distribution, by simulating every fault.
 
     A fault, a set of the given error mechanisms, is accepted if every measurement agrees with the
-    noiseless run.  Its residual weight is the least Pauli weight of a Pauli error on the data
-    qubits that maps the noiseless output state to the actual one, up to a phase; measured qubits
-    are reset before the states are compared.
+    noiseless run.  Its residual weight is the least Pauli weight (or weight of one Pauli type) of a
+    Pauli error on the data qubits that maps the noiseless output state to the actual one, up to a
+    phase; measured qubits are reset before the states are compared.
     """
     ideal = _simulate(layers, [])
     ideal_record = ideal.current_measurement_record()
     paulis = sorted(
         itertools.product("IXYZ", repeat=num_data_qubits),
-        key=lambda pauli: _pauli_weight(pauli, css_weight),
+        key=lambda pauli: _pauli_weight(pauli, css_weight, pauli_type),
     )
     accepted = 0.0
     masses = np.zeros(max_residual_weight + 2)
@@ -395,7 +426,7 @@ def _brute_force(
             moved = ideal.copy()
             moved.do(stim.PauliString("".join(pauli).replace("I", "_")))
             if abs(np.vdot(moved.state_vector(), state)) > 1 - 1e-4:
-                weight = _pauli_weight(pauli, css_weight)
+                weight = _pauli_weight(pauli, css_weight, pauli_type)
                 break
         accepted += probability
         masses[min(weight, max_residual_weight + 1)] += probability
@@ -422,8 +453,12 @@ def _simulate(layers: list[str], mechanisms: list[tuple[int, str, float]]) -> st
     return simulator
 
 
-def _pauli_weight(pauli: tuple[str, ...], css_weight: bool) -> int:
-    """The CSS weight or the physical weight of a Pauli, given as one letter per qubit."""
+def _pauli_weight(
+    pauli: tuple[str, ...], css_weight: bool, pauli_type: PauliXZLike | None = None
+) -> int:
+    """The CSS or physical weight of a Pauli, or its weight of one type, as one letter per qubit."""
+    if pauli_type is not None:
+        return sum(letter in str(pauli_type).upper() + "Y" for letter in pauli)
     if not css_weight:
         return sum(letter != "I" for letter in pauli)
     return max(sum(letter in "XY" for letter in pauli), sum(letter in "ZY" for letter in pauli))
