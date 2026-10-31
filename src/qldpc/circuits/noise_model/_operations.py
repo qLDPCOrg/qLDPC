@@ -95,11 +95,6 @@ MEASURE_AND_RESET_OPS = frozenset(
 )
 COLLAPSING_OPS = JUST_MEASURE_OPS | JUST_RESET_OPS | MEASURE_AND_RESET_OPS
 
-# Stim's explicit idle markers describe waiting, rather than noisy Clifford gates.  They remain in
-# the output circuit and receive the model's idle noise; explicit rules may add marker-specific
-# noise.
-IDLE_OPS = frozenset({"I", "II"})
-
 
 def involves_classical_bits(op: stim.CircuitInstruction) -> bool:
     """Determines if an operation involves classical bits.

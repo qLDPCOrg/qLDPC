@@ -38,10 +38,20 @@ class StimCircuitWrapper:
 def circuits_are_equivalent(
     circuit_a: stim.Circuit, circuit_b: stim.Circuit, atol: float = 1e-10
 ) -> bool:
-    """Test equivalence between circuits after standardizing them with a trivial noise model."""
-    from qldpc.circuits import NoiseModel
+    """Test equivalence between circuits after standardizing them with a trivial noise model.
 
-    trivial_noise_model = NoiseModel()
+    The noise model keeps the moments of the circuits, in which every gate takes time.
+    """
+    from qldpc.circuits import NoiseModel, Scheduler, StimCircuitLike
+
+    class PreserveMoments(Scheduler):
+        def schedule(self, circuit: StimCircuitLike) -> StimCircuitLike:
+            return circuit
+
+        def takes_time(self, op: stim.CircuitInstruction) -> bool:
+            return True
+
+    trivial_noise_model = NoiseModel(scheduler=PreserveMoments())
     circuit_a = trivial_noise_model.noisy_circuit(circuit_a)
     circuit_b = trivial_noise_model.noisy_circuit(circuit_b)
     return circuit_a.approx_equals(circuit_b, atol=atol)
