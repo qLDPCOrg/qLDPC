@@ -208,7 +208,7 @@ def test_schedule_preserves_noisy_circuits() -> None:
         MX 2
         CX rec[-1] 3
         E(0.1) X3
-        ELSE_CORRELATED_ERROR(0.2) Z3
+        ELSE_CORRELATED_ERROR(0.2) X0
         M 3
         DETECTOR rec[-1]
         S 0
@@ -272,12 +272,13 @@ def test_schedule_coordinates() -> None:
         R 0 1
         M 1
         SHIFT_COORDS(0, 1)
-        QUBIT_COORDS(2) 0
+        QUBIT_COORDS(2, 3) 0
+        DETECTOR(0, 0) rec[-1]
         REPEAT 2 {
             CX 0 1
+            SHIFT_COORDS(0, 1)
             M 1
             DETECTOR(0, 0) rec[-1] rec[-2]
-            SHIFT_COORDS(0, 1)
         }
         M 0
         DETECTOR(1, 0) rec[-1]
