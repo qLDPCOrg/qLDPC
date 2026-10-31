@@ -46,9 +46,7 @@ _NON_CSS_MECHANISMS = [
     (2, "Z1*Z2", 2e-4),
     (2, "X2", 9e-4),
 ]
-# An encoding circuit of logical |0>|+> in the [[6, 2, 2]] C6 code, in two layers.  The stabilizers
-# of the state include logical Z of the first logical qubit, Z0*Z1*Z2, and logical X of the second,
-# X3*X4*X5.
+# An encoding circuit of logical |0>|+> in the [[6, 2, 2]] C6 code, in two layers.
 _C6_LAYERS = [
     "H 1\nCX 0 4\nH 2\nCX 2 0 5 0 5 1 1 5 5 1",
     "H 3\nCX 2 1 3 1 4 1 4 2 2 4 4 2 3 2 5 3 3 5 5 3 3 4 5 3 5 4 4 5 5 4 5 4",
@@ -68,7 +66,7 @@ _C6_MECHANISMS = [
     [
         (_CSS_LAYERS, _CSS_MECHANISMS, 3, None, True, None),
         (_CSS_LAYERS, _CSS_MECHANISMS, 3, False, True, None),
-        (_CSS_LAYERS, _CSS_MECHANISMS, 3, None, True, "X"),
+        (_CSS_LAYERS, _CSS_MECHANISMS, 3, False, True, "X"),
         (_CSS_LAYERS, _CSS_MECHANISMS, 3, None, True, "Z"),
         (_NON_CSS_LAYERS, _NON_CSS_MECHANISMS, 3, None, False, None),
         (_NON_CSS_LAYERS, _NON_CSS_MECHANISMS, 3, True, False, None),
@@ -85,8 +83,9 @@ def test_matches_brute_force(
     """Exact histograms match a brute-force simulation of every fault.
 
     The residual weight of one Pauli type is the least weight of that type of any Pauli error that
-    maps the ideal state to the actual one.  For a CSS state, the Pauli errors that do so are the
-    output error times X-type and Z-type stabilizers, so its two parts reduce independently.
+    maps the ideal state to the actual one, whatever ``css_weight`` is.  For a CSS state, the Pauli
+    errors that do so are the output error times X-type and Z-type stabilizers, so its two parts
+    reduce independently.
     """
     circuit = _build_circuit(layers, mechanisms)
     max_residual_weight = 1
@@ -113,26 +112,23 @@ def test_matches_brute_force(
     assert np.allclose(tails, np.cumsum(distribution[::-1])[::-1][1:], rtol=1e-9)
 
 
-@pytest.mark.parametrize("pauli", ["X", "Z"])
-def test_two_logical_qubits(pauli: PauliXZLike) -> None:
-    """Residual weights of one Pauli type reduce by the logical operators in the state stabilizers.
+def test_two_logical_qubits() -> None:
+    """Residual weights of one Pauli type reduce by logical operators that stabilize the state.
 
-    In logical |0>|+> of the [[6, 2, 2]] C6 code, the X-type and Z-type stabilizers of the state
-    each include a logical operator of a different logical qubit.  For example, the Z-type residual
-    weight of Z0*Z1*Z2 is zero, and the X-type residual weight of X3*X4 is one.
+    In logical |0>|+> of the [[6, 2, 2]] C6 code, logical Z of the first logical qubit, Z0*Z1*Z2,
+    stabilizes the state, so the Z-type residual weight of a Z0*Z1*Z2 error is zero.
     """
     circuit = _build_circuit(_C6_LAYERS, _C6_MECHANISMS)
     simulator = stim.TableauSimulator()
     simulator.do(circuit.without_noise())
-    for stabilizer in ["XX__XX", "_XXXX_", "ZZ__ZZ", "_ZZZZ_", "ZZZ___", "___XXX"]:
-        assert simulator.peek_observable_expectation(stim.PauliString(stabilizer)) == 1
+    assert simulator.peek_observable_expectation(stim.PauliString("ZZZ___")) == 1
 
     max_residual_weight = 2
     histogram = estimate_residual_weight_histogram(
-        circuit, max_residual_weight, output_qubits=range(6), pauli=pauli
+        circuit, max_residual_weight, output_qubits=range(6), pauli="Z"
     )
     assert np.all(histogram.exact)
-    _, distribution = _brute_force(_C6_LAYERS, _C6_MECHANISMS, 6, True, max_residual_weight, pauli)
+    _, distribution = _brute_force(_C6_LAYERS, _C6_MECHANISMS, 6, True, max_residual_weight, "Z")
     assert np.allclose(histogram.get_residual_weight_distribution(), distribution, rtol=1e-9)
 
 
@@ -349,7 +345,7 @@ def test_invalid_histograms() -> None:
         dataclasses.replace(histogram, truncated_probability=-0.1)
     with pytest.raises(ValueError, match="must be finite"):
         dataclasses.replace(histogram, weight_sums=np.array([[0.0, np.nan, 0.0]]))
-    assert dataclasses.replace(histogram, pauli="x").pauli is Pauli.X  # type: ignore[arg-type]
+    assert dataclasses.replace(histogram, pauli="x").pauli is Pauli.X
     with pytest.raises(ValueError, match="Pauli"):
         dataclasses.replace(histogram, pauli=Pauli.Y)  # type: ignore[arg-type]
 

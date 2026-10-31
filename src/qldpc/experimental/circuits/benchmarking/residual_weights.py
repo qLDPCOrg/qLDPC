@@ -98,13 +98,13 @@ class ResidualWeightHistogram:
         num_samples: Entry ``f`` is the number of faults of fault weight ``f`` that were sampled.
         exact: Entry ``f`` is True if row ``f`` was computed exactly, by listing every fault of
             fault weight ``f``.
-        pauli: ``Pauli.X`` or ``Pauli.Z`` (or ``"X"`` or ``"Z"``) if the residual weights are those
-            of the X-type or Z-type part of the output error, or None (the default) for the whole
-            output error.
+        pauli: The Pauli component that was scored, as ``Pauli.X``, ``Pauli.Z``, or a
+            case-insensitive ``"X"`` or ``"Z"``, which is stored as ``Pauli.X`` or ``Pauli.Z``;
+            None if the whole output error was scored.  Default: None.
 
     Raises:
         ValueError: If the raw data have inconsistent shapes, or are negative or not finite, or if
-            ``pauli`` is not ``Pauli.X``, ``Pauli.Z``, or None.
+            ``pauli`` does not identify X or Z.
     """
 
     max_residual_weight: int
@@ -115,7 +115,7 @@ class ResidualWeightHistogram:
     squared_weight_sums: npt.NDArray[np.float64]
     num_samples: npt.NDArray[np.int_]
     exact: npt.NDArray[np.bool_]
-    pauli: PauliXZ | None = None
+    pauli: PauliXZLike | None = None
 
     def __post_init__(self) -> None:
         """Check that the raw data have consistent shapes and valid values, and coerce ``pauli``."""
@@ -362,11 +362,11 @@ def estimate_residual_weight_histogram(
             that the circuit acts on and never measures.
         css_weight: True to use the CSS weight as the Pauli weight, or False to use the physical
             weight.  Default: the CSS weight if the prepared state is a CSS state in the physical
-            Pauli basis, and the physical weight otherwise.  It does not affect residual weights of
-            one Pauli type.
-        pauli: ``Pauli.X`` or ``Pauli.Z`` (or ``"X"`` or ``"Z"``) for the residual weight of that
-            part of the output error, which requires a CSS state, or None (the default) for the
-            whole output error.
+            Pauli basis, and the physical weight otherwise.  It has no effect when ``pauli`` is
+            given.
+        pauli: The Pauli component to score, as ``Pauli.X``, ``Pauli.Z``, or a case-insensitive
+            ``"X"`` or ``"Z"``; None scores the whole output error.  Component scoring requires a
+            CSS state.  Default: None.
         add_flags: Whether to add a flag detector for each measurement that no detector or
             observable addresses, as in ``qldpc.circuits.get_state_prep_diagnostic_circuit``.  By
             default, ``post_select`` then selects these flag detectors.  Default: False.
@@ -393,10 +393,10 @@ def estimate_residual_weight_histogram(
             ``max_exact_faults`` is not an integer, if ``css_weight`` is not a bool or None, or if
             ``output_qubits`` or ``post_select`` has an invalid type.
         ValueError: If an integer argument is out of range, if ``output_qubits`` or ``post_select``
-            is invalid, if ``pauli`` is not a Pauli type or None, if the output qubits do not end
-            in a definite stabilizer state, if ``pauli`` is given and that state is not a CSS state,
-            if the circuit has an error instruction with probability one, or if Stim cannot convert
-            the circuit to a detector error model.
+            is invalid, if ``pauli`` does not identify X or Z, if the output qubits do not end in
+            a definite stabilizer state, if component scoring is requested for a non-CSS state, if
+            the circuit has an error instruction with probability one, or if Stim cannot convert the
+            circuit to a detector error model.
     """
     max_residual_weight = _check_integer(max_residual_weight, "max_residual_weight", 0)
     num_samples = _check_integer(num_samples, "num_samples", 0)
@@ -424,13 +424,13 @@ def estimate_residual_weight_histogram(
         raise ValueError("The output qubits must end in a definite pure stabilizer state")
     matrix = np.array([qldpc_math.string_to_op(op) for op in stabilizers], dtype=np.uint8)
     css_weight = _is_css_state(matrix) if css_weight is None else css_weight
-    weights = _ResidualWeights(matrix, css_weight, pauli, max_residual_weight)
-    oracle = weights.oracle
+    setup = _ResidualWeightSetup(matrix, css_weight, pauli, max_residual_weight)
+    oracle = setup.oracle
 
     _, dem, flags, syndromes = _get_primitive_fault_signatures(
-        full_circuit, weights.stabilizers, qubits, selected
+        full_circuit, setup.stabilizers, qubits, selected
     )
-    syndromes = [syndrome & weights.syndrome_mask for syndrome in syndromes]
+    syndromes = [syndrome & setup.syndrome_mask for syndrome in syndromes]
     probabilities = [
         instruction.args_copy()[0] for instruction in dem if instruction.type == "error"
     ]
@@ -764,23 +764,16 @@ class _ResidualWeightOracle(Protocol):
         """Residual weights of rows of packed syndromes, capped at ``max_residual_weight + 1``."""
 
 
-class _ResidualWeights:
-    """Residual weights of Pauli errors on a stabilizer state, with the oracle that computes them.
+class _ResidualWeightSetup:
+    """A stabilizer basis, syndrome mask, and oracle for the residual weights of a state.
 
-    The syndromes of Pauli errors are taken with respect to ``stabilizers``, with bit ``j`` for
-    stabilizer ``j``, and the oracle reads only the bits in ``syndrome_mask``.  For a CSS state
-    whose residual weights are CSS weights or are of one Pauli type (``pauli``), the stabilizers are
-    pure-type generators, X-type ones first, and the residual weight of the X-type (Z-type) part of
-    an error depends only on its syndrome with respect to the Z-type (X-type) generators, so the
-    other bits are masked out.  Masked syndromes have the CSS weight of the part that remains, which
-    is the weight of a single-type Pauli error.
+    Syndromes are taken with respect to ``stabilizers``, and the oracle reads only the bits in
+    ``syndrome_mask``, which keeps the syndrome of the scored Pauli component.
 
     Args:
-        stabilizers: A complete rank-``n`` stabilizer matrix of an ``n``-qubit state in ``[X|Z]``
-            form.
-        css_weight: Whether the Pauli weight is the CSS weight (True) or the physical weight
-            (False).
-        pauli: The Pauli type of the residual weights, or None for whole Pauli errors.
+        stabilizers: A complete stabilizer matrix of the state, in ``[X|Z]`` form.
+        css_weight: Whether whole errors are weighed by their CSS weight or physical weight.
+        pauli: The Pauli component to score, or None for whole errors.
         max_residual_weight: The largest residual weight to resolve.
 
     Raises:
