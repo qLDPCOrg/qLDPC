@@ -27,7 +27,7 @@ fixed state.  ``defer_measurements_and_resets`` runs the passes in order:
    of one qubit, without readout error or inversion, and puts the gates that it adds before the
    final block of measurements.
 
-The function ``is_deferred`` returns whether a circuit is in deferred-measurement form.
+The function ``is_in_deferred_measurement_form`` checks whether a circuit is in this form.
 
 Each pass preserves the probability of every string of measurement records, and, conditioned on
 those records, the state of the qubits of its input that the pass does not measure or reset;
@@ -108,7 +108,7 @@ def defer_measurements_and_resets(circuit: stim.Circuit) -> stim.Circuit:
     return _get_circuit(_simplify_measurements(instructions, num_qubits))
 
 
-def is_deferred(circuit: stim.Circuit) -> bool:
+def is_in_deferred_measurement_form(circuit: stim.Circuit) -> bool:
     """Whether a circuit is in deferred-measurement form (see the module docstring).
 
     ``REPEAT`` blocks are checked as if unrolled.

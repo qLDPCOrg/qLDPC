@@ -210,11 +210,11 @@ def test_passes_preserve_errors(
         circuit = _get_random_circuit(rng)
         rewritten = rewrite(circuit)
         num_detectors += _assert_same_errors(circuit, rewritten, keep_measured=not simplified)
-        assert rewriting.is_deferred(rewritten) or not simplified
+        assert rewriting.is_in_deferred_measurement_form(rewritten) or not simplified
     assert num_detectors  # the checks are not vacuous
 
 
-def test_is_deferred() -> None:
+def test_is_in_deferred_measurement_form() -> None:
     """A circuit with every kind of instruction that deferred-measurement form allows is in it."""
     circuit = stim.Circuit(
         """
@@ -230,7 +230,7 @@ def test_is_deferred() -> None:
         OBSERVABLE_INCLUDE(1)
         """
     )
-    assert rewriting.is_deferred(circuit)
+    assert rewriting.is_in_deferred_measurement_form(circuit)
 
 
 @pytest.mark.parametrize(
@@ -246,9 +246,9 @@ def test_is_deferred() -> None:
         "OBSERVABLE_INCLUDE(0) X0 rec[-1]\nM 0",
     ],
 )
-def test_not_deferred(text: str) -> None:
+def test_not_in_deferred_measurement_form(text: str) -> None:
     """A circuit that breaks one condition of deferred-measurement form is not in the form."""
-    assert not rewriting.is_deferred(stim.Circuit(text))
+    assert not rewriting.is_in_deferred_measurement_form(stim.Circuit(text))
 
 
 def test_memory_experiment() -> None:
@@ -273,7 +273,7 @@ def test_memory_experiment() -> None:
         """
     )
     rewritten = rewriting.defer_measurements_and_resets(circuit)
-    assert rewriting.is_deferred(rewritten)
+    assert rewriting.is_in_deferred_measurement_form(rewritten)
     _assert_same_errors(circuit, rewritten, keep_measured=False)
 
 
