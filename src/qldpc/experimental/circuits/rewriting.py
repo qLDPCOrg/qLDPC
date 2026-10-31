@@ -2,7 +2,9 @@
 
 """Rewrite circuits into deferred-measurement form.
 
-A circuit is in deferred-measurement form if it consists of three consecutive parts:
+A circuit is in deferred-measurement form if all of its measurements are deferred to the end of the
+circuit, where a reset counts as a measurement whose outcome is discarded, followed by the
+preparation of a fixed state.  Specifically, the circuit consists of three consecutive parts:
 
 1. A body of unitary gates, noise channels, and Pauli-target observables (observables whose
    targets are all Paulis on qubits, which read the state in place).
@@ -14,9 +16,8 @@ In such a circuit, an error propagates to the measurements through unitary gates
 post-selection on measurement records is a projection at the end of the circuit.
 
 The following passes rewrite a circuit into this form, using the principle of deferred measurement
-(Nielsen and Chuang, *Quantum Computation and Quantum Information*, Section 4.4), which also applies
-to resets: a reset is a measurement whose outcome is discarded, followed by the preparation of a
-fixed state.  ``defer_measurements_and_resets`` runs the passes in order:
+(Nielsen and Chuang, *Quantum Computation and Quantum Information*, Section 4.4).
+``to_deferred_measurement_form`` runs the passes in order:
 
 1. ``split_measure_resets`` replaces each measure-reset by a measurement and a reset.
 2. ``defer_resets`` defers each reset by swapping in a fresh ancilla qubit, prepared in the reset
@@ -84,8 +85,8 @@ _PAULI_PRODUCTS = frozenset({"MPP", "SPP", "SPP_DAG"})
 # deferred-measurement form
 
 
-def defer_measurements_and_resets(circuit: stim.Circuit) -> stim.Circuit:
-    """Rewrite a circuit in deferred-measurement form (see the module docstring).
+def to_deferred_measurement_form(circuit: stim.Circuit) -> stim.Circuit:
+    """Rewrite a circuit into deferred-measurement form (see the module docstring).
 
     The result is that of ``split_measure_resets``, ``defer_resets``, ``defer_measurements``, and
     ``simplify_measurements``, run in order, except that fresh ancilla qubits get indices after all

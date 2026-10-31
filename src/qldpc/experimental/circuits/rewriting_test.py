@@ -272,12 +272,12 @@ def test_memory_experiment() -> None:
         OBSERVABLE_INCLUDE(1) Z0 rec[-1]
         """
     )
-    rewritten = rewriting.defer_measurements_and_resets(circuit)
+    rewritten = rewriting.to_deferred_measurement_form(circuit)
     assert rewriting.is_in_deferred_measurement_form(rewritten)
     _assert_same_errors(circuit, rewritten, keep_measured=False)
 
 
-def test_defer_measurements_and_resets() -> None:
+def test_to_deferred_measurement_form() -> None:
     """Rewriting keeps the records and errors of resets, noise, and measurements that interact.
 
     Resets in the X and Y bases act on used qubits, a reset erases one qubit of two-qubit noise,
@@ -297,7 +297,7 @@ def test_defer_measurements_and_resets() -> None:
         MXX !0 3
         """
     )
-    rewritten = rewriting.defer_measurements_and_resets(circuit)
+    rewritten = rewriting.to_deferred_measurement_form(circuit)
     # every record is deterministic without noise
     assert _assert_same_errors(circuit, rewritten, keep_measured=False) == circuit.num_measurements
 
@@ -323,7 +323,7 @@ def test_observables() -> None:
     circuit = stim.Circuit(
         "M 0 1\nOBSERVABLE_INCLUDE[a](0) rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]\nOBSERVABLE_INCLUDE(5)"
     )
-    rewritten = rewriting.defer_measurements_and_resets(circuit)
+    rewritten = rewriting.to_deferred_measurement_form(circuit)
     assert rewritten[-3:] == circuit[-3:]
 
 
@@ -333,7 +333,7 @@ def test_non_finite_arguments() -> None:
     circuit.append("QUBIT_COORDS", [1], [math.inf, math.nan])
     circuit.append("DETECTOR", [stim.target_rec(-1)], [-math.inf], tag="d")
     assert str(rewriting.split_measure_resets(circuit)) == str(circuit)
-    rewritten = rewriting.defer_measurements_and_resets(circuit[1:])
+    rewritten = rewriting.to_deferred_measurement_form(circuit[1:])
     assert str(rewritten[-1]) == "DETECTOR[d](-inf) rec[-1]"
 
 
@@ -347,8 +347,8 @@ def test_ancilla_indices() -> None:
         (rewriting.defer_resets, "H 0\nR 0"),
         (rewriting.defer_measurements, "M 0\nH 0"),
         (rewriting.simplify_measurements, "MPP X0"),
-        (rewriting.defer_measurements_and_resets, "M 0\nH 0"),
-        (rewriting.defer_measurements_and_resets, "MPP X0"),
+        (rewriting.to_deferred_measurement_form, "M 0\nH 0"),
+        (rewriting.to_deferred_measurement_form, "MPP X0"),
     ]:
         rewritten = rewrite(stim.Circuit("QUBIT_COORDS(7) 1\n" + text))
         assert rewritten.num_qubits == 3
@@ -376,7 +376,7 @@ def test_annotations() -> None:
         rewriting.defer_resets,
         rewriting.defer_measurements,
         rewriting.simplify_measurements,
-        rewriting.defer_measurements_and_resets,
+        rewriting.to_deferred_measurement_form,
     ]:
         names = {instruction.name for instruction in rewrite(circuit)}
         assert not names & {"TICK", "QUBIT_COORDS", "SHIFT_COORDS"}
@@ -442,4 +442,4 @@ def test_simplify_measurements() -> None:
 def test_unsupported_circuits(text: str, message: str) -> None:
     """Unsupported instructions and measurements of Pauli products that repeat a qubit raise."""
     with pytest.raises(ValueError, match=message):
-        rewriting.defer_measurements_and_resets(stim.Circuit(text))
+        rewriting.to_deferred_measurement_form(stim.Circuit(text))
