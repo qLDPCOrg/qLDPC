@@ -172,9 +172,7 @@ ALIASES: dict[str, dict[str, str]] = {
         "match_error_decoder_to_dem": (
             "qldpc.decoders.adapters.error_decoders:_match_error_decoder_to_dem"
         ),
-        "reject_prebuilt_decoder": (
-            "qldpc.decoders.construction._resolution:reject_prebuilt_decoder"
-        ),
+        "reject_prebuilt_decoder": "qldpc.decoders._resolution:reject_prebuilt_decoder",
         "reject_removed_decoder_args": "qldpc._deprecations.decoders:reject_removed_decoder_args",
         "resolve_decoder": "qldpc._deprecations.decoders:resolve_decoder",
         "resolve_observable_decoder": "qldpc._deprecations.decoders:resolve_observable_decoder",

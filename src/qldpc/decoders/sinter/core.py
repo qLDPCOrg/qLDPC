@@ -15,9 +15,9 @@ import stim
 from qldpc import _deprecations
 from qldpc._deprecations.decoders import merge_legacy_decoder_args, reject_removed_decoder_args
 
+from .._resolution import build_observable_decoder, reject_prebuilt_decoder
 from ..adapters._observable_decoders import split_discard_byte
 from ..adapters.error_decoders import ErrorsToObservablesDecoder
-from ..construction._resolution import build_observable_decoder, reject_prebuilt_decoder
 from ..construction.specs import DecoderSpec, DeferredDecoderInput
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, ObservableDecoder, _as_error_decoder

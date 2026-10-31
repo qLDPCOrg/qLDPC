@@ -46,6 +46,11 @@ Code style and organization
   Private constants and types may sit near the imports.
 * Within a class, put public methods first (for decoders, the decode methods) and private helper methods after them.
 * ``src/qldpc/code_style_test.py`` checks license headers, section headers, and the order of plain and underscore names.
+* The top-level modules and subpackages of ``qldpc.circuits`` and ``qldpc.decoders`` import each other in layers: each imports only from itself and from lower layers, and never from the root of its package.
+  ``_LAYERS`` in the package's ``layering_test.py`` lists the layers and is the only place to update when adding a top-level module or subpackage; changes inside a subpackage need no edits.
+  Imports in functions and under ``TYPE_CHECKING`` count; tests and ``conftest.py`` files may import from any layer.
+  To keep an import that breaks the layers, end its line (for an import that spans several lines, its first line) with ``# layering-exception: <reason>``; the check fails if such a comment is no longer needed.
+  To layer another package, add a ``layering_test.py`` to its directory that calls ``check_import_layering`` from ``src/qldpc/conftest.py``.
 
 Prose style
 ~~~~~~~~~~~
@@ -95,8 +100,6 @@ Circuits
 ~~~~~~~~
 
 * Use the ``_restrict_to_qubits`` guard from ``circuits/common.py`` in circuit and tableau constructors.
-* The top-level modules and subpackages of ``qldpc.circuits`` import each other in the layers that the package docstring lists: each imports only from itself and from lower layers.
-  Assign each new top-level module or subpackage to a layer in ``circuits/layering_test.py``, which enforces this.
 * Keep data, check, reference, and ancilla roles explicit through ``QubitIDs`` and bookkeeping types.
   Do not infer roles from coincident integer indices.
 * Preserve memory-circuit detector-coordinate semantics; a monotone check index must not be interpreted as time.

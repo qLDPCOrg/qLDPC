@@ -13,8 +13,8 @@ import scipy.sparse
 import stim
 
 from qldpc import codes, decoders, math
+from qldpc.decoders._resolution import build_error_decoder
 from qldpc.decoders.conftest import SurfaceCodeProblem, ToyProblem
-from qldpc.decoders.construction._resolution import build_error_decoder
 from qldpc.decoders.custom._lookup_enumeration import iter_errors_and_syndromes
 from qldpc.decoders.custom.lookup import (
     _FieldVectorPacker,

@@ -2,15 +2,10 @@
 
 """Stim circuits: encoding, memory, noise, benchmarking, certification, and transversal gates.
 
-The top-level modules and subpackages of this package import each other in layers: each imports
-only from itself and from lower layers, which rules out import cycles between them
-(``layering_test.py`` checks this):
-
-1. ``common`` and ``bookkeeping``: circuit types, Pauli-product measurements, and records.
-2. ``transforms`` and ``_post_selection``: transformations of circuits, and post-selection.
-3. ``encoding`` and ``noise_model``: encoders, logical states, and noise models.
-4. ``benchmarking``, ``certification``, ``memory``, and ``transversal``: workflows built on the
-   lower layers.
+The top-level modules and subpackages of this package import each other in layers, from shared
+foundations to complete workflows: each imports only from itself and from lower layers, which rules
+out import cycles between them.  ``layering_test.py`` lists the layers and checks these imports,
+apart from any that are marked as exceptions.
 """
 
 from typing import TYPE_CHECKING

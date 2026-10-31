@@ -85,7 +85,7 @@ def decode(
 def get_error_decoder(pcm_or_dem: PcmOrDem, *, decoder: ErrorDecoderInput = None) -> ErrorDecoder:
     """Build or retrieve an error decoder."""
     from qldpc.decoders._capabilities import is_prebuilt_decoder
-    from qldpc.decoders.construction._resolution import build_error_decoder
+    from qldpc.decoders._resolution import build_error_decoder
     from qldpc.decoders.construction.specs import DecoderSpec
 
     if isinstance(decoder, DecoderSpec):
@@ -106,7 +106,7 @@ def get_observable_decoder(
     dem: stim.DetectorErrorModel, *, decoder: DecoderInput = None
 ) -> ObservableDecoder:
     """Build or retrieve an observable decoder."""
-    from qldpc.decoders.construction._resolution import build_observable_decoder
+    from qldpc.decoders._resolution import build_observable_decoder
 
     expression, note = _get_observable_decoder_expression(decoder)
     replacement = "the prebuilt observable decoder directly" if expression is None else expression
@@ -121,7 +121,7 @@ def decode_observables(
     decoder: DecoderInput = None,
 ) -> npt.NDArray[np.int_]:
     """Predict the observable flips of one syndrome."""
-    from qldpc.decoders.construction._resolution import build_observable_decoder
+    from qldpc.decoders._resolution import build_observable_decoder
 
     expression, note = _get_observable_decoder_expression(decoder)
     replacement = (
@@ -141,7 +141,7 @@ def resolve_decoder(
     warn_deprecated: bool = True,
 ) -> ErrorDecoder:
     """Resolve an error decoder input, together with deprecated keyword-based decoder arguments."""
-    from qldpc.decoders.construction._resolution import build_error_decoder
+    from qldpc.decoders._resolution import build_error_decoder
 
     if decoder_args:
         decoder = merge_legacy_decoder_args(
@@ -158,7 +158,7 @@ def resolve_observable_decoder(
     warn_deprecated: bool = True,
 ) -> ObservableDecoder:
     """Resolve an observable decoder input, together with deprecated keyword-based arguments."""
-    from qldpc.decoders.construction._resolution import build_observable_decoder
+    from qldpc.decoders._resolution import build_observable_decoder
 
     if decoder_args:
         decoder = merge_legacy_decoder_args(

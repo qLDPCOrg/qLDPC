@@ -37,10 +37,17 @@ def test_pauli_product_measurements(pytestconfig: pytest.Config) -> None:
 def test_pauli_product_measurement_edge_cases() -> None:
     """Pauli-product measurements of symplectic rows, with signs and qubit labels."""
     assert circuits.get_pauli_product_measurements([[1, 0, 0, 1]]) == stim.Circuit("MPP X0*Z1")
-    measurements = circuits.get_pauli_product_measurements(
-        [stim.PauliString("-XIZ"), stim.PauliString("_Y_")], qubits=[7, 2, 4]
-    )
-    assert measurements == stim.Circuit("MPP !X7*Z4 Y2")
+
+    # qubit labels place the measured Pauli strings on the given qubits
+    strings = [stim.PauliString("-XIZ"), stim.PauliString("_Y_")]
+    qubits = [7, 2, 4]
+    unlabeled = circuits.get_pauli_product_measurements(strings)
+    labeled = circuits.get_pauli_product_measurements(strings, qubits)
+    assert labeled == circuits.with_remapped_qubits(unlabeled, qubits)
+
+    # signs are measured: X7*Z4 = +1 when qubit 7 is in |+> and qubit 4 is in |0>, so -X7*Z4 = -1
+    assert (stim.Circuit("H 7") + labeled).reference_sample()[0]
+
     with pytest.raises(ValueError, match="all-identity"):
         circuits.get_pauli_product_measurements([[0, 0, 0, 0]])
     with pytest.raises(ValueError, match="2 qubits, but 3 qubit labels"):
@@ -62,7 +69,7 @@ def test_restriction() -> None:
         get_empty_circuit(codes.SurfaceCode(2, field=3))
 
 
-def test_unknown_attribute() -> None:
+def test_deprecated_attribute_lookup() -> None:
     """The module-level lookup of deprecated names rejects other names."""
     with pytest.raises(AttributeError, match="has no attribute 'not_a_real_export'"):
         common.not_a_real_export  # type: ignore[attr-defined]  # noqa: B018

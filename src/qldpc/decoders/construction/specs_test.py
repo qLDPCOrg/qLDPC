@@ -18,10 +18,10 @@ import pytest
 import stim
 
 from qldpc import decoders
+from qldpc.decoders._resolution import build_error_decoder
 from qldpc.decoders.adapters import error_decoders
 from qldpc.decoders.common import _PLACEHOLDER_ERROR_RATE
 from qldpc.decoders.construction import specs
-from qldpc.decoders.construction._resolution import build_error_decoder
 
 
 def test_decoder_specs() -> None:

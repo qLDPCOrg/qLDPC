@@ -61,10 +61,7 @@ a qubit, such as ``MPP X0*Z0``.
 #    to_deferred_measurement_form and is_in_deferred_measurement_form from qldpc.circuits.
 # 3. Remove the module from qldpc.experimental.circuits.transforms, and remove that subpackage if
 #    it is then empty; experimental modules need no deprecation shims.
-# 4. Check that qldpc/circuits/layering_test.py passes.  It assigns qldpc.circuits.transforms to a
-#    layer that may import only qldpc.circuits.common and qldpc.circuits.bookkeeping, and this
-#    module imports neither.
-# 5. Mention deferred-measurement form in the description of qldpc.circuits in
+# 4. Mention deferred-measurement form in the description of qldpc.circuits in
 #    docs/source/library_map.rst.
 
 from __future__ import annotations

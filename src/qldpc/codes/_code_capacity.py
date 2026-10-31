@@ -21,16 +21,16 @@ import stim
 
 from qldpc._utils import get_external_caller_stacklevel
 from qldpc.decoders._capabilities import compiles_for_dem, is_prebuilt_observable_decoder
+from qldpc.decoders._resolution import (
+    PLACEHOLDER_ERROR_RATE,
+    build_error_decoder,
+    reject_prebuilt_decoder,
+)
 from qldpc.decoders.adapters._observable_decoders import (
     BitPackedObservableDecoder,
     validate_decoder_output,
 )
 from qldpc.decoders.common import ObservableDecodingFallbackWarning
-from qldpc.decoders.construction._resolution import (
-    PLACEHOLDER_ERROR_RATE,
-    build_error_decoder,
-    reject_prebuilt_decoder,
-)
 from qldpc.decoders.construction.factories import DEMDecoderFactory
 from qldpc.decoders.construction.specs import (
     DecoderInput,

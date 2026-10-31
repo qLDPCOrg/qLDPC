@@ -18,7 +18,7 @@ import stim
 
 from qldpc import decoders
 from qldpc.conftest import run_python
-from qldpc.decoders.construction._resolution import build_observable_decoder
+from qldpc.decoders._resolution import build_observable_decoder
 from qldpc.decoders.external import frontier
 from qldpc.decoders.external.frontier import _get_observable_decoder_frontier
 

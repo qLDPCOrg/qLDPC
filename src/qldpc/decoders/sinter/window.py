@@ -12,8 +12,8 @@ import numpy as np
 import numpy.typing as npt
 import stim
 
+from .._resolution import build_error_decoder
 from ..adapters.error_decoders import _match_error_decoder_to_dem
-from ..construction._resolution import build_error_decoder
 from ..construction.specs import DeferredErrorDecoderInput
 from ..dems import DetectorErrorModelArrays
 from ..protocols import ErrorDecoder, _batch_decode_errors

@@ -9,8 +9,8 @@ import numpy.typing as npt
 import pytest
 
 from qldpc import decoders
+from qldpc.decoders._resolution import build_error_decoder
 from qldpc.decoders.conftest import ToyProblem
-from qldpc.decoders.construction._resolution import build_error_decoder
 from qldpc.decoders.protocols import _batch_decode_errors
 
 
