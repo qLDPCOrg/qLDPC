@@ -357,13 +357,15 @@ def test_split_measure_resets() -> None:
 
 def test_defer_resets() -> None:
     """Noise that a reset erases is removed, and a reset of an untouched qubit needs no ancilla."""
-    rewritten = rewriting.defer_resets(stim.Circuit("X_ERROR(0.1) 0 1\nRY 0"))
+    rewritten = rewriting.defer_resets(stim.Circuit("X_ERROR(0.1) 0 1\nZ_ERROR(0.1) 0\nRY 0"))
     assert rewritten.num_qubits == 2
     assert "SWAP" not in str(rewritten)
     noisy = [
-        instruction.targets_copy() for instruction in rewritten if instruction.name == "X_ERROR"
+        (instruction.name, instruction.targets_copy())
+        for instruction in rewritten
+        if stim.gate_data(instruction.name).is_noisy_gate
     ]
-    assert noisy == [[stim.GateTarget(1)]]
+    assert noisy == [("X_ERROR", [stim.GateTarget(1)])]
 
 
 def test_defer_measurements() -> None:
@@ -382,9 +384,11 @@ def test_defer_measurements() -> None:
 
 def test_simplify_measurements() -> None:
     """A readout error becomes an X error before a noiseless M measurement, which keeps the tag."""
-    rewritten = rewriting.simplify_measurements(stim.Circuit("MPP[t](0.1) !X0"))
-    assert rewritten[-1] == stim.CircuitInstruction("M", [1], tag="t")
-    assert stim.CircuitInstruction("X_ERROR", [1], [0.1]) in list(rewritten)
+    for text in ["MPP[t](0.1) !X0", "MXX[t](0.1) !0 1"]:
+        rewritten = rewriting.simplify_measurements(stim.Circuit(text))
+        ancilla = rewritten.num_qubits - 1
+        assert rewritten[-1] == stim.CircuitInstruction("M", [ancilla], tag="t")
+        assert stim.CircuitInstruction("X_ERROR", [ancilla], [0.1]) in list(rewritten)
 
     # a measurement is not terminal if its qubit is used later, or if it is a measure-reset
     for text in ["M 0\nH 0", "MR 0"]:
