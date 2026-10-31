@@ -52,9 +52,9 @@ class Scheduler(abc.ABC):
         """Does one application of a gate occupy its qubits for a moment?
 
         By default, every gate except a classically controlled Pauli gate takes time.  Annotations
-        and noise channels never take time.
+        and noise channels take no time.
         """
-        return not involves_classical_bits(op)
+        return op_type(op.name) not in (ANNOTATION, NOISE) and not involves_classical_bits(op)
 
     @staticmethod
     def preserve_ticks(*, single_qubit_gates_take_time: bool = False) -> Scheduler:
@@ -243,8 +243,10 @@ class _LayerScheduler(Scheduler):
 
 def _takes_time(op: stim.CircuitInstruction, single_qubit_gates_take_time: bool) -> bool:
     """Does one application of a gate take time, for a built-in scheduler?"""
-    return not involves_classical_bits(op) and (
-        single_qubit_gates_take_time or op_type(op.name) != CLIFFORD_1Q
+    return (
+        op_type(op.name) not in (ANNOTATION, NOISE)
+        and not involves_classical_bits(op)
+        and (single_qubit_gates_take_time or op_type(op.name) != CLIFFORD_1Q)
     )
 
 

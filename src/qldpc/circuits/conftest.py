@@ -40,13 +40,18 @@ def circuits_are_equivalent(
 ) -> bool:
     """Test equivalence between circuits after standardizing them with a trivial noise model.
 
-    The noise model keeps the moments of the circuits.
+    The noise model keeps the moments of the circuits, in which every gate takes time.
     """
-    from qldpc.circuits import NoiseModel, Scheduler
+    from qldpc.circuits import NoiseModel, Scheduler, StimCircuitLike
 
-    trivial_noise_model = NoiseModel(
-        scheduler=Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
-    )
+    class PreserveMoments(Scheduler):
+        def schedule(self, circuit: StimCircuitLike) -> StimCircuitLike:
+            return circuit
+
+        def takes_time(self, op: stim.CircuitInstruction) -> bool:
+            return True
+
+    trivial_noise_model = NoiseModel(scheduler=PreserveMoments())
     circuit_a = trivial_noise_model.noisy_circuit(circuit_a)
     circuit_b = trivial_noise_model.noisy_circuit(circuit_b)
     return circuit_a.approx_equals(circuit_b, atol=atol)

@@ -102,14 +102,14 @@ Per-gate-application noise via a callback (``rule_func``)::
 Noise is added moment by moment, where a moment is the time between two TICKs.  The ``scheduler`` of
 a noise model first divides a circuit into moments (see :class:`Scheduler`).  By default,
 ``Scheduler.asap()`` ignores the TICKs of a circuit, and places each operation as early as possible
-and each reset as late as possible, so that qubits do not idle before they are needed.
-``Scheduler.preserve_ticks()`` keeps the moments of a circuit instead.  A noise model starts a new
-moment wherever an operation that takes time reuses a qubit.
+and each reset as late as possible, just before the first gate on its qubit.
+``Scheduler.preserve_ticks()`` keeps the moments of a circuit instead.  In either case, TICKs
+delimit the moments of the scheduled circuit, and a noise model also starts a new moment wherever an
+operation that takes time reuses a qubit.  TICKs with nothing between them do not add moments.
 
 By default, single-qubit gates and classically controlled gates take no time: a moment may contain
-any number of them on a qubit in addition to one other operation, and their qubits still idle.
-TICKs alone set the duration of a circuit, so a moment that contains only such gates still lasts a
-moment, while TICKs with nothing between them do not add moments.
+any number of them on a qubit in addition to one other operation, and their qubits still idle.  A
+moment that contains only such gates still lasts a moment.
 
 Rescheduling with ``Scheduler.asap()`` or ``Scheduler.alap()`` may change the order of
 measurements, and hence the indices of measurement records outside of the rescheduled circuit, but
@@ -119,8 +119,9 @@ boundary of a ``REPEAT`` block.  These schedulers also treat the boundaries of `
 and their iterations as boundaries between moments.  Flattening a circuit's repeat blocks avoids
 these restrictions.
 
-Otherwise, ``REPEAT`` blocks are treated as though they were flattened, so a moment may span the
-boundary of a repeat block or of its iterations.  The noisy circuit is nonetheless compact: once an
+Within the moments of a scheduled circuit, ``REPEAT`` blocks are treated as though they were
+flattened, so with ``Scheduler.preserve_ticks()``, a moment may span the boundary of a repeat block
+or of its iterations.  The noisy circuit is nonetheless compact: once an
 iteration of a repeat block gets the same noise as the next, the remaining iterations are kept in a
 repeat block.  A repeat block tagged with ``immune_op_tag`` is noiseless and is not merged with
 neighboring moments, a repeat block that contains only annotations and noise is kept as-is, and a
@@ -128,7 +129,9 @@ repeat block that is empty when flattened is dropped.
 
 .. rubric:: Idling errors
 
-``idle_error`` applies to every qubit that is not operated on during a circuit moment.  When
+``idle_error`` applies once per moment to every system qubit that is not immune to noise and that
+no operation taking time acts on, so a qubit that undergoes only gates that take no time still
+idles, while a qubit that is measured or reset does not.  When
 ``idle_error`` is a Pauli channel, consecutive idle errors on the same qubit are combined into one
 equivalent error that is emitted before the next instruction that depends on the state of the
 qubit, such as a gate, measurement, reset, or Pauli-target annotation.  Noise channels and

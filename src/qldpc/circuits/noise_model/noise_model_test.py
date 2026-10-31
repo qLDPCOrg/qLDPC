@@ -136,6 +136,24 @@ def test_identity_gates() -> None:
         noisy_circuit, noise_model.noisy_circuit(circuit, system_qubits=range(5))
     )
 
+    # named rules apply to identity gates
+    noise_model = circuits.NoiseModel(
+        rules={
+            "I": circuits.NoiseRule(after={"X": 0.1}),
+            "II": circuits.NoiseRule(after={"ZZ": 0.2}),
+        },
+        scheduler=TICKS,
+    )
+    noisy_circuit = stim.Circuit("""
+        I 0
+        II 1 2
+        X_ERROR(0.1) 0
+        PAULI_CHANNEL_2(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.2) 1 2
+    """)
+    assert circuits_are_equivalent(
+        noisy_circuit, noise_model.noisy_circuit(stim.Circuit("I 0\nII 1 2"))
+    )
+
 
 def test_idle_errors() -> None:
     """Add idling errors to a circuit."""
@@ -1065,6 +1083,10 @@ def test_scheduler() -> None:
         TICK
         M 0 1
     """)
+
+
+def test_si1000_keeps_moments() -> None:
+    """SI1000 keeps the moments of circuits, in which single-qubit gates take time."""
     assert circuits.SI1000NoiseModel(0.1).scheduler == TICKS
 
 
@@ -1072,16 +1094,17 @@ def test_custom_scheduler() -> None:
     """A custom scheduler sets moments, and by default classically controlled gates take no time."""
     noise_model = circuits.NoiseModel(idle_error={"Z": 0.1}, scheduler=_OneOperationPerMoment())
     circuit = stim.Circuit("H 0\nM 0\nCX rec[-1] 1\nH 1")
-    expected = stim.Circuit("""
+    # qubit 1 idles for three moments, and qubit 0 for two
+    expected = stim.Circuit(f"""
         H 0
         TICK
         M 0
         TICK
         CX rec[-1] 1
-        Z_ERROR(0.244) 1
+        Z_ERROR({(1 - 0.8**3) / 2}) 1
         TICK
         H 1
-        Z_ERROR(0.18) 0
+        Z_ERROR({(1 - 0.8**2) / 2}) 0
     """)
     assert noise_model.noisy_circuit(circuit).approx_equals(expected, atol=1e-12)
 

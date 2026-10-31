@@ -89,7 +89,7 @@ class NoiseModel:
 
     This class provides a framework for adding various types of noise to quantum circuits, including
     gate errors, readout errors, reset errors, and idling errors.  Classically controlled operations
-    are assumed to NOT occur, so the corresponding qubits pick up idling errors, if applicable.
+    get no gate noise, and their qubits pick up idling errors, if applicable.
     Identity gates (``I`` and ``II``) are treated as ordinary one- and two-qubit Clifford gates.
     See :mod:`qldpc.circuits.noise_model` for how circuits are divided into moments.
 
@@ -408,7 +408,7 @@ class NoiseModel:
         """Construct a noisy version of the given circuit.
 
         This method first uses the ``scheduler`` of this NoiseModel to divide the input circuit into
-        moments of operations that can be applied in parallel, and starts a new moment wherever an
+        moments, the intervals of time over which qubits idle, and starts a new moment wherever an
         operation that takes time reuses a qubit.  Noise is then applied to each operation according
         to the rules of this NoiseModel.  Unless the scheduler makes the boundaries of repeat blocks
         into boundaries between moments, moments are identified as though all repeat blocks (other

@@ -131,6 +131,10 @@ def test_schedule_untimed_gates() -> None:
     circuit = stim.Circuit("H 0\nI 0\nII 0 1\nCX 0 1")
     assert scheduler.schedule(circuit) == stim.Circuit("H 0\nI 0\nII 0 1\nTICK\nCX 0 1")
 
+    # a classically controlled gate takes no time
+    circuit = stim.Circuit("M 0\nCX rec[-1] 1\nCZ 1 2")
+    assert scheduler.schedule(circuit) == circuit
+
 
 def test_schedule_measurement_order() -> None:
     """Measurements may change order, unless their order is preserved.
@@ -189,7 +193,7 @@ def test_schedule_measurement_order() -> None:
 
 
 def test_schedule_preserves_noisy_circuits() -> None:
-    """Every rescheduling preserves a circuit's detector error model under gate noise.
+    """Built-in rescheduling preserves a circuit's detector error model under gate noise.
 
     The expected model comes from inserting each gate's noise right after it.  The circuit has a
     Pauli product, classical control, a chain of correlated errors, an observable with a Pauli
@@ -291,20 +295,36 @@ def test_schedule_coordinates() -> None:
 def test_schedule_other_circuits() -> None:
     """Schedulers return circuits of the type they are given.
 
-    Rescheduling ignores TICKs, and keeps tags and Pauli products.
+    Rescheduling ignores TICKs, and keeps the tags of instructions and REPEAT blocks, and Pauli
+    products.
     """
-    circuit = StimCircuitWrapper(stim.Circuit("H[tag] 0\nTICK\nSPP X1*Z2"))
+    circuit = StimCircuitWrapper(stim.Circuit("H[gate] 0\nTICK\nSPP X1*Z2"))
     scheduled = circuits.Scheduler.asap().schedule(circuit)
     assert isinstance(scheduled, StimCircuitWrapper)
-    assert scheduled.stim_circuit == stim.Circuit("H[tag] 0\nSPP X1*Z2")
-    assert circuits.Scheduler.preserve_ticks().schedule(circuit) is circuit
+    assert scheduled.stim_circuit == stim.Circuit("H[gate] 0\nSPP X1*Z2")
+    scheduled = circuits.Scheduler.preserve_ticks().schedule(circuit)
+    assert isinstance(scheduled, StimCircuitWrapper)
+    assert scheduled.stim_circuit == circuit.stim_circuit
+
+    circuit = StimCircuitWrapper(stim.Circuit("H 0\nREPEAT[block] 2 {\nH[gate] 0\n}"))
+    scheduled = circuits.Scheduler.asap().schedule(circuit)
+    # stim's equality of circuits ignores the tags of REPEAT blocks, so compare their text
+    assert str(scheduled.stim_circuit) == str(
+        stim.Circuit("H 0\nTICK\nREPEAT[block] 2 {\nH[gate] 0\nTICK\n}")
+    )
 
 
 def test_custom_scheduler() -> None:
-    """By default, every gate of a custom scheduler takes time, except for classical control."""
-    scheduler = _KeepCircuit()
-    assert scheduler.takes_time(stim.CircuitInstruction("H", [0]))
-    assert not scheduler.takes_time(stim.CircuitInstruction("CX", [stim.target_rec(-1), 0]))
+    """By default, every gate of a custom scheduler takes time, except for classical control.
+
+    Annotations and noise channels take no time, for any scheduler.
+    """
+    classical_control = stim.CircuitInstruction("CX", [stim.target_rec(-1), 0])
+    annotation = stim.CircuitInstruction("QUBIT_COORDS", [0], [0])
+    noise = stim.CircuitInstruction("X_ERROR", [0], [0.1])
+    for scheduler in [_KeepCircuit(), circuits.Scheduler.asap(single_qubit_gates_take_time=True)]:
+        assert scheduler.takes_time(stim.CircuitInstruction("H", [0]))
+        assert not any(scheduler.takes_time(op) for op in [classical_control, annotation, noise])
 
 
 class _KeepCircuit(circuits.Scheduler):
@@ -316,11 +336,17 @@ class _KeepCircuit(circuits.Scheduler):
 
 def test_scheduler_repr() -> None:
     """A scheduler's repr reconstructs it."""
-    for scheduler in [
-        circuits.Scheduler.preserve_ticks(),
-        circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True),
-        circuits.Scheduler.asap(),
-        circuits.Scheduler.asap(late_resets=False, single_qubit_gates_take_time=True),
-        circuits.Scheduler.alap(early_measurements=False, preserve_measurement_order=True),
-    ]:
+    schedulers = [
+        circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=flag)
+        for flag in [False, True]
+    ]
+    for flags in itertools.product([False, True], repeat=3):
+        shorten, preserve, take_time = flags
+        options = {
+            "preserve_measurement_order": preserve,
+            "single_qubit_gates_take_time": take_time,
+        }
+        schedulers.append(circuits.Scheduler.asap(late_resets=shorten, **options))
+        schedulers.append(circuits.Scheduler.alap(early_measurements=shorten, **options))
+    for scheduler in schedulers:
         assert eval(repr(scheduler), {"Scheduler": circuits.Scheduler}) == scheduler
