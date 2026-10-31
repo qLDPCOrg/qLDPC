@@ -152,7 +152,7 @@ def test_deprecated_argument_order() -> None:
     assert np.array_equal(ring_member.to_vector(), vector)
 
 
-def test_unknown_attribute() -> None:
+def test_deprecated_attribute_lookup() -> None:
     """The module-level lookup of deprecated names rejects other names."""
     with pytest.raises(AttributeError, match="has no attribute 'not_a_real_export'"):
         rings.not_a_real_export  # type: ignore[attr-defined]  # noqa: B018
