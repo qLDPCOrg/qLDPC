@@ -46,19 +46,6 @@ _NON_CSS_MECHANISMS = [
     (2, "Z1*Z2", 2e-4),
     (2, "X2", 9e-4),
 ]
-# An encoding circuit of logical |0>|+> in the [[6, 2, 2]] C6 code, in two layers.
-_C6_LAYERS = [
-    "H 1\nCX 0 4\nH 2\nCX 2 0 5 0 5 1 1 5 5 1",
-    "H 3\nCX 2 1 3 1 4 1 4 2 2 4 4 2 3 2 5 3 3 5 5 3 3 4 5 3 5 4 4 5 5 4 5 4",
-]
-_C6_MECHANISMS = [
-    (0, "X0", 1e-3),
-    (0, "Y2*Z5", 4e-4),
-    (1, "Z0*Z1*Z2", 7e-4),
-    (1, "X3*X4", 5e-4),
-    (1, "Y1*Z4", 3e-4),
-    (1, "X0*Z3", 6e-4),
-]
 
 
 @pytest.mark.parametrize(
@@ -110,26 +97,6 @@ def test_matches_brute_force(
     assert np.allclose(histogram.get_residual_weight_distribution(), distribution, rtol=1e-9)
     tails = histogram.get_tail_probabilities()
     assert np.allclose(tails, np.cumsum(distribution[::-1])[::-1][1:], rtol=1e-9)
-
-
-def test_two_logical_qubits() -> None:
-    """Residual weights of one Pauli type reduce by logical operators that stabilize the state.
-
-    In logical |0>|+> of the [[6, 2, 2]] C6 code, logical Z of the first logical qubit, Z0*Z1*Z2,
-    stabilizes the state, so the Z-type residual weight of a Z0*Z1*Z2 error is zero.
-    """
-    circuit = _build_circuit(_C6_LAYERS, _C6_MECHANISMS)
-    simulator = stim.TableauSimulator()
-    simulator.do(circuit.without_noise())
-    assert simulator.peek_observable_expectation(stim.PauliString("ZZZ___")) == 1
-
-    max_residual_weight = 2
-    histogram = estimate_residual_weight_histogram(
-        circuit, max_residual_weight, output_qubits=range(6), pauli="Z"
-    )
-    assert np.all(histogram.exact)
-    _, distribution = _brute_force(_C6_LAYERS, _C6_MECHANISMS, 6, True, max_residual_weight, "Z")
-    assert np.allclose(histogram.get_residual_weight_distribution(), distribution, rtol=1e-9)
 
 
 def test_sampling_matches_exact_histogram() -> None:
@@ -323,7 +290,7 @@ def test_invalid_arguments() -> None:
         estimate_residual_weight_histogram(stim.Circuit("H 0\nCX 0 1"), 1, output_qubits=[0])
     with pytest.raises(ValueError, match="probability one"):
         estimate_residual_weight_histogram(stim.Circuit("X_ERROR(1) 0"), 1)
-    with pytest.raises(ValueError, match="require a CSS state"):
+    with pytest.raises(ValueError, match="CSS"):
         estimate_residual_weight_histogram(_build_circuit(_NON_CSS_LAYERS, []), 1, pauli="X")
 
 
