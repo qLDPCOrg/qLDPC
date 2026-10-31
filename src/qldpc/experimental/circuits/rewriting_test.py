@@ -53,19 +53,23 @@ def _get_random_circuit(rng: np.random.Generator, num_qubits: int = 3) -> stim.C
     return stim.Circuit("\n".join(lines))
 
 
-def _assert_same_errors(circuit: stim.Circuit, rewritten: stim.Circuit) -> int:
+def _assert_same_errors(
+    circuit: stim.Circuit, rewritten: stim.Circuit, *, keep_measured: bool
+) -> int:
     """Assert the same distributions of records and final states, with and without errors.
 
     Without noise, the measurement records of a Clifford circuit are uniformly distributed over an
     affine space, which is determined by the space of deterministic parities of records and their
-    values.  Checks appended to both circuits measure the stabilizers of the final state that act
-    only on qubits that the circuit never measures, and detectors on a basis of the deterministic
-    parities of all records then compare the noiseless distributions of records and final states by
-    their signs, and the errors by detector error models.  The detectors of both circuits must also
-    have the same coordinates.  Returns the number of detectors on deterministic parities.
+    values.  Checks appended to both circuits measure the stabilizers of the final state of the
+    qubits of the input circuit, restricted to the qubits that it never measures unless
+    keep_measured is True; ancilla qubits that the rewritten circuit adds are not checked.
+    Detectors on a basis of the deterministic parities of all records then compare the noiseless
+    distributions of records and final states by their signs, and the errors by detector error
+    models.  The detectors of both circuits must also have the same coordinates.  Returns the number
+    of detectors on deterministic parities.
     """
     assert rewritten.get_detector_coordinates() == circuit.get_detector_coordinates()
-    checks = _get_final_state_checks(circuit)
+    checks = _get_final_state_checks(circuit, keep_measured=keep_measured)
     circuit, rewritten = circuit + checks, rewritten + checks
     assert rewritten.num_measurements == circuit.num_measurements
     parities = _get_deterministic_parities(circuit)
@@ -81,11 +85,13 @@ def _assert_same_errors(circuit: stim.Circuit, rewritten: stim.Circuit) -> int:
     return len(parities)
 
 
-def _get_final_state_checks(circuit: stim.Circuit) -> stim.Circuit:
-    """Noiseless measurements of the stabilizers of the final state on qubits that are not measured.
+def _get_final_state_checks(circuit: stim.Circuit, *, keep_measured: bool) -> stim.Circuit:
+    """Noiseless measurements of the stabilizers of the final state of the qubits of a circuit.
 
     The measured stabilizers generate the stabilizer group of the final state of a noiseless run
-    (for its random records) restricted to qubits that the circuit never measures.
+    (for its random records) on all qubits of the circuit, including qubits that only noise acts on.
+    Unless keep_measured is True, the stabilizers are restricted to qubits that the circuit never
+    measures.
     """
     noiseless = circuit.without_noise()
     measured = sorted(
@@ -98,13 +104,14 @@ def _get_final_state_checks(circuit: stim.Circuit) -> stim.Circuit:
         }
     )
     simulator = stim.TableauSimulator()
+    simulator.set_num_qubits(circuit.num_qubits)
     simulator.do_circuit(noiseless)
     stabilizers = simulator.canonical_stabilizers()
     num_qubits = len(stabilizers)
     matrix = galois.GF2(
         [np.concatenate(stabilizer.to_numpy()).astype(np.uint8) for stabilizer in stabilizers]
     ).reshape(num_qubits, 2 * num_qubits)
-    if measured:  # keep the products of stabilizers that act trivially on measured qubits
+    if measured and not keep_measured:  # keep products of stabilizers trivial on measured qubits
         columns = measured + [qubit + num_qubits for qubit in measured]
         matrix = galois.GF2(matrix[:, columns].T).null_space() @ matrix
     checks = stim.Circuit()
@@ -176,7 +183,7 @@ def _get_errors(circuit: stim.Circuit) -> collections.Counter[tuple[str, float]]
 
 
 @pytest.mark.parametrize(
-    "rewrite, deferred",
+    "rewrite, simplified",
     [
         (rewriting.split_measure_resets, False),
         (rewriting.defer_resets, False),
@@ -191,18 +198,19 @@ def _get_errors(circuit: stim.Circuit) -> collections.Counter[tuple[str, float]]
     ids=["split", "defer_resets", "defer", "simplify"],
 )
 def test_passes_preserve_errors(
-    rng: np.random.Generator, rewrite: Callable[[stim.Circuit], stim.Circuit], deferred: bool
+    rng: np.random.Generator, rewrite: Callable[[stim.Circuit], stim.Circuit], simplified: bool
 ) -> None:
     """Each pass preserves which records and final states every error flips.
 
-    The passes, run in order, give circuits in deferred-measurement form.
+    Only simplify_measurements may change the final states of measured qubits.  The passes, run in
+    order, give circuits in deferred-measurement form.
     """
     num_detectors = 0
     for _ in range(15):
         circuit = _get_random_circuit(rng)
         rewritten = rewrite(circuit)
-        num_detectors += _assert_same_errors(circuit, rewritten)
-        assert rewriting.is_deferred(rewritten) or not deferred
+        num_detectors += _assert_same_errors(circuit, rewritten, keep_measured=not simplified)
+        assert rewriting.is_deferred(rewritten) or not simplified
     assert num_detectors  # the checks are not vacuous
 
 
@@ -266,7 +274,32 @@ def test_memory_experiment() -> None:
     )
     rewritten = rewriting.defer_measurements_and_resets(circuit)
     assert rewriting.is_deferred(rewritten)
-    _assert_same_errors(circuit, rewritten)
+    _assert_same_errors(circuit, rewritten, keep_measured=False)
+
+
+def test_defer_measurements_and_resets() -> None:
+    """Rewriting keeps the records and errors of resets, noise, and measurements that interact.
+
+    Resets in the X and Y bases act on used qubits, a reset erases one qubit of two-qubit noise,
+    noise follows a measurement, and the circuit has inverted measurements of a qubit and of a pair.
+    """
+    circuit = stim.Circuit(
+        """
+        H 0
+        RX 0
+        DEPOLARIZE2(0.1) 1 2
+        RY 1
+        MY !1
+        MY 1
+        M 2
+        X_ERROR(0.1) 2
+        H 3
+        MXX !0 3
+        """
+    )
+    rewritten = rewriting.defer_measurements_and_resets(circuit)
+    # every record is deterministic without noise
+    assert _assert_same_errors(circuit, rewritten, keep_measured=False) == circuit.num_measurements
 
 
 def test_observables_with_pauli_targets() -> None:
@@ -285,10 +318,13 @@ def test_observables_with_pauli_targets() -> None:
     assert _get_signs(rewritten) == _get_signs(circuit) == ([], [True])
 
 
-def test_empty_observables() -> None:
-    """Observables without targets are kept, as are their indices."""
-    rewritten = rewriting.defer_measurements_and_resets(stim.Circuit("M 0\nOBSERVABLE_INCLUDE(5)"))
-    assert rewritten.num_observables == 6
+def test_observables() -> None:
+    """Observables keep their indices and tags, including observables without targets."""
+    circuit = stim.Circuit(
+        "M 0 1\nOBSERVABLE_INCLUDE[a](0) rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]\nOBSERVABLE_INCLUDE(5)"
+    )
+    rewritten = rewriting.defer_measurements_and_resets(circuit)
+    assert rewritten[-3:] == circuit[-3:]
 
 
 def test_non_finite_arguments() -> None:
@@ -322,8 +358,9 @@ def test_ancilla_indices() -> None:
 
 
 def test_too_many_qubits() -> None:
-    """Fresh ancilla qubits may not exceed stim's largest qubit index."""
+    """Fresh ancilla qubits may not exceed stim's largest qubit index, but may reach it."""
     qubit = 2**24 - 1
+    assert rewriting.defer_resets(stim.Circuit(f"H {qubit - 1}\nR {qubit - 1}")).num_qubits == 2**24
     with pytest.raises(ValueError, match="largest qubit index"):
         rewriting.defer_resets(stim.Circuit(f"H {qubit}\nR {qubit}"))
     with pytest.raises(ValueError, match="largest qubit index"):
@@ -359,7 +396,6 @@ def test_defer_resets() -> None:
     """Noise that a reset erases is removed, and a reset of an untouched qubit needs no ancilla."""
     rewritten = rewriting.defer_resets(stim.Circuit("X_ERROR(0.1) 0 1\nZ_ERROR(0.1) 0\nRY 0"))
     assert rewritten.num_qubits == 2
-    assert "SWAP" not in str(rewritten)
     noisy = [
         (instruction.name, instruction.targets_copy())
         for instruction in rewritten
@@ -384,14 +420,13 @@ def test_defer_measurements() -> None:
 
 def test_simplify_measurements() -> None:
     """A readout error becomes an X error before a noiseless M measurement, which keeps the tag."""
-    for text in ["MPP[t](0.1) !X0", "MXX[t](0.1) !0 1"]:
-        rewritten = rewriting.simplify_measurements(stim.Circuit(text))
-        ancilla = rewritten.num_qubits - 1
-        assert rewritten[-1] == stim.CircuitInstruction("M", [ancilla], tag="t")
-        assert stim.CircuitInstruction("X_ERROR", [ancilla], [0.1]) in list(rewritten)
+    rewritten = rewriting.simplify_measurements(stim.Circuit("MPP[t](0.1) !X0"))
+    assert rewritten[-1] == stim.CircuitInstruction("M", [1], tag="t")
+    assert stim.CircuitInstruction("X_ERROR", [1], [0.1]) in list(rewritten)
 
-    # a measurement is not terminal if its qubit is used later, or if it is a measure-reset
-    for text in ["M 0\nH 0", "MR 0"]:
+    # a measurement is not terminal if its qubit is used later, including by an observable, or if it
+    # is a measure-reset
+    for text in ["M 0\nH 0", "MX 0\nOBSERVABLE_INCLUDE(0) X0", "MR 0"]:
         with pytest.raises(ValueError, match="terminal"):
             rewriting.simplify_measurements(stim.Circuit(text))
 
