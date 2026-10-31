@@ -1168,6 +1168,24 @@ def test_instantaneous_1q_gates() -> None:
     noisy_circuit = noise_model.noisy_circuit(stim.Circuit("H 0 0"), insert_ticks=False)
     assert noisy_circuit == stim.Circuit("H 0\nZ_ERROR(0.01) 0\nH 0\nZ_ERROR(0.01) 0")
 
+    # an I gate takes a moment of idling, and a moment between TICKs lasts a moment regardless of
+    # its operations
+    noise_model = circuits.NoiseModel(
+        idle_error={"Z": 0.1}, scheduler=circuits.Scheduler(instantaneous_1q_gates=True)
+    )
+    circuit = stim.Circuit("H 0\nI 0\nH 0\nCX 0 1\nTICK\nH 1")
+    assert noise_model.noisy_circuit(circuit) == stim.Circuit("""
+        H 0
+        I 0
+        H 0
+        Z_ERROR(0.1) 0 1
+        TICK
+        CX 0 1
+        TICK
+        H 1
+        Z_ERROR(0.1) 0 1
+    """)
+
 
 def test_noise_model_str() -> None:
     """NoiseModel.__str__ reads like a constructor call listing only the set fields."""

@@ -121,10 +121,12 @@ Custom Stim noise fragments are applied once per idle moment.
 ``additional_error_waiting_for_m_or_r`` applies additional noise to non-collapsing qubits during a
 moment that contains a measurement or reset; it is always applied once per such moment.
 
-Explicit identity gates (``I`` and ``II``) are treated as idle for this accounting.  ``rules`` can
+Explicit identity gates (``I`` and ``II``) are treated as idle for this accounting, and each takes a
+moment, even if the ``scheduler`` makes other single-qubit gates instantaneous.  ``rules`` can
 append errors after these gates, and ``rule_func`` can select errors based on an identity's tag or
-encoded duration.  A rule returned by the callback takes precedence over a matching named rule.
-Identity rules and ``idle_error`` stack: when both match, both are applied.
+encoded duration, which does not change the number of moments that it takes.  A rule returned by
+the callback takes precedence over a matching named rule.  Identity rules and ``idle_error`` stack:
+when both match, both are applied.
 
 ``quadratic_idle_error`` models idle errors from slow noise, such as a qubit frequency that
 fluctuates from one shot to the next.  Over a run of consecutive idle moments, such noise rotates a
