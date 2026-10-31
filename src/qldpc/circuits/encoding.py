@@ -15,7 +15,8 @@ from qldpc._utils import get_external_caller_stacklevel
 from qldpc.objects import Pauli
 
 from .bookkeeping import QubitIDs
-from .common import _restrict_to_qubits, with_remapped_qubits
+from .common import _restrict_to_qubits
+from .transforms import with_remapped_qubits
 
 ####################################################################################################
 # encoding circuits, logical tableaus, and logical states

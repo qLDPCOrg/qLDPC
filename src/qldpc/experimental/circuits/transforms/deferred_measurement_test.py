@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for rewriting circuits, using stim's detector error models as the oracle."""
+"""Tests for deferred-measurement form, using stim's detector error models as the oracle."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 import stim
 
-from qldpc.experimental.circuits import rewriting
+from qldpc.experimental.circuits.transforms import deferred_measurement
 
 # Fragments of random circuits on qubits a and b, by kind.  Stim reads T-tagged instructions as
 # Clifford gates, which does not matter here, since no pass depends on the gates of a circuit.
@@ -185,12 +185,17 @@ def _get_errors(circuit: stim.Circuit) -> collections.Counter[tuple[str, float]]
 @pytest.mark.parametrize(
     "rewrite, simplified",
     [
-        (rewriting.split_measure_resets, False),
-        (rewriting.defer_resets, False),
-        (lambda circuit: rewriting.defer_measurements(rewriting.defer_resets(circuit)), False),
+        (deferred_measurement.split_measure_resets, False),
+        (deferred_measurement.defer_resets, False),
         (
-            lambda circuit: rewriting.simplify_measurements(
-                rewriting.defer_measurements(rewriting.defer_resets(circuit))
+            lambda circuit: deferred_measurement.defer_measurements(
+                deferred_measurement.defer_resets(circuit)
+            ),
+            False,
+        ),
+        (
+            lambda circuit: deferred_measurement.simplify_measurements(
+                deferred_measurement.defer_measurements(deferred_measurement.defer_resets(circuit))
             ),
             True,
         ),
@@ -210,7 +215,7 @@ def test_passes_preserve_errors(
         circuit = _get_random_circuit(rng)
         rewritten = rewrite(circuit)
         num_detectors += _assert_same_errors(circuit, rewritten, keep_measured=not simplified)
-        assert rewriting.is_in_deferred_measurement_form(rewritten) or not simplified
+        assert deferred_measurement.is_in_deferred_measurement_form(rewritten) or not simplified
     assert num_detectors  # the checks are not vacuous
 
 
@@ -230,7 +235,7 @@ def test_is_in_deferred_measurement_form() -> None:
         OBSERVABLE_INCLUDE(1)
         """
     )
-    assert rewriting.is_in_deferred_measurement_form(circuit)
+    assert deferred_measurement.is_in_deferred_measurement_form(circuit)
 
 
 @pytest.mark.parametrize(
@@ -248,7 +253,7 @@ def test_is_in_deferred_measurement_form() -> None:
 )
 def test_not_in_deferred_measurement_form(text: str) -> None:
     """A circuit that breaks one condition of deferred-measurement form is not in the form."""
-    assert not rewriting.is_in_deferred_measurement_form(stim.Circuit(text))
+    assert not deferred_measurement.is_in_deferred_measurement_form(stim.Circuit(text))
 
 
 def test_memory_experiment() -> None:
@@ -272,8 +277,8 @@ def test_memory_experiment() -> None:
         OBSERVABLE_INCLUDE(1) Z0 rec[-1]
         """
     )
-    rewritten = rewriting.to_deferred_measurement_form(circuit)
-    assert rewriting.is_in_deferred_measurement_form(rewritten)
+    rewritten = deferred_measurement.to_deferred_measurement_form(circuit)
+    assert deferred_measurement.is_in_deferred_measurement_form(rewritten)
     _assert_same_errors(circuit, rewritten, keep_measured=False)
 
 
@@ -297,7 +302,7 @@ def test_to_deferred_measurement_form() -> None:
         MXX !0 3
         """
     )
-    rewritten = rewriting.to_deferred_measurement_form(circuit)
+    rewritten = deferred_measurement.to_deferred_measurement_form(circuit)
     # every record is deterministic without noise
     assert _assert_same_errors(circuit, rewritten, keep_measured=False) == circuit.num_measurements
 
@@ -313,7 +318,7 @@ def test_observables_with_pauli_targets() -> None:
     circuit = stim.Circuit(
         "OBSERVABLE_INCLUDE(0) Y0\nZ_ERROR(0.1) 0\nMY !0\nOBSERVABLE_INCLUDE(0) rec[-1]"
     )
-    rewritten = rewriting.simplify_measurements(circuit)
+    rewritten = deferred_measurement.simplify_measurements(circuit)
     assert _get_errors(rewritten) == _get_errors(circuit)
     assert _get_signs(rewritten) == _get_signs(circuit) == ([], [True])
 
@@ -323,7 +328,7 @@ def test_observables() -> None:
     circuit = stim.Circuit(
         "M 0 1\nOBSERVABLE_INCLUDE[a](0) rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]\nOBSERVABLE_INCLUDE(5)"
     )
-    rewritten = rewriting.to_deferred_measurement_form(circuit)
+    rewritten = deferred_measurement.to_deferred_measurement_form(circuit)
     assert rewritten[-3:] == circuit[-3:]
 
 
@@ -332,8 +337,8 @@ def test_non_finite_arguments() -> None:
     circuit = stim.Circuit("CX sweep[0] 1\nM !0\nMPP !X0*Z1")
     circuit.append("QUBIT_COORDS", [1], [math.inf, math.nan])
     circuit.append("DETECTOR", [stim.target_rec(-1)], [-math.inf], tag="d")
-    assert str(rewriting.split_measure_resets(circuit)) == str(circuit)
-    rewritten = rewriting.to_deferred_measurement_form(circuit[1:])
+    assert str(deferred_measurement.split_measure_resets(circuit)) == str(circuit)
+    rewritten = deferred_measurement.to_deferred_measurement_form(circuit[1:])
     assert str(rewritten[-1]) == "DETECTOR[d](-inf) rec[-1]"
 
 
@@ -344,11 +349,11 @@ def test_ancilla_indices() -> None:
     ancilla qubit.
     """
     for rewrite, text in [
-        (rewriting.defer_resets, "H 0\nR 0"),
-        (rewriting.defer_measurements, "M 0\nH 0"),
-        (rewriting.simplify_measurements, "MPP X0"),
-        (rewriting.to_deferred_measurement_form, "M 0\nH 0"),
-        (rewriting.to_deferred_measurement_form, "MPP X0"),
+        (deferred_measurement.defer_resets, "H 0\nR 0"),
+        (deferred_measurement.defer_measurements, "M 0\nH 0"),
+        (deferred_measurement.simplify_measurements, "MPP X0"),
+        (deferred_measurement.to_deferred_measurement_form, "M 0\nH 0"),
+        (deferred_measurement.to_deferred_measurement_form, "MPP X0"),
     ]:
         rewritten = rewrite(stim.Circuit("QUBIT_COORDS(7) 1\n" + text))
         assert rewritten.num_qubits == 3
@@ -360,27 +365,30 @@ def test_ancilla_indices() -> None:
 def test_too_many_qubits() -> None:
     """Fresh ancilla qubits may not exceed stim's largest qubit index, but may reach it."""
     qubit = 2**24 - 1
-    assert rewriting.defer_resets(stim.Circuit(f"H {qubit - 1}\nR {qubit - 1}")).num_qubits == 2**24
+    assert (
+        deferred_measurement.defer_resets(stim.Circuit(f"H {qubit - 1}\nR {qubit - 1}")).num_qubits
+        == 2**24
+    )
     with pytest.raises(ValueError, match="largest qubit index"):
-        rewriting.defer_resets(stim.Circuit(f"H {qubit}\nR {qubit}"))
+        deferred_measurement.defer_resets(stim.Circuit(f"H {qubit}\nR {qubit}"))
     with pytest.raises(ValueError, match="largest qubit index"):
-        rewriting.defer_measurements(stim.Circuit(f"M {qubit}\nH {qubit}"))
+        deferred_measurement.defer_measurements(stim.Circuit(f"M {qubit}\nH {qubit}"))
     with pytest.raises(ValueError, match="largest qubit index"):
-        rewriting.simplify_measurements(stim.Circuit(f"MPP X{qubit}"))
+        deferred_measurement.simplify_measurements(stim.Circuit(f"MPP X{qubit}"))
 
 
 def test_annotations() -> None:
     """All passes but split_measure_resets drop TICK and coordinate annotations."""
     circuit = stim.Circuit("QUBIT_COORDS(1) 0\nH 0\nTICK\nSHIFT_COORDS(2)\nQUBIT_COORDS(1) 0\nM 0")
     for rewrite in [
-        rewriting.defer_resets,
-        rewriting.defer_measurements,
-        rewriting.simplify_measurements,
-        rewriting.to_deferred_measurement_form,
+        deferred_measurement.defer_resets,
+        deferred_measurement.defer_measurements,
+        deferred_measurement.simplify_measurements,
+        deferred_measurement.to_deferred_measurement_form,
     ]:
         names = {instruction.name for instruction in rewrite(circuit)}
         assert not names & {"TICK", "QUBIT_COORDS", "SHIFT_COORDS"}
-    assert rewriting.split_measure_resets(circuit) == circuit.flattened()
+    assert deferred_measurement.split_measure_resets(circuit) == circuit.flattened()
 
 
 def test_split_measure_resets() -> None:
@@ -389,12 +397,14 @@ def test_split_measure_resets() -> None:
     circuit = stim.Circuit("MRX[\\B\\C\\r\\n](0.123456789) 0 !0\nH 0")
     measurement = "MX[\\B\\C\\r\\n](0.123456789)"
     expected = stim.Circuit(f"{measurement} 0\nRX 0\n{measurement} !0\nRX 0\nH 0")
-    assert rewriting.split_measure_resets(circuit) == expected
+    assert deferred_measurement.split_measure_resets(circuit) == expected
 
 
 def test_defer_resets() -> None:
     """Noise that a reset erases is removed, and a reset of an untouched qubit needs no ancilla."""
-    rewritten = rewriting.defer_resets(stim.Circuit("X_ERROR(0.1) 0 1\nZ_ERROR(0.1) 0\nRY 0"))
+    rewritten = deferred_measurement.defer_resets(
+        stim.Circuit("X_ERROR(0.1) 0 1\nZ_ERROR(0.1) 0\nRY 0")
+    )
     assert rewritten.num_qubits == 2
     noisy = [
         (instruction.name, instruction.targets_copy())
@@ -407,20 +417,20 @@ def test_defer_resets() -> None:
 def test_defer_measurements() -> None:
     """Only measurements whose qubits are used later are copied onto ancilla qubits."""
     # the ancilla qubit of a copied measurement is measured with its inversion, error, and tag
-    rewritten = rewriting.defer_measurements(stim.Circuit("M[t](0.1) !0\nH 0"))
+    rewritten = deferred_measurement.defer_measurements(stim.Circuit("M[t](0.1) !0\nH 0"))
     assert rewritten[-1] == stim.CircuitInstruction("M", [stim.target_inv(1)], [0.1], tag="t")
 
     # a measurement whose qubits are not used later moves to the end unchanged
     circuit = stim.Circuit("MZZ[t](0.1) 0 !1\nH 2")
-    assert rewriting.defer_measurements(circuit)[-1] == circuit[0]
+    assert deferred_measurement.defer_measurements(circuit)[-1] == circuit[0]
 
     with pytest.raises(ValueError, match="without resets"):
-        rewriting.defer_measurements(stim.Circuit("MR 0"))
+        deferred_measurement.defer_measurements(stim.Circuit("MR 0"))
 
 
 def test_simplify_measurements() -> None:
     """A readout error becomes an X error before a noiseless M measurement, which keeps the tag."""
-    rewritten = rewriting.simplify_measurements(stim.Circuit("MPP[t](0.1) !X0"))
+    rewritten = deferred_measurement.simplify_measurements(stim.Circuit("MPP[t](0.1) !X0"))
     assert rewritten[-1] == stim.CircuitInstruction("M", [1], tag="t")
     assert stim.CircuitInstruction("X_ERROR", [1], [0.1]) in list(rewritten)
 
@@ -428,7 +438,7 @@ def test_simplify_measurements() -> None:
     # is a measure-reset
     for text in ["M 0\nH 0", "MX 0\nOBSERVABLE_INCLUDE(0) X0", "MR 0"]:
         with pytest.raises(ValueError, match="terminal"):
-            rewriting.simplify_measurements(stim.Circuit(text))
+            deferred_measurement.simplify_measurements(stim.Circuit(text))
 
 
 @pytest.mark.parametrize(
@@ -442,4 +452,4 @@ def test_simplify_measurements() -> None:
 def test_unsupported_circuits(text: str, message: str) -> None:
     """Unsupported instructions and measurements of Pauli products that repeat a qubit raise."""
     with pytest.raises(ValueError, match=message):
-        rewriting.to_deferred_measurement_form(stim.Circuit(text))
+        deferred_measurement.to_deferred_measurement_form(stim.Circuit(text))
