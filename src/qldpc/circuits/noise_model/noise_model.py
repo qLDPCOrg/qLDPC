@@ -439,7 +439,7 @@ class NoiseModel:
                 An immune-tagged operation is still a real operation for moment accounting; it does
                 not suppress idle noise on unrelated qubits in the same moment.
             insert_ticks: If True, automatically inserts TICK operations to prevent qubit reuse
-                conflicts.  A qubit may undergo any number of single-qubit gates other than ``I``
+                conflicts.  A qubit may undergo any number of single-qubit gates, including ``I``,
                 in addition to one other operation in a moment if the ``scheduler`` makes
                 single-qubit gates instantaneous.  If False, assumes that this preprocessing is not
                 necessary.  In either case, moments are identified as though all repeat blocks

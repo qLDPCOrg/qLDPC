@@ -147,15 +147,8 @@ def categorize_moment_qubits(
 
 
 def is_instantaneous_1q_gate(op: stim.CircuitInstruction | stim.CircuitRepeatBlock) -> bool:
-    """Is an operation a single-qubit gate that takes no time, if single-qubit gates do not?
-
-    Explicit ``I`` gates mark a moment of idling, so they are not instantaneous.
-    """
-    return (
-        isinstance(op, stim.CircuitInstruction)
-        and op_type(op.name) == CLIFFORD_1Q
-        and op.name not in IDLE_OPS
-    )
+    """Is an operation a single-qubit gate, including ``I``, which may take no time?"""
+    return isinstance(op, stim.CircuitInstruction) and op_type(op.name) == CLIFFORD_1Q
 
 
 def gate_qubits(op: stim.CircuitInstruction | stim.CircuitRepeatBlock) -> set[int]:

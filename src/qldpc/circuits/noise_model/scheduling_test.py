@@ -130,9 +130,9 @@ def test_schedule_instantaneous_1q_gates() -> None:
         OBSERVABLE_INCLUDE(0) rec[-1]
     """)
 
-    # an I gate takes a moment
-    circuit = stim.Circuit("H 0\nI 0\nH 0\nCX 0 1")
-    assert scheduler.schedule(circuit) == stim.Circuit("H 0\nI 0\nH 0\nTICK\nCX 0 1")
+    # I takes no time, while II takes a moment
+    circuit = stim.Circuit("H 0\nI 0\nII 0 1\nCX 0 1")
+    assert scheduler.schedule(circuit) == stim.Circuit("H 0\nI 0\nII 0 1\nTICK\nCX 0 1")
 
 
 def test_schedule_preserves_noisy_circuits() -> None:

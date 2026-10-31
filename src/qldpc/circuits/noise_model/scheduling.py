@@ -36,9 +36,9 @@ class Scheduler:
 
     Scheduling every operation as early as possible makes qubits wait after their preparation for
     the operations that follow, and scheduling them as late as possible makes qubits wait for
-    measurement.  ``shorten_lifetimes`` avoids either wait.  Rescheduling keeps each ``I`` or ``II``
-    gate in its place among the operations on its qubits, but not its alignment with idle markers on
-    other qubits.
+    measurement.  ``shorten_lifetimes`` avoids either wait.  Rescheduling discards the TICKs of a
+    circuit, and with them any idle periods that the circuit expresses through its moments, such as
+    a layer of ``I`` gates.
 
     Args:
         reschedule: If True, ignore the TICKs of a circuit and compute new moments.  Otherwise
@@ -50,13 +50,12 @@ class Scheduler:
             each qubit: resets are scheduled as late as possible when other operations are
             scheduled as early as possible, and measurements are scheduled as early as possible
             when other operations are scheduled as late as possible.  Requires ``reschedule``.
-        instantaneous_1q_gates: If True, single-qubit gates other than ``I`` take no time on their
-            qubits: a moment may contain any number of them on a qubit, in addition to one other
-            operation, and a qubit that undergoes only single-qubit gates in a moment still idles
-            during it.  Moments are still delimited by TICKs, so a moment that contains only
-            single-qubit gates lasts a moment, during which every qubit idles.  An ``I`` gate marks
-            a moment of idling on its qubit, as ``II`` does on two qubits, so both always take a
-            moment.
+        instantaneous_1q_gates: If True, single-qubit gates, including ``I``, take no time on
+            their qubits: a moment may contain any number of them on a qubit, in addition to one
+            other operation, and a qubit that undergoes only single-qubit gates in a moment still
+            idles during it.  Moments are still delimited by TICKs, so a moment that contains only
+            single-qubit gates lasts a moment, during which every qubit idles.  Gates on more
+            qubits, including ``II``, take a moment.
 
     Raises:
         ValueError: If ``alap`` or ``shorten_lifetimes`` is set without ``reschedule``.
