@@ -111,12 +111,20 @@ any number of them on a qubit in addition to one other operation, and their qubi
 TICKs alone set the duration of a circuit, so a moment that contains only such gates still lasts a
 moment, while TICKs with nothing between them do not add moments.
 
-``REPEAT`` blocks are treated as though they were flattened, so a moment may span the boundary of a
-repeat block or of its iterations.  The noisy circuit is nonetheless compact: once an iteration of a
-repeat block gets the same noise as the next, the remaining iterations are kept in a repeat block.
-A repeat block tagged with ``immune_op_tag`` is noiseless and is not merged with neighboring
-moments, a repeat block that contains only annotations and noise is kept as-is, and a repeat block
-that is empty when flattened is dropped.
+Rescheduling with ``Scheduler.asap()`` or ``Scheduler.alap()`` may change the order of
+measurements, and hence the indices of measurement records outside of the rescheduled circuit, but
+not the order of detectors.  Measurements keep their order if
+``preserve_measurement_order=True``, or if the circuit reads measurement records across the
+boundary of a ``REPEAT`` block.  These schedulers also treat the boundaries of ``REPEAT`` blocks
+and their iterations as boundaries between moments.  Flattening a circuit's repeat blocks avoids
+these restrictions.
+
+Otherwise, ``REPEAT`` blocks are treated as though they were flattened, so a moment may span the
+boundary of a repeat block or of its iterations.  The noisy circuit is nonetheless compact: once an
+iteration of a repeat block gets the same noise as the next, the remaining iterations are kept in a
+repeat block.  A repeat block tagged with ``immune_op_tag`` is noiseless and is not merged with
+neighboring moments, a repeat block that contains only annotations and noise is kept as-is, and a
+repeat block that is empty when flattened is dropped.
 
 .. rubric:: Idling errors
 

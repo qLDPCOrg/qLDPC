@@ -84,7 +84,10 @@ class Scheduler(abc.ABC):
             late_resets: If True (the default), place resets as late as possible instead, so that
                 qubits do not idle between their reset and their next operation.
             preserve_measurement_order: If True, keep the order of measurements, and hence of the
-                results of a circuit.  Otherwise (the default), measurements may change order.
+                results of a circuit.  Otherwise (the default), measurements may change order, but
+                detectors may not, and the circuit's own detectors, observables, and classically
+                controlled gates keep reading the same measurements.  Measurement records read
+                after the circuit, such as by detectors appended to it later, may then change.
             single_qubit_gates_take_time: As in :meth:`preserve_ticks`.
         """
         return _LayerScheduler(

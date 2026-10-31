@@ -107,6 +107,37 @@ def test_memory_experiment() -> None:
         circuits.get_memory_experiment(codes.FiveQubitCode())
 
 
+def test_memory_experiment_detectors_with_noise() -> None:
+    """Detectors read the same measurements with and without noise.
+
+    The scheduler of a noise model may reorder measurements.
+    """
+    code = codes.SurfaceCode(3)
+    noise_model = circuits.DepolarizingNoiseModel(1e-3)
+    noiseless_circuit = circuits.get_memory_experiment(code, basis=None, num_rounds=1)
+    noisy_circuit = circuits.get_memory_experiment(
+        code, basis=None, num_rounds=1, noise_model=noise_model
+    )
+    assert _get_detector_measurements(noisy_circuit) == _get_detector_measurements(
+        noiseless_circuit
+    )
+
+
+def _get_detector_measurements(circuit: stim.Circuit) -> list[list[str]]:
+    """The measurement instructions, without arguments, that each detector reads."""
+    measurements: list[str] = []
+    detectors = []
+    for op in circuit.flattened():
+        if op.name == "DETECTOR":
+            records = [len(measurements) + target.value for target in op.targets_copy()]
+            detectors.append(sorted(measurements[record] for record in records))
+        elif stim.gate_data(op.name).produces_measurements:
+            measurements.extend(
+                str(stim.CircuitInstruction(op.name, group)) for group in op.target_groups()
+            )
+    return detectors
+
+
 def test_memory_experiment_circuit_distance() -> None:
     """Default memory experiments preserve the distance of a distance-3 surface code.
 

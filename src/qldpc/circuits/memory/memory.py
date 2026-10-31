@@ -200,15 +200,15 @@ def get_memory_experiment(
 
     # if tracking all logical operators, only the logical QEC cycle is noisy
     if basis is None:
+        initialization = as_noiseless_circuit(initialization)
+        readout = as_noiseless_circuit(readout)
         if noise_model is not None:
-            qec_cycle = noise_model.noisy_circuit(
-                qec_cycle,
+            # add noise to the whole experiment, so that a scheduler sees which measurements the
+            # readout reads
+            return noise_model.noisy_circuit(
+                initialization + qec_cycle + readout,
                 system_qubits=qubit_ids.data + qubit_ids.check + qubit_ids.ancilla,
             )
-        else:
-            # noise will be added later, so make initialization and readout noiseless
-            initialization = as_noiseless_circuit(initialization)
-            readout = as_noiseless_circuit(readout)
 
     return initialization + qec_cycle + readout
 

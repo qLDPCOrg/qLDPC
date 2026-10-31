@@ -410,8 +410,10 @@ class NoiseModel:
         This method first uses the ``scheduler`` of this NoiseModel to divide the input circuit into
         moments of operations that can be applied in parallel, and starts a new moment wherever an
         operation that takes time reuses a qubit.  Noise is then applied to each operation according
-        to the rules of this NoiseModel.  Moments are identified as though all repeat blocks (other
-        than those tagged with ``immune_op_tag``) were flattened.
+        to the rules of this NoiseModel.  Unless the scheduler makes the boundaries of repeat blocks
+        into boundaries between moments, moments are identified as though all repeat blocks (other
+        than those tagged with ``immune_op_tag``) were flattened.  A scheduler may change the order
+        of measurements, but not of detectors (see :class:`~qldpc.circuits.Scheduler`).
 
         Args:
             circuit: The circuit to apply noise to.
