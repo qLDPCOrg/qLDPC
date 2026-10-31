@@ -97,6 +97,7 @@ Circuits
 * Use the ``_restrict_to_qubits`` guard from ``circuits/common.py`` in circuit and tableau constructors.
 * The top-level modules and subpackages of ``qldpc.circuits`` import each other in layers: each imports only from itself and from lower layers.
   ``_LAYERS`` in ``circuits/layering_test.py`` lists the layers and is the only place to update when adding a top-level module or subpackage.
+  When an import is not worth making conform, end its line with ``# layering-exception: <reason>``, or the first line of an import that spans several lines; the test fails if such a marker is no longer needed.
 * Keep data, check, reference, and ancilla roles explicit through ``QubitIDs`` and bookkeeping types.
   Do not infer roles from coincident integer indices.
 * Preserve memory-circuit detector-coordinate semantics; a monotone check index must not be interpreted as time.
