@@ -1,6 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Decoder specifications, protocols, and workflow entry points."""
+"""Decoder specifications, protocols, and workflow entry points.
+
+The top-level modules and subpackages of this package import each other in layers, from shared
+foundations to complete workflows: each imports only from itself and from lower layers, which rules
+out import cycles between them.  ``layering_test.py`` lists the layers and checks these imports.
+"""
 
 from typing import TYPE_CHECKING
 

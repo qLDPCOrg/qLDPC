@@ -46,6 +46,11 @@ Code style and organization
   Private constants and types may sit near the imports.
 * Within a class, put public methods first (for decoders, the decode methods) and private helper methods after them.
 * ``src/qldpc/code_style_test.py`` checks license headers, section headers, and the order of plain and underscore names.
+* The top-level modules and subpackages of ``qldpc.circuits`` and ``qldpc.decoders`` import each other in layers: each imports only from itself and from lower layers, and never from the root of its package.
+  ``_LAYERS`` in the package's ``layering_test.py`` lists the layers and is the only place to update when adding a top-level module or subpackage; changes inside a subpackage need no edits.
+  Imports in functions and under ``TYPE_CHECKING`` count, and tests may import from any layer.
+  When an import is not worth making conform, end its line with ``# layering-exception: <reason>``, or the first line of an import that spans several lines; the check fails if such a comment is no longer needed.
+  To layer another package, add a ``layering_test.py`` that calls ``check_import_layering`` from ``src/qldpc/conftest.py``.
 
 Prose style
 ~~~~~~~~~~~
@@ -95,9 +100,6 @@ Circuits
 ~~~~~~~~
 
 * Use the ``_restrict_to_qubits`` guard from ``circuits/common.py`` in circuit and tableau constructors.
-* The top-level modules and subpackages of ``qldpc.circuits`` import each other in layers: each imports only from itself and from lower layers.
-  ``_LAYERS`` in ``circuits/layering_test.py`` lists the layers and is the only place to update when adding a top-level module or subpackage.
-  When an import is not worth making conform, end its line with ``# layering-exception: <reason>``, or the first line of an import that spans several lines; the test fails if such a marker is no longer needed.
 * Keep data, check, reference, and ancilla roles explicit through ``QubitIDs`` and bookkeeping types.
   Do not infer roles from coincident integer indices.
 * Preserve memory-circuit detector-coordinate semantics; a monotone check index must not be interpreted as time.

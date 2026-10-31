@@ -32,7 +32,7 @@ from qldpc._deprecations.decoders import (
 from qldpc._utils import format_docstring, get_external_caller_stacklevel
 from qldpc._utils import networkx as nx
 from qldpc.decoders._capabilities import is_prebuilt_decoder, is_prebuilt_observable_decoder
-from qldpc.decoders.construction._resolution import build_error_decoder, reject_prebuilt_decoder
+from qldpc.decoders._resolution import build_error_decoder, reject_prebuilt_decoder
 from qldpc.external import _codes
 from qldpc.math import IntegerArray, resolve_field
 from qldpc.objects import (

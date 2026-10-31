@@ -14,10 +14,10 @@ import stim
 
 from qldpc import decoders
 from qldpc._deprecations import decoders as deprecated_decoders
+from qldpc.decoders import _resolution
 from qldpc.decoders._capabilities import is_prebuilt_decoder
+from qldpc.decoders._resolution import build_error_decoder, build_observable_decoder
 from qldpc.decoders.adapters import error_decoders
-from qldpc.decoders.construction import _resolution
-from qldpc.decoders.construction._resolution import build_error_decoder, build_observable_decoder
 from qldpc.decoders.custom.guf import GUFDecoder
 from qldpc.decoders.external.pymatching import MatchingObservableDecoder
 

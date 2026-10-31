@@ -4,14 +4,23 @@
 
 from __future__ import annotations
 
+import functools
+import importlib
+import inspect
 import os
+import pathlib
+import re
 import subprocess
 import sys
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 
+import grimp
 import pytest
 
 from qldpc import abstract, external
+
+# A comment that lets an import break the layering rule of check_import_layering.
+_LAYERING_EXCEPTION = re.compile(r"#\s*layering-exception:\s*\S")
 
 
 def run_python(
@@ -45,6 +54,128 @@ def run_python(
     )
     assert result.returncode == 0, result.stderr
     return result.stdout
+
+
+def check_import_layering(package: str, layers: Sequence[Sequence[str]]) -> None:
+    """Check that the top-level modules and subpackages of a package import each other in layers.
+
+    Each top-level module or subpackage of the package (a unit) belongs to one of the given layers,
+    listed from lowest to highest, and may import only from itself and from lower layers.  No module
+    may import the root of the package, which re-exports from every layer.  These rules rule out
+    import cycles between units.  Imports count wherever they appear, including in functions and
+    under TYPE_CHECKING.  Test modules and test configuration are not checked.
+
+    An import whose line ends with "# layering-exception: <reason>" may break these rules; for an
+    import that spans several lines, the comment goes on its first line.  Such a comment that no
+    import needs is an error, so that exceptions do not outlive the imports that they excuse.
+
+    Args:
+        package: The dotted name of the package to check, such as "qldpc.circuits".
+        layers: The units of the package, in layers from lowest to highest.  Every unit must appear
+            in exactly one layer.
+
+    Raises:
+        AssertionError: If the layers or imports break these rules, listing each problem.
+    """
+    graph = _get_import_graph()
+    sources = _get_source_files(package)
+    config = f"_LAYERS in {_get_display_path(sources[package].with_name('layering_test.py'))}"
+    listed = [unit for layer in layers for unit in layer]
+    layer_index = {unit: index for index, layer in enumerate(layers) for unit in layer}
+    units = {_get_unit(package, module) for module in graph.find_children(package)}
+    units = {unit for unit in units if not _is_test_name(unit)}
+
+    # lines of imports that break the layering rules, and lines with layering-exception comments
+    breaking_lines = {
+        (module, detail["line_number"]): imported
+        for module in graph.find_descendants(package)
+        if module in sources
+        for imported in graph.find_modules_directly_imported_by(module)
+        if _is_in_package(package, imported)
+        and not _may_import(_get_unit(package, module), _get_unit(package, imported), layer_index)
+        for detail in graph.get_import_details(importer=module, imported=imported)
+    }
+    marked_lines = {
+        (module, number)
+        for module, path in sources.items()
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
+        if _LAYERING_EXCEPTION.search(line)
+    }
+
+    problems = [
+        *(f"Add {unit} to a layer in {config}." for unit in sorted(units - set(listed))),
+        *(f"Remove {unit} from {config}." for unit in sorted(set(listed) - units)),
+        *(
+            f"List {unit} once in {config}."
+            for unit in sorted(set(listed))
+            if listed.count(unit) > 1
+        ),
+        *(
+            f"{_get_display_path(sources[module])}:{line} imports {imported}, from the root of"
+            f" {package} or from a layer that is not lower.  Move the import, regroup {config}, or"
+            " end the line with '# layering-exception: <reason>'."
+            for (module, line), imported in sorted(breaking_lines.items())
+            if (module, line) not in marked_lines
+        ),
+        *(
+            f"{_get_display_path(sources[module])}:{line} has a layering-exception comment that no"
+            " import needs.  Remove it."
+            for module, line in sorted(marked_lines - breaking_lines.keys())
+        ),
+    ]
+    assert not problems, "\n".join(problems)
+
+
+@functools.cache
+def _get_import_graph() -> grimp.ImportGraph:
+    """The import graph of qLDPC, built once per test session and not cached on disk."""
+    return grimp.build_graph("qldpc", cache_dir=None)
+
+
+def _get_source_files(package: str) -> dict[str, pathlib.Path]:
+    """The source files of the modules of a package, other than tests and test configuration."""
+    root = pathlib.Path(inspect.getfile(importlib.import_module(package))).parent
+    modules = {
+        path: ".".join((package, *path.relative_to(root).with_suffix("").parts))
+        for path in sorted(root.rglob("*.py"))
+        if not _is_test_name(path.stem)
+    }
+    return {module.removesuffix(".__init__"): path for path, module in modules.items()}
+
+
+def _get_display_path(path: pathlib.Path) -> str:
+    """A path relative to the directory that contains the source directory of qLDPC."""
+    return str(path.relative_to(pathlib.Path(inspect.getfile(abstract)).parents[3]))
+
+
+def _is_test_name(name: str) -> bool:
+    """Whether a module name is that of a test module or of test configuration."""
+    return name == "conftest" or name.endswith("_test")
+
+
+def _is_in_package(package: str, module: str) -> bool:
+    """Whether a module is a package or one of its descendants."""
+    return module == package or module.startswith(f"{package}.")
+
+
+def _get_unit(package: str, module: str) -> str:
+    """The top-level module or subpackage of a package that contains a module of the package.
+
+    The unit of the root of the package is the empty string.
+    """
+    return module.removeprefix(package).removeprefix(".").partition(".")[0]
+
+
+def _may_import(unit: str, imported_unit: str, layer_index: Mapping[str, int]) -> bool:
+    """Whether the layering rules let a unit import from another unit or from the root ("").
+
+    Imports by or of units that are not in a layer are allowed here, since those units are reported
+    separately.
+    """
+    return imported_unit == unit or (
+        imported_unit != ""
+        and layer_index.get(imported_unit, -1) < layer_index.get(unit, len(layer_index))
+    )
 
 
 @pytest.fixture(autouse=True)

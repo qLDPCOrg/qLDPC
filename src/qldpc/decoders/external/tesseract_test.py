@@ -21,7 +21,7 @@ import stim
 
 from qldpc import decoders
 from qldpc.conftest import run_python
-from qldpc.decoders.construction._resolution import build_error_decoder, build_observable_decoder
+from qldpc.decoders._resolution import build_error_decoder, build_observable_decoder
 from qldpc.decoders.external.tesseract import _get_decoder_tesseract
 from qldpc.decoders.protocols import _batch_decode_errors, _supports_batch_decoding
 
@@ -266,7 +266,7 @@ import numpy as np
 import stim
 
 from qldpc import decoders
-from qldpc.decoders.construction._resolution import build_error_decoder, build_observable_decoder
+from qldpc.decoders._resolution import build_error_decoder, build_observable_decoder
 from qldpc.decoders.external.tesseract import _get_decoder_tesseract
 from qldpc.decoders.protocols import _batch_decode_errors
 
