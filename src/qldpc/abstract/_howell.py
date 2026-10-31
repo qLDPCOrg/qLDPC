@@ -3,8 +3,9 @@
 """Howell normal forms of RingArrays, by Wedderburn-Artin decomposition or by polynomial division.
 
 The RingArray methods howell_normal_form_semisimple and howell_normal_form_poly document these
-forms.  This module does not import ring_array, which builds on it: it builds RingArrays through
-the class of its input.
+forms.  This module does not import ring_array, which builds on it, at run time: the semisimple
+form is recomposed by a Wedderburn-Artin transformer, and the polynomial form is built through the
+class of its input.
 """
 
 from __future__ import annotations
