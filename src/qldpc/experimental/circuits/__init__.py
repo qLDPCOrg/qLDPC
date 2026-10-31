@@ -6,7 +6,7 @@ This subpackage mirrors the layout of ``qldpc.circuits``, where its tools may mo
 settles.
 """
 
-from . import benchmarking
+from . import benchmarking, rewriting
 from .benchmarking import (
     ConsumerProfile,
     ResidualWeightHistogram,
@@ -20,4 +20,5 @@ __all__ = [
     "benchmarking",
     "estimate_downstream_fault_weight",
     "estimate_residual_weight_histogram",
+    "rewriting",
 ]
