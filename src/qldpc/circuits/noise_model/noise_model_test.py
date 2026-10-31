@@ -17,6 +17,9 @@ from qldpc.circuits.conftest import (
     flatten_repeat_blocks,
 )
 
+# keep the moments of circuits, as written
+TICKS = circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
+
 
 def test_gate_errors() -> None:
     """Add gate errors to a circuit."""
@@ -33,7 +36,11 @@ def test_gate_errors() -> None:
         MR 2
     """)
     noise_model = circuits.NoiseModel(
-        clifford_1q_error=0.1, clifford_2q_error=0.2, readout_error=0.3, reset_error=0.4
+        scheduler=TICKS,
+        clifford_1q_error=0.1,
+        clifford_2q_error=0.2,
+        readout_error=0.3,
+        reset_error=0.4,
     )
     noisy_circuit = stim.Circuit("""
         H 0
@@ -54,7 +61,7 @@ def test_gate_errors() -> None:
     # compose gate errors
     p_m = 0.1
     double_p_m = 2 * p_m - 2 * p_m**2
-    noise_model = circuits.NoiseModel(readout_error=p_m)
+    noise_model = circuits.NoiseModel(scheduler=TICKS, readout_error=p_m)
     circuit = stim.Circuit("""
         H 0
         M 0
@@ -70,13 +77,7 @@ def test_gate_errors() -> None:
     assert circuits_are_equivalent(noisy_circuit, noise_model.noisy_circuit(circuit))
     assert circuits_are_equivalent(double_noisy_circuit, noise_model.noisy_circuit(noisy_circuit))
 
-    # reusing a qubit in the same moment raises an error
-    circuit = stim.Circuit("""
-        CX 0 1 1 2
-    """)
     noise_model = circuits.SI1000NoiseModel(0.1)
-    with pytest.raises(ValueError, match="multiple uses"):
-        noise_model.noisy_circuit(circuit, insert_ticks=False)
     with pytest.raises(ValueError, match="immune_op_tag"):
         noise_model.noisy_circuit(stim.Circuit("H 0"), immune_op_tag="")
     with pytest.raises(ValueError, match="immune_qubit_tag"):
@@ -87,31 +88,40 @@ def test_gate_errors() -> None:
     assert circuits.as_noiseless_circuit(wrapped) == wrapped
 
     with pytest.raises(ValueError, match="between 0 and 1"):
-        circuits.NoiseModel(readout_error=2)
-    with pytest.raises(ValueError, match="Duplicate noise rules"):
-        circuits.NoiseModel(rules={"CX": circuits.NoiseRule(), "cnot": circuits.NoiseRule()})
+        circuits.NoiseModel(scheduler=TICKS, readout_error=2)
     with pytest.raises(ValueError, match="Duplicate noise rules"):
         circuits.NoiseModel(
+            scheduler=TICKS, rules={"CX": circuits.NoiseRule(), "cnot": circuits.NoiseRule()}
+        )
+    with pytest.raises(ValueError, match="Duplicate noise rules"):
+        circuits.NoiseModel(
+            scheduler=TICKS,
             rules={
                 "M": circuits.NoiseRule(readout_error=0.1),
                 "MZ": circuits.NoiseRule(readout_error=0.2),
-            }
+            },
         )
-    measurement_model = circuits.NoiseModel(rules={"M": circuits.NoiseRule(readout_error=0.1)})
+    measurement_model = circuits.NoiseModel(
+        scheduler=TICKS, rules={"M": circuits.NoiseRule(readout_error=0.1)}
+    )
     assert measurement_model.noisy_circuit(stim.Circuit("M 0\nMPP Z1")) == stim.Circuit(
         "M(0.1) 0\nMPP(0.1) Z1"
     )
-    mz_model = circuits.NoiseModel(rules={"MZ": circuits.NoiseRule(readout_error=0.2)})
+    mz_model = circuits.NoiseModel(
+        scheduler=TICKS, rules={"MZ": circuits.NoiseRule(readout_error=0.2)}
+    )
     assert mz_model.noisy_circuit(stim.Circuit("MZ 0\nMPP Z1")) == stim.Circuit(
         "M(0.2) 0\nMPP(0.2) Z1"
     )
     with pytest.raises(ValueError, match="Unrecognized noise rule key"):
-        circuits.NoiseModel(rules={"CNOTT": circuits.NoiseRule()})
+        circuits.NoiseModel(scheduler=TICKS, rules={"CNOTT": circuits.NoiseRule()})
 
 
 def test_identity_gates() -> None:
     """Identity gates get the noise of ordinary one- and two-qubit Clifford gates."""
-    noise_model = circuits.NoiseModel(clifford_1q_error=0.1, clifford_2q_error=0.2, idle_error=0.3)
+    noise_model = circuits.NoiseModel(
+        scheduler=TICKS, clifford_1q_error=0.1, clifford_2q_error=0.2, idle_error=0.3
+    )
     circuit = stim.Circuit("I 0\nII 1 2\nH 3")
     noisy_circuit = stim.Circuit("""
         I 0
@@ -137,7 +147,7 @@ def test_idle_errors() -> None:
         DETECTOR rec[-1]
     """)
     noise_model = circuits.NoiseModel(
-        readout_error=0.1, idle_error=0.2, additional_error_waiting_for_m_or_r=0.3
+        scheduler=TICKS, readout_error=0.1, idle_error=0.2, additional_error_waiting_for_m_or_r=0.3
     )
     noisy_circuit = stim.Circuit("""
         H 0 1 2
@@ -154,7 +164,7 @@ def test_idle_errors() -> None:
     annotated = stim.Circuit()
     annotated.append(stim.CircuitRepeatBlock(1, immune_coords))
     annotated.append("H", 1)
-    annotated_noise = circuits.NoiseModel(clifford_1q_error=0.2, idle_error=0.1)
+    annotated_noise = circuits.NoiseModel(scheduler=TICKS, clifford_1q_error=0.2, idle_error=0.1)
     noisy_annotated = annotated_noise.noisy_circuit(annotated)
     assert not any(
         "DEPOLARIZE" in line and line.endswith(" 0") for line in str(noisy_annotated).splitlines()
@@ -163,7 +173,7 @@ def test_idle_errors() -> None:
     unprotected = annotated_noise.noisy_circuit(annotated, immune_qubit_tag=None)
     assert "DEPOLARIZE1(0.1) 0" in str(unprotected)
 
-    moment_model = circuits.NoiseModel(idle_error=0.01)
+    moment_model = circuits.NoiseModel(scheduler=TICKS, idle_error=0.01)
     assert moment_model.noisy_circuit(stim.Circuit("QUBIT_COORDS(0) 0")) == stim.Circuit(
         "QUBIT_COORDS(0) 0"
     )
@@ -180,14 +190,19 @@ def test_idle_errors() -> None:
     assert "DEPOLARIZE1(0.01) 1" in str(immune_only)
 
     # Repeated targets inside one Pauli product are legal Stim and remain one moment atom.
-    repeated_product = circuits.NoiseModel(idle_error=0.01).noisy_circuit(stim.Circuit("MPP X0*Z0"))
+    repeated_product = circuits.NoiseModel(scheduler=TICKS, idle_error=0.01).noisy_circuit(
+        stim.Circuit("MPP X0*Z0")
+    )
     assert repeated_product == stim.Circuit("MPP X0*Z0")
 
     # user-defined idling noise via NoiseRule (overrides the default DEPOLARIZE1 channel)
     idle_rule = circuits.NoiseRule(after={"X": 0.05, "Z": 0.1})
     m_or_r_rule = circuits.NoiseRule(after=circuits.PauliChannel({"X": 0.2, "Z": 0.3}))
     noise_model = circuits.NoiseModel(
-        readout_error=0.1, idle_error=idle_rule, additional_error_waiting_for_m_or_r=m_or_r_rule
+        scheduler=TICKS,
+        readout_error=0.1,
+        idle_error=idle_rule,
+        additional_error_waiting_for_m_or_r=m_or_r_rule,
     )
     noisy_circuit = stim.Circuit("""
         H 0 1 2
@@ -201,6 +216,7 @@ def test_idle_errors() -> None:
 
     # zero/None errors normalize to None for all NoiseRule-valued fields
     noise_model = circuits.NoiseModel(
+        scheduler=TICKS,
         clifford_1q_error=0,
         clifford_2q_error=0,
         idle_error=0,
@@ -242,7 +258,9 @@ def test_quadratic_idle_errors() -> None:
     independent error, ``(1 - (1 - 2 * p)**4) / 2``.
     """
     circuit = stim.Circuit("H 0\nTICK\nH 1\nTICK\nH 1\nTICK\nH 0\nTICK\nH 1\nTICK\nM 0")
-    noisy = circuits.NoiseModel(quadratic_idle_error={"Z": 0.01}).noisy_circuit(circuit)
+    noisy = circuits.NoiseModel(scheduler=TICKS, quadratic_idle_error={"Z": 0.01}).noisy_circuit(
+        circuit
+    )
     expected = stim.Circuit("""
         H 0
         Z_ERROR(0.01) 1
@@ -265,6 +283,7 @@ def test_quadratic_idle_errors() -> None:
 
     # Custom idle fragments are still applied once per moment, and a float is a uniform channel.
     model = circuits.NoiseModel(
+        scheduler=TICKS,
         idle_error=circuits.NoiseRule(after=stim.Circuit("X_ERROR(0.1) 0")),
         quadratic_idle_error=0.03,
     )
@@ -290,7 +309,9 @@ def test_quadratic_idle_errors() -> None:
     circuit = stim.Circuit("R 0\nTICK")
     circuit.append(stim.CircuitRepeatBlock(1000, stim.Circuit("X 1\nTICK")))
     circuit += stim.Circuit("M 0")
-    model = circuits.NoiseModel(idle_error={"X": 0.01}, quadratic_idle_error={"Z": 1e-6})
+    model = circuits.NoiseModel(
+        scheduler=TICKS, idle_error={"X": 0.01}, quadratic_idle_error={"Z": 1e-6}
+    )
     p_x, p_z = (1 - 0.98**1000) / 2, (1 - math.exp(-2)) / 2
     expected = stim.Circuit(f"""
         R 0
@@ -317,30 +338,25 @@ def test_noise_commutes_with_flattening() -> None:
         idle_error={"X": 0.005, "Z": 0.007},
         quadratic_idle_error={"Z": 0.003},
         additional_error_waiting_for_m_or_r=0.04,
+        scheduler=TICKS,
     )
     combined_idle_noise = circuits.NoiseModel(
-        idle_error=circuits.PauliChannelSequence({"X": 0.05, "Z": 0.1})
+        idle_error=circuits.PauliChannelSequence({"X": 0.05, "Z": 0.1}), scheduler=TICKS
     )
     per_moment_idle_noise = circuits.NoiseModel(
-        idle_error=circuits.NoiseRule(after=stim.Circuit("E(0.05) X0\nE(0.1) Z0"))
+        idle_error=circuits.NoiseRule(after=stim.Circuit("E(0.05) X0\nE(0.1) Z0")),
+        scheduler=TICKS,
     )
     rng = random.Random(0)
     for _ in range(100):
         circuit = _random_circuit(rng)
         flattened_circuit = flatten_repeat_blocks(circuit, circuits.DEFAULT_IMMUNE_OP_TAG)
-        for insert_ticks in [True, False]:
-            try:
-                expected = noise_model.noisy_circuit(flattened_circuit, insert_ticks=insert_ticks)
-            except ValueError:
-                with pytest.raises(ValueError, match="multiple uses"):
-                    noise_model.noisy_circuit(circuit, insert_ticks=insert_ticks)
-                continue
-            noisy_circuit = noise_model.noisy_circuit(circuit, insert_ticks=insert_ticks)
-            assert noisy_circuit.flattened() == expected.flattened()
+        expected = noise_model.noisy_circuit(flattened_circuit)
+        assert noise_model.noisy_circuit(circuit).flattened() == expected.flattened()
 
-            combined = combined_idle_noise.noisy_circuit(circuit, insert_ticks=insert_ticks)
-            per_moment = per_moment_idle_noise.noisy_circuit(circuit, insert_ticks=insert_ticks)
-            assert _dem_errors(combined) == pytest.approx(_dem_errors(per_moment), abs=1e-12)
+        combined = combined_idle_noise.noisy_circuit(circuit)
+        per_moment = per_moment_idle_noise.noisy_circuit(circuit)
+        assert _dem_errors(combined) == pytest.approx(_dem_errors(per_moment), abs=1e-12)
 
 
 def _random_circuit(rng: random.Random) -> stim.Circuit:
@@ -394,20 +410,19 @@ def test_aggregated_idle_respects_observable_barrier() -> None:
         TICK
         M 0 1
     """)
-    noisy = circuits.NoiseModel(idle_error={"X": 0.1}).noisy_circuit(circuit)
+    noisy = circuits.NoiseModel(scheduler=TICKS, idle_error={"X": 0.1}).noisy_circuit(circuit)
     assert noisy.detector_error_model() == stim.DetectorErrorModel("error(0.1) L0")
 
 
 def test_immunity() -> None:
     """Qubits and operations can be immune to errors."""
 
-    # qubits can be immune to errors.  The input reuses qubit 1 across ``H 0 1`` and ``CNOT 1 2``,
-    # so a TICK must separate them (either manually with ``insert_ticks=False`` or automatically).
+    # qubits can be immune to errors
     circuit = stim.Circuit("""
         H 0 1
         CNOT 1 2
     """)
-    noise_model = circuits.DepolarizingNoiseModel(0.1, include_idling_error=False)
+    noise_model = circuits.DepolarizingNoiseModel(0.1, include_idling_error=False, scheduler=TICKS)
     expected = stim.Circuit("""
         H 0 1
         DEPOLARIZE1(0.1) 1
@@ -415,22 +430,7 @@ def test_immunity() -> None:
         CNOT 1 2
         DEPOLARIZE2(0.1) 1 2
     """)
-    # Automatic TICK insertion:
-    assert circuits_are_equivalent(
-        expected, noise_model.noisy_circuit(circuit, immune_qubits=[0], insert_ticks=True)
-    )
-    # Explicit TICK with ``insert_ticks=False``:
-    assert circuits_are_equivalent(
-        expected,
-        noise_model.noisy_circuit(
-            stim.Circuit("H 0 1\nTICK\nCNOT 1 2"),
-            immune_qubits=[0],
-            insert_ticks=False,
-        ),
-    )
-    # Without a TICK between reusing gates, ``insert_ticks=False`` raises loudly.
-    with pytest.raises(ValueError, match="multiple times without a TICK"):
-        noise_model.noisy_circuit(circuit, immune_qubits=[0], insert_ticks=False)
+    assert circuits_are_equivalent(expected, noise_model.noisy_circuit(circuit, immune_qubits=[0]))
 
     # operations can be immune to errors
     immune_op_tag = "_TEST_"
@@ -440,7 +440,7 @@ def test_immunity() -> None:
         H['{immune_op_tag}'] 0
         X 1
     """)
-    noise_model = circuits.DepolarizingNoiseModel(0.1, include_idling_error=True)
+    noise_model = circuits.DepolarizingNoiseModel(0.1, include_idling_error=True, scheduler=TICKS)
     noisy_circuit = stim.Circuit(f"""
         H['{immune_op_tag}'] 0
         DEPOLARIZE1(0.1) 1
@@ -483,7 +483,7 @@ def test_immune_qubits() -> None:
     circuit = stim.Circuit("""
         CNOT 0 1 1 2 3 4
     """)
-    dm = circuits.DepolarizingNoiseModel(0.1, include_idling_error=False)
+    dm = circuits.DepolarizingNoiseModel(0.1, include_idling_error=False, scheduler=TICKS)
     assert circuits_are_equivalent(
         stim.Circuit("""
             CNOT 0 1
@@ -511,7 +511,9 @@ def test_immune_qubits() -> None:
     # with I at the immune position) emit as native PAULI_CHANNEL_2 on the outer qubits.
     channel = circuits.PauliChannel({"XYZ": 0.01, "XIZ": 0.02, "IZI": 0.03})
     spp_circuit = stim.Circuit("SPP X0*Y1*Z2")
-    spp_model = circuits.NoiseModel(rules={"SPP": circuits.NoiseRule(after=channel)})
+    spp_model = circuits.NoiseModel(
+        scheduler=TICKS, rules={"SPP": circuits.NoiseRule(after=channel)}
+    )
     assert circuits_are_equivalent(
         spp_circuit,
         spp_model.noisy_circuit(spp_circuit, immune_qubits=[1], immunize_gates=True),
@@ -526,7 +528,7 @@ def test_immune_qubits() -> None:
     # reset_error broadcasts X_ERROR; immune targets are stripped per atom under True.
     assert circuits_are_equivalent(
         stim.Circuit("R 0 1 2\nX_ERROR(0.1) 0\nX_ERROR(0.1) 2"),
-        circuits.NoiseModel(reset_error=0.1).noisy_circuit(
+        circuits.NoiseModel(scheduler=TICKS, reset_error=0.1).noisy_circuit(
             stim.Circuit("R 0 1 2"), immune_qubits=[1]
         ),
     )
@@ -536,14 +538,14 @@ def test_immune_qubits() -> None:
     # `MPP X0*Y1` (partial immunity) also drops it, matching the dead-simple policy.
     assert circuits_are_equivalent(
         stim.Circuit("M(0.1) 0\nTICK\nM 1\nTICK\nMPP X0*Y1"),
-        circuits.NoiseModel(readout_error=0.1).noisy_circuit(
+        circuits.NoiseModel(scheduler=TICKS, readout_error=0.1).noisy_circuit(
             stim.Circuit("M 0\nTICK\nM 1\nTICK\nMPP X0*Y1"), immune_qubits=[1]
         ),
     )
     # Under immunize_gates=False, the same MPP with partial immunity has no clean projection
     # (readout_error can't be conditioned), so we raise.
     with pytest.raises(ValueError, match="partial immunity"):
-        circuits.NoiseModel(readout_error=0.1).noisy_circuit(
+        circuits.NoiseModel(scheduler=TICKS, readout_error=0.1).noisy_circuit(
             stim.Circuit("MPP X0*Y1"), immune_qubits=[1], immunize_gates=False
         )
 
@@ -638,7 +640,7 @@ def test_rule_func() -> None:
             return circuits.NoiseRule(after={"X": 0.5})
         return None
 
-    noise_model = circuits.NoiseModel(clifford_1q_error=0.1, rule_func=per_qubit)
+    noise_model = circuits.NoiseModel(scheduler=TICKS, clifford_1q_error=0.1, rule_func=per_qubit)
     circuit = stim.Circuit("H 0 1 2")
     noisy_circuit = stim.Circuit("""
         H 0 1 2
@@ -657,7 +659,7 @@ def test_rule_func() -> None:
             return circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(2, 0.9))
         return None
 
-    noise_model = circuits.NoiseModel(clifford_2q_error=0.1, rule_func=per_pair)
+    noise_model = circuits.NoiseModel(scheduler=TICKS, clifford_2q_error=0.1, rule_func=per_pair)
     circuit = stim.Circuit("CX 0 1 2 3")
     noisy_circuit = stim.Circuit("""
         CX 0 1 2 3
@@ -672,6 +674,7 @@ def test_rule_func() -> None:
         return circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(1, 0.7))
 
     noise_model = circuits.NoiseModel(
+        scheduler=TICKS,
         rules={"H": circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(1, 0.2))},
         rule_func=tagged,
     )
@@ -692,7 +695,7 @@ def test_rule_func() -> None:
             return circuits.NoiseRule(readout_error=0.25)
         return None
 
-    noise_model = circuits.NoiseModel(readout_error=0.01, rule_func=measure_reset)
+    noise_model = circuits.NoiseModel(scheduler=TICKS, readout_error=0.01, rule_func=measure_reset)
     circuit = stim.Circuit("R 2\nTICK\nM 0 1")
     noisy_circuit = stim.Circuit("""
         R 2
@@ -707,7 +710,7 @@ def test_rule_func() -> None:
     def kick(op: stim.CircuitInstruction) -> circuits.NoiseRule:
         return circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(1, 0.5))
 
-    noise_model = circuits.NoiseModel(rule_func=kick)
+    noise_model = circuits.NoiseModel(scheduler=TICKS, rule_func=kick)
     circuit = stim.Circuit("H 0 1")
     noisy_circuit = stim.Circuit("""
         H 0 1
@@ -725,45 +728,52 @@ def test_rule_func() -> None:
         consulted.append(op.name)
         return circuits.NoiseRule(after={"X": 0.5})
 
-    noise_model = circuits.NoiseModel(rule_func=record)
+    noise_model = circuits.NoiseModel(scheduler=TICKS, rule_func=record)
     noise_model.noisy_circuit(stim.Circuit("QUBIT_COORDS(0, 0) 0\nI 2\nM 0\nCX rec[-1] 1"))
     assert consulted == ["I", "M"]
 
     # An identity's after-noise precedes a subsequent operation on the same qubit.
     identity_rule = circuits.NoiseModel(
-        rule_func=lambda op: circuits.NoiseRule(after={"X": 1.0}) if op.name == "I" else None
+        scheduler=TICKS,
+        rule_func=lambda op: circuits.NoiseRule(after={"X": 1.0}) if op.name == "I" else None,
     )
     circuit = stim.Circuit("I 0\nM 0")
     noisy_circuit = stim.Circuit("I 0\nX_ERROR(1) 0\nTICK\nM 0")
     assert circuits_are_equivalent(noisy_circuit, identity_rule.noisy_circuit(circuit))
-    with pytest.raises(ValueError, match="operated on multiple times"):
-        identity_rule.noisy_circuit(circuit, insert_ticks=False)
 
     # A returned rule's readout_error/reset_error must match the gate it is assigned to.
-    bad_readout = circuits.NoiseModel(rule_func=lambda op: circuits.NoiseRule(readout_error=0.1))
+    bad_readout = circuits.NoiseModel(
+        scheduler=TICKS, rule_func=lambda op: circuits.NoiseRule(readout_error=0.1)
+    )
     with pytest.raises(ValueError, match=r"rule for 'H'.*readout_error.*measurement gates"):
         bad_readout.noisy_circuit(stim.Circuit("H 0"))
-    bad_reset = circuits.NoiseModel(rule_func=lambda op: circuits.NoiseRule(reset_error=0.1))
+    bad_reset = circuits.NoiseModel(
+        scheduler=TICKS, rule_func=lambda op: circuits.NoiseRule(reset_error=0.1)
+    )
     with pytest.raises(ValueError, match=r"rule for 'H'.*reset_error.*reset gates"):
         bad_reset.noisy_circuit(stim.Circuit("H 0"))
 
     # A returned rule's `after` arity must match the gate application's qubit count.
     bad_arity = circuits.NoiseModel(
-        rule_func=lambda op: circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(1, 0.1))
+        scheduler=TICKS,
+        rule_func=lambda op: circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(1, 0.1)),
     )
     with pytest.raises(ValueError, match=r"rule for 'CX'.*`after` has arity 1"):
         bad_arity.noisy_circuit(stim.Circuit("CX 0 1"))
 
     # SXYZ can be used as a `rules` key just like MXYZ.
     noise_model = circuits.NoiseModel(
-        rules={"SXYZ": circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(3, 0.1))}
+        scheduler=TICKS,
+        rules={"SXYZ": circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(3, 0.1))},
     )
     noisy_circuit = noise_model.noisy_circuit(stim.Circuit("SPP X0*Y1*Z2"))
     assert "CORRELATED_ERROR" in str(noisy_circuit)
     assert "ELSE_CORRELATED_ERROR" in str(noisy_circuit)
 
     # The recursive noisy_circuit call inside a REPEAT block forwards immune_op_tag.
-    kick_all = circuits.NoiseModel(rule_func=lambda op: circuits.NoiseRule(after={"X": 0.5}))
+    kick_all = circuits.NoiseModel(
+        scheduler=TICKS, rule_func=lambda op: circuits.NoiseRule(after={"X": 0.5})
+    )
     body = stim.Circuit()
     body.append("H", [0], tag="__skip__")
     body.append("TICK")
@@ -904,7 +914,7 @@ def test_quadratic_idle_error_runs() -> None:
     error occurs, so the error of the qubit's whole run is the same as if they were absent.  A Pauli
     annotation depends on that, so it ends the run.
     """
-    noise_model = circuits.NoiseModel(quadratic_idle_error={"Z": 0.01})
+    noise_model = circuits.NoiseModel(scheduler=TICKS, quadratic_idle_error={"Z": 0.01})
     step = "H 1\nTICK\n"
 
     def get_error(interruption: str) -> float:
@@ -1024,11 +1034,22 @@ def test_noise_model_serialization() -> None:
 
 
 def test_scheduler() -> None:
-    """A scheduler sets the moments in which qubits idle."""
-    circuit = stim.Circuit("R 0 1\nH 0\nCX 0 1\nM 0 1")
+    """A scheduler sets the moments in which qubits idle.
 
-    # by default, qubit 1 idles after its reset; a just-in-time reset avoids that
+    By default, operations are as early as possible and resets as late as possible, so qubit 1 does
+    not idle before its first gate.  Keeping the moments of the circuit, it idles for a moment.
+    """
+    circuit = stim.Circuit("R 0 1\nTICK\nH 0\nTICK\nCX 0 1\nTICK\nM 0 1")
     noise_model = circuits.NoiseModel(idle_error={"Z": 0.1})
+    assert noise_model.noisy_circuit(circuit) == stim.Circuit("""
+        R 0 1
+        H 0
+        TICK
+        CX 0 1
+        TICK
+        M 0 1
+    """)
+    noise_model = circuits.NoiseModel(idle_error={"Z": 0.1}, scheduler=TICKS)
     assert noise_model.noisy_circuit(circuit) == stim.Circuit("""
         R 0 1
         TICK
@@ -1039,25 +1060,40 @@ def test_scheduler() -> None:
         TICK
         M 0 1
     """)
-    noise_model = circuits.NoiseModel(
-        idle_error={"Z": 0.1},
-        scheduler=circuits.Scheduler(reschedule=True, shorten_lifetimes=True),
-    )
-    assert noise_model.noisy_circuit(circuit) == stim.Circuit("""
-        R 0
-        Z_ERROR(0.1) 1
-        TICK
-        R 1
+    assert circuits.SI1000NoiseModel(0.1).scheduler == TICKS
+
+
+def test_custom_scheduler() -> None:
+    """A custom scheduler sets moments, and by default classically controlled gates take no time."""
+    noise_model = circuits.NoiseModel(idle_error={"Z": 0.1}, scheduler=_OneOperationPerMoment())
+    circuit = stim.Circuit("H 0\nM 0\nCX rec[-1] 1\nH 1")
+    expected = stim.Circuit("""
         H 0
         TICK
-        CX 0 1
+        M 0
         TICK
-        M 0 1
+        CX rec[-1] 1
+        Z_ERROR(0.244) 1
+        TICK
+        H 1
+        Z_ERROR(0.18) 0
     """)
+    assert noise_model.noisy_circuit(circuit).approx_equals(expected, atol=1e-12)
 
 
-def test_instantaneous_1q_gates() -> None:
-    """Single-qubit gates share a moment with another operation, and do not stop a qubit idling.
+class _OneOperationPerMoment(circuits.Scheduler):
+    """A scheduler that puts every operation in a moment of its own."""
+
+    def schedule(self, circuit: circuits.StimCircuitLike) -> circuits.StimCircuitLike:
+        scheduled = type(circuit)()
+        for index in range(len(circuit)):
+            scheduled.append(circuit[index])
+            scheduled.append("TICK")
+        return scheduled
+
+
+def test_untimed_gates() -> None:
+    """Gates that take no time share a moment with another operation, and leave a qubit idle.
 
     The noise of each gate precedes the next gate on its qubits.
     """
@@ -1065,7 +1101,7 @@ def test_instantaneous_1q_gates() -> None:
         clifford_1q_error={"X": 0.01},
         clifford_2q_error={"ZZ": 0.02},
         idle_error={"Z": 0.1},
-        scheduler=circuits.Scheduler(instantaneous_1q_gates=True),
+        scheduler=circuits.Scheduler.preserve_ticks(),
     )
     circuit = stim.Circuit("H 0\nCX 0 1\nH 0 2\nTICK\nCX 1 2")
     assert noise_model.noisy_circuit(circuit) == stim.Circuit("""
@@ -1084,15 +1120,15 @@ def test_instantaneous_1q_gates() -> None:
 
     # repeated gates on a qubit get noise after each of them
     noise_model = circuits.NoiseModel(
-        clifford_1q_error={"Z": 0.01}, scheduler=circuits.Scheduler(instantaneous_1q_gates=True)
+        clifford_1q_error={"Z": 0.01}, scheduler=circuits.Scheduler.preserve_ticks()
     )
-    noisy_circuit = noise_model.noisy_circuit(stim.Circuit("H 0 0"), insert_ticks=False)
+    noisy_circuit = noise_model.noisy_circuit(stim.Circuit("H 0 0"))
     assert noisy_circuit == stim.Circuit("H 0\nZ_ERROR(0.01) 0\nH 0\nZ_ERROR(0.01) 0")
 
     # I takes no time, II takes a moment, and a moment between TICKs lasts a moment regardless of
     # its operations, so qubits idle only in the second moment
     noise_model = circuits.NoiseModel(
-        idle_error={"Z": 0.1}, scheduler=circuits.Scheduler(instantaneous_1q_gates=True)
+        idle_error={"Z": 0.1}, scheduler=circuits.Scheduler.preserve_ticks()
     )
     circuit = stim.Circuit("I 0\nCX 0 1\nTICK\nI 0\nTICK\nII 0 1\nCX 0 1")
     assert noise_model.noisy_circuit(circuit) == stim.Circuit("""
@@ -1106,6 +1142,10 @@ def test_instantaneous_1q_gates() -> None:
         TICK
         CX 0 1
     """)
+
+    # a classically controlled gate takes no time
+    circuit = stim.Circuit("M 0\nCX rec[-1] 1\nCZ 1 2")
+    assert noise_model.noisy_circuit(circuit) == circuit
 
 
 def test_noise_model_str() -> None:
@@ -1134,7 +1174,7 @@ def test_noise_model_str() -> None:
     ):
         assert field in text
     assert "rule_func" not in text and "scheduler" not in text
-    scheduler = circuits.Scheduler(reschedule=True)
+    scheduler = circuits.Scheduler.alap()
     assert f"scheduler={scheduler!r}" in str(circuits.NoiseModel(scheduler=scheduler))
 
     # With no rule_func, __repr__ is the (eval-able) __str__.

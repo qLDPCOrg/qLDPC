@@ -97,18 +97,26 @@ Per-gate-application noise via a callback (``rule_func``)::
     )
     noisy_circuit = noise_model.noisy_circuit(circuit)
 
-.. rubric:: Moments and repeat blocks
+.. rubric:: Moments and schedulers
 
 Noise is added moment by moment, where a moment is the time between two TICKs.  The ``scheduler`` of
-a noise model can instead compute the moments of a circuit, for example to reset each qubit just
-before it is needed (see :class:`Scheduler`), and can make single-qubit gates instantaneous, so that
-they share a moment with another operation on their qubit.  ``REPEAT`` blocks are treated as though
-they were flattened, so a moment may span the boundary of a repeat block or of its iterations.  The
-noisy circuit is nonetheless compact: once an iteration of a repeat block gets the same noise as the
-next, the remaining iterations are kept in a repeat block.  A repeat block tagged with
-``immune_op_tag`` is noiseless and is not merged with neighboring moments, a repeat block that
-contains only annotations and noise is kept as-is, and a repeat block that is empty when flattened
-is dropped.  A scheduler that computes moments does not yet support repeat blocks.
+a noise model first divides a circuit into moments (see :class:`Scheduler`).  By default,
+``Scheduler.asap()`` ignores the TICKs of a circuit, and places each operation as early as possible
+and each reset as late as possible, so that qubits do not idle before they are needed.
+``Scheduler.preserve_ticks()`` keeps the moments of a circuit instead.  A noise model starts a new
+moment wherever an operation that takes time reuses a qubit.
+
+By default, single-qubit gates and classically controlled gates take no time: a moment may contain
+any number of them on a qubit in addition to one other operation, and their qubits still idle.
+TICKs alone set the duration of a circuit, so a moment that contains only such gates still lasts a
+moment, while TICKs with nothing between them do not add moments.
+
+``REPEAT`` blocks are treated as though they were flattened, so a moment may span the boundary of a
+repeat block or of its iterations.  The noisy circuit is nonetheless compact: once an iteration of a
+repeat block gets the same noise as the next, the remaining iterations are kept in a repeat block.
+A repeat block tagged with ``immune_op_tag`` is noiseless and is not merged with neighboring
+moments, a repeat block that contains only annotations and noise is kept as-is, and a repeat block
+that is empty when flattened is dropped.
 
 .. rubric:: Idling errors
 
@@ -121,8 +129,7 @@ Custom Stim noise fragments are applied once per idle moment.
 ``additional_error_waiting_for_m_or_r`` applies additional noise to non-collapsing qubits during a
 moment that contains a measurement or reset; it is always applied once per such moment.
 
-Identity gates (``I`` and ``II``) are treated as ordinary one- and two-qubit Clifford gates, so
-their qubits do not idle while they act.
+Identity gates (``I`` and ``II``) are treated as ordinary one- and two-qubit Clifford gates.
 
 ``quadratic_idle_error`` models idle errors from slow noise, such as a qubit frequency that
 fluctuates from one shot to the next.  Over a run of consecutive idle moments, such noise rotates a
@@ -131,10 +138,11 @@ qubit about a fixed axis by an angle that grows linearly at a random rate.  Aver
 it is small and saturates at 1/2.  For a channel with several Paulis, the axis may vary from one run
 to the next, for example as a compiler changes the frame of a qubit, and the channel sets the mean
 squared components of the axis.  A run ends where the combined ``idle_error`` above is emitted.  In
-particular, a Pauli-target annotation in the middle of an idle period splits the run there, which
-underestimates the quadratic idle error of that period by up to a factor of two.  Runs are
-independent of each other, and every moment counts equally, regardless of its duration.
-The quadratic idle error of a run is combined with its ``idle_error`` into one equivalent error.
+particular, a gate or Pauli-target annotation in the middle of an idle period splits the run there,
+even if the gate takes no time.  A period split into ``n`` runs gets up to ``n`` times less
+quadratic idle error than if it were one run.  Runs are independent of each other, and every moment
+counts equally, regardless of its duration.  The quadratic idle error of a run is combined with its
+``idle_error`` into one equivalent error.
 
 .. rubric:: Attribution and license
 

@@ -9,13 +9,12 @@ from __future__ import annotations
 
 import collections
 import math
-from collections.abc import Collection, Iterable, Iterator
+from collections.abc import Callable, Collection, Iterable, Iterator
 
 import stim
 
 from ._operations import (
     ANNOTATION,
-    CLIFFORD_1Q,
     CLIFFORD_2Q,
     CLIFFORD_PP,
     COLLAPSING_OPS,
@@ -74,21 +73,19 @@ def get_immune_qubits(circuit: stim.Circuit, immune_qubit_tag: str) -> frozenset
 
 def categorize_moment_qubits(
     moment: Collection[stim.CircuitInstruction | stim.CircuitRepeatBlock],
-    *,
-    instantaneous_1q_gates: bool = False,
+    takes_time: Callable[[stim.CircuitInstruction], bool],
 ) -> tuple[list[int], list[int]]:
     """Categorize a moment's qubit targets and check for reuse.
 
-    Iterates every non-annotation instruction and buckets its qubit targets into three lists —
-    collapsed (measurement / reset), classically-controlled, and everything else ("operation").
-    Raises if any qubit is used more than once across the three buckets, since noise application
-    relies on the "each qubit at most once per moment" invariant that ``NoiseModel.noisy_circuit``
-    enforces when ``insert_ticks=True``.  The classically-controlled bucket contributes only to the
-    reuse check.
+    Iterates every gate that takes time and buckets its qubit targets into three lists — collapsed
+    (measurement / reset), classically-controlled, and everything else ("operation").  Raises if
+    any qubit is used more than once across the three buckets, since noise application relies on
+    the "each qubit at most once per moment" invariant that ``NoiseModel.noisy_circuit`` enforces.
+    The classically-controlled bucket contributes only to the reuse check.
 
     Args:
         moment: The moment's operations.
-        instantaneous_1q_gates: If True, ignore single-qubit unitary gates, which take no time.
+        takes_time: Whether one application of a gate occupies its qubits for a moment.
 
     Returns:
         A tuple ``(collapsed_qubits, operation_qubits)``, each in the order the moment referenced
@@ -106,7 +103,7 @@ def categorize_moment_qubits(
         if (
             isinstance(op, stim.CircuitRepeatBlock)
             or op_type(op.name) in (ANNOTATION, NOISE)
-            or (instantaneous_1q_gates and is_instantaneous_1q_gate(op))
+            or not takes_time(op)
         ):
             continue
         target_qubits = [
@@ -135,11 +132,6 @@ def categorize_moment_qubits(
             f"moment:\n{moment}"
         )
     return collapsed_qubits, operation_qubits
-
-
-def is_instantaneous_1q_gate(op: stim.CircuitInstruction | stim.CircuitRepeatBlock) -> bool:
-    """Is an operation a single-qubit gate, which may take no time?"""
-    return isinstance(op, stim.CircuitInstruction) and op_type(op.name) == CLIFFORD_1Q
 
 
 def gate_qubits(op: stim.CircuitInstruction | stim.CircuitRepeatBlock) -> set[int]:

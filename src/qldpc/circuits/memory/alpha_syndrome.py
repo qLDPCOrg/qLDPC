@@ -209,9 +209,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
             evaluation_circuit = self._get_evaluation_circuit(
                 code, basis, schedule, evaluation_data
             )
-            noisy_evaluation_circuit = self.noise_model.noisy_circuit(
-                evaluation_circuit, insert_ticks=False
-            )
+            noisy_evaluation_circuit = self.noise_model.noisy_circuit(evaluation_circuit)
 
             # sample detection events and observable flips from the evaluation circuit
             sampler = noisy_evaluation_circuit.compile_detector_sampler()

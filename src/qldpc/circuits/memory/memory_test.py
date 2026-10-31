@@ -42,7 +42,7 @@ def test_memory_experiment() -> None:
     noiseless_circuit = circuits.get_memory_experiment(code, basis=None, num_rounds=num_rounds)
     dem_1 = circuit.detector_error_model()
     dem_2 = noise_model.noisy_circuit(noiseless_circuit).detector_error_model()
-    assert dem_1 == dem_2
+    assert dem_1.flattened() == dem_2.flattened()
     parts = circuits.get_memory_experiment_parts(rep_code, basis=Pauli.X, num_rounds=1)
     assembled = parts.initialization + parts.qec_cycle + parts.readout
     assert circuits.get_memory_experiment(
