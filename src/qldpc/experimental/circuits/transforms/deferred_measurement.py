@@ -51,6 +51,22 @@ heralded noise, ``MPAD``, ``ELSE_CORRELATED_ERROR``, or measurements of Pauli pr
 a qubit, such as ``MPP X0*Z0``.
 """
 
+# Graduation plan: once the API of this module settles, it moves to
+# qldpc.circuits.transforms.deferred_measurement, as follows.
+#
+# 1. Move this module and its test file to qldpc/circuits/transforms/, and move the seeded rng
+#    fixture that the tests use from qldpc/experimental/circuits/conftest.py into
+#    qldpc/circuits/conftest.py.
+# 2. Re-export all six public functions from qldpc.circuits.transforms, and re-export
+#    to_deferred_measurement_form and is_in_deferred_measurement_form from qldpc.circuits.
+# 3. Remove the module from qldpc.experimental.circuits.transforms, and remove that subpackage if
+#    it is then empty; experimental modules need no deprecation shims.
+# 4. Check that qldpc/circuits/layering_test.py passes.  It assigns qldpc.circuits.transforms to a
+#    layer that may import only qldpc.circuits.common and qldpc.circuits.bookkeeping, and this
+#    module imports neither.
+# 5. Mention deferred-measurement form in the description of qldpc.circuits in
+#    docs/source/library_map.rst.
+
 from __future__ import annotations
 
 import functools
@@ -162,7 +178,7 @@ def _has_shift_coords(circuit: stim.Circuit) -> bool:
 
 
 ####################################################################################################
-# rewriting passes
+# deferral passes
 
 
 def split_measure_resets(circuit: stim.Circuit) -> stim.Circuit:
@@ -236,7 +252,7 @@ def simplify_measurements(circuit: stim.Circuit) -> stim.Circuit:
 
 
 ####################################################################################################
-# rewriting passes on lists of instructions
+# deferral passes on lists of instructions
 
 
 def _split_measure_resets(instructions: list[_CircuitInstruction]) -> list[_CircuitInstruction]:
@@ -564,7 +580,7 @@ def _append_parity_gadget(
 ####################################################################################################
 # instructions as Python objects
 #
-# The rewriting passes of this module work on lists of the following plain Python objects, rather
+# The deferral passes of this module work on lists of the following plain Python objects, rather
 # than on stim's instructions, because stim.Circuit.append and stim.CircuitInstruction convert each
 # target slowly, while stim parses the text of a circuit orders of magnitude faster.  The passes
 # therefore build each output circuit by parsing its text once (see _get_circuit).

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Helper objects to keep track of qubits, measurements, and detectors."""
+"""Records of the qubits, measurements, and detectors of circuits."""
 
 from __future__ import annotations
 
@@ -337,3 +337,24 @@ class DetectorRecord(Record):
                 if other_key != key
             }
         )
+
+
+def get_unaddressed_measurements(circuit: stim.Circuit) -> list[int]:
+    """Identify measurements, by index, that are not addressed by detectors or observables."""
+    measurements: list[int] = []
+    addressed_measurements = set()
+    for instruction in circuit.flattened():
+        new_measurements = range(
+            len(measurements),
+            len(measurements) + instruction.num_measurements,
+        )
+        measurements.extend(new_measurements)
+        if instruction.name in ("DETECTOR", "OBSERVABLE_INCLUDE"):
+            addressed_measurements |= {
+                measurements[
+                    target.value if target.value >= 0 else len(measurements) + target.value
+                ]
+                for target in instruction.targets_copy()
+                if target.is_measurement_record_target
+            }
+    return sorted(set(measurements) - addressed_measurements)

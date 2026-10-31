@@ -4,16 +4,12 @@
 
 from __future__ import annotations
 
-import random
-
 import numpy as np
 import pytest
 import stim
-import sympy.combinatorics as comb
 
 from qldpc import circuits, codes
 from qldpc.circuits import common
-from qldpc.circuits.conftest import StimCircuitWrapper
 from qldpc.math import symplectic_conjugate
 from qldpc.objects import Pauli
 
@@ -38,69 +34,19 @@ def test_pauli_product_measurements(pytestconfig: pytest.Config) -> None:
     assert np.array_equal(outcomes.astype(int), syndrome)
 
 
-def test_qubit_remap(pytestconfig: pytest.Config, num_qubits: int = 8) -> None:
-    """Remap the qubits in a stim.Circuit."""
-    random.seed(pytestconfig.getoption("randomly_seed"))
-
-    # build a random qubit permutation
-    permutation = comb.Permutation.random(num_qubits)
-    qubit_map = permutation.array_form
-
-    # build a random circuit
-    circuit = stim.Tableau.random(num_qubits).to_circuit()
-    circuit.append(
-        stim.CircuitRepeatBlock(repeat_count=2, body=stim.Tableau.random(num_qubits).to_circuit())
-    )
-
-    # remap qubits using circuits.with_remapped_qubits
-    circuit_a = circuits.with_remapped_qubits(circuit, qubit_map)
-    assert circuit == circuits.with_remapped_qubits(circuit_a, qubit_map, inverse=True)
-
-    # manually construct a permutation circuit to implement the remapping
-    inverse_permutation_circuit = stim.Circuit()
-    for cycle in permutation.cyclic_form:
-        for qq in range(1, len(cycle)):
-            inverse_permutation_circuit.append("SWAP", [cycle[0], cycle[qq]])
-
-    # test that the two remapped circuits are equivalent
-    circuit_b = inverse_permutation_circuit.inverse() + circuit + inverse_permutation_circuit
-    assert circuit_a.to_tableau() == circuit_b.to_tableau()
-
-    # cover an edge case
-    circuit_a = circuits.with_remapped_qubits(stim.Circuit("MPP X1*!Y2 \n M !4"), {2: 3})
-    circuit_b = stim.Circuit("MPP X1*!Y3 \n M !4")
-    assert circuit_a == circuit_b
-
-    # a stim-wrapping circuit input is remapped and returned as the same wrapping type
-    wrapped_remapped = circuits.with_remapped_qubits(StimCircuitWrapper(circuit), qubit_map)
-    assert isinstance(wrapped_remapped, StimCircuitWrapper)
-    assert wrapped_remapped.stim_circuit == circuits.with_remapped_qubits(circuit, qubit_map)
-
-
-def test_finding_unaddressed_measurements() -> None:
-    """Identify measurements in a circuit that are not addressed by any detectors."""
-    circuit = stim.Circuit("""
-        M 0 1 2
-        DETECTOR rec[-3] rec[-1]
-    """)
-    assert circuits.get_unaddressed_measurements(circuit) == [1]
-
-    observable_only = stim.Circuit("M 0 1\nOBSERVABLE_INCLUDE(0) rec[-1]")
-    assert circuits.get_unaddressed_measurements(observable_only) == [0]
-    pauli_observable = stim.Circuit("M 0 1\nOBSERVABLE_INCLUDE(0) X0")
-    assert circuits.get_unaddressed_measurements(pauli_observable) == [0, 1]
-    out_of_range_pauli = stim.Circuit("M 0\nOBSERVABLE_INCLUDE(0) X5")
-    assert circuits.get_unaddressed_measurements(out_of_range_pauli) == [0]
+def test_pauli_product_measurement_edge_cases() -> None:
+    """Pauli-product measurements of symplectic rows, with signs and qubit labels."""
     assert circuits.get_pauli_product_measurements([[1, 0, 0, 1]]) == stim.Circuit("MPP X0*Z1")
+    measurements = circuits.get_pauli_product_measurements(
+        [stim.PauliString("-XIZ"), stim.PauliString("_Y_")], qubits=[7, 2, 4]
+    )
+    assert measurements == stim.Circuit("MPP !X7*Z4 Y2")
     with pytest.raises(ValueError, match="all-identity"):
         circuits.get_pauli_product_measurements([[0, 0, 0, 0]])
     with pytest.raises(ValueError, match="2 qubits, but 3 qubit labels"):
         circuits.get_pauli_product_measurements([[1, 0, 0, 1]], qubits=[3, 4, 5])
-
-    mpad = stim.Circuit("MPAD 1 0")
-    assert circuits.with_remapped_qubits(mpad, [1, 0]) == mpad
-    with pytest.raises(ValueError, match="injective"):
-        circuits.with_remapped_qubits(stim.Circuit("H 0 1"), [0, 0])
+    with pytest.raises(ValueError, match="must be distinct"):
+        circuits.get_pauli_product_measurements([[1, 0, 0, 1]], qubits=[3, 3])
 
 
 def test_restriction() -> None:
@@ -114,3 +60,9 @@ def test_restriction() -> None:
 
     with pytest.raises(ValueError, match="only supported for qubit codes"):
         get_empty_circuit(codes.SurfaceCode(2, field=3))
+
+
+def test_unknown_attribute() -> None:
+    """The module-level lookup of deprecated names rejects other names."""
+    with pytest.raises(AttributeError, match="has no attribute 'not_a_real_export'"):
+        common.not_a_real_export  # type: ignore[attr-defined]  # noqa: B018

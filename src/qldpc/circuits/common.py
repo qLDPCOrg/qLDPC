@@ -1,20 +1,24 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Circuit types, qubit remapping, measurement utilities, and the guard for qubit-only methods."""
+"""Circuit types, Pauli-product measurements, and the guard for qubit-only methods.
+
+This module is the foundation of ``qldpc.circuits``: it imports no other module of
+``qldpc.circuits``, so that all of them can import it.
+"""
 
 from __future__ import annotations
 
 import functools
 import itertools
-from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import ParamSpec, Protocol, Self, TypeVar
+from collections.abc import Callable, Iterable, Sequence
+from typing import TYPE_CHECKING, ParamSpec, Protocol, Self, TypeVar
 
 import galois
 import numpy as np
 import numpy.typing as npt
 import stim
 
-from qldpc import codes, math
+from qldpc import _deprecations, codes, math
 
 _ReturnType = TypeVar("_ReturnType")
 _Params = ParamSpec("_Params")
@@ -66,85 +70,6 @@ class StimCircuitProtocol(Protocol):
 StimCircuitLike = TypeVar("StimCircuitLike", bound=StimCircuitProtocol)
 
 
-def with_remapped_qubits(
-    circuit: StimCircuitLike,
-    qubit_map: Mapping[int, int] | Sequence[int],
-    *,
-    inverse: bool = False,
-) -> StimCircuitLike:
-    """The same circuit, but with relabeled qubits.
-
-    Qubits not in qubit_map get mapped to themselves.
-
-    Args:
-        circuit: The circuit to remap.
-        qubit_map: Either a mapping (e.g., dictionary) from old to new qubit indices, or a sequence
-            for which the qubit at index old_index gets mapped to new_index = qubit_map[old_index].
-        inverse: If True, invert the provided qubit_map.  Default: False.
-
-    Returns:
-        The input circuit with remapped qubits.
-    """
-    qubit_map = (
-        qubit_map
-        if isinstance(qubit_map, Mapping)
-        else {old_index: new_index for old_index, new_index in enumerate(qubit_map)}
-    )
-    if len(set(qubit_map.values())) != len(qubit_map):
-        raise ValueError("qubit_map must be injective")
-    if inverse:
-        qubit_map = {val: key for key, val in qubit_map.items()}
-
-    new_circuit = type(circuit)()  # same type as input circuit
-    for index in range(len(circuit)):
-        op = circuit[index]
-        if isinstance(op, stim.CircuitRepeatBlock):
-            block = stim.CircuitRepeatBlock(
-                repeat_count=op.repeat_count,
-                body=with_remapped_qubits(op.body_copy(), qubit_map),
-                tag=op.tag,
-            )
-            new_circuit.append(block)
-
-        else:
-            # MPAD targets encode padding bits, not qubit indices, despite stim exposing them as
-            # qubit targets.  Relabeling them changes the sampled padding values.
-            new_targets = (
-                op.targets_copy()
-                if op.name == "MPAD"
-                else [remap_qubit_target(target, qubit_map) for target in op.targets_copy()]
-            )
-            new_op = stim.CircuitInstruction(
-                name=op.name, targets=new_targets, gate_args=op.gate_args_copy(), tag=op.tag
-            )
-            new_circuit.append(new_op)
-
-    return new_circuit
-
-
-def remap_qubit_target(target: stim.GateTarget, qubit_map: Mapping[int, int]) -> stim.GateTarget:
-    """Remap the qubit addressed by a stim.GateTarget, if any.
-
-    ``MPAD`` padding-bit targets are not qubits and are intentionally preserved by
-    :func:`with_remapped_qubits` before this helper is called.
-    """
-    if target.qubit_value is None:
-        return target
-
-    new_qubit_value = qubit_map.get(target.qubit_value, target.qubit_value)
-    if target.is_x_target or target.is_z_target or target.is_y_target:
-        return stim.target_pauli(
-            new_qubit_value,
-            target.pauli_type,
-            invert=target.is_inverted_result_target,
-        )
-
-    if target.is_inverted_result_target:
-        return stim.target_inv(new_qubit_value)
-
-    return stim.GateTarget(new_qubit_value)
-
-
 def get_pauli_product_measurements(
     pauli_strings: Sequence[stim.PauliString] | Sequence[Sequence[int]] | npt.NDArray[np.int_],
     qubits: Sequence[int] | None = None,
@@ -161,45 +86,38 @@ def get_pauli_product_measurements(
         qubits: Optional physical-qubit labels corresponding to the columns of each Pauli string.
 
     Raises:
-        ValueError: If a Pauli string is the identity, or if qubits is provided and a Pauli string
-            does not act on exactly len(qubits) qubits.
+        ValueError: If a Pauli string is the identity, if qubits is provided and has repeated
+            labels, or if qubits is provided and a Pauli string does not act on exactly len(qubits)
+            qubits.
     """
     if isinstance(pauli_strings, np.ndarray):
         pauli_strings = [math.op_to_string(op) for op in np.atleast_2d(pauli_strings)]
     elif pauli_strings and not isinstance(pauli_strings[0], stim.PauliString):
         pauli_strings = [math.op_to_string(np.asarray(op, dtype=int)) for op in pauli_strings]
+    if qubits is not None and len(set(qubits)) != len(qubits):
+        raise ValueError("Qubit labels for Pauli-product measurements must be distinct")
     circuit = stim.Circuit()
     for string in pauli_strings:
         if not any(pauli in "XYZ" for pauli in str(string)):
             raise ValueError("Pauli-product measurements cannot contain an all-identity row")
-        if qubits is not None and len(string) != len(qubits):
-            raise ValueError(
-                f"A Pauli string acts on {len(string)} qubits, but {len(qubits)} qubit labels were"
-                " provided"
-            )
-        circuit.append("MPP", stim.target_combined_paulis(string))
-    return circuit if qubits is None else with_remapped_qubits(circuit, qubits)
-
-
-def get_unaddressed_measurements(circuit: stim.Circuit) -> list[int]:
-    """Identify measurements, by index, that are not addressed by detectors or observables."""
-    measurements: list[int] = []
-    addressed_measurements = set()
-    for instruction in circuit.flattened():
-        new_measurements = range(
-            len(measurements),
-            len(measurements) + instruction.num_measurements,
-        )
-        measurements.extend(new_measurements)
-        if instruction.name in ("DETECTOR", "OBSERVABLE_INCLUDE"):
-            addressed_measurements |= {
-                measurements[
-                    target.value if target.value >= 0 else len(measurements) + target.value
-                ]
-                for target in instruction.targets_copy()
-                if target.is_measurement_record_target
-            }
-    return sorted(set(measurements) - addressed_measurements)
+        targets = stim.target_combined_paulis(string)
+        if qubits is not None:
+            if len(string) != len(qubits):
+                raise ValueError(
+                    f"A Pauli string acts on {len(string)} qubits, but {len(qubits)} qubit labels"
+                    " were provided"
+                )
+            # relabel qubits here, rather than with qubit remapping, which builds on this module
+            targets = [
+                target
+                if target.is_combiner
+                else stim.target_pauli(
+                    qubits[target.value], target.pauli_type, invert=target.is_inverted_result_target
+                )
+                for target in targets
+            ]
+        circuit.append("MPP", targets)
+    return circuit
 
 
 def _restrict_to_qubits(
@@ -217,3 +135,9 @@ def _restrict_to_qubits(
         return func(*args, **kwargs)
 
     return qubit_func
+
+
+if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations
+
+    def __getattr__(name: str) -> object:
+        return _deprecations.get_deprecated_attribute(__name__, name)
