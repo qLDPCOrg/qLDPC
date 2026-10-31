@@ -6,8 +6,8 @@ from __future__ import annotations
 
 from qldpc.conftest import check_import_layering
 
-# The top-level modules and subpackages of qldpc.decoders, in layers from shared foundations
-# (first) to complete workflows (last).  Add each new top-level module or subpackage to a layer.
+# The top-level modules and subpackages of qldpc.decoders, in layers from shared foundations (first)
+# to complete workflows (last).  Add each new top-level module or subpackage to a layer.
 _LAYERS = (
     ("dems", "protocols"),
     ("adapters", "common"),

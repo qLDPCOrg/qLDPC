@@ -4,7 +4,8 @@
 
 The top-level modules and subpackages of this package import each other in layers, from shared
 foundations to complete workflows: each imports only from itself and from lower layers, which rules
-out import cycles between them.  ``layering_test.py`` lists the layers and checks these imports.
+out import cycles between them.  ``layering_test.py`` lists the layers and checks these imports,
+apart from any that are marked as exceptions.
 """
 
 from typing import TYPE_CHECKING

@@ -48,9 +48,9 @@ Code style and organization
 * ``src/qldpc/code_style_test.py`` checks license headers, section headers, and the order of plain and underscore names.
 * The top-level modules and subpackages of ``qldpc.circuits`` and ``qldpc.decoders`` import each other in layers: each imports only from itself and from lower layers, and never from the root of its package.
   ``_LAYERS`` in the package's ``layering_test.py`` lists the layers and is the only place to update when adding a top-level module or subpackage; changes inside a subpackage need no edits.
-  Imports in functions and under ``TYPE_CHECKING`` count, and tests may import from any layer.
-  When an import is not worth making conform, end its line with ``# layering-exception: <reason>``, or the first line of an import that spans several lines; the check fails if such a comment is no longer needed.
-  To layer another package, add a ``layering_test.py`` that calls ``check_import_layering`` from ``src/qldpc/conftest.py``.
+  Imports in functions and under ``TYPE_CHECKING`` count; tests and ``conftest.py`` files may import from any layer.
+  To keep an import that breaks the layers, end its line (for an import that spans several lines, its first line) with ``# layering-exception: <reason>``; the check fails if such a comment is no longer needed.
+  To layer another package, add a ``layering_test.py`` to its directory that calls ``check_import_layering`` from ``src/qldpc/conftest.py``.
 
 Prose style
 ~~~~~~~~~~~

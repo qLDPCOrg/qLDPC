@@ -45,6 +45,9 @@ def test_pauli_product_measurement_edge_cases() -> None:
     labeled = circuits.get_pauli_product_measurements(strings, qubits)
     assert labeled == circuits.with_remapped_qubits(unlabeled, qubits)
 
+    # signs are measured: X7*Z4 = +1 when qubit 7 is in |+> and qubit 4 is in |0>, so -X7*Z4 = -1
+    assert (stim.Circuit("H 7") + labeled).reference_sample()[0]
+
     with pytest.raises(ValueError, match="all-identity"):
         circuits.get_pauli_product_measurements([[0, 0, 0, 0]])
     with pytest.raises(ValueError, match="2 qubits, but 3 qubit labels"):
