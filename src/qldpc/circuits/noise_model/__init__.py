@@ -7,6 +7,7 @@ The main components of this package are:
 - PauliChannel: A sparse multi-qubit Pauli channel used to specify multi-qubit noise.
 - NoiseRule: Defines how to add noise to individual operations.
 - NoiseModel: Defines how noise is added to circuits.
+- Scheduler: Divides circuits into the moments in which idle qubits accumulate errors.
 - Built-in noise models: DepolarizingNoiseModel and the superconducting-inspired SI1000NoiseModel.
 
 Examples of basic usage with a predefined noise model::
@@ -98,13 +99,16 @@ Per-gate-application noise via a callback (``rule_func``)::
 
 .. rubric:: Moments and repeat blocks
 
-Noise is added moment by moment, where a moment is the time between two TICKs.  ``REPEAT`` blocks
-are treated as though they were flattened, so a moment may span the boundary of a repeat block or of
-its iterations.  The noisy circuit is nonetheless compact: once an iteration of a repeat block gets
-the same noise as the next, the remaining iterations are kept in a repeat block.  A repeat block
-tagged with ``immune_op_tag`` is noiseless and is not merged with neighboring moments, a repeat
-block that contains only annotations and noise is kept as-is, and a repeat block that is empty when
-flattened is dropped.
+Noise is added moment by moment, where a moment is the time between two TICKs.  The ``scheduler`` of
+a noise model can instead compute the moments of a circuit, for example to reset each qubit just
+before it is needed (see :class:`Scheduler`), and can make single-qubit gates instantaneous, so that
+they share a moment with another operation on their qubit.  ``REPEAT`` blocks are treated as though
+they were flattened, so a moment may span the boundary of a repeat block or of its iterations.  The
+noisy circuit is nonetheless compact: once an iteration of a repeat block gets the same noise as the
+next, the remaining iterations are kept in a repeat block.  A repeat block tagged with
+``immune_op_tag`` is noiseless and is not merged with neighboring moments, a repeat block that
+contains only annotations and noise is kept as-is, and a repeat block that is empty when flattened
+is dropped.  A scheduler that computes moments does not yet support repeat blocks.
 
 .. rubric:: Idling errors
 
@@ -170,6 +174,7 @@ from .rules import (
     ErrorSpec,
     NoiseRule,
 )
+from .scheduling import Scheduler
 
 __all__ = [
     "DEFAULT_IMMUNE_OP_TAG",
@@ -182,5 +187,6 @@ __all__ = [
     "PauliChannel",
     "PauliChannelSequence",
     "SI1000NoiseModel",
+    "Scheduler",
     "as_noiseless_circuit",
 ]

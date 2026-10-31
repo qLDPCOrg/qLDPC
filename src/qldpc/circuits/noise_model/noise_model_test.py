@@ -1102,6 +1102,73 @@ def test_noise_model_serialization() -> None:
         pickle.dumps(func_model)
 
 
+def test_scheduler() -> None:
+    """A scheduler sets the moments in which qubits idle."""
+    circuit = stim.Circuit("R 0 1\nH 0\nCX 0 1\nM 0 1")
+
+    # by default, qubit 1 idles after its reset; a just-in-time reset avoids that
+    noise_model = circuits.NoiseModel(idle_error={"Z": 0.1})
+    assert noise_model.noisy_circuit(circuit) == stim.Circuit("""
+        R 0 1
+        TICK
+        H 0
+        Z_ERROR(0.1) 1
+        TICK
+        CX 0 1
+        TICK
+        M 0 1
+    """)
+    noise_model = circuits.NoiseModel(
+        idle_error={"Z": 0.1},
+        scheduler=circuits.Scheduler(reschedule=True, shorten_lifetimes=True),
+    )
+    assert noise_model.noisy_circuit(circuit) == stim.Circuit("""
+        R 0
+        Z_ERROR(0.1) 1
+        TICK
+        R 1
+        H 0
+        TICK
+        CX 0 1
+        TICK
+        M 0 1
+    """)
+
+
+def test_instantaneous_1q_gates() -> None:
+    """Single-qubit gates share a moment with another operation, and do not stop a qubit idling.
+
+    The noise of each gate precedes the next gate on its qubits.
+    """
+    noise_model = circuits.NoiseModel(
+        clifford_1q_error={"X": 0.01},
+        clifford_2q_error={"ZZ": 0.02},
+        idle_error={"Z": 0.1},
+        scheduler=circuits.Scheduler(instantaneous_1q_gates=True),
+    )
+    circuit = stim.Circuit("H 0\nCX 0 1\nH 0 2\nTICK\nCX 1 2")
+    assert noise_model.noisy_circuit(circuit) == stim.Circuit("""
+        H 0
+        X_ERROR(0.01) 0
+        CX 0 1
+        PAULI_CHANNEL_2(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.02) 0 1
+        H 0 2
+        X_ERROR(0.01) 0 2
+        Z_ERROR(0.1) 2
+        TICK
+        CX 1 2
+        PAULI_CHANNEL_2(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.02) 1 2
+        Z_ERROR(0.1) 0
+    """)
+
+    # repeated gates on a qubit get noise after each of them
+    noise_model = circuits.NoiseModel(
+        clifford_1q_error={"Z": 0.01}, scheduler=circuits.Scheduler(instantaneous_1q_gates=True)
+    )
+    noisy_circuit = noise_model.noisy_circuit(stim.Circuit("H 0 0"), insert_ticks=False)
+    assert noisy_circuit == stim.Circuit("H 0\nZ_ERROR(0.01) 0\nH 0\nZ_ERROR(0.01) 0")
+
+
 def test_noise_model_str() -> None:
     """NoiseModel.__str__ reads like a constructor call listing only the set fields."""
     assert str(circuits.NoiseModel()) == "NoiseModel()"
@@ -1127,7 +1194,9 @@ def test_noise_model_str() -> None:
         "rules={'M': NoiseRule(readout_error=0.05)}",
     ):
         assert field in text
-    assert "rule_func" not in text
+    assert "rule_func" not in text and "scheduler" not in text
+    scheduler = circuits.Scheduler(reschedule=True)
+    assert f"scheduler={scheduler!r}" in str(circuits.NoiseModel(scheduler=scheduler))
 
     # With no rule_func, __repr__ is the (eval-able) __str__.
     assert repr(circuits.NoiseModel()) == "NoiseModel()"

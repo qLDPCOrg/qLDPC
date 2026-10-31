@@ -22,6 +22,7 @@ from ._moments import (
     gate_qubits,
     get_immune_qubits,
     idle_barrier_qubits,
+    is_instantaneous_1q_gate,
     quadratic_idle_channel,
     repeated_idle_channel,
     split_targets_if_needed,
@@ -54,6 +55,7 @@ from .rules import (
     _validate_custom_rule,
     _validate_rule_for_arity,
 )
+from .scheduling import Scheduler
 
 # Tags that, by default, make an operation or repeat block noiseless, or declare that the qubits of
 # a tagged QUBIT_COORDS annotation are immune to noise.
@@ -141,6 +143,8 @@ class NoiseModel:
             pure-noise instructions, or classically controlled operations.  Returning ``None``
             continues with named and default rule lookup.  Identities can fall back to named
             rules, but not to Clifford defaults.
+        scheduler: The :class:`~qldpc.circuits.Scheduler` that divides circuits into the moments
+            in which qubits idle.  By default, a circuit keeps its own moments.
 
     Raises:
         ValueError: If readout_error or reset_error is not between 0 and 1, if a noise
@@ -161,10 +165,12 @@ class NoiseModel:
         additional_error_waiting_for_m_or_r: ErrorSpec | None = None,
         rules: Mapping[str, NoiseRule] | None = None,
         rule_func: Callable[[stim.CircuitInstruction], NoiseRule | None] | None = None,
+        scheduler: Scheduler | None = None,
     ) -> None:
         """Initializes a noise model with specified parameters."""
         self.rules = rules
         self.rule_func = rule_func
+        self.scheduler = scheduler if scheduler is not None else Scheduler()
         if rules is not None:
             normalized_rules: dict[str, NoiseRule] = {}
             # Validate rules whose (arity, can_measure, can_reset) is known — fixed-arity stim gates
@@ -304,6 +310,8 @@ class NoiseModel:
             func = self.rule_func
             name = getattr(func, "__qualname__", None) or type(func).__name__
             args.append(f"rule_func=<{getattr(func, '__module__', '?')}.{name}>")
+        if self.scheduler != Scheduler():
+            args.append(f"scheduler={self.scheduler!r}")
         return f"NoiseModel({', '.join(args)})"
 
     def __repr__(self) -> str:
@@ -409,9 +417,10 @@ class NoiseModel:
     ) -> StimCircuitLike:
         """Construct a noisy version of the given circuit.
 
-        This method first uses TICKs to split the input circuit into moments of operations that can
-        be applied in parallel, thereby preventing qubit reuse conflicts.  Noise is then applied to
-        each operation according to the rules of this NoiseModel.
+        This method first uses the ``scheduler`` of this NoiseModel to divide the input circuit into
+        moments of operations that can be applied in parallel.  By default, the moments of a circuit
+        are its TICK-separated layers, further split wherever an operation reuses a qubit.  Noise is
+        then applied to each operation according to the rules of this NoiseModel.
 
         Args:
             circuit: The circuit to apply noise to.
@@ -430,16 +439,19 @@ class NoiseModel:
                 An immune-tagged operation is still a real operation for moment accounting; it does
                 not suppress idle noise on unrelated qubits in the same moment.
             insert_ticks: If True, automatically inserts TICK operations to prevent qubit reuse
-                conflicts.  If False, assumes that this preprocessing is not necessary.  In either
-                case, moments are identified as though all repeat blocks (other than those tagged
-                with ``immune_op_tag``) were flattened.
+                conflicts.  A qubit may undergo any number of single-qubit gates in addition to one
+                other operation in a moment if the ``scheduler`` makes single-qubit gates
+                instantaneous.  If False, assumes that this preprocessing is not necessary.  In
+                either case, moments are identified as though all repeat blocks (other than those
+                tagged with ``immune_op_tag``) were flattened.
 
         Returns:
             The input circuit with added noise.
 
         Raises:
             ValueError: If ``insert_ticks`` is False and a qubit is operated on more than once in a
-                moment, including in different iterations of a repeat block without TICKs.
+                moment, including in different iterations of a repeat block without TICKs, or if
+                the ``scheduler`` cannot schedule the circuit.
         """
         if immune_op_tag == "":
             raise ValueError("immune_op_tag must be non-empty or None")
@@ -463,6 +475,7 @@ class NoiseModel:
             output += stim_output
             return output
 
+        circuit = self.scheduler.schedule(circuit)
         system_qubits = frozenset(
             range(circuit.num_qubits) if system_qubits is None else system_qubits
         )
@@ -521,10 +534,18 @@ class NoiseModel:
                 TICK in between (violating the "each qubit at most once per moment" invariant that
                 noise application relies on).
         """
-        collapsed_qubits, operation_qubits = categorize_moment_qubits(moment)
+        collapsed_qubits, operation_qubits = categorize_moment_qubits(
+            moment, instantaneous_1q_gates=self.scheduler.instantaneous_1q_gates
+        )
 
+        # noise is appended after the moment, or before a later gate on the same qubit
         noise_after_moment = stim.Circuit()
+        noisy_qubits: set[int] = set()
         for op in moment:
+            if gate_qubits(op) & noisy_qubits:
+                circuit += noise_after_moment
+                noise_after_moment = stim.Circuit()
+                noisy_qubits = set()
             if (
                 isinstance(op, stim.CircuitRepeatBlock)
                 or (immune_op_tag is not None and immune_op_tag in op.tag)
@@ -541,6 +562,7 @@ class NoiseModel:
             noisy_op, after = effective_rule.noisy_operation(op)
             circuit.append(noisy_op)
             noise_after_moment += after
+            noisy_qubits |= gate_qubits(op)
         circuit += noise_after_moment
 
         moment_was_noisy = any(
@@ -693,7 +715,12 @@ class _NoisyCircuitBuilder:
                     if self.insert_ticks
                     else [op]
                 ):
-                    qubits = gate_qubits(gate)
+                    # instantaneous gates are split so that each gets its noise before the next
+                    instantaneous = (
+                        self.noise_model.scheduler.instantaneous_1q_gates
+                        and is_instantaneous_1q_gate(gate)
+                    )
+                    qubits = set() if instantaneous else gate_qubits(gate)
                     if qubits & self.used_qubits:
                         if not self.insert_ticks:
                             raise ValueError(
@@ -708,7 +735,7 @@ class _NoisyCircuitBuilder:
                             gate,
                             self.immune_qubits,
                             self.immune_op_tag,
-                            force_split=self.noise_model.rule_func is not None,
+                            force_split=self.noise_model.rule_func is not None or instantaneous,
                         )
                     )
 
@@ -818,13 +845,20 @@ class DepolarizingNoiseModel(NoiseModel):
         include_idling_error: Whether to depolarize idling qubits.  Default: False.
         max_gate_size: The largest number of qubits of a unitary Clifford gate that gets
             depolarized.  Default: 2.
+        scheduler: The :class:`~qldpc.circuits.Scheduler` that divides circuits into moments.
+            By default, a circuit keeps its own moments.
 
     Raises:
         ValueError: If max_gate_size is less than 1, or p is not between 0 and 1.
     """
 
     def __init__(
-        self, p: float, *, include_idling_error: bool = False, max_gate_size: int = 2
+        self,
+        p: float,
+        *,
+        include_idling_error: bool = False,
+        max_gate_size: int = 2,
+        scheduler: Scheduler | None = None,
     ) -> None:
         """Instantiate a depolarizing noise model."""
         if max_gate_size < 1:
@@ -836,6 +870,7 @@ class DepolarizingNoiseModel(NoiseModel):
             readout_error=p,
             reset_error=p,
             idle_error=p if include_idling_error else False,
+            scheduler=scheduler,
         )
 
 
@@ -856,9 +891,11 @@ class SI1000NoiseModel(NoiseModel):
 
     Args:
         p: The two-qubit gate error probability, which sets all other error rates.
+        scheduler: The :class:`~qldpc.circuits.Scheduler` that divides circuits into moments.
+            By default, a circuit keeps its own moments.
     """
 
-    def __init__(self, p: float) -> None:
+    def __init__(self, p: float, *, scheduler: Scheduler | None = None) -> None:
         """Instantiate a superconducting-inspired noise model."""
         self.p = p
         super().__init__(
@@ -868,4 +905,5 @@ class SI1000NoiseModel(NoiseModel):
             reset_error=p * 2,
             idle_error=p / 10,
             additional_error_waiting_for_m_or_r=2 * p,
+            scheduler=scheduler,
         )

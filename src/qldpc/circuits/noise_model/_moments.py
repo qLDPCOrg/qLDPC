@@ -15,6 +15,7 @@ import stim
 
 from ._operations import (
     ANNOTATION,
+    CLIFFORD_1Q,
     CLIFFORD_2Q,
     CLIFFORD_PP,
     COLLAPSING_OPS,
@@ -79,6 +80,8 @@ def get_immune_qubits(circuit: stim.Circuit, immune_qubit_tag: str) -> frozenset
 
 def categorize_moment_qubits(
     moment: Collection[stim.CircuitInstruction | stim.CircuitRepeatBlock],
+    *,
+    instantaneous_1q_gates: bool = False,
 ) -> tuple[list[int], list[int]]:
     """Categorize a moment's qubit targets and check for reuse.
 
@@ -91,6 +94,7 @@ def categorize_moment_qubits(
 
     Args:
         moment: The moment's operations.
+        instantaneous_1q_gates: If True, ignore single-qubit unitary gates, which take no time.
 
     Returns:
         A tuple ``(collapsed_qubits, operation_qubits)``, each in the order the moment referenced
@@ -106,7 +110,11 @@ def categorize_moment_qubits(
     classically_controlled_qubits: list[int] = []
     explicit_idle_qubits: list[int] = []
     for op in moment:
-        if isinstance(op, stim.CircuitRepeatBlock) or op_type(op.name) in (ANNOTATION, NOISE):
+        if (
+            isinstance(op, stim.CircuitRepeatBlock)
+            or op_type(op.name) in (ANNOTATION, NOISE)
+            or (instantaneous_1q_gates and is_instantaneous_1q_gate(op))
+        ):
             continue
         target_qubits = [
             target.qubit_value for target in op.targets_copy() if target.qubit_value is not None
@@ -136,6 +144,18 @@ def categorize_moment_qubits(
             f"moment:\n{moment}"
         )
     return collapsed_qubits, operation_qubits
+
+
+def is_instantaneous_1q_gate(op: stim.CircuitInstruction | stim.CircuitRepeatBlock) -> bool:
+    """Is an operation a single-qubit gate that takes no time, if single-qubit gates do not?
+
+    Explicit ``I`` gates mark idle time, so they are not instantaneous.
+    """
+    return (
+        isinstance(op, stim.CircuitInstruction)
+        and op_type(op.name) == CLIFFORD_1Q
+        and op.name not in IDLE_OPS
+    )
 
 
 def gate_qubits(op: stim.CircuitInstruction | stim.CircuitRepeatBlock) -> set[int]:

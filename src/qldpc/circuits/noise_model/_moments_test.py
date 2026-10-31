@@ -130,6 +130,10 @@ def test_moment_qubits() -> None:
     with pytest.raises(ValueError, match="multiple uses"):
         _moments.categorize_moment_qubits(list(stim.Circuit("I 0\nH 0")))
 
+    # instantaneous single-qubit gates neither reuse nor occupy their qubits
+    moment = list(stim.Circuit("H 0\nCX 0 1\nH 0 2"))
+    assert _moments.categorize_moment_qubits(moment, instantaneous_1q_gates=True) == ([], [0, 1])
+
     circuit = stim.Circuit("""
         QUBIT_COORDS[immune](0) 0
         REPEAT 2 {
