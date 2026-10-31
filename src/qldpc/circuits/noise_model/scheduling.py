@@ -79,7 +79,7 @@ class Scheduler:
         measurement records follows the measurements that it reads, and an observable with Pauli
         targets keeps its place among the operations on its qubits, in a later moment than the
         gates before it, so that a noise model adds their noise before it.  Detectors keep their
-        order, and hence their indices.
+        order, and hence their indices.  Operations in a moment keep their order in the circuit.
 
         Args:
             circuit: The circuit to schedule.

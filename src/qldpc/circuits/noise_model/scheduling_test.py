@@ -136,7 +136,7 @@ def test_schedule_instantaneous_1q_gates() -> None:
 
 
 def test_schedule_preserves_noisy_circuits() -> None:
-    """Every scheduler preserves a circuit's detector error model under gate noise.
+    """Every rescheduling mode preserves a circuit's detector error model under gate noise.
 
     The expected model comes from inserting each gate's noise right after it.  The circuit has a
     Pauli product, classical control, measurements that change order, and detectors whose
@@ -190,11 +190,14 @@ def test_schedule_preserves_noisy_circuits() -> None:
 
 
 def test_schedule_other_circuits() -> None:
-    """Schedulers return circuits of the type they are given, and keep a circuit by default."""
-    circuit = StimCircuitWrapper(stim.Circuit("H 0\nTICK\nMPP X0*Z1"))
+    """Schedulers return circuits of the type they are given, and keep a circuit by default.
+
+    Rescheduling ignores TICKs, and keeps tags and Pauli products.
+    """
+    circuit = StimCircuitWrapper(stim.Circuit("H[tag] 0\nTICK\nSPP X1*Z2"))
     scheduled = circuits.Scheduler(reschedule=True).schedule(circuit)
     assert isinstance(scheduled, StimCircuitWrapper)
-    assert scheduled.stim_circuit == stim.Circuit("H 0\nTICK\nMPP X0*Z1")
+    assert scheduled.stim_circuit == stim.Circuit("H[tag] 0\nSPP X1*Z2")
     assert circuits.Scheduler().schedule(circuit) is circuit
 
 
@@ -204,5 +207,7 @@ def test_schedule_errors() -> None:
     scheduler = circuits.Scheduler(reschedule=True)
     with pytest.raises(ValueError, match="REPEAT"):
         scheduler.schedule(stim.Circuit("REPEAT 2 {\nH 0\n}"))
+    with pytest.raises(ValueError, match="SHIFT_COORDS"):
+        scheduler.schedule(stim.Circuit("SHIFT_COORDS(1)"))
     with pytest.raises(ValueError, match="X_ERROR"):
         scheduler.schedule(stim.Circuit("X_ERROR(0.1) 0"))
