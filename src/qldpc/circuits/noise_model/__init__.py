@@ -168,6 +168,10 @@ from .rules import (
     ErrorSpec,
     NoiseRule,
 )
+from .scheduling import (
+    Schedule,
+    Scheduler,
+)
 
 __all__ = [
     "DEFAULT_IMMUNE_OP_TAG",
@@ -180,5 +184,7 @@ __all__ = [
     "PauliChannel",
     "PauliChannelSequence",
     "SI1000NoiseModel",
+    "Schedule",
+    "Scheduler",
     "as_noiseless_circuit",
 ]

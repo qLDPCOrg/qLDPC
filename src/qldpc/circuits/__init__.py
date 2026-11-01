@@ -65,6 +65,8 @@ from .noise_model import (
     NoiseRule,
     PauliChannel,
     PauliChannelSequence,
+    Schedule,
+    Scheduler,
     SI1000NoiseModel,
     as_noiseless_circuit,
 )
@@ -97,6 +99,8 @@ __all__ = [
     "QubitIDs",
     "Record",
     "SI1000NoiseModel",
+    "Schedule",
+    "Scheduler",
     "StimCircuitLike",
     "StimCircuitProtocol",
     "SyndromeMeasurementStrategy",
