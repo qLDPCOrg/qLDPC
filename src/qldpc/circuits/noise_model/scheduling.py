@@ -740,8 +740,13 @@ def _get_operations(
     return operations
 
 
+@functools.lru_cache(maxsize=4096)
 def _get_instruction_operations(instruction: stim.CircuitInstruction) -> tuple[_Operation, ...]:
-    """The operations of an instruction, with records relative to each operation."""
+    """The operations of an instruction, with records relative to each operation.
+
+    Instructions often recur, as in the rounds of an error-correction circuit, and stim builds
+    instructions slowly, so the operations of recent instructions are cached.
+    """
     return tuple(_Operation.from_instruction(op) for op in _split_operations(instruction))
 
 
