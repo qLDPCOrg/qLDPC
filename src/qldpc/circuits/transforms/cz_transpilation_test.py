@@ -213,26 +213,24 @@ def test_unsupported_instructions() -> None:
 def _assert_equivalent(circuit: stim.Circuit, transpiled: stim.Circuit) -> None:
     """Assert that two noiseless circuits have the same stabilizer flows.
 
-    Before comparing flows, this function strips tags, replaces observables with Pauli targets by
-    MPP measurements of their Pauli products, and splits measure-resets into measurements and
-    resets, which stim.Circuit.flow_generators mishandles (as of stim 1.16).
+    Flows ignore observables, so observables with Pauli targets are first replaced by MPP
+    measurements of the same Pauli products, which both circuits then must agree on.
     """
-    circuit, transpiled = _prepare_for_flows(circuit), _prepare_for_flows(transpiled)
+    circuit = _work_around_stim_issue_1109(_measure_pauli_observables(circuit))
+    transpiled = _work_around_stim_issue_1109(_measure_pauli_observables(transpiled))
     assert all(transpiled.has_flow(flow) for flow in circuit.flow_generators())
     assert all(circuit.has_flow(flow) for flow in transpiled.flow_generators())
 
 
-def _prepare_for_flows(circuit: stim.Circuit) -> stim.Circuit:
-    """Prepare a circuit for a comparison of flows (see _assert_equivalent)."""
-    prepared = stim.Circuit()
+def _measure_pauli_observables(circuit: stim.Circuit) -> stim.Circuit:
+    """Replace each observable by an MPP measurement of the product of its Pauli targets."""
+    new_circuit = stim.Circuit()
     for op in circuit:
         if isinstance(op, stim.CircuitRepeatBlock):
-            body = _prepare_for_flows(op.body_copy())
-            prepared.append(stim.CircuitRepeatBlock(op.repeat_count, body))
+            body = _measure_pauli_observables(op.body_copy())
+            new_circuit.append(stim.CircuitRepeatBlock(op.repeat_count, body))
         elif op.name == "OBSERVABLE_INCLUDE":
-            paulis = [
-                target for target in op.targets_copy() if not target.is_measurement_record_target
-            ]
+            paulis = [target for target in op.targets_copy() if target.pauli_type != "I"]
             invert = sum(target.is_inverted_result_target for target in paulis) % 2 == 1
             targets = []
             for index, target in enumerate(paulis):
@@ -242,14 +240,36 @@ def _prepare_for_flows(circuit: stim.Circuit) -> stim.Circuit:
                     stim.target_pauli(target.value, target.pauli_type, invert and not index)
                 )
             if targets:
-                prepared.append("MPP", targets)
-        elif op.name in ("MR", "MRX", "MRY"):
-            for target in op.targets_copy():
-                prepared.append(op.name.replace("R", ""), [target])
-                prepared.append(op.name[1:], [target.value])
+                new_circuit.append("MPP", targets)
         else:
-            prepared.append(op.name, op.targets_copy(), op.gate_args_copy())
-    return prepared
+            new_circuit.append(op)
+    return new_circuit
+
+
+def _work_around_stim_issue_1109(circuit: stim.Circuit) -> stim.Circuit:
+    """Work around https://github.com/quantumlib/Stim/issues/1109 in stim.Circuit.flow_generators.
+
+    Bug (open as of stim 1.16.0): for an MR, MRX, MRY, or MPAD instruction with several targets,
+    such as ``MR 0 0``, ``flow_generators`` returns flows that ``has_flow`` rejects on the same
+    circuit, so _assert_equivalent would fail on equivalent circuits.  Splitting each such
+    instruction into single-target instructions avoids the bug.  The single-target instructions are
+    separated by TICK, since stim merges adjacent instructions with the same name.
+
+    Once qLDPC requires a stim release that fixes this issue, delete this function and its calls in
+    _assert_equivalent.
+    """
+    new_circuit = stim.Circuit()
+    for op in circuit:
+        if isinstance(op, stim.CircuitRepeatBlock):
+            body = _work_around_stim_issue_1109(op.body_copy())
+            new_circuit.append(stim.CircuitRepeatBlock(op.repeat_count, body))
+        elif op.name in ("MR", "MRX", "MRY", "MPAD"):
+            for target in op.targets_copy():
+                new_circuit.append(op.name, [target], op.gate_args_copy(), tag=op.tag)
+                new_circuit.append("TICK")
+        else:
+            new_circuit.append(op)
+    return new_circuit
 
 
 def _get_random_circuit(
