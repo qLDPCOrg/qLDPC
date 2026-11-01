@@ -581,6 +581,32 @@ def _append_parity_gadget(
 # than on stim's instructions, because stim.Circuit.append and stim.CircuitInstruction convert each
 # target slowly, while stim parses the text of a circuit orders of magnitude faster.  The passes
 # therefore build each output circuit by parsing its text once (see _get_circuit).
+#
+# The slow conversion in stim.Circuit.append is https://github.com/quantumlib/Stim/issues/1087.
+# The upstream fix, https://github.com/quantumlib/Stim/pull/1090, is pending release in stim 1.17,
+# and makes stim.Circuit.append about as fast as parsing text when it is given integer targets or
+# targets returned by stim.target_* functions, so that _get_circuit can then append instructions.
+# The fix leaves the constructors of stim.CircuitInstruction and stim.GateTarget slow, however, so
+# _GateTarget and _CircuitInstruction should stay: even with the fix, running the passes on stim's
+# own instructions and targets takes 5 to 11 times as long.
+#
+# Once qLDPC requires stim 1.17, build output circuits by appending rather than by parsing text, as
+# follows.  Do not do so before then: with stim 1.16, appending is about 30 times slower.
+#
+# 1. Make _GateTarget.to_stim return a plain, uninverted qubit as its index, an int, rather than as
+#    stim.GateTarget(index), whose constructor stays slow.
+# 2. Replace _CircuitInstruction.to_stim, which calls the slow constructor of
+#    stim.CircuitInstruction, by a method that appends the instruction to a circuit with
+#    circuit.append(name, targets, arguments, tag=tag), where the targets are those of
+#    _GateTarget.to_stim, with stim.target_combiner() between the targets of each Pauli product.
+# 3. Make _get_circuit append each instruction with that method, and remove its text path, its
+#    check for non-finite arguments, and the import of math at the top of this module.  Keep
+#    _CircuitInstruction.__str__ and _escape, which error messages use.
+# 4. Update this comment and the docstring of _get_circuit, which describe building circuits by
+#    parsing text, keeping the reason that _GateTarget and _CircuitInstruction stay, and remove
+#    this plan.
+# 5. Check that to_deferred_measurement_form is no slower than before on a noisy circuit with a few
+#    thousand instructions.
 
 
 class _GateTarget(NamedTuple):
