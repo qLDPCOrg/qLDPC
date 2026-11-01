@@ -467,8 +467,8 @@ def test_quadratic_idle_errors() -> None:
 def test_noise_matches_flattened_layout(pytestconfig: pytest.Config) -> None:
     """Noise in a circuit matches noise in the flattened layout of its schedule.
 
-    The layout has a TICK between consecutive moments, including at the boundaries of REPEAT blocks
-    and of their iterations, so a noise model that keeps its TICKs has the same moments.
+    The layout has a TICK between consecutive moments, also where a REPEAT block or iteration starts
+    a new moment, so a noise model that keeps its TICKs has the same moments.
     Moreover, combining idle errors does not change the detector error model.
     """
 
