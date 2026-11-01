@@ -229,6 +229,13 @@ def test_distance_bound_with_redundant_generator() -> None:
     assert code.get_distance_bound(num_trials=10) == 2
 
 
+def test_distance_bound_searches_for_light_code_words() -> None:
+    """A distance bound searches for light code words rather than sampling random ones."""
+    # a uniformly random nonzero code word of RM(2, 6) rarely has the minimum weight of 16
+    code = codes.ClassicalCode(codes.ReedMullerCode(2, 6).matrix)
+    assert code.get_distance_bound(num_trials=10) == 16
+
+
 def test_conversions_classical(bits: int = 5, checks: int = 3) -> None:
     """Conversions between matrix and graph representations of a classical code."""
     code = codes.ClassicalCode.random(bits, checks)

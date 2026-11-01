@@ -570,12 +570,13 @@ class ClassicalCode(AbstractCode):
         """Use a randomized algorithm to compute an upper bound on code distance.
 
         The code distance is the minimum Hamming distance between two code words, or equivalently
-        the minimum Hamming weight of nonzero code words.  To find a low-weight nonzero code word we
-        decode a trivial (all-0) syndrome, but enforce that the overlaps of the code word with the
-        rows of a dual basis of a basis of the code equal a random nonzero vector, which excludes
-        the all-0 word as a candidate.  These overlaps are the coefficients of the code word in
-        that basis, so they determine the code word, and each trial yields a uniformly random
-        nonzero code word.  The weight of that code word is an upper bound on distance.
+        the minimum Hamming weight of nonzero code words.  To find a low-weight nonzero code word,
+        each trial picks a random word that has a nonzero overlap with some code word, and decodes a
+        trivial (all-0) syndrome together with the requirement that the decoded word have a random
+        nonzero overlap with the picked word, which excludes the all-0 word as a candidate.  The
+        decoder thereby searches the code words with that overlap, a fraction 1/q of all code words
+        for a field of order q, for one of low weight, whose weight is an upper bound on distance.
+        Each trial builds a new decoder for its requirement.
 
         If bounding the minimum distance between a vector and a code word, we can interpret the
         vector as an error, and find a minimal-weight correction from decoding the syndrome induced
@@ -590,9 +591,9 @@ class ClassicalCode(AbstractCode):
                 distance between this vector and a code word.  Default: None.
             decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None to
                 select BP+OSD for a binary code and GUF otherwise.  It is built for this code's
-                parity-check matrix if vector is provided, and for an internal effective check
-                matrix otherwise.  A prebuilt error decoder is accepted only together with vector,
-                and must decode this code's parity-check matrix.
+                parity-check matrix if vector is provided, and otherwise for an internal effective
+                check matrix in each trial.  A prebuilt error decoder is accepted only together with
+                vector, and must decode this code's parity-check matrix.
             backend: Distance-bound backend.  Classical codes use only the decoder path, selected
                 by ``"auto"`` (the default) or ``"decoder"``; this argument is accepted for
                 compatibility with shared distance-bound workflows.
@@ -625,33 +626,42 @@ class ClassicalCode(AbstractCode):
         if num_trials is None and known_bound is not None:
             return known_bound
         num_trials = 1 if num_trials is None else num_trials
-
-        # initialize a (possibly "effective") check matrix and syndrome
-        if vector is not None:
-            check_matrix = self.matrix
-            syndrome = self.matrix @ np.asanyarray(vector).view(self.field)
-        else:
-            # a generator matrix may have dependent rows, so dualize a basis of the code instead
-            basis = self.generator.row_reduce()[: self.dimension]
-            check_matrix = np.vstack([self.matrix, math.get_dual_basis(basis)]).view(self.field)
-            syndrome = np.zeros(len(check_matrix), dtype=int).view(self.field)
         if decoder_kwargs:  # DEPRECATED: see qldpc._deprecations
-            decoder = merge_legacy_decoder_args(check_matrix, decoder, decoder_kwargs)
-        error_decoder = build_error_decoder(check_matrix, decoder=decoder)
+            decoder = merge_legacy_decoder_args(self.matrix, decoder, decoder_kwargs)
 
-        def get_syndrome() -> npt.NDArray[np.int_]:
-            """Get a syndrome to decode, randomizing its overlap with code words if necessary."""
-            if vector is None:
-                syndrome[-self.dimension :] = _get_random_array(
-                    self.field, self.dimension, satisfy=lambda vec: vec.any()
-                )
-            return syndrome
+        if vector is not None:
+            vector_syndrome = self.matrix @ np.asanyarray(vector).view(self.field)
+            vector_decoder = build_error_decoder(self.matrix, decoder=decoder)
+        else:
+            # a generator matrix may have dependent rows, so use a basis of the code instead
+            basis = self.generator.row_reduce()[: self.dimension]
+
+        def get_decoding_problem() -> tuple[
+            npt.NDArray[np.int_], decoders.ErrorDecoder, Callable[[], npt.NDArray[np.int_]]
+        ]:
+            """Get a check matrix, its decoder, and a function that returns a syndrome to decode."""
+            if vector is not None:
+                return self.matrix, vector_decoder, lambda: vector_syndrome
+            # constrain the overlap with a random word that has nonzero overlap with some code word
+            constraint = _get_random_array(
+                self.field, len(self), satisfy=lambda row: (row @ basis.T).any()
+            )
+            check_matrix = np.vstack([self.matrix, constraint]).view(self.field)
+            syndrome = self.field.Zeros(len(check_matrix))
+
+            def get_syndrome() -> npt.NDArray[np.int_]:
+                """Get a syndrome that requires a random nonzero overlap with the constraint."""
+                syndrome[-1] = _get_random_array(self.field, 1, satisfy=lambda val: val.any())[0]
+                return syndrome
+
+            return check_matrix, build_error_decoder(check_matrix, decoder=decoder), get_syndrome
 
         # minimize over many individual bounds, each from solving a randomized decoding problem
         min_bound = len(self) if known_bound is None else int(known_bound)
         for _ in range(num_trials):
             if cutoff and min_bound <= cutoff:
                 break
+            check_matrix, error_decoder, get_syndrome = get_decoding_problem()
             correction = _decode_consistently(error_decoder, check_matrix, get_syndrome, self.field)
             min_bound = min(min_bound, int(np.count_nonzero(correction)))
 
