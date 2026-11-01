@@ -7,9 +7,11 @@ The modules of this subpackage import only ``qldpc.circuits.common`` and
 circuits can use them (see ``qldpc.circuits``).
 """
 
+from .cz_transpilation import transpile_to_cz
 from .qubit_remapping import remap_qubit_target, with_remapped_qubits
 
 __all__ = [
     "remap_qubit_target",
+    "transpile_to_cz",
     "with_remapped_qubits",
 ]
