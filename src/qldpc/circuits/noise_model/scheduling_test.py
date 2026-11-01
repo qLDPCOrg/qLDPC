@@ -138,8 +138,9 @@ def test_preserve_ticks() -> None:
 def test_measurement_order() -> None:
     """Measurements may change order, while instructions keep reading the same measurements.
 
-    The first iteration of a REPEAT block is written out if it reads a measurement before the block
-    at another offset than later iterations read the measurements of earlier iterations.
+    The first iteration of a REPEAT block is written out if it starts in another way than later
+    iterations, or reads a measurement before the block at another offset than later iterations
+    read the measurements of earlier iterations.
     """
     circuit = stim.Circuit("""
         H 0
@@ -157,15 +158,12 @@ def test_measurement_order() -> None:
         CX 0 1
         M 2
         TICK
-        M 1
-        TICK
-        M 2
+        M 1 2
         DETECTOR rec[-1] rec[-3]
-        TICK
         REPEAT 2 {
+            TICK
             M 2
             DETECTOR rec[-1] rec[-2]
-            TICK
         }
     """)
     assert measurements == (1, 0, 2, 3, 4)
@@ -177,37 +175,88 @@ def test_measurement_order() -> None:
         CX 0 4
         M 1 2
         TICK
-        M 0
+        M 0 3
+        DETECTOR rec[-4]
         TICK
-        REPEAT 2 {
-            M 3
-            DETECTOR rec[-4]
-            TICK
-        }
+        M 3
+        DETECTOR rec[-4]
         REPEAT 3 {
+            TICK
             M 3
             DETECTOR rec[-3]
-            TICK
         }
     """)
     assert measurements == (1, 2, 0, 3, 4, 5, 6, 7)
 
-    # a REPEAT block that reads only measurements of its own iterations stays whole
-    circuit = stim.Circuit("REPEAT 3 {\nCX 1 2\nCX 1 2\nM 1\nM 0\nDETECTOR rec[-2]\n}")
-    scheduled, measurements = circuits.Scheduler.asap().get_schedule(circuit).to_circuit()
-    assert scheduled == stim.Circuit("""
-        REPEAT 3 {
-            CX 1 2
-            M 0
-            TICK
-            CX 1 2
-            TICK
-            M 1
-            DETECTOR rec[-1]
-            TICK
-        }
-    """)
-    assert measurements == (1, 0, 3, 2, 5, 4)
+
+def test_moments_across_repeat_blocks() -> None:
+    """A moment may continue across the boundary of a REPEAT block or of its iterations.
+
+    With TICKs kept, a moment continues unless a TICK or the reuse of a qubit ends it.  ASAP shares
+    the last moment before a boundary with the first moment after it if no qubit is in both.
+    """
+    circuit = stim.Circuit("H 2\nREPEAT 3 {\nH 0\nTICK\nH 1\n}\nH 3")
+    scheduler = circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
+    schedule = scheduler.get_schedule(circuit)
+    # moments: H 2 and H 0, then H 1 and H 0 twice, then H 1 and H 3
+    assert schedule.num_moments == 4
+    assert schedule.get_moments()[0] == [
+        stim.CircuitInstruction("H", [2]),
+        circuits.RepeatSchedule(circuits.Schedule(stim.Circuit("H 0\nTICK\nH 1"), [0, 1]), 0, 1),
+    ]
+    assert schedule.to_circuit()[0] == circuit
+
+    scheduler.validate(circuit, schedule)
+
+    circuit = stim.Circuit("M 0\nREPEAT 3 {\nM 1\n}\nM 2")
+    schedule = circuits.Scheduler.asap().get_schedule(circuit)
+    circuits.Scheduler.asap().validate(circuit, schedule)
+    scheduled, measurements = schedule.to_circuit()
+    assert scheduled == stim.Circuit("M 0 1\nREPEAT 2 {\nTICK\nM 1\n}\nM 2")
+    assert measurements == (0, 1, 2, 3, 4)
+
+    # a REPEAT body without operations takes no time, and one without gates that take time may
+    # share a moment with all its iterations and the operations around it
+    circuit = stim.Circuit("M 0\nREPEAT 2 {\nTICK\n}\nREPEAT 3 {\nH 1\n}\nM 2")
+    schedule = circuits.Scheduler.asap().get_schedule(circuit)
+    circuits.Scheduler.asap().validate(circuit, schedule)
+    assert schedule.num_moments == 1
+    assert schedule.to_circuit()[0] == stim.Circuit("M 0\nREPEAT 2 {\n}\nREPEAT 3 {\nH 1\n}\nM 2")
+
+
+def test_preserve_ticks_across_repeat_blocks() -> None:
+    """A TICK ends a moment with a gate also inside a REPEAT block, and annotations take no time.
+
+    Each case is compared with the number of moments of the same circuit with its REPEAT blocks
+    written out.
+    """
+    scheduler = circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
+    for text, num_moments in [
+        ("H 0\nREPEAT 2 {\nTICK\n}\nH 1", 2),  # a TICK in a REPEAT block
+        ("H 0\nREPEAT 1 {\nH 1\n}", 1),
+        ("H 0\nREPEAT 2 {\nX_ERROR(0.1) 1\n}\nH 0", 2),  # a block within a moment
+        ("H 0\nTICK\nREPEAT 3 {\nX_ERROR(0.1) 0\nTICK\n}\nH 1", 2),  # a body without gates
+        ("MR 0\nREPEAT 2 {\nX_ERROR(0.1) 1\nTICK\nX_ERROR(0.1) 1\n}\nM 0", 2),
+        ("X_ERROR(0.1) 0\nREPEAT 2 {\nX_ERROR(0.1) 1\nMR 0\n}", 2),
+        ("H 0\nREPEAT 2 {\nREPEAT 1 {\nX_ERROR(0.1) 1\nMR 0\n}\n}", 3),
+        ("M 0\nTICK\nDETECTOR rec[-1]", 1),  # trailing annotations join the moment before
+        ("M 0\nTICK\nOBSERVABLE_INCLUDE(0) Z1", 2),  # unless they depend on a qubit
+    ]:
+        circuit = stim.Circuit(text)
+        schedule = scheduler.get_schedule(circuit)
+        scheduler.validate(circuit, schedule)
+        assert schedule.num_moments == num_moments
+        assert scheduler.get_schedule(circuit.flattened()).num_moments == num_moments
+
+    # Here, the first iteration would join the moment before it in another way than later ones:
+    # untimed H gates join the moment of the MR gate before them, but the first does not.  All
+    # iterations are scheduled as later iterations, which adds a moment for the first H gate.
+    circuit = stim.Circuit("R 0 1 2\nTICK\nREPEAT 5 {\nH 1\nMR 1\n}")
+    scheduler = circuits.Scheduler.preserve_ticks()
+    schedule = scheduler.get_schedule(circuit)
+    scheduler.validate(circuit, schedule)
+    assert scheduler.get_schedule(circuit.flattened()).num_moments == 6
+    assert schedule.num_moments == 7
 
 
 def test_schedules_keep_noisy_circuits() -> None:
@@ -320,17 +369,17 @@ def test_custom_scheduler() -> None:
     scheduler = _EachInItsOwnMoment()
     schedule = scheduler.get_schedule(circuit)
     scheduler.validate(circuit, schedule)
-    body_schedule = circuits.Schedule(stim.Circuit("CX rec[-1] 1"), [0])
+    # the iterations of the REPEAT block follow each other in moments 3 and 4
+    repeat = circuits.RepeatSchedule(circuits.Schedule(stim.Circuit("CX rec[-1] 1"), [0]), 3, 1)
     assert schedule.get_moments() == [
         list(stim.Circuit("H 0")),
         list(stim.Circuit("H 1")),
         list(stim.Circuit("M 0")),
-        body_schedule,
+        [repeat],
+        [],
     ]
     scheduled, _ = schedule.to_circuit()
-    assert scheduled == stim.Circuit(
-        "H 0\nTICK\nH 1\nTICK\nM 0\nTICK\nREPEAT 2 {\nCX rec[-1] 1\nTICK\n}"
-    )
+    assert scheduled == stim.Circuit("H 0\nTICK\nH 1\nTICK\nM 0\nREPEAT 2 {\nTICK\nCX rec[-1] 1\n}")
     assert scheduler.takes_time(stim.CircuitInstruction("H", [0]))
     for op in ["CX rec[-1] 0", "QUBIT_COORDS(0) 0", "X_ERROR(0.1) 0"]:
         assert not scheduler.takes_time(stim.Circuit(op)[0])
@@ -366,16 +415,41 @@ def test_invalid_schedules(circuit: str, moments: list[int], error: str) -> None
         scheduler.validate(stim.Circuit(circuit), circuits.Schedule(stim.Circuit(circuit), moments))
 
 
+def test_invalid_repeat_placements() -> None:
+    """REPEAT blocks may share only one moment with the operations or iterations around them."""
+    cases = [
+        # (before, body, body moments, start, period, after, its moment, error)
+        ("CX 0 1", "CX 0 1", [0], 0, 1, "", 0, "two operations that take time"),
+        ("CX 2 3", "CX 0 1", [0], 0, 0, "", 0, "shared by two iterations"),
+        ("CX 2 3", "CX 0 1\nTICK\nCX 0 1", [0, 1], 0, 0, "", 0, "share several moments"),
+        ("CX 2 3\nCX 2 3", "CX 0 1", [0], 0, 1, "", 0, "starts before moment"),
+        ("CX 2 3", "TICK", [], 0, 1, "", 0, "period of zero"),
+        ("", "CX 0 1", [0], 1, 1, "CX 2 3", 0, "starts before the end"),
+        ("", "CX 0 1", [0], 0, 1, "CX 0 1", 1, "two operations that take time in moment 1"),
+    ]
+    for before, body, body_moments, start, period, after, after_moment, error in cases:
+        body_schedule = circuits.Schedule(stim.Circuit(body), body_moments)
+        circuit = stim.Circuit(f"{before}\nREPEAT 2 {{\n{body}\n}}\n{after}")
+        num_before = len(circuits.Schedule.get_operations(stim.Circuit(before)))
+        num_after = len(circuits.Schedule.get_operations(stim.Circuit(after)))
+        repeat = circuits.RepeatSchedule(body_schedule, start, period)
+        moments = [*range(num_before), repeat, *[after_moment] * num_after]
+        with pytest.raises(ValueError, match=error):
+            circuits.Scheduler.asap().validate(circuit, circuits.Schedule(circuit, moments))
+
+
 def test_schedule_errors() -> None:
-    """A schedule has a nonnegative moment for each operation, and a schedule for each block."""
+    """A schedule has a nonnegative integer moment for each operation, and places each block."""
     circuit = stim.Circuit("H 0 1\nREPEAT 2 {\nH 0\n}")
     body_schedule = circuits.Schedule(stim.Circuit("H 0"), [0])
+    assert circuits.Schedule(circuit, [0, 1, body_schedule]).num_moments == 4
     with pytest.raises(ValueError, match="needs 3 entries"):
         circuits.Schedule(circuit, [0, body_schedule])
-    with pytest.raises(ValueError, match="nonnegative moment"):
-        circuits.Schedule(circuit, [0, -1, body_schedule])
-    with pytest.raises(ValueError, match="nonnegative moment"):
-        circuits.Schedule(circuit, [0, body_schedule, body_schedule])
+    for moment in [-1, 1.0, True, body_schedule]:
+        with pytest.raises(ValueError, match="nonnegative integer"):
+            circuits.Schedule(circuit, [0, moment, body_schedule])  # type: ignore[list-item]
+    with pytest.raises(ValueError, match="nonnegative integer"):
+        circuits.RepeatSchedule(body_schedule, -1, 1)
     with pytest.raises(ValueError, match="schedule of its body"):
         circuits.Schedule(circuit, [0, 0, 0])
     with pytest.raises(ValueError, match="schedule of its body"):
@@ -386,8 +460,27 @@ def test_schedule_errors() -> None:
         )
 
 
-def test_repr() -> None:
-    """Schedules and schedulers have reprs that reconstruct them."""
+def test_schedules_are_immutable_values() -> None:
+    """Schedules cannot change, and are equal if they schedule the same circuit alike.
+
+    Unlike Stim's equality of circuits, the equality of schedules does not ignore the tags of
+    REPEAT blocks.
+    """
+    schedule = circuits.Schedule(stim.Circuit("H 0"), [0])
+    with pytest.raises(AttributeError):
+        schedule._moments = (1,)
+    with pytest.raises(AttributeError):
+        del schedule._moments
+    assert schedule == circuits.Schedule(stim.Circuit("H 0"), [0])
+    assert schedule != circuits.Schedule(stim.Circuit("H 0"), [1])
+    body = circuits.Schedule(stim.Circuit("H 0"), [0])
+    tagged = circuits.Schedule(stim.Circuit("REPEAT[tag] 2 {\nH 0\n}"), [body])
+    untagged = circuits.Schedule(stim.Circuit("REPEAT 2 {\nH 0\n}"), [body])
+    assert tagged != untagged
+
+
+def test_scheduler_repr() -> None:
+    """The repr of a scheduler reconstructs it."""
     schedulers = [
         circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=flag)
         for flag in [False, True]
@@ -403,9 +496,3 @@ def test_repr() -> None:
         )
     for scheduler in schedulers:
         assert eval(repr(scheduler), {"Scheduler": circuits.Scheduler}) == scheduler
-
-    schedule = circuits.Scheduler.asap().get_schedule(stim.Circuit("H 0\nREPEAT 2 {\nH 0\n}"))
-    namespace = {"Schedule": circuits.Schedule, "stim": stim}
-    assert eval(repr(schedule), namespace) == schedule
-    assert hash(eval(repr(schedule), namespace)) == hash(schedule)
-    assert schedule != circuits.Scheduler.asap().get_schedule(stim.Circuit("H 1"))

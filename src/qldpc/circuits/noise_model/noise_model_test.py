@@ -254,7 +254,10 @@ def test_aggregated_idle_depolarization(probability: float, moments: int) -> Non
     circuit = stim.Circuit("R 0\nTICK")
     circuit.append(stim.CircuitRepeatBlock(moments, stim.Circuit("X 1\nTICK")))
     circuit += stim.Circuit("M 0")
-    noisy = circuits.NoiseModel(idle_error=probability).noisy_circuit(circuit, system_qubits=[0])
+    noise_model = circuits.NoiseModel(
+        idle_error=probability, scheduler=circuits.Scheduler.preserve_ticks()
+    )
+    noisy = noise_model.noisy_circuit(circuit, system_qubits=[0])
 
     expected = 0.75 * (1 - (1 - 4 * probability / 3) ** moments)
     expected_circuit = stim.Circuit(f"""
@@ -268,6 +271,38 @@ def test_aggregated_idle_depolarization(probability: float, moments: int) -> Non
         M 0
     """)
     assert noisy.approx_equals(expected_circuit, atol=1e-12)
+
+
+def test_empty_moments() -> None:
+    """Every moment of a schedule lasts one unit of time, including a moment without operations."""
+    noise_model = circuits.NoiseModel(idle_error={"Z": 0.1}, scheduler=_Spaced())
+    noisy_circuit = noise_model.noisy_circuit(stim.Circuit("H 0 1"))
+    two_moments = 2 * 0.1 * 0.9
+    expected = stim.Circuit(f"Z_ERROR({two_moments}) 1\nH 0 1\nZ_ERROR({two_moments}) 0")
+    assert noisy_circuit.approx_equals(expected, atol=1e-12)
+
+
+class _Spaced(circuits.Scheduler):
+    """A scheduler that leaves an empty moment between consecutive operations."""
+
+    def get_schedule(self, circuit: circuits.StimCircuitLike) -> circuits.Schedule:
+        return circuits.Schedule(
+            circuit, [2 * index for index in range(len(circuits.Schedule.get_operations(circuit)))]
+        )
+
+
+def test_si1000_keeps_reference_moments() -> None:
+    """SI1000 noise has the error model of its reference, which adds noise moment by moment.
+
+    The reference is the noise that the deprecated ``insert_ticks=True`` adds.  Moments of the
+    circuit continue across the boundaries of its REPEAT block.
+    """
+    circuit = stim.Circuit.generated("surface_code:rotated_memory_z", distance=3, rounds=3)
+    noise_model = circuits.SI1000NoiseModel(0.001)
+    with pytest.warns(DeprecationWarning, match="insert_ticks"):
+        reference = noise_model.noisy_circuit(circuit, insert_ticks=True)
+    errors = _dem_errors(noise_model.noisy_circuit(circuit))
+    assert errors == pytest.approx(_dem_errors(reference), abs=1e-12)
 
 
 def test_idle_runs_across_repeat_blocks() -> None:
@@ -318,6 +353,34 @@ def test_idle_runs_across_repeat_blocks() -> None:
         """),
         atol=1e-12,
     )
+
+    # so do the idle runs of qubits in nested REPEAT blocks
+    circuit = stim.Circuit("H 0\nTICK\nREPEAT 4 {\nREPEAT 1 {\nH 0\n}\nTICK\n}\nH 0")
+    assert noise_model.noisy_circuit(circuit) == circuit
+
+    # a qubit waits in each moment that measures another qubit, including a moment that a REPEAT
+    # block shares with the moment before it, and one that it shares with the next iteration
+    noise_model = circuits.NoiseModel(
+        additional_error_waiting_for_m_or_r={"Z": 0.1},
+        scheduler=circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True),
+    )
+    circuit = stim.Circuit("H 0\nREPEAT 4 {\nM 1\nTICK\n}\nH 2")
+    four_moments = (1 - 0.8**4) / 2
+    assert noise_model.noisy_circuit(circuit, system_qubits=[2]).approx_equals(
+        circuit[:2] + stim.Circuit(f"Z_ERROR({four_moments}) 2\nH 2"), atol=1e-12
+    )
+    circuit = stim.Circuit("H 0\nREPEAT 2 {\nM 1\nTICK\nH 2\n}")
+    assert noise_model.noisy_circuit(circuit, system_qubits=[2]) == stim.Circuit(
+        "H 0\nREPEAT 2 {\nM 1\nTICK\nZ_ERROR(0.1) 2\nH 2\n}"
+    )
+    circuit = stim.Circuit("H 2\nTICK\nREPEAT 2 {\nH 0\n}\nM 1\nTICK\nH 2")
+    assert noise_model.noisy_circuit(circuit, system_qubits=[2]) == stim.Circuit(
+        "H 2\nTICK\nREPEAT 2 {\nH 0\n}\nM 1\nTICK\nZ_ERROR(0.1) 2\nH 2"
+    )
+    circuit = stim.Circuit("M 0\nREPEAT 5 {\nH 3\nTICK\n}\nM 1 2")  # qubit 3 has no idle noise
+    assert noise_model.noisy_circuit(circuit, system_qubits=[0, 1, 2]) == circuit[
+        :2
+    ] + stim.Circuit("Z_ERROR(0.1) 1 2\nM 1 2\nZ_ERROR(0.1) 0")
 
     # gate noise is emitted by the end of each iteration
     noise_model = circuits.DepolarizingNoiseModel(0.1)
@@ -384,7 +447,9 @@ def test_quadratic_idle_errors() -> None:
     circuit = stim.Circuit("R 0\nTICK")
     circuit.append(stim.CircuitRepeatBlock(1000, stim.Circuit("X 1\nTICK")))
     circuit += stim.Circuit("M 0")
-    model = circuits.NoiseModel(idle_error={"X": 0.01}, quadratic_idle_error={"Z": 1e-6})
+    model = circuits.NoiseModel(
+        idle_error={"X": 0.01}, quadratic_idle_error={"Z": 1e-6}, scheduler=ticks
+    )
     p_x, p_z = (1 - 0.98**1000) / 2, (1 - math.exp(-2)) / 2
     expected = stim.Circuit(f"""
         R 0
@@ -434,6 +499,10 @@ def test_noise_matches_flattened_layout(pytestconfig: pytest.Config) -> None:
             for scheduler in [
                 ticks,
                 circuits.Scheduler.asap(single_qubit_gates_take_time=take_time),
+                circuits.Scheduler.alap(single_qubit_gates_take_time=take_time),
+                circuits.Scheduler.alap(
+                    early_measurements=False, single_qubit_gates_take_time=take_time
+                ),
             ]:
                 layout, _ = scheduler.get_schedule(circuit).to_circuit()
                 flattened = flatten_repeat_blocks(layout, circuits.DEFAULT_IMMUNE_OP_TAG)
@@ -604,9 +673,19 @@ def test_immunity() -> None:
         noise_model.noisy_circuit(tagged_gate, immune_op_tag=None),
     )
 
-    # a noiseless repeat block takes no time, but ends the idle runs of its qubits
-    circuit = stim.Circuit("R 0 1\nTICK\nH 1\nTICK")
+    # a noiseless repeat block takes no time, so qubit 1 does not idle between its gates
+    circuit = stim.Circuit("H 1\nTICK")
     circuit += circuits.as_noiseless_circuit(stim.Circuit("H 0"))
+    circuit += stim.Circuit("TICK\nH 1")
+    noise_model = circuits.NoiseModel(
+        idle_error={"Z": 0.1},
+        scheduler=circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True),
+    )
+    assert noise_model.noisy_circuit(circuit, system_qubits=[1]) == circuit
+
+    # a noiseless repeat block takes no time, but ends the idle runs of its qubits, at any depth
+    circuit = stim.Circuit("R 0 1\nTICK\nH 1\nTICK")
+    circuit += circuits.as_noiseless_circuit(stim.Circuit("REPEAT 1 {\nH 0\n}"))
     circuit += stim.Circuit("H 1\nTICK\nMX 0\nDETECTOR rec[-1]")
     noise_model = circuits.NoiseModel(
         idle_error={"X": 0.1},

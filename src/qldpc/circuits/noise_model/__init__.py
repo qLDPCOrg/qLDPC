@@ -116,10 +116,11 @@ depends on when operations happen.  A noise model with idle noise uses its ``sch
 qubit is either occupied by an operation or idle.  By default, ``Scheduler.asap()`` ignores the
 TICKs of a circuit and places each operation as early as possible (and each reset as late as
 possible), while ``SI1000NoiseModel`` keeps the TICK layers of a circuit with
-``Scheduler.preserve_ticks(single_qubit_gates_take_time=True)``.  Each segment of a circuit, the
-part of a circuit or ``REPEAT`` body between ``REPEAT`` blocks, is scheduled on its own, so the
-boundaries of ``REPEAT`` blocks and of their iterations are boundaries between moments.  Every
-moment that contains a gate lasts one unit of time.
+``Scheduler.preserve_ticks(single_qubit_gates_take_time=True)``.  A moment may continue across the
+boundary of a ``REPEAT`` block or of its iterations, and every iteration of a ``REPEAT`` block is
+scheduled alike, so a block stays compact however many times it repeats.  Every moment of a
+schedule lasts one unit of time, including a moment without gates in a custom schedule; the
+built-in schedulers do not make empty moments.
 
 By default, single-qubit unitary gates and classically controlled Paulis take no time.  This models
 gates that are much faster than the moments of a circuit: a qubit that undergoes only such gates in
@@ -137,7 +138,7 @@ if it takes no time, while noise channels and classically controlled Paulis do n
 Idle periods continue across the boundaries of ``REPEAT`` blocks.  A qubit that a ``REPEAT`` block
 does not act on gets one error for its whole idle period.  The idle periods of a qubit that a
 ``REPEAT`` block acts on are the same in every iteration, except where they join idle moments before
-or after the block, so the first iteration is written out on its own if its noise differs.  A
+or after the block, so the first iterations are written out on their own if their noise differs.  A
 ``REPEAT`` block tagged with ``immune_op_tag`` is noiseless and takes no time, but ends the idle
 periods of its qubits.
 
@@ -194,6 +195,7 @@ from .rules import (
     NoiseRule,
 )
 from .scheduling import (
+    RepeatSchedule,
     Schedule,
     Scheduler,
 )
@@ -208,6 +210,7 @@ __all__ = [
     "NoiseRule",
     "PauliChannel",
     "PauliChannelSequence",
+    "RepeatSchedule",
     "SI1000NoiseModel",
     "Schedule",
     "Scheduler",
