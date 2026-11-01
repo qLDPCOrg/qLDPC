@@ -170,6 +170,28 @@ def test_measurement_order() -> None:
     """)
     assert measurements == (1, 0, 2, 3, 4)
 
+    # iterations written out with the same layout share a REPEAT block
+    circuit = stim.Circuit("CX 0 4\nM 0 1 2\nREPEAT 5 {\nM 3\nDETECTOR rec[-3]\n}")
+    scheduled, measurements = circuits.Scheduler.asap().get_schedule(circuit).to_circuit()
+    assert scheduled == stim.Circuit("""
+        CX 0 4
+        M 1 2
+        TICK
+        M 0
+        TICK
+        REPEAT 2 {
+            M 3
+            DETECTOR rec[-4]
+            TICK
+        }
+        REPEAT 3 {
+            M 3
+            DETECTOR rec[-3]
+            TICK
+        }
+    """)
+    assert measurements == (1, 2, 0, 3, 4, 5, 6, 7)
+
     # a REPEAT block that reads only measurements of its own iterations stays whole
     circuit = stim.Circuit("REPEAT 3 {\nCX 1 2\nCX 1 2\nM 1\nM 0\nDETECTOR rec[-2]\n}")
     scheduled, measurements = circuits.Scheduler.asap().get_schedule(circuit).to_circuit()

@@ -26,6 +26,7 @@ from ._operations import (
     JUST_MEASURE_OPS,
     JUST_MEASURE_PP,
     JUST_RESET_OPS,
+    NOISE,
     involves_classical_bits,
     op_type,
 )
@@ -99,7 +100,7 @@ class Schedule:
         block after the segment (if any).  Operations in a moment keep their order in the circuit.
         """
         moments: list[list[stim.CircuitInstruction] | Schedule] = []
-        for item in _get_segments(self):
+        for item in _get_segments(self._circuit, self):
             if isinstance(item, _Segment):
                 segment_moments: list[list[stim.CircuitInstruction]] = [
                     [] for _ in range(item.num_moments)
@@ -108,6 +109,7 @@ class Schedule:
                     segment_moments[moment].append(operation.instruction)
                 moments.extend(segment_moments)
             else:
+                assert item[1] is not None
                 moments.append(item[1])
         return moments
 
@@ -182,10 +184,11 @@ class Scheduler(abc.ABC):
         """
         if schedule._circuit != _as_stim_circuit(circuit):
             raise ValueError("The schedule is for a different circuit")
-        for item in _get_segments(schedule):
+        for item in _get_segments(schedule._circuit, schedule):
             if isinstance(item, _Segment):
                 self._validate_segment(item)
             else:
+                assert item[1] is not None
                 self.validate(item[0].body_copy(), item[1])
 
     @staticmethod
@@ -409,7 +412,7 @@ class _Operation:
     """An operation of a circuit, and the properties that schedules depend on."""
 
     instruction: stim.CircuitInstruction
-    qubits: tuple[int, ...] = ()  # the qubits whose operations keep their order
+    qubits: tuple[int, ...] = ()  # qubits of a gate, observable, or noise, in fixed order
     touched_qubits: tuple[int, ...] = ()  # the qubits whose state this operation depends on
     is_gate: bool = False
     is_collapsing: bool = False  # whether this is a measurement or reset
@@ -429,7 +432,7 @@ class _Operation:
         )
         self.is_gate = op_type(name) in GATE_OP_TYPES
         self.is_collapsing = name in COLLAPSING_OPS
-        if name != "QUBIT_COORDS":
+        if self.is_gate or name == "OBSERVABLE_INCLUDE" or op_type(name) == NOISE:
             self.qubits = qubits
         if (self.is_gate and not involves_classical_bits(instruction)) or (
             name == "OBSERVABLE_INCLUDE"
@@ -451,6 +454,7 @@ class _Segment:
     """
 
     instructions: list[stim.CircuitInstruction]
+    num_operations: list[int]  # the number of operations of each instruction
     operations: list[_Operation]
     moments: list[int]
 
@@ -460,25 +464,30 @@ class _Segment:
 
 
 def _get_segments(
-    schedule: Schedule,
-) -> Iterator[_Segment | tuple[stim.CircuitRepeatBlock, Schedule]]:
-    """The segments of a scheduled circuit, and its REPEAT blocks with their schedules, in order."""
-    moments = iter(schedule._moments)
-    segment = _Segment([], [], [])
+    circuit: stim.Circuit, schedule: Schedule | None
+) -> Iterator[_Segment | tuple[stim.CircuitRepeatBlock, Schedule | None]]:
+    """The segments of a circuit, and its REPEAT blocks with their schedules, in order.
+
+    Without a schedule, every operation is in moment zero.
+    """
+    moments = iter(() if schedule is None else schedule._moments)
+    segment = _Segment([], [], [], [])
     num_records = 0
-    for instruction in schedule._circuit:
+    for instruction in circuit:
         if isinstance(instruction, stim.CircuitRepeatBlock):
             yield segment
-            block_schedule = next(moments)
-            assert isinstance(block_schedule, Schedule)
+            block_schedule = next(moments, None)
+            assert block_schedule is None or isinstance(block_schedule, Schedule)
             yield instruction, block_schedule
-            segment = _Segment([], [], [])
+            segment = _Segment([], [], [], [])
             num_records = 0
             continue
+        operations = _get_operations([instruction], num_records)
         segment.instructions.append(instruction)
-        for info in _get_operations([instruction], num_records):
+        segment.num_operations.append(len(operations))
+        for info in operations:
             num_records += info.num_records
-            moment = next(moments)
+            moment = next(moments, 0)
             assert not isinstance(moment, Schedule)
             segment.operations.append(info)
             segment.moments.append(moment)
@@ -606,11 +615,12 @@ class _Layout:
     def lay_out(self, schedule: Schedule) -> stim.Circuit:
         """Lay out a scheduled circuit, starting after the records laid out so far."""
         circuit = stim.Circuit()
-        for item in _get_segments(schedule):
+        for item in _get_segments(schedule._circuit, schedule):
             if isinstance(item, _Segment):
                 _append_moments(circuit, self.lay_out_segment(item))
             else:
-                _append_moments(circuit, self.lay_out_block(*item))
+                assert item[1] is not None
+                _append_moments(circuit, self.lay_out_block(item[0], item[1]))
         return circuit
 
     def lay_out_segment(self, segment: _Segment) -> stim.Circuit:
@@ -681,9 +691,10 @@ class _Layout:
                 self.new_to_old.append(start + offset)
                 self.num_records += 1
 
+        # an iteration written out keeps the tag of the block in a block of its own, if it has one
         circuit = stim.Circuit()
-        for iteration, count in iterations:
-            if count == 1:
+        for index, (iteration, count) in enumerate(iterations):
+            if index + 1 < len(iterations) and count == 1 and not block.tag:
                 circuit += iteration
             else:
                 circuit.append(stim.CircuitRepeatBlock(count, iteration, tag=block.tag))

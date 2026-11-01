@@ -12,7 +12,9 @@ imported.  In turn, the decoders module imports qldpc.decoders only within the f
 it, so that those modules can import it without an import cycle.  The lookup module holds the
 deprecated direct construction of LookupDecoder and WeightedLookupDecoder, and the lookup decoders
 that the deprecated predict_observable_flips=True option builds.  It imports qldpc.decoders, so it
-is imported only within the functions that use it.
+is imported only within the functions that use it.  The noise_model module holds the noisy circuits
+of the deprecated noisy_circuit(..., insert_ticks=True) of noise models.  It imports qldpc.circuits,
+so it is likewise imported only within the function that uses it.
 """
 
 from .core import (
