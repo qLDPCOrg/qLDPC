@@ -144,7 +144,7 @@ def test_propagation_through_circuits(rng: np.random.Generator) -> None:
         forward = RotatedPauliString(pauli).after(circuit)
         expected = unitary @ pauli_matrix @ unitary.conj().T
         assert equal_up_to_phase(_get_matrix(forward), expected)
-        circuit_matrix = get_circuit_unitary(forward.to_stim_circuit(), num_qubits)
+        circuit_matrix = get_circuit_unitary(forward.to_circuit(), num_qubits)
         assert equal_up_to_phase(circuit_matrix, expected)
         assert forward.is_clifford == (not forward.t_axes)
 
@@ -274,4 +274,4 @@ def test_circuit_objects_and_errors() -> None:
     )
     with pytest.raises(TypeError, match=r"Expected a stim\.Circuit"):
         RotatedPauliString("X").after("S 0")
-    assert len(RotatedPauliString().to_stim_circuit()) == 0
+    assert len(RotatedPauliString().to_circuit()) == 0

@@ -104,10 +104,13 @@ class RotatedPauliString:
     ``Z`` operators on nonempty subsets of 4 qubits multiply to a global phase, but their simplified
     form keeps all 15 rotations.
 
-    Stim does not support T gates, so circuits are ``stim.Circuit`` objects in which T gates are
-    encoded, following tsim, as the instructions ``S``, ``S_DAG``, ``SPP``, and ``SPP_DAG`` with the
-    tag ``T`` (see ``_operations``).  Objects with a ``stim_circuit`` attribute, such as
-    ``tsim.Circuit`` objects, are accepted as well.
+    Stim does not support T gates, so circuits are ``stim.Circuit`` objects in which, following
+    tsim, T gates are instructions with the tag ``T``.  Up to global phases, ``S[T]`` and
+    ``S_DAG[T]`` stand for the T gate ``R_{π/4}(Z)`` and its inverse on each target qubit, and
+    ``SPP[T]`` and ``SPP_DAG[T]`` stand for the rotation ``R_{π/4}(P)`` and its inverse about each
+    target Pauli product ``P``.  Objects with a ``stim_circuit`` attribute, such as tsim circuits,
+    are accepted as well.  Stim itself ignores tags, so it simulates these instructions as the
+    Clifford gates ``S``, ``S_DAG``, ``SPP``, and ``SPP_DAG``.
 
     Args:
         pauli: A Pauli string, whose sign does not matter.  Default: the identity on no qubits.
@@ -269,11 +272,12 @@ class RotatedPauliString:
         """
         return self._conjugate(circuit, inverse=True)
 
-    def to_stim_circuit(self) -> stim.Circuit:
+    def to_circuit(self) -> stim.Circuit:
         """A Clifford+T circuit whose unitary is this operator, up to a global phase.
 
         The circuit applies the Pauli gates of the core, then ``SPP`` or ``SPP_DAG`` gates for the
-        π/2 rotations, and then T-tagged ``SPP`` or ``SPP_DAG`` gates for the π/4 rotations.
+        π/2 rotations, and then T-tagged ``SPP`` or ``SPP_DAG`` gates for the π/4 rotations.  Stim
+        itself would simulate the T-tagged instructions as Clifford gates (see the class docstring).
         """
         circuit = stim.Circuit()
         if self._num_qubits:

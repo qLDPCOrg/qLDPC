@@ -105,6 +105,7 @@ Circuits
   Do not infer roles from coincident integer indices.
 * Preserve memory-circuit detector-coordinate semantics; a monotone check index must not be interpreted as time.
 * Noise-model operation immunity and qubit immunity are separate controls; preserve both.
+* Clifford+T tools in ``qldpc.experimental`` encode T gates as T-tagged ``S``, ``S_DAG``, ``SPP``, and ``SPP_DAG`` instructions, following tsim; see ``RotatedPauliString``.
 
 External systems and caching
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
