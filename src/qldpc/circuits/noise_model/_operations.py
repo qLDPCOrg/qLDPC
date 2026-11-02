@@ -90,9 +90,11 @@ JUST_MEASURE_OPS = frozenset(
     if op_type(name) in (JUST_MEASURE_1Q, JUST_MEASURE_2Q, JUST_MEASURE_PP)
 )
 JUST_RESET_OPS = frozenset(name for name in ALL_STIM_GATE_NAMES if op_type(name) == JUST_RESET_1Q)
+# gates that measure and then reset, such as MR
 MEASURE_AND_RESET_OPS = frozenset(
     name for name in ALL_STIM_GATE_NAMES if op_type(name) == MEASURE_RESET_1Q
 )
+# all measurements and resets, including gates that measure and then reset
 MEASURE_OR_RESET_OPS = JUST_MEASURE_OPS | JUST_RESET_OPS | MEASURE_AND_RESET_OPS
 
 

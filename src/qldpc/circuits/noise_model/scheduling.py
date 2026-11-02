@@ -54,16 +54,15 @@ class Schedule:
 
     A schedule places each operation in a moment, numbered from zero within each segment of the
     circuit.  A segment is a maximal stretch of a circuit, or of the body of a REPEAT block, that
-    contains no REPEAT block, that is, the instructions between consecutive REPEAT blocks, or
-    between a REPEAT block and the start or end of the circuit or body.  The boundaries of REPEAT
-    blocks and of their iterations are thus boundaries between moments, and the body of each REPEAT
-    block has a schedule of its own, which each iteration follows.
+    contains no REPEAT block.  The boundaries of REPEAT blocks and of their iterations are thus
+    boundaries between moments, and the body of each REPEAT block has a schedule of its own, which
+    each iteration follows.
 
     Every moment lasts one unit of time, and a qubit idles in each moment unless an operation that
-    takes time acts on it (see :meth:`Scheduler.takes_time`).  A segment lasts until the end of its
-    last moment, and a REPEAT block lasts as long as all its iterations.  Annotations and noise
-    channels never have a moment of their own, so a segment without gates has no moments and takes
-    no time.
+    takes time acts on it (see :meth:`Scheduler.takes_time`).  A segment with gates lasts until the
+    end of the latest moment of its operations, and a REPEAT block lasts as long as all its
+    iterations.  A segment without gates has no moments and takes no time, and its operations are in
+    moment zero, whatever moments are given for them.
 
     A schedule is immutable.
 
@@ -235,10 +234,10 @@ class Scheduler(abc.ABC):
     def validate(self, circuit: StimCircuitLike, schedule: Schedule) -> None:
         """Check that a schedule of a circuit keeps the meaning of the circuit.
 
-        The moments of the operations on each qubit, and those of detectors and coordinate
-        annotations, may not decrease in circuit order.  An operation that reads a measurement may
-        not precede that measurement, a correlated error chain stays in one moment, and no qubit has
-        two operations that take time in one moment.
+        The moments of the operations on each qubit, and those of coordinate annotations (DETECTOR,
+        QUBIT_COORDS, and SHIFT_COORDS), may not decrease in circuit order.  An operation that reads
+        a measurement may not precede that measurement, a correlated error chain stays in one
+        moment, and no qubit has two operations that take time in one moment.
 
         Raises:
             ValueError: If the schedule is not a valid schedule of the circuit.
@@ -271,8 +270,9 @@ class Scheduler(abc.ABC):
         scheduled on its own.
 
         Args:
-            late_resets: If True (the default), then move each reset as late as the other gates
-                allow, so that qubits do not idle between their reset and their next operation.
+            late_resets: If True (the default), then move each reset (R, RX, RY, or RZ) as late as
+                the other gates allow, to shorten the time that qubits idle after a reset.  Gates
+                that measure and then reset, such as MR, stay in place.
             single_qubit_gates_take_time: As in :meth:`preserve_ticks`.
         """
         return _LayerScheduler(False, late_resets, single_qubit_gates_take_time)
@@ -286,9 +286,10 @@ class Scheduler(abc.ABC):
         REPEAT blocks are handled as in :meth:`asap`.
 
         Args:
-            early_measurements: If True (the default), then move each measurement as early as the
-                other gates allow, so that qubits do not idle between their last gate and
-                measurement.
+            early_measurements: If True (the default), then move each measurement (M, MX, MY, MZ,
+                MPP, MXX, MYY, or MZZ) as early as the other gates allow, to shorten the time that
+                qubits idle before a measurement.  Gates that measure and then reset, such as MR,
+                stay in place.
             single_qubit_gates_take_time: As in :meth:`preserve_ticks`.
         """
         return _LayerScheduler(True, early_measurements, single_qubit_gates_take_time)
@@ -361,7 +362,7 @@ class _LayerScheduler(Scheduler):
     """
 
     as_late_as_possible: bool
-    shorten_lifetimes: bool  # place resets late in ASAP, and measurements early in ALAP
+    shorten_lifetimes: bool  # move resets late in ASAP, and measurements early in ALAP
     single_qubit_gates_take_time: bool
 
     def get_schedule(self, circuit: StimCircuitLike) -> Schedule:
@@ -400,8 +401,8 @@ class _LayerScheduler(Scheduler):
         # place the gates as early (or late) as possible
         layers = _get_layers(num_nodes, edges, reverse=self.as_late_as_possible)
         if self.shorten_lifetimes:
-            # keep the other gates in place, and move each reset (or measurement) as late (or early)
-            # as they allow
+            # keep the other gates in place, and move each gate that only resets (or only measures)
+            # as late (or early) as they allow
             moved_names = JUST_MEASURE_OPS if self.as_late_as_possible else JUST_RESET_OPS
             fixed_layers = {
                 node: layers[node]
@@ -425,9 +426,9 @@ class _LayerScheduler(Scheduler):
 
         A node follows the previous node on each of its qubits, and a node that takes time follows
         the previous node that takes time on each of its qubits by at least one layer.  A node that
-        reads a measurement follows the node of that measurement, a detector or coordinate
-        annotation follows the previous one, and an annotation without qubits follows the previous
-        gate, whose moment it joins.
+        reads a measurement follows the node of that measurement, a coordinate annotation follows
+        the previous one, and an annotation without qubits follows the previous gate, whose moment
+        it joins.
         """
         edges = []
         last_node: dict[int, int] = {}  # by qubit
@@ -533,7 +534,7 @@ def _place_annotations(
 
 @dataclasses.dataclass(frozen=True)
 class _Operation:
-    """An operation of a circuit (see :class:`Schedule`), and the properties that schedules use.
+    """An operation of a circuit (see :class:`Schedule`), with properties for scheduling and noise.
 
     An operation acts on its ``qubits``, which are those of a gate, observable, or noise channel.
     It depends on the state of its ``qubits_depended_on``, which are those of a gate without
@@ -589,9 +590,8 @@ class _Segment:
     """The operations of a segment of a circuit, and their moments.
 
     A segment is a maximal stretch of a circuit, or of the body of a REPEAT block, that contains no
-    REPEAT block, that is, the instructions between consecutive REPEAT blocks, or between a REPEAT
-    block and the start or end of the circuit or body.  The records that operations read are counted
-    from the start of the segment, so records before the segment are negative.
+    REPEAT block.  The records that operations read are counted from the start of the segment, so
+    records before the segment are negative.
     """
 
     instructions: list[stim.CircuitInstruction]
@@ -605,11 +605,7 @@ class _Segment:
         return max(self.moments) + 1 if any(op.is_gate for op in self.operations) else 0
 
     def close(self) -> _Segment:
-        """Finish a segment, whose operations are all in moment zero if it has no gates.
-
-        Annotations and noise channels never have a moment of their own, so a segment without gates
-        has no moments, and its operations take place at its start.
-        """
+        """Finish a segment: one without gates has no moments, so put its operations in moment 0."""
         if not self.duration:
             self.moments = [0] * len(self.moments)
         return self
@@ -920,7 +916,7 @@ class _Layout:
     def lay_out_block(
         self, block: stim.CircuitRepeatBlock, schedule: Schedule, circuit: stim.Circuit
     ) -> None:
-        """Lay out a REPEAT block, ending each iteration with a TICK.
+        """Lay out a REPEAT block, ending each iteration that ends with a moment with a TICK.
 
         The first iterations are written out if they read measurements before the block at other
         offsets than later iterations read those of earlier iterations.
