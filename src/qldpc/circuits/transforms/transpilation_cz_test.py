@@ -45,11 +45,14 @@ def test_random_transpilation(pytestconfig: pytest.Config) -> None:
         immune_qubits = rng.sample(range(num_qubits), rng.randint(0, 2))
         transpiled = transpile_to_cz(circuit, immune_qubits=immune_qubits, cleanup=False)
         _assert_equivalent(circuit, transpiled)
-        _assert_in_cz_gate_set(transpiled, has_repeat_blocks=allow_repeat)
+        _assert_in_cz_gate_set(transpiled)
 
 
 def test_random_cleanup(pytestconfig: pytest.Config) -> None:
-    """Random circuits of CZ, SWAP, and single-qubit gates stay equivalent under the cleanup."""
+    """The cleanup keeps random circuits whose untagged two-qubit gates are CZ and SWAP equivalent.
+
+    It also keeps them in the gate set of transpile_to_cz, and never adds CZ gates.
+    """
     rng = random.Random(pytestconfig.getoption("randomly_seed"))
     for index in range(100):
         allow_repeat = index % 2 == 0
@@ -58,7 +61,7 @@ def test_random_cleanup(pytestconfig: pytest.Config) -> None:
         )
         cleaned_circuit = _clean_up(circuit)
         _assert_equivalent(circuit, cleaned_circuit)
-        _assert_in_cz_gate_set(cleaned_circuit, has_repeat_blocks=allow_repeat)
+        _assert_in_cz_gate_set(cleaned_circuit)
         assert _count(cleaned_circuit, "CZ") <= _count(circuit, "CZ")
 
 
@@ -388,7 +391,7 @@ def _get_random_circuit(
     return circuit
 
 
-def _assert_in_cz_gate_set(circuit: stim.Circuit, has_repeat_blocks: bool) -> None:
+def _assert_in_cz_gate_set(circuit: stim.Circuit) -> None:
     """Assert that the untagged unitary gates of a circuit are CZ, SWAP, or single-qubit gates.
 
     Unless the circuit has REPEAT blocks, at whose boundaries any single-qubit gate can come before
@@ -398,7 +401,7 @@ def _assert_in_cz_gate_set(circuit: stim.Circuit, has_repeat_blocks: bool) -> No
         op.name for op in circuit.flattened() if not op.tag and stim.gate_data(op.name).is_unitary
     }
     assert names <= {"CZ", "SWAP", *_SINGLE_QUBIT_GATES}
-    if not has_repeat_blocks:
+    if not any(isinstance(op, stim.CircuitRepeatBlock) for op in circuit):
         assert _get_gates_before_czs(circuit) <= {"H", "SQRT_X"}
 
 
