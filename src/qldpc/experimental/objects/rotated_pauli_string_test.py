@@ -13,15 +13,25 @@ import numpy.typing as npt
 import pytest
 import stim
 
+from qldpc.experimental.conftest import get_circuit_unitary
 from qldpc.experimental.objects import RotatedPauliString, rotated_pauli_string
 from qldpc.experimental.objects.conftest import (
     equal_up_to_phase,
     get_pauli_matrix,
+    get_random_clifford_t_circuit,
     get_random_pauli_string,
     get_rotation_matrix,
 )
 
-_KERNELS = ("_multiply", "_simplify", "_merge_t_axes", "_equal", "_remove_row")
+_KERNELS = (
+    "_apply_program",
+    "_apply_t_rotation",
+    "_multiply",
+    "_simplify",
+    "_merge_t_axes",
+    "_equal",
+    "_remove_row",
+)
 
 # A core, π/2 axes, and π/4 axes.
 _Rotations = tuple[stim.PauliString, list[stim.PauliString], list[stim.PauliString]]
@@ -112,6 +122,63 @@ def test_simplified_forms() -> None:
     assert RotatedPauliString("X").is_pauli
 
 
+@pytest.mark.usefixtures("kernels")
+def test_propagation_through_circuits(rng: np.random.Generator) -> None:
+    """Random circuits, and a fixed one that reaches every case of propagation.
+
+    In the fixed circuit, the T gates merge into a π/2 rotation, cancel, add π/4 rotations, and
+    anticommute with a π/4 rotation, in that order, and a ``CX`` gate and a π/2 rotation act on an
+    operator with both π/2 and π/4 rotations.
+    """
+    fixed = stim.Circuit("S[T] 0 1\nH 0\nS[T] 0\nCX 0 1\nSPP X0*Z1\nH 0\nS[T] 0")
+    cases = [(2, stim.PauliString("XZ"), fixed)]
+    for num_qubits in (1, 2, 3, 4):
+        for _ in range(8):
+            pauli = get_random_pauli_string(rng, num_qubits)
+            cases.append((num_qubits, pauli, get_random_clifford_t_circuit(rng, num_qubits, 10)))
+
+    for num_qubits, pauli, circuit in cases:
+        unitary = get_circuit_unitary(circuit, num_qubits)
+        pauli_matrix = get_pauli_matrix(pauli, num_qubits)
+
+        forward = RotatedPauliString(pauli).after(circuit)
+        expected = unitary @ pauli_matrix @ unitary.conj().T
+        assert equal_up_to_phase(_get_matrix(forward), expected)
+        circuit_matrix = get_circuit_unitary(forward.to_stim_circuit(), num_qubits)
+        assert equal_up_to_phase(circuit_matrix, expected)
+        assert forward.is_clifford == (not forward.t_axes)
+
+        backward = RotatedPauliString(pauli).before(circuit)
+        expected = unitary.conj().T @ pauli_matrix @ unitary
+        assert equal_up_to_phase(_get_matrix(backward), expected)
+        assert equal_up_to_phase(_get_matrix(forward.before(circuit)), pauli_matrix)
+
+
+def test_t_gates_make_cliffords_and_then_non_cliffords() -> None:
+    """X → T gives a Clifford operator, and X → T, H, T gives (X - Y)/2 + Z/√2, which is not."""
+    once = RotatedPauliString("X").after(stim.Circuit("S[T] 0"))
+    assert once.is_clifford and not once.is_pauli
+    assert equal_up_to_phase(_get_matrix(once), np.array([[0, 1 - 1j], [1 + 1j, 0]]) / 2**0.5)
+
+    twice = RotatedPauliString("X").after(stim.Circuit("S[T] 0\nH 0\nS[T] 0"))
+    assert not twice.is_clifford
+    pauli = {letter: get_pauli_matrix(stim.PauliString(letter), 1) for letter in "XYZ"}
+    expected = (pauli["X"] - pauli["Y"]) / 2 + pauli["Z"] / 2**0.5
+    assert equal_up_to_phase(_get_matrix(twice), expected)
+
+
+@pytest.mark.usefixtures("kernels")
+def test_canceling_t_gates_give_equal_operators() -> None:
+    circuit = stim.Circuit("H 0\nS[T] 0\nCX 0 1\nSPP_DAG[T] X0*Z1")
+    padded = circuit.copy()
+    padded.append("SPP_DAG", stim.target_combined_paulis(stim.PauliString("ZY")), tag="T")
+    padded.append("SPP", stim.target_combined_paulis(stim.PauliString("ZY")), tag="T")
+    operator = RotatedPauliString("ZX").after(circuit)
+    assert operator == RotatedPauliString("ZX").after(padded)
+    assert hash(operator) == hash(RotatedPauliString("ZX").after(padded))
+    assert operator != RotatedPauliString("ZX")
+
+
 def test_clifford_operators_have_canonical_forms(rng: np.random.Generator) -> None:
     """Clifford operators are equal objects if and only if they are equal up to a global phase.
 
@@ -196,3 +263,15 @@ def test_invalid_inputs() -> None:
     with pytest.raises(TypeError):
         mul(RotatedPauliString("X"), "X")
     assert RotatedPauliString("X") != "X"
+
+
+def test_circuit_objects_and_errors() -> None:
+    class HasStimCircuit:
+        stim_circuit = stim.Circuit("S[T] 0")
+
+    assert RotatedPauliString("X").after(HasStimCircuit()) == RotatedPauliString("X").after(
+        stim.Circuit("S[T] 0")
+    )
+    with pytest.raises(TypeError, match=r"Expected a stim\.Circuit"):
+        RotatedPauliString("X").after("S 0")
+    assert len(RotatedPauliString().to_stim_circuit()) == 0

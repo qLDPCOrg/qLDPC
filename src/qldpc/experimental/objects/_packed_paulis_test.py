@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import itertools
+
 import numpy as np
 import pytest
 import stim
@@ -13,7 +15,15 @@ from qldpc.experimental.objects.conftest import get_random_pauli_string
 
 # Qubit counts with a partial word, a full word, and more than one word.
 _NUM_QUBITS = (1, 64, 65)
-_KERNELS = ("count_y", "is_scalar", "anticommutes", "left_multiply", "conjugate_by_s_rotation")
+_KERNELS = (
+    "count_y",
+    "is_scalar",
+    "anticommutes",
+    "left_multiply",
+    "right_multiply",
+    "conjugate_by_s_rotation",
+    "conjugate_by_local_clifford",
+)
 
 
 @pytest.fixture(params=["compiled", "python"])
@@ -65,6 +75,9 @@ def test_products_and_commutation(rng: np.random.Generator) -> None:
         words = first_words.copy()
         phase = packed.left_multiply(words, first_phase, second_words, second_phase)
         assert packed.to_stim(words, phase, num_qubits) == second * first
+        words = first_words.copy()
+        phase = packed.right_multiply(words, first_phase, second_words, second_phase)
+        assert packed.to_stim(words, phase, num_qubits) == first * second
 
         assert not packed.is_scalar(packed.from_stim(stim.PauliString({num_qubits - 1: "Z"}))[0])
         assert packed.is_scalar(packed.from_stim(-stim.PauliString(num_qubits))[0])
@@ -93,3 +106,25 @@ def test_conjugation_by_s_rotations(rng: np.random.Generator) -> None:
         words, phase = packed.from_stim(target)
         phase = packed.conjugate_by_s_rotation(words, phase, *packed.from_stim(axis))
         assert packed.to_stim(words, phase, len(target)) == target.after(circuit)
+
+
+@pytest.mark.usefixtures("kernels")
+def test_conjugation_by_clifford_gates() -> None:
+    """Every entry of every gate table, at qubits on both sides of a word boundary."""
+    num_qubits = 130
+    letters = ("I", "X", "Y", "Z")
+    for name, data in stim.gate_data().items():
+        if not data.is_unitary or not (data.is_single_qubit_gate or data.is_two_qubit_gate):
+            continue
+        qubits = [63] if data.is_single_qubit_gate else [64, 63]
+        images, image_phases = packed.get_clifford_gate_table(name)
+        for local in itertools.product(letters, repeat=len(qubits)):
+            target = stim.PauliString(num_qubits)
+            for qubit, letter in zip(qubits, local):
+                target[qubit] = letter
+            words, phase = packed.from_stim(target)
+            phase = packed.conjugate_by_local_clifford(
+                words, phase, np.array(qubits, dtype=np.int64), images, image_phases
+            )
+            expected = target.after(stim.CircuitInstruction(name, qubits))
+            assert packed.to_stim(words, phase, num_qubits) == expected, (name, local)

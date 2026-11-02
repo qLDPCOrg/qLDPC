@@ -21,6 +21,11 @@ _PAULI_MATRICES = (
     np.array([[0, -1j], [1j, 0]], dtype=np.complex128),
     np.array([[1, 0], [0, -1]], dtype=np.complex128),
 )
+# Gates of random circuits, with the number of qubits that each addresses.
+_CLIFFORD_GATES: tuple[tuple[str, int], ...] = (
+    *(("H", 1), ("S", 1), ("SQRT_X_DAG", 1), ("C_XYZ", 1)),
+    *(("CX", 2), ("CZ", 2), ("XCY", 2), ("ISWAP_DAG", 2), ("CXSWAP", 2)),
+)
 
 
 @pytest.fixture
@@ -38,6 +43,41 @@ def get_random_pauli_string(
         string = (-1) ** int(rng.integers(2)) * stim.PauliString(letters)
         if string.weight or not nontrivial:
             return string
+
+
+def get_random_clifford_t_circuit(
+    rng: np.random.Generator, num_qubits: int, num_operations: int, *, t_fraction: float = 0.3
+) -> stim.Circuit:
+    """A random Clifford+T circuit with T gates tagged as in ``_operations``.
+
+    The circuit mixes one- and two-qubit Clifford gates, π/2 and π/4 rotations about random Pauli
+    products (``SPP``, ``SPP_DAG``, and their T-tagged versions), and T gates ``S[T]``/``S_DAG[T]``,
+    with inverted targets and several targets per instruction.
+    """
+    circuit = stim.Circuit()
+    for _ in range(num_operations):
+        draw = rng.random()
+        if draw < t_fraction / 2:
+            name = ("S", "S_DAG")[rng.integers(2)]
+            qubits = rng.choice(
+                num_qubits, size=rng.integers(1, min(2, num_qubits) + 1), replace=False
+            )
+            circuit.append(name, qubits.tolist(), tag="T")
+        elif draw < t_fraction or draw > 0.85:
+            name = ("SPP", "SPP_DAG")[rng.integers(2)]
+            targets: list[stim.GateTarget] = []
+            for _ in range(rng.integers(1, 3)):
+                axis = get_random_pauli_string(rng, num_qubits, nontrivial=True)
+                product = stim.target_combined_paulis(axis * axis.sign, axis.sign == -1)
+                targets.extend(product)
+            circuit.append(name, targets, tag="T" if draw < t_fraction else "")
+        else:
+            name, size = _CLIFFORD_GATES[rng.integers(len(_CLIFFORD_GATES))]
+            if size > num_qubits:
+                continue
+            qubits = rng.choice(num_qubits, size=size, replace=False)
+            circuit.append(name, qubits.tolist())
+    return circuit
 
 
 def get_pauli_matrix(string: stim.PauliString, num_qubits: int) -> npt.NDArray[np.complex128]:
