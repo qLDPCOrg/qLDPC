@@ -13,7 +13,7 @@ import numpy.typing as npt
 import pytest
 import stim
 
-from qldpc.experimental.objects import PhasedPauliString, phased_pauli_string
+from qldpc.experimental.objects import RotatedPauliString, rotated_pauli_string
 from qldpc.experimental.objects import _dense as dense
 from qldpc.experimental.objects.conftest import get_random_pauli_string
 
@@ -29,7 +29,7 @@ def kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> 
     if request.param == "python":
         for name in _KERNELS:
             monkeypatch.setattr(
-                phased_pauli_string, name, getattr(phased_pauli_string, name).py_func
+                rotated_pauli_string, name, getattr(rotated_pauli_string, name).py_func
             )
 
 
@@ -47,7 +47,7 @@ def _get_rotations_matrix(
     return matrix
 
 
-def _get_matrix(operator: PhasedPauliString) -> npt.NDArray[np.complex128]:
+def _get_matrix(operator: RotatedPauliString) -> npt.NDArray[np.complex128]:
     """The matrix of an operator, built from its core and rotation axes."""
     return _get_rotations_matrix(
         operator.core, operator.s_axes, operator.t_axes, operator.num_qubits
@@ -65,10 +65,10 @@ def _get_random_rotations(
     return core, s_axes, t_axes
 
 
-def _get_random_operator(rng: np.random.Generator, num_qubits: int) -> PhasedPauliString:
+def _get_random_operator(rng: np.random.Generator, num_qubits: int) -> RotatedPauliString:
     """A random operator with up to 3 π/2 rotations and up to 4 π/4 rotations."""
     core, s_axes, t_axes = _get_random_rotations(rng, num_qubits)
-    return PhasedPauliString.from_rotations(core, s_axes=s_axes, t_axes=t_axes)
+    return RotatedPauliString.from_rotations(core, s_axes=s_axes, t_axes=t_axes)
 
 
 @pytest.mark.usefixtures("kernels")
@@ -76,10 +76,10 @@ def test_simplification_preserves_operators(rng: np.random.Generator) -> None:
     for num_qubits in (1, 2, 3):
         for _ in range(10):
             core, s_axes, t_axes = _get_random_rotations(rng, num_qubits)
-            operator = PhasedPauliString.from_rotations(core, s_axes=s_axes, t_axes=t_axes)
+            operator = RotatedPauliString.from_rotations(core, s_axes=s_axes, t_axes=t_axes)
             expected = _get_rotations_matrix(core, s_axes, t_axes, num_qubits)
             assert dense.equal_up_to_phase(_get_matrix(operator), expected)
-            assert operator == PhasedPauliString.from_rotations(
+            assert operator == RotatedPauliString.from_rotations(
                 operator.core, s_axes=operator.s_axes, t_axes=operator.t_axes
             )
 
@@ -90,22 +90,22 @@ def test_simplified_forms() -> None:
 
     Two rotations about the same axis merge, and two about opposite axes ``a`` and ``-a`` cancel.
     """
-    operator = PhasedPauliString.from_rotations(
+    operator = RotatedPauliString.from_rotations(
         "XY", s_axes=["+ZZ", "-ZZ", "+_X"], t_axes=["+X_", "-__", "+Z_", "-Z_", "+_Z", "+_Z"]
     )
-    expected = PhasedPauliString.from_rotations("XY", s_axes=["+_X", "+_Z"], t_axes=["+X_"])
+    expected = RotatedPauliString.from_rotations("XY", s_axes=["+_X", "+_Z"], t_axes=["+X_"])
     assert operator == expected and hash(operator) == hash(expected)
     assert dense.equal_up_to_phase(_get_matrix(operator), _get_matrix(expected))
 
     # merging R_{π/4}(X_) R_{π/4}(X_) = R_{π/2}(X_) conjugates the inner axis Z_ to -Y_
-    operator = PhasedPauliString.from_rotations("__", t_axes=["+Z_", "+X_", "+X_"])
-    assert operator == PhasedPauliString.from_rotations("__", s_axes=["+X_"], t_axes=["-Y_"])
-    assert operator != PhasedPauliString.from_rotations("__", s_axes=["+X_"], t_axes=["+Y_"])
+    operator = RotatedPauliString.from_rotations("__", t_axes=["+Z_", "+X_", "+X_"])
+    assert operator == RotatedPauliString.from_rotations("__", s_axes=["+X_"], t_axes=["-Y_"])
+    assert operator != RotatedPauliString.from_rotations("__", s_axes=["+X_"], t_axes=["+Y_"])
     assert not operator.is_clifford
 
-    clifford = PhasedPauliString.from_rotations("X", s_axes=["Z"])
+    clifford = RotatedPauliString.from_rotations("X", s_axes=["Z"])
     assert clifford.is_clifford and not clifford.is_pauli
-    assert PhasedPauliString("X").is_pauli
+    assert RotatedPauliString("X").is_pauli
 
 
 def test_clifford_operators_have_canonical_forms(rng: np.random.Generator) -> None:
@@ -128,7 +128,7 @@ def test_clifford_operators_have_canonical_forms(rng: np.random.Generator) -> No
             position = rng.integers(len(s_axes) + 1)
             other_s_axes = [*s_axes[:position], extra, -extra, *s_axes[position:]]
             for axes in (s_axes, other_s_axes):
-                operators.append(PhasedPauliString.from_rotations(core, s_axes=axes))
+                operators.append(RotatedPauliString.from_rotations(core, s_axes=axes))
                 matrices.append(_get_rotations_matrix(core, axes, [], num_qubits))
 
         for operator, matrix in zip(operators, matrices):
@@ -146,8 +146,8 @@ def test_products_and_adjoints(rng: np.random.Generator) -> None:
     """Products and adjoints of a fixed pair of operators, and of random operators."""
     pairs = [
         (
-            PhasedPauliString.from_rotations("Z", s_axes=["X"], t_axes=["Y"]),
-            PhasedPauliString.from_rotations("Y", s_axes=["Z"], t_axes=["X"]),
+            RotatedPauliString.from_rotations("Z", s_axes=["X"], t_axes=["Y"]),
+            RotatedPauliString.from_rotations("Y", s_axes=["Z"], t_axes=["X"]),
         )
     ]
     for num_qubits in (1, 2, 3):
@@ -165,30 +165,30 @@ def test_products_and_adjoints(rng: np.random.Generator) -> None:
         identity = first * first.adjoint()
         assert dense.equal_up_to_phase(_get_matrix(identity), np.eye(len(first_matrix)))
         if first.is_clifford:
-            assert identity == PhasedPauliString(num_qubits=first.num_qubits)
+            assert identity == RotatedPauliString(num_qubits=first.num_qubits)
 
 
 def test_strings_and_widths() -> None:
-    operator = PhasedPauliString.from_rotations("X_", s_axes=["+ZZ"], t_axes=["-XY", "+XZ"])
+    operator = RotatedPauliString.from_rotations("X_", s_axes=["+ZZ"], t_axes=["-XY", "+XZ"])
     assert operator.num_qubits == 2
     assert str(operator).splitlines()[0] == "X_" and "T -XY" in str(operator)
-    for value in (operator, PhasedPauliString("Z")):
-        assert eval(repr(value), {"PhasedPauliString": PhasedPauliString}) == value
-    assert PhasedPauliString().num_qubits == 0 and str(PhasedPauliString()) == ""
+    for value in (operator, RotatedPauliString("Z")):
+        assert eval(repr(value), {"RotatedPauliString": RotatedPauliString}) == value
+    assert RotatedPauliString().num_qubits == 0 and str(RotatedPauliString()) == ""
 
-    product = operator * PhasedPauliString("__Y")
+    product = operator * RotatedPauliString("__Y")
     assert product.num_qubits == 3
     expected = np.kron(_get_matrix(operator), dense.get_pauli_matrix(stim.PauliString("Y"), 1))
     assert dense.equal_up_to_phase(_get_matrix(product), expected)
-    assert PhasedPauliString("Z", num_qubits=3) == PhasedPauliString("Z__")
-    assert PhasedPauliString("Z") != PhasedPauliString("Z_")
+    assert RotatedPauliString("Z", num_qubits=3) == RotatedPauliString("Z__")
+    assert RotatedPauliString("Z") != RotatedPauliString("Z_")
 
 
 def test_invalid_inputs() -> None:
     with pytest.raises(ValueError, match="Hermitian"):
-        PhasedPauliString.from_rotations("X", s_axes=["iZ"])
+        RotatedPauliString.from_rotations("X", s_axes=["iZ"])
     with pytest.raises(ValueError, match="more than"):
-        PhasedPauliString("XX", num_qubits=1)
+        RotatedPauliString("XX", num_qubits=1)
     with pytest.raises(TypeError):
-        mul(PhasedPauliString("X"), "X")
-    assert PhasedPauliString("X") != "X"
+        mul(RotatedPauliString("X"), "X")
+    assert RotatedPauliString("X") != "X"

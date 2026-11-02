@@ -2,6 +2,19 @@
 
 """Pauli strings followed by layers of π/2 and π/4 Pauli rotations.
 
+A ``RotatedPauliString`` represents, up to a global phase, an operator of the form
+
+    ``V = R_{π/4}(t_k) ··· R_{π/4}(t_1) · R_{π/2}(s_j) ··· R_{π/2}(s_1) · P``,
+
+where ``P`` is a Pauli string, the axes ``s_i`` and ``t_i`` are Hermitian Pauli strings, and
+``R_θ(a)`` is the rotation by an angle ``θ`` about ``a``.  Such an operator is a Clifford+T
+operator, and every Clifford+T operator has this form; Pauli strings conjugated by Clifford+T
+unitaries are the main example.  The operators of this form with ``k = 0`` are the Clifford
+operators.  Products and adjoints keep this form, since a Clifford operator ``C`` moves past a π/4
+rotation by conjugating its axis, as in ``C R_{π/4}(t) = R_{π/4}(C t C†) C``.  A
+``RotatedPauliString`` stores its Pauli string and axes bit-packed, so the costs of its operations
+scale polynomially with the numbers of qubits and rotations, rather than with the size of a matrix.
+
 The rotation by an angle ``θ`` about a Hermitian Pauli string ``a`` is ``R_θ(a) = exp(-iθ a/2)``.
 Up to global phases, the π/2 rotation ``R_{π/2}(Z) = exp(-iπ Z/4)`` is the S gate, the π/4 rotation
 ``R_{π/4}(Z) = exp(-iπ Z/8)`` is the T gate, and ``R_{π/2}(a)`` is stim's generalized S gate
@@ -10,17 +23,6 @@ angle in the exponent instead, so his Pauli product rotations ``a_{π/4}`` and `
 ``R_{π/2}(a)`` and ``R_{π/4}(a)``.  The rotations satisfy ``R_{π/4}(a)² = R_{π/2}(a)``,
 ``R_{π/4}(a) R_{π/4}(-a) = I``, and ``R_{π/2}(a) b R_{π/2}(a)† = -i a b`` for a Pauli string ``b``
 that anticommutes with ``a``.
-
-A ``PhasedPauliString`` represents, up to a global phase, an operator of the form
-
-    ``V = R_{π/4}(t_k) ··· R_{π/4}(t_1) · R_{π/2}(s_j) ··· R_{π/2}(s_1) · P``,
-
-where ``P`` is a Pauli string and the axes ``s_i`` and ``t_i`` are Hermitian Pauli strings.  The
-operators of this form with ``k = 0`` are the Clifford operators.  Operators of this form are closed
-under products and adjoints, since a Clifford operator ``C`` moves past a π/4 rotation by
-conjugating its axis, as in ``C R_{π/4}(t) = R_{π/4}(C t C†) C``.  A ``PhasedPauliString`` stores
-its Pauli string and axes bit-packed, so the costs of its operations scale polynomially with the
-numbers of qubits and rotations, rather than with the size of a matrix.
 """
 
 # Graduation plan: once the API of this module settles, it moves to qldpc.objects, as follows.
@@ -29,9 +31,9 @@ numbers of qubits and rotations, rather than with the size of a matrix.
 #    module importable from qldpc.objects.
 # 2. Move this module, _packed_paulis.py, _symplectic.py, _dense.py, their test files, and the
 #    fixtures and helpers of qldpc/experimental/objects/conftest.py into qldpc/objects/.
-# 3. Re-export PhasedPauliString from qldpc.objects, and remove qldpc.experimental.objects;
+# 3. Re-export RotatedPauliString from qldpc.objects, and remove qldpc.experimental.objects;
 #    experimental modules need no deprecation shims.
-# 4. Mention PhasedPauliString in the description of qldpc.objects in docs/source/library_map.rst.
+# 4. Mention RotatedPauliString in the description of qldpc.objects in docs/source/library_map.rst.
 
 from __future__ import annotations
 
@@ -59,20 +61,22 @@ _Arrays = tuple[
 # Pauli strings followed by rotations
 
 
-class PhasedPauliString:
+class RotatedPauliString:
     """A Pauli string followed by layers of π/2 and π/4 Pauli rotations, up to a global phase.
 
-    A ``PhasedPauliString`` on ``n`` qubits represents the operator
+    A ``RotatedPauliString`` on ``n`` qubits represents the operator
 
         ``V = R_{π/4}(t_k) ··· R_{π/4}(t_1) · R_{π/2}(s_j) ··· R_{π/2}(s_1) · P``,
 
     where ``P`` is its ``core``, the ``s_i`` are its ``s_axes``, the ``t_i`` are its ``t_axes``, and
     ``R_{π/2}(a) = exp(-iπ a/4)`` and ``R_{π/4}(a) = exp(-iπ a/8)`` are the π/2 and π/4 rotations
-    about a Hermitian Pauli string ``a``.  Axes are listed innermost (first applied) first.
-    "Phased" refers to the rotation layers that phase the Pauli string ``P``, not to a sign: unlike
-    a ``stim.PauliString``, a ``PhasedPauliString`` has no sign.
+    about a Hermitian Pauli string ``a``.  Axes are listed innermost (first applied) first.  Such an
+    operator is a Clifford+T operator, and every Clifford+T operator has this form; Pauli strings
+    conjugated by Clifford+T unitaries are the main example.  "Rotated" means that the rotations
+    are applied after ``P``, not that they conjugate ``P``.  Unlike a ``stim.PauliString``, a
+    ``RotatedPauliString`` has no sign.
 
-    A ``PhasedPauliString`` is always stored in a simplified form.  Simplification drops π/4
+    A ``RotatedPauliString`` is always stored in a simplified form.  Simplification drops π/4
     rotations about the identity, and it merges π/4 rotations that can be brought next to each
     other: two π/4 rotations about the same axis ``a`` merge into a π/2 rotation about ``a``, and
     two about ``a`` and ``-a`` cancel.  Finally, it puts the Clifford operator
@@ -117,7 +121,7 @@ class PhasedPauliString:
         s_axes: Sequence[str | stim.PauliString] = (),
         t_axes: Sequence[str | stim.PauliString] = (),
         num_qubits: int | None = None,
-    ) -> PhasedPauliString:
+    ) -> RotatedPauliString:
         """The simplified product of a Pauli string and layers of π/2 and π/4 rotations.
 
         The product is
@@ -131,7 +135,7 @@ class PhasedPauliString:
             num_qubits: The number of qubits.  Default: the length of the longest Pauli string.
 
         Returns:
-            The simplified ``PhasedPauliString``.
+            The simplified ``RotatedPauliString``.
 
         Raises:
             ValueError: If an axis is not Hermitian, or a Pauli string is longer than
@@ -146,7 +150,7 @@ class PhasedPauliString:
         core_words, _ = packed.from_stim(strings[0], num_qubits)
         s_words, s_phases = _pack_axes(strings[1 : 1 + len(s_axes)], num_qubits)
         t_words, t_phases = _pack_axes(strings[1 + len(s_axes) :], num_qubits)
-        return PhasedPauliString._new(
+        return RotatedPauliString._new(
             num_qubits, _simplify(core_words, s_words, s_phases, t_words, t_phases)
         )
 
@@ -195,16 +199,16 @@ class PhasedPauliString:
     ################################################################################################
     # algebra
 
-    def __mul__(self, other: PhasedPauliString) -> PhasedPauliString:
+    def __mul__(self, other: RotatedPauliString) -> RotatedPauliString:
         """The product of two operators, acting on enough qubits for both."""
-        if not isinstance(other, PhasedPauliString):
+        if not isinstance(other, RotatedPauliString):
             return NotImplemented
         num_qubits = max(self._num_qubits, other._num_qubits)
         lhs, rhs = self._padded(num_qubits), other._padded(num_qubits)
         product = _multiply(*lhs._get_arrays(), *rhs._get_arrays())
-        return PhasedPauliString._new(num_qubits, _simplify(*product))
+        return RotatedPauliString._new(num_qubits, _simplify(*product))
 
-    def adjoint(self) -> PhasedPauliString:
+    def adjoint(self) -> RotatedPauliString:
         """The Hermitian adjoint of this operator.
 
         The adjoint is
@@ -223,13 +227,13 @@ class PhasedPauliString:
             *(identity, *inverse_s, no_axes, no_phases),
         )
         product = _multiply(*product, *(identity, no_axes, no_phases, *inverse_t))
-        return PhasedPauliString._new(self._num_qubits, _simplify(*product))
+        return RotatedPauliString._new(self._num_qubits, _simplify(*product))
 
     ################################################################################################
     # comparison and printing
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, PhasedPauliString):
+        if not isinstance(other, RotatedPauliString):
             return NotImplemented
         return self._num_qubits == other._num_qubits and all(
             np.array_equal(mine, theirs)
@@ -253,15 +257,15 @@ class PhasedPauliString:
         if len(self._t_axes):
             arguments.append(f"t_axes={[str(axis) for axis in self.t_axes]!r}")
         arguments.append(f"num_qubits={self._num_qubits}")
-        return f"PhasedPauliString.from_rotations({', '.join(arguments)})"
+        return f"RotatedPauliString.from_rotations({', '.join(arguments)})"
 
     ################################################################################################
     # internals
 
     @staticmethod
-    def _new(num_qubits: int, arrays: _Arrays) -> PhasedPauliString:
+    def _new(num_qubits: int, arrays: _Arrays) -> RotatedPauliString:
         """An operator with the given simplified arrays."""
-        result = object.__new__(PhasedPauliString)
+        result = object.__new__(RotatedPauliString)
         result._set(num_qubits, arrays)
         return result
 
@@ -274,7 +278,7 @@ class PhasedPauliString:
         """The core, and the π/2 and π/4 axes with their phases."""
         return self._core, self._s_axes, self._s_phases, self._t_axes, self._t_phases
 
-    def _padded(self, num_qubits: int) -> PhasedPauliString:
+    def _padded(self, num_qubits: int) -> RotatedPauliString:
         """This operator, padded with identities to act on ``num_qubits`` qubits."""
         if num_qubits == self._num_qubits:
             return self
@@ -285,7 +289,7 @@ class PhasedPauliString:
             _pad(self._t_axes, self._num_qubits, num_qubits),
             self._t_phases,
         )
-        return PhasedPauliString._new(num_qubits, arrays)
+        return RotatedPauliString._new(num_qubits, arrays)
 
 
 ####################################################################################################
