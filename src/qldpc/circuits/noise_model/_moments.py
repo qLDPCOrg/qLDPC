@@ -62,21 +62,6 @@ def idle_barrier_qubits(
     return qubits
 
 
-def get_immune_qubits(circuit: stim.Circuit, immune_qubit_tag: str) -> frozenset[int]:
-    """Identify qubits declared immune to noise by tagged coordinate annotations."""
-    immune_qubits: set[int] = set()
-    for instruction in circuit:
-        if isinstance(instruction, stim.CircuitRepeatBlock):
-            immune_qubits.update(get_immune_qubits(instruction.body_copy(), immune_qubit_tag))
-        elif instruction.name == "QUBIT_COORDS" and immune_qubit_tag in instruction.tag:
-            immune_qubits.update(
-                target.qubit_value
-                for target in instruction.targets_copy()
-                if target.qubit_value is not None
-            )
-    return frozenset(immune_qubits)
-
-
 def categorize_moment_qubits(
     moment: Collection[stim.CircuitInstruction | stim.CircuitRepeatBlock],
 ) -> tuple[list[int], list[int]]:

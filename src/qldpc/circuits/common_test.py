@@ -73,3 +73,18 @@ def test_deprecated_attribute_lookup() -> None:
     """The module-level lookup of deprecated names rejects other names."""
     with pytest.raises(AttributeError, match="has no attribute 'not_a_real_export'"):
         common.not_a_real_export  # type: ignore[attr-defined]  # noqa: B018
+
+
+def test_get_immune_qubits() -> None:
+    """Qubits are immune if a QUBIT_COORDS annotation for them has the immune-qubit tag."""
+    circuit = stim.Circuit("""
+        QUBIT_COORDS[immune](0) 0
+        QUBIT_COORDS(2) 2
+        REPEAT 2 {
+            QUBIT_COORDS[my_immune_tag](1) 1
+        }
+    """)
+    assert common._get_immune_qubits(circuit, "immune") == {0, 1}
+    assert common._get_immune_qubits(circuit, None) == frozenset()
+    with pytest.raises(ValueError, match="non-empty"):
+        common._get_immune_qubits(circuit, "")

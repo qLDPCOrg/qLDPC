@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Circuit types, Pauli-product measurements, and the guard for qubit-only methods.
+"""Circuit types, noise-immunity tags, Pauli-product measurements, and the qubit-only guard.
 
 This module is the foundation of ``qldpc.circuits``: it imports no other module of
 ``qldpc.circuits``, so that all of them can import it.
@@ -22,6 +22,12 @@ from qldpc import _deprecations, codes, math
 
 _ReturnType = TypeVar("_ReturnType")
 _Params = ParamSpec("_Params")
+
+# Tags that, by default, make an operation or repeat block noiseless, or declare that the qubits of
+# a tagged QUBIT_COORDS annotation are immune to noise.  The noise models of qldpc.circuits use
+# them, and they are defined here so that circuit transformations can respect them.
+DEFAULT_IMMUNE_OP_TAG = "__IMMUNE_TO_NOISE__"
+DEFAULT_IMMUNE_QUBIT_TAG = "__IMMUNE_QUBIT_TO_NOISE__"
 
 
 class StimCircuitProtocol(Protocol):
@@ -118,6 +124,32 @@ def get_pauli_product_measurements(
             ]
         circuit.append("MPP", targets)
     return circuit
+
+
+def _get_immune_qubits(circuit: stim.Circuit, immune_qubit_tag: str | None) -> frozenset[int]:
+    """Identify qubits declared immune to noise by tagged coordinate annotations.
+
+    A qubit is declared immune if a QUBIT_COORDS annotation for it has a tag that contains
+    immune_qubit_tag.  If immune_qubit_tag is None, no qubit is declared immune.
+
+    Raises:
+        ValueError: If immune_qubit_tag is empty.
+    """
+    if immune_qubit_tag is None:
+        return frozenset()
+    if immune_qubit_tag == "":
+        raise ValueError("immune_qubit_tag must be non-empty or None")
+    immune_qubits: set[int] = set()
+    for instruction in circuit:
+        if isinstance(instruction, stim.CircuitRepeatBlock):
+            immune_qubits.update(_get_immune_qubits(instruction.body_copy(), immune_qubit_tag))
+        elif instruction.name == "QUBIT_COORDS" and immune_qubit_tag in instruction.tag:
+            immune_qubits.update(
+                target.qubit_value
+                for target in instruction.targets_copy()
+                if target.qubit_value is not None
+            )
+    return frozenset(immune_qubits)
 
 
 def _restrict_to_qubits(
