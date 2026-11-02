@@ -6,20 +6,21 @@
 single-qubit gates, as follows.
 
 - Each two-qubit gate becomes single-qubit gates around at most one CZ, and possibly a SWAP.
-- Single-qubit gates are combined and delayed until a later instruction needs them.  Before a CZ,
-  the delayed gate of a qubit splits into H, SQRT_X, or nothing, which is applied before the CZ,
-  and a diagonal gate, possibly times X, which moves past the CZ.
-- Delayed gates merge into later single-qubit measurements, which change their bases and may
-  invert their results, and into the Pauli targets of later observables.  Resets discard them.
+- Single-qubit gates are combined and kept pending until a later instruction needs them.  Before a
+  CZ, the pending gate of a qubit splits into H, SQRT_X, or nothing, which is applied before the
+  CZ, and a diagonal gate, possibly times X, which moves past the CZ.
+- Pending gates merge into later single-qubit measurements, which change their bases and may
+  invert their results, and into the Pauli targets of later observables.  Resets, tagged or not,
+  discard them.
 - SWAP gates are free: instead of moving states between qubits, the transpiler relabels qubits, so
   that SWAP gates and the SWAP parts of gates such as ISWAP leave the circuit.  SWAP gates at the
   end of the circuit return all states to their qubits.
-- Tagged instructions, such as noiseless instructions tagged with ``DEFAULT_IMMUNE_OP_TAG``, and
-  multi-qubit measurements are copied as they are, after the delayed gates of their qubits, except
-  that their qubit targets are relabeled.
+- Other tagged instructions, such as noiseless instructions tagged with ``DEFAULT_IMMUNE_OP_TAG``,
+  and multi-qubit measurements are copied as they are, after the pending gates of their qubits,
+  except that their qubit targets are relabeled.
 - Qubits that are immune to noise (as declared for ``NoiseModel.noisy_circuit``) are never
   relabeled to qubits that are not, so a SWAP between them stays in the circuit.
-- ``REPEAT`` blocks are kept.  All delayed gates are applied and all qubit labels are restored
+- ``REPEAT`` blocks are kept.  All pending gates are applied and all qubit labels are restored
   before each ``REPEAT`` block and at the end of each iteration, with a warning if that adds gates.
   Flattening the circuit (with ``stim.Circuit.flattened``) avoids these gates.
 - Detectors and the annotations ``QUBIT_COORDS``, ``SHIFT_COORDS``, and ``MPAD`` are copied as
@@ -48,16 +49,19 @@ from .qubit_remapping import remap_qubit_target
 
 # Paulis are indexed as in stim.PauliString: 1, 2, 3 for X, Y, Z.
 _PAULIS = "_XYZ"
-# The basis of each single-qubit measurement or measure-reset, and a Pauli that flips that basis.
+# The basis of each single-qubit measurement, measure-reset, or reset, and a Pauli that flips it.
 _MEASUREMENTS = {"M": "Z", "MX": "X", "MY": "Y", "MR": "Z", "MRX": "X", "MRY": "Y"}
-_FLIPS = {"X": "Z", "Y": "Z", "Z": "X"}
 _RESETS = {"R": "Z", "RX": "X", "RY": "Y"}
+_FLIPS = {"X": "Z", "Y": "Z", "Z": "X"}
 _MULTI_QUBIT_MEASUREMENTS = frozenset({"MPP", "MXX", "MYY", "MZZ"})
 # Instructions that are noisy if they have arguments, and instructions that are copied as they are.
 _NOISY_WITH_ARGUMENTS = frozenset({*_MEASUREMENTS, *_MULTI_QUBIT_MEASUREMENTS, "MPAD"})
 _ANNOTATIONS = frozenset({"DETECTOR", "QUBIT_COORDS", "SHIFT_COORDS", "MPAD"})
 # For each axis, a gate G for which G^dag @ Z @ G is +/- that axis.
 _AXIS_GATES = {"X": "H", "Y": "SQRT_X", "Z": "I"}
+
+# A run of untagged unitary gates, each given by its name and its qubits.
+_Segment = list[tuple[str, tuple[int, ...]]]
 
 ####################################################################################################
 # transpilation
@@ -97,28 +101,31 @@ def transpile_to_cz(
     """
     immune = frozenset(immune_qubits) | _get_immune_qubits(circuit, immune_qubit_tag)
     transpiler = _Transpiler(circuit.num_qubits, immune)
-    transpiler.run(circuit)
-    transpiler.settle()
+    transpiler.transpile(circuit)
+    transpiler.apply_pending_gates_and_restore_labels()
     return _clean_up(transpiler.circuit) if cleanup else transpiler.circuit
 
 
 class _Transpiler:
-    """Transpile instructions, delaying single-qubit gates and relabeling qubits.
+    """Transpile instructions, keeping single-qubit gates pending and relabeling qubits.
+
+    Qubits of the input circuit are called input qubits, and qubits of the transpiled circuit are
+    called output qubits, or just qubits.
 
     Attributes:
         circuit: The transpiled circuit so far.
-        wires: The qubit of the output that holds the state of each qubit of the input.
-        delayed: The single-qubit gate that each qubit of the output still needs after circuit.
-        immune: The qubits that are immune to noise.
+        output_qubits: The output qubit that holds the state of each input qubit.
+        pending_gates: The single-qubit gate that each output qubit still needs after circuit.
+        immune: The output qubits that are immune to noise.
     """
 
     def __init__(self, num_qubits: int, immune: frozenset[int]) -> None:
         self.circuit = stim.Circuit()
-        self.wires = list(range(num_qubits))
-        self.delayed = [_get_tableau("I")] * num_qubits
+        self.output_qubits = list(range(num_qubits))
+        self.pending_gates = [_get_tableau("I")] * num_qubits
         self.immune = immune
 
-    def run(self, circuit: stim.Circuit) -> None:
+    def transpile(self, circuit: stim.Circuit) -> None:
         """Transpile the instructions of a circuit."""
         for instruction in circuit:
             if isinstance(instruction, stim.CircuitRepeatBlock):
@@ -126,20 +133,28 @@ class _Transpiler:
             else:
                 self._apply(instruction)
 
-    def settle(self) -> bool:
-        """Apply all delayed gates and restore all qubit labels.  Return whether that adds gates."""
+    def apply_pending_gates_and_restore_labels(self) -> bool:
+        """Apply all pending gates and move every state back to its input qubit with SWAP gates.
+
+        Returns:
+            Whether this added any gates.
+        """
         added_gates = False
-        for wire in range(len(self.delayed)):
-            added_gates |= self._flush(wire)
-        holders = {wire: qubit for qubit, wire in enumerate(self.wires)}
-        for qubit in range(len(self.wires)):
-            wire = self.wires[qubit]
-            if wire != qubit:
-                # move the state of this qubit back from its wire, and the state on its wire away
-                other = holders[qubit]
-                self.circuit.append("SWAP", [wire, qubit])
-                self.wires[qubit], self.wires[other] = qubit, wire
-                holders[qubit], holders[wire] = qubit, other
+        for qubit in range(len(self.pending_gates)):
+            added_gates |= self._apply_pending_gate(qubit)
+
+        # input_qubits[qubit] is the input qubit whose state the output qubit holds
+        input_qubits = {qubit: input_qubit for input_qubit, qubit in enumerate(self.output_qubits)}
+        for input_qubit in range(len(self.output_qubits)):
+            qubit = self.output_qubits[input_qubit]
+            if qubit != input_qubit:
+                # swap the state of input_qubit into place, and the state in its place to qubit
+                displaced_input_qubit = input_qubits[input_qubit]
+                self.circuit.append("SWAP", [qubit, input_qubit])
+                self.output_qubits[input_qubit] = input_qubit
+                self.output_qubits[displaced_input_qubit] = qubit
+                input_qubits[input_qubit] = input_qubit
+                input_qubits[qubit] = displaced_input_qubit
                 added_gates = True
         return added_gates
 
@@ -147,6 +162,8 @@ class _Transpiler:
         """Transpile an instruction that is not a REPEAT block."""
         name, targets = instruction.name, instruction.targets_copy()
         data = stim.gate_data(name)
+
+        # reject noise, and drop or copy instructions that do not act on states
         if (data.is_noisy_gate and name not in _NOISY_WITH_ARGUMENTS) or (
             name in _NOISY_WITH_ARGUMENTS and any(instruction.gate_args_copy())
         ):
@@ -155,15 +172,20 @@ class _Transpiler:
             return
         if name in _ANNOTATIONS:
             self.circuit.append(instruction)
+
+        # resets discard the pending gates of their qubits, and other tagged instructions and
+        # multi-qubit measurements come after these gates
         elif name in _RESETS:
             for target in targets:
-                self.delayed[self.wires[target.value]] = _get_tableau("I")
+                self.pending_gates[self.output_qubits[target.value]] = _get_tableau("I")
             self._append_relabeled(instruction)
         elif instruction.tag or name in _MULTI_QUBIT_MEASUREMENTS:
             for target in targets:
                 if target.qubit_value is not None:
-                    self._flush(self.wires[target.qubit_value])
+                    self._apply_pending_gate(self.output_qubits[target.qubit_value])
             self._append_relabeled(instruction)
+
+        # untagged unitary gates join pending gates or become CZ gates
         elif data.is_unitary and any(
             target.is_measurement_record_target or target.is_sweep_bit_target for target in targets
         ):
@@ -172,11 +194,13 @@ class _Transpiler:
             )
         elif data.is_unitary and data.is_single_qubit_gate:
             for target in targets:
-                wire = self.wires[target.value]
-                self.delayed[wire] = self.delayed[wire].then(_get_tableau(name))
+                qubit = self.output_qubits[target.value]
+                self.pending_gates[qubit] = self.pending_gates[qubit].then(_get_tableau(name))
         elif data.is_unitary and data.is_two_qubit_gate:
             for target_0, target_1 in zip(targets[::2], targets[1::2]):
                 self._apply_two_qubit_gate(name, target_0.value, target_1.value)
+
+        # single-qubit measurements and observables absorb pending gates
         elif name in _MEASUREMENTS:
             for target in targets:
                 self._measure(name, target)
@@ -189,62 +213,72 @@ class _Transpiler:
         else:
             raise ValueError(f"Untagged {name} gates are not supported")
 
-    def _apply_two_qubit_gate(self, name: str, qubit_0: int, qubit_1: int) -> None:
+    def _apply_two_qubit_gate(self, name: str, input_qubit_0: int, input_qubit_1: int) -> None:
         """Apply a two-qubit gate as single-qubit gates, at most one CZ, and maybe a relabeling."""
         before_0, before_1, has_cz, after_0, after_1, has_swap = _decompose_two_qubit_gate(name)
-        wire_0, wire_1 = self.wires[qubit_0], self.wires[qubit_1]
-        gate_0, gate_1 = self.delayed[wire_0].then(before_0), self.delayed[wire_1].then(before_1)
+        qubit_0, qubit_1 = self.output_qubits[input_qubit_0], self.output_qubits[input_qubit_1]
+        gate_0 = self.pending_gates[qubit_0].then(before_0)
+        gate_1 = self.pending_gates[qubit_1].then(before_1)
+
+        # append the CZ after the parts of the pending gates that cannot move past it
         if has_cz:
             first_0, first_1, gate_0, gate_1 = _commute_through_cz(gate_0, gate_1)
-            self._emit(wire_0, first_0)
-            self._emit(wire_1, first_1)
-            self.circuit.append("CZ", [wire_0, wire_1])
-        self.delayed[wire_0], self.delayed[wire_1] = gate_0.then(after_0), gate_1.then(after_1)
-        if has_swap and (wire_0 in self.immune) == (wire_1 in self.immune):
-            self.wires[qubit_0], self.wires[qubit_1] = wire_1, wire_0
+            self._append_gate(qubit_0, first_0)
+            self._append_gate(qubit_1, first_1)
+            self.circuit.append("CZ", [qubit_0, qubit_1])
+        self.pending_gates[qubit_0] = gate_0.then(after_0)
+        self.pending_gates[qubit_1] = gate_1.then(after_1)
+
+        # relabel the two qubits instead of swapping them, unless only one of them is immune
+        if has_swap and (qubit_0 in self.immune) == (qubit_1 in self.immune):
+            self.output_qubits[input_qubit_0] = qubit_1
+            self.output_qubits[input_qubit_1] = qubit_0
         elif has_swap:
-            # swapping states between immune and other qubits takes a SWAP, which the delayed gates
-            # of the two qubits follow
-            self.circuit.append("SWAP", [wire_0, wire_1])
-            self.delayed[wire_0], self.delayed[wire_1] = self.delayed[wire_1], self.delayed[wire_0]
+            self.circuit.append("SWAP", [qubit_0, qubit_1])
+            self.pending_gates[qubit_0], self.pending_gates[qubit_1] = (
+                self.pending_gates[qubit_1],
+                self.pending_gates[qubit_0],
+            )
 
     def _measure(self, name: str, target: stim.GateTarget) -> None:
-        """Measure a qubit in the basis that absorbs its delayed gate."""
+        """Measure a qubit in the basis that absorbs its pending gate."""
         basis = _MEASUREMENTS[name]
-        wire = self.wires[target.value]
-        axis, flipped = _pull_back(self.delayed[wire], basis)
+        qubit = self.output_qubits[target.value]
+        axis, flipped = _pull_back(self.pending_gates[qubit], basis)
         prefix = "MR" if name.startswith("MR") else "M"
         invert = target.is_inverted_result_target ^ flipped
         self.circuit.append(
-            prefix + axis.replace("Z", ""), [stim.target_inv(wire) if invert else wire]
+            prefix + axis.replace("Z", ""), [stim.target_inv(qubit) if invert else qubit]
         )
+
+        # after a measure-reset, the pending gate maps the reset state to the -1 eigenstate of the
+        # original basis if flipped, so a Pauli gate that flips that basis must follow it
         if prefix == "MR" and flipped:
-            # the delayed gate maps the reset state to the -1 eigenstate of the original basis
-            self.delayed[wire] = self.delayed[wire].then(_get_tableau(_FLIPS[basis]))
+            self.pending_gates[qubit] = self.pending_gates[qubit].then(_get_tableau(_FLIPS[basis]))
 
     def _read_pauli(self, target: stim.GateTarget) -> stim.GateTarget:
-        """Rewrite a Pauli target to read the same Pauli before the delayed gate of its qubit."""
-        wire = self.wires[target.value]
-        axis, flipped = _pull_back(self.delayed[wire], target.pauli_type)
-        return stim.target_pauli(wire, axis, invert=target.is_inverted_result_target ^ flipped)
+        """Rewrite a Pauli target to read the same Pauli before the pending gate of its qubit."""
+        qubit = self.output_qubits[target.value]
+        axis, flipped = _pull_back(self.pending_gates[qubit], target.pauli_type)
+        return stim.target_pauli(qubit, axis, invert=target.is_inverted_result_target ^ flipped)
 
-    def _flush(self, wire: int) -> bool:
-        """Apply the delayed gate of a qubit.  Return whether it is not the identity."""
-        gate, self.delayed[wire] = self.delayed[wire], _get_tableau("I")
-        return self._emit(wire, gate)
+    def _apply_pending_gate(self, qubit: int) -> bool:
+        """Append the pending gate of a qubit.  Return whether it is not the identity."""
+        gate, self.pending_gates[qubit] = self.pending_gates[qubit], _get_tableau("I")
+        return self._append_gate(qubit, gate)
 
-    def _emit(self, wire: int, gate: stim.Tableau) -> bool:
+    def _append_gate(self, qubit: int, gate: stim.Tableau) -> bool:
         """Append a single-qubit gate unless it is the identity.  Return whether it was appended."""
         if gate == _get_tableau("I"):
             return False
-        self.circuit.append(_get_gate_names()[_get_key(gate)], [wire])
+        self.circuit.append(_get_gate_names()[_get_key(gate)], [qubit])
         return True
 
     def _append_relabeled(self, instruction: stim.CircuitInstruction) -> None:
-        """Append an instruction with qubit targets on the qubits of the output that hold them."""
+        """Append an instruction with its qubit targets moved to the qubits that hold them."""
         targets = instruction.targets_copy()
         qubit_map = {
-            target.qubit_value: self.wires[target.qubit_value]
+            target.qubit_value: self.output_qubits[target.qubit_value]
             for target in targets
             if target.qubit_value is not None
         }
@@ -258,14 +292,17 @@ class _Transpiler:
         )
 
     def _repeat(self, block: stim.CircuitRepeatBlock) -> None:
-        """Transpile a REPEAT block, starting and ending each iteration with settled qubits."""
-        body = _Transpiler(len(self.wires), self.immune)
-        body.run(block.body_copy())
-        added_gates_before = self.settle()
-        added_gates_within = body.settle()
+        """Transpile a REPEAT block, with no pending gates or relabeled qubits at its boundaries."""
+        # transpile one iteration from a state with no pending gates or relabeled qubits
+        body = _Transpiler(len(self.output_qubits), self.immune)
+        body.transpile(block.body_copy())
+
+        # return to that state before the block and at the end of each iteration
+        added_gates_before = self.apply_pending_gates_and_restore_labels()
+        added_gates_within = body.apply_pending_gates_and_restore_labels()
         if added_gates_before or added_gates_within:
             warnings.warn(
-                "REPEAT support of transpile_to_cz is limited: it applies all delayed single-qubit"
+                "REPEAT support of transpile_to_cz is limited: it applies all pending single-qubit"
                 " gates and restores all qubit labels at the boundaries of REPEAT blocks, which"
                 " added gates.  Flatten the circuit (with stim.Circuit.flattened) to avoid them.",
                 stacklevel=2,
@@ -286,6 +323,7 @@ def _commute_through_cz(
         first_1, then the CZ, and then last_0 and last_1.
     """
     firsts, rests = zip(*(_split_off_diagonal_part(gate) for gate in (gate_0, gate_1)))
+
     # each rest is diagonal, possibly times X, and X moves past the CZ as X and Z on the other qubit
     has_x = [rest.z_output(0).sign == -1 for rest in rests]
     last_0 = rests[0].then(_get_tableau("Z")) if has_x[1] else rests[0]
@@ -313,43 +351,53 @@ def _split_off_diagonal_part(gate: stim.Tableau) -> tuple[stim.Tableau, stim.Tab
 def _clean_up(circuit: stim.Circuit) -> stim.Circuit:
     """Clean up a transpiled circuit (see the module docstring).
 
-    Runs of untagged unitary gates are cleaned up one by one, and other instructions stay in place.
-    Single-qubit gates are held past instructions that do not address their qubits.
+    The cleanup collects segments of untagged unitary gates between other instructions, which stay
+    in place, and cleans up each segment.  Single-qubit gates stay pending past instructions that do
+    not address their qubits.
     """
-    items: list[stim.CircuitInstruction | stim.CircuitRepeatBlock] = []
-    run: list[tuple[str, tuple[int, ...]]] = []
-    # the single-qubit gate that each qubit holds, and the index in items of the last untagged reset
-    # of each qubit, if nothing has acted on it since
-    held: dict[int, stim.Tableau] = {}
-    resets: dict[int, int] = {}
+    operations: list[stim.CircuitInstruction | stim.CircuitRepeatBlock] = []
+    segment: _Segment = []
+    # the pending single-qubit gate of each qubit, and the index in operations of the last untagged
+    # reset of each qubit, if nothing has acted on that qubit since
+    pending_gates: dict[int, stim.Tableau] = {}
+    open_resets: dict[int, int] = {}
     for item in circuit:
+        # collect untagged unitary gates into the current segment
         if isinstance(item, stim.CircuitInstruction) and _is_untagged_gate(item):
-            run += [(item.name, tuple(t.value for t in group)) for group in item.target_groups()]
+            segment.extend(
+                (item.name, tuple(target.value for target in group))
+                for group in item.target_groups()
+            )
             continue
+
+        # clean up the segment, and apply the pending gates of the qubits that the next item uses
         qubits = (
             None
             if isinstance(item, stim.CircuitRepeatBlock)
             else {t.qubit_value for t in item.targets_copy() if t.qubit_value is not None}
         )
-        _schedule(_cancel_cz_pairs(run), items, held, resets, release_qubits=qubits)
-        run = []
+        _schedule(_cancel_cz_pairs(segment), operations, pending_gates, open_resets, qubits)
+        segment = []
+
+        # append the next item, recording untagged resets, which can absorb later gates
         if isinstance(item, stim.CircuitRepeatBlock):
             body = _clean_up(item.body_copy())
-            items.append(stim.CircuitRepeatBlock(item.repeat_count, body, tag=item.tag))
-            resets.clear()
+            operations.append(stim.CircuitRepeatBlock(item.repeat_count, body, tag=item.tag))
+            open_resets.clear()
         elif item.name in _RESETS and not item.tag:
             for target in item.targets_copy():
-                resets[target.value] = len(items)
-                items.append(stim.CircuitInstruction(item.name, [target]))
+                open_resets[target.value] = len(operations)
+                operations.append(stim.CircuitInstruction(item.name, [target]))
         else:
-            items.append(item)
+            operations.append(item)
             for target in item.targets_copy():
-                resets.pop(target.qubit_value, None)
-    _schedule(_cancel_cz_pairs(run), items, held, resets, release_qubits=None)
+                open_resets.pop(target.qubit_value, None)
 
+    # clean up the last segment, and apply all pending gates
+    _schedule(_cancel_cz_pairs(segment), operations, pending_gates, open_resets, None)
     cleaned_circuit = stim.Circuit()
-    for item in items:
-        cleaned_circuit.append(item)
+    for operation in operations:
+        cleaned_circuit.append(operation)
     return cleaned_circuit
 
 
@@ -358,71 +406,86 @@ def _is_untagged_gate(instruction: stim.CircuitInstruction) -> bool:
     return not instruction.tag and stim.gate_data(instruction.name).is_unitary
 
 
-def _cancel_cz_pairs(run: list[tuple[str, tuple[int, ...]]]) -> list[tuple[str, tuple[int, ...]]]:
+def _cancel_cz_pairs(segment: _Segment) -> _Segment:
     """Remove the pairs of CZ gates on the same qubits that only diagonal gates separate."""
-    keep = [True] * len(run)
+    keep = [True] * len(segment)
     # the index of the last CZ on each pair of qubits, if only diagonal gates acted on them since
     open_czs: dict[frozenset[int], int] = {}
-    for index, (name, qubits) in enumerate(run):
-        if name == "CZ" and frozenset(qubits) in open_czs:
-            keep[open_czs.pop(frozenset(qubits))] = keep[index] = False
+    for index, (name, qubits) in enumerate(segment):
+        pair = frozenset(qubits)
+        if name == "CZ" and pair in open_czs:
+            keep[open_czs.pop(pair)] = keep[index] = False
         elif name == "CZ":
-            open_czs[frozenset(qubits)] = index
-        elif len(qubits) > 1 or _get_tableau(name).z_output(0)[0] != 3:
-            for pair in [pair for pair in open_czs if not pair.isdisjoint(qubits)]:
-                del open_czs[pair]
-    return [gate for gate, kept in zip(run, keep) if kept]
+            open_czs[pair] = index
+        elif len(qubits) > 1 or str(_get_tableau(name).z_output(0)) != "+Z":
+            # a gate that is not diagonal blocks the cancellation of CZ gates on its qubits
+            for open_pair in [open_pair for open_pair in open_czs if open_pair & pair]:
+                del open_czs[open_pair]
+    return [gate for gate, kept in zip(segment, keep) if kept]
 
 
 def _schedule(
-    run: list[tuple[str, tuple[int, ...]]],
-    items: list[stim.CircuitInstruction | stim.CircuitRepeatBlock],
-    held: dict[int, stim.Tableau],
-    resets: dict[int, int],
-    release_qubits: Collection[int] | None,
+    segment: _Segment,
+    operations: list[stim.CircuitInstruction | stim.CircuitRepeatBlock],
+    pending_gates: dict[int, stim.Tableau],
+    open_resets: dict[int, int],
+    qubits_to_flush: Collection[int] | None,
 ) -> None:
-    """Append a run of gates to items in layers, merging gates into resets (see _clean_up).
+    """Append a segment of gates to operations in layers, merging gates into resets.
 
     Two-qubit gates come as early as possible, and single-qubit gates as late as possible: each
-    qubit holds its single-qubit gates until the next two-qubit gate on it.  At the end of the run,
-    the qubits in release_qubits (or all qubits, if None) release their held gates.
+    qubit keeps its single-qubit gates pending until the next two-qubit gate on it.  At the end of
+    the segment, the qubits in qubits_to_flush (or all qubits, if None) apply their pending gates.
+    pending_gates and open_resets are as in _clean_up, and are updated in place.
     """
     # each layer has single-qubit gates on qubits, followed by two-qubit gates
-    layers: list[tuple[dict[int, stim.Tableau], list[tuple[str, tuple[int, ...]]]]] = []
+    layers: list[tuple[dict[int, stim.Tableau], _Segment]] = []
     last_layers: dict[int, int] = {}
 
-    def release(qubit: int) -> stim.Tableau:
-        """Take the held gate of a qubit, after merging as much of it as possible into a reset."""
-        gate = held.pop(qubit, _get_tableau("I"))
-        if qubit in resets:
-            index = resets.pop(qubit)
-            name, gate = _merge_into_reset(items[index].name, gate)
-            items[index] = stim.CircuitInstruction(name, [qubit])
+    def take_pending_gate(qubit: int) -> stim.Tableau:
+        """Take the pending gate of a qubit, after merging what it can into an open reset."""
+        gate = pending_gates.pop(qubit, _get_tableau("I"))
+        if qubit in open_resets:
+            index = open_resets.pop(qubit)
+            name, gate = _merge_into_reset(operations[index].name, gate)
+            operations[index] = stim.CircuitInstruction(name, [qubit])
         return gate
 
-    for name, qubits in run:
+    for name, qubits in segment:
+        # combine single-qubit gates into the pending gates of their qubits
         if len(qubits) == 1:
-            held[qubits[0]] = held.get(qubits[0], _get_tableau("I")).then(_get_tableau(name))
+            pending_gates[qubits[0]] = pending_gates.get(qubits[0], _get_tableau("I")).then(
+                _get_tableau(name)
+            )
             continue
+
+        # place a two-qubit gate in the first layer after the last two-qubit gates on its qubits,
+        # after the parts of their pending gates that cannot move past it
         layer = 1 + max(last_layers.get(qubit, -1) for qubit in qubits)
         if layer == len(layers):
             layers.append(({}, []))
-        gates = [release(qubit) for qubit in qubits]
+        gates = [take_pending_gate(qubit) for qubit in qubits]
         if name == "CZ":
-            gates[0], gates[1], held[qubits[0]], held[qubits[1]] = _commute_through_cz(*gates)
+            gates[0], gates[1], pending_gates[qubits[0]], pending_gates[qubits[1]] = (
+                _commute_through_cz(*gates)
+            )
         for qubit, gate in zip(qubits, gates):
             layers[layer][0][qubit] = gate
             last_layers[qubit] = layer
         layers[layer][1].append((name, qubits))
-    released = [q for q in sorted(held) if release_qubits is None or q in release_qubits]
-    layers.append(({qubit: release(qubit) for qubit in released}, []))
 
+    # apply the pending gates of the qubits to flush in a last layer
+    flushed = [q for q in sorted(pending_gates) if qubits_to_flush is None or q in qubits_to_flush]
+    layers.append(({qubit: take_pending_gate(qubit) for qubit in flushed}, []))
+
+    # append the layers to the operations
     for single_qubit_gates, two_qubit_gates in layers:
         for qubit, gate in single_qubit_gates.items():
             if gate != _get_tableau("I"):
-                items.append(stim.CircuitInstruction(_get_gate_names()[_get_key(gate)], [qubit]))
+                gate_name = _get_gate_names()[_get_key(gate)]
+                operations.append(stim.CircuitInstruction(gate_name, [qubit]))
         for name, qubits in two_qubit_gates:
-            items.append(stim.CircuitInstruction(name, qubits))
+            operations.append(stim.CircuitInstruction(name, qubits))
 
 
 def _merge_into_reset(name: str, gate: stim.Tableau) -> tuple[str, stim.Tableau]:
@@ -492,11 +555,14 @@ def _try_decomposition(
     name: str, has_cz: bool, has_swap: bool, before_0: str, before_1: str
 ) -> tuple[stim.Tableau, stim.Tableau, bool, stim.Tableau, stim.Tableau, bool] | None:
     """Complete a decomposition of a two-qubit gate (see _decompose_two_qubit_gate), if possible."""
+    # find the gate that must come after the given gates and the CZ, and before the SWAP
     before = _get_tableau(before_0) + _get_tableau(before_1)
     if has_cz:
         before = before.then(_get_tableau("CZ"))
     gate = _get_tableau(name)
     after = before.inverse().then(gate.then(_get_tableau("SWAP")) if has_swap else gate)
+
+    # the decomposition works if that gate does not entangle its qubits
     if any(
         image[1 - qubit]
         for qubit in (0, 1)

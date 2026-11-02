@@ -12,7 +12,7 @@ import stim
 
 from qldpc.circuits import DEFAULT_IMMUNE_OP_TAG, DEFAULT_IMMUNE_QUBIT_TAG
 from qldpc.circuits.transforms import transpile_to_cz
-from qldpc.circuits.transforms.cz_transpilation import _commute_through_cz
+from qldpc.circuits.transforms.cz_transpilation import _clean_up, _commute_through_cz
 
 _SINGLE_QUBIT_GATES = sorted(
     name for name, data in stim.gate_data().items() if data.is_unitary and data.is_single_qubit_gate
@@ -78,6 +78,13 @@ def test_cleanup() -> None:
     assert transpile_to_cz(stim.Circuit("CZ 0 1\nS 0\nCZ 0 1")) == stim.Circuit("S 0")
     circuit = stim.Circuit("CZ 0 1\nSQRT_X 0\nCZ 0 1")
     assert transpile_to_cz(circuit) == circuit
+    # X and Y map Z to -Z, so they block the cancellation, too (checked on the cleanup directly,
+    # since transpile_to_cz moves them past CZ gates)
+    for pauli in "XY":
+        circuit = stim.Circuit(f"CZ 0 1\n{pauli} 0\nCZ 0 1")
+        cleaned_circuit = _clean_up(circuit)
+        _assert_equivalent(circuit, cleaned_circuit)
+        assert _count(cleaned_circuit, "CZ") == 2
 
     # gates right after untagged resets merge into them, leaving at most a Pauli gate
     assert transpile_to_cz(stim.Circuit("R 0\nH 0\nCZ 0 1")) == stim.Circuit("RX 0\nCZ 0 1")
@@ -269,6 +276,7 @@ def _measure_pauli_observables(circuit: stim.Circuit) -> stim.Circuit:
             body = _measure_pauli_observables(op.body_copy())
             new_circuit.append(stim.CircuitRepeatBlock(op.repeat_count, body))
         elif op.name == "OBSERVABLE_INCLUDE":
+            # measure the product of the Pauli targets, inverted if an odd number of them are
             paulis = [target for target in op.targets_copy() if target.pauli_type != "I"]
             invert = sum(target.is_inverted_result_target for target in paulis) % 2 == 1
             targets = []
@@ -303,6 +311,7 @@ def _work_around_stim_issue_1109(circuit: stim.Circuit) -> stim.Circuit:
             body = _work_around_stim_issue_1109(op.body_copy())
             new_circuit.append(stim.CircuitRepeatBlock(op.repeat_count, body))
         elif op.name in ("MR", "MRX", "MRY", "MPAD"):
+            # split the instruction, with TICKs that stop stim from merging it back together
             for target in op.targets_copy():
                 new_circuit.append(op.name, [target], op.gate_args_copy(), tag=op.tag)
                 new_circuit.append("TICK")
@@ -319,15 +328,21 @@ def _get_random_circuit(
     circuit = stim.Circuit()
     for _ in range(num_ops):
         kind = rng.random()
+
+        # unitary gates
         if kind < 0.3:
             circuit.append(rng.choice(_SINGLE_QUBIT_GATES), rng.sample(qubits, rng.randint(1, 2)))
         elif kind < 0.65:
             circuit.append(rng.choice(_TWO_QUBIT_GATES), rng.sample(qubits, 2))
+
+        # single-qubit measurements (with a repeated, inverted target) and resets
         elif kind < 0.75:
             name = rng.choice(["M", "MX", "MY", "MR", "MRX", "MRY"])
             circuit.append(name, [rng.choice(qubits), stim.target_inv(0)])
         elif kind < 0.8:
             circuit.append(rng.choice(["R", "RX", "RY"]), [rng.choice(qubits)])
+
+        # Pauli-product measurements and observables with Pauli targets
         elif kind < 0.85:
             string = stim.PauliString.random(num_qubits)
             if string.weight:
@@ -339,6 +354,8 @@ def _get_random_circuit(
                 stim.target_pauli(qubit, rng.choice("XYZ")) for qubit in rng.sample(qubits, 2)
             ]
             circuit.append("OBSERVABLE_INCLUDE", [*paulis, stim.target_rec(-1)], 0)
+
+        # tagged instructions, and REPEAT blocks (which do not nest)
         elif kind < 0.95:
             name, num_targets = rng.choice([("H", 1), ("CX", 2), ("M", 1), ("RX", 1)])
             targets = rng.sample(qubits, num_targets)
@@ -351,6 +368,7 @@ def _get_random_circuit(
 
 def _get_gates_before_czs(circuit: stim.Circuit) -> set[str]:
     """The names of the untagged single-qubit gates that come right before CZ gates on a qubit."""
+    # the name of the last operation on each qubit, if it is an untagged single-qubit gate
     last_gates: dict[int, str | None] = {}
     gates_before_czs = set()
     for op in circuit.flattened():
