@@ -2,7 +2,7 @@
 
 """Pack Clifford+T circuits into arrays of local gates and Pauli rotations.
 
-``get_packed_circuit`` turns a Clifford+T circuit, with T gates encoded as described in the
+``get_packed_circuit`` turns a Clifford+T circuit, with π/4 rotations encoded as described in the
 docstring of ``RotatedPauliString``, into a ``PackedCircuit``: arrays that compiled code can apply
 without calling back into Python.
 """
@@ -54,9 +54,9 @@ class PackedCircuit:
     gate ``g`` acts on the qubits ``gate_qubits[g, :table_sizes[t]]`` through the table ``t =
     gate_tables[g]`` of the gate ``table_names[t]``, whose Pauli images and phases are the rows
     ``table_images[t]`` and ``table_phases[t]``, in the format of
-    ``_packed_paulis.get_clifford_gate_table``, padded to 16 entries.  Rotation ``r`` is
-    ``R_θ(a) = exp(-iθ a/2)`` about the Pauli string ``a`` on ``num_qubits`` qubits with packed bits
-    ``axes[r]`` and phase ``axis_phases[r]``.
+    ``_packed_paulis.get_clifford_gate_table``, padded to 16 entries.  Rotation ``r`` is about the
+    Hermitian Pauli string with packed bits ``axes[r]`` and phase ``axis_phases[r]``, by π/2 or π/4
+    according to its kind.
     """
 
     num_qubits: int
@@ -103,13 +103,14 @@ def get_packed_circuit(
 ) -> PackedCircuit:
     """Pack a Clifford+T circuit, or its inverse, into arrays on ``num_qubits`` qubits.
 
-    Packed circuits are cached by the text of their circuits, so repeated calls with the same
-    circuit are cheap, and later changes to a circuit object do not affect the packed circuits made
-    from it before.  The arrays of a packed circuit are read-only, since packed circuits are shared.
+    Packed circuits are cached by the text of the circuit, ``num_qubits``, and ``inverse``, so
+    repeated calls with the same arguments are cheap, and later changes to a circuit object do not
+    affect the packed circuits made from it before.  The arrays of a packed circuit are read-only,
+    since packed circuits are shared.
 
     Args:
-        circuit: A Clifford+T circuit, with T gates encoded as described in the docstring of
-            ``RotatedPauliString``.
+        circuit: A Clifford+T circuit, with π/4 rotations encoded as described in the docstring
+            of ``RotatedPauliString``.
         num_qubits: The number of qubits to act on, at least that of the circuit.
         inverse: Whether to pack the inverse circuit instead.
 
@@ -150,15 +151,15 @@ def _get_packed_circuit(text: str, num_qubits: int, inverse: bool) -> PackedCirc
     for instruction in reversed(instructions) if inverse else instructions:
         if instruction.name in _ANNOTATIONS:
             continue
-        is_t_gate = _check_instruction(instruction)
+        is_t_rotation = _check_instruction(instruction)
         groups = instruction.target_groups()
         if inverse:
             groups = groups[::-1]
 
-        # each target group of a T gate, SPP, or SPP_DAG is a Pauli rotation, whose inverse is the
-        # rotation about the negated axis
-        if is_t_gate or instruction.name in ("SPP", "SPP_DAG"):
-            kind = T_ROTATION if is_t_gate else S_ROTATION
+        # each target group of a T-tagged instruction, SPP, or SPP_DAG is a Pauli rotation, whose
+        # inverse is the rotation about the negated axis
+        if is_t_rotation or instruction.name in ("SPP", "SPP_DAG"):
+            kind = T_ROTATION if is_t_rotation else S_ROTATION
             sign = _ROTATION_SIGNS[instruction.name] * (-1 if inverse else 1)
             for group in groups:
                 kinds.append(kind)
@@ -211,7 +212,7 @@ def _get_packed_circuit(text: str, num_qubits: int, inverse: bool) -> PackedCirc
 
 
 def _check_instruction(instruction: stim.CircuitInstruction) -> bool:
-    """Check that a packed circuit can represent an instruction, and return whether it is a T gate.
+    """Whether an instruction is a π/4 rotation, after checking that packed circuits support it.
 
     Raises:
         ValueError: If the instruction is not unitary, is a classically controlled gate, has a T tag
@@ -221,13 +222,14 @@ def _check_instruction(instruction: stim.CircuitInstruction) -> bool:
     if not stim.gate_data(instruction.name).is_unitary:
         raise ValueError(f"Instruction is not unitary: {instruction}")
 
-    # only Pauli rotations can be T gates; tsim tags I and Pauli rotations to make other rotations,
-    # which packed circuits cannot represent, but tags on other gates do not change their action
+    # only Pauli rotations can have the T tag; tsim tags I and Pauli rotations to make other
+    # rotations, which packed circuits cannot represent, but tags on other gates do not change their
+    # action
     tag = instruction.tag
-    is_t_gate = tag == T_TAG or tag.startswith(T_TAG + ":")
-    if is_t_gate and instruction.name not in _ROTATION_SIGNS:
-        raise ValueError(f"Instruction cannot be a T gate: {instruction}")
-    if tag and not is_t_gate and instruction.name in _TAG_SENSITIVE:
+    is_t_rotation = tag == T_TAG or tag.startswith(T_TAG + ":")
+    if is_t_rotation and instruction.name not in _ROTATION_SIGNS:
+        raise ValueError(f"Instruction cannot be a π/4 rotation: {instruction}")
+    if tag and not is_t_rotation and instruction.name in _TAG_SENSITIVE:
         raise ValueError(
             f"Tags other than T are not supported on {instruction.name}: {instruction}"
         )
@@ -239,7 +241,7 @@ def _check_instruction(instruction: stim.CircuitInstruction) -> bool:
         for target in instruction.targets_copy()
     ):
         raise ValueError(f"Classically controlled gates are not supported: {instruction}")
-    return is_t_gate
+    return is_t_rotation
 
 
 def _get_axis(

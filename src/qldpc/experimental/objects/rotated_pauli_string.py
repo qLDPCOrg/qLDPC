@@ -23,12 +23,13 @@ The rotations satisfy:
 - ``R_{π/2}(a) b R_{π/2}(a)† = -i a b`` for a Pauli string ``b`` that anticommutes with ``a``.
 
 Conjugating a Pauli string ``P`` by a Clifford gate gives another Pauli string, but conjugating it
-by a T gate ``R_{π/4}(a)`` gives the Clifford operator ``R_{π/2}(a) P`` if ``P`` anticommutes with
-``a``.  T gates do not map Clifford operators to Clifford operators, however, so an error that
-passes several T gates can become non-Clifford.  For example, an ``X`` error followed by ``T``,
-``H``, and ``T`` gates becomes ``(X - Y)/2 + Z/√2``.  ``RotatedPauliString.after`` and
-``RotatedPauliString.before`` propagate operators through Clifford+T circuits.  Each T gate that an
-operator passes, and that does not commute with it, adds at most two π/4 rotations.
+by a π/4 rotation ``R_{π/4}(a)`` gives the Clifford operator ``R_{π/2}(a) P`` if ``P`` anticommutes
+with ``a``.  π/4 rotations do not map Clifford operators to Clifford operators, however, so an
+error that passes several π/4 rotations can become non-Clifford.  For example, an ``X`` error
+followed by ``T``, ``H``, and ``T`` gates becomes ``(X - Y)/2 + Z/√2``.
+``RotatedPauliString.after`` and ``RotatedPauliString.before`` propagate operators through
+Clifford+T circuits.  Each π/4 rotation that an operator passes, and that does not commute with it,
+adds at most two π/4 rotations.
 """
 
 # Graduation plan: once the API of this module settles, it moves to qldpc.objects, as follows.
@@ -40,7 +41,8 @@ operator passes, and that does not commute with it, adds at most two π/4 rotati
 #    Their tests also use the circuit helpers of qldpc/experimental/conftest.py, which move too.
 # 3. Re-export RotatedPauliString from qldpc.objects, and remove qldpc.experimental.objects;
 #    experimental modules need no deprecation shims.
-# 4. Mention RotatedPauliString in the description of qldpc.objects in docs/source/library_map.rst.
+# 4. Mention RotatedPauliString in the description of qldpc.objects in docs/source/library_map.rst,
+#    and update the Clifford+T bullet in docs/source/contributing.rst.
 
 from __future__ import annotations
 
@@ -105,15 +107,16 @@ class RotatedPauliString:
     form keeps all 15 rotations.
 
     Stim does not support T gates, so circuits are ``stim.Circuit`` objects in which, following
-    tsim, T gates are instructions with the tag ``T`` or a labeled tag ``T:<label>``.  Up to global
-    phases, ``S[T]`` and ``S_DAG[T]`` stand for the T gate ``R_{π/4}(Z)`` and its inverse on each
-    target qubit, and ``SPP[T]`` and ``SPP_DAG[T]`` stand for the rotation ``R_{π/4}(P)`` and its
-    inverse about each target Pauli product ``P``.  Objects with a ``stim_circuit`` attribute, such
-    as tsim circuits, are accepted as well.  Stim itself ignores tags, so it simulates these
-    instructions as the Clifford gates ``S``, ``S_DAG``, ``SPP``, and ``SPP_DAG``.  Circuits may
-    contain only unitary gates and annotations such as ``TICK``.  Classically controlled gates, and
-    other tags on ``I``, ``S``, ``S_DAG``, ``SPP``, and ``SPP_DAG``, which tsim uses for other
-    rotations, are rejected; tags on other gates are ignored.
+    tsim, T gates and other π/4 rotations are instructions with the tag ``T`` or a labeled tag
+    ``T:<label>``.  Up to global phases, ``S[T]`` and ``S_DAG[T]`` stand for the T gate
+    ``R_{π/4}(Z)`` and its inverse on each target qubit, and ``SPP[T]`` and ``SPP_DAG[T]`` stand
+    for the rotation ``R_{π/4}(a)`` and its inverse about each target Pauli product ``a``.  Stim
+    itself ignores tags, so it simulates these instructions as the Clifford gates ``S``, ``S_DAG``,
+    ``SPP``, and ``SPP_DAG``.  Circuits may contain only unitary gates and annotations such as
+    ``TICK``.  Classically controlled gates, and other tags on ``I``, ``S``, ``S_DAG``, ``SPP``,
+    and ``SPP_DAG``, which tsim uses for other rotations, are rejected; tags on other gates are
+    ignored.  ``after`` and ``before`` also accept objects with a ``stim_circuit`` attribute, such
+    as tsim circuits.
 
     Args:
         pauli: A Pauli string, whose sign does not matter.  Default: the identity on no qubits.
@@ -289,8 +292,7 @@ class RotatedPauliString:
         """A Clifford+T circuit whose unitary is this operator, up to a global phase.
 
         The circuit applies the Pauli gates of the core, then ``SPP`` or ``SPP_DAG`` gates for the
-        π/2 rotations, and then T-tagged ``SPP`` or ``SPP_DAG`` gates for the π/4 rotations.  Stim
-        itself would simulate the T-tagged instructions as Clifford gates (see the class docstring).
+        π/2 rotations, and then T-tagged ``SPP`` or ``SPP_DAG`` gates for the π/4 rotations.
         """
         circuit = stim.Circuit()
         if self._num_qubits:
@@ -410,9 +412,11 @@ def _apply_packed_circuit(
 ) -> _Arrays:
     """Conjugate ``V = T·S·P`` by the operations of a ``_packed_circuits.PackedCircuit``, in order.
 
-    The arguments after the axes of ``V`` are the arrays of the ``PackedCircuit``.  Returns the
-    new core and axes, unsimplified.  Each π/4 rotation adds at most one π/2 axis, or one π/4 axis
-    at each end of ``T``, so the buffers below never overflow.
+    Here and below, ``P`` is the core of an operator, ``S`` is the product of its π/2 rotations,
+    and ``T`` is the product of its π/4 rotations.  The arguments after the axes of ``V`` are the
+    arrays of the ``PackedCircuit``.  Returns the new core and axes, unsimplified.  Each π/4
+    rotation adds at most one π/2 axis, or one π/4 axis at each end of ``T``, so the buffers below
+    never overflow.
     """
     num_words = len(core)
 

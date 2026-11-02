@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for packing Clifford+T circuits, against the dense reference matrices."""
+"""Tests for packing Clifford+T circuits, against dense matrices."""
 
 from __future__ import annotations
 
@@ -87,7 +87,7 @@ def test_packed_circuits_are_read_only_and_skip_annotations() -> None:
 def test_invalid_circuits() -> None:
     with pytest.raises(ValueError, match="not unitary"):
         packed_circuits.get_packed_circuit(stim.Circuit("M 0"), 1)
-    with pytest.raises(ValueError, match="cannot be a T gate"):
+    with pytest.raises(ValueError, match="cannot be a π/4 rotation"):
         packed_circuits.get_packed_circuit(stim.Circuit("H[T] 0"), 1)
     with pytest.raises(ValueError, match="Tags other than T"):
         packed_circuits.get_packed_circuit(stim.Circuit("I[R_Z(theta=0.25*pi)] 0"), 1)

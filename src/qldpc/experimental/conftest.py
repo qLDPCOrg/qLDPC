@@ -3,8 +3,9 @@
 """Shared helpers for tests of experimental tools: dense unitaries of circuits.
 
 The dense matrices here cost memory and time exponential in the number of qubits, so they only check
-the scalable methods of qLDPC on a few qubits.  They share no code with the methods that they check,
-and parse T gates, encoded as described in the docstring of ``RotatedPauliString``, independently.
+the scalable methods of qLDPC on a few qubits.  These helpers share no code with the methods that
+they check, and parse π/4 rotations, encoded as described in the docstring of
+``RotatedPauliString``, independently.
 As in ``qldpc.experimental.objects.conftest``, matrices act on qubits in big-endian order.
 """
 
@@ -42,13 +43,16 @@ def get_circuit_unitary(circuit: stim.Circuit, num_qubits: int) -> npt.NDArray[n
 def _get_instruction_unitary(
     instruction: stim.CircuitInstruction, num_qubits: int
 ) -> npt.NDArray[np.complex128]:
-    """The unitary matrix of a unitary instruction, which may be a T gate, up to a global phase."""
+    """The unitary matrix of an instruction, which may be a π/4 rotation, up to a global phase."""
+    # a T-tagged instruction applies the π/4 rotations about its axes in order
     if instruction.tag == "T" or instruction.tag.startswith("T:"):
         unitary = np.eye(2**num_qubits, dtype=np.complex128)
         for axis in _get_t_axes(instruction):
             unitary = get_rotation_matrix(axis, np.pi / 4, num_qubits) @ unitary
         return unitary
-    # Stim's tableaus order the operands of two-qubit gates as its Pauli strings do.
+
+    # pad the gate to num_qubits qubits, and take its big-endian matrix, which orders qubits as
+    # get_pauli_matrix does
     single = stim.Circuit()
     single.append(instruction.name, instruction.targets_copy(), instruction.gate_args_copy())
     single.append("I", [num_qubits - 1])
@@ -63,7 +67,7 @@ def _get_t_axes(instruction: stim.CircuitInstruction) -> list[stim.PauliString]:
             sign * stim.PauliString({target.value: "Z"}) for target in instruction.targets_copy()
         ]
     if instruction.name not in ("SPP", "SPP_DAG"):
-        raise ValueError(f"Instruction cannot be a T gate: {instruction}")  # pragma: no cover
+        raise ValueError(f"Instruction cannot be a π/4 rotation: {instruction}")  # pragma: no cover
     axes = []
     for group in instruction.target_groups():
         axis = stim.PauliString({target.value: target.pauli_type for target in group})
