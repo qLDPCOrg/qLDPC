@@ -12,6 +12,11 @@ matrix with one uint8 entry per bit, are compiled with ``always_compiled`` from
 code, ``popcount_word`` and ``trailing_zeros_word`` become single LLVM instructions.  The functions
 ``row_reduce_binary``, ``get_independent_rows``, and ``get_kernel`` are Python-level wrappers for
 binary matrices with one uint8 entry per bit, which pack and unpack around the compiled functions.
+
+NumPy has no linear algebra over GF(2), and ``galois`` provides it only for unpacked arrays at the
+Python level.  NumPy's ``packbits`` and ``bitwise_count`` resemble ``pack_bits`` and
+``popcount_word``, but numba cannot compile them, so one compiled implementation of the packed
+layout serves both compiled and Python callers.
 """
 
 from __future__ import annotations
