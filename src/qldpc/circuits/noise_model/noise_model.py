@@ -417,18 +417,19 @@ class NoiseModel:
         The noisy circuit is the input circuit with noise inserted: its instructions keep their
         order, and no TICKs are added.  The noise of each gate application follows it, and precedes
         the next instruction that acts on, or depends on the state of, its qubits.  If this model
-        has idle noise, its ``scheduler`` places the operations of the circuit in moments, and each
-        qubit gets the noise of each of its idle periods before its next operation.  See
-        :mod:`qldpc.circuits.noise_model` for the details of idle noise.
+        has idle noise, its ``scheduler`` places the operations of the circuit in moments, each of
+        which lasts one unit of time, and each qubit gets the noise of each of its idle periods
+        before its next operation.  See :mod:`qldpc.circuits.noise_model` for the details of idle
+        noise.
 
         Args:
             circuit: The circuit to apply noise to.
             system_qubits: All qubits that are used by the circuit or are otherwise allowed to
                 accumulate idling errors.  Defaults to set(range(circuit.num_qubits)).
             immune_qubits: Qubits that are declared to be immune to noise.  Defaults to none.
-            immune_op_tag: If an operation contains this string in its tag, that operation is
-                noiseless.  Set to None to disable tagged operation immunity.  Default:
-                "{DEFAULT_IMMUNE_OP_TAG}".
+            immune_op_tag: If an operation or REPEAT block contains this string in its tag, it is
+                noiseless, but still takes its time.  Set to None to disable tagged operation
+                immunity.  Default: "{DEFAULT_IMMUNE_OP_TAG}".
             immune_qubit_tag: If a QUBIT_COORDS annotation contains this string in its tag, its
                 target qubits are immune to noise.  Set to None to disable annotated immunity.
                 Default: "{DEFAULT_IMMUNE_QUBIT_TAG}".
@@ -544,8 +545,8 @@ class _NoisyCircuitBuilder:
     With a schedule, the builder also follows the idle run of each qubit: the time of its last
     operation, the number of moments before that time that contain a measurement or reset, and
     whether that operation took time or measured or reset the qubit.  Times are counted in moments
-    of the schedule, except that a noiseless REPEAT block takes no time.  The noise of an idle run
-    joins the pool before the next operation on its qubit.
+    of the schedule.  The noise of an idle run joins the pool before the next operation on its
+    qubit.
     """
 
     def __init__(
@@ -565,6 +566,7 @@ class _NoisyCircuitBuilder:
         self.immune_op_tag = immune_op_tag
         self.immunize_gates = immunize_gates
         self.timed = timed
+        self.noiseless = False  # whether the current instructions are in a noiseless block
 
         self.pool: dict[int, tuple[Iterable[int], stim.Circuit]] = {}  # pending noise, in order
         self.pool_by_qubit: dict[int, set[int]] = collections.defaultdict(set)  # pool keys
@@ -594,31 +596,25 @@ class _NoisyCircuitBuilder:
         for item in _get_segments(circuit, schedule):
             if isinstance(item, _Segment):
                 self.append_segment(item, output)
-            elif self.immune_op_tag is not None and self.immune_op_tag in item[0].tag:
-                self.append_noiseless_block(item[0], output)
             else:
                 self.append_block(item[0], item[1], output)
 
     def append_segment(self, segment: _Segment, output: stim.Circuit) -> None:
         """Add noise to the instructions of a segment, and append them to the output."""
-        timed = self.timed and bool(segment.operations)
-        duration = segment.duration
-        if timed:
-            # operations after the last moment with a gate take place at the end of the segment
-            segment_moments = [min(moment, duration) for moment in segment.moments]
+        if self.timed:
             self.collapsing_moments = sorted(
                 {
                     self.time + moment
-                    for operation, moment in zip(segment.operations, segment_moments)
+                    for operation, moment in zip(segment.operations, segment.moments)
                     if operation.is_collapsing
                 }
             )
         start = 0
         for instruction, num_operations in zip(segment.instructions, segment.num_operations):
             operations = segment.operations[start : start + num_operations]
-            moments = segment_moments[start : start + num_operations] if timed else []
+            moments = segment.moments[start : start + num_operations]
             start += num_operations
-            times = [self.time + moment for moment in moments] if timed else None
+            times = [self.time + moment for moment in moments] if self.timed else None
             if operations and operations[0].is_gate:
                 self.append_gate(instruction, operations, times, output)
             elif operations and operations[0].touched_qubits:
@@ -631,8 +627,8 @@ class _NoisyCircuitBuilder:
                 output.append(instruction)
             else:
                 output.append(instruction)
-        if timed:
-            self.time += duration
+        if self.timed:
+            self.time += segment.duration
             self.num_collapsing += len(self.collapsing_moments)
             self.collapsing_moments = []
 
@@ -702,7 +698,9 @@ class _NoisyCircuitBuilder:
         self, instruction: stim.CircuitInstruction, operations: list[_Operation]
     ) -> list[NoiseRule | None]:
         """The noise rule of each application of a gate, after accounting for immune qubits."""
-        if self.immune_op_tag is not None and self.immune_op_tag in instruction.tag:
+        if self.noiseless or (
+            self.immune_op_tag is not None and self.immune_op_tag in instruction.tag
+        ):
             return [None] * len(operations)
         if (
             self.noise_model.rule_func is None
@@ -744,10 +742,20 @@ class _NoisyCircuitBuilder:
         relative to its start, the remaining iterations get the same noise, and are kept in a
         REPEAT block.  Normally only the first iteration differs, since its idle runs start before
         the block.
+
+        A REPEAT block tagged with ``immune_op_tag`` is noiseless: it is appended unchanged, and the
+        qubits that it acts on get no noise while it runs, and other qubits idle as usual.
         """
         self.flush(output)
+        noiseless = self.immune_op_tag is not None and self.immune_op_tag in block.tag
         body = block.body_copy()
         qubits = sorted(_get_run_qubits(body, self.takes_time) & self.runs.keys())
+        was_noiseless = self.noiseless
+        if noiseless:
+            for qubit in qubits:
+                self.add_idle_noise(qubit, self.end_idle_run(qubit, self.time, False, False))
+            self.flush(output)
+            self.noiseless = True
 
         def get_state() -> list[tuple[int, ...]]:
             """The idle runs of the qubits of the block, relative to the current time."""
@@ -777,6 +785,14 @@ class _NoisyCircuitBuilder:
                     self.runs[qubit][1] += change[1] * num_remaining
                 break
 
+        if noiseless:
+            # the idle runs of the qubits of the block start again at its end
+            self.noiseless = was_noiseless
+            for qubit in qubits:
+                self.runs[qubit] = [self.time, self.num_collapsing, 0, 0]
+            output.append(block)
+            return
+
         # iterations with the same noise share a REPEAT block
         groups: list[tuple[stim.Circuit, int]] = []
         for iteration in iterations:
@@ -790,19 +806,6 @@ class _NoisyCircuitBuilder:
                 output += iteration
             else:
                 output.append(stim.CircuitRepeatBlock(count, iteration, tag=block.tag))
-
-    def append_noiseless_block(self, block: stim.CircuitRepeatBlock, output: stim.Circuit) -> None:
-        """Append a noiseless REPEAT block, which ends the idle runs of the qubits that it acts on.
-
-        A noiseless REPEAT block takes no time: it lies between the moment before it and the moment
-        after it.
-        """
-        qubits = _get_touched_qubits(block.body_copy())
-        if self.timed:
-            for qubit in sorted(qubits & self.runs.keys()):
-                self.add_idle_noise(qubit, self.end_idle_run(qubit, self.time, False, False))
-        self.flush(output, qubits)
-        output.append(block)
 
     def count_collapsing(self, moment: int) -> int:
         """The number of moments before a moment of the current segment that measure or reset."""
@@ -832,7 +835,7 @@ class _NoisyCircuitBuilder:
 
     def add_idle_noise(self, qubit: int, idle_run: tuple[int, int]) -> None:
         """Add the noise of an idle run of a qubit to the pool."""
-        if not any(idle_run):
+        if self.noiseless or not any(idle_run):
             return
         if idle_run not in self.idle_noise:
             self.idle_noise[idle_run] = self.noise_model._get_idle_noise(*idle_run)
@@ -870,18 +873,6 @@ def _join_operations(operations: Sequence[_Operation]) -> stim.CircuitInstructio
         target for operation in operations for target in operation.instruction.targets_copy()
     ]
     return stim.CircuitInstruction(first.name, targets, first.gate_args_copy(), tag=first.tag)
-
-
-def _get_touched_qubits(circuit: stim.Circuit) -> frozenset[int]:
-    """The qubits whose state some instruction of a circuit depends on, at any depth."""
-    qubits: set[int] = set()
-    for instruction in circuit:
-        if isinstance(instruction, stim.CircuitRepeatBlock):
-            qubits.update(_get_touched_qubits(instruction.body_copy()))
-        else:
-            for operation in _get_operations([instruction]):
-                qubits.update(operation.touched_qubits)
-    return frozenset(qubits)
 
 
 def _get_run_qubits(

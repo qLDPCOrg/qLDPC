@@ -120,9 +120,11 @@ possible), while ``SI1000NoiseModel`` keeps the TICK layers of a circuit with
 blocks and of their iterations are boundaries between moments, and every iteration of a ``REPEAT``
 block follows one schedule of its body, so a block stays compact however many times it repeats.  To
 let moments continue across these boundaries, add noise to ``circuit.flattened()`` instead.  Every
-moment of a schedule lasts one unit of time, including a moment without operations in a custom
-schedule, except that the moments after the last gate of a part of a circuit between ``REPEAT``
-blocks take no time; the built-in schedulers do not make empty moments.
+moment of a schedule lasts one unit of time.  The built-in schedulers put each annotation and noise
+channel in the moment of the operation before it, so these make no moments of their own, except in
+a part of a circuit between ``REPEAT`` blocks that has no gates.  In particular, an observable with
+Pauli targets joins the moment of the last operation on its qubits, so it does not see the idle
+noise of those qubits after that operation.
 
 By default, single-qubit unitary gates and classically controlled Paulis take no time.  This models
 gates that are much faster than the moments of a circuit: a qubit that undergoes only such gates in
@@ -140,14 +142,15 @@ if it takes no time, while noise channels and classically controlled Paulis do n
 Idle periods continue across the boundaries of ``REPEAT`` blocks.  A qubit that a ``REPEAT`` block
 does not act on gets one error for its whole idle period.  The idle periods of a qubit that a
 ``REPEAT`` block acts on are the same in every iteration, except where they join idle moments before
-or after the block, so the first iterations are written out on their own if their noise differs.  A
-``REPEAT`` block tagged with ``immune_op_tag`` is noiseless and takes no time, but ends the idle
-periods of its qubits.
+or after the block, so the first iteration is written out on its own if its noise differs.  A
+``REPEAT`` block tagged with ``immune_op_tag`` is noiseless: the qubits that it acts on get no noise
+while it runs, and other qubits idle as usual.
 
 The schedule of a circuit is ``noise_model.scheduler.get_schedule(circuit)``.  Its ``get_moments``
 method lists the operations of each moment, and its ``to_circuit`` method lays out the circuit in
-moments separated by TICKs.  Adding noise to that layout with ``Scheduler.preserve_ticks`` (with the
-same choice of ``single_qubit_gates_take_time``) gives the same detector error model.
+moments separated by TICKs.  If every moment of the schedule has a gate, adding noise to that layout
+with ``Scheduler.preserve_ticks`` (with the same choice of ``single_qubit_gates_take_time``) gives
+the same detector error model.
 
 ``quadratic_idle_error`` models idle errors from slow noise, such as a qubit frequency that
 fluctuates from one shot to the next.  Over a run of consecutive idle moments, such noise rotates a
@@ -155,10 +158,8 @@ qubit about a fixed axis by an angle that grows linearly at a random rate.  Aver
 (Gaussian) rate, the Pauli twirl of this rotation has a probability that grows quadratically while
 it is small and saturates at 1/2.  For a channel with several Paulis, the axis may vary from one run
 to the next, for example as a compiler changes the frame of a qubit, and the channel sets the mean
-squared components of the axis.  A run is an idle period as above.  In particular, an observable
-with Pauli targets in the middle of an idle period splits the run there, which underestimates the
-quadratic idle error of that period by up to a factor of two.  Runs are independent of each other,
-and every moment counts equally, regardless of its duration.
+squared components of the axis.  A run is an idle period as above.  Runs are independent of each
+other, and every moment counts equally, regardless of its duration.
 
 .. rubric:: Attribution and license
 

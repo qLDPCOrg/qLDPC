@@ -52,11 +52,9 @@ class Schedule:
     of REPEAT blocks and of their iterations are thus boundaries between moments, and the body of
     each REPEAT block has a schedule of its own, which each iteration follows.
 
-    Every moment lasts one unit of time, including a moment without operations, and a qubit idles in
-    each moment unless an operation that takes time acts on it (see :meth:`Scheduler.takes_time`).
-    A REPEAT block lasts as long as all its iterations, and a segment lasts until the end of its
-    last moment with a gate: the moments after it, which have only annotations and noise channels,
-    take no time, and nor does a segment without gates.
+    Every moment lasts one unit of time, and a qubit idles in each moment unless an operation that
+    takes time acts on it (see :meth:`Scheduler.takes_time`).  A segment lasts until the end of its
+    last moment, and a REPEAT block lasts as long as all its iterations.
 
     A schedule is immutable.
 
@@ -121,7 +119,7 @@ class Schedule:
 
     @property
     def num_moments(self) -> int:
-        """The number of moments of this schedule that take time, in all iterations of blocks."""
+        """The number of moments of this schedule, in all iterations of REPEAT blocks."""
         return self._duration
 
     def get_moments(self) -> list[list[stim.CircuitInstruction] | Schedule]:
@@ -195,8 +193,12 @@ class Scheduler(abc.ABC):
 
     A :class:`~qldpc.circuits.NoiseModel` with idle noise uses its scheduler to find how long each
     qubit idles.  The built-in schedulers are made by :meth:`preserve_ticks`, :meth:`asap`, and
-    :meth:`alap`, and never make a moment without operations.  A custom scheduler implements
-    :meth:`get_schedule`, and may override :meth:`takes_time` and :meth:`validate`.
+    :meth:`alap`.  They place the gates of a circuit in moments, and each annotation or noise
+    channel in the moment of the operation before it on its qubits, or, for an annotation without
+    qubits such as a detector, of the last gate before it (or in the first moment if there is
+    none).  It joins a later moment only to follow a measurement that it reads, or a coordinate
+    annotation.  A custom scheduler implements :meth:`get_schedule`, and may override
+    :meth:`takes_time` and :meth:`validate`.
     """
 
     @abc.abstractmethod
@@ -233,9 +235,7 @@ class Scheduler(abc.ABC):
 
         Each TICK ends a moment that contains a gate, and a new moment also starts where an
         operation that takes time acts on a qubit that another operation that takes time already
-        acts on in the moment.  Annotations and noise channels after a TICK join the next moment
-        with a gate, or else form the last moment of their segment (see :class:`Schedule`), which
-        takes no time.  As in every schedule, the boundaries of REPEAT blocks and of their
+        acts on in the moment.  As in every schedule, the boundaries of REPEAT blocks and of their
         iterations are also boundaries between moments, which adding noise to
         ``circuit.flattened()`` avoids.
 
@@ -300,24 +300,27 @@ class _TickScheduler(Scheduler):
 
     def _get_segment_moments(self, segment: _Segment) -> list[int]:
         """The moments of the operations of a segment."""
-        moments: list[int] = []
+        nodes = _get_nodes(segment.operations)
+        gate_moments: dict[int, int] = {}  # the moment of each node with a gate
         moment = 0
         occupied: set[int] = set()  # the qubits of operations that take time in the moment
-        has_gate = False  # whether the moment has a gate
+        has_gate = False  # whether a gate precedes the next operation in the segment
         closed = False  # whether a TICK has ended the moment
-        operations = iter(segment.operations)
+        operations = iter(zip(nodes, segment.operations))
         for instruction, num_operations in zip(segment.instructions, segment.num_operations):
             if instruction.name == "TICK":
-                closed = closed or has_gate
-            for operation in itertools.islice(operations, num_operations):
-                timed = operation.is_gate and self.takes_time(operation.instruction)
+                closed = has_gate
+            for node, operation in itertools.islice(operations, num_operations):
+                if not operation.is_gate:
+                    continue
+                timed = self.takes_time(operation.instruction)
                 if closed or (timed and not occupied.isdisjoint(operation.qubits)):
-                    moment, occupied, has_gate, closed = moment + 1, set(), False, False
+                    moment, occupied, closed = moment + 1, set(), False
                 if timed:
                     occupied.update(operation.qubits)
-                has_gate = has_gate or operation.is_gate
-                moments.append(moment)
-        return moments
+                has_gate = True
+                gate_moments[node] = moment
+        return _place_annotations(segment.operations, nodes, gate_moments)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -359,15 +362,8 @@ class _LayerScheduler(Scheduler):
 
     def _get_segment_moments(self, operations: Sequence[_Operation]) -> list[int]:
         """The moments of the operations of a segment."""
-        # an ELSE_CORRELATED_ERROR joins the node of the error chain before it
-        nodes: list[int] = []  # the node of each operation
-        num_nodes = 0
-        for operation in operations:
-            if operation.instruction.name == "ELSE_CORRELATED_ERROR" and nodes:
-                nodes.append(nodes[-1])
-            else:
-                nodes.append(num_nodes)
-                num_nodes += 1
+        nodes = _get_nodes(operations)
+        num_nodes = nodes[-1] + 1 if nodes else 0
         edges = self._get_edges(operations, nodes)
         fixed = {}
         if self.shorten_lifetimes:
@@ -380,7 +376,10 @@ class _LayerScheduler(Scheduler):
                 if operation.instruction.name in names
             }
         layers = _get_layers(num_nodes, edges, reverse=self.as_late_as_possible, fixed=fixed)
-        return [layers[node] for node in nodes]
+        gate_moments = {
+            node: layers[node] for node, operation in zip(nodes, operations) if operation.is_gate
+        }
+        return _place_annotations(operations, nodes, gate_moments)
 
     def _get_edges(
         self, operations: Sequence[_Operation], nodes: Sequence[int]
@@ -389,14 +388,16 @@ class _LayerScheduler(Scheduler):
 
         A node follows the previous node on each of its qubits, and a node that takes time follows
         the previous node that takes time on each of its qubits by at least one layer.  A node that
-        reads a measurement follows the node of that measurement, and a detector or coordinate
-        annotation follows the previous one.
+        reads a measurement follows the node of that measurement, a detector or coordinate
+        annotation follows the previous one, and an annotation without qubits follows the previous
+        gate, whose moment it joins.
         """
         edges = []
         last_node: dict[int, int] = {}
         last_timed_node: dict[int, int] = {}
         record_nodes: list[int] = []
         last_coordinate_node: int | None = None
+        last_gate_node: int | None = None
         for node, operation in zip(nodes, operations):
             timed = operation.is_gate and self.takes_time(operation.instruction)
             for qubit in operation.qubits:
@@ -414,8 +415,64 @@ class _LayerScheduler(Scheduler):
                 if last_coordinate_node is not None:
                     edges.append((last_coordinate_node, node, 0))
                 last_coordinate_node = node
+            if operation.is_gate:
+                last_gate_node = node
+            elif not operation.qubits and last_gate_node not in (None, node):
+                edges.append((last_gate_node, node, 0))
             record_nodes.extend([node] * operation.num_records)
         return edges
+
+
+def _get_nodes(operations: Sequence[_Operation]) -> list[int]:
+    """The node of each operation: its own, except that a chain of correlated errors shares one."""
+    nodes: list[int] = []
+    for operation in operations:
+        if operation.instruction.name == "ELSE_CORRELATED_ERROR" and nodes:
+            nodes.append(nodes[-1])
+        else:
+            nodes.append(nodes[-1] + 1 if nodes else 0)
+    return nodes
+
+
+def _place_annotations(
+    operations: Sequence[_Operation], nodes: Sequence[int], gate_moments: Mapping[int, int]
+) -> list[int]:
+    """The moment of each operation of a segment, given the moment of each node with a gate.
+
+    The other nodes (annotations, noise channels, and chains of correlated errors) join the latest
+    moment of the operations before them on their qubits, or, without qubits, of the last gate
+    before them, or else the first moment.  They also join a later moment to follow the
+    measurements that they read, and a coordinate annotation follows the one before it.
+    """
+    moments: list[int] = []
+    last_moment: dict[int, int] = {}  # by qubit
+    record_moments: list[int] = []  # the moment of each measurement record of the segment
+    gate_moment = 0  # the moment of the last gate
+    coordinate_moment = 0  # the moment of the last coordinate annotation
+    for node, group in itertools.groupby(zip(nodes, operations), key=operator.itemgetter(0)):
+        members = [operation for _, operation in group]
+        moment = gate_moments.get(node)
+        if moment is None:
+            moment = 0
+            for operation in members:
+                if operation.qubits:
+                    moment = max(moment, *(last_moment.get(q, 0) for q in operation.qubits))
+                else:
+                    moment = max(moment, gate_moment)
+                for record in operation.records:
+                    if record >= 0:
+                        moment = max(moment, record_moments[record])
+                if operation.instruction.name in _COORDINATE_ANNOTATIONS:
+                    moment = max(moment, coordinate_moment)
+        for operation in members:
+            last_moment.update(dict.fromkeys(operation.qubits, moment))
+            record_moments.extend([moment] * operation.num_records)
+            if operation.is_gate:
+                gate_moment = moment
+            if operation.instruction.name in _COORDINATE_ANNOTATIONS:
+                coordinate_moment = moment
+            moments.append(moment)
+    return moments
 
 
 ####################################################################################################
@@ -476,11 +533,8 @@ class _Segment:
 
     @property
     def duration(self) -> int:
-        """The number of moments of the segment, up to its last moment with a gate."""
-        return max(
-            (moment + 1 for op, moment in zip(self.operations, self.moments) if op.is_gate),
-            default=0,
-        )
+        """The number of moments of the segment."""
+        return max(self.moments, default=-1) + 1
 
 
 def _get_segments(

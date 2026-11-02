@@ -29,10 +29,10 @@ CIRCUIT = stim.Circuit("""
 
 
 def test_asap() -> None:
-    """Operations are as early as possible, and resets as late as possible by default.
+    """Gates are as early as possible, and resets as late as possible by default.
 
-    An observable shares the moment of the gate before it on its qubit, and a detector shares the
-    moment of the measurement that it reads.
+    An annotation joins the moment of the operation before it on its qubits, or, without qubits, of
+    the last gate before it.
     """
     expected = """
         QUBIT_COORDS(0, 0) 0
@@ -47,12 +47,12 @@ def test_asap() -> None:
         M 0
         CX 1 2
         OBSERVABLE_INCLUDE(0) Z2
-        DETECTOR rec[-1]
         TICK
         H 2
         M 1
         TICK
         M 2
+        DETECTOR rec[-3]
         OBSERVABLE_INCLUDE(0) rec[-1]
     """
     scheduler = circuits.Scheduler.asap(late_resets=False, single_qubit_gates_take_time=True)
@@ -65,8 +65,12 @@ def test_asap() -> None:
 
 
 def test_alap() -> None:
-    """Operations are as late as possible, and measurements as early as possible by default."""
+    """Gates are as late as possible, and measurements as early as possible by default.
+
+    Annotations join the moment of the operation before them, as in ASAP schedules.
+    """
     expected = """
+        QUBIT_COORDS(0, 0) 0
         R 0
         TICK
         R 1
@@ -77,8 +81,8 @@ def test_alap() -> None:
         TICK
         {early_measurement}
         CX 1 2
-        TICK
         OBSERVABLE_INCLUDE(0) Z2
+        TICK
         H 2
         {measurements}
         DETECTOR rec[-3]
@@ -87,14 +91,12 @@ def test_alap() -> None:
     scheduler = circuits.Scheduler.alap(early_measurements=False, single_qubit_gates_take_time=True)
     circuit, _ = scheduler.get_schedule(CIRCUIT).to_circuit()
     assert circuit == stim.Circuit(
-        expected.format(early_measurement="", measurements="TICK\nQUBIT_COORDS(0, 0) 0\nM 0 1 2")
+        expected.format(early_measurement="", measurements="TICK\nM 0 1 2")
     )
     scheduler = circuits.Scheduler.alap(single_qubit_gates_take_time=True)
     circuit, _ = scheduler.get_schedule(CIRCUIT).to_circuit()
     assert circuit == stim.Circuit(
-        expected.format(
-            early_measurement="M 0", measurements="M 1\nTICK\nQUBIT_COORDS(0, 0) 0\nM 2"
-        )
+        expected.format(early_measurement="M 0", measurements="M 1\nTICK\nM 2")
     )
 
 
@@ -196,7 +198,7 @@ def test_measurement_order() -> None:
 def test_repeat_blocks_are_moment_boundaries() -> None:
     """The boundaries of REPEAT blocks and of their iterations are boundaries between moments.
 
-    A segment without gates, such as a REPEAT body without them, takes no time.
+    A segment without operations has no moments, while one with only noise channels has one.
     """
     circuit = stim.Circuit("H 2\nREPEAT 3 {\nH 0\nTICK\nH 1\n}\nH 3")
     scheduler = circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
@@ -219,22 +221,22 @@ def test_repeat_blocks_are_moment_boundaries() -> None:
 
     circuit = stim.Circuit("M 0\nREPEAT 2 {\nTICK\n}\nREPEAT 3 {\nX_ERROR(0.1) 1\n}\nM 2")
     schedule = circuits.Scheduler.asap().get_schedule(circuit)
-    assert schedule.num_moments == 2
+    assert schedule.num_moments == 5
     assert schedule.to_circuit()[0] == stim.Circuit(
         "M 0\nTICK\nREPEAT 2 {\n}\nREPEAT 3 {\nX_ERROR(0.1) 1\nTICK\n}\nM 2"
     )
 
 
 def test_preserve_ticks_with_repeat_blocks() -> None:
-    """A TICK ends a moment with a gate also inside a REPEAT block, and annotations take no time.
+    """A TICK ends a moment with a gate, also inside a REPEAT block.
 
-    Annotations after the last gate of a segment form a last moment, which takes no time.
+    Annotations and noise channels join the moment of the operation before them, or the first
+    moment of their segment.
     """
     scheduler = circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
     for text, num_moments in [
         ("H 0\nREPEAT 2 {\nTICK\n}\nH 1", 2),
-        ("H 0\nTICK\nREPEAT 3 {\nX_ERROR(0.1) 0\nTICK\n}\nH 1", 2),
-        ("MR 0\nREPEAT 2 {\nX_ERROR(0.1) 1\nTICK\nX_ERROR(0.1) 1\n}\nM 0", 2),
+        ("H 0\nTICK\nREPEAT 3 {\nX_ERROR(0.1) 0\nTICK\n}\nH 1", 5),
         ("R 0\nTICK\nREPEAT 4 {\nX_ERROR(0.1) 0\nTICK\nH 0\n}", 5),
         ("M 0\nTICK\nDETECTOR rec[-1]\nREPEAT 2 {\nH 0\n}", 3),
         ("M 0\nTICK\nOBSERVABLE_INCLUDE(0) Z1", 1),
