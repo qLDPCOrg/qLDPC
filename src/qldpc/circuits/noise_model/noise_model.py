@@ -26,11 +26,6 @@ from ..common import (
     _get_immune_qubits,
 )
 from ..transforms import with_remapped_qubits
-from ._moments import (
-    compose_idle_channels,
-    quadratic_idle_channel,
-    repeated_idle_channel,
-)
 from ._operations import (
     ANNOTATION,
     CLIFFORD_1Q,
@@ -48,7 +43,14 @@ from ._operations import (
     known_gate_shape,
     op_type,
 )
-from .channels import _ABSOLUTE_ERROR_TOLERANCE, PauliChannel, PauliChannelSequence
+from .channels import (
+    _ABSOLUTE_ERROR_TOLERANCE,
+    PauliChannel,
+    PauliChannelSequence,
+    _compose_idle_channels,
+    _quadratic_idle_channel,
+    _repeated_idle_channel,
+)
 from .rules import (
     ErrorSpec,
     NoiseRule,
@@ -538,20 +540,20 @@ class NoiseModel:
                 continue
             if isinstance(rule.after, (PauliChannel, PauliChannelSequence)):
                 channels.append(
-                    rule.after if count == 1 else repeated_idle_channel(rule.after, count)
+                    rule.after if count == 1 else _repeated_idle_channel(rule.after, count)
                 )
             else:
                 for _ in range(count):
                     rule.emit_after(noise, [0], context="idle qubits")
         if self.quadratic_idle_error is not None and num_idle:
-            channels.append(quadratic_idle_channel(self.quadratic_idle_error, num_idle))
+            channels.append(_quadratic_idle_channel(self.quadratic_idle_error, num_idle))
 
         # combine the Pauli channels into one
         if channels:
             channel = (
                 channels[0]
                 if len(channels) == 1
-                else functools.reduce(compose_idle_channels, channels)
+                else functools.reduce(_compose_idle_channels, channels)
             )
             NoiseRule(after=channel).emit_after(noise, [0], context="idle qubits")
         return noise
