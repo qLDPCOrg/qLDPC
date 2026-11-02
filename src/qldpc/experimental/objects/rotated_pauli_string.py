@@ -2,27 +2,27 @@
 
 """Pauli strings followed by layers of π/2 and π/4 Pauli rotations.
 
-A ``RotatedPauliString`` represents, up to a global phase, an operator of the form
-
-    ``V = R_{π/4}(t_k) ··· R_{π/4}(t_1) · R_{π/2}(s_j) ··· R_{π/2}(s_1) · P``,
-
-where ``P`` is a Pauli string, the axes ``s_i`` and ``t_i`` are Hermitian Pauli strings, and
-``R_θ(a)`` is the rotation by an angle ``θ`` about ``a``.  Such an operator is a Clifford+T
-operator, and every Clifford+T operator has this form; Pauli strings conjugated by Clifford+T
-unitaries are the main example.  The operators of this form with ``k = 0`` are the Clifford
-operators.  Products and adjoints keep this form, since a Clifford operator ``C`` moves past a π/4
-rotation by conjugating its axis, as in ``C R_{π/4}(t) = R_{π/4}(C t C†) C``.  A
-``RotatedPauliString`` stores its Pauli string and axes bit-packed, so the costs of its operations
-scale polynomially with the numbers of qubits and rotations, rather than with the size of a matrix.
+``RotatedPauliString`` represents a Clifford+T operator, up to a global phase, as a Pauli string
+followed by a layer of π/2 Pauli rotations and a layer of π/4 Pauli rotations.  Pauli strings
+conjugated by Clifford+T unitaries are the main example.  Products and adjoints keep this form,
+since a Clifford operator ``C`` moves past a π/4 rotation by conjugating its axis:
+``C R_{π/4}(t) = R_{π/4}(C t C†) C``.  The Pauli string and axes are stored bit-packed, so
+operations cost time polynomial in the numbers of qubits and rotations, rather than in the size of
+a matrix.
 
 The rotation by an angle ``θ`` about a Hermitian Pauli string ``a`` is ``R_θ(a) = exp(-iθ a/2)``.
-Up to global phases, the π/2 rotation ``R_{π/2}(Z) = exp(-iπ Z/4)`` is the S gate, the π/4 rotation
-``R_{π/4}(Z) = exp(-iπ Z/8)`` is the T gate, and ``R_{π/2}(a)`` is stim's generalized S gate
-``SPP a``.  Litinski, "A Game of Surface Codes" (https://arxiv.org/abs/1808.02892), writes the
-angle in the exponent instead, so his Pauli product rotations ``a_{π/4}`` and ``a_{π/8}`` are
-``R_{π/2}(a)`` and ``R_{π/4}(a)``.  The rotations satisfy ``R_{π/4}(a)² = R_{π/2}(a)``,
-``R_{π/4}(a) R_{π/4}(-a) = I``, and ``R_{π/2}(a) b R_{π/2}(a)† = -i a b`` for a Pauli string ``b``
-that anticommutes with ``a``.
+Up to global phases:
+
+- ``R_{π/2}(Z) = exp(-iπ Z/4)`` is the S gate, and ``R_{π/2}(a)`` is stim's generalized S gate
+  ``SPP a``;
+- ``R_{π/4}(Z) = exp(-iπ Z/8)`` is the T gate.
+
+Litinski, "A Game of Surface Codes" (https://arxiv.org/abs/1808.02892), writes the angle in the
+exponent instead, so his Pauli product rotations ``a_{π/4}`` and ``a_{π/8}`` are ``R_{π/2}(a)`` and
+``R_{π/4}(a)``.  The rotations satisfy:
+
+- ``R_{π/4}(a)² = R_{π/2}(a)`` and ``R_{π/4}(a) R_{π/4}(-a) = I``;
+- ``R_{π/2}(a) b R_{π/2}(a)† = -i a b`` for a Pauli string ``b`` that anticommutes with ``a``.
 """
 
 # Graduation plan: once the API of this module settles, it moves to qldpc.objects, as follows.
@@ -68,25 +68,25 @@ class RotatedPauliString:
 
         ``V = R_{π/4}(t_k) ··· R_{π/4}(t_1) · R_{π/2}(s_j) ··· R_{π/2}(s_1) · P``,
 
-    where ``P`` is its ``core``, the ``s_i`` are its ``s_axes``, the ``t_i`` are its ``t_axes``, and
-    ``R_{π/2}(a) = exp(-iπ a/4)`` and ``R_{π/4}(a) = exp(-iπ a/8)`` are the π/2 and π/4 rotations
-    about a Hermitian Pauli string ``a``.  Axes are listed innermost (first applied) first.  Such an
-    operator is a Clifford+T operator, and every Clifford+T operator has this form; Pauli strings
-    conjugated by Clifford+T unitaries are the main example.  "Rotated" means that the rotations
-    are applied after ``P``, not that they conjugate ``P``.  Unlike a ``stim.PauliString``, a
-    ``RotatedPauliString`` has no sign.
+    where ``P`` is its ``core``, the ``s_i`` are its ``s_axes``, and the ``t_i`` are its ``t_axes``,
+    all Hermitian Pauli strings, and ``R_θ(a) = exp(-iθ a/2)`` is the rotation by ``θ`` about
+    ``a``.  Axes are listed innermost (first applied) first.  "Rotated" means that the rotations are
+    applied after ``P``, not that they conjugate ``P``.  Such operators are exactly the Clifford+T
+    operators, and those without π/4 rotations (``k = 0``) are the Clifford operators.  Unlike a
+    ``stim.PauliString``, a ``RotatedPauliString`` has no sign.
 
-    A ``RotatedPauliString`` is always stored in a simplified form.  Simplification drops π/4
-    rotations about the identity, and it merges π/4 rotations that can be brought next to each
-    other: two π/4 rotations about the same axis ``a`` merge into a π/2 rotation about ``a``, and
-    two about ``a`` and ``-a`` cancel.  Finally, it puts the Clifford operator
-    ``R_{π/2}(s_j) ··· R_{π/2}(s_1) · P`` in a canonical form.  Objects are equal if their
-    simplified forms are equal, in which case their operators are equal up to a global phase.
-    Conversely, operators without π/4 rotations that are equal up to a global phase have equal
-    objects.  The simplified forms of operators with π/4 rotations are not canonical, however, so
-    such operators can be equal without being equal objects.  For example, the π/4 rotations about
-    the 15 products of ``Z`` operators on nonempty subsets of 4 qubits multiply to a global phase,
-    but their simplified form keeps all 15 rotations.
+    Objects are stored in a simplified form, which:
+
+    - drops π/4 rotations about the identity;
+    - merges π/4 rotations that can be brought next to each other: two about the same axis ``a``
+      become a π/2 rotation about ``a``, and two about ``a`` and ``-a`` cancel;
+    - puts the Clifford part ``R_{π/2}(s_j) ··· R_{π/2}(s_1) · P`` in a canonical form.
+
+    Equal objects represent operators that are equal up to a global phase.  The converse holds for
+    operators without π/4 rotations, whose simplified forms are canonical.  With π/4 rotations,
+    equal operators can be unequal objects: for example, the π/4 rotations about the 15 products of
+    ``Z`` operators on nonempty subsets of 4 qubits multiply to a global phase, but their simplified
+    form keeps all 15 rotations.
 
     Args:
         pauli: A Pauli string, whose sign does not matter.  Default: the identity on no qubits.
