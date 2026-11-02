@@ -477,36 +477,25 @@ class NoiseModel:
             if immune_qubit_tag is not None
             else frozenset()
         )
-
+        scheduler = self.scheduler
         if insert_ticks:  # DEPRECATED: see qldpc._deprecations
-            from qldpc._deprecations.noise_model import get_noisy_circuit_with_ticks
+            scheduler = Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
+            stim_circuit = scheduler.get_schedule(stim_circuit).to_circuit()[0]
 
-            noisy_circuit = get_noisy_circuit_with_ticks(
-                self,
-                stim_circuit,
-                system_qubits=system_qubits,
-                immune_qubits=immune_qubits,
-                immune_op_tag=immune_op_tag,
-                immunize_gates=immunize_gates,
-            )
-        else:
-            schedule = None
-            if (
-                self.idle_error
-                or self.quadratic_idle_error
-                or self.additional_error_waiting_for_m_or_r
-            ):
-                schedule = self.scheduler.get_schedule(stim_circuit)
-                self.scheduler.validate(stim_circuit, schedule)
-            builder = _NoisyCircuitBuilder(
-                self,
-                idle_qubits=system_qubits - immune_qubits,
-                immune_qubits=immune_qubits,
-                immune_op_tag=immune_op_tag,
-                immunize_gates=immunize_gates,
-                timed=schedule is not None,
-            )
-            noisy_circuit = builder.get_noisy_circuit(stim_circuit, schedule)
+        schedule = None
+        if self.idle_error or self.quadratic_idle_error or self.additional_error_waiting_for_m_or_r:
+            schedule = scheduler.get_schedule(stim_circuit)
+            scheduler.validate(stim_circuit, schedule)
+        builder = _NoisyCircuitBuilder(
+            self,
+            takes_time=scheduler.takes_time,
+            idle_qubits=system_qubits - immune_qubits,
+            immune_qubits=immune_qubits,
+            immune_op_tag=immune_op_tag,
+            immunize_gates=immunize_gates,
+            timed=schedule is not None,
+        )
+        noisy_circuit = builder.get_noisy_circuit(stim_circuit, schedule)
 
         if isinstance(circuit, stim.Circuit):
             return noisy_circuit
@@ -563,6 +552,7 @@ class _NoisyCircuitBuilder:
         self,
         noise_model: NoiseModel,
         *,
+        takes_time: Callable[[stim.CircuitInstruction], bool],
         idle_qubits: frozenset[int],
         immune_qubits: frozenset[int],
         immune_op_tag: str | None,
@@ -570,11 +560,11 @@ class _NoisyCircuitBuilder:
         timed: bool,
     ) -> None:
         self.noise_model = noise_model
+        self.takes_time = takes_time
         self.immune_qubits = immune_qubits
         self.immune_op_tag = immune_op_tag
         self.immunize_gates = immunize_gates
         self.timed = timed
-        self.takes_time = noise_model.scheduler.takes_time
 
         self.pool: dict[int, tuple[Iterable[int], stim.Circuit]] = {}  # pending noise, in order
         self.pool_by_qubit: dict[int, set[int]] = collections.defaultdict(set)  # pool keys

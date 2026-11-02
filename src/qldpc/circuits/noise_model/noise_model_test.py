@@ -624,7 +624,7 @@ def test_deprecated_insert_ticks() -> None:
     with pytest.warns(DeprecationWarning, match="insert_ticks"):
         noisy_circuit = noise_model.noisy_circuit(circuit, insert_ticks=True)
     assert noisy_circuit == stim.Circuit(
-        "CX 0 1\nDEPOLARIZE2(0.1) 0 1\nTICK\nCX 1 2\nDEPOLARIZE2(0.1) 1 2"
+        "CX 0 1\nTICK\nDEPOLARIZE2(0.1) 0 1\nCX 1 2\nDEPOLARIZE2(0.1) 1 2"
     )
     with pytest.warns(DeprecationWarning, match="insert_ticks"):
         noisy_circuit = noise_model.noisy_circuit(circuit, insert_ticks=False)
