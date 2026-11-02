@@ -1,29 +1,37 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Canonical forms of Clifford operators that are products of π/2 Pauli rotations.
+"""Canonical forms of Clifford operators written as products of π/2 Pauli rotations.
 
-A Pauli string ``P`` followed by a product ``S = R_{π/2}(s_j) ··· R_{π/2}(s_1)`` of π/2 rotations
-``R_{π/2}(a) = exp(-iπ a/4)`` about Hermitian Pauli strings is the Clifford operator ``S·P``.  In
-symplectic coordinates, it acts on Pauli strings as the matrix ``M = T_{s_j} ··· T_{s_1}``, where
-each transvection ``T_a: v ↦ v + ω(a, v) a`` is the action of ``R_{π/2}(a)``, and the symplectic
-form ``ω`` is 1 on anticommuting Pauli strings.  ``canonicalize`` rewrites ``S·P`` as ``S'·P'``,
-equal up to a global phase, where ``S'`` depends only on the operator, so that equal operators get
-equal representations.  ``S'`` has at most ``rank(M - I) + 1`` rotations, and no product of fewer
-than ``rank(M - I)`` π/2 rotations acts as ``M``.
+A Pauli string ``P`` followed by π/2 rotations ``R_{π/2}(a) = exp(-iπ a/4)`` about Hermitian Pauli
+strings ``s_1, ..., s_j`` is the Clifford operator ``S·P``, where
+``S = R_{π/2}(s_j) ··· R_{π/2}(s_1)``.  Many such products are equal up to a global phase.
+``canonicalize`` rewrites ``S·P`` as an equal product ``S'·P'`` that depends only on the operator,
+so that equal operators get equal representations.
 
-The rewriting uses only the rotation axes, and never the ``2n × 2n`` matrix ``M``.  The image of
-``M - I`` lies in the span of the axes.  For a basis ``a_1, ..., a_r`` of this image in reduced row
-echelon form, ``M v = v + Σ_{k,l} a_k Q_{kl} ω(a_l, v)`` for a unique invertible ``r × r`` matrix
-``Q``.  Applying the transvections of axes ``b_i = Σ_k g_{ik} a_k`` in the order ``b_1, b_2, ...``
-gives ``M`` if the bilinear form ``β(x, y) = x^T Q^{-1} y`` has ``β(g_i, g_i) = 1`` and
-``β(g_i, g_l) = 0`` for ``i < l``.  Such vectors are found greedily, with a one-step lookahead.  If
-no vector in the remaining subspace has ``β(g, g) = 1``, one extra transvection makes one exist, as
-some symplectic matrices are a product of no fewer than ``rank(M - I) + 1`` transvections.  Finally,
-the Pauli string ``P'`` reconciles the signs of the images of Pauli strings under ``S·P`` and
-``S'``.
+The construction works with the action of ``S`` on Pauli strings, written as vectors over GF(2) of
+their X and Z bits.  The symplectic form ``ω(a, v)`` is 1 if ``a`` and ``v`` anticommute, and 0
+otherwise.  Up to signs, ``R_{π/2}(a)`` maps a Pauli string ``v`` to ``v + ω(a, v) a``, a
+transvection, so ``S`` acts as the product ``M`` of the transvections of its axes.  Without forming
+the ``2n × 2n`` matrix ``M``, ``canonicalize`` proceeds in four steps.
 
-For ``j`` rotations, ``r = rank(M - I) ≤ j``, and ``n`` qubits, the cost is ``O(j² n/64 + r³)``
-in the common case, and ``O(r⁵)`` at worst for the lookahead.
+1. Find a basis ``a_1, ..., a_r`` of the image of ``M - I``, in reduced row echelon form.  The image
+   lies in the span of the axes, so the changes ``(M - I) v`` of one test Pauli string ``v`` for
+   each pivot of that span suffice.
+2. Find the unique invertible ``r × r`` matrix ``Q`` with ``M v = v + Σ_{k,l} a_k Q_{kl} ω(a_l, v)``
+   for all ``v``.
+3. Choose the canonical axes ``b_i = Σ_k g_{ik} a_k``.  Their transvections, applied in the order
+   ``b_1, b_2, ...``, give ``M`` if the bilinear form ``β(x, y) = x^T Q^{-1} y`` has
+   ``β(g_i, g_i) = 1`` and ``β(g_i, g_l) = 0`` for ``i < l``.  The vectors ``g_i`` are found
+   greedily, with a one-step lookahead.  If no remaining vector has ``β(g, g) = 1``, one extra
+   transvection makes one exist, since some symplectic matrices are products of no fewer than
+   ``rank(M - I) + 1`` transvections.
+4. Choose ``P'`` so that ``S'·P'`` and ``S·P`` map each test Pauli string to the same signed Pauli
+   string.  The signs fix ``P'``, since the product ``P'P`` lies in the span of the axes.
+
+The canonical product ``S'`` has at most ``rank(M - I) + 1`` rotations, and no product of fewer
+than ``rank(M - I)`` π/2 rotations acts as ``M``.  For ``j`` rotations on ``n`` qubits, with
+``r = rank(M - I) ≤ j``, the cost is ``O(j² n/64 + r³)`` in the common case, and ``O(r⁵)`` at worst
+for the lookahead.
 """
 
 from __future__ import annotations
