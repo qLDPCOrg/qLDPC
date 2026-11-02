@@ -24,6 +24,7 @@ words in place and return its new phase.
 from __future__ import annotations
 
 import functools
+from collections.abc import Sequence
 
 import numpy as np
 import numpy.typing as npt
@@ -92,6 +93,20 @@ def to_stim(words: npt.ArrayLike, phase: int, num_qubits: int) -> stim.PauliStri
     return stim.PauliString.from_numpy(xs=xs, zs=zs, sign=sign)
 
 
+def pack_axes(
+    axes: Sequence[stim.PauliString], num_qubits: int
+) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int64]]:
+    """The words and phases of stim Pauli strings, such as rotation axes, one per row.
+
+    The Pauli strings are padded with identities to ``num_qubits`` qubits, as by ``from_stim``.
+    """
+    words = np.zeros((len(axes), 2 * get_num_words(num_qubits)), dtype=np.uint64)
+    phases = np.zeros(len(axes), dtype=np.int64)
+    for row, axis in enumerate(axes):
+        words[row], phases[row] = from_stim(axis, num_qubits)
+    return words, phases
+
+
 ####################################################################################################
 # compiled kernels
 
@@ -145,23 +160,6 @@ def left_multiply(
 
 
 @always_compiled(inline=True)
-def right_multiply(
-    target: npt.NDArray[np.uint64],
-    target_phase: int,
-    factor: npt.NDArray[np.uint64],
-    factor_phase: int,
-) -> int:
-    """Replace ``target`` by ``target · factor``, and return the phase of the product."""
-    num_words = len(target) // 2
-    count = 0
-    for word in range(num_words):
-        count += int(popcount_word(target[num_words + word] & factor[word]))
-        target[word] ^= factor[word]
-        target[num_words + word] ^= factor[num_words + word]
-    return (target_phase + factor_phase + 2 * count) % 4
-
-
-@always_compiled(inline=True)
 def conjugate_by_s_rotation(
     target: npt.NDArray[np.uint64],
     target_phase: int,
@@ -194,6 +192,8 @@ def conjugate_by_local_clifford(
     """
     num_words = len(target) // 2
     num_local = len(qubits)
+
+    # read the index of the Pauli string of the target on the qubits of the gate
     index = np.int64(0)
     for position in range(num_local):
         word = qubits[position] // 64
@@ -202,6 +202,8 @@ def conjugate_by_local_clifford(
         index |= np.int64((target[num_words + word] >> shift) & np.uint64(1)) << (
             num_local + position
         )
+
+    # overwrite the bits of those qubits with the image, and add its phase
     image = images[index]
     for position in range(num_local):
         word = qubits[position] // 64
@@ -222,23 +224,29 @@ def conjugate_by_local_clifford(
 def get_clifford_gate_table(name: str) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
     """The images of all Pauli strings under conjugation by a Clifford gate of stim.
 
-    The ``k`` qubits that the gate addresses index a Pauli string ``X^x Z^z`` on them by ``Σ_j (x_j
+    A Pauli string ``X^x Z^z`` on the ``k`` qubits that the gate addresses has the index ``Σ_j (x_j
     2^j + z_j 2^{k + j})``.  Entry ``i`` of the returned arrays holds the index and the phase of the
     image of the Pauli string with index ``i``, in the convention of this module.
     """
+    # list the images of the generators X_0, ..., X_{k-1}, Z_0, ..., Z_{k-1}, in the order of the
+    # bits of an index
     tableau = stim.Tableau.from_named_gate(name)
     num_local = len(tableau)
     generators = [tableau.x_output(qubit) for qubit in range(num_local)]
     generators += [tableau.z_output(qubit) for qubit in range(num_local)]
+    factors = [from_stim(generator, num_local) for generator in generators]
+
+    # multiply the images of the generators in each index, in the order in which X^x Z^z lists
+    # them; left multiplication builds the product from its last factor
     images = np.zeros(4**num_local, dtype=np.int64)
     image_phases = np.zeros(4**num_local, dtype=np.int64)
     for index in range(4**num_local):
         words = np.zeros(2, dtype=np.uint64)
         phase = 0
-        for position, generator in enumerate(generators):
+        for position in range(len(factors) - 1, -1, -1):
             if (index >> position) & 1:
-                factor, factor_phase = from_stim(generator, num_local)
-                phase = right_multiply(words, phase, factor, factor_phase)
+                factor, factor_phase = factors[position]
+                phase = left_multiply(words, phase, factor, factor_phase)
         images[index] = int(words[0]) | (int(words[1]) << num_local)
         image_phases[index] = phase
     return images, image_phases

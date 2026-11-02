@@ -175,8 +175,8 @@ class RotatedPauliString:
             if axis.sign not in (1, -1):
                 raise ValueError(f"Rotation axes must be Hermitian, but {axis} is not")
         core_words, _ = packed.from_stim(strings[0], num_qubits)
-        s_words, s_phases = _pack_axes(strings[1 : 1 + len(s_axes)], num_qubits)
-        t_words, t_phases = _pack_axes(strings[1 + len(s_axes) :], num_qubits)
+        s_words, s_phases = packed.pack_axes(strings[1 : 1 + len(s_axes)], num_qubits)
+        t_words, t_phases = packed.pack_axes(strings[1 + len(s_axes) :], num_qubits)
         return RotatedPauliString._new(
             num_qubits, _simplify(core_words, s_words, s_phases, t_words, t_phases)
         )
@@ -382,11 +382,7 @@ class RotatedPauliString:
         # conjugate by the operations in order
         core, s_axes, s_phases, t_axes, t_phases = self._padded(num_qubits)._get_arrays()
         arrays = _apply_packed_circuit(
-            *(core, s_axes, s_phases, t_axes, t_phases),
-            *(packed_circuit.kinds, packed_circuit.operands),
-            *(packed_circuit.gate_qubits, packed_circuit.gate_tables),
-            *(packed_circuit.table_sizes, packed_circuit.table_images, packed_circuit.table_phases),
-            *(packed_circuit.axes, packed_circuit.axis_phases),
+            core, s_axes, s_phases, t_axes, t_phases, *packed_circuit.get_arrays()
         )
         return RotatedPauliString._new(num_qubits, _simplify(*arrays))
 
@@ -697,17 +693,6 @@ def _remove_row(
 
 ####################################################################################################
 # helpers
-
-
-def _pack_axes(
-    axes: Sequence[stim.PauliString], num_qubits: int
-) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int64]]:
-    """The packed words and phases of Hermitian axes, one per row."""
-    words = np.zeros((len(axes), 2 * packed.get_num_words(num_qubits)), dtype=np.uint64)
-    phases = np.zeros(len(axes), dtype=np.int64)
-    for row, axis in enumerate(axes):
-        words[row], phases[row] = packed.from_stim(axis, num_qubits)
-    return words, phases
 
 
 def _unpack_axes(

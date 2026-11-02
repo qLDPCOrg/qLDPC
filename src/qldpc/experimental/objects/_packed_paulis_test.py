@@ -20,7 +20,6 @@ _KERNELS = (
     "is_scalar",
     "anticommutes",
     "left_multiply",
-    "right_multiply",
     "conjugate_by_s_rotation",
     "conjugate_by_local_clifford",
 )
@@ -62,6 +61,13 @@ def test_stim_round_trip(rng: np.random.Generator) -> None:
     with pytest.raises(ValueError, match="more than"):
         packed.from_stim(stim.PauliString("XX"), 1)
 
+    strings = [stim.PauliString("-XY"), stim.PauliString("Z")]
+    words, phases = packed.pack_axes(strings, 3)
+    assert [packed.to_stim(*row, 3) for row in zip(words, phases)] == [
+        string + stim.PauliString(3 - len(string)) for string in strings
+    ]
+    assert packed.pack_axes([], 65)[0].shape == (0, 4)
+
 
 @pytest.mark.usefixtures("kernels")
 def test_products_and_commutation(rng: np.random.Generator) -> None:
@@ -75,9 +81,6 @@ def test_products_and_commutation(rng: np.random.Generator) -> None:
         words = first_words.copy()
         phase = packed.left_multiply(words, first_phase, second_words, second_phase)
         assert packed.to_stim(words, phase, num_qubits) == second * first
-        words = first_words.copy()
-        phase = packed.right_multiply(words, first_phase, second_words, second_phase)
-        assert packed.to_stim(words, phase, num_qubits) == first * second
 
         assert not packed.is_scalar(packed.from_stim(stim.PauliString({num_qubits - 1: "Z"}))[0])
         assert packed.is_scalar(packed.from_stim(-stim.PauliString(num_qubits))[0])

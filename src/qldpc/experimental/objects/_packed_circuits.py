@@ -23,10 +23,10 @@ _ANNOTATIONS = frozenset(
     {"TICK", "QUBIT_COORDS", "SHIFT_COORDS", "DETECTOR", "OBSERVABLE_INCLUDE", "MPAD"}
 )
 # The instructions that are Pauli rotations, mapped to the sign of their rotation axes.
-_ROTATIONS = {"S": 1, "S_DAG": -1, "SPP": 1, "SPP_DAG": -1}
-# Instructions whose meaning a tag can change, as tsim's tags for other rotations do.
-_TAGGABLE = frozenset({"I", *_ROTATIONS})
-# The tag of T gates, which may also carry a label, as in "T:label".
+_ROTATION_SIGNS = {"S": 1, "S_DAG": -1, "SPP": 1, "SPP_DAG": -1}
+# Instructions that tsim tags to make other rotations, so tags other than T change their meaning.
+_TAG_SENSITIVE = frozenset({"I", *_ROTATION_SIGNS})
+# The tag of T gates (see the docstring of ``RotatedPauliString``).
 T_TAG = "T"
 # The kinds of operations of a packed circuit (see ``PackedCircuit``), compared only for equality.
 LOCAL_GATE = 0
@@ -135,14 +135,13 @@ def get_packed_circuit(
 def _get_packed_circuit(text: str, num_qubits: int, inverse: bool) -> PackedCircuit:
     """The packed circuit with the given text (see ``get_packed_circuit``)."""
     # collect the kind and operand of each operation, the qubits and table of each local gate, the
-    # table of each gate name, and the Pauli letters and sign of each rotation axis
+    # table of each gate name, and the axis of each rotation
     kinds: list[int] = []
     operands: list[int] = []
     gate_qubits: list[tuple[int, int]] = []
     gate_tables: list[int] = []
     table_indices: dict[str, int] = {}
-    axis_letters: list[list[tuple[int, str]]] = []
-    axis_signs: list[int] = []
+    axes: list[stim.PauliString] = []
 
     # read the instructions, skipping annotations and rejecting what packed circuits cannot
     # represent; the inverse circuit applies the inverse operations in reverse order, so reverse
@@ -160,13 +159,11 @@ def _get_packed_circuit(text: str, num_qubits: int, inverse: bool) -> PackedCirc
         # rotation about the negated axis
         if is_t_gate or instruction.name in ("SPP", "SPP_DAG"):
             kind = T_ROTATION if is_t_gate else S_ROTATION
-            sign = _ROTATIONS[instruction.name] * (-1 if inverse else 1)
+            sign = _ROTATION_SIGNS[instruction.name] * (-1 if inverse else 1)
             for group in groups:
-                letters, group_sign = _get_axis(instruction, group)
                 kinds.append(kind)
-                operands.append(len(axis_signs))
-                axis_letters.append(letters)
-                axis_signs.append(sign * group_sign)
+                operands.append(len(axes))
+                axes.append(sign * _get_axis(instruction, group))
             continue
 
         # each target group of another gate, including an untagged S or S_DAG, is a local gate,
@@ -191,16 +188,8 @@ def _get_packed_circuit(text: str, num_qubits: int, inverse: bool) -> PackedCirc
         table_images[table, : len(images)] = images
         table_phases[table, : len(phases)] = phases
 
-    # pack the rotation axes; in the convention i^r X^x Z^z of _packed_paulis, Y = iXZ, so an axis
-    # with sign ±1 and m letters Y has the phase r = m, plus 2 if its sign is negative
-    xs = np.zeros((len(axis_signs), num_qubits), dtype=bool)
-    zs = np.zeros((len(axis_signs), num_qubits), dtype=bool)
-    for row, letters in enumerate(axis_letters):
-        for qubit, letter in letters:
-            xs[row, qubit] = letter in "XY"
-            zs[row, qubit] = letter in "YZ"
-    num_y = np.count_nonzero(xs & zs, axis=1)
-    axis_phases = (num_y + np.where(np.array(axis_signs, dtype=np.int64) < 0, 2, 0)) % 4
+    # pack the rotation axes
+    axis_words, axis_phases = packed.pack_axes(axes, num_qubits)
 
     # assemble the packed circuit, whose arrays must be read-only, since it is cached and shared
     packed_circuit = PackedCircuit(
@@ -213,8 +202,8 @@ def _get_packed_circuit(text: str, num_qubits: int, inverse: bool) -> PackedCirc
         table_sizes=table_sizes,
         table_images=table_images,
         table_phases=table_phases,
-        axes=packed.pack(xs, zs),
-        axis_phases=axis_phases.astype(np.int64),
+        axes=axis_words,
+        axis_phases=axis_phases,
     )
     for array in packed_circuit.get_arrays():
         array.flags.writeable = False
@@ -236,9 +225,9 @@ def _check_instruction(instruction: stim.CircuitInstruction) -> bool:
     # which packed circuits cannot represent, but tags on other gates do not change their action
     tag = instruction.tag
     is_t_gate = tag == T_TAG or tag.startswith(T_TAG + ":")
-    if is_t_gate and instruction.name not in _ROTATIONS:
+    if is_t_gate and instruction.name not in _ROTATION_SIGNS:
         raise ValueError(f"Instruction cannot be a T gate: {instruction}")
-    if tag and not is_t_gate and instruction.name in _TAGGABLE:
+    if tag and not is_t_gate and instruction.name in _TAG_SENSITIVE:
         raise ValueError(
             f"Tags other than T are not supported on {instruction.name}: {instruction}"
         )
@@ -255,8 +244,8 @@ def _check_instruction(instruction: stim.CircuitInstruction) -> bool:
 
 def _get_axis(
     instruction: stim.CircuitInstruction, group: list[stim.GateTarget]
-) -> tuple[list[tuple[int, str]], int]:
-    """The axis of a target group of a Pauli rotation, as qubits with Pauli letters, and a sign.
+) -> stim.PauliString:
+    """The axis of a target group of a Pauli rotation, with its sign.
 
     The targets of ``S`` and ``S_DAG`` are qubits, each with the axis ``Z``.  The targets of ``SPP``
     and ``SPP_DAG`` are Pauli targets, each of which negates the axis if it is inverted.
@@ -264,10 +253,10 @@ def _get_axis(
     Raises:
         ValueError: If the target group repeats a qubit.
     """
-    letters = [
-        (target.value, "Z" if target.is_qubit_target else target.pauli_type) for target in group
-    ]
-    if len({qubit for qubit, _ in letters}) < len(letters):
+    letters = {
+        target.value: "Z" if target.is_qubit_target else target.pauli_type for target in group
+    }
+    if len(letters) < len(group):
         raise ValueError(f"Pauli products must not repeat qubits: {instruction}")
     inversions = sum(target.is_inverted_result_target for target in group)
-    return letters, (-1) ** inversions
+    return (-1) ** inversions * stim.PauliString(letters)
