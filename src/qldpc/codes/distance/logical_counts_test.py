@@ -19,10 +19,10 @@ import pytest
 
 import qldpc
 from qldpc import _compilation, codes
+from qldpc._binary import get_independent_rows
 
 from . import _information_sets
 from . import logical_counts as lc
-from ._binary import get_independent_rows
 from ._counting import macwilliams
 from .conftest import (
     HAND_X,

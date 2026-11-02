@@ -16,8 +16,8 @@ import pytest
 from sympy.abc import x, y, z
 
 import qldpc
+from qldpc._binary import get_independent_rows
 
-from . import _binary as binary
 from . import _brouwer_zimmermann as bz
 from . import _information_sets, core
 from .conftest import get_random_full_rank_matrix
@@ -331,10 +331,10 @@ def test_a_given_disjoint_basis_family_replaces_the_first_stage() -> None:
 def test_brouwer_zimmermann_sector_certificates() -> None:
     """A completed sector's certificate must not finish a different sector's search."""
     generators = np.asarray(qldpc.codes.HammingCode(4).generator, dtype=np.uint8)
-    basis_a = binary.get_independent_rows(
+    basis_a = get_independent_rows(
         np.column_stack([generators, np.bitwise_xor.reduce(generators, axis=1)])
     )
-    basis_b = binary.get_independent_rows(
+    basis_b = get_independent_rows(
         np.array(
             [
                 [0, 0, 1, 0, 0, 0, 0, 0, 1, 1],
@@ -445,9 +445,9 @@ def test_brouwer_zimmermann_overlap_improves_quotient_witness() -> None:
     """Compare witness-improving overlap enumeration with an exhaustive quotient oracle."""
 
     # Shorten a systematic BCH(31,21) basis to [26,16] and isolate a one-bit quotient.
-    basis = binary.get_independent_rows(
-        np.asarray(qldpc.codes.BCHCode(31, 21).generator, dtype=np.uint8)
-    )[5:, 5:]
+    basis = get_independent_rows(np.asarray(qldpc.codes.BCHCode(31, 21).generator, dtype=np.uint8))[
+        5:, 5:
+    ]
     logicals = basis[13:14]
     stabilizers = np.delete(basis, 13, axis=0)
     expected = qldpc.codes.get_distance_quantum(

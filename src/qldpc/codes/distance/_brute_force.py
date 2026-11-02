@@ -7,13 +7,9 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
-from ._binary import (
-    count_trailing_zeros,
-    inplace_rowsum,
-    pack_bits,
-    riffle,
-    symplectic_weight,
-)
+from qldpc._binary import count_trailing_zeros, pack_bits
+
+from ._binary import inplace_rowsum, riffle, symplectic_weight
 
 ####################################################################################################
 # exhaustive enumeration

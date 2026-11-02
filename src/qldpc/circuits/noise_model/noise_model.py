@@ -19,11 +19,15 @@ import stim
 from qldpc import _deprecations
 from qldpc._utils import format_docstring
 
-from ..common import StimCircuitLike
+from ..common import (
+    DEFAULT_IMMUNE_OP_TAG,
+    DEFAULT_IMMUNE_QUBIT_TAG,
+    StimCircuitLike,
+    _get_immune_qubits,
+)
 from ..transforms import with_remapped_qubits
 from ._moments import (
     compose_idle_channels,
-    get_immune_qubits,
     quadratic_idle_channel,
     repeated_idle_channel,
 )
@@ -63,11 +67,6 @@ from .scheduling import (
     _Operation,
     _Segment,
 )
-
-# Tags that, by default, make an operation or repeat block noiseless, or declare that the qubits of
-# a tagged QUBIT_COORDS annotation are immune to noise.
-DEFAULT_IMMUNE_OP_TAG = "__IMMUNE_TO_NOISE__"
-DEFAULT_IMMUNE_QUBIT_TAG = "__IMMUNE_QUBIT_TO_NOISE__"
 
 ####################################################################################################
 # primary methods and classes: as_noiseless_circuit and NoiseModel
@@ -491,10 +490,8 @@ class NoiseModel:
         system_qubits = frozenset(
             range(stim_circuit.num_qubits) if system_qubits is None else system_qubits
         )
-        immune_qubits = frozenset(immune_qubits) | (
-            get_immune_qubits(stim_circuit, immune_qubit_tag)
-            if immune_qubit_tag is not None
-            else frozenset()
+        immune_qubits = frozenset(immune_qubits) | _get_immune_qubits(
+            stim_circuit, immune_qubit_tag
         )
 
         # for the deprecated insert_ticks=True, lay out the circuit with Scheduler.preserve_ticks

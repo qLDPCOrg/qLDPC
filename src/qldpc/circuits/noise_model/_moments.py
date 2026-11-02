@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Qubits immune to noise, and idle errors accumulated over moments.
+"""Idle errors accumulated over moments.
 
 See :mod:`qldpc.circuits.noise_model` for attribution and license information.
 """
@@ -9,29 +9,7 @@ from __future__ import annotations
 
 import math
 
-import stim
-
 from .channels import PauliChannel, PauliChannelSequence
-
-####################################################################################################
-# immune qubits
-
-
-def get_immune_qubits(circuit: stim.Circuit, immune_qubit_tag: str) -> frozenset[int]:
-    """Identify qubits declared immune to noise by tagged coordinate annotations."""
-    # search REPEAT bodies too, since tagged QUBIT_COORDS annotations may appear inside them
-    immune_qubits: set[int] = set()
-    for instruction in circuit:
-        if isinstance(instruction, stim.CircuitRepeatBlock):
-            immune_qubits.update(get_immune_qubits(instruction.body_copy(), immune_qubit_tag))
-        elif instruction.name == "QUBIT_COORDS" and immune_qubit_tag in instruction.tag:
-            immune_qubits.update(
-                target.qubit_value
-                for target in instruction.targets_copy()
-                if target.qubit_value is not None
-            )
-    return frozenset(immune_qubits)
-
 
 ####################################################################################################
 # idle errors

@@ -16,8 +16,8 @@ from typing import NamedTuple
 import numpy as np
 import numpy.typing as npt
 
+from qldpc._binary import get_rank_packed, popcount_word, trailing_zeros_word
 from qldpc._compilation import always_compiled
-from qldpc.codes.distance._binary import popcount_word, trailing_zeros_word
 from qldpc.codes.distance._bounded_weight_search import MinWeightBound, PauliCosetSearch
 
 # The peak number of bytes per pair of primitive faults while building a table of pairs: the hash
@@ -83,7 +83,8 @@ def find_smallest_violation(
             signatures.setdefault(signature, index)
 
     # An irreducible accepted fault has fault weight at most one more than the rank of the flags.
-    flag_rank = _get_binary_rank([flag for flag, _ in signatures])
+    distinct_flags = [flag for flag, _ in signatures]
+    flag_rank = get_rank_packed(_to_words(distinct_flags, _get_num_words(distinct_flags)))
     max_fault_weight = flag_rank + 1 if max_weight is None else min(max_weight, flag_rank + 1)
 
     oracle = PauliCosetSearch(stabilizers, css_weight=css_weight)
@@ -178,21 +179,6 @@ def _check_fault(
     if bound.within_max_weight:
         return None
     return Violation(indices, syndrome, bound)
-
-
-def _get_binary_rank(columns: Sequence[int]) -> int:
-    """Get the GF(2) rank of binary columns that are packed into integers."""
-    # The basis holds columns with distinct leading bits, largest first.  Reducing a column by each
-    # basis column in turn clears these leading bits from it, so a nonzero result is independent of
-    # the basis.
-    basis: list[int] = []
-    for column in columns:
-        for row in basis:
-            column = min(column, column ^ row)
-        if column:
-            basis.append(column)
-            basis.sort(reverse=True)
-    return len(basis)
 
 
 ####################################################################################################

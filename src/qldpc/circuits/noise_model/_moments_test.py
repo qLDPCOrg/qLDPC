@@ -7,22 +7,9 @@ import math
 
 import numpy as np
 import pytest
-import stim
 
 from qldpc import circuits
 from qldpc.circuits.noise_model import _moments
-
-
-def test_immune_qubits() -> None:
-    """Tagged coordinate annotations declare qubits immune to noise, at any depth."""
-    circuit = stim.Circuit("""
-        QUBIT_COORDS[immune](0) 0
-        QUBIT_COORDS(1) 1
-        REPEAT 2 {
-            QUBIT_COORDS[immune](2) 2
-        }
-    """)
-    assert _moments.get_immune_qubits(circuit, "immune") == {0, 2}
 
 
 def test_repeated_idle_channel() -> None:

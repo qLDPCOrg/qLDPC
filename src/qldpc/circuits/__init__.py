@@ -70,7 +70,7 @@ from .noise_model import (
     SI1000NoiseModel,
     as_noiseless_circuit,
 )
-from .transforms import remap_qubit_target, with_remapped_qubits
+from .transforms import remap_qubit_target, transpile_to_cz, with_remapped_qubits
 from .transversal import (
     get_transversal_automorphism_group,
     get_transversal_circuit,
@@ -130,6 +130,7 @@ __all__ = [
     "get_unaddressed_measurements",
     "remap_qubit_target",
     "restrict_tableau",
+    "transpile_to_cz",
     "with_remapped_qubits",
 ]
 

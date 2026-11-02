@@ -10,10 +10,11 @@ from typing import Literal, get_args
 import numpy as np
 import numpy.typing as npt
 
+from qldpc._binary import get_independent_rows
+
 from ._binary import (
     as_binary_matrix,
     assert_binary,
-    get_independent_rows,
     get_nested_code_basis,
     symplectic_to_hamming,
 )
