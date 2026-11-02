@@ -15,9 +15,8 @@ binary matrices with one uint8 entry per bit, which pack and unpack around the c
 
 NumPy has no linear algebra over GF(2), and ``galois`` provides it only for unpacked arrays at the
 Python level.  NumPy's ``packbits`` and ``bitwise_count`` resemble ``pack_bits`` and
-``popcount_word``, but numba cannot compile them, and ``packbits`` packs bits into uint8 bytes with
-the most significant bit first.  One compiled implementation of the packed layout therefore serves
-both compiled and Python callers.
+``popcount_word``, but numba cannot compile them, so one compiled implementation of the packed
+layout serves both compiled and Python callers.
 """
 
 from __future__ import annotations
