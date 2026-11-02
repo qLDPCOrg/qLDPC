@@ -280,12 +280,6 @@ class Scheduler(abc.ABC):
         A moment continues across the boundary of a REPEAT block or of its iterations unless a TICK
         or the reuse of a qubit ends it there.
 
-        All iterations of a REPEAT block follow one schedule of its body, so where the first
-        iteration would join the moment before the block differently than later iterations join
-        the iteration before them, some operations of the block may be placed later than in the
-        circuit with its REPEAT blocks written out, which may add moments.  To keep the moments of
-        that circuit exactly, schedule (or add noise to) ``circuit.flattened()`` instead.
-
         Args:
             single_qubit_gates_take_time: If False (the default), single-qubit unitary gates take no
                 time, so a moment may contain any number of them on a qubit, which still idles.
