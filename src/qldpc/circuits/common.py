@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Circuit types, Pauli-product measurements, and the guard for qubit-only methods.
+"""Circuit types, noise-immunity tags, Pauli-product measurements, and the qubit-only guard.
 
 This module is the foundation of ``qldpc.circuits``: it imports no other module of
 ``qldpc.circuits``, so that all of them can import it.
@@ -22,6 +22,12 @@ from qldpc import _deprecations, codes, math
 
 _ReturnType = TypeVar("_ReturnType")
 _Params = ParamSpec("_Params")
+
+# Tags that, by default, make an operation or repeat block noiseless, or declare that the qubits of
+# a tagged QUBIT_COORDS annotation are immune to noise.  The noise models of qldpc.circuits use
+# them, and they are defined here so that circuit transformations can respect them.
+DEFAULT_IMMUNE_OP_TAG = "__IMMUNE_TO_NOISE__"
+DEFAULT_IMMUNE_QUBIT_TAG = "__IMMUNE_QUBIT_TO_NOISE__"
 
 
 class StimCircuitProtocol(Protocol):

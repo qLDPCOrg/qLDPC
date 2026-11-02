@@ -15,7 +15,7 @@ import stim
 
 from qldpc._utils import format_docstring
 
-from ..common import StimCircuitLike
+from ..common import DEFAULT_IMMUNE_OP_TAG, DEFAULT_IMMUNE_QUBIT_TAG, StimCircuitLike
 from ._moments import (
     categorize_moment_qubits,
     compose_idle_channels,
@@ -54,11 +54,6 @@ from .rules import (
     _validate_custom_rule,
     _validate_rule_for_arity,
 )
-
-# Tags that, by default, make an operation or repeat block noiseless, or declare that the qubits of
-# a tagged QUBIT_COORDS annotation are immune to noise.
-DEFAULT_IMMUNE_OP_TAG = "__IMMUNE_TO_NOISE__"
-DEFAULT_IMMUNE_QUBIT_TAG = "__IMMUNE_QUBIT_TO_NOISE__"
 
 ####################################################################################################
 # primary methods and classes: as_noiseless_circuit and NoiseModel
