@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import random
 import warnings
+from collections.abc import Sequence
 
 import pytest
 import stim
@@ -34,20 +35,31 @@ def test_two_qubit_gates() -> None:
 
 
 @pytest.mark.filterwarnings("ignore:REPEAT support:UserWarning")
-def test_random_circuits(pytestconfig: pytest.Config) -> None:
-    """Random circuits are equivalent to their transpiled versions, with or without cleanup."""
+def test_random_transpilation(pytestconfig: pytest.Config) -> None:
+    """Random circuits are equivalent to their transpiled versions, without cleanup."""
     rng = random.Random(pytestconfig.getoption("randomly_seed"))
     for index in range(100):
         num_qubits = rng.randint(2, 4)
         allow_repeat = index % 2 == 0
         circuit = _get_random_circuit(rng, num_qubits, rng.randint(1, 20), allow_repeat)
         immune_qubits = rng.sample(range(num_qubits), rng.randint(0, 2))
-        for cleanup in (False, True):
-            transpiled = transpile_to_cz(circuit, immune_qubits=immune_qubits, cleanup=cleanup)
-            _assert_equivalent(circuit, transpiled)
-            # outside of REPEAT blocks, only H and SQRT_X come right before CZ gates
-            if not allow_repeat:
-                assert _get_gates_before_czs(transpiled) <= {"H", "SQRT_X"}
+        transpiled = transpile_to_cz(circuit, immune_qubits=immune_qubits, cleanup=False)
+        _assert_equivalent(circuit, transpiled)
+        _assert_in_cz_gate_set(transpiled, has_repeat_blocks=allow_repeat)
+
+
+def test_random_cleanup(pytestconfig: pytest.Config) -> None:
+    """Random circuits of CZ, SWAP, and single-qubit gates stay equivalent under the cleanup."""
+    rng = random.Random(pytestconfig.getoption("randomly_seed"))
+    for index in range(100):
+        allow_repeat = index % 2 == 0
+        circuit = _get_random_circuit(
+            rng, rng.randint(2, 4), rng.randint(1, 20), allow_repeat, two_qubit_gates=["CZ", "SWAP"]
+        )
+        cleaned_circuit = _clean_up(circuit)
+        _assert_equivalent(circuit, cleaned_circuit)
+        _assert_in_cz_gate_set(cleaned_circuit, has_repeat_blocks=allow_repeat)
+        assert _count(cleaned_circuit, "CZ") <= _count(circuit, "CZ")
 
 
 def test_commute_through_cz() -> None:
@@ -321,9 +333,13 @@ def _work_around_stim_issue_1109(circuit: stim.Circuit) -> stim.Circuit:
 
 
 def _get_random_circuit(
-    rng: random.Random, num_qubits: int, num_ops: int, allow_repeat: bool
+    rng: random.Random,
+    num_qubits: int,
+    num_ops: int,
+    allow_repeat: bool,
+    two_qubit_gates: Sequence[str] = _TWO_QUBIT_GATES,
 ) -> stim.Circuit:
-    """A random noiseless circuit."""
+    """A random noiseless circuit, whose untagged two-qubit gates are among two_qubit_gates."""
     qubits = range(num_qubits)
     circuit = stim.Circuit()
     for _ in range(num_ops):
@@ -333,7 +349,7 @@ def _get_random_circuit(
         if kind < 0.3:
             circuit.append(rng.choice(_SINGLE_QUBIT_GATES), rng.sample(qubits, rng.randint(1, 2)))
         elif kind < 0.65:
-            circuit.append(rng.choice(_TWO_QUBIT_GATES), rng.sample(qubits, 2))
+            circuit.append(rng.choice(two_qubit_gates), rng.sample(qubits, 2))
 
         # single-qubit measurements (with a second, inverted target on qubit 0) and resets
         elif kind < 0.75:
@@ -361,9 +377,29 @@ def _get_random_circuit(
             targets = rng.sample(qubits, num_targets)
             circuit.append(stim.CircuitInstruction(name, targets, tag=DEFAULT_IMMUNE_OP_TAG))
         elif allow_repeat:
-            body = _get_random_circuit(rng, num_qubits, rng.randint(1, 6), allow_repeat=False)
+            body = _get_random_circuit(
+                rng,
+                num_qubits,
+                rng.randint(1, 6),
+                allow_repeat=False,
+                two_qubit_gates=two_qubit_gates,
+            )
             circuit.append(stim.CircuitRepeatBlock(rng.randint(1, 3), body))
     return circuit
+
+
+def _assert_in_cz_gate_set(circuit: stim.Circuit, has_repeat_blocks: bool) -> None:
+    """Assert that the untagged unitary gates of a circuit are CZ, SWAP, or single-qubit gates.
+
+    Unless the circuit has REPEAT blocks, at whose boundaries any single-qubit gate can come before
+    a CZ, also assert that the untagged single-qubit gates right before CZ gates are H or SQRT_X.
+    """
+    names = {
+        op.name for op in circuit.flattened() if not op.tag and stim.gate_data(op.name).is_unitary
+    }
+    assert names <= {"CZ", "SWAP", *_SINGLE_QUBIT_GATES}
+    if not has_repeat_blocks:
+        assert _get_gates_before_czs(circuit) <= {"H", "SQRT_X"}
 
 
 def _get_gates_before_czs(circuit: stim.Circuit) -> set[str]:
