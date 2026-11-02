@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import bisect
 import collections
+import dataclasses
 import functools
 import math
 import warnings
@@ -101,6 +102,8 @@ class NoiseModel:
     gate errors, readout errors, reset errors, and idling errors.  Classically controlled operations
     are assumed to NOT occur, so the corresponding qubits pick up idling errors, if applicable.
     Identity gates (``I`` and ``II``) are treated as ordinary one- and two-qubit Clifford gates.
+    Idle errors apply per moment: a unit of time in the schedule that ``scheduler`` makes of a
+    circuit (see :class:`~qldpc.circuits.Schedule`).
 
     Args:
         clifford_1q_error: Default noise applied after each one-qubit unitary Clifford gate.  A
@@ -134,9 +137,10 @@ class NoiseModel:
             and is combined with the ``idle_error`` of the same moments.  See
             :mod:`qldpc.circuits.noise_model` for its physical model and assumptions.
         additional_error_waiting_for_m_or_r: Additional noise rule or depolarization probability
-            applied to every non-collapsing qubit while another qubit undergoes measurement or
-            reset, including qubits undergoing a unitary operation.  Accepts the same NoiseRule
-            fields as ``idle_error``, and is combined with the other idle errors of a qubit.
+            applied to every qubit in each moment in which another qubit, but not this one, is
+            measured or reset, including qubits undergoing a unitary operation.  Accepts the same
+            NoiseRule fields as ``idle_error``, and is combined with the other idle errors of a
+            qubit.
         rules: Dictionary mapping specific gate names to their noise rules.  Overrides the
             arity-based defaults for unitary, measurement, and reset gates.
         rule_func: Optional callback function that maps a ``stim.CircuitInstruction`` to a
@@ -513,7 +517,7 @@ class NoiseModel:
             immune_qubits=immune_qubits,
             immune_op_tag=immune_op_tag,
             immunize_gates=immunize_gates,
-            timed=schedule is not None,
+            has_idle_noise=schedule is not None,
         )
         noisy_circuit = builder.get_noisy_circuit(stim_circuit, schedule)
 
@@ -524,17 +528,23 @@ class NoiseModel:
         output += noisy_circuit
         return output
 
-    def _get_idle_noise(self, num_idle: int, num_waiting: int) -> stim.Circuit:
-        """The noise on qubit 0 of an idle run, given its numbers of idle and waiting moments.
+    def _get_idle_noise(self, num_idle: int, num_waiting_for_m_or_r: int) -> stim.Circuit:
+        """The noise on qubit 0 over a stretch of moments between its gates.
 
         Pauli channels are combined into one channel, and other noise is applied once per moment.
+
+        Args:
+            num_idle: The number of moments in which the qubit idles, which get ``idle_error`` and
+                ``quadratic_idle_error``.
+            num_waiting_for_m_or_r: The number of moments in which the qubit waits while another
+                qubit is measured or reset, which get ``additional_error_waiting_for_m_or_r``.
         """
-        # collect the Pauli channels of idle and waiting moments, and emit other noise per moment
+        # collect the Pauli channels of these moments, and append other noise once per moment
         noise = stim.Circuit()
         channels: list[PauliChannel | PauliChannelSequence] = []
         for rule, count in (
             (self.idle_error, num_idle),
-            (self.additional_error_waiting_for_m_or_r, num_waiting),
+            (self.additional_error_waiting_for_m_or_r, num_waiting_for_m_or_r),
         ):
             if rule is None or not count:
                 continue
@@ -560,16 +570,23 @@ class NoiseModel:
 
 
 class _NoisyCircuitBuilder:
-    """Inserts noise into a circuit, keeping the noise of each qubit until the qubit is next used.
+    """Inserts noise into a circuit, keeping the noise on each qubit pending until it is next used.
 
-    Pending noise is kept in a pool, and emitted before the next instruction that acts on, or
-    depends on the state of, its qubits, or at the end of the circuit or of a REPEAT body.
+    Pending noise is noise that the builder has made but not yet appended to its output.  The
+    pending noise on some qubits is emitted, that is, appended to the output in the order in which
+    it was made, before the next instruction that depends on the state of those qubits (see
+    ``_Operation``).  All pending noise is emitted before each REPEAT block, at the end of each
+    iteration of its body, and at the end of the circuit.
 
-    With a schedule, the builder also follows the idle run of each qubit in the current segment:
-    the moment of its last gate, the number of moments before that moment that contain a
-    measurement or reset, and whether that gate took time or measured or reset the qubit.  The
-    noise of an idle run joins the pool before the next gate on its qubit, or at the end of the
-    segment, where every idle run ends.  So every iteration of a REPEAT block gets the same noise.
+    If the noise model has idle noise, the builder also follows a schedule of the circuit (see
+    :class:`Schedule`), which places its operations in moments, numbered within each segment: a
+    maximal stretch of the circuit, or of the body of a REPEAT block, that contains no REPEAT block.
+    An idle run of a qubit is a stretch of consecutive moments in which the qubit idles, which ends
+    at its next gate or at the end of its segment.  When an idle run ends, its noise joins the
+    pending noise of its qubit: the idle errors of the moments in which the qubit idles, and the
+    additional error of the moments since its last gate in which it waits while another qubit is
+    measured or reset.  Every idle run ends at the end of a segment, so every iteration of a REPEAT
+    block gets the same noise.
     """
 
     def __init__(
@@ -581,74 +598,85 @@ class _NoisyCircuitBuilder:
         immune_qubits: frozenset[int],
         immune_op_tag: str | None,
         immunize_gates: bool,
-        timed: bool,
+        has_idle_noise: bool,
     ) -> None:
         self.noise_model = noise_model
         self.takes_time = takes_time
         self.immune_qubits = immune_qubits
         self.immune_op_tag = immune_op_tag
         self.immunize_gates = immunize_gates
-        self.timed = timed
+        self.has_idle_noise = has_idle_noise
         self.idle_qubits = idle_qubits
         self.noiseless = False  # whether the current instructions are in a noiseless block
 
-        self.pool: dict[int, tuple[Iterable[int], stim.Circuit]] = {}  # pending noise, in order
-        self.pool_by_qubit: dict[int, set[int]] = collections.defaultdict(set)  # pool keys
-        self.num_pooled = 0
-        self.idle_noise: dict[tuple[int, int], stim.Circuit] = {}  # cache, by idle run
+        # the pending noise and its qubits, by a key that numbers noise in the order it is added,
+        # and the keys of the pending noise on each qubit
+        self.pending_noise: dict[int, tuple[Iterable[int], stim.Circuit]] = {}
+        self.pending_noise_keys_by_qubit: dict[int, set[int]] = collections.defaultdict(set)
+        self.next_noise_key = 0
 
-        # in the current segment, idle runs by qubit (moment, measurement moments before it, timed,
-        # collapsing), and the moments that contain a measurement or reset
-        self.runs: dict[int, list[int]] = {}
-        self.collapsing_moments: list[int] = []
+        # a cache of the noise of an idle run on qubit 0, by its numbers of idle moments and of
+        # moments waiting for a measurement or reset
+        self.idle_noise_by_num_moments: dict[tuple[int, int], stim.Circuit] = {}
+
+        # in the current segment, the current idle run of each qubit, and the moments that contain a
+        # measurement or reset
+        self.idle_runs: dict[int, _IdleRun] = {}
+        self.measurement_or_reset_moments: list[int] = []
 
     def get_noisy_circuit(self, circuit: stim.Circuit, schedule: Schedule | None) -> stim.Circuit:
         """Add noise to a circuit, given a schedule of it if the noise model has idle noise."""
         output = stim.Circuit()
         self.append(circuit, schedule, output)
-        self.flush(output)
+        self.emit_pending_noise(output)
         return output
 
     def append(
         self, circuit: stim.Circuit, schedule: Schedule | None, output: stim.Circuit
     ) -> None:
         """Add noise to a circuit, and append it to the output."""
-        for item in _get_segments(circuit, schedule):
-            if isinstance(item, _Segment):
-                self.append_segment(item, output)
+        for segment_or_block in _get_segments(circuit, schedule):
+            if isinstance(segment_or_block, _Segment):
+                self.append_segment(segment_or_block, output)
             else:
-                self.append_block(item[0], item[1], output)
+                block, body_schedule = segment_or_block
+                self.append_block(block, body_schedule, output)
 
     def append_segment(self, segment: _Segment, output: stim.Circuit) -> None:
         """Add noise to the instructions of a segment, and append them to the output."""
         # start the idle runs of the segment, and find its moments with measurements or resets
-        if self.timed:
-            self.runs = {qubit: [0, 0, 0, 0] for qubit in sorted(self.idle_qubits)}
-            self.collapsing_moments = sorted(
+        if self.has_idle_noise:
+            self.idle_runs = {qubit: _IdleRun() for qubit in sorted(self.idle_qubits)}
+            self.measurement_or_reset_moments = sorted(
                 {
                     moment
                     for operation, moment in zip(segment.operations, segment.moments)
-                    if operation.is_collapsing
+                    if operation.is_measurement_or_reset
                 }
             )
-        # add noise to each gate, and emit the pending noise on the qubits of each observable with
-        # Pauli targets before it, while the idle runs of those qubits continue
+
+        # add noise to each gate, and append each other instruction after the pending noise on the
+        # qubits that it depends on (those of an observable), while their idle runs continue
         start = 0
         for instruction, num_operations in zip(segment.instructions, segment.num_operations):
             operations = segment.operations[start : start + num_operations]
-            moments = segment.moments[start : start + num_operations] if self.timed else None
+            moments = (
+                segment.moments[start : start + num_operations] if self.has_idle_noise else None
+            )
             start += num_operations
             if operations and operations[0].is_gate:
                 self.append_gate(instruction, operations, moments, output)
             else:
-                touched_qubits = [q for operation in operations for q in operation.touched_qubits]
-                if touched_qubits:
-                    self.flush(output, touched_qubits)
+                qubits_depended_on = [
+                    qubit for operation in operations for qubit in operation.qubits_depended_on
+                ]
+                if qubits_depended_on:
+                    self.emit_pending_noise(output, qubits_depended_on)
                 output.append(instruction)
 
         # end the idle runs at the end of the segment
-        if self.timed:
-            for qubit in self.runs:
+        if self.has_idle_noise:
+            for qubit in self.idle_runs:
                 self.add_idle_noise(qubit, self.end_idle_run(qubit, segment.duration, False, False))
 
     def append_gate(
@@ -663,22 +691,22 @@ class _NoisyCircuitBuilder:
         The gate is split only where the noise of an application must precede a later application.
         A noise rule is applied once to consecutive applications that share it.
         """
-        # the applications are appended in chunks, which consecutive applications join unless they
-        # must follow the noise of an application in the chunk
+        # the applications are appended in chunks: runs of consecutive applications, each appended
+        # after the pending noise on the qubits that its applications depend on
         rules = self.get_rules(instruction, operations)
         chunk: list[int] = []  # the indices of the applications in the chunk
-        chunk_qubits: set[int] = set()  # qubits that the chunk acts on
-        noisy_qubits: set[int] = set()  # qubits with noise from the chunk
-        idle_noise: list[tuple[int, tuple[int, int]]] = []  # idle noise to precede the chunk
+        chunk_qubits: set[int] = set()  # the qubits that the applications of the chunk depend on
+        noisy_qubits: set[int] = set()  # the qubits with noise from the rules of the chunk
+        chunk_idle_runs: list[tuple[int, tuple[int, int]]] = []  # idle runs that the chunk ends
 
         def append_chunk() -> None:
             # emit the noise that precedes the chunk
-            for qubit, idle_run in idle_noise:
-                self.add_idle_noise(qubit, idle_run)
-            self.flush(output, chunk_qubits)
+            for qubit, idle_counts in chunk_idle_runs:
+                self.add_idle_noise(qubit, idle_counts)
+            self.emit_pending_noise(output, chunk_qubits)
 
-            # append consecutive applications with the same rule as one instruction, and pool their
-            # noise
+            # append consecutive applications with the same rule as one instruction, and add their
+            # noise to the pending noise
             groups: list[tuple[NoiseRule | None, list[int]]] = []
             for index in chunk:
                 if groups and groups[-1][0] is rules[index]:
@@ -693,32 +721,40 @@ class _NoisyCircuitBuilder:
                 noisy_gate, after = rule.noisy_operation(gate)
                 output.append(noisy_gate)
                 qubits = {qubit for index in indices for qubit in operations[index].qubits}
-                self.add_noise(after, qubits)
+                self.add_pending_noise(after, qubits)
 
         for index, operation in enumerate(operations):
-            # end the idle runs of the qubits of the application
-            qubits = operation.touched_qubits
+            # end the idle runs of the qubits that the application acts on, if it takes time, or
+            # otherwise of those that it depends on
+            qubits = operation.qubits_depended_on
             if moments is None:
-                idle_runs = []
+                ended_idle_runs = []
             else:
-                timed = operation.is_gate and self.takes_time(operation.instruction)
-                run_qubits = operation.qubits if timed else qubits
-                idle_runs = [
+                takes_time = operation.is_gate and self.takes_time(operation.instruction)
+                ended_run_qubits = operation.qubits if takes_time else qubits
+                ended_idle_runs = [
                     (
                         qubit,
-                        self.end_idle_run(qubit, moments[index], timed, operation.is_collapsing),
+                        self.end_idle_run(
+                            qubit, moments[index], takes_time, operation.is_measurement_or_reset
+                        ),
                     )
-                    for qubit in run_qubits
+                    for qubit in ended_run_qubits
                 ]
 
-            # start a new chunk if the application must follow noise on a qubit of the chunk
+            # start a new chunk if the application must follow noise on a qubit of the chunk: the
+            # noise of a rule of the chunk, or of an idle run that the application ends
             if not chunk_qubits.isdisjoint(qubits) and (
                 not noisy_qubits.isdisjoint(qubits)
-                or any(any(idle_run) for qubit, idle_run in idle_runs if qubit in chunk_qubits)
+                or any(
+                    any(idle_counts)
+                    for qubit, idle_counts in ended_idle_runs
+                    if qubit in chunk_qubits
+                )
             ):
                 append_chunk()
-                chunk, chunk_qubits, noisy_qubits, idle_noise = [], set(), set(), []
-            idle_noise.extend(idle_runs)
+                chunk, chunk_qubits, noisy_qubits, chunk_idle_runs = [], set(), set(), []
+            chunk_idle_runs.extend(ended_idle_runs)
             chunk.append(index)
             chunk_qubits.update(qubits)
             if rules[index] is not None:
@@ -777,9 +813,9 @@ class _NoisyCircuitBuilder:
         noise to the qubits on which it has gates.
         """
         # a noiseless block adds no noise to its gates, nor idle noise to their qubits
-        self.flush(output)
+        self.emit_pending_noise(output)
         body = block.body_copy()
-        outer = self.noiseless, self.idle_qubits
+        outer_state = self.noiseless, self.idle_qubits
         if self.immune_op_tag is not None and self.immune_op_tag in block.tag:
             self.noiseless = True
             self.idle_qubits = self.idle_qubits - _get_gate_qubits(body, self.takes_time)
@@ -787,64 +823,107 @@ class _NoisyCircuitBuilder:
         # add noise to one iteration, which every iteration repeats
         iteration = stim.Circuit()
         self.append(body, schedule, iteration)
-        self.flush(iteration)
-        self.noiseless, self.idle_qubits = outer
+        self.emit_pending_noise(iteration)
+        self.noiseless, self.idle_qubits = outer_state
         output.append(stim.CircuitRepeatBlock(block.repeat_count, iteration, tag=block.tag))
 
     def end_idle_run(
-        self, qubit: int, moment: int, timed: bool, collapsing: bool
+        self, qubit: int, moment: int, takes_time: bool, measures_or_resets: bool
     ) -> tuple[int, int]:
         """End the idle run of a qubit at a gate or at the end of the segment, and start a new one.
 
+        Args:
+            qubit: The qubit whose idle run ends.
+            moment: The moment of the gate, or the number of moments of the segment at its end.
+            takes_time: Whether the gate takes time.
+            measures_or_resets: Whether the gate measures or resets the qubit.
+
         Returns:
-            The numbers of moments of the run in which the qubit idles, and in which it waits while
-            another qubit is measured or reset.
+            The numbers of moments since the last gate on the qubit in which the qubit idles, and in
+            which it waits while another qubit is measured or reset.
         """
-        run = self.runs.get(qubit)
+        run = self.idle_runs.get(qubit)
         if run is None:
             return 0, 0
-        if moment <= run[0]:
-            # another operation in the moment of the last operation
-            run[2] |= timed
-            run[3] |= collapsing
+        if moment <= run.last_gate_moment:
+            # another gate in the moment of the last gate
+            run.last_gate_takes_time |= takes_time
+            run.last_gate_measures_or_resets |= measures_or_resets
             return 0, 0
 
-        # the run lasts from the moment of the last gate, or from the next moment if that gate took
-        # time, until this moment
-        num_collapsing = bisect.bisect_left(self.collapsing_moments, moment)
-        idle_run = moment - run[0] - run[2], num_collapsing - run[1] - run[3]
-        run[:] = [moment, num_collapsing, timed, collapsing]
-        return idle_run
+        # the qubit idles from the moment of its last gate, or from the next moment if that gate
+        # took time, until this moment, and waits in the moments between them with a measurement or
+        # reset, other than one of its own
+        num_measurement_or_reset_moments = bisect.bisect_left(
+            self.measurement_or_reset_moments, moment
+        )
+        idle_counts = (
+            moment - run.last_gate_moment - run.last_gate_takes_time,
+            num_measurement_or_reset_moments
+            - run.num_measurement_or_reset_moments
+            - run.last_gate_measures_or_resets,
+        )
+        run.last_gate_moment = moment
+        run.num_measurement_or_reset_moments = num_measurement_or_reset_moments
+        run.last_gate_takes_time = takes_time
+        run.last_gate_measures_or_resets = measures_or_resets
+        return idle_counts
 
-    def add_idle_noise(self, qubit: int, idle_run: tuple[int, int]) -> None:
-        """Add the noise of an idle run of a qubit to the pool."""
-        if not any(idle_run):
+    def add_idle_noise(self, qubit: int, idle_counts: tuple[int, int]) -> None:
+        """Add the noise of an idle run of a qubit to the pending noise.
+
+        Args:
+            qubit: The qubit of the idle run.
+            idle_counts: The numbers of moments of the run in which the qubit idles, and in which it
+                waits while another qubit is measured or reset.
+        """
+        if not any(idle_counts):
             return
-        if idle_run not in self.idle_noise:
-            self.idle_noise[idle_run] = self.noise_model._get_idle_noise(*idle_run)
-        if self.idle_noise[idle_run]:
-            self.add_noise(with_remapped_qubits(self.idle_noise[idle_run], [qubit]), (qubit,))
+        if idle_counts not in self.idle_noise_by_num_moments:
+            self.idle_noise_by_num_moments[idle_counts] = self.noise_model._get_idle_noise(
+                *idle_counts
+            )
+        noise = self.idle_noise_by_num_moments[idle_counts]
+        if noise:
+            self.add_pending_noise(with_remapped_qubits(noise, [qubit]), (qubit,))
 
-    def add_noise(self, noise: stim.Circuit, qubits: Iterable[int]) -> None:
-        """Add noise on some qubits to the pool."""
+    def add_pending_noise(self, noise: stim.Circuit, qubits: Iterable[int]) -> None:
+        """Add noise on some qubits to the pending noise."""
         if not noise:
             return
-        self.pool[self.num_pooled] = (qubits, noise)
+        self.pending_noise[self.next_noise_key] = (qubits, noise)
         for qubit in qubits:
-            self.pool_by_qubit[qubit].add(self.num_pooled)
-        self.num_pooled += 1
+            self.pending_noise_keys_by_qubit[qubit].add(self.next_noise_key)
+        self.next_noise_key += 1
 
-    def flush(self, output: stim.Circuit, qubits: Iterable[int] | None = None) -> None:
+    def emit_pending_noise(self, output: stim.Circuit, qubits: Iterable[int] | None = None) -> None:
         """Emit the pending noise on some qubits (by default, on all qubits), in order."""
         if qubits is None:
-            keys: Iterable[int] = list(self.pool)
+            keys: Iterable[int] = list(self.pending_noise)
         else:
-            keys = sorted({key for qubit in qubits for key in self.pool_by_qubit.get(qubit, ())})
+            keys = sorted(
+                {key for qubit in qubits for key in self.pending_noise_keys_by_qubit.get(qubit, ())}
+            )
         for key in keys:
-            noise_qubits, noise = self.pool.pop(key)
+            noise_qubits, noise = self.pending_noise.pop(key)
             for qubit in noise_qubits:
-                self.pool_by_qubit[qubit].discard(key)
+                self.pending_noise_keys_by_qubit[qubit].discard(key)
             output += noise
+
+
+@dataclasses.dataclass(slots=True)
+class _IdleRun:
+    """The start of the current idle run of a qubit, at the moment of its last gate.
+
+    Before the first gate on the qubit in a segment, the run starts at the start of the segment.
+    """
+
+    last_gate_moment: int = 0
+    # the number of moments before last_gate_moment that contain a measurement or reset
+    num_measurement_or_reset_moments: int = 0
+    # whether a gate on the qubit in last_gate_moment takes time, or measures or resets the qubit
+    last_gate_takes_time: bool = False
+    last_gate_measures_or_resets: bool = False
 
 
 def _join_operations(operations: Sequence[_Operation]) -> stim.CircuitInstruction:
@@ -872,7 +951,7 @@ def _get_gate_qubits(
         else:
             for operation in _get_operations([instruction]):
                 if operation.is_gate:
-                    qubits.update(operation.touched_qubits)
+                    qubits.update(operation.qubits_depended_on)
                 if operation.is_gate and takes_time(operation.instruction):
                     qubits.update(operation.qubits)
     return frozenset(qubits)

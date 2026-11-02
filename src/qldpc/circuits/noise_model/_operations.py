@@ -93,7 +93,7 @@ JUST_RESET_OPS = frozenset(name for name in ALL_STIM_GATE_NAMES if op_type(name)
 MEASURE_AND_RESET_OPS = frozenset(
     name for name in ALL_STIM_GATE_NAMES if op_type(name) == MEASURE_RESET_1Q
 )
-COLLAPSING_OPS = JUST_MEASURE_OPS | JUST_RESET_OPS | MEASURE_AND_RESET_OPS
+MEASURE_OR_RESET_OPS = JUST_MEASURE_OPS | JUST_RESET_OPS | MEASURE_AND_RESET_OPS
 
 
 def involves_classical_bits(op: stim.CircuitInstruction) -> bool:

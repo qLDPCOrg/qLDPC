@@ -2,9 +2,10 @@
 
 """Schedules, which place the operations of a circuit in moments, and schedulers that make them.
 
-A moment is a unit of time in which a qubit is either occupied by an operation or idle.  A
-:class:`~qldpc.circuits.NoiseModel` uses a schedule only to find how long each qubit idles between
-its operations, and does not reorder or retime the circuit that it adds noise to.
+An operation is a part of an instruction that acts independently on its qubits, such as one
+application of a gate (see :class:`Schedule`).  A moment is a unit of time, in which each qubit is
+either occupied by an operation that takes time or idle.  A :class:`~qldpc.circuits.NoiseModel` with
+idle noise uses a schedule to find how many moments each qubit idles between its gates.
 """
 
 from __future__ import annotations
@@ -24,17 +25,17 @@ from ..common import StimCircuitLike
 from ._operations import (
     CLIFFORD_1Q,
     CLIFFORD_PP,
-    COLLAPSING_OPS,
     GATE_OP_TYPES,
     JUST_MEASURE_OPS,
     JUST_MEASURE_PP,
     JUST_RESET_OPS,
+    MEASURE_OR_RESET_OPS,
     NOISE,
     involves_classical_bits,
     op_type,
 )
 
-# annotations whose order sets the coordinates of detectors and qubits
+# coordinate annotations, whose order sets the coordinates of detectors and qubits
 _COORDINATE_ANNOTATIONS = frozenset({"DETECTOR", "QUBIT_COORDS", "SHIFT_COORDS"})
 
 ####################################################################################################
@@ -52,10 +53,11 @@ class Schedule:
     one for each of its Pauli targets, and other annotations are one operation each.
 
     A schedule places each operation in a moment, numbered from zero within each segment of the
-    circuit: the part of the circuit, or of the body of a REPEAT block, that lies between REPEAT
-    blocks.  The boundaries of REPEAT blocks and of their iterations are thus boundaries between
-    moments, and the body of each REPEAT block has a schedule of its own, which each iteration
-    follows.
+    circuit.  A segment is a maximal stretch of a circuit, or of the body of a REPEAT block, that
+    contains no REPEAT block, that is, the instructions between consecutive REPEAT blocks, or
+    between a REPEAT block and the start or end of the circuit or body.  The boundaries of REPEAT
+    blocks and of their iterations are thus boundaries between moments, and the body of each REPEAT
+    block has a schedule of its own, which each iteration follows.
 
     Every moment lasts one unit of time, and a qubit idles in each moment unless an operation that
     takes time acts on it (see :meth:`Scheduler.takes_time`).  A segment lasts until the end of its
@@ -105,12 +107,13 @@ class Schedule:
 
         # add up the moments of the segments and of all iterations of REPEAT blocks
         duration = 0
-        for item in _get_segments(stim_circuit, self):
-            if isinstance(item, _Segment):
-                duration += item.duration
+        for segment_or_block in _get_segments(stim_circuit, self):
+            if isinstance(segment_or_block, _Segment):
+                duration += segment_or_block.duration
             else:
-                assert item[1] is not None
-                duration += item[0].repeat_count * item[1]._duration
+                block, body_schedule = segment_or_block
+                assert body_schedule is not None
+                duration += block.repeat_count * body_schedule._duration
         object.__setattr__(self, "_duration", duration)
 
     @staticmethod
@@ -141,18 +144,20 @@ class Schedule:
         """
         # list the moments of each segment, and then the schedule of the REPEAT block after it
         moments: list[list[stim.CircuitInstruction] | Schedule] = []
-        for item in _get_segments(self._circuit, self):
-            if isinstance(item, _Segment):
+        for segment_or_block in _get_segments(self._circuit, self):
+            if isinstance(segment_or_block, _Segment):
+                segment = segment_or_block
                 segment_moments: list[list[stim.CircuitInstruction]] = [
-                    [] for _ in range(item.duration)
+                    [] for _ in range(segment.duration)
                 ]
-                if item.duration:
-                    for operation, moment in zip(item.operations, item.moments):
+                if segment.duration:
+                    for operation, moment in zip(segment.operations, segment.moments):
                         segment_moments[moment].append(operation.instruction)
                 moments.extend(segment_moments)
             else:
-                assert item[1] is not None
-                moments.append(item[1])
+                _, body_schedule = segment_or_block
+                assert body_schedule is not None
+                moments.append(body_schedule)
         return moments
 
     def to_circuit(self) -> tuple[stim.Circuit, tuple[int, ...]]:
@@ -208,9 +213,10 @@ class Scheduler(abc.ABC):
     :meth:`alap`.  They place the gates of a circuit in moments, and each annotation or noise
     channel in the moment of the operation before it on its qubits, or, for an annotation without
     qubits such as a detector, of the last gate before it (or in the first moment if there is
-    none).  It joins a later moment only to follow a measurement that it reads, or a coordinate
-    annotation.  A custom scheduler implements :meth:`get_schedule`, and may override
-    :meth:`takes_time` and :meth:`validate`.
+    none).  An annotation or noise channel joins a later moment only to follow a measurement that
+    it reads, or, if it is a coordinate annotation (a DETECTOR, QUBIT_COORDS, or SHIFT_COORDS
+    annotation), the coordinate annotation before it.  A custom scheduler implements
+    :meth:`get_schedule`, and may override :meth:`takes_time` and :meth:`validate`.
     """
 
     @abc.abstractmethod
@@ -295,14 +301,15 @@ class _TickScheduler(Scheduler):
     single_qubit_gates_take_time: bool
 
     def get_schedule(self, circuit: StimCircuitLike) -> Schedule:
-        # schedule each segment between REPEAT blocks, and each REPEAT body recursively
+        # schedule each segment (see Schedule), and the body of each REPEAT block recursively
         stim_circuit = _as_stim_circuit(circuit)
         moments: list[int | Schedule] = []
-        for item in _get_segments(stim_circuit, None):
-            if isinstance(item, _Segment):
-                moments.extend(self._get_segment_moments(item))
+        for segment_or_block in _get_segments(stim_circuit, None):
+            if isinstance(segment_or_block, _Segment):
+                moments.extend(self._get_segment_moments(segment_or_block))
             else:
-                moments.append(self.get_schedule(item[0].body_copy()))
+                block, _ = segment_or_block
+                moments.append(self.get_schedule(block.body_copy()))
         return Schedule(stim_circuit, moments)
 
     def takes_time(self, op: stim.CircuitInstruction) -> bool:
@@ -314,8 +321,9 @@ class _TickScheduler(Scheduler):
 
     def _get_segment_moments(self, segment: _Segment) -> list[int]:
         """The moments of the operations of a segment."""
-        # a gate starts a new moment after a TICK, or where it takes time on a qubit that an
-        # operation that takes time already occupies in the moment
+        # each operation is a node, except that a chain of correlated errors is one node (see
+        # _get_nodes); a gate starts a new moment after a TICK, or where it takes time on a qubit
+        # that an operation that takes time already occupies in the moment
         nodes = _get_nodes(segment.operations)
         gate_moments: dict[int, int] = {}  # the moment of each node with a gate
         moment = 0
@@ -329,10 +337,10 @@ class _TickScheduler(Scheduler):
             for node, operation in itertools.islice(operations, num_operations):
                 if not operation.is_gate:
                     continue
-                timed = self.takes_time(operation.instruction)
-                if closed or (timed and not occupied.isdisjoint(operation.qubits)):
+                takes_time = self.takes_time(operation.instruction)
+                if closed or (takes_time and not occupied.isdisjoint(operation.qubits)):
                     moment, occupied, closed = moment + 1, set(), False
-                if timed:
+                if takes_time:
                     occupied.update(operation.qubits)
                 has_gate = True
                 gate_moments[node] = moment
@@ -345,10 +353,11 @@ class _TickScheduler(Scheduler):
 class _LayerScheduler(Scheduler):
     """The schedulers made by :meth:`Scheduler.asap` and :meth:`Scheduler.alap`.
 
-    Operations are placed in layers, which become moments, keeping the order of the operations on
-    each qubit, of detectors and coordinate annotations, and of each measurement and the operations
-    that read it.  Each segment of a circuit, and the body of each REPEAT block, is scheduled on its
-    own.
+    Each segment of a circuit (see :class:`Schedule`), and the body of each REPEAT block, is
+    scheduled on its own.  The operations of a segment are grouped into nodes (see ``_get_nodes``),
+    and each node is placed in a layer: the layers of a segment are its moments, numbered from its
+    start.  The layers keep the order of the operations on each qubit, of coordinate annotations,
+    and of each measurement and the operations that read it.
     """
 
     as_late_as_possible: bool
@@ -356,14 +365,15 @@ class _LayerScheduler(Scheduler):
     single_qubit_gates_take_time: bool
 
     def get_schedule(self, circuit: StimCircuitLike) -> Schedule:
-        # schedule each segment between REPEAT blocks, and each REPEAT body recursively
+        # schedule each segment, and the body of each REPEAT block recursively
         stim_circuit = _as_stim_circuit(circuit)
         moments: list[int | Schedule] = []
-        for item in _get_segments(stim_circuit, None):
-            if isinstance(item, _Segment):
-                moments.extend(self._get_segment_moments(item.operations))
+        for segment_or_block in _get_segments(stim_circuit, None):
+            if isinstance(segment_or_block, _Segment):
+                moments.extend(self._get_segment_moments(segment_or_block.operations))
             else:
-                moments.append(self.get_schedule(item[0].body_copy()))
+                block, _ = segment_or_block
+                moments.append(self.get_schedule(block.body_copy()))
         return Schedule(stim_circuit, moments)
 
     def takes_time(self, op: stim.CircuitInstruction) -> bool:
@@ -381,7 +391,8 @@ class _LayerScheduler(Scheduler):
 
     def _get_segment_moments(self, operations: Sequence[_Operation]) -> list[int]:
         """The moments of the operations of a segment."""
-        # each operation is a node, except that a chain of correlated errors is one node
+        # each operation is a node, except that a chain of correlated errors is one node, and the
+        # edges between nodes constrain their order
         nodes = _get_nodes(operations)
         num_nodes = nodes[-1] + 1 if nodes else 0
         edges = self._get_edges(operations, nodes)
@@ -389,16 +400,16 @@ class _LayerScheduler(Scheduler):
         # place the gates as early (or late) as possible
         layers = _get_layers(num_nodes, edges, reverse=self.as_late_as_possible)
         if self.shorten_lifetimes:
-            # keep the other gates in place, and move each reset (or measurement) as late (or
-            # early) as they allow
-            names = JUST_MEASURE_OPS if self.as_late_as_possible else JUST_RESET_OPS
-            fixed = {
+            # keep the other gates in place, and move each reset (or measurement) as late (or early)
+            # as they allow
+            moved_names = JUST_MEASURE_OPS if self.as_late_as_possible else JUST_RESET_OPS
+            fixed_layers = {
                 node: layers[node]
                 for node, operation in zip(nodes, operations)
-                if operation.is_gate and operation.instruction.name not in names
+                if operation.is_gate and operation.instruction.name not in moved_names
             }
             layers = _get_layers(
-                num_nodes, edges, reverse=not self.as_late_as_possible, fixed=fixed
+                num_nodes, edges, reverse=not self.as_late_as_possible, fixed=fixed_layers
             )
 
         # place annotations and noise channels in the moments of operations before them
@@ -419,22 +430,22 @@ class _LayerScheduler(Scheduler):
         gate, whose moment it joins.
         """
         edges = []
-        last_node: dict[int, int] = {}
-        last_timed_node: dict[int, int] = {}
-        record_nodes: list[int] = []
+        last_node: dict[int, int] = {}  # by qubit
+        last_node_taking_time: dict[int, int] = {}  # by qubit
+        record_nodes: list[int] = []  # the node of each measurement record of the segment
         last_coordinate_node: int | None = None
         last_gate_node: int | None = None
         for node, operation in zip(nodes, operations):
             # follow the previous nodes on the qubits of the operation
-            timed = operation.is_gate and self.takes_time(operation.instruction)
+            takes_time = operation.is_gate and self.takes_time(operation.instruction)
             for qubit in operation.qubits:
                 if last_node.get(qubit, node) != node:
                     edges.append((last_node[qubit], node, 0))
-                if timed and qubit in last_timed_node:
-                    edges.append((last_timed_node[qubit], node, 1))
+                if takes_time and qubit in last_node_taking_time:
+                    edges.append((last_node_taking_time[qubit], node, 1))
                 last_node[qubit] = node
-                if timed:
-                    last_timed_node[qubit] = node
+                if takes_time:
+                    last_node_taking_time[qubit] = node
 
             # follow the measurements that the operation reads, and the previous coordinate
             # annotation if it is one
@@ -456,7 +467,12 @@ class _LayerScheduler(Scheduler):
 
 
 def _get_nodes(operations: Sequence[_Operation]) -> list[int]:
-    """The node of each operation: its own, except that a chain of correlated errors shares one."""
+    """The node of each operation of a segment, numbered from zero.
+
+    A node is a group of operations that a scheduler places in one moment: each operation is a node
+    of its own, except that a chain of correlated errors (an ``E`` and the ``ELSE_CORRELATED_ERROR``
+    operations after it) is one node.
+    """
     nodes: list[int] = []
     for operation in operations:
         if operation.instruction.name == "ELSE_CORRELATED_ERROR" and nodes:
@@ -517,15 +533,25 @@ def _place_annotations(
 
 @dataclasses.dataclass(frozen=True)
 class _Operation:
-    """An operation of a circuit, and the properties that schedules depend on."""
+    """An operation of a circuit (see :class:`Schedule`), and the properties that schedules use.
+
+    An operation acts on its ``qubits``, which are those of a gate, observable, or noise channel.
+    It depends on the state of its ``qubits_depended_on``, which are those of a gate without
+    classical control or of an observable, so noise on these qubits must come before it.  A noise
+    channel or a classically controlled Pauli gate acts on its qubits without depending on their
+    state.
+
+    The measurement records that an operation reads are counted back from the operation (so they
+    are negative), or, in operations from ``_get_operations``, from the start of their segment.
+    """
 
     instruction: stim.CircuitInstruction
-    qubits: tuple[int, ...]  # qubits of a gate, observable, or noise, in fixed order
-    touched_qubits: tuple[int, ...]  # the qubits whose state this operation depends on
+    qubits: tuple[int, ...]  # the qubits that this operation acts on, in order
+    qubits_depended_on: tuple[int, ...]  # the qubits whose state this operation depends on
     is_gate: bool
-    is_collapsing: bool  # whether this is a measurement or reset
+    is_measurement_or_reset: bool
     num_records: int  # the number of measurement records that this operation produces
-    records: tuple[int, ...]  # the records that this reads (relative to the operation, or as set)
+    records: tuple[int, ...]  # the measurement records that this operation reads
 
     @staticmethod
     def from_instruction(instruction: stim.CircuitInstruction) -> _Operation:
@@ -552,7 +578,7 @@ class _Operation:
             if (is_gate and not involves_classical_bits(instruction)) or is_observable
             else (),
             is_gate,
-            name in COLLAPSING_OPS,
+            name in MEASURE_OR_RESET_OPS,
             len(instruction.target_groups()) if _produces_measurements(name) else 0,
             tuple(target.value for target in targets if target.is_measurement_record_target),
         )
@@ -560,10 +586,12 @@ class _Operation:
 
 @dataclasses.dataclass
 class _Segment:
-    """The operations of a segment of a circuit (between REPEAT blocks), and their moments.
+    """The operations of a segment of a circuit, and their moments.
 
-    The records that operations read are counted from the start of the segment, so records before
-    the segment are negative.
+    A segment is a maximal stretch of a circuit, or of the body of a REPEAT block, that contains no
+    REPEAT block, that is, the instructions between consecutive REPEAT blocks, or between a REPEAT
+    block and the start or end of the circuit or body.  The records that operations read are counted
+    from the start of the segment, so records before the segment are negative.
     """
 
     instructions: list[stim.CircuitInstruction]
@@ -590,9 +618,10 @@ class _Segment:
 def _get_segments(
     circuit: stim.Circuit, schedule: Schedule | None
 ) -> Iterator[_Segment | tuple[stim.CircuitRepeatBlock, Schedule | None]]:
-    """The segments of a circuit, and its REPEAT blocks with the schedules of their bodies.
+    """The segments and REPEAT blocks of a circuit in order, each block with a schedule of its body.
 
-    Without a schedule, every operation is in moment zero.
+    A segment (see ``_Segment``) precedes each REPEAT block and ends the circuit.  Without a
+    schedule, every operation is in moment zero, and REPEAT blocks have no schedules.
     """
     moments = iter(() if schedule is None else schedule._moments)
     segment = _Segment([], [], [], [])
@@ -601,9 +630,9 @@ def _get_segments(
         # a REPEAT block ends the current segment, and a new one starts after it
         if isinstance(instruction, stim.CircuitRepeatBlock):
             yield segment.close()
-            repeat = next(moments, None)
-            assert repeat is None or isinstance(repeat, Schedule)
-            yield instruction, repeat
+            body_schedule = next(moments, None)
+            assert body_schedule is None or isinstance(body_schedule, Schedule)
+            yield instruction, body_schedule
             segment = _Segment([], [], [], [])
             num_records = 0
             continue
@@ -612,11 +641,11 @@ def _get_segments(
         operations = _get_operations([instruction], num_records)
         segment.instructions.append(instruction)
         segment.num_operations.append(len(operations))
-        for info in operations:
-            num_records += info.num_records
+        for operation in operations:
+            num_records += operation.num_records
             moment = next(moments, 0)
             assert isinstance(moment, int)
-            segment.operations.append(info)
+            segment.operations.append(operation)
             segment.moments.append(moment)
     yield segment.close()
 
@@ -714,12 +743,13 @@ def _check_schedule(
     schedule: Schedule, takes_time: Callable[[stim.CircuitInstruction], bool]
 ) -> None:
     """Check that a schedule keeps the meaning of its circuit."""
-    for item in _get_segments(schedule._circuit, schedule):
-        if isinstance(item, _Segment):
-            _check_segment(item, takes_time)
+    for segment_or_block in _get_segments(schedule._circuit, schedule):
+        if isinstance(segment_or_block, _Segment):
+            _check_segment(segment_or_block, takes_time)
         else:
-            assert item[1] is not None
-            _check_schedule(item[1], takes_time)
+            _, body_schedule = segment_or_block
+            assert body_schedule is not None
+            _check_schedule(body_schedule, takes_time)
 
 
 def _check_segment(
@@ -777,10 +807,11 @@ def _get_layers(
     reverse: bool,
     fixed: Mapping[int, int] | None = None,
 ) -> list[int]:
-    """Place nodes in layers as early (or, if ``reverse``, as late) as possible.
+    """Place the nodes of a segment in layers as early (or, if ``reverse``, as late) as possible.
 
-    Layers count moments from the start of a segment.  Fixed nodes keep their given layers, which
-    must come from a valid schedule with the fewest layers.
+    A layer is a moment of the segment, counted from its start.  Each edge ``(earlier, later,
+    gap)`` places node ``later`` at least ``gap`` layers after node ``earlier``.  Fixed nodes keep
+    their given layers, which must come from a valid placement with the fewest layers.
     """
     # the constraints on each node from the nodes before it (or, if reverse, after it)
     incoming: list[list[tuple[int, int]]] = [[] for _ in range(num_nodes)]
@@ -834,15 +865,16 @@ class _Layout:
         # a TICK ends the last moment of a segment before a REPEAT block
         circuit = stim.Circuit()
         is_open = False
-        for item in _get_segments(schedule._circuit, schedule):
-            if isinstance(item, _Segment):
-                self.lay_out_segment(item, circuit)
-                is_open = item.duration > 0
+        for segment_or_block in _get_segments(schedule._circuit, schedule):
+            if isinstance(segment_or_block, _Segment):
+                self.lay_out_segment(segment_or_block, circuit)
+                is_open = segment_or_block.duration > 0
             else:
-                assert item[1] is not None
+                block, body_schedule = segment_or_block
+                assert body_schedule is not None
                 if is_open:
                     circuit.append("TICK")
-                self.lay_out_block(item[0], item[1], circuit)
+                self.lay_out_block(block, body_schedule, circuit)
                 is_open = False
         return circuit, is_open
 
@@ -854,8 +886,8 @@ class _Layout:
         for operation in segment.operations:
             old_starts.append(old_starts[-1] + operation.num_records)
 
-        # append the operations by moment, and in circuit order within a moment, with a TICK
-        # before each new moment
+        # append the operations by moment, and in circuit order within a moment, with a TICK before
+        # each new moment
         order = sorted(range(len(segment.operations)), key=lambda k: (segment.moments[k], k))
         moment = 0
         for index in order:
