@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Unit tests for cz_transpilation.py."""
+"""Unit tests for transpile_to_cz.py."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import stim
 
 from qldpc.circuits import DEFAULT_IMMUNE_OP_TAG, DEFAULT_IMMUNE_QUBIT_TAG
 from qldpc.circuits.transforms import transpile_to_cz
-from qldpc.circuits.transforms.cz_transpilation import _clean_up, _commute_through_cz
+from qldpc.circuits.transforms.transpile_to_cz import _clean_up, _commute_through_cz
 
 _SINGLE_QUBIT_GATES = sorted(
     name for name, data in stim.gate_data().items() if data.is_unitary and data.is_single_qubit_gate
