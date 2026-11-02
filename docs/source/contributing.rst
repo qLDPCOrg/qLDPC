@@ -66,6 +66,7 @@ Prose style
   * **Unclear without prior context:** ``Run a simulation and check the estimate.``
   * **Clear:** ``Run a simulation to estimate a failure rate, then check that estimate.``
 
+* Use the serial (Oxford) comma before the conjunction in a list of three or more items, as in ``X, Y, and Z``.
 * Docstrings follow the Google convention.
 * Python comments and docstrings use ordinary paragraphs: separate sentences with two spaces and fill lines to the 100-column limit.
 * Keep one prose sentence per physical source line in repository ``.rst`` and ``.md`` files and notebook Markdown cells.
