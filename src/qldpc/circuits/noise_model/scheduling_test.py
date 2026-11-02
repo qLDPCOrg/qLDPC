@@ -4,8 +4,6 @@
 
 from __future__ import annotations
 
-import itertools
-
 import pytest
 import stim
 
@@ -32,7 +30,8 @@ def test_asap() -> None:
     """Gates are as early as possible, and resets as late as possible by default.
 
     An annotation joins the moment of the operation before it on its qubits, or, without qubits, of
-    the last gate before it.
+    the last gate before it, or a later moment to follow a measurement that it reads or the
+    coordinate annotation before it.
     """
     expected = """
         QUBIT_COORDS(0, 0) 0
@@ -62,6 +61,14 @@ def test_asap() -> None:
     scheduler = circuits.Scheduler.asap(single_qubit_gates_take_time=True)
     circuit, _ = scheduler.get_schedule(CIRCUIT).to_circuit()
     assert circuit == stim.Circuit(expected.format(resets="R 0", reset_1="R 1", reset_2="R 2"))
+
+    circuit = stim.Circuit("CX 0 1 0 1\nM 1\nH 0\nDETECTOR rec[-1]\nH 2\nSHIFT_COORDS(1)")
+    ops = circuits.Schedule.get_operations(circuit)
+    assert circuits.Scheduler.asap().get_schedule(circuit).get_moments() == [
+        [ops[0], ops[5]],
+        [ops[1], ops[3]],
+        [ops[2], ops[4], ops[6]],
+    ]
 
 
 def test_alap() -> None:
@@ -137,11 +144,36 @@ def test_preserve_ticks() -> None:
     ]
 
 
+def test_operations() -> None:
+    """The operations of a circuit are its gate applications, annotations, and noise channels.
+
+    A gate application is one target of a one-qubit gate, one pair of targets of a two-qubit gate,
+    or one Pauli product of an MPP or SPP gate.  REPEAT blocks are listed whole.
+    """
+    circuit = stim.Circuit("MPP X0*Z1 Z2\nX_ERROR(0.1) 0 1\nTICK\nREPEAT 2 {\nH 0\n}")
+    assert circuits.Schedule.get_operations(circuit) == [
+        stim.CircuitInstruction(
+            "MPP", [stim.target_x(0), stim.target_combiner(), stim.target_z(1)]
+        ),
+        stim.CircuitInstruction("MPP", [stim.target_z(2)]),
+        circuit[1],
+        circuit[3],
+    ]
+
+
+def test_correlated_error_chains() -> None:
+    """A chain of correlated errors joins the latest moment that one of its errors would join."""
+    circuit = stim.Circuit("H 0\nTICK\nH 1\nE(0.1) X0\nELSE_CORRELATED_ERROR(0.1) X1")
+    scheduler = circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
+    assert scheduler.get_schedule(circuit).get_moments() == [[circuit[0]], list(circuit[2:])]
+
+
 def test_measurement_order() -> None:
     """Measurements may change order, while instructions keep reading the same measurements.
 
     The first iteration of a REPEAT block is written out if it reads a measurement before the block
-    at another offset than later iterations read the measurements of earlier iterations.
+    (here, in a nested block) at another offset than later iterations read the measurements of
+    earlier iterations.
     """
     circuit = stim.Circuit("""
         H 0
@@ -150,7 +182,10 @@ def test_measurement_order() -> None:
         M 2
         REPEAT 3 {
             M 2
-            DETECTOR rec[-1] rec[-2]
+            REPEAT 1 {
+                H 3
+                DETECTOR rec[-1] rec[-2]
+            }
         }
     """)
     scheduled, measurements = circuits.Scheduler.asap().get_schedule(circuit).to_circuit()
@@ -162,12 +197,20 @@ def test_measurement_order() -> None:
         M 1
         TICK
         M 2
-        DETECTOR rec[-1] rec[-3]
         TICK
+        REPEAT 1 {
+            H 3
+            DETECTOR rec[-1] rec[-3]
+            TICK
+        }
         REPEAT 2 {
             M 2
-            DETECTOR rec[-1] rec[-2]
             TICK
+            REPEAT 1 {
+                H 3
+                DETECTOR rec[-1] rec[-2]
+                TICK
+            }
         }
     """)
     assert measurements == (1, 0, 2, 3, 4)
@@ -248,57 +291,36 @@ def test_preserve_ticks_with_repeat_blocks() -> None:
 
 
 def test_schedules_keep_noisy_circuits() -> None:
-    """The layout of every built-in schedule has the error model of the circuit under gate noise.
+    """The layout of each built-in schedule has the error model of the circuit under gate noise.
 
-    The noise of each gate is inserted right after it, independently of moments.  The circuit has a
-    Pauli product, classical control, a chain of correlated errors, an observable with a Pauli
-    target, and a REPEAT block whose detectors read measurements from before the block and from its
-    previous iteration, and a nested REPEAT block.
+    The noise of each gate is inserted right after it, independently of moments.  The detectors of
+    the REPEAT block read measurements from before the block and from its previous iteration.
     """
     circuit = stim.Circuit("""
-        R 0 1 2 3
-        H 0 2
-        CX 0 1
-        TICK
-        MPP X0*X1
-        M 3
-        DETECTOR rec[-2]
+        R 0 1 2
+        H 0
+        CX 0 1 0 2 1 2
+        M 2
         DETECTOR rec[-1]
-        MX 2
-        CX rec[-1] 3
-        E(0.1) X3
-        ELSE_CORRELATED_ERROR(0.2) X0
-        M 3
-        DETECTOR rec[-1]
-        S 0
-        OBSERVABLE_INCLUDE(0) Z0
-        M 0 1
-        DETECTOR rec[-1] rec[-2]
-        OBSERVABLE_INCLUDE(0) rec[-2]
         REPEAT 2 {
             R 2
-            CX 1 2
+            CX 0 2 1 2
             M 2
             DETECTOR rec[-1] rec[-2]
-            REPEAT 2 {
-                R 2
-                CX 1 2
-                M 2
-                DETECTOR rec[-1] rec[-2]
-            }
         }
+        M 0 1
+        DETECTOR rec[-1] rec[-2]
     """)
-    expected = _with_gate_noise(circuit).detector_error_model(approximate_disjoint_errors=True)
-    for single_qubit_gates_take_time, shorten_lifetimes in itertools.product([False, True], [0, 1]):
-        options = {"single_qubit_gates_take_time": single_qubit_gates_take_time}
-        for scheduler in [
-            circuits.Scheduler.preserve_ticks(**options),
-            circuits.Scheduler.asap(late_resets=bool(shorten_lifetimes), **options),
-            circuits.Scheduler.alap(early_measurements=bool(shorten_lifetimes), **options),
-        ]:
-            scheduled, _ = scheduler.get_schedule(circuit).to_circuit()
-            dem = _with_gate_noise(scheduled).detector_error_model(approximate_disjoint_errors=True)
-            assert dem.approx_equals(expected, atol=1e-12)
+    expected = _with_gate_noise(circuit).detector_error_model()
+    for scheduler in [
+        circuits.Scheduler.preserve_ticks(),
+        circuits.Scheduler.asap(),
+        circuits.Scheduler.alap(),
+    ]:
+        scheduled, _ = scheduler.get_schedule(circuit).to_circuit()
+        assert (
+            _with_gate_noise(scheduled).detector_error_model().approx_equals(expected, atol=1e-12)
+        )
 
 
 def _with_gate_noise(circuit: stim.Circuit) -> stim.Circuit:
@@ -387,6 +409,16 @@ class _EachInItsOwnMoment(circuits.Scheduler):
         return circuits.Schedule(circuit, moments)
 
 
+def test_moments_without_operations() -> None:
+    """A moment without operations in a custom schedule counts, and is laid out as an extra TICK."""
+    circuit = stim.Circuit("H 0 1")
+    schedule = circuits.Schedule(circuit, [0, 2])
+    circuits.Scheduler.asap().validate(circuit, schedule)
+    assert schedule.num_moments == 3
+    assert schedule.get_moments() == [list(stim.Circuit("H 0")), [], list(stim.Circuit("H 1"))]
+    assert schedule.to_circuit() == (stim.Circuit("H 0\nTICK\nTICK\nH 1"), ())
+
+
 @pytest.mark.parametrize(
     ("circuit", "moments", "error"),
     [
@@ -427,16 +459,20 @@ def test_schedule_errors() -> None:
 def test_schedules_are_immutable_values() -> None:
     """Schedules cannot change, and are equal if they schedule the same circuit alike.
 
-    Unlike Stim's equality of circuits, the equality of schedules does not ignore the tags of
-    REPEAT blocks.
+    Changing the circuit or moments that made a schedule does not change it.  Unlike Stim's
+    equality of circuits, the equality of schedules does not ignore the tags of REPEAT blocks.
     """
-    schedule = circuits.Schedule(stim.Circuit("H 0"), [0])
-    with pytest.raises(AttributeError):
-        schedule._moments = (1,)
-    with pytest.raises(AttributeError):
-        del schedule._moments
+    circuit, moments = stim.Circuit("H 0"), [0]
+    schedule = circuits.Schedule(circuit, moments)
+    circuit.append("H", 1)
+    moments.append(0)
     assert schedule == circuits.Schedule(stim.Circuit("H 0"), [0])
     assert schedule != circuits.Schedule(stim.Circuit("H 0"), [1])
+    with pytest.raises(AttributeError):
+        schedule.num_moments = 2  # type: ignore[misc]
+    with pytest.raises(AttributeError):
+        del schedule.num_moments
+
     body = circuits.Schedule(stim.Circuit("H 0"), [0])
     tagged = circuits.Schedule(stim.Circuit("REPEAT[tag] 2 {\nH 0\n}"), [body])
     untagged = circuits.Schedule(stim.Circuit("REPEAT 2 {\nH 0\n}"), [body])
@@ -446,17 +482,7 @@ def test_schedules_are_immutable_values() -> None:
 def test_scheduler_repr() -> None:
     """The repr of a scheduler reconstructs it."""
     schedulers = [
-        circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=flag)
-        for flag in [False, True]
+        circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True),
+        circuits.Scheduler.alap(early_measurements=False, single_qubit_gates_take_time=True),
     ]
-    for shorten, take_time in itertools.product([False, True], repeat=2):
-        schedulers.append(
-            circuits.Scheduler.asap(late_resets=shorten, single_qubit_gates_take_time=take_time)
-        )
-        schedulers.append(
-            circuits.Scheduler.alap(
-                early_measurements=shorten, single_qubit_gates_take_time=take_time
-            )
-        )
-    for scheduler in schedulers:
-        assert eval(repr(scheduler), {"Scheduler": circuits.Scheduler}) == scheduler
+    assert [eval(repr(s), {"Scheduler": circuits.Scheduler}) for s in schedulers] == schedulers

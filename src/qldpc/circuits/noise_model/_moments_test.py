@@ -41,12 +41,16 @@ def test_repeated_idle_channel() -> None:
             expected
         )
 
-        # a sequence of one independent error is a Pauli channel with one component
+        # each independent error of a sequence fires an odd number of times
         sequence = _moments.repeated_idle_channel(
-            circuits.PauliChannelSequence({"X": p_x}), repetitions
+            circuits.PauliChannelSequence({"X": p_x, "Z": p_z}), repetitions
         )
-        single = _moments.repeated_idle_channel(circuits.PauliChannel({"X": p_x}), repetitions)
-        assert sequence.probabilities == pytest.approx(single.probabilities)
+        assert sequence.probabilities == pytest.approx(
+            {
+                "X": (1 - (1 - 2 * p_x) ** repetitions) / 2,
+                "Z": (1 - (1 - 2 * p_z) ** repetitions) / 2,
+            }
+        )
 
 
 def test_quadratic_idle_channel() -> None:

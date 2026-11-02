@@ -815,7 +815,7 @@ class _NoisyCircuitBuilder:
 
     def add_idle_noise(self, qubit: int, idle_run: tuple[int, int]) -> None:
         """Add the noise of an idle run of a qubit to the pool."""
-        if self.noiseless or not any(idle_run):
+        if not any(idle_run):
             return
         if idle_run not in self.idle_noise:
             self.idle_noise[idle_run] = self.noise_model._get_idle_noise(*idle_run)
