@@ -60,7 +60,6 @@ from .scheduling import (
     _get_operations,
     _get_segments,
     _Operation,
-    _RepeatSchedule,
     _Segment,
 )
 
@@ -584,60 +583,52 @@ class _NoisyCircuitBuilder:
 
         # idle runs, by qubit: [time, measurement moments before it, timed, collapsing]
         self.runs: dict[int, list[int]] = {qubit: [0, 0, 0, 0] for qubit in sorted(idle_qubits)}
-        self.shift = 0  # the number of moments of the schedule that noiseless blocks remove
-        self.after_noiseless_block = False
-        self.last_moment = -1  # the last moment so far
-        self.last_collapses = False  # whether the last moment has a measurement or reset
-        self.num_collapsing = 0  # the number of moments before the last with measurements or resets
-        self.collapsing_moments: list[int] = []  # those of the open segment, after the last moment
-        self.has_gate = False
+        self.time = 0  # the moment in which the current segment starts
+        self.num_collapsing = 0  # the number of moments before it with measurements or resets
+        self.collapsing_moments: list[int] = []  # those of the current segment
 
     def get_noisy_circuit(self, circuit: stim.Circuit, schedule: Schedule | None) -> stim.Circuit:
         """Add noise to a circuit, given a schedule of it if the noise model has idle noise."""
         output = stim.Circuit()
-        self.append(circuit, schedule, 0, output)
+        self.append(circuit, schedule, output)
         if self.timed:
-            end = self.last_moment + 1 if self.has_gate else 0
             for qubit in self.runs:
-                self.add_idle_noise(qubit, self.end_idle_run(qubit, end, False, False))
+                self.add_idle_noise(qubit, self.end_idle_run(qubit, self.time, False, False))
         self.flush(output)
         return output
 
     def append(
-        self, circuit: stim.Circuit, schedule: Schedule | None, offset: int, output: stim.Circuit
+        self, circuit: stim.Circuit, schedule: Schedule | None, output: stim.Circuit
     ) -> None:
-        """Add noise to a circuit whose moments start at an offset, and append it to the output."""
+        """Add noise to a circuit, and append it to the output."""
         for item in _get_segments(circuit, schedule):
             if isinstance(item, _Segment):
-                self.append_segment(item, offset, output)
+                self.append_segment(item, output)
             elif self.immune_op_tag is not None and self.immune_op_tag in item[0].tag:
-                self.append_noiseless_block(item[0], item[1], output)
+                self.append_noiseless_block(item[0], output)
             else:
-                self.append_block(item[0], item[1], offset, output)
+                self.append_block(item[0], item[1], output)
 
-    def append_segment(self, segment: _Segment, offset: int, output: stim.Circuit) -> None:
+    def append_segment(self, segment: _Segment, output: stim.Circuit) -> None:
         """Add noise to the instructions of a segment, and append them to the output."""
         timed = self.timed and bool(segment.operations)
+        duration = segment.duration
         if timed:
-            if self.after_noiseless_block:
-                # the segment starts in the moment after the noiseless block
-                self.shift = offset + min(segment.moments) - self.last_moment - 1
-                self.after_noiseless_block = False
-            offset -= self.shift
+            # operations after the last moment with a gate take place at the end of the segment
+            segment_moments = [min(moment, duration) for moment in segment.moments]
             self.collapsing_moments = sorted(
                 {
-                    offset + moment
-                    for operation, moment in zip(segment.operations, segment.moments)
+                    self.time + moment
+                    for operation, moment in zip(segment.operations, segment_moments)
                     if operation.is_collapsing
                 }
             )
-            self.has_gate = self.has_gate or any(op.is_gate for op in segment.operations)
         start = 0
         for instruction, num_operations in zip(segment.instructions, segment.num_operations):
             operations = segment.operations[start : start + num_operations]
-            moments = segment.moments[start : start + num_operations]
+            moments = segment_moments[start : start + num_operations] if timed else []
             start += num_operations
-            times = [offset + moment for moment in moments] if timed else None
+            times = [self.time + moment for moment in moments] if timed else None
             if operations and operations[0].is_gate:
                 self.append_gate(instruction, operations, times, output)
             elif operations and operations[0].touched_qubits:
@@ -651,13 +642,8 @@ class _NoisyCircuitBuilder:
             else:
                 output.append(instruction)
         if timed:
-            end = offset + max(segment.moments)
-            if end > self.last_moment:
-                self.num_collapsing = self.count_collapsing(end)
-                self.last_collapses = end in self.collapsing_moments
-                self.last_moment = end
-            else:
-                self.last_collapses = self.last_collapses or end in self.collapsing_moments
+            self.time += duration
+            self.num_collapsing += len(self.collapsing_moments)
             self.collapsing_moments = []
 
     def append_gate(
@@ -760,61 +746,42 @@ class _NoisyCircuitBuilder:
         return rules
 
     def append_block(
-        self,
-        block: stim.CircuitRepeatBlock,
-        repeat: _RepeatSchedule | None,
-        offset: int,
-        output: stim.Circuit,
+        self, block: stim.CircuitRepeatBlock, schedule: Schedule | None, output: stim.Circuit
     ) -> None:
         """Add noise to a REPEAT block, and append it to the output.
 
-        Once an iteration of the block (after the first) starts in the same state as the iteration
-        before it, relative to its start, the remaining iterations get the same noise, and are kept
-        in a REPEAT block.  Normally only the first iteration differs, since its idle runs start
-        before the block.
+        Once an iteration of the block starts in the same state as the iteration before it,
+        relative to its start, the remaining iterations get the same noise, and are kept in a
+        REPEAT block.  Normally only the first iteration differs, since its idle runs start before
+        the block.
         """
         self.flush(output)
         body = block.body_copy()
-        schedule = None if repeat is None else repeat.schedule
-        start, period = (0, 0) if repeat is None else (repeat.start, repeat.period)
         qubits = sorted(_get_run_qubits(body, self.takes_time) & self.runs.keys())
 
-        def get_state(iteration: int) -> tuple[object, ...]:
-            """The state before an iteration, relative to its start."""
-            if not self.timed:
-                return ()
-            begin = offset + start + iteration * period - self.shift
-            runs = [
-                (begin - self.runs[qubit][0], self.num_collapsing - self.runs[qubit][1])
+        def get_state() -> list[tuple[int, ...]]:
+            """The idle runs of the qubits of the block, relative to the current time."""
+            return [
+                (self.time - self.runs[qubit][0], self.num_collapsing - self.runs[qubit][1])
                 + tuple(self.runs[qubit][2:])
                 for qubit in qubits
             ]
-            # the moments that measure or reset matter only for waiting noise, but for that of the
-            # idle runs of all qubits, including those that the block does not act on
-            waits = self.noise_model.additional_error_waiting_for_m_or_r is not None
-            collapses = (self.last_moment - begin, self.last_collapses) if waits else ()
-            return (self.after_noiseless_block, runs, collapses)
 
         iterations: list[stim.Circuit] = []
-        states = [get_state(0)]
+        state = get_state()
         while len(iterations) < block.repeat_count:
-            before = (self.last_moment, self.num_collapsing, self.shift)
+            before = (self.time, self.num_collapsing)
             iteration = stim.Circuit()
-            self.append(body, schedule, offset + start + len(iterations) * period, iteration)
+            self.append(body, schedule, iteration)
             self.flush(iteration)
             iterations.append(iteration)
-            states.append(get_state(len(iterations)))
-            if not self.timed or (len(iterations) > 1 and states[-1] == states[-2]):
-                # the remaining iterations repeat this one, which is not the first
+            state, last_state = get_state(), state
+            if not self.timed or state == last_state:
+                # the remaining iterations repeat this one
                 num_remaining = block.repeat_count - len(iterations)
-                change = (
-                    self.last_moment - before[0],
-                    self.num_collapsing - before[1],
-                    self.shift - before[2],
-                )
-                self.last_moment += change[0] * num_remaining
+                change = (self.time - before[0], self.num_collapsing - before[1])
+                self.time += change[0] * num_remaining
                 self.num_collapsing += change[1] * num_remaining
-                self.shift += change[2] * num_remaining
                 for qubit in qubits:
                     self.runs[qubit][0] += change[0] * num_remaining
                     self.runs[qubit][1] += change[1] * num_remaining
@@ -834,34 +801,22 @@ class _NoisyCircuitBuilder:
             else:
                 output.append(stim.CircuitRepeatBlock(count, iteration, tag=block.tag))
 
-    def append_noiseless_block(
-        self, block: stim.CircuitRepeatBlock, repeat: _RepeatSchedule | None, output: stim.Circuit
-    ) -> None:
+    def append_noiseless_block(self, block: stim.CircuitRepeatBlock, output: stim.Circuit) -> None:
         """Append a noiseless REPEAT block, which ends the idle runs of the qubits that it acts on.
 
         A noiseless REPEAT block takes no time: it lies between the moment before it and the moment
         after it.
         """
         qubits = _get_touched_qubits(block.body_copy())
-        if self.timed and repeat is not None and repeat.schedule.num_moments:
-            moment = self.last_moment + 1
+        if self.timed:
             for qubit in sorted(qubits & self.runs.keys()):
-                self.add_idle_noise(qubit, self.end_idle_run(qubit, moment, False, False))
-            self.after_noiseless_block = True
+                self.add_idle_noise(qubit, self.end_idle_run(qubit, self.time, False, False))
         self.flush(output, qubits)
         output.append(block)
 
     def count_collapsing(self, moment: int) -> int:
-        """The number of moments before a moment of the open segment that measure or reset."""
-        if moment <= self.last_moment:
-            return self.num_collapsing
-        moments = self.collapsing_moments
-        return (
-            self.num_collapsing
-            + (self.last_collapses or self.last_moment in moments)
-            + bisect.bisect_left(moments, moment)
-            - bisect.bisect_right(moments, self.last_moment)
-        )
+        """The number of moments before a moment of the current segment that measure or reset."""
+        return self.num_collapsing + bisect.bisect_left(self.collapsing_moments, moment)
 
     def end_idle_run(
         self, qubit: int, moment: int, timed: bool, collapsing: bool

@@ -116,11 +116,13 @@ depends on when operations happen.  A noise model with idle noise uses its ``sch
 qubit is either occupied by an operation or idle.  By default, ``Scheduler.asap()`` ignores the
 TICKs of a circuit and places each operation as early as possible (and each reset as late as
 possible), while ``SI1000NoiseModel`` keeps the TICK layers of a circuit with
-``Scheduler.preserve_ticks(single_qubit_gates_take_time=True)``.  A moment may continue across the
-boundary of a ``REPEAT`` block or of its iterations, and every iteration of a ``REPEAT`` block is
-scheduled alike, so a block stays compact however many times it repeats.  Every moment of a
-schedule lasts one unit of time, including a moment without gates in a custom schedule; the
-built-in schedulers do not make empty moments.
+``Scheduler.preserve_ticks(single_qubit_gates_take_time=True)``.  The boundaries of ``REPEAT``
+blocks and of their iterations are boundaries between moments, and every iteration of a ``REPEAT``
+block follows one schedule of its body, so a block stays compact however many times it repeats.  To
+let moments continue across these boundaries, add noise to ``circuit.flattened()`` instead.  Every
+moment of a schedule lasts one unit of time, including a moment without operations in a custom
+schedule, except that the moments after the last gate of a part of a circuit between ``REPEAT``
+blocks take no time; the built-in schedulers do not make empty moments.
 
 By default, single-qubit unitary gates and classically controlled Paulis take no time.  This models
 gates that are much faster than the moments of a circuit: a qubit that undergoes only such gates in

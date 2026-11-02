@@ -10,7 +10,7 @@ import random
 import pytest
 import stim
 
-from qldpc import circuits, decoders
+from qldpc import circuits, codes, decoders
 from qldpc.circuits.conftest import (
     StimCircuitWrapper,
     circuits_are_equivalent,
@@ -281,6 +281,10 @@ def test_empty_moments() -> None:
     expected = stim.Circuit(f"Z_ERROR({two_moments}) 1\nH 0 1\nZ_ERROR({two_moments}) 0")
     assert noisy_circuit.approx_equals(expected, atol=1e-12)
 
+    # but moments after the last gate of a circuit (or of a part between REPEAT blocks) take no time
+    noisy_circuit = noise_model.noisy_circuit(stim.Circuit("H 0\nOBSERVABLE_INCLUDE(0) Z1"))
+    assert noisy_circuit == stim.Circuit("H 0\nZ_ERROR(0.1) 1\nOBSERVABLE_INCLUDE(0) Z1")
+
 
 class _Spaced(circuits.Scheduler):
     """A scheduler that leaves an empty moment between consecutive operations."""
@@ -291,13 +295,23 @@ class _Spaced(circuits.Scheduler):
         )
 
 
-def test_si1000_keeps_reference_moments() -> None:
-    """SI1000 noise has the error model of its reference, which adds noise moment by moment.
+def test_moments_at_repeat_blocks() -> None:
+    """The boundaries of REPEAT blocks are boundaries between moments, also for idle noise.
 
-    The reference is the noise that the deprecated ``insert_ticks=True`` adds.  Moments of the
-    circuit continue across the boundaries of its REPEAT block.
+    With a TICK at each boundary, as in qLDPC's memory experiments, SI1000 noise has the error model
+    of the noise that the deprecated ``insert_ticks=True`` adds moment by moment.
     """
-    circuit = stim.Circuit.generated("surface_code:rotated_memory_z", distance=3, rounds=3)
+    noise_model = circuits.NoiseModel(
+        idle_error={"Z": 0.1},
+        scheduler=circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True),
+    )
+    circuit = stim.Circuit("H 0\nREPEAT 1 {\nH 1\n}")
+    assert noise_model.noisy_circuit(circuit) == stim.Circuit(
+        "H 0\nREPEAT 1 {\nZ_ERROR(0.1) 1\nH 1\n}\nZ_ERROR(0.1) 0"
+    )
+    assert noise_model.noisy_circuit(circuit.flattened()) == stim.Circuit("H 0 1")
+
+    circuit = circuits.get_memory_experiment(codes.SteaneCode(), num_rounds=3)
     noise_model = circuits.SI1000NoiseModel(0.001)
     with pytest.warns(DeprecationWarning, match="insert_ticks"):
         reference = noise_model.noisy_circuit(circuit, insert_ticks=True)
@@ -358,8 +372,7 @@ def test_idle_runs_across_repeat_blocks() -> None:
     circuit = stim.Circuit("H 0\nTICK\nREPEAT 4 {\nREPEAT 1 {\nH 0\n}\nTICK\n}\nH 0")
     assert noise_model.noisy_circuit(circuit) == circuit
 
-    # a qubit waits in each moment that measures another qubit, including a moment that a REPEAT
-    # block shares with the moment before it, and one that it shares with the next iteration
+    # a qubit waits in each moment that measures another qubit, also in a REPEAT block
     noise_model = circuits.NoiseModel(
         additional_error_waiting_for_m_or_r={"Z": 0.1},
         scheduler=circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True),
@@ -368,14 +381,6 @@ def test_idle_runs_across_repeat_blocks() -> None:
     four_moments = (1 - 0.8**4) / 2
     assert noise_model.noisy_circuit(circuit, system_qubits=[2]).approx_equals(
         circuit[:2] + stim.Circuit(f"Z_ERROR({four_moments}) 2\nH 2"), atol=1e-12
-    )
-    circuit = stim.Circuit("H 0\nREPEAT 2 {\nM 1\nTICK\nH 2\n}")
-    assert noise_model.noisy_circuit(circuit, system_qubits=[2]) == stim.Circuit(
-        "H 0\nREPEAT 2 {\nM 1\nTICK\nZ_ERROR(0.1) 2\nH 2\n}"
-    )
-    circuit = stim.Circuit("H 2\nTICK\nREPEAT 2 {\nH 0\n}\nM 1\nTICK\nH 2")
-    assert noise_model.noisy_circuit(circuit, system_qubits=[2]) == stim.Circuit(
-        "H 2\nTICK\nREPEAT 2 {\nH 0\n}\nM 1\nTICK\nZ_ERROR(0.1) 2\nH 2"
     )
     circuit = stim.Circuit("M 0\nREPEAT 5 {\nH 3\nTICK\n}\nM 1 2")  # qubit 3 has no idle noise
     assert noise_model.noisy_circuit(circuit, system_qubits=[0, 1, 2]) == circuit[
