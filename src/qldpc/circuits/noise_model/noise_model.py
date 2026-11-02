@@ -628,7 +628,8 @@ class _NoisyCircuitBuilder:
                     if operation.is_collapsing
                 }
             )
-        # add noise to each gate, and emit the noise before each observable with Pauli targets
+        # add noise to each gate, and emit the gate noise of its qubits before each observable with
+        # Pauli targets, which does not end their idle runs
         start = 0
         for instruction, num_operations in zip(segment.instructions, segment.num_operations):
             operations = segment.operations[start : start + num_operations]
@@ -638,11 +639,7 @@ class _NoisyCircuitBuilder:
             if operations and operations[0].is_gate:
                 self.append_gate(instruction, operations, times, output)
             elif operations and operations[0].touched_qubits:
-                qubits = operations[0].touched_qubits
-                if times is not None:
-                    for qubit in qubits:
-                        self.add_idle_noise(qubit, self.end_idle_run(qubit, times[0], False, False))
-                self.flush(output, qubits)
+                self.flush(output, operations[0].touched_qubits)
                 output.append(instruction)
             else:
                 output.append(instruction)
@@ -901,14 +898,18 @@ def _join_operations(operations: Sequence[_Operation]) -> stim.CircuitInstructio
 def _get_run_qubits(
     circuit: stim.Circuit, takes_time: Callable[[stim.CircuitInstruction], bool]
 ) -> frozenset[int]:
-    """The qubits whose idle runs a circuit ends, which it touches or occupies at any depth."""
+    """The qubits whose idle runs a circuit ends, on which it has gates at any depth.
+
+    These are the qubits whose state a gate depends on, and those that a gate occupies.
+    """
     qubits: set[int] = set()
     for instruction in circuit:
         if isinstance(instruction, stim.CircuitRepeatBlock):
             qubits.update(_get_run_qubits(instruction.body_copy(), takes_time))
         else:
             for operation in _get_operations([instruction]):
-                qubits.update(operation.touched_qubits)
+                if operation.is_gate:
+                    qubits.update(operation.touched_qubits)
                 if operation.is_gate and takes_time(operation.instruction):
                     qubits.update(operation.qubits)
     return frozenset(qubits)

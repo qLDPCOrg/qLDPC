@@ -122,9 +122,9 @@ block follows one schedule of its body, so a block stays compact however many ti
 let moments continue across these boundaries, add noise to ``circuit.flattened()`` instead.  Every
 moment of a schedule lasts one unit of time.  Annotations and noise channels never have a moment of
 their own: the built-in schedulers put each of them in the moment of the operation before it, and a
-part of a circuit between ``REPEAT`` blocks that has no gates has no moments and takes no time.  In
-particular, an observable with Pauli targets joins the moment of the last operation on its qubits,
-so it does not see the idle noise of those qubits after that operation.
+part of a circuit between ``REPEAT`` blocks that has no gates has no moments and takes no time.  An
+observable with Pauli targets sees the gate noise of its qubits, but not the idle noise of their
+current idle periods, which it does not interrupt.
 
 By default, single-qubit unitary gates and classically controlled Paulis take no time.  This models
 gates that are much faster than the moments of a circuit: a qubit that undergoes only such gates in
@@ -136,8 +136,8 @@ the second operation.  It combines ``idle_error`` over the idle moments of the p
 ``quadratic_idle_error`` of one run of that length.  Custom Stim noise fragments in ``idle_error``
 are applied once per idle moment.  ``additional_error_waiting_for_m_or_r`` applies to a qubit once
 for each moment in which another qubit is measured or reset, including a moment in which the qubit
-undergoes a gate.  Any gate or observable with Pauli targets on a qubit ends its idle period, even
-if it takes no time, while noise channels and classically controlled Paulis do not.
+undergoes a gate.  Any gate on a qubit ends its idle period, even if it takes no time, while
+observables, noise channels, and classically controlled Paulis do not.
 
 Idle periods continue across the boundaries of ``REPEAT`` blocks.  A qubit that a ``REPEAT`` block
 does not act on gets one error for its whole idle period.  The idle periods of a qubit that a

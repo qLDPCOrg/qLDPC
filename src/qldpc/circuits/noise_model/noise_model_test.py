@@ -1096,9 +1096,10 @@ def test_pauli_channel_idle_error_rejection() -> None:
 def test_quadratic_idle_error_runs() -> None:
     """An idle run continues past noise channels, classically controlled Paulis, and observables.
 
-    Noise channels and classically controlled Paulis on an idle qubit do not depend on when a Pauli
-    error occurs, and an observable with Pauli targets joins the moment of the operation before it
-    on its qubits, so the error of the qubit's whole run is the same as if they were absent.
+    The error of a qubit's whole run is the same as if they were absent: over ``n`` idle moments, a
+    flip probability ``p`` per moment becomes ``(1 - (1 - 2 * p)**(n**2)) / 2``.  This also holds
+    for an observable in a later moment than the last operation on its qubit, because it reads a
+    measurement or follows a REPEAT block, and for an observable in each iteration of a block.
     """
     noise_model = circuits.NoiseModel(
         quadratic_idle_error={"Z": 0.01},
@@ -1112,6 +1113,16 @@ def test_quadratic_idle_error_runs() -> None:
 
     for interruption in ["X_ERROR(0.2) 0", "M 2\nCX rec[-1] 0", "OBSERVABLE_INCLUDE(0) Z0"]:
         assert get_error(interruption) == pytest.approx((1 - 0.98**25) / 2)
+    for text, num_moments in [
+        (
+            "R 0\nTICK\nREPEAT 3 {\nH 1\nTICK\n}\nH 1\nTICK\nOBSERVABLE_INCLUDE(0) X0\nH 1\nTICK\nM 0",
+            5,
+        ),
+        (f"R 0\nTICK\n{step * 2}M 1\nOBSERVABLE_INCLUDE(0) rec[-1] X0\nTICK\n{step * 2}M 0", 5),
+        ("R 0\nTICK\nREPEAT 4 {\nH 1\nTICK\nOBSERVABLE_INCLUDE(0) X0\n}\nM 0", 4),
+    ]:
+        noisy = noise_model.noisy_circuit(stim.Circuit(text))
+        assert _get_z_error(noisy, 0) == pytest.approx((1 - 0.98 ** (num_moments**2)) / 2)
 
     # a repeat block that applies noise to an idle qubit stays compact
     circuit = stim.Circuit("R 0")
