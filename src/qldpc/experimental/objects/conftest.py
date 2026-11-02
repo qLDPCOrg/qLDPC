@@ -1,12 +1,26 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Shared fixtures and helpers for tests of experimental operators."""
+"""Shared fixtures and helpers for tests of experimental operators.
+
+The dense matrices here cost memory and time exponential in the number of qubits, so they only check
+the scalable methods of qLDPC on a few qubits.  Matrices act on qubits in big-endian order, in which
+qubit 0 is the most significant bit of a basis-state index.
+"""
 
 from __future__ import annotations
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 import stim
+
+# The matrices of I, X, Y, and Z, indexed as in stim.PauliString.
+_PAULI_MATRICES = (
+    np.eye(2, dtype=np.complex128),
+    np.array([[0, 1], [1, 0]], dtype=np.complex128),
+    np.array([[0, -1j], [1j, 0]], dtype=np.complex128),
+    np.array([[1, 0], [0, -1]], dtype=np.complex128),
+)
 
 
 @pytest.fixture
@@ -24,3 +38,36 @@ def get_random_pauli_string(
         string = (-1) ** int(rng.integers(2)) * stim.PauliString(letters)
         if string.weight or not nontrivial:
             return string
+
+
+def get_pauli_matrix(string: stim.PauliString, num_qubits: int) -> npt.NDArray[np.complex128]:
+    """The matrix of a Pauli string, with its sign, padded with identities to ``num_qubits``."""
+    matrix = np.array([[complex(string.sign)]])
+    for qubit in range(num_qubits):
+        letter = string[qubit] if qubit < len(string) else 0
+        matrix = np.kron(matrix, _PAULI_MATRICES[letter])
+    return matrix
+
+
+def get_rotation_matrix(
+    axis: stim.PauliString, angle: float, num_qubits: int
+) -> npt.NDArray[np.complex128]:
+    """The matrix of the rotation ``exp(-i angle axis/2)`` about a Hermitian Pauli ``axis``."""
+    pauli = get_pauli_matrix(axis, num_qubits)
+    return np.cos(angle / 2) * np.eye(len(pauli)) - 1j * np.sin(angle / 2) * pauli
+
+
+def equal_up_to_phase(first: npt.ArrayLike, second: npt.ArrayLike, atol: float = 1e-6) -> bool:
+    """Whether two arrays are equal up to a global phase, entry by entry within ``atol``."""
+    first = np.asarray(first, dtype=np.complex128)
+    second = np.asarray(second, dtype=np.complex128)
+    if first.shape != second.shape:
+        return False
+    norm = abs(np.vdot(first, first))
+    if norm < atol or abs(np.vdot(second, second)) < atol:
+        return bool(norm < atol and abs(np.vdot(second, second)) < atol)
+    overlap = np.vdot(first, second)
+    if abs(overlap) < atol:
+        return False
+    phase = overlap / abs(overlap)
+    return bool(np.allclose(phase * first, second, rtol=0, atol=atol))

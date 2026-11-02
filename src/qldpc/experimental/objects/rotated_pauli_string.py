@@ -29,8 +29,8 @@ that anticommutes with ``a``.
 #
 # 1. Turn the module qldpc/objects.py into a package qldpc/objects/ that keeps every name of the
 #    module importable from qldpc.objects.
-# 2. Move this module, _packed_paulis.py, _symplectic.py, _dense.py, their test files, and the
-#    fixtures and helpers of qldpc/experimental/objects/conftest.py into qldpc/objects/.
+# 2. Move this module, _packed_paulis.py, _symplectic.py, their test files, and the fixtures and
+#    helpers of qldpc/experimental/objects/conftest.py into qldpc/objects/.
 # 3. Re-export RotatedPauliString from qldpc.objects, and remove qldpc.experimental.objects;
 #    experimental modules need no deprecation shims.
 # 4. Mention RotatedPauliString in the description of qldpc.objects in docs/source/library_map.rst.

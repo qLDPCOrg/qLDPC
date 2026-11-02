@@ -14,8 +14,12 @@ import pytest
 import stim
 
 from qldpc.experimental.objects import RotatedPauliString, rotated_pauli_string
-from qldpc.experimental.objects import _dense as dense
-from qldpc.experimental.objects.conftest import get_random_pauli_string
+from qldpc.experimental.objects.conftest import (
+    equal_up_to_phase,
+    get_pauli_matrix,
+    get_random_pauli_string,
+    get_rotation_matrix,
+)
 
 _KERNELS = ("_multiply", "_simplify", "_merge_t_axes", "_equal", "_remove_row")
 
@@ -40,10 +44,10 @@ def _get_rotations_matrix(
     num_qubits: int,
 ) -> npt.NDArray[np.complex128]:
     """The matrix of ``R_{π/4}(t_k) ··· R_{π/4}(t_1) · R_{π/2}(s_j) ··· R_{π/2}(s_1) · P``."""
-    matrix = dense.get_pauli_matrix(core, num_qubits)
+    matrix = get_pauli_matrix(core, num_qubits)
     for axes, angle in ((s_axes, np.pi / 2), (t_axes, np.pi / 4)):
         for axis in axes:
-            matrix = dense.get_rotation_matrix(axis, angle, num_qubits) @ matrix
+            matrix = get_rotation_matrix(axis, angle, num_qubits) @ matrix
     return matrix
 
 
@@ -78,7 +82,7 @@ def test_simplification_preserves_operators(rng: np.random.Generator) -> None:
             core, s_axes, t_axes = _get_random_rotations(rng, num_qubits)
             operator = RotatedPauliString.from_rotations(core, s_axes=s_axes, t_axes=t_axes)
             expected = _get_rotations_matrix(core, s_axes, t_axes, num_qubits)
-            assert dense.equal_up_to_phase(_get_matrix(operator), expected)
+            assert equal_up_to_phase(_get_matrix(operator), expected)
             assert operator == RotatedPauliString.from_rotations(
                 operator.core, s_axes=operator.s_axes, t_axes=operator.t_axes
             )
@@ -95,7 +99,7 @@ def test_simplified_forms() -> None:
     )
     expected = RotatedPauliString.from_rotations("XY", s_axes=["+_X", "+_Z"], t_axes=["+X_"])
     assert operator == expected and hash(operator) == hash(expected)
-    assert dense.equal_up_to_phase(_get_matrix(operator), _get_matrix(expected))
+    assert equal_up_to_phase(_get_matrix(operator), _get_matrix(expected))
 
     # merging R_{π/4}(X_) R_{π/4}(X_) = R_{π/2}(X_) conjugates the inner axis Z_ to -Y_
     operator = RotatedPauliString.from_rotations("__", t_axes=["+Z_", "+X_", "+X_"])
@@ -117,7 +121,7 @@ def test_clifford_operators_have_canonical_forms(rng: np.random.Generator) -> No
     """
     for num_qubits in (1, 2):
         paulis = [
-            dense.get_pauli_matrix(stim.PauliString("".join(letters)), num_qubits)
+            get_pauli_matrix(stim.PauliString("".join(letters)), num_qubits)
             for letters in itertools.product("IXYZ", repeat=num_qubits)
         ]
         operators = []
@@ -132,12 +136,12 @@ def test_clifford_operators_have_canonical_forms(rng: np.random.Generator) -> No
                 matrices.append(_get_rotations_matrix(core, axes, [], num_qubits))
 
         for operator, matrix in zip(operators, matrices):
-            is_pauli = any(dense.equal_up_to_phase(matrix, pauli) for pauli in paulis)
+            is_pauli = any(equal_up_to_phase(matrix, pauli) for pauli in paulis)
             assert operator.is_pauli == is_pauli
         for (first, first_matrix), (second, second_matrix) in itertools.combinations(
             zip(operators, matrices), 2
         ):
-            assert (first == second) == dense.equal_up_to_phase(first_matrix, second_matrix)
+            assert (first == second) == equal_up_to_phase(first_matrix, second_matrix)
             assert first != second or hash(first) == hash(second)
 
 
@@ -159,11 +163,11 @@ def test_products_and_adjoints(rng: np.random.Generator) -> None:
     for first, second in pairs:
         first_matrix = _get_matrix(first)
         product = first_matrix @ _get_matrix(second)
-        assert dense.equal_up_to_phase(_get_matrix(first * second), product)
-        assert first != second or dense.equal_up_to_phase(first_matrix, _get_matrix(second))
-        assert dense.equal_up_to_phase(_get_matrix(first.adjoint()), first_matrix.conj().T)
+        assert equal_up_to_phase(_get_matrix(first * second), product)
+        assert first != second or equal_up_to_phase(first_matrix, _get_matrix(second))
+        assert equal_up_to_phase(_get_matrix(first.adjoint()), first_matrix.conj().T)
         identity = first * first.adjoint()
-        assert dense.equal_up_to_phase(_get_matrix(identity), np.eye(len(first_matrix)))
+        assert equal_up_to_phase(_get_matrix(identity), np.eye(len(first_matrix)))
         if first.is_clifford:
             assert identity == RotatedPauliString(num_qubits=first.num_qubits)
 
@@ -178,8 +182,8 @@ def test_strings_and_widths() -> None:
 
     product = operator * RotatedPauliString("__Y")
     assert product.num_qubits == 3
-    expected = np.kron(_get_matrix(operator), dense.get_pauli_matrix(stim.PauliString("Y"), 1))
-    assert dense.equal_up_to_phase(_get_matrix(product), expected)
+    expected = np.kron(_get_matrix(operator), get_pauli_matrix(stim.PauliString("Y"), 1))
+    assert equal_up_to_phase(_get_matrix(product), expected)
     assert RotatedPauliString("Z", num_qubits=3) == RotatedPauliString("Z__")
     assert RotatedPauliString("Z") != RotatedPauliString("Z_")
 
