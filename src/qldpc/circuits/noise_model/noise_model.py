@@ -738,12 +738,13 @@ class _NoisyCircuitBuilder:
     ) -> None:
         """Add noise to a REPEAT block, and append it to the output.
 
-        Once an iteration of the block starts in the same state as the iteration before it,
-        relative to its start, the remaining iterations get the same noise, and are kept in a
-        REPEAT block.  Normally only the first iteration differs, since its idle runs start before
-        the block.
+        The first iteration of the block starts from the idle runs before the block, and every later
+        iteration starts from the idle runs that the iteration before it leaves, which are the same
+        for every iteration.  So the noise of the second iteration is that of every later one: the
+        first two iterations get noise, and the remaining iterations repeat the second, in one
+        REPEAT block with it.
 
-        A REPEAT block tagged with ``immune_op_tag`` is noiseless: it is appended unchanged, and the
+        A REPEAT block tagged with ``immune_op_tag`` is noiseless: it is appended unchanged, the
         qubits that it acts on get no noise while it runs, and other qubits idle as usual.
         """
         self.flush(output)
@@ -757,55 +758,34 @@ class _NoisyCircuitBuilder:
             self.flush(output)
             self.noiseless = True
 
-        def get_state() -> list[tuple[int, ...]]:
-            """The idle runs of the qubits of the block, relative to the current time."""
-            return [
-                (self.time - self.runs[qubit][0], self.num_collapsing - self.runs[qubit][1])
-                + tuple(self.runs[qubit][2:])
-                for qubit in qubits
-            ]
-
         iterations: list[stim.Circuit] = []
-        state = get_state()
-        while len(iterations) < block.repeat_count:
-            before = (self.time, self.num_collapsing)
+        for _ in range(min(2, block.repeat_count)):
+            start = (self.time, self.num_collapsing)
             iteration = stim.Circuit()
             self.append(body, schedule, iteration)
             self.flush(iteration)
             iterations.append(iteration)
-            state, last_state = get_state(), state
-            if not self.timed or state == last_state:
-                # the remaining iterations repeat this one
-                num_remaining = block.repeat_count - len(iterations)
-                change = (self.time - before[0], self.num_collapsing - before[1])
-                self.time += change[0] * num_remaining
-                self.num_collapsing += change[1] * num_remaining
-                for qubit in qubits:
-                    self.runs[qubit][0] += change[0] * num_remaining
-                    self.runs[qubit][1] += change[1] * num_remaining
-                break
+
+        num_remaining = block.repeat_count - len(iterations)
+        duration, num_collapsing = self.time - start[0], self.num_collapsing - start[1]
+        self.time += duration * num_remaining
+        self.num_collapsing += num_collapsing * num_remaining
+        for qubit in qubits:
+            self.runs[qubit][0] += duration * num_remaining
+            self.runs[qubit][1] += num_collapsing * num_remaining
 
         if noiseless:
-            # the idle runs of the qubits of the block start again at its end
             self.noiseless = was_noiseless
             for qubit in qubits:
                 self.runs[qubit] = [self.time, self.num_collapsing, 0, 0]
             output.append(block)
             return
 
-        # iterations with the same noise share a REPEAT block
-        groups: list[tuple[stim.Circuit, int]] = []
-        for iteration in iterations:
-            if groups and groups[-1][0] == iteration:
-                groups[-1] = (iteration, groups[-1][1] + 1)
-            else:
-                groups.append((iteration, 1))
-        groups[-1] = (groups[-1][0], groups[-1][1] + block.repeat_count - len(iterations))
-        for index, (iteration, count) in enumerate(groups):
-            if index + 1 < len(groups) and count == 1:
-                output += iteration
-            else:
-                output.append(stim.CircuitRepeatBlock(count, iteration, tag=block.tag))
+        first, last = iterations[0], iterations[-1]
+        if first != last:
+            output += first
+        num_repeats = block.repeat_count - (first != last)
+        output.append(stim.CircuitRepeatBlock(num_repeats, last, tag=block.tag))
 
     def count_collapsing(self, moment: int) -> int:
         """The number of moments before a moment of the current segment that measure or reset."""
