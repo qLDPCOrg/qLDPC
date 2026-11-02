@@ -36,7 +36,7 @@ from collections.abc import Collection
 
 import stim
 
-from ..common import DEFAULT_IMMUNE_QUBIT_TAG
+from ..common import DEFAULT_IMMUNE_QUBIT_TAG, _get_immune_qubits
 from .qubit_remapping import remap_qubit_target
 
 # Paulis are indexed as in stim.PauliString: 1, 2, 3 for X, Y, Z.
@@ -80,14 +80,12 @@ def transpile_to_cz(
 
     Raises:
         ValueError: If the circuit has noise or an untagged classically controlled, ``SPP``, or
-            ``SPP_DAG`` gate.
+            ``SPP_DAG`` gate, or if immune_qubit_tag is empty.
 
     Warns:
         UserWarning: If gates are added at the boundaries of ``REPEAT`` blocks.
     """
-    immune = frozenset(immune_qubits)
-    if immune_qubit_tag is not None:
-        immune |= _get_tagged_qubits(circuit, immune_qubit_tag)
+    immune = frozenset(immune_qubits) | _get_immune_qubits(circuit, immune_qubit_tag)
     transpiler = _Transpiler(circuit.num_qubits, immune)
     transpiler.run(circuit)
     transpiler.settle()
@@ -296,17 +294,6 @@ def _split_off_diagonal_part(gate: stim.Tableau) -> tuple[stim.Tableau, stim.Tab
     axis = _PAULIS[gate.inverse().z_output(0)[0]]
     first = _get_tableau(_AXIS_GATES[axis])
     return first, first.inverse().then(gate)
-
-
-def _get_tagged_qubits(circuit: stim.Circuit, tag: str) -> frozenset[int]:
-    """The qubits of the QUBIT_COORDS annotations of a circuit whose tags contain a string."""
-    qubits: set[int] = set()
-    for instruction in circuit:
-        if isinstance(instruction, stim.CircuitRepeatBlock):
-            qubits |= _get_tagged_qubits(instruction.body_copy(), tag)
-        elif instruction.name == "QUBIT_COORDS" and tag in instruction.tag:
-            qubits.update(target.value for target in instruction.targets_copy())
-    return frozenset(qubits)
 
 
 ####################################################################################################

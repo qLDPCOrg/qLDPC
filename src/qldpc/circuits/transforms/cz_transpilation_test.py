@@ -205,6 +205,8 @@ def test_unsupported_instructions() -> None:
         transpile_to_cz(stim.Circuit("M 0\nCX rec[-1] 1"))
     with pytest.raises(ValueError, match="SPP gates are not supported"):
         transpile_to_cz(stim.Circuit("SPP X0*Z1"))
+    with pytest.raises(ValueError, match="non-empty"):
+        transpile_to_cz(stim.Circuit(), immune_qubit_tag="")
 
 
 def _assert_equivalent(circuit: stim.Circuit, transpiled: stim.Circuit) -> None:

@@ -126,6 +126,32 @@ def get_pauli_product_measurements(
     return circuit
 
 
+def _get_immune_qubits(circuit: stim.Circuit, immune_qubit_tag: str | None) -> frozenset[int]:
+    """Identify qubits declared immune to noise by tagged coordinate annotations.
+
+    A qubit is declared immune if a QUBIT_COORDS annotation for it has a tag that contains
+    immune_qubit_tag.  If immune_qubit_tag is None, no qubit is declared immune.
+
+    Raises:
+        ValueError: If immune_qubit_tag is empty.
+    """
+    if immune_qubit_tag is None:
+        return frozenset()
+    if immune_qubit_tag == "":
+        raise ValueError("immune_qubit_tag must be non-empty or None")
+    immune_qubits: set[int] = set()
+    for instruction in circuit:
+        if isinstance(instruction, stim.CircuitRepeatBlock):
+            immune_qubits.update(_get_immune_qubits(instruction.body_copy(), immune_qubit_tag))
+        elif instruction.name == "QUBIT_COORDS" and immune_qubit_tag in instruction.tag:
+            immune_qubits.update(
+                target.qubit_value
+                for target in instruction.targets_copy()
+                if target.qubit_value is not None
+            )
+    return frozenset(immune_qubits)
+
+
 def _restrict_to_qubits(
     func: Callable[_Params, _ReturnType],
 ) -> Callable[_Params, _ReturnType]:
