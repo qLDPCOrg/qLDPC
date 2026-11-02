@@ -104,7 +104,8 @@ class NoiseModel:
     gates.
 
     Idle errors apply per moment: a unit of time in the schedule that ``scheduler`` makes of a
-    circuit (see :class:`~qldpc.circuits.Schedule`).  An idle run of a qubit lasts from the moment
+    circuit by placing its operations, such as single gate applications, in moments (see
+    :class:`~qldpc.circuits.Schedule`).  An idle run of a qubit lasts from the moment
     of its last gate, or from the start of a segment (a maximal stretch of the circuit, or of the
     body of a REPEAT block, that contains no REPEAT block), up to but not including the moment of
     its next gate, or to the end of the segment.  Every gate on the qubit ends its idle run, even
@@ -431,13 +432,10 @@ class NoiseModel:
     ) -> StimCircuitLike:
         """Construct a noisy version of the given circuit by inserting noise into it.
 
-        Noise on some qubits is placed before whichever comes first: the next gate application that
-        depends on the state of any of those qubits (one that is not classically controlled), the
-        next observable with a Pauli target on them, the next REPEAT block, or the end of the
-        circuit or of the body of a REPEAT block.  This holds for the noise of each gate application
-        and, if this model has idle noise, for the noise of each idle run (see :class:`NoiseModel`)
-        from the end of the run, in the moments in which ``scheduler`` places the operations of the
-        circuit.  See :mod:`qldpc.circuits.noise_model` for details.
+        The noise of each gate application, and the noise of each idle run of a qubit if this model
+        has idle noise (see :class:`NoiseModel`), is placed before the next gate application that
+        depends on the state of its qubits or observable with a Pauli target on them, or else at the
+        end of its segment.  See :mod:`qldpc.circuits.noise_model` for details.
 
         Args:
             circuit: The circuit to apply noise to.
