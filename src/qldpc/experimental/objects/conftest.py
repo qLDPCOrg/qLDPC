@@ -98,16 +98,9 @@ def get_rotation_matrix(
 
 
 def equal_up_to_phase(first: npt.ArrayLike, second: npt.ArrayLike, atol: float = 1e-6) -> bool:
-    """Whether two arrays are equal up to a global phase, entry by entry within ``atol``."""
+    """Whether two arrays of the same shape are equal up to a global phase, within ``atol``."""
     first = np.asarray(first, dtype=np.complex128)
     second = np.asarray(second, dtype=np.complex128)
-    if first.shape != second.shape:
-        return False
-    norm = abs(np.vdot(first, first))
-    if norm < atol or abs(np.vdot(second, second)) < atol:
-        return bool(norm < atol and abs(np.vdot(second, second)) < atol)
     overlap = np.vdot(first, second)
-    if abs(overlap) < atol:
-        return False
-    phase = overlap / abs(overlap)
+    phase = overlap / abs(overlap) if abs(overlap) > atol else 1
     return bool(np.allclose(phase * first, second, rtol=0, atol=atol))
