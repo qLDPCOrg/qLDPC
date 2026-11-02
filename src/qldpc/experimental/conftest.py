@@ -56,11 +56,7 @@ def _get_instruction_unitary(
 
 
 def _get_t_axes(instruction: stim.CircuitInstruction) -> list[stim.PauliString]:
-    """The Hermitian axes of the rotations of an ``S``-like or ``SPP``-like instruction, in order.
-
-    The axes are those of the π/4 rotations of a T-tagged instruction, and of the π/2 rotations of
-    an untagged ``SPP`` or ``SPP_DAG`` instruction.
-    """
+    """The Hermitian axes of the π/4 rotations of a T-tagged instruction, in order."""
     sign = -1 if instruction.name.endswith("_DAG") else 1
     if instruction.name in ("S", "S_DAG"):
         return [
