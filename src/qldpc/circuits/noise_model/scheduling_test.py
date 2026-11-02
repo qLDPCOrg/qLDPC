@@ -27,7 +27,7 @@ CIRCUIT = stim.Circuit("""
 
 
 def test_asap() -> None:
-    """Gates are as early as possible, and resets as late as possible by default.
+    """Gates are as early as possible, and then by default resets as late as other gates allow.
 
     An annotation joins the moment of the operation before it on its qubits, or, without qubits, of
     the last gate before it, or a later moment to follow a measurement that it reads or the
@@ -72,7 +72,7 @@ def test_asap() -> None:
 
 
 def test_alap() -> None:
-    """Gates are as late as possible, and measurements as early as possible by default.
+    """Gates are as late as possible, and then by default measurements as early as others allow.
 
     Annotations join the moment of the operation before them, as in ASAP schedules.
     """
