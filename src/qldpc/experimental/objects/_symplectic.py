@@ -169,22 +169,31 @@ def _get_image_of_dual(
 def _triangularize(
     basis: npt.NDArray[np.uint64], form: npt.NDArray[np.uint8]
 ) -> npt.NDArray[np.uint64]:
-    """Transvection axes, first applied first, of ``M`` with ``M - I`` given by a basis and a form.
+    """The canonical axes of step 3 of the module docstring, first applied first.
 
-    Here ``form`` is the matrix of ``β``, as in the module docstring.  Each step chooses a vector
-    ``g`` with ``β(g, g) = 1``, emits the axis ``Σ_k g_k basis_k``, and continues in the subspace of
-    vectors ``y`` with ``β(g, y) = 0``.  If no vector has ``β(g, g) = 1``, then ``β`` is symmetric,
-    and the step emits the first basis vector ``c = basis_0`` and replaces ``Q`` by
-    ``Q + e_0 e_0^T`` (so ``β`` by ``β + (β e_0)(β e_0)^T``), which accounts for applying ``T_c``
-    first.
+    The rows of ``basis`` are the vectors ``a_1, ..., a_r``, and ``form`` is the matrix of the
+    bilinear form ``β = Q^{-1}`` in their coordinates.  Each step chooses a vector ``g`` with
+    ``β(g, g) = 1`` (see ``_choose_vector``), emits the axis ``Σ_k g_k a_k``, and continues in the
+    subspace of vectors ``y`` with ``β(g, y) = 0``, so that later vectors satisfy the ordering
+    condition ``β(g_i, g_l) = 0`` for ``i < l``.
+
+    If no vector has ``β(g, g) = 1``, then ``β`` is alternating.  The step then emits the first
+    vector ``c = a_1`` as an extra axis, whose transvection is applied first, and updates ``β`` to
+    ``β + (β e_1)(β e_1)^T``, the form of ``M T_c``.  The update makes ``β(e_k, e_k) = 1`` for some
+    ``k``, since ``β`` is invertible, so the next step succeeds.
     """
     vectors = basis.copy()
     current = form.copy()
     size, num_words = vectors.shape
+
+    # Each step emits one axis and shrinks the subspace by one dimension, except that an extra axis
+    # may precede it, so there are at most 2 * size axes.
     axes = np.empty((2 * size, num_words), dtype=np.uint64)
     num_axes = 0
     while size > 0:
         first, second = _choose_vector(current, size)
+
+        # No vector has β(g, g) = 1: emit the extra axis c = a_1, and update β to account for it.
         if first < 0:
             axes[num_axes] = vectors[0]
             num_axes += 1
@@ -193,6 +202,8 @@ def _triangularize(
                 for col in range(size):
                     current[row, col] ^= column[row] & column[col]
             continue
+
+        # Emit the axis of g = e_first (+ e_second), and record β(g, ·) as the row vector product.
         axes[num_axes] = vectors[first]
         product = current[first, :size].copy()
         if second >= 0:
@@ -202,7 +213,9 @@ def _triangularize(
                 product[col] ^= current[second, col]
         num_axes += 1
 
-        # restrict to {y : product · y = 0}, with basis y_k = e_k + product_k e_pivot for k ≠ pivot
+        # Restrict to the subspace {y : β(g, y) = 0}.  Its basis is y_k = e_k + product_k e_pivot
+        # for k ≠ pivot, where product_pivot = 1, since then β(g, y_k) = product_k + product_k = 0.
+        # The vectors y_k become the new rows of vectors, and β in their coordinates the new form.
         pivot = 0
         while not product[pivot]:
             pivot += 1
