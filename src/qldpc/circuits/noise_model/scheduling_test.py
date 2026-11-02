@@ -11,6 +11,7 @@ import stim
 
 from qldpc import circuits
 from qldpc.circuits.conftest import StimCircuitWrapper
+from qldpc.circuits.noise_model.scheduling import _RepeatSchedule
 
 # A circuit whose moments differ for each way of scheduling it.
 CIRCUIT = stim.Circuit("""
@@ -200,10 +201,7 @@ def test_moments_across_repeat_blocks() -> None:
     schedule = scheduler.get_schedule(circuit)
     # moments: H 2 and H 0, then H 1 and H 0 twice, then H 1 and H 3
     assert schedule.num_moments == 4
-    assert schedule.get_moments()[0] == [
-        stim.CircuitInstruction("H", [2]),
-        circuits.RepeatSchedule(circuits.Schedule(stim.Circuit("H 0\nTICK\nH 1"), [0, 1]), 0, 1),
-    ]
+    assert schedule.get_moments()[0] == [stim.CircuitInstruction("H", [2]), circuit[1]]
     assert schedule.to_circuit()[0] == circuit
 
     scheduler.validate(circuit, schedule)
@@ -371,12 +369,11 @@ def test_custom_scheduler() -> None:
     schedule = scheduler.get_schedule(circuit)
     scheduler.validate(circuit, schedule)
     # the iterations of the REPEAT block follow each other in moments 3 and 4
-    repeat = circuits.RepeatSchedule(circuits.Schedule(stim.Circuit("CX rec[-1] 1"), [0]), 3, 1)
     assert schedule.get_moments() == [
         list(stim.Circuit("H 0")),
         list(stim.Circuit("H 1")),
         list(stim.Circuit("M 0")),
-        [repeat],
+        [circuit[2]],
         [],
     ]
     scheduled, _ = schedule.to_circuit()
@@ -433,10 +430,11 @@ def test_invalid_repeat_placements() -> None:
         circuit = stim.Circuit(f"{before}\nREPEAT 2 {{\n{body}\n}}\n{after}")
         num_before = len(circuits.Schedule.get_operations(stim.Circuit(before)))
         num_after = len(circuits.Schedule.get_operations(stim.Circuit(after)))
-        repeat = circuits.RepeatSchedule(body_schedule, start, period)
+        repeat = _RepeatSchedule(body_schedule, start, period)
         moments = [*range(num_before), repeat, *[after_moment] * num_after]
         with pytest.raises(ValueError, match=error):
-            circuits.Scheduler.asap().validate(circuit, circuits.Schedule(circuit, moments))
+            schedule = circuits.Schedule._from_placements(circuit, moments)
+            circuits.Scheduler.asap().validate(circuit, schedule)
 
 
 def test_schedule_errors() -> None:
@@ -450,7 +448,7 @@ def test_schedule_errors() -> None:
         with pytest.raises(ValueError, match="nonnegative integer"):
             circuits.Schedule(circuit, [0, moment, body_schedule])  # type: ignore[list-item]
     with pytest.raises(ValueError, match="nonnegative integer"):
-        circuits.RepeatSchedule(body_schedule, -1, 1)
+        _RepeatSchedule(body_schedule, -1, 1)
     with pytest.raises(ValueError, match="schedule of its body"):
         circuits.Schedule(circuit, [0, 0, 0])
     with pytest.raises(ValueError, match="schedule of its body"):

@@ -195,7 +195,6 @@ from .rules import (
     NoiseRule,
 )
 from .scheduling import (
-    RepeatSchedule,
     Schedule,
     Scheduler,
 )
@@ -210,7 +209,6 @@ __all__ = [
     "NoiseRule",
     "PauliChannel",
     "PauliChannelSequence",
-    "RepeatSchedule",
     "SI1000NoiseModel",
     "Schedule",
     "Scheduler",

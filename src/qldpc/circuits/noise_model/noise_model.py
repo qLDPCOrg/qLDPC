@@ -54,13 +54,13 @@ from .rules import (
     _validate_rule_for_arity,
 )
 from .scheduling import (
-    RepeatSchedule,
     Schedule,
     Scheduler,
     _as_stim_circuit,
     _get_operations,
     _get_segments,
     _Operation,
+    _RepeatSchedule,
     _Segment,
 )
 
@@ -762,7 +762,7 @@ class _NoisyCircuitBuilder:
     def append_block(
         self,
         block: stim.CircuitRepeatBlock,
-        repeat: RepeatSchedule | None,
+        repeat: _RepeatSchedule | None,
         offset: int,
         output: stim.Circuit,
     ) -> None:
@@ -835,7 +835,7 @@ class _NoisyCircuitBuilder:
                 output.append(stim.CircuitRepeatBlock(count, iteration, tag=block.tag))
 
     def append_noiseless_block(
-        self, block: stim.CircuitRepeatBlock, repeat: RepeatSchedule | None, output: stim.Circuit
+        self, block: stim.CircuitRepeatBlock, repeat: _RepeatSchedule | None, output: stim.Circuit
     ) -> None:
         """Append a noiseless REPEAT block, which ends the idle runs of the qubits that it acts on.
 

@@ -46,19 +46,22 @@ class Schedule:
     The operations of a circuit are its gate applications (one target of a one-qubit gate, one pair
     of targets of a two-qubit gate, or one Pauli product of an MPP or SPP gate) and its annotations
     and noise channels other than TICKs, as listed by :meth:`get_operations`.  A schedule places
-    each operation outside REPEAT blocks in a moment, numbered from zero, and places each REPEAT
-    block with a :class:`RepeatSchedule`, which holds the schedule of its body.  Every moment lasts
+    each operation outside REPEAT blocks in a moment, numbered from zero, and each REPEAT block in
+    the moments of its iterations, which all follow one schedule of its body.  Every moment lasts
     one unit of time, including a moment without operations, and a qubit idles in each moment
     unless an operation that takes time acts on it (see :meth:`Scheduler.takes_time`).
+
+    Given the schedule of the body of a REPEAT block, a schedule places the first iteration of the
+    block after all moments before it, and its iterations one after another.  The built-in
+    schedulers may also let a block, and each of its iterations, share its first moment with the
+    moment before it.
 
     A schedule is immutable.
 
     Args:
         circuit: The circuit to schedule.
         moments: In circuit order, the moment of each operation of the circuit outside REPEAT
-            blocks, and the placement of each REPEAT block.  A REPEAT block may also be given only
-            the schedule of its body, which places its first iteration after all moments before it
-            and its iterations one after another, without sharing moments.
+            blocks, and the schedule of the body of each REPEAT block.
 
     Raises:
         ValueError: If ``moments`` does not have one nonnegative integer moment for each operation
@@ -68,43 +71,11 @@ class Schedule:
     __slots__ = ("_circuit", "_duration", "_moments")
 
     _circuit: stim.Circuit
-    _moments: tuple[int | RepeatSchedule, ...]
+    _moments: tuple[int | _RepeatSchedule, ...]
     _duration: int
 
-    def __init__(
-        self, circuit: StimCircuitLike, moments: Sequence[int | Schedule | RepeatSchedule]
-    ) -> None:
-        stim_circuit = _as_stim_circuit(circuit)
-        operations = Schedule.get_operations(stim_circuit)
-        if len(operations) != len(moments):
-            raise ValueError(
-                f"A schedule needs {len(operations)} entries (one per operation or REPEAT block),"
-                f" but got {len(moments)}"
-            )
-        entries: list[int | RepeatSchedule] = []
-        duration = 0  # one more than the last moment of the entries so far
-        for operation, moment in zip(operations, moments):
-            if isinstance(operation, stim.CircuitRepeatBlock):
-                if isinstance(moment, Schedule):
-                    moment = RepeatSchedule(moment, duration, moment._duration)
-                if not isinstance(moment, RepeatSchedule) or str(moment.schedule._circuit) != str(
-                    operation.body_copy()
-                ):
-                    raise ValueError("Each REPEAT block needs a schedule of its body")
-                if moment.schedule._duration:
-                    duration = max(
-                        duration,
-                        moment.start
-                        + (operation.repeat_count - 1) * moment.period
-                        + moment.schedule._duration,
-                    )
-            else:
-                moment = _as_moment(moment, f"The moment of {operation}")
-                duration = max(duration, moment + 1)
-            entries.append(moment)
-        object.__setattr__(self, "_circuit", stim_circuit)
-        object.__setattr__(self, "_moments", tuple(entries))
-        object.__setattr__(self, "_duration", duration)
+    def __init__(self, circuit: StimCircuitLike, moments: Sequence[int | Schedule]) -> None:
+        self._initialize(circuit, moments)
 
     @staticmethod
     def get_operations(
@@ -125,14 +96,14 @@ class Schedule:
         """The number of moments of this schedule, which ends with its last nonempty moment."""
         return self._duration
 
-    def get_moments(self) -> list[list[stim.CircuitInstruction | RepeatSchedule]]:
+    def get_moments(self) -> list[list[stim.CircuitInstruction | stim.CircuitRepeatBlock]]:
         """The operations in each moment, in circuit order.
 
-        A REPEAT block is listed by its :class:`RepeatSchedule`, in the moment in which its first
-        iteration starts.  A REPEAT block whose body has no operations takes no time, and is not
-        listed.
+        A REPEAT block is listed in the moment in which its first iteration starts, and
+        :meth:`to_circuit` shows the moments of its iterations.  A REPEAT block whose body has no
+        operations takes no time, and is not listed.
         """
-        moments: list[list[stim.CircuitInstruction | RepeatSchedule]] = [
+        moments: list[list[stim.CircuitInstruction | stim.CircuitRepeatBlock]] = [
             [] for _ in range(self._duration)
         ]
         for item in _get_segments(self._circuit, self):
@@ -142,7 +113,7 @@ class Schedule:
             else:
                 assert item[1] is not None
                 if item[1].schedule._duration:
-                    moments[item[1].start].append(item[1])
+                    moments[item[1].start].append(item[0])
         return moments
 
     def to_circuit(self) -> tuple[stim.Circuit, tuple[int, ...]]:
@@ -177,9 +148,53 @@ class Schedule:
     def __delattr__(self, name: str) -> NoReturn:
         raise AttributeError("A Schedule is immutable")
 
+    @classmethod
+    def _from_placements(
+        cls, circuit: StimCircuitLike, moments: Sequence[int | Schedule | _RepeatSchedule]
+    ) -> Schedule:
+        """A schedule that may also place a REPEAT block with a :class:`_RepeatSchedule`."""
+        schedule = object.__new__(cls)
+        schedule._initialize(circuit, moments)
+        return schedule
+
+    def _initialize(
+        self, circuit: StimCircuitLike, moments: Sequence[int | Schedule | _RepeatSchedule]
+    ) -> None:
+        stim_circuit = _as_stim_circuit(circuit)
+        operations = Schedule.get_operations(stim_circuit)
+        if len(operations) != len(moments):
+            raise ValueError(
+                f"A schedule needs {len(operations)} entries (one per operation or REPEAT block),"
+                f" but got {len(moments)}"
+            )
+        entries: list[int | _RepeatSchedule] = []
+        duration = 0  # one more than the last moment of the entries so far
+        for operation, moment in zip(operations, moments):
+            if isinstance(operation, stim.CircuitRepeatBlock):
+                if isinstance(moment, Schedule):
+                    moment = _RepeatSchedule(moment, duration, moment._duration)
+                if not isinstance(moment, _RepeatSchedule) or str(moment.schedule._circuit) != str(
+                    operation.body_copy()
+                ):
+                    raise ValueError("Each REPEAT block needs a schedule of its body")
+                if moment.schedule._duration:
+                    duration = max(
+                        duration,
+                        moment.start
+                        + (operation.repeat_count - 1) * moment.period
+                        + moment.schedule._duration,
+                    )
+            else:
+                moment = _as_moment(moment, f"The moment of {operation}")
+                duration = max(duration, moment + 1)
+            entries.append(moment)
+        object.__setattr__(self, "_circuit", stim_circuit)
+        object.__setattr__(self, "_moments", tuple(entries))
+        object.__setattr__(self, "_duration", duration)
+
 
 @dataclasses.dataclass(frozen=True)
-class RepeatSchedule:
+class _RepeatSchedule:
     """The placement of a REPEAT block in the moments of the circuit around it.
 
     Iteration ``k`` (counting from zero) of the block occupies the moments from ``start + k *
@@ -335,7 +350,7 @@ class _TickScheduler(Scheduler):
             The schedule, whether its first moment continues the moment before it, and the state of
             its last moment.
         """
-        moments: list[int | RepeatSchedule] = []
+        moments: list[int | _RepeatSchedule] = []
         moment = 0  # the current moment, which is the moment before the circuit if that is open
         used = state.is_open  # whether the current moment contains anything
         occupied = set(state.occupied) if state.is_open else set()
@@ -352,14 +367,14 @@ class _TickScheduler(Scheduler):
                 duration = repeat.schedule._duration
                 if duration:
                     start = moment if continues or not used else moment + 1
-                    repeat = RepeatSchedule(repeat.schedule, start, repeat.period)
+                    repeat = _RepeatSchedule(repeat.schedule, start, repeat.period)
                     end = start + (instruction.repeat_count - 1) * repeat.period + duration - 1
                     # the state after a block includes that of the moment before it, if continued
                     occupied, has_gate = set(state_out.occupied), state_out.has_gate
                     moment, closed, used = end, not state_out.is_open, True
                     gate_moments.add(moment)  # the moments of a block need not be checked below
                 else:
-                    repeat = RepeatSchedule(repeat.schedule, moment, 0)
+                    repeat = _RepeatSchedule(repeat.schedule, moment, 0)
                     closed = closed or (has_gate and not state_out.is_open)
                 moments.append(repeat)
                 continue
@@ -388,7 +403,7 @@ class _TickScheduler(Scheduler):
             moments = [
                 entry - 1
                 if isinstance(entry, int)
-                else RepeatSchedule(entry.schedule, max(entry.start - 1, 0), entry.period)
+                else _RepeatSchedule(entry.schedule, max(entry.start - 1, 0), entry.period)
                 for entry in moments
             ]
         if at_end and moment and moment not in gate_moments:
@@ -402,11 +417,11 @@ class _TickScheduler(Scheduler):
             ]
             if not any(_Operation.from_instruction(op).touched_qubits for op in last):
                 moments = [moment - 1 if entry == moment else entry for entry in moments]
-        return Schedule(circuit, moments), continues, state_out
+        return Schedule._from_placements(circuit, moments), continues, state_out
 
     def _schedule_block(
         self, block: stim.CircuitRepeatBlock, state: _TickState
-    ) -> tuple[RepeatSchedule, bool, _TickState]:
+    ) -> tuple[_RepeatSchedule, bool, _TickState]:
         """Schedule a REPEAT block, given the state of the moment before it.
 
         Returns:
@@ -416,7 +431,7 @@ class _TickScheduler(Scheduler):
         body = block.body_copy()
         first, continues, state_out = self._schedule(body, state)
         if block.repeat_count == 1:
-            return RepeatSchedule(first, 0, first._duration), continues, state_out
+            return _RepeatSchedule(first, 0, first._duration), continues, state_out
 
         # find the schedule of later iterations, which converges after a few iterations, and
         # whether every iteration continues the moment of the iteration before it
@@ -464,7 +479,7 @@ class _TickScheduler(Scheduler):
             iterations_continue, last_state = True, state_out
         duration = schedule._duration
         period = duration - 1 if iterations_continue and duration else duration
-        return RepeatSchedule(schedule, 0, period), continues, last_state
+        return _RepeatSchedule(schedule, 0, period), continues, last_state
 
 
 def _starts_with_gate(schedule: Schedule) -> bool:
@@ -472,7 +487,7 @@ def _starts_with_gate(schedule: Schedule) -> bool:
     operations = Schedule.get_operations(schedule._circuit)
     return any(
         entry.start == 0 and _starts_with_gate(entry.schedule)
-        if isinstance(operation, stim.CircuitRepeatBlock) and isinstance(entry, RepeatSchedule)
+        if isinstance(operation, stim.CircuitRepeatBlock) and isinstance(entry, _RepeatSchedule)
         else entry == 0 and op_type(operation.name) in GATE_OP_TYPES
         for operation, entry in zip(operations, schedule._moments)
     )
@@ -513,7 +528,7 @@ class _LayerScheduler(Scheduler):
 
     def get_schedule(self, circuit: StimCircuitLike) -> Schedule:
         stim_circuit = _as_stim_circuit(circuit)
-        moments: list[int | RepeatSchedule] = []
+        moments: list[int | _RepeatSchedule] = []
         last_moment = -1
         last_timed: set[int] = set()  # the qubits of timed operations in the last moment
 
@@ -552,7 +567,7 @@ class _LayerScheduler(Scheduler):
             summary = _summarize(body, self.takes_time)
             duration = summary.duration
             if not duration:
-                moments.append(RepeatSchedule(body, max(last_moment, 0), 0))
+                moments.append(_RepeatSchedule(body, max(last_moment, 0), 0))
                 continue
             shared = summary.first_timed.isdisjoint(summary.last_timed)
             period = duration - 1 if shared else duration
@@ -561,9 +576,9 @@ class _LayerScheduler(Scheduler):
             last = set(summary.last_timed)
             if end == last_moment:
                 last |= last_timed
-            moments.append(RepeatSchedule(body, start, period))
+            moments.append(_RepeatSchedule(body, start, period))
             last_moment, last_timed = end, last
-        return Schedule(stim_circuit, moments)
+        return Schedule._from_placements(stim_circuit, moments)
 
     def takes_time(self, op: stim.CircuitInstruction) -> bool:
         return _takes_time(op, self.single_qubit_gates_take_time)
@@ -698,7 +713,7 @@ class _Segment:
 
 def _get_segments(
     circuit: stim.Circuit, schedule: Schedule | None
-) -> Iterator[_Segment | tuple[stim.CircuitRepeatBlock, RepeatSchedule | None]]:
+) -> Iterator[_Segment | tuple[stim.CircuitRepeatBlock, _RepeatSchedule | None]]:
     """The segments of a circuit, and its REPEAT blocks with their placements, in order.
 
     Without a schedule, every operation is in moment zero.
@@ -710,7 +725,7 @@ def _get_segments(
         if isinstance(instruction, stim.CircuitRepeatBlock):
             yield segment
             repeat = next(moments, None)
-            assert repeat is None or isinstance(repeat, RepeatSchedule)
+            assert repeat is None or isinstance(repeat, _RepeatSchedule)
             yield instruction, repeat
             segment = _Segment([], [], [], [])
             num_records = 0
@@ -1027,7 +1042,7 @@ class _Layout:
     def lay_out_block(
         self,
         block: stim.CircuitRepeatBlock,
-        repeat: RepeatSchedule,
+        repeat: _RepeatSchedule,
         circuit: stim.Circuit,
         moment: int,
     ) -> int:
