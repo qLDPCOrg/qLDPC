@@ -152,8 +152,8 @@ class Schedule:
         measurement moves only if this schedule puts it in an earlier moment than a measurement
         before it.  The detectors, observables, and classically controlled gates of the circuit read
         the same measurements as before.  A moment without operations is an extra TICK, a TICK
-        precedes each REPEAT block that follows a moment, and each iteration of a REPEAT block ends
-        with a TICK.  The first iterations of a REPEAT block are written out separately if they read
+        precedes each REPEAT block that follows a moment, and each iteration of a REPEAT block whose
+        body has operations ends with a TICK.  The first iterations of a REPEAT block are written out separately if they read
         measurements before the block at other offsets than later iterations read those of earlier
         iterations.
 
