@@ -15,12 +15,16 @@ import stim
 
 from qldpc._utils import format_docstring
 
-from ..common import StimCircuitLike
+from ..common import (
+    DEFAULT_IMMUNE_OP_TAG,
+    DEFAULT_IMMUNE_QUBIT_TAG,
+    StimCircuitLike,
+    _get_immune_qubits,
+)
 from ._moments import (
     categorize_moment_qubits,
     compose_idle_channels,
     gate_qubits,
-    get_immune_qubits,
     idle_barrier_qubits,
     quadratic_idle_channel,
     repeated_idle_channel,
@@ -54,11 +58,6 @@ from .rules import (
     _validate_custom_rule,
     _validate_rule_for_arity,
 )
-
-# Tags that, by default, make an operation or repeat block noiseless, or declare that the qubits of
-# a tagged QUBIT_COORDS annotation are immune to noise.
-DEFAULT_IMMUNE_OP_TAG = "__IMMUNE_TO_NOISE__"
-DEFAULT_IMMUNE_QUBIT_TAG = "__IMMUNE_QUBIT_TO_NOISE__"
 
 ####################################################################################################
 # primary methods and classes: as_noiseless_circuit and NoiseModel
@@ -466,11 +465,7 @@ class NoiseModel:
         system_qubits = frozenset(
             range(circuit.num_qubits) if system_qubits is None else system_qubits
         )
-        immune_qubits = frozenset(immune_qubits) | (
-            get_immune_qubits(circuit, immune_qubit_tag)
-            if immune_qubit_tag is not None
-            else frozenset()
-        )
+        immune_qubits = frozenset(immune_qubits) | _get_immune_qubits(circuit, immune_qubit_tag)
 
         noisy_circuit = stim.Circuit()
         builder = _NoisyCircuitBuilder(

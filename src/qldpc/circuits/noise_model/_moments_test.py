@@ -139,7 +139,6 @@ def test_moment_qubits() -> None:
             H 4
         }
     """)
-    assert _moments.get_immune_qubits(circuit, "immune") == {0, 1}
     assert _moments.idle_barrier_qubits(circuit) == {3, 4}
 
 
