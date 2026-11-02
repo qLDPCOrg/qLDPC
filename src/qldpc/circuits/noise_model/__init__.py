@@ -131,20 +131,22 @@ gates that are much faster than the moments of a circuit: a qubit that undergoes
 a moment still idles in that moment, and the idle noise of that moment follows those gates.
 Identity gates (``I`` and ``II``) are treated as ordinary one- and two-qubit Clifford gates.
 
-Each qubit gets one combined idle error for each idle period between two of its operations, before
-the second operation.  It combines ``idle_error`` over the idle moments of the period with the
+Each qubit gets one combined idle error for each idle period, before the gate that ends the period.
+It combines ``idle_error`` over the idle moments of the period with the
 ``quadratic_idle_error`` of one run of that length.  Custom Stim noise fragments in ``idle_error``
 are applied once per idle moment.  ``additional_error_waiting_for_m_or_r`` applies to a qubit once
 for each moment in which another qubit is measured or reset, including a moment in which the qubit
 undergoes a gate.  Any gate on a qubit ends its idle period, even if it takes no time, while
 observables, noise channels, and classically controlled Paulis do not.
 
-Idle periods continue across the boundaries of ``REPEAT`` blocks.  A qubit that a ``REPEAT`` block
-does not act on gets one error for its whole idle period.  The idle periods of a qubit that a
-``REPEAT`` block acts on are the same in every iteration, except where they join idle moments before
-or after the block, so the first iteration is written out on its own if its noise differs.  A
-``REPEAT`` block tagged with ``immune_op_tag`` is noiseless: the qubits that it acts on get no noise
-while it runs, and other qubits idle as usual.
+Idle periods also end at the boundaries of ``REPEAT`` blocks and of their iterations, so every
+iteration of a ``REPEAT`` block gets the same noise.  This does not change Pauli idle noise, which
+composes exactly, but it splits ``quadratic_idle_error`` there, which undercounts it for idle
+periods that cross these boundaries.  ``noisy_circuit`` therefore warns when a model with
+``quadratic_idle_error`` adds noise to a circuit with a ``REPEAT`` block, and adding noise to
+``circuit.flattened()`` avoids the split.  A ``REPEAT`` block tagged with ``immune_op_tag`` is
+noiseless: the qubits on which it has gates get no noise while it runs, and other qubits idle as
+usual.
 
 The schedule of a circuit is ``noise_model.scheduler.get_schedule(circuit)``.  Its ``get_moments``
 method lists the operations of each moment, and its ``to_circuit`` method lays out the circuit in
@@ -158,8 +160,9 @@ qubit about a fixed axis by an angle that grows linearly at a random rate.  Aver
 (Gaussian) rate, the Pauli twirl of this rotation has a probability that grows quadratically while
 it is small and saturates at 1/2.  For a channel with several Paulis, the axis may vary from one run
 to the next, for example as a compiler changes the frame of a qubit, and the channel sets the mean
-squared components of the axis.  A run is an idle period as above.  Runs are independent of each
-other, and every moment counts equally, regardless of its duration.
+squared components of the axis.  A run is an idle period as above, so runs end at the boundaries of
+``REPEAT`` blocks and of their iterations.  Runs are independent of each other, and every moment
+counts equally, regardless of its duration.
 
 .. rubric:: Attribution and license
 
