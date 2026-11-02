@@ -263,10 +263,13 @@ class Scheduler(abc.ABC):
         acts on in the moment.  Annotations and noise channels after a TICK join the next moment
         with a gate (or, at the end of a circuit outside REPEAT blocks, the moment before them).
         A moment continues across the boundary of a REPEAT block or of its iterations unless a TICK
-        or the reuse of a qubit ends it there.  Every iteration of a REPEAT block is scheduled
-        alike, so if the first iteration would join the moment before it in another way than later
-        iterations join theirs, some operations without duration may move to a later moment, which
-        may add a moment.
+        or the reuse of a qubit ends it there.
+
+        All iterations of a REPEAT block follow one schedule of its body, so where the first
+        iteration would join the moment before the block differently than later iterations join
+        the iteration before them, some operations of the block may be placed later than in the
+        circuit with its REPEAT blocks written out, which may add moments.  To keep the moments of
+        that circuit exactly, schedule (or add noise to) ``circuit.flattened()`` instead.
 
         Args:
             single_qubit_gates_take_time: If False (the default), single-qubit unitary gates take no
@@ -419,9 +422,11 @@ class _TickScheduler(Scheduler):
         # whether every iteration continues the moment of the iteration before it
         schedule, last_state = first, state_out
         iterations_continue = True
+        second: tuple[Schedule, bool] | None = None  # the schedule of the second iteration
         for _ in range(4):
             steady_in = last_state  # the state before the iteration with this schedule
             next_schedule, next_continues, next_state = self._schedule(body, last_state)
+            second = second or (next_schedule, next_continues)
             iterations_continue = iterations_continue and next_continues
             converged = (next_schedule, next_state) == (schedule, last_state)
             schedule, last_state = next_schedule, next_state
@@ -444,9 +449,9 @@ class _TickScheduler(Scheduler):
             ):
                 summary = _summarize(first, self.takes_time)
                 schedule = first
-                iterations_continue = state_out.is_open and state_out.occupied.isdisjoint(
-                    summary.first_timed
-                )
+                # later iterations continue the moment before them only if the second iteration
+                # would do so with the schedule of the first; otherwise each starts a new moment
+                iterations_continue = second == (first, True)
                 last_state = _TickState(
                     state_out.is_open,
                     state_out.has_gate,

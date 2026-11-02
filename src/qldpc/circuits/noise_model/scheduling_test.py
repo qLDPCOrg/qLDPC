@@ -237,6 +237,7 @@ def test_preserve_ticks_across_repeat_blocks() -> None:
         ("H 0\nREPEAT 2 {\nX_ERROR(0.1) 1\n}\nH 0", 2),  # a block within a moment
         ("H 0\nTICK\nREPEAT 3 {\nX_ERROR(0.1) 0\nTICK\n}\nH 1", 2),  # a body without gates
         ("MR 0\nREPEAT 2 {\nX_ERROR(0.1) 1\nTICK\nX_ERROR(0.1) 1\n}\nM 0", 2),
+        ("R 0\nTICK\nREPEAT 4 {\nX_ERROR(0.1) 0\nTICK\nH 0\n}", 5),  # later TICKs end moments
         ("X_ERROR(0.1) 0\nREPEAT 2 {\nX_ERROR(0.1) 1\nMR 0\n}", 2),
         ("H 0\nREPEAT 2 {\nREPEAT 1 {\nX_ERROR(0.1) 1\nMR 0\n}\n}", 3),
         ("M 0\nTICK\nDETECTOR rec[-1]", 1),  # trailing annotations join the moment before
