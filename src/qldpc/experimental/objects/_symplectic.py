@@ -2,8 +2,8 @@
 
 """Canonical forms of Clifford operators that are products of π/2 Pauli rotations.
 
-A product ``S = R_{π/2}(s_j) ··· R_{π/2}(s_1)`` of π/2 rotations ``R_{π/2}(a) = exp(-iπ a/4)`` about
-Hermitian Pauli strings, followed by a Pauli string ``P``, is a Clifford operator ``S·P``.  In
+A Pauli string ``P`` followed by a product ``S = R_{π/2}(s_j) ··· R_{π/2}(s_1)`` of π/2 rotations
+``R_{π/2}(a) = exp(-iπ a/4)`` about Hermitian Pauli strings is the Clifford operator ``S·P``.  In
 symplectic coordinates, it acts on Pauli strings as the matrix ``M = T_{s_j} ··· T_{s_1}``, where
 each transvection ``T_a: v ↦ v + ω(a, v) a`` is the action of ``R_{π/2}(a)``, and the symplectic
 form ``ω`` is 1 on anticommuting Pauli strings.  ``canonicalize`` rewrites ``S·P`` as ``S'·P'``,

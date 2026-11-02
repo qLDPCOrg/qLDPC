@@ -4,8 +4,8 @@
 
 The rotation by an angle ``θ`` about a Hermitian Pauli string ``a`` is ``R_θ(a) = exp(-iθ a/2)``.
 Up to global phases, the π/2 rotation ``R_{π/2}(Z) = exp(-iπ Z/4)`` is the S gate, the π/4 rotation
-``R_{π/4}(Z) = exp(-iπ Z/8)`` is the T gate, and ``R_{π/2}(a)`` is stim's Pauli-product phasing
-gate ``SPP a``.  Litinski, "A Game of Surface Codes" (https://arxiv.org/abs/1808.02892), writes the
+``R_{π/4}(Z) = exp(-iπ Z/8)`` is the T gate, and ``R_{π/2}(a)`` is stim's generalized S gate
+``SPP a``.  Litinski, "A Game of Surface Codes" (https://arxiv.org/abs/1808.02892), writes the
 angle in the exponent instead, so his Pauli product rotations ``a_{π/4}`` and ``a_{π/8}`` are
 ``R_{π/2}(a)`` and ``R_{π/4}(a)``.  The rotations satisfy ``R_{π/4}(a)² = R_{π/2}(a)``,
 ``R_{π/4}(a) R_{π/4}(-a) = I``, and ``R_{π/2}(a) b R_{π/2}(a)† = -i a b`` for a Pauli string ``b``
@@ -69,8 +69,8 @@ class PhasedPauliString:
     where ``P`` is its ``core``, the ``s_i`` are its ``s_axes``, the ``t_i`` are its ``t_axes``, and
     ``R_{π/2}(a) = exp(-iπ a/4)`` and ``R_{π/4}(a) = exp(-iπ a/8)`` are the π/2 and π/4 rotations
     about a Hermitian Pauli string ``a``.  Axes are listed innermost (first applied) first.
-    "Phased" refers to these rotations, which stim calls Pauli-product phasing gates: unlike a
-    ``stim.PauliString``, a ``PhasedPauliString`` has no sign.
+    "Phased" refers to the rotation layers that phase the Pauli string ``P``, not to a sign: unlike
+    a ``stim.PauliString``, a ``PhasedPauliString`` has no sign.
 
     A ``PhasedPauliString`` is always stored in a simplified form.  Simplification drops π/4
     rotations about the identity, and it merges π/4 rotations that can be brought next to each
@@ -78,11 +78,11 @@ class PhasedPauliString:
     two about ``a`` and ``-a`` cancel.  Finally, it puts the Clifford operator
     ``R_{π/2}(s_j) ··· R_{π/2}(s_1) · P`` in a canonical form.  Objects are equal if their
     simplified forms are equal, in which case their operators are equal up to a global phase.
-    Conversely, Clifford operators that are equal up to a global phase have equal objects.  The
-    simplified forms of operators with π/4 rotations are not canonical, however, so such operators
-    can be equal without being equal objects.  For example, the π/4 rotations about the 15 products
-    of ``Z`` operators on nonempty subsets of 4 qubits multiply to a global phase, but their
-    simplified form keeps all 15 rotations.
+    Conversely, operators without π/4 rotations that are equal up to a global phase have equal
+    objects.  The simplified forms of operators with π/4 rotations are not canonical, however, so
+    such operators can be equal without being equal objects.  For example, the π/4 rotations about
+    the 15 products of ``Z`` operators on nonempty subsets of 4 qubits multiply to a global phase,
+    but their simplified form keeps all 15 rotations.
 
     Args:
         pauli: A Pauli string, whose sign does not matter.  Default: the identity on no qubits.
