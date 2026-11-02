@@ -129,16 +129,12 @@ class NoiseModel:
             such as ``{"Z": p}``, or a one-qubit ``PauliChannel``, with total probability at
             most 1/2.  Over a run of ``k`` consecutive idle moments, this error has total
             probability ``(1 - (1 - 2 * p)**(k**2)) / 2``, split among Paulis as in one moment,
-            and is combined with the ``idle_error`` of the same moments.  Idle runs end at the
-            boundaries of REPEAT blocks and of their iterations, which undercounts this error
-            for idle periods that cross them, so ``noisy_circuit`` warns about circuits with
-            REPEAT blocks; adding noise to ``circuit.flattened()`` avoids this.  See
+            and is combined with the ``idle_error`` of the same moments.  See
             :mod:`qldpc.circuits.noise_model` for its physical model and assumptions.
         additional_error_waiting_for_m_or_r: Additional noise rule or depolarization probability
             applied to every non-collapsing qubit while another qubit undergoes measurement or
             reset, including qubits undergoing a unitary operation.  Accepts the same NoiseRule
-            fields as ``idle_error``, and is likewise combined with the other idle errors of a
-            qubit until its next operation.
+            fields as ``idle_error``, and is combined with the other idle errors of a qubit.
         rules: Dictionary mapping specific gate names to their noise rules.  Overrides the
             arity-based defaults for unitary, measurement, and reset gates.
         rule_func: Optional callback function that maps a ``stim.CircuitInstruction`` to a
@@ -150,9 +146,7 @@ class NoiseModel:
             controlled operations.  Returning ``None`` continues with named and default rule
             lookup.
         scheduler: The :class:`~qldpc.circuits.Scheduler` that places the operations of circuits in
-            moments, for idle noise.  Default: ``Scheduler.asap()``, which ignores the TICKs of a
-            circuit and places each gate as early as possible (and then each reset as late as the
-            other gates allow), with single-qubit unitary gates taking no time.
+            moments, for idle noise.  Default: ``Scheduler.asap()``.
 
     Raises:
         ValueError: If readout_error or reset_error is not between 0 and 1, if a noise
@@ -423,15 +417,12 @@ class NoiseModel:
         immunize_gates: bool = True,
         insert_ticks: bool | None = None,  # DEPRECATED: see qldpc._deprecations
     ) -> StimCircuitLike:
-        """Construct a noisy version of the given circuit.
+        """Construct a noisy version of the given circuit by inserting noise into it.
 
-        The noisy circuit is the input circuit with noise inserted: its instructions keep their
-        order, and no TICKs are added.  The noise of each gate application follows it, and precedes
-        the next instruction that acts on, or depends on the state of, its qubits.  If this model
-        has idle noise, its ``scheduler`` places the operations of the circuit in moments, each of
-        which lasts one unit of time, and each qubit gets the noise of each of its idle periods
-        before its next gate, or where a REPEAT block or iteration starts or ends.  See
-        :mod:`qldpc.circuits.noise_model` for the details of idle noise.
+        The noise of each gate application precedes the next instruction that acts on, or depends on
+        the state of, its qubits.  If this model has idle noise, its ``scheduler`` places the
+        operations of the circuit in moments, and each qubit gets the noise of each of its idle
+        periods before its next gate.  See :mod:`qldpc.circuits.noise_model` for details.
 
         Args:
             circuit: The circuit to apply noise to.
@@ -439,16 +430,14 @@ class NoiseModel:
                 accumulate idling errors.  Defaults to set(range(circuit.num_qubits)).
             immune_qubits: Qubits that are declared to be immune to noise.  Defaults to none.
             immune_op_tag: If an operation or REPEAT block contains this string in its tag, it is
-                noiseless, but still takes its time.  Set to None to disable tagged operation
-                immunity.  Default: "{DEFAULT_IMMUNE_OP_TAG}".
+                noiseless.  Set to None to disable tagged operation immunity.  Default:
+                "{DEFAULT_IMMUNE_OP_TAG}".
             immune_qubit_tag: If a QUBIT_COORDS annotation contains this string in its tag, its
                 target qubits are immune to noise.  Set to None to disable annotated immunity.
                 Default: "{DEFAULT_IMMUNE_QUBIT_TAG}".
             immunize_gates: If True (the default), a gate that touches an immune qubit is treated as
                 noiseless.  Otherwise, its Pauli noise is conditioned on the absence of errors on
                 noise-immune qubits, keeping only strings that act as ``I`` on every immune qubit.
-                An immune-tagged operation still occupies its qubits for idle noise; it does not
-                suppress idle noise on unrelated qubits.
             insert_ticks: Deprecated.  To lay out a noisy circuit in moments, add noise to the
                 layout of a schedule, from ``Schedule.to_circuit``.
 
@@ -457,10 +446,6 @@ class NoiseModel:
 
         Raises:
             ValueError: If the schedule of the circuit is invalid (see ``Scheduler.validate``).
-
-        Warns:
-            UserWarning: If this model has a ``quadratic_idle_error`` and the circuit has a REPEAT
-                block that is not noiseless, since idle runs end at its boundaries.
         """
         # check the immunity tags, and handle the deprecated insert_ticks option
         if immune_op_tag == "":
@@ -644,8 +629,8 @@ class _NoisyCircuitBuilder:
                     if operation.is_collapsing
                 }
             )
-        # add noise to each gate, and emit the gate noise of its qubits before each observable with
-        # Pauli targets, which does not end their idle runs
+        # add noise to each gate, and emit the pending noise on the qubits of each observable with
+        # Pauli targets before it, while the idle runs of those qubits continue
         start = 0
         for instruction, num_operations in zip(segment.instructions, segment.num_operations):
             operations = segment.operations[start : start + num_operations]
@@ -786,9 +771,8 @@ class _NoisyCircuitBuilder:
         """Add noise to a REPEAT block, and append it to the output.
 
         Idle runs end at the boundaries of the block and of its iterations, so every iteration gets
-        the same noise, which is added once.  A REPEAT block tagged with ``immune_op_tag`` is
-        noiseless: the qubits on which it has gates get no noise while it runs, and other qubits
-        idle as usual.
+        the same noise, which is added once.  A REPEAT block tagged with ``immune_op_tag`` adds no
+        noise to the qubits on which it has gates.
         """
         # a noiseless block adds no noise to its gates, nor idle noise to their qubits
         self.flush(output)
@@ -917,8 +901,7 @@ class DepolarizingNoiseModel(NoiseModel):
         max_gate_size: The largest number of qubits of a unitary Clifford gate that gets
             depolarized.  Default: 2.
         scheduler: The :class:`~qldpc.circuits.Scheduler` that places the operations of circuits in
-            moments, for idle noise.  Default: ``Scheduler.asap()``, as for
-            :class:`~qldpc.circuits.NoiseModel`.
+            moments, for idle noise.  Default: ``Scheduler.asap()``.
 
     Raises:
         ValueError: If max_gate_size is less than 1, or p is not between 0 and 1.
@@ -965,8 +948,7 @@ class SI1000NoiseModel(NoiseModel):
         p: The two-qubit gate error probability, which sets all other error rates.
         scheduler: The :class:`~qldpc.circuits.Scheduler` that places the operations of circuits in
             moments, for idle noise.  Default: ``Scheduler.preserve_ticks(
-            single_qubit_gates_take_time=True)``, which keeps the moments of a circuit, as in the
-            cited reference.
+            single_qubit_gates_take_time=True)``, as in the cited reference.
     """
 
     def __init__(self, p: float, *, scheduler: Scheduler | None = None) -> None:
