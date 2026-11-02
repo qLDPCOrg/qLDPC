@@ -24,7 +24,7 @@ from qldpc.experimental.objects.conftest import (
 )
 
 _KERNELS = (
-    "_apply_program",
+    "_apply_packed_circuit",
     "_apply_t_rotation",
     "_multiply",
     "_simplify",

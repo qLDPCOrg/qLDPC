@@ -35,9 +35,9 @@ operator passes, and that does not commute with it, adds at most two π/4 rotati
 #
 # 1. Turn the module qldpc/objects.py into a package qldpc/objects/ that keeps every name of the
 #    module importable from qldpc.objects.
-# 2. Move this module, _operations.py, _packed_paulis.py, _symplectic.py, their test files, and the
-#    fixtures and helpers of qldpc/experimental/objects/conftest.py into qldpc/objects/.  Their
-#    tests also use the circuit helpers of qldpc/experimental/conftest.py, which move with them.
+# 2. Move this module, _packed_circuits.py, _packed_paulis.py, _symplectic.py, their test files,
+#    and the fixtures and helpers of qldpc/experimental/objects/conftest.py into qldpc/objects/.
+#    Their tests also use the circuit helpers of qldpc/experimental/conftest.py, which move too.
 # 3. Re-export RotatedPauliString from qldpc.objects, and remove qldpc.experimental.objects;
 #    experimental modules need no deprecation shims.
 # 4. Mention RotatedPauliString in the description of qldpc.objects in docs/source/library_map.rst.
@@ -53,7 +53,7 @@ import stim
 
 from qldpc._compilation import always_compiled
 
-from . import _operations, _symplectic
+from . import _packed_circuits, _symplectic
 from . import _packed_paulis as packed
 
 # The packed core, π/2 axes, π/2 phases, π/4 axes, and π/4 phases of an operator.
@@ -299,7 +299,7 @@ class RotatedPauliString:
         for gate, letter in (("X", 1), ("Y", 2), ("Z", 3)):
             if qubits := [qubit for qubit in range(self._num_qubits) if core[qubit] == letter]:
                 circuit.append(gate, qubits)
-        for axes, tag in ((self.s_axes, ""), (self.t_axes, _operations.T_TAG)):
+        for axes, tag in ((self.s_axes, ""), (self.t_axes, _packed_circuits.T_TAG)):
             for axis in axes:
                 gate = "SPP" if axis.sign == 1 else "SPP_DAG"
                 circuit.append(gate, stim.target_combined_paulis(axis * axis.sign), tag=tag)
@@ -371,21 +371,22 @@ class RotatedPauliString:
         self, circuit: stim.Circuit | _HasStimCircuit, *, inverse: bool
     ) -> RotatedPauliString:
         """Conjugate by a circuit or by its inverse, and simplify."""
-        # read the stim circuit, and compile its operations
+        # read the stim circuit, and pack its operations
         if not isinstance(circuit, stim.Circuit):
             if not isinstance(getattr(circuit, "stim_circuit", None), stim.Circuit):
                 raise TypeError(f"Expected a stim.Circuit, not {type(circuit).__name__}")
             circuit = circuit.stim_circuit
         num_qubits = max(self._num_qubits, circuit.num_qubits)
-        program = _operations.get_program(circuit, num_qubits, inverse=inverse)
+        packed_circuit = _packed_circuits.get_packed_circuit(circuit, num_qubits, inverse=inverse)
 
         # conjugate by the operations in order
         core, s_axes, s_phases, t_axes, t_phases = self._padded(num_qubits)._get_arrays()
-        arrays = _apply_program(
+        arrays = _apply_packed_circuit(
             *(core, s_axes, s_phases, t_axes, t_phases),
-            *(program.kinds, program.operands, program.gate_qubits, program.gate_tables),
-            *(program.table_sizes, program.table_images, program.table_phases),
-            *(program.axes, program.axis_phases),
+            *(packed_circuit.kinds, packed_circuit.operands),
+            *(packed_circuit.gate_qubits, packed_circuit.gate_tables),
+            *(packed_circuit.table_sizes, packed_circuit.table_images, packed_circuit.table_phases),
+            *(packed_circuit.axes, packed_circuit.axis_phases),
         )
         return RotatedPauliString._new(num_qubits, _simplify(*arrays))
 
@@ -395,7 +396,7 @@ class RotatedPauliString:
 
 
 @always_compiled
-def _apply_program(
+def _apply_packed_circuit(
     core: npt.NDArray[np.uint64],
     s_axes: npt.NDArray[np.uint64],
     s_phases: npt.NDArray[np.int64],
@@ -411,18 +412,18 @@ def _apply_program(
     axes: npt.NDArray[np.uint64],
     axis_phases: npt.NDArray[np.int64],
 ) -> _Arrays:
-    """Conjugate ``V = T·S·P`` by the operations of an ``_operations.Program``, in order.
+    """Conjugate ``V = T·S·P`` by the operations of a ``_packed_circuits.PackedCircuit``, in order.
 
-    The arguments after the axes of ``V`` are the arrays of the ``Program``.  Returns the new
-    core and axes, unsimplified.  Each π/4 rotation adds at most one π/2 axis, or one π/4 axis at
-    each end of ``T``, so the buffers below never overflow.
+    The arguments after the axes of ``V`` are the arrays of the ``PackedCircuit``.  Returns the
+    new core and axes, unsimplified.  Each π/4 rotation adds at most one π/2 axis, or one π/4 axis
+    at each end of ``T``, so the buffers below never overflow.
     """
     num_words = len(core)
 
     # copy the axes into buffers with room for the axes that π/4 rotations add
     num_t_rotations = 0
     for kind in kinds:
-        if kind == _operations.T_ROTATION:
+        if kind == _packed_circuits.T_ROTATION:
             num_t_rotations += 1
     core = core.copy()
     s_buffer = np.empty((len(s_axes) + num_t_rotations, num_words), dtype=np.uint64)
@@ -437,10 +438,10 @@ def _apply_program(
     t_buffer[start:end] = t_axes
     t_buffer_phases[start:end] = t_phases
 
-    # conjugate by Clifford gates, π/2 rotations, and π/4 rotations, in order
+    # conjugate by local gates, π/2 rotations, and π/4 rotations, in order
     for index in range(len(kinds)):
         operand = operands[index]
-        if kinds[index] == _operations.GATE:
+        if kinds[index] == _packed_circuits.LOCAL_GATE:
             table = gate_tables[operand]
             qubits = gate_qubits[operand, : table_sizes[table]]
             images = table_images[table]
@@ -454,7 +455,7 @@ def _apply_program(
                 t_buffer_phases[row] = packed.conjugate_by_local_clifford(
                     t_buffer[row], t_buffer_phases[row], qubits, images, phases
                 )
-        elif kinds[index] == _operations.S_ROTATION:
+        elif kinds[index] == _packed_circuits.S_ROTATION:
             axis = axes[operand]
             axis_phase = axis_phases[operand]
             packed.conjugate_by_s_rotation(core, 0, axis, axis_phase)
