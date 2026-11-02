@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import itertools
+
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -57,6 +59,33 @@ def test_packed_circuits_reproduce_circuits(rng: np.random.Generator, inverse: b
         assert equal_up_to_phase(unitary, expected.conj().T if inverse else expected)
 
 
+@pytest.mark.parametrize("inverse", [False, True])
+def test_packed_gate_tables(inverse: bool) -> None:
+    """The table of every one- and two-qubit Clifford gate maps each Pauli string as stim does."""
+    circuit = stim.Circuit()
+    for name, data in stim.gate_data().items():
+        if data.is_unitary and (data.is_single_qubit_gate or data.is_two_qubit_gate):
+            circuit.append(name, [0] if data.is_single_qubit_gate else [0, 1])
+    packed_circuit = packed_circuits.get_packed_circuit(circuit, 2, inverse=inverse)
+    assert len(packed_circuit.table_names) == len(circuit)
+
+    for table, name in enumerate(packed_circuit.table_names):
+        size = int(packed_circuit.table_sizes[table])
+        qubits = np.arange(size, dtype=np.int64)
+        for letters in itertools.product("IXYZ", repeat=size):
+            string = stim.PauliString("".join(letters))
+            words, phase = packed.from_stim(string)
+            phase = packed.conjugate_by_local_clifford(
+                words,
+                phase,
+                qubits,
+                packed_circuit.table_images[table],
+                packed_circuit.table_phases[table],
+            )
+            expected = string.after(stim.CircuitInstruction(name, qubits.tolist()))
+            assert packed.to_stim(words, phase, size) == expected, (name, string)
+
+
 def test_packed_circuits_of_t_gates() -> None:
     circuit = stim.Circuit("S[T] 0 1\nSPP_DAG[T:label] !X0*Z1\nSPP Y1\nH[other] 0")
     packed_circuit = packed_circuits.get_packed_circuit(circuit, 2)
@@ -95,5 +124,5 @@ def test_invalid_circuits() -> None:
         packed_circuits.get_packed_circuit(stim.Circuit("CX sweep[0] 0"), 1)
     with pytest.raises(ValueError, match="repeat qubits"):
         packed_circuits.get_packed_circuit(stim.Circuit("SPP[T] X0*X0"), 1)
-    with pytest.raises(ValueError, match="acts on 2 > 1 qubits"):
+    with pytest.raises(ValueError, match="2 > 1"):
         packed_circuits.get_packed_circuit(stim.Circuit("CX 0 1"), 1)

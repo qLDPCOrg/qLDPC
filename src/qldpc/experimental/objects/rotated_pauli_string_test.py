@@ -253,6 +253,11 @@ def test_strings_and_widths() -> None:
     assert RotatedPauliString("Z", num_qubits=3) == RotatedPauliString("Z__")
     assert RotatedPauliString("Z") != RotatedPauliString("Z_")
 
+    # propagation acts on enough qubits for both the operator and the circuit
+    for method in (RotatedPauliString.after, RotatedPauliString.before):
+        assert method(RotatedPauliString("X"), stim.Circuit("CX 0 1")) == RotatedPauliString("XX")
+        assert method(RotatedPauliString("XZ"), stim.Circuit("H 0")) == RotatedPauliString("ZZ")
+
 
 def test_invalid_inputs() -> None:
     with pytest.raises(ValueError, match="Hermitian"):
