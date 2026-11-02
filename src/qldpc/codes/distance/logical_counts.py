@@ -34,16 +34,12 @@ from typing import TYPE_CHECKING, Literal, SupportsIndex
 import numpy as np
 import numpy.typing as npt
 
+from qldpc._binary import get_independent_rows, get_kernel, pack_bits
 from qldpc._compilation import set_on_request_functions_compiled
 from qldpc._utils import format_docstring
 
 from . import _information_sets
-from ._binary import (
-    get_independent_rows,
-    get_kernel,
-    get_nested_code_basis,
-    pack_bits,
-)
+from ._binary import get_nested_code_basis
 from ._brouwer_zimmermann import get_distance_brouwer_zimmermann_many
 from ._brute_force import get_distance_quantum_brute_force
 from ._counting import local_cliffords, macwilliams, scan

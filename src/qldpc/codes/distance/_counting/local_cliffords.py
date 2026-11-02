@@ -14,9 +14,8 @@ import functools
 import numpy as np
 import numpy.typing as npt
 
+from qldpc._binary import get_inverse, pack_bits, popcount_word
 from qldpc._compilation import always_compiled
-
-from .._binary import pack_bits, popcount_word, row_reduce_binary
 
 _BinaryMatrix = npt.NDArray[np.uint8]
 
@@ -80,12 +79,10 @@ def _as_local_matrix(matrix: npt.ArrayLike, size: int) -> _BinaryMatrix:
 
 def _get_dual_local_matrix(matrix_x: _BinaryMatrix) -> _BinaryMatrix:
     """Return the matrix for Z supports, ``matrix_z``, with ``matrix_x @ matrix_z.T = I``."""
-    size = len(matrix_x)
-    # Row reduction finds T with T @ matrix_x = I, so that matrix_z = T.T.
-    _, inverse, pivots = row_reduce_binary(matrix_x, np.eye(size, dtype=np.uint8))
-    if len(pivots) < size:
-        raise ValueError("Local Clifford matrix_x must be invertible over GF(2)")
-    assert inverse is not None
+    try:
+        inverse = get_inverse(matrix_x)
+    except ValueError:
+        raise ValueError("Local Clifford matrix_x must be invertible over GF(2)") from None
     return inverse.T.copy()
 
 

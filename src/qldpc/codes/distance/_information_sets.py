@@ -40,9 +40,8 @@ from typing import NamedTuple, TypeVar
 import numpy as np
 import numpy.typing as npt
 
+from qldpc._binary import pack_bits, row_reduce_binary, row_reduce_packed, unpack_bits
 from qldpc._compilation import always_compiled, compiled_on_request
-
-from ._binary import row_reduce_binary, row_reduce_packed
 
 # Default limit on the number of sets in a replacement basis family (see get_overlapping_family).
 MAX_SETS = 16
@@ -265,13 +264,14 @@ def get_overlapping_family(
     num_sets = num_full
     best_num_sets = 0
     best_coverage = 1
+    packed_basis, packed_labels = pack_bits(basis), pack_bits(labels)
     for _ in range(2 * (max_sets - num_full)):
         # Order the columns by load, and then randomly, with two stable sorts, since numba has no
         # lexicographic sort.  Transform the labels along with each candidate.
         by_random = np.argsort(rng.random(num_columns), kind="mergesort")
         by_coverage = np.argsort(column_coverage[columns][by_random], kind="mergesort")
         reduced, reduced_labels, new_pivots = row_reduce_packed(
-            basis, labels, columns[by_random[by_coverage]]
+            packed_basis, packed_labels, columns[by_random[by_coverage]]
         )
 
         # Do not add duplicate sets; their row reductions still count against the attempt limit.
@@ -289,8 +289,8 @@ def get_overlapping_family(
             set_labels = _copy_with_capacity(set_labels, capacity)
             pivots = _copy_with_capacity(pivots, capacity)
             sorted_pivots = _copy_with_capacity(sorted_pivots, capacity)
-        generators[num_sets] = reduced
-        set_labels[num_sets] = reduced_labels
+        generators[num_sets] = unpack_bits(reduced, basis.shape[1])
+        set_labels[num_sets] = unpack_bits(reduced_labels, labels.shape[1])
         pivots[num_sets] = new_pivots
         sorted_pivots[num_sets] = new_sorted_pivots
         column_coverage[new_pivots] += 1

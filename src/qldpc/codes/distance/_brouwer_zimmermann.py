@@ -19,16 +19,11 @@ from dataclasses import dataclass, field
 import numpy as np
 import numpy.typing as npt
 
+from qldpc._binary import pack_bits, popcount_word
 from qldpc._compilation import always_compiled
 
 from . import _information_sets
-from ._binary import (
-    as_binary_matrix,
-    assert_binary,
-    get_nested_code_basis,
-    pack_bits,
-    popcount_word,
-)
+from ._binary import as_binary_matrix, assert_binary, get_nested_code_basis
 from ._brute_force import (
     get_distance_quantum_brute_force,
 )

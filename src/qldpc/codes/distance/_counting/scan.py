@@ -18,10 +18,10 @@ from collections.abc import Callable
 import numpy as np
 import numpy.typing as npt
 
+from qldpc._binary import pack_bits, popcount_word, row_reduce_packed, unpack_bits
 from qldpc._compilation import always_compiled, compiled_on_request
 
 from .. import _information_sets
-from .._binary import pack_bits, popcount_word, row_reduce_packed
 from .._information_sets import advance_support
 from ..core import DistanceMethod
 from . import local_cliffords
@@ -216,10 +216,11 @@ def _get_coefficient_extractors(
 
         # Row reduction finds T with T @ generators = R, where R is the identity on its pivot
         # columns P, so that w[P] @ T recovers the coefficients of w.
-        identity = np.eye(dimension, dtype=np.uint8)
-        _, transform, pivots = row_reduce_packed(
-            basis_family.generators[index], identity, np.arange(num_columns)
+        identity = pack_bits(np.eye(dimension, dtype=np.uint8))
+        _, packed_transform, pivots = row_reduce_packed(
+            pack_bits(basis_family.generators[index]), identity, np.arange(num_columns)
         )
+        transform = unpack_bits(packed_transform, dimension)
         extractor = np.zeros((dimension, num_columns), dtype=np.uint8)
         for row in range(len(pivots)):
             extractor[:, pivots[row]] = transform[row]
@@ -313,12 +314,12 @@ def _transport_sets(
     for index in range(len(ranks)):
         moved = local_cliffords.apply_local(generators[index], positions, local)
         reduced, reduced_labels, new_pivots = row_reduce_packed(
-            moved, labels[index], pivots[index, : ranks[index]]
+            pack_bits(moved), pack_bits(labels[index]), pivots[index, : ranks[index]]
         )
         if len(new_pivots) != ranks[index]:
             return False, moved_generators, moved_labels
-        moved_generators[index] = reduced
-        moved_labels[index] = reduced_labels
+        moved_generators[index] = unpack_bits(reduced, generators.shape[2])
+        moved_labels[index] = unpack_bits(reduced_labels, labels.shape[2])
     return True, moved_generators, moved_labels
 
 

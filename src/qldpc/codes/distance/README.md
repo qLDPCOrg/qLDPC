@@ -36,7 +36,8 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
 | The MacWilliams counting method | `_counting/macwilliams.py` |
-| Binary algebra, bit packing, or bit counts | `_binary.py` |
+| Binary input checks, nested bases, or packed weights | `_binary.py` |
+| Bit packing, bit counts, or row reduction over GF(2), which other subpackages share | `src/qldpc/_binary.py` |
 | How numba code is compiled or cached | `src/qldpc/_compilation.py` |
 
 ## How the modules depend on each other
@@ -49,6 +50,7 @@ From the top:
 4. `_binary.py`, the foundation.
 
 A module imports only modules of its own level or below, except that `_counting/scan.py` takes `DistanceMethod` from `core.py` for an annotation.
+Modules of every level may also import `src/qldpc/_binary.py`, the bit-packed linear algebra over GF(2) that other subpackages share.
 Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py`, modules in `src/qldpc/circuits/certification/`, and the deprecation registry in `src/qldpc/_deprecations/core.py`, use private names of this package, so grep `src/qldpc` for a private name before you move or rename it.
 
 ## Compiled code
