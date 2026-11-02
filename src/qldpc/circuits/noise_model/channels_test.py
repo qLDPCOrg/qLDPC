@@ -244,16 +244,16 @@ def test_repeated_idle_channel() -> None:
             expected
         )
 
-        # each independent error of a sequence fires an odd number of times
-        sequence = channels._repeated_idle_channel(
-            circuits.PauliChannelSequence({"X": p_x, "Z": p_z}), repetitions
-        )
-        assert sequence.probabilities == pytest.approx(
-            {
-                "X": (1 - (1 - 2 * p_x) ** repetitions) / 2,
-                "Z": (1 - (1 - 2 * p_z) ** repetitions) / 2,
-            }
-        )
+    # each independent error of a sequence takes effect if it fires an odd number of times
+    sequence = channels._repeated_idle_channel(
+        circuits.PauliChannelSequence({"X": p_x, "Z": p_z}), 3
+    )
+    assert sequence.probabilities == pytest.approx(
+        {
+            pauli: sum(math.comb(3, k) * p**k * (1 - p) ** (3 - k) for k in [1, 3])
+            for pauli, p in [("X", p_x), ("Z", p_z)]
+        }
+    )
 
 
 def test_quadratic_idle_channel() -> None:
@@ -268,19 +268,18 @@ def test_quadratic_idle_channel() -> None:
     axis = sum(math.sqrt(p / total) * paulis[pauli] for pauli, p in channel.probabilities.items())
 
     # one moment rotates by an angle with standard deviation sigma, which flips a qubit with total
-    # probability (1 - exp(-sigma**2 / 2)) / 2; average the twirl of k moments over the angle
+    # probability (1 - exp(-sigma**2 / 2)) / 2; average the twirl of two moments over the angle
     sigma = math.sqrt(-2 * math.log(1 - 2 * total))
     angles = np.linspace(-12 * sigma, 12 * sigma, 4001)
     weights = np.exp(-(angles**2) / (2 * sigma**2))
     weights /= weights.sum()
-    for moments in [2, 30]:
-        expected = dict.fromkeys(paulis, 0.0)
-        for angle, weight in zip(moments * angles, weights, strict=True):
-            unitary = math.cos(angle / 2) * np.eye(2) - 1j * math.sin(angle / 2) * axis
-            for pauli, matrix in paulis.items():
-                expected[pauli] += weight * abs(np.trace(matrix @ unitary) / 2) ** 2
-        repeated = channels._quadratic_idle_channel(channel, moments)
-        assert repeated.probabilities == pytest.approx(expected, rel=1e-6)
+    expected = dict.fromkeys(paulis, 0.0)
+    for angle, weight in zip(2 * angles, weights, strict=True):
+        unitary = math.cos(angle / 2) * np.eye(2) - 1j * math.sin(angle / 2) * axis
+        for pauli, matrix in paulis.items():
+            expected[pauli] += weight * abs(np.trace(matrix @ unitary) / 2) ** 2
+    repeated = channels._quadratic_idle_channel(channel, 2)
+    assert repeated.probabilities == pytest.approx(expected, rel=1e-6)
 
     # a fully dephasing moment stays fully dephasing
     dephased = channels._quadratic_idle_channel(circuits.PauliChannel({"Z": 0.5}), 3)

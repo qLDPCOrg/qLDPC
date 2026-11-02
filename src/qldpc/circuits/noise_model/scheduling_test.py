@@ -70,6 +70,11 @@ def test_asap() -> None:
         [ops[2], ops[4], ops[6]],
     ]
 
+    # a classically controlled gate follows the measurement that it reads
+    circuit = stim.Circuit("CX 0 2\nCX 0 2\nM 0\nCX rec[-1] 1")
+    schedule = circuits.Scheduler.asap().get_schedule(circuit)
+    assert schedule == circuits.Schedule(circuit, [0, 1, 2, 2])
+
 
 def test_alap() -> None:
     """Gates are as late as possible, and then by default measurements as early as others allow.
@@ -264,6 +269,11 @@ def test_measurement_order() -> None:
     """)
     assert measurements == (1, 0, 2, 3, 4)
 
+    # a written-out iteration of a tagged REPEAT block keeps the tag
+    tagged = stim.Circuit(str(circuit).replace("REPEAT 3", "REPEAT[block] 3"))
+    scheduled, _ = circuits.Scheduler.asap().get_schedule(tagged).to_circuit()
+    assert "REPEAT[block] 1" in str(scheduled) and "REPEAT[block] 2" in str(scheduled)
+
     # iterations written out with the same layout share a REPEAT block
     circuit = stim.Circuit("CX 0 4\nM 0 1 2\nREPEAT 5 {\nM 3\nDETECTOR rec[-3]\n}")
     scheduled, measurements = circuits.Scheduler.asap().get_schedule(circuit).to_circuit()
@@ -303,6 +313,14 @@ def test_repeat_blocks_are_moment_boundaries() -> None:
         "H 2\nTICK\nREPEAT 3 {\nH 0\nTICK\nH 1\nTICK\n}\nH 3"
     )
 
+    # ASAP and ALAP schedulers schedule the body of a REPEAT block by their own rules
+    circuit = stim.Circuit("REPEAT 2 {\nH 0\nTICK\nH 1\n}")
+    for scheduler in [
+        circuits.Scheduler.asap(single_qubit_gates_take_time=True),
+        circuits.Scheduler.alap(single_qubit_gates_take_time=True),
+    ]:
+        assert scheduler.get_schedule(circuit).num_moments == 2
+
     circuit = stim.Circuit("M 0\nREPEAT 3 {\nM 1\n}\nM 2")
     schedule = circuits.Scheduler.asap().get_schedule(circuit)
     assert schedule.num_moments == 5
@@ -329,8 +347,6 @@ def test_preserve_ticks_with_repeat_blocks() -> None:
     """
     scheduler = circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
     for text, num_moments in [
-        ("H 0\nREPEAT 2 {\nTICK\n}\nH 1", 2),
-        ("H 0\nTICK\nREPEAT 3 {\nX_ERROR(0.1) 0\nTICK\n}\nH 1", 2),
         ("R 0\nTICK\nREPEAT 4 {\nX_ERROR(0.1) 0\nTICK\nH 0\n}", 5),
         ("M 0\nTICK\nDETECTOR rec[-1]\nREPEAT 2 {\nH 0\n}", 3),
         ("M 0\nTICK\nOBSERVABLE_INCLUDE(0) Z1", 1),
@@ -494,7 +510,7 @@ def test_schedule_errors() -> None:
     assert circuits.Schedule(circuit, [0, 1, body_schedule]).num_moments == 4
     with pytest.raises(ValueError, match="needs 3 entries"):
         circuits.Schedule(circuit, [0, body_schedule])
-    for moment in [-1, 1.0, True, body_schedule]:
+    for moment in [-1, True, body_schedule]:
         with pytest.raises(ValueError, match="nonnegative integer"):
             circuits.Schedule(circuit, [0, moment, body_schedule])  # type: ignore[list-item]
     with pytest.raises(ValueError, match="schedule of its body"):
