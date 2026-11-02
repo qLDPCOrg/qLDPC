@@ -470,11 +470,12 @@ def test_observables() -> None:
     """An observable with Pauli targets joins the moment of the operation before it on its qubits.
 
     So it sees the noise of that operation and of the idle moments before it, but not of the idle
-    moments after it.
+    moments after it, whether or not it also reads measurements.
     """
     noise_model = circuits.NoiseModel(reset_error=0.1)
-    noisy = noise_model.noisy_circuit(stim.Circuit("R 0\nOBSERVABLE_INCLUDE(0) Z0"))
-    assert noisy.detector_error_model() == stim.DetectorErrorModel("error(0.1) L0")
+    for observable in ["OBSERVABLE_INCLUDE(0) Z0", "M 1\nOBSERVABLE_INCLUDE(0) rec[-1] Z0"]:
+        noisy = noise_model.noisy_circuit(stim.Circuit(f"R 0\n{observable}"))
+        assert noisy.detector_error_model() == stim.DetectorErrorModel("error(0.1) L0")
 
     circuit = stim.Circuit("""
         R 0 1

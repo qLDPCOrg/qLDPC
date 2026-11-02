@@ -114,8 +114,8 @@ Idle noise (``idle_error``, ``quadratic_idle_error``, and ``additional_error_wai
 depends on when operations happen.  A noise model with idle noise uses its ``scheduler`` (a
 :class:`Scheduler`) to place the operations of a circuit in moments, units of time in which each
 qubit is either occupied by an operation or idle.  By default, ``Scheduler.asap()`` ignores the
-TICKs of a circuit and places each operation as early as possible (and each reset as late as
-possible), while ``SI1000NoiseModel`` keeps the TICK layers of a circuit with
+TICKs of a circuit and places each gate as early as possible (and then each reset as late as the
+other gates allow), while ``SI1000NoiseModel`` keeps the TICK layers of a circuit with
 ``Scheduler.preserve_ticks(single_qubit_gates_take_time=True)``.  The boundaries of ``REPEAT``
 blocks and of their iterations are boundaries between moments, and every iteration of a ``REPEAT``
 block follows one schedule of its body, so a block stays compact however many times it repeats.  To

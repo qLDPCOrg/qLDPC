@@ -44,13 +44,18 @@ _COORDINATE_ANNOTATIONS = frozenset({"DETECTOR", "QUBIT_COORDS", "SHIFT_COORDS"}
 class Schedule:
     """The moments of the operations of a circuit.
 
-    The operations of a circuit are its gate applications (one target of a one-qubit gate, one pair
-    of targets of a two-qubit gate, or one Pauli product of an MPP or SPP gate) and its annotations
-    and noise channels other than TICKs, as listed by :meth:`get_operations`.  A schedule places
-    each operation in a moment, numbered from zero within each segment of the circuit: the part of
-    the circuit, or of the body of a REPEAT block, that lies between REPEAT blocks.  The boundaries
-    of REPEAT blocks and of their iterations are thus boundaries between moments, and the body of
-    each REPEAT block has a schedule of its own, which each iteration follows.
+    The operations of a circuit, as listed by :meth:`get_operations`, are the parts of its
+    instructions other than TICKs that act independently on their qubits.  A gate or noise channel
+    has one operation per application: one target of a one-qubit gate or channel, one pair of
+    targets of a two-qubit gate or channel, one Pauli product of an MPP or SPP gate, or one link of
+    a chain of correlated errors.  An observable has one operation for its measurement records and
+    one for each of its Pauli targets, and other annotations are one operation each.
+
+    A schedule places each operation in a moment, numbered from zero within each segment of the
+    circuit: the part of the circuit, or of the body of a REPEAT block, that lies between REPEAT
+    blocks.  The boundaries of REPEAT blocks and of their iterations are thus boundaries between
+    moments, and the body of each REPEAT block has a schedule of its own, which each iteration
+    follows.
 
     Every moment lasts one unit of time, and a qubit idles in each moment unless an operation that
     takes time acts on it (see :meth:`Scheduler.takes_time`).  A segment lasts until the end of its
@@ -254,14 +259,14 @@ class Scheduler(abc.ABC):
 
     @staticmethod
     def asap(*, late_resets: bool = True, single_qubit_gates_take_time: bool = False) -> Scheduler:
-        """A scheduler that places every operation as early as possible, ignoring TICKs.
+        """A scheduler that places every gate as early as possible, ignoring TICKs.
 
         Each segment of a circuit (see :class:`Schedule`), and the body of each REPEAT block, is
         scheduled on its own.
 
         Args:
-            late_resets: If True (the default), place resets as late as possible instead, so that
-                qubits do not idle between their reset and their next operation.
+            late_resets: If True (the default), then move each reset as late as the other gates
+                allow, so that qubits do not idle between their reset and their next operation.
             single_qubit_gates_take_time: As in :meth:`preserve_ticks`.
         """
         return _LayerScheduler(False, late_resets, single_qubit_gates_take_time)
@@ -270,13 +275,14 @@ class Scheduler(abc.ABC):
     def alap(
         *, early_measurements: bool = True, single_qubit_gates_take_time: bool = False
     ) -> Scheduler:
-        """A scheduler that places every operation as late as possible, ignoring TICKs.
+        """A scheduler that places every gate as late as possible, ignoring TICKs.
 
         REPEAT blocks are handled as in :meth:`asap`.
 
         Args:
-            early_measurements: If True (the default), place measurements as early as possible
-                instead, so that qubits do not idle between their last gate and measurement.
+            early_measurements: If True (the default), then move each measurement as early as the
+                other gates allow, so that qubits do not idle between their last gate and
+                measurement.
             single_qubit_gates_take_time: As in :meth:`preserve_ticks`.
         """
         return _LayerScheduler(True, early_measurements, single_qubit_gates_take_time)
@@ -380,20 +386,22 @@ class _LayerScheduler(Scheduler):
         num_nodes = nodes[-1] + 1 if nodes else 0
         edges = self._get_edges(operations, nodes)
 
-        fixed = {}
+        # place the gates as early (or late) as possible
+        layers = _get_layers(num_nodes, edges, reverse=self.as_late_as_possible)
         if self.shorten_lifetimes:
-            # place measurements (or resets) first, as early (or late) as possible
+            # keep the other gates in place, and move each reset (or measurement) as late (or
+            # early) as they allow
             names = JUST_MEASURE_OPS if self.as_late_as_possible else JUST_RESET_OPS
-            layers = _get_layers(num_nodes, edges, reverse=not self.as_late_as_possible)
             fixed = {
                 node: layers[node]
                 for node, operation in zip(nodes, operations)
-                if operation.instruction.name in names
+                if operation.is_gate and operation.instruction.name not in names
             }
+            layers = _get_layers(
+                num_nodes, edges, reverse=not self.as_late_as_possible, fixed=fixed
+            )
 
-        # place the other nodes as early (or late) as possible, and annotations and noise channels
-        # in the moments of operations before them
-        layers = _get_layers(num_nodes, edges, reverse=self.as_late_as_possible, fixed=fixed)
+        # place annotations and noise channels in the moments of operations before them
         gate_moments = {
             node: layers[node] for node, operation in zip(nodes, operations) if operation.is_gate
         }
@@ -642,14 +650,25 @@ def _get_instruction_operations(instruction: stim.CircuitInstruction) -> tuple[_
 
 
 def _split_operations(instruction: stim.CircuitInstruction) -> list[stim.CircuitInstruction]:
-    """Split an instruction into gate applications, or keep an annotation or noise channel whole."""
+    """Split an instruction into the operations that act independently on their qubits.
+
+    A gate or noise channel splits into its applications (such as one qubit of ``X_ERROR``, one
+    pair of ``DEPOLARIZE2``, or one chain link of ``E``), and an observable into its measurement
+    records and each of its Pauli targets.  Other annotations stay whole.
+    """
     if instruction.name == "TICK":
         return []
-    if op_type(instruction.name) not in GATE_OP_TYPES:
-        return [instruction]
 
-    # the targets of each gate application
-    if op_type(instruction.name) in (CLIFFORD_PP, JUST_MEASURE_PP):
+    # the targets of each operation
+    if instruction.name == "OBSERVABLE_INCLUDE":
+        # an observable is the product of its parts, and one without targets still declares it
+        targets = instruction.targets_copy()
+        records = [target for target in targets if target.is_measurement_record_target]
+        paulis = [[target] for target in targets if not target.is_measurement_record_target]
+        groups = [records] + paulis if records or not paulis else paulis
+    elif op_type(instruction.name) not in (*GATE_OP_TYPES, NOISE):
+        return [instruction]
+    elif op_type(instruction.name) in (CLIFFORD_PP, JUST_MEASURE_PP):
         # restore the combiners of each Pauli product, which target_groups drops
         groups = [
             [target for pauli in product for target in (stim.target_combiner(), pauli)][1:]

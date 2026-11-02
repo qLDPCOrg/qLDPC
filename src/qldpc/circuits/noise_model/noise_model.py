@@ -151,8 +151,8 @@ class NoiseModel:
             lookup.
         scheduler: The :class:`~qldpc.circuits.Scheduler` that places the operations of circuits in
             moments, for idle noise.  Default: ``Scheduler.asap()``, which ignores the TICKs of a
-            circuit and places each operation as early as possible (and each reset as late as
-            possible), with single-qubit unitary gates taking no time.
+            circuit and places each gate as early as possible (and then each reset as late as the
+            other gates allow), with single-qubit unitary gates taking no time.
 
     Raises:
         ValueError: If readout_error or reset_error is not between 0 and 1, if a noise
@@ -653,10 +653,10 @@ class _NoisyCircuitBuilder:
             start += num_operations
             if operations and operations[0].is_gate:
                 self.append_gate(instruction, operations, moments, output)
-            elif operations and operations[0].touched_qubits:
-                self.flush(output, operations[0].touched_qubits)
-                output.append(instruction)
             else:
+                touched_qubits = [q for operation in operations for q in operation.touched_qubits]
+                if touched_qubits:
+                    self.flush(output, touched_qubits)
                 output.append(instruction)
 
         # end the idle runs at the end of the segment

@@ -148,17 +148,66 @@ def test_operations() -> None:
     """The operations of a circuit are its gate applications, annotations, and noise channels.
 
     A gate application is one target of a one-qubit gate, one pair of targets of a two-qubit gate,
-    or one Pauli product of an MPP or SPP gate.  REPEAT blocks are listed whole.
+    or one Pauli product of an MPP or SPP gate, and noise channels split likewise.  An observable
+    splits into its measurement records and each of its Pauli targets, and one without targets
+    stays whole.  REPEAT blocks are listed whole.
     """
-    circuit = stim.Circuit("MPP X0*Z1 Z2\nX_ERROR(0.1) 0 1\nTICK\nREPEAT 2 {\nH 0\n}")
+    circuit = stim.Circuit("""
+        MPP X0*Z1 Z2
+        X_ERROR(0.1) 0 1
+        DEPOLARIZE2(0.1) 0 1 2 3
+        OBSERVABLE_INCLUDE(0) rec[-1] Z0 X1 rec[-2]
+        OBSERVABLE_INCLUDE(1)
+        TICK
+        REPEAT 2 {
+            H 0
+        }
+    """)
     assert circuits.Schedule.get_operations(circuit) == [
         stim.CircuitInstruction(
             "MPP", [stim.target_x(0), stim.target_combiner(), stim.target_z(1)]
         ),
         stim.CircuitInstruction("MPP", [stim.target_z(2)]),
-        circuit[1],
-        circuit[3],
+        stim.CircuitInstruction("X_ERROR", [0], [0.1]),
+        stim.CircuitInstruction("X_ERROR", [1], [0.1]),
+        stim.CircuitInstruction("DEPOLARIZE2", [0, 1], [0.1]),
+        stim.CircuitInstruction("DEPOLARIZE2", [2, 3], [0.1]),
+        stim.CircuitInstruction(
+            "OBSERVABLE_INCLUDE", [stim.target_rec(-1), stim.target_rec(-2)], [0]
+        ),
+        stim.CircuitInstruction("OBSERVABLE_INCLUDE", [stim.target_z(0)], [0]),
+        stim.CircuitInstruction("OBSERVABLE_INCLUDE", [stim.target_x(1)], [0]),
+        circuit[4],
+        circuit[6],
     ]
+
+
+def test_noise_on_several_qubits() -> None:
+    """Only correlated noise ties the schedules of its qubits together.
+
+    In each circuit, qubit 1 could be measured in moment 1, while qubit 0 has gates until moment 3.
+    """
+    scheduler = circuits.Scheduler.asap(late_resets=False)
+    for noise, moments in [
+        ("X_ERROR(0.1) 0 1", [0, 0, 0, 1, 2, 3, 3, 0, 1]),
+        ("OBSERVABLE_INCLUDE(0) Z0 Z1", [0, 0, 0, 1, 2, 3, 3, 0, 1]),
+        ("DEPOLARIZE2(0.1) 0 1", [0, 0, 0, 1, 2, 3, 3, 3]),
+    ]:
+        circuit = stim.Circuit(f"R 0 1 2\nCX 0 2\nCX 0 2\nCX 0 2\n{noise}\nM 1")
+        assert scheduler.get_schedule(circuit) == circuits.Schedule(circuit, moments)
+
+
+def test_shortened_lifetimes() -> None:
+    """Resets in ASAP schedules, and measurements in ALAP schedules, move without moving others.
+
+    Qubits 0 and 1 could start in either of the first two of the four moments of the circuit.
+    """
+    circuit = stim.Circuit("R 0 1\nCX 0 1\nM 0 1\nCX 2 3\nCX 2 3\nCX 2 3\nCX 2 3")
+    for scheduler, moments in [
+        (circuits.Scheduler.asap(), [0, 0, 1, 2, 2, 0, 1, 2, 3]),
+        (circuits.Scheduler.alap(), [1, 1, 2, 3, 3, 0, 1, 2, 3]),
+    ]:
+        assert scheduler.get_schedule(circuit) == circuits.Schedule(circuit, moments)
 
 
 def test_correlated_error_chains() -> None:
