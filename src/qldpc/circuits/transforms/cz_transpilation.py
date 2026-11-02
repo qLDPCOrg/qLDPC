@@ -9,9 +9,9 @@ single-qubit gates, as follows.
 - Single-qubit gates are combined and kept pending until a later instruction needs them.  Before a
   CZ, the pending gate of a qubit splits into H, SQRT_X, or nothing, which is applied before the
   CZ, and a diagonal gate, possibly times X, which moves past the CZ.
-- Pending gates merge into later single-qubit measurements, which change their bases and may
-  invert their results, and into the Pauli targets of later observables.  Resets, tagged or not,
-  discard them.
+- Pending gates change the bases of later single-qubit measurements, and may invert their results,
+  but stay pending, so that the states after the measurements are also right.  They change the
+  Pauli targets of later observables in the same way.  Resets, tagged or not, discard them.
 - SWAP gates are free: instead of moving states between qubits, the transpiler relabels qubits, so
   that SWAP gates and the SWAP parts of gates such as ISWAP leave the circuit.  SWAP gates at the
   end of the circuit return all states to their qubits.
@@ -28,9 +28,9 @@ single-qubit gates, as follows.
 
 By default, ``transpile_to_cz`` then cleans up the transpiled circuit.  Between instructions other
 than untagged unitary gates, which stay in place, the cleanup cancels pairs of CZ gates on the same
-qubits that only diagonal gates separate, merges the single-qubit gates right after untagged resets
-into the bases of these resets, and packs gates into layers, with CZ gates as early as possible and
-single-qubit gates as late as possible.
+qubits that only diagonal gates separate, merges the first single-qubit gates on qubits after
+untagged resets into the bases of these resets (leaving at most a Pauli gate), and packs gates into
+layers, with CZ gates as early as possible and single-qubit gates as late as possible.
 
 Noise and untagged classically controlled, ``SPP``, and ``SPP_DAG`` gates are not supported.
 """
@@ -54,8 +54,9 @@ _MEASUREMENTS = {"M": "Z", "MX": "X", "MY": "Y", "MR": "Z", "MRX": "X", "MRY": "
 _RESETS = {"R": "Z", "RX": "X", "RY": "Y"}
 _FLIPS = {"X": "Z", "Y": "Z", "Z": "X"}
 _MULTI_QUBIT_MEASUREMENTS = frozenset({"MPP", "MXX", "MYY", "MZZ"})
-# Instructions that are noisy if they have arguments, and instructions that are copied as they are.
+# Instructions that are noisy if they have arguments.
 _NOISY_WITH_ARGUMENTS = frozenset({*_MEASUREMENTS, *_MULTI_QUBIT_MEASUREMENTS, "MPAD"})
+# Annotations, which are copied as they are, without relabeling their qubit targets.
 _ANNOTATIONS = frozenset({"DETECTOR", "QUBIT_COORDS", "SHIFT_COORDS", "MPAD"})
 # For each axis, a gate G for which G^dag @ Z @ G is +/- that axis.
 _AXIS_GATES = {"X": "H", "Y": "SQRT_X", "Z": "I"}
@@ -115,7 +116,8 @@ class _Transpiler:
     Attributes:
         circuit: The transpiled circuit so far.
         output_qubits: The output qubit that holds the state of each input qubit.
-        pending_gates: The single-qubit gate that each output qubit still needs after circuit.
+        pending_gates: The single-qubit gate that each output qubit still needs after the
+            transpiled circuit so far.
         immune: The output qubits that are immune to noise.
     """
 
@@ -185,7 +187,8 @@ class _Transpiler:
                     self._apply_pending_gate(self.output_qubits[target.qubit_value])
             self._append_relabeled(instruction)
 
-        # untagged unitary gates join pending gates or become CZ gates
+        # reject untagged classically controlled gates, combine single-qubit gates with pending
+        # gates, and decompose two-qubit gates
         elif data.is_unitary and any(
             target.is_measurement_record_target or target.is_sweep_bit_target for target in targets
         ):
@@ -200,7 +203,7 @@ class _Transpiler:
             for target_0, target_1 in zip(targets[::2], targets[1::2]):
                 self._apply_two_qubit_gate(name, target_0.value, target_1.value)
 
-        # single-qubit measurements and observables absorb pending gates
+        # single-qubit measurements and observables read their qubits through pending gates
         elif name in _MEASUREMENTS:
             for target in targets:
                 self._measure(name, target)
@@ -220,7 +223,8 @@ class _Transpiler:
         gate_0 = self.pending_gates[qubit_0].then(before_0)
         gate_1 = self.pending_gates[qubit_1].then(before_1)
 
-        # append the CZ after the parts of the pending gates that cannot move past it
+        # if there is a CZ, append it after the parts of the pending gates that cannot move past
+        # it, and keep the other parts pending, followed by the gates after the CZ
         if has_cz:
             first_0, first_1, gate_0, gate_1 = _commute_through_cz(gate_0, gate_1)
             self._append_gate(qubit_0, first_0)
@@ -241,7 +245,11 @@ class _Transpiler:
             )
 
     def _measure(self, name: str, target: stim.GateTarget) -> None:
-        """Measure a qubit in the basis that absorbs its pending gate."""
+        """Measure a qubit through its pending gate, which stays pending.
+
+        The measurement changes its basis, and may invert its result, to measure the original basis
+        after the pending gate.
+        """
         basis = _MEASUREMENTS[name]
         qubit = self.output_qubits[target.value]
         axis, flipped = _pull_back(self.pending_gates[qubit], basis)
@@ -379,7 +387,8 @@ def _clean_up(circuit: stim.Circuit) -> stim.Circuit:
         _schedule(_cancel_cz_pairs(segment), operations, pending_gates, open_resets, qubits)
         segment = []
 
-        # append the next item, recording untagged resets, which can absorb later gates
+        # append the next item, cleaning up REPEAT blocks, and keep track of the untagged resets
+        # that can still absorb later gates
         if isinstance(item, stim.CircuitRepeatBlock):
             body = _clean_up(item.body_copy())
             operations.append(stim.CircuitRepeatBlock(item.repeat_count, body, tag=item.tag))

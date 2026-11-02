@@ -269,14 +269,14 @@ def _assert_equivalent(circuit: stim.Circuit, transpiled: stim.Circuit) -> None:
 
 
 def _measure_pauli_observables(circuit: stim.Circuit) -> stim.Circuit:
-    """Replace each observable by an MPP measurement of the product of its Pauli targets."""
+    """Replace each OBSERVABLE_INCLUDE by an MPP measurement of the product of its Pauli targets."""
     new_circuit = stim.Circuit()
     for op in circuit:
         if isinstance(op, stim.CircuitRepeatBlock):
             body = _measure_pauli_observables(op.body_copy())
             new_circuit.append(stim.CircuitRepeatBlock(op.repeat_count, body))
         elif op.name == "OBSERVABLE_INCLUDE":
-            # measure the product of the Pauli targets, inverted if an odd number of them are
+            # measure the product of the Pauli targets, with the parity of their inversions
             paulis = [target for target in op.targets_copy() if target.pauli_type != "I"]
             invert = sum(target.is_inverted_result_target for target in paulis) % 2 == 1
             targets = []
@@ -335,7 +335,7 @@ def _get_random_circuit(
         elif kind < 0.65:
             circuit.append(rng.choice(_TWO_QUBIT_GATES), rng.sample(qubits, 2))
 
-        # single-qubit measurements (with a repeated, inverted target) and resets
+        # single-qubit measurements (with a second, inverted target on qubit 0) and resets
         elif kind < 0.75:
             name = rng.choice(["M", "MX", "MY", "MR", "MRX", "MRY"])
             circuit.append(name, [rng.choice(qubits), stim.target_inv(0)])
