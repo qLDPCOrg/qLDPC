@@ -54,7 +54,9 @@ class Schedule:
 
     Every moment lasts one unit of time, and a qubit idles in each moment unless an operation that
     takes time acts on it (see :meth:`Scheduler.takes_time`).  A segment lasts until the end of its
-    last moment, and a REPEAT block lasts as long as all its iterations.
+    last moment, and a REPEAT block lasts as long as all its iterations.  Annotations and noise
+    channels never have a moment of their own, so a segment without gates has no moments and takes
+    no time.
 
     A schedule is immutable.
 
@@ -130,17 +132,18 @@ class Schedule:
 
         The moments of each segment are listed in order, followed by the schedule of the body of
         the REPEAT block after the segment (if any).  Operations in a moment keep their order in the
-        circuit.
+        circuit.  A segment without gates has no moments, so its operations are not listed.
         """
         # list the moments of each segment, and then the schedule of the REPEAT block after it
         moments: list[list[stim.CircuitInstruction] | Schedule] = []
         for item in _get_segments(self._circuit, self):
             if isinstance(item, _Segment):
                 segment_moments: list[list[stim.CircuitInstruction]] = [
-                    [] for _ in range(max(item.moments, default=-1) + 1)
+                    [] for _ in range(item.duration)
                 ]
-                for operation, moment in zip(item.operations, item.moments):
-                    segment_moments[moment].append(operation.instruction)
+                if item.duration:
+                    for operation, moment in zip(item.operations, item.moments):
+                        segment_moments[moment].append(operation.instruction)
                 moments.extend(segment_moments)
             else:
                 assert item[1] is not None
@@ -154,8 +157,8 @@ class Schedule:
         measurement moves only if this schedule puts it in an earlier moment than a measurement
         before it.  The detectors, observables, and classically controlled gates of the circuit read
         the same measurements as before.  A moment without operations is an extra TICK, a TICK
-        precedes each REPEAT block that follows a moment, and each iteration of a REPEAT block whose
-        body has operations ends with a TICK.  The first iterations of a REPEAT block are written
+        precedes each REPEAT block that follows a moment, and each iteration of a REPEAT block that
+        ends with a moment ends with a TICK.  The first iterations of a REPEAT block are written
         out separately if they read measurements before the block at other offsets than later
         iterations read those of earlier iterations.
 
@@ -560,8 +563,18 @@ class _Segment:
 
     @property
     def duration(self) -> int:
-        """The number of moments of the segment."""
-        return max(self.moments, default=-1) + 1
+        """The number of moments of the segment, which has none if it has no gates."""
+        return max(self.moments) + 1 if any(op.is_gate for op in self.operations) else 0
+
+    def close(self) -> _Segment:
+        """Finish a segment, whose operations are all in moment zero if it has no gates.
+
+        Annotations and noise channels never have a moment of their own, so a segment without gates
+        has no moments, and its operations take place at its start.
+        """
+        if not self.duration:
+            self.moments = [0] * len(self.moments)
+        return self
 
 
 def _get_segments(
@@ -577,7 +590,7 @@ def _get_segments(
     for instruction in circuit:
         # a REPEAT block ends the current segment, and a new one starts after it
         if isinstance(instruction, stim.CircuitRepeatBlock):
-            yield segment
+            yield segment.close()
             repeat = next(moments, None)
             assert repeat is None or isinstance(repeat, Schedule)
             yield instruction, repeat
@@ -595,7 +608,7 @@ def _get_segments(
             assert isinstance(moment, int)
             segment.operations.append(info)
             segment.moments.append(moment)
-    yield segment
+    yield segment.close()
 
 
 def _get_operations(
@@ -802,9 +815,8 @@ class _Layout:
         is_open = False
         for item in _get_segments(schedule._circuit, schedule):
             if isinstance(item, _Segment):
-                if item.operations:
-                    self.lay_out_segment(item, circuit)
-                    is_open = True
+                self.lay_out_segment(item, circuit)
+                is_open = item.duration > 0
             else:
                 assert item[1] is not None
                 if is_open:

@@ -120,11 +120,11 @@ possible), while ``SI1000NoiseModel`` keeps the TICK layers of a circuit with
 blocks and of their iterations are boundaries between moments, and every iteration of a ``REPEAT``
 block follows one schedule of its body, so a block stays compact however many times it repeats.  To
 let moments continue across these boundaries, add noise to ``circuit.flattened()`` instead.  Every
-moment of a schedule lasts one unit of time.  The built-in schedulers put each annotation and noise
-channel in the moment of the operation before it, so these make no moments of their own, except in
-a part of a circuit between ``REPEAT`` blocks that has no gates.  In particular, an observable with
-Pauli targets joins the moment of the last operation on its qubits, so it does not see the idle
-noise of those qubits after that operation.
+moment of a schedule lasts one unit of time.  Annotations and noise channels never have a moment of
+their own: the built-in schedulers put each of them in the moment of the operation before it, and a
+part of a circuit between ``REPEAT`` blocks that has no gates has no moments and takes no time.  In
+particular, an observable with Pauli targets joins the moment of the last operation on its qubits,
+so it does not see the idle noise of those qubits after that operation.
 
 By default, single-qubit unitary gates and classically controlled Paulis take no time.  This models
 gates that are much faster than the moments of a circuit: a qubit that undergoes only such gates in

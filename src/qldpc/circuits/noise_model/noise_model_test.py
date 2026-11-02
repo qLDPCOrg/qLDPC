@@ -313,6 +313,16 @@ def test_moments_at_repeat_blocks() -> None:
     )
 
 
+def test_repeat_blocks_without_gates() -> None:
+    """A REPEAT body with only noise channels has no moments, so qubits do not idle during it."""
+    noise_model = circuits.NoiseModel(
+        idle_error={"Z": 0.1},
+        scheduler=circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True),
+    )
+    circuit = stim.Circuit("H 0 1\nTICK\nREPEAT 5 {\nX_ERROR(0.01) 0\nTICK\n}\nH 0 1")
+    assert noise_model.noisy_circuit(circuit) == circuit
+
+
 def test_idle_runs_across_repeat_blocks() -> None:
     """Idle runs continue across the boundaries of REPEAT blocks and of their iterations.
 

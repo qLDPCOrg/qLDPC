@@ -241,7 +241,7 @@ def test_measurement_order() -> None:
 def test_repeat_blocks_are_moment_boundaries() -> None:
     """The boundaries of REPEAT blocks and of their iterations are boundaries between moments.
 
-    A segment without operations has no moments, while one with only noise channels has one.
+    A segment without gates has no moments, so its operations are in no moment and take no time.
     """
     circuit = stim.Circuit("H 2\nREPEAT 3 {\nH 0\nTICK\nH 1\n}\nH 3")
     scheduler = circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
@@ -264,9 +264,11 @@ def test_repeat_blocks_are_moment_boundaries() -> None:
 
     circuit = stim.Circuit("M 0\nREPEAT 2 {\nTICK\n}\nREPEAT 3 {\nX_ERROR(0.1) 1\n}\nM 2")
     schedule = circuits.Scheduler.asap().get_schedule(circuit)
-    assert schedule.num_moments == 5
+    assert schedule.num_moments == 2
+    gate_free_body = schedule.get_moments()[2]
+    assert isinstance(gate_free_body, circuits.Schedule) and gate_free_body.get_moments() == []
     assert schedule.to_circuit()[0] == stim.Circuit(
-        "M 0\nTICK\nREPEAT 2 {\n}\nREPEAT 3 {\nX_ERROR(0.1) 1\nTICK\n}\nM 2"
+        "M 0\nTICK\nREPEAT 2 {\n}\nREPEAT 3 {\nX_ERROR(0.1) 1\n}\nM 2"
     )
 
 
@@ -274,12 +276,12 @@ def test_preserve_ticks_with_repeat_blocks() -> None:
     """A TICK ends a moment with a gate, also inside a REPEAT block.
 
     Annotations and noise channels join the moment of the operation before them, or the first
-    moment of their segment.
+    moment of their segment, and a segment without gates has no moments.
     """
     scheduler = circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
     for text, num_moments in [
         ("H 0\nREPEAT 2 {\nTICK\n}\nH 1", 2),
-        ("H 0\nTICK\nREPEAT 3 {\nX_ERROR(0.1) 0\nTICK\n}\nH 1", 5),
+        ("H 0\nTICK\nREPEAT 3 {\nX_ERROR(0.1) 0\nTICK\n}\nH 1", 2),
         ("R 0\nTICK\nREPEAT 4 {\nX_ERROR(0.1) 0\nTICK\nH 0\n}", 5),
         ("M 0\nTICK\nDETECTOR rec[-1]\nREPEAT 2 {\nH 0\n}", 3),
         ("M 0\nTICK\nOBSERVABLE_INCLUDE(0) Z1", 1),
@@ -425,8 +427,8 @@ def test_moments_without_operations() -> None:
         ("H 0\nTICK\nX 0", [1, 0], "change order"),
         ("CX 0 1\nCX 1 2", [0, 0], "two operations that take time"),
         ("M 0\nDETECTOR rec[-1]", [1, 0], "precedes a measurement"),
-        ("DETECTOR(0)\nSHIFT_COORDS(1)\nDETECTOR(0)", [0, 1, 0], "coordinates"),
-        ("E(0.1) X0\nELSE_CORRELATED_ERROR(0.1) X1", [0, 1], "error chain"),
+        ("H 0\nDETECTOR(0)\nSHIFT_COORDS(1)\nDETECTOR(0)", [0, 0, 1, 0], "coordinates"),
+        ("H 0\nE(0.1) X0\nELSE_CORRELATED_ERROR(0.1) X1", [0, 0, 1], "error chain"),
     ],
 )
 def test_invalid_schedules(circuit: str, moments: list[int], error: str) -> None:
