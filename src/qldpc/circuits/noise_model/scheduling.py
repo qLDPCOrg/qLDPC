@@ -75,6 +75,7 @@ class Schedule:
     _duration: int
 
     def __init__(self, circuit: StimCircuitLike, moments: Sequence[int | Schedule]) -> None:
+        # check that there is a moment for each operation and a schedule for each REPEAT body
         stim_circuit = _as_stim_circuit(circuit)
         operations = Schedule.get_operations(stim_circuit)
         if len(operations) != len(moments):
@@ -94,6 +95,8 @@ class Schedule:
             entries.append(moment)
         object.__setattr__(self, "_circuit", stim_circuit)
         object.__setattr__(self, "_moments", tuple(entries))
+
+        # add up the moments of the segments and of all iterations of REPEAT blocks
         duration = 0
         for item in _get_segments(stim_circuit, self):
             if isinstance(item, _Segment):
@@ -129,6 +132,7 @@ class Schedule:
         the REPEAT block after the segment (if any).  Operations in a moment keep their order in the
         circuit.
         """
+        # list the moments of each segment, and then the schedule of the REPEAT block after it
         moments: list[list[stim.CircuitInstruction] | Schedule] = []
         for item in _get_segments(self._circuit, self):
             if isinstance(item, _Segment):
@@ -300,6 +304,8 @@ class _TickScheduler(Scheduler):
 
     def _get_segment_moments(self, segment: _Segment) -> list[int]:
         """The moments of the operations of a segment."""
+        # a gate starts a new moment after a TICK, or where it takes time on a qubit that an
+        # operation that takes time already occupies in the moment
         nodes = _get_nodes(segment.operations)
         gate_moments: dict[int, int] = {}  # the moment of each node with a gate
         moment = 0
@@ -320,6 +326,8 @@ class _TickScheduler(Scheduler):
                     occupied.update(operation.qubits)
                 has_gate = True
                 gate_moments[node] = moment
+
+        # annotations and noise channels join the moments of operations before them
         return _place_annotations(segment.operations, nodes, gate_moments)
 
 
@@ -362,9 +370,11 @@ class _LayerScheduler(Scheduler):
 
     def _get_segment_moments(self, operations: Sequence[_Operation]) -> list[int]:
         """The moments of the operations of a segment."""
+        # each operation is a node, except that a chain of correlated errors is one node
         nodes = _get_nodes(operations)
         num_nodes = nodes[-1] + 1 if nodes else 0
         edges = self._get_edges(operations, nodes)
+
         fixed = {}
         if self.shorten_lifetimes:
             # place measurements (or resets) first, as early (or late) as possible
@@ -375,6 +385,9 @@ class _LayerScheduler(Scheduler):
                 for node, operation in zip(nodes, operations)
                 if operation.instruction.name in names
             }
+
+        # place the other nodes as early (or late) as possible, and annotations and noise channels
+        # in the moments of operations before them
         layers = _get_layers(num_nodes, edges, reverse=self.as_late_as_possible, fixed=fixed)
         gate_moments = {
             node: layers[node] for node, operation in zip(nodes, operations) if operation.is_gate
@@ -399,6 +412,7 @@ class _LayerScheduler(Scheduler):
         last_coordinate_node: int | None = None
         last_gate_node: int | None = None
         for node, operation in zip(nodes, operations):
+            # follow the previous nodes on the qubits of the operation
             timed = operation.is_gate and self.takes_time(operation.instruction)
             for qubit in operation.qubits:
                 if last_node.get(qubit, node) != node:
@@ -408,6 +422,9 @@ class _LayerScheduler(Scheduler):
                 last_node[qubit] = node
                 if timed:
                     last_timed_node[qubit] = node
+
+            # follow the measurements that the operation reads, and the previous coordinate
+            # annotation if it is one
             edges.extend(
                 (record_nodes[record], node, 0) for record in operation.records if record >= 0
             )
@@ -415,6 +432,8 @@ class _LayerScheduler(Scheduler):
                 if last_coordinate_node is not None:
                     edges.append((last_coordinate_node, node, 0))
                 last_coordinate_node = node
+
+            # an annotation without qubits follows the previous gate
             if operation.is_gate:
                 last_gate_node = node
             elif not operation.qubits and last_gate_node not in (None, node):
@@ -450,6 +469,8 @@ def _place_annotations(
     gate_moment = 0  # the moment of the last gate
     coordinate_moment = 0  # the moment of the last coordinate annotation
     for node, group in itertools.groupby(zip(nodes, operations), key=operator.itemgetter(0)):
+        # a node with a gate keeps its moment, and another node joins the latest moment of the
+        # operations that it follows
         members = [operation for _, operation in group]
         moment = gate_moments.get(node)
         if moment is None:
@@ -464,6 +485,8 @@ def _place_annotations(
                         moment = max(moment, record_moments[record])
                 if operation.instruction.name in _COORDINATE_ANNOTATIONS:
                     moment = max(moment, coordinate_moment)
+
+        # record the moment of the node for the operations that follow it
         for operation in members:
             last_moment.update(dict.fromkeys(operation.qubits, moment))
             record_moments.extend([moment] * operation.num_records)
@@ -494,6 +517,7 @@ class _Operation:
     @staticmethod
     def from_instruction(instruction: stim.CircuitInstruction) -> _Operation:
         """The operation of an instruction with one gate application, annotation, or channel."""
+        # the distinct qubits of the targets, in order
         name = instruction.name
         targets = instruction.targets_copy()
         qubits = tuple(
@@ -503,6 +527,9 @@ class _Operation:
                 if target.qubit_value is not None and not target.is_combiner
             )
         )
+
+        # gates, observables, and noise channels act on their qubits, and gates without classical
+        # control and observables depend on their state
         is_gate = op_type(name) in GATE_OP_TYPES
         is_observable = name == "OBSERVABLE_INCLUDE"
         return _Operation(
@@ -548,6 +575,7 @@ def _get_segments(
     segment = _Segment([], [], [], [])
     num_records = 0
     for instruction in circuit:
+        # a REPEAT block ends the current segment, and a new one starts after it
         if isinstance(instruction, stim.CircuitRepeatBlock):
             yield segment
             repeat = next(moments, None)
@@ -556,6 +584,8 @@ def _get_segments(
             segment = _Segment([], [], [], [])
             num_records = 0
             continue
+
+        # other instructions join the segment with the moments of their operations
         operations = _get_operations([instruction], num_records)
         segment.instructions.append(instruction)
         segment.num_operations.append(len(operations))
@@ -602,6 +632,8 @@ def _split_operations(instruction: stim.CircuitInstruction) -> list[stim.Circuit
         return []
     if op_type(instruction.name) not in GATE_OP_TYPES:
         return [instruction]
+
+    # the targets of each gate application
     if op_type(instruction.name) in (CLIFFORD_PP, JUST_MEASURE_PP):
         # restore the combiners of each Pauli product, which target_groups drops
         groups = [
@@ -665,11 +697,14 @@ def _check_segment(
     record_moments: list[int] = []  # the moment of each measurement record of the segment
     coordinate_moment = 0
     for index, (operation, moment) in enumerate(zip(segment.operations, segment.moments)):
+        # operations on each qubit keep their order
         instruction = operation.instruction
         for qubit in operation.qubits:
             if moment < last_moment.get(qubit, 0):
                 raise ValueError(f"Operations on qubit {qubit} change order at {instruction}")
             last_moment[qubit] = moment
+
+        # no qubit has two operations that take time in one moment
         if operation.is_gate and takes_time(instruction):
             qubits = occupied.setdefault(moment, set())
             if not qubits.isdisjoint(operation.qubits):
@@ -678,6 +713,9 @@ def _check_segment(
                     f"Qubit {qubit} has two operations that take time in moment {moment}"
                 )
             qubits.update(operation.qubits)
+
+        # operations follow the measurements that they read, coordinate annotations keep their
+        # order, and chains of correlated errors stay in one moment
         for record in operation.records:
             if record >= 0 and moment < record_moments[record]:
                 raise ValueError(f"{instruction} precedes a measurement that it reads")
@@ -710,6 +748,7 @@ def _get_layers(
     Layers count moments from the start of a segment.  Fixed nodes keep their given layers, which
     must come from a valid schedule with the fewest layers.
     """
+    # the constraints on each node from the nodes before it (or, if reverse, after it)
     incoming: list[list[tuple[int, int]]] = [[] for _ in range(num_nodes)]
     for earlier, later, gap in edges:
         if reverse:
@@ -730,6 +769,7 @@ def _get_layers(
                 )
         return depths
 
+    # find the number of layers, then place nodes with the fixed ones counted from the same end
     depths = get_depths({})
     num_layers = max(depths, default=0) + 1
     fixed = fixed or {}
@@ -757,6 +797,7 @@ class _Layout:
         Returns:
             The layout, and whether it ends with a moment that a TICK has not ended.
         """
+        # a TICK ends the last moment of a segment before a REPEAT block
         circuit = stim.Circuit()
         is_open = False
         for item in _get_segments(schedule._circuit, schedule):
@@ -774,10 +815,14 @@ class _Layout:
 
     def lay_out_segment(self, segment: _Segment, circuit: stim.Circuit) -> None:
         """Lay out the operations of a segment by moment."""
+        # the index of the first record of each operation, in the order of the circuit
         start = self.num_records
         old_starts = [start]
         for operation in segment.operations:
             old_starts.append(old_starts[-1] + operation.num_records)
+
+        # append the operations by moment, and in circuit order within a moment, with a TICK
+        # before each new moment
         order = sorted(range(len(segment.operations)), key=lambda k: (segment.moments[k], k))
         moment = 0
         for index in order:
@@ -785,6 +830,8 @@ class _Layout:
             for _ in range(segment.moments[index] - moment):
                 circuit.append("TICK")
             moment = segment.moments[index]
+
+            # point the records that the operation reads at their new positions
             records = iter(operation.records)
             targets = []
             for target in operation.instruction.targets_copy():
@@ -798,6 +845,8 @@ class _Layout:
                     instruction.name, targets, instruction.gate_args_copy(), tag=instruction.tag
                 )
             )
+
+            # note the new positions of the records that the operation produces
             for old_record in range(old_start, old_start + operation.num_records):
                 self.old_to_new[old_record] = self.num_records
                 self.new_to_old.append(old_record)
@@ -811,6 +860,7 @@ class _Layout:
         The first iterations are written out if they read measurements before the block at other
         offsets than later iterations read those of earlier iterations.
         """
+        # find how many first iterations may read records before the block
         body = block.body_copy()
         records_per_iteration = body.num_measurements
         reach = _get_reach(body)
@@ -821,6 +871,8 @@ class _Layout:
             else 1 + math.ceil(reach / records_per_iteration)
         )
         num_distinct = min(num_distinct, block.repeat_count)
+
+        # lay out those iterations, grouping equal layouts
         iterations: list[tuple[stim.Circuit, int]] = []  # the layout of iterations, and counts
         start = self.num_records
         for _ in range(num_distinct):
@@ -855,7 +907,7 @@ class _Layout:
 def _get_reach(circuit: stim.Circuit) -> int:
     """How many records before the start of a circuit its instructions read, at most."""
     reach = 0
-    num_records = 0
+    num_records = 0  # the records of the circuit so far
     for instruction in circuit:
         if isinstance(instruction, stim.CircuitRepeatBlock):
             reach = max(reach, _get_reach(instruction.body_copy()) - num_records)

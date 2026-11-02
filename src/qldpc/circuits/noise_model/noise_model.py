@@ -294,6 +294,7 @@ class NoiseModel:
         without a ``__qualname__``, e.g. a callable object or ``functools.partial``), which makes
         the result non-eval-able.
         """
+        # list the fields that are set, in the order of the arguments of the constructor
         args = []
         if self.clifford_nq_error:
             args.append(f"clifford_nq_error={self.clifford_nq_error!r}")
@@ -346,9 +347,11 @@ class NoiseModel:
         Returns:
             The NoiseRule to apply for the given operation, or None for no noise.
         """
+        # annotations, noise channels, and classically controlled gates get no noise
         this_op_type = op_type(op.name)
         if this_op_type in (ANNOTATION, NOISE) or involves_classical_bits(op):
             return None
+
         # the number of qubits in the Pauli product of an MPP, SPP, or SPP_DAG instruction
         product_arity = (
             sum(1 for target in op.targets_copy() if not target.is_combiner)
@@ -356,12 +359,15 @@ class NoiseModel:
             else 0
         )
 
+        # a rule from rule_func comes first
         if self.rule_func is not None and this_op_type in GATE_OP_TYPES:
             rule = self.rule_func(op)
             if rule is not None:
                 _validate_custom_rule(rule, op)
                 return rule
 
+        # then a named rule, by the most specific name of the gate; a rule for every Pauli product
+        # (named MPP, SPP, or SPP_DAG) must fit this one
         if self.rules is not None:
             for name in get_gate_aliases(op):
                 rule = self.rules.get(name)
@@ -378,6 +384,7 @@ class NoiseModel:
                             raise ValueError(f"`reset_error` is not valid on {op.name!r}")
                     return rule
 
+        # then the default rule for unitary Cliffords on this number of qubits
         if this_op_type in (CLIFFORD_1Q, CLIFFORD_2Q, CLIFFORD_PP):
             if this_op_type == CLIFFORD_1Q:
                 num_qubits = 1
@@ -388,6 +395,7 @@ class NoiseModel:
             if num_qubits in self.clifford_nq_error:
                 return self.clifford_nq_error[num_qubits]
 
+        # then the default readout and reset errors
         if self.readout_error and op.name in JUST_MEASURE_OPS:
             return NoiseRule(readout_error=self.readout_error)
         if self.reset_error and op.name in JUST_RESET_OPS:
@@ -447,6 +455,7 @@ class NoiseModel:
         Raises:
             ValueError: If the schedule of the circuit is invalid (see ``Scheduler.validate``).
         """
+        # check the arguments
         if immune_op_tag == "":
             raise ValueError("immune_op_tag must be non-empty or None")
         if immune_qubit_tag == "":
@@ -469,6 +478,7 @@ class NoiseModel:
                 ),
                 stacklevel=2,
             )
+        # find the qubits that may idle, and those that are immune to noise
         stim_circuit = _as_stim_circuit(circuit)
         system_qubits = frozenset(
             range(stim_circuit.num_qubits) if system_qubits is None else system_qubits
@@ -478,11 +488,14 @@ class NoiseModel:
             if immune_qubit_tag is not None
             else frozenset()
         )
+
+        # with insert_ticks=True, add noise to the circuit laid out in the moments of its TICKs
         scheduler = self.scheduler
         if insert_ticks:  # DEPRECATED: see qldpc._deprecations
             scheduler = Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
             stim_circuit = scheduler.get_schedule(stim_circuit).to_circuit()[0]
 
+        # schedule the circuit if this model has idle noise, and add noise
         schedule = None
         if self.idle_error or self.quadratic_idle_error or self.additional_error_waiting_for_m_or_r:
             schedule = scheduler.get_schedule(stim_circuit)
@@ -498,6 +511,7 @@ class NoiseModel:
         )
         noisy_circuit = builder.get_noisy_circuit(stim_circuit, schedule)
 
+        # return a circuit of the type of the input
         if isinstance(circuit, stim.Circuit):
             return noisy_circuit
         output = type(circuit)()
@@ -509,6 +523,7 @@ class NoiseModel:
 
         Pauli channels are combined into one channel, and other noise is applied once per moment.
         """
+        # collect the Pauli channels of idle and waiting moments, and emit other noise per moment
         noise = stim.Circuit()
         channels: list[PauliChannel | PauliChannelSequence] = []
         for rule, count in (
@@ -526,6 +541,8 @@ class NoiseModel:
                     rule.emit_after(noise, [0], context="idle qubits")
         if self.quadratic_idle_error is not None and num_idle:
             channels.append(quadratic_idle_channel(self.quadratic_idle_error, num_idle))
+
+        # combine the Pauli channels into one
         if channels:
             channel = (
                 channels[0]
@@ -601,6 +618,7 @@ class _NoisyCircuitBuilder:
 
     def append_segment(self, segment: _Segment, output: stim.Circuit) -> None:
         """Add noise to the instructions of a segment, and append them to the output."""
+        # find the moments of the segment in which qubits wait for measurements or resets
         if self.timed:
             self.collapsing_moments = sorted(
                 {
@@ -609,6 +627,7 @@ class _NoisyCircuitBuilder:
                     if operation.is_collapsing
                 }
             )
+        # add noise to each gate, and emit the noise before each observable with Pauli targets
         start = 0
         for instruction, num_operations in zip(segment.instructions, segment.num_operations):
             operations = segment.operations[start : start + num_operations]
@@ -627,6 +646,8 @@ class _NoisyCircuitBuilder:
                 output.append(instruction)
             else:
                 output.append(instruction)
+
+        # the next segment starts after this one
         if self.timed:
             self.time += segment.duration
             self.num_collapsing += len(self.collapsing_moments)
@@ -644,6 +665,8 @@ class _NoisyCircuitBuilder:
         The gate is split only where the noise of an application must precede a later application.
         A noise rule is applied once to consecutive applications that share it.
         """
+        # the applications are appended in chunks, which consecutive applications join unless they
+        # must follow the noise of an application in the chunk
         rules = self.get_rules(instruction, operations)
         chunk: list[int] = []  # the indices of the applications in the chunk
         chunk_qubits: set[int] = set()  # qubits that the chunk acts on
@@ -651,9 +674,13 @@ class _NoisyCircuitBuilder:
         idle_noise: list[tuple[int, tuple[int, int]]] = []  # idle noise to precede the chunk
 
         def append_chunk() -> None:
+            # emit the noise that precedes the chunk
             for qubit, idle_run in idle_noise:
                 self.add_idle_noise(qubit, idle_run)
             self.flush(output, chunk_qubits)
+
+            # append consecutive applications with the same rule as one instruction, and pool their
+            # noise
             groups: list[tuple[NoiseRule | None, list[int]]] = []
             for index in chunk:
                 if groups and groups[-1][0] is rules[index]:
@@ -671,6 +698,7 @@ class _NoisyCircuitBuilder:
                 self.add_noise(after, qubits)
 
         for index, operation in enumerate(operations):
+            # end the idle runs of the qubits of the application
             qubits = operation.touched_qubits
             if times is None:
                 idle_runs = []
@@ -681,6 +709,8 @@ class _NoisyCircuitBuilder:
                     (qubit, self.end_idle_run(qubit, times[index], timed, operation.is_collapsing))
                     for qubit in run_qubits
                 ]
+
+            # start a new chunk if the application must follow noise on a qubit of the chunk
             if not chunk_qubits.isdisjoint(qubits) and (
                 not noisy_qubits.isdisjoint(qubits)
                 or any(any(idle_run) for qubit, idle_run in idle_runs if qubit in chunk_qubits)
@@ -698,10 +728,13 @@ class _NoisyCircuitBuilder:
         self, instruction: stim.CircuitInstruction, operations: list[_Operation]
     ) -> list[NoiseRule | None]:
         """The noise rule of each application of a gate, after accounting for immune qubits."""
+        # noiseless gates get no rules
         if self.noiseless or (
             self.immune_op_tag is not None and self.immune_op_tag in instruction.tag
         ):
             return [None] * len(operations)
+
+        # find the rule of one application where it is the same for all, or else of each
         if (
             self.noise_model.rule_func is None
             and op_type(instruction.name) not in (CLIFFORD_PP, JUST_MEASURE_PP)
@@ -747,10 +780,13 @@ class _NoisyCircuitBuilder:
         A REPEAT block tagged with ``immune_op_tag`` is noiseless: it is appended unchanged, the
         qubits that it acts on get no noise while it runs, and other qubits idle as usual.
         """
+        # emit the pending noise, and find the qubits whose idle runs the block ends
         self.flush(output)
         noiseless = self.immune_op_tag is not None and self.immune_op_tag in block.tag
         body = block.body_copy()
         qubits = sorted(_get_run_qubits(body, self.takes_time) & self.runs.keys())
+
+        # a noiseless block ends the idle runs of its qubits before it starts
         was_noiseless = self.noiseless
         if noiseless:
             for qubit in qubits:
@@ -758,6 +794,7 @@ class _NoisyCircuitBuilder:
             self.flush(output)
             self.noiseless = True
 
+        # add noise to the first two iterations
         iterations: list[stim.Circuit] = []
         for _ in range(min(2, block.repeat_count)):
             start = (self.time, self.num_collapsing)
@@ -766,6 +803,7 @@ class _NoisyCircuitBuilder:
             self.flush(iteration)
             iterations.append(iteration)
 
+        # move time and idle runs on by the remaining iterations, which repeat the last one
         num_remaining = block.repeat_count - len(iterations)
         duration, num_collapsing = self.time - start[0], self.num_collapsing - start[1]
         self.time += duration * num_remaining
@@ -774,6 +812,7 @@ class _NoisyCircuitBuilder:
             self.runs[qubit][0] += duration * num_remaining
             self.runs[qubit][1] += num_collapsing * num_remaining
 
+        # a noiseless block is appended unchanged, and the idle runs of its qubits start at its end
         if noiseless:
             self.noiseless = was_noiseless
             for qubit in qubits:
@@ -781,6 +820,7 @@ class _NoisyCircuitBuilder:
             output.append(block)
             return
 
+        # write out the first iteration if its noise differs from that of the others
         first, last = iterations[0], iterations[-1]
         if first != last:
             output += first
@@ -808,6 +848,9 @@ class _NoisyCircuitBuilder:
             run[2] |= timed
             run[3] |= collapsing
             return 0, 0
+
+        # the run lasts from the moment of the last operation, or from the next moment if that
+        # operation took time, until this moment
         num_collapsing = self.count_collapsing(moment)
         idle_run = moment - run[0] - run[2], num_collapsing - run[1] - run[3]
         run[:] = [moment, num_collapsing, timed, collapsing]

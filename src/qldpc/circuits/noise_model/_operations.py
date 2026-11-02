@@ -124,15 +124,20 @@ def get_gate_aliases(op: stim.CircuitInstruction) -> tuple[str, ...]:
     other gate, this is just stim's alias list, which begins with the canonical name.  Single-qubit
     ``MPP Z`` uses the canonical measurement name ``"M"``, making it equivalent to ``M`` / ``MZ``.
     """
+    # gates other than Pauli products have only stim's names
     aliases = _stim_aliases(op.name)
     if op.name not in ("MPP", "SPP", "SPP_DAG"):
         return aliases
+
+    # a Pauli product must be a single product, alternating Paulis and combiners
     prefix, suffix = ("S", "_DAG") if op.name == "SPP_DAG" else (op.name[0], "")
     targets = op.targets_copy()
     if not all(target.is_combiner for target in targets[1::2]):
         raise ValueError(
             f"{op.name} must be split into a single Pauli product before alias enumeration"
         )
+
+    # name the product by its Paulis, as in "MXYZ" or "SXY_DAG", before stim's names
     basis = ""
     for target in targets[::2]:
         if target.is_x_target:
@@ -154,6 +159,7 @@ def canonical_rule_key(op_name: str) -> str:
     try:
         gate_data = stim.gate_data(op_name)
     except IndexError:
+        # a name that stim does not know must name a Pauli product, as in "MXYZ" or "SXY_DAG"
         match = _BASIS_SUFFIXED_RULE_KEY.fullmatch(op_name)
         if match is None:
             raise ValueError(f"Unrecognized noise rule key {op_name!r}") from None
@@ -163,6 +169,7 @@ def canonical_rule_key(op_name: str) -> str:
         stim.gate_data(f"{prefix}PP{dag or ''}")
         return op_name
     else:
+        # a name that stim knows becomes its canonical name, which must name a gate
         canonical = gate_data.aliases[0]
         if op_type(canonical) not in GATE_OP_TYPES:
             raise ValueError(f"Noise rules cannot target {op_name!r}")
