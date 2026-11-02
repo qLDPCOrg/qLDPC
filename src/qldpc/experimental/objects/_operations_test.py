@@ -52,7 +52,7 @@ def test_programs_reproduce_circuits(rng: np.random.Generator, inverse: bool) ->
 
 
 def test_programs_of_t_gates() -> None:
-    circuit = stim.Circuit("S[T] 0 1\nSPP_DAG[T] !X0*Z1\nSPP Y1\nH[other] 0")
+    circuit = stim.Circuit("S[T] 0 1\nSPP_DAG[T:label] !X0*Z1\nSPP Y1\nH[other] 0")
     program = operations.get_program(circuit, 2)
     t_rotation, s_rotation, gate = operations.T_ROTATION, operations.S_ROTATION, operations.GATE
     assert program.kinds.tolist() == [t_rotation, t_rotation, t_rotation, s_rotation, gate]
@@ -76,6 +76,10 @@ def test_invalid_circuits() -> None:
         operations.get_program(stim.Circuit("M 0"), 1)
     with pytest.raises(ValueError, match="cannot be a T gate"):
         operations.get_program(stim.Circuit("H[T] 0"), 1)
+    with pytest.raises(ValueError, match="Tags other than T"):
+        operations.get_program(stim.Circuit("I[R_Z(theta=0.25*pi)] 0"), 1)
+    with pytest.raises(ValueError, match="Classically controlled"):
+        operations.get_program(stim.Circuit("CX sweep[0] 0"), 1)
     with pytest.raises(ValueError, match="repeat qubits"):
         operations.get_program(stim.Circuit("SPP[T] X0*X0"), 1)
     with pytest.raises(ValueError, match="acts on 2 > 1 qubits"):

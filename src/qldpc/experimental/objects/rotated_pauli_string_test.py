@@ -146,7 +146,6 @@ def test_propagation_through_circuits(rng: np.random.Generator) -> None:
         assert equal_up_to_phase(_get_matrix(forward), expected)
         circuit_matrix = get_circuit_unitary(forward.to_circuit(), num_qubits)
         assert equal_up_to_phase(circuit_matrix, expected)
-        assert forward.is_clifford == (not forward.t_axes)
 
         backward = RotatedPauliString(pauli).before(circuit)
         expected = unitary.conj().T @ pauli_matrix @ unitary

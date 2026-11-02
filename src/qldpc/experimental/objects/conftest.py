@@ -48,7 +48,7 @@ def get_random_pauli_string(
 def get_random_clifford_t_circuit(
     rng: np.random.Generator, num_qubits: int, num_operations: int, *, t_fraction: float = 0.3
 ) -> stim.Circuit:
-    """A random Clifford+T circuit with T gates tagged as in ``_operations``.
+    """A random Clifford+T circuit, as described in the docstring of ``RotatedPauliString``.
 
     The circuit mixes one- and two-qubit Clifford gates, π/2 and π/4 rotations about random Pauli
     products (``SPP``, ``SPP_DAG``, and their T-tagged versions), and T gates ``S[T]``/``S_DAG[T]``,

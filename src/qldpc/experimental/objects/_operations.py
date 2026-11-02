@@ -2,16 +2,9 @@
 
 """Parse Clifford+T circuits into programs of Clifford gates and Pauli rotations.
 
-Stim does not support T gates.  Following tsim, a Clifford+T circuit is represented by a
-``stim.Circuit`` in which T gates are encoded as the instructions ``S``, ``S_DAG``, ``SPP``, and
-``SPP_DAG`` with the tag ``T``.  Such an instruction stands for the π/4 rotation ``exp(-iπ a/8)``
-about each Pauli string ``a`` that the untagged instruction would rotate about by π/2, so ``S[T] q``
-encodes the T gate ``diag(1, e^{iπ/4})`` on qubit ``q``, up to a global phase.  Tsim's ``T`` and
-``TPP`` instructions become these tagged instructions.  Tags other than ``T`` are ignored.
-
-Stim itself ignores tags, and treats these instructions as the Clifford gates ``S`` and ``SPP``,
-so the operations here must not be handed back to stim.  ``get_program`` turns a circuit into a
-``Program`` of arrays that compiled code can apply without calling back into Python.
+Circuits encode T gates as described in the docstring of ``RotatedPauliString``.  ``get_program``
+turns a circuit into a ``Program`` of arrays that compiled code can apply without calling back into
+Python.
 """
 
 from __future__ import annotations
@@ -31,7 +24,9 @@ _ANNOTATIONS = frozenset(
 )
 # The instructions that are Pauli rotations, mapped to the sign of their rotation axes.
 _ROTATIONS = {"S": 1, "S_DAG": -1, "SPP": 1, "SPP_DAG": -1}
-# The tag of T gates.
+# Instructions whose meaning a tag can change, as tsim's tags for other rotations do.
+_TAGGABLE = frozenset({"I", *_ROTATIONS})
+# The tag of T gates, which may also carry a label, as in "T:label".
 T_TAG = "T"
 # The kinds of operations: a Clifford gate, a π/4 rotation (T-type), or a π/2 rotation (S-type).
 GATE = 0
@@ -104,8 +99,7 @@ def get_program(circuit: stim.Circuit, num_qubits: int, *, inverse: bool = False
     arrays of a program are read-only, since programs are shared.
 
     Args:
-        circuit: A stim circuit with only unitary instructions and annotations, with T gates
-            encoded as described in this module's docstring.
+        circuit: A Clifford+T circuit, as described in the docstring of ``RotatedPauliString``.
         num_qubits: The number of qubits of the program, at least that of the circuit.
         inverse: Whether to return the program of the inverse circuit instead.
 
@@ -113,9 +107,10 @@ def get_program(circuit: stim.Circuit, num_qubits: int, *, inverse: bool = False
         The program of the circuit.
 
     Raises:
-        ValueError: If the circuit has a non-unitary instruction, a T tag on an instruction that is
-            not a Pauli rotation, a Pauli product that repeats a qubit, or more qubits than
-            ``num_qubits``.
+        ValueError: If the circuit has a non-unitary instruction, a classically controlled gate, a T
+            tag on an instruction that is not a Pauli rotation, another tag on ``I``, ``S``,
+            ``S_DAG``, ``SPP``, or ``SPP_DAG``, a Pauli product that repeats a qubit, or more qubits
+            than ``num_qubits``.
     """
     if circuit.num_qubits > num_qubits:
         raise ValueError(f"The circuit acts on {circuit.num_qubits} > {num_qubits} qubits")
@@ -145,9 +140,17 @@ def _get_program(text: str, num_qubits: int, inverse: bool) -> Program:
         data = stim.gate_data(name)
         if not data.is_unitary:
             raise ValueError(f"Instruction is not unitary: {instruction}")
-        is_t_gate = instruction.tag == T_TAG
+        tag = instruction.tag
+        is_t_gate = tag == T_TAG or tag.startswith(T_TAG + ":")
         if is_t_gate and name not in _ROTATIONS:
             raise ValueError(f"Instruction cannot be a T gate: {instruction}")
+        if tag and not is_t_gate and name in _TAGGABLE:
+            raise ValueError(f"Tags other than T are not supported on {name}: {instruction}")
+        if any(
+            target.is_measurement_record_target or target.is_sweep_bit_target
+            for target in instruction.targets_copy()
+        ):
+            raise ValueError(f"Classically controlled gates are not supported: {instruction}")
         groups = instruction.target_groups()
         if inverse:
             groups = groups[::-1]

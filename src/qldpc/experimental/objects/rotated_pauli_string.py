@@ -105,12 +105,15 @@ class RotatedPauliString:
     form keeps all 15 rotations.
 
     Stim does not support T gates, so circuits are ``stim.Circuit`` objects in which, following
-    tsim, T gates are instructions with the tag ``T``.  Up to global phases, ``S[T]`` and
-    ``S_DAG[T]`` stand for the T gate ``R_{π/4}(Z)`` and its inverse on each target qubit, and
-    ``SPP[T]`` and ``SPP_DAG[T]`` stand for the rotation ``R_{π/4}(P)`` and its inverse about each
-    target Pauli product ``P``.  Objects with a ``stim_circuit`` attribute, such as tsim circuits,
-    are accepted as well.  Stim itself ignores tags, so it simulates these instructions as the
-    Clifford gates ``S``, ``S_DAG``, ``SPP``, and ``SPP_DAG``.
+    tsim, T gates are instructions with the tag ``T`` or a labeled tag ``T:<label>``.  Up to global
+    phases, ``S[T]`` and ``S_DAG[T]`` stand for the T gate ``R_{π/4}(Z)`` and its inverse on each
+    target qubit, and ``SPP[T]`` and ``SPP_DAG[T]`` stand for the rotation ``R_{π/4}(P)`` and its
+    inverse about each target Pauli product ``P``.  Objects with a ``stim_circuit`` attribute, such
+    as tsim circuits, are accepted as well.  Stim itself ignores tags, so it simulates these
+    instructions as the Clifford gates ``S``, ``S_DAG``, ``SPP``, and ``SPP_DAG``.  Circuits may
+    contain only unitary gates and annotations such as ``TICK``.  Classically controlled gates, and
+    other tags on ``I``, ``S``, ``S_DAG``, ``SPP``, and ``SPP_DAG``, which tsim uses for other
+    rotations, are rejected; tags on other gates are ignored.
 
     Args:
         pauli: A Pauli string, whose sign does not matter.  Default: the identity on no qubits.
@@ -261,6 +264,11 @@ class RotatedPauliString:
 
         The result is this operator ``V`` propagated forward through the circuit, as by
         ``stim.PauliString.after``, and acts on enough qubits for both ``V`` and the circuit.
+
+        Raises:
+            TypeError: If ``circuit`` is neither a ``stim.Circuit`` nor holds one.
+            ValueError: If the circuit is not a Clifford+T circuit as described in the class
+                docstring.
         """
         return self._conjugate(circuit, inverse=False)
 
@@ -269,6 +277,11 @@ class RotatedPauliString:
 
         The result is this operator ``V`` propagated backward through the circuit, as by
         ``stim.PauliString.before``, and acts on enough qubits for both ``V`` and the circuit.
+
+        Raises:
+            TypeError: If ``circuit`` is neither a ``stim.Circuit`` nor holds one.
+            ValueError: If the circuit is not a Clifford+T circuit as described in the class
+                docstring.
         """
         return self._conjugate(circuit, inverse=True)
 

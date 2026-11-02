@@ -4,10 +4,8 @@
 
 The dense matrices here cost memory and time exponential in the number of qubits, so they only check
 the scalable methods of qLDPC on a few qubits.  They share no code with the methods that they check,
-and parse T gates by themselves.  As in ``qldpc.experimental.objects.conftest``, matrices act on
-qubits in big-endian order.  Stim has no T gates, so, following tsim, T gates are the instructions
-``S``, ``S_DAG``, ``SPP``, and ``SPP_DAG`` with the tag ``T``: π/4 rotations about the Pauli strings
-that the untagged instructions would rotate about by π/2.
+and parse T gates, encoded as described in the docstring of ``RotatedPauliString``, independently.
+As in ``qldpc.experimental.objects.conftest``, matrices act on qubits in big-endian order.
 """
 
 from __future__ import annotations
@@ -45,7 +43,7 @@ def _get_instruction_unitary(
     instruction: stim.CircuitInstruction, num_qubits: int
 ) -> npt.NDArray[np.complex128]:
     """The unitary matrix of a unitary instruction, which may be a T gate, up to a global phase."""
-    if instruction.tag == "T":
+    if instruction.tag == "T" or instruction.tag.startswith("T:"):
         unitary = np.eye(2**num_qubits, dtype=np.complex128)
         for axis in _get_t_axes(instruction):
             unitary = get_rotation_matrix(axis, np.pi / 4, num_qubits) @ unitary
