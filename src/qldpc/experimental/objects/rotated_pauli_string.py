@@ -17,9 +17,7 @@ Up to global phases:
   ``SPP a``;
 - ``R_{π/4}(Z) = exp(-iπ Z/8)`` is the T gate.
 
-Litinski, "A Game of Surface Codes" (https://arxiv.org/abs/1808.02892), writes the angle in the
-exponent instead, so his Pauli product rotations ``a_{π/4}`` and ``a_{π/8}`` are ``R_{π/2}(a)`` and
-``R_{π/4}(a)``.  The rotations satisfy:
+The rotations satisfy:
 
 - ``R_{π/4}(a)² = R_{π/2}(a)`` and ``R_{π/4}(a) R_{π/4}(-a) = I``;
 - ``R_{π/2}(a) b R_{π/2}(a)† = -i a b`` for a Pauli string ``b`` that anticommutes with ``a``.
