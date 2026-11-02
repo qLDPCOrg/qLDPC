@@ -2,17 +2,22 @@
 
 """Bit-packed Pauli strings, and compiled kernels that multiply and conjugate them.
 
-A Pauli string on ``n`` qubits is stored as ``2 * W`` unsigned 64-bit words, where ``W = ceil(n /
-64)``.  Words ``[0, W)`` hold its X bits and words ``[W, 2W)`` its Z bits, with qubit ``q`` in bit
-``q % 64`` of word ``q // 64``.  A batch of Pauli strings is a 2D array with one string per row.
+A Pauli string on ``n`` qubits is stored as ``2W`` unsigned 64-bit words, where ``W = ceil(n/64)``:
 
-The phase of a Pauli string is an integer ``r`` modulo 4, so that bits ``(x, z)`` and phase ``r``
-represent the operator ``i^r X^x Z^z``, where ``X^x`` and ``Z^z`` are tensor products of
-single-qubit ``X`` and ``Z`` operators.  Since ``Y = i X Z``, a Hermitian Pauli string with sign
-``s = ±1`` has phase ``r = |x ∧ z| + 1 - s`` modulo 4, where ``|x ∧ z|`` is its number of ``Y``
-letters.  Products of Pauli strings follow ``X^a Z^b X^c Z^d = (-1)^{b·c} X^{a+c} Z^{b+d}``.
+- words ``0, ..., W - 1`` hold its X bits, and words ``W, ..., 2W - 1`` hold its Z bits;
+- qubit ``q`` is bit ``q % 64`` of word ``q // 64`` of each half.
 
-The kernels are compiled by numba.  The kernels that multiply or conjugate a Pauli string act on its
+A batch of Pauli strings is a 2D array with one string per row.
+
+Bits ``(x, z)`` and an integer phase ``r`` modulo 4 represent the operator ``i^r X^x Z^z``, where
+``X^x`` and ``Z^z`` are tensor products of single-qubit ``X`` and ``Z`` operators.  Since
+``Y = i X Z``:
+
+- a Hermitian Pauli string with sign ``s = ±1`` has phase ``r = |x ∧ z| + 1 - s`` modulo 4, where
+  ``|x ∧ z|`` is its number of ``Y`` letters;
+- products follow ``X^a Z^b X^c Z^d = (-1)^{b·c} X^{a+c} Z^{b+d}``.
+
+The kernels are compiled by numba.  Those that multiply or conjugate a Pauli string act on its
 words in place and return its new phase.
 """
 
