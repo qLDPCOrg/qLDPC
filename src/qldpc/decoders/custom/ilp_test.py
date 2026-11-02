@@ -13,8 +13,8 @@ import pytest
 import scipy.sparse
 
 from qldpc import decoders
+from qldpc.decoders._resolution import build_error_decoder
 from qldpc.decoders.conftest import ToyProblem
-from qldpc.decoders.construction._resolution import build_error_decoder
 from qldpc.decoders.custom import ilp
 from qldpc.decoders.custom.ilp import _get_decoder_ilp
 

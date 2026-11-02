@@ -9,8 +9,8 @@ import functools
 import numpy as np
 
 from qldpc import codes, decoders, math
+from qldpc.decoders._resolution import build_error_decoder
 from qldpc.decoders.conftest import SurfaceCodeProblem
-from qldpc.decoders.construction._resolution import build_error_decoder
 from qldpc.decoders.custom.guf import _get_decoder_guf
 
 

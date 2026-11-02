@@ -1,6 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Stim circuits: encoding, memory, noise, benchmarking, certification, and transversal gates."""
+"""Stim circuits: encoding, memory, noise, benchmarking, certification, and transversal gates.
+
+The top-level modules and subpackages of this package import each other in layers, from shared
+foundations to complete workflows: each imports only from itself and from lower layers, which rules
+out import cycles between them.  ``layering_test.py`` lists the layers and checks these imports,
+apart from any that are marked as exceptions.
+"""
 
 from typing import TYPE_CHECKING
 
@@ -16,6 +22,7 @@ from .bookkeeping import (
     MeasurementRecord,
     QubitIDs,
     Record,
+    get_unaddressed_measurements,
 )
 from .certification import (
     BoundedFaultPropagationCertificate,
@@ -27,9 +34,6 @@ from .common import (
     StimCircuitLike,
     StimCircuitProtocol,
     get_pauli_product_measurements,
-    get_unaddressed_measurements,
-    remap_qubit_target,
-    with_remapped_qubits,
 )
 from .encoding import (
     get_encoder_and_decoder,
@@ -64,6 +68,7 @@ from .noise_model import (
     SI1000NoiseModel,
     as_noiseless_circuit,
 )
+from .transforms import remap_qubit_target, transpile_to_cz, with_remapped_qubits
 from .transversal import (
     get_transversal_automorphism_group,
     get_transversal_circuit,
@@ -121,6 +126,7 @@ __all__ = [
     "get_unaddressed_measurements",
     "remap_qubit_target",
     "restrict_tableau",
+    "transpile_to_cz",
     "with_remapped_qubits",
 ]
 

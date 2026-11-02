@@ -14,7 +14,7 @@ import stim
 
 from qldpc import decoders
 from qldpc._deprecations import lookup
-from qldpc.decoders.construction._resolution import build_error_decoder, build_observable_decoder
+from qldpc.decoders._resolution import build_error_decoder, build_observable_decoder
 
 
 def test_legacy_observable_lookup_decoder() -> None:

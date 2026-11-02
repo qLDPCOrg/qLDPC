@@ -16,8 +16,8 @@ from typing import NamedTuple
 import numpy as np
 import numpy.typing as npt
 
+from qldpc._binary import get_rank_packed, popcount_word, trailing_zeros_word
 from qldpc._compilation import always_compiled
-from qldpc.codes.distance._binary import popcount_word, trailing_zeros_word
 from qldpc.codes.distance._bounded_weight_search import MinWeightBound, PauliCosetSearch
 
 # The peak number of bytes per pair of primitive faults while building a table of pairs: the hash
@@ -50,8 +50,8 @@ class Violation(NamedTuple):
     Attributes:
         fault_indices: The DEM indices of the primitive faults that make up the fault.
         syndrome: The packed syndrome of the fault's output error.
-        bound: The oracle's answer for that syndrome at the fault's fault weight, which gives an
-            error with the syndrome and a lower bound above the fault weight.
+        bound: The oracle's answer for this syndrome at the fault weight: a Pauli error with the
+            syndrome, and a lower bound on the residual weight that exceeds the fault weight.
     """
 
     fault_indices: tuple[int, ...]
@@ -63,8 +63,8 @@ def find_smallest_violation(
     flags: Sequence[int],
     syndromes: Sequence[int],
     stabilizers: npt.ArrayLike,
-    css_weight: bool,
     max_weight: int | None,
+    css_weight: bool,
     memory_limit: int = 2**30,  # 1 GiB
 ) -> Violation | None:
     """Find a violating accepted fault of the smallest fault weight, or None if there is none.
@@ -83,7 +83,8 @@ def find_smallest_violation(
             signatures.setdefault(signature, index)
 
     # An irreducible accepted fault has fault weight at most one more than the rank of the flags.
-    flag_rank = _get_binary_rank([flag for flag, _ in signatures])
+    distinct_flags = [flag for flag, _ in signatures]
+    flag_rank = get_rank_packed(_to_words(distinct_flags, _get_num_words(distinct_flags)))
     max_fault_weight = flag_rank + 1 if max_weight is None else min(max_weight, flag_rank + 1)
 
     oracle = PauliCosetSearch(stabilizers, css_weight=css_weight)
@@ -113,9 +114,9 @@ def _search_irreducible_faults(
         if failure is not None:
             return failure
 
-    # A primitive fault is heavy if its own error has no equivalent error of Pauli weight at most
-    # one, and light otherwise.  A fault that contains only light primitive faults cannot violate
-    # the bound, so without a heavy primitive fault there is nothing more to check.
+    # A primitive fault is heavy if its residual weight exceeds one, and light otherwise.  A fault
+    # that contains only light primitive faults cannot violate the bound, so without a heavy
+    # primitive fault there is nothing more to check.
     heavy: list[tuple[int, int, int, int]] = []
     light: list[tuple[int, int, int, int]] = []
     for flag, syndrome, index in flagged:
@@ -125,10 +126,10 @@ def _search_irreducible_faults(
     if not heavy:
         return None
 
-    # Give each primitive fault an error with its syndrome, of low Pauli weight so that the search
-    # can skip more faults.  The error of a light primitive fault has Pauli weight at most one.  A
-    # heavy primitive fault whose syndrome is the sum of those of two light primitive faults gets
-    # the product of their errors, which has Pauli weight at most two.
+    # Give each primitive fault a Pauli error with its syndrome, of low Pauli weight so that the
+    # search can skip more faults.  The Pauli error of a light primitive fault has Pauli weight at
+    # most one.  A heavy primitive fault whose syndrome is the sum of those of two light primitive
+    # faults gets the product of their Pauli errors, which has Pauli weight at most two.
     light_errors = {syndrome: error for _, syndrome, _, error in light}
     for jj, (flag, syndrome, index, _) in enumerate(heavy):
         for other, error in light_errors.items():
@@ -180,21 +181,6 @@ def _check_fault(
     return Violation(indices, syndrome, bound)
 
 
-def _get_binary_rank(columns: Sequence[int]) -> int:
-    """Get the GF(2) rank of binary columns that are packed into integers."""
-    # The basis holds columns with distinct leading bits, largest first.  Reducing a column by each
-    # basis column in turn clears these leading bits from it, so a nonzero result is independent of
-    # the basis.
-    basis: list[int] = []
-    for column in columns:
-        for row in basis:
-            column = min(column, column ^ row)
-        if column:
-            basis.append(column)
-            basis.sort(reverse=True)
-    return len(basis)
-
-
 ####################################################################################################
 # listing irreducible accepted faults
 
@@ -216,8 +202,8 @@ class FaultLister:
     Args:
         flags: The flags of each primitive fault, packed into an integer.
         syndromes: The syndrome of each primitive fault, packed into an integer.
-        representatives: For each primitive fault, an error with its syndrome, packed as in
-            ``PauliCosetSearch``.  Lighter errors let ``find_first`` skip more faults.
+        representatives: For each primitive fault, a Pauli error with its syndrome, packed as in
+            ``PauliCosetSearch``.  Lighter Pauli errors let ``find_first`` skip more faults.
         num_qubits: The number of output qubits.
         css_weight: Whether the Pauli weight is the CSS weight, or else the physical weight.
         num_starts: The number of primitive faults that a listed fault can start with.
@@ -291,8 +277,9 @@ class FaultLister:
         That fault had the same or a smaller fault weight, so this is exact if the fault weight
         never decreases from one call to the next, if every call uses the same ``find_violation``,
         and if a syndrome that does not violate the bound at one fault weight does not violate it at
-        any larger one, as for the bound ``μ(s) ≤ fault_weight``.  A call that finds a violation
-        clears the table, since it holds syndromes of faults that were not checked.
+        any larger one, as for the bound that the residual weight is at most the fault weight.  A
+        call that finds a violation clears the table, since it holds syndromes of faults that were
+        not checked.
 
         Returns:
             The positions of the primitive faults of the first violating fault and its syndrome, or

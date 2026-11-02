@@ -15,8 +15,8 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 ## Terms
 
 - **Sector:** a basis of the words that a search examines, with labels that tell nontrivial words from trivial ones, such as the logical operators of one type of a CSS code from its stabilizers.
-- **Information set:** the basis of a sector, row reduced so that a block of its columns forms an identity matrix.
-  `brouwer_zimmermann.md` calls this a search basis.
+- **Information set:** in the code, the basis of a sector, row reduced so that a block of its columns forms an identity matrix.
+  `brouwer_zimmermann.md` calls this basis a search basis, and uses "information set" for the block of columns itself.
 - **Basis family** (`BasisFamily`): the information sets that one search uses together, stacked into arrays.
 - **Certificate** (`Certificate`): a lower bound on the weight of the words that a search has not yet visited, which tells the search when it can stop.
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer.
@@ -36,7 +36,8 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
 | The MacWilliams counting method | `_counting/macwilliams.py` |
-| Binary algebra, bit packing, or bit counts | `_binary.py` |
+| Binary input checks, nested bases, or packed weights | `_binary.py` |
+| Bit packing, bit counts, or row reduction over GF(2), which other subpackages share | `src/qldpc/_binary.py` |
 | How numba code is compiled or cached | `src/qldpc/_compilation.py` |
 
 ## How the modules depend on each other
@@ -49,6 +50,7 @@ From the top:
 4. `_binary.py`, the foundation.
 
 A module imports only modules of its own level or below, except that `_counting/scan.py` takes `DistanceMethod` from `core.py` for an annotation.
+Modules of every level may also import `src/qldpc/_binary.py`, the bit-packed linear algebra over GF(2) that other subpackages share.
 Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py`, modules in `src/qldpc/circuits/certification/`, and the deprecation registry in `src/qldpc/_deprecations/core.py`, use private names of this package, so grep `src/qldpc` for a private name before you move or rename it.
 
 ## Compiled code

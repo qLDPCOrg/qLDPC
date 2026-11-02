@@ -33,9 +33,8 @@ import math
 import numpy as np
 import numpy.typing as npt
 
+from qldpc._binary import pack_bits, popcount_word, trailing_zeros_word
 from qldpc._compilation import always_compiled
-
-from .._binary import pack_bits, popcount_word, trailing_zeros_word
 
 _BinaryMatrix = npt.NDArray[np.uint8]
 

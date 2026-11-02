@@ -68,6 +68,32 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
     detector error model, where merged mechanisms are interchangeable and combining probabilities
     identifies the most likely logical class.  A parity-check matrix has no observables, so merging
     could report a column other than the most likely one, and it is disabled by default.
+
+    Args:
+        pcm_or_dem: A binary parity-check matrix or detector error model to decode.
+        error_channel: One probability for every matrix-column error, or one probability per
+            column.  Defaults to {PLACEHOLDER_ERROR_RATE}.  A DEM supplies its own
+            probabilities, so ``error_channel`` cannot be specified with one.
+        add_erasure_bit: Whether to append Tesseract's low-confidence flag to each result.
+        det_beam: Beam-search cutoff.
+        beam_climbing: Whether to retry with increasing beam sizes.
+        no_revisit_dets: Whether to avoid revisiting equal residual detector sets.
+        verbose: Whether Tesseract prints decoding diagnostics.
+        merge_errors: Whether to merge error mechanisms with identical detector and observable
+            flips, or None to merge only when decoding a detector error model.
+        pqlimit: Maximum number of nodes pushed into the priority queue.
+        det_orders: Explicit detector traversal permutations, or None to generate them.
+        det_penalty: Additional cost for each residual detection event.
+        create_visualization: Whether to retain visualization data.
+        sparsify_errors: Whether to activate selected high-degree errors per shot.
+        sparsify_base_degree: Maximum degree of errors that always remain active.
+        sparsify_max_degree: Maximum degree of optional errors, or -1 for no maximum.
+        sparsify_reactivate_limit: Maximum optional errors reactivated per shot, or -1 for
+            Tesseract's heuristic.
+        num_det_orders: Number of generated detector orders, or None for Tesseract's default.
+        det_order_method: Generated detector-order method, or None for Tesseract's default.
+        seed: Seed for generated detector orders, or None for Tesseract's default.
+        error_rate: Deprecated i.i.d. matrix error probability; use ``error_channel`` instead.
     """
 
     @format_docstring(PLACEHOLDER_ERROR_RATE=_PLACEHOLDER_ERROR_RATE)
@@ -95,34 +121,7 @@ class TesseractDecoder(ErrorDecoder, BatchObservableDecoder):
         seed: int | None = None,
         error_rate: float | None = None,  # DEPRECATED: see qldpc._deprecations
     ) -> None:
-        """Initialize a Tesseract decoder.
-
-        Args:
-            pcm_or_dem: A binary parity-check matrix or detector error model to decode.
-            error_channel: One probability for every matrix-column error, or one probability per
-                column.  Defaults to {PLACEHOLDER_ERROR_RATE}.  A DEM supplies its own
-                probabilities, so ``error_channel`` cannot be specified with one.
-            add_erasure_bit: Whether to append Tesseract's low-confidence flag to each result.
-            det_beam: Beam-search cutoff.
-            beam_climbing: Whether to retry with increasing beam sizes.
-            no_revisit_dets: Whether to avoid revisiting equal residual detector sets.
-            verbose: Whether Tesseract prints decoding diagnostics.
-            merge_errors: Whether to merge error mechanisms with identical detector and observable
-                flips, or None to merge only when decoding a detector error model.
-            pqlimit: Maximum number of nodes pushed into the priority queue.
-            det_orders: Explicit detector traversal permutations, or None to generate them.
-            det_penalty: Additional cost for each residual detection event.
-            create_visualization: Whether to retain visualization data.
-            sparsify_errors: Whether to activate selected high-degree errors per shot.
-            sparsify_base_degree: Maximum degree of errors that always remain active.
-            sparsify_max_degree: Maximum degree of optional errors, or -1 for no maximum.
-            sparsify_reactivate_limit: Maximum optional errors reactivated per shot, or -1 for
-                Tesseract's heuristic.
-            num_det_orders: Number of generated detector orders, or None for Tesseract's default.
-            det_order_method: Generated detector-order method, or None for Tesseract's default.
-            seed: Seed for generated detector orders, or None for Tesseract's default.
-            error_rate: Deprecated i.i.d. matrix error probability; use ``error_channel`` instead.
-        """
+        """Initialize a Tesseract decoder."""
         backend = _get_tesseract()
         is_dem = isinstance(pcm_or_dem, stim.DetectorErrorModel)
         # DEPRECATED: see qldpc._deprecations

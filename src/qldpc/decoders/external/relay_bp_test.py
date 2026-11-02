@@ -20,8 +20,8 @@ import stim
 
 from qldpc import decoders
 from qldpc.conftest import run_python
+from qldpc.decoders._resolution import build_error_decoder
 from qldpc.decoders.conftest import ToyProblem
-from qldpc.decoders.construction._resolution import build_error_decoder
 from qldpc.decoders.external.relay_bp import (
     RelayBPDecoder,
     _get_decoder_min_sum_bp,

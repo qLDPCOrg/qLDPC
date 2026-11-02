@@ -3,6 +3,7 @@
 """Unit tests for noise_model.py."""
 
 import copy
+import math
 import pickle
 import random
 
@@ -276,6 +277,76 @@ def test_aggregated_idle_depolarization(probability: float, moments: int) -> Non
     assert noisy.approx_equals(expected_circuit, atol=1e-12)
 
 
+def test_quadratic_idle_errors() -> None:
+    """Quadratic idle errors grow over each run of idle moments, and restart after an operation.
+
+    Over two idle moments, a flip probability ``p`` per moment becomes that of four moments of an
+    independent error, ``(1 - (1 - 2 * p)**4) / 2``.
+    """
+    circuit = stim.Circuit("H 0\nTICK\nH 1\nTICK\nH 1\nTICK\nH 0\nTICK\nH 1\nTICK\nM 0")
+    noisy = circuits.NoiseModel(quadratic_idle_error={"Z": 0.01}).noisy_circuit(circuit)
+    expected = stim.Circuit("""
+        H 0
+        Z_ERROR(0.01) 1
+        TICK
+        H 1
+        TICK
+        H 1
+        Z_ERROR(0.03881592) 0
+        TICK
+        H 0
+        Z_ERROR(0.01) 1
+        TICK
+        H 1
+        Z_ERROR(0.01) 0
+        TICK
+        M 0
+        Z_ERROR(0.01) 1
+    """)
+    assert noisy.approx_equals(expected, atol=1e-12)
+
+    # Custom idle fragments are still applied once per moment, and a float is a uniform channel.
+    model = circuits.NoiseModel(
+        idle_error=circuits.NoiseRule(after=stim.Circuit("X_ERROR(0.1) 0")),
+        quadratic_idle_error=0.03,
+    )
+    noisy = model.noisy_circuit(
+        stim.Circuit("H 0\nTICK\nH 1\nTICK\nH 1\nTICK\nH 0"), system_qubits=[0]
+    )
+    expected = stim.Circuit("""
+        H 0
+        TICK
+        H 1
+        X_ERROR(0.1) 0
+        TICK
+        H 1
+        X_ERROR(0.1) 0
+        DEPOLARIZE1(0.10962552) 0
+        TICK
+        H 0
+    """)
+    assert noisy.approx_equals(expected, atol=1e-12)
+
+    # Over a long idle run, the flip probability saturates: it is (1 - exp(-2)) / 2 rather than
+    # 1000**2 * 1e-6 = 1.  It is combined with the independent idle_error into one channel.
+    circuit = stim.Circuit("R 0\nTICK")
+    circuit.append(stim.CircuitRepeatBlock(1000, stim.Circuit("X 1\nTICK")))
+    circuit += stim.Circuit("M 0")
+    model = circuits.NoiseModel(idle_error={"X": 0.01}, quadratic_idle_error={"Z": 1e-6})
+    p_x, p_z = (1 - 0.98**1000) / 2, (1 - math.exp(-2)) / 2
+    expected = stim.Circuit(f"""
+        R 0
+        REPEAT 1000 {{
+            TICK
+            X 1
+        }}
+        PAULI_CHANNEL_1({p_x * (1 - p_z)}, {p_x * p_z}, {(1 - p_x) * p_z}) 0
+        TICK
+        M 0
+    """)
+    assert model.noisy_circuit(circuit, system_qubits=[0]).approx_equals(expected, atol=1e-6)
+
+
 def test_noise_commutes_with_flattening() -> None:
     """Adding noise to a circuit is equivalent to adding noise to its flattened circuit.
 
@@ -286,6 +357,7 @@ def test_noise_commutes_with_flattening() -> None:
         clifford_2q_error=0.02,
         readout_error=0.03,
         idle_error={"X": 0.005, "Z": 0.007},
+        quadratic_idle_error={"Z": 0.003},
         additional_error_waiting_for_m_or_r=0.04,
     )
     combined_idle_noise = circuits.NoiseModel(
@@ -904,10 +976,73 @@ def test_pauli_channel_idle_error_rejection() -> None:
         )
 
 
+def test_quadratic_idle_error_runs() -> None:
+    """An idle run continues past instructions that commute with Pauli errors.
+
+    Noise channels and classically controlled Paulis on an idle qubit do not depend on when a Pauli
+    error occurs, so the error of the qubit's whole run is the same as if they were absent.  A Pauli
+    annotation depends on that, so it ends the run.
+    """
+    noise_model = circuits.NoiseModel(quadratic_idle_error={"Z": 0.01})
+    step = "H 1\nTICK\n"
+
+    def get_error(interruption: str) -> float:
+        circuit = stim.Circuit(f"R 0\nTICK\n{step * 2}{interruption}\n{step * 3}M 0")
+        return _get_z_error(noise_model.noisy_circuit(circuit), 0)
+
+    for commuting in ["X_ERROR(0.2) 0", "M 2\nCX rec[-1] 0"]:
+        assert get_error(commuting) == pytest.approx((1 - 0.98**25) / 2)
+    q_2, q_3 = (1 - 0.98**4) / 2, (1 - 0.98**9) / 2
+    assert get_error("OBSERVABLE_INCLUDE(0) Z0") == pytest.approx(q_2 + q_3 - 2 * q_2 * q_3)
+
+    # a repeat block that applies noise to an idle qubit stays compact
+    circuit = stim.Circuit("R 0")
+    circuit.append(stim.CircuitRepeatBlock(10**4, stim.Circuit("TICK\nX_ERROR(0) 0\nH 1")))
+    noisy = noise_model.noisy_circuit(circuit)
+    assert len(str(noisy).splitlines()) < 20
+    assert _get_z_error(noisy, 0) == pytest.approx(0.5)
+
+
+def _get_z_error(circuit: stim.Circuit, qubit: int) -> float:
+    """The net probability of independent Z errors on a qubit."""
+    probability = 0.0
+    for instruction in circuit.flattened():
+        if instruction.name == "Z_ERROR" and stim.GateTarget(qubit) in instruction.targets_copy():
+            new = instruction.gate_args_copy()[0]
+            probability += new - 2 * probability * new
+    return probability
+
+
+def test_quadratic_idle_error_specifications() -> None:
+    """A quadratic idle error is a one-qubit Pauli channel that flips a qubit at most half the time.
+
+    Equivalent specifications give the same noise, including totals of 1/2 up to rounding.
+    """
+    circuit = stim.Circuit("H 0\nTICK\nH 1\nTICK\nH 1\nTICK\nH 0")
+    noisy = circuits.NoiseModel(quadratic_idle_error={"Z": 0.5}).noisy_circuit(circuit)
+    model = circuits.NoiseModel(quadratic_idle_error=circuits.PauliChannel({"Z": 0.5}))
+    assert model.noisy_circuit(circuit) == noisy
+    uniform = circuits.NoiseModel(quadratic_idle_error={"X": 1 / 6, "Y": 1 / 6, "Z": 1 / 6})
+    assert uniform.noisy_circuit(circuit) == circuits.NoiseModel(
+        quadratic_idle_error=0.5
+    ).noisy_circuit(circuit)
+    assert circuits.NoiseModel(quadratic_idle_error={"X": 0.25, "Z": 0.25 + 1e-16})
+    assert circuits.NoiseModel(quadratic_idle_error=False).quadratic_idle_error is None
+
+    sequence = circuits.PauliChannelSequence({"Z": 0.01})
+    for invalid in ({"X": 0.3, "Z": 0.3}, {"XY": 0.01}, sequence):
+        with pytest.raises(ValueError, match="quadratic_idle_error"):
+            circuits.NoiseModel(quadratic_idle_error=invalid)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        circuits.NoiseModel(quadratic_idle_error=True)
+
+
 def test_trivial_noise() -> None:
     """A NoiseModel with only a rule_func is truthy even before the func is consulted."""
     assert not bool(circuits.NoiseRule())
     assert not bool(circuits.NoiseModel())
+    assert not bool(circuits.NoiseModel(quadratic_idle_error=0))
+    assert bool(circuits.NoiseModel(quadratic_idle_error=0.01))
     assert bool(circuits.NoiseModel(rule_func=lambda op: None))
 
 
@@ -947,6 +1082,7 @@ def test_noise_model_serialization() -> None:
         readout_error=0.3,
         reset_error=0.4,
         idle_error=0.01,
+        quadratic_idle_error={"Z": 0.001},
         additional_error_waiting_for_m_or_r=0.02,
         rules={"SXY": circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(2, 0.05))},
     )
@@ -975,6 +1111,7 @@ def test_noise_model_str() -> None:
         readout_error=0.3,
         reset_error=0.4,
         idle_error=0.01,
+        quadratic_idle_error={"Z": 0.001},
         additional_error_waiting_for_m_or_r=0.02,
         rules={"M": circuits.NoiseRule(readout_error=0.05)},
     )
@@ -985,6 +1122,7 @@ def test_noise_model_str() -> None:
         "readout_error=0.3",
         "reset_error=0.4",
         "idle_error=",
+        "quadratic_idle_error=",
         "additional_error_waiting_for_m_or_r=",
         "rules={'M': NoiseRule(readout_error=0.05)}",
     ):

@@ -13,12 +13,11 @@ import numpy.typing as npt
 import pytest
 
 from qldpc import _compilation, codes
+from qldpc._binary import get_independent_rows, get_kernel
 from qldpc.objects import Pauli
 
-from . import _binary as binary
 from . import _bounded_weight_search, _information_sets
 from . import logical_counts as lc
-from ._binary import get_kernel
 from .core import DistanceMethod
 
 
@@ -67,7 +66,7 @@ def get_random_full_rank_matrix(
     """Return a random full-row-rank binary matrix with the requested row and column counts."""
     while True:
         matrix = rng.integers(0, 2, size=(rows, cols), dtype=np.uint8)
-        if len(binary.get_independent_rows(matrix)) == rows:
+        if len(get_independent_rows(matrix)) == rows:
             return matrix
 
 

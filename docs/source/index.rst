@@ -43,7 +43,7 @@ Where to go next
 * :doc:`Library map <library_map>` explains how qLDPC represents codes, what each package does, common tasks, and current limitations.
 * :doc:`Choosing a decoder <decoders>` explains error and observable decoding APIs.
 * :doc:`Adding a decoder <adding_decoders>` explains the shortest custom-decoder path and how to contribute a backend.
-* :doc:`Examples <examples/index>` walk from code construction through code-capacity and circuit-level simulations.
+* :doc:`Examples <examples/index>` walk from code construction through code-capacity and circuit-level simulations to exact fault-tolerance certificates.
 * :doc:`API reference <autoapi/index>` documents every public class and function.
 * Start with the `agent and contributor guide <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md>`_ before changing qLDPC, and use the :doc:`contributor reference <contributing>` for detailed rules and procedures.
 

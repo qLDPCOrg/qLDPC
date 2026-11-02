@@ -62,9 +62,10 @@ Alternatively, install only the extra needed for a specific decoder:
    python -m pip install 'qldpc[relay-bp]'
    python -m pip install 'qldpc[tesseract]'
 
-The `Tesseract <https://github.com/quantumlib/tesseract-decoder>`_ decoder requires CPython 3.12-3.14 on macOS arm64 or Linux x86-64.
+The `Tesseract <https://github.com/quantumlib/tesseract-decoder>`_ decoder requires CPython 3.12--3.14 on macOS arm64 or Linux x86-64.
 `Frontier <https://github.com/aleverrier/frontier>`_ is not published on PyPI and is not included in an extra.
-See :doc:`Choosing a decoder <decoders>` for backend capabilities and Frontier's manual build instructions.
+Building a Frontier decoder without Frontier installed raises an error that shows how to install the version that qLDPC is tested against.
+See :doc:`Choosing a decoder <decoders>` for backend capabilities.
 
 .. _installation-gap:
 

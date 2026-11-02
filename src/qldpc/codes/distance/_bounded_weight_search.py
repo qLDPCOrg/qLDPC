@@ -12,18 +12,11 @@ import numpy as np
 import numpy.typing as npt
 
 from qldpc import math
+from qldpc._binary import pack_bits, popcount_word, row_reduce_binary, trailing_zeros_word
 from qldpc._compilation import always_compiled
 
 from . import _information_sets
-from ._binary import (
-    as_binary_matrix,
-    assert_binary,
-    pack_bits,
-    popcount_word,
-    row_reduce_binary,
-    symplectic_to_hamming,
-    trailing_zeros_word,
-)
+from ._binary import as_binary_matrix, assert_binary, symplectic_to_hamming
 from ._information_sets import advance_support
 
 ####################################################################################################

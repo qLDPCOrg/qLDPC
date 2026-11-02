@@ -29,20 +29,20 @@ def test_selections_are_distinct_indices_of_prep_and_flag_detectors() -> None:
     """
     record = DetectorRecord({"prep": [0], "flags": [1, 2], "other": [3]})
 
-    def select(post_select: object, add_flags: bool = True) -> tuple[int, ...]:
-        return _post_selection.get_selected_detectors(
-            cast(Collection[int], post_select), record, add_flags
-        )
+    def select(post_select: object) -> tuple[int, ...]:
+        return _post_selection.get_selected_detectors(cast(Collection[int], post_select), record)
 
-    assert select("flags") == (1, 2)
+    assert select(None) == (1, 2)
     assert select(True) == (0, 1, 2)
     assert select(False) == ()
     assert select([2, -3, np.int64(0)]) == (0, 2)
-    for wrong_type in (0, [0.5], [True]):
+    for wrong_type in (0, "flags", [0.5], [True]):
         with pytest.raises(TypeError, match="post_select"):
             select(wrong_type)
-    for wrong_value in ("all", [3], [-4]):
+    for wrong_value in ([3], [-4]):
         with pytest.raises(ValueError):
             select(wrong_value)
-    with pytest.raises(ValueError, match="add_flags=True"):
-        select("flags", add_flags=False)
+
+    # Without added flags, the record has no flag detectors, so None selects nothing.
+    unflagged = DetectorRecord({"prep": [0], "flags": [], "other": [1]})
+    assert _post_selection.get_selected_detectors(None, unflagged) == ()

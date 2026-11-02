@@ -13,8 +13,8 @@ import pytest
 
 import qldpc
 from qldpc import _compilation
+from qldpc._binary import get_independent_rows
 
-from . import _binary as binary
 from . import _information_sets
 from .conftest import get_random_full_rank_matrix
 
@@ -114,7 +114,7 @@ def test_overlapping_family_certificates() -> None:
 
     # Label each row separately so its row operations can be checked.
     basis = np.asarray(qldpc.codes.HammingCode(4).generator, dtype=np.uint8)
-    basis = binary.get_independent_rows(basis)
+    basis = get_independent_rows(basis)
     labels = np.eye(len(basis), dtype=np.uint8)
     disjoint = _information_sets.get_disjoint_family(basis, labels)
     # One full set certifies a target of one after its first layer, which no replacement improves.
@@ -132,7 +132,7 @@ def test_overlapping_family_certificates() -> None:
 @pytest.mark.usefixtures("compilation_mode")
 def test_a_cheap_search_keeps_its_disjoint_basis_family() -> None:
     """No overlapping basis family is built if the work of the disjoint one is below the minimum."""
-    basis = binary.get_independent_rows(np.asarray(qldpc.codes.HammingCode(4).generator))
+    basis = get_independent_rows(np.asarray(qldpc.codes.HammingCode(4).generator))
     labels = np.eye(len(basis), dtype=np.uint8)
     disjoint = _information_sets.get_disjoint_family(basis, labels)
     assert not len(_get_overlapping_family(basis, labels, disjoint, 3).ranks)
@@ -207,7 +207,7 @@ def test_binomials_are_exact_where_they_fit_and_cannot_be_modified() -> None:
 @pytest.mark.parametrize("max_sets, num_sets", [(1, 0), (3, 0), (4, 4), (16, 4)])
 def test_the_size_limit_bounds_the_overlapping_basis_family(max_sets: int, num_sets: int) -> None:
     """A cheaper basis family of overlapping sets needs four sets, so a lower limit finds none."""
-    basis = binary.get_independent_rows(np.asarray(qldpc.codes.HammingCode(4).generator))
+    basis = get_independent_rows(np.asarray(qldpc.codes.HammingCode(4).generator))
     labels = np.eye(len(basis), dtype=np.uint8)
     disjoint = _information_sets.get_disjoint_family(basis, labels)
     overlapping = _get_overlapping_family(basis, labels, disjoint, 3, max_sets, minimum_work=0)
@@ -251,7 +251,7 @@ def test_functions_agree_in_plain_python_and_compiled(pytestconfig: pytest.Confi
     """Pruned and replacement basis families are identical, bit for bit, plain and compiled."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     # The Hamming code has an overlapping basis family that does less work.  Random bases rarely do.
-    hamming = binary.get_independent_rows(np.asarray(qldpc.codes.HammingCode(4).generator))
+    hamming = get_independent_rows(np.asarray(qldpc.codes.HammingCode(4).generator))
     cases: list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8] | None, int]] = [
         (hamming, np.eye(len(hamming), dtype=np.uint8), 3)
     ]

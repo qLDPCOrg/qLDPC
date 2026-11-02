@@ -296,6 +296,8 @@ Args:
         cannot ``build`` an error decoder, and does not support other non-default options.
     decompose_errors: Apply the decompositions suggested by a detector error model.
     ignore_non_graphlike_errors: Ignore mechanisms that trigger more than two detectors.
+        Otherwise, building a decoder for a matrix or model with such mechanisms (after any
+        decomposition) raises a ValueError.
     weights: Matching-edge weights for a matrix input.
     error_probabilities: Error probabilities for a matrix input.
     repetitions: Number of repeated matching rounds.

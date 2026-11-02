@@ -15,7 +15,8 @@ from qldpc._utils import get_external_caller_stacklevel
 from qldpc.objects import Pauli
 
 from .bookkeeping import QubitIDs
-from .common import _restrict_to_qubits, with_remapped_qubits
+from .common import _restrict_to_qubits
+from .transforms import with_remapped_qubits
 
 ####################################################################################################
 # encoding circuits, logical tableaus, and logical states
@@ -73,6 +74,17 @@ def get_encoding_circuit(code: codes.QuditCode, *, only_zero: bool = False) -> s
 
     .. warning::
         The resulting encoding circuit is not fault-tolerant.
+
+    Args:
+        code: The qubit code to encode into.
+        only_zero: If True, only require the circuit to prepare the all-0 logical state from an
+            all-0 input state.  Default: False.
+
+    Returns:
+        A Clifford circuit on qubits ``0, 1, ..., len(code) - 1``, without measurements.
+
+    Raises:
+        ValueError: If the code is not a qubit code.
     """
     return get_encoding_tableau(code, only_zero=only_zero).to_circuit()
 

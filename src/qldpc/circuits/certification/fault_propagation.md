@@ -2,7 +2,9 @@
 
 ## Purpose and scope
 
-A noisy Clifford circuit that prepares a stabilizer state has bounded fault propagation if every fault leaves an output error equivalent to an error whose Pauli weight is at most its fault weight.
+A noisy Clifford circuit that prepares a stabilizer state has bounded fault propagation if every fault has [residual weight](#syndromes-and-pauli-weight) at most its fault weight.
+Bounded fault propagation is a sufficient criterion for fault-tolerant state preparation (Definition 3 in Section 4.2 of [arXiv:0904.2557](https://arxiv.org/abs/0904.2557)): a few faults can leave only correspondingly few errors on the prepared state.
+The residual weight of a fault is the smallest Pauli weight of the Pauli error that the fault leaves on the output qubits, after multiplying that error by any stabilizer of the prepared state.
 With post-selection, only the faults that fire none of the post-selection detectors count.
 This guide explains why the certifier can decide this exactly, and how it searches for a violation.
 It is for contributors who need to understand or modify the certifier in this directory.
@@ -30,20 +32,22 @@ The **syndrome** of a Pauli error is the binary vector whose entry `i` is 1 if t
 Two errors are **equivalent** if they differ by an element of the stabilizer group, up to a phase, because then they leave the same state.
 Errors are equivalent exactly when they have the same syndrome, because an operator that commutes with `g_1, ..., g_n` is a stabilizer up to a phase.
 
-Let `S` be the **fault syndrome matrix**: an `n × N` binary matrix whose column `j` is the `n`-bit syndrome `s_j` of the output Pauli error induced by primitive fault `j`.
+The **output error** of a fault is the Pauli error that it leaves on the output qubits.
+Let `S` be the **fault syndrome matrix**: an `n × N` binary matrix whose column `j` is the `n`-bit syndrome `s_j` of the output error of primitive fault `j`.
 The syndrome of the output error of a fault `F` is then `S F`.
 
-The **Pauli weight** of an error is either its **physical weight**, the number of qubits that it acts on, or its **CSS weight** `max(|x|, |z|)`, where `x` and `z` are the X and Z support vectors of the error.
-For a syndrome `s`, let `μ(s)` be the smallest Pauli weight of an error with syndrome `s`, that is, of an error in that equivalence class.
-A fault `F` **violates** the fault propagation bound if `μ(S F) > |F|`.
+The **Pauli weight** of a Pauli error is either its **physical weight**, the number of qubits that it acts on, or its **CSS weight** `max(|x|, |z|)`, where `x` and `z` are the X and Z support vectors of the error.
+For a syndrome `s`, let `μ(s)` be the smallest Pauli weight of a Pauli error with syndrome `s`, that is, of a Pauli error in that equivalence class.
+The **residual weight** of a fault `F` is `μ(S F)`, the smallest Pauli weight of an error equivalent to its output error.
+A fault `F` **violates** the fault propagation bound if its residual weight exceeds its fault weight, `μ(S F) > |F|`.
 Fault propagation is bounded up to fault weight `K`, the largest fault weight to certify (a positive integer, or ∞ for no limit), if no nonzero accepted fault of fault weight at most `K` violates the bound.
 
-### Physical faults
+### Physical errors
 
-A physical fault is one case of one noise instruction of the circuit, such as one Pauli error of a `DEPOLARIZE1` instruction on one qubit.
-Stim merges physical faults that flip the same detectors and observables into one error mechanism, which does not change the result.
-A set of `t` physical faults has the same flags and syndrome as the sum of their error mechanisms, a fault of fault weight at most `t`, and each error mechanism is the effect of a single physical fault.
-So the smallest fault weight of a violating accepted fault is also the smallest number of physical faults that together pass post-selection and violate the bound.
+A **physical error** is one case of one noise instruction of the circuit, such as one Pauli error of a `DEPOLARIZE1` instruction on one qubit.
+Each error mechanism is the effect of a single physical error, and Stim merges physical errors that flip the same detectors and observables into one error mechanism, which does not change the result.
+A set of `t` physical errors therefore has the same flags and syndrome as the sum of their error mechanisms, which is a fault of fault weight at most `t`, and conversely every fault of fault weight `t` arises from `t` physical errors.
+So the smallest fault weight of a violating accepted fault is also the smallest number of physical errors that together pass post-selection and violate the bound.
 
 ## Facts that the search relies on
 
@@ -56,7 +60,7 @@ So `μ(S F) ≤ Σ μ(s_j)` over the primitive faults `j` of `F`.
 
 ### A violating fault contains a heavy primitive fault
 
-Call a primitive fault **heavy** if `μ(s_j) ≥ 2`.
+Call a primitive fault **heavy** if its residual weight is at least two, `μ(s_j) ≥ 2`, and **light** otherwise.
 By [subadditivity](#pauli-weight-is-subadditive), `μ(S F) ≤ |F|` if `F` contains no heavy primitive fault, since every term of the sum is then at most one.
 So every fault `F` that violates the bound contains a heavy primitive fault.
 
@@ -93,9 +97,9 @@ The search decides exactly whether `μ(S F) ≤ |F|` for a fault `F` with `Pauli
 It uses the same oracle, with the threshold one, to decide whether a primitive fault is heavy.
 The search skips the oracle for a fault `F` in two cases, each of which cannot hide a violation.
 
-1. A product of low-weight errors with syndromes `s_j`, one for each primitive fault `j` of `F`, has Pauli weight at most `|F|`.
-   That product has syndrome `S F`, so `F` satisfies the bound.
-2. A fault `G` that the search listed earlier has the syndrome `S F`.
+1. For each primitive fault `j`, the search keeps one Pauli error with syndrome `s_j`, its **representative**.
+   If the product of the representatives of the primitive faults of `F` has Pauli weight at most `|F|`, then `F` satisfies the bound, because that product has syndrome `S F`.
+2. If a fault `G` that the search listed earlier has the syndrome `S F`, then `F` cannot be the first violation.
    The search lists faults by increasing fault weight, so `|G| ≤ |F|`.
    If `G` violates the bound, the search stops there.
    Otherwise `μ(S F) = μ(S G) ≤ |G| ≤ |F|`, so `F` satisfies the bound.
@@ -116,14 +120,14 @@ Conversely, if `j_1 < ... < j_{m-1}` are independent and a later primitive fault
 So the irreducible accepted faults of fault weight `m ≥ 2` correspond one to one to the independent prefixes with a later primitive fault of matching flags, since the closing primitive fault is the last one in the order.
 
 Only a fault that [contains a heavy primitive fault](#a-violating-fault-contains-a-heavy-primitive-fault) can violate the bound.
-So the search builds only the prefixes that start with a heavy primitive fault.
-Since the heavy primitive faults come first, such a fault has a heavy `j_1`, so this lists each of them once and lists nothing else.
+Since the heavy primitive faults come first in the order, a fault contains a heavy primitive fault exactly when its `j_1` is heavy.
+So the search builds only the prefixes that start with a heavy primitive fault, which lists each such irreducible accepted fault once and lists nothing else.
 
 The search looks up the closing primitive fault in a table of the primitive faults, sorted by a 64-bit linear hash of their flags.
 Different flags can share a hash, so the search compares the flags of every primitive fault that it finds with the sum of the prefix flags.
 Most choices of `j_{m-1}` have no closing primitive fault, so for fault weight `m ≥ 4` the search saves time by choosing `j_{m-1}` and `j_m` together.
 Choosing them together removes about one factor of `N` (the number of primitive faults) from the search time, at the cost of a table whose size is quadratic in `N`.
-The search keeps a table of all pairs of these primitive faults, sorted by the hash of the sum of their flags, if the table fits within the memory limit, which it has first claim on.
+If it fits within the memory limit, the search keeps a table of all pairs of these primitive faults, sorted by the hash of the sum of their flags; this table has first claim on the memory limit.
 The hash is linear, so the hash of the sum of two flags is the sum of their hashes.
 For each choice of `j_1, ..., j_{m-2}`, the search looks up the pairs `j_{m-1} < j_m` with the hash of the flags of `j_1, ..., j_{m-2}`, keeps those that come after `j_{m-2}` and whose flags sum exactly to the flags of `j_1, ..., j_{m-2}`, and of these keeps the pairs for which the prefix is independent.
 The table keeps the pairs with each hash in lexicographic order, so the table lookup lists the same faults in the same order as a loop over `j_{m-1}`.
@@ -156,11 +160,11 @@ Since `|F| = |G| + |L0| + |L1|`, the fault `F` satisfies the bound whenever `μ(
 
 In the search order, the heavy primitive faults come before the light ones.
 So once a prefix contains a light primitive fault, every fault that extends the prefix has the same heavy part as the prefix, and contains every zero-syndrome light primitive fault of the prefix.
-The search could therefore skip such a prefix, together with every fault that extends it, if it finds an error with syndrome `S G` whose Pauli weight is at most `|G|` plus the number of zero-syndrome light primitive faults in the prefix.
+The search could therefore skip such a prefix, together with every fault that extends it, if it finds a Pauli error with syndrome `S G` whose Pauli weight is at most `|G|` plus the number of zero-syndrome light primitive faults in the prefix.
 Every skipped fault satisfies the bound, so skipping them would change neither the result nor the reported counterexample.
 
 The search does not use this rule, because the time that it saves does not justify the added complexity.
-A trial implementation in the compiled listing looked for such an error in the first two layers of the coset search of `PauliCosetSearch`, at each light primitive fault added to a prefix, and reused the answer for each heavy part.
+A trial implementation in the compiled listing looked for such a Pauli error in the first two layers of the coset search of `PauliCosetSearch`, at each light primitive fault added to a prefix, and reused the answer for each heavy part.
 On color-code state preparations, certifications up to fault weight four took about as long as without the rule.
 In benchmarks that treated every listed fault as satisfying the bound, so that the search listed every fault, the rule made the search 1.1 to 1.2 times faster at fault weight five, and 1.7 times faster at fault weight six.
 Two variants were slower: deciding exactly whether `μ(S G)` is small enough, and also applying the rule to closing primitive faults.

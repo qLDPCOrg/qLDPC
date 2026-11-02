@@ -110,15 +110,29 @@ flattened is dropped.
 
 ``idle_error`` applies to every qubit that is not operated on during a circuit moment.  When
 ``idle_error`` is a Pauli channel, consecutive idle errors on the same qubit are combined into one
-equivalent error that is emitted before the qubit is next used.  Custom Stim noise fragments are
-applied once per idle moment.  ``additional_error_waiting_for_m_or_r`` applies additional noise to
-non-collapsing qubits during a moment that contains a measurement or reset; it is always applied
-once per such moment.
+equivalent error that is emitted before the next instruction that depends on the state of the
+qubit, such as a gate, measurement, reset, or Pauli-target annotation.  Noise channels and
+classically controlled Paulis commute with Pauli errors, so they do not interrupt this combination.
+Custom Stim noise fragments are applied once per idle moment.
+``additional_error_waiting_for_m_or_r`` applies additional noise to non-collapsing qubits during a
+moment that contains a measurement or reset; it is always applied once per such moment.
 
 Explicit identity gates (``I`` and ``II``) are treated as idle for this accounting.  ``rules`` can
 append errors after these gates, and ``rule_func`` can select errors based on an identity's tag or
 encoded duration.  A rule returned by the callback takes precedence over a matching named rule.
 Identity rules and ``idle_error`` stack: when both match, both are applied.
+
+``quadratic_idle_error`` models idle errors from slow noise, such as a qubit frequency that
+fluctuates from one shot to the next.  Over a run of consecutive idle moments, such noise rotates a
+qubit about a fixed axis by an angle that grows linearly at a random rate.  Averaged over that
+(Gaussian) rate, the Pauli twirl of this rotation has a probability that grows quadratically while
+it is small and saturates at 1/2.  For a channel with several Paulis, the axis may vary from one run
+to the next, for example as a compiler changes the frame of a qubit, and the channel sets the mean
+squared components of the axis.  A run ends where the combined ``idle_error`` above is emitted.  In
+particular, a Pauli-target annotation in the middle of an idle period splits the run there, which
+underestimates the quadratic idle error of that period by up to a factor of two.  Runs are
+independent of each other, and every moment counts equally, regardless of its duration.
+The quadratic idle error of a run is combined with its ``idle_error`` into one equivalent error.
 
 .. rubric:: Attribution and license
 
