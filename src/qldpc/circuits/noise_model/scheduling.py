@@ -289,6 +289,7 @@ class _TickScheduler(Scheduler):
     single_qubit_gates_take_time: bool
 
     def get_schedule(self, circuit: StimCircuitLike) -> Schedule:
+        # schedule each segment between REPEAT blocks, and each REPEAT body recursively
         stim_circuit = _as_stim_circuit(circuit)
         moments: list[int | Schedule] = []
         for item in _get_segments(stim_circuit, None):
@@ -349,6 +350,7 @@ class _LayerScheduler(Scheduler):
     single_qubit_gates_take_time: bool
 
     def get_schedule(self, circuit: StimCircuitLike) -> Schedule:
+        # schedule each segment between REPEAT blocks, and each REPEAT body recursively
         stim_circuit = _as_stim_circuit(circuit)
         moments: list[int | Schedule] = []
         for item in _get_segments(stim_circuit, None):
@@ -876,7 +878,8 @@ class _Layout:
         body = block.body_copy()
         records_per_iteration = body.num_measurements
         reach = _get_reach(body)
-        # iterations from this one on read only records of earlier iterations of the block
+        # include the first steady iteration: it and every later iteration read only records of
+        # earlier iterations of the block
         num_distinct = (
             1
             if reach <= 0 or records_per_iteration == 0

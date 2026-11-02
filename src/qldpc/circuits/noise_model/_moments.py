@@ -19,6 +19,7 @@ from .channels import PauliChannel, PauliChannelSequence
 
 def get_immune_qubits(circuit: stim.Circuit, immune_qubit_tag: str) -> frozenset[int]:
     """Identify qubits declared immune to noise by tagged coordinate annotations."""
+    # search REPEAT bodies too, since tagged QUBIT_COORDS annotations may appear inside them
     immune_qubits: set[int] = set()
     for instruction in circuit:
         if isinstance(instruction, stim.CircuitRepeatBlock):

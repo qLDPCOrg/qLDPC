@@ -124,7 +124,7 @@ def get_gate_aliases(op: stim.CircuitInstruction) -> tuple[str, ...]:
     other gate, this is just stim's alias list, which begins with the canonical name.  Single-qubit
     ``MPP Z`` uses the canonical measurement name ``"M"``, making it equivalent to ``M`` / ``MZ``.
     """
-    # gates other than Pauli products have only stim's names
+    # start with stim's aliases, so that ordinary gates match their canonical name first
     aliases = _stim_aliases(op.name)
     if op.name not in ("MPP", "SPP", "SPP_DAG"):
         return aliases

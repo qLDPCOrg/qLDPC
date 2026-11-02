@@ -178,10 +178,10 @@ class NoiseModel:
         self.scheduler = Scheduler.asap() if scheduler is None else scheduler
         if rules is not None:
             normalized_rules: dict[str, NoiseRule] = {}
-            # Validate rules whose (arity, can_measure, can_reset) is known — fixed-arity stim gates
-            # and basis-suffixed rule keys (``"MXYZ"`` for MPP X*Y*Z, ``"SXY_DAG"`` for SPP_DAG
-            # X*Y).  Bare ``"MPP"`` / ``"SPP"`` / ``"SPP_DAG"`` are variable-arity and deferred to
-            # emission-time checks via ``emit_after``.
+            # Validate rules with fixed shapes now: fixed-arity stim gates and basis-suffixed rule
+            # keys (``"MXYZ"`` for MPP X*Y*Z, ``"SXY_DAG"`` for SPP_DAG X*Y).  Bare Pauli-product
+            # names (``"MPP"``, ``"SPP"``, ``"SPP_DAG"``) have variable arity, so validate them
+            # against each concrete product when the rule is selected.
             for op_name, rule in rules.items():
                 canonical_name = canonical_rule_key(op_name)
                 if canonical_name in normalized_rules:
@@ -258,7 +258,7 @@ class NoiseModel:
                     "`quadratic_idle_error` must have a total probability of at most 1/2"
                 )
             self.quadratic_idle_error = channel or None
-        # Guards done — now trivialize.
+        # After checking the arities of idle rules, drop those that add no error.
         self.idle_error = self.idle_error or None
         self.additional_error_waiting_for_m_or_r = self.additional_error_waiting_for_m_or_r or None
 
@@ -294,7 +294,7 @@ class NoiseModel:
         without a ``__qualname__``, e.g. a callable object or ``functools.partial``), which makes
         the result non-eval-able.
         """
-        # list the fields that are set, in the order of the arguments of the constructor
+        # list the fields that are set, in a fixed order that reads like a constructor call
         args = []
         if self.clifford_nq_error:
             args.append(f"clifford_nq_error={self.clifford_nq_error!r}")
@@ -455,7 +455,7 @@ class NoiseModel:
         Raises:
             ValueError: If the schedule of the circuit is invalid (see ``Scheduler.validate``).
         """
-        # check the arguments
+        # check the immunity tags, and handle the deprecated insert_ticks option
         if immune_op_tag == "":
             raise ValueError("immune_op_tag must be non-empty or None")
         if immune_qubit_tag == "":
@@ -489,7 +489,8 @@ class NoiseModel:
             else frozenset()
         )
 
-        # with insert_ticks=True, add noise to the circuit laid out in the moments of its TICKs
+        # for the deprecated insert_ticks=True, lay out the circuit with Scheduler.preserve_ticks
+        # before adding noise
         scheduler = self.scheduler
         if insert_ticks:  # DEPRECATED: see qldpc._deprecations
             scheduler = Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
@@ -637,7 +638,6 @@ class _NoisyCircuitBuilder:
             if operations and operations[0].is_gate:
                 self.append_gate(instruction, operations, times, output)
             elif operations and operations[0].touched_qubits:
-                # an observable with Pauli targets
                 qubits = operations[0].touched_qubits
                 if times is not None:
                     for qubit in qubits:
@@ -734,13 +734,13 @@ class _NoisyCircuitBuilder:
         ):
             return [None] * len(operations)
 
-        # find the rule of one application where it is the same for all, or else of each
+        # look up the rule once when the gate name determines it, then apply immunity to each
+        # application
         if (
             self.noise_model.rule_func is None
             and op_type(instruction.name) not in (CLIFFORD_PP, JUST_MEASURE_PP)
             and not involves_classical_bits(instruction)
         ):
-            # every application of this gate has the same rule
             rule = self.noise_model.get_noise_rule(operations[0].instruction)
             if rule is None or not self.immune_qubits:
                 return [rule] * len(operations)
