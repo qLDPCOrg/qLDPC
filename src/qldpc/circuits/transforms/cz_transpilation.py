@@ -5,19 +5,20 @@
 ``transpile_to_cz`` rewrites the untagged unitary gates of a noiseless circuit into CZ gates and
 single-qubit gates, as follows.
 
-- SWAP gates are free: instead of moving states between qubits, the transpiler relabels qubits, so
-  that SWAP gates and the SWAP parts of gates such as ISWAP leave the circuit, and each two-qubit
-  gate costs at most one CZ.  SWAP gates at the end of the circuit return all states to their
-  qubits.  Qubits that are immune to noise (as declared for ``NoiseModel.noisy_circuit``) are never
-  relabeled to qubits that are not, so a SWAP between them stays in the circuit.
+- Each two-qubit gate becomes single-qubit gates around at most one CZ, and possibly a SWAP.
 - Single-qubit gates are combined and delayed until a later instruction needs them.  Before a CZ,
   the delayed gate of a qubit splits into H, SQRT_X, or nothing, which is applied before the CZ,
   and a diagonal gate, possibly times X, which moves past the CZ.
 - Delayed gates merge into later single-qubit measurements, which change their bases and may
   invert their results, and into the Pauli targets of later observables.  Resets discard them.
+- SWAP gates are free: instead of moving states between qubits, the transpiler relabels qubits, so
+  that SWAP gates and the SWAP parts of gates such as ISWAP leave the circuit.  SWAP gates at the
+  end of the circuit return all states to their qubits.
 - Tagged instructions, such as noiseless instructions tagged with ``DEFAULT_IMMUNE_OP_TAG``, and
   multi-qubit measurements are copied as they are, after the delayed gates of their qubits, except
   that their qubit targets are relabeled.
+- Qubits that are immune to noise (as declared for ``NoiseModel.noisy_circuit``) are never
+  relabeled to qubits that are not, so a SWAP between them stays in the circuit.
 - ``REPEAT`` blocks are kept.  All delayed gates are applied and all qubit labels are restored
   before each ``REPEAT`` block and at the end of each iteration, with a warning if that adds gates.
   Flattening the circuit (with ``stim.Circuit.flattened``) avoids these gates.
