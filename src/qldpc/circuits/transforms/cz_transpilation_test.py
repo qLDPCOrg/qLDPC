@@ -35,13 +35,19 @@ def test_two_qubit_gates() -> None:
 
 @pytest.mark.filterwarnings("ignore:REPEAT support:UserWarning")
 def test_random_circuits(pytestconfig: pytest.Config) -> None:
-    """Random circuits are equivalent to their transpiled versions."""
+    """Random circuits are equivalent to their transpiled versions, with or without cleanup."""
     rng = random.Random(pytestconfig.getoption("randomly_seed"))
-    for _ in range(100):
+    for index in range(100):
         num_qubits = rng.randint(2, 4)
-        circuit = _get_random_circuit(rng, num_qubits, rng.randint(1, 20), allow_repeat=True)
+        allow_repeat = index % 2 == 0
+        circuit = _get_random_circuit(rng, num_qubits, rng.randint(1, 20), allow_repeat)
         immune_qubits = rng.sample(range(num_qubits), rng.randint(0, 2))
-        _assert_equivalent(circuit, transpile_to_cz(circuit, immune_qubits=immune_qubits))
+        for cleanup in (False, True):
+            transpiled = transpile_to_cz(circuit, immune_qubits=immune_qubits, cleanup=cleanup)
+            _assert_equivalent(circuit, transpiled)
+            # outside of REPEAT blocks, only H and SQRT_X come right before CZ gates
+            if not allow_repeat:
+                assert _get_gates_before_czs(transpiled) <= {"H", "SQRT_X"}
 
 
 def test_commute_through_cz() -> None:
@@ -60,6 +66,40 @@ def test_commute_through_cz() -> None:
     transpiled = transpile_to_cz(circuit)
     assert _get_tableau(transpiled, 3) == circuit.to_tableau()
     assert transpiled == stim.Circuit("CZ 0 1 1 2\nC_XYZ 0\nX 1\nZ 2")
+
+
+def test_cleanup() -> None:
+    """The cleanup cancels CZ pairs, merges gates into resets, and packs gates into layers."""
+    # CZ gates cancel if only diagonal gates separate them
+    assert transpile_to_cz(stim.Circuit("CX 0 1\nCX 0 1"), cleanup=False) == stim.Circuit(
+        "H 1\nCZ 0 1 0 1\nH 1"
+    )
+    assert transpile_to_cz(stim.Circuit("CX 0 1\nCX 0 1")) == stim.Circuit()
+    assert transpile_to_cz(stim.Circuit("CZ 0 1\nS 0\nCZ 0 1")) == stim.Circuit("S 0")
+    circuit = stim.Circuit("CZ 0 1\nSQRT_X 0\nCZ 0 1")
+    assert transpile_to_cz(circuit) == circuit
+
+    # gates right after untagged resets merge into them, leaving at most a Pauli gate
+    assert transpile_to_cz(stim.Circuit("R 0\nH 0\nCZ 0 1")) == stim.Circuit("RX 0\nCZ 0 1")
+    circuit = stim.Circuit("R 0\nSQRT_X 0\nCZ 0 1")
+    transpiled = transpile_to_cz(circuit)
+    _assert_equivalent(circuit, transpiled)
+    assert transpiled == stim.Circuit("RY 0\nCZ 0 1\nZ 0")
+    circuit = stim.Circuit("R[t] 0\nH 0\nCZ 0 1")
+    assert transpile_to_cz(circuit) == circuit
+
+    # gates are held past instructions that do not address their qubits
+    circuit = stim.Circuit("R 1\nSQRT_X 1\nCZ 1 0\nM 0\nCZ 1 0")
+    transpiled = transpile_to_cz(circuit)
+    _assert_equivalent(circuit, transpiled)
+    assert transpiled == stim.Circuit("RY 1\nCZ 1 0\nM 0\nCZ 1 0\nZ 1")
+
+    # CZ gates come as early as possible
+    circuit = stim.Circuit("CX 0 1\nCX 2 3\nCX 1 2")
+    assert transpile_to_cz(circuit, cleanup=False) == stim.Circuit(
+        "H 1\nCZ 0 1\nH 3\nCZ 2 3\nH 1 2\nCZ 1 2\nH 2 3"
+    )
+    assert transpile_to_cz(circuit) == stim.Circuit("H 1 3\nCZ 0 1 2 3\nH 1 2\nCZ 1 2\nH 2 3")
 
 
 def test_measurements_and_resets() -> None:
@@ -307,6 +347,22 @@ def _get_random_circuit(
             body = _get_random_circuit(rng, num_qubits, rng.randint(1, 6), allow_repeat=False)
             circuit.append(stim.CircuitRepeatBlock(rng.randint(1, 3), body))
     return circuit
+
+
+def _get_gates_before_czs(circuit: stim.Circuit) -> set[str]:
+    """The names of the untagged single-qubit gates that come right before CZ gates on a qubit."""
+    last_gates: dict[int, str | None] = {}
+    gates_before_czs = set()
+    for op in circuit.flattened():
+        data = stim.gate_data(op.name)
+        is_gate = data.is_unitary and data.is_single_qubit_gate and not op.tag
+        for group in op.target_groups():
+            qubits = [target.qubit_value for target in group if target.qubit_value is not None]
+            if op.name == "CZ" and not op.tag:
+                gates_before_czs |= {last_gates.get(qubit) for qubit in qubits}
+            for qubit in qubits:
+                last_gates[qubit] = op.name if is_gate else None
+    return {name for name in gates_before_czs if name is not None}
 
 
 def _get_tableau(circuit: stim.Circuit, num_qubits: int) -> stim.Tableau:

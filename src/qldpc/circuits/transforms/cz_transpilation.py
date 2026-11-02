@@ -25,6 +25,12 @@ single-qubit gates, as follows.
 - Detectors and the annotations ``QUBIT_COORDS``, ``SHIFT_COORDS``, and ``MPAD`` are copied as
   they are, so coordinates refer to the qubits of the output.  ``TICK`` instructions are dropped.
 
+By default, ``transpile_to_cz`` then cleans up the transpiled circuit.  Between instructions other
+than untagged unitary gates, which stay in place, the cleanup cancels pairs of CZ gates on the same
+qubits that only diagonal gates separate, merges the single-qubit gates right after untagged resets
+into the bases of these resets, and packs gates into layers, with CZ gates as early as possible and
+single-qubit gates as late as possible.
+
 Noise and untagged classically controlled, ``SPP``, and ``SPP_DAG`` gates are not supported.
 """
 
@@ -45,7 +51,7 @@ _PAULIS = "_XYZ"
 # The basis of each single-qubit measurement or measure-reset, and a Pauli that flips that basis.
 _MEASUREMENTS = {"M": "Z", "MX": "X", "MY": "Y", "MR": "Z", "MRX": "X", "MRY": "Y"}
 _FLIPS = {"X": "Z", "Y": "Z", "Z": "X"}
-_RESETS = frozenset({"R", "RX", "RY"})
+_RESETS = {"R": "Z", "RX": "X", "RY": "Y"}
 _MULTI_QUBIT_MEASUREMENTS = frozenset({"MPP", "MXX", "MYY", "MZZ"})
 # Instructions that are noisy if they have arguments, and instructions that are copied as they are.
 _NOISY_WITH_ARGUMENTS = frozenset({*_MEASUREMENTS, *_MULTI_QUBIT_MEASUREMENTS, "MPAD"})
@@ -62,6 +68,7 @@ def transpile_to_cz(
     *,
     immune_qubits: Collection[int] = (),
     immune_qubit_tag: str | None = DEFAULT_IMMUNE_QUBIT_TAG,
+    cleanup: bool = True,
 ) -> stim.Circuit:
     """Rewrite a noiseless circuit into CZ gates and single-qubit gates (see the module docstring).
 
@@ -75,6 +82,8 @@ def transpile_to_cz(
         immune_qubit_tag: If a ``QUBIT_COORDS`` annotation contains this string in its tag, its
             qubits are also immune to noise.  If None, no tag declares immune qubits.  Default:
             ``DEFAULT_IMMUNE_QUBIT_TAG``, as for ``NoiseModel.noisy_circuit``.
+        cleanup: If True, clean up the transpiled circuit (see the module docstring).  Default:
+            True.
 
     Returns:
         The transpiled circuit.
@@ -90,7 +99,7 @@ def transpile_to_cz(
     transpiler = _Transpiler(circuit.num_qubits, immune)
     transpiler.run(circuit)
     transpiler.settle()
-    return transpiler.circuit
+    return _clean_up(transpiler.circuit) if cleanup else transpiler.circuit
 
 
 class _Transpiler:
@@ -295,6 +304,139 @@ def _split_off_diagonal_part(gate: stim.Tableau) -> tuple[stim.Tableau, stim.Tab
     axis = _PAULIS[gate.inverse().z_output(0)[0]]
     first = _get_tableau(_AXIS_GATES[axis])
     return first, first.inverse().then(gate)
+
+
+####################################################################################################
+# cleanup
+
+
+def _clean_up(circuit: stim.Circuit) -> stim.Circuit:
+    """Clean up a transpiled circuit (see the module docstring).
+
+    Runs of untagged unitary gates are cleaned up one by one, and other instructions stay in place.
+    Single-qubit gates are held past instructions that do not address their qubits.
+    """
+    items: list[stim.CircuitInstruction | stim.CircuitRepeatBlock] = []
+    run: list[tuple[str, tuple[int, ...]]] = []
+    # the single-qubit gate that each qubit holds, and the index in items of the last untagged reset
+    # of each qubit, if nothing has acted on it since
+    held: dict[int, stim.Tableau] = {}
+    resets: dict[int, int] = {}
+    for item in circuit:
+        if isinstance(item, stim.CircuitInstruction) and _is_untagged_gate(item):
+            run += [(item.name, tuple(t.value for t in group)) for group in item.target_groups()]
+            continue
+        qubits = (
+            None
+            if isinstance(item, stim.CircuitRepeatBlock)
+            else {t.qubit_value for t in item.targets_copy() if t.qubit_value is not None}
+        )
+        _schedule(_cancel_cz_pairs(run), items, held, resets, release_qubits=qubits)
+        run = []
+        if isinstance(item, stim.CircuitRepeatBlock):
+            body = _clean_up(item.body_copy())
+            items.append(stim.CircuitRepeatBlock(item.repeat_count, body, tag=item.tag))
+            resets.clear()
+        elif item.name in _RESETS and not item.tag:
+            for target in item.targets_copy():
+                resets[target.value] = len(items)
+                items.append(stim.CircuitInstruction(item.name, [target]))
+        else:
+            items.append(item)
+            for target in item.targets_copy():
+                resets.pop(target.qubit_value, None)
+    _schedule(_cancel_cz_pairs(run), items, held, resets, release_qubits=None)
+
+    cleaned_circuit = stim.Circuit()
+    for item in items:
+        cleaned_circuit.append(item)
+    return cleaned_circuit
+
+
+def _is_untagged_gate(instruction: stim.CircuitInstruction) -> bool:
+    """Whether an instruction is an untagged unitary gate."""
+    return not instruction.tag and stim.gate_data(instruction.name).is_unitary
+
+
+def _cancel_cz_pairs(run: list[tuple[str, tuple[int, ...]]]) -> list[tuple[str, tuple[int, ...]]]:
+    """Remove the pairs of CZ gates on the same qubits that only diagonal gates separate."""
+    keep = [True] * len(run)
+    # the index of the last CZ on each pair of qubits, if only diagonal gates acted on them since
+    open_czs: dict[frozenset[int], int] = {}
+    for index, (name, qubits) in enumerate(run):
+        if name == "CZ" and frozenset(qubits) in open_czs:
+            keep[open_czs.pop(frozenset(qubits))] = keep[index] = False
+        elif name == "CZ":
+            open_czs[frozenset(qubits)] = index
+        elif len(qubits) > 1 or _get_tableau(name).z_output(0)[0] != 3:
+            for pair in [pair for pair in open_czs if not pair.isdisjoint(qubits)]:
+                del open_czs[pair]
+    return [gate for gate, kept in zip(run, keep) if kept]
+
+
+def _schedule(
+    run: list[tuple[str, tuple[int, ...]]],
+    items: list[stim.CircuitInstruction | stim.CircuitRepeatBlock],
+    held: dict[int, stim.Tableau],
+    resets: dict[int, int],
+    release_qubits: Collection[int] | None,
+) -> None:
+    """Append a run of gates to items in layers, merging gates into resets (see _clean_up).
+
+    Two-qubit gates come as early as possible, and single-qubit gates as late as possible: each
+    qubit holds its single-qubit gates until the next two-qubit gate on it.  At the end of the run,
+    the qubits in release_qubits (or all qubits, if None) release their held gates.
+    """
+    # each layer has single-qubit gates on qubits, followed by two-qubit gates
+    layers: list[tuple[dict[int, stim.Tableau], list[tuple[str, tuple[int, ...]]]]] = []
+    last_layers: dict[int, int] = {}
+
+    def release(qubit: int) -> stim.Tableau:
+        """Take the held gate of a qubit, after merging as much of it as possible into a reset."""
+        gate = held.pop(qubit, _get_tableau("I"))
+        if qubit in resets:
+            index = resets.pop(qubit)
+            name, gate = _merge_into_reset(items[index].name, gate)
+            items[index] = stim.CircuitInstruction(name, [qubit])
+        return gate
+
+    for name, qubits in run:
+        if len(qubits) == 1:
+            held[qubits[0]] = held.get(qubits[0], _get_tableau("I")).then(_get_tableau(name))
+            continue
+        layer = 1 + max(last_layers.get(qubit, -1) for qubit in qubits)
+        if layer == len(layers):
+            layers.append(({}, []))
+        gates = [release(qubit) for qubit in qubits]
+        if name == "CZ":
+            gates[0], gates[1], held[qubits[0]], held[qubits[1]] = _commute_through_cz(*gates)
+        for qubit, gate in zip(qubits, gates):
+            layers[layer][0][qubit] = gate
+            last_layers[qubit] = layer
+        layers[layer][1].append((name, qubits))
+    released = [q for q in sorted(held) if release_qubits is None or q in release_qubits]
+    layers.append(({qubit: release(qubit) for qubit in released}, []))
+
+    for single_qubit_gates, two_qubit_gates in layers:
+        for qubit, gate in single_qubit_gates.items():
+            if gate != _get_tableau("I"):
+                items.append(stim.CircuitInstruction(_get_gate_names()[_get_key(gate)], [qubit]))
+        for name, qubits in two_qubit_gates:
+            items.append(stim.CircuitInstruction(name, qubits))
+
+
+def _merge_into_reset(name: str, gate: stim.Tableau) -> tuple[str, stim.Tableau]:
+    """Merge a single-qubit gate into the reset before it.
+
+    Returns:
+        The name of a reset, and a Pauli gate to apply after it, which together act like the given
+        reset followed by the given gate.
+    """
+    # the gate maps the reset state to the +1 eigenstate of +/- the image of the reset basis
+    image = gate(stim.PauliString(_RESETS[name]))
+    axis = _PAULIS[image[0]]
+    new_name = next(name for name, basis in _RESETS.items() if basis == axis)
+    return new_name, _get_tableau(_FLIPS[axis]) if image.sign == -1 else _get_tableau("I")
 
 
 ####################################################################################################
