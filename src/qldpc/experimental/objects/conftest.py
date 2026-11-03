@@ -68,14 +68,13 @@ def get_random_clifford_t_circuit(
             targets: list[stim.GateTarget] = []
             for _ in range(rng.integers(1, 3)):
                 axis = get_random_pauli_string(rng, num_qubits, nontrivial=True)
-                product = stim.target_combined_paulis(axis * axis.sign, axis.sign == -1)
-                targets.extend(product)
+                targets.extend(stim.target_combined_paulis(axis * axis.sign, axis.sign == -1))
             circuit.append(name, targets, tag="T" if draw < t_fraction else "")
         else:
-            name, size = _CLIFFORD_GATES[rng.integers(len(_CLIFFORD_GATES))]
-            if size > num_qubits:
+            name, num_gate_qubits = _CLIFFORD_GATES[rng.integers(len(_CLIFFORD_GATES))]
+            if num_gate_qubits > num_qubits:
                 continue
-            qubits = rng.choice(num_qubits, size=size, replace=False)
+            qubits = rng.choice(num_qubits, size=num_gate_qubits, replace=False)
             circuit.append(name, qubits.tolist())
     return circuit
 

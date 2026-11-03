@@ -400,15 +400,15 @@ def _apply_packed_circuit(
     s_phases: npt.NDArray[np.int64],
     t_axes: npt.NDArray[np.uint64],
     t_phases: npt.NDArray[np.int64],
-    kinds: npt.NDArray[np.int64],
-    operands: npt.NDArray[np.int64],
+    operation_kinds: npt.NDArray[np.int64],
+    gate_or_rotation_indices: npt.NDArray[np.int64],
     gate_qubits: npt.NDArray[np.int64],
-    gate_tables: npt.NDArray[np.int64],
-    table_sizes: npt.NDArray[np.int64],
-    table_images: npt.NDArray[np.int64],
-    table_phases: npt.NDArray[np.int64],
-    axes: npt.NDArray[np.uint64],
-    axis_phases: npt.NDArray[np.int64],
+    gate_conjugation_tables: npt.NDArray[np.int64],
+    conjugation_table_num_qubits: npt.NDArray[np.int64],
+    conjugation_table_images: npt.NDArray[np.int64],
+    conjugation_table_image_phases: npt.NDArray[np.int64],
+    rotation_axes: npt.NDArray[np.uint64],
+    rotation_axis_phases: npt.NDArray[np.int64],
 ) -> _Arrays:
     """Conjugate ``V = T·S·P`` by the operations of a ``_packed_circuits.PackedCircuit``, in order.
 
@@ -421,71 +421,74 @@ def _apply_packed_circuit(
     num_words = len(core)
 
     # copy the axes into buffers with room for the axes that π/4 rotations add
-    num_t_rotations = 0
-    for kind in kinds:
+    num_circuit_t_rotations = 0
+    for kind in operation_kinds:
         if kind == _packed_circuits.T_ROTATION:
-            num_t_rotations += 1
+            num_circuit_t_rotations += 1
     core = core.copy()
-    s_buffer = np.empty((len(s_axes) + num_t_rotations, num_words), dtype=np.uint64)
+    s_buffer = np.empty((len(s_axes) + num_circuit_t_rotations, num_words), dtype=np.uint64)
     s_buffer[: len(s_axes)] = s_axes
-    s_buffer_phases = np.empty(len(s_axes) + num_t_rotations, dtype=np.int64)
+    s_buffer_phases = np.empty(len(s_axes) + num_circuit_t_rotations, dtype=np.int64)
     s_buffer_phases[: len(s_axes)] = s_phases
-    num_s = len(s_axes)
-    t_buffer = np.empty((len(t_axes) + 2 * num_t_rotations, num_words), dtype=np.uint64)
-    t_buffer_phases = np.empty(len(t_axes) + 2 * num_t_rotations, dtype=np.int64)
-    start = num_t_rotations  # the π/4 axes occupy rows start, ..., end - 1 of the buffer
-    end = start + len(t_axes)
-    t_buffer[start:end] = t_axes
-    t_buffer_phases[start:end] = t_phases
+    num_s_axes = len(s_axes)
+    t_buffer = np.empty((len(t_axes) + 2 * num_circuit_t_rotations, num_words), dtype=np.uint64)
+    t_buffer_phases = np.empty(len(t_axes) + 2 * num_circuit_t_rotations, dtype=np.int64)
+    t_start = num_circuit_t_rotations  # the π/4 axes occupy rows t_start, ..., t_end - 1
+    t_end = t_start + len(t_axes)
+    t_buffer[t_start:t_end] = t_axes
+    t_buffer_phases[t_start:t_end] = t_phases
 
     # conjugate by local gates, π/2 rotations, and π/4 rotations, in order
-    for index in range(len(kinds)):
-        operand = operands[index]
-        if kinds[index] == _packed_circuits.LOCAL_GATE:
-            table = gate_tables[operand]
-            qubits = gate_qubits[operand, : table_sizes[table]]
-            images = table_images[table]
-            phases = table_phases[table]
-            packed.conjugate_by_local_clifford(core, 0, qubits, images, phases)
-            for row in range(num_s):
-                s_buffer_phases[row] = packed.conjugate_by_local_clifford(
-                    s_buffer[row], s_buffer_phases[row], qubits, images, phases
+    for operation in range(len(operation_kinds)):
+        kind = operation_kinds[operation]
+        if kind == _packed_circuits.LOCAL_GATE:
+            gate = gate_or_rotation_indices[operation]
+            conjugation_table = gate_conjugation_tables[gate]
+            qubits = gate_qubits[gate, : conjugation_table_num_qubits[conjugation_table]]
+            images = conjugation_table_images[conjugation_table]
+            image_phases = conjugation_table_image_phases[conjugation_table]
+            packed.conjugate_by_local_gate(core, 0, qubits, images, image_phases)
+            for row in range(num_s_axes):
+                s_buffer_phases[row] = packed.conjugate_by_local_gate(
+                    s_buffer[row], s_buffer_phases[row], qubits, images, image_phases
                 )
-            for row in range(start, end):
-                t_buffer_phases[row] = packed.conjugate_by_local_clifford(
-                    t_buffer[row], t_buffer_phases[row], qubits, images, phases
+            for row in range(t_start, t_end):
+                t_buffer_phases[row] = packed.conjugate_by_local_gate(
+                    t_buffer[row], t_buffer_phases[row], qubits, images, image_phases
                 )
-        elif kinds[index] == _packed_circuits.S_ROTATION:
-            axis = axes[operand]
-            axis_phase = axis_phases[operand]
+        elif kind == _packed_circuits.S_ROTATION:
+            rotation = gate_or_rotation_indices[operation]
+            axis = rotation_axes[rotation]
+            axis_phase = rotation_axis_phases[rotation]
             packed.conjugate_by_s_rotation(core, 0, axis, axis_phase)
-            for row in range(num_s):
+            for row in range(num_s_axes):
                 s_buffer_phases[row] = packed.conjugate_by_s_rotation(
                     s_buffer[row], s_buffer_phases[row], axis, axis_phase
                 )
-            for row in range(start, end):
+            for row in range(t_start, t_end):
                 t_buffer_phases[row] = packed.conjugate_by_s_rotation(
                     t_buffer[row], t_buffer_phases[row], axis, axis_phase
                 )
         else:
-            num_s, start, end = _apply_t_rotation(
+            rotation = gate_or_rotation_indices[operation]
+            num_s_axes, t_start, t_end = _apply_t_rotation(
                 core,
                 s_buffer,
                 s_buffer_phases,
-                num_s,
+                num_s_axes,
                 t_buffer,
                 t_buffer_phases,
-                start,
-                end,
-                axes[operand],
-                axis_phases[operand],
+                t_start,
+                t_end,
+                rotation_axes[rotation],
+                rotation_axis_phases[rotation],
             )
     return (
         core,
-        s_buffer[:num_s].copy(),
-        s_buffer_phases[:num_s].copy(),
-        t_buffer[start:end].copy(),
-        t_buffer_phases[start:end].copy(),
+        s_buffer[:num_s_axes].copy(),
+        s_buffer_phases[:num_s_axes].copy(),
+        t_buffer[t_start:t_end].copy(),
+        t_buffer_phases[t_start:t_end].copy(),
     )
 
 
@@ -494,48 +497,50 @@ def _apply_t_rotation(
     core: npt.NDArray[np.uint64],
     s_axes: npt.NDArray[np.uint64],
     s_phases: npt.NDArray[np.int64],
-    num_s: int,
+    num_s_axes: int,
     t_axes: npt.NDArray[np.uint64],
     t_phases: npt.NDArray[np.int64],
-    start: int,
-    end: int,
+    t_start: int,
+    t_end: int,
     axis: npt.NDArray[np.uint64],
     axis_phase: int,
 ) -> tuple[int, int, int]:
     """Conjugate ``V = T·S·P`` by ``R_{π/4}(a)``, in buffers, and return their new bounds.
 
-    The π/2 axes of ``V`` are rows ``0, ..., num_s - 1`` of their buffer, and its π/4 axes are rows
-    ``start, ..., end - 1`` of theirs.  The rotation ``R_{π/4}(a)†`` on the right of ``V`` moves to
-    the right of ``T`` as ``R_{π/4}(b)``, where ``b = S P (-a) P† S†``.  If ``a`` commutes with
-    every π/4 axis, then ``R_{π/4}(a)`` moves to the left of ``R_{π/4}(b)``, and the two cancel if
-    ``b = -a``, or combine into the π/2 rotation ``R_{π/2}(a)``, which joins ``S``, if ``b = a``.
+    The π/2 axes of ``V`` are rows ``0, ..., num_s_axes - 1`` of their buffer, and its π/4 axes are
+    rows ``t_start, ..., t_end - 1`` of theirs.  The rotation ``R_{π/4}(a)†`` on the right of ``V``
+    moves to the right of ``T`` as ``R_{π/4}(b)``, where ``b = S P (-a) P† S†``.  If ``a`` commutes
+    with every π/4 axis, then ``R_{π/4}(a)`` moves to the left of ``R_{π/4}(b)``, and the two cancel
+    if ``b = -a``, or combine into the π/2 rotation ``R_{π/2}(a)``, which joins ``S``, if ``b = a``.
     Otherwise, the π/4 axes become ``b, t_1, ..., t_k, a``.
     """
     # move R_{π/4}(a)† on the right of V left past S P, where it becomes R_{π/4}(b)
-    moved = axis.copy()
+    moved_axis = axis.copy()
     moved_phase = axis_phase if packed.anticommutes(core, axis) else (axis_phase + 2) % 4
-    for row in range(num_s):
-        moved_phase = packed.conjugate_by_s_rotation(moved, moved_phase, s_axes[row], s_phases[row])
+    for row in range(num_s_axes):
+        moved_phase = packed.conjugate_by_s_rotation(
+            moved_axis, moved_phase, s_axes[row], s_phases[row]
+        )
 
     # cancel or merge the two rotations if R_{π/4}(a) commutes with every π/4 rotation and b = ±a
-    commutes = True
-    for row in range(start, end):
+    commutes_with_t_axes = True
+    for row in range(t_start, t_end):
         if packed.anticommutes(axis, t_axes[row]):
-            commutes = False
+            commutes_with_t_axes = False
             break
-    if commutes and _equal(moved, axis):
+    if commutes_with_t_axes and _equal(moved_axis, axis):
         if moved_phase != axis_phase:  # R_{π/4}(a) R_{π/4}(-a) = I
-            return num_s, start, end
-        s_axes[num_s] = axis
-        s_phases[num_s] = axis_phase
-        return num_s + 1, start, end
+            return num_s_axes, t_start, t_end
+        s_axes[num_s_axes] = axis
+        s_phases[num_s_axes] = axis_phase
+        return num_s_axes + 1, t_start, t_end
 
     # otherwise, add b as the innermost π/4 axis and a as the outermost one
-    t_axes[start - 1] = moved
-    t_phases[start - 1] = moved_phase
-    t_axes[end] = axis
-    t_phases[end] = axis_phase
-    return num_s, start - 1, end + 1
+    t_axes[t_start - 1] = moved_axis
+    t_phases[t_start - 1] = moved_phase
+    t_axes[t_end] = axis
+    t_phases[t_end] = axis_phase
+    return num_s_axes, t_start - 1, t_end + 1
 
 
 @always_compiled

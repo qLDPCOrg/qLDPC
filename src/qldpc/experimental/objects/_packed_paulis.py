@@ -178,7 +178,7 @@ def conjugate_by_s_rotation(
 
 
 @always_compiled(inline=True)
-def conjugate_by_local_clifford(
+def conjugate_by_local_gate(
     target: npt.NDArray[np.uint64],
     target_phase: int,
     qubits: npt.NDArray[np.int64],
@@ -187,33 +187,33 @@ def conjugate_by_local_clifford(
 ) -> int:
     """Conjugate ``target`` by a Clifford gate on a few qubits, given by its conjugation table.
 
-    The conjugation table, ``images`` and ``image_phases``, is that of ``get_clifford_gate_table``,
+    The conjugation table, ``images`` and ``image_phases``, is that of ``get_conjugation_table``,
     and ``qubits`` lists the qubits that the gate addresses, in order.
     """
     num_words = len(target) // 2
-    num_local = len(qubits)
+    num_gate_qubits = len(qubits)
 
     # read the index of the Pauli string of the target on the qubits of the gate
-    index = np.int64(0)
-    for position in range(num_local):
+    pauli_index = np.int64(0)
+    for position in range(num_gate_qubits):
         word = qubits[position] // 64
         shift = np.uint64(qubits[position] % 64)
-        index |= np.int64((target[word] >> shift) & np.uint64(1)) << position
-        index |= np.int64((target[num_words + word] >> shift) & np.uint64(1)) << (
-            num_local + position
+        pauli_index |= np.int64((target[word] >> shift) & np.uint64(1)) << position
+        pauli_index |= np.int64((target[num_words + word] >> shift) & np.uint64(1)) << (
+            num_gate_qubits + position
         )
 
     # overwrite the bits of those qubits with the image, and add its phase
-    image = images[index]
-    for position in range(num_local):
+    image = images[pauli_index]
+    for position in range(num_gate_qubits):
         word = qubits[position] // 64
         mask = np.uint64(1) << np.uint64(qubits[position] % 64)
-        for part in range(2):
-            if (image >> (part * num_local + position)) & 1:
-                target[part * num_words + word] |= mask
+        for half in range(2):
+            if (image >> (half * num_gate_qubits + position)) & 1:
+                target[half * num_words + word] |= mask
             else:
-                target[part * num_words + word] &= ~mask
-    return (target_phase + image_phases[index]) % 4
+                target[half * num_words + word] &= ~mask
+    return (target_phase + image_phases[pauli_index]) % 4
 
 
 ####################################################################################################
@@ -221,7 +221,7 @@ def conjugate_by_local_clifford(
 
 
 @functools.cache
-def get_clifford_gate_table(name: str) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+def get_conjugation_table(name: str) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
     """The conjugation table of a stim Clifford gate: the images of the Pauli strings on its qubits.
 
     A Pauli string ``X^x Z^z`` on the ``k`` qubits that the gate addresses has the index ``Σ_j (x_j
@@ -231,22 +231,22 @@ def get_clifford_gate_table(name: str) -> tuple[npt.NDArray[np.int64], npt.NDArr
     # list the images of the generators X_0, ..., X_{k-1}, Z_0, ..., Z_{k-1}, in the order of the
     # bits of an index
     tableau = stim.Tableau.from_named_gate(name)
-    num_local = len(tableau)
-    generators = [tableau.x_output(qubit) for qubit in range(num_local)]
-    generators += [tableau.z_output(qubit) for qubit in range(num_local)]
-    factors = [from_stim(generator, num_local) for generator in generators]
+    num_gate_qubits = len(tableau)
+    generator_images = [tableau.x_output(qubit) for qubit in range(num_gate_qubits)]
+    generator_images += [tableau.z_output(qubit) for qubit in range(num_gate_qubits)]
+    packed_generator_images = [from_stim(image, num_gate_qubits) for image in generator_images]
 
     # multiply the images of the generators in each index, in the order in which X^x Z^z lists
     # them; left multiplication builds the product from its last factor
-    images = np.zeros(4**num_local, dtype=np.int64)
-    image_phases = np.zeros(4**num_local, dtype=np.int64)
-    for index in range(4**num_local):
-        words = np.zeros(2, dtype=np.uint64)
-        phase = 0
-        for position in range(len(factors) - 1, -1, -1):
-            if (index >> position) & 1:
-                factor, factor_phase = factors[position]
-                phase = left_multiply(words, phase, factor, factor_phase)
-        images[index] = int(words[0]) | (int(words[1]) << num_local)
-        image_phases[index] = phase
+    images = np.zeros(4**num_gate_qubits, dtype=np.int64)
+    image_phases = np.zeros(4**num_gate_qubits, dtype=np.int64)
+    for pauli_index in range(4**num_gate_qubits):
+        image = np.zeros(2, dtype=np.uint64)
+        image_phase = 0
+        for generator in range(2 * num_gate_qubits - 1, -1, -1):
+            if (pauli_index >> generator) & 1:
+                generator_image, generator_phase = packed_generator_images[generator]
+                image_phase = left_multiply(image, image_phase, generator_image, generator_phase)
+        images[pauli_index] = int(image[0]) | (int(image[1]) << num_gate_qubits)
+        image_phases[pauli_index] = image_phase
     return images, image_phases

@@ -21,7 +21,7 @@ _KERNELS = (
     "anticommutes",
     "left_multiply",
     "conjugate_by_s_rotation",
-    "conjugate_by_local_clifford",
+    "conjugate_by_local_gate",
 )
 
 
@@ -112,22 +112,23 @@ def test_conjugation_by_s_rotations(rng: np.random.Generator) -> None:
 
 
 @pytest.mark.usefixtures("kernels")
-def test_conjugation_by_clifford_gates() -> None:
-    """Every entry of every gate table, at qubits on both sides of a word boundary."""
+def test_conjugation_by_local_gates() -> None:
+    """Every entry of every conjugation table, at qubits on both sides of a word boundary."""
     num_qubits = 130
-    letters = ("I", "X", "Y", "Z")
-    for name, data in stim.gate_data().items():
-        if not data.is_unitary or not (data.is_single_qubit_gate or data.is_two_qubit_gate):
+    for name, gate_data in stim.gate_data().items():
+        if not gate_data.is_unitary or not (
+            gate_data.is_single_qubit_gate or gate_data.is_two_qubit_gate
+        ):
             continue
-        qubits = [63] if data.is_single_qubit_gate else [64, 63]
-        images, image_phases = packed.get_clifford_gate_table(name)
-        for local in itertools.product(letters, repeat=len(qubits)):
+        qubits = [63] if gate_data.is_single_qubit_gate else [64, 63]
+        images, image_phases = packed.get_conjugation_table(name)
+        for letters in itertools.product("IXYZ", repeat=len(qubits)):
             target = stim.PauliString(num_qubits)
-            for qubit, letter in zip(qubits, local):
+            for qubit, letter in zip(qubits, letters):
                 target[qubit] = letter
             words, phase = packed.from_stim(target)
-            phase = packed.conjugate_by_local_clifford(
+            phase = packed.conjugate_by_local_gate(
                 words, phase, np.array(qubits, dtype=np.int64), images, image_phases
             )
             expected = target.after(stim.CircuitInstruction(name, qubits))
-            assert packed.to_stim(words, phase, num_qubits) == expected, (name, local)
+            assert packed.to_stim(words, phase, num_qubits) == expected, (name, letters)

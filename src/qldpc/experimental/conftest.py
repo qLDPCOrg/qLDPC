@@ -53,10 +53,13 @@ def _get_instruction_unitary(
 
     # pad the gate to num_qubits qubits, and take its big-endian matrix, which orders qubits as
     # get_pauli_matrix does
-    single = stim.Circuit()
-    single.append(instruction.name, instruction.targets_copy(), instruction.gate_args_copy())
-    single.append("I", [num_qubits - 1])
-    return np.asarray(single.to_tableau().to_unitary_matrix(endian="big"), dtype=np.complex128)
+    padded_circuit = stim.Circuit()
+    padded_circuit.append(
+        instruction.name, instruction.targets_copy(), instruction.gate_args_copy()
+    )
+    padded_circuit.append("I", [num_qubits - 1])
+    tableau = padded_circuit.to_tableau()
+    return np.asarray(tableau.to_unitary_matrix(endian="big"), dtype=np.complex128)
 
 
 def _get_t_axes(instruction: stim.CircuitInstruction) -> list[stim.PauliString]:
