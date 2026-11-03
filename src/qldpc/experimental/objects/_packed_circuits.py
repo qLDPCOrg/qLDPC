@@ -41,7 +41,7 @@ T_ROTATION = 2
 class PackedCircuit:
     """The unitary operations of a Clifford+T circuit, as arrays, in the order in which they act.
 
-    Operation ``k`` has the kind ``kinds[k]``, which is one of the following.
+    Each operation has one of the following kinds.
 
     - ``LOCAL_GATE``: one of stim's one- and two-qubit Clifford gates, including untagged ``S``
       gates, applied through a precomputed table of the images of Pauli operators.
@@ -50,13 +50,30 @@ class PackedCircuit:
       a table, so it is applied through its axis.
     - ``T_ROTATION``: a π/4 rotation about a Pauli product, from a T-tagged instruction.
 
-    The operand ``operands[k]`` of operation ``k`` indexes the local gates or the rotations.  Local
-    gate ``g`` acts on the qubits ``gate_qubits[g, :table_sizes[t]]`` through the table ``t =
-    gate_tables[g]`` of the gate ``table_names[t]``, whose Pauli images and phases are the rows
-    ``table_images[t]`` and ``table_phases[t]``, in the format of
-    ``_packed_paulis.get_clifford_gate_table``, padded to 16 entries.  Rotation ``r`` is about the
-    Hermitian Pauli string with packed bits ``axes[r]`` and phase ``axis_phases[r]``, by π/2 or π/4
-    according to its kind.
+    Local gates and rotations are numbered separately, in the order in which they act, and the
+    arrays of local gates and of rotations are indexed by these numbers.  Local gates of the same
+    stim gate share a table.  All arrays are read-only, since packed circuits are cached and shared.
+
+    Attributes:
+        num_qubits: The number of qubits of the packed circuit, which is at least the number of
+            qubits that the circuit acts on.
+        kinds: The kind of each operation, ``LOCAL_GATE``, ``S_ROTATION``, or ``T_ROTATION``.
+        operands: For each operation, its index among the local gates if it is a local gate, and
+            among the rotations otherwise.
+        gate_qubits: For each local gate, a row of its qubits, with ``-1`` in place of the second
+            qubit of a single-qubit gate.
+        gate_tables: For each local gate, the index of its table.
+        table_names: For each table, the name of its stim gate, such as ``"CX"``.
+        table_sizes: For each table, the number of qubits of its gate, which is 1 or 2.
+        table_images: For each table, a row with the index of the image of each Pauli string on the
+            gate's qubits, in the format of ``_packed_paulis.get_clifford_gate_table``, padded with
+            zeros to 16 entries.
+        table_phases: For each table, a row with the phases of these images, padded in the same
+            way.
+        axes: For each rotation, a row with the packed bits of its axis, a Hermitian Pauli string
+            on ``num_qubits`` qubits, in the layout of ``_packed_paulis``.
+        axis_phases: For each rotation, the phase of its axis, in the convention of
+            ``_packed_paulis``, which also carries the sign of the axis.
     """
 
     num_qubits: int
