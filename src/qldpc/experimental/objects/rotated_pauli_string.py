@@ -402,9 +402,8 @@ def _apply_packed_circuit(
     t_axes: npt.NDArray[np.uint64],
     t_phases: npt.NDArray[np.int64],
     operation_types: npt.NDArray[np.int64],
-    gate_or_rotation_indices: npt.NDArray[np.int64],
-    gate_qubits: npt.NDArray[np.int64],
-    gate_conjugation_table_indices: npt.NDArray[np.int64],
+    operation_qubits: npt.NDArray[np.int64],
+    operation_indices: npt.NDArray[np.int64],
     conjugation_table_images: npt.NDArray[np.int64],
     conjugation_table_image_phases: npt.NDArray[np.int64],
     rotation_axes: npt.NDArray[np.uint64],
@@ -446,10 +445,9 @@ def _apply_packed_circuit(
         if operation_type == _packed_circuits.LOCAL_GATE:
             # conjugate by a local gate through its conjugation table; the row of qubits of a
             # single-qubit gate ends in -1
-            gate = gate_or_rotation_indices[operation]
-            conjugation_table = gate_conjugation_table_indices[gate]
-            num_gate_qubits = 1 if gate_qubits[gate, 1] < 0 else 2
-            qubits = gate_qubits[gate, :num_gate_qubits]
+            conjugation_table = operation_indices[operation]
+            num_gate_qubits = 1 if operation_qubits[operation, 1] < 0 else 2
+            qubits = operation_qubits[operation, :num_gate_qubits]
             images = conjugation_table_images[conjugation_table]
             image_phases = conjugation_table_image_phases[conjugation_table]
             packed.conjugate_by_local_gate(core, 0, qubits, images, image_phases)
@@ -463,7 +461,7 @@ def _apply_packed_circuit(
                 )
         elif operation_type == _packed_circuits.S_ROTATION:
             # conjugate by a π/2 rotation through its axis
-            rotation = gate_or_rotation_indices[operation]
+            rotation = operation_indices[operation]
             axis = rotation_axes[rotation]
             axis_phase = rotation_axis_phases[rotation]
             packed.conjugate_by_s_rotation(core, 0, axis, axis_phase)
@@ -477,7 +475,7 @@ def _apply_packed_circuit(
                 )
         else:
             # conjugate by a π/4 rotation, which can add axes
-            rotation = gate_or_rotation_indices[operation]
+            rotation = operation_indices[operation]
             num_s_axes, t_start, t_end = _apply_t_rotation(
                 core,
                 s_buffer,

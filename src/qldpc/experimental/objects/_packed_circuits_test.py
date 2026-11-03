@@ -34,15 +34,16 @@ def _get_matrices(
     """
     num_qubits = packed_circuit.num_qubits
     matrices = []
-    for operation_type, gate_or_rotation in zip(
-        packed_circuit.operation_types, packed_circuit.gate_or_rotation_indices
+    for operation_type, operation_qubits, operation_index in zip(
+        packed_circuit.operation_types,
+        packed_circuit.operation_qubits,
+        packed_circuit.operation_indices,
     ):
         if operation_type == packed_circuits.LOCAL_GATE:
             # read the images of the generators from the conjugation table of the local gate, whose
             # row of qubits ends in -1 if it is a single-qubit gate
-            gate_qubits = packed_circuit.gate_qubits[gate_or_rotation]
-            qubits = gate_qubits[gate_qubits >= 0].tolist()
-            conjugation_table = packed_circuit.gate_conjugation_table_indices[gate_or_rotation]
+            qubits = operation_qubits[operation_qubits >= 0].tolist()
+            conjugation_table = operation_index
             images = packed_circuit.conjugation_table_images[conjugation_table]
             image_phases = packed_circuit.conjugation_table_image_phases[conjugation_table]
             generator_images = []
@@ -63,8 +64,8 @@ def _get_matrices(
             matrices.append(get_circuit_unitary(circuit, num_qubits))
         else:
             axis = packed.to_stim(
-                packed_circuit.rotation_axes[gate_or_rotation],
-                int(packed_circuit.rotation_axis_phases[gate_or_rotation]),
+                packed_circuit.rotation_axes[operation_index],
+                int(packed_circuit.rotation_axis_phases[operation_index]),
                 num_qubits,
             )
             matrices.append(get_rotation_matrix(axis, _ANGLES[int(operation_type)], num_qubits))
@@ -99,10 +100,11 @@ def test_conjugation_tables_of_packed_circuits(inverse: bool) -> None:
     # reverse order, so the conjugation table of a gate maps a Pauli string as conjugation by its
     # instruction does, or for the inverse circuit as conjugation by the inverse of its instruction
     instructions = list(circuit)[::-1] if inverse else list(circuit)
-    for gate, instruction in enumerate(instructions):
+    assert packed_circuit.operation_types.tolist() == [packed_circuits.LOCAL_GATE] * len(circuit)
+    for operation, instruction in enumerate(instructions):
         qubits = np.array([target.value for target in instruction.targets_copy()], dtype=np.int64)
-        assert packed_circuit.gate_qubits[gate, : len(qubits)].tolist() == qubits.tolist()
-        conjugation_table = packed_circuit.gate_conjugation_table_indices[gate]
+        assert packed_circuit.operation_qubits[operation, : len(qubits)].tolist() == qubits.tolist()
+        conjugation_table = packed_circuit.operation_indices[operation]
         for letters in itertools.product("IXYZ", repeat=len(qubits)):
             string = stim.PauliString("".join(letters))
             words, phase = packed.from_stim(string)
@@ -136,7 +138,8 @@ def test_packed_circuits_of_tagged_instructions() -> None:
     ]
     assert axes == [stim.PauliString(axis) for axis in ("+Z_", "+_Z", "+XZ", "+_Y")]
     images, image_phases = packed.get_conjugation_table("H")
-    assert packed_circuit.gate_qubits.tolist() == [[0, -1]]
+    assert packed_circuit.operation_qubits.tolist() == [[-1, -1]] * 4 + [[0, -1]]
+    assert packed_circuit.operation_indices.tolist() == [0, 1, 2, 3, 0]
     assert packed_circuit.conjugation_table_images[:, : len(images)].tolist() == [images.tolist()]
     assert packed_circuit.conjugation_table_image_phases[:, : len(images)].tolist() == [
         image_phases.tolist()
