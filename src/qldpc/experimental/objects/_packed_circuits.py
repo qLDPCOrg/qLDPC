@@ -150,24 +150,26 @@ def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> Pa
     rotation_axes: list[stim.PauliString] = []
     gate_indices = packed.get_conjugation_tables().gate_indices
 
-    # read the instructions, skipping annotations and rejecting instructions that packed circuits
-    # cannot represent; the inverse circuit applies the inverse operations in reverse order, so
-    # reverse the instructions and their target groups for it, and invert each operation below
-    instructions = stim.Circuit(circuit_text).flattened()
-    for instruction in reversed(instructions) if inverse else instructions:
-        if instruction.name in _ANNOTATIONS:
-            continue
-        _check_instruction(instruction)
-        is_t_rotation = _has_t_tag(instruction)
-        target_groups = instruction.target_groups()
-        if inverse:
-            target_groups = target_groups[::-1]
+    # drop annotations, and reject instructions that packed circuits cannot represent
+    circuit = stim.Circuit()
+    for instruction in stim.Circuit(circuit_text).flattened():
+        if instruction.name not in _ANNOTATIONS:
+            _check_instruction(instruction)
+            circuit.append(instruction)
 
-        # each target group of a T-tagged instruction, SPP, or SPP_DAG is a Pauli rotation, whose
-        # inverse is the rotation about the negated axis
+    # let stim invert the circuit for the inverse, keeping tags, so that S[T] becomes S_DAG[T]
+    if inverse:
+        circuit = circuit.inverse()
+
+    # pack the target groups of the instructions as operations, in order
+    for instruction in circuit:
+        target_groups = instruction.target_groups()
+
+        # each target group of a T-tagged instruction, SPP, or SPP_DAG is a Pauli rotation
+        is_t_rotation = _has_t_tag(instruction)
         if is_t_rotation or instruction.name in ("SPP", "SPP_DAG"):
             operation_type = T_ROTATION if is_t_rotation else S_ROTATION
-            sign = _ROTATION_SIGNS[instruction.name] * (-1 if inverse else 1)
+            sign = _ROTATION_SIGNS[instruction.name]
             for target_group in target_groups:
                 operation_types.append(operation_type)
                 operation_qubits.append((-1, -1))
@@ -176,14 +178,12 @@ def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> Pa
             continue
 
         # each target group of another gate, including an untagged S or S_DAG, is a local gate,
-        # indexed by its stim gate among the gates with shared conjugation tables; the inverse uses
-        # the inverse gate
-        gate_name = stim.gate_data(instruction.name).inverse.name if inverse else instruction.name
+        # indexed by its stim gate among the gates with shared conjugation tables
         for target_group in target_groups:
             qubits = [target.value for target in target_group]
             operation_types.append(LOCAL_GATE)
             operation_qubits.append((qubits[0], qubits[1] if len(qubits) > 1 else -1))
-            operation_indices.append(gate_indices[gate_name])
+            operation_indices.append(gate_indices[instruction.name])
 
     # pack the rotation axes
     packed_axes, packed_axis_phases = packed.pack_axes(rotation_axes, num_qubits)
