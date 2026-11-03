@@ -17,6 +17,7 @@ from __future__ import annotations
 import itertools
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -67,15 +68,13 @@ def get_min_weight_supports(code: CSSCode) -> MinWeightSupports:
     num_qubits = code.num_qubits
     if num_qubits > _MAX_QUBITS:
         raise ValueError(f"Supports require at most {_MAX_QUBITS} qubits, not {num_qubits}")
-    rows_x = _get_masks(code.matrix_x)
-    rows_z = _get_masks(code.matrix_z)
-    if any((row_x & row_z).bit_count() % 2 for row_x in rows_x for row_z in rows_z):
+    if code.is_subsystem_code:
         raise ValueError("Supports require a stabilizer code, whose X and Z checks commute")
-
-    stabilizers_x, logicals_x = _split_normalizer(rows_x, rows_z, num_qubits)
-    stabilizers_z, logicals_z = _split_normalizer(rows_z, rows_x, num_qubits)
-    if not logicals_x:
+    if code.dimension == 0:
         raise ValueError("Supports require at least one logical qubit")
+
+    stabilizers_x, logicals_x = _get_normalizer_basis(code, "X")
+    stabilizers_z, logicals_z = _get_normalizer_basis(code, "Z")
 
     # The Z walk starts from the X distance: it reports nothing unless Z is at least as good.
     distance_x, words_x = _get_min_weight_words(stabilizers_x, logicals_x, num_qubits)
@@ -101,23 +100,6 @@ def count_support_subsets(supports: Iterable[int], size: int) -> int:
     return len(subsets)
 
 
-class _Span:
-    """The span of the vectors that were added, as an echelon basis of bit masks."""
-
-    def __init__(self) -> None:
-        self._basis: dict[int, int] = {}
-
-    def add(self, vector: int) -> bool:
-        """Add a vector, and return whether it is outside the span of the earlier vectors."""
-        while vector:
-            top = vector.bit_length() - 1
-            if top not in self._basis:
-                self._basis[top] = vector
-                return True
-            vector ^= self._basis[top]
-        return False
-
-
 ####################################################################################################
 # helper methods
 
@@ -132,41 +114,13 @@ def _get_masks(matrix: npt.ArrayLike) -> list[int]:
     return [sum(1 << int(qubit) for qubit in np.flatnonzero(row)) for row in np.asarray(matrix)]
 
 
-def _split_normalizer(
-    stabilizers: Sequence[int], checks: Sequence[int], num_qubits: int
-) -> tuple[list[int], list[int]]:
-    """A basis of the span of the stabilizers, and logical representatives that extend it.
+def _get_normalizer_basis(code: CSSCode, pauli: Literal["X", "Z"]) -> tuple[list[int], list[int]]:
+    """Independent stabilizers of one Pauli type, and logical operators that extend them.
 
-    Together they form a basis of the words that commute with the checks, which are the kernel of
-    the checks.  The stabilizers must lie in that kernel.
+    Together they form a basis of the operators of that type that commute with every stabilizer.
     """
-    span = _Span()
-    independent = [row for row in stabilizers if span.add(row)]
-    logicals = [word for word in _get_kernel(checks, num_qubits) if span.add(word)]
-    return independent, logicals
-
-
-def _get_kernel(rows: Sequence[int], num_qubits: int) -> list[int]:
-    """A basis of the words that have even overlap with every row.
-
-    A word is a dependency among the columns of the rows, so it is found by reducing the columns
-    one by one and keeping track of which columns were combined.
-    """
-    basis: dict[int, tuple[int, int]] = {}
-    kernel = []
-    for qubit in range(num_qubits):
-        column = sum((row >> qubit & 1) << index for index, row in enumerate(rows))
-        combination = 1 << qubit
-        while column:
-            top = column.bit_length() - 1
-            if top not in basis:
-                basis[top] = (column, combination)
-                break
-            column ^= basis[top][0]
-            combination ^= basis[top][1]
-        else:
-            kernel.append(combination)
-    return kernel
+    stabilizers = code.get_stabilizer_ops(pauli, canonicalized=True)
+    return _get_masks(stabilizers), _get_masks(code.get_logical_ops(pauli))
 
 
 def _get_min_weight_words(
@@ -240,7 +194,11 @@ def _walk(
 
 @njit(cache=True)
 def _popcount(word: np.uint64) -> np.int64:
-    """The number of set bits of a 64-bit word."""
+    """The number of set bits of a 64-bit word.
+
+    This repeats ``qldpc._binary.popcount_word``, which is private to qLDPC.  Numba's cache of this
+    module would also miss changes to that function, which lives in another file.
+    """
     one, two, four = np.uint64(1), np.uint64(2), np.uint64(4)
     pairs = word - ((word >> one) & np.uint64(0x5555555555555555))
     nibbles = (pairs & np.uint64(0x3333333333333333)) + (
