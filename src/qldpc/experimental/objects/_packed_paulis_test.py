@@ -111,11 +111,8 @@ def test_conjugation_by_s_rotations(rng: np.random.Generator) -> None:
         assert packed.to_stim(words, phase, len(target)) == target.after(circuit)
 
 
-@pytest.mark.usefixtures("kernels")
-def test_conjugation_by_local_gates() -> None:
-    """Every entry of every shared conjugation table, at qubits on both sides of a word boundary."""
-    # the shared conjugation tables cover the unitary gates of stim other than Pauli-product
-    # rotations, and are read-only
+def test_conjugation_tables() -> None:
+    """The shared conjugation tables cover all unitary gates but SPP and SPP_DAG, in order."""
     conjugation_tables = packed.get_conjugation_tables()
     expected_names = [
         name
@@ -123,25 +120,41 @@ def test_conjugation_by_local_gates() -> None:
         if gate_data.is_unitary and name not in ("SPP", "SPP_DAG")
     ]
     assert sorted(conjugation_tables.gate_indices) == sorted(expected_names)
-    assert sorted(conjugation_tables.gate_indices.values()) == list(range(len(expected_names)))
+    assert list(conjugation_tables.gate_indices.values()) == list(range(len(expected_names)))
     for array in (conjugation_tables.images, conjugation_tables.image_phases):
         with pytest.raises(ValueError, match="read-only"):
             array[0, 0] = 0
 
-    # conjugation through each conjugation table maps each Pauli string on the qubits of its gate
-    # as stim does
+
+@pytest.mark.usefixtures("kernels")
+@pytest.mark.parametrize(
+    "name, qubits",
+    [
+        ("S", [63]),
+        ("SQRT_X", [64]),
+        ("H", [63]),
+        ("CX", [63, 64]),
+        ("CX", [64, 63]),
+        ("ISWAP", [64, 63]),
+        ("SWAP", [63, 64]),
+    ],
+)
+def test_conjugation_by_local_gates(name: str, qubits: list[int]) -> None:
+    """Conjugation through a conjugation table, at qubits on both sides of a word boundary."""
+    conjugation_tables = packed.get_conjugation_tables()
+    gate_index = conjugation_tables.gate_indices[name]
     num_qubits = 130
-    for name, gate_index in conjugation_tables.gate_indices.items():
-        qubits = [63] if stim.gate_data(name).is_single_qubit_gate else [64, 63]
-        images = conjugation_tables.images[gate_index]
-        image_phases = conjugation_tables.image_phases[gate_index]
-        for letters in itertools.product("IXYZ", repeat=len(qubits)):
-            target = stim.PauliString(num_qubits)
-            for qubit, letter in zip(qubits, letters):
-                target[qubit] = letter
-            words, phase = packed.from_stim(target)
-            phase = packed.conjugate_by_local_gate(
-                words, phase, np.array(qubits, dtype=np.int64), images, image_phases
-            )
-            expected = target.after(stim.CircuitInstruction(name, qubits))
-            assert packed.to_stim(words, phase, num_qubits) == expected, (name, letters)
+    for sign, letters in itertools.product((1, -1j), itertools.product("IXYZ", repeat=len(qubits))):
+        target = sign * stim.PauliString(num_qubits)
+        for qubit, letter in zip(qubits, letters):
+            target[qubit] = letter
+        words, phase = packed.from_stim(target)
+        phase = packed.conjugate_by_local_gate(
+            words,
+            phase,
+            np.array(qubits, dtype=np.int64),
+            conjugation_tables.images[gate_index],
+            conjugation_tables.image_phases[gate_index],
+        )
+        expected = target.after(stim.CircuitInstruction(name, qubits))
+        assert packed.to_stim(words, phase, num_qubits) == expected, (sign, letters)

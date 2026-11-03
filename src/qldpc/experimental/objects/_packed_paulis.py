@@ -184,35 +184,22 @@ def conjugate_by_s_rotation(
 
 
 def get_conjugation_table(name: str) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
-    """The conjugation table of a stim Clifford gate: the images of the Pauli strings on its qubits.
+    """The conjugation table of a local gate, from stim.
 
     A Pauli string ``X^x Z^z`` on the ``k`` qubits that the gate addresses has the index ``Σ_j (x_j
     2^j + z_j 2^{k + j})``.  Entry ``i`` of the returned arrays holds the index and the phase of the
     image, under conjugation by the gate, of the Pauli string with index ``i``, in the convention
     of this module.  A conjugation table has ``4^k`` entries, so it suits gates on few qubits.
     """
-    # list the images of the generators X_0, ..., X_{k-1}, Z_0, ..., Z_{k-1}, in the order of the
-    # bits of an index
     tableau = stim.Tableau.from_named_gate(name)
     num_gate_qubits = len(tableau)
-    generator_images = [tableau.x_output(qubit) for qubit in range(num_gate_qubits)]
-    generator_images += [tableau.z_output(qubit) for qubit in range(num_gate_qubits)]
-    packed_generator_images = [from_stim(image, num_gate_qubits) for image in generator_images]
-
-    # for each index, multiply the images of the generators whose bits are set, in the order in
-    # which X^x Z^z lists the generators; left multiplication builds the product from its last
-    # factor
     images = np.zeros(4**num_gate_qubits, dtype=np.int64)
     image_phases = np.zeros(4**num_gate_qubits, dtype=np.int64)
     for pauli_index in range(4**num_gate_qubits):
-        image = np.zeros(2, dtype=np.uint64)
-        image_phase = 0
-        for generator in range(2 * num_gate_qubits - 1, -1, -1):
-            if (pauli_index >> generator) & 1:
-                generator_image, generator_phase = packed_generator_images[generator]
-                image_phase = left_multiply(image, image_phase, generator_image, generator_phase)
-        images[pauli_index] = int(image[0]) | (int(image[1]) << num_gate_qubits)
-        image_phases[pauli_index] = image_phase
+        words = [pauli_index & ((1 << num_gate_qubits) - 1), pauli_index >> num_gate_qubits]
+        image = tableau(to_stim(words, 0, num_gate_qubits))
+        image_words, image_phases[pauli_index] = from_stim(image)
+        images[pauli_index] = int(image_words[0]) | (int(image_words[1]) << num_gate_qubits)
     return images, image_phases
 
 
