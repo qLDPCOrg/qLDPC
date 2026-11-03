@@ -120,6 +120,20 @@ def test_canonical_forms(rng: np.random.Generator) -> None:
             np.testing.assert_array_equal(result[2], new_phases)
 
 
+@pytest.mark.usefixtures("kernels")
+def test_rotations_about_the_identity() -> None:
+    """Rotations about the identity are global phases, so they do not change canonical forms."""
+    axes = [stim.PauliString(axis) for axis in ("+XZ", "-YY")]
+    identity = stim.PauliString("__")
+    words, phases = _pack_axes([identity, axes[0], -identity, axes[1], identity], 2)
+    core = np.zeros(len(words[0]), dtype=np.uint64)
+    result = symplectic.canonicalize(core, words, phases)
+    assert _get_tableau(*result, 2) == _get_tableau(core, words, phases, 2)
+    expected = symplectic.canonicalize(core, *_pack_axes(axes, 2))
+    for actual, desired in zip(result, expected):
+        np.testing.assert_array_equal(actual, desired)
+
+
 def test_minimal_forms_on_two_qubits() -> None:
     """On two qubits, canonical forms use the fewest π/2 rotations possible, found by search."""
     letters = ("".join(pair) for pair in itertools.product("IXYZ", repeat=2))
