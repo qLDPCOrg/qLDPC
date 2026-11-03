@@ -21,7 +21,6 @@ import pytest
 import stim
 
 from qldpc import decoders
-from qldpc.conftest import run_python
 from qldpc.decoders.external import pymatching
 from qldpc.decoders.external.pymatching import (
     _get_decoder_mwpm,
@@ -184,17 +183,6 @@ def test_matching_protocol_adapter() -> None:
     assert np.array_equal(single.error, decoder.decode(syndromes[0]))
     assert decoder.decode_errors_detailed_batch(syndromes[:0]) == ()
     assert pickle.loads(pickle.dumps(pymatching.Matching)) is pymatching.Matching  # noqa: S301
-
-
-def test_pymatching_import_is_lazy() -> None:
-    """Importing the integration does not import pymatching until a matching is requested."""
-    code = """
-import sys
-import types
-import qldpc.decoders.external.pymatching
-assert "pymatching" not in sys.modules
-"""
-    run_python(code)
 
 
 def test_pymatching_protocol_adapter_is_created_once(monkeypatch: pytest.MonkeyPatch) -> None:

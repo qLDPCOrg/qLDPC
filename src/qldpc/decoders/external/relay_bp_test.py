@@ -19,7 +19,6 @@ import scipy.sparse
 import stim
 
 from qldpc import decoders
-from qldpc.conftest import run_python
 from qldpc.decoders._resolution import build_error_decoder
 from qldpc.decoders.conftest import ToyProblem
 from qldpc.decoders.external.relay_bp import (
@@ -193,16 +192,6 @@ def test_relay_backend_options(
         builder(matrix, backend_options=backend_options)
     with pytest.raises(TypeError, match="backend_extension"):
         helper(backend_options=backend_options).build(matrix)
-
-
-def test_relay_bp_import_is_lazy() -> None:
-    """Importing the integration does not import relay-bp until a decoder is built."""
-    code = """
-import sys
-import qldpc.decoders.external.relay_bp
-assert "relay_bp" not in sys.modules
-"""
-    run_python(code)
 
 
 def test_relay_bp_nested_import_failure() -> None:

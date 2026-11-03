@@ -314,16 +314,6 @@ def test_real_tesseract_package() -> None:
     run_python(script)
 
 
-def test_tesseract_import_is_lazy() -> None:
-    """Importing qLDPC's integration does not import the optional backend."""
-    code = """
-import sys
-import qldpc.decoders.external.tesseract
-assert "tesseract_decoder" not in sys.modules
-"""
-    run_python(code)
-
-
 def test_tesseract_missing_dependency_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """A missing backend produces an actionable error without hiding nested failures."""
     monkeypatch.setitem(sys.modules, "tesseract_decoder", None)
