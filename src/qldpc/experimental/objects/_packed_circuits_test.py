@@ -23,15 +23,14 @@ _ANGLES = {packed_circuits.S_ROTATION: np.pi / 2, packed_circuits.T_ROTATION: np
 
 
 def _get_matrices(
-    packed_circuit: packed_circuits.PackedCircuit,
+    packed_circuit: packed_circuits.PackedCircuit, num_qubits: int
 ) -> list[npt.NDArray[np.complex128]]:
     """The dense matrices of the operations of a packed circuit, up to global phases.
 
-    The matrix of a local gate is built from the images of the generators ``X_j`` and ``Z_j`` in its
-    shared conjugation table, and the matrix of a rotation from its axis.
+    The matrix of a local gate is that of the stim gate with its shared index, and the matrix of a
+    rotation is built from its axis.
     """
-    num_qubits = packed_circuit.num_qubits
-    conjugation_tables = packed.get_conjugation_tables()
+    gate_names = list(packed.get_conjugation_tables().gate_indices)
     matrices = []
     for operation_type, operation_qubits, operation_index in zip(
         packed_circuit.operation_types,
@@ -39,27 +38,10 @@ def _get_matrices(
         packed_circuit.operation_indices,
     ):
         if operation_type == packed_circuits.LOCAL_GATE:
-            # read the images of the generators from the conjugation table of the local gate, whose
-            # row of qubits ends in -1 if it is a single-qubit gate
-            qubits = operation_qubits[operation_qubits >= 0].tolist()
-            images = conjugation_tables.images[operation_index]
-            image_phases = conjugation_tables.image_phases[operation_index]
-            generator_images = []
-            for generator in range(2 * len(qubits)):
-                image = int(images[1 << generator])
-                words = [image & ((1 << len(qubits)) - 1), image >> len(qubits)]
-                phase = int(image_phases[1 << generator])
-                generator_images.append(packed.to_stim(words, phase, len(qubits)))
-
-            # build the matrix of the Clifford gate with these images, on the qubits of the gate
-            tableau = stim.Tableau.from_conjugated_generators(
-                xs=generator_images[: len(qubits)], zs=generator_images[len(qubits) :]
-            )
-            circuit = stim.Circuit()
-            for instruction in tableau.to_circuit():
-                gate_targets = [qubits[target.value] for target in instruction.targets_copy()]
-                circuit.append(instruction.name, gate_targets)
-            matrices.append(get_circuit_unitary(circuit, num_qubits))
+            # the row of qubits of a single-qubit gate ends in -1
+            qubits = " ".join(str(qubit) for qubit in operation_qubits if qubit >= 0)
+            gate = stim.Circuit(f"{gate_names[operation_index]} {qubits}")
+            matrices.append(get_circuit_unitary(gate, num_qubits))
         else:
             axis = packed.to_stim(
                 packed_circuit.rotation_axes[operation_index],
@@ -78,7 +60,7 @@ def test_packed_circuits_reproduce_circuits(rng: np.random.Generator, inverse: b
         circuit.append("TICK")
         unitary = np.eye(2**num_qubits, dtype=complex)
         packed_circuit = packed_circuits.get_packed_circuit(circuit, num_qubits, inverse=inverse)
-        for matrix in _get_matrices(packed_circuit):
+        for matrix in _get_matrices(packed_circuit, num_qubits):
             unitary = matrix @ unitary
         expected = get_circuit_unitary(circuit, num_qubits)
         assert equal_up_to_phase(unitary, expected.conj().T if inverse else expected)

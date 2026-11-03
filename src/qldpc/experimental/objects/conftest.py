@@ -21,6 +21,10 @@ _PAULI_MATRICES = (
     np.array([[0, -1j], [1j, 0]], dtype=np.complex128),
     np.array([[1, 0], [0, -1]], dtype=np.complex128),
 )
+
+# The fraction of the instructions of random Clifford+T circuits that are π/4 rotations.
+_T_FRACTION = 0.3
+
 # The Clifford gates of random Clifford+T circuits, with their numbers of qubits.
 _CLIFFORD_GATES: tuple[tuple[str, int], ...] = (
     *(("H", 1), ("S", 1), ("SQRT_X_DAG", 1), ("C_XYZ", 1)),
@@ -46,7 +50,7 @@ def get_random_pauli_string(
 
 
 def get_random_clifford_t_circuit(
-    rng: np.random.Generator, num_qubits: int, num_operations: int, *, t_fraction: float = 0.3
+    rng: np.random.Generator, num_qubits: int, num_operations: int
 ) -> stim.Circuit:
     """A random Clifford+T circuit, as described in the docstring of ``RotatedPauliString``.
 
@@ -54,26 +58,26 @@ def get_random_clifford_t_circuit(
     products (``SPP``, ``SPP_DAG``, and their T-tagged versions), and T gates and their inverses
     (``S[T]`` and ``S_DAG[T]``), with inverted targets and several targets per instruction.
     """
-    # draw each instruction: T gates or their inverses with probability t_fraction / 2, π/4
-    # rotations about Pauli products with probability t_fraction / 2, π/2 rotations about Pauli
+    # draw each instruction: T gates or their inverses with probability _T_FRACTION / 2, π/4
+    # rotations about Pauli products with probability _T_FRACTION / 2, π/2 rotations about Pauli
     # products with probability 0.15, and otherwise a Clifford gate, which is skipped if it needs
     # more than num_qubits qubits
     circuit = stim.Circuit()
     for _ in range(num_operations):
         draw = rng.random()
-        if draw < t_fraction / 2:
+        if draw < _T_FRACTION / 2:
             name = ("S", "S_DAG")[rng.integers(2)]
             qubits = rng.choice(
                 num_qubits, size=rng.integers(1, min(2, num_qubits) + 1), replace=False
             )
             circuit.append(name, qubits.tolist(), tag="T")
-        elif draw < t_fraction or draw > 0.85:
+        elif draw < _T_FRACTION or draw > 0.85:
             name = ("SPP", "SPP_DAG")[rng.integers(2)]
             targets: list[stim.GateTarget] = []
             for _ in range(rng.integers(1, 3)):
                 axis = get_random_pauli_string(rng, num_qubits, nontrivial=True)
                 targets.extend(stim.target_combined_paulis(axis * axis.sign, axis.sign == -1))
-            circuit.append(name, targets, tag="T" if draw < t_fraction else "")
+            circuit.append(name, targets, tag="T" if draw < _T_FRACTION else "")
         else:
             name, num_gate_qubits = _CLIFFORD_GATES[rng.integers(len(_CLIFFORD_GATES))]
             if num_gate_qubits > num_qubits:

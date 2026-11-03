@@ -183,7 +183,6 @@ def conjugate_by_s_rotation(
 # conjugation by local gates
 
 
-@functools.cache
 def get_conjugation_table(name: str) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
     """The conjugation table of a stim Clifford gate: the images of the Pauli strings on its qubits.
 
@@ -227,7 +226,8 @@ class ConjugationTables:
     gates are indexed in the order of ``stim.gate_data``, and the arrays are read-only.
 
     Attributes:
-        gate_indices: The index of each local gate, by its stim name.
+        gate_indices: The index of each local gate, by its stim name, listed in the order of the
+            indices.
         images: Indexed by local gate, a row with the conjugation table of ``get_conjugation_table``
             for the gate, padded with zeros to the 16 entries of two-qubit gates.
         image_phases: Indexed by local gate, a row with the phases of these images, padded in the

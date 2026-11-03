@@ -47,7 +47,6 @@ it, and none if the axis of the rotation commutes with the core and every axis o
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Protocol
 
 import numpy as np
 import numpy.typing as npt
@@ -66,13 +65,6 @@ _Arrays = tuple[
     npt.NDArray[np.uint64],
     npt.NDArray[np.int64],
 ]
-
-
-class _HasStimCircuit(Protocol):
-    """An object, such as a ``tsim.Circuit``, that holds a stim circuit."""
-
-    @property
-    def stim_circuit(self) -> stim.Circuit: ...
 
 
 ####################################################################################################
@@ -115,8 +107,7 @@ class RotatedPauliString:
     ``SPP``, and ``SPP_DAG``.  Circuits may contain only unitary gates and annotations such as
     ``TICK``.  Classically controlled gates, and other tags on ``I``, ``S``, ``S_DAG``, ``SPP``,
     and ``SPP_DAG``, which tsim uses for other rotations, are rejected; tags on other gates are
-    ignored.  ``after`` and ``before`` also accept objects with a ``stim_circuit`` attribute, such
-    as tsim circuits.
+    ignored.  Users of tsim can pass the ``stim_circuit`` of a tsim circuit.
 
     Args:
         pauli: A Pauli string, whose sign does not matter.  Default: the identity on no qubits.
@@ -262,27 +253,25 @@ class RotatedPauliString:
     ################################################################################################
     # circuits
 
-    def after(self, circuit: stim.Circuit | _HasStimCircuit) -> RotatedPauliString:
+    def after(self, circuit: stim.Circuit) -> RotatedPauliString:
         """The operator ``U V U†`` for the unitary ``U`` of a Clifford+T circuit.
 
         The result is this operator ``V`` propagated forward through the circuit, as by
         ``stim.PauliString.after``, and acts on enough qubits for both ``V`` and the circuit.
 
         Raises:
-            TypeError: If ``circuit`` is neither a ``stim.Circuit`` nor holds one.
             ValueError: If the circuit is not a Clifford+T circuit as described in the class
                 docstring.
         """
         return self._conjugate(circuit, inverse=False)
 
-    def before(self, circuit: stim.Circuit | _HasStimCircuit) -> RotatedPauliString:
+    def before(self, circuit: stim.Circuit) -> RotatedPauliString:
         """The operator ``U† V U`` for the unitary ``U`` of a Clifford+T circuit.
 
         The result is this operator ``V`` propagated backward through the circuit, as by
         ``stim.PauliString.before``, and acts on enough qubits for both ``V`` and the circuit.
 
         Raises:
-            TypeError: If ``circuit`` is neither a ``stim.Circuit`` nor holds one.
             ValueError: If the circuit is not a Clifford+T circuit as described in the class
                 docstring.
         """
@@ -370,15 +359,9 @@ class RotatedPauliString:
         )
         return RotatedPauliString._new(num_qubits, arrays)
 
-    def _conjugate(
-        self, circuit: stim.Circuit | _HasStimCircuit, *, inverse: bool
-    ) -> RotatedPauliString:
+    def _conjugate(self, circuit: stim.Circuit, *, inverse: bool) -> RotatedPauliString:
         """This operator conjugated by the unitary of a circuit or by its inverse, simplified."""
-        # read the stim circuit, and pack its operations
-        if not isinstance(circuit, stim.Circuit):
-            if not isinstance(getattr(circuit, "stim_circuit", None), stim.Circuit):
-                raise TypeError(f"Expected a stim.Circuit, not {type(circuit).__name__}")
-            circuit = circuit.stim_circuit
+        # pack the operations of the circuit
         num_qubits = max(self._num_qubits, circuit.num_qubits)
         packed_circuit = _packed_circuits.get_packed_circuit(circuit, num_qubits, inverse=inverse)
 

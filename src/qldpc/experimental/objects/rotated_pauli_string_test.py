@@ -270,13 +270,5 @@ def test_invalid_inputs() -> None:
     assert RotatedPauliString("X") != "X"
 
 
-def test_circuit_objects_and_errors() -> None:
-    class HasStimCircuit:
-        stim_circuit = stim.Circuit("S[T] 0")
-
-    assert RotatedPauliString("X").after(HasStimCircuit()) == RotatedPauliString("X").after(
-        stim.Circuit("S[T] 0")
-    )
-    with pytest.raises(TypeError, match=r"Expected a stim\.Circuit"):
-        RotatedPauliString("X").after("S 0")
+def test_circuit_of_identity() -> None:
     assert len(RotatedPauliString().to_circuit()) == 0

@@ -18,9 +18,7 @@ import stim
 from qldpc.experimental.objects.conftest import get_rotation_matrix
 
 # Instructions with no action on the state.
-_ANNOTATIONS = frozenset(
-    {"TICK", "QUBIT_COORDS", "SHIFT_COORDS", "DETECTOR", "OBSERVABLE_INCLUDE", "MPAD"}
-)
+_ANNOTATIONS = frozenset({"TICK", "QUBIT_COORDS", "DETECTOR", "OBSERVABLE_INCLUDE", "MPAD"})
 
 
 def get_circuit_unitary(circuit: stim.Circuit, num_qubits: int) -> npt.NDArray[np.complex128]:
@@ -34,8 +32,6 @@ def get_circuit_unitary(circuit: stim.Circuit, num_qubits: int) -> npt.NDArray[n
     for instruction in circuit.flattened():
         if instruction.name in _ANNOTATIONS:
             continue
-        if not stim.gate_data(instruction.name).is_unitary:
-            raise ValueError(f"Instruction is not unitary: {instruction}")  # pragma: no cover
         unitary = _get_instruction_unitary(instruction, num_qubits) @ unitary
     return unitary
 

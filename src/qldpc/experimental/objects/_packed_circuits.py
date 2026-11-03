@@ -19,9 +19,7 @@ import stim
 from . import _packed_paulis as packed
 
 # Instructions with no action on the state.
-_ANNOTATIONS = frozenset(
-    {"TICK", "QUBIT_COORDS", "SHIFT_COORDS", "DETECTOR", "OBSERVABLE_INCLUDE", "MPAD"}
-)
+_ANNOTATIONS = frozenset({"TICK", "QUBIT_COORDS", "DETECTOR", "OBSERVABLE_INCLUDE", "MPAD"})
 
 # The instructions that are Pauli rotations, with or without a T tag, mapped to the signs of their
 # axes.
@@ -69,8 +67,6 @@ class PackedCircuit:
     are read-only, since packed circuits are cached and shared.
 
     Attributes:
-        num_qubits: The number of qubits of the packed circuit, which is at least the number of
-            qubits that the circuit acts on.
         operation_types: Indexed by operation, the type of each operation, ``LOCAL_GATE``,
             ``S_ROTATION``, or ``T_ROTATION``.
         operation_qubits: Indexed by operation, a row with the qubits of each local gate, with
@@ -85,7 +81,6 @@ class PackedCircuit:
             ``_packed_paulis``, which also carries the sign of the axis.
     """
 
-    num_qubits: int
     operation_types: npt.NDArray[np.int64]
     operation_qubits: npt.NDArray[np.int64]
     operation_indices: npt.NDArray[np.int64]
@@ -197,7 +192,6 @@ def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> Pa
 
     # assemble the packed circuit, and make its arrays read-only, since it is cached and shared
     packed_circuit = PackedCircuit(
-        num_qubits=num_qubits,
         operation_types=np.array(operation_types, dtype=np.int64),
         operation_qubits=np.array(operation_qubits, dtype=np.int64).reshape(-1, 2),
         operation_indices=np.array(operation_indices, dtype=np.int64),
