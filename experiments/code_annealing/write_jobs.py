@@ -25,12 +25,12 @@ of 100 proposals, starting from the lowest-energy code of 10 random codes, with 
 ``test/`` subdirectory of the results directory.  Give the same flag to the other high-level
 scripts to follow that campaign.
 
-The campaign, ``CAMPAIGN`` in this script, lists each code size with its number of epochs and its
-final target acceptance of uphill proposals.  Every code size runs both code types, CSS (starting
-from a self-dual code) and SWEL, with the seeds of ``CampaignRow.num_seeds``, and every search
-starts from the lowest-energy code of ``INIT_SAMPLES`` random codes, drawn with its own seed.
-Running all of it takes a very long time: choose jobs with ``--qubits``, ``--max-seeds`` and
-``--code-types``.
+The campaign, ``CAMPAIGN`` in this script, lists each code size with the epochs of its CSS and SWEL
+searches and its final target acceptance of uphill proposals.  Every code size runs both code
+types, CSS (starting from a self-dual code) and SWEL, with the seeds of ``CampaignRow.num_seeds``,
+and every search starts from the lowest-energy code of the ``INIT_SAMPLES`` random codes of its code
+type, drawn with its own seed.  Running all of it takes a very long time: choose jobs with
+``--qubits``, ``--max-seeds`` and ``--code-types``.
 """
 
 from __future__ import annotations
@@ -56,7 +56,8 @@ from .core.saved_runs import load_run_progress
 _REPO_ROOT = EXPERIMENT_DIR.parents[1]
 STEPS_PER_EPOCH = 10_000
 NUM_SEEDS = 100
-INIT_SAMPLES = 1000
+# The random codes that a search chooses its starting code from, for each code type.
+INIT_SAMPLES: dict[CodeType, int] = {"css": 1000, "swel": 30_000}
 UPHILL_ACCEPTANCE_START = 0.01
 
 
@@ -81,14 +82,15 @@ SMOKE_SCALE = _SmokeScale(
 
 @dataclass(frozen=True)
 class CampaignRow:
-    """A code size to search, with its epochs and final target acceptance of uphill proposals.
+    """A code size to search, with the epochs of each code type and the final uphill acceptance.
 
     The number of seeds of each code type depends on the size (see ``num_seeds``).
     """
 
     num_qubits: int
     num_logicals: int
-    epochs: int
+    epochs_css: int
+    epochs_swel: int
     uphill_acceptance_stop: float
 
     @property
@@ -100,41 +102,42 @@ class CampaignRow:
         return NUM_SEEDS if self.num_qubits < 48 else NUM_SEEDS // 2
 
 
-# The code sizes of the campaign: qubits, logical qubits, epochs, final uphill acceptance.
+# The code sizes of the campaign: qubits, logical qubits, CSS epochs, SWEL epochs, and final uphill
+# acceptance.
 CAMPAIGN = (
-    CampaignRow(20, 4, 3000, 1e-3),
-    CampaignRow(20, 6, 3000, 1e-3),
-    CampaignRow(22, 4, 3000, 1e-3),
-    CampaignRow(22, 6, 3000, 1e-3),
-    CampaignRow(24, 4, 3000, 1e-4),
-    CampaignRow(24, 6, 3000, 1e-4),
-    CampaignRow(25, 5, 3000, 1e-4),
-    CampaignRow(26, 4, 3000, 1e-4),
-    CampaignRow(26, 6, 3000, 1e-4),
-    CampaignRow(30, 4, 3000, 1e-4),
-    CampaignRow(30, 6, 3000, 1e-4),
-    CampaignRow(32, 6, 3000, 1e-4),
-    CampaignRow(32, 8, 3000, 1e-4),
-    CampaignRow(36, 6, 2000, 1e-4),
-    CampaignRow(36, 8, 2000, 1e-4),
-    CampaignRow(38, 8, 2000, 1e-4),
-    CampaignRow(38, 10, 2000, 1e-4),
-    CampaignRow(38, 12, 2000, 1e-4),
-    CampaignRow(40, 10, 2000, 1e-4),
-    CampaignRow(40, 12, 2000, 1e-4),
-    CampaignRow(42, 8, 2000, 1e-4),
-    CampaignRow(42, 10, 2000, 1e-4),
-    CampaignRow(42, 12, 2000, 1e-4),
-    CampaignRow(44, 8, 2000, 1e-4),
-    CampaignRow(48, 6, 3000, 1e-4),
-    CampaignRow(48, 8, 3000, 1e-4),
-    CampaignRow(50, 6, 3000, 1e-4),
-    CampaignRow(50, 8, 3000, 1e-4),
-    CampaignRow(50, 10, 3000, 1e-4),
-    CampaignRow(52, 10, 1500, 1e-4),
-    CampaignRow(52, 12, 1500, 1e-4),
-    CampaignRow(56, 12, 1500, 1e-4),
-    CampaignRow(56, 14, 1500, 1e-4),
+    CampaignRow(20, 4, 3000, 1000, 1e-3),
+    CampaignRow(20, 6, 3000, 1000, 1e-3),
+    CampaignRow(22, 4, 3000, 1000, 1e-3),
+    CampaignRow(22, 6, 3000, 1000, 1e-3),
+    CampaignRow(24, 4, 3000, 1000, 1e-4),
+    CampaignRow(24, 6, 3000, 1000, 1e-4),
+    CampaignRow(25, 5, 3000, 1000, 1e-4),
+    CampaignRow(26, 4, 3000, 1000, 1e-4),
+    CampaignRow(26, 6, 3000, 1000, 1e-4),
+    CampaignRow(30, 4, 3000, 1000, 1e-4),
+    CampaignRow(30, 6, 3000, 1000, 1e-4),
+    CampaignRow(32, 6, 3000, 1000, 1e-4),
+    CampaignRow(32, 8, 3000, 1000, 1e-4),
+    CampaignRow(36, 6, 2000, 1000, 1e-4),
+    CampaignRow(36, 8, 2000, 1000, 1e-4),
+    CampaignRow(38, 8, 2000, 1000, 1e-4),
+    CampaignRow(38, 10, 2000, 1000, 1e-4),
+    CampaignRow(38, 12, 2000, 1000, 1e-4),
+    CampaignRow(40, 10, 2000, 1000, 1e-4),
+    CampaignRow(40, 12, 2000, 1000, 1e-4),
+    CampaignRow(42, 8, 2000, 1000, 1e-4),
+    CampaignRow(42, 10, 2000, 1000, 1e-4),
+    CampaignRow(42, 12, 2000, 1000, 1e-4),
+    CampaignRow(44, 8, 2000, 1000, 1e-4),
+    CampaignRow(48, 6, 3000, 1000, 1e-4),
+    CampaignRow(48, 8, 3000, 1000, 1e-4),
+    CampaignRow(50, 6, 3000, 1000, 1e-4),
+    CampaignRow(50, 8, 3000, 1000, 1e-4),
+    CampaignRow(50, 10, 3000, 1000, 1e-4),
+    CampaignRow(52, 10, 1500, 1000, 1e-4),
+    CampaignRow(52, 12, 1500, 1000, 1e-4),
+    CampaignRow(56, 12, 1500, 1000, 1e-4),
+    CampaignRow(56, 14, 1500, 1000, 1e-4),
 )
 
 
@@ -150,7 +153,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     parser.add_argument("--qubits", type=int, nargs="+", help="only these numbers of qubits")
     parser.add_argument("--max-seeds", type=int, help="only the first seeds of each code size")
-    parser.add_argument("--epochs", type=int, help="override the epochs of every code size")
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        help="override the epochs of every code size and code type",
+    )
     parser.add_argument(
         "--steps-per-epoch",
         type=int,
@@ -160,8 +167,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument(
         "--init-samples",
         type=int,
-        help=f"random codes to choose the starting code of a search from (default: {INIT_SAMPLES},"
-        f" or {SMOKE_SCALE.init_samples} with --test)",
+        help="random codes to choose the starting code of a search from (default:"
+        f" {INIT_SAMPLES['css']} for CSS and {INIT_SAMPLES['swel']} for SWEL, or"
+        f" {SMOKE_SCALE.init_samples} with --test)",
     )
     parser.add_argument(
         "--tag", default="", help="suffix of the search names and files, to tell campaigns apart"
@@ -184,7 +192,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         epochs=epochs,
         steps_per_epoch=args.steps_per_epoch
         or (SMOKE_SCALE.steps_per_epoch if args.test else STEPS_PER_EPOCH),
-        init_samples=args.init_samples or (SMOKE_SCALE.init_samples if args.test else INIT_SAMPLES),
+        init_samples=args.init_samples or (SMOKE_SCALE.init_samples if args.test else None),
         python=args.python,
     )
 
@@ -231,10 +239,12 @@ class _JobSettings:
     """What the jobs share beyond the code size: the scale of a search and the Python command."""
 
     epochs: int | None
-    """Epochs of every search, or None for those of its code size."""
+    """Epochs of every search, or None for those of its code size and code type."""
 
     steps_per_epoch: int
-    init_samples: int
+    init_samples: int | None
+    """Random starting codes of every search, or None for those of its code type."""
+
     python: str
 
 
@@ -246,14 +256,20 @@ def _get_new_run_arguments(
     settings: _JobSettings, row: CampaignRow, code_type: CodeType, seed: int, checkpoint: Path
 ) -> list[str]:
     """The arguments of ``run_annealing`` for a new chain."""
-    epochs = row.epochs if settings.epochs is None else settings.epochs
+    if settings.epochs is not None:
+        epochs = settings.epochs
+    else:
+        epochs = row.epochs_swel if code_type == "swel" else row.epochs_css
+    init_samples = (
+        INIT_SAMPLES[code_type] if settings.init_samples is None else settings.init_samples
+    )
     arguments = [
         str(row.num_qubits),
         str(row.num_logicals),
         "--code-type",
         code_type,
         "--init-samples",
-        str(settings.init_samples),
+        str(init_samples),
         "--seed",
         str(seed),
         "--epochs",
