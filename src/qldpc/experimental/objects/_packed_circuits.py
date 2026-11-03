@@ -44,35 +44,38 @@ class PackedCircuit:
     Each operation has one of the following kinds.
 
     - ``LOCAL_GATE``: one of stim's one- and two-qubit Clifford gates, including untagged ``S``
-      gates, applied through a precomputed table of the images of the ``4^k`` Pauli strings on its
-      ``k`` qubits.
+      gates.  A local gate on ``k`` qubits is applied through its *conjugation table*: a lookup
+      table of the image under conjugation by the gate of each of the ``4^k`` Pauli strings on
+      those qubits.
     - ``S_ROTATION``: a π/2 rotation about a Pauli product, from an untagged ``SPP`` or ``SPP_DAG``
-      instruction.  Such a rotation is Clifford, but its table would have ``4^m`` entries for a
-      product on ``m`` qubits, so it is applied through its axis ``a`` instead: it maps a Pauli
-      string ``b`` to ``-i a b`` if ``b`` anticommutes with ``a``, and leaves it unchanged
-      otherwise.
+      instruction.  Such a rotation is Clifford, but its conjugation table would have ``4^m``
+      entries for a product on ``m`` qubits, so it is applied through its axis ``a`` instead: it
+      maps a Pauli string ``b`` to ``-i a b`` if ``b`` anticommutes with ``a``, and leaves it
+      unchanged otherwise.
     - ``T_ROTATION``: a π/4 rotation about a Pauli product, from a T-tagged instruction.
 
     Local gates and rotations are numbered separately, in the order in which they act, and the
     arrays of local gates and of rotations are indexed by these numbers.  Local gates of the same
-    stim gate share a table.  All arrays are read-only, since packed circuits are cached and shared.
+    stim gate share a conjugation table, and conjugation tables are numbered too.  A conjugation
+    table numbers the Pauli strings on the gate's qubits, and lists the number and the phase of the
+    image of each, as ``_packed_paulis.get_clifford_gate_table`` does.  All arrays are read-only,
+    since packed circuits are cached and shared.
 
     Attributes:
         num_qubits: The number of qubits of the packed circuit, which is at least the number of
             qubits that the circuit acts on.
         kinds: The kind of each operation, ``LOCAL_GATE``, ``S_ROTATION``, or ``T_ROTATION``.
-        operands: For each operation, its index among the local gates if it is a local gate, and
+        operands: For each operation, its number among the local gates if it is a local gate, and
             among the rotations otherwise.
         gate_qubits: For each local gate, a row of its qubits, with ``-1`` in place of the second
             qubit of a single-qubit gate.
-        gate_tables: For each local gate, the index of its table.
-        table_names: For each table, the name of its stim gate, such as ``"CX"``.
-        table_sizes: For each table, the number of qubits of its gate, which is 1 or 2.
-        table_images: For each table, a row with the index of the image of each Pauli string on the
-            gate's qubits, in the format of ``_packed_paulis.get_clifford_gate_table``, padded with
-            zeros to 16 entries.
-        table_phases: For each table, a row with the phases of these images, padded in the same
-            way.
+        gate_tables: For each local gate, the number of its conjugation table.
+        table_names: For each conjugation table, the name of its stim gate, such as ``"CX"``.
+        table_sizes: For each conjugation table, the number of qubits of its gate, which is 1 or 2.
+        table_images: For each conjugation table, a row with the number of the image of each Pauli
+            string on the gate's qubits, padded with zeros to 16 entries.
+        table_phases: For each conjugation table, a row with the phases of these images, padded in
+            the same way.
         axes: For each rotation, a row with the packed bits of its axis, a Hermitian Pauli string
             on ``num_qubits`` qubits, in the layout of ``_packed_paulis``.
         axis_phases: For each rotation, the phase of its axis, in the convention of
@@ -155,8 +158,8 @@ def get_packed_circuit(
 @functools.lru_cache(maxsize=64)
 def _get_packed_circuit(text: str, num_qubits: int, inverse: bool) -> PackedCircuit:
     """The packed circuit with the given text (see ``get_packed_circuit``)."""
-    # collect the kind and operand of each operation, the qubits and table of each local gate, the
-    # table of each gate name, and the axis of each rotation
+    # collect the kind and operand of each operation, the qubits and conjugation table of each
+    # local gate, the conjugation table of each gate name, and the axis of each rotation
     kinds: list[int] = []
     operands: list[int] = []
     gate_qubits: list[tuple[int, int]] = []
@@ -188,7 +191,8 @@ def _get_packed_circuit(text: str, num_qubits: int, inverse: bool) -> PackedCirc
             continue
 
         # each target group of another gate, including an untagged S or S_DAG, is a local gate,
-        # which shares a table with the gates of the same name; the inverse uses the inverse gate
+        # which shares a conjugation table with the gates of the same name; the inverse uses the
+        # inverse gate
         name = stim.gate_data(instruction.name).inverse.name if inverse else instruction.name
         table = table_indices.setdefault(name, len(table_indices))
         for group in groups:
@@ -198,7 +202,7 @@ def _get_packed_circuit(text: str, num_qubits: int, inverse: bool) -> PackedCirc
             gate_qubits.append((qubits[0], qubits[1] if len(qubits) > 1 else -1))
             gate_tables.append(table)
 
-    # build the tables of Pauli images of the local gates, padded to the 16 entries of two qubits
+    # build the conjugation tables of the local gates, padded to the 16 entries of two qubits
     table_names = tuple(table_indices)
     table_sizes = np.zeros(len(table_names), dtype=np.int64)
     table_images = np.zeros((len(table_names), 16), dtype=np.int64)

@@ -185,10 +185,10 @@ def conjugate_by_local_clifford(
     images: npt.NDArray[np.int64],
     image_phases: npt.NDArray[np.int64],
 ) -> int:
-    """Conjugate ``target`` by a Clifford gate on a few qubits, given by its table of images.
+    """Conjugate ``target`` by a Clifford gate on a few qubits, given by its conjugation table.
 
-    The table is that of ``get_clifford_gate_table``, and ``qubits`` lists the qubits that the gate
-    addresses, in order.
+    The conjugation table, ``images`` and ``image_phases``, is that of ``get_clifford_gate_table``,
+    and ``qubits`` lists the qubits that the gate addresses, in order.
     """
     num_words = len(target) // 2
     num_local = len(qubits)
@@ -217,12 +217,12 @@ def conjugate_by_local_clifford(
 
 
 ####################################################################################################
-# Clifford gate tables
+# conjugation tables of Clifford gates
 
 
 @functools.cache
 def get_clifford_gate_table(name: str) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
-    """The images of all Pauli strings under conjugation by a Clifford gate of stim.
+    """The conjugation table of a stim Clifford gate: the images of the Pauli strings on its qubits.
 
     A Pauli string ``X^x Z^z`` on the ``k`` qubits that the gate addresses has the index ``Σ_j (x_j
     2^j + z_j 2^{k + j})``.  Entry ``i`` of the returned arrays holds the index and the phase of the
