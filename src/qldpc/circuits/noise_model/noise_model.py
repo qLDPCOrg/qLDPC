@@ -107,13 +107,12 @@ class NoiseModel:
 
     Idle errors apply per moment: a unit of time in the schedule that ``scheduler`` makes of a
     circuit by placing its operations, such as single gate applications, in moments (see
-    :class:`~qldpc.circuits.Schedule`).  An idle run of a qubit lasts from the moment
-    of its last gate, or from the start of a segment (a maximal stretch of the circuit, or of the
-    body of a REPEAT block, that contains no REPEAT block), up to but not including the moment of
-    its next gate, or to the end of the segment.  Every gate on the qubit ends its idle run, even
-    one that takes no time (see :meth:`~qldpc.circuits.Scheduler.takes_time`), except a classically
-    controlled gate that takes no time.  The qubit idles in each moment of the run, except in the
-    first if a gate on the qubit takes time in that moment.
+    :class:`~qldpc.circuits.Schedule`).  An idle run of a qubit lasts from the moment of its last
+    gate, or from the start of the circuit, up to but not including the moment of its next gate, or
+    to the end of the circuit.  Every gate on the qubit ends its idle run, even one that takes no
+    time (see :meth:`~qldpc.circuits.Scheduler.takes_time`), except a classically controlled gate
+    that takes no time.  The qubit idles in each moment of the run, except in the first if a gate on
+    the qubit takes time in that moment.
 
     Args:
         clifford_1q_error: Default noise applied after each one-qubit unitary Clifford gate.  A
@@ -437,7 +436,7 @@ class NoiseModel:
         The noise of each gate application, and the noise of each idle run of a qubit if this model
         has idle noise (see :class:`NoiseModel`), is placed before the next gate application that
         depends on the state of its qubits or observable with a Pauli target on them, or else at the
-        end of its segment.  See :mod:`qldpc.circuits.noise_model` for details.
+        end of the circuit.  See :mod:`qldpc.circuits.noise_model` for details.
 
         Args:
             circuit: The circuit to apply noise to.
@@ -594,12 +593,12 @@ class _NoisyCircuitBuilder:
     end of the circuit.
 
     If the noise model has idle noise, the builder also follows a schedule of the circuit, and the
-    idle runs of qubits in each segment (see :class:`NoiseModel`).  A gate ends the idle runs of the
-    qubits that it depends on and, if it takes time, of all its qubits.  When an idle run ends, its
-    noise joins the pending noise of its qubit: the idle errors of the moments in which the qubit
-    idles, and the additional error of the moments in which another qubit, but not this one, is
-    measured or reset.  Every idle run ends at the end of a segment, so every iteration of a REPEAT
-    block gets the same noise.
+    idle runs of qubits (see :class:`NoiseModel`).  A gate ends the idle runs of the qubits that it
+    depends on and, if it takes time, of all its qubits.  When an idle run ends, its noise joins the
+    pending noise of its qubit: the idle errors of the moments in which the qubit idles, and the
+    additional error of the moments in which another qubit, but not this one, is measured or reset.
+    Every idle run ends at the start and end of each REPEAT block and of each of its iterations, so
+    every iteration gets the same noise.
     """
 
     def __init__(
@@ -632,8 +631,7 @@ class _NoisyCircuitBuilder:
         # moments waiting for a measurement or reset
         self.idle_noise_by_num_moments: dict[tuple[int, int], stim.Circuit] = {}
 
-        # in the current segment, the current idle run of each qubit, and the moments that contain a
-        # measurement or reset
+        # the current idle run of each qubit, and the moments that contain a measurement or reset
         self.idle_runs: dict[int, _IdleRun] = {}
         self.measurement_or_reset_moments: list[int] = []
 
@@ -656,8 +654,8 @@ class _NoisyCircuitBuilder:
                 self.append_block(block, body_schedule, output)
 
     def append_segment(self, segment: _Segment, output: stim.Circuit) -> None:
-        """Add noise to the instructions of a segment, and append them to the output."""
-        # start the idle runs of the segment, and find its moments with measurements or resets
+        """Add noise to the instructions of a ``_Segment``, and append them to the output."""
+        # start the idle runs, and find the moments with measurements or resets
         if self.has_idle_noise:
             self.idle_runs = {qubit: _IdleRun() for qubit in sorted(self.idle_qubits)}
             self.measurement_or_reset_moments = sorted(
@@ -687,7 +685,7 @@ class _NoisyCircuitBuilder:
                     self.emit_pending_noise(output, qubits_depended_on)
                 output.append(instruction)
 
-        # end the idle runs at the end of the segment
+        # end the idle runs after the last moment
         if self.has_idle_noise:
             for qubit in self.idle_runs:
                 self.add_idle_noise(qubit, self.end_idle_run(qubit, segment.duration, False, False))
@@ -844,13 +842,13 @@ class _NoisyCircuitBuilder:
     def end_idle_run(
         self, qubit: int, moment: int, takes_time: bool, measures_or_resets: bool
     ) -> tuple[int, int]:
-        """End the idle run of a qubit at a gate or at the end of the segment, and start a new one.
+        """End the idle run of a qubit at a gate or after the last moment, and start a new one.
 
         A gate in the moment in which the run starts ends no run, and joins that moment.
 
         Args:
             qubit: The qubit whose idle run ends.
-            moment: The moment of the gate, or the number of moments of the segment at its end.
+            moment: The moment of the gate, or, after the last moment, the number of moments.
             takes_time: Whether the gate takes time.
             measures_or_resets: Whether the gate measures or resets the qubit.
 

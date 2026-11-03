@@ -265,10 +265,8 @@ def test_empty_moments() -> None:
 class _Spaced(circuits.Scheduler):
     """A scheduler that leaves an empty moment between consecutive operations."""
 
-    def get_schedule(self, circuit: circuits.StimCircuitLike) -> circuits.Schedule:
-        return circuits.Schedule(
-            circuit, [2 * index for index in range(len(circuits.Schedule.get_operations(circuit)))]
-        )
+    def get_operation_moments(self, circuit: stim.Circuit) -> list[int]:
+        return [2 * index for index in range(len(circuits.Schedule.get_operations(circuit)))]
 
 
 def test_moments_at_repeat_blocks() -> None:
@@ -491,10 +489,10 @@ def test_schedulers() -> None:
 
 
 class _OneMoment(circuits.Scheduler):
-    """A scheduler that puts all operations of a circuit outside REPEAT blocks in one moment."""
+    """A scheduler that puts all operations of a circuit in one moment."""
 
-    def get_schedule(self, circuit: circuits.StimCircuitLike) -> circuits.Schedule:
-        return circuits.Schedule(circuit, [0] * len(circuits.Schedule.get_operations(circuit)))
+    def get_operation_moments(self, circuit: stim.Circuit) -> list[int]:
+        return [0] * len(circuits.Schedule.get_operations(circuit))
 
 
 def test_deprecated_insert_ticks() -> None:

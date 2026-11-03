@@ -108,9 +108,7 @@ depends on how long qubits idle.  A noise model finds this from its ``scheduler`
 operations of a circuit in moments: by default ``ASAPScheduler()``, which places gates as
 early as possible, and for ``SI1000NoiseModel`` a ``TickPreservingScheduler``, which keeps the TICK
 layers of a circuit.  Each qubit gets one combined idle error for each run of moments in which it
-idles.  These runs end at the boundaries of ``REPEAT`` blocks and of their iterations, so every
-iteration gets the same noise; adding noise to ``circuit.flattened()`` lets runs continue across
-them.  See :class:`NoiseModel` for idle runs, :class:`Scheduler` and :class:`Schedule` for moments
+idles.  See :class:`NoiseModel` for idle runs, :class:`Scheduler` and :class:`Schedule` for moments
 and how to inspect them, and the :doc:`noise-model notebook </examples/noise_models>` for examples.
 
 ``quadratic_idle_error`` models idle errors from slow noise, such as a qubit frequency that

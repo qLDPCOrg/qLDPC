@@ -300,7 +300,7 @@ def test_measurement_order() -> None:
 def test_repeat_blocks_are_moment_boundaries() -> None:
     """The boundaries of REPEAT blocks and of their iterations are boundaries between moments.
 
-    A segment without gates has no moments, so its operations are in no moment and take no time.
+    Instructions between REPEAT blocks without gates have no moments, so they take no time.
     """
     circuit = stim.Circuit("H 2\nREPEAT 3 {\nH 0\nTICK\nH 1\n}\nH 3")
     scheduler: circuits.Scheduler = circuits.TickPreservingScheduler(
@@ -345,7 +345,7 @@ def test_tick_preserving_scheduler_with_repeat_blocks() -> None:
     """A TICK ends a moment with a gate, also inside a REPEAT block.
 
     Annotations and noise channels join the moment of the operation before them, or the first
-    moment of their segment, and a segment without gates has no moments.
+    moment of the REPEAT body that they start.
     """
     scheduler = circuits.TickPreservingScheduler(single_qubit_gates_take_time=True)
     for text, num_moments in [
@@ -439,10 +439,10 @@ def test_coordinates_and_tags() -> None:
 
 
 def test_custom_scheduler() -> None:
-    """A custom scheduler needs only to make schedules, which are validated.
+    """A custom scheduler places the operations of circuits without REPEAT blocks.
 
-    By default, every gate takes time, except for classically controlled gates.  Annotations and
-    noise channels take no time.
+    Its schedules are validated.  By default, every gate takes time, except for classically
+    controlled gates.  Annotations and noise channels take no time.
     """
     circuit = stim.Circuit("H 0 1\nM 0\nREPEAT 2 {\nCX rec[-1] 1\n}")
     scheduler = _EachInItsOwnMoment()
@@ -468,14 +468,9 @@ def test_custom_scheduler() -> None:
 class _EachInItsOwnMoment(circuits.Scheduler):
     """A scheduler that puts each operation in a moment of its own."""
 
-    def get_schedule(self, circuit: circuits.StimCircuitLike) -> circuits.Schedule:
-        moments: list[int | circuits.Schedule] = []
-        for index, operation in enumerate(circuits.Schedule.get_operations(circuit)):
-            if isinstance(operation, stim.CircuitRepeatBlock):
-                moments.append(self.get_schedule(operation.body_copy()))
-            else:
-                moments.append(index)
-        return circuits.Schedule(circuit, moments)
+    def get_operation_moments(self, circuit: stim.Circuit) -> list[int]:
+        assert not any(isinstance(instruction, stim.CircuitRepeatBlock) for instruction in circuit)
+        return list(range(len(circuits.Schedule.get_operations(circuit))))
 
 
 def test_moments_without_operations() -> None:
