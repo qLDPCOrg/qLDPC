@@ -45,6 +45,10 @@ Code style and organization
   Put a helper in the section of the code that mainly uses it, or in a final helper section if several sections share it, and do not move existing helpers merely because their usage changes.
   Private constants and types may sit near the imports.
 * Within a class, put public methods first (for decoders, the decode methods) and private helper methods after them.
+* Keep code only as complex as its uses require.
+  Avoid storing data that can be derived from other stored data, accepting arguments that are unused or derivable from other arguments, and adding options, parameters, or code paths that nothing uses.
+  Reuse existing implementations, such as ``qldpc._binary``, rather than duplicating them, and remove dead code and comments that describe removed designs.
+  Deliberate exceptions are fine when a clear benefit, such as a performance gain at negligible cost, justifies them; explain the reason in a comment.
 * ``src/qldpc/code_style_test.py`` checks license headers, section headers, and the order of plain and underscore names.
 * The top-level modules and subpackages of ``qldpc.circuits`` and ``qldpc.decoders`` import each other in layers: each imports only from itself and from lower layers, and never from the root of its package.
   ``_LAYERS`` in the package's ``layering_test.py`` lists the layers and is the only place to update when adding a top-level module or subpackage; changes inside a subpackage need no edits.
@@ -105,6 +109,7 @@ Circuits
   Do not infer roles from coincident integer indices.
 * Preserve memory-circuit detector-coordinate semantics; a monotone check index must not be interpreted as time.
 * Noise-model operation immunity and qubit immunity are separate controls; preserve both.
+* Encode T gates and other π/4 rotations in Clifford+T tools as ``RotatedPauliString`` documents, following tsim.
 
 External systems and caching
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -266,6 +271,7 @@ CI's exact environments and commands are in ``.github/workflows/``.
 Use the `validation commands in the agent and contributor guide <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md#validation-commands>`_.
 
 Run checks on what you changed while iterating, and save repository-wide runs for a finished change.
+A change is usually not finished until it has been through review, so until then the tests of the changed modules usually suffice, and coverage gates, the documentation build, and the full test suite can wait for the end.
 Every check script except ``build_docs.py`` accepts explicit files, as in ``python checks/coverage_.py src/qldpc/codes/common.py``, or ``-i/--incremental [REVISION ...]``.
 The incremental mode checks only the files changed since the merge base with ``upstream/main``, ``origin/main``, or ``main`` (the first that exists), or with the given revisions.
 For example, ``python checks/coverage_.py -i`` runs the per-module coverage gate for changed modules only, which is much faster than a full run.
@@ -281,6 +287,18 @@ The TQEC notebook (``examples/logical_error_rates/specialized/decoding_tqec_circ
 Some check wrappers discover files through Git.
 Add new source and test files to the index before relying on the full gate to include them.
 Do not weaken a failure with ``noqa``, ``type: ignore``, or coverage exclusions unless the exceptional condition is real and documented.
+
+Reviewing a change
+------------------
+
+Review a change in separate passes, each against one part of this guide, before running the finishing checks:
+
+* **Correctness:** results, edge cases, and documented contracts, checked against independent oracles where possible.
+* **Tests:** the rules of `Tests`_.
+* **Code and prose:** the rules of `Code style and organization`_ and `Prose style`_.
+* **Simplicity:** redundant stored data, superfluous arguments, unused generality, duplicated logic, and dead code, apart from deliberate exceptions with an explained reason.
+
+Fix what a pass finds before the next pass, and run the slow checks of `Validation commands`_ once, after the last pass.
 
 Pull request summaries
 ----------------------
