@@ -94,6 +94,8 @@ qecdb.org may list codes that were published after the paper, including those of
 Without GNU parallel, `bash experiments/code_annealing/results/logs/jobs.txt` runs the jobs one at a time.
 
 After an interruption, run `write_jobs` and then `parallel` again: the new jobs file resumes the unfinished searches and skips the finished ones.
+A resumed search continues exactly as an uninterrupted one would, so a campaign can run in sessions of any length.
+The jobs are ordered by seed, so a campaign that is stopped early has about as many finished searches for every code size.
 To extend a campaign, run `write_jobs` with more code sizes or seeds, and the finished searches are skipped.
 A search locks its files, so two processes never run the same search, but the lock works only between the processes of one machine: run all the jobs of a results directory on one machine.
 

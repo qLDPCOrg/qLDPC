@@ -11,7 +11,11 @@ Give ``parallel`` the option ``--joblog FILE`` to record the exit status of ever
 runs one chain with one core, and writes its checkpoint, its two code records and a log to the logs
 of the results directory (see ``run_annealing.py``).  Interrupted runs lose at most one epoch: run
 ``write_jobs`` again, and its new ``jobs.txt`` resumes the unfinished runs and skips the finished
-ones, in the same order, so that rerunning it after any interruption completes the campaign.  Pass
+ones, in the same order, so that rerunning it after any interruption completes the campaign.  A
+resumed run continues exactly as an uninterrupted one would, so a campaign can run in sessions of
+any length.  The jobs are ordered by seed, every code size of seed 0 first, then of seed 1, and so
+on, so that a campaign that is stopped early has about as many finished runs for every code size.
+Pass
 ``--tag`` to start another campaign beside the files of earlier runs.  Progress is shown by
 ``progress_report.py``, and the codes that the runs found are collected by
 ``analysis/collect_annealed_codes.py``.
@@ -91,29 +95,26 @@ class CampaignRow:
     def num_seeds(self) -> int:
         """The number of seeds of each code type, which count up from 0.
 
-        There are ``NUM_SEEDS`` below 40 qubits, half as many below 50 qubits, and a quarter as many
-        from 50 qubits.
+        There are ``NUM_SEEDS`` below 48 qubits, and half as many from 48 qubits.
         """
-        if self.num_qubits < 40:
-            return NUM_SEEDS
-        return NUM_SEEDS // 2 if self.num_qubits < 50 else NUM_SEEDS // 4
+        return NUM_SEEDS if self.num_qubits < 48 else NUM_SEEDS // 2
 
 
 # The code sizes of the campaign: qubits, logical qubits, epochs, final uphill acceptance.
 CAMPAIGN = (
-    CampaignRow(20, 4, 1000, 1e-3),
-    CampaignRow(20, 6, 1000, 1e-3),
-    CampaignRow(22, 4, 1000, 1e-3),
-    CampaignRow(22, 6, 1000, 1e-3),
-    CampaignRow(24, 4, 1000, 1e-4),
-    CampaignRow(24, 6, 1000, 1e-4),
-    CampaignRow(25, 5, 1000, 1e-4),
-    CampaignRow(26, 4, 1000, 1e-4),
-    CampaignRow(26, 6, 1000, 1e-4),
-    CampaignRow(30, 4, 1000, 1e-4),
-    CampaignRow(30, 6, 1000, 1e-4),
-    CampaignRow(32, 6, 1000, 1e-4),
-    CampaignRow(32, 8, 1000, 1e-4),
+    CampaignRow(20, 4, 3000, 1e-3),
+    CampaignRow(20, 6, 3000, 1e-3),
+    CampaignRow(22, 4, 3000, 1e-3),
+    CampaignRow(22, 6, 3000, 1e-3),
+    CampaignRow(24, 4, 3000, 1e-4),
+    CampaignRow(24, 6, 3000, 1e-4),
+    CampaignRow(25, 5, 3000, 1e-4),
+    CampaignRow(26, 4, 3000, 1e-4),
+    CampaignRow(26, 6, 3000, 1e-4),
+    CampaignRow(30, 4, 3000, 1e-4),
+    CampaignRow(30, 6, 3000, 1e-4),
+    CampaignRow(32, 6, 3000, 1e-4),
+    CampaignRow(32, 8, 3000, 1e-4),
     CampaignRow(36, 6, 2000, 1e-4),
     CampaignRow(36, 8, 2000, 1e-4),
     CampaignRow(38, 8, 2000, 1e-4),
@@ -138,7 +139,7 @@ CAMPAIGN = (
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Write the jobs file of the campaign, largest codes first."""
+    """Write the jobs file of the campaign, ordered by seed and then largest codes first."""
     parser = make_parser(__doc__)
     parser.add_argument(
         "--code-types",
@@ -195,10 +196,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     command_parser = build_command_parser()
     jobs = []
     skipped = 0
-    # Long jobs first, so that the last jobs of a parallel run are short.
-    for row in sorted(rows, key=lambda row: -row.num_qubits):
-        for code_type in args.code_types:
-            for seed in range(row.num_seeds)[:max_seeds]:
+    # By seed, so that a campaign that is stopped early has runs of every code size, and within a
+    # seed, long jobs first, so that the jobs of a seed finish close together.
+    rows = sorted(rows, key=lambda row: -row.num_qubits)
+    for seed in range(max(row.num_seeds for row in rows))[:max_seeds]:
+        for row in rows:
+            if seed >= row.num_seeds:
+                continue
+            for code_type in args.code_types:
                 name = get_run_name(code_type, row.num_qubits, row.num_logicals, seed, args.tag)
                 checkpoint = logs_dir / f"{name}.json"
                 status = _get_run_status(checkpoint)
