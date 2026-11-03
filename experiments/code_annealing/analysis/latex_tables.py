@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Write the LaTeX tables of the best codes, one ``tabular`` environment for each code type.
+"""Write the LaTeX tables and the listings of the best codes, one of each for each code type.
 
 Run with ``python -m experiments.code_annealing.analysis.latex_tables``.  The tables are those of
 the paper whose code search this experiment implements, arXiv:2607.19574.  Each row is a code of
@@ -25,8 +25,11 @@ The tables go to ``data/table_css.tex`` and ``data/table_swel.tex`` of the resul
 document includes one with ``\\input{table_css.tex}``.  Each file defines the commands of its
 highlights within a group, so nothing leaks into the document, and a document that defines
 ``\\hlgreen`` and ``\\hlred`` itself keeps its own definitions.  The document only needs
-``\\usepackage[table]{xcolor}`` and ``\\usepackage{makecell}`` in its preamble.  A rerun with the
-same data writes the same files.
+``\\usepackage[table]{xcolor}`` and ``\\usepackage{makecell}`` in its preamble.
+
+The listings go to ``data/listing_css.txt`` and ``data/listing_swel.txt``, for a document to show
+verbatim, for example with ``\\lstinputlisting``.  They are the code files with a header such as
+``# CSS (20, 4, 4)`` for each code.  A rerun with the same data writes the same files.
 """
 
 from __future__ import annotations
@@ -36,8 +39,15 @@ from collections.abc import Sequence
 
 from ..core.atomic import write_text_atomic
 from ..core.cli import add_results_dir_argument, make_parser
-from ..core.code_files import CodeEntry, get_reduced_weights, read_code_file, recount
-from ..core.paths import find_code_files, get_data_dir, get_table_file
+from ..core.code_files import (
+    CodeEntry,
+    format_code,
+    get_reduced_weights,
+    read_code_file,
+    recount,
+)
+from ..core.paths import find_code_files, get_data_dir, get_listing_file, get_table_file
+from ..core.proposals import CodeType
 from .scrape_qecdb import BestKnown, find_data_file, read_best_known
 
 _HEADER = (
@@ -68,7 +78,7 @@ _END = "\\endgroup%\n"
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Write the table of each code type to its file."""
+    """Write the table and the listing of each code type to their files."""
     parser = make_parser(__doc__)
     parser.add_argument(
         "--few-logicals",
@@ -92,12 +102,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise SystemExit(str(error)) from error
     for code_type, neighbors in best_known.items():
         code_file = code_files[code_type]
-        table = _format_table(read_code_file(code_file), neighbors, args.few_logicals)
+        entries = read_code_file(code_file)
+        table = _format_table(entries, neighbors, args.few_logicals)
         preamble = _PREAMBLE.format(
             code_type=code_type.upper(), code_file=code_file.name, data_file=data_file.name
         )
         path = get_table_file(args.results_dir, code_type)
         write_text_atomic(path, preamble + table + "\n" + _END)
+        print(f"Wrote {path}")
+        path = get_listing_file(args.results_dir, code_type)
+        write_text_atomic(path, _format_listing(entries, code_type))
         print(f"Wrote {path}")
 
 
@@ -178,6 +192,20 @@ def _format_table(
             r"\end{tabular}%",
         ]
     )
+
+
+def _format_listing(entries: Sequence[CodeEntry], code_type: CodeType) -> str:
+    """The blocks of the codes of a code file, each with a header such as ``# CSS (20, 4, 4)``."""
+    blocks = []
+    for entry in entries:
+        block = format_code(
+            entry.code.matrix_x, entry.code.matrix_z, entry.distance, entry.count_homogeneous
+        )
+        header = (
+            f"# {code_type.upper()} ({entry.num_qubits}, {entry.num_logicals}, {entry.distance})"
+        )
+        blocks.append(header + block[block.index("\n") :])
+    return "\n".join(blocks)
 
 
 def _get_cells(entry: CodeEntry, best_known: BestKnown, few_logicals: int) -> list[str]:

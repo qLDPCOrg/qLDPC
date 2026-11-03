@@ -12,7 +12,8 @@ directory, and runs three scripts on that subdirectory, in order:
    the figure of error estimates needs.
 2. ``analysis/latex_tables`` writes the table of the codes, compared with qecdb.org before the
    paper, to ``paper/data/table_css.tex`` and ``paper/data/table_swel.tex``, which a LaTeX
-   document includes with ``\\input``.
+   document includes with ``\\input``, and the listings of the codes of the paper's appendix to
+   ``paper/data/listing_css.txt`` and ``paper/data/listing_swel.txt``.
 3. ``make_figures`` simulates the codes, and saves the figures to ``paper/figures/``.
 
 The simulations take most of the time.  Pass ``--skip-figures`` for the first two steps alone, or a

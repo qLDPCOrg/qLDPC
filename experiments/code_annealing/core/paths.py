@@ -56,6 +56,11 @@ def get_table_file(results_dir: Path, code_type: CodeType) -> Path:
     return get_data_dir(results_dir) / f"table_{code_type}.tex"
 
 
+def get_listing_file(results_dir: Path, code_type: CodeType) -> Path:
+    """The listing of the best codes of a code type, for a document to show verbatim."""
+    return get_data_dir(results_dir) / f"listing_{code_type}.txt"
+
+
 def get_cache_dir(results_dir: Path) -> Path:
     """The directory of the simulations that the plotting scripts reuse."""
     return results_dir / "cache"

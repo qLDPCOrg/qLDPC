@@ -14,8 +14,9 @@ runs the scripts of ``analysis/``, in order, on the same results directory:
    which needs network access, and saves the answers to ``data/scrape_qecdb_YYYY-MM-DD.txt``, named
    by the date of the scrape.
 4. ``latex_tables`` writes the LaTeX tables of the codes, with a comparison with qecdb.org from the
-   newest scrape, to ``data/table_css.tex`` and ``data/table_swel.tex``.  This step is skipped if
-   there is no scrape, or if the codes changed since the newest one.
+   newest scrape, to ``data/table_css.tex`` and ``data/table_swel.tex``, and the listings of the
+   codes to ``data/listing_css.txt`` and ``data/listing_swel.txt``.  This step is skipped if there
+   is no scrape, or if the codes changed since the newest one.
 
 Pass ``--test`` to collect the data of the smoke-test campaign of ``write_jobs.py --test``.  Every
 step can be run alone, with more options, as ``python -m experiments.code_annealing.analysis.NAME``.

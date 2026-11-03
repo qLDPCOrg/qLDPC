@@ -12,6 +12,7 @@ the figures and the command-line options that the scripts have in common.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -106,6 +107,20 @@ def get_error_rate_func(
         ),
     )(_simulate_error_rate_func)
     return cached(entry, num_samples, max_error_rate)
+
+
+def simulate_codes(
+    entries: Sequence[CodeEntry], num_samples: int, *, cache_dir: Path, workers: int
+) -> None:
+    """Simulate codes in ``workers`` parallel processes, and cache every simulation.
+
+    The simulations are those that the plotting scripts make at their default maximum error rate, so
+    the plotting scripts then read every simulation from the cache.
+    """
+    with concurrent.futures.ProcessPoolExecutor(workers) as executor:
+        jobs = [executor.submit(_simulate_code, entry, num_samples, cache_dir) for entry in entries]
+        for job in jobs:
+            job.result()
 
 
 ####################################################################################################
@@ -299,6 +314,11 @@ def _get_code_key(code: codes.CSSCode) -> tuple[tuple[tuple[int, ...], ...], ...
         tuple(tuple(int(bit) for bit in row) for row in sector.canonicalized.matrix)
         for sector in (code.code_x, code.code_z)
     )
+
+
+def _simulate_code(entry: CodeEntry, num_samples: int, cache_dir: Path) -> None:
+    """Simulate a code at the default maximum error rate, and cache the simulation."""
+    get_error_rate_func(entry, num_samples, _DEFAULT_MAX_ERROR_RATE, cache_dir=cache_dir)
 
 
 def _simulate_error_rate_func(

@@ -18,8 +18,10 @@ their PDF files to ``figures/`` of that directory:
    operators random codes have.
 
 The simulations of the first three scripts take most of the running time, and are cached in
-``cache/``.  Pass a small ``--max-qubits`` and ``--num-samples`` for a quick look.  ``--test`` plots
-the data of the smoke-test campaign of ``write_jobs.py --test``, with 1000 samples for each code.
+``cache/``.  With ``--workers N``, the codes are first simulated in N parallel processes, and the
+plotting scripts then read their simulations from the cache.  Pass a small ``--max-qubits`` and
+``--num-samples`` for a quick look.  ``--test`` plots the data of the smoke-test campaign of
+``write_jobs.py --test``, with 1000 samples for each code.
 Each plotting script can be run alone, with more options, as
 ``python -m experiments.code_annealing.figures.NAME``.
 """
@@ -36,14 +38,14 @@ from .core.cli import (
     make_parser,
     run_step,
 )
-from .core.paths import find_code_files, get_half_supports_file, get_logs_dir
+from .core.paths import find_code_files, get_cache_dir, get_half_supports_file, get_logs_dir
 from .figures import (
     plot_error_estimates,
     plot_error_rates,
     plot_error_rates_by_code_type,
     plot_random_histogram,
 )
-from .figures.common import DEFAULT_NUM_SAMPLES
+from .figures.common import DEFAULT_NUM_SAMPLES, load_annealed_codes, simulate_codes
 
 _TEST_NUM_SAMPLES = 1000
 
@@ -58,6 +60,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         help=f"errors to sample for each code (default: {DEFAULT_NUM_SAMPLES}, or"
         f" {_TEST_NUM_SAMPLES} with --test)",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="processes that simulate the codes in parallel (default: %(default)s)",
+    )
     add_results_dir_argument(parser)
     add_test_argument(parser)
     args = parser.parse_args(argv)
@@ -67,6 +75,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     half_supports = get_half_supports_file(results_dir)
     if not half_supports.exists():
         parser.error(f"{half_supports} does not exist: run collect_data first")
+    if args.workers < 1:
+        parser.error("--workers must be at least 1")
 
     options = ["--results-dir", str(results_dir)]
     simulation_options = [*options]
@@ -77,6 +87,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         num_samples = _TEST_NUM_SAMPLES
     if num_samples is not None:
         simulation_options += ["--num-samples", str(num_samples)]
+    if args.workers > 1:
+        entries_by_code_type = load_annealed_codes(results_dir, max_qubits=args.max_qubits)
+        simulate_codes(
+            [entry for entries in entries_by_code_type.values() for entry in entries],
+            DEFAULT_NUM_SAMPLES if num_samples is None else num_samples,
+            cache_dir=get_cache_dir(results_dir),
+            workers=args.workers,
+        )
     run_step("plot_error_rates", plot_error_rates.main, simulation_options)
     run_step(
         "plot_error_rates_by_code_type", plot_error_rates_by_code_type.main, simulation_options

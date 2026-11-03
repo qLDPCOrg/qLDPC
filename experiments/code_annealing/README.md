@@ -88,7 +88,7 @@ python -m experiments.code_annealing.collect_data --scrape
 python -m experiments.code_annealing.make_figures
 ```
 
-`make_figures` takes a while too, because it simulates every best code; pass a small `--num-samples` or `--max-qubits` for a quick look.
+`make_figures` takes a while too, because it simulates every best code; pass `--workers N` to simulate the codes in N parallel processes, or a small `--num-samples` or `--max-qubits` for a quick look.
 `collect_data --scrape` compares the codes with those of qecdb.org today, which needs network access, saves the comparison in a file named by the date of the scrape, and writes the table of the paper; without `--scrape`, it writes the table from the newest earlier scrape, if that scrape covered the same codes.
 qecdb.org may list codes that were published after the paper, including those of the paper itself, so this comparison can differ from that of the paper.
 Without GNU parallel, `bash experiments/code_annealing/results/logs/jobs.txt` runs the jobs one at a time.
@@ -135,7 +135,7 @@ A search is named `{code_type}_n{n}_k{k}_s{seed}`, with `k` padded to two digits
 | Directory | Contents |
 | --- | --- |
 | `logs/` | `jobs.txt`, and for each search its checkpoint `{name}.json`, its records `{name}.lowest-energy.json` and `{name}.greatest-distance.json` of its two best codes, its `{name}.log`, and an empty `{name}.lock` file; also the files `random_*.txt` of the random baseline |
-| `data/` | The best codes `annealed_codes.txt` (CSS) and `annealed_codes_swel.txt` (SWEL), `half_supports.txt`, a dated `scrape_qecdb_YYYY-MM-DD.txt` for each scrape, the LaTeX tables `table_css.tex` and `table_swel.tex`, and `saved_codes.csv` if requested |
+| `data/` | The best codes `annealed_codes.txt` (CSS) and `annealed_codes_swel.txt` (SWEL), `half_supports.txt`, a dated `scrape_qecdb_YYYY-MM-DD.txt` for each scrape, the LaTeX tables `table_css.tex` and `table_swel.tex`, the listings `listing_css.txt` and `listing_swel.txt` of the codes for the paper's appendix, and `saved_codes.csv` if requested |
 | `figures/` | The PDF figures |
 | `cache/` | Simulations that the figure scripts reuse |
 | `test/` | The same layout, for runs with `--test` |
