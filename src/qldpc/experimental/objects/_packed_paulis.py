@@ -81,18 +81,27 @@ def from_stim(
     num_qubits = len(string) if num_qubits is None else num_qubits
     if len(string) > num_qubits:
         raise ValueError(f"Pauli string {string} acts on more than {num_qubits} qubits")
-    xs = np.zeros(num_qubits, dtype=bool)
-    zs = np.zeros(num_qubits, dtype=bool)
-    xs[: len(string)], zs[: len(string)] = string.to_numpy()
-    phase = (int(np.count_nonzero(xs & zs)) + _SIGN_TO_PHASE[string.sign]) % 4
-    return pack(xs, zs), phase
+
+    # copy the bit-packed bytes of stim, whose bit order is that of this module, into the words
+    xs, zs = string.to_numpy(bit_packed=True)
+    num_words = get_num_words(num_qubits)
+    word_bytes = np.zeros(16 * num_words, dtype=np.uint8)
+    word_bytes[: len(xs)] = xs
+    word_bytes[8 * num_words : 8 * num_words + len(zs)] = zs
+    phase = (int(np.bitwise_count(xs & zs).sum()) + _SIGN_TO_PHASE[string.sign]) % 4
+    return word_bytes.view("<u8").astype(np.uint64, copy=False), phase
 
 
 def to_stim(words: npt.ArrayLike, phase: int, num_qubits: int) -> stim.PauliString:
     """The stim Pauli string with the given words and phase."""
-    xs, zs = unpack(words, num_qubits)
-    sign = _PHASE_TO_SIGN[(phase - int(np.count_nonzero(xs & zs))) % 4]
-    return stim.PauliString.from_numpy(xs=xs, zs=zs, sign=sign)
+    # pass the bytes of the words to stim, whose bit order is that of this module
+    words = np.ascontiguousarray(words, dtype="<u8")
+    num_words = len(words) // 2
+    num_bytes = (num_qubits + 7) // 8
+    xs = words[:num_words].view(np.uint8)[:num_bytes]
+    zs = words[num_words:].view(np.uint8)[:num_bytes]
+    sign = _PHASE_TO_SIGN[(phase - int(np.bitwise_count(xs & zs).sum())) % 4]
+    return stim.PauliString.from_numpy(xs=xs, zs=zs, num_qubits=num_qubits, sign=sign)
 
 
 def pack_axes(
