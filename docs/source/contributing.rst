@@ -46,7 +46,8 @@ Code style and organization
   Private constants and types may sit near the imports.
 * Within a class, put public methods first (for decoders, the decode methods) and private helper methods after them.
 * Keep code only as complex as its uses require.
-  Store no data that can be derived from other stored data, accept no argument that is unused or derivable from other arguments, and add no options, parameters, or code paths that nothing uses.
+  Avoid storing data that can be derived from other stored data, accepting arguments that are unused or derivable from other arguments, and adding options, parameters, or code paths that nothing uses.
+  Deliberate exceptions are fine when a clear benefit, such as a performance gain at negligible cost, justifies them; explain the reason in a comment.
   Reuse existing implementations, such as ``qldpc._binary``, rather than duplicating them, and remove dead code and comments that describe removed designs.
 * ``src/qldpc/code_style_test.py`` checks license headers, section headers, and the order of plain and underscore names.
 * The top-level modules and subpackages of ``qldpc.circuits`` and ``qldpc.decoders`` import each other in layers: each imports only from itself and from lower layers, and never from the root of its package.
