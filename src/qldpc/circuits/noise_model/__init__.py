@@ -98,73 +98,28 @@ Per-gate-application noise via a callback (``rule_func``)::
     )
     noisy_circuit = noise_model.noisy_circuit(circuit)
 
-.. rubric:: Noise insertion
+.. rubric:: Noise insertion and idle noise
 
-A noisy circuit is the input circuit with noise inserted: its instructions keep their order, no
-TICKs are added, and a broadcast instruction such as ``CX 0 1 2 3`` is split only where a qubit
-needs noise between two of its gate applications.  The noise of a gate application follows it, and
-precedes the next instruction that acts on, or depends on the state of, one of its qubits: a gate,
-measurement, reset, or observable with Pauli targets.  Noise channels, detectors, coordinate
-annotations, and classically controlled Paulis do not depend on when a Pauli error occurs, so noise
-may follow them.  Noise that is still pending at the end of a circuit or of the body of a ``REPEAT``
-block is emitted there.
-
-.. rubric:: Moments and idle noise
+``NoiseModel.noisy_circuit`` inserts noise into a circuit, which keeps its instructions in order.
+The noise of each gate is placed after it, before the next instruction that depends on its qubits.
 
 Idle noise (``idle_error``, ``quadratic_idle_error``, and ``additional_error_waiting_for_m_or_r``)
-depends on when operations happen.  A noise model with idle noise uses its ``scheduler`` (a
-:class:`Scheduler`) to place the operations of a circuit in moments, units of time in which each
-qubit is either occupied by an operation or idle.  By default, ``ASAPScheduler()`` ignores the TICKs
-of a circuit and places each gate as early as possible (and then each reset as late as the other
-gates allow), while ``SI1000NoiseModel`` keeps the TICK layers of a circuit with
-``TickPreservingScheduler(single_qubit_gates_take_time=True)``.  ``ALAPScheduler`` places each gate
-as late as possible instead.  The boundaries of ``REPEAT`` blocks and of their iterations are
-boundaries between moments, and every iteration of a ``REPEAT`` block follows one schedule of its
-body, so a block stays compact however many times it repeats.  To let moments continue across these
-boundaries, add noise to ``circuit.flattened()`` instead.  Every moment of a schedule lasts one unit
-of time.  Annotations and noise channels never have a moment of their own: the built-in schedulers
-put each of them in the moment of the operation before it, and a part of a circuit between
-``REPEAT`` blocks that has no gates has no moments and takes no time.  An observable with Pauli
-targets sees the gate noise of its qubits, but not the idle noise of their current idle periods,
-which it does not interrupt.
-
-By default, single-qubit unitary gates and classically controlled Paulis take no time.  This models
-gates that are much faster than the moments of a circuit: a qubit that undergoes only such gates in
-a moment still idles in that moment, and the idle noise of that moment follows those gates.
-Identity gates (``I`` and ``II``) are treated as ordinary one- and two-qubit Clifford gates.
-
-Each qubit gets one combined idle error for each idle period, before the gate that ends the period.
-It combines ``idle_error`` over the idle moments of the period with the
-``quadratic_idle_error`` of one run of that length.  Custom Stim noise fragments in ``idle_error``
-are applied once per idle moment.  ``additional_error_waiting_for_m_or_r`` applies to a qubit once
-for each moment in which another qubit is measured or reset, including a moment in which the qubit
-undergoes a gate.  Any gate on a qubit ends its idle period, even if it takes no time, while
-observables, noise channels, and classically controlled Paulis do not.
-
-Idle periods also end at the boundaries of ``REPEAT`` blocks and of their iterations, so every
-iteration of a ``REPEAT`` block gets the same noise.  This does not change Pauli idle noise, which
-composes exactly, but it splits ``quadratic_idle_error`` there, which undercounts it for idle
-periods that cross these boundaries.  ``noisy_circuit`` therefore warns when a model with
-``quadratic_idle_error`` adds noise to a circuit with a ``REPEAT`` block, and adding noise to
-``circuit.flattened()`` avoids the split.  A ``REPEAT`` block tagged with ``immune_op_tag`` is
-noiseless: the qubits on which it has gates get no noise while it runs, and other qubits idle as
-usual.
-
-The schedule of a circuit is ``noise_model.scheduler.get_schedule(circuit)``.  Its ``get_moments``
-method lists the operations of each moment, and its ``to_circuit`` method lays out the circuit in
-moments separated by TICKs.  If every moment of the schedule has a gate, adding noise to that layout
-with ``TickPreservingScheduler`` (with the same choice of ``single_qubit_gates_take_time``) gives
-the same detector error model.
+depends on how long qubits idle.  A noise model finds this from its ``scheduler``, which places the
+operations of a circuit in moments: by default ``ASAPScheduler()``, which places gates as
+early as possible, and for ``SI1000NoiseModel`` a ``TickPreservingScheduler``, which keeps the TICK
+layers of a circuit.  Each qubit gets one combined idle error for each run of moments in which it
+idles.  These runs end at the boundaries of ``REPEAT`` blocks and of their iterations, so every
+iteration gets the same noise; adding noise to ``circuit.flattened()`` lets runs continue across
+them.  See :class:`NoiseModel` for idle runs, :class:`Scheduler` and :class:`Schedule` for moments
+and how to inspect them, and the :doc:`noise-model notebook </examples/noise_models>` for examples.
 
 ``quadratic_idle_error`` models idle errors from slow noise, such as a qubit frequency that
-fluctuates from one shot to the next.  Over a run of consecutive idle moments, such noise rotates a
-qubit about a fixed axis by an angle that grows linearly at a random rate.  Averaged over that
-(Gaussian) rate, the Pauli twirl of this rotation has a probability that grows quadratically while
-it is small and saturates at 1/2.  For a channel with several Paulis, the axis may vary from one run
-to the next, for example as a compiler changes the frame of a qubit, and the channel sets the mean
-squared components of the axis.  A run is an idle period as above, so runs end at the boundaries of
-``REPEAT`` blocks and of their iterations.  Runs are independent of each other, and every moment
-counts equally, regardless of its duration.
+fluctuates from one shot to the next.  Over an idle run, such noise rotates a qubit about a fixed
+axis by an angle that grows linearly at a random rate.  Averaged over that (Gaussian) rate, the
+Pauli twirl of this rotation has a probability that grows quadratically while it is small and
+saturates at 1/2.  For a channel with several Paulis, the axis may vary from one run to the next,
+for example as a compiler changes the frame of a qubit, and the channel sets the mean squared
+components of the axis.  Runs are independent of each other, and every moment counts equally.
 
 .. rubric:: Attribution and license
 
