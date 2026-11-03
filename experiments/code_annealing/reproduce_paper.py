@@ -10,8 +10,9 @@ directory, and runs three scripts on that subdirectory, in order:
 1. ``analysis/half_supports`` recounts every code exactly, which checks the distance and the number
    of minimum-weight logical operators that the paper reports, and counts the half supports that
    the figure of error estimates needs.
-2. ``analysis/latex_tables`` prints the table of the codes as LaTeX ``tabular`` environments, one
-   for each code type, compared with qecdb.org before the paper.
+2. ``analysis/latex_tables`` writes the table of the codes, compared with qecdb.org before the
+   paper, to ``paper/data/table_css.tex`` and ``paper/data/table_swel.tex``, which a LaTeX
+   document includes with ``\\input``.
 3. ``make_figures`` simulates the codes, and saves the figures to ``paper/figures/``.
 
 The simulations take most of the time.  Pass ``--skip-figures`` for the first two steps alone, or a

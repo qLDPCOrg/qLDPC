@@ -51,6 +51,11 @@ def get_figures_dir(results_dir: Path) -> Path:
     return results_dir / "figures"
 
 
+def get_table_file(results_dir: Path, code_type: CodeType) -> Path:
+    """The LaTeX table of the best codes of a code type, for a document to ``\\input``."""
+    return get_data_dir(results_dir) / f"table_{code_type}.tex"
+
+
 def get_cache_dir(results_dir: Path) -> Path:
     """The directory of the simulations that the plotting scripts reuse."""
     return results_dir / "cache"

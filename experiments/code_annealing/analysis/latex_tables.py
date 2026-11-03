@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Print the LaTeX tables of the best codes, one ``tabular`` environment for each code type.
+"""Write the LaTeX tables of the best codes, one ``tabular`` environment for each code type.
 
 Run with ``python -m experiments.code_annealing.analysis.latex_tables``.  The tables are those of
 the paper whose code search this experiment implements, arXiv:2607.19574.  Each row is a code of
@@ -15,12 +15,18 @@ the code files, in their order, with:
 - the mean and maximum weight of the stabilizer generators, after ``reduce_weights``;
 - the best known neighbors of the code at qecdb.org, from the newest scrape of the database,
   ``data/scrape_qecdb_YYYY-MM-DD.txt`` (see ``scrape_qecdb.py``).  A parameter in which the code
-  beats the database is wrapped in ``\\hlgreen{...}``, and the database value that it beats in
-  ``\\hlred{...}``, so a document needs to define both commands.
+  beats the database is highlighted in green, and the database value that it beats in red.
 
 Every distance and count is recomputed exactly, and a code whose distance or count differs from the
 claims of its code file is an error.  The data file of qecdb.org must describe the current codes:
 run ``collect_data --scrape`` to update it.
+
+The tables go to ``data/table_css.tex`` and ``data/table_swel.tex`` of the results directory, and a
+document includes one with ``\\input{table_css.tex}``.  Each file defines the commands of its
+highlights within a group, so nothing leaks into the document, and a document that defines
+``\\hlgreen`` and ``\\hlred`` itself keeps its own definitions.  The document only needs
+``\\usepackage[table]{xcolor}`` and ``\\usepackage{makecell}`` in its preamble.  A rerun with the
+same data writes the same files.
 """
 
 from __future__ import annotations
@@ -28,12 +34,12 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 
+from ..core.atomic import write_text_atomic
 from ..core.cli import add_results_dir_argument, make_parser
 from ..core.code_files import CodeEntry, get_reduced_weights, read_code_file, recount
-from ..core.paths import find_code_files, get_data_dir
+from ..core.paths import find_code_files, get_data_dir, get_table_file
 from .scrape_qecdb import BestKnown, find_data_file, read_best_known
 
-_INDENT = " " * 4
 _HEADER = (
     r"$n$ & $k$ & $d$ & $\delta_{\mathrm{QGV}}$ & $\delta_{\mathrm{CSS}}$"
     r" & \thead{min-weight\\nontrivial\\logicals} & \thead{mean\\stab.\\weight}"
@@ -43,9 +49,26 @@ _HEADER = (
 _COLUMNS = "c|c|c||c|c||c|c|c||c|c|c"
 _MAX_WEIGHT_COLUMN = 7
 
+# The preamble and the end of a table file.  A comment ends every line that does not end in a
+# control word, so that the file adds no spaces where it is input.
+_PREAMBLE = r"""% The {code_type} codes of the table of arXiv:2607.19574, written by
+% python -m experiments.code_annealing.analysis.latex_tables from {code_file} and
+% {data_file}.  Rerun the script instead of editing this file.
+% Needs \usepackage[table]{{xcolor}} and \usepackage{{makecell}} in the preamble.
+\begingroup
+\providecommand{{\hlred}}[1]{{\cellcolor{{red!25}}#1}}%
+\providecommand{{\hlgreen}}[1]{{\cellcolor{{green!25}}#1}}%
+% Some classes, such as quantumarticle, leave \col@sep at 0pt inside tabular, so the highlight of a
+% cell would not span the \tabcolsep gutters; restore it for this table.
+\makeatletter
+\col@sep\tabcolsep
+\makeatother
+"""
+_END = "\\endgroup%\n"
+
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Print the table of each code type, separated by blank lines."""
+    """Write the table of each code type to its file."""
     parser = make_parser(__doc__)
     parser.add_argument(
         "--few-logicals",
@@ -67,11 +90,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         best_known = read_best_known(code_files, data_file)
     except ValueError as error:
         raise SystemExit(str(error)) from error
-    tables = [
-        _format_table(read_code_file(code_files[code_type]), neighbors, args.few_logicals)
-        for code_type, neighbors in best_known.items()
-    ]
-    print("\n\n".join(tables))
+    for code_type, neighbors in best_known.items():
+        code_file = code_files[code_type]
+        table = _format_table(read_code_file(code_file), neighbors, args.few_logicals)
+        preamble = _PREAMBLE.format(
+            code_type=code_type.upper(), code_file=code_file.name, data_file=data_file.name
+        )
+        path = get_table_file(args.results_dir, code_type)
+        write_text_atomic(path, preamble + table + "\n" + _END)
+        print(f"Wrote {path}")
 
 
 def get_qgv_distance(num_qubits: int, num_logicals: int) -> int:
@@ -145,10 +172,10 @@ def _format_table(
     body = [rf"{line} \\ \hline" for line in lines[:-1]] + [lines[-1].rstrip()]
     return "\n".join(
         [
-            rf"{_INDENT}\begin{{tabular}}{{{_COLUMNS}}}",
-            rf"{_INDENT}  {_HEADER} \\ \hline\hline",
-            *(f"{_INDENT}  {line}" for line in body),
-            rf"{_INDENT}\end{{tabular}}",
+            rf"\begin{{tabular}}{{{_COLUMNS}}}",
+            rf"  {_HEADER} \\ \hline\hline",
+            *(f"  {line}" for line in body),
+            r"\end{tabular}%",
         ]
     )
 

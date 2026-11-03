@@ -43,7 +43,7 @@ One command checks every code of the paper, and rebuilds the table and figures o
 python -m experiments.code_annealing.reproduce_paper
 ```
 
-It recounts the distance and the minimum-weight logical operators of every code exactly, prints the table of the paper as LaTeX `tabular` environments, and simulates the codes to save the figures of the paper to `experiments/code_annealing/results/paper/figures/`.
+It recounts the distance and the minimum-weight logical operators of every code exactly, writes the table of the paper to `experiments/code_annealing/results/paper/data/table_css.tex` and `table_swel.tex`, and simulates the codes to save the figures of the paper to `experiments/code_annealing/results/paper/figures/`.
 The table takes moments, whereas the figures take a while: they simulate every code with many sampled errors, and these simulations take most of the time.
 Add `--skip-figures` for the table alone, or a small `--num-samples` and `--max-qubits` for a quick look at the figures.
 
@@ -63,7 +63,7 @@ The pipeline has three steps, and each runs as a module with `python -m experime
 | --- | --- | --- |
 | 1 | `write_jobs` | Writes the jobs of a campaign, one search each, for [GNU parallel](https://www.gnu.org/software/parallel/) |
 | | `progress_report` | Shows how many searches of each size have finished, and the best code of each so far |
-| 2 | `collect_data` | Keeps the best code of each size and computes tables from those codes, and with `--scrape` compares them with qecdb.org and prints the table of the paper |
+| 2 | `collect_data` | Keeps the best code of each size and computes tables from those codes, and with `--scrape` compares them with qecdb.org and writes the table of the paper |
 | 3 | `make_figures` | Simulates the best codes, and plots the figures of the paper |
 
 First check the whole pipeline at smoke-test scale, with `--test`, which keeps its files in `results/test/`:
@@ -89,7 +89,7 @@ python -m experiments.code_annealing.make_figures
 ```
 
 `make_figures` takes a while too, because it simulates every best code; pass a small `--num-samples` or `--max-qubits` for a quick look.
-`collect_data --scrape` compares the codes with those of qecdb.org today, which needs network access, saves the comparison in a file named by the date of the scrape, and prints the table of the paper; without `--scrape`, it prints the table from the newest earlier scrape, if that scrape covered the same codes.
+`collect_data --scrape` compares the codes with those of qecdb.org today, which needs network access, saves the comparison in a file named by the date of the scrape, and writes the table of the paper; without `--scrape`, it writes the table from the newest earlier scrape, if that scrape covered the same codes.
 qecdb.org may list codes that were published after the paper, including those of the paper itself, so this comparison can differ from that of the paper.
 Without GNU parallel, `bash experiments/code_annealing/results/logs/jobs.txt` runs the jobs one at a time.
 
@@ -135,7 +135,7 @@ A search is named `{code_type}_n{n}_k{k}_s{seed}`, with `k` padded to two digits
 | Directory | Contents |
 | --- | --- |
 | `logs/` | `jobs.txt`, and for each search its checkpoint `{name}.json`, its records `{name}.lowest-energy.json` and `{name}.greatest-distance.json` of its two best codes, its `{name}.log`, and an empty `{name}.lock` file; also the files `random_*.txt` of the random baseline |
-| `data/` | The best codes `annealed_codes.txt` (CSS) and `annealed_codes_swel.txt` (SWEL), `half_supports.txt`, a dated `scrape_qecdb_YYYY-MM-DD.txt` for each scrape, and `saved_codes.csv` if requested |
+| `data/` | The best codes `annealed_codes.txt` (CSS) and `annealed_codes_swel.txt` (SWEL), `half_supports.txt`, a dated `scrape_qecdb_YYYY-MM-DD.txt` for each scrape, the LaTeX tables `table_css.tex` and `table_swel.tex`, and `saved_codes.csv` if requested |
 | `figures/` | The PDF figures |
 | `cache/` | Simulations that the figure scripts reuse |
 | `test/` | The same layout, for runs with `--test` |
