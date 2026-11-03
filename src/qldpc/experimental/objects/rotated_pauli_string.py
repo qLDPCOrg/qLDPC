@@ -405,7 +405,6 @@ def _apply_packed_circuit(
     gate_or_rotation_indices: npt.NDArray[np.int64],
     gate_qubits: npt.NDArray[np.int64],
     gate_conjugation_table_indices: npt.NDArray[np.int64],
-    conjugation_table_num_qubits: npt.NDArray[np.int64],
     conjugation_table_images: npt.NDArray[np.int64],
     conjugation_table_image_phases: npt.NDArray[np.int64],
     rotation_axes: npt.NDArray[np.uint64],
@@ -445,10 +444,12 @@ def _apply_packed_circuit(
     for operation in range(len(operation_kinds)):
         kind = operation_kinds[operation]
         if kind == _packed_circuits.LOCAL_GATE:
-            # conjugate by a local gate through its conjugation table
+            # conjugate by a local gate through its conjugation table; the row of qubits of a
+            # single-qubit gate ends in -1
             gate = gate_or_rotation_indices[operation]
             conjugation_table = gate_conjugation_table_indices[gate]
-            qubits = gate_qubits[gate, : conjugation_table_num_qubits[conjugation_table]]
+            num_gate_qubits = 1 if gate_qubits[gate, 1] < 0 else 2
+            qubits = gate_qubits[gate, :num_gate_qubits]
             images = conjugation_table_images[conjugation_table]
             image_phases = conjugation_table_image_phases[conjugation_table]
             packed.conjugate_by_local_gate(core, 0, qubits, images, image_phases)

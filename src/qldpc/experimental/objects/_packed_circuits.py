@@ -61,8 +61,9 @@ class PackedCircuit:
     that apply the same stim gate share a conjugation table, and conjugation tables are indexed in
     the order in which their gates first act.  A conjugation table lists, for the index of each
     Pauli string on the gate's qubits, the index and the phase of its image, as computed by
-    ``_packed_paulis.get_conjugation_table``.  All arrays are read-only, since packed circuits are
-    cached and shared.
+    ``_packed_paulis.get_conjugation_table``.  The number of qubits of a conjugation table is that
+    of its gates, which follows from their rows of ``gate_qubits``.  All arrays are read-only, since
+    packed circuits are cached and shared.
 
     Attributes:
         num_qubits: The number of qubits of the packed circuit, which is at least the number of
@@ -74,10 +75,6 @@ class PackedCircuit:
         gate_qubits: For each local gate, a row of its qubits, with ``-1`` in place of the second
             qubit of a single-qubit gate.
         gate_conjugation_table_indices: For each local gate, the index of its conjugation table.
-        conjugation_table_names: For each conjugation table, the name of its stim gate, such as
-            ``"CX"``.
-        conjugation_table_num_qubits: For each conjugation table, the number of qubits of its
-            gate, which is 1 or 2.
         conjugation_table_images: For each conjugation table, a row with the index of the image of
             each Pauli string on the gate's qubits, padded with zeros to 16 entries.
         conjugation_table_image_phases: For each conjugation table, a row with the phases of these
@@ -93,8 +90,6 @@ class PackedCircuit:
     gate_or_rotation_indices: npt.NDArray[np.int64]
     gate_qubits: npt.NDArray[np.int64]
     gate_conjugation_table_indices: npt.NDArray[np.int64]
-    conjugation_table_names: tuple[str, ...]
-    conjugation_table_num_qubits: npt.NDArray[np.int64]
     conjugation_table_images: npt.NDArray[np.int64]
     conjugation_table_image_phases: npt.NDArray[np.int64]
     rotation_axes: npt.NDArray[np.uint64]
@@ -103,7 +98,6 @@ class PackedCircuit:
     def get_arrays(
         self,
     ) -> tuple[
-        npt.NDArray[np.int64],
         npt.NDArray[np.int64],
         npt.NDArray[np.int64],
         npt.NDArray[np.int64],
@@ -122,7 +116,6 @@ class PackedCircuit:
             self.gate_or_rotation_indices,
             self.gate_qubits,
             self.gate_conjugation_table_indices,
-            self.conjugation_table_num_qubits,
             self.conjugation_table_images,
             self.conjugation_table_image_phases,
             self.rotation_axes,
@@ -215,16 +208,11 @@ def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> Pa
             gate_conjugation_table_indices.append(conjugation_table)
 
     # build the conjugation tables of the local gates, padded to the 16 entries of two-qubit gates
-    conjugation_table_names = tuple(conjugation_table_indices)
-    num_conjugation_tables = len(conjugation_table_names)
-    conjugation_table_num_qubits = np.zeros(num_conjugation_tables, dtype=np.int64)
+    num_conjugation_tables = len(conjugation_table_indices)
     conjugation_table_images = np.zeros((num_conjugation_tables, 16), dtype=np.int64)
     conjugation_table_image_phases = np.zeros((num_conjugation_tables, 16), dtype=np.int64)
-    for conjugation_table, gate_name in enumerate(conjugation_table_names):
+    for gate_name, conjugation_table in conjugation_table_indices.items():
         images, image_phases = packed.get_conjugation_table(gate_name)
-        conjugation_table_num_qubits[conjugation_table] = len(
-            stim.Tableau.from_named_gate(gate_name)
-        )
         conjugation_table_images[conjugation_table, : len(images)] = images
         conjugation_table_image_phases[conjugation_table, : len(image_phases)] = image_phases
 
@@ -238,8 +226,6 @@ def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> Pa
         gate_or_rotation_indices=np.array(gate_or_rotation_indices, dtype=np.int64),
         gate_qubits=np.array(gate_qubits, dtype=np.int64).reshape(-1, 2),
         gate_conjugation_table_indices=np.array(gate_conjugation_table_indices, dtype=np.int64),
-        conjugation_table_names=conjugation_table_names,
-        conjugation_table_num_qubits=conjugation_table_num_qubits,
         conjugation_table_images=conjugation_table_images,
         conjugation_table_image_phases=conjugation_table_image_phases,
         rotation_axes=packed_axes,
