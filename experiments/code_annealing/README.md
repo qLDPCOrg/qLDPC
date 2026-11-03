@@ -1,7 +1,7 @@
 # Quantum codes from classical annealing
 
-This is the experiment of the paper [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574) by Michael A. Perlin, Matthew Steinberg and Ben Criger.
-It implements the paper's code search, and builds the paper's table and figures from the paper's codes.
+This experiment implements and reproduces the code search of the paper [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574) by Michael A. Perlin, Matthew Steinberg, and Ben Criger.
+It also rebuilds the paper's table and figures from the paper's codes.
 
 The experiment searches for quantum error-correcting codes with high encoding rates and large distances by adaptive simulated annealing.
 It searches two classes of codes: CSS codes, and self-dual CSS codes with equivalent logicals (SWEL codes), which admit transversal logical Hadamard and phase gates.

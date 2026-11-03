@@ -3,8 +3,8 @@
 """Print the LaTeX tables of the best codes, one ``tabular`` environment for each code type.
 
 Run with ``python -m experiments.code_annealing.analysis.latex_tables``.  The tables are those of
-the paper of the experiment, arXiv:2607.19574.  Each row is a code of the code files, in their
-order, with:
+the paper whose code search this experiment implements, arXiv:2607.19574.  Each row is a code of
+the code files, in their order, with:
 
 - ``n``, ``k`` and ``d``;
 - ``delta_QGV`` and ``delta_CSS``, the excess of ``d`` over the stabilizer and CSS
