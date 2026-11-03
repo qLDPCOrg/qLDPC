@@ -54,17 +54,17 @@ def test_asap() -> None:
         DETECTOR rec[-3]
         OBSERVABLE_INCLUDE(0) rec[-1]
     """
-    scheduler = circuits.Scheduler.asap(late_resets=False, single_qubit_gates_take_time=True)
+    scheduler = circuits.ASAPScheduler(late_resets=False, single_qubit_gates_take_time=True)
     circuit, measurements = scheduler.get_schedule(CIRCUIT).to_circuit()
     assert circuit == stim.Circuit(expected.format(resets="R 0 1 2", reset_1="", reset_2=""))
     assert measurements == (0, 1, 2)
-    scheduler = circuits.Scheduler.asap(single_qubit_gates_take_time=True)
+    scheduler = circuits.ASAPScheduler(single_qubit_gates_take_time=True)
     circuit, _ = scheduler.get_schedule(CIRCUIT).to_circuit()
     assert circuit == stim.Circuit(expected.format(resets="R 0", reset_1="R 1", reset_2="R 2"))
 
     circuit = stim.Circuit("CX 0 1 0 1\nM 1\nH 0\nDETECTOR rec[-1]\nH 2\nSHIFT_COORDS(1)")
     ops = circuits.Schedule.get_operations(circuit)
-    assert circuits.Scheduler.asap().get_schedule(circuit).get_moments() == [
+    assert circuits.ASAPScheduler().get_schedule(circuit).get_moments() == [
         [ops[0], ops[5]],
         [ops[1], ops[3]],
         [ops[2], ops[4], ops[6]],
@@ -72,7 +72,7 @@ def test_asap() -> None:
 
     # a classically controlled gate follows the measurement that it reads
     circuit = stim.Circuit("CX 0 2\nCX 0 2\nM 0\nCX rec[-1] 1")
-    schedule = circuits.Scheduler.asap().get_schedule(circuit)
+    schedule = circuits.ASAPScheduler().get_schedule(circuit)
     assert schedule == circuits.Schedule(circuit, [0, 1, 2, 2])
 
 
@@ -100,19 +100,19 @@ def test_alap() -> None:
         DETECTOR rec[-3]
         OBSERVABLE_INCLUDE(0) rec[-1]
     """
-    scheduler = circuits.Scheduler.alap(early_measurements=False, single_qubit_gates_take_time=True)
+    scheduler = circuits.ALAPScheduler(early_measurements=False, single_qubit_gates_take_time=True)
     circuit, _ = scheduler.get_schedule(CIRCUIT).to_circuit()
     assert circuit == stim.Circuit(
         expected.format(early_measurement="", measurements="TICK\nM 0 1 2")
     )
-    scheduler = circuits.Scheduler.alap(single_qubit_gates_take_time=True)
+    scheduler = circuits.ALAPScheduler(single_qubit_gates_take_time=True)
     circuit, _ = scheduler.get_schedule(CIRCUIT).to_circuit()
     assert circuit == stim.Circuit(
         expected.format(early_measurement="M 0", measurements="M 1\nTICK\nM 2")
     )
 
 
-def test_preserve_ticks() -> None:
+def test_tick_preserving_scheduler() -> None:
     """Moments end at TICKs, and where an operation that takes time reuses a qubit.
 
     Single-qubit gates take no time by default, nor do classically controlled gates, annotations,
@@ -130,13 +130,13 @@ def test_preserve_ticks() -> None:
         CX rec[-1] 1
         II 1 2
     """)
-    schedule = circuits.Scheduler.preserve_ticks().get_schedule(circuit)
+    schedule = circuits.TickPreservingScheduler().get_schedule(circuit)
     assert schedule.get_moments() == [
         list(stim.Circuit("H 0\nI 0\nCX 0 1\nH 1\nX_ERROR(0.1) 1")),
         list(stim.Circuit("CX 1 2")),
         list(stim.Circuit("M 0\nCX rec[-1] 1\nII 1 2")),
     ]
-    schedule = circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True).get_schedule(
+    schedule = circuits.TickPreservingScheduler(single_qubit_gates_take_time=True).get_schedule(
         circuit
     )
     assert [len(moment) for moment in schedule.get_moments() if isinstance(moment, list)] == [
@@ -192,7 +192,7 @@ def test_noise_on_several_qubits() -> None:
 
     In each circuit, qubit 1 could be measured in moment 1, while qubit 0 has gates until moment 3.
     """
-    scheduler = circuits.Scheduler.asap(late_resets=False)
+    scheduler = circuits.ASAPScheduler(late_resets=False)
     for noise, moments in [
         ("X_ERROR(0.1) 0 1", [0, 0, 0, 1, 2, 3, 3, 0, 1]),
         ("OBSERVABLE_INCLUDE(0) Z0 Z1", [0, 0, 0, 1, 2, 3, 3, 0, 1]),
@@ -209,8 +209,8 @@ def test_shortened_lifetimes() -> None:
     """
     circuit = stim.Circuit("R 0 1\nCX 0 1\nM 0 1\nCX 2 3\nCX 2 3\nCX 2 3\nCX 2 3")
     for scheduler, moments in [
-        (circuits.Scheduler.asap(), [0, 0, 1, 2, 2, 0, 1, 2, 3]),
-        (circuits.Scheduler.alap(), [1, 1, 2, 3, 3, 0, 1, 2, 3]),
+        (circuits.ASAPScheduler(), [0, 0, 1, 2, 2, 0, 1, 2, 3]),
+        (circuits.ALAPScheduler(), [1, 1, 2, 3, 3, 0, 1, 2, 3]),
     ]:
         assert scheduler.get_schedule(circuit) == circuits.Schedule(circuit, moments)
 
@@ -218,7 +218,7 @@ def test_shortened_lifetimes() -> None:
 def test_correlated_error_chains() -> None:
     """A chain of correlated errors joins the latest moment that one of its errors would join."""
     circuit = stim.Circuit("H 0\nTICK\nH 1\nE(0.1) X0\nELSE_CORRELATED_ERROR(0.1) X1")
-    scheduler = circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
+    scheduler = circuits.TickPreservingScheduler(single_qubit_gates_take_time=True)
     assert scheduler.get_schedule(circuit).get_moments() == [[circuit[0]], list(circuit[2:])]
 
 
@@ -242,7 +242,7 @@ def test_measurement_order() -> None:
             }
         }
     """)
-    scheduled, measurements = circuits.Scheduler.asap().get_schedule(circuit).to_circuit()
+    scheduled, measurements = circuits.ASAPScheduler().get_schedule(circuit).to_circuit()
     assert scheduled == stim.Circuit("""
         H 0
         CX 0 1
@@ -271,12 +271,12 @@ def test_measurement_order() -> None:
 
     # a written-out iteration of a tagged REPEAT block keeps the tag
     tagged = stim.Circuit(str(circuit).replace("REPEAT 3", "REPEAT[block] 3"))
-    scheduled, _ = circuits.Scheduler.asap().get_schedule(tagged).to_circuit()
+    scheduled, _ = circuits.ASAPScheduler().get_schedule(tagged).to_circuit()
     assert "REPEAT[block] 1" in str(scheduled) and "REPEAT[block] 2" in str(scheduled)
 
     # iterations written out with the same layout share a REPEAT block
     circuit = stim.Circuit("CX 0 4\nM 0 1 2\nREPEAT 5 {\nM 3\nDETECTOR rec[-3]\n}")
-    scheduled, measurements = circuits.Scheduler.asap().get_schedule(circuit).to_circuit()
+    scheduled, measurements = circuits.ASAPScheduler().get_schedule(circuit).to_circuit()
     assert scheduled == stim.Circuit("""
         CX 0 4
         M 1 2
@@ -303,7 +303,9 @@ def test_repeat_blocks_are_moment_boundaries() -> None:
     A segment without gates has no moments, so its operations are in no moment and take no time.
     """
     circuit = stim.Circuit("H 2\nREPEAT 3 {\nH 0\nTICK\nH 1\n}\nH 3")
-    scheduler = circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
+    scheduler: circuits.Scheduler = circuits.TickPreservingScheduler(
+        single_qubit_gates_take_time=True
+    )
     schedule = scheduler.get_schedule(circuit)
     scheduler.validate(circuit, schedule)
     body_schedule = circuits.Schedule(stim.Circuit("H 0\nTICK\nH 1"), [0, 1])
@@ -316,13 +318,13 @@ def test_repeat_blocks_are_moment_boundaries() -> None:
     # ASAP and ALAP schedulers schedule the body of a REPEAT block by their own rules
     circuit = stim.Circuit("REPEAT 2 {\nH 0\nTICK\nH 1\n}")
     for scheduler in [
-        circuits.Scheduler.asap(single_qubit_gates_take_time=True),
-        circuits.Scheduler.alap(single_qubit_gates_take_time=True),
+        circuits.ASAPScheduler(single_qubit_gates_take_time=True),
+        circuits.ALAPScheduler(single_qubit_gates_take_time=True),
     ]:
         assert scheduler.get_schedule(circuit).num_moments == 2
 
     circuit = stim.Circuit("M 0\nREPEAT 3 {\nM 1\n}\nM 2")
-    schedule = circuits.Scheduler.asap().get_schedule(circuit)
+    schedule = circuits.ASAPScheduler().get_schedule(circuit)
     assert schedule.num_moments == 5
     assert schedule.to_circuit() == (
         stim.Circuit("M 0\nTICK\nREPEAT 3 {\nM 1\nTICK\n}\nM 2"),
@@ -330,7 +332,7 @@ def test_repeat_blocks_are_moment_boundaries() -> None:
     )
 
     circuit = stim.Circuit("M 0\nREPEAT 2 {\nTICK\n}\nREPEAT 3 {\nX_ERROR(0.1) 1\n}\nM 2")
-    schedule = circuits.Scheduler.asap().get_schedule(circuit)
+    schedule = circuits.ASAPScheduler().get_schedule(circuit)
     assert schedule.num_moments == 2
     gate_free_body = schedule.get_moments()[2]
     assert isinstance(gate_free_body, circuits.Schedule) and gate_free_body.get_moments() == []
@@ -339,13 +341,13 @@ def test_repeat_blocks_are_moment_boundaries() -> None:
     )
 
 
-def test_preserve_ticks_with_repeat_blocks() -> None:
+def test_tick_preserving_scheduler_with_repeat_blocks() -> None:
     """A TICK ends a moment with a gate, also inside a REPEAT block.
 
     Annotations and noise channels join the moment of the operation before them, or the first
     moment of their segment, and a segment without gates has no moments.
     """
-    scheduler = circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
+    scheduler = circuits.TickPreservingScheduler(single_qubit_gates_take_time=True)
     for text, num_moments in [
         ("R 0\nTICK\nREPEAT 4 {\nX_ERROR(0.1) 0\nTICK\nH 0\n}", 5),
         ("M 0\nTICK\nDETECTOR rec[-1]\nREPEAT 2 {\nH 0\n}", 3),
@@ -380,9 +382,9 @@ def test_schedules_keep_noisy_circuits() -> None:
     """)
     expected = _with_gate_noise(circuit).detector_error_model()
     for scheduler in [
-        circuits.Scheduler.preserve_ticks(),
-        circuits.Scheduler.asap(),
-        circuits.Scheduler.alap(),
+        circuits.TickPreservingScheduler(),
+        circuits.ASAPScheduler(),
+        circuits.ALAPScheduler(),
     ]:
         scheduled, _ = scheduler.get_schedule(circuit).to_circuit()
         assert (
@@ -428,7 +430,7 @@ def test_coordinates_and_tags() -> None:
         M 0
         DETECTOR(1, 0) rec[-1]
     """)
-    schedule = circuits.Scheduler.asap().get_schedule(StimCircuitWrapper(circuit))
+    schedule = circuits.ASAPScheduler().get_schedule(StimCircuitWrapper(circuit))
     scheduled, _ = schedule.to_circuit()
     assert scheduled.get_detector_coordinates() == circuit.get_detector_coordinates()
     assert scheduled.get_final_qubit_coordinates() == circuit.get_final_qubit_coordinates()
@@ -480,7 +482,7 @@ def test_moments_without_operations() -> None:
     """A moment without operations in a custom schedule counts, and is laid out as an extra TICK."""
     circuit = stim.Circuit("H 0 1")
     schedule = circuits.Schedule(circuit, [0, 2])
-    circuits.Scheduler.asap().validate(circuit, schedule)
+    circuits.ASAPScheduler().validate(circuit, schedule)
     assert schedule.num_moments == 3
     assert schedule.get_moments() == [list(stim.Circuit("H 0")), [], list(stim.Circuit("H 1"))]
     assert schedule.to_circuit() == (stim.Circuit("H 0\nTICK\nTICK\nH 1"), ())
@@ -498,7 +500,7 @@ def test_moments_without_operations() -> None:
 )
 def test_invalid_schedules(circuit: str, moments: list[int], error: str) -> None:
     """Schedules are rejected if they change the meaning of a circuit."""
-    scheduler = circuits.Scheduler.asap()
+    scheduler = circuits.ASAPScheduler()
     with pytest.raises(ValueError, match=error):
         scheduler.validate(stim.Circuit(circuit), circuits.Schedule(stim.Circuit(circuit), moments))
 
@@ -518,7 +520,7 @@ def test_schedule_errors() -> None:
     with pytest.raises(ValueError, match="schedule of its body"):
         circuits.Schedule(circuit, [0, 0, circuits.Schedule(stim.Circuit("H 1"), [0])])
     with pytest.raises(ValueError, match="different circuit"):
-        circuits.Scheduler.asap().validate(
+        circuits.ASAPScheduler().validate(
             stim.Circuit("H 0"), circuits.Schedule(stim.Circuit("H 1"), [0])
         )
 
@@ -546,10 +548,46 @@ def test_schedules_are_immutable_values() -> None:
     assert tagged != untagged
 
 
-def test_scheduler_repr() -> None:
-    """The repr of a scheduler reconstructs it."""
-    schedulers = [
-        circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True),
-        circuits.Scheduler.alap(early_measurements=False, single_qubit_gates_take_time=True),
-    ]
-    assert [eval(repr(s), {"Scheduler": circuits.Scheduler}) for s in schedulers] == schedulers
+def test_built_in_schedulers() -> None:
+    """Built-in schedulers are immutable values with constructor-like reprs.
+
+    A built-in scheduler equals only a scheduler of the same class with the same configuration,
+    which is its only public data.
+    """
+    schedulers = {
+        "ASAPScheduler()": circuits.ASAPScheduler(),
+        "ALAPScheduler()": circuits.ALAPScheduler(),
+        "ASAPScheduler(late_resets=False)": circuits.ASAPScheduler(late_resets=False),
+        "ALAPScheduler(early_measurements=False)": circuits.ALAPScheduler(early_measurements=False),
+        "TickPreservingScheduler(single_qubit_gates_take_time=True)": (
+            circuits.TickPreservingScheduler(single_qubit_gates_take_time=True)
+        ),
+    }
+    for text, scheduler in schedulers.items():
+        assert repr(scheduler) == text
+        assert eval(text, vars(circuits)) == scheduler
+        assert hash(eval(text, vars(circuits))) == hash(scheduler)
+    assert len(set(schedulers.values())) == len(schedulers)
+
+    class SlowHadamards(circuits.ASAPScheduler):
+        def takes_time(self, op: stim.CircuitInstruction) -> bool:
+            return op.name == "H" or super().takes_time(op)
+
+    assert SlowHadamards().get_schedule(stim.Circuit("H 0 0")).num_moments == 2
+    assert SlowHadamards() == SlowHadamards()
+    assert SlowHadamards() != circuits.ASAPScheduler()
+
+    for scheduler, config in [
+        (circuits.ASAPScheduler(), {"late_resets": True, "single_qubit_gates_take_time": False}),
+        (
+            circuits.ALAPScheduler(single_qubit_gates_take_time=True),
+            {"early_measurements": True, "single_qubit_gates_take_time": True},
+        ),
+        (circuits.TickPreservingScheduler(), {"single_qubit_gates_take_time": False}),
+    ]:
+        names = {name for name in dir(scheduler) if not name.startswith("_")}
+        names -= set(dir(circuits.Scheduler))
+        assert {name: getattr(scheduler, name) for name in names} == config
+        for name in names:
+            with pytest.raises(AttributeError):
+                setattr(scheduler, name, not config[name])

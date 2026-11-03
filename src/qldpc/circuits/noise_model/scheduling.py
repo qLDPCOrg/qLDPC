@@ -17,7 +17,7 @@ import itertools
 import math
 import operator
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from typing import NoReturn, SupportsIndex
+from typing import TYPE_CHECKING, ClassVar, NoReturn, SupportsIndex
 
 import stim
 
@@ -34,6 +34,9 @@ from ._operations import (
     involves_classical_bits,
     op_type,
 )
+
+if TYPE_CHECKING:
+    from _typeshed import DataclassInstance
 
 # coordinate annotations, whose order sets the coordinates of detectors and qubits
 _COORDINATE_ANNOTATIONS = frozenset({"DETECTOR", "QUBIT_COORDS", "SHIFT_COORDS"})
@@ -208,14 +211,16 @@ class Scheduler(abc.ABC):
     """A rule that places the operations of circuits in moments.
 
     A :class:`~qldpc.circuits.NoiseModel` with idle noise uses its scheduler to find how long each
-    qubit idles.  The built-in schedulers are made by :meth:`preserve_ticks`, :meth:`asap`, and
-    :meth:`alap`.  They place the gates of a circuit in moments, and each annotation or noise
-    channel in the moment of the operation before it on its qubits, or, for an annotation without
-    qubits such as a detector, of the last gate before it (or in the first moment if there is
-    none).  An annotation or noise channel joins a later moment only to follow a measurement that
-    it reads, or, if it is a coordinate annotation (a DETECTOR, QUBIT_COORDS, or SHIFT_COORDS
-    annotation), the coordinate annotation before it.  A custom scheduler implements
-    :meth:`get_schedule`, and may override :meth:`takes_time` and :meth:`validate`.
+    qubit idles.  The built-in schedulers are :class:`TickPreservingScheduler`,
+    :class:`ASAPScheduler`, and :class:`ALAPScheduler`.  They place the gates of a circuit in
+    moments, and each annotation or noise channel in the moment of the operation before it on its
+    qubits, or, for an annotation without qubits such as a detector, of the last gate before it (or
+    in the first moment if there is none).  An annotation or noise channel joins a later moment only
+    to follow a measurement that it reads, or, if it is a coordinate annotation (a DETECTOR,
+    QUBIT_COORDS, or SHIFT_COORDS annotation), the coordinate annotation before it.
+
+    A subclass of a built-in scheduler may override :meth:`takes_time` and :meth:`validate`.  A new
+    scheduling algorithm subclasses :class:`Scheduler` and implements :meth:`get_schedule`.
     """
 
     @abc.abstractmethod
@@ -246,60 +251,22 @@ class Scheduler(abc.ABC):
             raise ValueError("The schedule is for a different circuit")
         _check_schedule(schedule, self.takes_time)
 
-    @staticmethod
-    def preserve_ticks(*, single_qubit_gates_take_time: bool = False) -> Scheduler:
-        """A scheduler that keeps the moments of a circuit.
 
-        Each TICK ends a moment that contains a gate, and a new moment also starts where an
-        operation that takes time acts on a qubit that another operation that takes time already
-        acts on in the moment.  As in every schedule, the boundaries of REPEAT blocks and of their
-        iterations are also boundaries between moments, which adding noise to
-        ``circuit.flattened()`` avoids.
+@dataclasses.dataclass(frozen=True, kw_only=True, repr=False)
+class TickPreservingScheduler(Scheduler):
+    """A scheduler that keeps the moments of a circuit.
 
-        Args:
-            single_qubit_gates_take_time: If False (the default), single-qubit unitary gates take no
-                time, so a moment may contain any number of them on a qubit, which still idles.
-        """
-        return _TickScheduler(single_qubit_gates_take_time)
+    Each TICK ends a moment that contains a gate, and a new moment also starts where an operation
+    that takes time acts on a qubit that another operation that takes time already acts on in the
+    moment.  As in every schedule, the boundaries of REPEAT blocks and of their iterations are also
+    boundaries between moments, which adding noise to ``circuit.flattened()`` avoids.
 
-    @staticmethod
-    def asap(*, late_resets: bool = True, single_qubit_gates_take_time: bool = False) -> Scheduler:
-        """A scheduler that places every gate as early as possible, ignoring TICKs.
+    Args:
+        single_qubit_gates_take_time: If False (the default), single-qubit unitary gates take no
+            time, so a moment may contain any number of them on a qubit, which still idles.
+    """
 
-        Each segment of a circuit (see :class:`Schedule`), and the body of each REPEAT block, is
-        scheduled on its own.
-
-        Args:
-            late_resets: If True (the default), then move each reset (R, RX, RY, or RZ) as late as
-                the other gates allow, to shorten the time that qubits idle after a reset.  Gates
-                that measure and then reset, such as MR, stay in place.
-            single_qubit_gates_take_time: As in :meth:`preserve_ticks`.
-        """
-        return _LayerScheduler(False, late_resets, single_qubit_gates_take_time)
-
-    @staticmethod
-    def alap(
-        *, early_measurements: bool = True, single_qubit_gates_take_time: bool = False
-    ) -> Scheduler:
-        """A scheduler that places every gate as late as possible, ignoring TICKs.
-
-        REPEAT blocks are handled as in :meth:`asap`.
-
-        Args:
-            early_measurements: If True (the default), then move each measurement (M, MX, MY, MZ,
-                MPP, MXX, MYY, or MZZ) as early as the other gates allow, to shorten the time that
-                qubits idle before a measurement.  Gates that measure and then reset, such as MR,
-                stay in place.
-            single_qubit_gates_take_time: As in :meth:`preserve_ticks`.
-        """
-        return _LayerScheduler(True, early_measurements, single_qubit_gates_take_time)
-
-
-@dataclasses.dataclass(frozen=True)
-class _TickScheduler(Scheduler):
-    """The scheduler made by :meth:`Scheduler.preserve_ticks`."""
-
-    single_qubit_gates_take_time: bool
+    single_qubit_gates_take_time: bool = False
 
     def get_schedule(self, circuit: StimCircuitLike) -> Schedule:
         # schedule each segment (see Schedule), and the body of each REPEAT block recursively
@@ -317,8 +284,7 @@ class _TickScheduler(Scheduler):
         return _takes_time(op, self.single_qubit_gates_take_time)
 
     def __repr__(self) -> str:
-        args = "single_qubit_gates_take_time=True" if self.single_qubit_gates_take_time else ""
-        return f"Scheduler.preserve_ticks({args})"
+        return _get_repr(self)
 
     def _get_segment_moments(self, segment: _Segment) -> list[int]:
         """The moments of the operations of a segment."""
@@ -350,9 +316,8 @@ class _TickScheduler(Scheduler):
         return _place_annotations(segment.operations, nodes, gate_moments)
 
 
-@dataclasses.dataclass(frozen=True)
 class _LayerScheduler(Scheduler):
-    """The schedulers made by :meth:`Scheduler.asap` and :meth:`Scheduler.alap`.
+    """The algorithm of :class:`ASAPScheduler` and :class:`ALAPScheduler`.
 
     Each segment of a circuit (see :class:`Schedule`), and the body of each REPEAT block, is
     scheduled on its own.  The operations of a segment are grouped into nodes (see ``_get_nodes``),
@@ -361,9 +326,16 @@ class _LayerScheduler(Scheduler):
     and of each measurement and the operations that read it.
     """
 
-    as_late_as_possible: bool
-    shorten_lifetimes: bool  # move resets late in ASAP, and measurements early in ALAP
+    _as_late_as_possible: ClassVar[bool]
     single_qubit_gates_take_time: bool
+
+    @property
+    @abc.abstractmethod
+    def _gates_moved_back(self) -> frozenset[str]:
+        """The gates to move as late (or early) as the other gates allow.
+
+        Every gate is first placed as early (or late) as possible, and then these gates move.
+        """
 
     def get_schedule(self, circuit: StimCircuitLike) -> Schedule:
         # schedule each segment, and the body of each REPEAT block recursively
@@ -380,16 +352,6 @@ class _LayerScheduler(Scheduler):
     def takes_time(self, op: stim.CircuitInstruction) -> bool:
         return _takes_time(op, self.single_qubit_gates_take_time)
 
-    def __repr__(self) -> str:
-        args = []
-        if not self.shorten_lifetimes:
-            args.append(
-                "early_measurements=False" if self.as_late_as_possible else "late_resets=False"
-            )
-        if self.single_qubit_gates_take_time:
-            args.append("single_qubit_gates_take_time=True")
-        return f"Scheduler.{'alap' if self.as_late_as_possible else 'asap'}({', '.join(args)})"
-
     def _get_segment_moments(self, operations: Sequence[_Operation]) -> list[int]:
         """The moments of the operations of a segment."""
         # each operation is a node, except that a chain of correlated errors is one node, and the
@@ -399,18 +361,17 @@ class _LayerScheduler(Scheduler):
         edges = self._get_edges(operations, nodes)
 
         # place the gates as early (or late) as possible
-        layers = _get_layers(num_nodes, edges, reverse=self.as_late_as_possible)
-        if self.shorten_lifetimes:
+        layers = _get_layers(num_nodes, edges, reverse=self._as_late_as_possible)
+        if self._gates_moved_back:
             # keep the other gates in place, and move each gate that only resets (or only measures)
             # as late (or early) as they allow
-            moved_names = JUST_MEASURE_OPS if self.as_late_as_possible else JUST_RESET_OPS
             fixed_layers = {
                 node: layers[node]
                 for node, operation in zip(nodes, operations)
-                if operation.is_gate and operation.instruction.name not in moved_names
+                if operation.is_gate and operation.instruction.name not in self._gates_moved_back
             }
             layers = _get_layers(
-                num_nodes, edges, reverse=not self.as_late_as_possible, fixed=fixed_layers
+                num_nodes, edges, reverse=not self._as_late_as_possible, fixed=fixed_layers
             )
 
         # place annotations and noise channels in the moments of operations before them
@@ -465,6 +426,68 @@ class _LayerScheduler(Scheduler):
                 edges.append((last_gate_node, node, 0))
             record_nodes.extend([node] * operation.num_records)
         return edges
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True, repr=False)
+class ASAPScheduler(_LayerScheduler):
+    """A scheduler that places every gate as early as possible, ignoring TICKs.
+
+    Each segment of a circuit (see :class:`Schedule`), and the body of each REPEAT block, is
+    scheduled on its own.
+
+    Args:
+        late_resets: If True (the default), then move each reset (R, RX, RY, or RZ) as late as the
+            other gates allow, to shorten the time that qubits idle after a reset.  Gates that
+            measure and then reset, such as MR, stay in place.
+        single_qubit_gates_take_time: As in :class:`TickPreservingScheduler`.
+    """
+
+    _as_late_as_possible: ClassVar[bool] = False
+    late_resets: bool = True
+    single_qubit_gates_take_time: bool = False
+
+    def __repr__(self) -> str:
+        return _get_repr(self)
+
+    @property
+    def _gates_moved_back(self) -> frozenset[str]:
+        return JUST_RESET_OPS if self.late_resets else frozenset()
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True, repr=False)
+class ALAPScheduler(_LayerScheduler):
+    """A scheduler that places every gate as late as possible, ignoring TICKs.
+
+    REPEAT blocks are handled as in :class:`ASAPScheduler`.
+
+    Args:
+        early_measurements: If True (the default), then move each measurement (M, MX, MY, MZ, MPP,
+            MXX, MYY, or MZZ) as early as the other gates allow, to shorten the time that qubits
+            idle before a measurement.  Gates that measure and then reset, such as MR, stay in
+            place.
+        single_qubit_gates_take_time: As in :class:`TickPreservingScheduler`.
+    """
+
+    _as_late_as_possible: ClassVar[bool] = True
+    early_measurements: bool = True
+    single_qubit_gates_take_time: bool = False
+
+    def __repr__(self) -> str:
+        return _get_repr(self)
+
+    @property
+    def _gates_moved_back(self) -> frozenset[str]:
+        return JUST_MEASURE_OPS if self.early_measurements else frozenset()
+
+
+def _get_repr(scheduler: DataclassInstance) -> str:
+    """A constructor-like repr of a built-in scheduler, which omits default arguments."""
+    args = [
+        f"{field.name}={getattr(scheduler, field.name)!r}"
+        for field in dataclasses.fields(scheduler)
+        if getattr(scheduler, field.name) != field.default
+    ]
+    return f"{type(scheduler).__name__}({', '.join(args)})"
 
 
 def _get_nodes(operations: Sequence[_Operation]) -> list[int]:

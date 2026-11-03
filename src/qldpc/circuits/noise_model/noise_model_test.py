@@ -112,7 +112,7 @@ def test_identity_gates() -> None:
         clifford_1q_error=0.1,
         clifford_2q_error=0.2,
         idle_error=0.3,
-        scheduler=circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True),
+        scheduler=circuits.TickPreservingScheduler(single_qubit_gates_take_time=True),
     )
     circuit = stim.Circuit("I 0\nII 1 2\nH 3")
     noisy_circuit = stim.Circuit("""
@@ -135,7 +135,7 @@ def test_idle_errors() -> None:
     rules, tagged coordinate annotations make qubits immune, annotations and noise channels join the
     moment of a gate, classically controlled gates take no time, and zero errors are no noise.
     """
-    ticks = circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
+    ticks = circuits.TickPreservingScheduler(single_qubit_gates_take_time=True)
 
     # qubit 1 waits while qubit 0 is measured, and qubit 2 also idles
     circuit = stim.Circuit("H 0 1 2\nTICK\nH 1\nM 0\nDETECTOR rec[-1]")
@@ -220,7 +220,7 @@ def test_classical_controls() -> None:
 
     noise_model = circuits.NoiseModel(
         idle_error=0.1,
-        scheduler=circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True),
+        scheduler=circuits.TickPreservingScheduler(single_qubit_gates_take_time=True),
     )
     circuit = stim.Circuit("H 0\nCX rec[-1] 1\nTICK\nH 0 1 2")
     noisy_circuit = stim.Circuit("H 0\nCX rec[-1] 1\nTICK\nDEPOLARIZE1(0.1) 1 2\nH 0 1 2")
@@ -244,7 +244,7 @@ def test_aggregated_idle_depolarization() -> None:
     probability, moments = 0.01, 5
     circuit = stim.Circuit("R 0\nTICK\n" + "X 1\nTICK\n" * moments + "M 0")
     noise_model = circuits.NoiseModel(
-        idle_error=probability, scheduler=circuits.Scheduler.preserve_ticks()
+        idle_error=probability, scheduler=circuits.TickPreservingScheduler()
     )
     noisy = noise_model.noisy_circuit(circuit, system_qubits=[0])
     expected = 0.75 * (1 - (1 - 4 * probability / 3) ** moments)
@@ -279,7 +279,7 @@ def test_moments_at_repeat_blocks() -> None:
     """
     noise_model = circuits.NoiseModel(
         idle_error={"Z": 0.1},
-        scheduler=circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True),
+        scheduler=circuits.TickPreservingScheduler(single_qubit_gates_take_time=True),
     )
     circuit = stim.Circuit("H 0\nREPEAT 1 {\nH 1\n}")
     noisy_block = stim.Circuit("Z_ERROR(0.1) 1\nREPEAT 1 {\nH 1\nZ_ERROR(0.1) 0\n}")
@@ -297,7 +297,7 @@ def test_repeat_blocks_without_gates() -> None:
     """A REPEAT body with only noise channels has no moments, so qubits do not idle during it."""
     noise_model = circuits.NoiseModel(
         idle_error={"Z": 0.1},
-        scheduler=circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True),
+        scheduler=circuits.TickPreservingScheduler(single_qubit_gates_take_time=True),
     )
     circuit = stim.Circuit("H 0 1\nTICK\nREPEAT 5 {\nX_ERROR(0.01) 0\nTICK\n}\nH 0 1")
     assert noise_model.noisy_circuit(circuit) == circuit
@@ -309,7 +309,7 @@ def test_idle_runs_at_repeat_blocks() -> None:
     A noiseless REPEAT block gets no warning about quadratic idle errors, and qubits that are busy
     in every moment, also in nested REPEAT blocks, do not idle.
     """
-    ticks = circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
+    ticks = circuits.TickPreservingScheduler(single_qubit_gates_take_time=True)
     circuit = stim.Circuit("R 0\nTICK\nREPEAT 3 {\nM 1\nTICK\n}\nM 0\nDETECTOR rec[-1]")
     noise_model = circuits.NoiseModel(quadratic_idle_error={"Z": 0.01}, scheduler=ticks)
     with warnings.catch_warnings():
@@ -335,7 +335,7 @@ def test_quadratic_idle_errors() -> None:
     Over two idle moments, a flip probability ``p`` per moment becomes that of four moments of an
     independent error, ``(1 - (1 - 2 * p)**4) / 2``.
     """
-    ticks = circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
+    ticks = circuits.TickPreservingScheduler(single_qubit_gates_take_time=True)
     circuit = stim.Circuit("H 0\nTICK\nH 1\nTICK\nH 1\nTICK\nH 0\nTICK\nH 1\nTICK\nM 0")
     model = circuits.NoiseModel(quadratic_idle_error={"Z": 0.01}, scheduler=ticks)
     expected = stim.Circuit("""
@@ -407,7 +407,7 @@ def test_idle_runs_in_nested_repeat_blocks() -> None:
         idle_error={"X": p},
         additional_error_waiting_for_m_or_r={"X": w},
         quadratic_idle_error={"X": q},
-        scheduler=circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True),
+        scheduler=circuits.TickPreservingScheduler(single_qubit_gates_take_time=True),
     )
     circuit = stim.Circuit("""
         R 0 1
@@ -466,7 +466,7 @@ def test_observables() -> None:
     """)
     noise_model = circuits.NoiseModel(
         idle_error={"X": 0.1},
-        scheduler=circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True),
+        scheduler=circuits.TickPreservingScheduler(single_qubit_gates_take_time=True),
     )
     noisy = noise_model.noisy_circuit(circuit)
     assert noisy.detector_error_model() == stim.DetectorErrorModel("error(0.1) L0")
@@ -474,9 +474,9 @@ def test_observables() -> None:
 
 def test_schedulers() -> None:
     """Noise models schedule circuits only for idle noise, and validate the schedules."""
-    assert circuits.NoiseModel().scheduler == circuits.Scheduler.asap()
-    assert circuits.DepolarizingNoiseModel(0.1).scheduler == circuits.Scheduler.asap()
-    assert circuits.SI1000NoiseModel(0.1).scheduler == circuits.Scheduler.preserve_ticks(
+    assert circuits.NoiseModel().scheduler == circuits.ASAPScheduler()
+    assert circuits.DepolarizingNoiseModel(0.1).scheduler == circuits.ASAPScheduler()
+    assert circuits.SI1000NoiseModel(0.1).scheduler == circuits.TickPreservingScheduler(
         single_qubit_gates_take_time=True
     )
 
@@ -535,7 +535,7 @@ def test_immunity() -> None:
     noise_model: circuits.NoiseModel = circuits.DepolarizingNoiseModel(
         0.1,
         include_idling_error=True,
-        scheduler=circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True),
+        scheduler=circuits.TickPreservingScheduler(single_qubit_gates_take_time=True),
     )
     noisy_circuit = stim.Circuit(f"""
         H['{immune_op_tag}'] 0
@@ -560,7 +560,7 @@ def test_immunity() -> None:
     circuit += stim.Circuit("TICK\nH 1")
     noise_model = circuits.NoiseModel(
         idle_error={"Z": 0.1},
-        scheduler=circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True),
+        scheduler=circuits.TickPreservingScheduler(single_qubit_gates_take_time=True),
     )
     noisy_block = circuits.as_noiseless_circuit(stim.Circuit("H 0\nZ_ERROR(0.1) 1"))
     assert noise_model.noisy_circuit(circuit, system_qubits=[1]) == (
@@ -573,7 +573,7 @@ def test_immunity() -> None:
     circuit += stim.Circuit("H 1\nTICK\nMX 0\nDETECTOR rec[-1]")
     noise_model = circuits.NoiseModel(
         idle_error={"X": 0.1},
-        scheduler=circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True),
+        scheduler=circuits.TickPreservingScheduler(single_qubit_gates_take_time=True),
     )
     dem = noise_model.noisy_circuit(circuit).detector_error_model()
     assert dem == stim.DetectorErrorModel("error(0.1) D0")
@@ -1027,7 +1027,7 @@ def test_quadratic_idle_error_runs() -> None:
     """
     noise_model = circuits.NoiseModel(
         quadratic_idle_error={"Z": 0.01},
-        scheduler=circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True),
+        scheduler=circuits.TickPreservingScheduler(single_qubit_gates_take_time=True),
     )
     step = "H 1\nTICK\n"
 
@@ -1042,7 +1042,7 @@ def test_quadratic_idle_error_runs() -> None:
     p = 0.001
     uniform_model = circuits.NoiseModel(
         quadratic_idle_error=p,
-        scheduler=circuits.Scheduler.preserve_ticks(single_qubit_gates_take_time=True),
+        scheduler=circuits.TickPreservingScheduler(single_qubit_gates_take_time=True),
     )
     circuit = stim.Circuit(
         f"R 0 1\nTICK\n{step * 2}M 1\nOBSERVABLE_INCLUDE(0) rec[-1] X0\nTICK\n{step * 2}M 0"
@@ -1191,7 +1191,7 @@ def test_noise_model_str() -> None:
 
     # A scheduler other than the default is listed.
     si1000 = circuits.SI1000NoiseModel(0.1)
-    assert "scheduler=Scheduler.preserve_ticks(single_qubit_gates_take_time=True)" in str(si1000)
+    assert "scheduler=TickPreservingScheduler(single_qubit_gates_take_time=True)" in str(si1000)
 
     # With no rule_func, __repr__ is the (eval-able) __str__.
     assert repr(circuits.NoiseModel()) == "NoiseModel()"

@@ -62,8 +62,10 @@ from .rules import (
     _validate_rule_for_arity,
 )
 from .scheduling import (
+    ASAPScheduler,
     Schedule,
     Scheduler,
+    TickPreservingScheduler,
     _as_stim_circuit,
     _get_operations,
     _get_segments,
@@ -159,7 +161,7 @@ class NoiseModel:
             but not annotations, pure-noise instructions, or classically controlled gates.
             Returning ``None`` continues with named and default rule lookup.
         scheduler: The :class:`~qldpc.circuits.Scheduler` that places the operations of circuits in
-            moments, for idle noise.  Default: ``Scheduler.asap()``.
+            moments, for idle noise.  Default: ``ASAPScheduler()``.
 
     Raises:
         ValueError: If readout_error or reset_error is not between 0 and 1, if a noise
@@ -185,7 +187,7 @@ class NoiseModel:
         """Initializes a noise model with specified parameters."""
         self.rules = rules
         self.rule_func = rule_func
-        self.scheduler = Scheduler.asap() if scheduler is None else scheduler
+        self.scheduler = ASAPScheduler() if scheduler is None else scheduler
         if rules is not None:
             normalized_rules: dict[str, NoiseRule] = {}
             # Validate rules with fixed shapes now: fixed-arity stim gates and basis-suffixed rule
@@ -326,7 +328,7 @@ class NoiseModel:
             func = self.rule_func
             name = getattr(func, "__qualname__", None) or type(func).__name__
             args.append(f"rule_func=<{getattr(func, '__module__', '?')}.{name}>")
-        if self.scheduler != Scheduler.asap():
+        if self.scheduler != ASAPScheduler():
             args.append(f"scheduler={self.scheduler!r}")
         return f"NoiseModel({', '.join(args)})"
 
@@ -472,7 +474,7 @@ class NoiseModel:
                     " future release.  To lay out a noisy circuit in moments, add noise to the"
                     " layout of a schedule, as in noise_model.noisy_circuit(layout) for layout ="
                     " ticks.get_schedule(circuit).to_circuit()[0] with ticks ="
-                    " Scheduler.preserve_ticks(single_qubit_gates_take_time=True), and pass"
+                    " TickPreservingScheduler(single_qubit_gates_take_time=True), and pass"
                     " scheduler=ticks to the noise model so that its idle noise uses those moments"
                 )
                 if insert_ticks
@@ -492,11 +494,11 @@ class NoiseModel:
             stim_circuit, immune_qubit_tag
         )
 
-        # for the deprecated insert_ticks=True, lay out the circuit with Scheduler.preserve_ticks
+        # for the deprecated insert_ticks=True, lay out the circuit with a TickPreservingScheduler
         # before adding noise
         scheduler = self.scheduler
         if insert_ticks:  # DEPRECATED: see qldpc._deprecations
-            scheduler = Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
+            scheduler = TickPreservingScheduler(single_qubit_gates_take_time=True)
             stim_circuit = scheduler.get_schedule(stim_circuit).to_circuit()[0]
 
         # quadratic idle errors are split where REPEAT blocks and their iterations start and end
@@ -993,7 +995,7 @@ class DepolarizingNoiseModel(NoiseModel):
         max_gate_size: The largest number of qubits of a unitary Clifford gate that gets
             depolarized.  Default: 2.
         scheduler: The :class:`~qldpc.circuits.Scheduler` that places the operations of circuits in
-            moments, for idle noise.  Default: ``Scheduler.asap()``.
+            moments, for idle noise.  Default: ``ASAPScheduler()``.
 
     Raises:
         ValueError: If max_gate_size is less than 1, or p is not between 0 and 1.
@@ -1040,8 +1042,9 @@ class SI1000NoiseModel(NoiseModel):
     Args:
         p: The two-qubit gate error probability, which sets all other error rates.
         scheduler: The :class:`~qldpc.circuits.Scheduler` that places the operations of circuits in
-            moments, for idle noise.  Default: ``Scheduler.preserve_ticks(
-            single_qubit_gates_take_time=True)``, as in the cited reference.
+            moments, for idle noise.  Default:
+            ``TickPreservingScheduler(single_qubit_gates_take_time=True)``, as in the cited
+            reference.
     """
 
     def __init__(self, p: float, *, scheduler: Scheduler | None = None) -> None:
@@ -1055,7 +1058,7 @@ class SI1000NoiseModel(NoiseModel):
             idle_error=p / 10,
             additional_error_waiting_for_m_or_r=2 * p,
             scheduler=(
-                Scheduler.preserve_ticks(single_qubit_gates_take_time=True)
+                TickPreservingScheduler(single_qubit_gates_take_time=True)
                 if scheduler is None
                 else scheduler
             ),

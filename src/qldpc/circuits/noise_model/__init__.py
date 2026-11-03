@@ -9,6 +9,7 @@ The main components of this package are:
 - NoiseModel: Defines how noise is added to circuits.
 - Built-in noise models: DepolarizingNoiseModel and the superconducting-inspired SI1000NoiseModel.
 - Scheduler and Schedule: Place the operations of circuits in moments, which set idle noise.
+- Built-in schedulers: TickPreservingScheduler, ASAPScheduler, and ALAPScheduler.
 
 Examples of basic usage with a predefined noise model::
 
@@ -113,18 +114,19 @@ block is emitted there.
 Idle noise (``idle_error``, ``quadratic_idle_error``, and ``additional_error_waiting_for_m_or_r``)
 depends on when operations happen.  A noise model with idle noise uses its ``scheduler`` (a
 :class:`Scheduler`) to place the operations of a circuit in moments, units of time in which each
-qubit is either occupied by an operation or idle.  By default, ``Scheduler.asap()`` ignores the
-TICKs of a circuit and places each gate as early as possible (and then each reset as late as the
-other gates allow), while ``SI1000NoiseModel`` keeps the TICK layers of a circuit with
-``Scheduler.preserve_ticks(single_qubit_gates_take_time=True)``.  The boundaries of ``REPEAT``
-blocks and of their iterations are boundaries between moments, and every iteration of a ``REPEAT``
-block follows one schedule of its body, so a block stays compact however many times it repeats.  To
-let moments continue across these boundaries, add noise to ``circuit.flattened()`` instead.  Every
-moment of a schedule lasts one unit of time.  Annotations and noise channels never have a moment of
-their own: the built-in schedulers put each of them in the moment of the operation before it, and a
-part of a circuit between ``REPEAT`` blocks that has no gates has no moments and takes no time.  An
-observable with Pauli targets sees the gate noise of its qubits, but not the idle noise of their
-current idle periods, which it does not interrupt.
+qubit is either occupied by an operation or idle.  By default, ``ASAPScheduler()`` ignores the TICKs
+of a circuit and places each gate as early as possible (and then each reset as late as the other
+gates allow), while ``SI1000NoiseModel`` keeps the TICK layers of a circuit with
+``TickPreservingScheduler(single_qubit_gates_take_time=True)``.  ``ALAPScheduler`` places each gate
+as late as possible instead.  The boundaries of ``REPEAT`` blocks and of their iterations are
+boundaries between moments, and every iteration of a ``REPEAT`` block follows one schedule of its
+body, so a block stays compact however many times it repeats.  To let moments continue across these
+boundaries, add noise to ``circuit.flattened()`` instead.  Every moment of a schedule lasts one unit
+of time.  Annotations and noise channels never have a moment of their own: the built-in schedulers
+put each of them in the moment of the operation before it, and a part of a circuit between
+``REPEAT`` blocks that has no gates has no moments and takes no time.  An observable with Pauli
+targets sees the gate noise of its qubits, but not the idle noise of their current idle periods,
+which it does not interrupt.
 
 By default, single-qubit unitary gates and classically controlled Paulis take no time.  This models
 gates that are much faster than the moments of a circuit: a qubit that undergoes only such gates in
@@ -151,7 +153,7 @@ usual.
 The schedule of a circuit is ``noise_model.scheduler.get_schedule(circuit)``.  Its ``get_moments``
 method lists the operations of each moment, and its ``to_circuit`` method lays out the circuit in
 moments separated by TICKs.  If every moment of the schedule has a gate, adding noise to that layout
-with ``Scheduler.preserve_ticks`` (with the same choice of ``single_qubit_gates_take_time``) gives
+with ``TickPreservingScheduler`` (with the same choice of ``single_qubit_gates_take_time``) gives
 the same detector error model.
 
 ``quadratic_idle_error`` models idle errors from slow noise, such as a qubit frequency that
@@ -201,13 +203,18 @@ from .rules import (
     NoiseRule,
 )
 from .scheduling import (
+    ALAPScheduler,
+    ASAPScheduler,
     Schedule,
     Scheduler,
+    TickPreservingScheduler,
 )
 
 __all__ = [
     "DEFAULT_IMMUNE_OP_TAG",
     "DEFAULT_IMMUNE_QUBIT_TAG",
+    "ALAPScheduler",
+    "ASAPScheduler",
     "AbstractPauliChannel",
     "DepolarizingNoiseModel",
     "ErrorSpec",
@@ -218,5 +225,6 @@ __all__ = [
     "SI1000NoiseModel",
     "Schedule",
     "Scheduler",
+    "TickPreservingScheduler",
     "as_noiseless_circuit",
 ]

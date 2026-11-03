@@ -60,6 +60,8 @@ from .noise_model import (
     DEFAULT_IMMUNE_OP_TAG,
     DEFAULT_IMMUNE_QUBIT_TAG,
     AbstractPauliChannel,
+    ALAPScheduler,
+    ASAPScheduler,
     DepolarizingNoiseModel,
     NoiseModel,
     NoiseRule,
@@ -68,6 +70,7 @@ from .noise_model import (
     Schedule,
     Scheduler,
     SI1000NoiseModel,
+    TickPreservingScheduler,
     as_noiseless_circuit,
 )
 from .transforms import remap_qubit_target, transpile_to_cz, with_remapped_qubits
@@ -82,6 +85,8 @@ from .transversal import (
 __all__ = [
     "DEFAULT_IMMUNE_OP_TAG",
     "DEFAULT_IMMUNE_QUBIT_TAG",
+    "ALAPScheduler",
+    "ASAPScheduler",
     "AbstractPauliChannel",
     "AlphaSyndrome",
     "BoundedFaultPropagationCertificate",
@@ -104,6 +109,7 @@ __all__ = [
     "StimCircuitLike",
     "StimCircuitProtocol",
     "SyndromeMeasurementStrategy",
+    "TickPreservingScheduler",
     "as_noiseless_circuit",
     "certify_bounded_fault_propagation",
     "get_encoder_and_decoder",
