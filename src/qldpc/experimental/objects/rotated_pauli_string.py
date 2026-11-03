@@ -21,17 +21,29 @@ The rotations satisfy:
 
 - ``R_{π/4}(a)² = R_{π/2}(a)`` and ``R_{π/4}(a) R_{π/4}(-a) = I``;
 - ``R_{π/2}(a) b R_{π/2}(a)† = -i a b`` for a Pauli string ``b`` that anticommutes with ``a``.
+
+Conjugating a Pauli string ``P`` by a Clifford gate gives another Pauli string, but conjugating it
+by a π/4 rotation ``R_{π/4}(a)`` gives the Clifford operator ``R_{π/2}(a) P`` if ``P`` anticommutes
+with ``a``.  π/4 rotations do not map Clifford operators to Clifford operators, however, so an
+error that passes several π/4 rotations can become non-Clifford.  For example, an ``X`` error
+followed by ``T``, ``H``, and ``T`` gates becomes ``(X - Y)/2 + Z/√2``.
+``RotatedPauliString.after`` and ``RotatedPauliString.before`` propagate operators through
+Clifford+T circuits.  Each π/4 rotation that an operator passes adds at most two π/4 rotations to
+it, and none if the axis of the rotation commutes with the core and every axis of the operator.
 """
 
 # Graduation plan: once the API of this module settles, it moves to qldpc.objects, as follows.
 #
 # 1. Turn the module qldpc/objects.py into a package qldpc/objects/ that keeps every name of the
 #    module importable from qldpc.objects.
-# 2. Move this module, _packed_paulis.py, _symplectic.py, their test files, and the fixtures and
-#    helpers of qldpc/experimental/objects/conftest.py into qldpc/objects/.
+# 2. Move this module, _packed_circuits.py, _packed_paulis.py, _symplectic.py, their test files,
+#    and the fixtures and helpers of qldpc/experimental/objects/conftest.py into qldpc/objects/.
+#    Their tests also use the circuit helpers of qldpc/experimental/conftest.py, which move into
+#    qldpc/objects/conftest.py.
 # 3. Re-export RotatedPauliString from qldpc.objects, and remove qldpc.experimental.objects;
 #    experimental modules need no deprecation shims.
-# 4. Mention RotatedPauliString in the description of qldpc.objects in docs/source/library_map.rst.
+# 4. Mention RotatedPauliString in the description of qldpc.objects in docs/source/library_map.rst,
+#    and update the Clifford+T bullet in docs/source/contributing.rst.
 
 from __future__ import annotations
 
@@ -43,8 +55,8 @@ import stim
 
 from qldpc._compilation import always_compiled
 
+from . import _packed_circuits, _symplectic
 from . import _packed_paulis as packed
-from . import _symplectic
 
 # The packed core, π/2 axes, π/2 phases, π/4 axes, and π/4 phases of an operator.
 _Arrays = tuple[
@@ -54,6 +66,7 @@ _Arrays = tuple[
     npt.NDArray[np.uint64],
     npt.NDArray[np.int64],
 ]
+
 
 ####################################################################################################
 # Pauli strings followed by rotations
@@ -85,6 +98,18 @@ class RotatedPauliString:
     equal operators can be unequal objects: for example, the π/4 rotations about the 15 products of
     ``Z`` operators on nonempty subsets of 4 qubits multiply to a global phase, but their simplified
     form keeps all 15 rotations.
+
+    Stim does not support T gates, so the circuits that ``after``, ``before``, and ``to_circuit``
+    read and write are ``stim.Circuit`` objects in which, following tsim, T gates and other π/4
+    rotations are instructions with the tag ``T`` or a labeled tag ``T:<label>``.  Up to global
+    phases, ``S[T]`` and ``S_DAG[T]`` stand for the T gate ``R_{π/4}(Z)`` and its inverse on each
+    target qubit, and ``SPP[T]`` and ``SPP_DAG[T]`` stand for the rotation ``R_{π/4}(a)`` and its
+    inverse about each target Pauli product ``a``.  Stim itself ignores tags, so it simulates these
+    instructions as the Clifford gates ``S``, ``S_DAG``, ``SPP``, and ``SPP_DAG``.  Circuits may
+    contain only unitary gates and annotations such as ``TICK``.  Classically controlled gates,
+    and other tags on ``I``, ``S``, ``S_DAG``, ``SPP``, and ``SPP_DAG``, which tsim uses for other
+    rotations, are rejected, as is a T tag on any other gate; other tags on other gates are
+    ignored.  Users of tsim can pass the ``stim_circuit`` of a tsim circuit.
 
     Args:
         pauli: A Pauli string, whose sign does not matter.  Default: the identity on no qubits.
@@ -146,8 +171,8 @@ class RotatedPauliString:
             if axis.sign not in (1, -1):
                 raise ValueError(f"Rotation axes must be Hermitian, but {axis} is not")
         core_words, _ = packed.from_stim(strings[0], num_qubits)
-        s_words, s_phases = _pack_axes(strings[1 : 1 + len(s_axes)], num_qubits)
-        t_words, t_phases = _pack_axes(strings[1 + len(s_axes) :], num_qubits)
+        s_words, s_phases = packed.pack_axes(strings[1 : 1 + len(s_axes)], num_qubits)
+        t_words, t_phases = packed.pack_axes(strings[1 + len(s_axes) :], num_qubits)
         return RotatedPauliString._new(
             num_qubits, _simplify(core_words, s_words, s_phases, t_words, t_phases)
         )
@@ -228,6 +253,53 @@ class RotatedPauliString:
         return RotatedPauliString._new(self._num_qubits, _simplify(*product))
 
     ################################################################################################
+    # circuits
+
+    def after(self, circuit: stim.Circuit) -> RotatedPauliString:
+        """The operator ``U V U†`` for the unitary ``U`` of a Clifford+T circuit.
+
+        The result is this operator ``V`` propagated forward through the circuit, as by
+        ``stim.PauliString.after``, and acts on enough qubits for both ``V`` and the circuit.
+
+        Raises:
+            ValueError: If the circuit is not a Clifford+T circuit as described in the class
+                docstring.
+        """
+        return self._conjugate(circuit, inverse=False)
+
+    def before(self, circuit: stim.Circuit) -> RotatedPauliString:
+        """The operator ``U† V U`` for the unitary ``U`` of a Clifford+T circuit.
+
+        The result is this operator ``V`` propagated backward through the circuit, as by
+        ``stim.PauliString.before``, and acts on enough qubits for both ``V`` and the circuit.
+
+        Raises:
+            ValueError: If the circuit is not a Clifford+T circuit as described in the class
+                docstring.
+        """
+        return self._conjugate(circuit, inverse=True)
+
+    def to_circuit(self) -> stim.Circuit:
+        """A Clifford+T circuit whose unitary is this operator, up to a global phase.
+
+        The circuit applies the Pauli gates of the core, then ``SPP`` or ``SPP_DAG`` gates for the
+        π/2 rotations, and then T-tagged ``SPP`` or ``SPP_DAG`` gates for the π/4 rotations.  An
+        ``I`` gate on the last qubit makes the circuit act on ``num_qubits`` qubits.
+        """
+        circuit = stim.Circuit()
+        if self._num_qubits:
+            circuit.append("I", [self._num_qubits - 1])
+        core = self.core
+        for gate in "XYZ":
+            if qubits := core.pauli_indices(gate):
+                circuit.append(gate, qubits)
+        for axes, tag in ((self.s_axes, ""), (self.t_axes, _packed_circuits.T_TAG)):
+            for axis in axes:
+                gate = "SPP" if axis.sign == 1 else "SPP_DAG"
+                circuit.append(gate, stim.target_combined_paulis(axis * axis.sign), tag=tag)
+        return circuit
+
+    ################################################################################################
     # comparison and printing
 
     def __eq__(self, other: object) -> bool:
@@ -289,9 +361,192 @@ class RotatedPauliString:
         )
         return RotatedPauliString._new(num_qubits, arrays)
 
+    def _conjugate(self, circuit: stim.Circuit, *, inverse: bool) -> RotatedPauliString:
+        """This operator conjugated by the unitary of a circuit or by its inverse, simplified."""
+        # pack the operations of the circuit
+        num_qubits = max(self._num_qubits, circuit.num_qubits)
+        packed_circuit = _packed_circuits.get_packed_circuit(circuit, num_qubits, inverse=inverse)
+
+        # conjugate by the operations in order
+        core, s_axes, s_phases, t_axes, t_phases = self._padded(num_qubits)._get_arrays()
+        conjugation_tables = packed.get_conjugation_tables()
+        arrays = _apply_packed_circuit(
+            core,
+            s_axes,
+            s_phases,
+            t_axes,
+            t_phases,
+            *packed_circuit.get_arrays(),
+            conjugation_tables.images,
+            conjugation_tables.image_phases,
+        )
+        return RotatedPauliString._new(num_qubits, _simplify(*arrays))
+
 
 ####################################################################################################
 # compiled kernels
+
+
+@always_compiled
+def _apply_packed_circuit(
+    core: npt.NDArray[np.uint64],
+    s_axes: npt.NDArray[np.uint64],
+    s_phases: npt.NDArray[np.int64],
+    t_axes: npt.NDArray[np.uint64],
+    t_phases: npt.NDArray[np.int64],
+    operation_types: npt.NDArray[np.int64],
+    operation_qubits: npt.NDArray[np.int64],
+    operation_indices: npt.NDArray[np.int64],
+    rotation_axes: npt.NDArray[np.uint64],
+    rotation_axis_phases: npt.NDArray[np.int64],
+    conjugation_table_images: npt.NDArray[np.int64],
+    conjugation_table_image_phases: npt.NDArray[np.int64],
+) -> _Arrays:
+    """Conjugate ``V = T·S·P`` by the operations of a ``_packed_circuits.PackedCircuit``, in order.
+
+    Here and below, ``P`` is the core of an operator, ``S`` is the product of its π/2 rotations,
+    and ``T`` is the product of its π/4 rotations.  The arguments after the axes of ``V`` are the
+    arrays returned by ``PackedCircuit.get_arrays``, followed by the images and image phases of the
+    shared conjugation tables of ``_packed_paulis.get_conjugation_tables``.  Returns the new core
+    and axes, unsimplified.
+    """
+    # count the π/4 rotations of the circuit, each of which adds at most one π/2 axis, or one π/4
+    # axis at each end of T
+    num_circuit_t_rotations = 0
+    for operation_type in operation_types:
+        if operation_type == _packed_circuits.T_ROTATION:
+            num_circuit_t_rotations += 1
+
+    # copy the core, and copy the axes into buffers with room for every axis that the π/4 rotations
+    # of the circuit can add; the π/4 axes start in the middle of their buffer, since they grow at
+    # both ends
+    num_words = len(core)
+    core = core.copy()
+    s_buffer = np.empty((len(s_axes) + num_circuit_t_rotations, num_words), dtype=np.uint64)
+    s_buffer[: len(s_axes)] = s_axes
+    s_buffer_phases = np.empty(len(s_axes) + num_circuit_t_rotations, dtype=np.int64)
+    s_buffer_phases[: len(s_axes)] = s_phases
+    num_s_axes = len(s_axes)
+    t_buffer = np.empty((len(t_axes) + 2 * num_circuit_t_rotations, num_words), dtype=np.uint64)
+    t_buffer_phases = np.empty(len(t_axes) + 2 * num_circuit_t_rotations, dtype=np.int64)
+    t_start = num_circuit_t_rotations  # the π/4 axes occupy rows t_start, ..., t_end - 1
+    t_end = t_start + len(t_axes)
+    t_buffer[t_start:t_end] = t_axes
+    t_buffer_phases[t_start:t_end] = t_phases
+
+    # conjugate the core and axes by each operation in turn
+    for operation in range(len(operation_types)):
+        operation_type = operation_types[operation]
+        if operation_type == _packed_circuits.LOCAL_GATE:
+            # conjugate by a local gate through its conjugation table; the row of qubits of a
+            # single-qubit gate ends in -1
+            gate_index = operation_indices[operation]
+            num_gate_qubits = 1 if operation_qubits[operation, 1] < 0 else 2
+            qubits = operation_qubits[operation, :num_gate_qubits]
+            images = conjugation_table_images[gate_index]
+            image_phases = conjugation_table_image_phases[gate_index]
+            packed.conjugate_by_local_gate(core, 0, qubits, images, image_phases)
+            for row in range(num_s_axes):
+                s_buffer_phases[row] = packed.conjugate_by_local_gate(
+                    s_buffer[row], s_buffer_phases[row], qubits, images, image_phases
+                )
+            for row in range(t_start, t_end):
+                t_buffer_phases[row] = packed.conjugate_by_local_gate(
+                    t_buffer[row], t_buffer_phases[row], qubits, images, image_phases
+                )
+        elif operation_type == _packed_circuits.S_ROTATION:
+            # conjugate by a π/2 rotation through its axis
+            rotation = operation_indices[operation]
+            axis = rotation_axes[rotation]
+            axis_phase = rotation_axis_phases[rotation]
+            packed.conjugate_by_s_rotation(core, 0, axis, axis_phase)
+            for row in range(num_s_axes):
+                s_buffer_phases[row] = packed.conjugate_by_s_rotation(
+                    s_buffer[row], s_buffer_phases[row], axis, axis_phase
+                )
+            for row in range(t_start, t_end):
+                t_buffer_phases[row] = packed.conjugate_by_s_rotation(
+                    t_buffer[row], t_buffer_phases[row], axis, axis_phase
+                )
+        else:
+            # conjugate by a π/4 rotation, which can add axes
+            rotation = operation_indices[operation]
+            num_s_axes, t_start, t_end = _apply_t_rotation(
+                core,
+                s_buffer,
+                s_buffer_phases,
+                num_s_axes,
+                t_buffer,
+                t_buffer_phases,
+                t_start,
+                t_end,
+                rotation_axes[rotation],
+                rotation_axis_phases[rotation],
+            )
+
+    # return the core and the occupied rows of the buffers
+    return (
+        core,
+        s_buffer[:num_s_axes].copy(),
+        s_buffer_phases[:num_s_axes].copy(),
+        t_buffer[t_start:t_end].copy(),
+        t_buffer_phases[t_start:t_end].copy(),
+    )
+
+
+@always_compiled(inline=True)
+def _apply_t_rotation(
+    core: npt.NDArray[np.uint64],
+    s_axes: npt.NDArray[np.uint64],
+    s_phases: npt.NDArray[np.int64],
+    num_s_axes: int,
+    t_axes: npt.NDArray[np.uint64],
+    t_phases: npt.NDArray[np.int64],
+    t_start: int,
+    t_end: int,
+    axis: npt.NDArray[np.uint64],
+    axis_phase: int,
+) -> tuple[int, int, int]:
+    """Conjugate ``V = T·S·P`` by ``R_{π/4}(a)`` in place, and return the new bounds of its axes.
+
+    The axis ``a`` has the words ``axis`` and the phase ``axis_phase``.  The π/2 axes of ``V`` are
+    rows ``0, ..., num_s_axes - 1`` of ``s_axes``, and its π/4 axes are rows
+    ``t_start, ..., t_end - 1`` of ``t_axes``; both buffers have room for the axes added here.
+
+    In ``R_{π/4}(a) V R_{π/4}(a)†``, the rotation ``R_{π/4}(a)† = R_{π/4}(-a)`` moves left past
+    ``S P`` and becomes ``R_{π/4}(b)``, where ``b = S P (-a) P† S†``.  If ``a`` commutes with every
+    π/4 axis, then ``R_{π/4}(a)`` moves right past ``T`` to meet ``R_{π/4}(b)``, and the two cancel
+    if ``b = -a``, or combine into the π/2 rotation ``R_{π/2}(a)``, which joins ``S`` as its
+    outermost rotation, if ``b = a``.  Otherwise, the π/4 axes become ``b, t_1, ..., t_k, a``.
+    """
+    # move R_{π/4}(-a) left past P, which turns -a back into a if P anticommutes with a, and then
+    # past the π/2 rotations of S, innermost first, so that it becomes R_{π/4}(b)
+    moved_axis = axis.copy()
+    moved_phase = axis_phase if packed.anticommutes(core, axis) else (axis_phase + 2) % 4
+    for row in range(num_s_axes):
+        moved_phase = packed.conjugate_by_s_rotation(
+            moved_axis, moved_phase, s_axes[row], s_phases[row]
+        )
+
+    # cancel or merge the two rotations if R_{π/4}(a) commutes with every π/4 rotation and b = ±a
+    commutes_with_t_axes = True
+    for row in range(t_start, t_end):
+        if packed.anticommutes(axis, t_axes[row]):
+            commutes_with_t_axes = False
+            break
+    if commutes_with_t_axes and _equal(moved_axis, axis):
+        if moved_phase != axis_phase:  # R_{π/4}(a) R_{π/4}(-a) = I
+            return num_s_axes, t_start, t_end
+        s_axes[num_s_axes] = axis
+        s_phases[num_s_axes] = axis_phase
+        return num_s_axes + 1, t_start, t_end
+
+    # otherwise, add b as the innermost π/4 axis and a as the outermost one
+    t_axes[t_start - 1] = moved_axis
+    t_phases[t_start - 1] = moved_phase
+    t_axes[t_end] = axis
+    t_phases[t_end] = axis_phase
+    return num_s_axes, t_start - 1, t_end + 1
 
 
 @always_compiled
@@ -453,17 +708,6 @@ def _remove_row(
 
 ####################################################################################################
 # helpers
-
-
-def _pack_axes(
-    axes: Sequence[stim.PauliString], num_qubits: int
-) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int64]]:
-    """The packed words and phases of Hermitian axes, one per row."""
-    words = np.zeros((len(axes), 2 * packed.get_num_words(num_qubits)), dtype=np.uint64)
-    phases = np.zeros(len(axes), dtype=np.int64)
-    for row, axis in enumerate(axes):
-        words[row], phases[row] = packed.from_stim(axis, num_qubits)
-    return words, phases
 
 
 def _unpack_axes(
