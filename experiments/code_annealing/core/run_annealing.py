@@ -25,7 +25,10 @@ soon as either improves, so they keep discoveries of an unfinished epoch.  They 
 ``--refine``.  A new search refuses to overwrite an existing file.  While a run is active it holds a
 lock on a ``.lock`` file beside its checkpoint, so that a second process cannot run the same chain.
 Redirect the progress that it prints to a ``.log`` file of the same name, as the jobs of
-``write_jobs.py`` do.
+``write_jobs.py`` do.  Standard output gets one JSON line of scores per epoch, which a seeded run
+repeats exactly.  Standard error gets the wall-clock times (UTC) at which the epochs of the run
+start or resume and at which each epoch finishes, and the counting method of each epoch with
+``--method auto``.
 
 Resuming and refining.  ``--resume CHECKPOINT`` restores the saved policy, codes, scores, random
 generator, temperature and epoch count exactly, so an interrupted and resumed run reproduces an
@@ -48,6 +51,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import dataclasses
+import datetime
 import itertools
 import json
 import sys
@@ -449,12 +453,10 @@ def _run_search(
             ),
             flush=True,
         )
-        # The method that ``auto`` chooses depends on timing, so it goes to stderr, which keeps
-        # stdout deterministic.
-        if state.config.method == "auto":
-            print(
-                f"epoch {state.completed_epochs}: scored with {state.epoch_method}", file=sys.stderr
-            )
+        # Wall-clock times, and the method that ``auto`` chooses, which depends on timing, vary from
+        # run to run, so they go to stderr, which keeps stdout deterministic.
+        method = f", scored with {state.epoch_method}" if state.config.method == "auto" else ""
+        print(f"epoch {state.completed_epochs}: finished at {_get_time()}{method}", file=sys.stderr)
 
     def preserve_lowest_energy(state: SearchState) -> None:
         save_record(state, output, "lowest-energy")
@@ -462,6 +464,10 @@ def _run_search(
     def preserve_greatest_distance(state: SearchState) -> None:
         save_record(state, output, "greatest-distance")
 
+    print(
+        f"epochs started at {_get_time()}, after {state.completed_epochs} completed epochs",
+        file=sys.stderr,
+    )
     # Save the initial chain and its pilot optima, so that even an interrupted first epoch is kept.
     if not dry_run:
         if not output.exists():
@@ -477,6 +483,11 @@ def _run_search(
         on_lowest_energy=None if dry_run else preserve_lowest_energy,
         on_greatest_distance=None if dry_run else preserve_greatest_distance,
     )
+
+
+def _get_time() -> str:
+    """The current wall-clock time in UTC, to the millisecond."""
+    return datetime.datetime.now(datetime.UTC).isoformat(timespec="milliseconds")
 
 
 if __name__ == "__main__":
