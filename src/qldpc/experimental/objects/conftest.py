@@ -21,7 +21,7 @@ _PAULI_MATRICES = (
     np.array([[0, -1j], [1j, 0]], dtype=np.complex128),
     np.array([[1, 0], [0, -1]], dtype=np.complex128),
 )
-# Gates of random circuits, with the number of qubits that each addresses.
+# The Clifford gates of random Clifford+T circuits, with their numbers of qubits.
 _CLIFFORD_GATES: tuple[tuple[str, int], ...] = (
     *(("H", 1), ("S", 1), ("SQRT_X_DAG", 1), ("C_XYZ", 1)),
     *(("CX", 2), ("CZ", 2), ("XCY", 2), ("ISWAP_DAG", 2), ("CXSWAP", 2)),
@@ -54,6 +54,10 @@ def get_random_clifford_t_circuit(
     products (``SPP``, ``SPP_DAG``, and their T-tagged versions), and T gates and their inverses
     (``S[T]`` and ``S_DAG[T]``), with inverted targets and several targets per instruction.
     """
+    # draw each instruction: T gates or their inverses with probability t_fraction / 2, π/4
+    # rotations about Pauli products with probability t_fraction / 2, π/2 rotations about Pauli
+    # products with probability 0.15, and otherwise a Clifford gate, which is skipped if it needs
+    # more than num_qubits qubits
     circuit = stim.Circuit()
     for _ in range(num_operations):
         draw = rng.random()

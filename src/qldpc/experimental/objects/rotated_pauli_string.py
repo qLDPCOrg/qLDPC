@@ -414,17 +414,19 @@ def _apply_packed_circuit(
 
     Here and below, ``P`` is the core of an operator, ``S`` is the product of its π/2 rotations,
     and ``T`` is the product of its π/4 rotations.  The arguments after the axes of ``V`` are the
-    arrays of the ``PackedCircuit``.  Returns the new core and axes, unsimplified.  Each π/4
-    rotation adds at most one π/2 axis, or one π/4 axis at each end of ``T``, so the buffers below
-    never overflow.
+    arrays returned by ``PackedCircuit.get_arrays``.  Returns the new core and axes, unsimplified.
     """
-    num_words = len(core)
-
-    # copy the axes into buffers with room for the axes that π/4 rotations add
+    # count the π/4 rotations of the circuit, each of which adds at most one π/2 axis, or one π/4
+    # axis at each end of T
     num_circuit_t_rotations = 0
     for kind in operation_kinds:
         if kind == _packed_circuits.T_ROTATION:
             num_circuit_t_rotations += 1
+
+    # copy the core, and copy the axes into buffers with room for every axis that the π/4 rotations
+    # of the circuit can add; the π/4 axes start in the middle of their buffer, since they grow at
+    # both ends
+    num_words = len(core)
     core = core.copy()
     s_buffer = np.empty((len(s_axes) + num_circuit_t_rotations, num_words), dtype=np.uint64)
     s_buffer[: len(s_axes)] = s_axes
@@ -438,10 +440,11 @@ def _apply_packed_circuit(
     t_buffer[t_start:t_end] = t_axes
     t_buffer_phases[t_start:t_end] = t_phases
 
-    # conjugate by local gates, π/2 rotations, and π/4 rotations, in order
+    # conjugate the core and axes by each operation in turn
     for operation in range(len(operation_kinds)):
         kind = operation_kinds[operation]
         if kind == _packed_circuits.LOCAL_GATE:
+            # conjugate by a local gate through its conjugation table
             gate = gate_or_rotation_indices[operation]
             conjugation_table = gate_conjugation_tables[gate]
             qubits = gate_qubits[gate, : conjugation_table_num_qubits[conjugation_table]]
@@ -457,6 +460,7 @@ def _apply_packed_circuit(
                     t_buffer[row], t_buffer_phases[row], qubits, images, image_phases
                 )
         elif kind == _packed_circuits.S_ROTATION:
+            # conjugate by a π/2 rotation through its axis
             rotation = gate_or_rotation_indices[operation]
             axis = rotation_axes[rotation]
             axis_phase = rotation_axis_phases[rotation]
@@ -470,6 +474,7 @@ def _apply_packed_circuit(
                     t_buffer[row], t_buffer_phases[row], axis, axis_phase
                 )
         else:
+            # conjugate by a π/4 rotation, which can add axes
             rotation = gate_or_rotation_indices[operation]
             num_s_axes, t_start, t_end = _apply_t_rotation(
                 core,
@@ -483,6 +488,8 @@ def _apply_packed_circuit(
                 rotation_axes[rotation],
                 rotation_axis_phases[rotation],
             )
+
+    # return the core and the occupied rows of the buffers
     return (
         core,
         s_buffer[:num_s_axes].copy(),

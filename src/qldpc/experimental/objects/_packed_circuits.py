@@ -177,7 +177,8 @@ def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> Pa
     for instruction in reversed(instructions) if inverse else instructions:
         if instruction.name in _ANNOTATIONS:
             continue
-        is_t_rotation = _check_instruction(instruction)
+        _check_instruction(instruction)
+        is_t_rotation = _has_t_tag(instruction)
         target_groups = instruction.target_groups()
         if inverse:
             target_groups = target_groups[::-1]
@@ -243,8 +244,8 @@ def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> Pa
     return packed_circuit
 
 
-def _check_instruction(instruction: stim.CircuitInstruction) -> bool:
-    """Whether an instruction is a π/4 rotation, after checking that packed circuits support it.
+def _check_instruction(instruction: stim.CircuitInstruction) -> None:
+    """Check that packed circuits can represent an instruction that is not an annotation.
 
     Raises:
         ValueError: If the instruction is not unitary, is a classically controlled gate, has a T tag
@@ -257,11 +258,10 @@ def _check_instruction(instruction: stim.CircuitInstruction) -> bool:
     # only Pauli rotations can have the T tag; tsim tags I and Pauli rotations to make other
     # rotations, which packed circuits cannot represent, but tags on other gates do not change their
     # action
-    tag = instruction.tag
-    is_t_rotation = tag == T_TAG or tag.startswith(T_TAG + ":")
-    if is_t_rotation and instruction.name not in _ROTATION_SIGNS:
+    has_t_tag = _has_t_tag(instruction)
+    if has_t_tag and instruction.name not in _ROTATION_SIGNS:
         raise ValueError(f"Instruction cannot be a π/4 rotation: {instruction}")
-    if tag and not is_t_rotation and instruction.name in _TSIM_TAGGED_GATES:
+    if instruction.tag and not has_t_tag and instruction.name in _TSIM_TAGGED_GATES:
         raise ValueError(
             f"Tags other than T are not supported on {instruction.name}: {instruction}"
         )
@@ -273,7 +273,11 @@ def _check_instruction(instruction: stim.CircuitInstruction) -> bool:
         for target in instruction.targets_copy()
     ):
         raise ValueError(f"Classically controlled gates are not supported: {instruction}")
-    return is_t_rotation
+
+
+def _has_t_tag(instruction: stim.CircuitInstruction) -> bool:
+    """Whether an instruction has the tag ``T`` or a labeled tag ``T:<label>``."""
+    return instruction.tag == T_TAG or instruction.tag.startswith(T_TAG + ":")
 
 
 def _get_axis(

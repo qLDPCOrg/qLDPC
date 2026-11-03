@@ -177,6 +177,42 @@ def conjugate_by_s_rotation(
     return (left_multiply(target, target_phase, axis, axis_phase) + 3) % 4
 
 
+####################################################################################################
+# conjugation by local gates
+
+
+@functools.cache
+def get_conjugation_table(name: str) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+    """The conjugation table of a stim Clifford gate: the images of the Pauli strings on its qubits.
+
+    A Pauli string ``X^x Z^z`` on the ``k`` qubits that the gate addresses has the index ``Σ_j (x_j
+    2^j + z_j 2^{k + j})``.  Entry ``i`` of the returned arrays holds the index and the phase of the
+    image of the Pauli string with index ``i``, in the convention of this module.
+    """
+    # list the images of the generators X_0, ..., X_{k-1}, Z_0, ..., Z_{k-1}, in the order of the
+    # bits of an index
+    tableau = stim.Tableau.from_named_gate(name)
+    num_gate_qubits = len(tableau)
+    generator_images = [tableau.x_output(qubit) for qubit in range(num_gate_qubits)]
+    generator_images += [tableau.z_output(qubit) for qubit in range(num_gate_qubits)]
+    packed_generator_images = [from_stim(image, num_gate_qubits) for image in generator_images]
+
+    # multiply the images of the generators in each index, in the order in which X^x Z^z lists
+    # them; left multiplication builds the product from its last factor
+    images = np.zeros(4**num_gate_qubits, dtype=np.int64)
+    image_phases = np.zeros(4**num_gate_qubits, dtype=np.int64)
+    for pauli_index in range(4**num_gate_qubits):
+        image = np.zeros(2, dtype=np.uint64)
+        image_phase = 0
+        for generator in range(2 * num_gate_qubits - 1, -1, -1):
+            if (pauli_index >> generator) & 1:
+                generator_image, generator_phase = packed_generator_images[generator]
+                image_phase = left_multiply(image, image_phase, generator_image, generator_phase)
+        images[pauli_index] = int(image[0]) | (int(image[1]) << num_gate_qubits)
+        image_phases[pauli_index] = image_phase
+    return images, image_phases
+
+
 @always_compiled(inline=True)
 def conjugate_by_local_gate(
     target: npt.NDArray[np.uint64],
@@ -214,39 +250,3 @@ def conjugate_by_local_gate(
             else:
                 target[half * num_words + word] &= ~mask
     return (target_phase + image_phases[pauli_index]) % 4
-
-
-####################################################################################################
-# conjugation tables of Clifford gates
-
-
-@functools.cache
-def get_conjugation_table(name: str) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
-    """The conjugation table of a stim Clifford gate: the images of the Pauli strings on its qubits.
-
-    A Pauli string ``X^x Z^z`` on the ``k`` qubits that the gate addresses has the index ``Σ_j (x_j
-    2^j + z_j 2^{k + j})``.  Entry ``i`` of the returned arrays holds the index and the phase of the
-    image of the Pauli string with index ``i``, in the convention of this module.
-    """
-    # list the images of the generators X_0, ..., X_{k-1}, Z_0, ..., Z_{k-1}, in the order of the
-    # bits of an index
-    tableau = stim.Tableau.from_named_gate(name)
-    num_gate_qubits = len(tableau)
-    generator_images = [tableau.x_output(qubit) for qubit in range(num_gate_qubits)]
-    generator_images += [tableau.z_output(qubit) for qubit in range(num_gate_qubits)]
-    packed_generator_images = [from_stim(image, num_gate_qubits) for image in generator_images]
-
-    # multiply the images of the generators in each index, in the order in which X^x Z^z lists
-    # them; left multiplication builds the product from its last factor
-    images = np.zeros(4**num_gate_qubits, dtype=np.int64)
-    image_phases = np.zeros(4**num_gate_qubits, dtype=np.int64)
-    for pauli_index in range(4**num_gate_qubits):
-        image = np.zeros(2, dtype=np.uint64)
-        image_phase = 0
-        for generator in range(2 * num_gate_qubits - 1, -1, -1):
-            if (pauli_index >> generator) & 1:
-                generator_image, generator_phase = packed_generator_images[generator]
-                image_phase = left_multiply(image, image_phase, generator_image, generator_phase)
-        images[pauli_index] = int(image[0]) | (int(image[1]) << num_gate_qubits)
-        image_phases[pauli_index] = image_phase
-    return images, image_phases
