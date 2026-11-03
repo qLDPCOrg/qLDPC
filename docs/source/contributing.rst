@@ -45,6 +45,10 @@ Code style and organization
   Put a helper in the section of the code that mainly uses it, or in a final helper section if several sections share it, and do not move existing helpers merely because their usage changes.
   Private constants and types may sit near the imports.
 * Within a class, put public methods first (for decoders, the decode methods) and private helper methods after them.
+* Keep code only as complex as its uses require.
+  Avoid storing data that can be derived from other stored data, accepting arguments that are unused or derivable from other arguments, and adding options, parameters, or code paths that nothing uses.
+  Reuse existing implementations, such as ``qldpc._binary``, rather than duplicating them, and remove dead code and comments that describe removed designs.
+  Deliberate exceptions are fine when a clear benefit, such as a performance gain at negligible cost, justifies them; explain the reason in a comment.
 * ``src/qldpc/code_style_test.py`` checks license headers, section headers, and the order of plain and underscore names.
 * The top-level modules and subpackages of ``qldpc.circuits`` and ``qldpc.decoders`` import each other in layers: each imports only from itself and from lower layers, and never from the root of its package.
   ``_LAYERS`` in the package's ``layering_test.py`` lists the layers and is the only place to update when adding a top-level module or subpackage; changes inside a subpackage need no edits.
@@ -282,6 +286,18 @@ The TQEC notebook (``examples/logical_error_rates/specialized/decoding_tqec_circ
 Some check wrappers discover files through Git.
 Add new source and test files to the index before relying on the full gate to include them.
 Do not weaken a failure with ``noqa``, ``type: ignore``, or coverage exclusions unless the exceptional condition is real and documented.
+
+Reviewing a change
+------------------
+
+Review a change in separate passes, each against one part of this guide, before running the finishing checks:
+
+* **Correctness:** results, edge cases, and documented contracts, checked against independent oracles where possible.
+* **Tests:** the rules of `Tests`_.
+* **Code and prose:** the rules of `Code style and organization`_ and `Prose style`_.
+* **Simplicity:** redundant stored data, superfluous arguments, unused generality, duplicated logic, and dead code, apart from deliberate exceptions with an explained reason.
+
+Fix what a pass finds before the next pass, and run the slow checks of `Validation commands`_ once, after the last pass.
 
 Pull request summaries
 ----------------------
