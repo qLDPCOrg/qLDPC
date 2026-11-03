@@ -5,10 +5,12 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import pathlib
 import pickle
 import unittest.mock
 from collections.abc import Hashable
+from typing import Any
 
 import diskcache_community
 import galois
@@ -17,6 +19,20 @@ import pytest
 
 import qldpc.cache
 import qldpc.external._codes
+
+
+@dataclasses.dataclass
+class Listed:
+    """A result class that a test lists in use_disk_cache(types=...)."""
+
+    value: int
+
+
+@dataclasses.dataclass
+class Unlisted:
+    """A result class that no test lists in use_disk_cache(types=...)."""
+
+    value: int
 
 
 def test_pytest() -> None:
@@ -139,14 +155,81 @@ def test_planted_entry(tmp_path: pathlib.Path) -> None:
     assert calls == ["test_arg"]
 
 
-def test_uncached_calls(tmp_path: pathlib.Path) -> None:
-    """Calls whose key or result the disk cache cannot store are computed, but not cached."""
+def test_default_cache_dir(tmp_path: pathlib.Path) -> None:
+    """The default cache directory caches results of any type, as diskcache's default Disk does."""
     calls: list[int] = []
 
-    @qldpc.cache.use_disk_cache("ones", cache_dir=tmp_path)
-    def get_ones(size: int) -> galois.FieldArray:
+    @qldpc.cache.use_disk_cache("unlisted")
+    def get_unlisted(value: int) -> Unlisted:
+        calls.append(value)
+        return Unlisted(value)
+
+    with (
+        unittest.mock.patch("qldpc.cache._running_with_pytest", return_value=False),
+        unittest.mock.patch("platformdirs.user_cache_dir", return_value=str(tmp_path)),
+    ):
+        assert get_unlisted(1) == get_unlisted(1) == Unlisted(1)
+        assert calls == [1]
+
+        # naming the default directory explicitly is the same as leaving it out
+        cache = qldpc.cache.get_disk_cache("unlisted", cache_dir=tmp_path / "qldpc")
+        assert isinstance(cache, diskcache_community.Cache)
+        assert type(cache.disk) is diskcache_community.Disk
+
+
+def test_galois_results(tmp_path: pathlib.Path) -> None:
+    """In a chosen cache directory, galois.FieldArray results are cached as plain data."""
+    calls: list[int] = []
+
+    @qldpc.cache.use_disk_cache("arrays", cache_dir=tmp_path)
+    def get_arrays(size: int) -> dict[str, Any]:
         calls.append(size)
-        return galois.GF(2).Ones(size)
+        field = galois.GF(2**3, irreducible_poly="x^3 + x^2 + 1")
+        return {"ones": galois.GF(2).Ones(size), "more": [(field.Ones(size), size)]}
+
+    with unittest.mock.patch("qldpc.cache._running_with_pytest", return_value=False):
+        first, second = get_arrays(2), get_arrays(2)
+    assert calls == [2]
+    assert type(second["ones"]) is galois.GF(2)
+    assert second["ones"].tolist() == [1, 1]
+    ((more, size),) = second["more"]
+    assert type(more) is type(first["more"][0][0])
+    assert np.array_equal(more, first["more"][0][0])
+    assert size == 2
+
+
+def test_listed_types(tmp_path: pathlib.Path) -> None:
+    """In a chosen cache directory, only instances of the listed classes are cached."""
+    calls: list[int] = []
+
+    @qldpc.cache.use_disk_cache("listed", cache_dir=tmp_path, types=[Listed])
+    def get_listed(value: int) -> Listed:
+        calls.append(value)
+        return Listed(value)
+
+    @qldpc.cache.use_disk_cache("unlisted", cache_dir=tmp_path)
+    def get_unlisted(value: int) -> Unlisted:
+        calls.append(value)
+        return Unlisted(value)
+
+    with unittest.mock.patch("qldpc.cache._running_with_pytest", return_value=False):
+        assert get_listed(1) == get_listed(1) == Listed(1)
+        assert calls == [1]
+
+        # an unlisted class is returned and never cached, and refreshing it drops an older result;
+        # only the first such call warns
+        calls.clear()
+        qldpc.cache.get_disk_cache("unlisted", cache_dir=tmp_path)[2] = "an older result"
+        with pytest.warns(UserWarning, match="cannot store") as record:
+            results = [get_unlisted.refresh(2), get_unlisted(2), get_unlisted(2)]
+        assert len(record) == 1
+        assert results == [Unlisted(2)] * 3
+        assert calls == [2, 2, 2]
+
+
+def test_numpy_integer_keys(tmp_path: pathlib.Path) -> None:
+    """In a chosen cache directory, a NumPy integer argument gives the right result uncached."""
+    calls: list[int] = []
 
     @qldpc.cache.use_disk_cache("doubles", cache_dir=tmp_path)
     def double(value: int) -> int:
@@ -154,24 +237,12 @@ def test_uncached_calls(tmp_path: pathlib.Path) -> None:
         return 2 * value
 
     with unittest.mock.patch("qldpc.cache._running_with_pytest", return_value=False):
-        qldpc.cache.get_disk_cache("ones", cache_dir=tmp_path)[2] = "an older result"
-
-        # a galois.FieldArray result is returned and never cached, and refreshing it drops the older
-        # result; only the first such call warns
-        with pytest.warns(UserWarning, match="subclass of ndarray") as record:
-            arrays = [get_ones.refresh(2), get_ones(2), get_ones(2)]
-        assert len(record) == 1
-        assert all(type(ones) is galois.GF(2) and ones.tolist() == [1, 1] for ones in arrays)
-        assert calls == [2, 2, 2]
-
-        # a NumPy integer argument, which cannot be part of a key, gives the right result
-        calls.clear()
         (three,) = np.array([3])
         with pytest.warns(UserWarning, match="key of type numpy") as record:
             doubles = [double(three), double(three)]
-        assert len(record) == 1
-        assert doubles == [6, 6]
-        assert calls == [3, 3]
+    assert len(record) == 1
+    assert doubles == [6, 6]
+    assert calls == [3, 3]
 
 
 def test_pickle() -> None:

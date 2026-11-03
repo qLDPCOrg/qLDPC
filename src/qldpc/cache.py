@@ -9,10 +9,12 @@ import functools
 import pathlib
 import sys
 import warnings
-from collections.abc import Callable, Hashable, MutableMapping
+from collections.abc import Callable, Hashable, Iterable, MutableMapping
 from typing import Any, Generic, ParamSpec, TypeVar, cast
 
 import diskcache_community
+import galois
+import numpy as np
 import platformdirs
 
 from qldpc._utils import get_external_caller_stacklevel
@@ -20,10 +22,8 @@ from qldpc._utils import get_external_caller_stacklevel
 _Params = ParamSpec("_Params")
 _Result = TypeVar("_Result")
 
-# Entries are read back with an allowlist rather than plain pickle, so an entry planted in a cache
-# directory cannot run code.  An entry that the allowlist refuses is deleted and treated as missing.
-_DISK = diskcache_community.SafeDisk.with_numpy().with_options(on_error="miss")
 _MISSING = object()  # distinct from every cached result
+_GALOIS_TAG = "__qldpc_galois_field_array__"  # marks a galois.FieldArray stored as plain data
 
 
 def use_disk_cache(
@@ -31,6 +31,7 @@ def use_disk_cache(
     *,
     cache_dir: pathlib.Path | str | None = None,
     key_func: Callable[..., Hashable] | None = None,
+    types: Iterable[type] = (),
 ) -> Callable[[Callable[_Params, _Result]], CachedFunction[_Params, _Result]]:
     """Decorator to cache results to disk.
 
@@ -45,17 +46,18 @@ def use_disk_cache(
     The decorator is intended for module-level functions: a decorated function is pickled by
     reference to its qualified name, and it does not bind as a method.
 
-    The cache stores keys and results that are plain Python data, such as numbers, strings, and
-    tuples, lists, and dicts of them, and results may also hold NumPy arrays and scalars.  A call
-    with any other key or result, such as a NumPy integer argument or a galois.FieldArray result, is
-    computed without caching, and the first such call warns.  A cache entry that holds anything
-    else is deleted and recomputed rather than read.
+    Caches in a cache_dir passed by the caller are read with diskcache-community's SafeDisk, so a
+    planted entry is recomputed rather than run.  They store plain data, NumPy and galois arrays,
+    and instances of the classes in types; other results are computed without caching, with one
+    warning.
 
     Disk caching is bypassed when running with pytest.
     """
 
     def decorator(function: Callable[_Params, _Result]) -> CachedFunction[_Params, _Result]:
-        return CachedFunction(function, cache_name, cache_dir=cache_dir, key_func=key_func)
+        return CachedFunction(
+            function, cache_name, cache_dir=cache_dir, key_func=key_func, types=types
+        )
 
     return decorator
 
@@ -77,17 +79,19 @@ class CachedFunction(Generic[_Params, _Result]):
         *,
         cache_dir: pathlib.Path | str | None = None,
         key_func: Callable[..., Hashable] | None = None,
+        types: Iterable[type] = (),
     ) -> None:
         self._function = function
         self._cache_name = cache_name
         self._cache_dir = cache_dir
         self._key_func = key_func
+        self._types = tuple(types)
         self._warned_uncached = False
         functools.update_wrapper(self, function)
 
     def __call__(self, *args: _Params.args, **kwargs: _Params.kwargs) -> _Result:
         """Retrieve a result from the cache if available, and otherwise compute and cache it."""
-        cache = get_disk_cache(self._cache_name, cache_dir=self._cache_dir)
+        cache = get_disk_cache(self._cache_name, cache_dir=self._cache_dir, types=self._types)
         key = self._get_key(*args, **kwargs)
         try:
             result = cache.get(key, _MISSING)
@@ -95,12 +99,12 @@ class CachedFunction(Generic[_Params, _Result]):
             self._warn_uncached(error)
             return self._function(*args, **kwargs)
         if result is _MISSING:
-            result = self._save(cache, key, self._function(*args, **kwargs))
-        return cast(_Result, result)
+            return self._save(cache, key, self._function(*args, **kwargs))
+        return cast(_Result, _decode(result) if _uses_safe_disk(cache) else result)
 
     def refresh(self, *args: _Params.args, **kwargs: _Params.kwargs) -> _Result:
         """Recompute the result for these arguments and overwrite the cached value."""
-        cache = get_disk_cache(self._cache_name, cache_dir=self._cache_dir)
+        cache = get_disk_cache(self._cache_name, cache_dir=self._cache_dir, types=self._types)
         key = self._get_key(*args, **kwargs)
         return self._save(cache, key, self._function(*args, **kwargs))
 
@@ -120,7 +124,7 @@ class CachedFunction(Generic[_Params, _Result]):
     ) -> _Result:
         """Save a result to the cache, unless the cache cannot store it, and return the result."""
         try:
-            cache[key] = result
+            cache[key] = _encode(result) if _uses_safe_disk(cache) else result
         except TypeError as error:  # the cache cannot store this key or result
             self._warn_uncached(error)
             with contextlib.suppress(TypeError):
@@ -139,25 +143,32 @@ class CachedFunction(Generic[_Params, _Result]):
 
 
 def get_disk_cache(
-    cache_name: str, *, cache_dir: pathlib.Path | str | None = None
+    cache_name: str,
+    *,
+    cache_dir: pathlib.Path | str | None = None,
+    types: Iterable[type] = (),
 ) -> MutableMapping[Hashable, Any]:
     """Retrieve a dictionary-like cache object.
 
-    The cache stores the same keys and values as use_disk_cache, and raises a TypeError for others.
-    While pytest is imported, this returns a new, empty dict rather than a persistent disk cache.
+    A cache_dir other than the default is read with SafeDisk, which raises a TypeError for values it
+    cannot store.  While pytest is imported, this returns a new, empty dict rather than a persistent
+    disk cache.
     """
     if _running_with_pytest():
         return {}
     path = get_disk_cache_path(cache_name, cache_dir=cache_dir)
-    return cast(MutableMapping[Hashable, Any], diskcache_community.Cache(path, disk=_DISK))
+    if cache_dir is None or pathlib.Path(cache_dir).resolve() == _default_cache_dir().resolve():
+        disk: type[diskcache_community.Disk] = diskcache_community.Disk
+    else:
+        disk = _get_safe_disk(tuple(types))
+    return cast(MutableMapping[Hashable, Any], diskcache_community.Cache(path, disk=disk))
 
 
 def get_disk_cache_path(
     cache_name: str, *, cache_dir: pathlib.Path | str | None = None
 ) -> pathlib.Path:
     """Retrieve the path of a cache."""
-    cache_dir = cache_dir or pathlib.Path(platformdirs.user_cache_dir()) / "qldpc"
-    return pathlib.Path(cache_dir) / cache_name
+    return pathlib.Path(cache_dir or _default_cache_dir()) / cache_name
 
 
 def clear_entry(
@@ -175,6 +186,51 @@ def clear_entry(
             + ", but this entry does not exist.",
             stacklevel=2,
         )
+
+
+def _default_cache_dir() -> pathlib.Path:
+    """The default directory of all caches."""
+    return pathlib.Path(platformdirs.user_cache_dir()) / "qldpc"
+
+
+@functools.cache
+def _get_safe_disk(types: tuple[type, ...]) -> type[diskcache_community.Disk]:
+    """The disk for a chosen cache_dir."""
+    disk = diskcache_community.SafeDisk.with_numpy()
+    if types:
+        disk = disk.with_types(*types)
+    return disk.with_options(on_error="miss")
+
+
+def _uses_safe_disk(cache: MutableMapping[Hashable, Any]) -> bool:
+    """Does this cache read entries back with SafeDisk?"""
+    return isinstance(getattr(cache, "disk", None), diskcache_community.SafeDisk)
+
+
+def _encode(value: Any) -> Any:
+    """Replace the galois.FieldArrays in a result by plain data that SafeDisk can store."""
+    if isinstance(value, galois.FieldArray):
+        field = type(value)
+        poly = int(field.irreducible_poly) if field.degree > 1 else None  # prime fields take none
+        primitive = int(field.primitive_element)
+        return (_GALOIS_TAG, field.order, poly, primitive, value.view(np.ndarray))
+    if type(value) in (tuple, list):
+        return type(value)(_encode(item) for item in value)
+    if type(value) is dict:
+        return {key: _encode(item) for key, item in value.items()}
+    return value
+
+
+def _decode(value: Any) -> Any:
+    """Rebuild the galois.FieldArrays that _encode replaced by plain data."""
+    if type(value) is tuple and len(value) == 5 and value[0] == _GALOIS_TAG:
+        _, order, poly, primitive, array = value
+        return galois.GF(order, irreducible_poly=poly, primitive_element=primitive)(array)
+    if type(value) in (tuple, list):
+        return type(value)(_decode(item) for item in value)
+    if type(value) is dict:
+        return {key: _decode(item) for key, item in value.items()}
+    return value
 
 
 def _running_with_pytest() -> bool:
