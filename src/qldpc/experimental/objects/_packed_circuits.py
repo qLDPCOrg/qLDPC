@@ -57,13 +57,12 @@ class PackedCircuit:
       leaves ``b`` unchanged otherwise.
     - ``T_ROTATION``: a π/4 rotation about a Pauli product, from a T-tagged instruction.
 
-    Operations are indexed in the order in which they act, and so are rotations.  Local gates that
-    apply the same stim gate share a conjugation table, and conjugation tables are indexed in the
-    order in which their gates first act.  A conjugation table lists, for the index of each Pauli
-    string on the qubits of its gates, the index and the phase of its image, as computed by
-    ``_packed_paulis.get_conjugation_table``.  The number of qubits of a conjugation table is that
-    of its gates, which follows from their rows of ``operation_qubits``.  All arrays are read-only,
-    since packed circuits are cached and shared.
+    Operations are indexed in the order in which they act, and so are rotations.  The conjugation
+    tables of local gates depend only on their stim gates, so packed circuits share those of
+    ``_packed_paulis.get_conjugation_tables``, which list, for the index of each Pauli string on
+    the qubits of a gate, the index and the phase of its image.  The number of qubits of a local
+    gate, and so of its conjugation table, follows from its row of ``operation_qubits``.  All arrays
+    are read-only, since packed circuits are cached and shared.
 
     Attributes:
         num_qubits: The number of qubits of the packed circuit, which is at least the number of
@@ -73,12 +72,9 @@ class PackedCircuit:
         operation_qubits: Indexed by operation, a row with the qubits of each local gate, with
             ``-1`` in place of the second qubit of a single-qubit gate, and with ``-1`` in both
             places for each rotation.
-        operation_indices: Indexed by operation, the index of the conjugation table of each local
-            gate, and the index of each rotation among the rotations.
-        conjugation_table_images: Indexed by conjugation table, a row with the index of the image
-            of each Pauli string on the qubits of its gates, padded with zeros to 16 entries.
-        conjugation_table_image_phases: Indexed by conjugation table, a row with the phases of
-            these images, padded in the same way.
+        operation_indices: Indexed by operation, the index of the stim gate of each local gate
+            among the gates with shared conjugation tables, and the index of each rotation among
+            the rotations.
         rotation_axes: Indexed by rotation, a row with the packed bits of its axis, a Hermitian
             Pauli string on ``num_qubits`` qubits, in the layout of ``_packed_paulis``.
         rotation_axis_phases: Indexed by rotation, the phase of its axis, in the convention of
@@ -89,16 +85,12 @@ class PackedCircuit:
     operation_types: npt.NDArray[np.int64]
     operation_qubits: npt.NDArray[np.int64]
     operation_indices: npt.NDArray[np.int64]
-    conjugation_table_images: npt.NDArray[np.int64]
-    conjugation_table_image_phases: npt.NDArray[np.int64]
     rotation_axes: npt.NDArray[np.uint64]
     rotation_axis_phases: npt.NDArray[np.int64]
 
     def get_arrays(
         self,
     ) -> tuple[
-        npt.NDArray[np.int64],
-        npt.NDArray[np.int64],
         npt.NDArray[np.int64],
         npt.NDArray[np.int64],
         npt.NDArray[np.int64],
@@ -113,8 +105,6 @@ class PackedCircuit:
             self.operation_types,
             self.operation_qubits,
             self.operation_indices,
-            self.conjugation_table_images,
-            self.conjugation_table_image_phases,
             self.rotation_axes,
             self.rotation_axis_phases,
         )
@@ -156,13 +146,12 @@ def get_packed_circuit(
 @functools.lru_cache(maxsize=64)
 def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> PackedCircuit:
     """The packed circuit of the circuit with the given stim text (see ``get_packed_circuit``)."""
-    # collect the type, qubits, and index of each operation, the index of the conjugation table of
-    # each gate name, and the axis of each rotation
+    # collect the type, qubits, and index of each operation, and the axis of each rotation
     operation_types: list[int] = []
     operation_qubits: list[tuple[int, int]] = []
     operation_indices: list[int] = []
-    conjugation_table_indices: dict[str, int] = {}
     rotation_axes: list[stim.PauliString] = []
+    gate_indices = packed.get_conjugation_tables().gate_indices
 
     # read the instructions, skipping annotations and rejecting instructions that packed circuits
     # cannot represent; the inverse circuit applies the inverse operations in reverse order, so
@@ -190,26 +179,14 @@ def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> Pa
             continue
 
         # each target group of another gate, including an untagged S or S_DAG, is a local gate,
-        # which shares a conjugation table with the gates of the same name; the inverse uses the
-        # inverse gate
+        # indexed by its stim gate among the gates with shared conjugation tables; the inverse uses
+        # the inverse gate
         gate_name = stim.gate_data(instruction.name).inverse.name if inverse else instruction.name
-        conjugation_table = conjugation_table_indices.setdefault(
-            gate_name, len(conjugation_table_indices)
-        )
         for target_group in target_groups:
             qubits = [target.value for target in target_group]
             operation_types.append(LOCAL_GATE)
             operation_qubits.append((qubits[0], qubits[1] if len(qubits) > 1 else -1))
-            operation_indices.append(conjugation_table)
-
-    # build the conjugation tables of the local gates, padded to the 16 entries of two-qubit gates
-    num_conjugation_tables = len(conjugation_table_indices)
-    conjugation_table_images = np.zeros((num_conjugation_tables, 16), dtype=np.int64)
-    conjugation_table_image_phases = np.zeros((num_conjugation_tables, 16), dtype=np.int64)
-    for gate_name, conjugation_table in conjugation_table_indices.items():
-        images, image_phases = packed.get_conjugation_table(gate_name)
-        conjugation_table_images[conjugation_table, : len(images)] = images
-        conjugation_table_image_phases[conjugation_table, : len(image_phases)] = image_phases
+            operation_indices.append(gate_indices[gate_name])
 
     # pack the rotation axes
     packed_axes, packed_axis_phases = packed.pack_axes(rotation_axes, num_qubits)
@@ -220,8 +197,6 @@ def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> Pa
         operation_types=np.array(operation_types, dtype=np.int64),
         operation_qubits=np.array(operation_qubits, dtype=np.int64).reshape(-1, 2),
         operation_indices=np.array(operation_indices, dtype=np.int64),
-        conjugation_table_images=conjugation_table_images,
-        conjugation_table_image_phases=conjugation_table_image_phases,
         rotation_axes=packed_axes,
         rotation_axis_phases=packed_axis_phases,
     )

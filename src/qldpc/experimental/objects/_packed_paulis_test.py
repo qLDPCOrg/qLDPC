@@ -113,15 +113,28 @@ def test_conjugation_by_s_rotations(rng: np.random.Generator) -> None:
 
 @pytest.mark.usefixtures("kernels")
 def test_conjugation_by_local_gates() -> None:
-    """Every entry of every conjugation table, at qubits on both sides of a word boundary."""
+    """Every entry of every shared conjugation table, at qubits on both sides of a word boundary."""
+    # the shared conjugation tables cover the unitary gates of stim other than Pauli-product
+    # rotations, and are read-only
+    conjugation_tables = packed.get_conjugation_tables()
+    expected_names = [
+        name
+        for name, gate_data in stim.gate_data().items()
+        if gate_data.is_unitary and name not in ("SPP", "SPP_DAG")
+    ]
+    assert sorted(conjugation_tables.gate_indices) == sorted(expected_names)
+    assert sorted(conjugation_tables.gate_indices.values()) == list(range(len(expected_names)))
+    for array in (conjugation_tables.images, conjugation_tables.image_phases):
+        with pytest.raises(ValueError, match="read-only"):
+            array[0, 0] = 0
+
+    # conjugation through each conjugation table maps each Pauli string on the qubits of its gate
+    # as stim does
     num_qubits = 130
-    for name, gate_data in stim.gate_data().items():
-        if not gate_data.is_unitary or not (
-            gate_data.is_single_qubit_gate or gate_data.is_two_qubit_gate
-        ):
-            continue
-        qubits = [63] if gate_data.is_single_qubit_gate else [64, 63]
-        images, image_phases = packed.get_conjugation_table(name)
+    for name, gate_index in conjugation_tables.gate_indices.items():
+        qubits = [63] if stim.gate_data(name).is_single_qubit_gate else [64, 63]
+        images = conjugation_tables.images[gate_index]
+        image_phases = conjugation_tables.image_phases[gate_index]
         for letters in itertools.product("IXYZ", repeat=len(qubits)):
             target = stim.PauliString(num_qubits)
             for qubit, letter in zip(qubits, letters):

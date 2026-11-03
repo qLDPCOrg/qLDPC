@@ -23,8 +23,10 @@ words in place and return its new phase.
 
 from __future__ import annotations
 
+import dataclasses
 import functools
-from collections.abc import Sequence
+import types
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 import numpy.typing as npt
@@ -214,6 +216,52 @@ def get_conjugation_table(name: str) -> tuple[npt.NDArray[np.int64], npt.NDArray
         images[pauli_index] = int(image[0]) | (int(image[1]) << num_gate_qubits)
         image_phases[pauli_index] = image_phase
     return images, image_phases
+
+
+@dataclasses.dataclass(frozen=True)
+class ConjugationTables:
+    """The conjugation tables of all local gates of stim, shared by all packed circuits.
+
+    The local gates are the unitary gates of stim that act on one or two qubits per target group,
+    which are all unitary gates except the Pauli-product rotations ``SPP`` and ``SPP_DAG``.  Local
+    gates are indexed in the order of ``stim.gate_data``, and the arrays are read-only.
+
+    Attributes:
+        gate_indices: The index of each local gate, by its stim name.
+        images: Indexed by local gate, a row with the conjugation table of ``get_conjugation_table``
+            for the gate, padded with zeros to the 16 entries of two-qubit gates.
+        image_phases: Indexed by local gate, a row with the phases of these images, padded in the
+            same way.
+    """
+
+    gate_indices: Mapping[str, int]
+    images: npt.NDArray[np.int64]
+    image_phases: npt.NDArray[np.int64]
+
+
+@functools.cache
+def get_conjugation_tables() -> ConjugationTables:
+    """The conjugation tables of all local gates of stim, built once on first use."""
+    # list the local gates
+    gate_names = [
+        name
+        for name, gate_data in stim.gate_data().items()
+        if gate_data.is_unitary and (gate_data.is_single_qubit_gate or gate_data.is_two_qubit_gate)
+    ]
+
+    # pad the conjugation table of each local gate to the 16 entries of two-qubit gates
+    images = np.zeros((len(gate_names), 16), dtype=np.int64)
+    image_phases = np.zeros((len(gate_names), 16), dtype=np.int64)
+    for gate_index, gate_name in enumerate(gate_names):
+        gate_images, gate_image_phases = get_conjugation_table(gate_name)
+        images[gate_index, : len(gate_images)] = gate_images
+        image_phases[gate_index, : len(gate_image_phases)] = gate_image_phases
+
+    # make the tables read-only, since they are cached and shared, and index the gates by name
+    images.flags.writeable = False
+    image_phases.flags.writeable = False
+    gate_indices = {gate_name: gate_index for gate_index, gate_name in enumerate(gate_names)}
+    return ConjugationTables(types.MappingProxyType(gate_indices), images, image_phases)
 
 
 @always_compiled(inline=True)

@@ -384,8 +384,16 @@ class RotatedPauliString:
 
         # conjugate by the operations in order
         core, s_axes, s_phases, t_axes, t_phases = self._padded(num_qubits)._get_arrays()
+        conjugation_tables = packed.get_conjugation_tables()
         arrays = _apply_packed_circuit(
-            core, s_axes, s_phases, t_axes, t_phases, *packed_circuit.get_arrays()
+            core,
+            s_axes,
+            s_phases,
+            t_axes,
+            t_phases,
+            *packed_circuit.get_arrays(),
+            conjugation_tables.images,
+            conjugation_tables.image_phases,
         )
         return RotatedPauliString._new(num_qubits, _simplify(*arrays))
 
@@ -404,16 +412,18 @@ def _apply_packed_circuit(
     operation_types: npt.NDArray[np.int64],
     operation_qubits: npt.NDArray[np.int64],
     operation_indices: npt.NDArray[np.int64],
-    conjugation_table_images: npt.NDArray[np.int64],
-    conjugation_table_image_phases: npt.NDArray[np.int64],
     rotation_axes: npt.NDArray[np.uint64],
     rotation_axis_phases: npt.NDArray[np.int64],
+    conjugation_table_images: npt.NDArray[np.int64],
+    conjugation_table_image_phases: npt.NDArray[np.int64],
 ) -> _Arrays:
     """Conjugate ``V = T·S·P`` by the operations of a ``_packed_circuits.PackedCircuit``, in order.
 
     Here and below, ``P`` is the core of an operator, ``S`` is the product of its π/2 rotations,
     and ``T`` is the product of its π/4 rotations.  The arguments after the axes of ``V`` are the
-    arrays returned by ``PackedCircuit.get_arrays``.  Returns the new core and axes, unsimplified.
+    arrays returned by ``PackedCircuit.get_arrays``, followed by the images and image phases of the
+    shared conjugation tables of ``_packed_paulis.get_conjugation_tables``.  Returns the new core
+    and axes, unsimplified.
     """
     # count the π/4 rotations of the circuit, each of which adds at most one π/2 axis, or one π/4
     # axis at each end of T
@@ -445,11 +455,11 @@ def _apply_packed_circuit(
         if operation_type == _packed_circuits.LOCAL_GATE:
             # conjugate by a local gate through its conjugation table; the row of qubits of a
             # single-qubit gate ends in -1
-            conjugation_table = operation_indices[operation]
+            gate_index = operation_indices[operation]
             num_gate_qubits = 1 if operation_qubits[operation, 1] < 0 else 2
             qubits = operation_qubits[operation, :num_gate_qubits]
-            images = conjugation_table_images[conjugation_table]
-            image_phases = conjugation_table_image_phases[conjugation_table]
+            images = conjugation_table_images[gate_index]
+            image_phases = conjugation_table_image_phases[gate_index]
             packed.conjugate_by_local_gate(core, 0, qubits, images, image_phases)
             for row in range(num_s_axes):
                 s_buffer_phases[row] = packed.conjugate_by_local_gate(
