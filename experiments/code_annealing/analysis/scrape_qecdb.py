@@ -20,12 +20,14 @@ newest data file, and earlier ones are kept, so that a table can be rebuilt from
 it.  The snapshot behind the paper's table is in ``paper_data/``.
 
 Scraping uses only the standard library, makes three paced requests to the database for each
-annealed code, and writes the data file only after every request has succeeded.
+annealed code, tries a request again if it fails in transit, and writes the data file only after
+every request has succeeded.
 """
 
 from __future__ import annotations
 
 import datetime
+import http.client
 import json
 import re
 import time
@@ -51,6 +53,12 @@ _REQUEST_TIMEOUT = 30
 
 _REQUEST_DELAY = 0.25
 """Seconds to wait before every request, to be polite to the database."""
+
+_REQUEST_ATTEMPTS = 3
+"""Attempts of a request that fails in transit, which can be transient."""
+
+_RETRY_DELAY = 5
+"""Seconds to wait before another attempt of a request."""
 
 
 _SUMMARY_PATTERN = re.compile(r"\((\d+), (\d+), (\d+)\) (\d+|None) (\d+|None) (\d+|None)")
@@ -267,12 +275,18 @@ def _query_extreme(field: str, direction: str, code_type: CodeType, **bounds: in
 
 
 def _fetch_json(url: str) -> Any:
-    """Retrieve JSON data from a URL."""
+    """Retrieve JSON data from a URL, with another attempt after a failure in transit."""
+    for attempt in range(1, _REQUEST_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=_REQUEST_TIMEOUT) as response:
+                text = response.read().decode("utf-8")
+            break
+        except (OSError, http.client.HTTPException) as exception:
+            if attempt == _REQUEST_ATTEMPTS:
+                raise RuntimeError(f"Cannot access {url}") from exception
+            time.sleep(_RETRY_DELAY)
     try:
-        with urllib.request.urlopen(url, timeout=_REQUEST_TIMEOUT) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError) as exception:
-        raise RuntimeError(f"Cannot access {url}") from exception
+        return json.loads(text)
     except ValueError as exception:
         raise RuntimeError(
             f"qecdb.org answered {url} with something other than JSON"
