@@ -73,7 +73,7 @@ class PackedCircuit:
             local gate, and among the rotations otherwise.
         gate_qubits: For each local gate, a row of its qubits, with ``-1`` in place of the second
             qubit of a single-qubit gate.
-        gate_conjugation_tables: For each local gate, the index of its conjugation table.
+        gate_conjugation_table_indices: For each local gate, the index of its conjugation table.
         conjugation_table_names: For each conjugation table, the name of its stim gate, such as
             ``"CX"``.
         conjugation_table_num_qubits: For each conjugation table, the number of qubits of its
@@ -92,7 +92,7 @@ class PackedCircuit:
     operation_kinds: npt.NDArray[np.int64]
     gate_or_rotation_indices: npt.NDArray[np.int64]
     gate_qubits: npt.NDArray[np.int64]
-    gate_conjugation_tables: npt.NDArray[np.int64]
+    gate_conjugation_table_indices: npt.NDArray[np.int64]
     conjugation_table_names: tuple[str, ...]
     conjugation_table_num_qubits: npt.NDArray[np.int64]
     conjugation_table_images: npt.NDArray[np.int64]
@@ -121,7 +121,7 @@ class PackedCircuit:
             self.operation_kinds,
             self.gate_or_rotation_indices,
             self.gate_qubits,
-            self.gate_conjugation_tables,
+            self.gate_conjugation_table_indices,
             self.conjugation_table_num_qubits,
             self.conjugation_table_images,
             self.conjugation_table_image_phases,
@@ -172,7 +172,7 @@ def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> Pa
     operation_kinds: list[int] = []
     gate_or_rotation_indices: list[int] = []
     gate_qubits: list[tuple[int, int]] = []
-    gate_conjugation_tables: list[int] = []
+    gate_conjugation_table_indices: list[int] = []
     conjugation_table_indices: dict[str, int] = {}
     rotation_axes: list[stim.PauliString] = []
 
@@ -210,9 +210,9 @@ def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> Pa
         for target_group in target_groups:
             qubits = [target.value for target in target_group]
             operation_kinds.append(LOCAL_GATE)
-            gate_or_rotation_indices.append(len(gate_conjugation_tables))
+            gate_or_rotation_indices.append(len(gate_conjugation_table_indices))
             gate_qubits.append((qubits[0], qubits[1] if len(qubits) > 1 else -1))
-            gate_conjugation_tables.append(conjugation_table)
+            gate_conjugation_table_indices.append(conjugation_table)
 
     # build the conjugation tables of the local gates, padded to the 16 entries of two-qubit gates
     conjugation_table_names = tuple(conjugation_table_indices)
@@ -237,7 +237,7 @@ def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> Pa
         operation_kinds=np.array(operation_kinds, dtype=np.int64),
         gate_or_rotation_indices=np.array(gate_or_rotation_indices, dtype=np.int64),
         gate_qubits=np.array(gate_qubits, dtype=np.int64).reshape(-1, 2),
-        gate_conjugation_tables=np.array(gate_conjugation_tables, dtype=np.int64),
+        gate_conjugation_table_indices=np.array(gate_conjugation_table_indices, dtype=np.int64),
         conjugation_table_names=conjugation_table_names,
         conjugation_table_num_qubits=conjugation_table_num_qubits,
         conjugation_table_images=conjugation_table_images,

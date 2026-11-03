@@ -34,7 +34,7 @@ def _get_matrices(
         packed_circuit.operation_kinds, packed_circuit.gate_or_rotation_indices
     ):
         if kind == packed_circuits.LOCAL_GATE:
-            conjugation_table = packed_circuit.gate_conjugation_tables[gate_or_rotation]
+            conjugation_table = packed_circuit.gate_conjugation_table_indices[gate_or_rotation]
             num_gate_qubits = packed_circuit.conjugation_table_num_qubits[conjugation_table]
             qubits = packed_circuit.gate_qubits[gate_or_rotation, :num_gate_qubits]
             circuit = stim.Circuit()
