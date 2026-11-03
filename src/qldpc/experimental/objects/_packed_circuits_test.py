@@ -20,7 +20,7 @@ from qldpc.experimental.objects.conftest import (
     get_rotation_matrix,
 )
 
-# The rotation angles of the kinds of rotations.
+# The rotation angles of the types of rotations.
 _ANGLES = {packed_circuits.S_ROTATION: np.pi / 2, packed_circuits.T_ROTATION: np.pi / 4}
 
 
@@ -34,10 +34,10 @@ def _get_matrices(
     """
     num_qubits = packed_circuit.num_qubits
     matrices = []
-    for kind, gate_or_rotation in zip(
-        packed_circuit.operation_kinds, packed_circuit.gate_or_rotation_indices
+    for operation_type, gate_or_rotation in zip(
+        packed_circuit.operation_types, packed_circuit.gate_or_rotation_indices
     ):
-        if kind == packed_circuits.LOCAL_GATE:
+        if operation_type == packed_circuits.LOCAL_GATE:
             # read the images of the generators from the conjugation table of the local gate, whose
             # row of qubits ends in -1 if it is a single-qubit gate
             gate_qubits = packed_circuit.gate_qubits[gate_or_rotation]
@@ -67,7 +67,7 @@ def _get_matrices(
                 int(packed_circuit.rotation_axis_phases[gate_or_rotation]),
                 num_qubits,
             )
-            matrices.append(get_rotation_matrix(axis, _ANGLES[int(kind)], num_qubits))
+            matrices.append(get_rotation_matrix(axis, _ANGLES[int(operation_type)], num_qubits))
     return matrices
 
 
@@ -123,7 +123,7 @@ def test_packed_circuits_of_tagged_instructions() -> None:
     packed_circuit = packed_circuits.get_packed_circuit(circuit, 2)
     t_rotation, s_rotation = packed_circuits.T_ROTATION, packed_circuits.S_ROTATION
     local_gate = packed_circuits.LOCAL_GATE
-    assert packed_circuit.operation_kinds.tolist() == [
+    assert packed_circuit.operation_types.tolist() == [
         t_rotation,
         t_rotation,
         t_rotation,
@@ -145,9 +145,9 @@ def test_packed_circuits_of_tagged_instructions() -> None:
 
 def test_packed_circuits_are_read_only_and_skip_annotations() -> None:
     packed_circuit = packed_circuits.get_packed_circuit(stim.Circuit("MPAD 0\nTICK\nH 0"), 1)
-    assert packed_circuit.operation_kinds.tolist() == [packed_circuits.LOCAL_GATE]
+    assert packed_circuit.operation_types.tolist() == [packed_circuits.LOCAL_GATE]
     with pytest.raises(ValueError, match="read-only"):
-        packed_circuit.operation_kinds[0] = packed_circuits.T_ROTATION
+        packed_circuit.operation_types[0] = packed_circuits.T_ROTATION
 
 
 def test_invalid_circuits() -> None:

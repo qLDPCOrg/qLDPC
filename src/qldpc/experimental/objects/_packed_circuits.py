@@ -31,7 +31,7 @@ _TSIM_TAGGED_GATES = frozenset({"I", *_ROTATION_SIGNS})
 # The tag that makes S, S_DAG, SPP, and SPP_DAG instructions π/4 rotations, alone or followed by a
 # label as in "T:<label>" (see the docstring of ``RotatedPauliString``).
 T_TAG = "T"
-# The kinds of operations of a packed circuit (see ``PackedCircuit``), compared only for equality.
+# The types of operations of a packed circuit (see ``PackedCircuit``), compared only for equality.
 LOCAL_GATE = 0
 S_ROTATION = 1
 T_ROTATION = 2
@@ -44,7 +44,7 @@ T_ROTATION = 2
 class PackedCircuit:
     """The unitary operations of a Clifford+T circuit, as arrays, in the order in which they act.
 
-    Each operation has one of the following kinds, which ``operation_kinds`` lists.
+    Each operation has one of the following types, which ``operation_types`` lists.
 
     - ``LOCAL_GATE``: one of stim's one- and two-qubit Clifford gates, including untagged ``S``
       gates.  A local gate on ``k`` qubits is applied through its *conjugation table*: a lookup
@@ -68,7 +68,7 @@ class PackedCircuit:
     Attributes:
         num_qubits: The number of qubits of the packed circuit, which is at least the number of
             qubits that the circuit acts on.
-        operation_kinds: The kind of each operation, ``LOCAL_GATE``, ``S_ROTATION``, or
+        operation_types: The type of each operation, ``LOCAL_GATE``, ``S_ROTATION``, or
             ``T_ROTATION``.
         gate_or_rotation_indices: For each operation, its index among the local gates if it is a
             local gate, and among the rotations otherwise.
@@ -86,7 +86,7 @@ class PackedCircuit:
     """
 
     num_qubits: int
-    operation_kinds: npt.NDArray[np.int64]
+    operation_types: npt.NDArray[np.int64]
     gate_or_rotation_indices: npt.NDArray[np.int64]
     gate_qubits: npt.NDArray[np.int64]
     gate_conjugation_table_indices: npt.NDArray[np.int64]
@@ -112,7 +112,7 @@ class PackedCircuit:
         ``rotated_pauli_string._apply_packed_circuit`` takes these arrays as its last arguments.
         """
         return (
-            self.operation_kinds,
+            self.operation_types,
             self.gate_or_rotation_indices,
             self.gate_qubits,
             self.gate_conjugation_table_indices,
@@ -159,10 +159,10 @@ def get_packed_circuit(
 @functools.lru_cache(maxsize=64)
 def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> PackedCircuit:
     """The packed circuit of the circuit with the given stim text (see ``get_packed_circuit``)."""
-    # collect the kind of each operation and its index among the local gates or the rotations, the
+    # collect the type of each operation and its index among the local gates or the rotations, the
     # qubits and conjugation table of each local gate, the index of the conjugation table of each
     # gate name, and the axis of each rotation
-    operation_kinds: list[int] = []
+    operation_types: list[int] = []
     gate_or_rotation_indices: list[int] = []
     gate_qubits: list[tuple[int, int]] = []
     gate_conjugation_table_indices: list[int] = []
@@ -185,10 +185,10 @@ def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> Pa
         # each target group of a T-tagged instruction, SPP, or SPP_DAG is a Pauli rotation, whose
         # inverse is the rotation about the negated axis
         if is_t_rotation or instruction.name in ("SPP", "SPP_DAG"):
-            kind = T_ROTATION if is_t_rotation else S_ROTATION
+            operation_type = T_ROTATION if is_t_rotation else S_ROTATION
             sign = _ROTATION_SIGNS[instruction.name] * (-1 if inverse else 1)
             for target_group in target_groups:
-                operation_kinds.append(kind)
+                operation_types.append(operation_type)
                 gate_or_rotation_indices.append(len(rotation_axes))
                 rotation_axes.append(sign * _get_axis(instruction, target_group))
             continue
@@ -202,7 +202,7 @@ def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> Pa
         )
         for target_group in target_groups:
             qubits = [target.value for target in target_group]
-            operation_kinds.append(LOCAL_GATE)
+            operation_types.append(LOCAL_GATE)
             gate_or_rotation_indices.append(len(gate_conjugation_table_indices))
             gate_qubits.append((qubits[0], qubits[1] if len(qubits) > 1 else -1))
             gate_conjugation_table_indices.append(conjugation_table)
@@ -222,7 +222,7 @@ def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> Pa
     # assemble the packed circuit, and make its arrays read-only, since it is cached and shared
     packed_circuit = PackedCircuit(
         num_qubits=num_qubits,
-        operation_kinds=np.array(operation_kinds, dtype=np.int64),
+        operation_types=np.array(operation_types, dtype=np.int64),
         gate_or_rotation_indices=np.array(gate_or_rotation_indices, dtype=np.int64),
         gate_qubits=np.array(gate_qubits, dtype=np.int64).reshape(-1, 2),
         gate_conjugation_table_indices=np.array(gate_conjugation_table_indices, dtype=np.int64),

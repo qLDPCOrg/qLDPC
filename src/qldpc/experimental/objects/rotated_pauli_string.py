@@ -401,7 +401,7 @@ def _apply_packed_circuit(
     s_phases: npt.NDArray[np.int64],
     t_axes: npt.NDArray[np.uint64],
     t_phases: npt.NDArray[np.int64],
-    operation_kinds: npt.NDArray[np.int64],
+    operation_types: npt.NDArray[np.int64],
     gate_or_rotation_indices: npt.NDArray[np.int64],
     gate_qubits: npt.NDArray[np.int64],
     gate_conjugation_table_indices: npt.NDArray[np.int64],
@@ -419,8 +419,8 @@ def _apply_packed_circuit(
     # count the π/4 rotations of the circuit, each of which adds at most one π/2 axis, or one π/4
     # axis at each end of T
     num_circuit_t_rotations = 0
-    for kind in operation_kinds:
-        if kind == _packed_circuits.T_ROTATION:
+    for operation_type in operation_types:
+        if operation_type == _packed_circuits.T_ROTATION:
             num_circuit_t_rotations += 1
 
     # copy the core, and copy the axes into buffers with room for every axis that the π/4 rotations
@@ -441,9 +441,9 @@ def _apply_packed_circuit(
     t_buffer_phases[t_start:t_end] = t_phases
 
     # conjugate the core and axes by each operation in turn
-    for operation in range(len(operation_kinds)):
-        kind = operation_kinds[operation]
-        if kind == _packed_circuits.LOCAL_GATE:
+    for operation in range(len(operation_types)):
+        operation_type = operation_types[operation]
+        if operation_type == _packed_circuits.LOCAL_GATE:
             # conjugate by a local gate through its conjugation table; the row of qubits of a
             # single-qubit gate ends in -1
             gate = gate_or_rotation_indices[operation]
@@ -461,7 +461,7 @@ def _apply_packed_circuit(
                 t_buffer_phases[row] = packed.conjugate_by_local_gate(
                     t_buffer[row], t_buffer_phases[row], qubits, images, image_phases
                 )
-        elif kind == _packed_circuits.S_ROTATION:
+        elif operation_type == _packed_circuits.S_ROTATION:
             # conjugate by a π/2 rotation through its axis
             rotation = gate_or_rotation_indices[operation]
             axis = rotation_axes[rotation]
