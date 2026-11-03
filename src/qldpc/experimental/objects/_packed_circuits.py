@@ -22,15 +22,19 @@ from . import _packed_paulis as packed
 _ANNOTATIONS = frozenset(
     {"TICK", "QUBIT_COORDS", "SHIFT_COORDS", "DETECTOR", "OBSERVABLE_INCLUDE", "MPAD"}
 )
+
 # The instructions that are Pauli rotations, with or without a T tag, mapped to the signs of their
 # axes.
 _ROTATION_SIGNS = {"S": 1, "S_DAG": -1, "SPP": 1, "SPP_DAG": -1}
+
 # The instructions whose tags tsim reads: tags other than T on them make rotations that packed
 # circuits cannot represent.
 _TSIM_TAGGED_GATES = frozenset({"I", *_ROTATION_SIGNS})
+
 # The tag that makes S, S_DAG, SPP, and SPP_DAG instructions π/4 rotations, alone or followed by a
 # label as in "T:<label>" (see the docstring of ``RotatedPauliString``).
 T_TAG = "T"
+
 # The types of operations of a packed circuit (see ``PackedCircuit``), compared only for equality.
 LOCAL_GATE = 0
 S_ROTATION = 1
