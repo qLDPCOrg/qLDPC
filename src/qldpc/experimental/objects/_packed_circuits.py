@@ -29,8 +29,7 @@ _ROTATION_SIGNS = {"S": 1, "S_DAG": -1, "SPP": 1, "SPP_DAG": -1}
 # circuits cannot represent.
 _TSIM_TAGGED_GATES = frozenset({"I", *_ROTATION_SIGNS})
 
-# The tag that makes S, S_DAG, SPP, and SPP_DAG instructions π/4 rotations, alone or followed by a
-# label as in "T:<label>" (see the docstring of ``RotatedPauliString``).
+# The tag of π/4 rotations (see the docstring of ``RotatedPauliString``).
 T_TAG = "T"
 
 # The types of operations of a packed circuit (see ``PackedCircuit``), compared only for equality.
@@ -48,23 +47,20 @@ class PackedCircuit:
 
     Each operation has one of the following types, which ``operation_types`` lists.
 
-    - ``LOCAL_GATE``: one of stim's one- and two-qubit Clifford gates, including untagged ``S``
-      gates.  A local gate on ``k`` qubits is applied through its *conjugation table*: a lookup
-      table that lists, for each of the ``4^k`` Pauli strings on those qubits, its image under
-      conjugation by the gate.
+    - ``LOCAL_GATE``: a local gate (see ``_packed_paulis.ConjugationTables``), including untagged
+      ``S`` and ``S_DAG`` gates, applied through its conjugation table.
     - ``S_ROTATION``: a π/2 rotation about a Pauli product, from an untagged ``SPP`` or ``SPP_DAG``
-      instruction.  Such a rotation is Clifford, but its conjugation table would have ``4^m``
-      entries for a product on ``m`` qubits, so conjugation by it goes through its axis ``a``
-      instead: it maps a Pauli string ``b`` to ``-i a b`` if ``b`` anticommutes with ``a``, and
-      leaves ``b`` unchanged otherwise.
+      instruction.  Such a rotation is Clifford, but a conjugation table, as for a local gate, would
+      have ``4^m`` entries for a product on ``m`` qubits, so conjugation by it goes through its
+      axis ``a`` instead: it maps a Pauli string ``b`` to ``-i a b`` if ``b`` anticommutes with
+      ``a``, and leaves ``b`` unchanged otherwise.
     - ``T_ROTATION``: a π/4 rotation about a Pauli product, from a T-tagged instruction.
 
     Operations are indexed in the order in which they act, and so are rotations.  The conjugation
     tables of local gates depend only on their stim gates, so packed circuits share those of
-    ``_packed_paulis.get_conjugation_tables``, which list, for the index of each Pauli string on
-    the qubits of a gate, the index and the phase of its image.  The number of qubits of a local
-    gate, and so of its conjugation table, follows from its row of ``operation_qubits``.  All arrays
-    are read-only, since packed circuits are cached and shared.
+    ``_packed_paulis.get_conjugation_tables``.  The number of qubits of a local gate, and so of its
+    conjugation table, follows from its row of ``operation_qubits``.  All arrays are read-only,
+    since packed circuits are cached and shared.
 
     Attributes:
         operation_types: Indexed by operation, the type of each operation, ``LOCAL_GATE``,
@@ -98,7 +94,8 @@ class PackedCircuit:
     ]:
         """The arrays of this packed circuit, in the order in which compiled kernels take them.
 
-        ``rotated_pauli_string._apply_packed_circuit`` takes these arrays as its last arguments.
+        ``rotated_pauli_string._apply_packed_circuit`` takes these arrays after the arrays of the
+        operator and before the shared conjugation tables.
         """
         return (
             self.operation_types,
@@ -145,7 +142,8 @@ def get_packed_circuit(
 @functools.lru_cache(maxsize=64)
 def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> PackedCircuit:
     """The packed circuit of the circuit with the given stim text (see ``get_packed_circuit``)."""
-    # collect the type, qubits, and index of each operation, and the axis of each rotation
+    # start empty lists of the type, qubits, and index of each operation, and of the axis of each
+    # rotation, and read the shared indices of local gates
     operation_types: list[int] = []
     operation_qubits: list[tuple[int, int]] = []
     operation_indices: list[int] = []
@@ -242,10 +240,10 @@ def _has_t_tag(instruction: stim.CircuitInstruction) -> bool:
 def _get_axis(
     instruction: stim.CircuitInstruction, target_group: list[stim.GateTarget]
 ) -> stim.PauliString:
-    """The axis of a target group of a Pauli rotation, with its sign.
+    """The axis of a target group of a Pauli rotation, negated for each inverted target.
 
-    The targets of ``S`` and ``S_DAG`` are qubits, each with the axis ``Z``.  The targets of ``SPP``
-    and ``SPP_DAG`` are Pauli targets, each of which negates the axis if it is inverted.
+    The targets of ``S`` and ``S_DAG`` are qubits, each with the axis ``Z``, and those of ``SPP``
+    and ``SPP_DAG`` are Pauli targets.
 
     Raises:
         ValueError: If the target group repeats a qubit.

@@ -38,7 +38,8 @@ it, and none if the axis of the rotation commutes with the core and every axis o
 #    module importable from qldpc.objects.
 # 2. Move this module, _packed_circuits.py, _packed_paulis.py, _symplectic.py, their test files,
 #    and the fixtures and helpers of qldpc/experimental/objects/conftest.py into qldpc/objects/.
-#    Their tests also use the circuit helpers of qldpc/experimental/conftest.py, which move too.
+#    Their tests also use the circuit helpers of qldpc/experimental/conftest.py, which move into
+#    qldpc/objects/conftest.py.
 # 3. Re-export RotatedPauliString from qldpc.objects, and remove qldpc.experimental.objects;
 #    experimental modules need no deprecation shims.
 # 4. Mention RotatedPauliString in the description of qldpc.objects in docs/source/library_map.rst,
@@ -98,15 +99,16 @@ class RotatedPauliString:
     ``Z`` operators on nonempty subsets of 4 qubits multiply to a global phase, but their simplified
     form keeps all 15 rotations.
 
-    Stim does not support T gates, so circuits are ``stim.Circuit`` objects in which, following
-    tsim, T gates and other π/4 rotations are instructions with the tag ``T`` or a labeled tag
-    ``T:<label>``.  Up to global phases, ``S[T]`` and ``S_DAG[T]`` stand for the T gate
-    ``R_{π/4}(Z)`` and its inverse on each target qubit, and ``SPP[T]`` and ``SPP_DAG[T]`` stand
-    for the rotation ``R_{π/4}(a)`` and its inverse about each target Pauli product ``a``.  Stim
-    itself ignores tags, so it simulates these instructions as the Clifford gates ``S``, ``S_DAG``,
-    ``SPP``, and ``SPP_DAG``.  Circuits may contain only unitary gates and annotations such as
-    ``TICK``.  Classically controlled gates, and other tags on ``I``, ``S``, ``S_DAG``, ``SPP``,
-    and ``SPP_DAG``, which tsim uses for other rotations, are rejected; tags on other gates are
+    Stim does not support T gates, so the circuits that ``after``, ``before``, and ``to_circuit``
+    read and write are ``stim.Circuit`` objects in which, following tsim, T gates and other π/4
+    rotations are instructions with the tag ``T`` or a labeled tag ``T:<label>``.  Up to global
+    phases, ``S[T]`` and ``S_DAG[T]`` stand for the T gate ``R_{π/4}(Z)`` and its inverse on each
+    target qubit, and ``SPP[T]`` and ``SPP_DAG[T]`` stand for the rotation ``R_{π/4}(a)`` and its
+    inverse about each target Pauli product ``a``.  Stim itself ignores tags, so it simulates these
+    instructions as the Clifford gates ``S``, ``S_DAG``, ``SPP``, and ``SPP_DAG``.  Circuits may
+    contain only unitary gates and annotations such as ``TICK``.  Classically controlled gates,
+    and other tags on ``I``, ``S``, ``S_DAG``, ``SPP``, and ``SPP_DAG``, which tsim uses for other
+    rotations, are rejected, as is a T tag on any other gate; other tags on other gates are
     ignored.  Users of tsim can pass the ``stim_circuit`` of a tsim circuit.
 
     Args:
@@ -282,14 +284,14 @@ class RotatedPauliString:
 
         The circuit applies the Pauli gates of the core, then ``SPP`` or ``SPP_DAG`` gates for the
         π/2 rotations, and then T-tagged ``SPP`` or ``SPP_DAG`` gates for the π/4 rotations.  An
-        ``I`` gate on the last qubit makes it act on ``num_qubits`` qubits.
+        ``I`` gate on the last qubit makes the circuit act on ``num_qubits`` qubits.
         """
         circuit = stim.Circuit()
         if self._num_qubits:
             circuit.append("I", [self._num_qubits - 1])
         core = self.core
-        for gate, letter in (("X", 1), ("Y", 2), ("Z", 3)):
-            if qubits := [qubit for qubit in range(self._num_qubits) if core[qubit] == letter]:
+        for gate in "XYZ":
+            if qubits := core.pauli_indices(gate):
                 circuit.append(gate, qubits)
         for axes, tag in ((self.s_axes, ""), (self.t_axes, _packed_circuits.T_TAG)):
             for axis in axes:

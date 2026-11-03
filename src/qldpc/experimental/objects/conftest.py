@@ -50,20 +50,21 @@ def get_random_pauli_string(
 
 
 def get_random_clifford_t_circuit(
-    rng: np.random.Generator, num_qubits: int, num_operations: int
+    rng: np.random.Generator, num_qubits: int, num_instructions: int
 ) -> stim.Circuit:
-    """A random Clifford+T circuit, as described in the docstring of ``RotatedPauliString``.
+    """A random Clifford+T circuit with at most ``num_instructions`` instructions.
 
-    The circuit mixes one- and two-qubit Clifford gates, π/2 and π/4 rotations about random Pauli
-    products (``SPP``, ``SPP_DAG``, and their T-tagged versions), and T gates and their inverses
-    (``S[T]`` and ``S_DAG[T]``), with inverted targets and several targets per instruction.
+    The circuit is encoded as described in the docstring of ``RotatedPauliString``, and mixes one-
+    and two-qubit Clifford gates, π/2 and π/4 rotations about random Pauli products (``SPP``,
+    ``SPP_DAG``, and their T-tagged versions), and T gates and their inverses (``S[T]`` and
+    ``S_DAG[T]``), with inverted targets and several targets per instruction.
     """
     # draw each instruction: T gates or their inverses with probability _T_FRACTION / 2, π/4
     # rotations about Pauli products with probability _T_FRACTION / 2, π/2 rotations about Pauli
     # products with probability 0.15, and otherwise a Clifford gate, which is skipped if it needs
     # more than num_qubits qubits
     circuit = stim.Circuit()
-    for _ in range(num_operations):
+    for _ in range(num_instructions):
         draw = rng.random()
         if draw < _T_FRACTION / 2:
             name = ("S", "S_DAG")[rng.integers(2)]
@@ -76,7 +77,7 @@ def get_random_clifford_t_circuit(
             targets: list[stim.GateTarget] = []
             for _ in range(rng.integers(1, 3)):
                 axis = get_random_pauli_string(rng, num_qubits, nontrivial=True)
-                targets.extend(stim.target_combined_paulis(axis * axis.sign, axis.sign == -1))
+                targets.extend(stim.target_combined_paulis(axis))
             circuit.append(name, targets, tag="T" if draw < _T_FRACTION else "")
         else:
             name, num_gate_qubits = _CLIFFORD_GATES[rng.integers(len(_CLIFFORD_GATES))]

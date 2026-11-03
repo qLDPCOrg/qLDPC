@@ -50,9 +50,7 @@ def _get_instruction_unitary(
     # pad the gate to num_qubits qubits, and take its big-endian matrix, which orders qubits as
     # get_pauli_matrix does
     padded_circuit = stim.Circuit()
-    padded_circuit.append(
-        instruction.name, instruction.targets_copy(), instruction.gate_args_copy()
-    )
+    padded_circuit.append(instruction)
     padded_circuit.append("I", [num_qubits - 1])
     tableau = padded_circuit.to_tableau()
     return np.asarray(tableau.to_unitary_matrix(endian="big"), dtype=np.complex128)

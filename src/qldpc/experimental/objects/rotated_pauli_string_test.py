@@ -270,5 +270,6 @@ def test_invalid_inputs() -> None:
     assert RotatedPauliString("X") != "X"
 
 
-def test_circuit_of_identity() -> None:
+def test_circuits_act_on_all_qubits() -> None:
     assert len(RotatedPauliString().to_circuit()) == 0
+    assert RotatedPauliString("X_").to_circuit().num_qubits == 2

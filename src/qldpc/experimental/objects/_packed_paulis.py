@@ -189,8 +189,7 @@ def get_conjugation_table(name: str) -> tuple[npt.NDArray[np.int64], npt.NDArray
     A Pauli string ``X^x Z^z`` on the ``k`` qubits that the gate addresses has the index ``Σ_j (x_j
     2^j + z_j 2^{k + j})``.  Entry ``i`` of the returned arrays holds the index and the phase of the
     image, under conjugation by the gate, of the Pauli string with index ``i``, in the convention
-    of this module.  A conjugation table has ``4^k`` entries, so it suits gates on few qubits, which
-    this module calls local gates.
+    of this module.  A conjugation table has ``4^k`` entries, so it suits gates on few qubits.
     """
     # list the images of the generators X_0, ..., X_{k-1}, Z_0, ..., Z_{k-1}, in the order of the
     # bits of an index
