@@ -187,7 +187,9 @@ def get_conjugation_table(name: str) -> tuple[npt.NDArray[np.int64], npt.NDArray
 
     A Pauli string ``X^x Z^z`` on the ``k`` qubits that the gate addresses has the index ``Σ_j (x_j
     2^j + z_j 2^{k + j})``.  Entry ``i`` of the returned arrays holds the index and the phase of the
-    image of the Pauli string with index ``i``, in the convention of this module.
+    image, under conjugation by the gate, of the Pauli string with index ``i``, in the convention
+    of this module.  A conjugation table has ``4^k`` entries, so it suits gates on few qubits, which
+    this module calls local gates.
     """
     # list the images of the generators X_0, ..., X_{k-1}, Z_0, ..., Z_{k-1}, in the order of the
     # bits of an index
@@ -197,8 +199,9 @@ def get_conjugation_table(name: str) -> tuple[npt.NDArray[np.int64], npt.NDArray
     generator_images += [tableau.z_output(qubit) for qubit in range(num_gate_qubits)]
     packed_generator_images = [from_stim(image, num_gate_qubits) for image in generator_images]
 
-    # multiply the images of the generators in each index, in the order in which X^x Z^z lists
-    # them; left multiplication builds the product from its last factor
+    # for each index, multiply the images of the generators whose bits are set, in the order in
+    # which X^x Z^z lists the generators; left multiplication builds the product from its last
+    # factor
     images = np.zeros(4**num_gate_qubits, dtype=np.int64)
     image_phases = np.zeros(4**num_gate_qubits, dtype=np.int64)
     for pauli_index in range(4**num_gate_qubits):
@@ -221,15 +224,15 @@ def conjugate_by_local_gate(
     images: npt.NDArray[np.int64],
     image_phases: npt.NDArray[np.int64],
 ) -> int:
-    """Conjugate ``target`` by a Clifford gate on a few qubits, given by its conjugation table.
+    """Conjugate ``target`` by a local gate, a Clifford gate given by its conjugation table.
 
     The conjugation table, ``images`` and ``image_phases``, is that of ``get_conjugation_table``,
-    and ``qubits`` lists the qubits that the gate addresses, in order.
+    and ``qubits[j]`` is the qubit that the gate addresses as its qubit ``j``.
     """
     num_words = len(target) // 2
     num_gate_qubits = len(qubits)
 
-    # read the index of the Pauli string of the target on the qubits of the gate
+    # read the index of the restriction of the target to the qubits of the gate
     pauli_index = np.int64(0)
     for position in range(num_gate_qubits):
         word = qubits[position] // 64
@@ -239,7 +242,8 @@ def conjugate_by_local_gate(
             num_gate_qubits + position
         )
 
-    # overwrite the bits of those qubits with the image, and add its phase
+    # overwrite the X bits (half 0) and Z bits (half 1) of the target on those qubits with the
+    # image of the restriction, and add the phase of the image
     image = images[pauli_index]
     for position in range(num_gate_qubits):
         word = qubits[position] // 64

@@ -28,8 +28,8 @@ with ``a``.  π/4 rotations do not map Clifford operators to Clifford operators,
 error that passes several π/4 rotations can become non-Clifford.  For example, an ``X`` error
 followed by ``T``, ``H``, and ``T`` gates becomes ``(X - Y)/2 + Z/√2``.
 ``RotatedPauliString.after`` and ``RotatedPauliString.before`` propagate operators through
-Clifford+T circuits.  Each π/4 rotation that an operator passes, and that does not commute with it,
-adds at most two π/4 rotations.
+Clifford+T circuits.  Each π/4 rotation that an operator passes adds at most two π/4 rotations to
+it, and none if the axis of the rotation commutes with the core and every axis of the operator.
 """
 
 # Graduation plan: once the API of this module settles, it moves to qldpc.objects, as follows.
@@ -292,7 +292,8 @@ class RotatedPauliString:
         """A Clifford+T circuit whose unitary is this operator, up to a global phase.
 
         The circuit applies the Pauli gates of the core, then ``SPP`` or ``SPP_DAG`` gates for the
-        π/2 rotations, and then T-tagged ``SPP`` or ``SPP_DAG`` gates for the π/4 rotations.
+        π/2 rotations, and then T-tagged ``SPP`` or ``SPP_DAG`` gates for the π/4 rotations.  An
+        ``I`` gate on the last qubit makes it act on ``num_qubits`` qubits.
         """
         circuit = stim.Circuit()
         if self._num_qubits:
@@ -372,7 +373,7 @@ class RotatedPauliString:
     def _conjugate(
         self, circuit: stim.Circuit | _HasStimCircuit, *, inverse: bool
     ) -> RotatedPauliString:
-        """Conjugate by a circuit or by its inverse, and simplify."""
+        """This operator conjugated by the unitary of a circuit or by its inverse, simplified."""
         # read the stim circuit, and pack its operations
         if not isinstance(circuit, stim.Circuit):
             if not isinstance(getattr(circuit, "stim_circuit", None), stim.Circuit):
@@ -512,16 +513,20 @@ def _apply_t_rotation(
     axis: npt.NDArray[np.uint64],
     axis_phase: int,
 ) -> tuple[int, int, int]:
-    """Conjugate ``V = T·S·P`` by ``R_{π/4}(a)``, in buffers, and return their new bounds.
+    """Conjugate ``V = T·S·P`` by ``R_{π/4}(a)`` in place, and return the new bounds of its axes.
 
-    The π/2 axes of ``V`` are rows ``0, ..., num_s_axes - 1`` of their buffer, and its π/4 axes are
-    rows ``t_start, ..., t_end - 1`` of theirs.  The rotation ``R_{π/4}(a)†`` on the right of ``V``
-    moves to the right of ``T`` as ``R_{π/4}(b)``, where ``b = S P (-a) P† S†``.  If ``a`` commutes
-    with every π/4 axis, then ``R_{π/4}(a)`` moves to the left of ``R_{π/4}(b)``, and the two cancel
-    if ``b = -a``, or combine into the π/2 rotation ``R_{π/2}(a)``, which joins ``S``, if ``b = a``.
-    Otherwise, the π/4 axes become ``b, t_1, ..., t_k, a``.
+    The axis ``a`` has the words ``axis`` and the phase ``axis_phase``.  The π/2 axes of ``V`` are
+    rows ``0, ..., num_s_axes - 1`` of ``s_axes``, and its π/4 axes are rows
+    ``t_start, ..., t_end - 1`` of ``t_axes``; both buffers have room for the axes added here.
+
+    In ``R_{π/4}(a) V R_{π/4}(a)†``, the rotation ``R_{π/4}(a)† = R_{π/4}(-a)`` moves left past
+    ``S P`` and becomes ``R_{π/4}(b)``, where ``b = S P (-a) P† S†``.  If ``a`` commutes with every
+    π/4 axis, then ``R_{π/4}(a)`` moves right past ``T`` to meet ``R_{π/4}(b)``, and the two cancel
+    if ``b = -a``, or combine into the π/2 rotation ``R_{π/2}(a)``, which joins ``S`` as its
+    outermost rotation, if ``b = a``.  Otherwise, the π/4 axes become ``b, t_1, ..., t_k, a``.
     """
-    # move R_{π/4}(a)† on the right of V left past S P, where it becomes R_{π/4}(b)
+    # move R_{π/4}(-a) left past P, which turns -a back into a if P anticommutes with a, and then
+    # past the π/2 rotations of S, innermost first, so that it becomes R_{π/4}(b)
     moved_axis = axis.copy()
     moved_phase = axis_phase if packed.anticommutes(core, axis) else (axis_phase + 2) % 4
     for row in range(num_s_axes):

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Pack Clifford+T circuits into arrays of local gates and Pauli rotations.
+"""Pack Clifford+T circuits into arrays of one- and two-qubit Clifford gates and Pauli rotations.
 
 ``get_packed_circuit`` turns a Clifford+T circuit, with π/4 rotations encoded as described in the
 docstring of ``RotatedPauliString``, into a ``PackedCircuit``: arrays that compiled code can apply
@@ -22,11 +22,14 @@ from . import _packed_paulis as packed
 _ANNOTATIONS = frozenset(
     {"TICK", "QUBIT_COORDS", "SHIFT_COORDS", "DETECTOR", "OBSERVABLE_INCLUDE", "MPAD"}
 )
-# The instructions that are Pauli rotations, mapped to the sign of their rotation axes.
+# The instructions that are Pauli rotations, with or without a T tag, mapped to the signs of their
+# axes.
 _ROTATION_SIGNS = {"S": 1, "S_DAG": -1, "SPP": 1, "SPP_DAG": -1}
-# Instructions that tsim tags to make other rotations, so tags other than T change their meaning.
+# The instructions whose tags tsim reads: tags other than T on them make rotations that packed
+# circuits cannot represent.
 _TSIM_TAGGED_GATES = frozenset({"I", *_ROTATION_SIGNS})
-# The tag of T gates (see the docstring of ``RotatedPauliString``).
+# The tag that makes S, S_DAG, SPP, and SPP_DAG instructions π/4 rotations, alone or followed by a
+# label as in "T:<label>" (see the docstring of ``RotatedPauliString``).
 T_TAG = "T"
 # The kinds of operations of a packed circuit (see ``PackedCircuit``), compared only for equality.
 LOCAL_GATE = 0
@@ -41,25 +44,25 @@ T_ROTATION = 2
 class PackedCircuit:
     """The unitary operations of a Clifford+T circuit, as arrays, in the order in which they act.
 
-    Each operation has one of the following kinds.
+    Each operation has one of the following kinds, which ``operation_kinds`` lists.
 
     - ``LOCAL_GATE``: one of stim's one- and two-qubit Clifford gates, including untagged ``S``
       gates.  A local gate on ``k`` qubits is applied through its *conjugation table*: a lookup
-      table of the image under conjugation by the gate of each of the ``4^k`` Pauli strings on
-      those qubits.
+      table that lists, for each of the ``4^k`` Pauli strings on those qubits, its image under
+      conjugation by the gate.
     - ``S_ROTATION``: a π/2 rotation about a Pauli product, from an untagged ``SPP`` or ``SPP_DAG``
       instruction.  Such a rotation is Clifford, but its conjugation table would have ``4^m``
-      entries for a product on ``m`` qubits, so it is applied through its axis ``a`` instead: it
-      maps a Pauli string ``b`` to ``-i a b`` if ``b`` anticommutes with ``a``, and leaves it
-      unchanged otherwise.
+      entries for a product on ``m`` qubits, so conjugation by it goes through its axis ``a``
+      instead: it maps a Pauli string ``b`` to ``-i a b`` if ``b`` anticommutes with ``a``, and
+      leaves ``b`` unchanged otherwise.
     - ``T_ROTATION``: a π/4 rotation about a Pauli product, from a T-tagged instruction.
 
-    Local gates and rotations are numbered separately, in the order in which they act, and the
-    arrays of local gates and of rotations are indexed by these numbers.  Local gates of the same
-    stim gate share a conjugation table, and conjugation tables are numbered too.  A conjugation
-    table numbers the Pauli strings on the gate's qubits, and lists the number and the phase of the
-    image of each, as ``_packed_paulis.get_conjugation_table`` does.  All arrays are read-only,
-    since packed circuits are cached and shared.
+    Local gates and rotations are indexed separately, in the order in which they act.  Local gates
+    that apply the same stim gate share a conjugation table, and conjugation tables are indexed in
+    the order in which their gates first act.  A conjugation table lists, for the index of each
+    Pauli string on the gate's qubits, the index and the phase of its image, as computed by
+    ``_packed_paulis.get_conjugation_table``.  All arrays are read-only, since packed circuits are
+    cached and shared.
 
     Attributes:
         num_qubits: The number of qubits of the packed circuit, which is at least the number of
@@ -110,7 +113,10 @@ class PackedCircuit:
         npt.NDArray[np.uint64],
         npt.NDArray[np.int64],
     ]:
-        """The arrays of this packed circuit, in the order in which compiled code takes them."""
+        """The arrays of this packed circuit, in the order in which compiled kernels take them.
+
+        ``rotated_pauli_string._apply_packed_circuit`` takes these arrays as its last arguments.
+        """
         return (
             self.operation_kinds,
             self.gate_or_rotation_indices,
@@ -131,8 +137,7 @@ def get_packed_circuit(
 
     Packed circuits are cached by the text of the circuit, ``num_qubits``, and ``inverse``, so
     repeated calls with the same arguments are cheap, and later changes to a circuit object do not
-    affect the packed circuits made from it before.  The arrays of a packed circuit are read-only,
-    since packed circuits are shared.
+    affect the packed circuits made from it before.
 
     Args:
         circuit: A Clifford+T circuit, with π/4 rotations encoded as described in the docstring
@@ -160,9 +165,10 @@ def get_packed_circuit(
 
 @functools.lru_cache(maxsize=64)
 def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> PackedCircuit:
-    """The packed circuit with the given text (see ``get_packed_circuit``)."""
-    # collect the kind and operand of each operation, the qubits and conjugation table of each
-    # local gate, the conjugation table of each gate name, and the axis of each rotation
+    """The packed circuit of the circuit with the given stim text (see ``get_packed_circuit``)."""
+    # collect the kind of each operation and its index among the local gates or the rotations, the
+    # qubits and conjugation table of each local gate, the index of the conjugation table of each
+    # gate name, and the axis of each rotation
     operation_kinds: list[int] = []
     gate_or_rotation_indices: list[int] = []
     gate_qubits: list[tuple[int, int]] = []
@@ -170,9 +176,9 @@ def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> Pa
     conjugation_table_indices: dict[str, int] = {}
     rotation_axes: list[stim.PauliString] = []
 
-    # read the instructions, skipping annotations and rejecting what packed circuits cannot
-    # represent; the inverse circuit applies the inverse operations in reverse order, so reverse
-    # the instructions and their target groups for it, and invert each operation below
+    # read the instructions, skipping annotations and rejecting instructions that packed circuits
+    # cannot represent; the inverse circuit applies the inverse operations in reverse order, so
+    # reverse the instructions and their target groups for it, and invert each operation below
     instructions = stim.Circuit(circuit_text).flattened()
     for instruction in reversed(instructions) if inverse else instructions:
         if instruction.name in _ANNOTATIONS:
@@ -208,7 +214,7 @@ def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> Pa
             gate_qubits.append((qubits[0], qubits[1] if len(qubits) > 1 else -1))
             gate_conjugation_tables.append(conjugation_table)
 
-    # build the conjugation tables of the local gates, padded to the 16 entries of two qubits
+    # build the conjugation tables of the local gates, padded to the 16 entries of two-qubit gates
     conjugation_table_names = tuple(conjugation_table_indices)
     num_conjugation_tables = len(conjugation_table_names)
     conjugation_table_num_qubits = np.zeros(num_conjugation_tables, dtype=np.int64)
@@ -225,7 +231,7 @@ def _get_packed_circuit(circuit_text: str, num_qubits: int, inverse: bool) -> Pa
     # pack the rotation axes
     packed_axes, packed_axis_phases = packed.pack_axes(rotation_axes, num_qubits)
 
-    # assemble the packed circuit, whose arrays must be read-only, since it is cached and shared
+    # assemble the packed circuit, and make its arrays read-only, since it is cached and shared
     packed_circuit = PackedCircuit(
         num_qubits=num_qubits,
         operation_kinds=np.array(operation_kinds, dtype=np.int64),

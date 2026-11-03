@@ -2,11 +2,11 @@
 
 """Shared helpers for tests of experimental tools: dense unitaries of circuits.
 
-The dense matrices here cost memory and time exponential in the number of qubits, so they only check
-the scalable methods of qLDPC on a few qubits.  These helpers share no code with the methods that
-they check, and parse π/4 rotations, encoded as described in the docstring of
-``RotatedPauliString``, independently.
-As in ``qldpc.experimental.objects.conftest``, matrices act on qubits in big-endian order.
+The dense matrices here cost memory and time exponential in the number of qubits, so tests use them
+only on a few qubits, to check the scalable methods of qLDPC.  These helpers share no code with the
+methods that they check, and parse π/4 rotations, encoded as described in the docstring of
+``RotatedPauliString``, independently.  As in ``qldpc.experimental.objects.conftest``, matrices act
+on qubits in big-endian order.
 """
 
 from __future__ import annotations

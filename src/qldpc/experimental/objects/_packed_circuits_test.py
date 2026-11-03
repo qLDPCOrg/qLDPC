@@ -93,7 +93,8 @@ def test_conjugation_tables_of_packed_circuits(inverse: bool) -> None:
             assert packed.to_stim(words, phase, num_gate_qubits) == expected, (name, string)
 
 
-def test_packed_circuits_of_t_gates() -> None:
+def test_packed_circuits_of_tagged_instructions() -> None:
+    """T-tagged instructions, labeled or not, are π/4 rotations, and a tag on H is ignored."""
     circuit = stim.Circuit("S[T] 0 1\nSPP_DAG[T:label] !X0*Z1\nSPP Y1\nH[other] 0")
     packed_circuit = packed_circuits.get_packed_circuit(circuit, 2)
     t_rotation, s_rotation = packed_circuits.T_ROTATION, packed_circuits.S_ROTATION

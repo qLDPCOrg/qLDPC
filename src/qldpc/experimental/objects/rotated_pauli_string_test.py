@@ -167,7 +167,8 @@ def test_t_gates_make_cliffords_and_then_non_cliffords() -> None:
 
 
 @pytest.mark.usefixtures("kernels")
-def test_canceling_t_gates_give_equal_operators() -> None:
+def test_canceling_t_rotations_give_equal_operators() -> None:
+    """A π/4 rotation and its inverse change neither propagated operators nor their hashes."""
     circuit = stim.Circuit("H 0\nS[T] 0\nCX 0 1\nSPP_DAG[T] X0*Z1")
     padded = circuit.copy()
     padded.append("SPP_DAG", stim.target_combined_paulis(stim.PauliString("ZY")), tag="T")
