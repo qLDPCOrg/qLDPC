@@ -38,7 +38,7 @@ from .core.paths import find_code_files
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Collect the best codes of the logs, compute tables from them, and print the LaTeX tables."""
+    """Collect the best codes of the logs, compute tables from them, and write the LaTeX files."""
     parser = make_parser(__doc__)
     parser.add_argument(
         "--scrape", action="store_true", help="query qecdb.org and rewrite its data file"
