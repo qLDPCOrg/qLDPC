@@ -471,7 +471,10 @@ def test_observables() -> None:
 
 
 def test_schedulers() -> None:
-    """Noise models schedule circuits only for idle noise, and validate the schedules."""
+    """Noise models schedule circuits only for idle noise, and validate the schedules.
+
+    They use the schedules from a scheduler's override of get_schedule.
+    """
     assert circuits.NoiseModel().scheduler == circuits.ASAPScheduler()
     assert circuits.DepolarizingNoiseModel(0.1).scheduler == circuits.ASAPScheduler()
     assert circuits.SI1000NoiseModel(0.1).scheduler == circuits.TickPreservingScheduler(
@@ -488,11 +491,11 @@ def test_schedulers() -> None:
         noise_model.noisy_circuit(circuit)
 
 
-class _OneMoment(circuits.Scheduler):
-    """A scheduler that puts all operations of a circuit in one moment."""
+class _OneMoment(circuits.ASAPScheduler):
+    """A scheduler whose get_schedule puts all operations of a circuit in one moment."""
 
-    def get_operation_moments(self, circuit: stim.Circuit) -> list[int]:
-        return [0] * len(circuits.Schedule.get_operations(circuit))
+    def get_schedule(self, circuit: circuits.StimCircuitLike) -> circuits.Schedule:
+        return circuits.Schedule(circuit, [0] * len(circuits.Schedule.get_operations(circuit)))
 
 
 def test_deprecated_insert_ticks() -> None:

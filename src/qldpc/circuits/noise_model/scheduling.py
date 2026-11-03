@@ -66,7 +66,9 @@ class Schedule:
     follows the schedule of its body, so the block stays compact.  Moments, and so the idle runs of
     qubits, thus end at the start and end of a REPEAT block and of each of its iterations, which
     splits the ``quadratic_idle_error`` of a :class:`~qldpc.circuits.NoiseModel` there.  Adding
-    noise to ``circuit.flattened()`` avoids this.
+    noise to ``circuit.flattened()`` avoids this.  A scheduler may override
+    :meth:`Scheduler.get_schedule` to handle REPEAT blocks itself, but its schedules are still
+    validated, and give the body of each REPEAT block one schedule that every iteration follows.
 
     A schedule is immutable.
 
