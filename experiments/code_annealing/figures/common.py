@@ -41,6 +41,7 @@ DEFAULT_NUM_SAMPLES = 10**7
 _DEFAULT_MIN_ERROR_RATE = 1e-3
 _DEFAULT_MAX_ERROR_RATE = 1e-1
 _DEFAULT_NUM_ERROR_RATES = 100
+_SIMULATIONS_CACHE = "error_rate_funcs"
 
 CODE_TYPE_TITLES: dict[CodeType, str] = {"css": "CSS", "swel": "SWEL"}
 
@@ -97,14 +98,7 @@ def get_error_rate_func(
     The cache key is the code, its distance, the number of samples, and the maximum error rate.
     """
     cached = cache.use_disk_cache(
-        "error_rate_funcs",
-        cache_dir=cache_dir,
-        key_func=lambda entry, num_samples, max_error_rate: (
-            _get_code_key(entry.code),
-            entry.distance,
-            int(num_samples),
-            float(max_error_rate),
-        ),
+        _SIMULATIONS_CACHE, cache_dir=cache_dir, key_func=_get_simulation_key
     )(_simulate_error_rate_func)
     return cached(entry, num_samples, max_error_rate)
 
@@ -115,12 +109,24 @@ def simulate_codes(
     """Simulate codes in ``workers`` parallel processes, and cache every simulation.
 
     The simulations are those that the plotting scripts make at their default maximum error rate, so
-    the plotting scripts then read every simulation from the cache.
+    the plotting scripts then read every simulation from the cache.  Codes that the cache already
+    holds are skipped.  Only this process writes to the cache, because the database of the cache can
+    fail to lock for concurrent writers on a network file system.
     """
+    simulations = cache.get_disk_cache(_SIMULATIONS_CACHE, cache_dir=cache_dir)
+    keys = {
+        _get_simulation_key(entry, num_samples, _DEFAULT_MAX_ERROR_RATE): entry for entry in entries
+    }
     with concurrent.futures.ProcessPoolExecutor(workers) as executor:
-        jobs = [executor.submit(_simulate_code, entry, num_samples, cache_dir) for entry in entries]
-        for job in jobs:
-            job.result()
+        jobs = {
+            executor.submit(
+                _simulate_error_rate_func, entry, num_samples, _DEFAULT_MAX_ERROR_RATE
+            ): key
+            for key, entry in keys.items()
+            if key not in simulations
+        }
+        for job in concurrent.futures.as_completed(jobs):
+            simulations[jobs[job]] = job.result()
 
 
 ####################################################################################################
@@ -316,9 +322,11 @@ def _get_code_key(code: codes.CSSCode) -> tuple[tuple[tuple[int, ...], ...], ...
     )
 
 
-def _simulate_code(entry: CodeEntry, num_samples: int, cache_dir: Path) -> None:
-    """Simulate a code at the default maximum error rate, and cache the simulation."""
-    get_error_rate_func(entry, num_samples, _DEFAULT_MAX_ERROR_RATE, cache_dir=cache_dir)
+def _get_simulation_key(
+    entry: CodeEntry, num_samples: int, max_error_rate: float
+) -> tuple[Any, ...]:
+    """The key of a simulation in its cache: the code, its distance, and the simulation settings."""
+    return (_get_code_key(entry.code), entry.distance, int(num_samples), float(max_error_rate))
 
 
 def _simulate_error_rate_func(
