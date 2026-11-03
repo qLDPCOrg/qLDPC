@@ -266,7 +266,7 @@ CI's exact environments and commands are in ``.github/workflows/``.
 Use the `validation commands in the agent and contributor guide <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md#validation-commands>`_.
 
 Run checks on what you changed while iterating, and save repository-wide runs for a finished change.
-A change is usually not finished until it has been through review, so until then run only the tests of the changed modules, and leave coverage gates, the documentation build, and the full test suite for the end.
+A change is usually not finished until it has been through review, so until then the tests of the changed modules usually suffice, and coverage gates, the documentation build, and the full test suite can wait for the end.
 Every check script except ``build_docs.py`` accepts explicit files, as in ``python checks/coverage_.py src/qldpc/codes/common.py``, or ``-i/--incremental [REVISION ...]``.
 The incremental mode checks only the files changed since the merge base with ``upstream/main``, ``origin/main``, or ``main`` (the first that exists), or with the given revisions.
 For example, ``python checks/coverage_.py -i`` runs the per-module coverage gate for changed modules only, which is much faster than a full run.
