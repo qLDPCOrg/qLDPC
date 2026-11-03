@@ -44,10 +44,13 @@ class PackedCircuit:
     Each operation has one of the following kinds.
 
     - ``LOCAL_GATE``: one of stim's one- and two-qubit Clifford gates, including untagged ``S``
-      gates, applied through a precomputed table of the images of Pauli operators.
-    - ``S_ROTATION``: a π/2 rotation about a Pauli product of any size, from an untagged ``SPP`` or
-      ``SPP_DAG`` instruction.  Such a rotation is Clifford, but it can act on too many qubits for
-      a table, so it is applied through its axis.
+      gates, applied through a precomputed table of the images of the ``4^k`` Pauli strings on its
+      ``k`` qubits.
+    - ``S_ROTATION``: a π/2 rotation about a Pauli product, from an untagged ``SPP`` or ``SPP_DAG``
+      instruction.  Such a rotation is Clifford, but its table would have ``4^m`` entries for a
+      product on ``m`` qubits, so it is applied through its axis ``a`` instead: it maps a Pauli
+      string ``b`` to ``-i a b`` if ``b`` anticommutes with ``a``, and leaves it unchanged
+      otherwise.
     - ``T_ROTATION``: a π/4 rotation about a Pauli product, from a T-tagged instruction.
 
     Local gates and rotations are numbered separately, in the order in which they act, and the
