@@ -265,6 +265,7 @@ Disk caches
 ~~~~~~~~~~~
 
 qLDPC caches the results of slow or interactive lookups, such as named codes, groups, downloaded code data, and pasted GAP output, in a ``qldpc`` directory under the user's platform cache directory.
+These caches hold only plain Python data and NumPy arrays, which diskcache-community's ``SafeDisk`` reads back without running code; a call whose arguments or result are anything else is computed without caching, and an entry holding anything else is deleted and recomputed.
 Unless ``NUMBA_CACHE_DIR`` is set, code that numba compiles is cached in its ``numba/qldpc-<hash>`` subdirectory, where the hash is of qLDPC's source files.
 Each import of qLDPC deletes the outdated directories of its own source location, compiled from earlier versions of its source files and unused for more than 7 days, and keeps those of other checkouts or installations.
 A function decorated with :func:`qldpc.cache.use_disk_cache` has a ``refresh`` method, which takes the same arguments, recomputes the result, and overwrites the cached value.

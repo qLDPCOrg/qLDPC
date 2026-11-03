@@ -36,9 +36,9 @@ import itertools
 import os
 import pathlib
 import traceback
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Hashable, Iterable, Iterator, MutableMapping
+from typing import Any
 
-import diskcache
 from sympy.abc import x, y
 
 import qldpc
@@ -173,7 +173,7 @@ def run_and_save(
     exponents: tuple[int, int, int, int],
     min_rate: float,
     num_trials: int,
-    cache: diskcache.Cache,
+    cache: MutableMapping[Hashable, Any],
     *,
     silent: bool = False,
 ) -> None:
@@ -194,8 +194,8 @@ def run_and_save(
     key = (dims, exponents, num_trials)
 
     # check whether we already have data for this code
-    if key in cache:
-        nn, kk, dd = cache[key]
+    if (params := cache.get(key)) is not None:
+        nn, kk, dd = params
         # if we know the distance or the encoding rate is too low, there's nothing more to do
         if dd is not None or kk < nn * min_rate:
             return

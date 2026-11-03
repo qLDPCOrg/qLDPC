@@ -7,6 +7,7 @@ See https://groupnames.org and https://www.gap-system.org.
 
 from __future__ import annotations
 
+import operator
 import re
 import urllib.error
 import urllib.request
@@ -268,7 +269,7 @@ def _get_group_url(order: int, index: int) -> str | None:
 # small groups
 
 
-@qldpc.cache.use_disk_cache("small_group_number")
+@qldpc.cache.use_disk_cache("small_group_number", key_func=operator.index)  # accept NumPy integers
 def get_small_group_number(order: int) -> int:
     """Get the number of 'SmallGroup's of a given order.
 
@@ -299,7 +300,7 @@ def get_small_group_structure(order: int, index: int) -> str:
     """
     # Cache manually (not via @use_disk_cache) so the fallback name returned when GAP is unavailable
     # is never cached: only GAP's real StructureDescription (below) is stored.
-    key = (order, index)
+    key = (operator.index(order), operator.index(index))  # accept NumPy integers
     cache = qldpc.cache.get_disk_cache("qldpc_group_structure")
     if structure := cache.get(key, None):
         return structure

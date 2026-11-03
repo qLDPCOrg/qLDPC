@@ -10,6 +10,9 @@ import pickle
 import unittest.mock
 from collections.abc import Hashable
 
+import diskcache_community
+import galois
+import numpy as np
 import pytest
 
 import qldpc.cache
@@ -40,7 +43,7 @@ def test_use_disk_cache(tmp_path: pathlib.Path) -> None:
     cache: dict[Hashable, int] = {}
     with (
         unittest.mock.patch("qldpc.cache._running_with_pytest", return_value=False),
-        unittest.mock.patch("diskcache.Cache", return_value=cache),
+        unittest.mock.patch("diskcache_community.Cache", return_value=cache),
     ):
 
         @qldpc.cache.use_disk_cache("test_name")
@@ -77,7 +80,7 @@ def test_refresh() -> None:
     cache: dict[Hashable, int] = {}
     with (
         unittest.mock.patch("qldpc.cache._running_with_pytest", return_value=False),
-        unittest.mock.patch("diskcache.Cache", return_value=cache),
+        unittest.mock.patch("diskcache_community.Cache", return_value=cache),
     ):
         calls: list[tuple[int, int]] = []
 
@@ -111,6 +114,64 @@ def test_refresh() -> None:
         assert double.refresh(4) == 8
         assert cache["key-4"] == 8
         assert double(4) == 8
+
+
+def test_planted_entry(tmp_path: pathlib.Path) -> None:
+    """A cache entry that would run code when it is unpickled is recomputed instead."""
+
+    class Planted:
+        def __reduce__(self) -> tuple[object, ...]:
+            return pytest.fail, ("a planted cache entry ran code",)
+
+    calls: list[str] = []
+
+    @qldpc.cache.use_disk_cache("test_name", cache_dir=tmp_path)
+    def get_five(value: str) -> int:
+        calls.append(value)
+        return 5
+
+    # anyone who can write to the cache directory can store a pickle with the default disk
+    with diskcache_community.Cache(tmp_path / "test_name", disk=diskcache_community.Disk) as cache:
+        cache["test_arg"] = Planted()
+
+    with unittest.mock.patch("qldpc.cache._running_with_pytest", return_value=False):
+        assert get_five("test_arg") == get_five("test_arg") == 5
+    assert calls == ["test_arg"]
+
+
+def test_uncached_calls(tmp_path: pathlib.Path) -> None:
+    """Calls whose key or result the disk cache cannot store are computed, but not cached."""
+    calls: list[int] = []
+
+    @qldpc.cache.use_disk_cache("ones", cache_dir=tmp_path)
+    def get_ones(size: int) -> galois.FieldArray:
+        calls.append(size)
+        return galois.GF(2).Ones(size)
+
+    @qldpc.cache.use_disk_cache("doubles", cache_dir=tmp_path)
+    def double(value: int) -> int:
+        calls.append(value)
+        return 2 * value
+
+    with unittest.mock.patch("qldpc.cache._running_with_pytest", return_value=False):
+        qldpc.cache.get_disk_cache("ones", cache_dir=tmp_path)[2] = "an older result"
+
+        # a galois.FieldArray result is returned and never cached, and refreshing it drops the older
+        # result; only the first such call warns
+        with pytest.warns(UserWarning, match="subclass of ndarray") as record:
+            arrays = [get_ones.refresh(2), get_ones(2), get_ones(2)]
+        assert len(record) == 1
+        assert all(type(ones) is galois.GF(2) and ones.tolist() == [1, 1] for ones in arrays)
+        assert calls == [2, 2, 2]
+
+        # a NumPy integer argument, which cannot be part of a key, gives the right result
+        calls.clear()
+        (three,) = np.array([3])
+        with pytest.warns(UserWarning, match="key of type numpy") as record:
+            doubles = [double(three), double(three)]
+        assert len(record) == 1
+        assert doubles == [6, 6]
+        assert calls == [3, 3]
 
 
 def test_pickle() -> None:

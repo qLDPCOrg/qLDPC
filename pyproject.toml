@@ -30,19 +30,19 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
-  "diskcache>=5",
+  "diskcache-community>=5.8.3",
   "galois>=0.4.11",
   "ldpc>=2.4.1",
   "networkx>=2.7",
-  "numba>=0.61.2",   # floor tested with Python 3.11 and NumPy 2.1
+  "numba>=0.61.2",              # floor tested with Python 3.11 and NumPy 2.1
   "numpy>=2.1",
   "platformdirs>=4",
   "pymatching>=2.3",
   "pyperclip>=1.11",
-  "scipy>=1.16",     # earlier MILP solvers can return non-solutions to ILP decoding
+  "scipy>=1.16",                # earlier MILP solvers can return non-solutions to ILP decoding
   "sinter>=1.16",
   "stim>=1.16",
-  "sympy>=1.12.1",   # 1.12 accepts mpmath 1.4, which it cannot import
+  "sympy>=1.12.1",              # 1.12 accepts mpmath 1.4, which it cannot import
   "tqdm>=4",
 ]
 optional-dependencies.decoders = [

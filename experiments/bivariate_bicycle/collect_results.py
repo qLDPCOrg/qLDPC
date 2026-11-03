@@ -15,8 +15,9 @@ Example:
 from __future__ import annotations
 
 import argparse
+from typing import cast
 
-import diskcache
+import diskcache_community
 import numpy as np
 from run_search import CACHE_NAME, NUM_TRIALS, add_results_dir_argument
 
@@ -35,7 +36,7 @@ def main() -> None:
     """Export bivariate bicycle codes that outperform the toric code to a data file."""
     args = parse_args()
     cache = qldpc.cache.get_disk_cache(CACHE_NAME, cache_dir=args.results_dir)
-    data = get_code_data(cache, args.num_trials)
+    data = get_code_data(cast(diskcache_community.Cache, cache), args.num_trials)
     if not data:
         print(f"No cached codes with r > 1 were found for --num-trials {args.num_trials}")
 
@@ -71,7 +72,9 @@ def parse_args() -> argparse.Namespace:
 # data collection
 
 
-def get_code_data(cache: diskcache.Cache, num_trials: int) -> list[tuple[int | float, ...]]:
+def get_code_data(
+    cache: diskcache_community.Cache, num_trials: int
+) -> list[tuple[int | float, ...]]:
     """Collect the parameters of cached bivariate bicycle codes with figure of merit r > 1.
 
     Only codes whose distance was bounded with num_trials trials are collected.  Returns one row
@@ -92,7 +95,7 @@ def get_code_data(cache: diskcache.Cache, num_trials: int) -> list[tuple[int | f
             print(dims, exponents)
 
         # retrieve code parameters, skipping codes whose distance was not computed
-        nn, kk, dd = cache[key]
+        nn, kk, dd = cache.get(key, (None, None, None))
         if dd is None:
             continue
 

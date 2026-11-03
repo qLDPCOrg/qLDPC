@@ -4,10 +4,13 @@
 
 from __future__ import annotations
 
+import pathlib
 import unittest.mock
 import urllib
+import warnings
 
 import galois
+import numpy as np
 import pytest
 
 from qldpc import external
@@ -333,6 +336,28 @@ def test_get_small_group_structure() -> None:
     ):
         structure = f"SmallGroup({order},{index})"
         assert _groups.get_small_group_structure(order, index) == structure
+
+
+def test_small_groups_of_numpy_orders(tmp_path: pathlib.Path) -> None:
+    """NumPy integers retrieve the cached small-group data of the equal Python integers."""
+    order, index, number, structure = 12, 1, 5, "C3 : C4"
+    numpy_order, numpy_index = np.array([order, index])
+    with (
+        unittest.mock.patch("qldpc.cache._running_with_pytest", return_value=False),
+        unittest.mock.patch("platformdirs.user_cache_dir", return_value=str(tmp_path)),
+        unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
+        unittest.mock.patch("qldpc.external.gap.require_package", return_value=True),
+        unittest.mock.patch(
+            "qldpc.external.gap.get_output", side_effect=[str(number), structure]
+        ) as get_output,
+        warnings.catch_warnings(),
+    ):
+        warnings.simplefilter("error")
+        assert _groups.get_small_group_number(numpy_order) == number
+        assert _groups.get_small_group_number(order) == number
+        assert _groups.get_small_group_structure(numpy_order, numpy_index) == structure
+        assert _groups.get_small_group_structure(order, index) == structure
+    assert get_output.call_count == 2
 
 
 def test_idempotents() -> None:

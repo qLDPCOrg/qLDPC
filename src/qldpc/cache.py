@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import pathlib
 import sys
@@ -11,11 +12,18 @@ import warnings
 from collections.abc import Callable, Hashable, MutableMapping
 from typing import Any, Generic, ParamSpec, TypeVar, cast
 
-import diskcache
+import diskcache_community
 import platformdirs
+
+from qldpc._utils import get_external_caller_stacklevel
 
 _Params = ParamSpec("_Params")
 _Result = TypeVar("_Result")
+
+# Entries are read back with an allowlist rather than plain pickle, so an entry planted in a cache
+# directory cannot run code.  An entry that the allowlist refuses is deleted and treated as missing.
+_DISK = diskcache_community.SafeDisk.with_numpy().with_options(on_error="miss")
+_MISSING = object()  # distinct from every cached result
 
 
 def use_disk_cache(
@@ -36,6 +44,12 @@ def use_disk_cache(
 
     The decorator is intended for module-level functions: a decorated function is pickled by
     reference to its qualified name, and it does not bind as a method.
+
+    The cache stores keys and results that are plain Python data, such as numbers, strings, and
+    tuples, lists, and dicts of them, and results may also hold NumPy arrays and scalars.  A call
+    with any other key or result, such as a NumPy integer argument or a galois.FieldArray result, is
+    computed without caching, and the first such call warns.  A cache entry that holds anything
+    else is deleted and recomputed rather than read.
 
     Disk caching is bypassed when running with pytest.
     """
@@ -68,25 +82,27 @@ class CachedFunction(Generic[_Params, _Result]):
         self._cache_name = cache_name
         self._cache_dir = cache_dir
         self._key_func = key_func
+        self._warned_uncached = False
         functools.update_wrapper(self, function)
 
     def __call__(self, *args: _Params.args, **kwargs: _Params.kwargs) -> _Result:
         """Retrieve a result from the cache if available, and otherwise compute and cache it."""
         cache = get_disk_cache(self._cache_name, cache_dir=self._cache_dir)
         key = self._get_key(*args, **kwargs)
-        if key in cache:
-            return cast(_Result, cache[key])
-        result = self._function(*args, **kwargs)
-        cache[key] = result
-        return result
+        try:
+            result = cache.get(key, _MISSING)
+        except TypeError as error:  # the cache cannot store this key
+            self._warn_uncached(error)
+            return self._function(*args, **kwargs)
+        if result is _MISSING:
+            result = self._save(cache, key, self._function(*args, **kwargs))
+        return cast(_Result, result)
 
     def refresh(self, *args: _Params.args, **kwargs: _Params.kwargs) -> _Result:
         """Recompute the result for these arguments and overwrite the cached value."""
         cache = get_disk_cache(self._cache_name, cache_dir=self._cache_dir)
         key = self._get_key(*args, **kwargs)
-        result = self._function(*args, **kwargs)
-        cache[key] = result
-        return result
+        return self._save(cache, key, self._function(*args, **kwargs))
 
     def __reduce__(self) -> str:
         """Pickle by reference to the module-level name of the decorated function."""
@@ -99,17 +115,41 @@ class CachedFunction(Generic[_Params, _Result]):
         key = args + tuple(kwargs.items())
         return key if len(key) != 1 else key[0]  # unpack length-1 tuples
 
+    def _save(
+        self, cache: MutableMapping[Hashable, Any], key: Hashable, result: _Result
+    ) -> _Result:
+        """Save a result to the cache, unless the cache cannot store it, and return the result."""
+        try:
+            cache[key] = result
+        except TypeError as error:  # the cache cannot store this key or result
+            self._warn_uncached(error)
+            with contextlib.suppress(TypeError):
+                cache.pop(key, None)  # so that no older result outlives a refresh
+        return result
+
+    def _warn_uncached(self, error: TypeError) -> None:
+        """Warn, on the first call that the cache cannot store, that such calls are not cached."""
+        if not self._warned_uncached:
+            self._warned_uncached = True
+            warnings.warn(
+                f"Calls of {self._function.__qualname__} that the disk cache '{self._cache_name}'"
+                f" cannot store are computed without caching ({error})",
+                stacklevel=get_external_caller_stacklevel(),
+            )
+
 
 def get_disk_cache(
     cache_name: str, *, cache_dir: pathlib.Path | str | None = None
 ) -> MutableMapping[Hashable, Any]:
     """Retrieve a dictionary-like cache object.
 
+    The cache stores the same keys and values as use_disk_cache, and raises a TypeError for others.
     While pytest is imported, this returns a new, empty dict rather than a persistent disk cache.
     """
     if _running_with_pytest():
         return {}
-    return diskcache.Cache(get_disk_cache_path(cache_name, cache_dir=cache_dir))
+    path = get_disk_cache_path(cache_name, cache_dir=cache_dir)
+    return cast(MutableMapping[Hashable, Any], diskcache_community.Cache(path, disk=_DISK))
 
 
 def get_disk_cache_path(
