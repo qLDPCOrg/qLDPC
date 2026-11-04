@@ -44,9 +44,10 @@ def kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> 
 def _irreducible_faults(
     flags: Sequence[int], fault_weight: int, num_starts: int
 ) -> list[tuple[int, ...]]:
-    """Irreducible accepted faults of a fault weight that contain one of the first ``num_starts``.
+    """Irreducible accepted faults of a fault weight that contain a start member.
 
-    They are found by brute force, in lexicographic order.
+    The start members are the first ``num_starts`` primitive faults.  The faults are found by brute
+    force, in lexicographic order.
     """
     accepted: list[int] = []
     faults = []
@@ -109,11 +110,11 @@ def test_listing_matches_brute_force(
     monkeypatch.setattr(_fault_search, "_CODEWORD_BATCH_SIZE", 1)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     # The first flags make an accepted fault {0, 1, 2, 3} that contains the accepted fault {0, 2}.
-    # In the second, the classes with flags 1, 2, 4, and 8 have a sum of flags that the pair of
-    # classes with flags 3 and 12 also has, but flags 3 do not keep the classes independent.  In the
-    # third, with two start members, the first class has a start member and a member that is not,
-    # and the second class is a start class, so the fault {1, 2, 3} has a start member only after a
-    # member that is not.
+    # In the second, the classes with flags 1, 2, 4, and 8 have the same sum of flags, 15, as the
+    # pair of classes with flags 3 and 12, but 3 = 1 + 2, so these six classes are not a class
+    # codeword.  In the third, with two start members, 0 and 1, the class with flags 1 has members 0
+    # and 3, and the class with flags 2 is a start class.  So the fault {1, 2, 3} takes member 3,
+    # which is not a start member, before member 1, which is, and must not be skipped.
     flag_sets = [[1, 2, 1, 2, 3, 3], [1, 2, 4, 8, 3, 12, 16, 31], [1, 2, 3, 1]]
     flag_sets += [list(rng.integers(1, 16, size=rng.integers(1, 10))) for _ in range(10)]
     for small_flags in flag_sets:

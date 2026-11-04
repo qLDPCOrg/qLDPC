@@ -113,11 +113,9 @@ In this section, every fault contains only [kept primitive faults](#duplicate-an
 A primitive fault with zero flags is an irreducible accepted fault by itself, and no larger irreducible accepted fault contains one.
 Every other irreducible accepted fault has fault weight `m ≥ 2` and contains only primitive faults with nonzero flags.
 
-A **flag class** is a set of all the kept primitive faults that have the same nonzero flags.
+A **flag class**, or class, is the set of all the kept primitive faults that have the same nonzero flags, and its **members** are these primitive faults.
 Two primitive faults of the same class form an accepted fault of fault weight two.
 So an irreducible accepted fault of fault weight two is two primitive faults of one class, and an irreducible accepted fault of fault weight `m ≥ 3` contains at most one primitive fault of each class, since otherwise it would contain a smaller accepted fault.
-Many primitive faults can share their flags, so listing faults through their classes saves time.
-The search still lists each fault by itself, but its tests of independence, its lookups of closing classes, and its table of pairs below work with classes, of which there can be far fewer than primitive faults.
 
 Call a set of classes, or a fault, **independent** if their flags are linearly independent, that is, if no nonempty subset has flags that sum to zero.
 For `m ≥ 3`, call `m` distinct classes a **class codeword** if their flags sum to zero and every proper nonempty subset of them is independent.
@@ -126,7 +124,7 @@ Then choosing one primitive fault from each class of a class codeword gives an i
 Conversely, the classes of the primitive faults of an irreducible accepted fault of fault weight `m ≥ 3` form a class codeword.
 So choosing a class codeword of `m ≥ 3` classes and one primitive fault from each of its classes gives each irreducible accepted fault of fault weight `m` exactly once.
 
-Order the classes, and write a class codeword as `c_1 < ... < c_m`.
+Fix an order of the classes (the search's order is given below), and write a class codeword as `c_1 < ... < c_m` in this order.
 The **prefix** of the codeword is `c_1, ..., c_{m-1}`, which is independent, and its **closing** class is `c_m`, whose flags equal the sum of the prefix flags.
 Conversely, if the classes `c_1 < ... < c_{m-1}` are independent and a later class `c_m` has flags equal to their sum, then these `m` classes form a class codeword, since their flags have rank `m - 1` and sum to zero, so the only dependency among them involves all `m`.
 So the class codewords correspond one to one to the independent prefixes with a later closing class, since the closing class is the last one in the order.
@@ -137,21 +135,23 @@ Then a class that contains a heavy primitive fault, a **start class**, comes bef
 The code calls the heavy primitive faults the **start members**.
 So a fault of fault weight `m ≥ 3` contains a heavy primitive fault only if its class codeword starts with a start class, and the search builds only the prefixes that start with a start class.
 For each class codeword, it chooses one primitive fault from each class in turn.
-While it has chosen only light primitive faults, it skips the rest of the current class as soon as every primitive fault that is left to choose from is light, since no fault that completes the current choice contains a heavy primitive fault.
+While all the primitive faults that it has chosen are light, it skips the rest of the current class as soon as every primitive fault that it could still choose, in this class or in a later class of the codeword, is light, since then no fault that completes the current choice contains a heavy primitive fault.
 For fault weight two, it chooses two primitive faults from a start class in order, the first of them heavy.
 This lists each irreducible accepted fault that contains a heavy primitive fault once, and lists nothing else.
 
-The search looks up the closing class in a hash map from a 64-bit linear hash of the flags of each class to the classes with that hash.
+The search looks up the closing class in a hash map from a 64-bit linear hash of the flags of each class to the classes with that hash, where linear means that the hash of a sum of flags is the sum of their hashes.
 Different flags can share a hash, so the search compares the flags of every class that it finds with the sum of the prefix flags.
 Most choices of `c_{m-1}` have no closing class, so for fault weight `m ≥ 4` the search saves time by choosing `c_{m-1}` and `c_m` together, as a **closing pair**.
-Choosing them together removes about one factor of the number of classes from the search time, at the cost of a table whose size is quadratic in it.
+Choosing them together removes about one factor of the number of classes from the search time, at the cost of a table whose size is quadratic in the number of classes.
 If it fits within the memory limit, the search keeps a table of all pairs of classes, sorted by the hash of the sum of their flags, with a hash map from each hash to its pairs; this table has first claim on the memory limit.
-The hash is linear, so the hash of the sum of two flags is the sum of their hashes.
-For each choice of independent classes `c_1, ..., c_{m-2}`, the search looks up the pairs `c_{m-1} < c_m` with the hash of the flags of `c_1, ..., c_{m-2}`, and keeps those that come after `c_{m-2}` and whose flags sum exactly to the flags of `c_1, ..., c_{m-2}`.
+For each choice of independent classes `c_1, ..., c_{m-2}`, the search looks up the pairs `c_{m-1} < c_m` with the hash of the sum of the flags of `c_1, ..., c_{m-2}`, and keeps those that come after `c_{m-2}` and whose flags sum to exactly that sum.
 Of these, it keeps only the pairs whose first class `c_{m-1}` keeps the prefix `c_1, ..., c_{m-1}` independent.
 That `c_1, ..., c_{m-2}` are independent is not enough, since the flags of `c_{m-1}` could be the sum of some of theirs, and then the `m` classes would contain a smaller set of classes whose flags sum to zero.
-With this condition, `c_m` has flags equal to the sum of the independent prefix `c_1, ..., c_{m-1}`, so the `m` classes form a class codeword, as for a closing class that the search finds by itself.
+With this condition, `c_m` has flags equal to the sum of the independent prefix `c_1, ..., c_{m-1}`, so the `m` classes form a class codeword, as for a closing class found by a lookup of single classes.
 The table keeps the pairs with each hash in lexicographic order, so the table lookup lists the same class codewords in the same order as a loop over `c_{m-1}`, and the faults are listed in the same order whether or not the table fits within the memory limit.
+
+Many primitive faults can share their flags, which is why the search works with classes.
+Its tests of independence, its lookups of closing classes, and its table of pairs work with classes, of which there can be far fewer than primitive faults, and it handles individual primitive faults only when it expands each class codeword into faults.
 
 ### Why the first violation has the smallest fault weight
 
@@ -186,8 +186,8 @@ The search could therefore skip all these faults if it finds a Pauli error with 
 Every skipped fault satisfies the bound, so skipping them would change neither the result nor the reported counterexample.
 
 The search does not use this rule, because the time that it saves does not justify the added complexity.
-A trial implementation, in an earlier version of the search that built prefixes of primitive faults rather than of classes, with the heavy primitive faults first, applied the rule to each prefix that contained a light primitive fault.
-It looked for such a Pauli error in the first two layers of the coset search of `PauliCosetSearch`, at each light primitive fault added to a prefix, and reused the answer for each heavy part.
+A trial implementation, in an earlier version of the search that worked with primitive faults rather than classes, applied the rule to each partial choice of primitive faults that contained a light primitive fault.
+It looked for such a Pauli error in the first two layers of the coset search of `PauliCosetSearch`, at each light primitive fault added to a partial choice, and reused the answer for each heavy part.
 On color-code state preparations, certifications up to fault weight four took about as long as without the rule.
 In benchmarks that treated every listed fault as satisfying the bound, so that the search listed every fault, the rule made the search 1.1 to 1.2 times faster at fault weight five, and 1.7 times faster at fault weight six.
 Two variants were slower: deciding exactly whether `μ(S G)` is small enough, and also applying the rule when adding the last primitive fault of a fault.
