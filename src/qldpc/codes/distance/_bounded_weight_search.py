@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import NamedTuple
@@ -18,6 +19,10 @@ from qldpc._compilation import always_compiled
 from . import _information_sets
 from ._binary import as_binary_matrix, assert_binary, symplectic_to_hamming
 from ._information_sets import advance_support
+
+# The largest table of errors of CSS weight one that PauliCosetSearch builds, as a number of pairs
+# of an X-single and a Z-single syndrome: about ten megabytes, or 255 qubits.
+_MAX_CSS_SINGLES = 2**16
 
 ####################################################################################################
 # Pauli-coset minimum-weight bounds
@@ -181,14 +186,31 @@ class PauliCosetSearch:
         """Find an error of weight zero or one with this syndrome, if there is one."""
         if syndrome in self._singles:
             return self._singles[syndrome]
-        if self.css_weight:
-            # CSS weight one also allows X_i Z_j on distinct qubits.  Matching an X-single syndrome
-            # with a Z-single syndrome finds these in linear time, without a quadratic table.
-            for sx, x in self._x_singles.items():
-                z = self._z_singles.get(syndrome ^ sx)
-                if z is not None:
-                    return x ^ z
+        if not self.css_weight:
+            return None
+        # CSS weight one also allows X_i Z_j on distinct qubits.  Callers such as the certification
+        # of fault propagation make a query for each of thousands of syndromes, so a table of these
+        # errors, built on the first query that needs it, saves a scan of the qubits per query.
+        if self._css_singles is not None:
+            return self._css_singles.get(syndrome)
+        # Without the table, matching an X-single syndrome with a Z-single syndrome takes linear
+        # time.
+        for sx, x in self._x_singles.items():
+            z = self._z_singles.get(syndrome ^ sx)
+            if z is not None:
+                return x ^ z
         return None
+
+    @functools.cached_property
+    def _css_singles(self) -> dict[int, int] | None:
+        """Errors X_i Z_j (with X_i or Z_j possibly the identity) by syndrome, if not too many."""
+        if len(self._x_singles) * len(self._z_singles) > _MAX_CSS_SINGLES:
+            return None
+        table: dict[int, int] = {}
+        for sx, x in self._x_singles.items():
+            for sz, z in self._z_singles.items():
+                table.setdefault(sx ^ sz, x ^ z)
+        return table
 
     def _pauli(self, best: npt.NDArray[np.uint64]) -> int:
         """The packed Pauli of the embedded word that ``_search_coset`` left in ``best``."""

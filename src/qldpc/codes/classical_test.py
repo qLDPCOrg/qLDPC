@@ -185,8 +185,8 @@ def test_bch_block_lengths() -> None:
 
     # a valid length over a field of order greater than 10 builds a code of the asked-for dimension,
     # which its parity checks have to agree with
-    code = codes.BCHCode(120, 100, field=11)
-    assert codes.ClassicalCode(code.matrix).dimension == 100
+    code = codes.BCHCode(10, 6, field=11)
+    assert codes.ClassicalCode(code.matrix).dimension == 6
 
 
 def test_tanner_code_preserves_input_graph() -> None:

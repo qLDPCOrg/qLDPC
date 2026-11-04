@@ -348,21 +348,29 @@ def _get_primitive_fault_signatures(
     # which only approximates their probabilities, and no probabilities are used here.
     dem = diagnostic_circuit.detector_error_model(approximate_disjoint_errors=True).flattened()
 
+    # Read the error instructions from the DEM's text, which is several times faster than reading
+    # their targets through stim's Python objects.  An instruction such as "error[tag](0.1) D0 L1"
+    # escapes "]" in its tag, so its targets follow the first ")" after the tag, if any.  Stim also
+    # escapes line feeds in tags, but not other line breaks, so split lines only at line feeds.
     flag_bit = {detector: jj for jj, detector in enumerate(selected)}
+    first_stabilizer_detector = circuit.num_detectors
     flags: list[int] = []
     syndromes: list[int] = []
-    for instruction in dem:
-        if instruction.type != "error":
+    for line in str(dem).split("\n"):
+        if not line.startswith("error"):
             continue
+        arguments_start = line.index("]") + 1 if line.startswith("error[") else len("error")
         # Detector ``circuit.num_detectors + j`` measures stabilizer ``j``.
         flag = syndrome = 0
-        for target in instruction.targets_copy():
-            if not target.is_relative_detector_id():
+        for target in line[line.index(")", arguments_start) + 1 :].split():
+            if not target.startswith("D"):
                 continue
-            if target.val in flag_bit:
-                flag ^= 1 << flag_bit[target.val]
-            if target.val >= circuit.num_detectors:
-                syndrome ^= 1 << (target.val - circuit.num_detectors)
+            detector = int(target[1:])
+            bit = flag_bit.get(detector)
+            if bit is not None:
+                flag ^= 1 << bit
+            if detector >= first_stabilizer_detector:
+                syndrome ^= 1 << (detector - first_stabilizer_detector)
         flags.append(flag)
         syndromes.append(syndrome)
     return diagnostic_circuit, dem, flags, syndromes
