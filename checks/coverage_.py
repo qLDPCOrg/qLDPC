@@ -5,8 +5,9 @@
 
 Each module ``x.py`` with a test file ``x_test.py`` must be fully covered by ``x_test.py`` alone,
 and each test file must be fully covered itself.  Rather than run every test file in its own
-process, which spends most of its time importing qLDPC and compiling code again, this check runs
-the test files together in one pytest-xdist run, keeping the tests of each test file on one worker.
+process, which repeats the imports and other setup of every process for each test file, this check
+runs the test files together in one pytest-xdist run, keeping the tests of each test file on one
+worker.
 The ``coverage_contexts`` plugin labels each line that runs with the test file responsible for it,
 and resets shared state between test files (see that module).  This check credits a module only
 with the lines that its own test file ran: in its tests, while it and the ``conftest.py`` files of
@@ -28,6 +29,12 @@ import checks_superstaq
 import coverage
 import coverage_contexts
 import pytest_
+
+# Globs of the files that are neither checked nor run as tests.
+EXCLUDE = pytest_.EXCLUDE
+
+# Options for pytest.  The check runs only *.py tests, not notebooks, so it does not need nbmake.
+PYTEST_OPTIONS = ("-pno:nbmake",)
 
 check_utils = checks_superstaq.check_utils
 
@@ -63,10 +70,10 @@ def run(*args: str) -> int:
     if parsed_args.isolated:
         modular_args = [arg for arg in args if arg != "--isolated"]
         return checks_superstaq.coverage_.run(
-            *modular_args, "--modular", "--sysmon", exclude=pytest_.EXCLUDE
+            *modular_args, "--modular", "--sysmon", *PYTEST_OPTIONS, exclude=EXCLUDE
         )
 
-    files = check_utils.extract_files(parsed_args, "*.py", pytest_.EXCLUDE)
+    files = check_utils.extract_files(parsed_args, "*.py", EXCLUDE)
     covered_files = get_covered_files(files)
     if not covered_files:
         print("No test files to check for pytest and coverage.")
@@ -98,7 +105,7 @@ def run(*args: str) -> int:
     root = os.path.commonpath([os.path.dirname(file) for file in test_files])
     command = [sys.executable, "-m", "pytest", root, f"-n={jobs}"]
     command += ["--dist=loadfile"] if jobs else []
-    command += ["-p", "coverage_contexts", "-pno:nbmake", *pytest_args]
+    command += ["-p", "coverage_contexts", *PYTEST_OPTIONS, *pytest_args]
     test_returncode = subprocess.call(command, cwd=check_utils.root_dir, env=environment)
 
     measurement = coverage.Coverage(data_file=data_file, data_suffix=False)
@@ -123,7 +130,7 @@ def get_covered_files(files: Sequence[str]) -> dict[str, list[str]]:
     """Map each test file to the files that it must cover: its module, if any, and itself."""
     covered_files: dict[str, list[str]] = {}
     for file in files:
-        test_files = check_utils.get_test_files([file], exclude=pytest_.EXCLUDE, silent=True)
+        test_files = check_utils.get_test_files([file], exclude=EXCLUDE, silent=True)
         for test_file in test_files:
             covered_files.setdefault(test_file, [])
             if file not in covered_files[test_file]:

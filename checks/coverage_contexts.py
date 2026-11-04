@@ -3,8 +3,8 @@
 """A pytest plugin that measures coverage, labeled by the test file responsible for each line.
 
 The modular coverage check (``coverage_.py``) loads this plugin in every pytest process, including
-each pytest-xdist worker.  It starts coverage before qLDPC is imported, and labels every line that
-runs with a coverage context:
+each pytest-xdist worker.  It starts coverage before any ``conftest.py`` file imports the code under
+test, and labels every line that runs with a coverage context:
 
 * the empty context while pytest starts, which loads the ``conftest.py`` files of the directory
   that contains every selected test file and of its parents,
@@ -16,8 +16,8 @@ runs with a coverage context:
 To make a test file run as it would in a fresh process, the plugin also undoes the state that a
 test file leaves behind for the next one on the same worker: after the last test of a test file, it
 tears down the session- and package-scoped fixtures of the repository that the file used, so that
-the next test file sets them up anew, and it empties every ``functools`` cache of qLDPC.  Other
-state that a test file leaves in qLDPC's modules is not reset.
+the next test file sets them up anew, and it empties every ``functools`` cache of the packages in
+``CACHED_PACKAGES``.  Other state that a test file leaves in modules is not reset.
 
 Collection is restricted to the selected test files, so that other test files are not imported.
 Lines that only a subprocess of a test runs are not measured.
@@ -33,11 +33,14 @@ from collections.abc import Generator
 import coverage
 import pytest
 
+# The packages whose functools caches are emptied after each test file.
+CACHED_PACKAGES = ("qldpc",)
+
 # Environment variables set by coverage_.py.
-DATA_FILE_VARIABLE = "QLDPC_COVERAGE_DATA_FILE"
-INCLUDE_VARIABLE = "QLDPC_COVERAGE_INCLUDE"
-TEST_FILES_VARIABLE = "QLDPC_COVERAGE_TEST_FILES"
-BRANCH_VARIABLE = "QLDPC_COVERAGE_BRANCH"
+DATA_FILE_VARIABLE = "MODULAR_COVERAGE_DATA_FILE"
+INCLUDE_VARIABLE = "MODULAR_COVERAGE_INCLUDE"
+TEST_FILES_VARIABLE = "MODULAR_COVERAGE_TEST_FILES"
+BRANCH_VARIABLE = "MODULAR_COVERAGE_BRANCH"
 
 # The context of lines that run outside of the collection and the tests of any one test file.
 UNATTRIBUTED = "unattributed"
@@ -106,7 +109,7 @@ def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None) -> 
         yield
         if nextitem is None or _get_test_file(nextitem) != _get_test_file(item):
             _finish_shared_fixtures(item)
-            _clear_qldpc_caches()
+            _clear_package_caches()
     finally:
         _switch_context(UNATTRIBUTED)
 
@@ -164,10 +167,10 @@ def _finish_shared_fixtures(item: pytest.Item) -> None:
         fixturedef.finish(item._request)  # type: ignore[attr-defined]
 
 
-def _clear_qldpc_caches() -> None:
-    """Empty every functools cache of a function or method defined in a qLDPC module."""
+def _clear_package_caches() -> None:
+    """Empty every functools cache of a function or method of a module in CACHED_PACKAGES."""
     for name, module in list(sys.modules.items()):
-        if module is None or not (name == "qldpc" or name.startswith("qldpc.")):
+        if module is None or name.partition(".")[0] not in CACHED_PACKAGES:
             continue
         for value in list(vars(module).values()):
             candidates = [value]
