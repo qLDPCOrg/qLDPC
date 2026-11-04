@@ -572,13 +572,19 @@ def test_built_in_schedulers() -> None:
         assert hash(eval(text, vars(circuits))) == hash(scheduler)
     assert len(set(schedulers.values())) == len(schedulers)
 
-    class SlowHadamards(circuits.ASAPScheduler):
+    # a subclass that overrides takes_time changes the schedules of either algorithm, and does not
+    # equal its base
+    class SlowHadamardsASAP(circuits.ASAPScheduler):
         def takes_time(self, op: stim.CircuitInstruction) -> bool:
             return op.name == "H" or super().takes_time(op)
 
-    assert SlowHadamards().get_schedule(stim.Circuit("H 0 0")).num_moments == 2
-    assert SlowHadamards() == SlowHadamards()
-    assert SlowHadamards() != circuits.ASAPScheduler()
+    class SlowHadamardsTicks(circuits.TickPreservingScheduler):
+        def takes_time(self, op: stim.CircuitInstruction) -> bool:
+            return op.name == "H" or super().takes_time(op)
+
+    for slow in [SlowHadamardsASAP(), SlowHadamardsTicks()]:
+        assert slow.get_schedule(stim.Circuit("H 0 0")).num_moments == 2
+    assert SlowHadamardsASAP() != circuits.ASAPScheduler()
 
     for scheduler, config in [
         (circuits.ASAPScheduler(), {"late_resets": True, "single_qubit_gates_take_time": False}),

@@ -61,14 +61,15 @@ class Schedule:
     are in moment zero, whatever moments are given for them.
 
     The body of a REPEAT block, and the instructions between REPEAT blocks, are each scheduled as a
-    circuit of its own (by :meth:`Scheduler.get_operation_moments`), and every iteration of a block
-    follows the schedule of its body, so the block stays compact.  Moments, and so the idle runs of
-    qubits, thus end at the start and end of a REPEAT block and of each of its iterations, and a
-    :class:`~qldpc.circuits.NoiseModel` places the noise of each iteration within it.  This splits
-    ``quadratic_idle_error`` at those boundaries, and adding noise to ``circuit.flattened()`` avoids
-    it.  A scheduler may override :meth:`Scheduler.get_schedule` to handle REPEAT blocks itself (it
-    still implements :meth:`Scheduler.get_operation_moments`), but its schedules are still
-    validated, and give the body of each REPEAT block one schedule that every iteration follows.
+    circuit of its own, as above (by :meth:`Scheduler.get_operation_moments`), and a circuit with
+    REPEAT blocks lasts as long as these parts, with every iteration of each block, together.  Every
+    iteration of a block follows the schedule of its body, so a noisy circuit keeps the block, with
+    the noise of each iteration inside it.  No moment, and so no idle run of a qubit, crosses the
+    start or end of a REPEAT block or of one of its iterations, which splits
+    ``quadratic_idle_error`` there; adding noise to ``circuit.flattened()`` avoids this.  A
+    scheduler may schedule REPEAT blocks itself by overriding :meth:`Scheduler.get_schedule` (and
+    still implementing :meth:`Scheduler.get_operation_moments`), with one schedule of the body of
+    each block, which every iteration follows.
 
     A schedule is immutable.
 
@@ -89,7 +90,8 @@ class Schedule:
     _duration: int
 
     def __init__(self, circuit: StimCircuitLike, moments: Sequence[int | Schedule]) -> None:
-        # check that there is a moment for each operation and a schedule for each REPEAT body
+        # check that there is a moment for each operation and a schedule for each REPEAT body, and
+        # store them for _get_segments
         stim_circuit = _as_stim_circuit(circuit)
         operations = Schedule.get_operations(stim_circuit)
         if len(operations) != len(moments):
@@ -110,8 +112,8 @@ class Schedule:
         object.__setattr__(self, "_circuit", stim_circuit)
         object.__setattr__(self, "_moments", tuple(entries))
 
-        # put the operations of circuits without gates in moment zero, and add up the moments
-        # between REPEAT blocks and of all iterations of REPEAT blocks
+        # put the operations of each part between REPEAT blocks without gates in moment zero, and
+        # add up the moments of those parts and of all iterations of REPEAT blocks
         moments_in_place: list[int | Schedule] = []
         duration = 0
         for segment_or_block in _get_segments(stim_circuit, self):
@@ -833,9 +835,9 @@ def _get_layers(
 ) -> list[int]:
     """Place nodes in layers as early (or, if ``reverse``, as late) as possible.
 
-    A layer is a moment, counted from the start.  Each edge ``(earlier, later,
-    gap)`` places node ``later`` at least ``gap`` layers after node ``earlier``.  Fixed nodes keep
-    their given layers, which must come from a valid placement with the fewest layers.
+    A layer is a moment, counted from the start.  Each edge ``(earlier, later, gap)`` places node
+    ``later`` at least ``gap`` layers after node ``earlier``.  Fixed nodes keep their given layers,
+    which must come from a valid placement with the fewest layers.
     """
     # the constraints on each node from the nodes before it (or, if reverse, after it)
     incoming: list[list[tuple[int, int]]] = [[] for _ in range(num_nodes)]

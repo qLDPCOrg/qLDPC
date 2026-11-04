@@ -105,11 +105,12 @@ The noise of each gate is placed after it, before the next instruction that depe
 
 Idle noise (``idle_error``, ``quadratic_idle_error``, and ``additional_error_waiting_for_m_or_r``)
 depends on how long qubits idle.  A noise model finds this from its ``scheduler``, which places the
-operations of a circuit in moments: by default ``ASAPScheduler()``, which places gates as
-early as possible, and for ``SI1000NoiseModel`` a ``TickPreservingScheduler``, which keeps the TICK
-layers of a circuit.  Each qubit gets one combined idle error for each run of moments in which it
-idles.  See :class:`NoiseModel` for idle runs, :class:`Scheduler` and :class:`Schedule` for moments
-and how to inspect them, and the :doc:`noise-model notebook </examples/noise_models>` for examples.
+operations of a circuit in moments: by default ``ASAPScheduler()``, which places gates as early as
+possible, and for ``SI1000NoiseModel`` a ``TickPreservingScheduler``, which keeps the TICK layers of
+a circuit.  Each qubit gets one combined idle error for each idle run, which lasts from one gate on
+the qubit to the next.  See :class:`NoiseModel` for idle runs, :class:`Scheduler` and
+:class:`Schedule` for moments and how to inspect them, and the :doc:`noise-model notebook
+</examples/noise_models>` for examples.
 
 ``quadratic_idle_error`` models idle errors from slow noise, such as a qubit frequency that
 fluctuates from one shot to the next.  Over an idle run, such noise rotates a qubit about a fixed
