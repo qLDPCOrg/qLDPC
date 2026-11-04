@@ -259,10 +259,9 @@ def test_skipped_faults_satisfy_the_bound(css_weight: bool, pytestconfig: pytest
 
             violating_syndromes = {ss for ss, weight in minimum.items() if weight > fault_weight}
             _, result = _check_faults(searcher, fault_weight, violating_syndromes)
-            if violating:
-                assert result in [(faults[jj], fault_syndromes[jj]) for jj in violating]
-            else:
-                assert result is None
+            expected = [(faults[jj], fault_syndromes[jj]) for jj in violating]
+            assert (result is None) == (not expected)
+            assert result is None or result in expected
 
 
 @pytest.mark.usefixtures("kernels")
