@@ -28,6 +28,8 @@ def kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> 
             "_reduce_flags",
             "_pauli_weight",
             "_find_syndrome",
+            "_find_syndrome_slot",
+            "_get_light_pairs",
             "_grow_syndrome_table",
             "_get_closing_table",
             "_sort_bucket",
@@ -160,6 +162,35 @@ def test_repeated_syndromes_are_checked_once() -> None:
     """
     lister = _fault_search.FaultLister([1, 1, 1], [7, 0, 0], [7, 0, 0], 3, False, 3, 0)
     assert _check_faults(lister, 2, ()) == ([7], None)
+
+
+@pytest.mark.usefixtures("kernels")
+@pytest.mark.parametrize("collide", [False, True])
+def test_light_pairs_match_brute_force(
+    collide: bool, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each heavy syndrome gets the first light syndrome that a second light syndrome completes.
+
+    Syndromes span two words.  If ``collide``, every hash is zero, so that lookups must compare
+    syndromes.
+    """
+    if collide:
+        monkeypatch.setattr(
+            _fault_search, "_hash_words", lambda words: np.zeros(len(words), np.uint64)
+        )
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for _ in range(20):
+        light = list(dict.fromkeys(int(ss) << 62 for ss in rng.integers(16, size=6)))
+        heavy = [int(ss) << 62 for ss in rng.integers(16, size=8)]
+        num_words = _fault_search._get_num_words(light + heavy)
+        pairs = _fault_search._get_light_pairs(
+            _fault_search._hashed_rows(heavy, num_words),
+            _fault_search._hashed_rows(light, num_words),
+        )
+        for syndrome, pair in zip(heavy, pairs.tolist(), strict=True):
+            first = next((ii for ii, ss in enumerate(light) if syndrome ^ ss in light), -1)
+            expected = [first, light.index(syndrome ^ light[first])] if first >= 0 else [-1, -1]
+            assert pair == expected
 
 
 @pytest.mark.usefixtures("kernels")
