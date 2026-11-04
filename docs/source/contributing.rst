@@ -123,6 +123,8 @@ Tests
 -----
 
 * Every module needs its own co-located ``*_test.py``: the coverage gate requires each module to be fully covered by its own test file, and does not gate a module without one.
+  The gate runs all test files in one parallel pytest run, and credits a module only with the lines that its own test file runs in the test process, not in subprocesses (see ``checks/coverage_contexts.py``).
+  ``python checks/coverage_.py --isolated`` instead runs each test file in its own process, as a slower audit of the gate.
   Reach a hard-to-reach branch with a focused test rather than a broad scenario.
 * Tests run with network sockets disabled.
   Mock only external boundaries such as web, subprocess, clipboard, prompt, and optional-package paths, or a module's own thin wrappers around them, never the logic under test, and do not add a live-service test.

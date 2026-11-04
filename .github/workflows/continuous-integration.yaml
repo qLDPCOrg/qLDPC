@@ -158,6 +158,16 @@ jobs:
           enable-cache: true
       - name: Install package and dependencies
         run: uv sync --extra decoders --extra gap --group ci-test
+      - name: Cache compiled code
+        # qLDPC keeps the code that numba compiles in a directory named by a hash of its source files
+        # other than tests, so code cached for the same source files is never outdated.  A run that
+        # misses saves the code that its tests compiled.
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/qldpc/numba
+          key: >-
+            numba-${{ runner.os }}-python3.14-${{ hashFiles('src/qldpc/**/*.py',
+            '!src/qldpc/**/*_test.py', '!src/qldpc/**/conftest.py') }}
       - name: Run coverage
         # Use every CPU of the dedicated runner (the check defaults to half of them).
         run: >-
