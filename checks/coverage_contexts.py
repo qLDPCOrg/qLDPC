@@ -57,7 +57,7 @@ def pytest_ignore_collect(collection_path: pathlib.Path, config: pytest.Config) 
     """Collect only the selected test files, and the directories that contain them."""
     if _selected_test_files is None:
         return None
-    path = str(collection_path)
+    path = _normalize(str(collection_path))
     if collection_path.is_dir():
         prefix = path + os.sep
         return None if any(file.startswith(prefix) for file in _selected_test_files) else True
@@ -184,10 +184,17 @@ def _clear_package_caches() -> None:
                     cache_clear()
 
 
+def _normalize(path: str) -> str:
+    """A path in the form that pytest and the operating system use, to compare it with others."""
+    return os.path.normcase(os.path.normpath(path))
+
+
 def _get_selected_test_files() -> set[str] | None:
     """The absolute paths of the test files to collect, or None to collect all of them."""
     test_files = os.environ.get(TEST_FILES_VARIABLE)
-    return None if test_files is None else set(test_files.split(os.pathsep))
+    return (
+        None if test_files is None else {_normalize(file) for file in test_files.split(os.pathsep)}
+    )
 
 
 # This module is imported as a pytest plugin before pytest loads any conftest.py file.

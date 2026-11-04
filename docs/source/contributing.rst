@@ -123,8 +123,9 @@ Tests
 -----
 
 * Every module needs its own co-located ``*_test.py``: the coverage gate requires each module to be fully covered by its own test file, and does not gate a module without one.
-  The gate runs all test files in one parallel pytest run, and credits a module only with the lines that its own test file runs in the test process, not in subprocesses (see ``checks/coverage_contexts.py``).
-  ``python checks/coverage_.py --isolated`` instead runs each test file in its own process, as a slower audit of the gate.
+  The gate runs the selected test files in one parallel pytest run, and credits a module only with the lines that its own test file runs in the test process, not in subprocesses (see ``checks/coverage_contexts.py``).
+  Between test files on one worker, it resets the repository's shared fixtures and qLDPC's ``functools`` caches, but not other module-level state.
+  ``python checks/coverage_.py --isolated`` instead runs each test file in its own process: use it to audit the gate, for example when tests change module-level state.
   Reach a hard-to-reach branch with a focused test rather than a broad scenario.
 * Tests run with network sockets disabled.
   Mock only external boundaries such as web, subprocess, clipboard, prompt, and optional-package paths, or a module's own thin wrappers around them, never the logic under test, and do not add a live-service test.

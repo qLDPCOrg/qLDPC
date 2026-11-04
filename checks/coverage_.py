@@ -102,7 +102,7 @@ def run(*args: str) -> int:
     # Pytest loads the conftest.py files of the paths that it is given before it collects tests, so
     # it is given only the directory that contains every test file, whose conftest.py files every
     # test file needs.  The plugin restricts collection to the test files.
-    root = os.path.commonpath([os.path.dirname(file) for file in test_files])
+    root = os.path.commonpath([os.path.dirname(file) for file in test_files]) or os.curdir
     command = [sys.executable, "-m", "pytest", root, f"-n={jobs}"]
     command += ["--dist=loadfile"] if jobs else []
     command += ["-p", "coverage_contexts", *PYTEST_OPTIONS, *pytest_args]
@@ -140,11 +140,14 @@ def get_covered_files(files: Sequence[str]) -> dict[str, list[str]]:
 
 def get_context_patterns(test_file: str) -> list[str]:
     """Regular expressions that match the coverage contexts credited to a test file."""
-    directories = [str(parent) for parent in reversed(pathlib.PurePosixPath(test_file).parents)]
-    contexts = ["", *(f"{path}|collect" for path in [*directories[1:], test_file])]
+    # Pytest node IDs, which name the contexts, separate directories with "/" on every platform.
+    path = pathlib.PurePath(test_file)
+    node_id = path.as_posix()
+    directories = [parent.as_posix() for parent in reversed(path.parents)]
+    contexts = ["", *(f"{directory}|collect" for directory in [*directories[1:], node_id])]
     return [
         f"^({'|'.join(map(re.escape, contexts))})$",
-        rf"^{re.escape(test_file)}::.*\|(setup|run|teardown)$",
+        rf"^{re.escape(node_id)}::.*\|(setup|run|teardown)$",
     ]
 
 
