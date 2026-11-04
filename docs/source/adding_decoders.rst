@@ -143,6 +143,7 @@ Add a public decoder to qLDPC
    Test pickling if the decoder is used by Sinter.
 
 For an optional published backend, add an extra under ``optional-dependencies`` in ``pyproject.toml`` with any required platform markers.
+Also add its import name to the backends that ``qldpc/import_test.py`` checks importing qLDPC does not import.
 Existing integrations such as :mod:`qldpc.decoders.external.tesseract` show a backend with both output contracts.
 Do not change generic decoder resolution just to add an ordinary backend.
 

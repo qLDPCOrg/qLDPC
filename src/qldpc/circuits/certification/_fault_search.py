@@ -129,13 +129,21 @@ def _search_irreducible_faults(
     # Give each primitive fault a Pauli error with its syndrome, of low Pauli weight so that the
     # search can skip more faults.  The Pauli error of a light primitive fault has Pauli weight at
     # most one.  A heavy primitive fault whose syndrome is the sum of those of two light primitive
-    # faults gets the product of their Pauli errors, which has Pauli weight at most two.
+    # faults gets the product of their Pauli errors, which has Pauli weight at most two.  Compiled
+    # code finds such pairs, since their search takes time proportional to the number of heavy
+    # times light primitive faults.
     light_errors = {syndrome: error for _, syndrome, _, error in light}
-    for jj, (flag, syndrome, index, _) in enumerate(heavy):
-        for other, error in light_errors.items():
-            if syndrome ^ other in light_errors:
-                heavy[jj] = (flag, syndrome, index, error ^ light_errors[syndrome ^ other])
-                break
+    light_syndromes = list(light_errors)
+    num_words = _get_num_words(light_syndromes + [syndrome for _, syndrome, _, _ in heavy])
+    pairs = _get_light_pairs(
+        _hashed_rows([syndrome for _, syndrome, _, _ in heavy], num_words),
+        _hashed_rows(light_syndromes, num_words),
+    )
+    for jj, (first, second) in enumerate(pairs.tolist()):
+        if first >= 0:
+            flag, syndrome, index, _ = heavy[jj]
+            error = light_errors[light_syndromes[first]] ^ light_errors[light_syndromes[second]]
+            heavy[jj] = (flag, syndrome, index, error)
 
     # Order the primitive faults with the heavy ones first, and each group in DEM order, so that the
     # faults to check are the ones that start with a heavy primitive fault.
@@ -413,6 +421,12 @@ def _to_words(values: Sequence[int], num_words: int) -> npt.NDArray[np.uint64]:
     return words.astype(np.uint64)
 
 
+def _hashed_rows(values: Sequence[int], num_words: int) -> npt.NDArray[np.uint64]:
+    """For each integer, a row of its linear hash and then its words, as in a table of syndromes."""
+    words = _to_words(values, num_words)
+    return np.hstack([_hash_words(words)[:, None], words])
+
+
 @always_compiled
 def _sort_bucket(
     keys: npt.NDArray[np.uint64], members: npt.NDArray[np.int32], start: int, stop: int
@@ -645,6 +659,21 @@ def _find_syndrome(
     empty or holds it.  Return -1 if the syndrome is in the table, and otherwise the empty slot for
     it.
     """
+    slot = _find_syndrome_slot(hashed, syndrome, syndrome_rows, syndrome_slots)
+    return -1 if syndrome_slots[slot] >= 0 else slot
+
+
+@always_compiled
+def _find_syndrome_slot(
+    hashed: np.uint64,
+    syndrome: npt.NDArray[np.uint64],
+    syndrome_rows: npt.NDArray[np.uint64],
+    syndrome_slots: npt.NDArray[np.int64],
+) -> int:
+    """The slot that holds a syndrome in a table of syndromes, or else the empty slot for it.
+
+    The table is as in ``_find_syndrome``.
+    """
     # The number of slots is a power of two, at most 2**32, and the slot is the top bits of the low
     # 32 bits of the product, which fits in 64 bits.
     low_bits = np.uint64(0xFFFFFFFF)
@@ -656,9 +685,42 @@ def _find_syndrome(
         for word in range(len(syndrome)):
             equal = equal and syndrome_rows[row, 1 + word] == syndrome[word]
         if equal:
-            return -1
+            break
         slot = (slot + 1) % len(syndrome_slots)
     return int(slot)
+
+
+@always_compiled
+def _get_light_pairs(
+    heavy_rows: npt.NDArray[np.uint64], light_rows: npt.NDArray[np.uint64]
+) -> npt.NDArray[np.int64]:
+    """For each heavy syndrome, two light syndromes that sum to it, if there are any.
+
+    Each row holds the linear hash of a syndrome and then its words, and the light syndromes are
+    distinct.  Row ``h`` of the result holds the first light syndrome ``i``, in order, such that the
+    sum of heavy syndrome ``h`` and light syndrome ``i`` is a light syndrome ``j``, and then ``j``,
+    or -1 twice if there is none.
+    """
+    num_slots = 2
+    while num_slots < 2 * len(light_rows):
+        num_slots *= 2
+    slots = np.full(num_slots, -1, dtype=np.int64)
+    for row in range(len(light_rows)):
+        slot = _find_syndrome_slot(light_rows[row, 0], light_rows[row, 1:], light_rows, slots)
+        slots[slot] = row
+    pairs = np.full((len(heavy_rows), 2), -1, dtype=np.int64)
+    target = np.empty(heavy_rows.shape[1] - 1, dtype=np.uint64)
+    for heavy in range(len(heavy_rows)):
+        for first in range(len(light_rows)):
+            for word in range(len(target)):
+                target[word] = heavy_rows[heavy, 1 + word] ^ light_rows[first, 1 + word]
+            hashed = heavy_rows[heavy, 0] ^ light_rows[first, 0]
+            second = slots[_find_syndrome_slot(hashed, target, light_rows, slots)]
+            if second >= 0:
+                pairs[heavy, 0] = first
+                pairs[heavy, 1] = second
+                break
+    return pairs
 
 
 @always_compiled

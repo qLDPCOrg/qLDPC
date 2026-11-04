@@ -23,6 +23,11 @@ words in place and return its new phase.
 
 from __future__ import annotations
 
+import dataclasses
+import functools
+import types
+from collections.abc import Mapping, Sequence
+
 import numpy as np
 import numpy.typing as npt
 import stim
@@ -76,18 +81,41 @@ def from_stim(
     num_qubits = len(string) if num_qubits is None else num_qubits
     if len(string) > num_qubits:
         raise ValueError(f"Pauli string {string} acts on more than {num_qubits} qubits")
-    xs = np.zeros(num_qubits, dtype=bool)
-    zs = np.zeros(num_qubits, dtype=bool)
-    xs[: len(string)], zs[: len(string)] = string.to_numpy()
-    phase = (int(np.count_nonzero(xs & zs)) + _SIGN_TO_PHASE[string.sign]) % 4
-    return pack(xs, zs), phase
+
+    # copy the bit-packed bytes of stim, whose bit order is that of this module, into the words
+    xs, zs = string.to_numpy(bit_packed=True)
+    num_words = get_num_words(num_qubits)
+    word_bytes = np.zeros(16 * num_words, dtype=np.uint8)
+    word_bytes[: len(xs)] = xs
+    word_bytes[8 * num_words : 8 * num_words + len(zs)] = zs
+    phase = (int(np.bitwise_count(xs & zs).sum()) + _SIGN_TO_PHASE[string.sign]) % 4
+    return word_bytes.view("<u8").astype(np.uint64, copy=False), phase
 
 
 def to_stim(words: npt.ArrayLike, phase: int, num_qubits: int) -> stim.PauliString:
     """The stim Pauli string with the given words and phase."""
-    xs, zs = unpack(words, num_qubits)
-    sign = _PHASE_TO_SIGN[(phase - int(np.count_nonzero(xs & zs))) % 4]
-    return stim.PauliString.from_numpy(xs=xs, zs=zs, sign=sign)
+    # pass the bytes of the words to stim, whose bit order is that of this module
+    words = np.ascontiguousarray(words, dtype="<u8")
+    num_words = len(words) // 2
+    num_bytes = (num_qubits + 7) // 8
+    xs = words[:num_words].view(np.uint8)[:num_bytes]
+    zs = words[num_words:].view(np.uint8)[:num_bytes]
+    sign = _PHASE_TO_SIGN[(phase - int(np.bitwise_count(xs & zs).sum())) % 4]
+    return stim.PauliString.from_numpy(xs=xs, zs=zs, num_qubits=num_qubits, sign=sign)
+
+
+def pack_axes(
+    axes: Sequence[stim.PauliString], num_qubits: int
+) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int64]]:
+    """The words and phases of stim Pauli strings, such as rotation axes, one per row.
+
+    The Pauli strings are padded with identities to ``num_qubits`` qubits, as by ``from_stim``.
+    """
+    words = np.zeros((len(axes), 2 * get_num_words(num_qubits)), dtype=np.uint64)
+    phases = np.zeros(len(axes), dtype=np.int64)
+    for row, axis in enumerate(axes):
+        words[row], phases[row] = from_stim(axis, num_qubits)
+    return words, phases
 
 
 ####################################################################################################
@@ -158,3 +186,114 @@ def conjugate_by_s_rotation(
     if not anticommutes(target, axis):
         return target_phase
     return (left_multiply(target, target_phase, axis, axis_phase) + 3) % 4
+
+
+####################################################################################################
+# conjugation by local gates
+
+
+def get_conjugation_table(name: str) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+    """The conjugation table of a local gate, from stim.
+
+    A Pauli string ``X^x Z^z`` on the ``k`` qubits that the gate addresses has the index ``Σ_j (x_j
+    2^j + z_j 2^{k + j})``.  Entry ``i`` of the returned arrays holds the index and the phase of the
+    image, under conjugation by the gate, of the Pauli string with index ``i``, in the convention
+    of this module.  A conjugation table has ``4^k`` entries, so it suits gates on few qubits.
+    """
+    tableau = stim.Tableau.from_named_gate(name)
+    num_gate_qubits = len(tableau)
+    images = np.zeros(4**num_gate_qubits, dtype=np.int64)
+    image_phases = np.zeros(4**num_gate_qubits, dtype=np.int64)
+    for pauli_index in range(4**num_gate_qubits):
+        words = [pauli_index & ((1 << num_gate_qubits) - 1), pauli_index >> num_gate_qubits]
+        image = tableau(to_stim(words, 0, num_gate_qubits))
+        image_words, image_phases[pauli_index] = from_stim(image)
+        images[pauli_index] = int(image_words[0]) | (int(image_words[1]) << num_gate_qubits)
+    return images, image_phases
+
+
+@dataclasses.dataclass(frozen=True)
+class ConjugationTables:
+    """The conjugation tables of all local gates of stim, shared by all packed circuits.
+
+    The local gates are the unitary gates of stim that act on one or two qubits per target group,
+    which are all unitary gates except the Pauli-product rotations ``SPP`` and ``SPP_DAG``.  Local
+    gates are indexed in the order of ``stim.gate_data``, and the arrays are read-only.
+
+    Attributes:
+        gate_indices: The index of each local gate, by its stim name, listed in the order of the
+            indices.
+        images: Indexed by local gate, a row with the conjugation table of ``get_conjugation_table``
+            for the gate, padded with zeros to the 16 entries of two-qubit gates.
+        image_phases: Indexed by local gate, a row with the phases of these images, padded in the
+            same way.
+    """
+
+    gate_indices: Mapping[str, int]
+    images: npt.NDArray[np.int64]
+    image_phases: npt.NDArray[np.int64]
+
+
+@functools.cache
+def get_conjugation_tables() -> ConjugationTables:
+    """The conjugation tables of all local gates of stim, built once on first use."""
+    # list the local gates
+    gate_names = [
+        name
+        for name, gate_data in stim.gate_data().items()
+        if gate_data.is_unitary and (gate_data.is_single_qubit_gate or gate_data.is_two_qubit_gate)
+    ]
+
+    # pad the conjugation table of each local gate to the 16 entries of two-qubit gates
+    images = np.zeros((len(gate_names), 16), dtype=np.int64)
+    image_phases = np.zeros((len(gate_names), 16), dtype=np.int64)
+    for gate_index, gate_name in enumerate(gate_names):
+        gate_images, gate_image_phases = get_conjugation_table(gate_name)
+        images[gate_index, : len(gate_images)] = gate_images
+        image_phases[gate_index, : len(gate_image_phases)] = gate_image_phases
+
+    # make the tables read-only, since they are cached and shared, and index the gates by name
+    images.flags.writeable = False
+    image_phases.flags.writeable = False
+    gate_indices = {gate_name: gate_index for gate_index, gate_name in enumerate(gate_names)}
+    return ConjugationTables(types.MappingProxyType(gate_indices), images, image_phases)
+
+
+@always_compiled(inline=True)
+def conjugate_by_local_gate(
+    target: npt.NDArray[np.uint64],
+    target_phase: int,
+    qubits: npt.NDArray[np.int64],
+    images: npt.NDArray[np.int64],
+    image_phases: npt.NDArray[np.int64],
+) -> int:
+    """Conjugate ``target`` by a local gate, a Clifford gate given by its conjugation table.
+
+    The conjugation table, ``images`` and ``image_phases``, is that of ``get_conjugation_table``,
+    and ``qubits[j]`` is the qubit that the gate addresses as its qubit ``j``.
+    """
+    num_words = len(target) // 2
+    num_gate_qubits = len(qubits)
+
+    # read the index of the restriction of the target to the qubits of the gate
+    pauli_index = np.int64(0)
+    for position in range(num_gate_qubits):
+        word = qubits[position] // 64
+        shift = np.uint64(qubits[position] % 64)
+        pauli_index |= np.int64((target[word] >> shift) & np.uint64(1)) << position
+        pauli_index |= np.int64((target[num_words + word] >> shift) & np.uint64(1)) << (
+            num_gate_qubits + position
+        )
+
+    # overwrite the X bits (half 0) and Z bits (half 1) of the target on those qubits with the
+    # image of the restriction, and add the phase of the image
+    image = images[pauli_index]
+    for position in range(num_gate_qubits):
+        word = qubits[position] // 64
+        mask = np.uint64(1) << np.uint64(qubits[position] % 64)
+        for half in range(2):
+            if (image >> (half * num_gate_qubits + position)) & 1:
+                target[half * num_words + word] |= mask
+            else:
+                target[half * num_words + word] &= ~mask
+    return (target_phase + image_phases[pauli_index]) % 4
