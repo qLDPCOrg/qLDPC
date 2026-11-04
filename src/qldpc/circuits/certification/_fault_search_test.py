@@ -24,11 +24,14 @@ def kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> 
     """Run the compiled listing, or its Python version for coverage."""
     if request.param:
         names = (
-            "_iter_irreducible_fault_batches",
+            "_list_class_codewords",
+            "_expand_class_tuples",
+            "_table_should_grow",
             "_reduce_flags",
             "_pauli_weight",
             "_find_syndrome",
             "_find_syndrome_slot",
+            "_get_key_slots",
             "_get_light_pairs",
             "_grow_syndrome_table",
             "_get_closing_table",
@@ -41,7 +44,7 @@ def kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> 
 def _irreducible_faults(
     flags: Sequence[int], fault_weight: int, num_starts: int
 ) -> list[tuple[int, ...]]:
-    """Irreducible accepted faults of a fault weight that start among the first ``num_starts``.
+    """Irreducible accepted faults of a fault weight that contain one of the first ``num_starts``.
 
     They are found by brute force, in lexicographic order.
     """
@@ -87,40 +90,50 @@ def _check_faults(
 def test_listing_matches_brute_force(
     collide: bool, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Each fault is listed once and in lexicographic order, with or without a table of pairs.
+    """Each fault that contains a start member is listed once, and no other fault is listed.
+
+    The listing is checked with and without a closing map of pairs, and with one, two, or all
+    primitive faults as start members.
 
     Flags and syndromes span several words.  If ``collide``, every hash is zero, so that lookups
-    find every entry of a table and must compare flags.  The batches are small, so that a listing
-    fills several.  A search for a violation uses a new lister, since a lister skips the syndromes
-    that it has listed.
+    find every entry of a table and must compare flags.  The batches of faults and of class
+    codewords are small, so that a listing pauses and resumes often.  A search for a violation uses
+    a new lister, since a lister skips the syndromes that it has listed.
     """
     if collide:
         monkeypatch.setattr(
             _fault_search, "_hash_words", lambda words: np.zeros(len(words), np.uint64)
         )
+    monkeypatch.setattr(_fault_search, "_INITIAL_BATCH_SIZE", 1)
     monkeypatch.setattr(_fault_search, "_BATCH_SIZE", 3)
+    monkeypatch.setattr(_fault_search, "_CODEWORD_BATCH_SIZE", 1)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     # The first flags make an accepted fault {0, 1, 2, 3} that contains the accepted fault {0, 2}.
-    flag_sets = [[1, 2, 1, 2, 3, 3]]
+    # In the second, the classes with flags 1, 2, 4, and 8 have a sum of flags that the pair of
+    # classes with flags 3 and 12 also has, but flags 3 do not keep the classes independent.  In the
+    # third, with two start members, the first class has a start member and a member that is not,
+    # and the second class is a start class, so the fault {1, 2, 3} has a start member only after a
+    # member that is not.
+    flag_sets = [[1, 2, 1, 2, 3, 3], [1, 2, 4, 8, 3, 12, 16, 31], [1, 2, 3, 1]]
     flag_sets += [list(rng.integers(1, 16, size=rng.integers(1, 10))) for _ in range(10)]
     for small_flags in flag_sets:
-        # Spread the four bits of the flags over four words.
+        # Spread the five bits of the flags over five words.
         flags = [
-            sum(((int(ff) >> bit) & 1) << (70 * bit) for bit in range(4)) for ff in small_flags
+            sum(((int(ff) >> bit) & 1) << (70 * bit) for bit in range(5)) for ff in small_flags
         ]
         num_primitives = len(flags)
         # Syndromes of distinct bits, so that each fault has its own syndrome, and errors on
         # disjoint sets of seven qubits, so that no fault is skipped.
         syndromes = [1 << (13 * jj) for jj in range(num_primitives)]
         errors = [0b1111111 << (7 * jj) for jj in range(num_primitives)]
-        for memory_limit, num_starts in itertools.product((0, 2**20), (num_primitives, 1)):
+        for memory_limit, num_starts in itertools.product((0, 2**20), (num_primitives, 2, 1)):
             args = (flags, syndromes, errors, 70, False, num_starts, memory_limit)
             lister = _fault_search.FaultLister(*args)
-            for fault_weight in range(2, 6):
+            for fault_weight in range(2, 7):
                 expected = _irreducible_faults(flags, fault_weight, num_starts)
                 checked, result = _check_faults(lister, fault_weight, ())
                 assert result is None
-                assert checked == [_xor(syndromes, fault) for fault in expected]
+                assert sorted(checked) == sorted(_xor(syndromes, fault) for fault in expected)
                 if expected:
                     stop = int(rng.integers(len(expected)))
                     violation = (expected[stop], _xor(syndromes, expected[stop]))
@@ -139,19 +152,19 @@ def test_closing_tables_sort_sets_stably_by_hash(size: int, pytestconfig: pytest
     the sets with different hashes share their high bits.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    for num_primitives in (0, 1, 2, 5, 40):
+    for num_classes in (0, 1, 2, 5, 40):
         for hashes in (
-            rng.integers(2**64, size=num_primitives, dtype=np.uint64),
-            rng.integers(2**64, size=4, dtype=np.uint64)[rng.integers(4, size=num_primitives)],
-            rng.integers(2**8, size=num_primitives, dtype=np.uint64),
+            rng.integers(2**64, size=num_classes, dtype=np.uint64),
+            rng.integers(2**64, size=4, dtype=np.uint64)[rng.integers(4, size=num_classes)],
+            rng.integers(2**8, size=num_classes, dtype=np.uint64),
         ):
-            sets = sorted(
-                itertools.combinations(range(num_primitives), size),
-                key=lambda members: _xor(hashes.tolist(), members),
+            expected_sets = sorted(
+                itertools.combinations(range(num_classes), size),
+                key=lambda classes: _xor(hashes.tolist(), classes),
             )
-            keys, members = _fault_search._get_closing_table(hashes, size)
-            assert keys.tolist() == [_xor(hashes.tolist(), members) for members in sets]
-            assert members.tolist() == [list(members) for members in sets]
+            keys, sets = _fault_search._get_closing_table(hashes, size)
+            assert keys.tolist() == [_xor(hashes.tolist(), classes) for classes in expected_sets]
+            assert sets.tolist() == [list(classes) for classes in expected_sets]
 
 
 @pytest.mark.usefixtures("kernels")
@@ -196,7 +209,7 @@ def test_light_pairs_match_brute_force(
 @pytest.mark.usefixtures("kernels")
 @pytest.mark.parametrize("css_weight", [False, True])
 def test_skipped_faults_satisfy_the_bound(css_weight: bool, pytestconfig: pytest.Config) -> None:
-    """Calls with increasing fault weights check each syndrome once, and find the first violation.
+    """Calls with increasing fault weights check each syndrome once, and find a violation.
 
     The primitive faults have random errors on a random three-qubit stabilizer state, and minimum
     Pauli weight representatives.  Brute force over all Paulis gives the minimum Pauli weights.  One
@@ -247,8 +260,7 @@ def test_skipped_faults_satisfy_the_bound(css_weight: bool, pytestconfig: pytest
             violating_syndromes = {ss for ss, weight in minimum.items() if weight > fault_weight}
             _, result = _check_faults(searcher, fault_weight, violating_syndromes)
             if violating:
-                first = violating[0]
-                assert result == (faults[first], fault_syndromes[first])
+                assert result in [(faults[jj], fault_syndromes[jj]) for jj in violating]
             else:
                 assert result is None
 
@@ -293,25 +305,47 @@ def test_syndromes_of_listed_faults_are_not_checked_again(monkeypatch: pytest.Mo
 
 
 def test_pair_table_peak_memory_is_within_its_estimate(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Building a table of pairs needs at most about ``_BYTES_PER_PAIR`` bytes for each pair.
+    """A table of pairs and its slots need at most about ``_BYTES_PER_PAIR`` bytes for each pair.
 
-    The primitive faults have distinct random hashes, so no bucket of the table is merge sorted.
+    The classes have distinct random hashes, so that no bucket of the table is merge sorted, and so
+    that the pairs have distinct keys, which need the most slots.
 
     The table is built by the Python versions of its compiled functions, since only allocations by
-    Python are traced, and loading compiled code would add allocations of its own.
+    Python are traced.  A small table is built first, since loading the compiled code that the
+    Python versions call would add allocations of its own.
     """
-    monkeypatch.setattr(_fault_search, "_sort_bucket", _fault_search._sort_bucket.py_func)
-    num_primitives = 200
-    hashes = np.random.default_rng(0).integers(2**64, size=num_primitives, dtype=np.uint64)
+    for name in ("_get_closing_table", "_sort_bucket", "_get_key_slots", "_find_syndrome_slot"):
+        monkeypatch.setattr(_fault_search, name, getattr(_fault_search, name).py_func)
+    num_classes = 200
+    hashes = np.random.default_rng(0).integers(2**64, size=num_classes, dtype=np.uint64)
+    _fault_search._get_closing_map(hashes[:3], 2)
     tracemalloc.start()
     try:
-        _fault_search._get_closing_table.py_func(hashes, 2)
+        _fault_search._get_closing_map(hashes, 2)
         _, peak = tracemalloc.get_traced_memory()
     finally:
         tracemalloc.stop()
     # Allow a few kilobytes that do not grow with the number of pairs.
-    num_pairs = num_primitives * (num_primitives - 1) // 2
+    num_pairs = num_classes * (num_classes - 1) // 2
     assert peak <= num_pairs * _fault_search._BYTES_PER_PAIR + 2**14
+
+
+@pytest.mark.usefixtures("kernels")
+def test_key_slots_find_the_first_entry_of_each_key(pytestconfig: pytest.Config) -> None:
+    """A lookup in sorted keys finds the first entry of a key, or none for a key that is absent.
+
+    The keys repeat, and different keys share their low 32 bits, which pick their slots, so that
+    lookups must pass slots of other keys.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    values = [low + (high << 32) for low in (0, 1, 2**31) for high in (0, 1, 2**31)]
+    for num_keys in (0, 1, 20):
+        keys = np.sort(rng.choice(values[:-1], size=num_keys).astype(np.uint64))
+        slots = _fault_search._get_key_slots(keys)
+        rows = keys.reshape((len(keys), 1))
+        for value in values:
+            slot = _fault_search._find_syndrome_slot(np.uint64(value), keys[:0], rows, slots)
+            assert slots[slot] == (keys.tolist().index(value) if value in keys else -1)
 
 
 def _z_state(num_qubits: int) -> npt.NDArray[np.int_]:
