@@ -39,25 +39,20 @@ def test_a_score_equals_the_brute_force_counts(objective: Any, self_dual: bool) 
     assert score == _brute_force_score(counter, objective)
 
 
-@pytest.mark.parametrize(
-    "objective,distance", [("homogeneous", 3), ("pauli", 4)], ids=["odd distance", "even distance"]
-)
-def test_the_energy_is_e_l_of_arxiv_2607_19574(objective: Any, distance: int) -> None:
-    # E_L: the log of the probability that a majority of the support of a minimum-weight
-    # operator has errors, over log(1/p), where the multiplicity counts the operators of the
-    # objective.
-    p, multiplicity = 1e-3, 9 if objective == "pauli" else 7
-    weight = math.ceil((distance + 1) / 2)
-    probability = multiplicity * math.comb(distance, weight) * p**weight
+@pytest.mark.parametrize("objective", a.OBJECTIVES)
+def test_the_energy_is_e_of_arxiv_2607_19574(objective: Any) -> None:
+    # E: the log of the probability m * p**d that an error is a minimum-weight logical operator,
+    # over log(1/p), where the multiplicity m counts the operators of the objective.
+    p, distance, multiplicity = 1e-3, 4, 9 if objective == "pauli" else 7
     score = a.Score(distance, 3, 4, 9 if objective == "pauli" else None)
     config = a.SearchConfig(objective=objective, physical_error_rate=p)
-    assert a.energy(score, config) == pytest.approx(math.log(probability) / math.log(1 / p))
+    expected = math.log(multiplicity * p**distance) / math.log(1 / p)
+    assert a.energy(score, config) == pytest.approx(expected)
 
 
 def test_the_energy_is_defined_when_the_error_probability_underflows() -> None:
-    # With 14 operators of weight 3, the majority weight is 2 and binomial(3, 2) = 3.
     config = a.SearchConfig(physical_error_rate=1e-320)
-    expected = -2 - math.log(14 * 3) / math.log(1e-320)
+    expected = math.log(14) / -math.log(1e-320) - 3
     assert a.energy(a.Score(3, 7, 7, None), config) == pytest.approx(expected)
 
 
@@ -257,7 +252,11 @@ def test_stopping_after_some_epochs_and_continuing_equals_one_run() -> None:
 
 
 def test_the_pilot_records_the_best_of_all_its_proposals_and_keeps_the_first_of_equals() -> None:
-    config = a.SearchConfig(method="brouwer_zimmermann", epochs=1, steps_per_epoch=30)
+    # At p = 1/4, a unit of distance is worth only four times as many operators, so the
+    # lowest-energy code can have a lower distance than the greatest-distance code.
+    config = a.SearchConfig(
+        method="brouwer_zimmermann", epochs=1, steps_per_epoch=30, physical_error_rate=0.25
+    )
     # The same random generator as the pilot of a search with seed 5.
     initial, rng = steane_counter(), np.random.default_rng(5)
     candidates = [initial]
@@ -277,7 +276,8 @@ def test_the_pilot_records_the_best_of_all_its_proposals_and_keeps_the_first_of_
 
 
 def test_a_record_changes_only_when_a_proposal_strictly_improves_it() -> None:
-    config = a.SearchConfig(steps_per_epoch=1)
+    # At p = 1/4, a code of distance 2 can have a lower energy than the Steane code.
+    config = a.SearchConfig(steps_per_epoch=1, physical_error_rate=0.25)
     steane, twin, lower = steane_counter(), steane_counter(), steane_counter().deformed_cnot(0, 1)
     state = a.start_search(steane, config)
     steane_score, lower_score = a.score_code(steane, config), a.score_code(lower, config)
@@ -296,14 +296,17 @@ def test_a_record_changes_only_when_a_proposal_strictly_improves_it() -> None:
 
 
 def test_a_rejected_proposal_can_set_a_record_and_is_reported() -> None:
-    # Hardly any uphill move is accepted, so the chain stays at a code of distance 2 and has a
-    # neighbor of distance 3 that it rejects, since the energy of that neighbor is higher.
+    # Hardly any uphill move is accepted.  At p = 1/4, the starting code of distance 2, with 2
+    # minimum-weight operators, has a lower energy than its neighbors of distance 1, with 1
+    # operator, and of distance 3, with 14 operators.  So the chain stays there, and rejects a
+    # neighbor of distance 3 that is nevertheless recorded.
     config = a.SearchConfig(
         method="brouwer_zimmermann",
         epochs=1,
         steps_per_epoch=400,
         uphill_acceptance_start=1e-6,
         uphill_acceptance_stop=1e-6,
+        physical_error_rate=0.25,
     )
     state = a.start_search(steane_counter().deformed_cnot(0, 1), config, seed=1)
     state.greatest_distance = state.current

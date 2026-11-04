@@ -28,9 +28,9 @@ scripts to follow that campaign.
 The campaign, ``CAMPAIGN`` in this script, lists each code size with the epochs of its CSS and SWEL
 searches and its final target acceptance of uphill proposals.  Every code size runs both code
 types, CSS (starting from a self-dual code) and SWEL, with the seeds of ``CampaignRow.num_seeds``,
-and every search starts from the lowest-energy code of the ``INIT_SAMPLES`` random codes of its code
-type, drawn with its own seed.  Running all of it takes a very long time: choose jobs with
-``--qubits``, ``--max-seeds`` and ``--code-types``.
+and every search starts from the lowest-energy code of ``INIT_SAMPLES`` random codes, drawn with its
+own seed.  Running all of it takes a very long time: choose jobs with ``--qubits``,
+``--max-seeds`` and ``--code-types``.
 """
 
 from __future__ import annotations
@@ -56,8 +56,7 @@ from .core.saved_runs import load_run_progress
 _REPO_ROOT = EXPERIMENT_DIR.parents[1]
 STEPS_PER_EPOCH = 10_000
 NUM_SEEDS = 100
-# The random codes that a search chooses its starting code from, for each code type.
-INIT_SAMPLES: dict[CodeType, int] = {"css": 1000, "swel": 30_000}
+INIT_SAMPLES = 30_000
 UPHILL_ACCEPTANCE_START = 0.01
 
 
@@ -167,9 +166,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument(
         "--init-samples",
         type=int,
-        help="random codes to choose the starting code of a search from (default:"
-        f" {INIT_SAMPLES['css']} for CSS and {INIT_SAMPLES['swel']} for SWEL, or"
-        f" {SMOKE_SCALE.init_samples} with --test)",
+        help=f"random codes to choose the starting code of a search from (default: {INIT_SAMPLES},"
+        f" or {SMOKE_SCALE.init_samples} with --test)",
     )
     parser.add_argument(
         "--tag", default="", help="suffix of the search names and files, to tell campaigns apart"
@@ -192,7 +190,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         epochs=epochs,
         steps_per_epoch=args.steps_per_epoch
         or (SMOKE_SCALE.steps_per_epoch if args.test else STEPS_PER_EPOCH),
-        init_samples=args.init_samples or (SMOKE_SCALE.init_samples if args.test else None),
+        init_samples=args.init_samples or (SMOKE_SCALE.init_samples if args.test else INIT_SAMPLES),
         python=args.python,
     )
 
@@ -242,9 +240,7 @@ class _JobSettings:
     """Epochs of every search, or None for those of its code size and code type."""
 
     steps_per_epoch: int
-    init_samples: int | None
-    """Random starting codes of every search, or None for those of its code type."""
-
+    init_samples: int
     python: str
 
 
@@ -260,16 +256,13 @@ def _get_new_run_arguments(
         epochs = settings.epochs
     else:
         epochs = row.epochs_swel if code_type == "swel" else row.epochs_css
-    init_samples = (
-        INIT_SAMPLES[code_type] if settings.init_samples is None else settings.init_samples
-    )
     arguments = [
         str(row.num_qubits),
         str(row.num_logicals),
         "--code-type",
         code_type,
         "--init-samples",
-        str(init_samples),
+        str(settings.init_samples),
         "--seed",
         str(seed),
         "--epochs",

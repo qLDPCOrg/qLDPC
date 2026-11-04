@@ -2,11 +2,12 @@
 
 """Exact CSS/SWEL code annealing: the chain, its energy, and how proposals are scored.
 
-A Markov chain of codes minimizes the logical-error-rate energy E_L of arXiv:2607.19574 over local
-Clifford conjugations of a binary CSS stabilizer code.  Every proposal is scored exactly by its
-distance and its number of minimum-weight logical operators, so there are no approximate or cached
-scores.  By default the operators are the X-only and Z-only ones; the ``pauli`` objective instead
-counts every physical Pauli representative, including mixed and Y-only ones.
+A Markov chain of codes minimizes the energy E of arXiv:2607.19574, the normalized log of the rate
+of undetected logical errors, over local Clifford conjugations of a binary CSS stabilizer code.
+Every proposal is scored exactly by its distance and its number of minimum-weight logical
+operators, so there are no approximate or cached scores.  By default the operators are the X-only
+and Z-only ones; the ``pauli`` objective instead counts every physical Pauli representative,
+including mixed and Y-only ones.
 
 Before the first epoch, a pilot scores one epoch's worth of proposals from the initial code to fit
 the first temperature, without moving the chain.  Independently of the chain, the search records the
@@ -365,18 +366,16 @@ def score_code(
 
 
 def energy(score: Score, config: SearchConfig) -> float:
-    """The energy E_L of arXiv:2607.19574: the normalized log of the logical error rate.
+    """The energy E of arXiv:2607.19574: the normalized log of the undetected logical error rate.
 
-    With w = d // 2 + 1, a majority of the support of a minimum-weight operator, return
-    (log(m) + log(binomial(d, w))) / log(1 / p) - w, where m is the multiplicity that the objective
-    counts and p is the physical error rate.
+    An error is undetected and changes the logical state when it is a nontrivial logical operator,
+    which at leading order happens with probability m * p**d, where m is the multiplicity that the
+    objective counts, d is the distance, and p is the physical error rate.  Return the log of this
+    probability over log(1 / p), which is log(m) / log(1 / p) - d.  A greater distance lowers the
+    energy unless it comes with more than 1 / p times as many minimum-weight logical operators.
     """
     count = _get_multiplicity(score, config)
-    weight = score.distance // 2 + 1
-    # Logarithms are added separately, so that no tiny probability or large product is formed.
-    return (math.log(count) + math.log(math.comb(score.distance, weight))) / -math.log(
-        config.physical_error_rate
-    ) - weight
+    return math.log(count) / -math.log(config.physical_error_rate) - score.distance
 
 
 def get_lowest_energy_code(

@@ -114,7 +114,7 @@ CORRUPTIONS = {
     "a greatest-distance code that is worse than another": lambda data: data.update(
         greatest_distance=data["current"]
     ),
-    "an older schema version": lambda data: data.update(schema_version=1),
+    "another schema version": lambda data: data.update(schema_version=2),
     "another numerical runtime": lambda data: data["runtime"].update(numpy="0"),
     "a record in place of a chain": lambda data: data.update(kind="lowest-energy"),
     "a missing field": lambda data: data.pop("history"),

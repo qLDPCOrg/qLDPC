@@ -38,8 +38,9 @@ from .annealing import (
 from .atomic import write_atomic
 
 # Bump the version when a change would make a resumed chain differ from an uninterrupted one, in
-# the proposals, the temperature fit, the scores or the format, so that old checkpoints are refused.
-SCHEMA_VERSION = 2
+# the proposals, the energy, the temperature fit, the scores or the format, so that old checkpoints
+# are refused.
+SCHEMA_VERSION = 1
 
 # The kinds of record that a chain preserves beside its checkpoint, each in a file of its own.
 RecordKind = Literal["lowest-energy", "greatest-distance"]
