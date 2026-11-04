@@ -37,6 +37,7 @@ from ._operations import (
     JUST_MEASURE_PP,
     JUST_RESET_OPS,
     MEASURE_AND_RESET_OPS,
+    MEASURE_OR_RESET_OPS,
     NOISE,
     canonical_rule_key,
     get_gate_aliases,
@@ -67,6 +68,7 @@ from .scheduling import (
     Scheduler,
     TickPreservingScheduler,
     _as_stim_circuit,
+    _get_instruction_operations,
     _get_operations,
     _get_segments,
     _Operation,
@@ -109,10 +111,11 @@ class NoiseModel:
     circuit by placing its operations, such as single gate applications, in moments (see
     :class:`~qldpc.circuits.Schedule`).  An idle run of a qubit lasts from the moment of its last
     gate, or from the start of the circuit, up to but not including the moment of its next gate, or
-    to the end of the circuit.  Every gate on the qubit ends its idle run, even one that takes no
-    time (see :meth:`~qldpc.circuits.Scheduler.takes_time`), except a classically controlled gate
-    that takes no time.  The qubit idles in each moment of the run, except in the first if a gate on
-    the qubit takes time in that moment.
+    to the end of the circuit (see :class:`~qldpc.circuits.Schedule` for REPEAT blocks).  Every gate
+    on the qubit ends its idle run, even one that takes no time (see
+    :meth:`~qldpc.circuits.Scheduler.takes_time`), except a classically controlled gate that takes
+    no time.  The qubit idles in each moment of the run, except in the first if a gate on the qubit
+    takes time in that moment.
 
     Args:
         clifford_1q_error: Default noise applied after each one-qubit unitary Clifford gate.  A
@@ -436,7 +439,7 @@ class NoiseModel:
         The noise of each gate application, and the noise of each idle run of a qubit if this model
         has idle noise (see :class:`NoiseModel`), is placed before the next gate application that
         depends on the state of its qubits or observable with a Pauli target on them, or else at the
-        end of the circuit.  See :mod:`qldpc.circuits.noise_model` for details.
+        end of the circuit (see :class:`~qldpc.circuits.Schedule` for REPEAT blocks).
 
         Args:
             circuit: The circuit to apply noise to.
@@ -662,14 +665,15 @@ class _NoisyCircuitBuilder:
                 {
                     moment
                     for operation, moment in zip(segment.operations, segment.moments)
-                    if operation.is_measurement_or_reset
+                    if operation.instruction.name in MEASURE_OR_RESET_OPS
                 }
             )
 
         # add noise to each gate, and append each other instruction after the pending noise on the
         # qubits that it depends on (those of an observable), while their idle runs continue
         start = 0
-        for instruction, num_operations in zip(segment.instructions, segment.num_operations):
+        for instruction in segment.instructions:
+            num_operations = len(_get_instruction_operations(instruction))
             operations = segment.operations[start : start + num_operations]
             moments = (
                 segment.moments[start : start + num_operations] if self.has_idle_noise else None
@@ -747,7 +751,10 @@ class _NoisyCircuitBuilder:
                     (
                         qubit,
                         self.end_idle_run(
-                            qubit, moments[index], takes_time, operation.is_measurement_or_reset
+                            qubit,
+                            moments[index],
+                            takes_time,
+                            operation.instruction.name in MEASURE_OR_RESET_OPS,
                         ),
                     )
                     for qubit in ended_run_qubits

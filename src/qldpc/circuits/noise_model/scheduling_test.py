@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import copy
+
 import pytest
 import stim
 
@@ -523,8 +525,10 @@ def test_schedule_errors() -> None:
 def test_schedules_are_immutable_values() -> None:
     """Schedules cannot change, and are equal if they schedule the same circuit alike.
 
-    Changing the circuit or moments that made a schedule does not change it.  Unlike Stim's
-    equality of circuits, the equality of schedules does not ignore the tags of REPEAT blocks.
+    Changing the circuit or moments that made a schedule does not change it, and schedules can be
+    copied.  The operations of a circuit without gates are in moment zero, whatever moments are
+    given for them.  Unlike Stim's equality of circuits, the equality of schedules does not ignore
+    the tags of REPEAT blocks.
     """
     circuit, moments = stim.Circuit("H 0"), [0]
     schedule = circuits.Schedule(circuit, moments)
@@ -541,6 +545,10 @@ def test_schedules_are_immutable_values() -> None:
     tagged = circuits.Schedule(stim.Circuit("REPEAT[tag] 2 {\nH 0\n}"), [body])
     untagged = circuits.Schedule(stim.Circuit("REPEAT 2 {\nH 0\n}"), [body])
     assert tagged != untagged
+    assert copy.deepcopy(tagged) == tagged
+
+    gate_free = stim.Circuit("DETECTOR\nX_ERROR(0.1) 0")
+    assert circuits.Schedule(gate_free, [5, 7]) == circuits.Schedule(gate_free, [0, 0])
 
 
 def test_built_in_schedulers() -> None:

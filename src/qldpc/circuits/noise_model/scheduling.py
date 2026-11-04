@@ -29,7 +29,6 @@ from ._operations import (
     JUST_MEASURE_OPS,
     JUST_MEASURE_PP,
     JUST_RESET_OPS,
-    MEASURE_OR_RESET_OPS,
     NOISE,
     involves_classical_bits,
     op_type,
@@ -64,10 +63,11 @@ class Schedule:
     The body of a REPEAT block, and the instructions between REPEAT blocks, are each scheduled as a
     circuit of its own (by :meth:`Scheduler.get_operation_moments`), and every iteration of a block
     follows the schedule of its body, so the block stays compact.  Moments, and so the idle runs of
-    qubits, thus end at the start and end of a REPEAT block and of each of its iterations, which
-    splits the ``quadratic_idle_error`` of a :class:`~qldpc.circuits.NoiseModel` there.  Adding
-    noise to ``circuit.flattened()`` avoids this.  A scheduler may override
-    :meth:`Scheduler.get_schedule` to handle REPEAT blocks itself, but its schedules are still
+    qubits, thus end at the start and end of a REPEAT block and of each of its iterations, and a
+    :class:`~qldpc.circuits.NoiseModel` places the noise of each iteration within it.  This splits
+    ``quadratic_idle_error`` at those boundaries, and adding noise to ``circuit.flattened()`` avoids
+    it.  A scheduler may override :meth:`Scheduler.get_schedule` to handle REPEAT blocks itself (it
+    still implements :meth:`Scheduler.get_operation_moments`), but its schedules are still
     validated, and give the body of each REPEAT block one schedule that every iteration follows.
 
     A schedule is immutable.
@@ -110,15 +110,20 @@ class Schedule:
         object.__setattr__(self, "_circuit", stim_circuit)
         object.__setattr__(self, "_moments", tuple(entries))
 
-        # add up the moments between REPEAT blocks and of all iterations of REPEAT blocks
+        # put the operations of circuits without gates in moment zero, and add up the moments
+        # between REPEAT blocks and of all iterations of REPEAT blocks
+        moments_in_place: list[int | Schedule] = []
         duration = 0
         for segment_or_block in _get_segments(stim_circuit, self):
             if isinstance(segment_or_block, _Segment):
+                moments_in_place.extend(segment_or_block.moments)
                 duration += segment_or_block.duration
             else:
                 block, body_schedule = segment_or_block
                 assert body_schedule is not None
+                moments_in_place.append(body_schedule)
                 duration += block.repeat_count * body_schedule._duration
+        object.__setattr__(self, "_moments", tuple(moments_in_place))
         object.__setattr__(self, "_duration", duration)
 
     @staticmethod
@@ -195,6 +200,9 @@ class Schedule:
 
     def __delattr__(self, name: str) -> NoReturn:
         raise AttributeError("A Schedule is immutable")
+
+    def __reduce__(self) -> tuple[type[Schedule], tuple[stim.Circuit, tuple[int | Schedule, ...]]]:
+        return Schedule, (self._circuit, self._moments)
 
 
 def _as_moment(value: object, description: str) -> int:
@@ -303,9 +311,10 @@ class TickPreservingScheduler(Scheduler):
         has_gate = False  # whether a gate precedes the next operation in the circuit
         closed = False  # whether a TICK has ended the moment
         operations = iter(zip(nodes, segment.operations))
-        for instruction, num_operations in zip(segment.instructions, segment.num_operations):
+        for instruction in segment.instructions:
             if instruction.name == "TICK":
                 closed = has_gate
+            num_operations = len(_get_instruction_operations(instruction))
             for node, operation in itertools.islice(operations, num_operations):
                 if not operation.is_gate:
                     continue
@@ -566,7 +575,6 @@ class _Operation:
     qubits: tuple[int, ...]  # the qubits that this operation acts on, in order
     qubits_depended_on: tuple[int, ...]  # the qubits whose state this operation depends on
     is_gate: bool
-    is_measurement_or_reset: bool
     num_records: int  # the number of measurement records that this operation produces
     records: tuple[int, ...]  # the measurement records that this operation reads
 
@@ -595,7 +603,6 @@ class _Operation:
             if (is_gate and not involves_classical_bits(instruction)) or is_observable
             else (),
             is_gate,
-            name in MEASURE_OR_RESET_OPS,
             len(instruction.target_groups()) if _produces_measurements(name) else 0,
             tuple(target.value for target in targets if target.is_measurement_record_target),
         )
@@ -610,7 +617,6 @@ class _Segment:
     """
 
     instructions: list[stim.CircuitInstruction]
-    num_operations: list[int]  # the number of operations of each instruction
     operations: list[_Operation]
     moments: list[int]
 
@@ -635,7 +641,7 @@ def _get_segments(
     operation is in moment zero, and REPEAT blocks have no schedules.
     """
     moments = iter(() if schedule is None else schedule._moments)
-    segment = _Segment([], [], [], [])
+    segment = _Segment([], [], [])
     num_records = 0
     for instruction in circuit:
         # a REPEAT block ends the current _Segment, and a new one starts after it
@@ -644,14 +650,13 @@ def _get_segments(
             body_schedule = next(moments, None)
             assert body_schedule is None or isinstance(body_schedule, Schedule)
             yield instruction, body_schedule
-            segment = _Segment([], [], [], [])
+            segment = _Segment([], [], [])
             num_records = 0
             continue
 
         # other instructions join the _Segment with the moments of their operations
         operations = _get_operations([instruction], num_records)
         segment.instructions.append(instruction)
-        segment.num_operations.append(len(operations))
         for operation in operations:
             num_records += operation.num_records
             moment = next(moments, 0)
@@ -871,8 +876,7 @@ class _Layout:
     """Lays out scheduled circuits in moments, keeping track of the order of measurements."""
 
     def __init__(self) -> None:
-        self.num_records = 0  # records laid out so far, which is the same in both orders
-        self.new_to_old: list[int] = []
+        self.new_to_old: list[int] = []  # the original index of each record laid out so far
         self.old_to_new: dict[int, int] = {}
 
     def lay_out(self, schedule: Schedule) -> tuple[stim.Circuit, bool]:
@@ -900,7 +904,7 @@ class _Layout:
     def lay_out_segment(self, segment: _Segment, circuit: stim.Circuit) -> None:
         """Lay out the operations of a ``_Segment`` by moment."""
         # the index of the first record of each operation, in the order of the circuit
-        start = self.num_records
+        start = len(self.new_to_old)
         old_starts = [start]
         for operation in segment.operations:
             old_starts.append(old_starts[-1] + operation.num_records)
@@ -921,7 +925,7 @@ class _Layout:
             for target in operation.instruction.targets_copy():
                 if target.is_measurement_record_target:
                     new_record = self.old_to_new[start + next(records)]
-                    target = stim.target_rec(new_record - self.num_records)
+                    target = stim.target_rec(new_record - len(self.new_to_old))
                 targets.append(target)
             instruction = operation.instruction
             circuit.append(
@@ -932,9 +936,8 @@ class _Layout:
 
             # note the new positions of the records that the operation produces
             for old_record in range(old_start, old_start + operation.num_records):
-                self.old_to_new[old_record] = self.num_records
+                self.old_to_new[old_record] = len(self.new_to_old)
                 self.new_to_old.append(old_record)
-                self.num_records += 1
 
     def lay_out_block(
         self, block: stim.CircuitRepeatBlock, schedule: Schedule, circuit: stim.Circuit
@@ -959,9 +962,9 @@ class _Layout:
 
         # lay out those iterations, grouping equal layouts
         iterations: list[tuple[stim.Circuit, int]] = []  # the layout of iterations, and counts
-        start = self.num_records
+        start = len(self.new_to_old)
         for _ in range(num_distinct):
-            start = self.num_records
+            start = len(self.new_to_old)
             iteration, is_open = self.lay_out(schedule)
             if is_open:
                 iteration.append("TICK")
@@ -975,11 +978,10 @@ class _Layout:
         iterations[-1] = (iterations[-1][0], iterations[-1][1] + num_remaining)
         offsets = [old - start for old in self.new_to_old[start:]]
         for _ in range(num_remaining):
-            start = self.num_records
+            start = len(self.new_to_old)
             for offset in offsets:
-                self.old_to_new[start + offset] = self.num_records
+                self.old_to_new[start + offset] = len(self.new_to_old)
                 self.new_to_old.append(start + offset)
-                self.num_records += 1
 
         # an iteration written out keeps the tag of the block in a block of its own, if it has one
         for index, (iteration, count) in enumerate(iterations):
