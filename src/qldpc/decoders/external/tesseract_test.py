@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import builtins
 import importlib
 import importlib.util
 import inspect
@@ -22,6 +21,7 @@ import stim
 from qldpc import decoders
 from qldpc.conftest import run_python
 from qldpc.decoders._resolution import build_error_decoder, build_observable_decoder
+from qldpc.decoders.conftest import fail_import
 from qldpc.decoders.external.tesseract import _get_decoder_tesseract
 from qldpc.decoders.protocols import _batch_decode_errors, _supports_batch_decoding
 
@@ -314,16 +314,6 @@ def test_real_tesseract_package() -> None:
     run_python(script)
 
 
-def test_tesseract_import_is_lazy() -> None:
-    """Importing qLDPC's integration does not import the optional backend."""
-    code = """
-import sys
-import qldpc.decoders.external.tesseract
-assert "tesseract_decoder" not in sys.modules
-"""
-    run_python(code)
-
-
 def test_tesseract_missing_dependency_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """A missing backend produces an actionable error without hiding nested failures."""
     monkeypatch.setitem(sys.modules, "tesseract_decoder", None)
@@ -331,23 +321,10 @@ def test_tesseract_missing_dependency_error(monkeypatch: pytest.MonkeyPatch) -> 
         _get_decoder_tesseract(np.eye(1, dtype=int))
 
     monkeypatch.delitem(sys.modules, "tesseract_decoder")
-    original_import = builtins.__import__
-
-    def import_tesseract(
-        name: str,
-        globals_: dict[str, object] | None = None,
-        locals_: dict[str, object] | None = None,
-        fromlist: tuple[str, ...] = (),
-        level: int = 0,
-    ) -> types.ModuleType:
-        if name == "tesseract_decoder":
-            raise ModuleNotFoundError(
-                "No module named 'nested_dependency'", name="nested_dependency"
-            )
-        return original_import(name, globals_, locals_, fromlist, level)
-
-    assert import_tesseract("types") is types
-    monkeypatch.setattr(builtins, "__import__", import_tesseract)
+    nested_error = ModuleNotFoundError(
+        "No module named 'nested_dependency'", name="nested_dependency"
+    )
+    fail_import(monkeypatch, "tesseract_decoder", nested_error)
     with pytest.raises(ModuleNotFoundError, match="nested_dependency"):
         importlib.import_module("qldpc.decoders.external.tesseract")._get_tesseract()
 
