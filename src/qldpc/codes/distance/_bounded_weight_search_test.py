@@ -150,12 +150,22 @@ def _block_minimum(
 
 
 @pytest.mark.usefixtures("compilation_mode")
-@pytest.mark.parametrize("css_weight", [False, True])
-def test_bounds_match_exhaustive_minima(css_weight: bool, pytestconfig: pytest.Config) -> None:
+@pytest.mark.parametrize(
+    ("css_weight", "css_singles_table"), [(False, True), (True, True), (True, False)]
+)
+def test_bounds_match_exhaustive_minima(
+    css_weight: bool,
+    css_singles_table: bool,
+    pytestconfig: pytest.Config,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Bounds agree with exhaustive minima.
 
-    Each syndrome is queried at every maximum weight in random order.
+    Each syndrome is queried at every maximum weight in random order, with or without the table of
+    errors of CSS weight one.
     """
+    if not css_singles_table:
+        monkeypatch.setattr(_bounded_weight_search, "_MAX_CSS_SINGLES", 0)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 7):
         edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
