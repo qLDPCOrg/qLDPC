@@ -212,12 +212,13 @@ def _check_fault(
 class FaultLister:
     """Lists the irreducible accepted faults that are made of given primitive faults.
 
-    Every primitive fault has nonzero flags, and the lister refers to each by its position in the
-    given sequences.  The first ``num_starts`` primitive faults are the start members, and only the
-    faults that contain a start member are listed, each once.  The search passes its heavy
-    primitive faults first, so that they are the start members, since only a fault that contains a
-    heavy primitive fault can violate the bound.  ``fault_propagation.md`` explains the listing and
-    why it is exact.
+    The arguments ``flags``, ``syndromes``, and ``representatives`` describe the primitive faults,
+    with one entry for each, in the same order, and the lister refers to each primitive fault by its
+    position in this order.  Every primitive fault has nonzero flags.  The first ``num_starts``
+    primitive faults are the start members, and only the faults that contain a start member are
+    listed, each once.  The search passes its heavy primitive faults first, so that they are the
+    start members, since only a fault that contains a heavy primitive fault can violate the bound.
+    ``fault_propagation.md`` explains the listing and why it is exact.
 
     The primitive faults with equal flags form a flag class, or class, whose members are these
     primitive faults, and a class that contains a start member is a start class.  The classes are
