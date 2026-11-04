@@ -20,7 +20,7 @@ import stim
 
 from qldpc import decoders
 from qldpc.decoders._resolution import build_error_decoder
-from qldpc.decoders.conftest import ToyProblem
+from qldpc.decoders.conftest import ToyProblem, fail_import
 from qldpc.decoders.external.relay_bp import (
     RelayBPDecoder,
     _get_decoder_min_sum_bp,
@@ -194,13 +194,11 @@ def test_relay_backend_options(
         helper(backend_options=backend_options).build(matrix)
 
 
-def test_relay_bp_nested_import_failure() -> None:
+def test_relay_bp_nested_import_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     """A module missing inside relay-bp is reported as is, rather than as a missing relay-bp."""
     nested_error = ModuleNotFoundError("No module named 'nested'", name="nested")
-    with (
-        pytest.raises(ModuleNotFoundError, match="nested"),
-        unittest.mock.patch("builtins.__import__", side_effect=nested_error),
-    ):
+    fail_import(monkeypatch, "relay_bp", nested_error)
+    with pytest.raises(ModuleNotFoundError, match="nested"):
         _get_relay_bp()
 
 

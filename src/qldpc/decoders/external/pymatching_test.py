@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import builtins
 import concurrent.futures
 import pickle
 import sys
@@ -21,6 +20,7 @@ import pytest
 import stim
 
 from qldpc import decoders
+from qldpc.decoders.conftest import fail_import
 from qldpc.decoders.external import pymatching
 from qldpc.decoders.external.pymatching import (
     _get_decoder_mwpm,
@@ -221,19 +221,10 @@ def test_pymatching_missing_dependency_message(monkeypatch: pytest.MonkeyPatch) 
 
 def test_pymatching_transitive_import_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """An import failure inside PyMatching is preserved instead of mislabeled as a missing extra."""
-
-    def import_with_missing_dependency(
-        name: str,
-        globals: dict[str, object] | None = None,
-        locals: dict[str, object] | None = None,
-        fromlist: tuple[str, ...] = (),
-        level: int = 0,
-    ) -> object:
-        del globals, locals, fromlist, level
-        assert name == "pymatching"
-        raise ModuleNotFoundError("No module named 'backend_dependency'", name="backend_dependency")
-
+    nested_error = ModuleNotFoundError(
+        "No module named 'backend_dependency'", name="backend_dependency"
+    )
     monkeypatch.delitem(sys.modules, "pymatching")
-    monkeypatch.setattr(builtins, "__import__", import_with_missing_dependency)
+    fail_import(monkeypatch, "pymatching", nested_error)
     with pytest.raises(ModuleNotFoundError, match="backend_dependency"):
         pymatching._get_pymatching()
