@@ -34,7 +34,7 @@ from ._information_sets import advance_support
 
 # The largest number of pairs of a single-qubit X error and a single-qubit Z error (or the identity)
 # that a search of Pauli errors by their CSS weight tabulates by syndrome, in
-# ``_BinaryCosetSearch._css_singles``: about ten megabytes, or 255 qubits.
+# ``_CosetSearch._css_singles``: about ten megabytes, or 255 qubits.
 _MAX_CSS_SINGLES = 2**16
 
 ####################################################################################################
@@ -43,18 +43,20 @@ _MAX_CSS_SINGLES = 2**16
 
 @dataclass(frozen=True)
 class MinWeightBound:
-    """The answer to a query about the minimum weight of a syndrome class of Pauli errors.
+    """The answer to a query about the minimum weight of a coset.
 
-    The query asks whether the syndrome class has an error of weight at most ``max_weight``.
+    A query of ``CosetLeaderSearch`` asks whether a syndrome class of Pauli errors, which is a coset
+    of the stabilizer group, has an error of weight at most ``max_weight``.  A query of one of its
+    coset searches asks the same about a coset of the code that the search covers.
 
     Attributes:
-        within_max_weight: Whether the syndrome class has such an error.
-        representative: An element of the syndrome class: a packed Pauli (see
-            ``CosetLeaderSearch``) for a query of the oracle, or a word of a binary search (a packed
-            Pauli, or an X or Z part) for a query of that search.  If ``within_max_weight`` is True,
-            its weight is at most ``max_weight``.
-        lower_bound: A lower bound on the minimum weight of the syndrome class.  If
-            ``within_max_weight`` is False, it exceeds ``max_weight``.
+        within_max_weight: Whether the coset has an element of weight at most ``max_weight``.
+        representative: An element of the coset: a packed Pauli (see ``CosetLeaderSearch``) for a
+            query of the oracle, and a word of the search (a packed Pauli, or an X or Z part) for a
+            query of a coset search.  If ``within_max_weight`` is True, its weight is at most
+            ``max_weight``.
+        lower_bound: A lower bound on the minimum weight of the coset.  If ``within_max_weight`` is
+            False, it exceeds ``max_weight``.
     """
 
     within_max_weight: bool
@@ -65,36 +67,37 @@ class MinWeightBound:
 class CosetLeaderSearch:
     """Minimum-weight oracle for Pauli errors modulo the stabilizers of a pure stabilizer state.
 
-    The syndrome of a Pauli error on ``n`` qubits says which of the ``n`` stabilizers it
-    anticommutes with.  Two errors have the same syndrome exactly when they differ by a stabilizer,
-    so the errors with a given syndrome form a syndrome class of equivalent errors, which is a coset
-    of the stabilizer group.  A lightest error of a syndrome class is a coset leader, and the oracle
-    determines whether the coset leaders of a syndrome class weigh at most a given maximum weight.
+    The syndrome of a Pauli error on ``n`` qubits says which of the ``n`` given stabilizer
+    generators, the rows of ``stabilizers``, it anticommutes with.  Two errors have the same
+    syndrome exactly when they differ by a stabilizer, so the errors with a given syndrome form a
+    syndrome class of equivalent errors, which is a coset of the stabilizer group.  A lightest error
+    of a syndrome class is a coset leader, and the oracle determines whether the coset leaders of a
+    syndrome class weigh at most a given maximum weight.
 
     A Pauli is packed into an integer with its X part ``x`` in the low ``n`` bits and its Z part
     ``z`` in the next ``n`` bits, and a syndrome is packed into an integer with bit ``j`` for
     stabilizer ``j``.  The weight of an error is either its physical weight, the number of qubits
     that it acts on, or its CSS weight ``max(|x|, |z|)``.
 
-    The oracle answers a query with one or two binary searches.  Each searches the cosets of a
-    binary code with the Brouwer-Zimmermann (BZ) algorithm (see ``brouwer_zimmermann.md``), as
+    The oracle answers a query with one or two coset searches.  Each searches the cosets of a binary
+    code with the Brouwer-Zimmermann (BZ) algorithm (see ``brouwer_zimmermann.md``), as
     ``_search_coset`` describes.  ``get_min_weight_bound`` first looks up words of weight at most
     one in a table.
 
-    - In general, one search covers the Pauli errors themselves, modulo the stabilizers.
-    - For the CSS weight on a CSS state, two searches cover the X parts and the Z parts of the
-      errors separately, on ``n`` columns each rather than ``2 n``.  A pure-X stabilizer has no Z
-      part, a pure-Z stabilizer has no X part, and a stabilizer state is CSS if pure-X and pure-Z
-      stabilizers generate its stabilizer group.  The X parts of the pure-X stabilizers span a
-      binary code ``C_X``, and the Z parts of the pure-Z stabilizers a binary code ``C_Z``.
+    - In general, one Pauli search covers the Pauli errors themselves, modulo the stabilizers.
+    - For the CSS weight on a CSS state, two classical searches cover the X parts and the Z parts
+      of the errors separately, on ``n`` columns each rather than ``2 n``.  A pure-X stabilizer has
+      no Z part, a pure-Z stabilizer has no X part, and a stabilizer state is CSS if pure-X and
+      pure-Z stabilizers generate its stabilizer group.  The X parts of the pure-X stabilizers span
+      a binary code ``C_X``, and the Z parts of the pure-Z stabilizers a binary code ``C_Z``.
       Multiplying an error by a stabilizer adds a word of ``C_X`` to its X part and a word of
       ``C_Z`` to its Z part, independently, so the smallest CSS weight of an error with a given
       syndrome is the larger of the smallest Hamming weights in the cosets ``x + C_X`` and
       ``z + C_Z``.  The coset of an X part is labeled by its syndrome for the pure-Z stabilizers,
       and that of a Z part by its syndrome for the pure-X stabilizers, and the oracle maps a
       syndrome for the given stabilizers to these two syndromes.  The two searches depend only on
-      the stabilizer group, so they are cached in-process for the last few groups, and certifying
-      many circuits that prepare the same state builds them only once.
+      the stabilizer group, so they are cached for the eight most recently used groups, and
+      oracles for different generating sets of one state share them.
 
     Args:
         stabilizers: A binary ``n x 2n`` matrix in ``[X|Z]`` order whose rows are independent
@@ -125,7 +128,7 @@ class CosetLeaderSearch:
         # parts of the errors be searched separately.
         combinations = _get_css_combinations(matrix) if css_weight else None
         if combinations is None:
-            self._searches: tuple[_BinaryCosetSearch, ...] = (
+            self._searches: tuple[_CosetSearch, ...] = (
                 _get_pauli_search(matrix, checks, css_weight),
             )
             return
@@ -243,7 +246,7 @@ class CosetLeaderSearch:
 
 
 class _CosetSearchTables(NamedTuple):
-    """The tables of ``_search_coset`` for one binary search of a ``CosetLeaderSearch``.
+    """The tables of ``_search_coset`` for one coset search of a ``CosetLeaderSearch``.
 
     The search runs on embedded words.  For a search of Pauli errors, the embedded word of an error
     is its packed Pauli for the CSS weight, and its packed Pauli followed by ``x xor z`` for the
@@ -269,8 +272,8 @@ class _CosetSearchTables(NamedTuple):
     x_mask: npt.NDArray[np.uint64]
 
 
-class _BinaryCosetSearch:
-    """One binary search of a ``CosetLeaderSearch``: a search of the cosets of one binary code.
+class _CosetSearch:
+    """One coset search of a ``CosetLeaderSearch``: a search of the cosets of one binary code.
 
     The words of a search are either packed Paulis on ``n`` qubits, in which case the code is
     spanned by the packed stabilizers, or the X parts (or Z parts) of Paulis, in which case the code
@@ -405,8 +408,8 @@ class _BinaryCosetSearch:
 
 def _get_pauli_search(
     stabilizers: npt.NDArray[np.uint8], checks: npt.NDArray[np.uint8], css_weight: bool
-) -> _BinaryCosetSearch:
-    """The binary search of the Pauli errors modulo the stabilizers, with these checks."""
+) -> _CosetSearch:
+    """The Pauli search, of Pauli errors modulo the stabilizers, with these checks."""
     num_qubits = len(stabilizers)
     inverse = _get_inverse(checks)
     embedded_stabilizers = stabilizers if css_weight else symplectic_to_hamming(stabilizers)
@@ -415,7 +418,7 @@ def _get_pauli_search(
     # weight, so the certificate bounds are halved.
     tables = _get_search_tables(embedded_stabilizers, embedded_inverse, num_qubits, halve=True)
     check_columns = _row_ints(np.ascontiguousarray(checks.T))
-    return _BinaryCosetSearch(
+    return _CosetSearch(
         tables, css_weight, num_qubits, _row_ints(inverse), check_columns, is_pauli=True
     )
 
@@ -423,8 +426,8 @@ def _get_pauli_search(
 @functools.lru_cache(maxsize=8)
 def _get_css_searches(
     num_qubits: int, num_x_rows: int, x_rows: bytes, z_rows: bytes
-) -> tuple[_BinaryCosetSearch, _BinaryCosetSearch]:
-    """The binary searches of the X parts and of the Z parts of the errors on a CSS state.
+) -> tuple[_CosetSearch, _CosetSearch]:
+    """The classical searches of the X parts and of the Z parts of the errors on a CSS state.
 
     ``x_rows`` holds the X parts of ``num_x_rows`` pure-X stabilizers, and ``z_rows`` the Z parts of
     the other ``num_qubits - num_x_rows`` stabilizers, which are pure-Z.  Both are in reduced row
@@ -446,8 +449,8 @@ def _get_css_searches(
 
 def _get_classical_search(
     generators: npt.NDArray[np.uint8], checks: npt.NDArray[np.uint8]
-) -> _BinaryCosetSearch:
-    """The binary search of X or Z parts modulo the row space of independent generators.
+) -> _CosetSearch:
+    """The classical search of X or Z parts modulo the row space of independent generators.
 
     The row space of the generators is the null space of the independent checks, so each coset is
     labeled by its syndrome for the checks.  Words are weighed by their Hamming weight, which the BZ
@@ -458,9 +461,7 @@ def _get_classical_search(
     # Every column counts as the X part, so the CSS weight of a word is its Hamming weight.
     tables = _get_search_tables(generators, inverse, num_qubits, halve=False)
     check_columns = _row_ints(np.ascontiguousarray(checks.T))
-    return _BinaryCosetSearch(
-        tables, True, num_qubits, _row_ints(inverse), check_columns, is_pauli=False
-    )
+    return _CosetSearch(tables, True, num_qubits, _row_ints(inverse), check_columns, is_pauli=False)
 
 
 def _get_inverse(checks: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
@@ -579,11 +580,11 @@ def _find_first_not_within_max_weight(
     x_mask: npt.NDArray[np.uint64],
     css_weight: bool,
 ) -> tuple[int, np.int64]:
-    """Search the class of each syndrome in turn, as ``_search_coset`` does.
+    """Search the coset of each syndrome in turn, as ``_search_coset`` does.
 
-    Return the index of the first syndrome whose class has no error of weight at most
-    ``max_weight``, and the lower bound that ``_search_coset`` returns for it, with its lightest
-    error left in ``best``.  If there is no such syndrome, return the number of syndromes and zero.
+    Return the index of the first syndrome whose coset has no word of weight at most ``max_weight``,
+    and the lower bound that ``_search_coset`` returns for it, with its lightest word left in
+    ``best``.  If there is no such syndrome, return the number of syndromes and zero.
     """
     for index in range(len(syndromes)):
         lower_bound = _search_coset(
@@ -614,32 +615,34 @@ def _search_coset(
     x_mask: npt.NDArray[np.uint64],
     css_weight: bool,
 ) -> np.int64:
-    """Search the class of a syndrome for an error of weight at most ``max_weight``.
+    """Search the coset of a syndrome for a word of weight at most ``max_weight``.
 
     The syndrome is split into 64-bit machine words, with machine word ``j`` holding bits ``64 j``
-    and up.  The search runs on embedded words.  The embedded word of an error is its packed Pauli
-    when errors are weighed by CSS weight, and its packed Pauli followed by ``x xor z`` when they
-    are weighed by physical weight, so that its Hamming weight is twice the physical weight (see
-    ``symplectic_to_hamming``).  The weight of an embedded word is that of its error.  The tables
-    are those of ``_CosetSearchTables``: row ``j`` of ``inverse`` is the embedded word of an error
-    whose syndrome has only bit ``j`` set, ``generators`` and ``pivots`` are the disjoint
-    information sets of the embedded stabilizers, with pivots padded with -1, and ``x_mask`` selects
-    the X part of an embedded word.
+    and up.  The search runs on embedded words.  In the Pauli search, the words are Pauli errors,
+    and the embedded word of an error is its packed Pauli when errors are weighed by CSS weight, and
+    its packed Pauli followed by ``x xor z`` when they are weighed by physical weight, so that its
+    Hamming weight is twice the physical weight (see ``symplectic_to_hamming``).  In a classical
+    search, the words are X or Z parts, each is its own embedded word, and ``x_mask`` selects every
+    column, so that the CSS weight of a word is its Hamming weight.  The weight of an embedded word
+    is that of its word.  The tables are those of ``_CosetSearchTables``: row ``j`` of ``inverse``
+    is the embedded word of a word whose syndrome has only bit ``j`` set, ``generators`` and
+    ``pivots`` are the disjoint information sets of the embedded generators of the code, with pivots
+    padded with -1, and ``x_mask`` selects the X part of an embedded word.
 
-    The embedded words of the class form a coset of the embedded stabilizers.  The search starts
-    from the sum of the rows of ``inverse`` for the set bits of the syndrome, an error with that
-    syndrome.  The offset of an information set is this error reduced by rows of the set until it is
-    zero on the set's pivot columns.  Every word of the class is the offset plus a unique sum of
-    rows of the set, and has a one on a pivot column exactly where it adds that pivot's row, so the
-    BZ certificate applies to the class as it does to a space.  Layer ``w`` of a set is its offset
-    plus each sum of ``w`` of its rows, so layer zero is the offset itself.
+    The embedded words of the coset form a coset of the embedded code.  The search starts from the
+    sum of the rows of ``inverse`` for the set bits of the syndrome, a word with that syndrome.  The
+    offset of an information set is this word reduced by rows of the set until it is zero on the
+    set's pivot columns.  Every embedded word of the coset is the offset plus a unique sum of rows
+    of the set, and has a one on a pivot column exactly where it adds that pivot's row, so the BZ
+    certificate applies to the coset as it does to a space.  Layer ``w`` of a set is its offset plus
+    each sum of ``w`` of its rows, so layer zero is the offset itself.
 
     The search visits layer zero on every information set, then layer one, and so on.  It keeps the
     lightest word visited in ``best``, and stops at the first word of weight at most ``max_weight``.
     After layer ``w``, every unvisited word weighs at least ``unvisited_bounds[w]``, so the search
     also stops when that exceeds ``max_weight``.
 
-    Return a lower bound on the weight of every error in the class: zero, which is at most
+    Return a lower bound on the weight of every word in the coset: zero, which is at most
     ``max_weight``, if ``best`` has weight at most ``max_weight``, and otherwise a bound that
     exceeds ``max_weight``.
     """

@@ -78,34 +78,15 @@ def _syndrome_words(syndromes: Sequence[int], num_qubits: int) -> npt.NDArray[np
 
 
 # Four-qubit blocks: a GHZ state, which is CSS, and the same state after S on its first qubit, which
-# is not.  For the CSS weight, the oracle splits its search only on the GHZ block.
+# is not.  For the CSS weight, the oracle splits its search only on the GHZ block, and for the
+# physical weight it searches Pauli errors on both, so one block covers that path.
 _GHZ_BLOCK = ("XXXX", "ZZ__", "_ZZ_", "__ZZ")
 _PHASED_GHZ_BLOCK = ("YXXX", "ZZ__", "_ZZ_", "__ZZ")
 _BLOCK_CASES = pytest.mark.parametrize(
     ("block", "css_weight"),
-    [
-        (_GHZ_BLOCK, False),
-        (_GHZ_BLOCK, True),
-        (_PHASED_GHZ_BLOCK, False),
-        (_PHASED_GHZ_BLOCK, True),
-    ],
-    ids=["ghz-physical", "ghz-css", "phased-ghz-physical", "phased-ghz-css"],
+    [(_GHZ_BLOCK, False), (_GHZ_BLOCK, True), (_PHASED_GHZ_BLOCK, True)],
+    ids=["ghz-physical", "ghz-css", "phased-ghz-css"],
 )
-
-
-def _get_oracle(
-    matrix: npt.NDArray[np.uint8], search: str, monkeypatch: pytest.MonkeyPatch
-) -> CosetLeaderSearch:
-    """An oracle for the CSS weight on a CSS state, with a split or joint search.
-
-    The joint search, which the oracle otherwise runs only on non-CSS states, is forced by hiding
-    the CSS structure of the state.
-    """
-    if search == "joint":
-        monkeypatch.setattr(_coset_leader_search, "_get_css_combinations", lambda matrix: None)
-    oracle = CosetLeaderSearch(matrix, css_weight=True)
-    assert len(oracle._searches) == (1 if search == "joint" else 2)
-    return oracle
 
 
 def _find_each_not_within_max_weight(
@@ -117,9 +98,10 @@ def _find_each_not_within_max_weight(
     """Find each syndrome whose class has no error of weight at most ``max_weight``, in turn.
 
     The representative of each bound that a search returns has the syndrome for the stabilizers of
-    ``matrix``, its lower bound exceeds ``max_weight``, and from a maximum weight of two up, it is
-    the bound that ``get_min_weight_bound`` gives.  With one binary search, the batch search finds
-    its bound independently, so this compares two searches.
+    ``matrix``, its lower bound exceeds ``max_weight``, and, for a maximum weight of at least two,
+    the bound equals that of ``get_min_weight_bound``.  With one coset search,
+    ``find_first_not_within_max_weight`` computes its bound separately from
+    ``get_min_weight_bound``, so this checks one against the other.
     """
     found: list[int] = []
     while True:
@@ -289,19 +271,15 @@ def test_batches_find_each_class_above_max_weight(
             assert found == np.flatnonzero(minima > max_weight).tolist()
 
 
-@pytest.mark.parametrize("search", ["split", "joint"])
-def test_batches_return_bounds_above_max_weight_plus_one(
-    search: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_batches_return_bounds_above_max_weight_plus_one() -> None:
     """On |0000> with CSS weight, the syndrome 1111 needs X on every qubit, so weight four.
 
-    A search at maximum weight two proves this exactly, and returns the same bound of four as
-    ``get_min_weight_bound``, which ``_find_each_not_within_max_weight`` checks.  The split search
-    finds it without searching, since the code of X parts is empty, and the joint search proves it
-    by exhausting every layer.
+    The search of X parts proves this at layer zero, since their code has no generators and each of
+    its cosets is a single word.  A batch search at maximum weight two returns the same bound of
+    four as ``get_min_weight_bound``, which ``_find_each_not_within_max_weight`` checks.
     """
     matrix = np.hstack([np.zeros((4, 4), dtype=np.uint8), np.eye(4, dtype=np.uint8)])
-    oracle = _get_oracle(matrix, search, monkeypatch)
+    oracle = CosetLeaderSearch(matrix, css_weight=True)
     words = _syndrome_words([0b0011, 0b1111], 4)
     assert _find_each_not_within_max_weight(oracle, matrix, words, 2) == [1]
     assert oracle.get_min_weight_bound(0b1111, 2).lower_bound == 4
@@ -463,20 +441,21 @@ def test_rank_deficient_information_sets_certify_less() -> None:
 
 
 @pytest.mark.usefixtures("compilation_mode")
-@pytest.mark.parametrize("search", ["split", "joint"])
-def test_exhausted_search_gives_the_exact_minimum(
-    search: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """On |00000>, flipping every qubit has CSS weight five.
+def test_exhausted_search_gives_the_exact_minimum() -> None:
+    """On a state with stabilizers Y, Z, Z, Z, Z, the syndrome 11111 has CSS weight four.
 
-    The joint search can prove this only by exhausting every layer, and the split search finds it
-    without searching, since the code of X parts is empty.
+    An error with that syndrome has X or Y on each of the last four qubits, so its X part has weight
+    at least four, and Z X X X X reaches it.  The state is not CSS, so the oracle searches Pauli
+    errors, and the bounds of its certificate stay below four, so only exhausting every layer proves
+    the minimum.
     """
-    zero_state = np.hstack([np.zeros((5, 5), dtype=np.uint8), np.eye(5, dtype=np.uint8)])
-    oracle = _get_oracle(zero_state, search, monkeypatch)
-    bound = oracle.get_min_weight_bound(31, 4)
-    assert not bound.within_max_weight and bound.lower_bound == 5
-    assert oracle.get_min_weight_bound(31, 5).within_max_weight
+    matrix = _stabilizer_matrix(
+        [stim.PauliString(pauli) for pauli in ("Y____", "_Z___", "__Z__", "___Z_", "____Z")]
+    )
+    oracle = CosetLeaderSearch(matrix, css_weight=True)
+    bound = oracle.get_min_weight_bound(0b11111, 3)
+    assert not bound.within_max_weight and bound.lower_bound == 4
+    assert oracle.get_min_weight_bound(0b11111, 4).within_max_weight
 
 
 @pytest.mark.parametrize("css_weight", [False, True])
@@ -557,29 +536,14 @@ def test_css_bounds_match_exhaustive_minima(pytestconfig: pytest.Config) -> None
                 assert found == np.flatnonzero(minima[syndromes] > max_weight).tolist()
 
 
-def test_css_weight_splits_the_search_only_on_css_states() -> None:
-    """The oracle runs two binary searches only for the CSS weight on a CSS state.
+def test_cached_searches_answer_only_for_their_stabilizer_group(
+    pytestconfig: pytest.Config,
+) -> None:
+    """Oracles built in turn for |000+++>, another generating set of it, and |+++000> are exact.
 
-    The answers do not show the split, so this checks the number of searches directly.
-    """
-    for block, css_weight, num_searches in [
-        (_GHZ_BLOCK, False, 1),
-        (_GHZ_BLOCK, True, 2),
-        (_PHASED_GHZ_BLOCK, False, 1),
-        (_PHASED_GHZ_BLOCK, True, 1),
-    ]:
-        matrix = _stabilizer_matrix(_block_generators(block, 2))
-        oracle = CosetLeaderSearch(matrix, css_weight=css_weight)
-        assert len(oracle._searches) == num_searches
-
-
-def test_css_searches_are_built_once_per_stabilizer_group(pytestconfig: pytest.Config) -> None:
-    """Generating sets of one CSS state share the searches of their oracles, and others do not.
-
-    Certifying many circuits that prepare one state relies on this cache to build the searches once,
-    and its ``cache_info`` counts how often it built them.  |000+++> and |+++000> have the same
-    numbers of qubits and of pure-X stabilizers, but different stabilizer groups, and the oracles of
-    both agree with exhaustive minima.
+    The searches of a CSS state are cached by stabilizer group, so the second oracle reuses those of
+    the first.  |+++000> has the same numbers of qubits and of pure-X stabilizers as |000+++>, but a
+    different stabilizer group, so its oracle must not reuse them.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     eye, zeros = np.eye(3, dtype=np.uint8), np.zeros((3, 3), dtype=np.uint8)
@@ -587,10 +551,7 @@ def test_css_searches_are_built_once_per_stabilizer_group(pytestconfig: pytest.C
     plus_zero = np.block([[eye, zeros, zeros, zeros], [zeros, zeros, zeros, eye]])
     matrices = [_scramble(matrix, rng) for matrix in (zero_plus, zero_plus, plus_zero)]
     _coset_leader_search._get_css_searches.cache_clear()
-    oracles = [CosetLeaderSearch(matrix, css_weight=True) for matrix in matrices[:2]]
-    assert _coset_leader_search._get_css_searches.cache_info().misses == 1
-    oracles.append(CosetLeaderSearch(matrices[2], css_weight=True))
-    assert _coset_leader_search._get_css_searches.cache_info().misses == 2
+    oracles = [CosetLeaderSearch(matrix, css_weight=True) for matrix in matrices]
     for oracle, matrix in zip(oracles, matrices, strict=True):
         minima = _css_minima(matrix)
         for syndrome, max_weight in itertools.product(range(1 << 6), range(4)):
