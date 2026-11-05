@@ -510,7 +510,7 @@ The rest of this section describes how the searches use those modules.
 [`__init__.py`](__init__.py) exports names from [core.py](core.py) and [logical_counts.py](logical_counts.py).
 [logical_counts.py](logical_counts.py) counts the logical operators of a given weight exactly.
 It builds its families and certificates with the same stages of [_information_sets.py](_information_sets.py) as the distance search, under the constraint in [Section 5](#5-correctness-requirements).
-It runs the stages in `_select_sets` and `count_words` of [_counting/scan.py](_counting/scan.py), and its distance search starts from the disjoint basis families that it keeps for counting.
+It runs the stages in `_select_basis_family` and `count_words` of [_counting/scan.py](_counting/scan.py), and its distance search starts from the disjoint basis families that it keeps for counting.
 The set-up functions of both searches can be compiled on request, through [_compilation.py](../../_compilation.py).
 The code that only counting uses is in the `_counting` package.
 The family policy lives only in [_information_sets.py](_information_sets.py), including the minimum work and the fixed-seed generator that `get_overlapping_family_policy` gives every caller of the overlapping stage, so a change to it applies to both consumers.
@@ -538,7 +538,7 @@ An integer returned by preparation can incorporate a witness from another sector
 | Public route in [core.py](core.py) | Outcome |
 | --- | --- |
 | Trivial input | Handles an empty classical code, a quantum problem with no logical rows, or `V = S` using the entry point's return convention |
-| Direct exhaustive shortcut in `get_distance_quantum` with `method="brouwer_zimmermann"` | Runs exhaustive enumeration if `exhaustive_is_cheaper` approves the number of supplied rows and those rows are linearly independent |
+| Direct exhaustive shortcut in `get_distance_quantum` with `method="brouwer_zimmermann"` | Runs exhaustive enumeration if `enumeration_is_cheaper_than_setup` approves the number of supplied rows and those rows are linearly independent |
 | `method="brute_force"` | Runs exhaustive enumeration over an independent basis, adapted to `S ⊆ V` for a quantum problem |
 
 `_prepare_brouwer_zimmermann_search` considers the following exits in order.
@@ -547,12 +547,12 @@ The disjoint family, its pruning, and any overlapping or partitioned replacement
 | Preparation stage | Outcome |
 | --- | --- |
 | Initial row witness | Returns if `U ≤ cutoff`, where `U` includes the lightest eligible row and any supplied bound (from another sector or a weight limit) |
-| Exhaustive by size | Runs exhaustive enumeration if `exhaustive_is_cheaper(dimension, length)` approves |
+| Exhaustive by size | Runs exhaustive enumeration if `enumeration_is_cheaper_than_setup(dimension, length)` approves |
 | Rows of the disjoint family | Returns if checking the rows of every search basis gives `U ≤ cutoff` |
 | Certificate of the disjoint family | Returns if `L(1) ≥ U` |
 | Rows of each replacement family, overlapping and then partitioned, if selected | Returns if `U ≤ cutoff` |
 | Certificate of each replacement family | Returns if `L(1) ≥ U` |
-| Exhaustive by work | Runs exhaustive enumeration if `_brute_force_is_cheaper` finds that the eligible-word count is at most the estimated BZ work of [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) |
+| Exhaustive by work | Runs exhaustive enumeration if `_enumeration_is_cheaper_than_search` finds that the eligible-word count is at most the estimated BZ work of [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) |
 | Ready search | Returns a `_BrouwerZimmermannSearch` that scans from layer two |
 
 Exhaustive enumeration is chosen automatically at three points: the direct shortcut, preparation's size check, and preparation's work check.
@@ -618,9 +618,9 @@ With an early-exit cutoff above one, a different search order can find a differe
   It tries this only if its estimated work is at least `PARTITION_WORK_RATIO` times an estimate of the work of partitioning, and the optimistic coverage `ceil(m*r/N)` does not rule out an improvement.
 - **`get_search_certificate`** adds the certificate from linear programming ([Section 3.1](#31-overlapping-search-bases)) to searches of overlapping families whose estimated work reaches `LP_MINIMUM_WORK`, since smaller searches cost less than their linear programs.
   The work estimates that choose families use only the coverage-divided certificate.
-- **`Certificate.work`, `_brute_force_is_cheaper`, and `exhaustive_is_cheaper`** are cost models, which [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) explains.
+- **`Certificate.work`, `_enumeration_is_cheaper_than_search`, and `enumeration_is_cheaper_than_setup`** are cost models, which [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) explains.
   They are not runtime guarantees.
-  `exhaustive_is_cheaper` compares the setup cost of BZ with packed enumeration of all words, and its rule is in the source.
+  `enumeration_is_cheaper_than_setup` compares the setup cost of BZ with packed enumeration of all words, and its rule is in the source.
 
 ### 4.5 Behavior spanning files
 
@@ -680,7 +680,7 @@ Changes to the BZ algorithm can use different representations, certificates, and
   Optional rounding requires a divisor valid for every eligible weight ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)).
   A certificate from another CSS sector needs justification for the sector where it is applied, just as any other certificate does.
 - **Keep the strict certificate available to fixed-weight counting.**
-  [logical_counts.py](logical_counts.py) builds its basis family with the same stages as the distance search, in `_select_sets` and `count_words` of [_counting/scan.py](_counting/scan.py), and stops at the first step after which that basis family's certificate exceeds a target weight `w`, to count every word of weight `w`, which defaults to the distance.
+  [logical_counts.py](logical_counts.py) builds its basis family with the same stages as the distance search, in `_select_basis_family` and `count_words` of [_counting/scan.py](_counting/scan.py), and stops at the first step after which that basis family's certificate exceeds a target weight `w`, to count every word of weight `w`, which defaults to the distance.
   Distance may stop at `L(t, j) ≥ U`, but counting must also exhaust words of weight exactly `w`, so it stops only at `L(t, j) > w`.
   A word of weight `w` belongs to the first step that visits it, and the steps that the scan visits are the first ones in order, so stopping within a layer still counts every such word once.
   Its bound must use the ranks and actual maximum coverage of the family it scans; it passes `upper_bound=w+1` to the family stages only to aim them at that stopping point.

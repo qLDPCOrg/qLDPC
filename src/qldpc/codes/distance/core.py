@@ -19,7 +19,7 @@ from ._binary import (
     symplectic_to_hamming,
 )
 from ._brouwer_zimmermann import (
-    exhaustive_is_cheaper,
+    enumeration_is_cheaper_than_setup,
     get_distance_brouwer_zimmermann,
 )
 from ._brute_force import get_distance_quantum_brute_force, get_nested_distance_brute_force
@@ -187,7 +187,7 @@ def get_distance_quantum(
     if method == "brouwer_zimmermann":
         # Verify independence before bypassing adapted-basis preparation.
         num_rows = len(logical_matrix) + len(stabilizer_matrix)
-        if exhaustive_is_cheaper(num_rows, num_bits) and num_rows == len(
+        if enumeration_is_cheaper_than_setup(num_rows, num_bits) and num_rows == len(
             get_independent_rows(np.vstack([stabilizer_matrix, logical_matrix]))
         ):
             distance = get_distance_quantum_brute_force(

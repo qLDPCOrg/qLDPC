@@ -104,7 +104,7 @@ def get_distance_brouwer_zimmermann_many(
     that first stage.  Each function is called only if its search needs it.
     """
     initial_upper_bounds = [
-        _get_brouwer_zimmermann_initial_upper_bound(basis, labels) for basis, labels in problems
+        _get_lightest_eligible_row_weight(basis, labels) for basis, labels in problems
     ]
     best = min(initial_upper_bounds)
     if upper_bound is not None:
@@ -180,7 +180,7 @@ def get_distance_brouwer_zimmermann(
 # cost models
 
 
-def exhaustive_is_cheaper(dimension: int, length: int) -> bool:
+def enumeration_is_cheaper_than_setup(dimension: int, length: int) -> bool:
     """Estimate whether enumerating every codeword is cheaper than building information sets.
 
     Setup costs dominate the Brouwer-Zimmermann search for dimensions up to 20.  For long,
@@ -190,7 +190,7 @@ def exhaustive_is_cheaper(dimension: int, length: int) -> bool:
     return dimension <= 20 or (dimension < 63 and 1 << dimension <= 128 * dimension * length)
 
 
-def _brute_force_is_cheaper(
+def _enumeration_is_cheaper_than_search(
     *,
     num_logical_rows: int,
     certificate: _information_sets.Certificate,
@@ -327,7 +327,7 @@ def _prepare_brouwer_zimmermann_search(
     best = min(
         upper_bound,
         (
-            _get_brouwer_zimmermann_initial_upper_bound(basis, labels)
+            _get_lightest_eligible_row_weight(basis, labels)
             if initial_upper_bound is None
             else initial_upper_bound
         ),
@@ -335,7 +335,7 @@ def _prepare_brouwer_zimmermann_search(
     if best <= cutoff:
         return best
 
-    if exhaustive_is_cheaper(dimension, basis.shape[1]):
+    if enumeration_is_cheaper_than_setup(dimension, basis.shape[1]):
         distance = get_nested_distance_brute_force(
             basis, labels, cutoff=cutoff, block_size=block_size, homogeneous=True
         )
@@ -388,7 +388,7 @@ def _prepare_brouwer_zimmermann_search(
         if lower_bound >= best:
             return best
 
-    if _brute_force_is_cheaper(
+    if _enumeration_is_cheaper_than_search(
         num_logical_rows=int(np.count_nonzero(get_eligible_rows(labels))),
         certificate=basis_family.certificate,
         upper_bound=best,
@@ -431,11 +431,11 @@ def _prepare_brouwer_zimmermann_search(
     )
 
 
-def _get_brouwer_zimmermann_initial_upper_bound(
+def _get_lightest_eligible_row_weight(
     basis: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8],
 ) -> int:
-    """Return the lightest eligible row in a nested-code basis."""
+    """Return the weight of the lightest eligible row of a nested-code basis."""
     packed_basis = pack_bits(basis[get_eligible_rows(labels)])
     # get row weights, summing in uint64 to avoid overflow in wide rows
     return int(np.bitwise_count(packed_basis).sum(axis=-1, dtype=np.uint64).min())
@@ -447,9 +447,7 @@ def _get_basis_family_upper_bound(
 ) -> int:
     """Tighten an upper bound with the systematic rows of a basis family: its layer-one words."""
     for generators, set_labels in zip(basis_family.generators, basis_family.labels, strict=True):
-        upper_bound = min(
-            upper_bound, _get_brouwer_zimmermann_initial_upper_bound(generators, set_labels)
-        )
+        upper_bound = min(upper_bound, _get_lightest_eligible_row_weight(generators, set_labels))
     return upper_bound
 
 

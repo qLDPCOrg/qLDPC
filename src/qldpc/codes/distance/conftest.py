@@ -27,10 +27,12 @@ def force_information_sets() -> Iterator[None]:
     with (
         mock.patch.multiple(
             "qldpc.codes.distance._brouwer_zimmermann",
-            exhaustive_is_cheaper=mock.Mock(return_value=False),
-            _brute_force_is_cheaper=mock.Mock(return_value=False),
+            enumeration_is_cheaper_than_setup=mock.Mock(return_value=False),
+            _enumeration_is_cheaper_than_search=mock.Mock(return_value=False),
         ),
-        mock.patch("qldpc.codes.distance.core.exhaustive_is_cheaper", return_value=False),
+        mock.patch(
+            "qldpc.codes.distance.core.enumeration_is_cheaper_than_setup", return_value=False
+        ),
     ):
         yield
 

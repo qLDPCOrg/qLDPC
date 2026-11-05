@@ -17,9 +17,6 @@ import numpy.typing as npt
 from qldpc._binary import get_inverse, pack_bits, popcount_word
 from qldpc._compilation import always_compiled
 
-_BinaryMatrix = npt.NDArray[np.uint8]
-
-
 ####################################################################################################
 # local Cliffords
 
@@ -66,7 +63,7 @@ def _get_cached_local_matrices(
     return local_x, local_z
 
 
-def _as_local_matrix(matrix: npt.ArrayLike, size: int) -> _BinaryMatrix:
+def _as_local_matrix(matrix: npt.ArrayLike, size: int) -> npt.NDArray[np.uint8]:
     """Validate a binary local Clifford matrix that acts on ``size`` targets."""
     order = getattr(type(matrix), "order", None)
     local = np.asarray(matrix)
@@ -77,7 +74,7 @@ def _as_local_matrix(matrix: npt.ArrayLike, size: int) -> _BinaryMatrix:
     return local.astype(np.uint8)
 
 
-def _get_dual_local_matrix(matrix_x: _BinaryMatrix) -> _BinaryMatrix:
+def _get_dual_local_matrix(matrix_x: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
     """Return the matrix for Z supports, ``matrix_z``, with ``matrix_x @ matrix_z.T = I``."""
     try:
         inverse = get_inverse(matrix_x)
@@ -86,7 +83,7 @@ def _get_dual_local_matrix(matrix_x: _BinaryMatrix) -> _BinaryMatrix:
     return inverse.T.copy()
 
 
-def _pack_local(matrix: _BinaryMatrix) -> npt.NDArray[np.uint64]:
+def _pack_local(matrix: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint64]:
     """Pack each row of a local matrix into one word, whose bit j is column j."""
     # There are at most 64 targets, so each row fits in a single word.
     return pack_bits(matrix)[:, 0]
@@ -98,8 +95,8 @@ def _pack_local(matrix: _BinaryMatrix) -> npt.NDArray[np.uint64]:
 
 @always_compiled
 def apply_local(
-    rows: _BinaryMatrix, positions: npt.NDArray[np.int64], local: npt.NDArray[np.uint64]
-) -> _BinaryMatrix:
+    rows: npt.NDArray[np.uint8], positions: npt.NDArray[np.int64], local: npt.NDArray[np.uint64]
+) -> npt.NDArray[np.uint8]:
     """Apply a packed local matrix to the target columns of a copy of the given rows.
 
     Column ``positions[i]`` of a row becomes the parity of ``local[i]`` and the word whose bit ``j``

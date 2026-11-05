@@ -240,8 +240,8 @@ def test_brouwer_zimmermann_setup_exits(
     )
 
     # Lower only the cost knobs, so that these small inputs reach the information-set search.
-    monkeypatch.setattr(bz, "exhaustive_is_cheaper", lambda *_: False)
-    monkeypatch.setattr(core, "exhaustive_is_cheaper", lambda *_: False)
+    monkeypatch.setattr(bz, "enumeration_is_cheaper_than_setup", lambda *_: False)
+    monkeypatch.setattr(core, "enumeration_is_cheaper_than_setup", lambda *_: False)
     if overlap:
         monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
     distance = qldpc.codes.get_distance_quantum(
@@ -259,7 +259,7 @@ def test_brouwer_zimmermann_setup_cutoffs() -> None:
         )
         == 3
     )
-    with mock.patch.object(bz, "exhaustive_is_cheaper", return_value=False):
+    with mock.patch.object(bz, "enumeration_is_cheaper_than_setup", return_value=False):
         assert (
             bz._prepare_brouwer_zimmermann_search(
                 basis, _no_labels(basis), cutoff=2, block_size=2, weight_divisor=1, upper_bound=4
@@ -423,11 +423,11 @@ def test_brouwer_zimmermann_reduces_enumeration_work(
     assert 0 < 1000 * get_candidate_count() < 2 ** len(generators)
 
 
-def test_brouwer_zimmermann_initial_upper_bound_excludes_stabilizers() -> None:
-    """The initial upper bound comes from eligible rows, not lighter stabilizers."""
+def test_the_lightest_eligible_row_excludes_stabilizers() -> None:
+    """Upper bounds from rows come from eligible rows, not lighter stabilizers."""
     basis = np.array([[1, 0, 0], [1, 1, 0]], dtype=np.uint8)
     labels = np.array([[0], [1]], dtype=np.uint8)
-    assert bz._get_brouwer_zimmermann_initial_upper_bound(basis, labels) == 2
+    assert bz._get_lightest_eligible_row_weight(basis, labels) == 2
 
 
 def test_brouwer_zimmermann_overlap_qc(get_candidate_count: Callable[[], int]) -> None:
@@ -467,7 +467,7 @@ def test_brouwer_zimmermann_overlap_improves_quotient_witness(
         assert len(selected.ranks) and selected.max_coverage > 1
         assert (
             min(
-                bz._get_brouwer_zimmermann_initial_upper_bound(generators, labels)
+                bz._get_lightest_eligible_row_weight(generators, labels)
                 for generators, labels in zip(selected.generators, selected.labels, strict=True)
             )
             > expected

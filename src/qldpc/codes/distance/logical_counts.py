@@ -50,8 +50,6 @@ from .core import _DISTANCE_METHODS, DistanceMethod
 if TYPE_CHECKING:
     from ..common import CSSCode
 
-_BinaryMatrix = npt.NDArray[np.uint8]
-
 
 # Batch size exponent passed to the distance searches, as in get_distance_quantum.
 _BLOCK_SIZE = 15
@@ -62,7 +60,7 @@ _BLOCK_SIZE = 15
 _MIN_SHARED_WALK_RANK = 14
 
 # The basis of a homogeneous sector, and its quotient labels.
-_Sector = tuple[_BinaryMatrix, _BinaryMatrix]
+_Sector = tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]
 
 LogicalCountMethod = Literal[
     "brouwer_zimmermann", "macwilliams", "brute_force", "information_sets", "weight_enumerator"
@@ -167,7 +165,10 @@ class CSSLogicalCounter:
 
         # Work that is done on demand and kept for later counts.
         self._forget_kept_work()
-        self._canonical: tuple[_BinaryMatrix, _BinaryMatrix] | None = (self._gauge_x, self._gauge_z)
+        self._canonical: tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]] | None = (
+            self._gauge_x,
+            self._gauge_z,
+        )
 
     @property
     def num_qubits(self) -> int:
@@ -309,8 +310,8 @@ class CSSLogicalCounter:
         # carries exactly three operators, so self-dual codes need no ranks.  Above d, a logical
         # Pauli need not have the support of a homogeneous logical, so the scans reject any
         # nontrivial word lighter than the target.
-        weigh = count_pauli and not self._self_dual
-        reject_above = count_pauli or within_distance
+        count_masked_ranks = count_pauli and not self._self_dual
+        reject_lighter = count_pauli or within_distance
         no_rows = self._gauge_x[:0]
 
         # Scan each sector, or only the X sector of a self-dual code.
@@ -318,10 +319,10 @@ class CSSLogicalCounter:
             *sector_x,
             target,
             method,
-            pack_bits(self._stabilizers_x if weigh else no_rows),
+            pack_bits(self._stabilizers_x if count_masked_ranks else no_rows),
             complement=False,
-            max_exponent=target if weigh else 0,
-            reject_lighter=reject_above,
+            max_exponent=target if count_masked_ranks else 0,
+            reject_lighter=reject_lighter,
             get_disjoint_basis_family=get_disjoint_basis_families[0],
             max_sets=max_sets,
         )
@@ -335,10 +336,10 @@ class CSSLogicalCounter:
                 *sector_z,
                 target,
                 method,
-                pack_bits(self._gauge_x if weigh else no_rows),
+                pack_bits(self._gauge_x if count_masked_ranks else no_rows),
                 complement=True,
-                max_exponent=len(self._gauge_x) if weigh else 0,
-                reject_lighter=reject_above,
+                max_exponent=len(self._gauge_x) if count_masked_ranks else 0,
+                reject_lighter=reject_lighter,
                 get_disjoint_basis_family=get_disjoint_basis_families[1],
                 max_sets=max_sets,
             )
@@ -607,7 +608,7 @@ class CSSLogicalCounter:
             )
         return self._disjoint_basis_families[index]
 
-    def _get_canonical_checks(self) -> tuple[_BinaryMatrix, _BinaryMatrix]:
+    def _get_canonical_checks(self) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
         """The checks in reduced row echelon form, which deformation does not preserve."""
         if self._canonical is None:
             self._canonical = (
@@ -755,8 +756,8 @@ def _get_distance(
 
 
 def _get_stabilizers(
-    gauge_x: _BinaryMatrix, gauge_z: _BinaryMatrix
-) -> tuple[_BinaryMatrix, _BinaryMatrix]:
+    gauge_x: npt.NDArray[np.uint8], gauge_z: npt.NDArray[np.uint8]
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
     """Independent bases of the stabilizers among the given gauge generators.
 
     The stabilizers are the gauge operators that commute with every gauge operator of the other
