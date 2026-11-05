@@ -399,14 +399,15 @@ class ALAPScheduler(_LayerScheduler):
 
 @dataclasses.dataclass(frozen=True, kw_only=True, repr=False)
 class MinIdleScheduler(_BuiltInScheduler):
-    """A scheduler that ignores TICKs and minimizes the idling that can change measurement results.
+    """A scheduler that ignores TICKs and minimizes the effective idling of qubits.
 
     It places gates to minimize the number of effective idle slots, which are the moments in which a
     qubit idles, except those of an idle run that ends at a reset (R, RX, RY, or RZ) or that follows
-    the last gate on the qubit if that gate measures it.  These are the moments in which idle errors
-    can change measurement results.  Each part of a circuit (see :class:`Schedule`) keeps the number
-    of moments that :class:`ASAPScheduler` gives it, which is the fewest possible.  The placement
-    comes from a linear program, which is solved exactly.
+    the last gate on the qubit if that gate measures it.  Idle errors in the excluded moments are
+    erased by the reset, or come after the last measurement of the qubit.  Each part of a circuit
+    (see :class:`Schedule`) is scheduled as if it were the whole circuit, and keeps the number of
+    moments that :class:`ASAPScheduler` gives it, which is the fewest possible.  The placement comes
+    from a linear program, which is solved exactly.
 
     Args:
         single_qubit_gates_take_time: As in :class:`ASAPScheduler`.
