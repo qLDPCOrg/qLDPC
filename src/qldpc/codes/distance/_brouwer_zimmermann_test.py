@@ -158,8 +158,9 @@ def test_brouwer_zimmermann_search_state() -> None:
     search.cutoff = -(2**100)
     assert search.advance() == 1
     assert (search.lower_bound, search.next_weight) == (0, 2)
+    # After the last layer, every word has been visited, so the certificate rules out all of them.
     assert search.advance() == 1
-    assert (search.lower_bound, search.next_weight) == (1, 3)
+    assert (search.lower_bound, search.next_weight) == (np.iinfo(np.int64).max, 3)
 
 
 # Each case reaches one early exit from search setup or a shared search with real inputs.  These
@@ -507,3 +508,53 @@ def get_candidate_count(monkeypatch: pytest.MonkeyPatch) -> Callable[[], int]:
     monkeypatch.setattr(np, "bitwise_count", counting_bitwise_count)
     monkeypatch.setattr(bz, "_scan_brouwer_zimmermann", counting_scan)
     return lambda: num_candidates
+
+
+@pytest.mark.usefixtures("force_information_sets")
+def test_a_search_scans_every_set_that_its_certificate_counts() -> None:
+    """A [22, 7, 5] code whose search finds a word of weight five only in its second set.
+
+    Its two disjoint information sets reach the certificate six once both complete layer two, and
+    the first word of weight five is in layer two of the second set.  A search that counted the
+    second set's layer without scanning it would return six.
+    """
+    rows = [
+        "1000100010001101001110",
+        "0100100010000111110000",
+        "0010000010000100101010",
+        "0001100010000000011111",
+        "0000010110000001011001",
+        "0000001100000010001011",
+        "0000000000101110101110",
+    ]
+    basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
+    assert qldpc.codes.get_distance_classical(basis, cutoff=0, method="brute_force") == 5
+    assert qldpc.codes.get_distance_classical(basis, cutoff=0) == 5
+
+
+@pytest.mark.usefixtures("force_information_sets")
+def test_a_search_through_the_costly_stages_finds_the_distance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A [21, 8, 6] code, searched with a partitioned family and a certificate of linear programs.
+
+    With the thresholds of the costly stages lowered, the search of this code replaces its family by
+    information sets from matroid partitioning, whose columns lie in up to two of them, and bounds
+    unvisited words by linear programming.
+    """
+    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
+    monkeypatch.setattr(_information_sets, "LP_MINIMUM_WORK", 0)
+    monkeypatch.setattr(_information_sets, "PARTITION_WORK_RATIO", 0)
+    rows = [
+        "100000010110010010011",
+        "010000010100101111100",
+        "001000000111011111100",
+        "000100010101000101010",
+        "000010010110000011000",
+        "000001010011000111011",
+        "000000110001110101011",
+        "000000001110001010110",
+    ]
+    basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
+    assert qldpc.codes.get_distance_classical(basis, cutoff=0, method="brute_force") == 6
+    assert qldpc.codes.get_distance_classical(basis, cutoff=0) == 6

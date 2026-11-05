@@ -259,8 +259,9 @@ class _CosetSearchTables(NamedTuple):
         generators: The packed rows of each disjoint information set of the embedded generators of
             the code.
         pivots: The pivot columns of each information set, padded with -1.
-        unvisited_bounds: Entry ``w`` is a lower bound on the weight of every word that the search
-            has not visited by the end of layer ``w``.
+        unvisited_bounds: Entry ``[w, j]`` is a lower bound on the weight of every word that the
+            search has not visited once the first ``j`` information sets have completed layer ``w``
+            and the others have completed layer ``w - 1`` (see ``get_step_lower_bounds``).
         x_mask: Selects the bits of a packed embedded word that count as its X part.  A search of X
             or Z parts selects every column, so that the CSS weight of a word is its Hamming weight.
     """
@@ -482,12 +483,13 @@ def _get_search_tables(
     """Build the tables of ``_search_coset`` for the cosets of the row space of embedded generators.
 
     ``inverse`` holds embedded words whose syndromes have one bit set, and the first
-    ``num_x_columns`` columns count as the X part of an embedded word.  Entry ``w`` of the
-    certificate bounds the Hamming weight of every word that adds more than ``w`` rows on every
-    information set, and its half bounds the weight of an error if ``halve``.  The certificate takes
-    no weight divisor, since the words of a coset need not share the divisibility of the code, and a
-    coverage of one, since the information sets are disjoint.  Without generators, each coset is a
-    single word, which the search visits on layer zero of an empty information set.
+    ``num_x_columns`` columns count as the X part of an embedded word.  Entry ``[w, j]`` of the
+    certificate bounds the Hamming weight of every word that adds more than ``w`` rows on each of
+    the first ``j`` information sets and more than ``w - 1`` rows on the others, and its half bounds
+    the weight of an error if ``halve``.  The certificate takes no weight divisor, since the words
+    of a coset need not share the divisibility of the code, and a coverage of one, since the
+    information sets are disjoint.  Without generators, each coset is a single word, which the
+    search visits on layer zero of an empty information set.
     """
     num_generators, num_columns = generators.shape
     width = max(1, (num_columns + 63) // 64)
@@ -498,18 +500,19 @@ def _get_search_tables(
             num_sets, num_generators, -1
         )
         set_pivots = family.pivots
-        certificate_bounds = _information_sets.get_certificate_lower_bounds(
+        certificate_bounds = _information_sets.get_step_lower_bounds(
             num_generators, family.ranks, 1, 1
         )
-        unvisited_bounds = ((certificate_bounds + 1) // 2 if halve else certificate_bounds).astype(
-            np.int64
-        )
+        # Round half of each bound up, without overflowing the bounds after the last layer.
+        unvisited_bounds = (
+            certificate_bounds - certificate_bounds // 2 if halve else certificate_bounds
+        ).astype(np.int64)
+        unvisited_bounds[num_generators, 1:] = np.iinfo(np.int64).max
     else:
         packed_generators = np.zeros((1, 0, width), dtype=np.uint64)
         set_pivots = np.full((1, 0), -1, dtype=np.int64)
-        unvisited_bounds = np.zeros(1, dtype=np.int64)
-    # After the last layer, every word has been visited.
-    unvisited_bounds[num_generators] = np.iinfo(np.int64).max
+        # The one empty set visits the only word of each coset on layer zero.
+        unvisited_bounds = np.array([[0, np.iinfo(np.int64).max]], dtype=np.int64)
     x_mask = _int_to_words((1 << num_x_columns) - 1, width)
     return _CosetSearchTables(
         pack_bits(inverse), packed_generators, set_pivots, unvisited_bounds, x_mask
@@ -637,10 +640,13 @@ def _search_coset(
     certificate applies to the coset as it does to a space.  Layer ``w`` of a set is its offset plus
     each sum of ``w`` of its rows, so layer zero is the offset itself.
 
-    The search visits layer zero on every information set, then layer one, and so on.  It keeps the
-    lightest word visited in ``best``, and stops at the first word of weight at most ``max_weight``.
-    After layer ``w``, every unvisited word weighs at least ``unvisited_bounds[w]``, so the search
-    also stops when that exceeds ``max_weight``.
+    The search visits layer zero on every information set in order, then layer one, and so on.  It
+    keeps the lightest word visited in ``best``, and stops at the first word of weight at most
+    ``max_weight``.  Once the first ``j`` sets have completed layer ``w``, every unvisited word
+    weighs at least ``unvisited_bounds[w, j]``, so the search also stops at the first such step
+    whose bound exceeds ``max_weight``.  A set of rank deficiency ``s`` adds to that bound only once
+    it has completed layer ``s``, so a set that would not have completed it by that step adds
+    nothing, and the search skips it.
 
     Return a lower bound on the weight of every word in the coset: zero, which is at most
     ``max_weight``, if ``best`` has weight at most ``max_weight``, and otherwise a bound that
@@ -675,12 +681,37 @@ def _search_coset(
                 for word in range(width):
                     offsets[basis, word] ^= generators[basis, row, word]
 
+    # Find the first step whose bound exceeds the maximum weight: ``stop_num_completed`` sets
+    # complete layer ``stop_layer``.  The search stops there, unless it finds a light enough word
+    # sooner.
+    stop_layer, stop_num_completed = num_rows, num_sets
+    found = False
+    for layer in range(num_rows + 1):
+        for num_completed in range(1, num_sets + 1):
+            if unvisited_bounds[layer, num_completed] > max_weight:
+                stop_layer, stop_num_completed, found = layer, num_completed, True
+                break
+        if found:
+            break
+
+    # Skip the sets whose rank deficiency exceeds the last layer that they would complete, since
+    # they add nothing to the bound of that step.
+    skipped = np.zeros(num_sets, dtype=np.bool_)
+    for basis in range(num_sets):
+        rank = 0
+        while rank < num_rows and pivots[basis, rank] >= 0:
+            rank += 1
+        last_layer = stop_layer if basis < stop_num_completed else stop_layer - 1
+        skipped[basis] = last_layer + 1 <= num_rows - rank
+
     # The arguments of ``_visit_layer``, which visits one information set at a time.
     widths = np.full(1, width, dtype=np.int64)
     support = np.empty(num_rows, dtype=np.int64)
     prefixes = np.empty((num_rows, 1, width), dtype=np.uint64)
-    for layer in range(num_rows + 1):
-        for basis in range(num_sets):
+    for layer in range(stop_layer + 1):
+        for basis in range(num_sets if layer < stop_layer else stop_num_completed):
+            if skipped[basis]:
+                continue
             if layer == 0:
                 best_weight = _keep_lighter(
                     offsets[basis], zero, best, best_weight, x_mask, css_weight
@@ -700,9 +731,7 @@ def _search_coset(
                 )
             if best_weight <= max_weight:
                 return np.int64(0)
-        if unvisited_bounds[layer] > max_weight:
-            break
-    return min(best_weight, unvisited_bounds[layer])
+    return min(best_weight, np.int64(unvisited_bounds[stop_layer, stop_num_completed]))
 
 
 @always_compiled
@@ -723,22 +752,48 @@ def _visit_layer(
     The offset, the rows, and the weights are those of ``_search_coset``.  ``rows`` has shape
     ``(1, num_rows, num_words)``, a stack of one set, because ``advance_support`` takes a stack of
     sets, and each row has ``num_words`` machine words.  ``widths`` is ``[num_words]``, and
-    ``support`` and ``prefixes`` are work space for ``advance_support``.  Keep the lightest word in
-    ``best``, as ``_keep_lighter`` does, stop at the first word of weight at most ``max_weight``,
-    and return the weight of ``best``.
+    ``support`` and ``prefixes`` are work space for ``advance_support``.  ``best_weight``, the
+    weight of ``best``, must exceed ``max_weight``.  Keep the lightest word in ``best``, as
+    ``_keep_lighter`` does, stop at the first word of weight at most ``max_weight``, and return the
+    weight of ``best``.
+
+    This is the innermost loop of the search, so it weighs each word inline, and stops counting
+    once the counts so far show that the word is no lighter than ``best``.  These counts are lower
+    bounds on the full counts, so a word is kept exactly when ``_keep_lighter`` would keep it.
     """
-    num_rows = rows.shape[1]
+    _, num_rows, num_words = rows.shape
     prefixes[0, 0] = offset
     support[0] = 0
     depth = advance_support(rows, widths, support, prefixes, 0)
     while depth >= 0:
         # Visit the remaining supports that differ from this one only in their last row.
         for row in range(support[depth], num_rows):
-            best_weight = _keep_lighter(
-                prefixes[depth, 0], rows[0, row], best, best_weight, x_mask, css_weight
-            )
-            if best_weight <= max_weight:
-                return best_weight
+            # Weigh the word: its CSS weight is the larger of its X and Z counts, and its physical
+            # weight is half the Hamming weight of its embedded word.
+            if css_weight:
+                x_ones = z_ones = np.int64(0)
+                for index in range(num_words):
+                    word = prefixes[depth, 0, index] ^ rows[0, row, index]
+                    x_ones += popcount_word(word & x_mask[index])
+                    z_ones += popcount_word(word & ~x_mask[index])
+                    if x_ones >= best_weight or z_ones >= best_weight:
+                        break
+                weight = max(x_ones, z_ones)
+            else:
+                ones = np.int64(0)
+                for index in range(num_words):
+                    ones += popcount_word(prefixes[depth, 0, index] ^ rows[0, row, index])
+                    if ones >= 2 * best_weight:
+                        break
+                weight = ones // 2
+
+            # Keep the word if it is lighter, and stop if it is light enough.
+            if weight < best_weight:
+                best_weight = weight
+                for index in range(num_words):
+                    best[index] = prefixes[depth, 0, index] ^ rows[0, row, index]
+                if best_weight <= max_weight:
+                    return best_weight
         support[depth] = num_rows
         depth = advance_support(rows, widths, support, prefixes, depth)
     return best_weight
