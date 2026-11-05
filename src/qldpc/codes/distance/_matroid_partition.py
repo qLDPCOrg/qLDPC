@@ -4,7 +4,7 @@
 
 The columns of a binary basis with ``k`` independent rows form a linear matroid, whose independent
 sets are the sets of linearly independent columns, and whose bases of size ``k`` are the information
-sets.  Lisonek and Trummer, "Algorithms for the minimum weight of linear codes," *Advances in
+sets.  Lisoněk and Trummer, "Algorithms for the minimum weight of linear codes," *Advances in
 Mathematics of Communications* 10(1), 195-207 (2016), Section 5.1, find the largest number of
 information sets in which no column appears more than ``b`` times by partitioning ``b`` copies of
 each column into independent sets, with Edmonds' matroid partitioning algorithm.

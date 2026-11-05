@@ -681,14 +681,15 @@ def _search_coset(
                 for word in range(width):
                     offsets[basis, word] ^= generators[basis, row, word]
 
-    # Find the first step whose bound exceeds the maximum weight: ``stop_count`` sets complete layer
-    # ``stop_layer``.  The search stops there, unless it finds a light enough word sooner.
-    stop_layer, stop_count = num_rows, num_sets
+    # Find the first step whose bound exceeds the maximum weight: ``stop_num_completed`` sets
+    # complete layer ``stop_layer``.  The search stops there, unless it finds a light enough word
+    # sooner.
+    stop_layer, stop_num_completed = num_rows, num_sets
     found = False
     for layer in range(num_rows + 1):
-        for count in range(1, num_sets + 1):
-            if unvisited_bounds[layer, count] > max_weight:
-                stop_layer, stop_count, found = layer, count, True
+        for num_completed in range(1, num_sets + 1):
+            if unvisited_bounds[layer, num_completed] > max_weight:
+                stop_layer, stop_num_completed, found = layer, num_completed, True
                 break
         if found:
             break
@@ -700,7 +701,7 @@ def _search_coset(
         rank = 0
         while rank < num_rows and pivots[basis, rank] >= 0:
             rank += 1
-        last_layer = stop_layer if basis < stop_count else stop_layer - 1
+        last_layer = stop_layer if basis < stop_num_completed else stop_layer - 1
         skipped[basis] = last_layer + 1 <= num_rows - rank
 
     # The arguments of ``_visit_layer``, which visits one information set at a time.
@@ -708,7 +709,7 @@ def _search_coset(
     support = np.empty(num_rows, dtype=np.int64)
     prefixes = np.empty((num_rows, 1, width), dtype=np.uint64)
     for layer in range(stop_layer + 1):
-        for basis in range(num_sets if layer < stop_layer else stop_count):
+        for basis in range(num_sets if layer < stop_layer else stop_num_completed):
             if skipped[basis]:
                 continue
             if layer == 0:
@@ -730,7 +731,7 @@ def _search_coset(
                 )
             if best_weight <= max_weight:
                 return np.int64(0)
-    return min(best_weight, np.int64(unvisited_bounds[stop_layer, stop_count]))
+    return min(best_weight, np.int64(unvisited_bounds[stop_layer, stop_num_completed]))
 
 
 @always_compiled

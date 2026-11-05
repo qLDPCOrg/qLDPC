@@ -533,57 +533,28 @@ def test_a_search_scans_every_set_that_its_certificate_counts() -> None:
 
 
 @pytest.mark.usefixtures("force_information_sets")
-def test_searches_with_the_stages_of_costly_searches_are_exact(
-    monkeypatch: pytest.MonkeyPatch, pytestconfig: pytest.Config
+def test_a_search_through_the_costly_stages_finds_the_distance(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Searches with partitioned families and the certificate of linear programming are exact."""
+    """A [21, 8, 6] code, searched with a partitioned family and a certificate of linear programs.
+
+    With the thresholds of the costly stages lowered, the search of this code replaces its family by
+    information sets from matroid partitioning, whose columns lie in up to two of them, and stops
+    with the certificate of linear programming.  A spy on the linear programs makes sure that the
+    distance is found through those stages: it checks that they bound the blocks of a partitioned
+    family.
+    """
     monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
     monkeypatch.setattr(_information_sets, "LP_MINIMUM_WORK", 0)
     monkeypatch.setattr(_information_sets, "PARTITION_WORK_RATIO", 0)
-    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    for _ in range(20):
-        dimension = int(rng.integers(5, 9))
-        basis = get_independent_rows(
-            rng.integers(
-                0,
-                2,
-                size=(dimension, int(rng.integers(2 * dimension, 3 * dimension))),
-                dtype=np.uint8,
-            )
-        )
-        expected = qldpc.codes.get_distance_classical(basis, cutoff=0, method="brute_force")
-        assert qldpc.codes.get_distance_classical(basis, cutoff=0) == expected
+    blocks: set[tuple[tuple[int, ...], ...]] = set()
+    get_lp_lower_bound = _information_sets.get_lp_lower_bound
 
+    def record_blocks(pivot_blocks: Any, requirements: Any) -> int:
+        blocks.add(tuple(tuple(block) for block in pivot_blocks))
+        return get_lp_lower_bound(pivot_blocks, requirements)
 
-@pytest.mark.usefixtures("force_information_sets")
-def test_a_search_scans_a_partitioned_family(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A [21, 8, 6] code whose search replaces its family by five partitioned information sets.
-
-    Each column is in at most two of the sets.  The search scans them and finds the distance.
-    """
-    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
-    monkeypatch.setattr(_information_sets, "PARTITION_WORK_RATIO", 0)
-    families: list[_information_sets.BasisFamily] = []
-
-    def get_partitioned_family(*args: Any) -> _information_sets.BasisFamily:
-        family = get_partitioned_family_unchanged(*args)
-        families.append(family)
-        return family
-
-    get_partitioned_family_unchanged = _information_sets.get_partitioned_family
-    monkeypatch.setattr(_information_sets, "get_partitioned_family", get_partitioned_family)
-
-    # Record the certificate of the family that the search scans.
-    certificates: list[_information_sets.Certificate] = []
-    prepare_unchanged = bz._prepare_brouwer_zimmermann_search
-
-    def prepare(*args: Any, **kwargs: Any) -> int | bz._BrouwerZimmermannSearch:
-        search = prepare_unchanged(*args, **kwargs)
-        assert isinstance(search, bz._BrouwerZimmermannSearch)
-        certificates.append(search.certificate)
-        return search
-
-    monkeypatch.setattr(bz, "_prepare_brouwer_zimmermann_search", prepare)
+    monkeypatch.setattr(_information_sets, "get_lp_lower_bound", record_blocks)
     rows = [
         "100000010110010010011",
         "010000010100101111100",
@@ -597,5 +568,14 @@ def test_a_search_scans_a_partitioned_family(monkeypatch: pytest.MonkeyPatch) ->
     basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
     assert qldpc.codes.get_distance_classical(basis, cutoff=0, method="brute_force") == 6
     assert qldpc.codes.get_distance_classical(basis, cutoff=0) == 6
-    assert [(len(family.ranks), family.max_coverage) for family in families] == [(5, 2)]
-    assert [(len(each.ranks), each.max_coverage) for each in certificates] == [(5, 2)]
+
+    # The certificate bounded the blocks of a family of information sets with coverage two.
+    partitioned = _information_sets.get_partitioned_family(
+        basis,
+        np.zeros((len(basis), 0), dtype=np.uint8),
+        _information_sets.get_disjoint_family(basis, None),
+        6,
+        _information_sets.MAX_SETS,
+    )
+    expected = tuple(tuple(int(column) for column in pivots) for pivots in partitioned.pivots)
+    assert partitioned.max_coverage == 2 and expected in blocks

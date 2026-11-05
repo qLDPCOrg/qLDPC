@@ -257,10 +257,11 @@ class _BrouwerZimmermannSearch:
         self.best = min(self.best, upper_bound)
 
     def advance(self) -> int:
-        """Search one coefficient weight and return the best shared upper bound.
+        """Search the next coefficient layer, and return the best shared upper bound.
 
-        It scans only the leading sets whose completion of the layer certifies the best weight at
-        the start of the layer (see ``Certificate.get_num_sets_to_certify``).
+        The search scans the fewest leading sets whose completion of the layer certifies the best
+        weight at the start of the layer, or every set if no fewer do (see
+        ``Certificate.get_num_sets_to_certify``).
         """
         if self.finished:
             return self.best
@@ -269,12 +270,12 @@ class _BrouwerZimmermannSearch:
         # weight: an unvisited eligible word lighter than that would contradict the certificate, and
         # lighter witnesses found during the scan only lower the best weight further.
         weight = self.next_weight
-        num_scanned = self.certificate.get_num_sets_to_certify(weight, self.best)
-        scanned = slice(0, num_scanned)
+        num_completed = self.certificate.get_num_sets_to_certify(weight, self.best)
+        scanned = slice(0, num_completed)
 
         # Start a fresh enumeration of all supports with this coefficient weight.
         support = np.zeros(weight, dtype=np.int64)
-        prefixes = np.zeros((weight + 1, num_scanned, self.generators.shape[2]), dtype=np.uint64)
+        prefixes = np.zeros((weight + 1, num_completed, self.generators.shape[2]), dtype=np.uint64)
         depth = 0
         # Any negative Python cutoff disables early exit; keep its native value in int64 range.
         cutoff = max(-1, self.cutoff)
@@ -298,8 +299,8 @@ class _BrouwerZimmermannSearch:
                 return self.best
 
         # The scanned sets have completed the layer, so the family certificate may advance.
-        self.lower_bound = self.certificate.step_lower_bound(weight, num_scanned)
-        if num_scanned == len(self.ranks):
+        self.lower_bound = self.certificate.step_lower_bound(weight, num_completed)
+        if num_completed == len(self.ranks):
             self.next_weight += 1
         return self.best
 

@@ -12,12 +12,12 @@ It is organized as follows:
 - [Section 4](#4-guide-to-the-source-code) is a guide to the source code: how the modules are organized, how a computation flows through them, which code names correspond to the concepts of [Section 2](#2-the-brouwer-zimmermann-algorithm) and [Section 3](#3-extensions-and-optimizations), and which behavior spans several files.
 - [Section 5](#5-correctness-requirements) summarizes the correctness requirements that apply when changing the implementation.
 
-Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations) have been carefully reviewed to help human readers understand the BZ algorithm and its implementation in qLDPC at a high level.
+Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations) are intended to help readers understand the BZ algorithm and its implementation in qLDPC at a high level.
 Sections [4](#4-guide-to-the-source-code) and [5](#5-correctness-requirements) are highly technical summaries written to help AI agents navigate the BZ implementation in qLDPC.
 
 ## 2. The Brouwer-Zimmermann algorithm
 
-This section describes BZ as presented in [arXiv:1603.06757](https://arxiv.org/abs/1603.06757) and [arXiv:2408.10743](https://arxiv.org/abs/2408.10743), with the certificate within a layer of Grassl's chapter and of Lisoněk and Trummer (see [References](#references)).
+This section describes BZ as presented in [arXiv:1603.06757](https://arxiv.org/abs/1603.06757) and [arXiv:2408.10743](https://arxiv.org/abs/2408.10743), and it also describes the certificate within a layer, from Grassl's chapter and from Lisoněk and Trummer (see [References](#references)).
 
 ### 2.1 The problem
 
@@ -166,10 +166,11 @@ $$
 $$
 
 `L(t, 0) = L(t-1)` and `L(t, m) = L(t)`.
-When a layer starts, qLDPC finds the fewest leading bases whose completion of the layer makes `L(t, j) ≥ U`, and it searches only those bases in that layer.
-This can save most of the last layer, which is the most expensive one.
 Completing layer `t` in search basis `j` is step `(t, j)`, and the steps run in the order `(1, 1), ..., (1, m), (2, 1), ...`.
-Grassl notes this improvement in footnote 2 of his chapter, on page 295 of *Discovering Mathematics with Magma*, and Magma uses it; equation (5) of Lisoněk and Trummer states it in the form of Zimmermann's certificate of [Section 3.1](#31-overlapping-search-bases).
+When a layer starts, qLDPC finds the fewest leading bases whose completion of the layer makes `L(t, j) ≥ U`, and it searches only those bases in that layer.
+This can save most of the last layer, which often dominates the cost.
+Grassl notes this improvement in footnote 2 of his chapter, on page 295 of *Discovering Mathematics with Magma*, and Magma uses it.
+Equation (5) of Lisoněk and Trummer gives the same certificate for these disjoint blocks.
 
 The cost of this loop is measured in **candidate/set evaluations**.
 One candidate/set evaluation is the examination of one selection of rows in one basis.
@@ -264,7 +265,7 @@ For `m` blocks that are information sets, this yields a certificate `L(t)` of ab
 Let `C` be the **maximum coverage** of an overlapping family, which is the largest number of blocks `B_i` that contain any single column index.
 Suppose that each search basis of the family has been searched through coefficient weight `t`, and let `v` be an eligible word that was not examined in any of them.
 As in [Section 2.5](#25-the-stopping-certificate), `wt(v|_{B_i}) ≥ b_i(t)` for every `i`.
-Each nonzero coordinate `j` of `v` is counted in `wt(v|_{B_i})` for every block `B_i` that contains `j`, and there are at most `C` such blocks.
+Each nonzero coordinate `c` of `v` is counted in `wt(v|_{B_i})` for every block `B_i` that contains `c`, and there are at most `C` such blocks.
 Summing over blocks therefore gives
 
 $$
@@ -289,7 +290,7 @@ The formula holds whether or not each block is an information set, through the t
 Within a layer, the same argument divides the sum of [Section 2.5](#25-the-stopping-certificate) that defines `L(t, j)` by `C`.
 
 Overlapping information sets are part of the published algorithm.
-Grassl's chapter (page 291 and Algorithm 2.5, see [References](#references)) credits Zimmermann with a certificate for an ordered list of blocks that are information sets, `sum_j max(0, t+1 - o_j)`, where `o_j` is the number of columns of the `j`-th block that also lie in an earlier block; Grassl calls `r - o_j` the relative rank of the block.
+Grassl's chapter (page 291 and Algorithm 2.5, see [References](#references)) credits Zimmermann with a certificate for an ordered list of blocks that are information sets, `sum_i max(0, t+1 - o_i)`, where `o_i` is the number of columns of the `i`-th block that also lie in an earlier block; Grassl calls `r - o_i` the relative rank of the block.
 Proposition 5 of Lisoněk and Trummer gives the coverage-divided certificate above when every block has the same bound `b_i(t) = t+1`, and its proof covers different bounds, which qLDPC uses for rank-deficient blocks and for steps within a layer.
 Neither Zimmermann's certificate nor the coverage-divided one dominates the other, and the linear program below dominates both.
 [arXiv:1603.06757](https://arxiv.org/abs/1603.06757v2) mentions the overlapping case in its Section 2, citing Grassl, without giving a formula.
@@ -495,7 +496,7 @@ The counts cover only enumeration; building and packing the search bases costs e
 ## 4. Guide to the source code
 
 **Audience note:** This section is a highly technical summary written to help AI agents navigate the BZ implementation in qLDPC.
-For a carefully reviewed, high-level explanation intended for human readers, see Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations).
+For a high-level explanation, see Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations).
 
 This section is a guide to the source files in this directory.
 It connects the concepts of Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations) to modules, identifiers, and behavior that spans files.
@@ -611,8 +612,10 @@ With an early-exit cutoff above one, a different search order can find a differe
   It returns a basis family with no sets if the existing work is below `minimum_work`, if the blocks already use every nonzero column, if the family is at `max_sets`, or if even the optimistic coverage `ceil(m*r/N)` cannot reduce the estimate.
   Otherwise it builds search bases by row reducing on column orders that put the least-used columns first, breaking ties with a generator that `get_overlapping_family_policy` seeds afresh for every call, and keeps the cheapest family built.
   A repeated pivot set is discarded, but it still consumes one of a bounded number of attempts.
-- **`get_partitioned_family`** builds families of information sets in which no column appears more than two, three, or four times, for searches whose estimated work is at least `PARTITION_WORK_RATIO` times an estimate of the work of partitioning, and whose family the optimistic coverage `ceil(m*r/N)` does not rule out improving, by the matroid partitioning of Section 5.1 of Lisoněk and Trummer (see [References](#references)) in `_matroid_partition.py`.
-  Each such family has the most information sets, up to `max_sets`, that the coverage `b` allows, and a search uses the one with the least estimated work if it does less work than the family of the earlier stages.
+- **`get_partitioned_family`** builds families of information sets in which no column appears more than `b` times, for `b` from two to four.
+  It uses the matroid partitioning of Section 5.1 of Lisoněk and Trummer (see [References](#references)), in `_matroid_partition.py`, so each family has the most information sets, up to `max_sets`, that its coverage allows.
+  A search uses the family with the least estimated work if it does less work than the family of the earlier stages.
+  It tries this only if its estimated work is at least `PARTITION_WORK_RATIO` times an estimate of the work of partitioning, and the optimistic coverage `ceil(m*r/N)` does not rule out an improvement.
 - **`get_search_certificate`** adds the certificate from linear programming ([Section 3.1](#31-overlapping-search-bases)) to searches of overlapping families whose estimated work reaches `LP_MINIMUM_WORK`, since smaller searches cost less than their linear programs.
   The work estimates that choose families use only the coverage-divided certificate.
 - **`Certificate.work`, `_brute_force_is_cheaper`, and `exhaustive_is_cheaper`** are cost models, which [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) explains.
@@ -660,7 +663,7 @@ With an early-exit cutoff above one, a different search order can find a differe
 ## 5. Correctness requirements
 
 **Audience note:** This section is a highly technical summary written to help AI agents navigate the BZ implementation in qLDPC.
-For a carefully reviewed, high-level explanation intended for human readers, see Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations).
+For a high-level explanation, see Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations).
 
 Changes to the BZ algorithm can use different representations, certificates, and search strategies while preserving the following requirements for the nontrivial problems of [Section 2.1](#21-the-problem).
 

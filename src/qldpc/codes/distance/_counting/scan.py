@@ -76,7 +76,7 @@ def count_words(
     if method == "brute_force":
         rows, packed_labels = pack_bits(basis)[np.newaxis], pack_bits(labels)[np.newaxis]
         extractors = np.zeros((1, 0, rows.shape[2]), dtype=np.uint64)
-        last_layer, last_num_sets = len(basis), 1
+        last_layer, last_num_completed = len(basis), 1
     else:
         sets = _select_sets(
             basis,
@@ -86,13 +86,16 @@ def count_words(
             max_sets,
             *_information_sets.get_overlapping_family_policy(len(basis)),
         )
+        # Matroid partitioning runs outside of _select_sets, which can be compiled.
         partitioned = _information_sets.get_partitioned_family(
             basis, labels, sets, weight + 1, max_sets
         )
         if len(partitioned.ranks):
             sets = partitioned
         rows, packed_labels, extractors = _pack_sets(sets, basis.shape[1], labels.shape[1])
-        last_layer, last_num_sets = _get_last_step(sets.get_search_certificate(weight + 1), weight)
+        last_layer, last_num_completed = _get_last_step(
+            sets.get_search_certificate(weight + 1), weight
+        )
 
     # Scan in bounded calls, which compiled code cannot be interrupted within.
     histogram = np.zeros(max_exponent + 1, dtype=np.int64)
@@ -110,7 +113,7 @@ def count_words(
             rows.shape[2],
             extractors,
             last_layer,
-            last_num_sets,
+            last_num_completed,
             weight,
             rank_rows,
             complement,
@@ -166,11 +169,10 @@ def _select_sets(
     binomials: npt.NDArray[np.int64],
     rng: np.random.Generator,
 ) -> _information_sets.BasisFamily:
-    """Select BZ information sets that certify every word of the given weight.
+    """Run the basis family stages that can be compiled: pruning, then an overlapping replacement.
 
-    The basis family stages aim at the counting stop ``L(t) >= weight + 1``; any basis family gives
-    an exact count.  The certificate of the result gives the last step to scan (see
-    ``_get_last_step``).
+    The stages aim at the counting stop ``L(t) >= weight + 1``; any basis family gives an exact
+    count.
     """
     upper_bound = weight + 1
     sets = _information_sets.prune_family(basis_family, upper_bound)
@@ -202,9 +204,9 @@ def _get_last_step(certificate: _information_sets.Certificate, weight: int) -> t
     """The first step after which the certificate rules out unvisited words of the given weight.
 
     A step completes a layer of one set, and the scan visits the sets of each layer in family order.
-    Returns the layer of that step, and the number of sets that have completed that layer.
-    Equality with the weight would still allow unvisited words of the weight, so the certificate
-    must exceed it.
+    Returns the layer of that step, and the number of sets that have completed that layer.  Equality
+    with the weight would still allow unvisited words of the weight, so the certificate must exceed
+    it.
     """
     # The first set to complete the last layer visits every word, so some step certifies.
     steps = itertools.product(
@@ -254,7 +256,7 @@ def _scan_coefficient_layers(
     width: int,
     extractors: _PackedMatrix,
     last_layer: int,
-    last_num_sets: int,
+    last_num_completed: int,
     target: int,
     rank_rows: _PackedMatrix,
     complement: bool,
@@ -270,12 +272,13 @@ def _scan_coefficient_layers(
     """Visit the supports of each layer in each set, for at most ``max_chunks`` chunks.
 
     The layers run from one to ``last_layer``, and each set visits all of its supports of that many
-    rows (see ``_count_chunk``), except that only the first ``last_num_sets`` sets visit the last
-    layer.  The scan visits the steps, the pairs of a layer and a set, in lexicographic order, so
-    the steps that it visits are a prefix of that order.  Each word of the target weight is owned by
-    the first step that visits it (see ``_is_owned``), which therefore lies in the prefix, since the
-    certificate rules out unvisited words of the target weight after its last step.  This loop is a
-    function of its own so that it can be compiled, which saves a call from Python for every chunk.
+    rows (see ``_count_chunk``), except that only the first ``last_num_completed`` sets visit the
+    last layer.  The scan visits the steps, the pairs of a layer and a set, in lexicographic order,
+    so the steps that it visits are a prefix of that order.  Each word of the target weight is owned
+    by the first step that visits it (see ``_is_owned``), which therefore lies in the prefix, since
+    the certificate rules out unvisited words of the target weight after its last step.  This loop
+    is a function of its own so that it can be compiled, which saves a call from Python for every
+    chunk.
 
     The scan is resumable, since compiled code cannot be interrupted.  ``cursor`` holds the layer,
     the set, and the depth at which to resume, and ``support`` and ``prefixes`` hold the current
@@ -289,7 +292,7 @@ def _scan_coefficient_layers(
     """
     while cursor[_CURSOR_LAYER] <= last_layer:
         layer = cursor[_CURSOR_LAYER]
-        num_sets = last_num_sets if layer == last_layer else len(rows_and_labels)
+        num_sets = last_num_completed if layer == last_layer else len(rows_and_labels)
         while cursor[_CURSOR_SET] < num_sets:
             while cursor[_CURSOR_DEPTH] >= 0:
                 if max_chunks == 0:

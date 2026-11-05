@@ -103,8 +103,10 @@ class Certificate:
     once the first sets in family order have completed it, in whatever order their words were
     visited.  A set that is interrupted within a layer does not advance either bound.  The bounds do
     not bound the weights of witnesses already found, and they do not transfer to another basis or
-    CSS sector.  With ``pivot_blocks``, each bound is the larger of the coverage bound and the bound
-    of ``get_lp_lower_bound``, which can be larger when the coverage of the columns is uneven.
+    CSS sector.  Each bound is the coverage bound: the occupancy of the sets (see
+    ``get_step_lower_bounds``) divided by ``max_coverage``, rounded up, and then rounded up to a
+    multiple of ``weight_divisor``.  With ``pivot_blocks``, each bound is the larger of the coverage
+    bound and the bound of ``get_lp_lower_bound``, which can be larger when coverage is uneven.
 
     Attributes:
         dimension: Number of rows of the searched basis.
@@ -151,8 +153,9 @@ class Certificate:
         """Whether ``step_lower_bound(weight, num_completed)`` is at least ``upper_bound``.
 
         This solves a linear program only if the coverage bound falls short of the upper bound and
-        the linear program could reach it: its optimum is at most the value of the solution that
-        sets each column to the largest fraction ``b_i / |B_i|`` that a block containing it needs.
+        the linear program could reach it: its optimum is at most the value of the feasible solution
+        that sets each pivot column to the largest ``requirement / len(block)`` over the blocks that
+        contain it.
         """
         if self._step_lower_bounds[weight, num_completed] >= upper_bound:
             return True
@@ -173,7 +176,7 @@ class Certificate:
         )
 
     def get_num_sets_to_certify(self, weight: int, upper_bound: int) -> int:
-        """The fewest sets, in family order, whose completion of layer ``weight`` certifies a bound.
+        """The fewest leading sets whose completion of layer ``weight`` certifies a bound.
 
         Once these sets have completed layer ``weight``, and the others layer ``weight - 1``, every
         unvisited eligible word weighs at least ``upper_bound``.  Returns the number of sets if no
@@ -465,7 +468,7 @@ def get_partitioned_family(
     ``basis``, whose quotient labels ``labels`` have no columns if it has none.  For each maximum
     coverage from two to ``_MAX_PARTITION_COVERAGE``, matroid partitioning finds the most full
     information sets, up to ``max_sets``, that contain no column more often than that coverage (see
-    ``_matroid_partition``).  This follows Section 5.1 of Lisonek and Trummer (2016), which shows
+    ``_matroid_partition``).  This follows Section 5.1 of Lisoněk and Trummer (2016), which shows
     that such families can do less work than those of the Brouwer-Zimmermann algorithm.
 
     Returns the family that certifies ``upper_bound`` with the least estimated work, if that is less
@@ -482,8 +485,10 @@ def get_partitioned_family(
     # could do less work, which is certain if no sets are allowed.
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
-    num_copies = sum(range(2, _MAX_PARTITION_COVERAGE + 1))
-    partition_work = _PARTITION_COST_FACTOR * num_copies * dimension**2 * num_columns
+    total_coverage = sum(range(2, _MAX_PARTITION_COVERAGE + 1))
+    partition_work = _PARTITION_COST_FACTOR * total_coverage * dimension**2 * num_columns
+    if best_work < PARTITION_WORK_RATIO * partition_work:
+        return best
     optimistic_work = min(
         (
             Certificate(
@@ -496,7 +501,7 @@ def get_partitioned_family(
         ),
         default=best_work,
     )
-    if best_work < PARTITION_WORK_RATIO * partition_work or best_work <= optimistic_work:
+    if best_work <= optimistic_work:
         return best
 
     # Build a family for each coverage, and keep the one that does the least work.
@@ -755,8 +760,8 @@ def get_step_lower_bounds(
     ``weight - 1``.  Rank deficiency limits how many selected rows can have zero pivot support: a
     set with deficiency ``s`` that has completed layer ``c`` adds ``c + 1 - s`` to the occupancy if
     positive, so it adds one more for each layer that it completes once its deficiency no longer
-    cancels the layer.  A set that has completed the last layer, ``dimension``, has visited every
-    word, so the steps after it hold the largest native integer.
+    keeps its contribution at zero.  Entries ``[dimension, j]`` for ``j >= 1`` hold
+    ``_NO_WORD_BOUND``, since a set that has completed layer ``dimension`` has visited every word.
     """
     num_sets = len(ranks)
     bounds = np.empty((dimension + 1, num_sets + 1), dtype=np.int64)
