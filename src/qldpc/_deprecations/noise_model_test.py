@@ -10,10 +10,11 @@ from qldpc._deprecations.noise_model import lay_out_with_ticks
 
 
 def test_deprecated_insert_ticks_layout() -> None:
-    """Gates that take time on a shared qubit, and TICKs after a gate, start new moments.
+    """Gates on a shared qubit, and TICKs after a gate, start new moments.
 
     Consecutive TICKs give no empty moment, and the noise channel joins the moment of the gate
-    before it on its qubit.
+    before it on its qubit.  Classically controlled gates take no time, but still start new moments
+    where they share a qubit with another gate.
     """
     circuit = stim.Circuit("TICK\nCX 0 1 1 2\nH 3\nTICK\nTICK\nX_ERROR(0.1) 0\nH 0 0")
     layout, _ = lay_out_with_ticks(circuit)
@@ -28,3 +29,7 @@ def test_deprecated_insert_ticks_layout() -> None:
         TICK
         H 0
     """)
+
+    circuit = stim.Circuit("M 0\nCX rec[-1] 1\nH 1\nCZ 1 rec[-1]")
+    layout, _ = lay_out_with_ticks(circuit)
+    assert layout == stim.Circuit("M 0\nCX rec[-1] 1\nTICK\nH 1\nTICK\nCZ 1 rec[-1]")
