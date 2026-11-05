@@ -440,19 +440,18 @@ def test_matching_ignores_record_targets() -> None:
 
 
 @pytest.mark.parametrize(
-    "circuit",
+    ("timed_circuit", "circuit"),
     [
-        "H 0\nTICK\nH 0 1",  # an extra operation, on qubit 1
-        "H 0\nTICK\nX 0",  # another operation on qubit 0
-        "H 0",  # a missing operation on qubit 0
-        "H 0\nREPEAT 2 {\nH 0\n}\nREPEAT 1 {\nH 1\n}",  # other REPEAT blocks
-        "H 0\nREPEAT 3 {\nH 0\n}",  # another repeat count
+        ("H 0\nH 0", "H 0\nTICK\nH 0 1"),  # an extra operation, on qubit 1
+        ("H 0\nH 0", "H 0\nTICK\nX 0"),  # another operation on qubit 0
+        ("H 0\nH 0", "H 0"),  # a missing operation on qubit 0
+        ("H 0\nREPEAT 2 {\nH 0\n}", "H 0\nREPEAT 2 {\nH 0\n}\nREPEAT 1 {\nH 1\n}"),  # other blocks
+        ("H 0\nREPEAT 2 {\nH 0\n}", "H 0\nREPEAT 3 {\nH 0\n}"),  # another repeat count
     ],
 )
-def test_mismatched_schedules(circuit: str) -> None:
+def test_mismatched_schedules(timed_circuit: str, circuit: str) -> None:
     """A noise model with a schedule rejects circuits that the schedule does not match."""
-    timed_circuit = stim.Circuit("H 0\nREPEAT 2 {\nH 0\n}" if "REPEAT" in circuit else "H 0\nH 0")
-    schedule = circuits.TickScheduler().get_schedule(timed_circuit)
+    schedule = circuits.TickScheduler().get_schedule(stim.Circuit(timed_circuit))
     noise_model = circuits.NoiseModel(idle_error=0.1, scheduler=schedule)
     with pytest.raises(ValueError, match="different circuit"):
         noise_model.noisy_circuit(stim.Circuit(circuit))

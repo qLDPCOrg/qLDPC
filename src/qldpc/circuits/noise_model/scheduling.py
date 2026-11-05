@@ -135,6 +135,7 @@ class Schedule:
         return circuit
 
     def __eq__(self, other: object) -> bool:
+        # compare circuits as text, since Stim's circuit equality ignores the tags of REPEAT blocks
         return (
             isinstance(other, Schedule)
             and str(self._circuit) == str(other._circuit)
