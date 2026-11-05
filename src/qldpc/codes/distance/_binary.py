@@ -79,6 +79,18 @@ def get_nested_code_basis(
     return basis, labels
 
 
+def get_eligible_rows(labels: npt.NDArray[np.uint8]) -> npt.NDArray[np.bool_]:
+    """Mark the rows of a nested-code basis that are outside its excluded subcode.
+
+    Row ``i`` of ``labels`` holds the quotient coordinates of row ``i`` of the basis (see
+    ``get_nested_code_basis``), so a row is outside the excluded subcode if its labels are nonzero.
+    Labels with no columns mean that nothing is excluded, so that every row is eligible.
+    """
+    if labels.shape[1] == 0:
+        return np.ones(len(labels), dtype=bool)
+    return np.any(labels, axis=1)
+
+
 def symplectic_to_hamming(vectors: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
     """Map ``(X | Z)`` to ``(X | Z | X xor Z)``, doubling symplectic weight.
 

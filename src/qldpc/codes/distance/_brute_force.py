@@ -9,7 +9,7 @@ import numpy.typing as npt
 
 from qldpc._binary import count_trailing_zeros, pack_bits
 
-from ._binary import inplace_rowsum, riffle, symplectic_weight
+from ._binary import get_eligible_rows, inplace_rowsum, riffle, symplectic_weight
 
 ####################################################################################################
 # exhaustive enumeration
@@ -117,3 +117,28 @@ def get_distance_quantum_brute_force(
                 return int(min_weight)
 
     return int(min_weight)
+
+
+def get_nested_distance_brute_force(
+    basis: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8],
+    *,
+    cutoff: int,
+    block_size: int,
+    homogeneous: bool,
+) -> int:
+    """Find the minimum weight of an eligible word of a nested-code basis by exhaustive enumeration.
+
+    The rows of ``basis`` are independent, and ``labels`` are its quotient labels (see
+    ``get_nested_code_basis``).  The rows marked by ``get_eligible_rows`` are the logical rows of
+    ``get_distance_quantum_brute_force``, and the others are its stabilizers.  The other arguments
+    and the result are those of ``get_distance_quantum_brute_force``.
+    """
+    eligible = get_eligible_rows(labels)
+    return get_distance_quantum_brute_force(
+        basis[eligible],
+        basis[~eligible],
+        cutoff=cutoff,
+        block_size=block_size,
+        homogeneous=homogeneous,
+    )

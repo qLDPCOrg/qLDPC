@@ -22,9 +22,7 @@ from ._brouwer_zimmermann import (
     exhaustive_is_cheaper,
     get_distance_brouwer_zimmermann,
 )
-from ._brute_force import (
-    get_distance_quantum_brute_force,
-)
+from ._brute_force import get_distance_quantum_brute_force, get_nested_distance_brute_force
 
 DistanceBackend = Literal["auto", "decoder", "gap", "sqetch"]
 DistanceMethod = Literal["brouwer_zimmermann", "brute_force", "information_sets"]
@@ -91,9 +89,10 @@ def get_distance_classical(
         return _apply_upper_bound(matrix.shape[1], upper_bound)
 
     if method == "brouwer_zimmermann":
+        # Labels with no columns exclude no subcode.
         return get_distance_brouwer_zimmermann(
             basis,
-            labels=None,
+            labels=np.empty((len(basis), 0), dtype=np.uint8),
             cutoff=cutoff,
             block_size=block_size,
             upper_bound=upper_bound,
@@ -205,13 +204,8 @@ def get_distance_quantum(
     if labels.shape[1] == 0:
         return 0
     if method == "brute_force":
-        num_stabilizers = len(basis) - labels.shape[1]
-        distance = get_distance_quantum_brute_force(
-            basis[num_stabilizers:],
-            basis[:num_stabilizers],
-            cutoff=cutoff,
-            block_size=block_size,
-            homogeneous=homogeneous,
+        distance = get_nested_distance_brute_force(
+            basis, labels, cutoff=cutoff, block_size=block_size, homogeneous=homogeneous
         )
         return _apply_upper_bound(distance, upper_bound)
 

@@ -581,8 +581,8 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Search basis and its block | One set of a `BasisFamily`: its entries of `generators`, `labels`, `pivots`, and `ranks`; the recorded block is the pivot subset, as explained below |
 | Number of coordinates `N` | The length of `columns` (or `nonzero_columns`), the array of nonzero columns, in the functions that build families of search bases |
 | Stored width `N_stored` | `basis.shape[1]` before pivot deletion, including any all-zero columns |
-| Labels `M` | `labels`, which is `None` for a classical problem |
-| Eligible rows | Every row of a classical basis; rows with nonzero labels for a quantum problem |
+| Labels `M` | `labels`, which has no columns for a classical problem |
+| Eligible rows | `get_eligible_rows` of [_binary.py](_binary.py): every row of a classical basis; rows with nonzero labels for a quantum problem |
 | Support, prefix XORs | `support` and `prefixes` in `advance` and `_scan_brouwer_zimmermann`, which steps through a layer with `advance_support` of [_information_sets.py](_information_sets.py) |
 | Packed generators | `generators` of `_BrouwerZimmermannSearch`: `uint64` words after deleting pivot columns; `widths` counts the valid words for each search basis |
 | Packed labels | `labels` of `_BrouwerZimmermannSearch`: `uint64` quotient-label words, without pivot-column deletion; `label_widths` counts the valid words |

@@ -35,6 +35,13 @@ def test_binary_matrices_and_nested_bases() -> None:
     np.testing.assert_array_equal(tags, [[0], [1]])
 
 
+def test_eligible_rows_have_nonzero_labels() -> None:
+    """Rows with nonzero labels are eligible, and labels with no columns exclude no row."""
+    labels = np.array([[0, 0], [1, 0], [0, 1], [1, 1]], dtype=np.uint8)
+    assert binary.get_eligible_rows(labels).tolist() == [False, True, True, True]
+    assert binary.get_eligible_rows(np.empty((3, 0), dtype=np.uint8)).tolist() == [True] * 3
+
+
 def test_riffle_and_symplectic_isometry() -> None:
     symplectic = np.array(list(itertools.product((0, 1), repeat=6)), dtype=np.uint8)
     expected = np.stack((symplectic[:, :3], symplectic[:, 3:]), axis=2).reshape(-1, 6)

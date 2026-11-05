@@ -278,7 +278,10 @@ def get_disjoint_family(
     *,
     weight_divisor: int = 1,
 ) -> BasisFamily:
-    """Stage one: pack disjoint information sets, and certify them with any inferred parity."""
+    """Stage one: pack disjoint information sets, and certify them with any inferred parity.
+
+    ``labels`` are the quotient labels of ``basis``, and None stands for labels with no columns.
+    """
     dimension = len(basis)
     set_labels = np.empty((dimension, 0), dtype=np.uint8) if labels is None else labels
     sets = _get_disjoint_sets(basis, set_labels)
@@ -360,15 +363,10 @@ def get_overlapping_family(
     if best_work < minimum_work:
         return _get_no_replacement(basis_family, basis, labels)
 
-    # With m full sets, some column has coverage at least ceil(m * dimension / len(columns)).
-    optimistic_work = _WORK_CAP  # work estimates saturate at this cap
-    for count in range(1, max_sets + 1):
-        coverage = (count * dimension + num_columns - 1) // num_columns
-        full_ranks = np.full(count, dimension, dtype=np.int64)
-        work = estimate_certificate_work(
-            dimension, full_ranks, weight_divisor, coverage, upper_bound, binomials
-        )
-        optimistic_work = min(optimistic_work, work)
+    # Skip basis family construction if no family of at most max_sets full sets could do less work.
+    optimistic_work = _estimate_optimistic_work(
+        dimension, num_columns, weight_divisor, upper_bound, max_sets, binomials
+    )
     if optimistic_work >= best_work:
         return _get_no_replacement(basis_family, basis, labels)
 
@@ -489,17 +487,13 @@ def get_partitioned_family(
     partition_work = _PARTITION_COST_FACTOR * total_coverage * dimension**2 * num_columns
     if best_work < PARTITION_WORK_RATIO * partition_work:
         return best
-    optimistic_work = min(
-        (
-            Certificate(
-                dimension,
-                (dimension,) * num_sets,
-                basis_family.weight_divisor,
-                -(-num_sets * dimension // num_columns),
-            ).work(upper_bound)
-            for num_sets in range(1, max_sets + 1)
-        ),
-        default=best_work,
+    optimistic_work = _estimate_optimistic_work(
+        dimension,
+        num_columns,
+        basis_family.weight_divisor,
+        upper_bound,
+        max_sets,
+        get_capped_binomials(dimension),
     )
     if best_work <= optimistic_work:
         return best
@@ -842,6 +836,33 @@ def get_retained_set_mask(
     for index in range(len(ranks)):
         retained[index] = ranks[index] == dimension or dimension - ranks[index] < certifying_weight
     return retained
+
+
+@always_compiled
+def _estimate_optimistic_work(
+    dimension: int,
+    num_columns: int,
+    weight_divisor: int,
+    upper_bound: int,
+    max_sets: int,
+    binomials: npt.NDArray[np.int64],
+) -> int:
+    """Bound below the estimated work of every basis family of at most ``max_sets`` full sets.
+
+    The basis has ``dimension`` rows and ``num_columns`` nonzero columns, and ``binomials`` are
+    ``get_capped_binomials(dimension)``.  Some column of ``m`` full sets is in at least ``ceil(m *
+    dimension / num_columns)`` of them, so no such family is certified with a smaller maximum
+    coverage.  Returns ``_WORK_CAP`` if ``max_sets`` is zero.
+    """
+    optimistic_work = _WORK_CAP
+    for num_sets in range(1, max_sets + 1):
+        coverage = (num_sets * dimension + num_columns - 1) // num_columns
+        full_ranks = np.full(num_sets, dimension, dtype=np.int64)
+        work = estimate_certificate_work(
+            dimension, full_ranks, weight_divisor, coverage, upper_bound, binomials
+        )
+        optimistic_work = min(optimistic_work, work)
+    return optimistic_work
 
 
 ####################################################################################################

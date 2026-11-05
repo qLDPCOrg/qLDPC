@@ -41,7 +41,7 @@ from qldpc._utils import format_docstring
 from . import _information_sets
 from ._binary import get_nested_code_basis
 from ._brouwer_zimmermann import get_distance_brouwer_zimmermann_many
-from ._brute_force import get_distance_quantum_brute_force
+from ._brute_force import get_nested_distance_brute_force
 from ._counting import local_cliffords, macwilliams, scan
 from .core import _DISTANCE_METHODS, DistanceMethod
 
@@ -166,10 +166,7 @@ class CSSLogicalCounter:
         self._dimension = self._num_qubits - len(self._gauge_x) - len(self._stabilizers_z)
 
         # Work that is done on demand and kept for later counts.
-        self._distances: dict[DistanceMethod, int] = {}
-        self._sectors: tuple[_Sector, _Sector] | None = None
-        self._disjoint_basis_families: dict[int, _information_sets.BasisFamily] = {}
-        self._enumerators: macwilliams.CheckEnumerators | None = None
+        self._forget_kept_work()
         self._canonical: tuple[_BinaryMatrix, _BinaryMatrix] | None = (self._gauge_x, self._gauge_z)
 
     @property
@@ -328,7 +325,10 @@ class CSSLogicalCounter:
             get_disjoint_basis_family=get_disjoint_basis_families[0],
             max_sets=max_sets,
         )
-        if self._self_dual or counts_x is None:
+        if counts_x is None:
+            raise _get_above_distance_error(target)
+        counts_z: npt.NDArray[np.int64] | None
+        if self._self_dual:
             counts_z = counts_x
         else:
             counts_z = scan.count_words(
@@ -342,7 +342,7 @@ class CSSLogicalCounter:
                 get_disjoint_basis_family=get_disjoint_basis_families[1],
                 max_sets=max_sets,
             )
-        if counts_x is None or counts_z is None:
+        if counts_z is None:
             raise _get_above_distance_error(target)
 
         # Sum the histograms, and derive the full Pauli count as described above.
@@ -490,13 +490,9 @@ class CSSLogicalCounter:
             )
 
         # Transform the kept work where the gate allows it, and drop the rest.  A gate can change
-        # the distance, so the deformed counter searches for it again.
-        counter._distances = {}
-        counter._sectors = None
-        counter._disjoint_basis_families = {}
-        # A gate changes the weight of every check word that touches its qubits, so the weight
-        # enumerators are not kept.
-        counter._enumerators = None
+        # the distance, so the deformed counter searches for it again, and it changes the weight of
+        # every check word that touches its qubits, so the weight enumerators are not kept.
+        counter._forget_kept_work()
         if self._sectors is not None:
             (basis_x, labels_x), (basis_z, labels_z) = self._sectors
             sector_x = (local_cliffords.apply_local(basis_x, positions, local_x), labels_x)
@@ -518,6 +514,13 @@ class CSSLogicalCounter:
                     if moved is not None:
                         counter._disjoint_basis_families[index] = moved
         return counter
+
+    def _forget_kept_work(self) -> None:
+        """Drop the work that is done on demand and kept for later counts."""
+        self._distances: dict[DistanceMethod, int] = {}
+        self._sectors: tuple[_Sector, _Sector] | None = None
+        self._disjoint_basis_families: dict[int, _information_sets.BasisFamily] = {}
+        self._enumerators: macwilliams.CheckEnumerators | None = None
 
     def _validate_macwilliams_request(self, count_pauli: bool) -> None:
         """Reject codes and requests that the MacWilliams method does not support.
@@ -733,21 +736,17 @@ def _get_distance(
     family, for the BZ search.
     """
     if method == "brute_force":
-        return min(_get_brute_force_distance(sector) for sector in sectors)
+        return min(
+            get_nested_distance_brute_force(
+                basis, labels, cutoff=0, block_size=_BLOCK_SIZE, homogeneous=True
+            )
+            for basis, labels in sectors
+        )
     return get_distance_brouwer_zimmermann_many(
         sectors,
         cutoff=0,
         block_size=_BLOCK_SIZE,
         get_disjoint_basis_families=get_disjoint_basis_families[: len(sectors)],
-    )
-
-
-def _get_brute_force_distance(sector: _Sector) -> int:
-    """Minimum weight of a nontrivial word of one sector, by exhaustive enumeration."""
-    basis, labels = sector
-    eligible = np.any(labels, axis=1)
-    return get_distance_quantum_brute_force(
-        basis[eligible], basis[~eligible], cutoff=0, block_size=_BLOCK_SIZE, homogeneous=True
     )
 
 

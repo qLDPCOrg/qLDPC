@@ -255,14 +255,14 @@ def test_brouwer_zimmermann_setup_cutoffs() -> None:
     basis = np.array([[1, 0, 1, 1], [0, 1, 1, 1]], dtype=np.uint8)
     assert (
         bz._prepare_brouwer_zimmermann_search(
-            basis, None, cutoff=3, block_size=2, weight_divisor=1, upper_bound=4
+            basis, _no_labels(basis), cutoff=3, block_size=2, weight_divisor=1, upper_bound=4
         )
         == 3
     )
     with mock.patch.object(bz, "exhaustive_is_cheaper", return_value=False):
         assert (
             bz._prepare_brouwer_zimmermann_search(
-                basis, None, cutoff=2, block_size=2, weight_divisor=1, upper_bound=4
+                basis, _no_labels(basis), cutoff=2, block_size=2, weight_divisor=1, upper_bound=4
             )
             == 2
         )
@@ -294,7 +294,7 @@ def test_brouwer_zimmermann_shared_search() -> None:
         method="brute_force",
     )
     actual = bz.get_distance_brouwer_zimmermann_many(
-        [(basis_a, None), (basis_b, labels_b)],
+        [(basis_a, _no_labels(basis_a)), (basis_b, labels_b)],
         cutoff=0,
         block_size=2,
     )
@@ -374,7 +374,7 @@ def test_brouwer_zimmermann_sector_certificates() -> None:
         mock.patch.object(bz._BrouwerZimmermannSearch, "advance", advance),
     ):
         actual = bz.get_distance_brouwer_zimmermann_many(
-            [(basis_a, None), (basis_b, None)], cutoff=0, block_size=2
+            [(basis_a, _no_labels(basis_a)), (basis_b, _no_labels(basis_b))], cutoff=0, block_size=2
         )
     assert actual == min(expected)
     assert len(searches) == 2
@@ -560,3 +560,8 @@ def test_a_search_through_the_costly_stages_finds_the_distance(
     basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
     assert qldpc.codes.get_distance_classical(basis, cutoff=0, method="brute_force") == 6
     assert qldpc.codes.get_distance_classical(basis, cutoff=0) == 6
+
+
+def _no_labels(basis: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+    """Quotient labels with no columns, which exclude no subcode."""
+    return np.empty((len(basis), 0), dtype=np.uint8)
