@@ -97,8 +97,7 @@ other rules, and returns None to fall back on them::
 
 The idle errors of a noise model depend on how long qubits idle.  Its ``scheduler`` places the
 operations of a circuit in moments to find this.  The default ``ASAPScheduler()`` places gates as
-early as possible, and then resets as late as the other gates allow.  ``SI1000NoiseModel`` uses a
-``TickScheduler``, which takes the moments of a circuit from its TICKs.  See :class:`NoiseModel` for
+early as possible, and then resets as late as the other gates allow.  See :class:`NoiseModel` for
 idle runs, :class:`Schedule` for moments, and the :doc:`noise-model notebook
 </examples/noise_models>` for examples.
 

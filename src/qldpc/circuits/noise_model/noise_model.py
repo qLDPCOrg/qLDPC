@@ -66,7 +66,6 @@ from .scheduling import (
     ASAPScheduler,
     Schedule,
     Scheduler,
-    TickScheduler,
     _as_stim_circuit,
     _get_instruction_operations,
     _get_segments,
@@ -1019,7 +1018,7 @@ class SI1000NoiseModel(NoiseModel):
     Args:
         p: The two-qubit gate error probability, which sets all other error rates.
         scheduler: The scheduler or schedule for idle noise, as in :class:`NoiseModel`.  Default:
-            ``TickScheduler()``, as in the cited reference.
+            ``ASAPScheduler()``.
     """
 
     def __init__(self, p: float, *, scheduler: Scheduler | Schedule | None = None) -> None:
@@ -1032,5 +1031,5 @@ class SI1000NoiseModel(NoiseModel):
             reset_error=p * 2,
             idle_error=p / 10,
             additional_error_waiting_for_m_or_r=2 * p,
-            scheduler=TickScheduler() if scheduler is None else scheduler,
+            scheduler=scheduler,
         )

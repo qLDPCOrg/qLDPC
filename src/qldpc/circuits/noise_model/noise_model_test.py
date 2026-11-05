@@ -479,7 +479,7 @@ def test_schedulers() -> None:
     """Noise models schedule circuits only for idle noise."""
     assert circuits.NoiseModel().scheduler == circuits.ASAPScheduler()
     assert circuits.DepolarizingNoiseModel(0.1).scheduler == circuits.ASAPScheduler()
-    assert circuits.SI1000NoiseModel(0.1).scheduler == circuits.TickScheduler()
+    assert circuits.SI1000NoiseModel(0.1).scheduler == circuits.ASAPScheduler()
 
     circuit = stim.Circuit("CX 0 1 1 2")
     noise_model = circuits.NoiseModel(clifford_2q_error=0.1, scheduler=_Unavailable())
@@ -1209,7 +1209,7 @@ def test_noise_model_str() -> None:
     assert "rule_func" not in text
 
     # A scheduler other than the default is listed.
-    si1000 = circuits.SI1000NoiseModel(0.1)
+    si1000 = circuits.SI1000NoiseModel(0.1, scheduler=circuits.TickScheduler())
     assert "scheduler=TickScheduler()" in str(si1000)
     schedule = circuits.TickScheduler().get_schedule(stim.Circuit("H 0\nTICK\nH 0"))
     with_schedule = circuits.SI1000NoiseModel(0.1, scheduler=schedule)
