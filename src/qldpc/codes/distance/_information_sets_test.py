@@ -226,6 +226,7 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
     labels = np.eye(len(basis), dtype=np.uint8)
     disjoint = _information_sets.get_disjoint_family(basis, labels)
     assert disjoint.ranks.tolist() == [4, 4, 2]
+    monkeypatch.setattr(_information_sets, "PARTITION_WORK_RATIO", 2**62)
     assert not len(_information_sets.get_partitioned_family(basis, labels, disjoint, 5, 16).ranks)
 
     monkeypatch.setattr(_information_sets, "PARTITION_WORK_RATIO", 0)
@@ -300,6 +301,7 @@ def test_searches_of_overlapping_sets_use_linear_programming_when_costly(
     disjoint = _information_sets.get_disjoint_family(basis, None)
     overlapping = _get_overlapping_family(basis, None, disjoint, 3, minimum_work=0)
     assert overlapping.max_coverage > 1
+    monkeypatch.setattr(_information_sets, "LP_MINIMUM_WORK", 2**62)
     assert not overlapping.get_search_certificate(3).pivot_blocks
     monkeypatch.setattr(_information_sets, "LP_MINIMUM_WORK", 0)
     assert len(overlapping.get_search_certificate(3).pivot_blocks) == len(overlapping.ranks)

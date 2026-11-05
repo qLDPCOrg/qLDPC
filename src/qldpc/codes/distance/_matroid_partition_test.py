@@ -11,9 +11,10 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from qldpc._binary import get_independent_rows, row_reduce_binary
+from qldpc._binary import row_reduce_binary
 
 from ._matroid_partition import get_information_sets_with_coverage
+from .conftest import get_random_full_rank_matrix
 
 
 def _is_information_set(basis: npt.NDArray[np.uint8], columns: list[int]) -> bool:
@@ -71,11 +72,7 @@ def test_sets_are_information_sets_with_bounded_coverage(pytestconfig: pytest.Co
     for _ in range(25):
         dimension = int(rng.integers(1, 4))
         num_columns = int(rng.integers(dimension, 7))
-        basis = get_independent_rows(
-            rng.integers(0, 2, size=(dimension, num_columns), dtype=np.uint8)
-        )
-        if not len(basis):
-            continue
+        basis = get_random_full_rank_matrix(rng, dimension, num_columns)
         for max_coverage, max_sets in itertools.product((1, 2, 3), (2, 16)):
             sets = get_information_sets_with_coverage(basis, max_coverage, max_sets)
             assert all(_is_information_set(basis, columns) for columns in sets)

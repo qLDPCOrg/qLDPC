@@ -752,8 +752,8 @@ def _visit_layer(
     The offset, the rows, and the weights are those of ``_search_coset``.  ``rows`` has shape
     ``(1, num_rows, num_words)``, a stack of one set, because ``advance_support`` takes a stack of
     sets, and each row has ``num_words`` machine words.  ``widths`` is ``[num_words]``, and
-    ``support`` and ``prefixes`` are work space for ``advance_support``.  ``best_weight``, the weight
-    of ``best``, must exceed ``max_weight``.  Keep the lightest word in ``best``, as
+    ``support`` and ``prefixes`` are work space for ``advance_support``.  ``best_weight``, the
+    weight of ``best``, must exceed ``max_weight``.  Keep the lightest word in ``best``, as
     ``_keep_lighter`` does, stop at the first word of weight at most ``max_weight``, and return the
     weight of ``best``.
 
