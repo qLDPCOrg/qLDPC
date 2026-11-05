@@ -76,6 +76,10 @@ def test_asap() -> None:
     assert circuits.ASAPScheduler().get_schedule(circuit).to_circuit() == stim.Circuit(
         "CX 0 2\nTICK\nCX 0 2\nTICK\nM 0\nCX rec[-1] 1"
     )
+    circuit = stim.Circuit("CX 0 2\nCX 0 2\nMPAD 0\nCX rec[-1] 1")
+    assert circuits.ASAPScheduler().get_schedule(circuit).to_circuit() == stim.Circuit(
+        "CX 0 2\nTICK\nCX 0 2\nMPAD 0\nCX rec[-1] 1"
+    )
 
 
 def test_alap() -> None:

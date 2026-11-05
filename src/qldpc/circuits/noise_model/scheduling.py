@@ -240,7 +240,11 @@ class _BuiltInScheduler(Scheduler):
             if isinstance(segment_or_block, _Segment):
                 segment_takes_time = [
                     operation.is_gate
-                    and _takes_time(operation.instruction, self.single_qubit_gates_take_time)
+                    and not involves_classical_bits(operation.instruction)
+                    and (
+                        self.single_qubit_gates_take_time
+                        or op_type(operation.instruction.name) != CLIFFORD_1Q
+                    )
                     for operation in segment_or_block.operations
                 ]
                 moments.extend(self._get_moments(segment_or_block, segment_takes_time))
@@ -402,15 +406,6 @@ def _get_repr(scheduler: DataclassInstance) -> str:
     return f"{type(scheduler).__name__}({', '.join(args)})"
 
 
-def _takes_time(op: stim.CircuitInstruction, single_qubit_gates_take_time: bool) -> bool:
-    """Does one gate application take time, for a built-in scheduler?"""
-    return (
-        op_type(op.name) in GATE_OP_TYPES
-        and not involves_classical_bits(op)
-        and (single_qubit_gates_take_time or op_type(op.name) != CLIFFORD_1Q)
-    )
-
-
 def _get_nodes(operations: Sequence[_Operation]) -> list[int]:
     """The node of each operation of a circuit, numbered from zero.
 
@@ -434,14 +429,13 @@ def _get_edges(
 
     A node follows the previous node on each of its qubits.  A node that takes time also follows the
     previous node that takes time on each of its qubits, by at least one layer.  A node follows the
-    measurements that it reads.  A coordinate annotation follows the previous one.  An annotation
-    without qubits follows the previous gate.
+    measurements that it reads.  An annotation without qubits follows the previous gate, so that a
+    gate that reads the record of an MPAD follows the gates before the MPAD.
     """
     edges = []
     last_node: dict[int, int] = {}  # by qubit
     last_node_taking_time: dict[int, int] = {}  # by qubit
     record_nodes: list[int] = []  # the node of each measurement record of the circuit
-    last_coordinate_node: int | None = None
     last_gate_node: int | None = None
     for node, operation, operation_takes_time in zip(nodes, operations, takes_time):
         # follow the previous nodes on the qubits of the operation
@@ -454,13 +448,8 @@ def _get_edges(
             if operation_takes_time:
                 last_node_taking_time[qubit] = node
 
-        # follow the measurements that the operation reads, and the previous coordinate annotation
-        # if it is one
+        # follow the measurements that the operation reads
         edges.extend((record_nodes[record], node, 0) for record in operation.records if record >= 0)
-        if operation.instruction.name in _COORDINATE_ANNOTATIONS:
-            if last_coordinate_node is not None:
-                edges.append((last_coordinate_node, node, 0))
-            last_coordinate_node = node
 
         # an annotation without qubits follows the previous gate
         if operation.is_gate:
@@ -627,7 +616,7 @@ class _Operation:
     before them.  Noise channels and classically controlled Pauli gates do not.
 
     ``records`` are the measurement records that the operation reads, as negative offsets from the
-    operation.  ``_get_operations`` indexes them differently, as described there.
+    operation.  ``_get_segments`` indexes them differently, as described there.
     """
 
     instruction: stim.CircuitInstruction
@@ -645,9 +634,7 @@ class _Operation:
         targets = instruction.targets_copy()
         qubits = tuple(
             dict.fromkeys(
-                target.qubit_value
-                for target in targets
-                if target.qubit_value is not None and not target.is_combiner
+                target.qubit_value for target in targets if target.qubit_value is not None
             )
         )
 
@@ -670,7 +657,7 @@ class _Operation:
 class _Segment:
     """The instructions between REPEAT blocks of a circuit, with their operations and schedule.
 
-    Records are indexed as in ``_get_operations``.
+    Records are indexed as in ``_get_segments``.
     """
 
     instructions: list[stim.CircuitInstruction]
@@ -699,8 +686,10 @@ def _get_segments(
 ) -> Iterator[_Segment | tuple[stim.CircuitRepeatBlock, Schedule | None]]:
     """The ``_Segment``s and REPEAT blocks of a circuit in order, with a schedule of each body.
 
-    A ``_Segment`` precedes each REPEAT block and ends the circuit.  Without a schedule, every
-    operation is in moment zero and takes no time, and REPEAT blocks have no schedules.
+    A ``_Segment`` precedes each REPEAT block and ends the circuit.  The records that its operations
+    read are indexed from its first measurement record, so earlier records have negative indices.
+    Without a schedule, every operation is in moment zero and takes no time, and REPEAT blocks have
+    no schedules.
     """
     moments = iter(() if schedule is None else schedule._moments)
     takes_time = iter(() if schedule is None else schedule._takes_time)
@@ -718,9 +707,11 @@ def _get_segments(
             continue
 
         # other instructions join the _Segment with the moments of their operations
-        operations = _get_operations([instruction], num_records)
         segment.instructions.append(instruction)
-        for operation in operations:
+        for operation in _get_instruction_operations(instruction):
+            if operation.records:
+                records = tuple(num_records + record for record in operation.records)
+                operation = dataclasses.replace(operation, records=records)
             num_records += operation.num_records
             moment = next(moments, 0)
             assert isinstance(moment, int)
@@ -728,25 +719,6 @@ def _get_segments(
             segment.moments.append(moment)
             segment.takes_time.append(next(takes_time, False))
     yield segment
-
-
-def _get_operations(
-    instructions: Sequence[stim.CircuitInstruction], num_records: int = 0
-) -> list[_Operation]:
-    """The operations of instructions that follow ``num_records`` measurement records.
-
-    The records that operations read are indexed from the first of those ``num_records`` records,
-    so earlier records have negative indices.
-    """
-    operations = []
-    for instruction in instructions:
-        for operation in _get_instruction_operations(instruction):
-            if operation.records:
-                records = tuple(num_records + record for record in operation.records)
-                operation = dataclasses.replace(operation, records=records)
-            num_records += operation.num_records
-            operations.append(operation)
-    return operations
 
 
 @functools.lru_cache(maxsize=4096)
