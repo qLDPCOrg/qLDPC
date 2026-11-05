@@ -471,10 +471,10 @@ All three modules use [_binary.py](_binary.py), and they and [_information_sets.
 Every module with compiled functions uses [_compilation.py](../../_compilation.py).
 `get_distance_css_brouwer_zimmermann` builds an adapted basis ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)) for each nontrivial sector, then passes the resulting problems to `get_distance_brouwer_zimmermann_many`.
 
-`PauliCosetSearch` in [_bounded_weight_search.py](_bounded_weight_search.py), which the fault-propagation certifier in `qldpc.circuits.certification` uses, applies the same search to a coset `e + V` instead of `V`.
+`CosetLeaderSearch` in [_coset_leader_search.py](_coset_leader_search.py), which the fault-propagation certifier in `qldpc.circuits.certification` uses, applies the same search to a coset `e + V` instead of `V`.
 There a layer adds `w` rows to an **offset**, a word of the coset that is zero on the pivot columns ([Section 2.3](#23-systematic-bases-and-information-sets)), so layer zero is the offset itself.
 The certificate applies unchanged, except that it takes no weight divisor ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)), because the words of a coset need not share the divisibility of `V`.
-For the CSS weight on a CSS state, `CssCosetSearch` in the same module runs this search twice instead, with words weighed by their Hamming weight.
+For the CSS weight on a CSS state, it runs this search twice instead, with words weighed by their Hamming weight.
 The two codes are spanned by the X parts of the stabilizers that have no Z part, and by the Z parts of those that have no X part.
 
 ### 4.2 Flow and exit points

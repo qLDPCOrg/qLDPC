@@ -16,7 +16,7 @@ from qldpc import _compilation, codes
 from qldpc._binary import get_independent_rows, get_kernel
 from qldpc.objects import Pauli
 
-from . import _bounded_weight_search, _information_sets
+from . import _coset_leader_search, _information_sets
 from . import logical_counts as lc
 from .core import DistanceMethod
 
@@ -47,7 +47,7 @@ def compilation_mode(
     restores plain Python afterwards.
     """
     if request.param == "python":
-        for module in (_information_sets, _bounded_weight_search):
+        for module in (_information_sets, _coset_leader_search):
             for name, function in list(vars(module).items()):
                 if hasattr(function, "py_func") and function.py_func.__module__ == module.__name__:
                     monkeypatch.setattr(module, name, function.py_func)
