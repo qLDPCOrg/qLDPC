@@ -80,15 +80,20 @@ from .scheduling import (
 
 
 def as_noiseless_circuit(circuit: StimCircuitLike) -> StimCircuitLike:
-    """Wrap a circuit in a one-repetition block tagged immune to :class:`NoiseModel`."""
+    """Wrap a circuit in a one-iteration REPEAT block tagged with ``DEFAULT_IMMUNE_OP_TAG``.
+
+    With the default ``immune_op_tag``, :meth:`NoiseModel.noisy_circuit` adds no noise to the gates
+    of this block, or to the qubits whose idle runs they end (see :class:`NoiseModel`).
+    """
+    # a wrapped circuit stays as it is
     if (
         len(circuit) == 1
         and isinstance(circuit[0], stim.CircuitRepeatBlock)
         and DEFAULT_IMMUNE_OP_TAG in circuit[0].tag
     ):
         return circuit
-    # Read the circuit's instructions into a stim.Circuit body (the repeat block requires a
-    # stim.Circuit).  Iterating by index works for a stim.Circuit and any stim-wrapping circuit.
+    # copy the instructions into a stim.Circuit for the REPEAT block.  Indexing works for any
+    # stim-wrapping circuit.
     body = stim.Circuit()
     for index in range(len(circuit)):
         body.append(circuit[index])
@@ -100,75 +105,62 @@ def as_noiseless_circuit(circuit: StimCircuitLike) -> StimCircuitLike:
 
 
 class NoiseModel:
-    """A model that defines how to add noise to quantum circuits.
+    """A model that defines how to add noise to circuits.
 
-    This class provides a framework for adding various types of noise to quantum circuits, including
-    gate errors, readout errors, reset errors, and idling errors.  Classically controlled gates get
-    no noise.  Identity gates (``I`` and ``II``) are treated as ordinary one- and two-qubit Clifford
-    gates.
+    A noise model adds errors after gates, to measurement results, after resets, and on idling
+    qubits.  :meth:`get_noise_rule` gives the noise of each gate.  Classically controlled gates get
+    no noise, and identity gates (``I`` and ``II``) get the noise of other one- and two-qubit
+    Clifford gates.
 
-    Idle errors apply per moment: a unit of time in the schedule that ``scheduler`` makes of a
-    circuit by placing its operations, such as single gate applications, in moments (see
-    :class:`~qldpc.circuits.Schedule`).  An idle run of a qubit lasts from the moment of its last
-    gate, or from the start of the circuit, up to but not including the moment of its next gate, or
-    to the end of the circuit (see :class:`~qldpc.circuits.Schedule` for REPEAT blocks).  Every gate
-    on the qubit ends its idle run, even one that takes no time (see
-    :meth:`~qldpc.circuits.Scheduler.takes_time`), except a classically controlled gate that takes
-    no time.  The qubit idles in each moment of the run, except in the first if a gate on the qubit
-    takes time in that moment.
+    Idle errors depend on how long qubits idle.  The ``scheduler`` places the operations of a
+    circuit in moments, which are units of time (see :class:`~qldpc.circuits.Schedule`).  An idle
+    run of a qubit lasts from the moment of one gate on the qubit up to, but not including, the
+    moment of its next gate.  The first run starts at the start of the circuit, and the last ends at
+    its end (see :class:`~qldpc.circuits.Schedule` for REPEAT blocks).  The qubit idles in each
+    moment of a run, except the first if a gate on the qubit takes time in that moment (see
+    :meth:`~qldpc.circuits.Scheduler.takes_time`).  Every gate on a qubit ends its idle run, except
+    a classically controlled gate that takes no time.
 
     Args:
-        clifford_1q_error: Default noise applied after each one-qubit unitary Clifford gate.  A
-            float ``p`` is a uniform 1-qubit depolarizing channel of total error probability
-            ``p``.  Also accepts a ``Mapping[str, float]`` from one-qubit non-identity
-            Pauli-strings to probabilities, a ``PauliChannel``, or a ``NoiseRule``.
-        clifford_2q_error: Default noise applied after each two-qubit unitary Clifford gate.  A
-            float ``p`` is a uniform 2-qubit depolarizing channel of total error probability
-            ``p``.  Also accepts a ``Mapping[str, float]`` from two-qubit non-identity
-            Pauli-strings to probabilities, a ``PauliChannel``, or a ``NoiseRule``.
-        readout_error: Default probability of flipping measurement results.
-        reset_error: Default probability of resetting qubits to the wrong state.
-        clifford_nq_error: Optional mapping from a qubit count ``k`` to the noise applied after each
-            ``k``-qubit unitary Clifford gate, similarly to ``clifford_?q_error``.  Specifying both
-            ``clifford_nq_error[1]`` and ``clifford_1q_error`` raises an ambiguity error; likewise
-            with ``clifford_nq_error[2]`` and ``clifford_2q_error``.  Each Pauli product of an SPP
-            or SPP_DAG gate gets the noise for its number of qubits, and a unitary Clifford gate
-            whose number of qubits has no entry gets no default noise.
-        idle_error: Noise rule or depolarization probability applied to each idling qubit in any
-            given moment.  If a NoiseRule is provided, its `after` channels are appended to the
-            idle qubits (its readout_error/reset_error fields are ignored).  Consecutive
-            Pauli-channel idle errors on a qubit are composed into one equivalent error; custom
-            Stim noise fragments are applied once per idle moment.
-        quadratic_idle_error: Error on each idling qubit in one moment, given as a float ``p`` (a
-            uniform channel of total error probability ``p``), a ``Mapping[str, float]`` such as
-            ``{"Z": p}``, or a one-qubit ``PauliChannel``, with total probability at most 1/2.  Over
-            an idle run with ``k`` moments in which the qubit idles, this error has total
-            probability ``(1 - (1 - 2 * p)**(k**2)) / 2``, split among Paulis as in one moment, and
-            is combined with the ``idle_error`` of the same moments.  An idle run ends at any gate
-            on the qubit, even one that takes no time, other than a classically controlled gate that
-            takes no time.  See :mod:`qldpc.circuits.noise_model` for the physical model and
-            assumptions of this error.
-        additional_error_waiting_for_m_or_r: Additional noise rule or depolarization probability
-            applied to every qubit in each moment in which another qubit, but not this one, is
-            measured or reset, including qubits undergoing a unitary gate.  Accepts the same
-            NoiseRule fields as ``idle_error``, and is combined with the other idle errors of a
-            qubit.
-        rules: Dictionary mapping specific gate names to their noise rules.  Overrides the
-            arity-based defaults for unitary, measurement, and reset gates.
-        rule_func: Optional callback function that maps a ``stim.CircuitInstruction`` to a
-            ``NoiseRule``.  The callback is evaluated before named and default rules.  Broadcast
-            instructions are split first, so each callback input represents one gate application:
-            one target for a one-qubit gate, two for a two-qubit gate, or one Pauli product for an
-            SPP/MPP instruction.  The callback receives unitary Cliffords, measurements, and resets,
-            but not annotations, pure-noise instructions, or classically controlled gates.
-            Returning ``None`` continues with named and default rule lookup.
+        clifford_1q_error: The default noise after each one-qubit unitary Clifford gate.  A float
+            ``p`` is depolarizing noise of total probability ``p``.  The noise may also be a
+            Mapping from Pauli strings to probabilities, a Pauli channel, or a :class:`NoiseRule`.
+        clifford_2q_error: The default noise after each two-qubit unitary Clifford gate, as for
+            ``clifford_1q_error``.
+        readout_error: The default probability of flipping each measurement result.
+        reset_error: The default probability of resetting a qubit to the wrong state.
+        clifford_nq_error: The default noise after each unitary Clifford gate on ``k`` qubits, by
+            ``k``, as for ``clifford_1q_error``.  Each Pauli product of an SPP or SPP_DAG gate
+            counts as a gate on its qubits.  A gate whose number of qubits has no entry gets no
+            default noise.  Entries 1 and 2 replace ``clifford_1q_error`` and
+            ``clifford_2q_error``, and cannot be given with them.
+        idle_error: The noise on each idling qubit in each moment, as for ``clifford_1q_error`` on
+            one qubit.  The Pauli errors of an idle run are combined into one error.  Noise given
+            as a ``stim.Circuit`` in a :class:`NoiseRule` is applied once per idle moment.
+        quadratic_idle_error: An error on each idling qubit whose probability grows quadratically
+            with the length of an idle run, for slow noise (see :mod:`qldpc.circuits.noise_model`).
+            It is given for one moment as a float ``p``, a Mapping such as ``{"Z": p}``, or a
+            one-qubit ``PauliChannel``, with total probability ``p`` at most 1/2.  Over a run with
+            ``k`` idle moments, it has total probability ``(1 - (1 - 2 * p)**(k**2)) / 2``, in the
+            same proportions among Paulis.
+        additional_error_waiting_for_m_or_r: Noise as for ``idle_error``, on each qubit in each
+            moment in which another qubit, but not this one, is measured or reset.  A qubit gets
+            this noise even when a gate acts on it in that moment.
+        rules: Noise rules by gate name, which take precedence over the defaults above.  A key is a
+            stim gate name, or the name of one Pauli product of an MPP, SPP, or SPP_DAG gate, as in
+            ``"MXYZ"`` for ``MPP X*Y*Z`` or ``"SXY_DAG"`` for ``SPP_DAG X*Y``.
+        rule_func: A function that gives the noise rule of one gate application, or None to fall
+            back on ``rules`` and the defaults.  It takes precedence over ``rules``.  It gets one
+            application at a time: one target of a one-qubit gate, one pair of targets of a
+            two-qubit gate, or one Pauli product of an MPP, SPP, or SPP_DAG gate.  It is not called
+            for classically controlled gates.
         scheduler: The :class:`~qldpc.circuits.Scheduler` that places the operations of circuits in
-            moments, for idle noise.  Default: ``ASAPScheduler()``.
+            moments, for idle errors.  Default: ``ASAPScheduler()``.
 
     Raises:
-        ValueError: If readout_error or reset_error is not between 0 and 1, if a noise
-            specification is ambiguous or duplicated, or if a rule does not fit the gates that
-            it applies to.
+        ValueError: If a noise specification is invalid, ambiguous, or duplicated, or does not fit
+            the gates that it applies to.
+        TypeError: If a noise specification or a key of ``rules`` has an unsupported type.
     """
 
     def __init__(
@@ -192,10 +184,8 @@ class NoiseModel:
         self.scheduler = ASAPScheduler() if scheduler is None else scheduler
         if rules is not None:
             normalized_rules: dict[str, NoiseRule] = {}
-            # Validate rules with fixed shapes now: fixed-arity stim gates and basis-suffixed rule
-            # keys (``"MXYZ"`` for MPP X*Y*Z, ``"SXY_DAG"`` for SPP_DAG X*Y).  Bare Pauli-product
-            # names (``"MPP"``, ``"SPP"``, ``"SPP_DAG"``) have variable arity, so validate them
-            # against each concrete product when the rule is selected.
+            # canonicalize the rule keys, and check each rule whose key fixes its number of qubits.
+            # Rules for bare MPP, SPP, and SPP_DAG are checked when they are used.
             for op_name, rule in rules.items():
                 canonical_name = canonical_rule_key(op_name)
                 if canonical_name in normalized_rules:
@@ -218,11 +208,8 @@ class NoiseModel:
         self.readout_error = readout_error or 0
         self.reset_error = reset_error or 0
 
-        # `clifford_1q_error` / `clifford_2q_error` are syntactic sugar for `clifford_nq_error[1]` /
-        # `clifford_nq_error[2]`; internally we normalize everything into a single
-        # `clifford_nq_error` dict.  Ambiguity detection is symmetric on RAW inputs — an argument
-        # counts as "user-specified" if the user passed anything other than None (including a zero
-        # float, an empty NoiseRule, etc.), even if it normalizes to a no-op.
+        # merge clifford_1q_error and clifford_2q_error into clifford_nq_error.  Giving both forms
+        # for one gate size is an error, even if one of them adds no noise.
         for size, param, name in (
             (1, clifford_1q_error, "clifford_1q_error"),
             (2, clifford_2q_error, "clifford_2q_error"),
@@ -230,7 +217,7 @@ class NoiseModel:
             if clifford_nq_error is not None and size in clifford_nq_error and param is not None:
                 raise ValueError(
                     f"Ambiguous noise specification: both `clifford_nq_error[{size}]` and"
-                    f"`{name}` are set.  Specify one or the other."
+                    f" `{name}` are set.  Specify one or the other."
                 )
         merged_nq_input: dict[int, ErrorSpec] = dict(clifford_nq_error) if clifford_nq_error else {}
         rule_1q = _as_noise_rule(clifford_1q_error, 1)
@@ -245,9 +232,8 @@ class NoiseModel:
         self.additional_error_waiting_for_m_or_r = _as_noise_rule(
             additional_error_waiting_for_m_or_r, 1
         )
-        # Idle noise is applied per-qubit, so anything with a declared arity != 1 has no natural
-        # interpretation here.  Validate the declared arity BEFORE trivializing so a user typo like
-        # ``PauliChannel({}, num_qubits=3)`` — trivial but wrongly-shaped — is surfaced.
+        # idle errors act on one qubit at a time.  Check this before dropping errors that add no
+        # noise, so that an empty channel on the wrong number of qubits is still caught.
         for field_name, idle_rule in (
             ("idle_error", self.idle_error),
             ("additional_error_waiting_for_m_or_r", self.additional_error_waiting_for_m_or_r),
@@ -259,8 +245,7 @@ class NoiseModel:
                     f"`{field_name}` does not support a multi-qubit `after` rule "
                     f"(arity={idle_rule.after.num_qubits})."
                 )
-        # A quadratic idle error is a one-qubit Pauli channel that flips a qubit at most half the
-        # time in one moment.
+        # a quadratic idle error must be a one-qubit Pauli channel of total probability at most 1/2
         self.quadratic_idle_error: PauliChannel | None = None
         quadratic_idle_rule = _as_noise_rule(quadratic_idle_error, 1)
         if quadratic_idle_rule is not None and quadratic_idle_rule.after is not None:
@@ -278,12 +263,12 @@ class NoiseModel:
 
     @property
     def clifford_1q_error(self) -> NoiseRule | None:
-        """Convenience view: ``clifford_nq_error[1]`` if set, else None."""
+        """The default noise rule of one-qubit unitary Clifford gates, or None."""
         return self.clifford_nq_error.get(1)
 
     @property
     def clifford_2q_error(self) -> NoiseRule | None:
-        """Convenience view: ``clifford_nq_error[2]`` if set, else None."""
+        """The default noise rule of two-qubit unitary Clifford gates, or None."""
         return self.clifford_nq_error.get(2)
 
     def __bool__(self) -> bool:
@@ -300,13 +285,11 @@ class NoiseModel:
         )
 
     def __str__(self) -> str:
-        """A constructor-like description listing only the set fields.
+        """A constructor-like description that lists only the fields that are set.
 
-        When ``rule_func`` is ``None`` and the scheduler has an eval-able repr, as the built-in
-        schedulers do, this is an eval-able ``NoiseModel(...)`` call.  A ``rule_func`` cannot be
-        reproduced faithfully, so it is instead described by its qualified name and module (falling
-        back to its type name for callables without a ``__qualname__``, e.g. a callable object or
-        ``functools.partial``), which makes the result non-eval-able.
+        Without a ``rule_func``, this evaluates to an equivalent ``NoiseModel`` if the scheduler's
+        repr does, as for the built-in schedulers.  A ``rule_func`` is shown by its module and name,
+        so the result then cannot be evaluated.
         """
         # list the fields that are set, in a fixed order that reads like a constructor call
         args = []
@@ -340,26 +323,26 @@ class NoiseModel:
         return super().__repr__()
 
     def get_noise_rule(self, op: stim.CircuitInstruction) -> NoiseRule | None:
-        """Determines the noise rule to apply to a specific instruction.
+        """Find the noise rule of one gate application.
 
-        Noise rules are consulted in the following order of precedence:
+        Annotations, noise channels, and classically controlled gates get no noise.  Other
+        instructions get the rule from the first of these that gives one:
 
-        1. ``rule_func`` (stim.CircuitInstruction -> NoiseRule factory).
-        2. ``rules`` (name-based NoiseRules).
-        3. ``clifford_nq_error`` (arity-based NoiseRules for unitary Cliffords).
-        4. ``readout_error`` and/or ``reset_error`` (per-gate defaults for measurement/reset ops).
-
-        .. note::
-            ``noisy_circuit`` passes this method one gate application at a time, so an MPP, SPP, or
-            SPP_DAG instruction has one Pauli product (e.g. ``MPP X0*Y1*Z2``, not ``MPP X0*Y1
-            Z2*X3``).  Given several products, this method raises ``ValueError`` if it looks up a
-            named rule in ``rules``, and otherwise treats them as one product.
+        1. ``rule_func``.
+        2. ``rules``, by the most specific name of the gate.
+        3. ``clifford_nq_error``, for a unitary Clifford gate.
+        4. ``readout_error`` and ``reset_error``, for a measurement or reset.
 
         Args:
-            op: The circuit instruction to find a noise rule for.
+            op: One gate application, as :meth:`noisy_circuit` passes it: one target of a one-qubit
+                gate, one pair of targets of a two-qubit gate, or one Pauli product of an MPP, SPP,
+                or SPP_DAG gate.
 
         Returns:
-            The NoiseRule to apply for the given operation, or None for no noise.
+            The noise rule of the gate application, or None for no noise.
+
+        Raises:
+            ValueError: If a rule from ``rule_func`` or ``rules`` does not fit the gate application.
         """
         # annotations, noise channels, and classically controlled gates get no noise
         this_op_type = op_type(op.name)
@@ -380,8 +363,8 @@ class NoiseModel:
                 _validate_custom_rule(rule, op)
                 return rule
 
-        # then a named rule, by the most specific name of the gate; a rule for every Pauli product
-        # (named MPP, SPP, or SPP_DAG) must fit this one
+        # then a rule by the most specific name of the gate.  A rule for bare MPP, SPP, or SPP_DAG
+        # must fit this Pauli product.
         if self.rules is not None:
             for name in get_gate_aliases(op):
                 rule = self.rules.get(name)
@@ -434,35 +417,38 @@ class NoiseModel:
         immunize_gates: bool = True,
         insert_ticks: bool | None = None,  # DEPRECATED: see qldpc._deprecations
     ) -> StimCircuitLike:
-        """Construct a noisy version of the given circuit by inserting noise into it.
+        """Add noise to a circuit.
 
-        The noise of each gate application, and the noise of each idle run of a qubit if this model
-        has idle noise (see :class:`NoiseModel`), is placed before the next gate application that
-        depends on the state of its qubits or observable with a Pauli target on them, or else at the
-        end of the circuit (see :class:`~qldpc.circuits.Schedule` for REPEAT blocks).
+        The noise of each gate, and of each idle run of a qubit (see :class:`NoiseModel`), goes
+        before the next gate or observable that depends on the state of its qubits, or else at the
+        end of the circuit.  Noise does not cross the start or end of a REPEAT block or of one of
+        its iterations (see :class:`~qldpc.circuits.Schedule`).
 
         Args:
-            circuit: The circuit to apply noise to.
-            system_qubits: All qubits that are used by the circuit or are otherwise allowed to
-                accumulate idling errors.  Defaults to set(range(circuit.num_qubits)).
-            immune_qubits: Qubits that are declared to be immune to noise.  Defaults to none.
-            immune_op_tag: If an instruction or REPEAT block contains this string in its tag, it is
-                noiseless.  Set to None to disable tagged instruction immunity.  Default:
-                "{DEFAULT_IMMUNE_OP_TAG}".
-            immune_qubit_tag: If a QUBIT_COORDS annotation contains this string in its tag, its
-                target qubits are immune to noise.  Set to None to disable annotated immunity.
-                Default: "{DEFAULT_IMMUNE_QUBIT_TAG}".
-            immunize_gates: If True (the default), a gate that touches an immune qubit is treated as
-                noiseless.  Otherwise, its Pauli noise is conditioned on the absence of errors on
-                noise-immune qubits, keeping only strings that act as ``I`` on every immune qubit.
+            circuit: The circuit to add noise to.
+            system_qubits: The qubits that can get idle errors.  Default: all qubits of the
+                circuit, ``range(circuit.num_qubits)``.
+            immune_qubits: Qubits that get no noise.  Default: none.
+            immune_op_tag: An instruction whose tag contains this string gets no noise.  In a
+                REPEAT block whose tag contains it, gates get no noise, and neither do the qubits
+                whose idle runs they end.  None turns this off.  Default: "{DEFAULT_IMMUNE_OP_TAG}".
+            immune_qubit_tag: A qubit gets no noise if a QUBIT_COORDS annotation of it has a tag
+                that contains this string.  None turns this off.  Default:
+                "{DEFAULT_IMMUNE_QUBIT_TAG}".
+            immunize_gates: If True (the default), a gate on an immune qubit gets no noise.  If
+                False, its Pauli noise keeps only the Pauli strings that act as ``I`` on immune
+                qubits, with their probabilities.
             insert_ticks: Deprecated.  To lay out a noisy circuit in moments, add noise to the
                 layout of a schedule, from ``Schedule.to_circuit``.
 
         Returns:
-            The input circuit with added noise.
+            The circuit with noise, of the same type as the input.
 
         Raises:
-            ValueError: If the schedule of the circuit is invalid (see ``Scheduler.validate``).
+            ValueError: If an immunity tag is empty, the scheduler gives an invalid schedule (see
+                ``Scheduler.validate``), or a noise rule does not fit a gate.  With
+                ``immunize_gates=False``, also if a gate on both immune and other qubits has noise
+                other than a Pauli channel.
         """
         # check the immunity tags, and handle the deprecated insert_ticks option
         if immune_op_tag == "":
@@ -503,7 +489,7 @@ class NoiseModel:
             scheduler = TickPreservingScheduler(single_qubit_gates_take_time=True)
             stim_circuit = scheduler.get_schedule(stim_circuit).to_circuit()[0]
 
-        # quadratic idle errors are split where REPEAT blocks and their iterations start and end
+        # warn if REPEAT blocks that get noise split quadratic idle errors
         if self.quadratic_idle_error is not None and any(
             isinstance(instruction, stim.CircuitRepeatBlock)
             and (immune_op_tag is None or immune_op_tag not in instruction.tag)
@@ -584,24 +570,15 @@ class NoiseModel:
 class _NoisyCircuitBuilder:
     """Inserts noise into a circuit, keeping the noise on each qubit pending until it is next used.
 
-    An operation (``_Operation``) is a part of an instruction that acts independently on its qubits
-    (see :class:`Schedule`), such as one application of a gate.  A gate takes time if the
-    scheduler's ``takes_time`` says so: it then occupies its qubits for its moment, and otherwise
-    leaves them idle in its moment.
-
     Pending noise is noise that the builder has made but not yet appended to its output.  The
-    pending noise on some qubits is emitted, that is, appended to the output in the order in which
-    it was made, before the next operation that depends on the state of those qubits.  All pending
-    noise is emitted before each REPEAT block, at the end of each iteration of its body, and at the
-    end of the circuit.
+    builder appends the pending noise on some qubits, in the order in which it was made, before the
+    next operation that depends on the state of those qubits.  It appends all pending noise before
+    each REPEAT block, at the end of each of its iterations, and at the end of the circuit.
 
-    If the noise model has idle noise, the builder also follows a schedule of the circuit, and the
-    idle runs of qubits (see :class:`NoiseModel`).  A gate ends the idle runs of the qubits that it
-    depends on and, if it takes time, of all its qubits.  When an idle run ends, its noise joins the
-    pending noise of its qubit: the idle errors of the moments in which the qubit idles, and the
-    additional error of the moments in which another qubit, but not this one, is measured or reset.
-    Every idle run ends at the start and end of each REPEAT block and of each of its iterations, so
-    every iteration gets the same noise.
+    If the noise model has idle errors, the builder also follows the idle run of each qubit (see
+    :class:`NoiseModel`) in a schedule of the circuit.  A gate ends the idle runs of the qubits that
+    it depends on and, if it takes time, of all its qubits.  When an idle run ends, its noise joins
+    the pending noise of its qubit.
     """
 
     def __init__(
@@ -624,14 +601,14 @@ class _NoisyCircuitBuilder:
         self.idle_qubits = idle_qubits
         self.noiseless = False  # whether the current instructions are in a noiseless block
 
-        # the pending noise and its qubits, by a key that numbers noise in the order it is added,
-        # and the keys of the pending noise on each qubit
+        # the pending noise and its qubits, keyed by the order in which it was added, and the keys
+        # of the pending noise on each qubit
         self.pending_noise: dict[int, tuple[Iterable[int], stim.Circuit]] = {}
         self.pending_noise_keys_by_qubit: dict[int, set[int]] = collections.defaultdict(set)
         self.next_noise_key = 0
 
-        # a cache of the noise of an idle run on qubit 0, by its numbers of idle moments and of
-        # moments waiting for a measurement or reset
+        # the noise of an idle run on qubit 0, cached by its two counts of moments (see
+        # NoiseModel._get_idle_noise)
         self.idle_noise_by_num_moments: dict[tuple[int, int], stim.Circuit] = {}
 
         # the current idle run of each qubit, and the moments that contain a measurement or reset
@@ -670,7 +647,7 @@ class _NoisyCircuitBuilder:
             )
 
         # add noise to each gate, and append each other instruction after the pending noise on the
-        # qubits that it depends on (those of an observable), while their idle runs continue
+        # qubits that it depends on, which only an observable has.  Only gates end idle runs.
         start = 0
         for instruction in segment.instructions:
             num_operations = len(_get_instruction_operations(instruction))
@@ -706,8 +683,8 @@ class _NoisyCircuitBuilder:
         The gate is split only where the noise of an application must precede a later application.
         A noise rule is applied once to consecutive applications that share it.
         """
-        # the applications are appended in chunks: runs of consecutive applications, each appended
-        # after the pending noise on the qubits that its applications depend on
+        # append the applications in chunks of consecutive applications, each after the pending
+        # noise on the qubits that its applications depend on
         rules = self.get_rules(instruction, applications)
         chunk: list[int] = []  # the indices of the applications in the chunk
         chunk_qubits: set[int] = set()  # the qubits that the applications of the chunk depend on
@@ -808,6 +785,8 @@ class _NoisyCircuitBuilder:
                 )
                 for operation in applications
             ]
+
+        # otherwise, look up the rule of each application, and apply immunity to it
         rules: list[NoiseRule | None] = []
         for operation in applications:
             rule = self.noise_model.get_noise_rule(operation.instruction)
@@ -826,12 +805,12 @@ class _NoisyCircuitBuilder:
     ) -> None:
         """Add noise to a REPEAT block, and append it to the output.
 
-        Idle runs end at the boundaries of the block and of its iterations, so every iteration gets
-        the same noise, which is added once.  In a REPEAT block tagged with ``immune_op_tag``, gates
-        get no noise, and the qubits whose idle runs those gates end get no idle noise.
+        Idle runs end at the boundaries of the block and of its iterations (see :class:`Schedule`),
+        so every iteration gets the same noise, and the builder makes the noise of one iteration.
+        In a block tagged with ``immune_op_tag``, gates get no noise, and neither do the qubits
+        whose idle runs they end.
         """
-        # a noiseless block adds no noise to its gates, nor idle noise to the qubits whose idle runs
-        # they end
+        # emit the pending noise, and in a noiseless block, add no noise to gates or their qubits
         self.emit_pending_noise(output)
         body = block.body_copy()
         outer_state = self.noiseless, self.idle_qubits
@@ -872,9 +851,9 @@ class _NoisyCircuitBuilder:
             run.last_gate_measures_or_resets |= measures_or_resets
             return 0, 0
 
-        # the qubit idles from the moment of its last gate, or from the next moment if that gate
-        # took time, until this moment, and waits in the moments between them with a measurement or
-        # reset, other than one of its own
+        # the qubit idles from the moment of its last gate, or the next moment if that gate took
+        # time, until this moment.  It waits in each moment from its last gate up to this moment in
+        # which other qubits, but not this qubit, are measured or reset.
         num_measurement_or_reset_moments = bisect.bisect_left(
             self.measurement_or_reset_moments, moment
         )
@@ -895,8 +874,7 @@ class _NoisyCircuitBuilder:
 
         Args:
             qubit: The qubit of the idle run.
-            idle_counts: The numbers of moments of the run in which the qubit idles, and in which it
-                waits while another qubit is measured or reset.
+            idle_counts: The counts of moments of the run, from :meth:`end_idle_run`.
         """
         if not any(idle_counts):
             return
@@ -958,10 +936,7 @@ def _join_operations(operations: Sequence[_Operation]) -> stim.CircuitInstructio
 def _get_gate_qubits(
     circuit: stim.Circuit, takes_time: Callable[[stim.CircuitInstruction], bool]
 ) -> frozenset[int]:
-    """The qubits whose idle runs the gates of a circuit end, at any depth.
-
-    These are the qubits that a gate depends on, and all qubits of a gate that takes time.
-    """
+    """The qubits whose idle runs the gates of a circuit end, including gates in REPEAT blocks."""
     qubits: set[int] = set()
     for instruction in circuit:
         if isinstance(instruction, stim.CircuitRepeatBlock):
@@ -980,30 +955,24 @@ def _get_gate_qubits(
 
 
 class DepolarizingNoiseModel(NoiseModel):
-    """Creates a near-standard circuit depolarizing noise model.
-
-    Every error has the same probability p:
+    """A circuit-level depolarizing noise model, in which every error has probability ``p``.
 
     - One-qubit Clifford gates get one-qubit depolarization.
     - Two-qubit Clifford gates get two-qubit depolarization.
-    - Measurements have their outcomes flipped, including multi-qubit measurements such as MXX and
-      MPP, which get no depolarization.
-    - Reset gates probabilistically reset qubits to the wrong (orthogonal) state.
-    - If include_idling_error is True, every idling qubit in a given moment gets depolarized.
-
-    Unitary Clifford gates on more qubits, including Pauli-product rotations (SPP), can also be
-    depolarized by increasing the max_gate_size; otherwise, they are noiseless.
+    - Measurements, including MXX and MPP, have their results flipped, without depolarization.
+    - Resets reset qubits to the wrong (orthogonal) state.
+    - If ``include_idling_error`` is True, each idling qubit gets depolarized in each moment.
 
     Args:
-        p: The error probability of every noisy operation.
+        p: The probability of every error.
         include_idling_error: Whether to depolarize idling qubits.  Default: False.
-        max_gate_size: The largest number of qubits of a unitary Clifford gate that gets
-            depolarized.  Default: 2.
+        max_gate_size: The largest number of qubits of a unitary Clifford gate, such as an SPP
+            gate, that gets depolarized.  Larger gates get no noise.  Default: 2.
         scheduler: The :class:`~qldpc.circuits.Scheduler` that places the operations of circuits in
             moments, for idle noise.  Default: ``ASAPScheduler()``.
 
     Raises:
-        ValueError: If max_gate_size is less than 1, or p is not between 0 and 1.
+        ValueError: If ``max_gate_size`` is less than 1, or ``p`` is not between 0 and 1.
     """
 
     def __init__(
@@ -1031,18 +1000,17 @@ class DepolarizingNoiseModel(NoiseModel):
 class SI1000NoiseModel(NoiseModel):
     """A superconducting-inspired noise model defined in "A Fault-Tolerant Honeycomb Memory".
 
-    This noise model is defined by a two-qubit gate infidelity p that determines all error rates:
+    A two-qubit gate error probability ``p`` sets every error rate:
 
     - One-qubit Clifford gates get one-qubit depolarization with probability ``p/10``.
     - Two-qubit Clifford gates get two-qubit depolarization with probability ``p``.
-    - Measurements have their outcomes flipped with probability ``5*p``.
-    - Reset gates reset qubits to the wrong (orthogonal) state with probability ``2*p``.
-    - Every idling qubit in a given moment gets depolarized with probability ``p/10``.
+    - Measurements have their results flipped with probability ``5*p``.
+    - Resets reset qubits to the wrong (orthogonal) state with probability ``2*p``.
+    - Each idling qubit gets depolarized with probability ``p/10`` in each moment.
+    - In each moment with a measurement or reset, every other qubit also gets depolarized with
+      probability ``2*p``, even if a gate acts on it, as in the reference implementation.
 
-    See https://arxiv.org/abs/2108.10457.  In a moment in which another qubit is measured or reset,
-    an idling qubit gets depolarized with probability ``p/10`` and also ``2*p``, as in the cited
-    reference implementation, and a qubit occupied by a unitary gate that takes time gets ``2*p`` in
-    addition to the noise of its gate.
+    See https://arxiv.org/abs/2108.10457.
 
     Args:
         p: The two-qubit gate error probability, which sets all other error rates.

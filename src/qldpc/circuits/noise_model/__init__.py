@@ -1,14 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Noise models for stim circuits (and stim-wrapping circuits such as tsim's).
+"""Noise models for stim circuits, and for circuits that wrap them, such as tsim's.
 
 The main components of this package are:
 
-- PauliChannel: A sparse multi-qubit Pauli channel used to specify multi-qubit noise.
+- PauliChannel: A sparse Pauli channel on one or more qubits.
 - NoiseRule: Defines how to add noise to individual operations.
-- NoiseModel: Defines how noise is added to circuits.
+- NoiseModel: Defines how to add noise to circuits.
 - Built-in noise models: DepolarizingNoiseModel and the superconducting-inspired SI1000NoiseModel.
-- Scheduler and Schedule: Place the operations of circuits in moments, which set idle noise.
+- Scheduler: Places the operations of circuits in moments, which set idle noise.
+- Schedule: The moments of the operations of a circuit.
 - Built-in schedulers: TickPreservingScheduler, ASAPScheduler, and ALAPScheduler.
 
 Examples of basic usage with a predefined noise model::
@@ -38,54 +39,51 @@ Examples of basic usage with a predefined noise model::
     noisy_circuit = custom_model.noisy_circuit(circuit)
 
 
-Noise on multi-qubit Clifford gates (SPP / MPP)::
+Noise on gates by their number of qubits.  ``clifford_nq_error`` gives the noise after each unitary
+Clifford gate on ``k`` qubits, by ``k``, and each Pauli product of an SPP or SPP_DAG gate counts as
+a gate on its qubits.  The noise may be a float (depolarizing noise), a Mapping from Pauli strings
+to probabilities, a PauliChannel, or a NoiseRule::
 
     from qldpc.circuits.noise_model import NoiseModel, NoiseRule, PauliChannel
 
-    # `clifford_nq_error` maps a qubit count ``k`` to the noise applied after each ``k``-qubit
-    # unitary Clifford gate (namely, the Pauli-product Cliffords SPP and SPP_DAG, which are stim's
-    # multi-qubit unitary Clifford primitives).  Values may be a float (uniform ``k``-qubit
-    # depolarizing channel), a Mapping[str, float] (auto-wrapped as PauliChannel), a PauliChannel,
-    # or a full NoiseRule.
     noise_model = NoiseModel(
         clifford_nq_error={
-            1: 1e-4,                                 # DEPOLARIZE1(1e-4) after each 1-qubit gate
-            2: 1e-3,                                 # DEPOLARIZE2(1e-3) after each 2-qubit gate
-            3: PauliChannel.depolarizing(3, 5e-3),   # 3-qubit depolarizing channel, emitted as
-                                                     # a chain of CORRELATED_ERROR /
-                                                     # ELSE_CORRELATED_ERROR instructions
-            4: {"XXXX": 1e-4, "ZZZZ": 2e-4},         # sparse 4-qubit channel (raw dict)
+            1: 1e-4,                                 # DEPOLARIZE1(1e-4) after one-qubit gates
+            2: 1e-3,                                 # DEPOLARIZE2(1e-3) after two-qubit gates
+            3: PauliChannel.depolarizing(3, 5e-3),   # a chain of E / ELSE_CORRELATED_ERROR
+            4: {"XXXX": 1e-4, "ZZZZ": 2e-4},         # a sparse four-qubit channel
         }
     )
 
-    # Multi-qubit MPP / SPP gates receive ordinary readout_error / clifford_nq_error.  To assign
-    # per-basis rules, use "M<paulis>" for MPP (e.g. "MXYZ" for `MPP X*Y*Z`, "MXX" for `MPP X*X`)
-    # and "S<paulis>" / "S<paulis>_DAG" for SPP / SPP_DAG (e.g. "SXYZ" for `SPP X*Y*Z`, "SXY_DAG"
-    # for `SPP_DAG X*Y`).
+MPP gates get ``readout_error``, like other measurements.  A rule for one Pauli product has a key
+of ``"M"`` (MPP) or ``"S"`` (SPP) followed by its Paulis, and then ``"_DAG"`` for SPP_DAG, as in
+``"SXY_DAG"`` for ``SPP_DAG X*Y``::
+
+    from qldpc.circuits.noise_model import NoiseModel, NoiseRule, PauliChannel
+
     noise_model = NoiseModel(
-        readout_error=1e-3,                                # default readout flip probability
+        readout_error=1e-3,
         rules={
-            "MXYZ": NoiseRule(readout_error=5e-3),         # override for MPP X*Y*Z specifically
-            "SXYZ": NoiseRule(after=PauliChannel.depolarizing(3, 1e-2)),  # SPP X*Y*Z override
+            "MXYZ": NoiseRule(readout_error=5e-3),                        # for MPP X*Y*Z
+            "SXYZ": NoiseRule(after=PauliChannel.depolarizing(3, 1e-2)),  # for SPP X*Y*Z
         },
     )
 
-Multi-qubit Pauli channels with arity three or greater are emitted as correlated ``E`` /
-``ELSE_CORRELATED_ERROR`` chains.  Stim's exact detector-error-model conversion rejects these chains
-unless ``approximate_disjoint_errors=True`` is passed.  qLDPC's DEM consumers use that explicit
-approximation; callers extracting DEMs directly must make the same modeling choice.
+Stim needs ``approximate_disjoint_errors=True`` to turn some Pauli channels into a detector error
+model, such as the ``E`` / ``ELSE_CORRELATED_ERROR`` chains that encode channels on three or more
+qubits.  qLDPC passes this option where it makes detector error models, and callers who make their
+own may need to pass it too.
 
-Per-gate-application noise via a callback (``rule_func``)::
+Noise that depends on the qubits of each gate, with ``rule_func``.  This function takes precedence
+over all other rules.  It gets one gate application at a time, such as one pair of qubits of
+``CX 0 1 2 3`` or one Pauli product of an MPP gate, and returns None to fall back on the other
+rules::
 
-    from qldpc.circuits.noise_model import NoiseModel, NoiseRule
+    import stim
+    from qldpc.circuits.noise_model import NoiseModel, NoiseRule, PauliChannel
 
-    # `rule_func` takes top priority over every other rule in a `NoiseModel`.  Broadcast gates such
-    # as `H 0 1 2` and `CX 0 1 2 3` are decomposed into individual gates before being passed to
-    # `rule_func`, so the `op` argument is always a stim.CircuitInstruction holding exactly one gate
-    # application's worth of targets (e.g. two targets for a two-qubit gate, one Pauli product for
-    # an SPP/MPP).  Returning `None` falls back to the ordinary `NoiseModel` rules.
     def bad_qubit_noise(op: stim.CircuitInstruction) -> NoiseRule | None:
-        # Give any gate touching qubit 7 a heavier depolarizing kick; leave everything else alone.
+        # add strong depolarizing noise after every gate on qubit 7
         targets = [t for t in op.targets_copy() if not t.is_combiner]
         if any(t.qubit_value == 7 for t in targets):
             return NoiseRule(after=PauliChannel.depolarizing(len(targets), 1e-2))
@@ -96,29 +94,30 @@ Per-gate-application noise via a callback (``rule_func``)::
         clifford_2q_error=1e-3,
         rule_func=bad_qubit_noise,
     )
+    circuit = stim.Circuit("H 7 \\n CX 0 1 2 7")
     noisy_circuit = noise_model.noisy_circuit(circuit)
 
 .. rubric:: Noise insertion and idle noise
 
-``NoiseModel.noisy_circuit`` inserts noise into a circuit, which keeps its instructions in order.
-The noise of each gate is placed after it, before the next instruction that depends on its qubits.
+``NoiseModel.noisy_circuit`` adds noise to a circuit and keeps its instructions in order.  The noise
+of each gate goes after it, before the next instruction that depends on its qubits.
 
-Idle noise (``idle_error``, ``quadratic_idle_error``, and ``additional_error_waiting_for_m_or_r``)
-depends on how long qubits idle.  A noise model finds this from its ``scheduler``, which places the
-operations of a circuit in moments: by default ``ASAPScheduler()``, which places gates as early as
-possible, and for ``SI1000NoiseModel`` a ``TickPreservingScheduler``, which keeps the TICK layers of
-a circuit.  Each qubit gets one combined idle error for each idle run, which lasts from one gate on
-the qubit to the next.  See :class:`NoiseModel` for idle runs, :class:`Scheduler` and
-:class:`Schedule` for moments and how to inspect them, and the :doc:`noise-model notebook
-</examples/noise_models>` for examples.
+Idle errors (``idle_error``, ``quadratic_idle_error``, and
+``additional_error_waiting_for_m_or_r``) depend on how long qubits idle.  A noise model finds this
+with its ``scheduler``, which places the operations of a circuit in moments.  The default scheduler
+is ``ASAPScheduler()``, which places gates as early as possible.  ``SI1000NoiseModel`` uses a
+``TickPreservingScheduler``, which keeps the TICK layers of a circuit.  The Pauli idle errors of
+each idle run of a qubit, from one of its gates to the next, are combined into one error.  See
+:class:`NoiseModel` for idle runs, :class:`Scheduler` and :class:`Schedule` for moments, and the
+:doc:`noise-model notebook </examples/noise_models>` for examples.
 
-``quadratic_idle_error`` models idle errors from slow noise, such as a qubit frequency that
-fluctuates from one shot to the next.  Over an idle run, such noise rotates a qubit about a fixed
-axis by an angle that grows linearly at a random rate.  Averaged over that (Gaussian) rate, the
-Pauli twirl of this rotation has a probability that grows quadratically while it is small and
-saturates at 1/2.  For a channel with several Paulis, the axis may vary from one run to the next,
-for example as a compiler changes the frame of a qubit, and the channel sets the mean squared
-components of the axis.  Runs are independent of each other, and every moment counts equally.
+``quadratic_idle_error`` models slow noise, such as a qubit frequency that changes from one shot to
+the next.  Over an idle run, such noise rotates a qubit about a fixed axis.  The angle grows
+linearly, at a random rate with a Gaussian distribution.  Averaged over this rate, the Pauli twirl
+of the rotation has an error probability that grows quadratically at first and saturates at 1/2.
+For a channel with several Paulis, the axis may change from one idle run to the next, for example
+as a compiler changes the frame of a qubit.  The channel then sets the mean squared components of
+the axis.  The model treats idle runs as independent, and all moments as equally long.
 
 .. rubric:: Attribution and license
 
