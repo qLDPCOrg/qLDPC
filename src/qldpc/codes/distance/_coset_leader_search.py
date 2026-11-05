@@ -752,22 +752,48 @@ def _visit_layer(
     The offset, the rows, and the weights are those of ``_search_coset``.  ``rows`` has shape
     ``(1, num_rows, num_words)``, a stack of one set, because ``advance_support`` takes a stack of
     sets, and each row has ``num_words`` machine words.  ``widths`` is ``[num_words]``, and
-    ``support`` and ``prefixes`` are work space for ``advance_support``.  Keep the lightest word in
-    ``best``, as ``_keep_lighter`` does, stop at the first word of weight at most ``max_weight``,
-    and return the weight of ``best``.
+    ``support`` and ``prefixes`` are work space for ``advance_support``.  ``best_weight``, the weight
+    of ``best``, must exceed ``max_weight``.  Keep the lightest word in ``best``, as
+    ``_keep_lighter`` does, stop at the first word of weight at most ``max_weight``, and return the
+    weight of ``best``.
+
+    This is the innermost loop of the search, so it weighs each word inline, and stops counting
+    once the counts so far show that the word is no lighter than ``best``.  These counts are lower
+    bounds on the full counts, so a word is kept exactly when ``_keep_lighter`` would keep it.
     """
-    num_rows = rows.shape[1]
+    _, num_rows, num_words = rows.shape
     prefixes[0, 0] = offset
     support[0] = 0
     depth = advance_support(rows, widths, support, prefixes, 0)
     while depth >= 0:
         # Visit the remaining supports that differ from this one only in their last row.
         for row in range(support[depth], num_rows):
-            best_weight = _keep_lighter(
-                prefixes[depth, 0], rows[0, row], best, best_weight, x_mask, css_weight
-            )
-            if best_weight <= max_weight:
-                return best_weight
+            # Weigh the word: its CSS weight is the larger of its X and Z counts, and its physical
+            # weight is half the Hamming weight of its embedded word.
+            if css_weight:
+                x_ones = z_ones = np.int64(0)
+                for index in range(num_words):
+                    word = prefixes[depth, 0, index] ^ rows[0, row, index]
+                    x_ones += popcount_word(word & x_mask[index])
+                    z_ones += popcount_word(word & ~x_mask[index])
+                    if x_ones >= best_weight or z_ones >= best_weight:
+                        break
+                weight = max(x_ones, z_ones)
+            else:
+                ones = np.int64(0)
+                for index in range(num_words):
+                    ones += popcount_word(prefixes[depth, 0, index] ^ rows[0, row, index])
+                    if ones >= 2 * best_weight:
+                        break
+                weight = ones // 2
+
+            # Keep the word if it is lighter, and stop if it is light enough.
+            if weight < best_weight:
+                best_weight = weight
+                for index in range(num_words):
+                    best[index] = prefixes[depth, 0, index] ^ rows[0, row, index]
+                if best_weight <= max_weight:
+                    return best_weight
         support[depth] = num_rows
         depth = advance_support(rows, widths, support, prefixes, depth)
     return best_weight
