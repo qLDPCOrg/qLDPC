@@ -56,7 +56,7 @@ class Schedule:
     its gates.  A circuit without gates has no moments.
 
     A circuit with REPEAT blocks is scheduled in parts.  The body of each block, and the
-    instructions between blocks, are each scheduled as a circuit of their own.  Every iteration of a
+    instructions between blocks, are each scheduled in moments of their own.  Every iteration of a
     block follows the schedule of its body, so a noisy circuit keeps the block.  No moment crosses
     the start or end of a block or of an iteration, and neither does an idle run of a qubit (see
     :class:`~qldpc.circuits.NoiseModel`).  To let idle runs cross them, add noise to
@@ -233,31 +233,65 @@ class _BuiltInScheduler(Scheduler):
     single_qubit_gates_take_time: bool
 
     def get_schedule(self, circuit: StimCircuitLike) -> Schedule:
+        return self._get_schedule(_as_stim_circuit(circuit), {})
+
+    def _get_schedule(self, stim_circuit: stim.Circuit, next_gates: Mapping[int, bool]) -> Schedule:
+        """Schedule a circuit, given the gates that follow it (see ``_get_moments``)."""
         # schedule the instructions between REPEAT blocks, and the body of each block recursively
-        stim_circuit = _as_stim_circuit(circuit)
         moments: list[int | Schedule] = []
         takes_time: list[bool] = []
+        index = 0  # of the instruction after the current part
         for segment_or_block in _get_segments(stim_circuit, None):
+            index += (
+                len(segment_or_block.instructions) if isinstance(segment_or_block, _Segment) else 1
+            )
+            following = {**next_gates, **self._get_first_gates(stim_circuit[index:])}
             if isinstance(segment_or_block, _Segment):
-                segment_takes_time = [
-                    operation.is_gate
-                    and not involves_classical_bits(operation.instruction)
-                    and (
-                        self.single_qubit_gates_take_time
-                        or op_type(operation.instruction.name) != CLIFFORD_1Q
-                    )
-                    for operation in segment_or_block.operations
-                ]
-                moments.extend(self._get_moments(segment_or_block, segment_takes_time))
+                segment_takes_time = [self._takes_time(op) for op in segment_or_block.operations]
+                moments.extend(self._get_moments(segment_or_block, segment_takes_time, following))
                 takes_time.extend(segment_takes_time)
             else:
+                # a body is followed by its next iteration, or by what follows the block
                 block, _ = segment_or_block
-                moments.append(self.get_schedule(block.body_copy()))
+                body = block.body_copy()
+                repeated = self._get_first_gates(body).items()
+                following |= {qubit: False for qubit, is_reset in repeated if not is_reset}
+                moments.append(self._get_schedule(body, following))
         return Schedule._new(stim_circuit, tuple(moments), tuple(takes_time))
 
+    def _takes_time(self, operation: _Operation) -> bool:
+        """Whether an operation is a gate that takes time."""
+        return (
+            operation.is_gate
+            and not involves_classical_bits(operation.instruction)
+            and (
+                self.single_qubit_gates_take_time
+                or op_type(operation.instruction.name) != CLIFFORD_1Q
+            )
+        )
+
+    def _get_first_gates(self, circuit: stim.Circuit) -> dict[int, bool]:
+        """By qubit, whether the first gate that takes time on it is a reset (R, RX, RY, or RZ)."""
+        first_gates: dict[int, bool] = {}
+        for instruction in reversed(circuit):
+            if isinstance(instruction, stim.CircuitRepeatBlock):
+                first_gates |= self._get_first_gates(instruction.body_copy())
+                continue
+            for operation in _get_instruction_operations(instruction):
+                if self._takes_time(operation):
+                    is_reset = instruction.name in JUST_RESET_OPS
+                    first_gates |= dict.fromkeys(operation.qubits, is_reset)
+        return first_gates
+
     @abc.abstractmethod
-    def _get_moments(self, segment: _Segment, takes_time: Sequence[bool]) -> list[int]:
-        """The moment of each operation of a ``_Segment``, given whether each takes time."""
+    def _get_moments(
+        self, segment: _Segment, takes_time: Sequence[bool], next_gates: Mapping[int, bool]
+    ) -> list[int]:
+        """The moment of each operation of a ``_Segment``, given whether each takes time.
+
+        ``next_gates`` says, by qubit, whether the next gate that takes time after the ``_Segment``
+        is a reset.  It omits qubits without such a gate.
+        """
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, repr=False)
@@ -280,7 +314,9 @@ class TickScheduler(_BuiltInScheduler):
     def __repr__(self) -> str:
         return _get_repr(self)
 
-    def _get_moments(self, segment: _Segment, takes_time: Sequence[bool]) -> list[int]:
+    def _get_moments(
+        self, segment: _Segment, takes_time: Sequence[bool], next_gates: Mapping[int, bool]
+    ) -> list[int]:
         # place each gate in the moment that the TICKs since the first gate have reached
         nodes = _get_nodes(segment.operations)
         gate_moments: dict[int, int] = {}  # the moment of each node with a gate
@@ -317,7 +353,9 @@ class _LayerScheduler(_BuiltInScheduler):
         does the reverse.
         """
 
-    def _get_moments(self, segment: _Segment, takes_time: Sequence[bool]) -> list[int]:
+    def _get_moments(
+        self, segment: _Segment, takes_time: Sequence[bool], next_gates: Mapping[int, bool]
+    ) -> list[int]:
         # group the operations into nodes, and find the constraints on their order
         operations = segment.operations
         nodes = _get_nodes(operations)
@@ -404,10 +442,11 @@ class MinIdleScheduler(_BuiltInScheduler):
     It places gates to minimize the number of effective idle slots, which are the moments in which a
     qubit idles, except those of an idle run that ends at a reset (R, RX, RY, or RZ) or that follows
     the last gate on the qubit if that gate measures it.  Idle errors in the excluded moments are
-    erased by the reset, or come after the last measurement of the qubit.  Each part of a circuit
-    (see :class:`Schedule`) is scheduled as if it were the whole circuit, and keeps the number of
-    moments that :class:`ASAPScheduler` gives it, which is the fewest possible.  The placement comes
-    from a linear program, which is solved exactly.
+    erased by the reset, or come after the last measurement of the qubit.  An idle run at the end
+    of a part of a circuit (see :class:`Schedule`) ends at the next gate on its qubit, in the next
+    iteration of a REPEAT block or after it, and counts if it counts in any iteration.  Each part
+    keeps the number of moments that :class:`ASAPScheduler` gives it, which is the fewest possible.
+    The placement comes from a linear program, which is solved exactly.
 
     Args:
         single_qubit_gates_take_time: As in :class:`ASAPScheduler`.
@@ -418,7 +457,9 @@ class MinIdleScheduler(_BuiltInScheduler):
     def __repr__(self) -> str:
         return _get_repr(self)
 
-    def _get_moments(self, segment: _Segment, takes_time: Sequence[bool]) -> list[int]:
+    def _get_moments(
+        self, segment: _Segment, takes_time: Sequence[bool], next_gates: Mapping[int, bool]
+    ) -> list[int]:
         # group the operations into nodes, and find the constraints on their order and the depth
         operations = segment.operations
         nodes = _get_nodes(operations)
@@ -439,9 +480,11 @@ class MinIdleScheduler(_BuiltInScheduler):
                         if qubit in last_gates:
                             costs[last_gates[qubit][0]] -= 1
                     last_gates[qubit] = (node, operation)
-        for node, operation in last_gates.values():
-            if not operation.num_records:
-                costs[node] -= 1  # the run after a last gate that does not measure counts
+        for qubit, (node, operation) in last_gates.items():
+            # the run after the last gate counts unless a reset follows it, or nothing follows it
+            # and the gate measures
+            if not next_gates.get(qubit, operation.num_records > 0):
+                costs[node] -= 1
 
         # place annotations and noise channels in the moments of operations before them
         layers = _get_min_cost_layers(costs, edges, num_layers)
