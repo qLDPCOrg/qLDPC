@@ -507,3 +507,25 @@ def get_candidate_count(monkeypatch: pytest.MonkeyPatch) -> Callable[[], int]:
     monkeypatch.setattr(np, "bitwise_count", counting_bitwise_count)
     monkeypatch.setattr(bz, "_scan_brouwer_zimmermann", counting_scan)
     return lambda: num_candidates
+
+
+@pytest.mark.usefixtures("force_information_sets")
+def test_a_search_scans_every_set_that_its_certificate_counts() -> None:
+    """A [22, 7, 5] code whose search finds a word of weight five only in its second set.
+
+    Its two disjoint information sets reach the certificate six once both complete layer two, and
+    the first word of weight five is in layer two of the second set.  A search that counted the
+    second set's layer without scanning it would return six.
+    """
+    rows = [
+        "1000100010001101001110",
+        "0100100010000111110000",
+        "0010000010000100101010",
+        "0001100010000000011111",
+        "0000010110000001011001",
+        "0000001100000010001011",
+        "0000000000101110101110",
+    ]
+    basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
+    assert qldpc.codes.get_distance_classical(basis, cutoff=0, method="brute_force") == 5
+    assert qldpc.codes.get_distance_classical(basis, cutoff=0) == 5

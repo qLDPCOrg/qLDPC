@@ -71,9 +71,12 @@ _Scalar = TypeVar("_Scalar", bound=np.generic)
 class Certificate:
     """Lower bound on the Hamming weight of eligible words that a family has not yet visited.
 
-    The bound holds only after every search basis of the family has completed each coefficient layer
-    through ``completed_weight``; an interrupted layer does not advance it.  It does not bound the
-    weights of witnesses already found, and it does not transfer to another basis or CSS sector.
+    ``lower_bound`` holds after every search basis of the family has completed each coefficient
+    layer through ``completed_weight``.  ``step_lower_bound`` also holds part way through a layer,
+    once the first sets in family order have completed it, in whatever order their words were
+    visited.  A set that is interrupted within a layer does not advance either bound.  The bounds do
+    not bound the weights of witnesses already found, and they do not transfer to another basis or
+    CSS sector.
 
     Attributes:
         dimension: Number of rows of the searched basis.
@@ -92,8 +95,28 @@ class Certificate:
 
     def lower_bound(self, completed_weight: int) -> int:
         """Bound the Hamming weight of unvisited eligible words after the given complete layers."""
-        bounds = get_certificate_lower_bounds(self.dimension, *self._as_array_arguments())
-        return int(bounds[completed_weight])
+        return int(self._step_lower_bounds[completed_weight, len(self.ranks)])
+
+    def step_lower_bound(self, weight: int, num_completed: int) -> int:
+        """Bound the Hamming weight of unvisited eligible words part way through layer ``weight``.
+
+        The first ``num_completed`` sets, in family order, have completed layer ``weight``, and the
+        others have completed layer ``weight - 1``.
+        """
+        return int(self._step_lower_bounds[weight, num_completed])
+
+    def get_num_sets_to_certify(self, weight: int, upper_bound: int) -> int:
+        """The fewest sets, in family order, whose completion of layer ``weight`` certifies a bound.
+
+        Once these sets have completed layer ``weight``, and the others layer ``weight - 1``, every
+        unvisited eligible word weighs at least ``upper_bound``.  Returns the number of sets if no
+        fewer sets suffice, in which case the bound may need later layers too.
+        """
+        num_sets = len(self.ranks)
+        for num_completed in range(1, num_sets):
+            if self._step_lower_bounds[weight, num_completed] >= upper_bound:
+                return num_completed
+        return num_sets
 
     def work(self, upper_bound: int) -> int:
         """Estimate the candidate/set evaluations needed to certify ``upper_bound``.
@@ -111,6 +134,11 @@ class Certificate:
     def _as_array_arguments(self) -> tuple[npt.NDArray[np.int64], int, int]:
         """The ranks, weight divisor and maximum coverage that the array functions take."""
         return np.array(self.ranks, dtype=np.int64), self.weight_divisor, self.max_coverage
+
+    @functools.cached_property
+    def _step_lower_bounds(self) -> npt.NDArray[np.int64]:
+        """The table of ``get_step_lower_bounds`` for this certificate."""
+        return get_step_lower_bounds(self.dimension, *self._as_array_arguments())
 
 
 class BasisFamily(NamedTuple):
@@ -472,29 +500,39 @@ def lower_bound_from_occupancy(occupancy: int, weight_divisor: int, max_coverage
 
 
 @always_compiled
-def get_certificate_lower_bounds(
+def get_step_lower_bounds(
     dimension: int,
     ranks: npt.NDArray[np.int64],
     weight_divisor: int,
     max_coverage: int,
 ) -> npt.NDArray[np.int64]:
-    """Certificate lower bounds after each completed layer ``0, ..., dimension``.
+    """Certificate lower bounds after each step of a search, which completes one layer of one set.
 
-    Rank deficiency limits how many selected rows can have zero pivot support: after ``weight``
-    complete layers, a set with deficiency ``s`` adds ``weight + 1 - s`` to the occupancy if
-    positive.
+    Entry ``[weight, num_completed]`` holds once the first ``num_completed`` sets, in family order,
+    have completed layer ``weight``, and the others have completed layer ``weight - 1``, in whatever
+    order their words were visited.  So column ``len(ranks)`` holds once every set has completed
+    layer ``weight``, and column zero of row ``weight`` repeats column ``len(ranks)`` of row
+    ``weight - 1``.  Rank deficiency limits how many selected rows can have zero pivot support:  a
+    set with deficiency ``s`` that has completed layer ``c`` adds ``c + 1 - s`` to the occupancy if
+    positive, so it adds one more for each layer that it completes once its deficiency no longer
+    cancels the layer.
     """
-    num_deficient = np.zeros(dimension + 1, dtype=np.int64)
-    for rank in ranks:
-        num_deficient[dimension - rank] += 1
-    bounds = np.empty(dimension + 1, dtype=np.int64)
-    num_contributing = 0
-    deficiency_total = 0
+    num_sets = len(ranks)
+    bounds = np.empty((dimension + 1, num_sets + 1), dtype=np.int64)
     for weight in range(dimension + 1):
-        num_contributing += num_deficient[weight]
-        deficiency_total += weight * num_deficient[weight]
-        occupancy = num_contributing * (weight + 1) - deficiency_total
-        bounds[weight] = lower_bound_from_occupancy(occupancy, weight_divisor, max_coverage)
+        # The occupancy once every set has completed layer ``weight - 1``.
+        occupancy = 0
+        for rank in ranks:
+            occupancy += max(0, weight - (dimension - rank))
+        bounds[weight, 0] = lower_bound_from_occupancy(occupancy, weight_divisor, max_coverage)
+
+        # Completing layer ``weight`` adds one for each set whose deficiency it overcomes.
+        for index in range(num_sets):
+            if weight + 1 > dimension - ranks[index]:
+                occupancy += 1
+            bounds[weight, index + 1] = lower_bound_from_occupancy(
+                occupancy, weight_divisor, max_coverage
+            )
     return bounds
 
 
@@ -509,20 +547,23 @@ def estimate_certificate_work(
 ) -> int:
     """Estimate the candidate/set evaluations needed to certify ``upper_bound``.
 
-    This pessimistic estimate includes systematic rows (coefficient weight one).  It assumes no
-    lighter witness is found before the certificate reaches the upper bound.  Estimates saturate.
+    The search completes its last layer on only as many leading sets, in family order, as certify
+    the upper bound (see ``get_step_lower_bounds``).  This pessimistic estimate includes systematic
+    rows (coefficient weight one).  It assumes no lighter witness is found before the certificate
+    reaches the upper bound.  Estimates saturate.
     """
-    bounds = get_certificate_lower_bounds(dimension, ranks, weight_divisor, max_coverage)
+    bounds = get_step_lower_bounds(dimension, ranks, weight_divisor, max_coverage)
     candidates = 0
     for weight in range(1, dimension + 1):
         # Saturate before adding, so that no sum can overflow.
         if binomials[weight] > _WORK_CAP // max(len(ranks), 1):
             return _WORK_CAP
-        candidates += len(ranks) * binomials[weight]
+        for num_completed in range(1, len(ranks) + 1):
+            candidates += binomials[weight]
+            if bounds[weight, num_completed] >= upper_bound:
+                return min(candidates, _WORK_CAP)
         if candidates >= _WORK_CAP:
             return _WORK_CAP
-        if bounds[weight] >= upper_bound:
-            break
     return candidates
 
 

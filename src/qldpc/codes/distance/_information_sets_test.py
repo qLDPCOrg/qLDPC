@@ -157,16 +157,21 @@ def test_overlapping_family_guards() -> None:
     assert not len(empty.ranks)
     assert not len(_get_overlapping_family(zeros, None, empty, 2).ranks)
 
-    # Only three pivot pairs exist, so later attempts rediscover them.  The search must terminate
+    # An information set holds one of the third to fifth columns, which are equal, and two of the
+    # first, second, and sixth, so attempts rediscover the few such sets.  The search must terminate
     # without a replacement that beats the disjoint family.
-    small = np.array([[1, 1, 0], [0, 1, 1]], dtype=np.uint8)
+    small = np.array([[1, 0, 0, 0, 0, 1], [0, 1, 0, 0, 0, 1], [0, 0, 1, 1, 1, 0]], dtype=np.uint8)
     disjoint = _information_sets.get_disjoint_family(small, None)
-    assert not len(_get_overlapping_family(small, None, disjoint, 2, minimum_work=0).ranks)
+    assert not len(_get_overlapping_family(small, None, disjoint, 3, minimum_work=0).ranks)
 
 
 @pytest.mark.usefixtures("compilation_mode")
 def test_certificate_follows_its_definition(pytestconfig: pytest.Config) -> None:
-    """The lower bound and work estimate equal their definitions, evaluated directly."""
+    """The lower bounds and work estimate equal their definitions, evaluated directly.
+
+    A search visits the sets of a layer in family order and stops after the first set whose
+    completion of the layer certifies the upper bound, so the work counts the sets visited.
+    """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for _ in range(30):
         dimension = int(rng.integers(1, 13))
@@ -179,13 +184,30 @@ def test_certificate_follows_its_definition(pytestconfig: pytest.Config) -> None
             for weight in range(dimension + 1)
         ]
         assert [certificate.lower_bound(weight) for weight in range(dimension + 1)] == oracle
+        steps = [
+            (weight, count)
+            for weight in range(1, dimension + 1)
+            for count in range(1, len(ranks) + 1)
+        ]
+        step_oracle = {
+            step: _get_lower_bound_from_definition(
+                dimension, ranks, weight_divisor, max_coverage, *step
+            )
+            for step in steps
+        }
+        assert {step: certificate.step_lower_bound(*step) for step in steps} == step_oracle
         for upper_bound in range(1, 2 * dimension + 2):
             candidates = 0
-            for weight in range(1, dimension + 1):
-                candidates += len(ranks) * math.comb(dimension, weight)
-                if oracle[weight] >= upper_bound:
+            for weight, count in steps:
+                candidates += math.comb(dimension, weight)
+                if step_oracle[weight, count] >= upper_bound:
                     break
             assert certificate.work(upper_bound) == candidates
+            num_sets = next(
+                (count for count in range(1, len(ranks)) if step_oracle[1, count] >= upper_bound),
+                len(ranks),
+            )
+            assert certificate.get_num_sets_to_certify(1, upper_bound) == num_sets
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -280,10 +302,21 @@ def test_functions_agree_in_plain_python_and_compiled(pytestconfig: pytest.Confi
 
 
 def _get_lower_bound_from_definition(
-    dimension: int, ranks: tuple[int, ...], weight_divisor: int, max_coverage: int, weight: int
+    dimension: int,
+    ranks: tuple[int, ...],
+    weight_divisor: int,
+    max_coverage: int,
+    weight: int,
+    num_completed: int | None = None,
 ) -> int:
-    """The certificate lower bound after the given completed weight, from its definition."""
-    occupancy = sum(max(0, weight + 1 - (dimension - rank)) for rank in ranks)
+    """The certificate lower bound once sets have completed layers, from its definition.
+
+    The first ``num_completed`` sets have completed layer ``weight``, and the others layer ``weight
+    - 1``; by default, every set has completed layer ``weight``.
+    """
+    num_completed = len(ranks) if num_completed is None else num_completed
+    completed = [weight if index < num_completed else weight - 1 for index in range(len(ranks))]
+    occupancy = sum(max(0, layer + 1 - (dimension - rank)) for layer, rank in zip(completed, ranks))
     bound = -(-occupancy // max_coverage)
     return bound + (-bound) % weight_divisor
 

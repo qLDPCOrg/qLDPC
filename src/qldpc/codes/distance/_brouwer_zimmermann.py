@@ -257,16 +257,24 @@ class _BrouwerZimmermannSearch:
         self.best = min(self.best, upper_bound)
 
     def advance(self) -> int:
-        """Search one coefficient weight and return the best shared upper bound."""
+        """Search one coefficient weight and return the best shared upper bound.
+
+        The search stops part way through the layer when the sets that it has scanned already
+        certify the best weight (see ``Certificate.step_lower_bound``).
+        """
         if self.finished:
             return self.best
 
-        # Start a fresh enumeration of all supports with this coefficient weight.
+        # Scan only the first sets of this layer if their completion of it certifies the best
+        # weight: an unvisited eligible word lighter than that would contradict the certificate, and
+        # lighter witnesses found during the scan only lower the best weight further.
         weight = self.next_weight
+        num_scanned = self.certificate.get_num_sets_to_certify(weight, self.best)
+        scanned = slice(0, num_scanned)
+
+        # Start a fresh enumeration of all supports with this coefficient weight.
         support = np.zeros(weight, dtype=np.int64)
-        prefixes = np.zeros(
-            (weight + 1, len(self.ranks), self.generators.shape[2]), dtype=np.uint64
-        )
+        prefixes = np.zeros((weight + 1, num_scanned, self.generators.shape[2]), dtype=np.uint64)
         depth = 0
         # Any negative Python cutoff disables early exit; keep its native value in int64 range.
         cutoff = max(-1, self.cutoff)
@@ -274,11 +282,11 @@ class _BrouwerZimmermannSearch:
         # Scan in chunks, returning early once the upper bound reaches the cutoff.
         while depth >= 0:
             self.best, depth, _ = _scan_brouwer_zimmermann(
-                self.generators,
-                self.labels,
-                self.ranks,
-                self.widths,
-                self.label_widths,
+                self.generators[scanned],
+                self.labels[scanned],
+                self.ranks[scanned],
+                self.widths[scanned],
+                self.label_widths[scanned],
                 support,
                 prefixes,
                 depth,
@@ -289,9 +297,10 @@ class _BrouwerZimmermannSearch:
             if self.best <= self.cutoff:
                 return self.best
 
-        # The layer is complete in every search basis, so the family certificate may advance.
-        self.lower_bound = self.certificate.lower_bound(weight)
-        self.next_weight += 1
+        # The scanned sets have completed the layer, so the family certificate may advance.
+        self.lower_bound = self.certificate.step_lower_bound(weight, num_scanned)
+        if num_scanned == len(self.ranks):
+            self.next_weight += 1
         return self.best
 
 
