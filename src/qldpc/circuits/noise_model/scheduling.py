@@ -2,10 +2,7 @@
 
 """Schedules, which place the operations of a circuit in moments, and schedulers that make them.
 
-An operation is a part of an instruction, such as one application of a gate.  A moment is one unit
-of time.  In each moment, a qubit is either occupied by an operation that takes time or idle (see
-:class:`Schedule`).  A :class:`~qldpc.circuits.NoiseModel` with idle noise uses a schedule to find
-how many moments each qubit idles between its gates.
+See :class:`Schedule` and :class:`Scheduler`.
 """
 
 from __future__ import annotations
@@ -227,8 +224,8 @@ class Scheduler(abc.ABC):
     To change which gates take time, or what counts as a valid schedule, subclass a built-in
     scheduler and override :meth:`takes_time` or :meth:`validate`.  A new scheduling algorithm
     subclasses :class:`Scheduler` and implements :meth:`get_operation_moments`.  It may also
-    override :meth:`get_schedule` to schedule REPEAT blocks itself, giving each block one schedule
-    of its body, which every iteration follows (see :class:`Schedule`).
+    override :meth:`get_schedule` to schedule REPEAT blocks itself.  :class:`Schedule` describes how
+    a schedule treats them.
     """
 
     def get_schedule(self, circuit: StimCircuitLike) -> Schedule:
@@ -262,9 +259,10 @@ class Scheduler(abc.ABC):
 
         Only gates are passed to this method: annotations and noise channels never take time.  In
         :class:`Scheduler`, every gate takes time except a classically controlled Pauli gate.  The
-        built-in schedulers also let single-qubit unitary gates take no time, unless
-        ``single_qubit_gates_take_time`` is True.  A gate that takes no time leaves its qubits idle,
-        and may share its moment with other operations on its qubits.
+        built-in schedulers also let single-qubit Clifford gates, such as H and S, take no time,
+        unless ``single_qubit_gates_take_time`` is True.  SPP and SPP_DAG gates always take time.
+        A gate that takes no time leaves its qubits idle, and may share its moment with other
+        operations on its qubits.
         """
         return op_type(op.name) in GATE_OP_TYPES and not involves_classical_bits(op)
 
@@ -293,8 +291,9 @@ class TickPreservingScheduler(Scheduler):
     moment.
 
     Args:
-        single_qubit_gates_take_time: If False (the default), single-qubit unitary gates take no
-            time.  A moment may then contain any number of them on a qubit, which still idles.
+        single_qubit_gates_take_time: If False (the default), single-qubit Clifford gates such as H
+            and S take no time.  A moment may then contain any number of them on a qubit, which
+            still idles.
     """
 
     single_qubit_gates_take_time: bool = False
@@ -435,6 +434,8 @@ class _LayerScheduler(Scheduler):
 class ASAPScheduler(_LayerScheduler):
     """A scheduler that ignores TICKs and places each gate as early as possible.
 
+    By default, it then moves each reset as late as the other gates allow.
+
     Args:
         late_resets: If True (the default), then move each reset (R, RX, RY, or RZ) as late as the
             other gates allow.  This shortens the time that qubits idle after a reset.  Gates that
@@ -457,6 +458,8 @@ class ASAPScheduler(_LayerScheduler):
 @dataclasses.dataclass(frozen=True, kw_only=True, repr=False)
 class ALAPScheduler(_LayerScheduler):
     """A scheduler that ignores TICKs and places each gate as late as possible.
+
+    By default, it then moves each measurement as early as the other gates allow.
 
     Args:
         early_measurements: If True (the default), then move each measurement (M, MX, MY, MZ, MPP,
@@ -602,8 +605,7 @@ class _Operation:
 class _Segment:
     """The instructions between REPEAT blocks of a circuit, with their operations and moments.
 
-    The records that operations read are indexed from the first record of the segment, so earlier
-    records have negative indices.
+    Records are indexed as in ``_get_operations``.
     """
 
     instructions: list[stim.CircuitInstruction]
