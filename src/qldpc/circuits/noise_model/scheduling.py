@@ -201,9 +201,10 @@ class Scheduler(abc.ABC):
     operations in the same way.  A noise channel, or a Pauli target of an observable, joins the
     latest moment of the operations before it on its qubits, or moment zero.  Other annotations,
     such as detectors and QUBIT_COORDS, join the moment of the last gate before them, or moment
-    zero.  An annotation joins a later moment if it must follow a measurement that it reads.  The
-    coordinate annotations DETECTOR, QUBIT_COORDS, and SHIFT_COORDS also keep their order, which
-    sets the coordinates of detectors and qubits.
+    zero.  An annotation joins a later moment if it must follow a measurement that it reads, and a
+    heralded noise channel, which records measurements, joins no earlier moment than the measurement
+    before it.  The coordinate annotations DETECTOR, QUBIT_COORDS, and SHIFT_COORDS also keep their
+    order, which sets the coordinates of detectors and qubits.
 
     A custom scheduler implements :meth:`get_schedule`, for example by laying a circuit out with
     TICKs and returning ``TickScheduler().get_schedule(timed_circuit)``.  A noise model can also
@@ -491,6 +492,8 @@ def _place_annotations(
                 for record in operation.records:
                     if record >= 0:
                         moment = max(moment, record_moments[record])
+                if operation.num_records and record_moments:
+                    moment = max(moment, record_moments[-1])
                 if operation.instruction.name in _COORDINATE_ANNOTATIONS:
                     moment = max(moment, coordinate_moment)
 

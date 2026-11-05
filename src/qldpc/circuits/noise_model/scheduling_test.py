@@ -283,6 +283,23 @@ def test_layouts() -> None:
     assert "REPEAT[block] 2" in str(scheduled)
 
 
+def test_tick_layouts_keep_measurement_order() -> None:
+    """A heralded noise channel stays after a measurement before it on another qubit."""
+    circuit = stim.Circuit("""
+        R 0 1
+        TICK
+        X_ERROR(0.125) 1
+        TICK
+        M 1
+        HERALDED_ERASE(0.25) 0
+        DETECTOR rec[-2]
+    """)
+    expected = circuit.detector_error_model(approximate_disjoint_errors=True)
+    scheduled = circuits.TickScheduler().get_schedule(circuit).to_circuit()
+    dem = scheduled.detector_error_model(approximate_disjoint_errors=True)
+    assert dem.approx_equals(expected, atol=1e-12)
+
+
 def test_tick_layouts_keep_noisy_circuits() -> None:
     """The layout of a TickScheduler schedule has the error model of its circuit under gate noise.
 
