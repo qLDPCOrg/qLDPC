@@ -106,7 +106,8 @@ TICKs can set the timing of circuits in two ways.  With ``scheduler=TickSchedule
 each circuit set its moments.  With ``scheduler=schedule``, for a schedule of a circuit with TICKs,
 a noise model takes the moments of each circuit from that schedule.  This circuit may order
 operations differently, for example to measure qubits earlier, but it must have the same operations
-on each qubit, in the same order.  The noisy circuit keeps the order of its input::
+on each qubit, in the same order, apart from their measurement-record targets.  The noisy circuit
+keeps the order of its input::
 
     from qldpc.circuits.noise_model import NoiseModel, TickScheduler
 

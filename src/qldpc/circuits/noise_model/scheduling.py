@@ -118,13 +118,15 @@ class Schedule:
         return moments
 
     def to_circuit(self) -> stim.Circuit:
-        """The scheduled circuit laid out in moments separated by TICKs, for display.
+        """The scheduled circuit laid out in moments separated by TICKs, for display only.
 
         Operations are sorted by moment, and keep their circuit order within a moment.  An empty
         moment gives two TICKs in a row.  Each iteration of a REPEAT block repeats the layout of its
-        body, and TICKs separate it from the moments around it.  Instructions keep their text, so a
-        record target may read another measurement than in the circuit if the schedule moves
-        measurements.
+        body, and TICKs separate it from the moments around it.
+
+        Record targets are kept as written.  So if the schedule reorders measurements, a record
+        target may point at another measurement than in the circuit, and the layout may not be a
+        valid circuit.
         """
         circuit = self._lay_out()
         if len(circuit) and circuit[-1] == stim.CircuitInstruction("TICK"):
@@ -250,9 +252,10 @@ class _BuiltInScheduler(Scheduler):
 class TickScheduler(_BuiltInScheduler):
     """A scheduler that takes the moments of a circuit from its TICKs.
 
-    Each TICK after the first gate of a circuit ends a moment.  So the gates between two TICKs share
-    a moment, even if several of them act on one qubit, and consecutive TICKs give empty moments, in
-    which qubits idle.  A circuit lasts until the end of the moment of its last gate.
+    Each TICK between two gates ends a moment.  So the gates between two TICKs share a moment, even
+    if several of them act on one qubit, and consecutive TICKs give empty moments, in which qubits
+    idle.  TICKs before the first gate or after the last gate of a circuit or REPEAT body add no
+    moments.
 
     Args:
         single_qubit_gates_take_time: If True (the default), every gate takes time, except a
@@ -510,11 +513,13 @@ def _place_annotations(
 def _match_schedule(schedule: Schedule, circuit: stim.Circuit) -> Schedule:
     """A schedule of a circuit, with the moments of the matching operations of another schedule.
 
-    A schedule matches a circuit if, for each qubit, the operations on that qubit, as written, are
-    the same in both, and their REPEAT blocks have the same repeat counts and bodies that match in
-    the same way.  The k-th operation on a qubit in the circuit then gets the moment, and timing, of
-    the k-th operation on that qubit in the schedule.  Operations without qubits take no time, and
-    get moment zero.
+    A schedule matches a circuit if, for each qubit, the operations on that qubit, as written apart
+    from their measurement-record targets, are the same in both, and their REPEAT blocks have the
+    same repeat counts and bodies that match in the same way.  The k-th operation on a qubit in the
+    circuit then gets the moment, and timing, of the k-th operation on that qubit in the schedule.
+    Operations without qubits take no time, and get moment zero.  Record targets are ignored because
+    only classically controlled Pauli gates have both qubits and record targets, and these take no
+    time and end no idle runs.
 
     Raises:
         ValueError: If the schedule does not match the circuit.
@@ -570,8 +575,8 @@ def _match_segment(segment: _Segment, circuit_segment: _Segment) -> list[int | N
         match = None
         for qubit in operation.qubits:
             indices = indices_by_qubit[qubit]
-            if num_matched[qubit] == len(indices) or (
-                segment.operations[indices[num_matched[qubit]]].instruction != operation.instruction
+            if num_matched[qubit] == len(indices) or not _match_operations(
+                segment.operations[indices[num_matched[qubit]]], operation
             ):
                 raise ValueError(f"The schedule is for a different circuit, on qubit {qubit}")
             match = indices[num_matched[qubit]]
@@ -581,6 +586,23 @@ def _match_segment(segment: _Segment, circuit_segment: _Segment) -> list[int | N
         if num_matched[qubit] != len(indices):
             raise ValueError(f"The schedule is for a different circuit, on qubit {qubit}")
     return matches
+
+
+def _match_operations(operation: _Operation, other: _Operation) -> bool:
+    """Are two operations the same, as written apart from their measurement-record targets?"""
+    if operation.instruction == other.instruction:
+        return True
+    return _without_records(operation.instruction) == _without_records(other.instruction)
+
+
+def _without_records(
+    instruction: stim.CircuitInstruction,
+) -> tuple[str, list[stim.GateTarget], list[float], str]:
+    """An instruction's name, targets other than measurement records, arguments, and tag."""
+    targets = [
+        target for target in instruction.targets_copy() if not target.is_measurement_record_target
+    ]
+    return instruction.name, targets, instruction.gate_args_copy(), instruction.tag
 
 
 ####################################################################################################

@@ -374,10 +374,10 @@ def test_repeat_blocks_are_moment_boundaries() -> None:
 def test_schedules_as_schedulers() -> None:
     """A noise model with a schedule takes the moments of each circuit from that schedule.
 
-    The schedule matches a circuit if each qubit has the same operations in both, in the same order,
-    and REPEAT blocks have the same counts and matching bodies.  Here the schedule measures qubit 1
-    in moment 0, so it idles in the other two moments, after its measurement.  Annotations without
-    qubits, such as detectors, do not need to match.
+    The schedule matches a circuit if each qubit has the same operations in both, in the same order
+    and apart from record targets, and REPEAT blocks have the same counts and matching bodies.  Here
+    the schedule measures qubit 1 in moment 0, so it idles in the other two moments, after its
+    measurement.  Annotations without qubits, such as detectors, do not need to match.
     """
     timed_circuit = stim.Circuit("R 0 1\nM 1\nTICK\nH 0\nTICK\nM 0")
     schedule = circuits.TickScheduler().get_schedule(timed_circuit)
@@ -395,6 +395,21 @@ def test_schedules_as_schedulers() -> None:
     noise_model = circuits.NoiseModel(idle_error={"Z": 0.1}, scheduler=schedule)
     ticks_model = circuits.NoiseModel(idle_error={"Z": 0.1}, scheduler=circuits.TickScheduler())
     assert noise_model.noisy_circuit(circuit) == ticks_model.noisy_circuit(circuit)
+
+
+def test_matching_ignores_record_targets() -> None:
+    """A schedule matches a circuit whose operations differ only in their record targets.
+
+    Here the timed circuit moves ``M 2`` earlier and fixes up the record target of ``CX``.  The
+    classically controlled ``CX`` takes no time, so qubit 1 idles in both moments, and qubits 0 and
+    2 in the moment after their measurements.
+    """
+    timed_circuit = stim.Circuit("M 0\nM 2\nTICK\nCX rec[-2] 1")
+    schedule = circuits.TickScheduler().get_schedule(timed_circuit)
+    noise_model = circuits.NoiseModel(idle_error={"Z": 0.1}, scheduler=schedule)
+    circuit = stim.Circuit("M 0\nCX rec[-1] 1\nM 2")
+    expected = circuit + stim.Circuit(f"Z_ERROR(0.1) 0\nZ_ERROR({2 * 0.1 * 0.9}) 1\nZ_ERROR(0.1) 2")
+    assert noise_model.noisy_circuit(circuit).approx_equals(expected, atol=1e-12)
 
 
 @pytest.mark.parametrize(
