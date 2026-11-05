@@ -61,6 +61,14 @@ Prose style
 
 * Choose material for a document's audience and purpose.
   Keep docstrings focused on documented objects and contributor guidance focused on contribution decisions; omit tangents and prose that merely restates implementation details.
+* Write and review prose by purpose.
+  For each paragraph, docstring section, or comment, ask what its reader needs from it, and whether that reader would miss it if it were gone.
+  If not, delete it, or point to where the information lives.
+  If so, state its message in one line, then write the simplest text that gets that message across.
+* Prefer short sentences with one idea each.
+  Split a sentence with stacked clauses, parenthetical asides, or chains of semicolons rather than compressing it.
+* Describe what code does, not what it does not do or how it used to work.
+  Give readers a sense of what happens, and point to where details live rather than repeating them.
 * In substantial scientific exposition, introduce a problem and explain why it matters before describing implementation details.
   Worked examples also need enough context to explain the question they answer and what their results establish.
   Include background only where it helps intended readers.
