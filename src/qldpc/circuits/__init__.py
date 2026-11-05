@@ -70,7 +70,7 @@ from .noise_model import (
     Schedule,
     Scheduler,
     SI1000NoiseModel,
-    TickPreservingScheduler,
+    TickScheduler,
     as_noiseless_circuit,
 )
 from .transforms import remap_qubit_target, transpile_to_cz, with_remapped_qubits
@@ -109,7 +109,7 @@ __all__ = [
     "StimCircuitLike",
     "StimCircuitProtocol",
     "SyndromeMeasurementStrategy",
-    "TickPreservingScheduler",
+    "TickScheduler",
     "as_noiseless_circuit",
     "certify_bounded_fault_propagation",
     "get_encoder_and_decoder",

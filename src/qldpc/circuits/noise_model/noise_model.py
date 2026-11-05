@@ -66,11 +66,11 @@ from .scheduling import (
     ASAPScheduler,
     Schedule,
     Scheduler,
-    TickPreservingScheduler,
+    TickScheduler,
     _as_stim_circuit,
     _get_instruction_operations,
-    _get_operations,
     _get_segments,
+    _match_schedule,
     _Operation,
     _Segment,
 )
@@ -111,14 +111,13 @@ class NoiseModel:
     qubits.  :meth:`get_noise_rule` gives the noise of each gate.  Classically controlled gates get
     no noise.
 
-    Idle errors depend on how long qubits idle.  The ``scheduler`` places the operations of a
-    circuit in moments, which are units of time.  :class:`~qldpc.circuits.Schedule` describes
-    moments and REPEAT blocks.  An idle run of a qubit starts at the start of the circuit or at a
-    gate on the qubit.  It ends at the next gate on the qubit, or at the end of the circuit.  A
-    classically controlled gate that takes no time ends no run.  The qubit idles in each moment of a
-    run before the moment of the gate that ends it.  It does not idle in the first moment of the run
-    if a gate on the qubit takes time there.  :meth:`~qldpc.circuits.Scheduler.takes_time` decides
-    which gates take time.
+    Idle errors depend on how long qubits idle.  A schedule of a circuit, from the ``scheduler``,
+    places its operations in moments, which are units of time, and says which gates take time.
+    :class:`~qldpc.circuits.Schedule` describes moments and REPEAT blocks.  An idle run of a qubit
+    starts at the start of the circuit or at a gate on the qubit.  It ends at the next gate on the
+    qubit, or at the end of the circuit.  A classically controlled gate that takes no time ends no
+    run.  The qubit idles in each moment of a run before the moment of the gate that ends it.  It
+    does not idle in the first moment of the run if a gate on the qubit takes time there.
 
     Args:
         clifford_1q_error: The default noise after each one-qubit unitary Clifford gate.  A float
@@ -154,7 +153,9 @@ class NoiseModel:
             gate application at a time, as :class:`~qldpc.circuits.Schedule` defines it.  It is not
             called for classically controlled gates.
         scheduler: The :class:`~qldpc.circuits.Scheduler` that places the operations of circuits in
-            moments, for idle errors.  Default: ``ASAPScheduler()``.
+            moments, for idle errors, or a :class:`~qldpc.circuits.Schedule` to use for every
+            circuit.  :mod:`qldpc.circuits.noise_model` describes both.  Default:
+            ``ASAPScheduler()``.
 
     Raises:
         ValueError: If a noise specification is invalid, ambiguous, or duplicated, or does not fit
@@ -175,7 +176,7 @@ class NoiseModel:
         additional_error_waiting_for_m_or_r: ErrorSpec | None = None,
         rules: Mapping[str, NoiseRule] | None = None,
         rule_func: Callable[[stim.CircuitInstruction], NoiseRule | None] | None = None,
-        scheduler: Scheduler | None = None,
+        scheduler: Scheduler | Schedule | None = None,
     ) -> None:
         """Initializes a noise model with specified parameters."""
         self.rules = rules
@@ -435,15 +436,15 @@ class NoiseModel:
             immunize_gates: If True (the default), a gate on an immune qubit gets no noise.  If
                 False, its Pauli noise keeps only the Pauli strings that act as ``I`` on immune
                 qubits, with their probabilities.
-            insert_ticks: Deprecated.  To lay out a noisy circuit in moments, add noise to the
-                layout of a schedule, from ``Schedule.to_circuit``.
+            insert_ticks: Deprecated.  To lay out a noisy circuit in moments, add noise to
+                ``TickScheduler().get_schedule(circuit).to_circuit()``.
 
         Returns:
             The circuit with noise, of the same type as the input.
 
         Raises:
-            ValueError: If an immunity tag is empty, the scheduler gives an invalid schedule (see
-                ``Scheduler.validate``), or a noise rule does not fit a gate.  With
+            ValueError: If an immunity tag is empty, the schedule does not match the circuit (see
+                :mod:`qldpc.circuits.noise_model`), or a noise rule does not fit a gate.  With
                 ``immunize_gates=False``, also if a gate on both immune and other qubits has noise
                 other than a Pauli channel.
         """
@@ -458,9 +459,9 @@ class NoiseModel:
                     "noisy_circuit(..., insert_ticks=True) is deprecated and will be removed in a"
                     " future release.  To lay out a noisy circuit in moments, add noise to the"
                     " layout of a schedule, as in noise_model.noisy_circuit(layout) for layout ="
-                    " ticks.get_schedule(circuit).to_circuit()[0] with ticks ="
-                    " TickPreservingScheduler(single_qubit_gates_take_time=True), and pass"
-                    " scheduler=ticks to the noise model so that its idle noise uses those moments"
+                    " TickScheduler().get_schedule(circuit).to_circuit(), and pass"
+                    " scheduler=TickScheduler() to the noise model so that its idle noise uses"
+                    " those moments"
                 )
                 if insert_ticks
                 else (
@@ -479,12 +480,12 @@ class NoiseModel:
             stim_circuit, immune_qubit_tag
         )
 
-        # for the deprecated insert_ticks=True, lay out the circuit with a TickPreservingScheduler
-        # before adding noise
+        # for the deprecated insert_ticks=True, lay out the circuit with a TickScheduler before
+        # adding noise
         scheduler = self.scheduler
         if insert_ticks:  # DEPRECATED: see qldpc._deprecations
-            scheduler = TickPreservingScheduler(single_qubit_gates_take_time=True)
-            stim_circuit = scheduler.get_schedule(stim_circuit).to_circuit()[0]
+            scheduler = TickScheduler()
+            stim_circuit = scheduler.get_schedule(stim_circuit).to_circuit()
 
         # warn if REPEAT blocks that get noise split quadratic idle errors
         if self.quadratic_idle_error is not None and any(
@@ -502,11 +503,14 @@ class NoiseModel:
         # schedule the circuit if this model has idle noise, and add noise
         schedule = None
         if self.idle_error or self.quadratic_idle_error or self.additional_error_waiting_for_m_or_r:
-            schedule = scheduler.get_schedule(stim_circuit)
-            scheduler.validate(stim_circuit, schedule)
+            schedule = (
+                scheduler
+                if isinstance(scheduler, Schedule)
+                else scheduler.get_schedule(stim_circuit)
+            )
+            schedule = _match_schedule(schedule, stim_circuit)
         builder = _NoisyCircuitBuilder(
             self,
-            takes_time=scheduler.takes_time,
             idle_qubits=system_qubits - immune_qubits,
             immune_qubits=immune_qubits,
             immune_op_tag=immune_op_tag,
@@ -573,16 +577,15 @@ class _NoisyCircuitBuilder:
     each REPEAT block, at the end of each of its iterations, and at the end of the circuit.
 
     If the noise model has idle errors, the builder also follows the idle run of each qubit (see
-    :class:`NoiseModel`) in a schedule of the circuit.  A gate ends the idle runs of the qubits that
-    it depends on and, if it takes time, of all its qubits.  When an idle run ends, its noise joins
-    the pending noise of its qubit.
+    :class:`NoiseModel`) in a schedule of the circuit, as matched by ``_match_schedule``.  A gate
+    ends the idle runs of the qubits that it depends on and, if it takes time, of all its qubits.
+    When an idle run ends, its noise joins the pending noise of its qubit.
     """
 
     def __init__(
         self,
         noise_model: NoiseModel,
         *,
-        takes_time: Callable[[stim.CircuitInstruction], bool],
         idle_qubits: frozenset[int],
         immune_qubits: frozenset[int],
         immune_op_tag: str | None,
@@ -590,7 +593,6 @@ class _NoisyCircuitBuilder:
         has_idle_noise: bool,
     ) -> None:
         self.noise_model = noise_model
-        self.takes_time = takes_time
         self.immune_qubits = immune_qubits
         self.immune_op_tag = immune_op_tag
         self.immunize_gates = immunize_gates
@@ -647,14 +649,14 @@ class _NoisyCircuitBuilder:
         # qubits that it depends on, which only an observable has.  Only gates end idle runs.
         start = 0
         for instruction in segment.instructions:
-            num_operations = len(_get_instruction_operations(instruction))
-            operations = segment.operations[start : start + num_operations]
-            moments = (
-                segment.moments[start : start + num_operations] if self.has_idle_noise else None
-            )
-            start += num_operations
+            end = start + len(_get_instruction_operations(instruction))
+            operations = segment.operations[start:end]
+            timing = None
+            if self.has_idle_noise:
+                timing = list(zip(segment.moments[start:end], segment.takes_time[start:end]))
+            start = end
             if operations and operations[0].is_gate:
-                self.append_gate(instruction, operations, moments, output)
+                self.append_gate(instruction, operations, timing, output)
             else:
                 qubits_depended_on = [
                     qubit for operation in operations for qubit in operation.qubits_depended_on
@@ -666,16 +668,21 @@ class _NoisyCircuitBuilder:
         # end the idle runs after the last moment
         if self.has_idle_noise:
             for qubit in self.idle_runs:
-                self.add_idle_noise(qubit, self.end_idle_run(qubit, segment.duration, False, False))
+                self.add_idle_noise(
+                    qubit, self.end_idle_run(qubit, segment.num_moments, False, False)
+                )
 
     def append_gate(
         self,
         instruction: stim.CircuitInstruction,
         applications: list[_Operation],
-        moments: list[int] | None,
+        timing: list[tuple[int, bool]] | None,
         output: stim.Circuit,
     ) -> None:
         """Add noise to the applications of a gate, and append them to the output.
+
+        ``timing`` gives the moment of each application, and whether it takes time, if the noise
+        model has idle errors.
 
         The gate is split only where the noise of an application must precede a later application.
         A noise rule is applied once to consecutive applications that share it.
@@ -716,17 +723,17 @@ class _NoisyCircuitBuilder:
             # end the idle runs of the qubits that the application acts on, if it takes time, or
             # otherwise of those that it depends on
             qubits = operation.qubits_depended_on
-            if moments is None:
+            if timing is None:
                 ended_idle_runs = []
             else:
-                takes_time = operation.is_gate and self.takes_time(operation.instruction)
+                moment, takes_time = timing[index]
                 ended_run_qubits = operation.qubits if takes_time else qubits
                 ended_idle_runs = [
                     (
                         qubit,
                         self.end_idle_run(
                             qubit,
-                            moments[index],
+                            moment,
                             takes_time,
                             operation.instruction.name in MEASURE_OR_RESET_OPS,
                         ),
@@ -811,7 +818,8 @@ class _NoisyCircuitBuilder:
         outer_state = self.noiseless, self.idle_qubits
         if self.immune_op_tag is not None and self.immune_op_tag in block.tag:
             self.noiseless = True
-            self.idle_qubits = self.idle_qubits - _get_gate_qubits(body, self.takes_time)
+            if schedule is not None:
+                self.idle_qubits = self.idle_qubits - _get_gate_qubits(body, schedule)
 
         # add noise to one iteration, which every iteration repeats
         iteration = stim.Circuit()
@@ -928,20 +936,20 @@ def _join_operations(operations: Sequence[_Operation]) -> stim.CircuitInstructio
     return stim.CircuitInstruction(first.name, targets, first.gate_args_copy(), tag=first.tag)
 
 
-def _get_gate_qubits(
-    circuit: stim.Circuit, takes_time: Callable[[stim.CircuitInstruction], bool]
-) -> frozenset[int]:
+def _get_gate_qubits(circuit: stim.Circuit, schedule: Schedule) -> frozenset[int]:
     """The qubits whose idle runs the gates of a circuit end, including gates in REPEAT blocks."""
     qubits: set[int] = set()
-    for instruction in circuit:
-        if isinstance(instruction, stim.CircuitRepeatBlock):
-            qubits.update(_get_gate_qubits(instruction.body_copy(), takes_time))
-        else:
-            for operation in _get_operations([instruction]):
+    for segment_or_block in _get_segments(circuit, schedule):
+        if isinstance(segment_or_block, _Segment):
+            for operation, takes_time in zip(
+                segment_or_block.operations, segment_or_block.takes_time
+            ):
                 if operation.is_gate:
-                    qubits.update(operation.qubits_depended_on)
-                if operation.is_gate and takes_time(operation.instruction):
-                    qubits.update(operation.qubits)
+                    qubits.update(operation.qubits if takes_time else operation.qubits_depended_on)
+        else:
+            block, body_schedule = segment_or_block
+            assert body_schedule is not None
+            qubits.update(_get_gate_qubits(block.body_copy(), body_schedule))
     return frozenset(qubits)
 
 
@@ -963,8 +971,8 @@ class DepolarizingNoiseModel(NoiseModel):
         include_idling_error: Whether to depolarize idling qubits.  Default: False.
         max_gate_size: The largest number of qubits of a unitary Clifford gate, such as an SPP
             gate, that gets depolarized.  Larger gates get no noise.  Default: 2.
-        scheduler: The :class:`~qldpc.circuits.Scheduler` that places the operations of circuits in
-            moments, for idle noise.  Default: ``ASAPScheduler()``.
+        scheduler: The scheduler or schedule for idle noise, as in :class:`NoiseModel`.  Default:
+            ``ASAPScheduler()``.
 
     Raises:
         ValueError: If ``max_gate_size`` is less than 1, or ``p`` is not between 0 and 1.
@@ -976,7 +984,7 @@ class DepolarizingNoiseModel(NoiseModel):
         *,
         include_idling_error: bool = False,
         max_gate_size: int = 2,
-        scheduler: Scheduler | None = None,
+        scheduler: Scheduler | Schedule | None = None,
     ) -> None:
         """Instantiate a depolarizing noise model."""
         if max_gate_size < 1:
@@ -1009,13 +1017,11 @@ class SI1000NoiseModel(NoiseModel):
 
     Args:
         p: The two-qubit gate error probability, which sets all other error rates.
-        scheduler: The :class:`~qldpc.circuits.Scheduler` that places the operations of circuits in
-            moments, for idle noise.  Default:
-            ``TickPreservingScheduler(single_qubit_gates_take_time=True)``, as in the cited
-            reference.
+        scheduler: The scheduler or schedule for idle noise, as in :class:`NoiseModel`.  Default:
+            ``TickScheduler()``, as in the cited reference.
     """
 
-    def __init__(self, p: float, *, scheduler: Scheduler | None = None) -> None:
+    def __init__(self, p: float, *, scheduler: Scheduler | Schedule | None = None) -> None:
         """Instantiate a superconducting-inspired noise model."""
         self.p = p
         super().__init__(
@@ -1025,9 +1031,5 @@ class SI1000NoiseModel(NoiseModel):
             reset_error=p * 2,
             idle_error=p / 10,
             additional_error_waiting_for_m_or_r=2 * p,
-            scheduler=(
-                TickPreservingScheduler(single_qubit_gates_take_time=True)
-                if scheduler is None
-                else scheduler
-            ),
+            scheduler=TickScheduler() if scheduler is None else scheduler,
         )

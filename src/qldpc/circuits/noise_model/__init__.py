@@ -10,7 +10,7 @@ The main components of this package are:
 - Built-in noise models: DepolarizingNoiseModel and the superconducting-inspired SI1000NoiseModel.
 - Scheduler: Places the operations of circuits in moments, which set idle noise.
 - Schedule: The moments of the operations of a circuit.
-- Built-in schedulers: TickPreservingScheduler, ASAPScheduler, and ALAPScheduler.
+- Built-in schedulers: TickScheduler, ASAPScheduler, and ALAPScheduler.
 
 Examples of basic usage with a predefined noise model::
 
@@ -98,9 +98,26 @@ other rules, and returns None to fall back on them::
 The idle errors of a noise model depend on how long qubits idle.  Its ``scheduler`` places the
 operations of a circuit in moments to find this.  The default ``ASAPScheduler()`` places gates as
 early as possible, and then resets as late as the other gates allow.  ``SI1000NoiseModel`` uses a
-``TickPreservingScheduler``, which keeps the TICK layers of a circuit.  See :class:`NoiseModel` for
+``TickScheduler``, which takes the moments of a circuit from its TICKs.  See :class:`NoiseModel` for
 idle runs, :class:`Schedule` for moments, and the :doc:`noise-model notebook
 </examples/noise_models>` for examples.
+
+TICKs can set the timing of circuits in two ways.  With ``scheduler=TickScheduler()``, the TICKs of
+each circuit set its moments.  With ``scheduler=schedule``, for a schedule of a circuit with TICKs,
+a noise model takes the moments of each circuit from that schedule.  This circuit may order
+operations differently, for example to measure qubits earlier, but it must have the same operations
+on each qubit, in the same order.  The noisy circuit keeps the order of its input::
+
+    from qldpc.circuits.noise_model import NoiseModel, TickScheduler
+
+    # the TICKs of each circuit set its moments
+    noise_model = NoiseModel(idle_error=1e-4, scheduler=TickScheduler())
+    noisy_circuit = noise_model.noisy_circuit(circuit_with_ticks)
+
+    # the TICKs of timed_circuit set the moments of circuit
+    schedule = TickScheduler().get_schedule(timed_circuit)
+    noise_model = NoiseModel(idle_error=1e-4, scheduler=schedule)
+    noisy_circuit = noise_model.noisy_circuit(circuit)
 
 ``quadratic_idle_error`` models slow noise, such as a qubit frequency that changes from one shot to
 the next.  Over an idle run, such noise rotates a qubit about a fixed axis.  The angle grows
@@ -151,7 +168,7 @@ from .scheduling import (
     ASAPScheduler,
     Schedule,
     Scheduler,
-    TickPreservingScheduler,
+    TickScheduler,
 )
 
 __all__ = [
@@ -169,6 +186,6 @@ __all__ = [
     "SI1000NoiseModel",
     "Schedule",
     "Scheduler",
-    "TickPreservingScheduler",
+    "TickScheduler",
     "as_noiseless_circuit",
 ]
