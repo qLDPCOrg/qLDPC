@@ -420,7 +420,7 @@ def test_brouwer_zimmermann_reduces_enumeration_work(
     if extended:
         generators = np.column_stack([generators, np.bitwise_xor.reduce(generators, axis=1)])
     assert qldpc.codes.get_distance_classical(generators, cutoff=0) == (4 if extended else 3)
-    assert 1000 * get_candidate_count() < 2 ** len(generators)
+    assert 0 < 1000 * get_candidate_count() < 2 ** len(generators)
 
 
 def test_brouwer_zimmermann_initial_upper_bound_excludes_stabilizers() -> None:
@@ -438,11 +438,13 @@ def test_brouwer_zimmermann_overlap_qc(get_candidate_count: Callable[[], int]) -
         1 + x * y + x**2 * y**3 * z + x**3 * y**2,
     )
     assert code.forget_distance().get_distance_exact("X", cutoff=0) == 8
-    assert get_candidate_count() < 1_000_000
+    assert 0 < get_candidate_count() < 1_000_000
 
 
 @pytest.mark.usefixtures("force_information_sets")
-def test_brouwer_zimmermann_overlap_improves_quotient_witness() -> None:
+def test_brouwer_zimmermann_overlap_improves_quotient_witness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Compare witness-improving overlap enumeration with an exhaustive quotient oracle."""
 
     # Shorten a systematic BCH(31,21) basis to [26,16] and isolate a one-bit quotient.
@@ -456,12 +458,12 @@ def test_brouwer_zimmermann_overlap_improves_quotient_witness() -> None:
     )
 
     # Lower only the work threshold so this small oracle exercises production basis family
-    # construction.
+    # construction, and check that the overlapping family has no witness as light as the distance.
+    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
     original = _information_sets.get_overlapping_family
 
-    def select(*args: Any) -> _information_sets.BasisFamily:
-        basis, labels, basis_family, upper_bound, max_sets, _, binomials, rng = args
-        selected = original(basis, labels, basis_family, upper_bound, max_sets, 0, binomials, rng)
+    def select(*args: Any, **kwargs: Any) -> _information_sets.BasisFamily:
+        selected = original(*args, **kwargs)
         assert len(selected.ranks) and selected.max_coverage > 1
         assert (
             min(

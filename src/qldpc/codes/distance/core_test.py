@@ -130,7 +130,7 @@ def test_get_distance_quantum_css_codes(code: qldpc.codes.CSSCode, expected_dist
         code.get_stabilizer_ops(),
         homogeneous=True,
     )
-    assert min(distance_x, distance_z, distance_all) == expected_distance
+    assert distance_x == distance_z == distance_all == expected_distance
 
     # CSSCode.forget_distance clears the X-sector and Z-sector distance caches before recomputation.
     # Assigning only CSSCode._distance would leave cached sector distances available to the method.
