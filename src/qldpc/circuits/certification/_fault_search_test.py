@@ -8,7 +8,7 @@ import functools
 import itertools
 import operator
 import tracemalloc
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from unittest import mock
 
 import numpy as np
@@ -359,15 +359,22 @@ def _z_state(num_qubits: int) -> npt.NDArray[np.int_]:
 
 
 def _smallest_violation(
-    flags: Sequence[int], syndromes: Sequence[int], max_weight: int | None
+    flags: Sequence[int],
+    syndromes: Sequence[int],
+    max_weight: int | None,
+    residual_weight: Callable[[int], int] = int.bit_count,
 ) -> int | None:
-    """The smallest fault weight of an accepted fault that violates the bound on |0...0>."""
+    """The smallest fault weight of an accepted fault that violates the bound.
+
+    ``residual_weight`` maps a syndrome to the smallest weight of an error with that syndrome.  By
+    default, it is the syndrome's number of ones, as on |0...0>.
+    """
     limit = len(flags) if max_weight is None else min(max_weight, len(flags))
     for fault_weight in range(1, limit + 1):
         for indices in itertools.combinations(range(len(flags)), fault_weight):
             flag = functools.reduce(operator.xor, (flags[jj] for jj in indices))
             syndrome = functools.reduce(operator.xor, (syndromes[jj] for jj in indices))
-            if flag == 0 and syndrome.bit_count() > fault_weight:
+            if flag == 0 and residual_weight(syndrome) > fault_weight:
                 return fault_weight
     return None
 
@@ -411,6 +418,41 @@ def test_search_with_flags_matches_exhaustive_search(pytestconfig: pytest.Config
             syndromes = list(map(int, rng.integers(1 << n, size=8)))
             for max_weight in (1, 2, 3, 5, None):
                 _certify_map(flags, syndromes, max_weight, n)
+
+
+def test_css_weight_search_matches_exhaustive_search(pytestconfig: pytest.Config) -> None:
+    """On |00++>, random maps match brute force by the CSS weight.
+
+    The stabilizers are Z on each of the first two qubits and X on each of the last two, so syndrome
+    bits 0 and 1 need X on those qubits, and bits 2 and 3 need Z.  The smallest CSS weight of an
+    error with a syndrome is the larger of the numbers of ones in these two halves, and the oracle
+    splits its search into one of X parts and one of Z parts, both nonempty.
+    """
+    stabilizers = np.zeros((4, 8), dtype=int)
+    stabilizers[[0, 1], [4, 5]] = 1
+    stabilizers[[2, 3], [2, 3]] = 1
+
+    def css_weight(syndrome: int) -> int:
+        return max((syndrome & 0b0011).bit_count(), (syndrome & 0b1100).bit_count())
+
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for rank in range(5):
+        for _ in range(12):
+            flags = list(map(int, rng.integers(1 << rank, size=8)))
+            syndromes = list(map(int, rng.integers(1 << 4, size=8)))
+            for max_weight in (1, 2, None):
+                violation = _fault_search.find_smallest_violation(
+                    flags, syndromes, stabilizers, max_weight, True
+                )
+                smallest = _smallest_violation(flags, syndromes, max_weight, css_weight)
+                assert (violation is None) == (smallest is None)
+                if violation is not None:
+                    syndrome = violation.syndrome
+                    assert len(violation.fault_indices) == smallest
+                    assert smallest < violation.bound.lower_bound <= css_weight(syndrome)
+                    # The X part of the representative flips bits 0 and 1, and its Z part 2 and 3.
+                    representative = violation.bound.representative
+                    assert (representative & 0b0011) | ((representative >> 4) & 0b1100) == syndrome
 
 
 def test_hand_derived_dependency_cases() -> None:

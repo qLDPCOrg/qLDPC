@@ -6,12 +6,12 @@ Exact distance search (``_brouwer_zimmermann.py``) and fixed-weight logical coun
 (``_counting/scan.py``) enumerate coefficient layers over the same basis families (see
 ``brouwer_zimmermann.md`` for the terminology).  Layer ``w`` of an information set holds the words
 that add ``w`` of its rows to an offset.  The offset is zero in the distance and counting scans,
-which search a space, and is a fixed word of the searched class in the Pauli-coset oracle, which
-searches a coset (see ``_search_coset`` in ``_bounded_weight_search.py``).  This module owns how
-those basis families are built, pruned, and replaced by overlapping ones, and the certificate that
-bounds the Hamming weight of eligible words that a basis family has not yet visited.  The
-Pauli-coset oracle uses the disjoint information sets for its own layered search.  All three
-enumerate a layer with :func:`advance_support`.
+which search a space, and is a fixed word of the searched coset in the coset-leader oracle
+(``CosetLeaderSearch``), which searches a coset (see ``_search_coset`` in
+``_coset_leader_search.py``).  This module owns how those basis families are built, pruned, and
+replaced by overlapping ones, and the certificate that bounds the Hamming weight of eligible words
+that a basis family has not yet visited.  The coset-leader oracle uses the disjoint information sets
+for its own layered search.  All three enumerate a layer with :func:`advance_support`.
 
 A :class:`BasisFamily` stacks its information sets into arrays, so that one set of functions serves
 every caller, in the subset of Python that numba compiles, and some of them are compiled (see

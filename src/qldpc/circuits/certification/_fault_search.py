@@ -24,7 +24,7 @@ import numpy.typing as npt
 
 from qldpc._binary import get_rank_packed, popcount_word, trailing_zeros_word
 from qldpc._compilation import always_compiled
-from qldpc.codes.distance._bounded_weight_search import MinWeightBound, PauliCosetSearch
+from qldpc.codes.distance._coset_leader_search import CosetLeaderSearch, MinWeightBound
 
 # The peak number of bytes per pair of classes for the closing map of pairs of classes (see
 # ``FaultLister``).  While a counting sort builds its closing table, each pair takes an 8-byte hash,
@@ -87,7 +87,9 @@ def find_smallest_violation(
 
     The search keeps one primitive fault for each distinct nonzero signature, and limits the fault
     weight to ``max_weight`` and to what an irreducible accepted fault can have.  Then it runs
-    ``_search_irreducible_faults``.
+    ``_search_irreducible_faults`` with an exact oracle for the Pauli weight, ``CosetLeaderSearch``,
+    which runs two classical searches for the CSS weight on a CSS state, and otherwise one search of
+    Pauli errors.
     """
     # A primitive fault with zero flags and zero syndrome does nothing, and two primitive faults
     # with equal (flags, syndrome) signatures cancel.  Keeping one primitive fault for each distinct
@@ -103,14 +105,14 @@ def find_smallest_violation(
     flag_rank = get_rank_packed(_to_words(distinct_flags, _get_num_words(distinct_flags)))
     max_fault_weight = flag_rank + 1 if max_weight is None else min(max_weight, flag_rank + 1)
 
-    oracle = PauliCosetSearch(stabilizers, css_weight=css_weight)
+    oracle = CosetLeaderSearch(stabilizers, css_weight=css_weight)
     return _search_irreducible_faults(signatures, max_fault_weight, oracle, memory_limit)
 
 
 def _search_irreducible_faults(
     signatures: dict[tuple[int, int], int],
     max_fault_weight: int,
-    oracle: PauliCosetSearch,
+    oracle: CosetLeaderSearch,
     memory_limit: int = 2**30,  # 1 GiB
 ) -> Violation | None:
     """Check the irreducible accepted faults that can violate the bound, by increasing fault weight.
@@ -196,7 +198,7 @@ def _search_irreducible_faults(
 
 
 def _check_fault(
-    indices: tuple[int, ...], syndrome: int, oracle: PauliCosetSearch
+    indices: tuple[int, ...], syndrome: int, oracle: CosetLeaderSearch
 ) -> Violation | None:
     """Return the fault with these indices and syndrome if it violates the bound."""
     bound = oracle.get_min_weight_bound(syndrome, len(indices))
@@ -247,7 +249,7 @@ class FaultLister:
         flags: The flags of each primitive fault, packed into an integer.
         syndromes: The syndrome of each primitive fault, packed into an integer.
         representatives: For each primitive fault, a Pauli error with its syndrome, packed as in
-            ``PauliCosetSearch``.  Lighter Pauli errors let ``find_first`` skip more faults.
+            ``CosetLeaderSearch``.  Lighter Pauli errors let ``find_first`` skip more faults.
         num_qubits: The number of output qubits.
         css_weight: Whether the Pauli weight is the CSS weight, or else the physical weight.
         num_starts: The number of start members.

@@ -13,7 +13,7 @@ import numpy.typing as npt
 import stim
 
 from qldpc import math
-from qldpc.codes.distance._bounded_weight_search import MinWeightBound
+from qldpc.codes.distance._coset_leader_search import MinWeightBound
 
 from .._post_selection import get_flag_detectors, get_selected_detectors, is_integer
 from ..bookkeeping import DetectorRecord

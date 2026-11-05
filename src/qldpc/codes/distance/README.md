@@ -21,7 +21,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 - **Certificate** (`Certificate`): a lower bound on the weight of the words that a search has not yet visited, which tells the search when it can stop.
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer.
   Counting scans in `_counting/scan.py`, and the distance search in `_brouwer_zimmermann.py`.
-  Both scans and `_bounded_weight_search.py` step through a layer with `advance_support` in `_information_sets.py`.
+  Both scans and `_coset_leader_search.py` step through a layer with `advance_support` in `_information_sets.py`.
 
 ## Where to look
 
@@ -31,7 +31,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | The Brouwer–Zimmermann (BZ) distance search | `_brouwer_zimmermann.py` |
 | How basis families and their certificates are built | `_information_sets.py` |
 | Exhaustive enumeration, for small codes, fallbacks, and the `brute_force` method | `_brute_force.py` |
-| Minimum-weight queries for syndrome classes of Pauli errors, used only by `src/qldpc/circuits/certification/` | `_bounded_weight_search.py` |
+| Minimum weights of syndrome classes of Pauli errors (coset-leader weights), with two classical searches for the CSS weight on CSS states, used by `src/qldpc/circuits/certification/` | `_coset_leader_search.py` |
 | The counter, its deformed counters, or `compile_search_setup` | `logical_counts.py` |
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
@@ -45,7 +45,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 From the top:
 
 1. `core.py` and `logical_counts.py`, the public interfaces.
-2. `_brouwer_zimmermann.py`, `_brute_force.py`, `_bounded_weight_search.py`, and the `_counting` package, the searches.
+2. `_brouwer_zimmermann.py`, `_brute_force.py`, `_coset_leader_search.py`, and the `_counting` package, the searches.
 3. `_information_sets.py`, the basis families that the searches share.
 4. `_binary.py`, the foundation.
 
