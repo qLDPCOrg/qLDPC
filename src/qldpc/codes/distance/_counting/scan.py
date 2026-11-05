@@ -78,7 +78,7 @@ def count_words(
         extractors = np.zeros((1, 0, rows.shape[2]), dtype=np.uint64)
         last_layer, last_num_sets = len(basis), 1
     else:
-        rows, packed_labels, extractors, sets = _prepare_scan(
+        sets = _select_sets(
             basis,
             labels,
             weight,
@@ -86,6 +86,12 @@ def count_words(
             max_sets,
             *_information_sets.get_overlapping_family_policy(len(basis)),
         )
+        partitioned = _information_sets.get_partitioned_family(
+            basis, labels, sets, weight + 1, max_sets
+        )
+        if len(partitioned.ranks):
+            sets = partitioned
+        rows, packed_labels, extractors = _pack_sets(sets, basis.shape[1], labels.shape[1])
         last_layer, last_num_sets = _get_last_step(sets.get_search_certificate(weight + 1), weight)
 
     # Scan in bounded calls, which compiled code cannot be interrupted within.
@@ -150,7 +156,7 @@ def transport_basis_family(
 
 
 @compiled_on_request
-def _prepare_scan(
+def _select_sets(
     basis: _BinaryMatrix,
     labels: _BinaryMatrix,
     weight: int,
@@ -159,33 +165,37 @@ def _prepare_scan(
     minimum_work: int,
     binomials: npt.NDArray[np.int64],
     rng: np.random.Generator,
-) -> tuple[_PackedMatrix, _PackedMatrix, _PackedMatrix, _information_sets.BasisFamily]:
-    """Select BZ information sets that certify every word of the given weight, and pack them.
+) -> _information_sets.BasisFamily:
+    """Select BZ information sets that certify every word of the given weight.
 
     The basis family stages aim at the counting stop ``L(t) >= weight + 1``; any basis family gives
-    an exact count.  Returns the packed rows and labels of the sets, their coefficient extractors
-    (which are empty for a single set, since ownership compares sets), and the basis family of the
-    sets, whose certificate gives the last step to scan (see ``_get_last_step``).
+    an exact count.  The certificate of the result gives the last step to scan (see
+    ``_get_last_step``).
     """
-    dimension = basis.shape[0]
     upper_bound = weight + 1
     sets = _information_sets.prune_family(basis_family, upper_bound)
     replacement = _information_sets.get_overlapping_family(
         basis, labels, sets, upper_bound, max_sets, minimum_work, binomials, rng
     )
-    if len(replacement.ranks) > 0:
-        sets = replacement
+    return replacement if len(replacement.ranks) > 0 else sets
 
-    num_sets = len(sets.ranks)
-    width = (basis.shape[1] + 63) // 64
+
+@compiled_on_request
+def _pack_sets(
+    sets: _information_sets.BasisFamily, num_columns: int, num_label_columns: int
+) -> tuple[_PackedMatrix, _PackedMatrix, _PackedMatrix]:
+    """Pack the rows and labels of the sets, and their coefficient extractors.
+
+    The extractors are empty for a single set, since ownership compares sets.
+    """
+    num_sets, dimension = sets.generators.shape[:2]
+    width = (num_columns + 63) // 64
     rows = np.empty((num_sets, dimension, width), dtype=np.uint64)
-    packed_labels = np.empty((num_sets, dimension, (labels.shape[1] + 63) // 64), dtype=np.uint64)
+    packed_labels = np.empty((num_sets, dimension, (num_label_columns + 63) // 64), dtype=np.uint64)
     for index in range(num_sets):
         rows[index] = pack_bits(sets.generators[index])
         packed_labels[index] = pack_bits(sets.labels[index])
-
-    extractors = _get_coefficient_extractors(sets, width)
-    return rows, packed_labels, extractors, sets
+    return rows, packed_labels, _get_coefficient_extractors(sets, width)
 
 
 def _get_last_step(certificate: _information_sets.Certificate, weight: int) -> tuple[int, int]:

@@ -215,6 +215,38 @@ def test_certificate_follows_its_definition(pytestconfig: pytest.Config) -> None
     assert _information_sets.Certificate(3, ()).work(2) == 0
 
 
+def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Matroid partitioning replaces a disjoint family only in costly searches, and only if cheaper.
+
+    This [11, 4] basis has disjoint information sets of ranks four, four, and two.  Five information
+    sets in which no column appears more than twice certify the weight five with less work.
+    """
+    rows = ["10001011100", "01000001100", "00100000110", "00010011001"]
+    basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
+    labels = np.eye(len(basis), dtype=np.uint8)
+    disjoint = _information_sets.get_disjoint_family(basis, labels)
+    assert disjoint.ranks.tolist() == [4, 4, 2]
+    assert not len(_information_sets.get_partitioned_family(basis, labels, disjoint, 5, 16).ranks)
+
+    monkeypatch.setattr(_information_sets, "PARTITION_WORK_RATIO", 0)
+    assert not len(_information_sets.get_partitioned_family(basis, labels, disjoint, 5, 0).ranks)
+    family = _information_sets.get_partitioned_family(basis, labels, disjoint, 5, 16)
+    assert len(family.ranks) == 5 and family.max_coverage == 2
+    assert family.certificate.work(5) < disjoint.certificate.work(5)
+    for generators, set_labels, pivots in zip(*family[:3], strict=True):
+        np.testing.assert_array_equal(generators, set_labels @ basis % 2)
+        np.testing.assert_array_equal(generators[:, pivots], np.eye(len(basis)))
+    _assert_certificate_bounds_unvisited_words(basis, family)
+
+    # The identity has one information set, so repeating it only adds work.
+    identity = np.eye(3, dtype=np.uint8)
+    disjoint = _information_sets.get_disjoint_family(identity, None)
+    empty_labels = np.zeros((3, 0), dtype=np.uint8)
+    assert not len(
+        _information_sets.get_partitioned_family(identity, empty_labels, disjoint, 3, 16).ranks
+    )
+
+
 def test_linear_programming_can_beat_the_coverage_bound() -> None:
     """Five information sets of a [7, 3] code, where linear programming certifies five, not four.
 

@@ -365,17 +365,26 @@ def _prepare_brouwer_zimmermann_search(
     if lower_bound >= best:
         return best
 
-    # Replace disjoint blocks only when overlap predicts less certification work.
-    overlapping = _information_sets.get_overlapping_family(
-        basis,
-        np.empty((dimension, 0), dtype=np.uint8) if labels is None else labels,
-        basis_family,
-        best,
-        _information_sets.MAX_SETS,
-        *_information_sets.get_overlapping_family_policy(dimension),
-    )
-    if len(overlapping.ranks):
-        basis_family = overlapping
+    # Replace the basis family only when overlapping sets, built heuristically and then, for costly
+    # searches, by matroid partitioning, predict less certification work.
+    set_labels = np.empty((dimension, 0), dtype=np.uint8) if labels is None else labels
+    for get_replacement in (
+        lambda family, best: _information_sets.get_overlapping_family(
+            basis,
+            set_labels,
+            family,
+            best,
+            _information_sets.MAX_SETS,
+            *_information_sets.get_overlapping_family_policy(dimension),
+        ),
+        lambda family, best: _information_sets.get_partitioned_family(
+            basis, set_labels, family, best, _information_sets.MAX_SETS
+        ),
+    ):
+        replacement = get_replacement(basis_family, best)
+        if not len(replacement.ranks):
+            continue
+        basis_family = replacement
 
         # Check the replacement rows for lighter witnesses before scanning combinations.
         best = _get_basis_family_upper_bound(basis_family, labels, best)

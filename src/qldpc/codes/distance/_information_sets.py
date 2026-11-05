@@ -22,6 +22,8 @@ Basis family construction runs in stages, so that a caller can take its own exit
 1. :func:`get_disjoint_family` packs disjoint information sets and infers ambient even parity.
 2. :func:`prune_family` drops partial sets that cannot help certify a target.
 3. :func:`get_overlapping_family` may build a cheaper basis family of overlapping full sets.
+4. :func:`get_partitioned_family` may build a cheaper one still, by matroid partitioning, for
+   costly searches.
 
 Each stage aims at a target ``upper_bound``.  Distance passes its current witness weight ``U`` and
 stops once the certificate reaches ``U``.  Counting at weight ``w`` must also visit every word of
@@ -46,6 +48,8 @@ import numpy.typing as npt
 from qldpc._binary import pack_bits, row_reduce_binary, row_reduce_packed, unpack_bits
 from qldpc._compilation import always_compiled, compiled_on_request
 
+from . import _matroid_partition
+
 # Default limit on the number of sets in a replacement basis family (see get_overlapping_family).
 MAX_SETS = 16
 
@@ -55,6 +59,19 @@ MINIMUM_WORK = 100_000
 # Estimated work from which a search of overlapping sets also bounds unvisited words by linear
 # programming (see get_lp_lower_bound), whose linear programs take milliseconds each.
 LP_MINIMUM_WORK = 1_000_000_000
+
+# A search tries basis families built by matroid partitioning (see get_partitioned_family) only if
+# its estimated work is at least this multiple of the estimated work of partitioning, so that the
+# attempt adds at most about a tenth to a search that it does not speed up.
+PARTITION_WORK_RATIO = 10
+
+# The largest coverage of a column for which get_partitioned_family builds a basis family.
+_MAX_PARTITION_COVERAGE = 4
+
+# Partitioning ``b`` copies of the ``n`` columns of a basis of ``k`` rows takes about this many
+# times ``b * k**2 * n`` as long as a candidate/set evaluation of the search (measured on bases of
+# 85 to 156 rows and 127 to 432 columns).
+_PARTITION_COST_FACTOR = 20
 
 # Caps that keep work estimates within a native integer.  A binomial above _BINOMIAL_CAP counts as
 # the cap, and a sum saturates at _WORK_CAP, so an estimate is exact only if it reaches neither cap.
@@ -433,6 +450,85 @@ def get_overlapping_family_policy(
     replacement for the same basis family.
     """
     return MINIMUM_WORK, get_capped_binomials(dimension), np.random.default_rng(0)
+
+
+def get_partitioned_family(
+    basis: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8],
+    basis_family: BasisFamily,
+    upper_bound: int,
+    max_sets: int,
+) -> BasisFamily:
+    """Stage four: a basis family of information sets with bounded coverage, if it does less work.
+
+    ``basis_family`` is the family that a search would otherwise use for the independent binary
+    ``basis``, whose quotient labels ``labels`` have no columns if it has none.  For each maximum
+    coverage from two to ``_MAX_PARTITION_COVERAGE``, matroid partitioning finds the most full
+    information sets, up to ``max_sets``, that contain no column more often than that coverage (see
+    ``_matroid_partition``).  This follows Section 5.1 of Lisonek and Trummer (2016), which shows
+    that such families can do less work than those of the Brouwer-Zimmermann algorithm.
+
+    Returns the family that certifies ``upper_bound`` with the least estimated work, if that is less
+    than the work of ``basis_family``, and otherwise a family with no sets.  No family is built if
+    the estimated work of ``basis_family`` is below ``PARTITION_WORK_RATIO``, read at each call,
+    times the estimated work of partitioning, or if no family of at most ``max_sets`` full sets
+    could do less work: some column of ``m`` such sets is in at least ``ceil(m * k / n)`` of them,
+    for ``k`` rows and ``n`` nonzero columns.
+    """
+    best_work = basis_family.certificate.work(upper_bound)
+    best = _get_no_replacement(basis_family, basis, labels)
+
+    # Skip partitioning if it would cost too much for this search, or if no family of full sets
+    # could do less work, which is certain if no sets are allowed.
+    dimension = len(basis)
+    num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
+    num_copies = sum(range(2, _MAX_PARTITION_COVERAGE + 1))
+    partition_work = _PARTITION_COST_FACTOR * num_copies * dimension**2 * num_columns
+    optimistic_work = min(
+        (
+            Certificate(
+                dimension,
+                (dimension,) * num_sets,
+                basis_family.weight_divisor,
+                -(-num_sets * dimension // num_columns),
+            ).work(upper_bound)
+            for num_sets in range(1, max_sets + 1)
+        ),
+        default=best_work,
+    )
+    if best_work < PARTITION_WORK_RATIO * partition_work or best_work <= optimistic_work:
+        return best
+
+    # Build a family for each coverage, and keep the one that does the least work.
+    for coverage in range(2, _MAX_PARTITION_COVERAGE + 1):
+        column_sets = _matroid_partition.get_information_sets_with_coverage(
+            basis, coverage, max_sets
+        )
+
+        # Reduce the basis on each set, transforming its labels along with it.
+        num_sets = len(column_sets)
+        generators = np.empty((num_sets, dimension, basis.shape[1]), dtype=np.uint8)
+        set_labels = np.empty((num_sets, dimension, labels.shape[1]), dtype=np.uint8)
+        pivots = np.empty((num_sets, dimension), dtype=np.int64)
+        for index, columns in enumerate(column_sets):
+            reduced, reduced_labels, found = row_reduce_binary(
+                basis, labels, columns=np.array(columns, dtype=int)
+            )
+            assert reduced_labels is not None and len(found) == dimension
+            generators[index], set_labels[index], pivots[index] = reduced, reduced_labels, found
+        family = BasisFamily(
+            generators,
+            set_labels,
+            pivots,
+            np.full(num_sets, dimension, dtype=np.int64),
+            basis_family.weight_divisor,
+            int(np.bincount(pivots.ravel()).max()),
+        )
+
+        work = family.certificate.work(upper_bound)
+        if work < best_work:
+            best, best_work = family, work
+    return best
 
 
 def infer_weight_divisor(basis: npt.NDArray[np.uint8], weight_divisor: int = 1) -> int:
