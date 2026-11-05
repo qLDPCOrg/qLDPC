@@ -13,6 +13,7 @@ local gate, for deformed counters.  ``logical_counts.py`` calls both.  Section 3
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Callable
 
 import numpy as np
@@ -77,7 +78,7 @@ def count_words(
         extractors = np.zeros((1, 0, rows.shape[2]), dtype=np.uint64)
         last_layer, last_num_sets = len(basis), 1
     else:
-        rows, packed_labels, extractors, last_layer, last_num_sets = _prepare_scan(
+        rows, packed_labels, extractors, sets = _prepare_scan(
             basis,
             labels,
             weight,
@@ -85,6 +86,7 @@ def count_words(
             max_sets,
             *_information_sets.get_overlapping_family_policy(len(basis)),
         )
+        last_layer, last_num_sets = _get_last_step(sets.get_search_certificate(weight + 1), weight)
 
     # Scan in bounded calls, which compiled code cannot be interrupted within.
     histogram = np.zeros(max_exponent + 1, dtype=np.int64)
@@ -157,15 +159,13 @@ def _prepare_scan(
     minimum_work: int,
     binomials: npt.NDArray[np.int64],
     rng: np.random.Generator,
-) -> tuple[_PackedMatrix, _PackedMatrix, _PackedMatrix, int, int]:
+) -> tuple[_PackedMatrix, _PackedMatrix, _PackedMatrix, _information_sets.BasisFamily]:
     """Select BZ information sets that certify every word of the given weight, and pack them.
 
     The basis family stages aim at the counting stop ``L(t) >= weight + 1``; any basis family gives
     an exact count.  Returns the packed rows and labels of the sets, their coefficient extractors
-    (which are empty for a single set, since ownership compares sets), the last layer to scan, and
-    the number of sets to scan in it.  The scan visits the sets of each layer in family order, and
-    stops after the first step, a layer of one set, after which the certificate rules out unvisited
-    words of the weight (see ``get_step_lower_bounds``).
+    (which are empty for a single set, since ownership compares sets), and the basis family of the
+    sets, whose certificate gives the last step to scan (see ``_get_last_step``).
     """
     dimension = basis.shape[0]
     upper_bound = weight + 1
@@ -184,21 +184,23 @@ def _prepare_scan(
         rows[index] = pack_bits(sets.generators[index])
         packed_labels[index] = pack_bits(sets.labels[index])
 
-    bounds = _information_sets.get_step_lower_bounds(
-        dimension, sets.ranks, sets.weight_divisor, sets.max_coverage
-    )
-    last_layer, last_num_sets = dimension, num_sets
-    found = False
-    for layer in range(1, dimension + 1):
-        for num_completed in range(1, num_sets + 1):
-            # Equality would still allow unvisited words of the target weight.
-            if bounds[layer, num_completed] > weight:
-                last_layer, last_num_sets, found = layer, num_completed, True
-                break
-        if found:
-            break
     extractors = _get_coefficient_extractors(sets, width)
-    return rows, packed_labels, extractors, last_layer, last_num_sets
+    return rows, packed_labels, extractors, sets
+
+
+def _get_last_step(certificate: _information_sets.Certificate, weight: int) -> tuple[int, int]:
+    """The first step after which the certificate rules out unvisited words of the given weight.
+
+    A step completes a layer of one set, and the scan visits the sets of each layer in family order.
+    Returns the layer of that step, and the number of sets that have completed that layer.
+    Equality with the weight would still allow unvisited words of the weight, so the certificate
+    must exceed it.
+    """
+    # The first set to complete the last layer visits every word, so some step certifies.
+    steps = itertools.product(
+        range(1, certificate.dimension + 1), range(1, len(certificate.ranks) + 1)
+    )
+    return next(step for step in steps if certificate.certifies(*step, weight + 1))
 
 
 @compiled_on_request

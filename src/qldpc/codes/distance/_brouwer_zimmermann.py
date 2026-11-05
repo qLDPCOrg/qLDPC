@@ -418,7 +418,7 @@ def _prepare_brouwer_zimmermann_search(
         packed_labels,
         widths,
         label_widths,
-        basis_family.certificate,
+        basis_family.get_search_certificate(best),
         cutoff,
         1 << min(block_size, 15),
         best,

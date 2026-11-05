@@ -158,8 +158,9 @@ def test_brouwer_zimmermann_search_state() -> None:
     search.cutoff = -(2**100)
     assert search.advance() == 1
     assert (search.lower_bound, search.next_weight) == (0, 2)
+    # After the last layer, every word has been visited, so the certificate rules out all of them.
     assert search.advance() == 1
-    assert (search.lower_bound, search.next_weight) == (1, 3)
+    assert (search.lower_bound, search.next_weight) == (np.iinfo(np.int64).max, 3)
 
 
 # Each case reaches one early exit from search setup or a shared search with real inputs.  These
@@ -529,3 +530,25 @@ def test_a_search_scans_every_set_that_its_certificate_counts() -> None:
     basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
     assert qldpc.codes.get_distance_classical(basis, cutoff=0, method="brute_force") == 5
     assert qldpc.codes.get_distance_classical(basis, cutoff=0) == 5
+
+
+@pytest.mark.usefixtures("force_information_sets")
+def test_searches_with_linear_programming_are_exact(
+    monkeypatch: pytest.MonkeyPatch, pytestconfig: pytest.Config
+) -> None:
+    """Searches of overlapping sets that stop at the certificate of linear programming are exact."""
+    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
+    monkeypatch.setattr(_information_sets, "LP_MINIMUM_WORK", 0)
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for _ in range(20):
+        dimension = int(rng.integers(5, 9))
+        basis = get_independent_rows(
+            rng.integers(
+                0,
+                2,
+                size=(dimension, int(rng.integers(2 * dimension, 3 * dimension))),
+                dtype=np.uint8,
+            )
+        )
+        expected = qldpc.codes.get_distance_classical(basis, cutoff=0, method="brute_force")
+        assert qldpc.codes.get_distance_classical(basis, cutoff=0) == expected

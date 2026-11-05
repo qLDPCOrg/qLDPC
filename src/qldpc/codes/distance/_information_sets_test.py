@@ -4,16 +4,18 @@
 
 from __future__ import annotations
 
+import dataclasses
 import itertools
 import math
 
 import numpy as np
 import numpy.typing as npt
 import pytest
+import scipy.optimize
 
 import qldpc
 from qldpc import _compilation
-from qldpc._binary import get_independent_rows
+from qldpc._binary import get_independent_rows, row_reduce_binary
 
 from . import _information_sets
 from .conftest import get_random_full_rank_matrix
@@ -209,6 +211,84 @@ def test_certificate_follows_its_definition(pytestconfig: pytest.Config) -> None
             )
             assert certificate.get_num_sets_to_certify(1, upper_bound) == num_sets
 
+    # A family without sets, which the overlapping stage returns for no replacement, does no work.
+    assert _information_sets.Certificate(3, ()).work(2) == 0
+
+
+def test_linear_programming_can_beat_the_coverage_bound() -> None:
+    """Five information sets of a [7, 3] code, where linear programming certifies five, not four.
+
+    The columns are ``e1, e2, e3, e1 + e2 + e3, e1, e2, e3``.  Four blocks are the 3-subsets of the
+    first four columns, and the fifth is the last three columns, so the maximum coverage is three.
+    After layer one, each block holds at least two ones of an unvisited word.  The coverage bound is
+    ``ceil(10 / 3) = 4``, but ``x = 2/3`` on every column and dual weights of ``1/3`` on the first
+    four blocks and one on the fifth both have value ``14/3``, so the linear program certifies five.
+    """
+    blocks = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3), (4, 5, 6))
+    assert _information_sets.get_lp_lower_bound(blocks, [2] * 5) == 5
+    certificate = _information_sets.Certificate(3, (3,) * 5, max_coverage=3)
+    assert certificate.lower_bound(1) == 4
+    assert dataclasses.replace(certificate, pivot_blocks=blocks).lower_bound(1) == 5
+
+    # No word has three ones in a block of two columns, and requirements of zero ask for nothing.
+    assert _information_sets.get_lp_lower_bound([(0, 1)], [3]) == _information_sets._NO_WORD_BOUND
+    assert _information_sets.get_lp_lower_bound([(0, 1)], [0]) == 0
+
+
+def test_a_failed_linear_program_gives_no_bound(monkeypatch: pytest.MonkeyPatch) -> None:
+    """If the solver reports a failure, the bound claims nothing rather than a solver's guess."""
+    failure = scipy.optimize.OptimizeResult(status=4, message="numerical difficulties")
+    monkeypatch.setattr(scipy.optimize, "linprog", lambda *args, **kwargs: failure)
+    blocks = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3), (4, 5, 6))
+    assert _information_sets.get_lp_lower_bound(blocks, [2] * 5) == 0
+
+
+def test_linear_programming_certificates_bound_unvisited_words(pytestconfig: pytest.Config) -> None:
+    """Families of random information sets, with uneven coverage, have valid certificates."""
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    stronger = False
+    for _ in range(20):
+        dimension = int(rng.integers(3, 6))
+        basis = get_random_full_rank_matrix(
+            rng, dimension, int(rng.integers(dimension + 2, 3 * dimension))
+        )
+        num_sets = int(rng.integers(3, 6))
+        sets = [
+            row_reduce_binary(basis, None, columns=rng.permutation(basis.shape[1]))
+            for _ in range(num_sets)
+        ]
+        pivots = np.array([found for _, _, found in sets], dtype=np.int64)
+        family = _information_sets.BasisFamily(
+            np.array([reduced for reduced, _, _ in sets]),
+            np.zeros((num_sets, dimension, 0), dtype=np.uint8),
+            pivots,
+            np.full(num_sets, dimension, dtype=np.int64),
+            _information_sets.infer_weight_divisor(basis),
+            int(np.bincount(pivots.ravel()).max()),
+        )
+        _assert_certificate_bounds_unvisited_words(basis, family)
+        blocks = tuple(tuple(int(column) for column in row) for row in pivots)
+        with_lp = dataclasses.replace(family.certificate, pivot_blocks=blocks)
+        stronger |= any(
+            with_lp.lower_bound(layer) > family.certificate.lower_bound(layer)
+            for layer in range(dimension)
+        )
+    assert stronger
+
+
+def test_searches_of_overlapping_sets_use_linear_programming_when_costly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only a costly search of overlapping sets gets the bound of linear programming."""
+    basis = np.asarray(qldpc.codes.HammingCode(4).generator, dtype=np.uint8)
+    disjoint = _information_sets.get_disjoint_family(basis, None)
+    overlapping = _get_overlapping_family(basis, None, disjoint, 3, minimum_work=0)
+    assert overlapping.max_coverage > 1
+    assert not overlapping.get_search_certificate(3).pivot_blocks
+    monkeypatch.setattr(_information_sets, "LP_MINIMUM_WORK", 0)
+    assert len(overlapping.get_search_certificate(3).pivot_blocks) == len(overlapping.ranks)
+    assert not disjoint.get_search_certificate(3).pivot_blocks
+
 
 @pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("dimension, num_sets", [(300, 16), (60, 8192)])
@@ -315,6 +395,9 @@ def _get_lower_bound_from_definition(
     - 1``; by default, every set has completed layer ``weight``.
     """
     num_completed = len(ranks) if num_completed is None else num_completed
+    if weight == dimension and num_completed:
+        # A set that has completed the last layer has visited every word.
+        return _information_sets._NO_WORD_BOUND
     completed = [weight if index < num_completed else weight - 1 for index in range(len(ranks))]
     occupancy = sum(max(0, layer + 1 - (dimension - rank)) for layer, rank in zip(completed, ranks))
     bound = -(-occupancy // max_coverage)
@@ -349,9 +432,12 @@ def _get_overlapping_family(
 def _assert_certificate_bounds_unvisited_words(
     basis: npt.NDArray[np.uint8], family: _information_sets.BasisFamily
 ) -> None:
-    """Check a basis family's certificate against every word that its search bases span.
+    """Check a basis family's certificates against every word that its search bases span.
 
     A search basis visits a word after layer ``t`` if the word combines at most ``t`` of its rows.
+    After the first ``j`` search bases have completed layer ``t`` and the others layer ``t - 1``,
+    every word that none of them has visited must weigh at least the certificate of that step, with
+    or without the bound of linear programming.
     """
 
     def get_coefficient_weights(generators: npt.NDArray[np.uint8]) -> dict[bytes, int]:
@@ -363,14 +449,34 @@ def _assert_certificate_bounds_unvisited_words(
     words = get_coefficient_weights(basis)
     coefficient_weights = [get_coefficient_weights(generators) for generators in family.generators]
     certificate = family.certificate
+    pivot_blocks = tuple(
+        tuple(int(column) for column in pivots[:rank])
+        for pivots, rank in zip(family.pivots, family.ranks, strict=True)
+    )
+    certificates = [certificate, dataclasses.replace(certificate, pivot_blocks=pivot_blocks)]
     # Every search basis spans the same space as the original basis.
     assert all(weights.keys() == words.keys() for weights in coefficient_weights)
     weights = {word: np.count_nonzero(np.frombuffer(word, dtype=np.uint8)) for word in words}
+    steps = [
+        (layer, num_completed)
+        for layer in range(1, len(basis))
+        for num_completed in range(len(family.ranks) + 1)
+    ]
     for word, weight in weights.items():
         assert weight % certificate.weight_divisor == 0
-        for completed in range(len(basis)):
-            if all(item[word] > completed for item in coefficient_weights):
-                assert weight >= certificate.lower_bound(completed)
+        for layer, num_completed in steps:
+            completed = [
+                layer if index < num_completed else layer - 1 for index in range(len(family.ranks))
+            ]
+            if all(item[word] > done for item, done in zip(coefficient_weights, completed)):
+                for each in certificates:
+                    assert weight >= each.step_lower_bound(layer, num_completed)
+
+    # Deciding whether a step certifies a bound agrees with the bound of that step.
+    for each, (layer, num_completed) in itertools.product(certificates, steps):
+        bound = each.step_lower_bound(layer, num_completed)
+        for upper_bound in range(1, basis.shape[1] + 2):
+            assert each.certifies(layer, num_completed, upper_bound) == (bound >= upper_bound)
 
     # The certificate is not vacuous: before the last layer, it reaches the minimum nonzero weight.
     assert certificate.lower_bound(len(basis) - 1) >= min(filter(None, weights.values()))

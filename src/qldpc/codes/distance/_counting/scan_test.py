@@ -70,11 +70,17 @@ def test_scans_resume_after_every_chunk(
 
 @pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("max_sets", [4, 16])
+@pytest.mark.parametrize("linear_programming", [False, True])
 def test_overlapping_basis_families_count_every_word_once(
-    monkeypatch: pytest.MonkeyPatch, max_sets: int
+    monkeypatch: pytest.MonkeyPatch, max_sets: int, linear_programming: bool
 ) -> None:
-    """Large basis families of overlapping sets give the counts of a brute-force scan."""
+    """Large basis families of overlapping sets give the counts of a brute-force scan.
+
+    The counts stop at the certificate of linear programming too, if every count uses it.
+    """
     monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
+    if linear_programming:
+        monkeypatch.setattr(_information_sets, "LP_MINIMUM_WORK", 0)
     # This code makes the basis family stages choose basis families of over four overlapping sets.
     code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
     counter = lc.CSSLogicalCounter(code)

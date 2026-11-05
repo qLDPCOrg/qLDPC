@@ -503,16 +503,16 @@ def _get_search_tables(
         certificate_bounds = _information_sets.get_step_lower_bounds(
             num_generators, family.ranks, 1, 1
         )
-        unvisited_bounds = ((certificate_bounds + 1) // 2 if halve else certificate_bounds).astype(
-            np.int64
-        )
+        # Round half of each bound up, without overflowing the bounds after the last layer.
+        unvisited_bounds = (
+            certificate_bounds - certificate_bounds // 2 if halve else certificate_bounds
+        ).astype(np.int64)
+        unvisited_bounds[num_generators, 1:] = np.iinfo(np.int64).max
     else:
         packed_generators = np.zeros((1, 0, width), dtype=np.uint64)
         set_pivots = np.full((1, 0), -1, dtype=np.int64)
-        unvisited_bounds = np.zeros((1, 2), dtype=np.int64)
-    # The first information set is full, since the generators are independent, so once it has
-    # completed the last layer, every word has been visited.
-    unvisited_bounds[num_generators, 1:] = np.iinfo(np.int64).max
+        # The one empty set visits the only word of each coset on layer zero.
+        unvisited_bounds = np.array([[0, np.iinfo(np.int64).max]], dtype=np.int64)
     x_mask = _int_to_words((1 << num_x_columns) - 1, width)
     return _CosetSearchTables(
         pack_bits(inverse), packed_generators, set_pivots, unvisited_bounds, x_mask
