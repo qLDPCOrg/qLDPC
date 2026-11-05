@@ -10,7 +10,7 @@ The main components of this package are:
 - Built-in noise models: DepolarizingNoiseModel and the superconducting-inspired SI1000NoiseModel.
 - Scheduler: Places the operations of circuits in moments, which set idle noise.
 - Schedule: The moments of the operations of a circuit.
-- Built-in schedulers: TickScheduler, ASAPScheduler, and ALAPScheduler.
+- Built-in schedulers: TickScheduler, ASAPScheduler, ALAPScheduler, and MinIdleScheduler.
 
 Examples of basic usage with a predefined noise model::
 
@@ -167,6 +167,7 @@ from .rules import (
 from .scheduling import (
     ALAPScheduler,
     ASAPScheduler,
+    MinIdleScheduler,
     Schedule,
     Scheduler,
     TickScheduler,
@@ -180,6 +181,7 @@ __all__ = [
     "AbstractPauliChannel",
     "DepolarizingNoiseModel",
     "ErrorSpec",
+    "MinIdleScheduler",
     "NoiseModel",
     "NoiseRule",
     "PauliChannel",
