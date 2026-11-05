@@ -13,7 +13,14 @@ import numpy as np
 import numpy.typing as npt
 
 from qldpc import math
-from qldpc._binary import pack_bits, popcount_word, row_reduce_binary, trailing_zeros_word
+from qldpc._binary import (
+    get_kernel,
+    pack_bits,
+    popcount_word,
+    row_reduce_binary,
+    trailing_zeros_word,
+    unpack_bits,
+)
 from qldpc._compilation import always_compiled
 
 from . import _information_sets
@@ -176,7 +183,7 @@ class PauliCosetSearch:
 
     def _get_syndrome(self, pauli: int) -> int:
         """Compute the syndrome of a packed Pauli."""
-        return sum(((row & pauli).bit_count() & 1) << jj for jj, row in enumerate(self._checks))
+        return _get_parities(self._checks, pauli)
 
     def _representative(self, syndrome: int) -> int:
         """Find a packed Pauli with this syndrome."""
@@ -222,8 +229,180 @@ class PauliCosetSearch:
         return max(x.bit_count(), z.bit_count()) if self.css_weight else (x | z).bit_count()
 
 
+class CssCosetSearch:
+    """Minimum-weight oracle for Pauli errors on a CSS state, weighed by their CSS weight.
+
+    The X part ``x`` and Z part ``z`` of a packed Pauli are its low and high ``n`` bits (see
+    ``PauliCosetSearch``).  A pure-X stabilizer has no Z part, and a pure-Z stabilizer no X part.  A
+    stabilizer state is CSS if pure-X and pure-Z stabilizers generate its stabilizer group.
+
+    This oracle answers the same queries as ``PauliCosetSearch`` with ``css_weight=True``, with the
+    same packing of Paulis and syndromes, by two classical searches.  The X parts of the pure-X
+    stabilizers span a binary code ``C_X``, and the Z parts of the pure-Z stabilizers a binary code
+    ``C_Z``.  Multiplying an error by a stabilizer adds a word of ``C_X`` to its X part and a word
+    of ``C_Z`` to its Z part, independently.  So the smallest CSS weight ``max(|x|, |z|)`` of an
+    error with a given syndrome is the larger of two classical minima: the smallest Hamming weight
+    in the coset ``x + C_X``, and the smallest in the coset ``z + C_Z``.  The oracle finds each with
+    the search of ``_search_coset`` on ``n`` columns, rather than one search on ``2 n`` columns.
+
+    The coset of an X part is labeled by its syndrome for the pure-Z stabilizers, and that of a Z
+    part by its syndrome for the pure-X stabilizers.  The oracle maps a syndrome for the given
+    stabilizers to these two classical syndromes.  The tables of the two searches depend only on the
+    stabilizer group, so they are cached in-process for the last few groups, and certifying many
+    circuits that prepare the same state builds them only once.
+
+    Args:
+        stabilizers: An independent commuting binary ``n x 2n`` matrix in ``[X|Z]`` order, whose
+            stabilizer group is CSS.
+
+    Raises:
+        ValueError: If the stabilizers are not ``n`` independent commuting stabilizers of a CSS
+            state.
+    """
+
+    def __init__(self, stabilizers: npt.ArrayLike) -> None:
+        # Callers such as the certification of fault propagation read ``num_qubits`` and
+        # ``css_weight`` from either oracle.
+        self.css_weight = True
+        assert_binary(stabilizers, "stabilizers")
+        matrix = as_binary_matrix(stabilizers)
+        self.num_qubits = len(matrix)
+        n = self.num_qubits
+        if not n or matrix.shape[1] != 2 * n:
+            raise ValueError("Require a complete nonempty n by 2n stabilizer matrix")
+        checks = (math.symplectic_conjugate(matrix.astype(int)) % 2).astype(np.uint8)
+        if len(row_reduce_binary(matrix)[2]) != n or np.any((checks @ matrix.T) % 2):
+            raise ValueError("Stabilizers must be independent and commute")
+        combinations = _get_css_combinations(matrix)
+        if combinations is None:
+            raise ValueError("The stabilizers must generate a CSS state")
+
+        # Combine the stabilizers into pure-X and pure-Z stabilizers, and row-reduce the X parts of
+        # the pure-X stabilizers and the Z parts of the pure-Z stabilizers.  The reduced rows depend
+        # only on the stabilizer group, so they key the cache of searches.
+        x_combinations, z_combinations = combinations
+        x_rows, x_transform, _ = row_reduce_binary(
+            (x_combinations @ matrix[:, :n]) % 2, np.eye(len(x_combinations), dtype=np.uint8)
+        )
+        z_rows, z_transform, _ = row_reduce_binary(
+            (z_combinations @ matrix[:, n:]) % 2, np.eye(len(z_combinations), dtype=np.uint8)
+        )
+        assert x_transform is not None and z_transform is not None
+        self._x_search, self._z_search = _get_css_searches(
+            n, len(x_rows), pack_bits(x_rows).tobytes(), pack_bits(z_rows).tobytes()
+        )
+
+        # Row ``j`` of ``z_rows`` is the Z part of a pure-Z stabilizer, the product of the given
+        # stabilizers with coefficients ``c = (z_transform @ z_combinations)[j]``.  An error's
+        # syndrome bit for that stabilizer is the parity of its X part with the row, and also the
+        # parity of its syndrome for the given stabilizers with ``c``.  So the rows ``c`` form the X
+        # syndrome map, from a syndrome for the given stabilizers to the syndrome of the X part, and
+        # likewise for Z.  Each map is stored as its packed columns, one per syndrome bit.
+        x_syndrome_map = (z_transform @ z_combinations) % 2
+        z_syndrome_map = (x_transform @ x_combinations) % 2
+        self._x_map_columns = pack_bits(np.ascontiguousarray(x_syndrome_map.T))
+        self._z_map_columns = pack_bits(np.ascontiguousarray(z_syndrome_map.T))
+
+        # A single syndrome is mapped by XORing the columns of both maps for its set bits, which is
+        # cheaper than a parity for each row, since most syndromes have few set bits.  Entry ``i``
+        # holds column ``i`` of the X map in its low ``_num_x_bits`` bits, and column ``i`` of the Z
+        # map above them.
+        self._num_x_bits = len(z_rows)
+        self._map_columns = _row_ints(
+            np.ascontiguousarray(np.vstack([x_syndrome_map, z_syndrome_map]).T)
+        )
+
+    def get_min_weight_bound(self, syndrome: int, max_weight: int) -> MinWeightBound:
+        """Decide whether some error with this syndrome has CSS weight at most ``max_weight``.
+
+        Args:
+            syndrome: A packed syndrome (see ``PauliCosetSearch``).
+            max_weight: The largest weight that the query accepts.
+
+        Returns:
+            A ``MinWeightBound``, whose lower bound is the larger of those of the X and Z parts.
+
+        Raises:
+            ValueError: If the syndrome is out of range.
+        """
+        if not 0 <= syndrome < 1 << self.num_qubits:
+            raise ValueError("The syndrome is out of range")
+        part_syndromes = _xor_selected(self._map_columns, syndrome)
+        x_syndrome = part_syndromes & ((1 << self._num_x_bits) - 1)
+        z_syndrome = part_syndromes >> self._num_x_bits
+        x_bound = self._x_search.get_min_weight_bound(x_syndrome, max_weight)
+        z_bound = self._z_search.get_min_weight_bound(z_syndrome, max_weight)
+        return MinWeightBound(
+            x_bound.within_max_weight and z_bound.within_max_weight,
+            x_bound.representative | (z_bound.representative << self.num_qubits),
+            max(x_bound.lower_bound, z_bound.lower_bound),
+        )
+
+    def find_first_not_within_max_weight(
+        self, syndromes: npt.NDArray[np.uint64], max_weight: int
+    ) -> tuple[int, MinWeightBound | None]:
+        """Find the first syndrome whose class has no error of CSS weight at most ``max_weight``.
+
+        Args:
+            syndromes: One packed syndrome (see ``PauliCosetSearch``) per row, split into 64-bit
+                machine words, with machine word ``j`` holding bits ``64 j`` and up.  Each syndrome
+                must be below ``2**num_qubits``; this is not checked.  The rows may have fewer words
+                than ``num_qubits`` bits need, if every syndrome fits in them.
+            max_weight: The largest weight that the query accepts.
+
+        Returns:
+            The index of that syndrome, or the number of syndromes if there is none, and the
+            ``MinWeightBound`` that ``get_min_weight_bound`` gives for that syndrome, or None if
+            there is none.
+        """
+        # A syndrome's class fails, that is, has no error of CSS weight at most ``max_weight``,
+        # exactly when the coset of its X part or that of its Z part has no word of Hamming weight
+        # at most ``max_weight``.  So find the first syndrome whose X-part coset fails, and then
+        # search the Z-part cosets of the syndromes before it.
+        index = len(syndromes)
+        for search, map_columns in (
+            (self._x_search, self._x_map_columns),
+            (self._z_search, self._z_map_columns),
+        ):
+            part_syndromes = _map_syndromes(syndromes[:index], map_columns)
+            best = np.empty(search.tables.inverse.shape[1], dtype=np.uint64)
+            # With an ``x_mask`` that selects every column, the CSS weight is the Hamming weight.
+            index, _ = _find_first_not_within_max_weight(
+                part_syndromes, max_weight, best, *search.tables, True
+            )
+        if index == len(syndromes):
+            return index, None
+        return index, self.get_min_weight_bound(_packed_row_int(syndromes[index]), max_weight)
+
+
+def get_coset_search(
+    stabilizers: npt.ArrayLike, *, css_weight: bool = False
+) -> PauliCosetSearch | CssCosetSearch:
+    """Build an exact minimum-weight oracle for the Pauli errors on a stabilizer state.
+
+    For the CSS weight on a CSS state, this is a ``CssCosetSearch``, which runs two searches on
+    ``n`` columns, and otherwise a ``PauliCosetSearch``, which runs one search on ``2 n`` columns.
+    Both give the same ``within_max_weight`` for every query, but their representatives and lower
+    bounds can differ.
+
+    Args:
+        stabilizers: An independent commuting binary ``n x 2n`` matrix in ``[X|Z]`` order.
+        css_weight: True to weigh an error by its CSS weight, or False to weigh it by its physical
+            weight (see ``PauliCosetSearch``).
+    """
+    assert_binary(stabilizers, "stabilizers")
+    matrix = as_binary_matrix(stabilizers)
+    if css_weight and len(matrix) and _get_css_combinations(matrix) is not None:
+        return CssCosetSearch(matrix)
+    return PauliCosetSearch(matrix, css_weight=css_weight)
+
+
 class _CosetSearchTables(NamedTuple):
-    """The tables of ``_search_coset`` for the stabilizers of a ``PauliCosetSearch``.
+    """The tables of one search of ``_search_coset``.
+
+    The search is that of a ``PauliCosetSearch``, on embedded words of errors, or one of the two
+    classical searches of a ``CssCosetSearch``, on words of a binary code, which take the place of
+    embedded words below.
 
     Attributes:
         inverse: Row ``j`` is the packed embedded word of an error whose syndrome has only bit ``j``
@@ -232,7 +411,8 @@ class _CosetSearchTables(NamedTuple):
         pivots: The pivot columns of each information set, padded with -1.
         unvisited_bounds: Entry ``w`` bounds the weight of every error that the search has not
             visited after layer ``w``.
-        x_mask: Selects the X part of a packed embedded word.
+        x_mask: Selects the bits of a packed embedded word that count as its X part.  A classical
+            search selects every column, so that the CSS weight of a word is its Hamming weight.
     """
 
     inverse: npt.NDArray[np.uint64]
@@ -266,6 +446,147 @@ def _xor_selected(rows: Sequence[int], support: int) -> int:
         word ^= rows[low.bit_length() - 1]
         support ^= low
     return word
+
+
+class _ClassicalCosetSearch(NamedTuple):
+    """The search for the lightest words in the cosets of one binary code, for ``CssCosetSearch``.
+
+    The code is the row space of a matrix of generators.  Each coset is labeled by the syndrome of
+    its words, whose bit ``j`` is the parity of a word with row ``j`` of a matrix of checks.  Words
+    are weighed by their Hamming weight.
+
+    Attributes:
+        tables: The tables of ``_search_coset`` for the code, whose ``x_mask`` selects every column,
+            so that the CSS weight that the search computes is the Hamming weight.
+        inverse_rows: Row ``j`` of ``tables.inverse`` as an integer, a word whose syndrome has only
+            bit ``j`` set.
+        singles: A map from each syndrome of a word of weight zero or one to such a word.
+    """
+
+    tables: _CosetSearchTables
+    inverse_rows: tuple[int, ...]
+    singles: dict[int, int]
+
+    def get_min_weight_bound(self, syndrome: int, max_weight: int) -> MinWeightBound:
+        """Decide whether the coset of this syndrome has a word of weight at most ``max_weight``.
+
+        Returns:
+            A ``MinWeightBound`` for the coset, whose representative is a word of the coset.
+        """
+        word = self.singles.get(syndrome)
+        if word is not None:
+            weight = word.bit_count()
+            return MinWeightBound(weight <= max_weight, word, weight)
+        if max_weight < 2:
+            return MinWeightBound(False, _xor_selected(self.inverse_rows, syndrome), 2)
+
+        # The coset has no word of weight at most one, so two is a lower bound.  With an ``x_mask``
+        # that selects every column, the CSS weight is the Hamming weight.
+        best = np.empty(self.tables.inverse.shape[1], dtype=np.uint64)
+        words = _int_to_words(syndrome, max(1, (len(self.inverse_rows) + 63) // 64))
+        lower_bound = int(_search_coset(words, max_weight, best, *self.tables, True))
+        return MinWeightBound(lower_bound <= max_weight, _packed_row_int(best), max(2, lower_bound))
+
+
+@functools.lru_cache(maxsize=8)
+def _get_css_searches(
+    num_qubits: int, num_x_rows: int, x_rows: bytes, z_rows: bytes
+) -> tuple[_ClassicalCosetSearch, _ClassicalCosetSearch]:
+    """The searches of the X parts and of the Z parts of the errors on a CSS state.
+
+    ``x_rows`` holds the X parts of ``num_x_rows`` pure-X stabilizers, and ``z_rows`` the Z parts of
+    the other ``num_qubits - num_x_rows`` stabilizers, which are pure-Z.  Both are in reduced row
+    echelon form, which depends only on the stabilizer group, and packed by ``pack_bits`` into
+    bytes, which ``lru_cache`` can hash.  The X parts of errors are searched modulo the code of the
+    X rows, with the Z rows as checks, and the Z parts the other way around (see
+    ``CssCosetSearch``).
+    """
+    num_words = max(1, (num_qubits + 63) // 64)
+    x_matrix = unpack_bits(
+        np.frombuffer(x_rows, dtype=np.uint64).reshape(num_x_rows, num_words), num_qubits
+    )
+    z_matrix = unpack_bits(
+        np.frombuffer(z_rows, dtype=np.uint64).reshape(num_qubits - num_x_rows, num_words),
+        num_qubits,
+    )
+    return _get_classical_search(x_matrix, z_matrix), _get_classical_search(z_matrix, x_matrix)
+
+
+def _get_classical_search(
+    generators: npt.NDArray[np.uint8], checks: npt.NDArray[np.uint8]
+) -> _ClassicalCosetSearch:
+    """Build the search of the cosets of the row space of independent generators.
+
+    The row space of the generators is the null space of the independent checks, so each coset is
+    labeled by its syndrome for the checks.
+    """
+    num_generators, num_columns = generators.shape
+    width = max(1, (num_columns + 63) // 64)
+
+    # Row ``j`` of the inverse is a word whose syndrome has only bit ``j`` set.
+    _, labels, pivots = row_reduce_binary(checks, np.eye(len(checks), dtype=np.uint8))
+    assert labels is not None
+    inverse = np.zeros((len(checks), num_columns), dtype=np.uint8)
+    inverse[:, pivots] = labels.T
+
+    # Words are weighed by their Hamming weight, so the certificate bounds the weight of every
+    # unvisited word directly.  It takes no weight divisor, since the words of a coset need not
+    # share the divisibility of the code, and a coverage of one, since the information sets are
+    # disjoint.  Without generators, each coset is a single word, which the search visits on layer
+    # zero of an empty information set.
+    if num_generators:
+        family = _information_sets.get_disjoint_family(generators, None)
+        num_sets = family.generators.shape[0]
+        packed_generators = pack_bits(family.generators.reshape(-1, num_columns)).reshape(
+            num_sets, num_generators, -1
+        )
+        set_pivots = family.pivots
+        unvisited_bounds = _information_sets.get_certificate_lower_bounds(
+            num_generators, family.ranks, 1, 1
+        ).astype(np.int64)
+    else:
+        packed_generators = np.zeros((1, 0, width), dtype=np.uint64)
+        set_pivots = np.full((1, 0), -1, dtype=np.int64)
+        unvisited_bounds = np.zeros(1, dtype=np.int64)
+    unvisited_bounds[num_generators] = np.iinfo(np.int64).max
+    x_mask = _int_to_words((1 << num_columns) - 1, width)
+    tables = _CosetSearchTables(
+        pack_bits(inverse), packed_generators, set_pivots, unvisited_bounds, x_mask
+    )
+
+    # Map the syndrome of each word of weight zero or one to such a word.
+    check_columns = _row_ints(np.ascontiguousarray(checks.T))
+    singles = {0: 0}
+    for column, syndrome in enumerate(check_columns):
+        singles.setdefault(syndrome, 1 << column)
+    return _ClassicalCosetSearch(tables, _row_ints(inverse), singles)
+
+
+def _get_css_combinations(
+    stabilizers: npt.NDArray[np.uint8],
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]] | None:
+    """Combine stabilizers into pure-X and pure-Z generators, or return None if they are not CSS.
+
+    The stabilizers must be independent.  The combinations of them whose Z parts cancel, which form
+    the null space of the transposed Z parts, give the pure-X stabilizers, and likewise for pure-Z
+    stabilizers.  A pure-X and a pure-Z stabilizer are equal only if both are the identity, so these
+    stabilizers are independent, and they generate the group exactly when there are ``n`` of them.
+
+    Returns:
+        Matrices ``(x_combinations, z_combinations)``, whose products with ``stabilizers`` modulo 2
+        are pure-X and pure-Z stabilizers that together generate the group, or None.
+    """
+    num_qubits = len(stabilizers)
+    x_combinations = get_kernel(np.ascontiguousarray(stabilizers[:, num_qubits:].T))
+    z_combinations = get_kernel(np.ascontiguousarray(stabilizers[:, :num_qubits].T))
+    if len(x_combinations) + len(z_combinations) != num_qubits:
+        return None
+    return x_combinations, z_combinations
+
+
+def _get_parities(rows: Sequence[int], value: int) -> int:
+    """The integer whose bit ``j`` is the parity of ``value`` with row ``j``."""
+    return sum(((row & value).bit_count() & 1) << jj for jj, row in enumerate(rows))
 
 
 ####################################################################################################
@@ -478,3 +799,27 @@ def _get_weight(
         ones += popcount_word(word)
         x_ones += popcount_word(word & x_mask[index])
     return max(x_ones, ones - x_ones) if css_weight else ones // 2
+
+
+@always_compiled
+def _map_syndromes(
+    syndromes: npt.NDArray[np.uint64], map_columns: npt.NDArray[np.uint64]
+) -> npt.NDArray[np.uint64]:
+    """Map packed syndromes by a binary matrix, given by its packed columns.
+
+    Row ``i`` of the result is the XOR of the columns ``map_columns[b]`` for the set bits ``b`` of
+    row ``i`` of ``syndromes``, which is the product of the matrix with that syndrome.  The
+    syndromes are split into 64-bit words, and each set bit must be below the number of columns;
+    this is not checked.
+    """
+    width = map_columns.shape[1]
+    mapped = np.zeros((len(syndromes), width), dtype=np.uint64)
+    for row in range(len(syndromes)):
+        for syndrome_word in range(syndromes.shape[1]):
+            bits = syndromes[row, syndrome_word]
+            while bits:
+                bit = 64 * syndrome_word + trailing_zeros_word(bits)
+                for word in range(width):
+                    mapped[row, word] ^= map_columns[bit, word]
+                bits &= bits - np.uint64(1)
+    return mapped

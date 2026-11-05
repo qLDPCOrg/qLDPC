@@ -373,11 +373,19 @@ def _smallest_violation(
 
 
 def _certify_map(
-    flags: Sequence[int], syndromes: Sequence[int], max_weight: int | None, num_qubits: int
+    flags: Sequence[int],
+    syndromes: Sequence[int],
+    max_weight: int | None,
+    num_qubits: int,
+    css_weight: bool = False,
 ) -> _fault_search.Violation | None:
-    """Search primitive faults with these flags and syndromes on |0...0> against brute force."""
+    """Search primitive faults with these flags and syndromes on |0...0> against brute force.
+
+    On |0...0>, the smallest weight of an error with a syndrome is the syndrome's number of ones, by
+    either measure of weight, so the brute force is the same for both.
+    """
     violation = _fault_search.find_smallest_violation(
-        flags, syndromes, _z_state(num_qubits), max_weight, False
+        flags, syndromes, _z_state(num_qubits), max_weight, css_weight
     )
     smallest = _smallest_violation(flags, syndromes, max_weight)
     assert (violation is None) == (smallest is None)
@@ -402,15 +410,21 @@ def test_search_without_flags_checks_primitive_faults() -> None:
     assert _certify_map([0] * 5, [1, 2, 7, 4, 7], None, 3) is not None
 
 
-def test_search_with_flags_matches_exhaustive_search(pytestconfig: pytest.Config) -> None:
-    """Random maps with repeated flags and flag rank above ``max_weight`` match brute force."""
+@pytest.mark.parametrize("css_weight", [False, True])
+def test_search_with_flags_matches_exhaustive_search(
+    css_weight: bool, pytestconfig: pytest.Config
+) -> None:
+    """Random maps with repeated flags and flag rank above ``max_weight`` match brute force.
+
+    |0...0> is a CSS state, so the CSS weight uses two classical searches.
+    """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for n, rank in itertools.product((3, 5), range(5)):
         for _ in range(12):
             flags = list(map(int, rng.integers(1 << rank, size=8)))
             syndromes = list(map(int, rng.integers(1 << n, size=8)))
             for max_weight in (1, 2, 3, 5, None):
-                _certify_map(flags, syndromes, max_weight, n)
+                _certify_map(flags, syndromes, max_weight, n, css_weight)
 
 
 def test_hand_derived_dependency_cases() -> None:
