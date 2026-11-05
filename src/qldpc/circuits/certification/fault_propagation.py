@@ -7,12 +7,12 @@ from __future__ import annotations
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 
-import galois
 import numpy as np
 import numpy.typing as npt
 import stim
 
 from qldpc import math
+from qldpc._binary import get_rank_packed, pack_bits
 from qldpc.codes.distance._coset_leader_search import MinWeightBound
 
 from .._post_selection import get_flag_detectors, get_selected_detectors, is_integer
@@ -417,7 +417,6 @@ def _is_css_state(stabilizers: npt.NDArray[np.uint8]) -> bool:
     # pure-Z elements of W have dimensions n-rank(W_Z) and n-rank(W_X) and meet only in 0, so they
     # span W exactly when rank(W_X)+rank(W_Z)=n, whatever generators are used.
     ranks = [
-        np.linalg.matrix_rank(galois.GF2(sector))
-        for sector in (stabilizers[:, :n], stabilizers[:, n:])
+        get_rank_packed(pack_bits(sector)) for sector in (stabilizers[:, :n], stabilizers[:, n:])
     ]
     return sum(ranks) == n

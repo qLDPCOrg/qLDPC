@@ -85,6 +85,20 @@ def test_overlapping_basis_families_count_every_word_once(
     ] == expected
 
 
+def test_counts_through_the_costly_stages_count_every_word_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Counts that try partitioned families and the certificate of linear programs are exact."""
+    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
+    monkeypatch.setattr(_information_sets, "LP_MINIMUM_WORK", 0)
+    monkeypatch.setattr(_information_sets, "PARTITION_WORK_RATIO", 0)
+    code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
+    counter = lc.CSSLogicalCounter(code)
+    weights = range(len(code) + 1)
+    expected = [counter.count_logical_ops(weight, method="brute_force") for weight in weights]
+    assert [counter.count_logical_ops(weight) for weight in weights] == expected
+
+
 def test_the_information_set_limit_bounds_the_basis_families_of_a_count(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
