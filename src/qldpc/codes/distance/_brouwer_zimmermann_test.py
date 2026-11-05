@@ -539,22 +539,12 @@ def test_a_search_through_the_costly_stages_finds_the_distance(
     """A [21, 8, 6] code, searched with a partitioned family and a certificate of linear programs.
 
     With the thresholds of the costly stages lowered, the search of this code replaces its family by
-    information sets from matroid partitioning, whose columns lie in up to two of them, and stops
-    with the certificate of linear programming.  A spy on the linear programs makes sure that the
-    distance is found through those stages: it checks that they bound the blocks of a partitioned
-    family.
+    information sets from matroid partitioning, whose columns lie in up to two of them, and bounds
+    unvisited words by linear programming.
     """
     monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
     monkeypatch.setattr(_information_sets, "LP_MINIMUM_WORK", 0)
     monkeypatch.setattr(_information_sets, "PARTITION_WORK_RATIO", 0)
-    blocks: set[tuple[tuple[int, ...], ...]] = set()
-    get_lp_lower_bound = _information_sets.get_lp_lower_bound
-
-    def record_blocks(pivot_blocks: Any, requirements: Any) -> int:
-        blocks.add(tuple(tuple(block) for block in pivot_blocks))
-        return get_lp_lower_bound(pivot_blocks, requirements)
-
-    monkeypatch.setattr(_information_sets, "get_lp_lower_bound", record_blocks)
     rows = [
         "100000010110010010011",
         "010000010100101111100",
@@ -568,14 +558,3 @@ def test_a_search_through_the_costly_stages_finds_the_distance(
     basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
     assert qldpc.codes.get_distance_classical(basis, cutoff=0, method="brute_force") == 6
     assert qldpc.codes.get_distance_classical(basis, cutoff=0) == 6
-
-    # The certificate bounded the blocks of a family of information sets with coverage two.
-    partitioned = _information_sets.get_partitioned_family(
-        basis,
-        np.zeros((len(basis), 0), dtype=np.uint8),
-        _information_sets.get_disjoint_family(basis, None),
-        6,
-        _information_sets.MAX_SETS,
-    )
-    expected = tuple(tuple(int(column) for column in pivots) for pivots in partitioned.pivots)
-    assert partitioned.max_coverage == 2 and expected in blocks

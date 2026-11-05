@@ -70,19 +70,11 @@ def test_scans_resume_after_every_chunk(
 
 @pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("max_sets", [4, 16])
-@pytest.mark.parametrize("costly_stages", [False, True])
 def test_overlapping_basis_families_count_every_word_once(
-    monkeypatch: pytest.MonkeyPatch, max_sets: int, costly_stages: bool
+    monkeypatch: pytest.MonkeyPatch, max_sets: int
 ) -> None:
-    """Large basis families of overlapping sets give the counts of a brute-force scan.
-
-    With ``costly_stages``, every count also tries partitioned families and stops at the certificate
-    of linear programming, which otherwise only costly counts do.
-    """
+    """Large basis families of overlapping sets give the counts of a brute-force scan."""
     monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
-    if costly_stages:
-        monkeypatch.setattr(_information_sets, "LP_MINIMUM_WORK", 0)
-        monkeypatch.setattr(_information_sets, "PARTITION_WORK_RATIO", 0)
     # This code makes the basis family stages choose basis families of over four overlapping sets.
     code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
     counter = lc.CSSLogicalCounter(code)
@@ -91,6 +83,20 @@ def test_overlapping_basis_families_count_every_word_once(
     assert [
         counter.count_logical_ops(w, max_information_sets=max_sets) for w in weights
     ] == expected
+
+
+def test_counts_through_the_costly_stages_count_every_word_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Counts that try partitioned families and the certificate of linear programs are exact."""
+    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
+    monkeypatch.setattr(_information_sets, "LP_MINIMUM_WORK", 0)
+    monkeypatch.setattr(_information_sets, "PARTITION_WORK_RATIO", 0)
+    code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
+    counter = lc.CSSLogicalCounter(code)
+    weights = range(len(code) + 1)
+    expected = [counter.count_logical_ops(weight, method="brute_force") for weight in weights]
+    assert [counter.count_logical_ops(weight) for weight in weights] == expected
 
 
 def test_the_information_set_limit_bounds_the_basis_families_of_a_count(

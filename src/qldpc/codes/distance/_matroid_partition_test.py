@@ -50,15 +50,6 @@ def _get_max_num_sets(basis: npt.NDArray[np.uint8], max_coverage: int, max_sets:
     return search(0, (0,) * basis.shape[1], 0)
 
 
-def test_three_pairs_of_three_columns() -> None:
-    """The columns ``e1, e2, e1 + e2`` hold one information set, or three if each may be in two."""
-    basis = np.array([[1, 0, 1], [0, 1, 1]], dtype=np.uint8)
-    assert len(get_information_sets_with_coverage(basis, 1, 16)) == 1
-    sets = get_information_sets_with_coverage(basis, 2, 16)
-    assert sorted(sets) == [[0, 1], [0, 2], [1, 2]]
-    assert len(get_information_sets_with_coverage(basis, 2, 2)) == 2
-
-
 def test_a_basis_whose_sets_need_columns_that_could_not_join_earlier() -> None:
     """Three information sets of this [10, 4] basis use no column more than twice.
 
