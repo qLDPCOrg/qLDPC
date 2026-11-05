@@ -499,23 +499,27 @@ class _Unavailable(circuits.Scheduler):
 
 
 def test_deprecated_insert_ticks() -> None:
-    """insert_ticks=True adds noise to the layout of a TickScheduler schedule, in its moments.
+    """insert_ticks=True lays a circuit out in moments as released, and adds noise in them.
 
-    Every gate takes time in those moments, whatever the scheduler of the model, so qubit 2 is busy
-    while H acts on it.  The deprecated insert_ticks=False requests no layout, so the noise is the
+    A TICK layer is split where gates that take time share a qubit, and every gate takes time,
+    whatever the scheduler of the model.  So CX 1 2 starts a new moment, with H 3, and qubits 2, 3,
+    and 0 idle once each.  The deprecated insert_ticks=False requests no layout, so the noise is the
     same as without it.
     """
     noise_model = circuits.NoiseModel(clifford_2q_error=0.1, idle_error={"Z": 0.2})
-    circuit = stim.Circuit("TICK\nCX 0 1\nTICK\nH 2\nTICK")
+    circuit = stim.Circuit("CX 0 1 1 2\nH 3")
     with pytest.warns(DeprecationWarning, match="insert_ticks"):
         noisy_circuit = noise_model.noisy_circuit(circuit, insert_ticks=True)
     assert noisy_circuit == stim.Circuit("""
         CX 0 1
         TICK
-        Z_ERROR(0.2) 2
-        H 2
         DEPOLARIZE2(0.1) 0 1
-        Z_ERROR(0.2) 0 1
+        Z_ERROR(0.2) 2
+        CX 1 2
+        Z_ERROR(0.2) 3
+        H 3
+        DEPOLARIZE2(0.1) 1 2
+        Z_ERROR(0.2) 0
     """)
     with pytest.warns(DeprecationWarning, match="insert_ticks"):
         noisy_circuit = noise_model.noisy_circuit(circuit, insert_ticks=False)
