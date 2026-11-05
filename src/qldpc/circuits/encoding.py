@@ -6,11 +6,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-import galois
 import numpy as np
 import stim
 
 from qldpc import _deprecations, codes, math
+from qldpc._binary import get_independent_rows
 from qldpc._utils import get_external_caller_stacklevel
 from qldpc.objects import Pauli
 
@@ -222,8 +222,7 @@ def get_state_stabilizers(
     num_columns = 2 * num_qubits + num_measurements + num_observables
     num_rows = len(flow_generators) + state_prep_circuit.num_detectors
 
-    # build a matrix of stabilizers for the entire circuit output, determined by the flows; fill a
-    # NumPy array and convert it to GF(2) once, since assigning to a GF(2) array is slow
+    # build a matrix of stabilizers for the entire circuit output, determined by the flows
     matrix = np.zeros((num_rows, num_columns), dtype=np.uint8)
     for gg, flow in enumerate(flow_generators):
         pauli_string = flow.output_copy()
@@ -257,10 +256,13 @@ def get_state_stabilizers(
         [other_qubits, other_qubits + num_qubits, np.arange(2 * num_qubits, num_columns, dtype=int)]
     )
     state_columns = np.concatenate([state_qubits, state_qubits + num_qubits])
-    reduced_matrix = galois.GF2(matrix[:, np.concatenate([unwanted_columns, state_columns])])
+    reordered_matrix = matrix[:, np.concatenate([unwanted_columns, state_columns])]
 
-    # identify stabilizers that are supported entirely on the data qubits of the code
-    rows = reduced_matrix.row_space().view(np.ndarray)
+    # Identify stabilizers supported only on the requested qubits.  The unwanted columns come
+    # first, so the rows of the reduced row echelon form with pivots on requested qubits vanish on
+    # the unwanted columns.  These rows span every such stabilizer, since a sum of rows is nonzero
+    # at the pivot of each row in the sum.
+    rows = get_independent_rows(reordered_matrix)
     num_unwanted_columns = len(unwanted_columns)
     on_state = np.any(rows[:, num_unwanted_columns:], axis=1)
     on_others = np.any(rows[:, :num_unwanted_columns], axis=1)

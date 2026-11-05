@@ -257,16 +257,25 @@ class _BrouwerZimmermannSearch:
         self.best = min(self.best, upper_bound)
 
     def advance(self) -> int:
-        """Search one coefficient weight and return the best shared upper bound."""
+        """Search the next coefficient layer, and return the best shared upper bound.
+
+        The search scans the fewest leading sets whose completion of the layer certifies the best
+        weight at the start of the layer, or every set if no fewer do (see
+        ``Certificate.get_num_sets_to_certify``).
+        """
         if self.finished:
             return self.best
 
-        # Start a fresh enumeration of all supports with this coefficient weight.
+        # Scan only the first sets of this layer if their completion of it certifies the best
+        # weight: an unvisited eligible word lighter than that would contradict the certificate, and
+        # lighter witnesses found during the scan only lower the best weight further.
         weight = self.next_weight
+        num_completed = self.certificate.get_num_sets_to_certify(weight, self.best)
+        scanned = slice(0, num_completed)
+
+        # Start a fresh enumeration of all supports with this coefficient weight.
         support = np.zeros(weight, dtype=np.int64)
-        prefixes = np.zeros(
-            (weight + 1, len(self.ranks), self.generators.shape[2]), dtype=np.uint64
-        )
+        prefixes = np.zeros((weight + 1, num_completed, self.generators.shape[2]), dtype=np.uint64)
         depth = 0
         # Any negative Python cutoff disables early exit; keep its native value in int64 range.
         cutoff = max(-1, self.cutoff)
@@ -274,11 +283,11 @@ class _BrouwerZimmermannSearch:
         # Scan in chunks, returning early once the upper bound reaches the cutoff.
         while depth >= 0:
             self.best, depth, _ = _scan_brouwer_zimmermann(
-                self.generators,
-                self.labels,
-                self.ranks,
-                self.widths,
-                self.label_widths,
+                self.generators[scanned],
+                self.labels[scanned],
+                self.ranks[scanned],
+                self.widths[scanned],
+                self.label_widths[scanned],
                 support,
                 prefixes,
                 depth,
@@ -289,9 +298,10 @@ class _BrouwerZimmermannSearch:
             if self.best <= self.cutoff:
                 return self.best
 
-        # The layer is complete in every search basis, so the family certificate may advance.
-        self.lower_bound = self.certificate.lower_bound(weight)
-        self.next_weight += 1
+        # The scanned sets have completed the layer, so the family certificate may advance.
+        self.lower_bound = self.certificate.step_lower_bound(weight, num_completed)
+        if num_completed == len(self.ranks):
+            self.next_weight += 1
         return self.best
 
 
@@ -356,17 +366,26 @@ def _prepare_brouwer_zimmermann_search(
     if lower_bound >= best:
         return best
 
-    # Replace disjoint blocks only when overlap predicts less certification work.
-    overlapping = _information_sets.get_overlapping_family(
-        basis,
-        np.empty((dimension, 0), dtype=np.uint8) if labels is None else labels,
-        basis_family,
-        best,
-        _information_sets.MAX_SETS,
-        *_information_sets.get_overlapping_family_policy(dimension),
-    )
-    if len(overlapping.ranks):
-        basis_family = overlapping
+    # Replace the basis family only when overlapping sets, built heuristically and then, for costly
+    # searches, by matroid partitioning, predict less certification work.
+    set_labels = np.empty((dimension, 0), dtype=np.uint8) if labels is None else labels
+    for get_replacement in (
+        lambda family, best: _information_sets.get_overlapping_family(
+            basis,
+            set_labels,
+            family,
+            best,
+            _information_sets.MAX_SETS,
+            *_information_sets.get_overlapping_family_policy(dimension),
+        ),
+        lambda family, best: _information_sets.get_partitioned_family(
+            basis, set_labels, family, best, _information_sets.MAX_SETS
+        ),
+    ):
+        replacement = get_replacement(basis_family, best)
+        if not len(replacement.ranks):
+            continue
+        basis_family = replacement
 
         # Check the replacement rows for lighter witnesses before scanning combinations.
         best = _get_basis_family_upper_bound(basis_family, labels, best)
@@ -409,7 +428,7 @@ def _prepare_brouwer_zimmermann_search(
         packed_labels,
         widths,
         label_widths,
-        basis_family.certificate,
+        basis_family.get_search_certificate(best),
         cutoff,
         1 << min(block_size, 15),
         best,
