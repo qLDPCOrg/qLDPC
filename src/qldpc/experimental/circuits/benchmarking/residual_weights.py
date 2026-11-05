@@ -38,7 +38,7 @@ from qldpc.circuits.certification.fault_propagation import (
     _is_css_state,
     _validate_output_qubits,
 )
-from qldpc.codes.distance._bounded_weight_search import PauliCosetSearch
+from qldpc.codes.distance._coset_leader_search import CosetLeaderSearch
 from qldpc.objects import Pauli, PauliXZ, PauliXZLike
 
 from .consumer_profiles import ConsumerProfile
@@ -884,7 +884,7 @@ class _CosetSearchWeights:
         """Prepare the search for the given stabilizer generators, one row per generator."""
         self.max_residual_weight = max_residual_weight
         self.num_key_words = (len(stabilizers) + 63) // 64
-        self._search = PauliCosetSearch(stabilizers, css_weight=css_weight)
+        self._search = CosetLeaderSearch(stabilizers, css_weight=css_weight)
 
     def get_key_words(self, syndrome: int) -> list[int]:
         """Split a syndrome into machine words, least significant first."""
