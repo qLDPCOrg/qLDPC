@@ -151,7 +151,7 @@ class _Partition:
         replace: the members of its circuit in that set.  The path ends at an element that is
         independent of a set, which then has room for it: every set but the last is full, and
         ``size`` columns of a basis of ``size`` rows span every column, so only the last set can be
-        one.
+        independent of it.
         """
         parent: dict[int, tuple[int, int]] = {}
         queue = deque([element])

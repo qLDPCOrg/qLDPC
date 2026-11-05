@@ -651,9 +651,9 @@ def _get_disjoint_sets_for_columns(
 def get_lp_lower_bound(pivot_blocks: Sequence[Sequence[int]], requirements: Sequence[int]) -> int:
     """Bound the weight of binary words with given numbers of ones in blocks, by linear programming.
 
-    Every binary word ``v`` with at least ``requirements[i]`` ones in the columns of block ``B_i =
-    pivot_blocks[i]``, and so with ``b_i = requirements[i]``, for each ``i`` has weight at least the
-    optimum of the linear program
+    Let ``B_i = pivot_blocks[i]`` and ``b_i = requirements[i]``.  Every binary word with at least
+    ``b_i`` ones in the columns of ``B_i``, for each ``i``, has weight at least the optimum of the
+    linear program
 
         minimize ``sum_c x_c`` subject to ``sum_{c in B_i} x_c >= b_i`` and ``0 <= x_c <= 1``.
 
@@ -667,7 +667,7 @@ def get_lp_lower_bound(pivot_blocks: Sequence[Sequence[int]], requirements: Sequ
     for the maximum coverage ``C``, so the optimum is at least that bound.
 
     Returns ``_NO_WORD_BOUND`` if a requirement exceeds the size of its block, since then no word
-    meets the requirements, and zero if no requirement is positive.
+    meets the requirements, and zero if no requirement is positive or if the solver fails.
     """
     blocks = [
         list(block) for block, requirement in zip(pivot_blocks, requirements) if requirement > 0

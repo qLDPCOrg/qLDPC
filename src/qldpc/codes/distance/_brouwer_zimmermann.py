@@ -259,8 +259,8 @@ class _BrouwerZimmermannSearch:
     def advance(self) -> int:
         """Search one coefficient weight and return the best shared upper bound.
 
-        The search stops part way through the layer when the sets that it has scanned already
-        certify the best weight (see ``Certificate.step_lower_bound``).
+        It scans only the leading sets whose completion of the layer certifies the best weight at
+        the start of the layer (see ``Certificate.get_num_sets_to_certify``).
         """
         if self.finished:
             return self.best
