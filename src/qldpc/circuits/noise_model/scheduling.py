@@ -118,15 +118,16 @@ class Schedule:
         return moments
 
     def to_circuit(self) -> stim.Circuit:
-        """The scheduled circuit laid out in moments separated by TICKs, for display only.
+        """The scheduled circuit laid out in moments separated by TICKs.
 
         Operations are sorted by moment, and keep their circuit order within a moment.  An empty
         moment gives two TICKs in a row.  Each iteration of a REPEAT block repeats the layout of its
         body, and TICKs separate it from the moments around it.
 
-        Record targets are kept as written.  So if the schedule reorders measurements, a record
-        target may point at another measurement than in the circuit, and the layout may not be a
-        valid circuit.
+        A :class:`TickScheduler` keeps measurements in circuit order.  So the layout of its schedule
+        is a valid circuit with the same meaning as the scheduled circuit.  Other schedulers may
+        reorder measurements, and record targets are kept as written, so their layouts are for
+        display.
         """
         circuit = self._lay_out()
         if len(circuit) and circuit[-1] == stim.CircuitInstruction("TICK"):
@@ -213,7 +214,12 @@ class Scheduler(abc.ABC):
 
     @abc.abstractmethod
     def get_schedule(self, circuit: StimCircuitLike) -> Schedule:
-        """Place the operations of a circuit in moments."""
+        """Place the operations of a circuit in moments.
+
+        Returns:
+            A schedule of the circuit, or of a circuit that it matches (see
+            :mod:`qldpc.circuits.noise_model`).
+        """
 
 
 class _BuiltInScheduler(Scheduler):

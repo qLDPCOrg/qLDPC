@@ -112,12 +112,12 @@ class NoiseModel:
     no noise.
 
     Idle errors depend on how long qubits idle.  A schedule of a circuit, from the ``scheduler``,
-    places its operations in moments, which are units of time, and says which gates take time.
-    :class:`~qldpc.circuits.Schedule` describes moments and REPEAT blocks.  An idle run of a qubit
-    starts at the start of the circuit or at a gate on the qubit.  It ends at the next gate on the
-    qubit, or at the end of the circuit.  A classically controlled gate that takes no time ends no
+    places its operations in moments, which are units of time, and says which gates take time.  An
+    idle run of a qubit starts at the start of the circuit or at a gate on the qubit.  It ends at
+    the next gate on the qubit, or at the end of the circuit.  A classically controlled gate ends no
     run.  The qubit idles in each moment of a run before the moment of the gate that ends it.  It
     does not idle in the first moment of the run if a gate on the qubit takes time there.
+    :class:`~qldpc.circuits.Schedule` describes moments, and how REPEAT blocks split idle runs.
 
     Args:
         clifford_1q_error: The default noise after each one-qubit unitary Clifford gate.  A float
@@ -436,7 +436,8 @@ class NoiseModel:
             immunize_gates: If True (the default), a gate on an immune qubit gets no noise.  If
                 False, its Pauli noise keeps only the Pauli strings that act as ``I`` on immune
                 qubits, with their probabilities.
-            insert_ticks: Deprecated.  To lay out a noisy circuit in moments, add noise to
+            insert_ticks: Deprecated.  To lay out a noisy circuit in moments, add noise with
+                ``scheduler=TickScheduler()`` to
                 ``TickScheduler().get_schedule(circuit).to_circuit()``.
 
         Returns:
