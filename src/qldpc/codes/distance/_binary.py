@@ -22,8 +22,8 @@ _MASK55 = np.uint64(0x5555555555555555)
 def assert_binary(vectors: npt.ArrayLike, name: str) -> None:
     """Assert that the given vectors are binary.
 
-    The enumeration below packs each row into the bits of ``uint64`` words and combines rows by
-    bitwise XOR, so it is only correct over GF(2).  Non-binary input would otherwise be truncated
+    The distance searches pack rows into the bits of ``uint64`` words and combine them by bitwise
+    XOR, so they are only correct over GF(2).  Non-binary input would otherwise be truncated
     silently and yield a wrong distance rather than an error.
     """
     order = getattr(type(vectors), "order", None)

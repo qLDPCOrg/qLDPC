@@ -53,10 +53,9 @@ def get_distance_quantum_brute_force(
     int_stabilizers = pack_bits(np.asarray(stabilizers, dtype=np.uint8))
     num_stabilizers = len(int_stabilizers)
 
-    # Number of generators to include in the operational array.  Most calculations will then be
-    # vectorized over ``2**block_size`` values.  Clamp at 0: when the packed word-count per row
-    # exceeds ``block_size + 1`` the first term goes negative, which would make a negative slice and
-    # build an uncapped ``2**(S-k)`` array, defeating the block_size cap.
+    # Number of generators to include in the operational array, so that most calculations are
+    # vectorized over at most ``2**block_size`` values: rows of more packed words leave fewer
+    # generators, and never a negative number.
     num_vectorized_ops = max(
         0,
         min(
@@ -82,13 +81,11 @@ def get_distance_quantum_brute_force(
     # Everything below will run much faster if we use Fortran-style ordering
     arrayf = np.asarray(array, order="F", dtype=np.uint64)
 
-    # out is the uint64 buffer for the in-loop weight_func calls: passing out=out keeps
-    # np.bitwise_count's uint8 result cast to uint64, avoiding the weight-reduction overflow for
-    # codes with >= 256 columns (the pre-loop call below casts explicitly for the same reason).
+    # np.bitwise_count returns uint8, which would overflow the row sums of weights at 256 or more
+    # columns, so weights are kept in uint64: the loop below writes them into this buffer.
     out = np.empty_like(arrayf)
 
-    # Min weight of the block containing logical ops.  Cast to uint64 because np.bitwise_count
-    # returns uint8 without ``out=``, which would overflow the reduction below for >= 256 columns.
+    # Min weight of the block containing logical ops, with weights cast to uint64 as above.
     weights = np.asarray(weight_func(arrayf[2**num_stabilizers :]), dtype=np.uint64)
     min_weight = inplace_rowsum(weights).min(initial=num_bits)
     if min_weight <= cutoff:
