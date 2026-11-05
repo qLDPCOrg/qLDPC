@@ -365,12 +365,11 @@ def test_repeat_blocks_are_moment_boundaries() -> None:
 
     # each scheduler schedules the body of a REPEAT block by its own rules
     circuit = stim.Circuit("REPEAT 2 {\nH 0\nTICK\nH 1\n}")
-    for scheduler, num_moments in [
-        (circuits.TickScheduler(), 4),
-        (circuits.ASAPScheduler(single_qubit_gates_take_time=True), 2),
-        (circuits.ALAPScheduler(single_qubit_gates_take_time=True), 2),
+    for scheduler in [
+        circuits.ASAPScheduler(single_qubit_gates_take_time=True),
+        circuits.ALAPScheduler(single_qubit_gates_take_time=True),
     ]:
-        assert scheduler.get_schedule(circuit).num_moments == num_moments
+        assert scheduler.get_schedule(circuit).num_moments == 2
 
     circuit = stim.Circuit("M 0\nREPEAT 2 {\nTICK\n}\nREPEAT 3 {\nX_ERROR(0.1) 1\n}\nM 2")
     schedule = circuits.ASAPScheduler().get_schedule(circuit)
@@ -412,6 +411,13 @@ def test_schedules_as_schedulers() -> None:
     noise_model = circuits.NoiseModel(idle_error={"Z": 0.1}, scheduler=schedule)
     ticks_model = circuits.NoiseModel(idle_error={"Z": 0.1}, scheduler=circuits.TickScheduler())
     assert noise_model.noisy_circuit(circuit) == ticks_model.noisy_circuit(circuit)
+
+    # gates take time as in the schedule, so here each qubit idles in both moments
+    scheduler = circuits.TickScheduler(single_qubit_gates_take_time=False)
+    schedule = scheduler.get_schedule(stim.Circuit("H 0\nTICK\nH 1"))
+    noise_model = circuits.NoiseModel(idle_error={"Z": 0.1}, scheduler=schedule)
+    expected = stim.Circuit(f"Z_ERROR(0.1) 1\nH 1 0\nZ_ERROR({two_moments}) 0\nZ_ERROR(0.1) 1")
+    assert noise_model.noisy_circuit(stim.Circuit("H 1\nH 0")).approx_equals(expected, atol=1e-12)
 
 
 def test_matching_ignores_record_targets() -> None:
