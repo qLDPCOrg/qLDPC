@@ -6,17 +6,18 @@ from __future__ import annotations
 
 import stim
 
-from qldpc._deprecations.noise_model import InsertTicksScheduler
+from qldpc._deprecations.noise_model import lay_out_with_ticks
 
 
-def test_insert_ticks_scheduler() -> None:
+def test_deprecated_insert_ticks_layout() -> None:
     """Gates that take time on a shared qubit, and TICKs after a gate, start new moments.
 
     Consecutive TICKs give no empty moment, and the noise channel joins the moment of the gate
     before it on its qubit.
     """
     circuit = stim.Circuit("TICK\nCX 0 1 1 2\nH 3\nTICK\nTICK\nX_ERROR(0.1) 0\nH 0 0")
-    assert InsertTicksScheduler().get_schedule(circuit).to_circuit() == stim.Circuit("""
+    layout, _ = lay_out_with_ticks(circuit)
+    assert layout == stim.Circuit("""
         CX 0 1
         X_ERROR(0.1) 0
         TICK

@@ -11,7 +11,10 @@ from __future__ import annotations
 import itertools
 from collections.abc import Sequence
 
+import stim
+
 from qldpc.circuits.noise_model.scheduling import (
+    Scheduler,
     TickScheduler,
     _get_instruction_operations,
     _get_nodes,
@@ -20,14 +23,20 @@ from qldpc.circuits.noise_model.scheduling import (
 )
 
 
-class InsertTicksScheduler(TickScheduler):
-    """The scheduler of the deprecated insert_ticks=True, with the rules of its released version.
+def lay_out_with_ticks(circuit: stim.Circuit) -> tuple[stim.Circuit, Scheduler]:
+    """Lay a circuit out in moments as insert_ticks=True did, with a scheduler of those moments.
 
     A TICK ends the current moment if the moment contains a gate, so consecutive TICKs give no empty
     moments.  A gate that takes time also starts a new moment if a gate that takes time already acts
     on one of its qubits in the current moment.  Every gate takes time, except a classically
     controlled Pauli gate.
     """
+    scheduler = _InsertTicksScheduler()
+    return scheduler.get_schedule(circuit).to_circuit(), scheduler
+
+
+class _InsertTicksScheduler(TickScheduler):
+    """A TickScheduler with the rules of the released insert_ticks=True (see lay_out_with_ticks)."""
 
     def _get_moments(self, segment: _Segment, takes_time: Sequence[bool]) -> list[int]:
         # place each gate in the current moment, or in a new one after a TICK or where it takes

@@ -484,10 +484,9 @@ class NoiseModel:
         # for the deprecated insert_ticks=True, lay out the circuit in moments before adding noise
         scheduler = self.scheduler
         if insert_ticks:  # DEPRECATED: see qldpc._deprecations
-            from qldpc._deprecations.noise_model import InsertTicksScheduler
+            from qldpc._deprecations.noise_model import lay_out_with_ticks
 
-            scheduler = InsertTicksScheduler()
-            stim_circuit = scheduler.get_schedule(stim_circuit).to_circuit()
+            stim_circuit, scheduler = lay_out_with_ticks(stim_circuit)
 
         # warn if REPEAT blocks that get noise split quadratic idle errors
         if self.quadratic_idle_error is not None and any(
