@@ -109,8 +109,7 @@ class NoiseModel:
 
     A noise model adds errors after gates, to measurement results, after resets, and on idling
     qubits.  :meth:`get_noise_rule` gives the noise of each gate.  Classically controlled gates get
-    no noise, and identity gates (``I`` and ``II``) get the noise of other one- and two-qubit
-    Clifford gates.
+    no noise.
 
     Idle errors depend on how long qubits idle.  The ``scheduler`` places the operations of a
     circuit in moments, which are units of time.  :class:`~qldpc.circuits.Schedule` describes
