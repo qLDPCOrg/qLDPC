@@ -907,7 +907,7 @@ def _get_min_cost_layers(
         A_ub=constraints,
         b_ub=[-gap for _, _, gap in edges],
         bounds=(0, num_layers - 1),
-        method="highs",
+        method="highs-ds",
     )
     layers = [round(layer) for layer in result.x] if result.success else []
     if not result.success or any(
