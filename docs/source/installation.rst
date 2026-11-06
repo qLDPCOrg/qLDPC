@@ -38,7 +38,7 @@ Choose tools for the task
      - :ref:`Additional decoders <installation-decoders>`.
    * - Use algebra tools, named-code lookups, or distance estimates that require GAP
      - :ref:`GAP integration <installation-gap>`.
-   * - Find symmetries of parity check matrices, as for some balanced product codes
+   * - Find symmetries of parity check matrices, as for some balanced product codes, or to speed up exact distances of symmetric codes
      - :ref:`Matrix automorphisms <installation-bliss>`.
    * - Estimate binary CSS code distances with the GPU-based ``sqetch`` backend
      - :ref:`GPU distance estimation <installation-sqetch>`.
@@ -98,6 +98,7 @@ Finding the automorphisms (symmetries) of a parity check matrix, as needed to co
 
    python -m pip install 'qldpc[bliss]'
 
+With ``pybliss`` installed, exact distances of binary CSS codes also find and use the symmetries of codes, which can make them much faster.
 ``pybliss`` publishes wheels for macOS arm64 and Linux x86-64; on other platforms, ``pip`` attempts to build it from source.
 Unlike qLDPC, ``pybliss`` is distributed under the GPL/LGPL v3 licenses.
 
