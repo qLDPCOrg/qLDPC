@@ -800,25 +800,6 @@ class WeightedErrorLookupDecoder(_CandidateLookupDecoder, ErrorDecoder):
     see help(ErrorLookupDecoder).
     """
 
-    def __init__(
-        self,
-        pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
-        max_weight: int,
-        *,
-        observable_flip_matrix: IntegerArray | None = None,
-        post_select: Collection[int] = (),
-        add_erasure_bit: bool = False,
-        symplectic: bool = False,
-    ) -> None:
-        super().__init__(
-            pcm_or_dem,
-            max_weight,
-            observable_flip_matrix=observable_flip_matrix,
-            post_select=post_select,
-            add_erasure_bit=add_erasure_bit,
-            symplectic=symplectic,
-        )
-
     def decode_errors(
         self,
         syndrome: npt.NDArray[np.int_],
