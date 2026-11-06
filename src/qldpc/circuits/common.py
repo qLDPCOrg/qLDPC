@@ -175,6 +175,14 @@ if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations
         return _deprecations.get_deprecated_attribute(__name__, name)
 
 
+def _as_stim_circuit(circuit: StimCircuitLike) -> stim.Circuit:
+    """Copy a circuit into a stim.Circuit."""
+    stim_circuit = stim.Circuit()
+    for index in range(len(circuit)):
+        stim_circuit.append(circuit[index])
+    return stim_circuit
+
+
 def _get_instructions(
     circuit: stim.Circuit,
 ) -> Iterator[stim.CircuitInstruction | stim.CircuitRepeatBlock]:

@@ -119,18 +119,17 @@ def test_the_cache_directory_is_named_by_the_source_hash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """It is in ``NUMBA_CACHE_DIR`` if that is set, and otherwise in the user cache directory."""
-    packages = [tmp_path / "first", tmp_path / "second"]
-    for package in packages:
-        package.mkdir()
-        (package / "source.py").write_text("one")
-    name = f"qldpc-{_compilation._get_source_hash(packages[0])}"
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / "source.py").write_text("one")
+    name = f"qldpc-{_compilation._get_source_hash(package)}"
 
     monkeypatch.setattr(_compilation._numba_config, "CACHE_DIR", str(tmp_path / "numba"))
-    assert _compilation._get_cache_directory(packages[0]) == tmp_path / "numba" / name
+    assert _compilation._get_cache_directory(package) == tmp_path / "numba" / name
 
     monkeypatch.setattr(_compilation._numba_config, "CACHE_DIR", "")
     monkeypatch.setattr(platformdirs, "user_cache_dir", lambda: str(tmp_path / "user"))
-    assert _compilation._get_cache_directory(packages[1]) == tmp_path / "user/qldpc/numba" / name
+    assert _compilation._get_cache_directory(package) == tmp_path / "user/qldpc/numba" / name
 
 
 def test_outdated_cache_directories_unused_for_a_week_are_deleted(

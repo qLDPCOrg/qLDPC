@@ -20,7 +20,7 @@ Circuit tools currently only support qubit codes.
 ## ✨ A few things to try
 
 - **Code families.**
-  Construct surface, toric, Hamming, and Reed–Muller codes, along with hypergraph-product, lifted-product, bivariate-bicycle, quantum Tanner, SHYPS, GALA, and other families.
+  Construct surface, toric, Hamming, and Reed–Muller codes, along with hypergraph-product, lifted-product, balanced-product, bivariate-bicycle, quantum Tanner, SHYPS, GALA, and other families.
 - **Distance calculations.**
   Compute exact distances of binary codes with an [optimized Brouwer–Zimmermann search](src/qldpc/codes/distance/brouwer_zimmermann.md), or bound code distance using [QDistRnd](https://arxiv.org/abs/2308.15140) or [`sqetch`](https://github.com/a7b/yarn/tree/main/sqetch).
 - **Code structure and analysis.**

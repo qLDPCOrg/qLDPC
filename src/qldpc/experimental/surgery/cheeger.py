@@ -477,16 +477,12 @@ def _boost_gadget_distance(
             incidence_extra = _augment_incidence_with_random_edges(incidence_base, n_extra, rng)
             if incidence_extra is None:
                 continue
-            # _augment_incidence_with_random_edges returns F_aug = incidence_base + extra rows.
+            # _augment_incidence_with_random_edges returns F_aug = incidence_base + extra rows, each
+            # a weight-2 row of the width of the support, so the augmented layout is always valid.
             incidence_extra_rows = np.asarray(incidence_extra[incidence_base.shape[0] :]).astype(
                 np.uint8
             )
-            # Best-effort heuristic search: skip invalid row shapes/weights, but let unexpected
-            # failures propagate rather than silently swallowing them.
-            try:
-                candidate = g.with_added_ancillas(incidence_extra_rows)
-            except ValueError:
-                continue
+            candidate = g.with_added_ancillas(incidence_extra_rows)
             if _passes_decoder(candidate):
                 return candidate
 
