@@ -635,10 +635,9 @@ def test_pair_partition_code_validation() -> None:
     """Invalid inputs to the PairPartitionCode constructor are rejected."""
     with pytest.raises(ValueError, match="must be positive"):
         codes.PairPartitionCode([[0, 0]], [[0, 0]], lift_size=0)
-    with pytest.raises(ValueError, match="two-dimensional array of integers"):
-        codes.PairPartitionCode([0, 0], [0, 0], lift_size=3)  # type: ignore[list-item]
-    with pytest.raises(ValueError, match="two-dimensional array of integers"):
-        codes.PairPartitionCode([[0, 0.5]], [[0, 0]], lift_size=3)  # type: ignore[list-item]
+    for exponents in [[0, 0], np.zeros((0, 2), dtype=int), [[0, 0.5]]]:
+        with pytest.raises(ValueError, match="nonempty two-dimensional array of integers"):
+            codes.PairPartitionCode(exponents, [[0, 0]], lift_size=3)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="same shape"):
         codes.PairPartitionCode([[0, 0]], [[0, 0], [0, 0]], lift_size=3)
     with pytest.raises(ValueError, match="CSS orthogonality"):

@@ -1586,12 +1586,13 @@ class PairPartitionCode(CSSCode):
     def _validate_exponents(
         exponents: npt.NDArray[np.int_] | Sequence[Sequence[int]], pauli: str
     ) -> npt.NDArray[np.int_]:
-        """Check that an exponent array is a 2D array of integers, and return it."""
+        """Check that an exponent array is a nonempty 2D array of integers, and return it."""
         array = np.asarray(exponents)
-        if array.ndim != 2 or not np.issubdtype(array.dtype, np.integer):
+        if array.ndim != 2 or array.size == 0 or not np.issubdtype(array.dtype, np.integer):
             raise ValueError(
-                f"The {pauli}-type exponent array of a PairPartitionCode must be a two-dimensional"
-                f" array of integers (got shape {array.shape} and dtype {array.dtype})"
+                f"The {pauli}-type exponent array of a PairPartitionCode must be a nonempty"
+                f" two-dimensional array of integers (got shape {array.shape} and dtype"
+                f" {array.dtype})"
             )
         return array.astype(int)
 
