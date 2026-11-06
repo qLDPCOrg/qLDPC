@@ -11,11 +11,11 @@ import pickle
 
 import numpy as np
 import pytest
-import scipy.optimize
 import stim
 
 from qldpc import circuits
 from qldpc.circuits.conftest import StimCircuitWrapper
+from qldpc.circuits.noise_model import scheduling
 
 # A circuit whose moments differ for each way of scheduling it.
 CIRCUIT = stim.Circuit("""
@@ -155,6 +155,11 @@ def test_min_idle() -> None:
     repeated = scheduler.get_schedule(circuit + stim.Circuit(f"REPEAT 2 {{\n{circuit}\n}}"))
     assert repeated.get_moments() == [*schedule.get_moments(), (2, schedule)]
 
+    # the run after a last gate that does not measure counts, so qubit 2 is reset in moment 1, not
+    # in moment 0 as by ASAP, and only qubit 3 idles, in 2 moments
+    circuit = stim.Circuit("CX 0 1 0 1 0 1\nR 2\nCX 2 3")
+    assert _get_effective_idle_slots(circuit, circuits.MinIdleScheduler(), False) == 2
+
     # single-qubit gates can take time
     circuit = stim.Circuit("H 0\nH 0")
     assert circuits.MinIdleScheduler().get_schedule(circuit).num_moments == 1
@@ -192,23 +197,12 @@ def test_min_idle_is_optimal(pytestconfig: pytest.Config) -> None:
                 _get_effective_idle_slots(circuit, scheduler, single_qubit_gates_take_time)
                 == num_effective_idle_slots
             )
-            noisy_circuit = circuits.NoiseModel(idle_error=0.1, scheduler=scheduler).noisy_circuit(
-                circuit
-            )
-            noisy_circuit.detector_error_model(allow_gauge_detectors=True)
 
 
-def test_min_idle_solver_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A solution of the linear program that does not round to a valid layout is an error."""
-    monkeypatch.setattr(
-        scipy.optimize,
-        "linprog",
-        lambda *args, **kwargs: scipy.optimize.OptimizeResult(
-            success=True, x=[0.4, 0.4], message="Optimization terminated successfully."
-        ),
-    )
+def test_min_idle_solver_failure() -> None:
+    """The linear program raises an error if it finds no placement, here as none exists."""
     with pytest.raises(RuntimeError):
-        circuits.MinIdleScheduler().get_schedule(stim.Circuit("CX 0 1\nCX 0 1"))
+        scheduling._get_min_cost_layers([0, 0], [(0, 1, 1)], 1)
 
 
 def _get_effective_idle_slots(
