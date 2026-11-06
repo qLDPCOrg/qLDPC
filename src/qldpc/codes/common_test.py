@@ -576,9 +576,7 @@ def test_distance_bound_memory() -> None:
     # a classical code reuses its remembered bound rather than building a decoder
     classical_code = codes.HammingCode(3)
     classical_code.forget_distance()
-    with unittest.mock.patch(
-        "qldpc.codes.common._decode_consistently", side_effect=[[1] * 4, [1] * 5]
-    ):
+    with unittest.mock.patch("qldpc.codes.common._decode", side_effect=[[1] * 4, [1] * 5]):
         assert classical_code.get_distance_bound() == 4
         assert classical_code.get_distance_bound(num_trials=1) == 4  # never worse than known
     with unittest.mock.patch("qldpc.codes.common.build_error_decoder", side_effect=AssertionError):
@@ -1584,7 +1582,7 @@ def test_deprecated_decoder_kwargs() -> None:
         codes.FiveQubitCode().get_logical_error_rate_func(
             1, decoder_constructor=build_decoder, tag="qudit"
         )
-    assert built_for == [("classical", (7, 7)), ("qudit", (4, 10))]
+    assert built_for == [("classical", (4, 7)), ("qudit", (4, 10))]
 
     with pytest.raises(ValueError, match="Cannot combine decoder="):
         classical_code.get_logical_error_rate_func(1, decoder=decoders.lookup(1), with_lookup=True)
@@ -1633,13 +1631,15 @@ def test_prebuilt_decoders_rejected_for_internal_matrices() -> None:
 
 
 def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
-    """Distance bounds and logical-operator reduction handle erasure and give up on failure."""
-    # an erasure bit is stripped from decoded errors, and an erased decoding is retried
+    """Decoder searches decode each problem once, skip failed decodings, and give up on failure."""
+    # an erasure bit is stripped from decoded errors, and an erased decoding yields no bound
     erasing_decoder = decoders.lookup(max_weight=3, add_erasure_bit=True)
-    # a [5, 2, 3] shortened Hamming code (distance not yet known), for which one in three random
-    # decoding problems has a solution of weight at most 3
-    classical_code = codes.ClassicalCode(codes.HammingCode(3).matrix[:, 2:])
-    assert classical_code.get_distance_bound(decoder=erasing_decoder) == 3
+    # a code with words of weight 3, 4, and 5, for which the decoding problem whose solutions are
+    # the words of weight 4 and 5 is one of three problems, and has no solution of weight at most 3
+    classical_code = codes.ClassicalCode.from_generator([[1, 1, 1, 0, 0, 0], [1, 0, 0, 1, 1, 1]])
+    with unittest.mock.patch("qldpc.codes.common._decode", wraps=common._decode) as decode:
+        assert classical_code.get_distance_bound(num_trials=100, decoder=erasing_decoder) == 3
+    assert decode.call_count == 3
     code = codes.SurfaceCode(3)
     code.forget_distance()
     assert code.get_distance_bound(decoder=erasing_decoder) == 3
@@ -1647,17 +1647,40 @@ def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
     assert all(np.count_nonzero(op) == 3 for op in code.get_logical_ops().view(np.ndarray))
     classical_code.forget_distance()
 
-    # a decoder that cannot find a consistent error gives up, rather than retrying forever
+    # a decoder that cannot find a consistent error decodes each distinct problem once, and gives up
     failing_decoder = decoders.lookup(max_weight=0)
-    for search in [
-        lambda: classical_code.get_distance_bound(decoder=failing_decoder),
-        lambda: codes.SurfaceCode(3).get_distance_bound_with_decoder(
-            Pauli.X, decoder=failing_decoder
+    for search, num_problems in [
+        (lambda: classical_code.get_distance_bound(num_trials=100, decoder=failing_decoder), 3),
+        (
+            lambda: classical_code.get_distance_bound(
+                num_trials=100, vector=[1, 0, 0, 0, 0, 0], decoder=failing_decoder
+            ),
+            1,
         ),
-        lambda: codes.SurfaceCode(3).reduce_logical_op(Pauli.X, 0, decoder=failing_decoder),
+        (
+            lambda: codes.SurfaceCode(3).get_distance_bound_with_decoder(
+                Pauli.X, num_trials=100, decoder=failing_decoder
+            ),
+            1,
+        ),
+        (lambda: codes.SurfaceCode(3).reduce_logical_op(Pauli.X, 0, decoder=failing_decoder), 1),
     ]:
-        with pytest.raises(ValueError, match="failed to infer an error"):
+        with (
+            unittest.mock.patch("qldpc.codes.common._decode", wraps=common._decode) as decode,
+            pytest.raises(ValueError, match="failed to infer an error"),
+        ):
             search()
+        assert decode.call_count == num_problems
+
+
+def test_random_directions() -> None:
+    """Random directions are distinct nonzero vectors whose first nonzero entries are 1."""
+    field = galois.GF(3)
+    assert common._get_random_directions(field, 2, 0).shape == (0, 2)
+    assert np.array_equal(common._get_random_directions(field, 1, 10), [[1]])
+    # 100 draws of the 8 nonzero vectors in GF(3)^2 cover all 4 directions with near certainty
+    directions = common._get_random_directions(field, 2, 100).view(np.ndarray)
+    assert sorted(map(tuple, directions.tolist())) == [(0, 1), (1, 0), (1, 1), (1, 2)]
 
 
 def test_css_auto_distance_bound_backend_selection() -> None:
