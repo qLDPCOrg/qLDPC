@@ -5,7 +5,6 @@
 import itertools
 from collections.abc import Iterator
 from typing import Any
-from unittest import mock
 
 import galois
 import numpy as np
@@ -16,6 +15,7 @@ from qldpc import _compilation, codes
 from qldpc._binary import get_independent_rows, get_kernel
 from qldpc.objects import Pauli, PauliXZ
 
+from ..conftest import Tune
 from . import logical_counts as lc
 from ._binary import get_nested_code_basis
 from ._search import automorphism_families, coset_leader_search, information_sets
@@ -23,14 +23,9 @@ from .core import DistanceMethod
 
 
 @pytest.fixture
-def force_information_sets() -> Iterator[None]:
+def force_information_sets(tune: Tune) -> None:
     """Route Brouwer-Zimmermann searches through information sets instead of exhaustive search."""
-    with mock.patch.multiple(
-        "qldpc.codes.distance._search.brouwer_zimmermann",
-        enumeration_is_cheaper_than_setup=mock.Mock(return_value=False),
-        _enumeration_is_cheaper_than_search=mock.Mock(return_value=False),
-    ):
-        yield
+    tune(allow_enumeration_by_size=False, allow_enumeration_by_work=False)
 
 
 @pytest.fixture(params=["python", "compiled"])

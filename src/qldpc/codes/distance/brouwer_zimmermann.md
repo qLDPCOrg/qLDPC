@@ -329,7 +329,7 @@ For example, take the columns `e1, e2, e3, e1+e2+e3, e1, e2, e3`, the four 3-sub
 
 qLDPC solves the linear program with `scipy.optimize.linprog`, and takes as its bound the ceiling of the dual value of the solver's `y` in exact rational arithmetic, so that rounding in the solver can only weaken the bound.
 For disjoint blocks, the linear program separates by block and gives the certificate of [Section 2.5](#25-the-stopping-certificate), so only overlapping families use it.
-Because each linear program takes milliseconds, only searches whose estimated work reaches `LP_MINIMUM_WORK` use it.
+Because each linear program takes milliseconds, only searches whose estimated work reaches the threshold `lp_minimum_work` of [Section 4.4](#44-heuristics-and-cost-models) use it.
 To decide how many bases of a layer to search, a search solves a linear program only when the coverage-divided certificate falls short of `U` and a feasible point of the linear program shows that its optimum could reach `U`.
 It also solves one at the end of each layer, to update its lower certificate.
 
@@ -511,7 +511,7 @@ With more orbits, the exchanges are a heuristic.
 Finding automorphisms can take milliseconds, as long as many whole searches take.
 Before a search finds a light witness, its work estimate of [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) is too pessimistic to tell such easy searches apart.
 A search therefore starts with the families of Sections [2.4](#24-search-bases-and-rank-deficient-blocks) and [3.1](#31-overlapping-search-bases).
-Before the first layer whose scan would cost at least `MINIMUM_LAYER_WORK` candidate/set evaluations, it asks for automorphisms once.
+Before the first layer whose scan would cost at least `automorphism_minimum_layer_work` candidate/set evaluations ([Section 4.4](#44-heuristics-and-cost-models)), it asks for automorphisms once.
 If their automorphism family has a smaller work estimate for the current `U`, the search continues with it, from layer two.
 
 This switch keeps both certificates.
@@ -579,7 +579,7 @@ For a high-level explanation, see Sections [2](#2-the-brouwer-zimmermann-algorit
 
 This section is a guide to the source files in this directory.
 It connects the concepts of Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations) to modules, identifiers, and behavior that spans files.
-Heuristic tunables are identified by parameter name so that their current values can be found in the source.
+The thresholds of the heuristics are fields of `SearchTuning` in [_tuning.py](_tuning.py), whose docstrings give their meanings and defaults, and [Section 4.4](#44-heuristics-and-cost-models) says where each threshold of a search route is used.
 
 ### 4.1 Module map and layering
 
@@ -592,7 +592,7 @@ It builds its families and certificates with the same stages of [_search/informa
 It runs the stages in `_select_basis_family` and `count_words` of [_counting/scan.py](_counting/scan.py), and its distance search starts from the disjoint basis families that it keeps for counting.
 The set-up functions of both searches can be compiled on request, through [_compilation.py](../../_compilation.py).
 The code that only counting uses is in the `_counting` package.
-The family policy lives only in [_search/information_sets.py](_search/information_sets.py), including the minimum work and the fixed-seed generator that `get_overlapping_family_policy` gives every caller of the overlapping stage, so a change to it applies to both consumers.
+`get_overlapping_family_policy` in [_search/information_sets.py](_search/information_sets.py) gives every caller of the overlapping stage its thresholds and its fixed-seed generator, so a change to either applies to both consumers.
 [core.py](core.py) calls [_search/brouwer_zimmermann.py](_search/brouwer_zimmermann.py) and [_search/brute_force.py](_search/brute_force.py), and [_search/brouwer_zimmermann.py](_search/brouwer_zimmermann.py) calls [_search/brute_force.py](_search/brute_force.py) for its exhaustive routes.
 All three modules use [_binary.py](_binary.py), and they and [_search/information_sets.py](_search/information_sets.py) use the bit-packed linear algebra over GF(2) in [qldpc/_binary.py](../../_binary.py).
 Every module with compiled functions uses [_compilation.py](../../_compilation.py).
@@ -630,12 +630,12 @@ The disjoint family, its pruning, and any overlapping or partitioned replacement
 | Preparation stage | Outcome |
 | --- | --- |
 | Initial row witness | Returns if `U ≤ cutoff`, where `U` includes the lightest eligible row and any supplied bound (from another sector or a weight limit) |
-| Exhaustive by size | Runs exhaustive enumeration if `enumeration_is_cheaper_than_setup(dimension, length)` approves |
+| Exhaustive by size | Runs exhaustive enumeration if the tuning field `allow_enumeration_by_size` is true and `enumeration_is_cheaper_than_setup(dimension, length)` approves |
 | Rows of the disjoint family | Returns if checking the rows of every search basis gives `U ≤ cutoff` |
 | Certificate of the disjoint family | Returns if `L(1) ≥ U` |
 | Rows of each replacement family, overlapping and then partitioned, if selected | Returns if `U ≤ cutoff` |
 | Certificate of each replacement family | Returns if `L(1) ≥ U` |
-| Exhaustive by work | Runs exhaustive enumeration if `_enumeration_is_cheaper_than_search` finds that the eligible-word count is at most the estimated BZ work of [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) |
+| Exhaustive by work | Runs exhaustive enumeration if the tuning field `allow_enumeration_by_work` is true and `_enumeration_is_cheaper_than_search` finds that the eligible-word count is at most the estimated BZ work of [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) |
 | Ready search | Returns a `_BrouwerZimmermannSearch` that scans from layer two |
 
 Exhaustive enumeration is chosen automatically at three points: the direct shortcut, preparation's size check, and preparation's work check.
@@ -685,6 +685,8 @@ The certificate is computed from verified ranks and the actual maximum coverage 
 The heuristics below change search work while preserving certificate validity.
 With an early-exit cutoff above one, a different search order can find a different first witness at or below the cutoff, while preserving the upper-bound contract of [Section 4.5](#45-behavior-spanning-files).
 
+The Tuning section of [README.md](README.md) explains how searches read the thresholds of these heuristics.
+
 - **`get_disjoint_family`** builds the disjoint family greedily in natural column order.
   If that does not reach the maximum number of blocks that are information sets, it tries a small fixed number of fixed-seed random column orders and keeps the family with the lexicographically largest tuple of ranks.
   Fixed seeds keep results reproducible, and the bounded retries keep setup cheap.
@@ -693,18 +695,18 @@ With an early-exit cutoff above one, a different search order can find a differe
   A search basis whose block has rank deficiency `d = r - r_i` has a term `b_i(t)` that is zero for `t < d`.
   The function removes such a search basis when the blocks that are information sets reach `U` by layer `d`, so the removal leaves the result unchanged and saves enumeration.
   It removes nothing if no block is an information set.
-- **`get_overlapping_family`** tries to lower the work estimate of the disjoint family, with tunables `max_sets` and `minimum_work`.
+- **`get_overlapping_family`** tries to lower the work estimate of the disjoint family, with the thresholds `max_information_sets` and `overlapping_minimum_work`, which it receives as `max_sets` and `minimum_work`.
   It returns a basis family with no sets if the existing work is below `minimum_work`, if the blocks already use every nonzero column, if the family is at `max_sets`, or if even the optimistic coverage `ceil(m*r/N)` cannot reduce the estimate.
   Otherwise it builds search bases by row reducing on column orders that put the least-used columns first, breaking ties with a generator that `get_overlapping_family_policy` seeds afresh for every call, and keeps the cheapest family built.
   A repeated pivot set is discarded, but it still consumes one of a bounded number of attempts.
 - **`get_partitioned_family`** builds families of information sets in which no column appears more than `b` times, for `b` from two to four.
-  It uses the matroid partitioning of Section 5.1 of Lisoněk and Trummer (see [References](#references)), in `_search/matroid_partition.py`, so each family has the most information sets, up to `max_sets`, that its coverage allows.
+  It uses the matroid partitioning of Section 5.1 of Lisoněk and Trummer (see [References](#references)), in `_search/matroid_partition.py`, so each family has the most information sets, up to `max_information_sets`, that its coverage allows.
   A search uses the family with the least estimated work if it does less work than the family of the earlier stages.
-  It tries this only if its estimated work is at least `PARTITION_WORK_RATIO` times an estimate of the work of partitioning, and the optimistic coverage `ceil(m*r/N)` does not rule out an improvement.
-- **`get_search_certificate`** adds the certificate from linear programming ([Section 3.1](#31-overlapping-search-bases)) to searches of overlapping families whose estimated work reaches `LP_MINIMUM_WORK`, since smaller searches cost less than their linear programs.
+  It tries this only if its estimated work is at least `partition_work_ratio` times an estimate of the work of partitioning, and the optimistic coverage `ceil(m*r/N)` does not rule out an improvement.
+- **`get_search_certificate`** adds the certificate from linear programming ([Section 3.1](#31-overlapping-search-bases)) to searches of overlapping families whose estimated work reaches `lp_minimum_work`, since smaller searches cost less than their linear programs.
   The work estimates that choose families use only the coverage-divided certificate.
 - **`get_automorphism_family`** row reduces in natural column order, then exchanges pivots between orbits in the compiled `_balance_orbit_shares`, as [Section 3.7](#37-images-of-an-information-set-under-automorphisms) explains.
-  A search asks for automorphisms before the first layer whose scan would cost at least `MINIMUM_LAYER_WORK`, and switches to the automorphism family if `estimate_automorphism_family_work` is less than the `Certificate.work` of its family.
+  A search asks for automorphisms before the first layer whose scan would cost at least `automorphism_minimum_layer_work`, and switches to the automorphism family if `estimate_automorphism_family_work` is less than the `Certificate.work` of its family.
 - **`Certificate.work`, `estimate_automorphism_family_work`, `_enumeration_is_cheaper_than_search`, and `enumeration_is_cheaper_than_setup`** are cost models, which Sections [3.6](#36-exhaustive-enumeration-as-a-fallback) and [3.7](#37-images-of-an-information-set-under-automorphisms) explain.
   They are not runtime guarantees.
   `enumeration_is_cheaper_than_setup` compares the setup cost of BZ with packed enumeration of all words, and its rule is in the source.
