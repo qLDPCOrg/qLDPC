@@ -162,6 +162,11 @@ Add or change a code construction
 3. Add a linked literature reference and document the field, subsystem, distance, and validation assumptions in the class docstring.
 4. Add co-located tests with independent invariants: rank-derived dimension, CSS orthogonality, symplectic commutation, row-space identities, known small distances, or exact cross-family equivalence.
    Do not validate construction-supplied or cached parameters by reading those same values back.
+5. If the construction of a binary quantum code comes with a group of qubit permutations that preserve the code, consider overriding ``_get_qudit_automorphisms`` to return generators of that group.
+   Exact distance searches use them to search less when the optional ``pybliss`` package does not find such permutations.
+   ``MBCode._get_qudit_automorphisms`` is an example, which uses ``_get_block_translations`` for a group that translates every block of qudits at once.
+   Prove in the docstring that each generator maps the row space of the parity check matrix onto itself, and test it.
+   For a CSS code, a generator does so if it maps the row spaces of both ``matrix_x`` and ``matrix_z`` onto themselves.
 
 Change code-core algebra
 ~~~~~~~~~~~~~~~~~~~~~~~~

@@ -54,6 +54,7 @@ from .distance import (
 )
 from .distance.core import (
     _get_distance_css_brouwer_zimmermann,
+    _get_distance_quantum,
     _validate_distance_backend,
     _validate_distance_method,
 )
@@ -751,19 +752,20 @@ class ClassicalCode(AbstractCode):
 
         code_str = f"CheckMatCode({matrix_str}, GF({self.field.order}))"
 
-        # try GAP/GAUAVA's AutomorphismGroup method
+        def get_group(gap_function: str) -> abstract.Group:
+            """Compute the automorphism group of this code with a GAP/GUAVA function."""
+            return abstract.Group.from_name(
+                f"{gap_function}({code_str})", warning_to_raise_if_calling_gap=warning
+            )
+
+        # For a binary code, try GAP/GUAVA's AutomorphismGroup method, and fall back to its
+        # PermutationAutomorphismGroup method if GAP fails to compute that group.
         if self.field is galois.GF2:
             try:
-                return abstract.Group.from_name(
-                    f"AutomorphismGroup({code_str})", warning_to_raise_if_calling_gap=warning
-                )
+                return get_group("AutomorphismGroup")
             except external.gap.GAPError:
-                pass
-
-        # fall back to GAP/GAUAVA's PermutationAutomorphismGroup method
-        return abstract.Group.from_name(
-            f"PermutationAutomorphismGroup({code_str})", warning_to_raise_if_calling_gap=warning
-        )
+                return get_group("PermutationAutomorphismGroup")
+        return get_group("PermutationAutomorphismGroup")
 
     def get_matrix_automorphism_group(self) -> abstract.Group:
         """Get the automorphism group of the parity check matrix of this code.
@@ -1525,135 +1527,9 @@ class QuditCode(AbstractCode):
 
         is guaranteed to be an identity matrix.
         """
-        matrix: npt.NDArray[np.int_]
-        cols_lx: Slice
-        cols_lz: Slice
-        cols_gx: Slice
-        cols_gz: Slice
-        cols_gl: Slice
-
-        def _with_permuted_qudits(
-            matrix: npt.NDArray[np.int_], permutation: Slice
-        ) -> npt.NDArray[np.int_]:
-            """Permute the qudits of a parity check matrix."""
-            return matrix.reshape(-1, len(self))[:, permutation].reshape(matrix.shape)
-
-        if not self.is_subsystem_code:
-            # keep track of qudit locations as we swap them around
-            qudit_locs: npt.NDArray[np.int_] = np.arange(len(self), dtype=int)
-
-            # row reduce and identify pivots in the X sector
-            matrix = self.canonicalized.matrix
-            all_pivots_x = math.first_nonzero_cols(matrix)
-            pivots_x = all_pivots_x[all_pivots_x < len(self)]
-
-            # move the X pivots to the back
-            other_x = [qq for qq in range(len(self)) if qq not in pivots_x]
-            permutation = other_x + list(pivots_x)
-            matrix = _with_permuted_qudits(matrix, permutation)
-            qudit_locs = qudit_locs[permutation]
-
-            # row reduce and identify pivots in the Z sector
-            sub_matrix = matrix[len(pivots_x) :, len(self) :]
-            sub_matrix = ClassicalCode(sub_matrix).canonicalized.matrix
-            matrix[len(pivots_x) :, len(self) :] = sub_matrix
-            all_pivots_z = math.first_nonzero_cols(sub_matrix)
-            pivots_z = all_pivots_z[: len(self) - len(pivots_x) - self.dimension]
-
-            # move the stabilizer Z pivots to the back
-            other_z = [qq for qq in range(len(self)) if qq not in pivots_z]
-            permutation = other_z + list(pivots_z)
-            matrix = _with_permuted_qudits(matrix, permutation)
-            qudit_locs = qudit_locs[permutation]
-
-            # some helpful numbers
-            num_stabs_x = len(pivots_x)
-            num_stabs_z = len(pivots_z)
-            num_logicals = len(self) - num_stabs_x - num_stabs_z
-
-            # row/column sectors of the parity check matrix
-            rows_sx = slice(num_stabs_x)
-            rows_sz = slice(rows_sx.stop, rows_sx.stop + num_stabs_z)
-            cols_lx = cols_lz = slice(num_logicals)
-            cols_sx = slice(cols_lx.stop, cols_lx.stop + num_stabs_x)
-            cols_sz = slice(cols_sx.stop, cols_sx.stop + num_stabs_z)
-
-            # fill in empty gauge sectors
-            rows_gx = rows_gz = cols_gx = cols_gz = slice(0)
-
-        else:
-            # X-type and Z-type stabilizers in standard form
-            stabilizer_ops = self.get_stabilizer_ops()
-            code = QuditCode(stabilizer_ops)
-            code._is_subsystem_code = False  # stabilizers commute
-            (
-                standard_stabilizer_ops,
-                qudit_locs,
-                (rows_sx, _, rows_sz, _),
-                (cols_sx, _, _, cols_sz, _, cols_gl),
-            ) = code.get_standard_form_data()
-            stabilizers_x = standard_stabilizer_ops[rows_sx].reshape(-1, 2 * len(self))
-            stabilizers_z = standard_stabilizer_ops[rows_sz, 1, :]
-            cols_gl = _join_slices(cols_gl)  # convert into an indexable array
-
-            # some helpful numbers
-            num_stabs_x = len(stabilizers_x)
-            num_stabs_z = len(stabilizers_z)
-            num_gauges = self.gauge_dimension
-            num_logicals = len(self) - num_stabs_x - num_stabs_z - num_gauges
-
-            # canonicalized parity check matrices with qudits in the same order as above
-            checks = _with_permuted_qudits(self.canonicalized.matrix, qudit_locs)
-            checks_x = checks[: num_stabs_x + num_gauges]
-            checks_z = checks[num_stabs_x + num_gauges :, len(self) :]
-
-            # row reduce X-type stabilizers + parity checks to place gauge ops at the bottom
-            permutation_x = _join_slices(cols_sx, cols_gl, cols_sz)
-            matrix_x = _with_permuted_qudits(np.vstack([stabilizers_x, checks_x]), permutation_x)
-            matrix_x = ClassicalCode(matrix_x).canonicalized.matrix[: num_stabs_x + num_gauges]
-            pivots_gx = math.first_nonzero_cols(matrix_x)[num_stabs_x:] - num_stabs_x
-            matrix_x = _with_permuted_qudits(matrix_x, np.argsort(permutation_x))
-
-            # row reduce Z-type stabilizers + parity checks to place gauge ops at the bottom
-            permutation_z = _join_slices(cols_sz, cols_gl, cols_sx)
-            matrix_z = _with_permuted_qudits(np.vstack([stabilizers_z, checks_z]), permutation_z)
-            matrix_z = ClassicalCode(matrix_z).canonicalized.matrix
-            pivots_gz = math.first_nonzero_cols(matrix_z)[num_stabs_z:] - num_stabs_z
-            matrix_z = _with_permuted_qudits(matrix_z, np.argsort(permutation_z))
-
-            """
-            Row reducing the combiner stabilizer + gauge matrices added gauge ops to stabilizers to
-            zero out entries above the gauge-pivot columns.  Remove the added gauge operators.
-            """
-            matrix_x[:num_stabs_x] += (
-                stabilizers_x[:num_stabs_x, pivots_gx] @ matrix_x[num_stabs_x:]
-            )
-            matrix_z[:num_stabs_z] += (
-                stabilizers_z[:num_stabs_z, pivots_gz] @ matrix_z[num_stabs_z:]
-            )
-
-            # full parity check matrix in standard form
-            matrix = np.vstack([matrix_x, np.hstack([np.zeros_like(matrix_z), matrix_z])])
-
-            # identify row sectors for the standard-form matrix
-            rows_sx = slice(num_stabs_x)
-            rows_gx = slice(rows_sx.stop, rows_sx.stop + num_gauges)
-            rows_sz = slice(rows_gx.stop, rows_gx.stop + num_stabs_z)
-            rows_gz = slice(rows_sz.stop, rows_sz.stop + num_gauges)
-
-            # split logical vs. gauge column sectors
-            cols_gx = cols_gl[pivots_gx]
-            cols_gz = cols_gl[pivots_gz]
-            cols_lx = [qq for qq in cols_gl if qq not in cols_gx]
-            cols_lz = [qq for qq in cols_gl if qq not in cols_gz]
-
-        matrix = matrix.reshape(-1, 2, len(self))
-        return (
-            matrix,
-            qudit_locs,
-            (rows_sx, rows_gx, rows_sz, rows_gz),
-            (cols_sx, cols_gx, cols_lx, cols_sz, cols_gz, cols_lz),
-        )
+        if self.is_subsystem_code:
+            return self._get_subsystem_standard_form_data()
+        return self._get_stabilizer_standard_form_data()
 
     def set_logical_ops(
         self,
@@ -2046,12 +1922,13 @@ class QuditCode(AbstractCode):
             stabilizers = np.vstack([stabilizers, self.get_gauge_ops()]).view(self.field)
 
         if self.field is galois.GF2:
-            distance = get_distance_quantum(
+            distance = _get_distance_quantum(
                 logical_ops,
                 stabilizers,
                 cutoff=cutoff,
                 homogeneous=False,
                 method=method,
+                get_automorphisms=lambda: self._found_qudit_automorphisms,
             )
 
         else:
@@ -2461,6 +2338,147 @@ class QuditCode(AbstractCode):
             min_error_weight,
         )
 
+    def _get_stabilizer_standard_form_data(
+        self,
+    ) -> tuple[
+        npt.NDArray[np.int_],  # standard-form matrix, with shape (-1, 2, len(self))
+        npt.NDArray[np.int_],  # qudit locations
+        tuple[slice, slice, slice, slice],  # row sectors
+        tuple[slice, Slice, Slice, slice, Slice, Slice],  # column sectors
+    ]:
+        """Construct the standard form of the parity check matrix of a stabilizer code.
+
+        See help(QuditCode.get_standard_form_data).
+        """
+        # keep track of qudit locations as we swap them around
+        qudit_locs: npt.NDArray[np.int_] = np.arange(len(self), dtype=int)
+
+        # row reduce and identify pivots in the X sector
+        matrix: npt.NDArray[np.int_] = self.canonicalized.matrix
+        all_pivots_x = math.first_nonzero_cols(matrix)
+        pivots_x = all_pivots_x[all_pivots_x < len(self)]
+
+        # move the X pivots to the back
+        other_x = [qq for qq in range(len(self)) if qq not in pivots_x]
+        permutation = other_x + list(pivots_x)
+        matrix = _permute_qudits(matrix, permutation, len(self))
+        qudit_locs = qudit_locs[permutation]
+
+        # row reduce and identify pivots in the Z sector
+        sub_matrix = matrix[len(pivots_x) :, len(self) :]
+        sub_matrix = ClassicalCode(sub_matrix).canonicalized.matrix
+        matrix[len(pivots_x) :, len(self) :] = sub_matrix
+        all_pivots_z = math.first_nonzero_cols(sub_matrix)
+        pivots_z = all_pivots_z[: len(self) - len(pivots_x) - self.dimension]
+
+        # move the stabilizer Z pivots to the back
+        other_z = [qq for qq in range(len(self)) if qq not in pivots_z]
+        permutation = other_z + list(pivots_z)
+        matrix = _permute_qudits(matrix, permutation, len(self))
+        qudit_locs = qudit_locs[permutation]
+
+        # some helpful numbers
+        num_stabs_x = len(pivots_x)
+        num_stabs_z = len(pivots_z)
+        num_logicals = len(self) - num_stabs_x - num_stabs_z
+
+        # row/column sectors of the parity check matrix
+        rows_sx = slice(num_stabs_x)
+        rows_sz = slice(rows_sx.stop, rows_sx.stop + num_stabs_z)
+        cols_lx = cols_lz = slice(num_logicals)
+        cols_sx = slice(cols_lx.stop, cols_lx.stop + num_stabs_x)
+        cols_sz = slice(cols_sx.stop, cols_sx.stop + num_stabs_z)
+
+        # fill in empty gauge sectors
+        rows_gx = rows_gz = cols_gx = cols_gz = slice(0)
+
+        return (
+            matrix.reshape(-1, 2, len(self)),
+            qudit_locs,
+            (rows_sx, rows_gx, rows_sz, rows_gz),
+            (cols_sx, cols_gx, cols_lx, cols_sz, cols_gz, cols_lz),
+        )
+
+    def _get_subsystem_standard_form_data(
+        self,
+    ) -> tuple[
+        npt.NDArray[np.int_],  # standard-form matrix, with shape (-1, 2, len(self))
+        npt.NDArray[np.int_],  # qudit locations
+        tuple[slice, slice, slice, slice],  # row sectors
+        tuple[slice, Slice, Slice, slice, Slice, Slice],  # column sectors
+    ]:
+        """Construct the standard form of the parity check matrix of a subsystem code.
+
+        See help(QuditCode.get_standard_form_data).
+        """
+        cols_lx: Slice
+        cols_lz: Slice
+
+        # X-type and Z-type stabilizers in standard form
+        stabilizer_ops = self.get_stabilizer_ops()
+        code = QuditCode(stabilizer_ops)
+        code._is_subsystem_code = False  # stabilizers commute
+        (
+            standard_stabilizer_ops,
+            qudit_locs,
+            (rows_sx, _, rows_sz, _),
+            (cols_sx, _, _, cols_sz, _, cols_gl),
+        ) = code.get_standard_form_data()
+        stabilizers_x = standard_stabilizer_ops[rows_sx].reshape(-1, 2 * len(self))
+        stabilizers_z = standard_stabilizer_ops[rows_sz, 1, :]
+        cols_gl = _join_slices(cols_gl)  # convert into an indexable array
+
+        # some helpful numbers
+        num_stabs_x = len(stabilizers_x)
+        num_stabs_z = len(stabilizers_z)
+        num_gauges = self.gauge_dimension
+
+        # canonicalized parity check matrices with qudits in the same order as above
+        checks = _permute_qudits(self.canonicalized.matrix, qudit_locs, len(self))
+        checks_x = checks[: num_stabs_x + num_gauges]
+        checks_z = checks[num_stabs_x + num_gauges :, len(self) :]
+
+        # row reduce X-type stabilizers + parity checks to place gauge ops at the bottom
+        permutation_x = _join_slices(cols_sx, cols_gl, cols_sz)
+        matrix_x = _permute_qudits(np.vstack([stabilizers_x, checks_x]), permutation_x, len(self))
+        matrix_x = ClassicalCode(matrix_x).canonicalized.matrix[: num_stabs_x + num_gauges]
+        pivots_gx = math.first_nonzero_cols(matrix_x)[num_stabs_x:] - num_stabs_x
+        matrix_x = _permute_qudits(matrix_x, np.argsort(permutation_x), len(self))
+
+        # row reduce Z-type stabilizers + parity checks to place gauge ops at the bottom
+        permutation_z = _join_slices(cols_sz, cols_gl, cols_sx)
+        matrix_z = _permute_qudits(np.vstack([stabilizers_z, checks_z]), permutation_z, len(self))
+        matrix_z = ClassicalCode(matrix_z).canonicalized.matrix
+        pivots_gz = math.first_nonzero_cols(matrix_z)[num_stabs_z:] - num_stabs_z
+        matrix_z = _permute_qudits(matrix_z, np.argsort(permutation_z), len(self))
+
+        # Row reducing the combined stabilizer + gauge matrices added gauge ops to stabilizers to
+        # zero out entries above the gauge-pivot columns.  Remove the added gauge operators.
+        matrix_x[:num_stabs_x] += stabilizers_x[:num_stabs_x, pivots_gx] @ matrix_x[num_stabs_x:]
+        matrix_z[:num_stabs_z] += stabilizers_z[:num_stabs_z, pivots_gz] @ matrix_z[num_stabs_z:]
+
+        # full parity check matrix in standard form
+        matrix = np.vstack([matrix_x, np.hstack([np.zeros_like(matrix_z), matrix_z])])
+
+        # identify row sectors for the standard-form matrix
+        rows_sx = slice(num_stabs_x)
+        rows_gx = slice(rows_sx.stop, rows_sx.stop + num_gauges)
+        rows_sz = slice(rows_gx.stop, rows_gx.stop + num_stabs_z)
+        rows_gz = slice(rows_sz.stop, rows_sz.stop + num_gauges)
+
+        # split logical vs. gauge column sectors
+        cols_gx = cols_gl[pivots_gx]
+        cols_gz = cols_gl[pivots_gz]
+        cols_lx = [qq for qq in cols_gl if qq not in cols_gx]
+        cols_lz = [qq for qq in cols_gl if qq not in cols_gz]
+
+        return (
+            matrix.reshape(-1, 2, len(self)),
+            qudit_locs,
+            (rows_sx, rows_gx, rows_sz, rows_gz),
+            (cols_sx, cols_gx, cols_lx, cols_sz, cols_gz, cols_lz),
+        )
+
     def _validate_logical_ops_shape(self, logical_ops: galois.FieldArray) -> None:
         """Require a 2D matrix with one row per logical qudit."""
         if logical_ops.ndim != 2 or len(logical_ops) != self.dimension:
@@ -2535,6 +2553,39 @@ class QuditCode(AbstractCode):
         ).view(outer.field)
 
         return outer, inner
+
+    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+        """Generators of a group of qudit permutations that preserve this code, if known.
+
+        Subclasses whose construction comes with such a group return an array of its generators.
+        Row ``i`` of the array maps qudit ``j`` to qudit ``row[j]``.  Each generator maps the row
+        space of the parity check matrix onto itself.  For a CSS code, a generator does so if it
+        maps the row spaces of both ``matrix_x`` and ``matrix_z`` onto themselves.  Exact distance
+        searches use these generators when bliss finds none (see ``_found_qudit_automorphisms``).
+        """
+        return None
+
+    @functools.cached_property
+    def _found_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+        """Generators of a group of qudit permutations that preserve this code, or None.
+
+        With the optional pybliss package, bliss finds the automorphisms of the Tanner graph of this
+        code, whose edges are colored by the Pauli operators of the checks.  Each automorphism
+        permutes the checks and the qudits, and leaves the parity check matrix unchanged.  The
+        result holds the qudit permutations of the generators that bliss returns.  Without pybliss,
+        or if bliss finds no automorphisms, the result holds the generators from
+        ``_get_qudit_automorphisms``.  Exact distance searches verify these generators before they
+        use them.
+        """
+        if _bliss.is_installed():
+            # value each entry by its Pauli operator, x + q z for the field order q, so that the
+            # values of X, Z, and Y on qubits are 1, 2, and 3
+            matrix = self.matrix.view(np.ndarray).astype(int)
+            paulis = matrix[:, : len(self)] + self.field.order * matrix[:, len(self) :]
+            generators = _bliss.get_matrix_automorphism_generators(paulis)
+            if generators:
+                return np.array(generators, dtype=int)[:, len(paulis) :] - len(paulis)
+        return self._get_qudit_automorphisms()
 
     def _sample_failure_and_discard_counts(
         self,
@@ -3460,6 +3511,7 @@ class CSSCode(QuditCode):
                 sectors,
                 cutoff=cutoff,
                 upper_bound=upper_bound,
+                get_automorphisms=lambda: self._found_qudit_automorphisms,
             )
             if cutoff <= 1:
                 # The joint search proves only the minimum, not either individual sector distance.
@@ -3478,7 +3530,14 @@ class CSSCode(QuditCode):
         if self.is_subsystem_code:
             stabilizers = np.vstack([stabilizers, self.get_gauge_ops(pauli)]).view(self.field)
 
-        if self.field is galois.GF2:
+        if self.field is galois.GF2 and method == "brouwer_zimmermann":
+            distance = _get_distance_css_brouwer_zimmermann(
+                [(logical_ops, stabilizers)],
+                cutoff=cutoff,
+                get_automorphisms=lambda: self._found_qudit_automorphisms,
+            )
+
+        elif self.field is galois.GF2:
             distance = get_distance_quantum(
                 logical_ops,
                 stabilizers,
@@ -4265,6 +4324,13 @@ def _join_slices(*sectors: Slice) -> npt.NDArray[np.int_]:
             for sector in sectors
         ]
     ).astype(int)
+
+
+def _permute_qudits(
+    matrix: npt.NDArray[np.int_], permutation: Slice, num_qudits: int
+) -> npt.NDArray[np.int_]:
+    """Permute the qudits of a matrix whose rows are blocks of num_qudits columns each."""
+    return matrix.reshape(-1, num_qudits)[:, permutation].reshape(matrix.shape)
 
 
 def _is_row_reduced(matrix: npt.NDArray[np.int_]) -> bool:

@@ -34,7 +34,7 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
     code_b = codes.ClassicalCode.random(3, 2, seed=seed + 1)
     assert syndrome_measurement_is_valid(codes.HGPCode(code_a, code_b))
 
-    # special strategy for QCCodes
+    # special strategy for MBCodes
     np.random.seed(seed)
     symbols = [sympy.Symbol(f"x_{ss}") for ss in range(3)]
     orders = [np.random.randint(2, 6) for _ in range(len(symbols))]
@@ -50,7 +50,7 @@ def test_syndrome_measurement(pytestconfig: pytest.Config) -> None:
         np.prod([symbol**exponent for symbol, exponent in zip(symbols, exponents_b)])
         for exponents_b in term_exponents_b
     )
-    assert syndrome_measurement_is_valid(codes.QCCode(orders, poly_a, poly_b))
+    assert syndrome_measurement_is_valid(codes.MBCode(orders, poly_a, poly_b))
 
     # EdgeColoringXZ strategy
     assert syndrome_measurement_is_valid(codes.SteaneCode(), circuits.EdgeColoringXZ())

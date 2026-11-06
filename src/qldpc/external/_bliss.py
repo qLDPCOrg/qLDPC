@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import types
 
 import numpy as np
@@ -48,6 +49,11 @@ def get_matrix_automorphism_generators(matrix: npt.NDArray[np.int_]) -> list[lis
         lambda _, automorphism: generators.append(automorphism[: num_rows + num_cols].tolist()),
     )
     return generators
+
+
+def is_installed() -> bool:
+    """Return whether the optional pybliss package is discoverable."""
+    return importlib.util.find_spec("pybliss") is not None
 
 
 def _get_pybliss() -> types.ModuleType:

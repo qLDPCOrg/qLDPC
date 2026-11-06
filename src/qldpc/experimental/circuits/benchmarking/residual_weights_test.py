@@ -7,6 +7,7 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import math
+from typing import Any
 
 import galois
 import numpy as np
@@ -20,7 +21,7 @@ from qldpc.experimental.circuits.benchmarking.residual_weights import (
     ResidualWeightHistogram,
     estimate_residual_weight_histogram,
 )
-from qldpc.objects import Pauli, PauliXZLike
+from qldpc.objects import Pauli, PauliXZ, PauliXZLike
 
 # A flagged preparation of the CSS state with stabilizers Z0*Z1, Z1*Z2, and X0*X1*X2, given as
 # layers with (layer, Pauli, probability) error mechanisms after them.  Qubit 3 checks Z0*Z2 as a
@@ -294,6 +295,26 @@ def test_invalid_arguments() -> None:
         estimate_residual_weight_histogram(_build_circuit(_NON_CSS_LAYERS, []), 1, pauli="X")
 
 
+def test_validate_indices() -> None:
+    """Indices such as output qubits must be distinct integers in range, at least one."""
+    circuit = _build_circuit(_CSS_LAYERS, _CSS_MECHANISMS)
+    cases: list[tuple[Any, type[Exception]]] = [
+        (3, TypeError),
+        ([0, 1.5, 2], TypeError),
+        ([], ValueError),
+        ([0, 0, 1], ValueError),
+        ([0, 1, 4], ValueError),
+    ]
+    for output_qubits, error in cases:
+        with pytest.raises(error, match="output_qubits"):
+            estimate_residual_weight_histogram(circuit, 1, output_qubits=output_qubits)
+    assert residual_weights._validate_indices(range(2), 2, "observables") == (0, 1)
+    with pytest.raises(
+        ValueError, match=r"observables must contain distinct indices in range\(2\)"
+    ):
+        residual_weights._validate_indices([2], 2, "observables")
+
+
 def test_invalid_histograms() -> None:
     """Histograms with inconsistent shapes, invalid data, or invalid Pauli types are rejected."""
     histogram = ResidualWeightHistogram(
@@ -356,6 +377,31 @@ def test_weight_oracles(pytestconfig: pytest.Config) -> None:
         assert np.array_equal(oracle.get_weights(packed), expected)
 
 
+def test_error_weights(pytestconfig: pytest.Config) -> None:
+    """Residual weights of each Pauli type of errors on logical |0> of the Steane code are exact.
+
+    The X-type (Z-type) part of an error reduces by the X-type (Z-type) stabilizers of the state.
+    """
+    code = codes.SteaneCode()
+    num_qubits, max_residual_weight = len(code), 1
+    x_stabilizers = code.matrix_x.view(np.ndarray).astype(int)
+    z_stabilizers = np.vstack([code.matrix_z, code.get_logical_ops(Pauli.Z)]).view(np.ndarray)
+    stabilizers = np.zeros((num_qubits, 2 * num_qubits), dtype=np.uint8)
+    stabilizers[: len(x_stabilizers), :num_qubits] = x_stabilizers
+    stabilizers[len(x_stabilizers) :, num_qubits:] = z_stabilizers
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    errors = rng.integers(2, size=(50, 2 * num_qubits), dtype=np.uint8)
+    cases: list[tuple[PauliXZ, np.ndarray, np.ndarray]] = [
+        (Pauli.X, x_stabilizers, errors[:, :num_qubits]),
+        (Pauli.Z, z_stabilizers.astype(int), errors[:, num_qubits:]),
+    ]
+    for pauli, generators, parts in cases:
+        coset = np.array(list(itertools.product([0, 1], repeat=len(generators)))) @ generators
+        expected = [min(((part + coset) % 2).sum(axis=1).min(), 2) for part in parts]
+        setup = residual_weights._ResidualWeightSetup(stabilizers, True, pauli, max_residual_weight)
+        assert np.array_equal(setup.get_error_weights(errors), expected)
+
+
 def test_combinations_and_proposals() -> None:
     """Listed combinations and proposal probabilities have their defining properties."""
     for num_items, size in [(5, 0), (5, 2), (4, 4), (3, 5)]:
@@ -369,6 +415,11 @@ def test_combinations_and_proposals() -> None:
     assert probabilities.sum() == pytest.approx(1.5)
     scaled_odds = probabilities / (1 - probabilities)
     assert np.allclose(scaled_odds / odds, scaled_odds[0] / odds[0])
+
+    # odds of any positive magnitude reach the target
+    for odds in (np.array([1e-300, 2e-300]), np.array([1e-300, 1.0, 1e200])):
+        probabilities = residual_weights._get_proposal_probabilities(odds, 1)
+        assert probabilities.sum() == pytest.approx(1)
 
 
 def _build_circuit(layers: list[str], mechanisms: list[tuple[int, str, float]]) -> stim.Circuit:

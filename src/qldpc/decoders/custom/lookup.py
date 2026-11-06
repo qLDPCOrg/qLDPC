@@ -463,40 +463,6 @@ class ErrorLookupDecoder(_PackedLookupDecoder, ErrorDecoder):
     support.
     """
 
-    def __init__(
-        self,
-        pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
-        max_weight: int,
-        *,
-        error_channel: (
-            npt.NDArray[np.floating]
-            | Sequence[float]
-            | Callable[[npt.NDArray[np.int_] | Sequence[int]], float]
-            | None
-        ) = None,
-        observable_flip_matrix: IntegerArray | None = None,
-        post_select: Collection[int] = (),
-        add_erasure_bit: bool | None = None,
-        confidence_ratio: float | None = None,
-        probability_cutoff: float = 0,
-        symplectic: bool = False,
-        # DEPRECATED: see qldpc._deprecations
-        penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
-    ) -> None:
-        """Initialize an error lookup table."""
-        super().__init__(
-            pcm_or_dem,
-            max_weight,
-            error_channel=error_channel,
-            observable_flip_matrix=observable_flip_matrix,
-            post_select=post_select,
-            add_erasure_bit=add_erasure_bit,
-            confidence_ratio=confidence_ratio,
-            probability_cutoff=probability_cutoff,
-            symplectic=symplectic,
-            penalty_func=penalty_func,  # DEPRECATED: see qldpc._deprecations
-        )
-
     def decode_errors(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
         return self._decode(syndrome)
@@ -833,25 +799,6 @@ class WeightedErrorLookupDecoder(_CandidateLookupDecoder, ErrorDecoder):
     ``add_erasure_bit``, and ``symplectic`` options behave as they do for an ErrorLookupDecoder;
     see help(ErrorLookupDecoder).
     """
-
-    def __init__(
-        self,
-        pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
-        max_weight: int,
-        *,
-        observable_flip_matrix: IntegerArray | None = None,
-        post_select: Collection[int] = (),
-        add_erasure_bit: bool = False,
-        symplectic: bool = False,
-    ) -> None:
-        super().__init__(
-            pcm_or_dem,
-            max_weight,
-            observable_flip_matrix=observable_flip_matrix,
-            post_select=post_select,
-            add_erasure_bit=add_erasure_bit,
-            symplectic=symplectic,
-        )
 
     def decode_errors(
         self,

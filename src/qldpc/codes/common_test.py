@@ -4,11 +4,12 @@
 
 from __future__ import annotations
 
+import functools
 import itertools
 import random
 import unittest.mock
 import warnings
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from typing import Any
 
 import galois
@@ -18,10 +19,12 @@ import numpy.typing as npt
 import pytest
 import scipy.sparse
 import stim
+import sympy.abc
 
 from qldpc import abstract, codes, decoders, external, math
 from qldpc.codes import _code_capacity, common
-from qldpc.objects import PAULIS_XZ, Pauli
+from qldpc.codes.distance import _brouwer_zimmermann
+from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ
 
 ####################################################################################################
 # classical code tests
@@ -672,7 +675,7 @@ def test_exact_code_distance_method_api() -> None:
     css_code = codes.QuditCode(codes.SteaneCode().matrix).to_css()
     for kernel, get_distance in (
         ("get_distance_classical", lambda: classical_code.get_distance(method="brute_force")),
-        ("get_distance_quantum", lambda: qudit_code.get_distance(method="brute_force")),
+        ("_get_distance_quantum", lambda: qudit_code.get_distance(method="brute_force")),
         ("get_distance_quantum", lambda: css_code.get_distance(Pauli.X, method="brute_force")),
     ):
         with unittest.mock.patch(f"qldpc.codes.common.{kernel}", return_value=3) as mock_kernel:
@@ -738,6 +741,125 @@ def test_css_joint_distance_cache() -> None:
     subsystem_code = codes.CSSCode([[0, 1, 1], [1, 1, 0]], [[1, 0, 1], [1, 1, 0]])
     assert subsystem_code.is_subsystem_code
     assert subsystem_code.get_distance_exact(Pauli.X) == 1
+
+
+def test_automorphisms_from_bliss_or_construction(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Codes find their automorphisms with bliss if it is installed, and otherwise ask the code.
+
+    The bliss search is mocked here, and checked against the real package in its own tests.
+    """
+    poly_x = sympy.abc.x
+    translations = codes.MBCode([7], 1 + poly_x, 1 + poly_x**3)._get_qudit_automorphisms()
+
+    # without pybliss, or if bliss finds nothing, codes return the automorphisms of their family
+    monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
+    code = codes.MBCode([7], 1 + poly_x, 1 + poly_x**3)
+    assert (found := code._found_qudit_automorphisms) is not None
+    assert np.array_equal(found, translations)
+    assert codes.CSSCode(code.matrix_x, code.matrix_z)._found_qudit_automorphisms is None
+    monkeypatch.setattr(common._bliss, "is_installed", lambda: True)
+    monkeypatch.setattr(common._bliss, "get_matrix_automorphism_generators", lambda *_: [])
+    code = codes.MBCode([7], 1 + poly_x, 1 + poly_x**3)
+    assert (found := code._found_qudit_automorphisms) is not None
+    assert np.array_equal(found, translations)
+
+    # bliss sees each check as its Pauli operators, with 1, 2, and 3 for X, Z, and Y.  The first
+    # check of the five-qubit code, XZZXI, is [1, 2, 2, 1, 0].  Codes keep the qubit permutations.
+    shift = [1, 2, 3, 4, 0]
+
+    def get_generators(matrix: npt.NDArray[np.int_]) -> list[list[int]]:
+        assert matrix[0].tolist() == [1, 2, 2, 1, 0]
+        return [list(range(len(matrix))) + [len(matrix) + qubit for qubit in shift]]
+
+    monkeypatch.setattr(common._bliss, "get_matrix_automorphism_generators", get_generators)
+    five_qubit_code = codes.QuditCode(codes.FiveQubitCode().matrix)
+    assert (found := five_qubit_code._found_qudit_automorphisms) is not None
+    assert found.tolist() == [shift]
+
+
+def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exact distances use the qudit automorphisms of a code only after verifying them.
+
+    The [[72, 12, 6]] bivariate bicycle code is from arXiv:2308.07915.  Hadamards on its second
+    block make a code that is not CSS, which the translations of both blocks still preserve.  The
+    [[16, 1, 4]] Bacon-Shor subsystem code of quant-ph/0506023 has its qubits in rows and columns,
+    and its gauge group holds X on any two qubits of a column.  So swapping two rows preserves it,
+    also after Hadamards on every other column, which make a subsystem code that is not CSS.  A
+    transposition of two neighboring qubits preserves none of these codes.
+    """
+
+    class CSSCodeWithAutomorphisms(codes.CSSCode):
+        automorphisms: npt.NDArray[np.int_]
+
+        def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_]:
+            return self.automorphisms
+
+    class QuditCodeWithAutomorphisms(codes.QuditCode):
+        automorphisms: npt.NDArray[np.int_]
+
+        def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_]:
+            return self.automorphisms
+
+    def get_css_distance(
+        automorphisms: npt.NDArray[np.int_], pauli: PauliXZ | None = None
+    ) -> int | float:
+        code = CSSCodeWithAutomorphisms(bb_code.matrix_x, bb_code.matrix_z)
+        code.automorphisms = automorphisms
+        return code.get_distance_exact(pauli)
+
+    def get_qudit_distance(
+        matrix: npt.NDArray[np.int_], automorphisms: npt.NDArray[np.int_], **options: Any
+    ) -> int | float:
+        code = QuditCodeWithAutomorphisms(matrix, **options)
+        code.automorphisms = automorphisms
+        return code.get_distance_exact()
+
+    # use the automorphisms of the code's family before the first layer of these quick searches
+    monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
+    monkeypatch.setattr(_brouwer_zimmermann, "MINIMUM_LAYER_WORK", 0)
+    x, y = sympy.abc.x, sympy.abc.y
+    bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
+    translations = bb_code._get_qudit_automorphisms()
+    bacon_shor_matrix = codes.BaconShorCode(4).conjugated(range(0, 16, 2)).matrix
+    row_swap = np.arange(16).reshape(4, 4)[[1, 0, 2, 3]].ravel()
+    cases: list[tuple[Callable[[npt.NDArray[np.int_]], int | float], npt.NDArray[np.int_], int]] = [
+        (get_css_distance, translations, 6),
+        (functools.partial(get_css_distance, pauli=Pauli.X), translations, 6),
+        (
+            functools.partial(get_qudit_distance, bb_code.conjugated(range(36, 72)).matrix),
+            translations,
+            6,
+        ),
+        (
+            functools.partial(get_qudit_distance, bacon_shor_matrix, is_subsystem_code=True),
+            row_swap[None],
+            4,
+        ),
+    ]
+    for get_distance, automorphisms, expected in cases:
+        assert get_distance(automorphisms) == expected
+        transposition = np.arange(automorphisms.shape[1])
+        transposition[[0, 1]] = [1, 0]
+        with pytest.raises(ValueError, match="not an automorphism"):
+            get_distance(transposition[None])
+
+
+def test_distances_with_bliss(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With pybliss, exact distances find and use the symmetries of codes by themselves.
+
+    The qudits of the [[72, 12, 6]] bivariate bicycle code of arXiv:2308.07915, and of a version of
+    it that is not CSS, are shuffled, and their distances are computed from their parity check
+    matrices alone.
+    """
+    pytest.importorskip("pybliss")
+    monkeypatch.setattr(_brouwer_zimmermann, "MINIMUM_LAYER_WORK", 0)
+    x, y = sympy.abc.x, sympy.abc.y
+    bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
+    shuffle = np.random.default_rng(0).permutation(len(bb_code))
+    for matrix in (bb_code.matrix, bb_code.conjugated(range(36, 72)).matrix):
+        code = codes.QuditCode(np.hstack([matrix[:, shuffle], matrix[:, len(bb_code) + shuffle]]))
+        assert code._found_qudit_automorphisms is not None
+        assert code.get_distance_exact() == 6
 
 
 @pytest.mark.parametrize("field", [2, 3])

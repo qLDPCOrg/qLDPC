@@ -11,7 +11,7 @@ import itertools
 import math
 import os
 from collections.abc import Collection, Iterable, Iterator, Sequence
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 import galois
 import numpy as np
@@ -21,7 +21,7 @@ import sympy
 from sympy.matrices.normalforms import hermite_normal_form
 
 import qldpc
-from qldpc import abstract
+from qldpc import _deprecations, abstract
 from qldpc._utils import networkx as nx
 from qldpc.math import IntegerArray, resolve_field
 from qldpc.objects import (
@@ -501,8 +501,8 @@ class TBCode(CSSCode):
     Commutativity of A and B ensures that ``matrix_x @ matrix_z.T = AB - BA = 0``, which makes
     matrix_x and matrix_z a valid choice of parity check matrices of a CSSCode.
 
-    Two-block codes constructed out of circulant matrices (i.e., matrices chosen from a ring over an
-    abelian group) are known as quasi-cyclic codes (QCCodes).
+    Two-block codes whose matrices A and B are elements of an abelian group algebra are multivariate
+    bicycle codes (MBCodes).
 
     References:
 
@@ -694,12 +694,12 @@ class GALACode(CSSCode):
         )
 
 
-class QCCode(TBCode):
-    """Quasi-cyclic code.
+class MBCode(TBCode):
+    """Multivariate bicycle code, also known as an abelian two-block group-algebra code.
 
-    A QCCode is a two block code (TBCode) built out of matrices A and B that are chosen from a ring
-    over an abelian group to ensure that A and B commute.  More specifically, a QCCode is a CSS code
-    with subcode parity check matrices
+    An MBCode is a two block code (TBCode) built out of matrices A and B that are chosen from a ring
+    over an abelian group to ensure that A and B commute.  More specifically, an MBCode is a CSS
+    code with subcode parity check matrices
 
     - ``matrix_x = [A, B]``, and
     - ``matrix_z = [B.T, -A.T]``.
@@ -711,7 +711,7 @@ class QCCode(TBCode):
     - x, y, z, ... are generators of cyclic groups of orders ``R_x``, ``R_y``, ``R_z``, ...
     - the monomial ``x^i y^j z^k ...`` represents a tensor product of cyclic shift matrices.
 
-    A quasi-cyclic code is defined by...
+    A multivariate bicycle code is defined by...
     [1] a sequence of cyclic group orders, and
     [2] two multivariate polynomials.
     The polynomials should be sympy expressions such as 1 + x + x * y**2 with sympy.abc variables x
@@ -721,15 +721,20 @@ class QCCode(TBCode):
 
     References:
 
-    - https://errorcorrectionzoo.org/c/quantum_quasi_cyclic
-    - https://arxiv.org/abs/2109.14609
+    - https://errorcorrectionzoo.org/c/abelian_2bga
+    - https://arxiv.org/abs/2406.19151
+    - https://arxiv.org/abs/2306.16400
 
-    Univariate quasi-cyclic codes are generalized bicycle codes:
+    With polynomials in one variable, multivariate bicycle codes are generalized bicycle codes:
 
     - https://errorcorrectionzoo.org/c/generalized_bicycle
     - https://arxiv.org/abs/2203.17216
 
-    Bivariate quasi-cyclic codes are bivariate bicycle codes; see the BBCode class.
+    With polynomials in two variables, they are bivariate bicycle codes; see the BBCode class.
+
+    The X-distance and Z-distance of a multivariate bicycle code are equal.  Swapping the two
+    blocks, inverting group elements, and negating one block maps the X-type checks onto the Z-type
+    checks, and preserves the weights of operators.
     """
 
     poly_a: sympy.Poly
@@ -749,7 +754,7 @@ class QCCode(TBCode):
         poly_b: sympy.Basic,
         field: int | type[galois.FieldArray] | None = None,
     ) -> None:
-        """Construct a generalized bicycle code."""
+        """Construct a multivariate bicycle code."""
         # identify the symbols used to denote cyclic group generators
         symbols = poly_a.free_symbols | poly_b.free_symbols
         if len(orders) < len(symbols):
@@ -789,7 +794,7 @@ class QCCode(TBCode):
         self.poly_a = self.get_simplified_form(poly_a)
         self.poly_b = self.get_simplified_form(poly_b)
 
-        # build defining matrices of a quasi-cyclic code; transpose the lift by convention
+        # build defining matrices of a multivariate bicycle code; transpose the lift by convention
         matrix_a = self.ring.eval(self.poly_a, self.symbol_gens).lift().T
         matrix_b = self.ring.eval(self.poly_b, self.symbol_gens).lift().T
         super().__init__(
@@ -931,9 +936,18 @@ class QCCode(TBCode):
             + subgraphs_XL[::2]
         )
 
+    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_]:
+        """Translations of both blocks of qudits by the generators of the group of this code.
 
-class BBCode(QCCode):
-    """Bivariate bicycle code, or a quasi-cyclic code with polynomials in two variables.
+        The qudits of each block, and the checks of each type, are indexed by group elements.
+        Translating every qudit by a group element maps each check to the check of the translated
+        group element, so it maps the rows of both parity check matrices onto themselves.
+        """
+        return _get_block_translations(self.group, 2)
+
+
+class BBCode(MBCode):
+    """Bivariate bicycle code, or a multivariate bicycle code with polynomials in two variables.
 
     A bivariate bicycle code is a CSS code with subcode parity check matrices
 
@@ -1295,6 +1309,352 @@ class TwoGrossCode(BBCode):
         x, y = sympy.symbols("x y")
         super().__init__({x: 12, y: 12}, x**3 + y**2 + y**7, y**3 + x + x**2)
         self._distance_x = self._distance_z = 18
+
+
+class PairPartitionCode(CSSCode):
+    """Pair-partition code: a quasi-cyclic CSS code built from circulant permutation matrices.
+
+    A pair-partition code is a binary CSS code whose X-type and Z-type parity check matrices are
+    ``J x L`` arrays of ``P x P`` circulant permutation matrices (CPMs),
+
+    - ``matrix_x = [[C(e_{il})]]``, and
+    - ``matrix_z = [[C(d_{jl})]]``.
+
+    Here ``e_{il}`` and ``d_{jl}`` are the entries of the integer arrays ``exponents_x`` and
+    ``exponents_z``, and ``P`` is ``lift_size``.  The CPM ``C(s)`` has the nonzero entry of its row
+    ``r`` in column ``r - s`` (mod ``P``).  It is therefore the lift of ``x**s`` in the group
+    algebra ``F_2[Z_P]``, where ``x`` generates the cyclic group ``Z_P``.  The code has ``L * P``
+    qubits and ``J * P`` parity checks of each type.  Every parity check has weight ``L``, and every
+    qubit is addressed by ``J`` parity checks of each type.  Qubit ``l * P + r`` is qubit ``r`` of
+    block column ``l``.  The repositories in the references below interleave block columns instead,
+    which permutes qubits.
+
+    The parity check matrices are CPM lifts of the all-ones ``J x L`` base matrix, as in the
+    standard construction of quasi-cyclic LDPC codes.  The block of ``matrix_x @ matrix_z.T`` in
+    block row ``i`` and block column ``j`` is ``sum_l C(e_{il} - d_{jl})``.  Distinct CPMs have
+    disjoint supports, so this block vanishes over ``F_2`` if and only if the ``L`` block columns
+    of the parity check matrices split into pairs ``{u, v}`` that satisfy the paired-difference
+    equation ``d_{ju} - e_{iu} = d_{jv} - e_{iv}`` (mod ``P``).  The two CPMs of each pair then
+    coincide and cancel.  A ``J x J`` array of such pair partitions, one for each pair of block rows
+    ``(i, j)``, is called a pair-partition array.  PairPartitionCode.from_pair_partition_array
+    builds codes from a pair-partition array.
+
+    The relabelings ``e_{il} -> e_{il} + tau_l + alpha_i`` and ``d_{jl} -> d_{jl} + tau_l + beta_j``
+    preserve the paired-difference equations, and change the code only by permuting qubits and
+    parity checks.  Two further properties of the exponents are heuristics for better
+    belief-propagation decoding.  The first is the absence of 4-cycles in the Tanner graphs of
+    ``matrix_x`` and ``matrix_z`` (see PairPartitionCode.has_4_cycles).  The second is
+    mixed-distinctness, which makes every X-type check overlap every Z-type check on zero or two
+    qubits (see PairPartitionCode.is_mixed_distinct).
+
+    Translating every block column of qubits by the same cyclic shift maps the checks of each type
+    onto themselves.  Exact distance searches use these translations to search less if the optional
+    pybliss package is not installed, or finds no symmetries of the code.
+
+    PairPartitionCode does not record a code distance.  The ``[[276, 98, 14]]`` code below has
+    ``(J, L, P) = (4, 12, 23)``, and is instance ``qc_276_98_14`` in the repository of
+    arXiv:2607.14091.  Its distance of 14 is taken from the references, rather than computed::
+
+        from qldpc import codes
+
+        exponents_x = [
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 10, 16, 12, 20, 9, 6, 11, 2, 5, 21, 22],
+            [0, 7, 20, 11, 3, 12, 2, 22, 14, 19, 13, 6],
+            [0, 19, 17, 4, 2, 21, 12, 10, 18, 3, 11, 9],
+        ]
+        exponents_z = [
+            [0, 11, 18, 6, 13, 1, 0, 11, 18, 6, 13, 1],
+            [0, 12, 7, 22, 19, 10, 7, 10, 12, 19, 0, 22],
+            [0, 5, 6, 1, 4, 11, 1, 0, 4, 5, 11, 6],
+            [0, 8, 22, 21, 12, 20, 12, 22, 0, 20, 21, 8],
+        ]
+        code = codes.PairPartitionCode(exponents_x, exponents_z, lift_size=23)
+        assert (code.num_qubits, code.dimension) == (276, 98)
+
+    References:
+
+    - https://arxiv.org/abs/2609.30069, which subsumes https://arxiv.org/abs/2607.14091
+    - https://errorcorrectionzoo.org/c/quasi_cyclic_qldpc
+    - https://github.com/ultra-high-rate-qec/design-principles-data (instances of arXiv:2609.30069)
+    - https://github.com/kasaikenta/pair-partition-cpm-css-codes (instances of arXiv:2607.14091)
+
+    Args:
+        exponents_x: A ``J x L`` array of integer exponents ``e_{il}`` for the X-type checks.
+        exponents_z: A ``J x L`` array of integer exponents ``d_{jl}`` for the Z-type checks.
+        lift_size: The size ``P`` of the circulant permutation matrices, a positive integer.
+            Exponents are stored modulo ``P``.
+
+    Keyword args:
+        promise_equal_distance_xz: Passed to CSSCode: a promise, which is not verified, that the
+            X-distance and Z-distance of this code are equal.  Default: False.
+        skip_validation: If True, skip the check that ``matrix_x @ matrix_z.T == 0``.  If the
+            exponents then violate CSS orthogonality, the result is a subsystem code.  Structural
+            input validation is performed regardless.  Default: False.
+    """
+
+    exponents_x: npt.NDArray[np.int_]
+    exponents_z: npt.NDArray[np.int_]
+    lift_size: int
+
+    def __init__(
+        self,
+        exponents_x: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        exponents_z: npt.NDArray[np.int_] | Sequence[Sequence[int]],
+        lift_size: int,
+        *,
+        promise_equal_distance_xz: bool = False,
+        skip_validation: bool = False,
+    ) -> None:
+        """Construct a pair-partition code from two exponent arrays and a cyclic lift size."""
+        if lift_size < 1:
+            raise ValueError(f"The lift size must be positive (got {lift_size})")
+        self.lift_size = lift_size
+        self.exponents_x = self._validate_exponents(exponents_x, "X") % lift_size
+        self.exponents_z = self._validate_exponents(exponents_z, "Z") % lift_size
+        if self.exponents_x.shape != self.exponents_z.shape:
+            raise ValueError(
+                "The X-type and Z-type exponent arrays of a PairPartitionCode must have the same"
+                f" shape (got shapes {self.exponents_x.shape} and {self.exponents_z.shape})"
+            )
+
+        matrix_x = self.ring_array_x.lift()
+        matrix_z = self.ring_array_z.lift()
+        if not skip_validation and np.any(matrix_x @ matrix_z.T):
+            raise ValueError(
+                "The exponent arrays provided for this PairPartitionCode violate CSS orthogonality"
+                " (matrix_x @ matrix_z.T != 0); see help(qldpc.codes.PairPartitionCode)"
+            )
+        super().__init__(matrix_x, matrix_z, promise_equal_distance_xz=promise_equal_distance_xz)
+        if not skip_validation:
+            self._is_subsystem_code = False  # verified above
+
+    def __str__(self) -> str:
+        """Human-readable representation of this code."""
+        text = f"{self.name} on {self.num_qubits} qubits"
+        text += f", with cyclic lift size {self.lift_size} and exponent arrays"
+        text += f"\n  X: {self.exponents_x.tolist()}"
+        text += f"\n  Z: {self.exponents_z.tolist()}"
+        return text
+
+    @property
+    def ring_array_x(self) -> abstract.RingArray:
+        """The X-type parity check matrix as an array of monomials in F_2[Z_P]."""
+        return self._get_ring_array(self.exponents_x)
+
+    @property
+    def ring_array_z(self) -> abstract.RingArray:
+        """The Z-type parity check matrix as an array of monomials in F_2[Z_P]."""
+        return self._get_ring_array(self.exponents_z)
+
+    def has_4_cycles(self) -> bool:
+        """Does the Tanner graph of matrix_x or matrix_z contain a 4-cycle?
+
+        The Tanner graph of ``matrix_x`` has a 4-cycle if and only if, for some two block rows
+        ``i != i'``, the differences ``e_{il} - e_{i'l}`` (mod ``P``) take the same value at two
+        block columns ``l != l'``.  The same holds for ``matrix_z``.  See
+        https://doi.org/10.1109/TIT.2004.831841.
+        """
+        for exponents in [self.exponents_x, self.exponents_z]:
+            for row_a, row_b in itertools.combinations(exponents, 2):
+                diffs = (row_a - row_b) % self.lift_size
+                if np.bincount(diffs).max() > 1:
+                    return True
+        return False
+
+    def is_mixed_distinct(self) -> bool:
+        """Does every X-type check overlap every Z-type check on at most two qubits?
+
+        The X-type check in row ``r`` of block row ``i`` and the Z-type check in row ``r'`` of block
+        row ``j`` overlap in block column ``l`` exactly when ``d_{jl} - e_{il} = r' - r`` (mod
+        ``P``).  If the code is CSS-orthogonal, every such overlap has an even size, so this method
+        is equivalent to the mixed-distinctness condition of arXiv:2609.30069: distinct pairs
+        ``{u, v}`` in each pair partition of a pair-partition array have distinct differences
+        ``d_{ju} - e_{iu}``.  Mixed-distinctness reduces the number of 4-cycles that alternate
+        between X-type and Z-type checks.
+        """
+        for row_x in self.exponents_x:
+            for row_z in self.exponents_z:
+                diffs = (row_z - row_x) % self.lift_size
+                if np.bincount(diffs).max() > 2:
+                    return False
+        return True
+
+    @staticmethod
+    def solve_pair_partition_array(
+        matchings: Sequence[Sequence[Sequence[Sequence[int]]]],
+        lift_size: int,
+        *,
+        fix_gauge: bool = False,
+    ) -> galois.FieldArray:
+        """Solve the paired-difference equations of a pair-partition array.
+
+        A pair-partition array is a ``J x J`` array whose entry ``matchings[i][j]`` is a perfect
+        matching of ``range(L)``: a sequence of ``L / 2`` disjoint pairs ``(u, v)`` that together
+        cover ``0, 1, ..., L - 1``.  Each pair imposes the linear equation
+        ``d_{ju} - e_{iu} = d_{jv} - e_{iv}`` over ``F_P`` on the exponents of a PairPartitionCode,
+        and every solution defines a valid CSS code (see help(qldpc.codes.PairPartitionCode)).
+
+        As in arXiv:2609.30069, this method requires a prime lift size ``P``, so that it can solve
+        the equations over the field ``F_P``.  Codes with a composite lift size can be constructed
+        by passing exponents to PairPartitionCode directly.
+
+        The relabelings in help(qldpc.codes.PairPartitionCode) account for ``2 * J + L - 1``
+        dimensions of the solution space.  If ``fix_gauge`` is True, this method removes them by
+        imposing ``e_{0l} = 0`` for all ``l`` (as in arXiv:2609.30069), ``e_{i0} = 0`` for all
+        ``i``, and ``d_{j0} = 0`` for all ``j``.  Every solution is then related by a relabeling to
+        exactly one gauge-fixed solution.
+
+        Args:
+            matchings: A ``J x J`` pair-partition array.
+            lift_size: The size ``P`` of the circulant permutation matrices, a prime number.
+            fix_gauge: If True, restrict the solution space by the gauge-fixing conditions above.
+                Default: False.
+
+        Returns:
+            A basis for the solution space over ``F_P``, as an array with shape ``(K, 2, J, L)``,
+            where ``K`` is the dimension of the solution space.  Basis vector ``basis[m]`` stacks
+            the exponent arrays ``exponents_x = basis[m, 0]`` and ``exponents_z = basis[m, 1]``.
+        """
+        if not sympy.isprime(lift_size):
+            raise ValueError(
+                f"The lift size of a pair-partition array must be prime (got {lift_size})"
+            )
+        num_rows = len(matchings)  # J
+        if num_rows == 0 or any(len(matching_row) != num_rows for matching_row in matchings):
+            raise ValueError("A pair-partition array must be nonempty and square")
+        num_cols = 2 * len(matchings[0][0])  # L
+
+        # each pair imposes -e_{iu} + e_{iv} + d_{ju} - d_{jv} = 0 on the exponents (e, d)
+        equations = []
+        for i, matching_row in enumerate(matchings):
+            for j, matching in enumerate(matching_row):
+                cols = sorted(col for pair in matching for col in pair)
+                if (
+                    num_cols == 0
+                    or any(len(pair) != 2 for pair in matching)
+                    or cols != list(range(num_cols))
+                ):
+                    raise ValueError(
+                        f"matchings[{i}][{j}] is not a perfect matching of range({num_cols}) into"
+                        " pairs"
+                    )
+                for uu, vv in matching:
+                    equation = np.zeros((2, num_rows, num_cols), dtype=int)
+                    equation[0, i, [uu, vv]] = -1, 1
+                    equation[1, j, [uu, vv]] = 1, -1
+                    equations.append(equation.ravel())
+
+        if fix_gauge:
+            fixed = np.zeros((2, num_rows, num_cols), dtype=bool)
+            fixed[0, 0, :] = fixed[:, :, 0] = True
+            equations.extend(np.eye(fixed.size, dtype=int)[fixed.ravel()])
+
+        field = galois.GF(lift_size)
+        null_space = field(np.array(equations) % lift_size).null_space()
+        return null_space.reshape(-1, 2, num_rows, num_cols).view(field)
+
+    @classmethod
+    def from_pair_partition_array(
+        cls,
+        matchings: Sequence[Sequence[Sequence[Sequence[int]]]],
+        lift_size: int,
+        coefficients: Sequence[int] | None = None,
+        *,
+        fix_gauge: bool = False,
+        seed: int | np.random.Generator | None = None,
+    ) -> PairPartitionCode:
+        """Construct a pair-partition code from a pair-partition array.
+
+        The solutions to the paired-difference equations of a pair-partition array form a linear
+        family of codes (see PairPartitionCode.solve_pair_partition_array).  This method builds the
+        member of that family whose coefficients in the basis returned by
+        solve_pair_partition_array are ``coefficients``.  If ``coefficients`` is None, this method
+        builds a uniformly random member instead.
+
+        Every member of a family is CSS-orthogonal, but its girth, dimension, and distance depend on
+        the member.  The code search of arXiv:2609.30069 samples random members, and rejects those
+        with 4-cycles (see PairPartitionCode.has_4_cycles) or without mixed-distinctness (see
+        PairPartitionCode.is_mixed_distinct).  Often most members are rejected, especially when
+        ``P`` is small.
+
+        Args:
+            matchings: A ``J x J`` pair-partition array (see solve_pair_partition_array).
+            lift_size: The size ``P`` of the circulant permutation matrices, a prime number.
+            coefficients: The coefficients of the chosen member in the basis returned by
+                solve_pair_partition_array, or None to choose a random member.  Default: None.
+            fix_gauge: Passed to solve_pair_partition_array.  Default: False.
+            seed: A seed or random number generator for choosing a random member.  Default: None.
+        """
+        basis = cls.solve_pair_partition_array(matchings, lift_size, fix_gauge=fix_gauge)
+        field = type(basis)
+        if coefficients is None:
+            combination = field(np.random.default_rng(seed).integers(lift_size, size=len(basis)))
+        elif len(coefficients) != len(basis):
+            raise ValueError(
+                f"Expected {len(basis)} coefficients for this pair-partition array, got"
+                f" {len(coefficients)}"
+            )
+        else:
+            combination = field(np.array(coefficients, dtype=int) % lift_size)
+        exponents = combination @ basis.reshape(len(basis), math.prod(basis.shape[1:]))
+        exponents_x, exponents_z = np.array(exponents.reshape(basis.shape[1:]), dtype=int)
+        return cls(exponents_x, exponents_z, lift_size)
+
+    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_]:
+        """Translations of every block column of qubits by the generator of the cyclic group Z_P.
+
+        The X-type check in row ``r`` of block row ``i`` addresses qubit ``r - e_{il}`` of each
+        block column ``l``.  Translating every qubit ``t`` of every block column to ``t + 1``
+        therefore maps this check to the X-type check in row ``r + 1`` of the same block row, so it
+        maps the rows of ``matrix_x`` onto themselves.  The same argument applies to ``matrix_z``.
+        """
+        num_blocks = self.exponents_x.shape[1]
+        return _get_block_translations(abstract.CyclicGroup(self.lift_size), num_blocks)
+
+    @staticmethod
+    def _validate_exponents(
+        exponents: npt.NDArray[np.int_] | Sequence[Sequence[int]], pauli: str
+    ) -> npt.NDArray[np.int_]:
+        """Check that an exponent array is a nonempty 2D array of integers, and return it."""
+        array = np.asarray(exponents)
+        if array.ndim != 2 or array.size == 0 or not np.issubdtype(array.dtype, np.integer):
+            raise ValueError(
+                f"The {pauli}-type exponent array of a PairPartitionCode must be a nonempty"
+                f" two-dimensional array of integers (got shape {array.shape} and dtype"
+                f" {array.dtype})"
+            )
+        return array.astype(int)
+
+    def _get_ring_array(self, exponents: npt.NDArray[np.int_]) -> abstract.RingArray:
+        """Build the array of monomials x**e in F_2[Z_P] for an array of exponents e."""
+        ring = abstract.GroupRing(abstract.CyclicGroup(self.lift_size))
+        generator = ring.group.generators[0]
+        return abstract.RingArray.build(
+            [[generator ** int(exp) for exp in row] for row in exponents], ring
+        )
+
+
+def _get_block_translations(group: abstract.Group, num_blocks: int) -> npt.NDArray[np.int_]:
+    """Qudit permutations that translate several blocks of qudits at once by group generators.
+
+    The qudits form ``num_blocks`` consecutive blocks.  The qudits of each block are indexed like
+    the rows of the lifts of ``group``, which must be permutation matrices.  Row ``i`` of the result
+    moves the qudits of every block as the lift of generator ``i`` moves its rows.
+
+    These permutations preserve a code whose checks they permute, as when the parity check matrices
+    are arrays of lifts of elements of an abelian group algebra, as in a quasi-cyclic code.  Such a
+    code can return them from ``_get_qudit_automorphisms``.
+    """
+    block_size = len(group.lift(group.identity))
+    offsets = block_size * np.arange(num_blocks)[:, None]
+    return np.array(
+        [
+            (np.argmax(group.lift(generator), axis=0) + offsets).ravel()
+            for generator in group.generators
+        ],
+        dtype=int,
+    ).reshape(-1, num_blocks * block_size)
 
 
 ####################################################################################################
@@ -1667,7 +2027,7 @@ class HGPCode(CSSCode):
 
 
 class CHGPCode(HGPCode):
-    """Cyclic hypergraph product code.
+    """Cyclic hypergraph product code, called a CxC code in arXiv:2511.09683.
 
     A CHGPCode is a hypergraph product of classical CyclicCodes.
 
@@ -1697,7 +2057,7 @@ class CHGPCode(HGPCode):
 
 
 class CRCode(HGPCode):
-    """Repeated cyclic hypergraph product code.
+    """Repeated cyclic hypergraph product code, called a CxR code in arXiv:2511.09683.
 
     A CRCode is a hypergraph product of a CyclicCode and a RingCode.
 
@@ -3181,3 +3541,9 @@ def _rotated_check_is_used(row: int, col: int, rows: int, cols: int) -> bool:
 
 # offsets from a data qubit at (row, col) to its neighboring checks in a rotated surface code
 _CHECK_OFFSETS = {"nw": (0, 0), "ne": (0, 1), "sw": (1, 0), "se": (1, 1)}
+
+
+if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations
+
+    def __getattr__(name: str) -> object:
+        return _deprecations.get_deprecated_attribute(__name__, name)

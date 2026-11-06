@@ -4,12 +4,15 @@
 
 from __future__ import annotations
 
+import itertools
 import pathlib
 import random
 import unittest.mock
 
+import galois
 import networkx as nx
 import numpy as np
+import numpy.typing as npt
 import pytest
 import sympy
 from sympy.abc import x, y
@@ -21,6 +24,8 @@ from qldpc.math import resolve_field
 from qldpc.objects import ChainComplex, Node, Pauli
 
 from .common_test import assert_valid_subgraphs
+from .distance import _automorphisms
+from .quantum import _get_block_translations
 
 
 def test_trivial_code() -> None:
@@ -478,15 +483,15 @@ def get_dist_l1(
     return sum(min(diff, length - diff) for diff, length in zip(diffs, torus_shape))
 
 
-def test_quasi_cyclic_codes() -> None:
+def test_multivariate_bicycle_codes() -> None:
     """Multivariate versions of the bicycle codes in arXiv:2308.07915 and arXiv:2311.16980."""
 
     # not enough orders provided
     with pytest.raises(ValueError, match=r"Provided .* symbols, but only .* orders"):
-        codes.QCCode([], x, y)
+        codes.MBCode([], x, y)
 
     # add placeholder symbols if necessary
-    code = codes.QCCode([2, 1, 3], x, x * y)
+    code = codes.MBCode([2, 1, 3], x, x * y)
     assert len(code.symbols) == 3
 
     assert_valid_subgraphs(code)
@@ -494,25 +499,25 @@ def test_quasi_cyclic_codes() -> None:
         code.get_syndrome_subgraphs(strategy="smallest_last")
 
     # a symbol whose cyclic group is trivial acts as the identity, so all of its powers agree
-    assert np.array_equal(code.matrix, codes.QCCode([2, 1, 3], x, x * y**2).matrix)
+    assert np.array_equal(code.matrix, codes.MBCode([2, 1, 3], x, x * y**2).matrix)
 
     # distinct monomials can name the same group element, and are simplified into a single term
-    assert_valid_subgraphs(codes.QCCode([3], 1 + x**3 + x**6, 1 + x))
+    assert_valid_subgraphs(codes.MBCode([3], 1 + x**3 + x**6, 1 + x))
 
     # the coefficients of such monomials are summed in the base field, each denoting a field element
     # rather than a multiplicity: over GF(4) the elements 1, 1 and -2 sum to 2, not to the 0 that
     # the same integers give
-    assert codes.QCCode([3], 1 + x**3 - 2 * x**6, 1 + x, field=4).poly_a.as_expr() == 2
+    assert codes.MBCode([3], 1 + x**3 - 2 * x**6, 1 + x, field=4).poly_a.as_expr() == 2
 
     # more than one placeholder symbol is needed when the orders outnumber the symbols by 2 or more
     for orders, poly_a, poly_b in [([3, 4, 5], 1 + x, 1 + x**2), ([3, 4, 5, 6], 1 + x, 1 + y)]:
-        code = codes.QCCode(orders, poly_a, poly_b)
+        code = codes.MBCode(orders, poly_a, poly_b)
         assert len(code.symbols) == len(orders)
         assert len(set(code.symbols)) == len(orders)  # every placeholder is distinct
         assert len(code) == 2 * np.prod(orders)
 
     # placeholder names do not depend on the iteration order of a set of symbols
-    assert [str(symbol) for symbol in codes.QCCode([3, 4, 5, 6], 1 + x, 1 + y).symbols] == [
+    assert [str(symbol) for symbol in codes.MBCode([3, 4, 5, 6], 1 + x, 1 + y).symbols] == [
         "x",
         "y",
         "~xy_2",
@@ -520,17 +525,249 @@ def test_quasi_cyclic_codes() -> None:
     ]
 
 
+def test_multivariate_bicycle_translations_preserve_checks() -> None:
+    """Translations of a multivariate bicycle code map its checks of each type onto themselves.
+
+    One cyclic factor of this code is trivial, so its group has fewer generators than symbols.
+    """
+    code = codes.MBCode([2, 1, 3], x + 1, x * y + 1)
+    for permutation in code._get_qudit_automorphisms():
+        for matrix in (code.matrix_x, code.matrix_z):
+            permuted = np.zeros_like(matrix)
+            permuted[:, permutation] = matrix
+            assert {row.tobytes() for row in permuted} == {row.tobytes() for row in matrix}
+
+
+def test_block_translations() -> None:
+    """Block translations move every block of qudits alike, and act regularly on each block.
+
+    Translations by the generators of an abelian group commute, and a commuting group of
+    permutations that takes any qudit of a block to any other acts on it regularly.
+    """
+    group = abstract.AbelianGroup(2, 3)
+    num_blocks, block_size = 3, group.order
+    translations = _get_block_translations(group, num_blocks)
+    assert len(translations) == len(group.generators)
+
+    blocks = np.arange(num_blocks * block_size).reshape(num_blocks, block_size)
+    for translation in translations:
+        assert np.array_equal(translation[blocks] - blocks[:, :1], [translation[:block_size]] * 3)
+    for first, second in itertools.combinations(translations, 2):
+        assert np.array_equal(first[second], second[first])
+    orbits = _automorphisms._get_orbits(translations, num_blocks * block_size)
+    assert [len(set(orbits[block])) for block in blocks] == [1] * num_blocks
+    assert len(set(orbits)) == num_blocks
+
+
 @pytest.mark.parametrize("num_terms", [1, 3, 4])
-def test_quasi_cyclic_syndrome_subgraphs_by_term_count(num_terms: int) -> None:
+def test_multivariate_bicycle_syndrome_subgraphs_by_term_count(num_terms: int) -> None:
     """Syndrome subgraphs partition every Tanner edge beyond the two-term documented example."""
     poly_a = sum(x**power for power in range(1, num_terms + 1))
     poly_b = sum(x**power for power in range(6, 6 + num_terms))
-    code = codes.QCCode([11], poly_a, poly_b)
+    code = codes.MBCode([11], poly_a, poly_b)
 
     assert len(code.poly_a.terms()) == num_terms
     assert len(code.poly_b.terms()) == num_terms
     assert len(code.get_syndrome_subgraphs()) == 4 * num_terms
     assert_valid_subgraphs(code)
+
+
+# instance qc_276_98_14 in https://github.com/kasaikenta/pair-partition-cpm-css-codes
+PAIR_PARTITION_ARRAY_276 = [
+    [
+        [[1, 7], [3, 9], [5, 11], [0, 6], [2, 8], [4, 10]],
+        [[3, 11], [0, 10], [4, 9], [1, 8], [5, 7], [2, 6]],
+        [[5, 10], [2, 11], [1, 9], [4, 8], [3, 6], [0, 7]],
+        [[4, 6], [5, 9], [2, 7], [3, 10], [0, 8], [1, 11]],
+    ],
+    [
+        [[3, 6], [1, 9], [5, 10], [0, 7], [4, 8], [2, 11]],
+        [[2, 9], [4, 7], [5, 6], [0, 11], [1, 10], [3, 8]],
+        [[0, 9], [1, 6], [2, 10], [3, 7], [4, 11], [5, 8]],
+        [[4, 9], [5, 7], [3, 11], [2, 6], [0, 10], [1, 8]],
+    ],
+    [
+        [[1, 8], [0, 10], [2, 6], [3, 11], [5, 7], [4, 9]],
+        [[5, 8], [4, 11], [3, 7], [2, 10], [1, 6], [0, 9]],
+        [[3, 8], [1, 10], [0, 11], [5, 6], [4, 7], [2, 9]],
+        [[2, 11], [4, 8], [0, 7], [5, 10], [1, 9], [3, 6]],
+    ],
+    [
+        [[1, 11], [0, 8], [3, 10], [2, 7], [5, 9], [4, 6]],
+        [[0, 7], [3, 6], [4, 8], [1, 9], [2, 11], [5, 10]],
+        [[2, 6], [5, 7], [1, 8], [4, 9], [0, 10], [3, 11]],
+        [[4, 10], [2, 8], [0, 6], [5, 11], [3, 9], [1, 7]],
+    ],
+]
+EXPONENTS_X_276 = [
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 10, 16, 12, 20, 9, 6, 11, 2, 5, 21, 22],
+    [0, 7, 20, 11, 3, 12, 2, 22, 14, 19, 13, 6],
+    [0, 19, 17, 4, 2, 21, 12, 10, 18, 3, 11, 9],
+]
+EXPONENTS_Z_276 = [
+    [0, 11, 18, 6, 13, 1, 0, 11, 18, 6, 13, 1],
+    [0, 12, 7, 22, 19, 10, 7, 10, 12, 19, 0, 22],
+    [0, 5, 6, 1, 4, 11, 1, 0, 4, 5, 11, 6],
+    [0, 8, 22, 21, 12, 20, 12, 22, 0, 20, 21, 8],
+]
+
+
+def assert_pair_partition_cycle_properties(code: codes.PairPartitionCode) -> None:
+    """Check PairPartitionCode.has_4_cycles and .is_mixed_distinct against their binary matrices."""
+    matrix_x = code.matrix_x.view(np.ndarray).astype(int)
+    matrix_z = code.matrix_z.view(np.ndarray).astype(int)
+    has_4_cycles = False
+    for matrix in [matrix_x, matrix_z]:
+        overlaps = matrix @ matrix.T
+        np.fill_diagonal(overlaps, 0)
+        has_4_cycles |= bool(np.any(overlaps >= 2))
+    assert code.has_4_cycles() == has_4_cycles
+    assert code.is_mixed_distinct() == bool(np.all(matrix_x @ matrix_z.T <= 2))
+
+
+def test_pair_partition_codes() -> None:
+    """Pair-partition CSS codes from circulant permutation matrices."""
+    # C(s) has the nonzero entry of its row r in column r - s, and block columns are not interleaved
+    code = codes.PairPartitionCode([[1, 2]], [[0, 1]], lift_size=3)
+    assert np.array_equal(
+        code.matrix_x,
+        [[0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 0, 1], [0, 1, 0, 1, 0, 0]],
+    )
+
+    # the [[276, 98, 14]] code of arXiv:2607.14091 and arXiv:2609.30069
+    code = codes.PairPartitionCode(EXPONENTS_X_276, EXPONENTS_Z_276, lift_size=23)
+    assert (code.num_qubits, code.dimension) == (276, 98)
+    assert not code.has_4_cycles()
+    assert code.is_mixed_distinct()
+    assert_pair_partition_cycle_properties(code)
+
+    # a code with (J, L, P) = (2, 4, 5), which has 4-cycles and is not mixed-distinct
+    exponents_x = [[4, 3, 2, 1], [1, 0, 0, 4]]
+    exponents_z = [[0, 4, 4, 3], [0, 4, 3, 2]]
+    code = codes.PairPartitionCode(exponents_x, exponents_z, lift_size=5)
+    assert code.has_4_cycles()
+    assert not code.is_mixed_distinct()
+    assert_pair_partition_cycle_properties(code)
+    assert "lift size 5" in str(code)
+
+    # translating every block column by the same cyclic shift preserves the checks of each type,
+    # and moves each qubit through every position of its block column
+    (translation,) = code._get_qudit_automorphisms()
+    shifts = (translation.reshape(4, 5) - np.arange(5)) % 5
+    assert np.all(shifts == shifts[0, 0]) and shifts[0, 0] != 0
+    assert np.all(translation.reshape(4, 5) // 5 == np.arange(4)[:, None])
+    for matrix in [code.matrix_x, code.matrix_z]:
+        permuted = np.zeros_like(matrix)
+        permuted[:, translation] = matrix
+        assert {row.tobytes() for row in permuted} == {row.tobytes() for row in matrix}
+
+    # exponents are stored modulo the lift size
+    shifted = codes.PairPartitionCode(np.array(exponents_x) - 5, exponents_z, lift_size=5)
+    assert np.array_equal(shifted.exponents_x, exponents_x)
+    assert shifted == code
+
+    # skip_validation builds a subsystem code from exponents that violate CSS orthogonality; here,
+    # only one of the two Tanner graphs has a 4-cycle, from a single repeated difference
+    for exponents_x, exponents_z in [
+        ([[0, 0, 0], [0, 1, 1]], [[0, 0, 0], [0, 1, 2]]),
+        ([[0, 0, 0], [0, 1, 2]], [[0, 0, 0], [0, 1, 1]]),
+    ]:
+        code = codes.PairPartitionCode(exponents_x, exponents_z, lift_size=3, skip_validation=True)
+        assert code.is_subsystem_code
+        assert code.has_4_cycles()
+        assert_pair_partition_cycle_properties(code)
+
+
+def test_pair_partition_code_validation() -> None:
+    """Invalid inputs to the PairPartitionCode constructor are rejected."""
+    with pytest.raises(ValueError, match="must be positive"):
+        codes.PairPartitionCode([[0, 0]], [[0, 0]], lift_size=0)
+    for exponents in [[0, 0], np.zeros((0, 2), dtype=int), [[0, 0.5]]]:
+        with pytest.raises(ValueError, match="nonempty two-dimensional array of integers"):
+            codes.PairPartitionCode(exponents, [[0, 0]], lift_size=3)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="same shape"):
+        codes.PairPartitionCode([[0, 0]], [[0, 0], [0, 0]], lift_size=3)
+    with pytest.raises(ValueError, match="CSS orthogonality"):
+        codes.PairPartitionCode([[0, 0]], [[0, 1]], lift_size=3)
+
+
+def test_pair_partition_from_array(pytestconfig: pytest.Config) -> None:
+    """Building a pair-partition code from a pair-partition array by solving its constraints."""
+    matchings = [
+        [[[0, 1], [2, 3]], [[0, 2], [1, 3]]],
+        [[[0, 3], [1, 2]], [[0, 1], [2, 3]]],
+    ]
+
+    def is_solution(exponents: npt.NDArray[np.int_], lift_size: int) -> npt.NDArray[np.bool_]:
+        """Which stacked exponent arrays satisfy the paired-difference equations of matchings?"""
+        satisfied = np.ones(len(exponents), dtype=bool)
+        for i, j in itertools.product(range(2), repeat=2):
+            diffs = exponents[:, 1, j] - exponents[:, 0, i]
+            for uu, vv in matchings[i][j]:
+                satisfied &= (diffs[:, uu] - diffs[:, vv]) % lift_size == 0
+        return satisfied
+
+    # the basis spans exactly the solutions that brute force finds for a lift size of 2
+    basis = codes.PairPartitionCode.solve_pair_partition_array(matchings, 2)
+    vectors = np.array(list(itertools.product(range(2), repeat=16))).reshape(-1, 2, 2, 4)
+    assert np.all(is_solution(np.array(basis, dtype=int), 2))
+    assert np.linalg.matrix_rank(basis.reshape(len(basis), -1)) == len(basis)
+    assert 2 ** len(basis) == np.count_nonzero(is_solution(vectors, 2))
+
+    # for a lift size of 5, the signs of the paired-difference equations matter
+    lift_size = 5
+    basis = codes.PairPartitionCode.solve_pair_partition_array(matchings, lift_size)
+    assert np.all(is_solution(np.array(basis, dtype=int), lift_size))
+
+    # members of the family are chosen by their coefficients in the basis, or at random
+    coefficients = list(range(len(basis)))
+    code = codes.PairPartitionCode.from_pair_partition_array(
+        matchings, lift_size, coefficients=coefficients
+    )
+    exponents_x, exponents_z = np.tensordot(coefficients, np.array(basis, dtype=int), axes=1)
+    assert np.array_equal(code.exponents_x, exponents_x % lift_size)
+    assert np.array_equal(code.exponents_z, exponents_z % lift_size)
+    seed = pytestconfig.getoption("randomly_seed")
+    code = codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size, seed=seed)
+    assert code == codes.PairPartitionCode.from_pair_partition_array(
+        matchings, lift_size, seed=seed
+    )
+
+    # a family can consist of a single member, with all exponents equal to zero
+    code = codes.PairPartitionCode.from_pair_partition_array(
+        [[[[0, 1]]]], lift_size, fix_gauge=True
+    )
+    assert not np.any(code.exponents_x) and not np.any(code.exponents_z)
+
+    with pytest.raises(ValueError, match="coefficients"):
+        codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size, coefficients=[1])
+    with pytest.raises(ValueError, match="must be prime"):
+        codes.PairPartitionCode.solve_pair_partition_array(matchings, lift_size=4)
+
+    # the array must be nonempty and square, and each entry must be a perfect matching of range(L)
+    with pytest.raises(ValueError, match="nonempty and square"):
+        codes.PairPartitionCode.solve_pair_partition_array([[[[0, 1]]], [[[0, 1]]]], lift_size=5)
+    for bad_matching in [[], [[0, 2]], [[0, 1, 2], [3]]]:
+        with pytest.raises(ValueError, match="perfect matching"):
+            codes.PairPartitionCode.solve_pair_partition_array([[bad_matching]], lift_size=5)
+
+
+def test_pair_partition_from_published_array() -> None:
+    """The published [[276, 98, 14]] code belongs to the family of its pair-partition array."""
+    lift_size = 23
+    exponents = galois.GF(lift_size)([EXPONENTS_X_276, EXPONENTS_Z_276])
+
+    # fixing the gauge removes the 2 * J + L - 1 trivial directions from the family
+    basis = codes.PairPartitionCode.solve_pair_partition_array(PAIR_PARTITION_ARRAY_276, lift_size)
+    fixed_basis = codes.PairPartitionCode.solve_pair_partition_array(
+        PAIR_PARTITION_ARRAY_276, lift_size, fix_gauge=True
+    )
+    assert len(basis) - len(fixed_basis) == 2 * 4 + 12 - 1
+
+    # the published exponents satisfy the gauge-fixing conditions, so they are in the fixed family
+    vectors = np.vstack([fixed_basis, exponents[None]]).reshape(len(fixed_basis) + 1, -1)
+    assert np.linalg.matrix_rank(vectors) == len(fixed_basis)
 
 
 @pytest.mark.parametrize("field", [2, 3])
@@ -826,19 +1063,19 @@ def test_lifted_product_codes() -> None:
         assert subsystem_rate > rate
 
 
-def test_one_by_one_lifted_product_is_quasi_cyclic() -> None:
-    """A one-by-one lifted product is the corresponding quasi-cyclic code."""
+def test_one_by_one_lifted_product_is_multivariate_bicycle() -> None:
+    """A one-by-one lifted product over an abelian group is a multivariate bicycle code."""
     ring = abstract.GroupRing(abstract.CyclicGroup(5), field=3)
     shift = ring.generators[0]
     element_a = ring.one + shift
     element_b = ring.one + shift**2
 
     lifted = codes.LPCode([[element_a.T]], [[element_b]])
-    quasi_cyclic = codes.QCCode([5], 1 + x, 1 + x**2, field=3)
+    bicycle = codes.MBCode([5], 1 + x, 1 + x**2, field=3)
 
-    assert np.array_equal(lifted.matrix_x, quasi_cyclic.matrix_x)
-    assert np.array_equal(lifted.matrix_z, -quasi_cyclic.matrix_z)
-    assert lifted.is_equiv_to(quasi_cyclic)
+    assert np.array_equal(lifted.matrix_x, bicycle.matrix_x)
+    assert np.array_equal(lifted.matrix_z, -bicycle.matrix_z)
+    assert lifted.is_equiv_to(bicycle)
 
 
 def test_subsystem_lifted_product_codes(ring_cyclic3_gf2: abstract.GroupRing) -> None:
