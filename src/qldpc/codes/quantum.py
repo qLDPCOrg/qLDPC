@@ -942,17 +942,7 @@ class QCCode(TBCode):
         Translating every qudit by a group element maps each check to the check of the translated
         group element, so it maps the rows of both parity check matrices onto themselves.
         """
-        block_size = len(self) // 2
-        translations = [
-            np.argmax(self.group.lift(generator), axis=0) for generator in self.group.generators
-        ]
-        return np.array(
-            [
-                np.concatenate([translation, translation + block_size])
-                for translation in translations
-            ],
-            dtype=int,
-        ).reshape(-1, len(self))
+        return _get_block_translations(self.group, 2)
 
 
 class BBCode(QCCode):
@@ -1318,6 +1308,25 @@ class TwoGrossCode(BBCode):
         x, y = sympy.symbols("x y")
         super().__init__({x: 12, y: 12}, x**3 + y**2 + y**7, y**3 + x + x**2)
         self._distance_x = self._distance_z = 18
+
+
+def _get_block_translations(group: abstract.Group, num_blocks: int) -> npt.NDArray[np.int_]:
+    """Qudit permutations that translate several blocks of qudits at once by group generators.
+
+    The qudits form ``num_blocks`` consecutive blocks, each indexed like the rows of the lifts of
+    ``group``, which must be permutation matrices.  Row ``i`` of the result maps each qudit to its
+    image under the lift of generator ``i``, in every block at once.  Codes whose checks the group
+    acts on by these translations return them from ``_get_qudit_automorphisms``.
+    """
+    block_size = len(group.lift(group.identity))
+    offsets = block_size * np.arange(num_blocks)[:, None]
+    return np.array(
+        [
+            (np.argmax(group.lift(generator), axis=0) + offsets).ravel()
+            for generator in group.generators
+        ],
+        dtype=int,
+    ).reshape(-1, num_blocks * block_size)
 
 
 ####################################################################################################
