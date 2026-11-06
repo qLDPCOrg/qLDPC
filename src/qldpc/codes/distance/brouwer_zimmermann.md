@@ -637,7 +637,8 @@ With an early-exit cutoff above one, a different search order can find a differe
   The limit also caps `cutoff` at `max_weight`.
   Without that cap, a cutoff at or above `max_weight+1` would end the search at once on the assumed witness, even if a lighter word exists.
   Passing `cutoff=max_weight` as well stops the search at the first word within the limit.
-  Inputs without nontrivial words have no distance and give `n+1`, one more than the weight of any word on `n` bits or qubits, capped at `max_weight+1`.
+  Inputs without nontrivial words have no distance and give `n+1`, capped at `max_weight+1`.
+  No word on `n` bits or qubits has weight `n+1`.
   For non-homogeneous input, the BZ route doubles the bound along with `cutoff`.
 - **Units.**
   Homogeneous input represents a pure-X or pure-Z problem with one support bit per qubit.

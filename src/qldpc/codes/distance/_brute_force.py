@@ -53,9 +53,9 @@ def get_distance_quantum_brute_force(
     int_stabilizers = pack_bits(np.asarray(stabilizers, dtype=np.uint8))
     num_stabilizers = len(int_stabilizers)
 
-    # Number of generators to include in the operational array, so that most calculations are
-    # vectorized over at most ``2**block_size`` values: rows of more packed words leave fewer
-    # generators, and never a negative number.
+    # Choose how many generators to vectorize over, so that most calculations act on at most
+    # ``2**block_size`` values.  Rows of more packed words allow fewer generators, and never fewer
+    # than zero.
     num_vectorized_ops = max(
         0,
         min(
@@ -81,8 +81,8 @@ def get_distance_quantum_brute_force(
     # Everything below will run much faster if we use Fortran-style ordering
     arrayf = np.asarray(array, order="F", dtype=np.uint64)
 
-    # np.bitwise_count returns uint8, which would overflow the row sums of weights at 256 or more
-    # columns, so weights are kept in uint64: the loop below writes them into this buffer.
+    # np.bitwise_count returns uint8, whose row sums would overflow at 256 or more columns.  The
+    # loop below therefore writes the weights into this uint64 buffer.
     out = np.empty_like(arrayf)
 
     # Min weight of the block containing logical ops, with weights cast to uint64 as above.

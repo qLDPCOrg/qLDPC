@@ -487,8 +487,9 @@ class CSSLogicalCounter:
             )
 
         # Transform the kept work where the gate allows it, and drop the rest.  A gate can change
-        # the distance, so the deformed counter searches for it again, and it changes the weight of
-        # every check word that touches its qubits, so the weight enumerators are not kept.
+        # the distance, so the deformed counter searches for it again.  A gate also changes the
+        # weight of every check word that touches its qubits, so the weight enumerators are not
+        # kept.
         counter._forget_kept_work()
         if self._sectors is not None:
             (basis_x, labels_x), (basis_z, labels_z) = self._sectors

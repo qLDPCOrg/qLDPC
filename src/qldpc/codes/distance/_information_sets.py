@@ -847,7 +847,7 @@ def _estimate_optimistic_work(
     max_sets: int,
     binomials: npt.NDArray[np.int64],
 ) -> int:
-    """Bound below the estimated work of every basis family of at most ``max_sets`` full sets.
+    """Return a lower bound on the estimated work of a family of at most ``max_sets`` full sets.
 
     The basis has ``dimension`` rows and ``num_columns`` nonzero columns, and ``binomials`` are
     ``get_capped_binomials(dimension)``.  Some column of ``m`` full sets is in at least ``ceil(m *

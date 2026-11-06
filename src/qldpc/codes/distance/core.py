@@ -73,10 +73,10 @@ def get_distance_classical(
     Returns:
         The minimum Hamming distance between different code words, or equivalently the minimum
         Hamming weight of a nontrivial code word.  A code of length ``n`` without nontrivial code
-        words has no distance and gives ``n + 1``, which no code word reaches, even if it is at most
-        ``cutoff``.  If ``max_weight`` is given, the result is the smaller of this value and
-        ``max_weight + 1``, so a result of ``max_weight + 1`` means that every nontrivial code word
-        is heavier than ``max_weight``.
+        words has no distance and gives ``n + 1``.  No code word has this weight, so it is not an
+        observed weight, even if it is at most ``cutoff``.  If ``max_weight`` is given, the result
+        is the smaller of this value and ``max_weight + 1``, so a result of ``max_weight + 1`` means
+        that every nontrivial code word is heavier than ``max_weight``.
 
     Raises:
         TypeError: If ``max_weight`` is not an integer, or is a bool.
@@ -154,10 +154,10 @@ def get_distance_quantum(
         still returns the exact distance for every valid input (an early return can exceed the
         distance only when ``cutoff >= 2``).  Pass ``cutoff=0`` to disable the early exit and force
         the exact minimum.  Inputs on ``n`` qubits without nontrivial logical operators have no
-        distance and give ``n + 1``, which no operator reaches, even if it is at most ``cutoff``.
-        If ``max_weight`` is given, the result is the smaller of this value and ``max_weight + 1``,
-        so a result of ``max_weight + 1`` means that every nontrivial logical operator is heavier
-        than ``max_weight``.
+        distance and give ``n + 1``.  No operator has this weight, so it is not an observed weight,
+        even if it is at most ``cutoff``.  If ``max_weight`` is given, the result is the smaller of
+        this value and ``max_weight + 1``, so a result of ``max_weight + 1`` means that every
+        nontrivial logical operator is heavier than ``max_weight``.
 
     Raises:
         TypeError: If ``max_weight`` is not an integer, or is a bool.
@@ -183,8 +183,8 @@ def get_distance_quantum(
     physical_size = num_bits if homogeneous else num_bits // 2
     if not homogeneous and num_bits % 2:
         raise ValueError("Symplectic operators must have an even number of columns")
-    # Without a nontrivial logical operator there is no distance, and the result is n + 1, one more
-    # than the weight of any operator.
+    # Without a nontrivial logical operator there is no distance, and the result is n + 1, which
+    # exceeds the weight of every operator.
     no_distance = _apply_upper_bound(physical_size + 1, upper_bound)
     if not len(logical_matrix):
         return no_distance
@@ -233,10 +233,10 @@ def _get_distance_css_brouwer_zimmermann(
             is the minimum of this bound and the distances of the supplied sectors.
 
     Returns:
-        The minimum exact distance across the supplied sectors and optional upper bound, where a
+        The minimum exact distance across the supplied sectors and the optional upper bound.  A
         sector without nontrivial logical operators counts as one more than its width, as in
-        get_distance_quantum.  As there, that value is not the weight of an operator, even if it is
-        at most ``cutoff``, and any other result at or below ``cutoff`` is an observed upper bound.
+        get_distance_quantum, and no operator has that weight.  Any other result at or below
+        ``cutoff`` is an observed upper bound.
 
     Raises:
         ValueError: If there are neither sectors nor an upper bound, or if the operators of a sector
@@ -253,15 +253,15 @@ def _get_distance_css_brouwer_zimmermann(
             problems.append((basis, labels))
             continue
 
-        # A sector without nontrivial logical operators has no distance, and contributes one more
-        # than its width, the weight of no operator, as get_distance_quantum returns.
+        # A sector without nontrivial logical operators has no distance.  It contributes one more
+        # than its width, as get_distance_quantum returns, and no operator has that weight.
         sector_bound = logical_matrix.shape[1] + 1
         no_distance_bound = (
             sector_bound if no_distance_bound is None else min(no_distance_bound, sector_bound)
         )
 
-    # Only the weight of a known operator can end the search early, or bound the searches of the
-    # other sectors, since no operator has the weight of a sector without one.
+    # Only the weight of a known operator can end the search early or bound the searches of the
+    # other sectors.  The bound of a sector without logical operators joins the minimum at the end.
     bounds = [bound for bound in (upper_bound, no_distance_bound) if bound is not None]
     if (upper_bound is not None and upper_bound <= cutoff) or not problems:
         return min(bounds)

@@ -105,7 +105,7 @@ def get_distance_brouwer_zimmermann(
     The disjoint and rank-deficient bound follows Algorithm 1 of https://arxiv.org/abs/1603.06757.
     The overlapping-set extension divides pivot occupancy by the maximum coordinate coverage.
     Nonzero ``labels`` identify rows outside an excluded subcode, and labels with no columns exclude
-    nothing (see ``get_eligible_rows``); transforming them alongside the generators makes the
+    nothing (see ``get_eligible_rows``).  Transforming the labels alongside the generators makes the
     upper-bound search exact for logical operators modulo stabilizers.
 
     An ``upper_bound`` starts the search as though a witness of that weight were known, so the
