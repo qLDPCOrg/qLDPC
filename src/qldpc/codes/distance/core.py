@@ -232,10 +232,11 @@ def _get_distance_css_brouwer_zimmermann(
         block_size: Batch size exponent, as in get_distance_quantum.
         upper_bound: Weight of a known logical operator from an omitted sector, if any.  The result
             is the minimum of this bound and the distances of the supplied sectors.
-        get_automorphisms: A function that returns generators of a group of qubit permutations
-            that map the stabilizers and the logical operators of every sector onto themselves, as
-            rows that map qubit ``j`` to qubit ``row[j]``, or None.  The search of a sector calls it
-            before a costly layer, and verifies the generators before it uses them to search less.
+        get_automorphisms: A function that returns an array of generators of a group of qubit
+            permutations, or None.  Row ``i`` of the array maps qubit ``j`` to qubit ``row[j]``.
+            Each generator must map the span of the stabilizers of every sector, and the span of
+            its stabilizers and logical operators, onto themselves.  The search of a sector calls
+            the function before a costly layer, and verifies the generators before it uses them.
 
     Returns:
         The minimum exact distance across the supplied sectors and the optional upper bound.  A
@@ -246,8 +247,8 @@ def _get_distance_css_brouwer_zimmermann(
     Raises:
         ValueError: If there are neither sectors nor an upper bound, if the operators of a sector
             are not binary matrices of equal width, or if a generator from ``get_automorphisms``
-            does not map the stabilizers and logical operators of a searched sector onto
-            themselves.
+            does not map the span of the stabilizers of a searched sector, or the span of its
+            stabilizers and logical operators, onto itself.
     """
     if not sectors and upper_bound is None:
         raise ValueError("Require at least one sector or an upper bound")

@@ -8,6 +8,7 @@ import importlib.util
 import itertools
 import sys
 import types
+import unittest.mock
 from collections.abc import Callable
 
 import numpy as np
@@ -78,18 +79,12 @@ def test_get_binary_matrix_automorphism_generators(fake_pybliss: None) -> None:
     assert _bliss.get_binary_matrix_automorphism_generators(np.array([[1]]), [5]) == []
 
 
-def test_is_installed(fake_pybliss: None, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Report whether pybliss can be imported, and raise if a dependency of it is missing."""
-    assert _bliss.is_installed()
-    monkeypatch.setitem(sys.modules, "pybliss", None)
-    assert not _bliss.is_installed()
-
-    monkeypatch.delitem(sys.modules, "pybliss")
-    fail_import(
-        monkeypatch, "pybliss", ModuleNotFoundError("No module named 'other'", name="other")
-    )
-    with pytest.raises(ModuleNotFoundError, match="other"):
-        _bliss.is_installed()
+def test_is_installed() -> None:
+    """Report whether the optional pybliss package is discoverable."""
+    with unittest.mock.patch("importlib.util.find_spec", return_value=unittest.mock.Mock()):
+        assert _bliss.is_installed()
+    with unittest.mock.patch("importlib.util.find_spec", return_value=None):
+        assert not _bliss.is_installed()
 
 
 def test_real_pybliss_package() -> None:

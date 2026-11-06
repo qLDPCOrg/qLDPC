@@ -22,7 +22,7 @@ import sympy.abc
 
 from qldpc import abstract, codes, decoders, external, math
 from qldpc.codes import _code_capacity, common
-from qldpc.codes.distance import _automorphisms, _brouwer_zimmermann
+from qldpc.codes.distance import _brouwer_zimmermann
 from qldpc.objects import PAULIS_XZ, Pauli
 
 ####################################################################################################
@@ -776,7 +776,10 @@ def test_css_automorphisms_from_bliss_or_construction(monkeypatch: pytest.Monkey
 
 
 def test_css_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Exact CSS distances use the qudit automorphisms of a code only after verifying them."""
+    """Exact CSS distances use the qudit automorphisms of a code only after verifying them.
+
+    The [[72, 12, 6]] bivariate bicycle code is from arXiv:2308.07915.
+    """
 
     class CodeWithAutomorphisms(codes.CSSCode):
         automorphisms: npt.NDArray[np.int_]
@@ -784,31 +787,19 @@ def test_css_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch) -> 
         def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_]:
             return self.automorphisms
 
-    # let these small searches use the information sets and automorphisms of costly searches
+    # use the automorphisms of the code's family before the first layer of these quick searches
     monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
-    monkeypatch.setattr(_automorphisms, "MINIMUM_LAYER_WORK", 0)
-    monkeypatch.setattr(_brouwer_zimmermann, "enumeration_is_cheaper_than_setup", lambda *_: False)
-    monkeypatch.setattr(
-        _brouwer_zimmermann, "_enumeration_is_cheaper_than_search", lambda **_: False
-    )
-
-    poly_x = sympy.abc.x
-    qc_code = codes.QCCode(
-        [12],
-        poly_x**10 + poly_x**4 + poly_x**2 + poly_x,
-        poly_x**9 + poly_x**8 + poly_x**3 + poly_x,
-    )
-    transposition = np.arange(len(qc_code))
+    monkeypatch.setattr(_brouwer_zimmermann, "MINIMUM_LAYER_WORK", 0)
+    x, y = sympy.abc.x, sympy.abc.y
+    bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
+    transposition = np.arange(len(bb_code))
     transposition[[0, 1]] = [1, 0]
     for pauli in (None, Pauli.X):
-        expected = codes.CSSCode(qc_code.matrix_x, qc_code.matrix_z).get_distance_exact(
-            pauli, method="brute_force"
-        )
-        code = CodeWithAutomorphisms(qc_code.matrix_x, qc_code.matrix_z)
-        code.automorphisms = qc_code._get_qudit_automorphisms()
-        assert code.get_distance_exact(pauli) == expected
+        code = CodeWithAutomorphisms(bb_code.matrix_x, bb_code.matrix_z)
+        code.automorphisms = bb_code._get_qudit_automorphisms()
+        assert code.get_distance_exact(pauli) == 6
 
-        code = CodeWithAutomorphisms(qc_code.matrix_x, qc_code.matrix_z)
+        code = CodeWithAutomorphisms(bb_code.matrix_x, bb_code.matrix_z)
         code.automorphisms = transposition[None]
         with pytest.raises(ValueError, match="not an automorphism"):
             code.get_distance_exact(pauli)
@@ -817,23 +808,17 @@ def test_css_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch) -> 
 def test_css_distances_with_bliss(monkeypatch: pytest.MonkeyPatch) -> None:
     """With pybliss, exact distances find and use the symmetries of codes by themselves.
 
-    The qudits of this quasi-cyclic code are shuffled, and its distance is computed from its parity
-    check matrices alone.
+    The qudits of the [[72, 12, 6]] bivariate bicycle code of arXiv:2308.07915 are shuffled, and
+    its distance is computed from its parity check matrices alone.
     """
     pytest.importorskip("pybliss")
-    monkeypatch.setattr(_automorphisms, "MINIMUM_LAYER_WORK", 0)
-    monkeypatch.setattr(_brouwer_zimmermann, "enumeration_is_cheaper_than_setup", lambda *_: False)
-    poly_x = sympy.abc.x
-    qc_code = codes.QCCode(
-        [12],
-        poly_x**10 + poly_x**4 + poly_x**2 + poly_x,
-        poly_x**9 + poly_x**8 + poly_x**3 + poly_x,
-    )
-    shuffle = np.random.default_rng(0).permutation(len(qc_code))
-    code = codes.CSSCode(qc_code.matrix_x[:, shuffle], qc_code.matrix_z[:, shuffle])
+    monkeypatch.setattr(_brouwer_zimmermann, "MINIMUM_LAYER_WORK", 0)
+    x, y = sympy.abc.x, sympy.abc.y
+    bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
+    shuffle = np.random.default_rng(0).permutation(len(bb_code))
+    code = codes.CSSCode(bb_code.matrix_x[:, shuffle], bb_code.matrix_z[:, shuffle])
     assert code._found_qudit_automorphisms is not None
-    expected = codes.CSSCode(code.matrix_x, code.matrix_z).get_distance_exact(method="brute_force")
-    assert code.get_distance_exact() == expected
+    assert code.get_distance_exact() == 6
 
 
 @pytest.mark.parametrize("field", [2, 3])

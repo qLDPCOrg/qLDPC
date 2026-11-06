@@ -98,7 +98,7 @@ Finding the automorphisms (symmetries) of a parity check matrix, as needed to co
 
    python -m pip install 'qldpc[bliss]'
 
-With ``pybliss`` installed, exact distances of binary CSS codes also find and use the symmetries of codes, which can make them much faster.
+With ``pybliss`` installed, exact distance calculations of binary CSS codes also find and use the symmetries of these codes, which can make the calculations much faster.
 ``pybliss`` publishes wheels for macOS arm64 and Linux x86-64; on other platforms, ``pip`` attempts to build it from source.
 Unlike qLDPC, ``pybliss`` is distributed under the GPL/LGPL v3 licenses.
 

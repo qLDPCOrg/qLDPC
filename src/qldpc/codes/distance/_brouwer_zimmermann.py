@@ -6,9 +6,9 @@ The disjoint/rank-deficient certificates follow `Algorithm 994 <https://arxiv.or
 the symplectic reduction follows the `quantum-code adaptation <https://arxiv.org/abs/2408.10743>`_.
 The overlapping-set certificate and implementation invariants are derived in
 ``brouwer_zimmermann.md`` beside this module.  Information-set families and their certificates are
-built in ``_information_sets.py``, which fixed-weight logical counting shares, and families of
-translates by automorphisms in ``_automorphisms.py``; this module owns witness discovery, early
-exits, exhaustive dispatch, and the resumable native scan.
+built in ``_information_sets.py``, which fixed-weight logical counting shares.  Families of
+translates of one information set by automorphisms are built in ``_automorphisms.py``.  This module
+owns witness discovery, early exits, exhaustive dispatch, and the resumable native scan.
 """
 
 from __future__ import annotations
@@ -28,6 +28,16 @@ from . import _automorphisms, _information_sets
 from ._binary import get_eligible_rows
 from ._brute_force import get_nested_distance_brute_force
 from ._information_sets import advance_support
+
+# A search asks for automorphisms before the first layer whose scan takes at least this many
+# candidate/set evaluations.  Finding automorphisms can take milliseconds, a small fraction of such
+# a scan.
+MINIMUM_LAYER_WORK = 100_000_000
+
+# A function that returns the family of translates of a problem for a weight divisor, or None.
+_GetTranslatedFamily = Callable[
+    [int], tuple[_information_sets.BasisFamily, _information_sets.Certificate] | None
+]
 
 ####################################################################################################
 # search entry points
@@ -52,12 +62,15 @@ def get_distance_brouwer_zimmermann_many(
     of ``_information_sets.get_disjoint_family`` is one, and a caller that keeps such families saves
     that first stage.  Each function is called only if its search needs it.
 
-    ``get_automorphisms``, if given, returns generators of a group of column permutations that map
-    the searched space and the excluded subspace of every problem onto themselves, or None.  Row
-    ``i`` maps column ``j`` to column ``automorphisms[i, j]``.  A search that reaches a costly
-    layer calls it, verifies the generators for its problem, and may then scan fewer information
-    sets (see ``_automorphisms``).  A ``ValueError`` is raised if a generator is not an automorphism
-    of the problem.
+    ``get_automorphisms``, if given, returns an array of generators of a group of column
+    permutations, or None.  Row ``i`` of the array maps column ``j`` to column ``row[j]``.  Each
+    generator must map the searched space and the excluded subspace of every problem onto
+    themselves.  A search calls the function before a costly layer, verifies the generators for its
+    problem, and may then scan fewer information sets (see ``_automorphisms``).
+
+    Raises:
+        ValueError: If a generator from ``get_automorphisms`` is not an automorphism of a problem
+            whose search uses it.
     """
     initial_upper_bounds = [
         _get_lightest_eligible_row_weight(basis, labels) for basis, labels in problems
@@ -176,15 +189,16 @@ class _BrouwerZimmermannSearch:
     """State for one resumable Brouwer-Zimmermann search.
 
     ``certificate`` records the ranks, maximum coordinate coverage, and proven weight divisor of the
-    family that certifies the search.  If ``translated``, that family holds the translates of the
-    one packed set by automorphisms of the problem, which complete each layer when it does (see
-    ``_automorphisms``), and otherwise it is the packed family.  ``ranks`` is the native copy of the
-    ranks of the packed sets for the compiled scan.
+    family that certifies the search.  This family is the packed family, unless the search is
+    ``translated``.  A translated search packs one set, and its family holds the translates of that
+    set by automorphisms of the problem, which complete each layer when the set does (see
+    ``_automorphisms``).  ``ranks`` is the native copy of the ranks of the packed sets for the
+    compiled scan.
 
-    ``get_translated``, if given, returns a translated search of the same problem for a given upper
-    bound, or None.  Before the first layer whose scan would cost at least
-    ``_automorphisms.MINIMUM_LAYER_WORK`` candidate/set evaluations, the search calls it once, and
-    continues as the translated search if that predicts less work.
+    ``get_translated_family``, if given, returns a family of translates of the problem, or None.
+    The search calls it once, before the first layer whose scan would cost at least
+    ``MINIMUM_LAYER_WORK`` candidate/set evaluations.  The search switches to the translates if they
+    predict less work (see ``_switch_to_translates``).
     """
 
     generators: npt.NDArray[np.uint64]
@@ -197,15 +211,13 @@ class _BrouwerZimmermannSearch:
     best: int
     lower_bound: int
     next_weight: int = 1
-    translated: bool = False
-    get_translated: Callable[[int], _BrouwerZimmermannSearch | None] | None = field(
-        default=None, repr=False
-    )
+    get_translated_family: _GetTranslatedFamily | None = field(default=None, repr=False)
+    translated: bool = field(default=False, init=False)
     ranks: npt.NDArray[np.int64] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        self.ranks = np.array(self.certificate.ranks[: len(self.generators)], dtype=np.int64)
-        assert len(self.generators) == (1 if self.translated else len(self.certificate.ranks))
+        self.ranks = np.array(self.certificate.ranks, dtype=np.int64)
+        assert len(self.ranks) == len(self.generators)
         assert self.certificate.dimension == self.dimension
 
     @property
@@ -250,7 +262,7 @@ class _BrouwerZimmermannSearch:
 
         # Before a costly layer, consider scanning one set and certifying with its translates.
         layer_work = num_scanned * math.comb(self.dimension, weight)
-        if self.get_translated is not None and layer_work >= _automorphisms.MINIMUM_LAYER_WORK:
+        if self.get_translated_family is not None and layer_work >= MINIMUM_LAYER_WORK:
             self._switch_to_translates()
             return self.advance()
 
@@ -290,26 +302,32 @@ class _BrouwerZimmermannSearch:
         return self.best
 
     def _switch_to_translates(self) -> None:
-        """Continue as a translated search of the same problem, if that predicts less work.
+        """Scan one set and certify with its translates from now on, if that predicts less work.
 
-        Every eligible word lighter than the best weight is unvisited by both searches, so the lower
-        bounds of both searches hold for it.  The translated search starts again from layer two.
+        The search keeps its lower bound.  An eligible word lighter than the best weight is
+        unvisited by both families, so the bounds of both hold for it.  The certificate of the
+        translates counts every layer of the scanned set, so the search scans that set again from
+        layer two.
         """
-        assert self.get_translated is not None
-        get_translated, self.get_translated = self.get_translated, None
-        translated = get_translated(self.best)
+        assert self.get_translated_family is not None
+        get_translated_family, self.get_translated_family = self.get_translated_family, None
+        translated = get_translated_family(self.certificate.weight_divisor)
         if translated is None:
             return
-        self.best = min(self.best, translated.best)
-        if _automorphisms.estimate_translate_work(
-            translated.certificate, self.best
-        ) >= self.certificate.work(self.best):
+
+        # The rows of the scanned set are the layer-one words of every translate.
+        basis_family, certificate = translated
+        self.best = _get_basis_family_upper_bound(basis_family, self.best)
+        work = _automorphisms.estimate_translate_work(certificate, self.best)
+        if work >= self.certificate.work(self.best):
             return
-        self.generators, self.labels = translated.generators, translated.labels
-        self.widths, self.label_widths = translated.widths, translated.label_widths
-        self.certificate, self.ranks = translated.certificate, translated.ranks
-        self.lower_bound = max(self.lower_bound, translated.lower_bound)
-        self.next_weight = translated.next_weight
+        self.generators, self.labels, self.widths, self.label_widths = _pack_basis_family(
+            basis_family
+        )
+        self.certificate = certificate
+        self.ranks = np.array(certificate.ranks[:1], dtype=np.int64)
+        self.lower_bound = max(self.lower_bound, certificate.lower_bound(1))
+        self.next_weight = 2
         self.translated = True
 
 
@@ -330,7 +348,7 @@ def _prepare_brouwer_zimmermann_search(
     The basis family stages of ``_information_sets`` run in order, with distance-specific witness,
     cutoff, certificate, and exhaustive exits between them.  ``get_disjoint_basis_family``, if
     given, returns the result of the first stage.  ``get_automorphisms``, if given, lets the search
-    switch to a translated search before a costly layer (see ``_BrouwerZimmermannSearch``).
+    switch to a family of translates before a costly layer (see ``_BrouwerZimmermannSearch``).
     """
     dimension = len(basis)
     best = min(
@@ -407,62 +425,47 @@ def _prepare_brouwer_zimmermann_search(
         )
         return min(best, distance)
 
-    batch_size = 1 << min(block_size, 15)
     return _BrouwerZimmermannSearch(
         *_pack_basis_family(basis_family),
         basis_family.get_search_certificate(best),
         cutoff,
-        batch_size,
+        1 << min(block_size, 15),
         best,
         lower_bound,
         completed_weight + 1,
-        get_translated=None
+        None
         if get_automorphisms is None
-        else functools.partial(
-            _prepare_translated_search,
-            basis,
-            labels,
-            get_automorphisms,
-            weight_divisor=basis_family.weight_divisor,
-            cutoff=cutoff,
-            batch_size=batch_size,
-        ),
+        else functools.partial(_get_translated_family, basis, labels, get_automorphisms),
     )
 
 
-def _prepare_translated_search(
+def _get_translated_family(
     basis: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8],
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None],
-    upper_bound: int,
-    *,
     weight_divisor: int,
-    cutoff: int,
-    batch_size: int,
-) -> _BrouwerZimmermannSearch | None:
-    """Prepare a search that scans one set, certified with its translates, from layer two.
+) -> tuple[_information_sets.BasisFamily, _information_sets.Certificate] | None:
+    """Verify the automorphisms of a problem, and build the family of translates of one set.
 
-    Returns None if ``get_automorphisms`` returns None, and raises a ``ValueError`` if a generator
-    that it returns is not an automorphism of the problem.
+    Args:
+        basis: An independent basis of the searched space.
+        labels: The quotient labels of ``basis``.
+        get_automorphisms: A function that returns generators of a group of column permutations
+            that preserve the problem, or None.
+        weight_divisor: A proven divisor of the Hamming weight of every eligible word.
+
+    Returns:
+        The family and certificate of ``_automorphisms.get_translate_family``, or None if
+        ``get_automorphisms`` returns None.
+
+    Raises:
+        ValueError: If a generator is not an automorphism of the problem.
     """
     automorphisms = get_automorphisms()
     if automorphisms is None:
         return None
     _automorphisms.verify_automorphisms(basis, labels, automorphisms)
-    basis_family, certificate = _automorphisms.get_translate_family(
-        basis, labels, automorphisms, weight_divisor
-    )
-    # The rows of the scanned set are the layer-one words of every translate.
-    return _BrouwerZimmermannSearch(
-        *_pack_basis_family(basis_family),
-        certificate,
-        cutoff,
-        batch_size,
-        _get_basis_family_upper_bound(basis_family, upper_bound),
-        certificate.lower_bound(1),
-        2,
-        translated=True,
-    )
+    return _automorphisms.get_translate_family(basis, labels, automorphisms, weight_divisor)
 
 
 def _pack_basis_family(

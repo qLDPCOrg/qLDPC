@@ -731,12 +731,9 @@ class QCCode(TBCode):
 
     Bivariate quasi-cyclic codes are bivariate bicycle codes; see the BBCode class.
 
-    The X-distance and Z-distance of a quasi-cyclic code are equal: swapping the two blocks,
+    The X-distance and Z-distance of a quasi-cyclic code are equal.  Swapping the two blocks,
     inverting group elements, and negating one block maps the X-type checks onto the Z-type checks,
-    and preserves the weights of operators.  Translating both blocks by a group element maps the
-    checks of each type onto themselves, and exact distance searches use these translations to
-    search less if the optional pybliss package, which finds such symmetries by itself, is not
-    installed.
+    and preserves the weights of operators.
     """
 
     poly_a: sympy.Poly
@@ -1639,10 +1636,13 @@ class PairPartitionCode(CSSCode):
 def _get_block_translations(group: abstract.Group, num_blocks: int) -> npt.NDArray[np.int_]:
     """Qudit permutations that translate several blocks of qudits at once by group generators.
 
-    The qudits form ``num_blocks`` consecutive blocks, each indexed like the rows of the lifts of
-    ``group``, which must be permutation matrices.  Row ``i`` of the result maps each qudit to its
-    image under the lift of generator ``i``, in every block at once.  Codes whose checks the group
-    acts on by these translations return them from ``_get_qudit_automorphisms``.
+    The qudits form ``num_blocks`` consecutive blocks.  The qudits of each block are indexed like
+    the rows of the lifts of ``group``, which must be permutation matrices.  Row ``i`` of the result
+    moves the qudits of every block as the lift of generator ``i`` moves its rows.
+
+    These permutations preserve a code whose checks they permute, as when the parity check matrices
+    are arrays of lifts of elements of an abelian group algebra, as in a quasi-cyclic code.  Such a
+    code can return them from ``_get_qudit_automorphisms``.
     """
     block_size = len(group.lift(group.identity))
     offsets = block_size * np.arange(num_blocks)[:, None]

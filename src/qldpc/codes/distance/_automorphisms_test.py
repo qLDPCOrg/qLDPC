@@ -13,16 +13,17 @@ from sympy.abc import x, y, z
 
 from qldpc import codes
 from qldpc._binary import get_rank_packed, pack_bits
-from qldpc.objects import Pauli, PauliXZ
+from qldpc.objects import Pauli
 
-from . import _automorphisms
-from ._binary import get_eligible_rows, get_nested_code_basis
+from . import _automorphisms, _information_sets
+from ._binary import get_eligible_rows
+from .conftest import get_sector_problem
 
 
 def test_automorphisms_must_map_both_spaces_onto_themselves() -> None:
     """Only permutations that preserve the searched space and its excluded subspace pass."""
     code = codes.QCCode([7], 1 + x + x**3, 1 + x**2 + x**3 + x**4)
-    basis, labels = _get_sector(code, Pauli.X)
+    basis, labels = get_sector_problem(code, Pauli.X)
     shift = np.concatenate([np.roll(np.arange(7), 1), np.roll(np.arange(7), 1) + 7])
     _automorphisms.verify_automorphisms(basis, labels, shift[None])
     _automorphisms.verify_automorphisms(basis, labels, np.empty((0, 14), dtype=int))
@@ -56,7 +57,7 @@ def test_translates_certify_like_the_family_of_all_translates() -> None:
         for automorphisms in (translations, translations[:1]):
             elements = _get_group_elements(automorphisms)
             for pauli in (Pauli.X, Pauli.Z):
-                basis, labels = _get_sector(code, pauli)
+                basis, labels = get_sector_problem(code, pauli)
                 divisor = 2 if np.all(basis.sum(axis=1) % 2 == 0) else 1
                 family, certificate = _automorphisms.get_translate_family(
                     basis, labels, automorphisms, divisor
@@ -99,7 +100,7 @@ def test_scanned_sets_balance_two_orbits() -> None:
     rng = np.random.default_rng(1)
     for code in _get_random_qc_codes(rng, 12):
         for pauli in (Pauli.X, Pauli.Z):
-            basis, labels = _get_sector(code, pauli)
+            basis, labels = get_sector_problem(code, pauli)
             dimension, num_columns = basis.shape
             family, _ = _automorphisms.get_translate_family(
                 basis, labels, code._get_qudit_automorphisms(), 1
@@ -111,29 +112,15 @@ def test_scanned_sets_balance_two_orbits() -> None:
 
 
 def test_translate_work_scans_one_set_per_layer() -> None:
-    """The work estimate counts each layer of one set, through the layer that certifies a bound."""
-    basis, labels = _get_sector(codes.QCCode([7], 1 + x + x**3, 1 + x**2 + x**3 + x**4), Pauli.X)
-    shift = np.concatenate([np.roll(np.arange(7), 1), np.roll(np.arange(7), 1) + 7])
-    _, certificate = _automorphisms.get_translate_family(basis, labels, shift[None], 1)
-    dimension = len(basis)
-    for upper_bound in range(1, 2 * dimension):
-        last = min(
-            weight
-            for weight in range(1, dimension + 1)
-            if weight == dimension or certificate.lower_bound(weight) >= upper_bound
-        )
-        expected = sum(math.comb(dimension, weight) for weight in range(1, last + 1))
-        assert _automorphisms.estimate_translate_work(certificate, upper_bound) == expected
+    """The work estimate counts each layer of one set, through the layer that certifies a bound.
 
-
-def _get_sector(
-    code: codes.CSSCode, pauli: PauliXZ
-) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
-    """The adapted basis of one sector of a binary CSS code, and its quotient labels."""
-    return get_nested_code_basis(
-        np.asarray(code.get_logical_ops(pauli), dtype=np.uint8),
-        np.asarray(code.get_stabilizer_ops(pauli, canonicalized=True), dtype=np.uint8),
-    )
+    This certificate of a five-row basis bounds unvisited words by ``t + 1`` after layer ``t``.
+    """
+    certificate = _information_sets.Certificate(5, (5,))
+    # layer one certifies weight two; layer two certifies three; no layer certifies 100
+    assert _automorphisms.estimate_translate_work(certificate, 2) == 5
+    assert _automorphisms.estimate_translate_work(certificate, 3) == 5 + 10
+    assert _automorphisms.estimate_translate_work(certificate, 100) == 2**5 - 1
 
 
 def _get_random_qc_codes(rng: np.random.Generator, count: int) -> list[codes.QCCode]:

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import types
 
 import numpy as np
@@ -55,10 +56,18 @@ def get_binary_matrix_automorphism_generators(
 ) -> list[list[int]]:
     """Generators of the automorphism group of a binary matrix whose rows are colored.
 
-    These automorphisms are those of ``get_matrix_automorphism_generators``, in the same format,
-    that also map each row to a row of the same color in ``row_colors``.  They are computed as
-    automorphisms of the bipartite graph of the matrix, with a vertex for every row and column,
-    which is smaller than the graph of ``get_matrix_automorphism_generators``.
+    These automorphisms are those of ``get_matrix_automorphism_generators`` that also map each row
+    to a row of the same color.  Bliss finds them as automorphisms of the bipartite graph of the
+    matrix, which has a vertex for every row and column.  This graph is smaller than the graph of
+    ``get_matrix_automorphism_generators``.
+
+    Args:
+        matrix: A binary matrix.
+        row_colors: A color for each row of the matrix, such as an integer.
+
+    Returns:
+        Generators of the automorphism group, in the format of
+        ``get_matrix_automorphism_generators``.
 
     References:
 
@@ -82,18 +91,8 @@ def get_binary_matrix_automorphism_generators(
 
 
 def is_installed() -> bool:
-    """Whether the optional pybliss package can be imported.
-
-    Raises the error of a failed import other than the absence of pybliss, such as a missing
-    dependency of pybliss.
-    """
-    try:
-        import pybliss  # noqa: F401  (imported only to check that it can be)
-    except ModuleNotFoundError as error:
-        if error.name != "pybliss":
-            raise
-        return False
-    return True
+    """Return whether the optional pybliss package is discoverable."""
+    return importlib.util.find_spec("pybliss") is not None
 
 
 def _get_pybliss() -> types.ModuleType:

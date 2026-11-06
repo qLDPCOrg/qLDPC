@@ -3,11 +3,11 @@
 """Families of the translates of one information set by automorphisms of a search problem.
 
 A permutation of columns that maps both the space ``V`` of a search and its excluded subspace ``S``
-onto themselves maps each eligible word to an eligible word of the same weight.  Given generators of
-a group ``G`` of such permutations, a BZ search can scan one information set ``I`` and certify with
-the family of all of its translates ``g(I)``: a word with at most ``t`` ones on ``g(I)`` is the
-image of a word with at most ``t`` ones on ``I``, which has the same weight and eligibility.  So the
-whole family completes each coefficient layer when ``I`` does.  Section 3.7 of
+onto themselves maps each eligible word to an eligible word of the same weight.  Let ``G`` be a
+group of such permutations, and ``I`` an information set.  A word with at most ``t`` ones on a
+translate ``g(I)`` is the image of a word with the same weight and eligibility and at most ``t``
+ones on ``I``.  So a BZ search can scan ``I`` alone, and certify with the family of all of its
+translates, which completes each coefficient layer when ``I`` does.  Section 3.7 of
 ``brouwer_zimmermann.md`` derives the certificate of this family.
 """
 
@@ -24,11 +24,6 @@ from qldpc._compilation import always_compiled
 from ._binary import get_eligible_rows
 from ._information_sets import BasisFamily, Certificate, get_capped_binomials
 
-# The estimated work, in candidate/set evaluations, of the first coefficient layer before which a
-# search asks for automorphisms.  Finding them can take milliseconds (see the optional bliss search
-# of ``CSSCode``), which is a small fraction of the time to scan such a layer.
-MINIMUM_LAYER_WORK = 100_000_000
-
 ####################################################################################################
 # families of translates
 
@@ -40,9 +35,9 @@ def verify_automorphisms(
 ) -> None:
     """Check that column permutations map a search problem onto itself.
 
-    ``basis`` is an independent basis of the searched space, whose rows with zero ``labels`` span
-    its excluded subspace (see ``get_nested_code_basis``).  Row ``i`` of ``automorphisms`` maps
-    column ``j`` to column ``automorphisms[i, j]``.
+    ``basis`` is an independent basis of the searched space.  Its rows with zero ``labels`` span the
+    excluded subspace (see ``get_nested_code_basis``).  Row ``i`` of ``automorphisms`` maps column
+    ``j`` to column ``automorphisms[i, j]``.
 
     Raises:
         ValueError: If a row of ``automorphisms`` is not a permutation of the columns of the basis,
@@ -80,7 +75,8 @@ def get_translate_family(
     other column of ``O``, so the certificate is strongest when the scanned set ``I`` meets every
     orbit in an even share ``|I ∩ O| / |O|``.
 
-    Returns a basis family of ``I`` alone, and the certificate of all of its translates.
+    Returns:
+        A basis family of ``I`` alone, and the certificate of all of its translates.
     """
     dimension, num_columns = basis.shape
     orbits = _get_orbits(automorphisms, num_columns)
@@ -93,9 +89,10 @@ def get_translate_family(
         unpack_bits(packed_labels, labels.shape[1]),
     )
 
-    # Each column of an orbit O lies in |I ∩ O| |G| / |O| of the |G| translates.  So the coverage
-    # bound of the family, ceil(|G| (t + 1) / C) for maximum coverage C, is that of |O| sets with
-    # coverage |I ∩ O| for the orbit with the largest share, which are reduced to lowest terms.
+    # Each column of an orbit O lies in |I ∩ O| |G| / |O| of the |G| translates.  The coverage
+    # bound of the family, ceil(|G| (t + 1) / C) for maximum coverage C, depends only on the ratio
+    # |G| / C.  For the orbit with the largest share |I ∩ O| / |O|, this ratio is |O| / |I ∩ O|,
+    # which the certificate represents in lowest terms as a number of sets and a coverage.
     sizes = np.bincount(orbits)
     counts = np.bincount(orbits[pivots], minlength=len(sizes))
     share = max(Fraction(int(count), int(size)) for count, size in zip(counts, sizes))
