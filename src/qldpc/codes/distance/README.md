@@ -4,6 +4,7 @@ This directory is the package `qldpc.codes.distance`.
 It computes exact distances of binary codes, and counts the logical operators of a given weight in binary CSS codes.
 Users reach it through the `get_distance_exact` method of binary codes in `src/qldpc/codes/common.py`, and through `CSSLogicalCounter`.
 `brouwer_zimmermann.md` explains the algorithm, maps its concepts to names in the code, describes its heuristics for choosing basis families, and lists the correctness requirements that every change to a search must keep.
+`connected_support.md` does the same for the search of sparse CSS codes over supports that are connected in a Tanner graph, and says when to choose each of the two methods.
 
 ## Public names
 
