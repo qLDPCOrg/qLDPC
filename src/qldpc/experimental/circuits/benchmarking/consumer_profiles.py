@@ -249,11 +249,11 @@ def estimate_downstream_fault_weight(
     measurement_error: float | None = None,
     reset_error: float | None = None,
 ) -> float:
-    """Estimate the expected fault weight of a consumer, from the noise of a circuit.
+    """Estimate an expected downstream fault weight from circuit noise rates.
 
-    The estimate multiplies mean error probabilities, read from the noise instructions of a noisy
-    circuit (typically the state-preparation circuit itself), by the numbers of operations of a
-    reference consumer.  It simulates no circuit.  The presets are:
+    The estimate multiplies operation counts from the selected preset by mean error probabilities.
+    It reads these probabilities from the noise instructions of a noisy circuit, typically the
+    state-preparation circuit itself.  The presets are:
 
     - ``"steane"`` (default): one round of Steane-type error correction, in which the data block
       meets a resource state for each type of check through transversal two-qubit gates, and each
@@ -278,14 +278,13 @@ def estimate_downstream_fault_weight(
 
     Other noise, such as idling noise, is not counted.  The expected fault weight of a consumer is
     the sum of the probabilities of its error mechanisms, which ``ConsumerProfile.poisson`` takes.
-    This estimate counts each noisy operation of the reference consumer once, with its total error
-    probability, rather than building the detector error model of the consumer, so it agrees with
-    that sum only to first order in the error probabilities, and only when the components of each
-    noise channel are separate error mechanisms.
+    This estimate treats each noisy operation of the preset as one mechanism with its total error
+    probability.  It matches that sum to first order in the error probabilities, provided that the
+    components of each noise channel are separate error mechanisms.
 
     Args:
         circuit: A noisy Stim circuit from which to read error probabilities.
-        preset: The reference consumer, ``"steane"`` (default) or ``"syndrome"``.
+        preset: The operation-count preset, ``"steane"`` (default) or ``"syndrome"``.
 
     Keyword args:
         code: The qubit code of the data block.  Required for the ``"syndrome"`` preset.
@@ -297,7 +296,7 @@ def estimate_downstream_fault_weight(
         reset_error: The mean error probability of a reset, instead of ``p_r``.
 
     Returns:
-        The expected fault weight of one round of the reference consumer.
+        The estimated expected fault weight for the selected preset.
 
     Raises:
         TypeError: If ``num_data_qubits`` is not an integer.

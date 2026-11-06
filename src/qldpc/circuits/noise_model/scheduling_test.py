@@ -35,9 +35,9 @@ CIRCUIT = stim.Circuit("""
 def test_asap() -> None:
     """Gates are as early as possible, and then by default resets as late as other gates allow.
 
-    An annotation joins the moment of the operation before it on its qubits, or, without qubits, of
-    the last gate before it, or a later moment to follow a measurement that it reads or the
-    coordinate annotation before it.
+    An annotation with qubits joins the moment of the operation before it on its qubits, and one
+    without qubits joins the moment of the last gate before it.  An annotation joins a later moment
+    to follow a measurement that it reads, or the coordinate annotation before it.
     """
     expected = """
         QUBIT_COORDS(0, 0) 0
@@ -146,7 +146,7 @@ def test_min_idle() -> None:
         (circuits.MinIdleScheduler(), 18 + 0 + 2),
     ]:
         assert scheduler.get_schedule(circuit).num_moments == 8
-        assert _get_effective_idle_slots(circuit, scheduler, False) == num_effective_idle_slots
+        assert _get_effective_idle_slots(circuit, scheduler) == num_effective_idle_slots
 
     # each part of a circuit is scheduled on its own
     scheduler = circuits.MinIdleScheduler()
@@ -157,7 +157,7 @@ def test_min_idle() -> None:
     # the run after a last gate that does not measure counts, so qubit 2 is reset in moment 1, not
     # in moment 0 as by ASAP, and the effective idle slots are those of qubit 3 in moments 0 and 1
     circuit = stim.Circuit("CX 0 1 0 1 0 1\nR 2\nCX 2 3")
-    assert _get_effective_idle_slots(circuit, circuits.MinIdleScheduler(), False) == 2
+    assert _get_effective_idle_slots(circuit, circuits.MinIdleScheduler()) == 2
 
     # single-qubit gates can take time
     circuit = stim.Circuit("H 0\nH 0")
@@ -173,16 +173,14 @@ def test_min_idle_solver_failure() -> None:
 
 
 def _get_effective_idle_slots(
-    circuit: stim.Circuit,
-    scheduler: circuits.Scheduler | circuits.Schedule,
-    single_qubit_gates_take_time: bool,
+    circuit: stim.Circuit, scheduler: circuits.Scheduler | circuits.Schedule
 ) -> int:
     """The number of effective idle slots of a circuit without REPEAT blocks, from its idle noise.
 
     Each idle moment of a qubit has an X error with probability 1/4, so ``k`` moments have one with
     probability ``(1 - 2**-k) / 2``.  A moment is effective unless it is in an idle run that ends at
     a reset, or after the last gate on its qubit if that gate measures it.  Runs end at gates that
-    take time.
+    take time, which single-qubit unitary gates do not.
     """
     noise_model = circuits.NoiseModel(idle_error={"X": 0.25}, scheduler=scheduler)
     num_slots = 0
@@ -194,7 +192,7 @@ def _get_effective_idle_slots(
             (probability,) = instruction.gate_args_copy()
             for target in instruction.targets_copy():
                 run_lengths[target.value] += round(-math.log2(1 - 2 * probability))
-        elif _takes_time(instruction, single_qubit_gates_take_time):
+        elif _takes_time(instruction):
             for target in instruction.targets_copy():
                 if instruction.name not in ["R", "RX", "RY", "RZ"]:
                     num_slots += run_lengths[target.value]
@@ -206,19 +204,15 @@ def _get_effective_idle_slots(
     return num_slots
 
 
-def _takes_time(instruction: stim.CircuitInstruction, single_qubit_gates_take_time: bool) -> bool:
-    """Does an instruction contain a gate that takes time, as for the built-in schedulers?"""
+def _takes_time(instruction: stim.CircuitInstruction) -> bool:
+    """Does an instruction contain a gate that takes time, by default in the built-in schedulers?"""
     gate_data = stim.gate_data(instruction.name)
     is_gate = gate_data.is_unitary or gate_data.is_reset or gate_data.produces_measurements
     is_controlled = any(
         target.is_measurement_record_target for target in instruction.targets_copy()
     )
     is_single_qubit_unitary = gate_data.is_unitary and gate_data.is_single_qubit_gate
-    return (
-        is_gate
-        and not is_controlled
-        and (single_qubit_gates_take_time or not is_single_qubit_unitary)
-    )
+    return is_gate and not is_controlled and not is_single_qubit_unitary
 
 
 def test_tick_scheduler() -> None:
@@ -274,8 +268,8 @@ def test_operations() -> None:
 
     A gate application is one target of a one-qubit gate, one pair of targets of a two-qubit gate,
     or one Pauli product of an MPP or SPP gate, and noise channels split likewise.  An observable
-    splits into its measurement records and each of its Pauli targets, and one without targets
-    stays whole.
+    splits into its measurement records and each of its Pauli targets, and one without targets stays
+    whole.
     """
     circuit = stim.Circuit("""
         MPP X0*Z1 Z2

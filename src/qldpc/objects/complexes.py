@@ -1,290 +1,27 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Objects for building codes: Pauli operators, Tanner graphs, Cayley and chain complexes."""
+"""Cayley complexes and chain complexes."""
 
 from __future__ import annotations
 
-import dataclasses
-import enum
 import functools
 import itertools
-from collections.abc import Collection, Iterator, Sequence
-from typing import TYPE_CHECKING, Literal
+from collections.abc import Collection, Iterable, Iterator, Sequence
+from typing import TYPE_CHECKING
 
 import galois
 import numpy as np
 import numpy.typing as npt
+import scipy.sparse
+import scipy.sparse.csgraph
 
 from qldpc._utils import networkx as nx
 from qldpc.math import resolve_field
 
+from ._symmetries import get_block_permutations
+
 if TYPE_CHECKING:
     from qldpc import abstract
-
-
-class Pauli(enum.Enum):
-    """Pauli operators."""
-
-    I = (0, 0)
-    Z = (0, 1)
-    X = (1, 0)
-    Y = (1, 1)
-
-    def __mul__(self, other: Pauli) -> Pauli:
-        """Product of two Pauli operators."""
-        val_x = (self.value[0] + other.value[0]) % 2
-        val_z = (self.value[1] + other.value[1]) % 2
-        return Pauli((val_x, val_z))
-
-    def __invert__(self) -> Pauli:
-        """Hadamard-transform this Pauli operator."""
-        return Pauli(self.value[::-1])
-
-    def swap_xz(self) -> PauliXZ:
-        """Convert between Pauli.X and Pauli.Z, promising a PauliXZ return type (or an error)."""
-        if self is Pauli.X:
-            return Pauli.Z
-        if self is Pauli.Z:
-            return Pauli.X
-        raise ValueError(
-            f"Pauli.swap_xz only converts between Pauli.X and Pauli.Z (provided: {self})"
-        )
-
-    def __str__(self) -> str:
-        if self is Pauli.I:
-            return "I"
-        elif self is Pauli.Z:
-            return "Z"
-        elif self is Pauli.X:
-            return "X"
-        return "Y"
-
-    @staticmethod
-    def from_string(string: str) -> Pauli:
-        """Build a Pauli operator from a string."""
-        if string == "I":
-            return Pauli.I
-        elif string == "Z":
-            return Pauli.Z
-        elif string == "X":
-            return Pauli.X
-        elif string == "Y":
-            return Pauli.Y
-        raise ValueError(f"Invalid Pauli operator: {string}")
-
-    @staticmethod
-    def coerce_xz(value: PauliXZLike) -> PauliXZ:
-        """Convert Pauli.X, Pauli.Z, or a case-insensitive "X" or "Z" string into a PauliXZ.
-
-        Raises:
-            ValueError: If the value does not identify Pauli.X or Pauli.Z.
-        """
-        if isinstance(value, str):
-            if value.upper() == "X":
-                return Pauli.X
-            if value.upper() == "Z":
-                return Pauli.Z
-        elif value is Pauli.X or value is Pauli.Z:
-            return value
-        raise ValueError(
-            f"Expected Pauli.X or Pauli.Z, or a case-insensitive 'X' or 'Z' string (got {value!r})"
-        )
-
-    @property
-    def index(self) -> int:
-        """Numerical index for Pauli operators."""
-        return self.__index__()
-
-    def __index__(self) -> int:
-        """Allow indexing arrays with Pauli operators."""
-        if self == Pauli.X:
-            return 0
-        if self == Pauli.Z:
-            return 1
-        raise TypeError(f"Only Pauli.X and Pauli.Z have an index (got {self})")
-
-
-PauliXZ = Literal[Pauli.X, Pauli.Z]
-PAULIS_XZ: list[PauliXZ] = [Pauli.X, Pauli.Z]
-
-# inputs that Pauli.coerce_xz converts into Pauli.X or Pauli.Z
-PauliXZLike = PauliXZ | Literal["X", "Z", "x", "z"]
-
-
-@dataclasses.dataclass(frozen=True)
-class QuditPauli:
-    """A qudit operator of the form ``X(val_x)*Z(val_z)``."""
-
-    value: tuple[int, int] = (0, 0)
-
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, QuditPauli) and self.value == other.value
-
-    def __invert__(self) -> QuditPauli:
-        """Fourier-transform this qudit operator."""
-        return QuditPauli(self.value[::-1])
-
-    def __neg__(self) -> QuditPauli:
-        """Invert the shifts and phases on this qudit operator."""
-        return QuditPauli((-self.value[0], -self.value[1]))
-
-    def __str__(self) -> str:
-        val_x, val_z = self.value
-        if not val_x and not val_z:
-            return "I"
-        if val_x == val_z:
-            return f"Y({val_z})"
-        ops = []
-        if val_x:
-            ops.append(f"X({val_x})")
-        if val_z:
-            ops.append(f"Z({val_z})")
-        return "*".join(ops)
-
-    @staticmethod
-    def from_string(string: str) -> QuditPauli:
-        """Build a qudit operator from its string representation."""
-        if string == "I":
-            return QuditPauli((0, 0))
-
-        invalid_op = f"Invalid qudit operator: {string}"
-
-        val_x, val_z = 0, 0
-        factors = string.split("*")
-        if len(factors) > 2:
-            raise ValueError(invalid_op)
-
-        for factor in factors:
-            pauli = factor[:1]
-            val_str = factor[2:-1]
-            _factor = f"{pauli}({val_str})"
-            if pauli not in "XYZ" or not val_str.isdecimal() or factor != _factor:
-                raise ValueError(invalid_op)
-
-            val = int(val_str)
-            if pauli == "X":
-                val_x = val
-            elif pauli == "Z":
-                val_z = val
-            else:  # pauli == "Y"
-                val_x = val_z = val
-
-        return QuditPauli((val_x, val_z))
-
-
-@dataclasses.dataclass(frozen=True)
-class Node:
-    """Node in a Tanner graph.
-
-    A node is essentially an integer index, together with a boolean flag to distinguish "data" node
-    from a "check" node in an error-correcting code.
-    """
-
-    index: int
-    is_data: bool = True
-
-    def __lt__(self, other: Node) -> bool:
-        if self.is_data == other.is_data:
-            return self.index < other.index
-        return self.is_data  # data bits "precede" check bits
-
-    def __str__(self) -> str:
-        tag = "d" if self.is_data else "c"
-        return f"{tag}_{self.index}"
-
-
-class TannerGraph(nx.DiGraph):
-    """Tanner graph of a parity check matrix, with edges directed from check nodes to data nodes.
-
-    A Tanner graph is a bipartite graph whose nodes are the data (qu)dits and the checks of a code,
-    identified by Node objects.  The check node c and the data node d share an edge iff check c
-    addresses d.  Every row of the parity check matrix has a check node, so a check that addresses
-    nothing is an isolated node, and the graph records the number of checks.
-
-    A Tanner graph of a classical parity check matrix H (with ``symplectic=False``) has a data node
-    for every column of H.  Edge (c, d) is in the graph iff ``H[c, d] != 0``, and its "val" data is
-    the entry ``H[c, d]``.
-
-    A Tanner graph of a symplectic parity check matrix (with ``symplectic=True``), whose rows have
-    the form ``[X|Z]``, has a data node for every qudit, that is, for every pair of columns (j, j+n)
-    of the matrix, where n is the number of qudits.  The data of edge (c, d) maps the Pauli class to
-    the operator that check c applies to qudit d: a Pauli if the field is GF(2), and a QuditPauli
-    otherwise.
-
-    The field and symplectic attributes are stored in the graph attribute dictionary, ``graph``, so
-    that copies, subgraph views, and other graphs that networkx derives from this one keep them.
-    """
-
-    @staticmethod
-    def from_matrix(
-        matrix: npt.NDArray[np.int_] | Sequence[Sequence[int]], *, symplectic: bool = False
-    ) -> TannerGraph:
-        """Build the Tanner graph of a parity check matrix.
-
-        Args:
-            matrix: The parity check matrix.  Its field is that of a galois.FieldArray, or GF(2)
-                otherwise.
-            symplectic: Whether the rows of the matrix are symplectic vectors of the form
-                ``[X|Z]``.  Defaults to False.
-
-        Returns:
-            The Tanner graph of the matrix, with data nodes before check nodes.
-        """
-        matrix = np.asanyarray(matrix)
-        field = type(matrix) if isinstance(matrix, galois.FieldArray) else galois.GF2
-        graph = TannerGraph(field=field, symplectic=symplectic)
-        if not symplectic:
-            graph.add_nodes_from(Node(index=bit, is_data=True) for bit in range(matrix.shape[-1]))
-            graph.add_nodes_from(Node(index=check, is_data=False) for check in range(len(matrix)))
-            for row, col in zip(*np.nonzero(matrix)):
-                node_check = Node(index=int(row), is_data=False)
-                node_bit = Node(index=int(col), is_data=True)
-                graph.add_edge(node_check, node_bit, val=matrix[row][col])
-            return graph
-
-        matrix = np.reshape(matrix, (len(matrix), 2, matrix.shape[-1] // 2))
-        graph.add_nodes_from(Node(index=qudit, is_data=True) for qudit in range(matrix.shape[-1]))
-        graph.add_nodes_from(Node(index=check, is_data=False) for check in range(len(matrix)))
-        _Pauli = Pauli if field is galois.GF2 else QuditPauli
-        for row, xz, col in zip(*np.nonzero(matrix)):
-            node_check = Node(index=int(row), is_data=False)
-            node_qudit = Node(index=int(col), is_data=True)
-            graph.add_edge(node_check, node_qudit)
-            qudit_op = graph[node_check][node_qudit].get(Pauli, _Pauli((0, 0)))
-            vals_xz = list(qudit_op.value)
-            vals_xz[xz] += int(matrix[row, xz, col])
-            graph[node_check][node_qudit][Pauli] = _Pauli(tuple(vals_xz))
-        return graph
-
-    @property
-    def field(self) -> type[galois.FieldArray]:
-        """The field of the parity check matrix of this graph, GF(2) by default."""
-        field: type[galois.FieldArray] = self.graph.get("field", galois.GF2)
-        return field
-
-    @field.setter
-    def field(self, field: type[galois.FieldArray]) -> None:
-        self.graph["field"] = field
-
-    @property
-    def symplectic(self) -> bool:
-        """Whether this graph represents a symplectic parity check matrix, False by default."""
-        return bool(self.graph.get("symplectic", False))
-
-    def to_matrix(self) -> galois.FieldArray:
-        """The parity check matrix of this Tanner graph."""
-        num_data = sum(node.is_data for node in self.nodes())
-        num_checks = len(self.nodes()) - num_data
-        if not self.symplectic:
-            matrix = self.field.Zeros((num_checks, num_data))
-            for node_check, node_bit, data in self.edges(data=True):
-                matrix[node_check.index, node_bit.index] = data.get("val", 1)
-            return matrix
-
-        int_matrix = np.zeros((num_checks, 2, num_data), dtype=int)
-        for node_check, node_qudit, data in self.edges(data=True):
-            int_matrix[node_check.index, :, node_qudit.index] = data.get(Pauli).value
-        return self.field(int_matrix.reshape(num_checks, 2 * num_data))
 
 
 class CayleyComplex:
@@ -629,13 +366,6 @@ class ChainComplex:
 
         chain_field = chain_a.field
 
-        def get_degree_pairs(degree: int) -> Iterator[tuple[int, int]]:
-            """Pairs of degrees that add up to the given total degree."""
-            min_deg_a = max(degree - chain_b.num_links, 0)
-            max_deg_a = min(chain_a.num_links, degree)
-            for deg_a in range(max_deg_a, min_deg_a - 1, -1):
-                yield deg_a, degree - deg_a
-
         def get_block_index(deg_a: int, deg_b: int) -> int:
             """Index of the "sector" with the given degrees in the direct sum of two chains."""
             max_deg_a = min(chain_a.num_links, deg_a + deg_b)
@@ -655,12 +385,15 @@ class ChainComplex:
         for degree in range(1, chain_a.num_links + chain_b.num_links + 1):
             # fill in zero blocks of the total boundary operator
             blocks = [
-                [get_zero_block(row_degs, col_degs) for col_degs in get_degree_pairs(degree)]
-                for row_degs in get_degree_pairs(degree - 1)
+                [
+                    get_zero_block(row_degs, col_degs)
+                    for col_degs in _get_degree_pairs(chain_a, chain_b, degree)
+                ]
+                for row_degs in _get_degree_pairs(chain_a, chain_b, degree - 1)
             ]
 
             # fill in nonzero blocks of the total boundary operator
-            for col, (deg_a, deg_b) in enumerate(get_degree_pairs(degree)):
+            for col, (deg_a, deg_b) in enumerate(_get_degree_pairs(chain_a, chain_b, degree)):
                 op_a = chain_a.op(deg_a)
                 op_b = chain_b.op(deg_b)
                 if deg_a:
@@ -681,6 +414,110 @@ class ChainComplex:
         ops = [abstract.RingArray.build(matrix, chain_a.ring) for matrix in matrices]
         return ChainComplex(ops, skip_validation=True)
 
+    @staticmethod
+    def balanced_product(
+        chain_a: ChainComplex,
+        chain_b: ChainComplex,
+        symmetries_a: Sequence[abstract.GroupMember | Sequence[Iterable[int]]],
+        symmetries_b: Sequence[abstract.GroupMember | Sequence[Iterable[int]]],
+    ) -> ChainComplex:
+        """Balanced product of two chain complexes.
+
+        A symmetry of a chain complex is a list of permutations ``(p_0, p_1, ..., p_n)`` of the
+        bases of its modules ``(A_0, A_1, ..., A_n)``, such that every boundary operator satisfies
+        ``d_k[p_{k-1}][:, p_k] == d_k``.  Here each permutation ``p_k`` is a sequence that lists the
+        image ``p_k[j]`` of every basis element ``j``, or a SymPy permutation, which fixes the basis
+        elements beyond its size.  Equivalently, the linear maps that send each basis element ``j``
+        of ``A_k`` to ``p_k[j]`` commute with the boundary operators.  A symmetry can also be a
+        single :class:`qldpc.abstract.GroupMember`, or other SymPy permutation, of the bases of all
+        modules in order of degree, which maps the basis of each module to itself.  For example,
+        ``GroupMember(p_0) @ GroupMember(p_1)`` is a symmetry of a chain complex with one link if
+        ``(p_0, p_1)`` is.
+
+        The balanced product of two chain complexes, each with a list of symmetries, is the quotient
+        of their tensor product that identifies every basis element ``a ⨂ b`` with
+        ``g_a(a) ⨂ g_b(b)`` for every pair of symmetries ``(g_a, g_b)`` in
+        ``zip(symmetries_a, symmetries_b)``.  The basis of the balanced product thereby consists of
+        orbits of the group generated by these pairs, which need not act freely.  Within each sector
+        ``A_i ⨂ B_j`` of the tensor product, orbits are ordered by their smallest element
+        ``(a, b)``.  Without symmetries, the balanced product is the tensor product.
+
+        A boundary operator of the balanced product maps the orbit of ``a ⨂ b`` to the boundary of
+        ``a ⨂ b`` in the tensor product (see :meth:`tensor_product`), with each term replaced by its
+        orbit.  Coefficients of terms in the same orbit add up, and can cancel.  The result does not
+        depend on the choice of ``a ⨂ b`` within its orbit, because symmetries commute with boundary
+        operators.  Unlike tensor products, balanced products require chain complexes over a finite
+        field, rather than a group ring.
+
+        Section IV of https://arxiv.org/abs/2012.09271 instead identifies ``a h ⨂ b`` with
+        ``a ⨂ h b``, for a group that acts on the first chain complex from the right and on the
+        second from the left.  The two definitions agree if the group element ``h`` paired with
+        ``(g_a, g_b)`` acts on the first chain complex by the inverse of ``g_a``, and on the second
+        by ``g_b``.
+
+        Args:
+            chain_a: The first chain complex.
+            chain_b: The second chain complex, over the same field as the first.
+            symmetries_a: Symmetries of the first chain complex.
+            symmetries_b: Symmetries of the second chain complex, which are paired with those of the
+                first, so that there must be as many.
+
+        References:
+
+        - https://errorcorrectionzoo.org/c/balanced_product
+        - Section IV of https://arxiv.org/abs/2012.09271
+        """
+        if chain_a.ring is not None or chain_b.ring is not None:
+            raise ValueError("Balanced products of chain complexes over rings are not supported")
+        if chain_a.field is not chain_b.field:
+            raise ValueError("Balanced products require chain complexes over the same field")
+        if len(symmetries_a) != len(symmetries_b):
+            raise ValueError("Balanced products require the same number of symmetries per complex")
+        perms_a = [
+            chain_a._get_symmetry_perms(symmetry, f"symmetries_a[{index}]")
+            for index, symmetry in enumerate(symmetries_a)
+        ]
+        perms_b = [
+            chain_b._get_symmetry_perms(symmetry, f"symmetries_b[{index}]")
+            for index, symmetry in enumerate(symmetries_b)
+        ]
+
+        # for each degree, label the basis-element pairs of each sector (deg_a, deg_b) by the
+        # indices of their orbits in the basis of the balanced product
+        orbit_labels: list[dict[tuple[int, int], npt.NDArray[np.int_]]] = []
+        dims = []
+        for degree in range(chain_a.num_links + chain_b.num_links + 1):
+            sector_labels = {}
+            dim = 0
+            for deg_a, deg_b in _get_degree_pairs(chain_a, chain_b, degree):
+                labels = _get_diagonal_orbits(
+                    (chain_a.dim(deg_a), chain_b.dim(deg_b)),
+                    [(perm_a[deg_a], perm_b[deg_b]) for perm_a, perm_b in zip(perms_a, perms_b)],
+                )
+                sector_labels[deg_a, deg_b] = labels + dim
+                dim += int(labels.max(initial=-1)) + 1
+            orbit_labels.append(sector_labels)
+            dims.append(dim)
+
+        # map one representative of each orbit through the tensor-product boundary operator
+        ops = []
+        for degree in range(1, len(orbit_labels)):
+            op = chain_a.field.Zeros((dims[degree - 1], dims[degree]))
+            target_labels = orbit_labels[degree - 1]
+            for (deg_a, deg_b), labels in orbit_labels[degree].items():
+                cols, representatives = np.unique(labels, return_index=True)
+                reps_a, reps_b = np.divmod(representatives, labels.shape[1])
+                if deg_a:
+                    rows = target_labels[deg_a - 1, deg_b][:, reps_b]
+                    np.add.at(op, (rows, cols), chain_a.op(deg_a)[:, reps_a])
+                if deg_b:
+                    rows = target_labels[deg_a, deg_b - 1][reps_a, :].T
+                    vals = chain_b.op(deg_b)[:, reps_b]
+                    np.add.at(op, (rows, cols), -vals if deg_a % 2 else vals)
+            ops.append(op)
+
+        return ChainComplex(ops)
+
     def _validate_ops(self) -> None:
         """Validate the consistency of the boundary operators in this chain complex."""
         for op_a, op_b in zip(self.ops, self.ops[1:]):
@@ -689,3 +526,48 @@ class ChainComplex:
                     "Condition for a chain complex not satisfied:\n"
                     "Neighboring boundary operators of a chain complex must compose to zero"
                 )
+
+    def _get_symmetry_perms(
+        self, symmetry: abstract.GroupMember | Sequence[Iterable[int]], name: str
+    ) -> list[list[int]]:
+        """Validate a symmetry of this chain complex, and return its permutations as lists."""
+        dims = [self.dim(degree) for degree in range(self.num_links + 1)]
+        perms = get_block_permutations(symmetry, dims, name)
+        for degree in range(1, self.num_links + 1):
+            op = self.op(degree)
+            if not np.array_equal(op[perms[degree - 1]][:, perms[degree]], op):
+                raise ValueError(
+                    f"{name} is not a symmetry: it changes the boundary operator on degree {degree}"
+                )
+        return perms
+
+
+def _get_degree_pairs(
+    chain_a: ChainComplex, chain_b: ChainComplex, degree: int
+) -> Iterator[tuple[int, int]]:
+    """Yield pairs of chain degrees that add up to a total degree."""
+    min_deg_a = max(degree - chain_b.num_links, 0)
+    max_deg_a = min(chain_a.num_links, degree)
+    for deg_a in range(max_deg_a, min_deg_a - 1, -1):
+        yield deg_a, degree - deg_a
+
+
+def _get_diagonal_orbits(
+    shape: tuple[int, int], perm_pairs: Sequence[tuple[list[int], list[int]]]
+) -> npt.NDArray[np.int_]:
+    """Label pairs (a, b) of points by their orbits under paired permutations.
+
+    Each pair ``(p_a, p_b)`` in ``perm_pairs`` maps ``(a, b)`` to ``(p_a[a], p_b[b])``.  Orbits are
+    labeled 0, 1, ... in order of their smallest pair in row-major order.
+    """
+    pairs = np.arange(shape[0] * shape[1]).reshape(shape)
+    sources = np.tile(pairs.ravel(), len(perm_pairs))
+    targets = np.array(
+        [pairs[perm_a][:, perm_b].ravel() for perm_a, perm_b in perm_pairs], dtype=int
+    )
+    graph = scipy.sparse.coo_array(
+        (np.ones(sources.size), (sources, targets.ravel())), shape=(pairs.size,) * 2
+    )
+    _, components = scipy.sparse.csgraph.connected_components(graph, directed=False)
+    _, smallest_pairs = np.unique(components, return_index=True)
+    return np.argsort(np.argsort(smallest_pairs))[components].reshape(shape)

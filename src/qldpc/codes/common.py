@@ -33,7 +33,7 @@ from qldpc._utils import format_docstring, get_external_caller_stacklevel
 from qldpc._utils import networkx as nx
 from qldpc.decoders._capabilities import is_prebuilt_decoder, is_prebuilt_observable_decoder
 from qldpc.decoders._resolution import build_error_decoder, reject_prebuilt_decoder
-from qldpc.external import _codes
+from qldpc.external import _bliss, _codes
 from qldpc.math import IntegerArray, resolve_field
 from qldpc.objects import (
     PAULIS_XZ,
@@ -82,8 +82,17 @@ _REDUCE_LOGICAL_OP_REASON = (
 _QUDIT_SYNDROME_MATRIX_REASON = "errors are decoded against an internal syndrome matrix"
 
 
-# the number of times to decode a (possibly randomized) syndrome before giving up
-_MAX_DECODING_ATTEMPTS = 100
+# a decoder, a check matrix, and a syndrome for the decoder to decode
+_DecodingProblem = tuple[decoders.ErrorDecoder, galois.FieldArray, galois.FieldArray]
+
+# the number of spare decoding problems that a randomized decoder search draws to replace failed
+# ones, an arbitrary limit that keeps a hopeless search finite
+_NUM_SPARE_DECODING_PROBLEMS = 100
+_DECODING_FAILURE_MESSAGE = (
+    "The decoder failed to infer an error that reproduces its syndrome in every decoding problem"
+    " that it attempted.  Try a more thorough decoder, such as"
+    " decoder=decoders.bp_osd(osd_method='OSD_CS', osd_order=5)"
+)
 
 
 ####################################################################################################
@@ -573,29 +582,35 @@ class ClassicalCode(AbstractCode):
         """Use a randomized algorithm to compute an upper bound on code distance.
 
         The code distance is the minimum Hamming distance between two code words, or equivalently
-        the minimum Hamming weight of nonzero code words.  To find a low-weight nonzero code word we
-        decode a trivial (all-0) syndrome, but enforce that the overlaps of the code word with the
-        rows of a dual basis of a basis of the code equal a random nonzero vector, which excludes
-        the all-0 word as a candidate.  These overlaps are the coefficients of the code word in
-        that basis, so they determine the code word, and each trial yields a uniformly random
-        nonzero code word.  The weight of that code word is an upper bound on distance.
+        the minimum Hamming weight of nonzero code words.  To find a light nonzero code word, each
+        trial draws random nonzero coefficients ``v`` for a basis of the code.  The trial then
+        decodes a trivial (all-0) syndrome, together with the requirement that the decoded word have
+        overlap 1 with the combination ``v`` of a dual basis.  The code words that meet this
+        requirement are those whose coefficients in the basis have overlap 1 with ``v``.  They make
+        up a fraction 1/q of all code words for a field of order q, and exclude the all-0 word.  The
+        decoder searches them for a light one, whose weight is an upper bound on distance.
+
+        Coefficients that are equal up to a scalar factor define equivalent decoding problems, so
+        each problem is decoded at most once.  If the decoder fails on a problem, its trial moves on
+        to another problem.  At most 100 problems beyond ``num_trials`` are drawn in total.
 
         If bounding the minimum distance between a vector and a code word, we can interpret the
         vector as an error, and find a minimal-weight correction from decoding the syndrome induced
-        by this vector.
+        by this vector.  This is a single decoding problem, so it is decoded at most once.
 
         Args:
-            num_trials: Minimize over this many independent upper bounds.  If ``None`` (the
-                default), return the best known upper bound on distance, or compute a single upper
-                bound if no bound is known.
+            num_trials: Minimize over this many independent upper bounds, or fewer if there are
+                fewer distinct decoding problems, as explained above.  If ``None`` (the default),
+                return the best known upper bound on distance, or compute a single upper bound if no
+                bound is known.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
             vector: If not None, rather than bounding the code distance, bound the minimum Hamming
                 distance between this vector and a code word.  Default: None.
             decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None to
                 select BP+OSD for a binary code and GUF otherwise.  It is built for this code's
-                parity-check matrix if vector is provided, and for an internal effective check
-                matrix otherwise.  A prebuilt error decoder is accepted only together with vector,
-                and must decode this code's parity-check matrix.
+                parity-check matrix if vector is provided, and otherwise for an internal effective
+                check matrix in each trial.  A prebuilt error decoder is accepted only together with
+                vector, and must decode this code's parity-check matrix.
             backend: Distance-bound backend.  Classical codes use only the decoder path, selected
                 by ``"auto"`` (the default) or ``"decoder"``; this argument is accepted for
                 compatibility with shared distance-bound workflows.
@@ -611,8 +626,8 @@ class ClassicalCode(AbstractCode):
         Raises:
             TypeError: If num_trials is not an integer or None.
             ValueError: If backend is not ``"auto"`` or ``"decoder"``, if a prebuilt decoder is
-                given without vector, or if the decoder fails in 100 consecutive attempts to infer
-                an error that reproduces the syndrome that it decodes.
+                given without vector, or if the decoder fails to infer an error that reproduces its
+                syndrome in every decoding problem that it attempts.
         """
         _validate_distance_backend(backend)
         _validate_num_trials(num_trials)
@@ -628,36 +643,26 @@ class ClassicalCode(AbstractCode):
         if num_trials is None and known_bound is not None:
             return known_bound
         num_trials = 1 if num_trials is None else num_trials
-
-        # initialize a (possibly "effective") check matrix and syndrome
-        if vector is not None:
-            check_matrix = self.matrix
-            syndrome = self.matrix @ np.asanyarray(vector).view(self.field)
-        else:
-            # a generator matrix may have dependent rows, so dualize a basis of the code instead
-            basis = self.generator.row_reduce()[: self.dimension]
-            check_matrix = np.vstack([self.matrix, math.get_dual_basis(basis)]).view(self.field)
-            syndrome = np.zeros(len(check_matrix), dtype=int).view(self.field)
         if decoder_kwargs:  # DEPRECATED: see qldpc._deprecations
-            decoder = merge_legacy_decoder_args(check_matrix, decoder, decoder_kwargs)
-        error_decoder = build_error_decoder(check_matrix, decoder=decoder)
+            decoder = merge_legacy_decoder_args(self.matrix, decoder, decoder_kwargs)
 
-        def get_syndrome() -> npt.NDArray[np.int_]:
-            """Get a syndrome to decode, randomizing its overlap with code words if necessary."""
-            if vector is None:
-                syndrome[-self.dimension :] = _get_random_array(
-                    self.field, self.dimension, satisfy=lambda vec: vec.any()
-                )
-            return syndrome
+        def get_problems() -> Iterator[_DecodingProblem]:
+            """Get decoding problems whose solutions bound distance, building decoders lazily."""
+            if vector is not None:
+                syndrome = self.matrix @ np.asanyarray(vector).view(self.field)
+                yield build_error_decoder(self.matrix, decoder=decoder), self.matrix, syndrome
+                return
+            # a generator matrix may have dependent rows, so dualize a basis of the code instead
+            dual_basis = math.get_dual_basis(self.generator.row_reduce()[: self.dimension])
+            syndrome = self.field.Zeros(len(self.matrix) + 1)
+            syndrome[-1] = 1
+            num_draws = num_trials + _NUM_SPARE_DECODING_PROBLEMS
+            for coefficients in _get_random_directions(self.field, self.dimension, num_draws):
+                check_matrix = np.vstack([self.matrix, coefficients @ dual_basis]).view(self.field)
+                yield build_error_decoder(check_matrix, decoder=decoder), check_matrix, syndrome
 
-        # minimize over many individual bounds, each from solving a randomized decoding problem
         min_bound = len(self) if known_bound is None else int(known_bound)
-        for _ in range(num_trials):
-            if cutoff and min_bound <= cutoff:
-                break
-            correction = _decode_consistently(error_decoder, check_matrix, get_syndrome, self.field)
-            min_bound = min(min_bound, int(np.count_nonzero(correction)))
-
+        min_bound = _minimize_decoded_weight(get_problems(), num_trials, min_bound, cutoff or 0)
         if vector is None:
             self._distance_bound = min_bound
         return min_bound
@@ -758,6 +763,25 @@ class ClassicalCode(AbstractCode):
         # fall back to GAP/GAUAVA's PermutationAutomorphismGroup method
         return abstract.Group.from_name(
             f"PermutationAutomorphismGroup({code_str})", warning_to_raise_if_calling_gap=warning
+        )
+
+    def get_matrix_automorphism_group(self) -> abstract.Group:
+        """Get the automorphism group of the parity check matrix of this code.
+
+        An automorphism of an ``m × n`` parity check matrix ``H`` is a permutation ``p`` of the
+        ``m`` checks and ``n`` bits (in that order) that leaves ``H`` invariant, in the sense that
+        ``H[p_checks][:, p_bits] == H`` for ``p_checks = p.array_form[:m]`` and
+        ``p_bits = [bit - m for bit in p.array_form[m:]]``.  Unlike the automorphism group of a code
+        (see :meth:`get_automorphism_group`), the automorphism group of a parity check matrix
+        depends on the choice of parity checks.  Its members are symmetries of this code, which
+        :class:`~qldpc.codes.quantum.BPCode` uses to construct balanced product codes.  Computing
+        this group requires the optional ``pybliss`` package, which can be installed with
+        ``pip install 'qldpc[bliss]'``.
+        """
+        generators = _bliss.get_matrix_automorphism_generators(self.matrix)
+        size = sum(self.matrix.shape)
+        return abstract.Group(
+            *[abstract.GroupMember(perm) for perm in generators or [list(range(size))]]
         )
 
     @staticmethod
@@ -3672,7 +3696,8 @@ class CSSCode(QuditCode):
         Args:
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
                 X-type logical operator).  If passed qldpc.objects.Pauli.Z, compute the Z-distance.
-            num_trials: Minimize over this many independent upper bounds.
+            num_trials: Minimize over this many independent upper bounds, or fewer if there are
+                fewer distinct decoding problems, as explained below.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
             decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None to
                 select the default.  It is built for an internal effective check matrix.
@@ -3703,19 +3728,25 @@ class CSSCode(QuditCode):
 
         where the "0" on the top right is interpreted as a zero vector.  This equation can be solved
         by decoding the syndrome ``[ 0, 0, ..., 0, 1 ].T`` for the parity check matrix
-        ``[ H_z; w_z.T ]``.  If a decoder fails to find a solution, try again with a new random
-        logical operator ``Z(w_z)``.  If the decoder succeeds in finding a solution ``w_x``, this
-        solution corresponds to a logical X type operator ``X(w_x)`` -- and presumably one of low
-        Hamming weight, assuming that the decoder tries to find low-weight solutions to the decoding
+        ``[ H_z; w_z.T ]``.  If the decoder succeeds in finding a solution ``w_x``, this solution
+        corresponds to a logical X type operator ``X(w_x)`` -- and presumably one of low Hamming
+        weight, assuming that the decoder tries to find low-weight solutions to the decoding
         problem.  The Hamming weight ``|w_x|`` is then our upper bound on the X-distance of this
-        code.
+        code.  If the decoder fails to find a solution, try again with a new random logical
+        operator ``Z(w_z)``.
 
         In practice, we want to minimize over many randomized trials that compute an upper bound.
         To avoid constructing a new decoder for every trial, we set the effective parity check
         matrix to ``[ H_z; L_z ]``, where ``L_z`` is a matrix whose rows are a minimal basis for
         nontrivial logical Z-type operators.  In each trial, we then construct an effective syndrome
         by enforcing that it has trivial stabilizers and that it anti-commutes with a random nonzero
-        choice of the logical operators in ``L_z``.
+        choice of the logical operators in ``L_z``.  Choices that are equal up to a scalar factor
+        define equivalent decoding problems, so each problem is decoded at most once.  At most 100
+        problems beyond ``num_trials`` are drawn to replace problems on which the decoder fails.
+
+        Raises:
+            ValueError: If the decoder fails to infer an error that reproduces its syndrome in every
+                decoding problem that it attempts.
         """
         pauli = Pauli.coerce_xz(pauli)
         reject_prebuilt_decoder(decoder, _CSS_DISTANCE_BOUND_REASON)
@@ -3726,31 +3757,21 @@ class CSSCode(QuditCode):
         matrix_z = self.get_matrix(pauli_z)
         logical_ops_z = self.get_logical_ops(pauli_z)
 
-        # initialize a decoder and a trivial effective syndrome
-        effective_check_matrix = np.vstack([matrix_z, logical_ops_z])
+        # initialize a decoder for an effective check matrix
+        effective_check_matrix = np.vstack([matrix_z, logical_ops_z]).view(self.field)
         if decoder_kwargs:  # DEPRECATED: see qldpc._deprecations
             decoder = merge_legacy_decoder_args(effective_check_matrix, decoder, decoder_kwargs)
         error_decoder = build_error_decoder(effective_check_matrix, decoder=decoder)
-        effective_syndrome = np.zeros(len(effective_check_matrix), dtype=int)
 
-        def get_effective_syndrome() -> npt.NDArray[np.int_]:
-            """Get an effective syndrome from a random X-type logical operator."""
-            effective_syndrome[-self.dimension :] = _get_random_array(
-                self.field, self.dimension, satisfy=lambda vec: vec.any()
-            )
-            return effective_syndrome
+        def get_problems() -> Iterator[_DecodingProblem]:
+            """Get decoding problems for random X-type logical operators."""
+            num_draws = num_trials + _NUM_SPARE_DECODING_PROBLEMS
+            for coefficients in _get_random_directions(self.field, self.dimension, num_draws):
+                effective_syndrome = self.field.Zeros(len(effective_check_matrix))
+                effective_syndrome[-self.dimension :] = coefficients
+                yield error_decoder, effective_check_matrix, effective_syndrome
 
-        # minimize over many bounds
-        min_bound = len(self)
-        for _ in range(num_trials):
-            if min_bound <= cutoff:
-                return min_bound
-            candidate_logical_op = _decode_consistently(
-                error_decoder, effective_check_matrix, get_effective_syndrome, self.field
-            )
-            min_bound = min(min_bound, int(np.count_nonzero(candidate_logical_op)))
-
-        return min_bound
+        return _minimize_decoded_weight(get_problems(), num_trials, len(self), cutoff)
 
     def forget_distance(self) -> Self:
         """Forget the known distances (and known distance bounds) of this code."""
@@ -3784,6 +3805,10 @@ class CSSCode(QuditCode):
 
         Returns:
             This code, with a reduced logical operator.
+
+        Raises:
+            ValueError: If logical_index is out of range, or if the decoder fails to infer an error
+                that reproduces its syndrome.
         """
         pauli = Pauli.coerce_xz(pauli)
         if not 0 <= logical_index < self.dimension:
@@ -3795,19 +3820,19 @@ class CSSCode(QuditCode):
         # effective check matrix = syndromes and dual-pauli logical operators
         code = self.get_code(pauli.swap_xz())
         dual_logical_ops = self.get_logical_ops(pauli.swap_xz())
-        effective_check_matrix = np.vstack([code.matrix, dual_logical_ops])
+        effective_check_matrix = np.vstack([code.matrix, dual_logical_ops]).view(self.field)
         dual_op_index = code.num_checks + logical_index
 
         # enforce that the new logical operator commutes with everything except its dual
-        effective_syndrome = np.zeros((code.num_checks + self.dimension), dtype=int)
+        effective_syndrome = self.field.Zeros(code.num_checks + self.dimension)
         effective_syndrome[dual_op_index] = 1
 
         if decoder_kwargs:  # DEPRECATED: see qldpc._deprecations
             decoder = merge_legacy_decoder_args(effective_check_matrix, decoder, decoder_kwargs)
         error_decoder = build_error_decoder(effective_check_matrix, decoder=decoder)
-        candidate_logical_op = _decode_consistently(
-            error_decoder, effective_check_matrix, lambda: effective_syndrome, self.field
-        )
+        candidate_logical_op = _decode(error_decoder, effective_check_matrix, effective_syndrome)
+        if candidate_logical_op is None:
+            raise ValueError(_DECODING_FAILURE_MESSAGE)
 
         assert self._logical_ops is not None
         logical_ops = np.reshape(self._logical_ops, (2, self.dimension, 2, len(self)), copy=False)
@@ -4354,31 +4379,61 @@ def _get_random_array(
     return array
 
 
-def _decode_consistently(
-    decoder: decoders.ErrorDecoder,
-    check_matrix: npt.NDArray[np.int_],
-    get_syndrome: Callable[[], npt.NDArray[np.int_]],
-    field: type[galois.FieldArray],
+def _get_random_directions(
+    field: type[galois.FieldArray], dimension: int, num_draws: int
 ) -> galois.FieldArray:
-    """Decode syndromes until the decoder infers an error that reproduces its syndrome.
+    """Draw random nonzero vectors, normalize their first nonzero entries to 1, and drop repeats.
 
-    Each attempt decodes a new syndrome from get_syndrome, which may be randomized.  An attempt
-    fails if the decoder signals erasure, or infers an error that does not reproduce its syndrome.
+    Scaling the coefficients that define a decoding problem scales its solutions without changing
+    their weights, so vectors that are equal up to scaling define equivalent decoding problems.  The
+    remaining vectors are in the order in which they were first drawn.
+    """
+    vectors = field.Zeros((num_draws, dimension))
+    for vector in vectors:
+        vector[:] = _get_random_array(field, dimension, satisfy=lambda vec: vec.any())
+    vectors /= vectors[np.arange(num_draws), np.argmax(vectors != 0, axis=1)][:, None]
+    _, first_indices = np.unique(vectors.view(np.ndarray), axis=0, return_index=True)
+    return vectors[np.sort(first_indices)]
+
+
+def _decode(
+    decoder: decoders.ErrorDecoder, check_matrix: galois.FieldArray, syndrome: galois.FieldArray
+) -> galois.FieldArray | None:
+    """Decode a syndrome, or return None if the decoder fails to infer an error that reproduces it.
+
+    The decoder also fails if it signals erasure.
+    """
+    error, erased = decoders.get_error_and_erasure(decoder, syndrome)
+    if erased or not np.array_equal(check_matrix @ error, syndrome):
+        return None
+    return error
+
+
+def _minimize_decoded_weight(
+    problems: Iterator[_DecodingProblem], num_trials: int, min_weight: int, cutoff: int
+) -> int:
+    """Minimize the weights of errors that solve decoding problems, starting from a given minimum.
+
+    Each problem is decoded once, and a problem whose decoding fails is skipped.  Problems are
+    decoded until num_trials of them are solved, the minimum falls to or below the cutoff, or the
+    problems run out.
 
     Raises:
-        ValueError: If the decoder fails _MAX_DECODING_ATTEMPTS times in a row.
+        ValueError: If the decoder fails on every problem that it decodes.
     """
-    check_matrix = np.asanyarray(check_matrix).view(field)
-    for _ in range(_MAX_DECODING_ATTEMPTS):
-        syndrome = np.asanyarray(get_syndrome()).view(field)
-        error, erased = decoders.get_error_and_erasure(decoder, syndrome)
-        if not erased and np.array_equal(check_matrix @ error.view(field), syndrome):
-            return error.view(field)
-    raise ValueError(
-        "The decoder failed to infer an error that reproduces its syndrome in"
-        f" {_MAX_DECODING_ATTEMPTS} attempts.  Try a more thorough decoder, such as"
-        " decoder=decoders.bp_osd(osd_method='OSD_CS', osd_order=5)"
-    )
+    if num_trials <= 0 or min_weight <= cutoff:
+        return min_weight
+    num_solved = 0
+    for decoder, check_matrix, syndrome in problems:
+        if (error := _decode(decoder, check_matrix, syndrome)) is None:
+            continue
+        num_solved += 1
+        min_weight = min(min_weight, int(np.count_nonzero(error)))
+        if num_solved == num_trials or min_weight <= cutoff:
+            break
+    if not num_solved:
+        raise ValueError(_DECODING_FAILURE_MESSAGE)
+    return min_weight
 
 
 def _validate_num_trials(num_trials: object) -> None:
