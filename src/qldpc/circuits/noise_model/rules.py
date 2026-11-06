@@ -204,10 +204,8 @@ class NoiseRule:
                 circuit += with_remapped_qubits(self.after, qubit_targets[i : i + num_qubits])
 
 
-# The accepted forms for a single noise-error specification (as used by `NoiseModel`'s clifford /
-# idle error arguments).  Each is normalized to a `NoiseRule` by `_as_noise_rule`: a float is a
-# uniform depolarizing channel, a Mapping is auto-wrapped as a `PauliChannel`, and an
-# `AbstractPauliChannel` / `NoiseRule` is used directly.
+# the forms of the gate and idle errors of a NoiseModel: a probability of depolarizing noise, Pauli
+# noise as a Mapping or channel, or a noise rule (see _as_noise_rule)
 ErrorSpec: TypeAlias = float | Mapping[str, float] | AbstractPauliChannel | NoiseRule
 
 
@@ -248,20 +246,20 @@ def _as_noise_rule(error: ErrorSpec | None, default_arity: int) -> NoiseRule | N
 
     A number becomes a depolarizing ``PauliChannel`` on ``default_arity`` qubits, which
     ``PauliChannel.conditioned_on`` can restrict to qubits that are not immune.  A Pauli channel, or
-    a Mapping from Pauli strings to probabilities, becomes the ``after`` noise of a rule.  A rule
-    that adds no noise is returned as it is, so that callers can check its number of qubits before
-    they drop it.
+    a Mapping from Pauli strings to probabilities, becomes the ``after`` noise of a rule.  None and
+    an empty Mapping give None.  Other errors that add no noise still give a rule, so that callers
+    can check the number of qubits of its channel before they drop it.
     """
     if isinstance(error, NoiseRule):
         return error
     if error is False:
         return None
+    if error is None or (isinstance(error, Mapping) and not error):
+        return None
     if isinstance(error, AbstractPauliChannel):
         return NoiseRule(after=error)
     if isinstance(error, Mapping):
         return NoiseRule(after=PauliChannel(error))
-    if error is None:
-        return None
     if isinstance(error, bool) or not isinstance(error, (int, float)):
         raise TypeError(
             f"expected a float, PauliChannel, PauliChannelSequence, Mapping[str, float], or "
@@ -284,12 +282,10 @@ def _normalize_clifford_nq_error(
     for num_qubits, entry in error.items():
         if num_qubits < 1:
             raise ValueError(f"clifford_nq_error key {num_qubits} must be >= 1")
-        if isinstance(entry, NoiseRule):
-            rule = entry
-        elif isinstance(entry, AbstractPauliChannel):
-            rule = NoiseRule(after=entry)
-        elif isinstance(entry, Mapping):
-            rule = NoiseRule(after=PauliChannel(entry))
+        if isinstance(entry, (NoiseRule, AbstractPauliChannel, Mapping)):
+            rule = _as_noise_rule(entry, num_qubits)
+            if rule is None:  # an empty Mapping
+                continue
         elif isinstance(entry, bool) or not isinstance(entry, (int, float)):
             raise TypeError(
                 f"clifford_nq_error[{num_qubits}] has unsupported type {type(entry).__name__}; "
@@ -361,13 +357,13 @@ def _validate_rule_for_arity(
         raise ValueError(f"{context}: `reset_error` is only valid on reset gates")
 
 
-def _validate_custom_rule(rule: NoiseRule, op: stim.CircuitInstruction) -> None:
-    """Reject a ``rule_func`` result that is incompatible with the gate application ``op``."""
+def _validate_rule_for_op(rule: NoiseRule, op: stim.CircuitInstruction, context: str) -> None:
+    """Reject a noise rule that does not fit the gate application ``op``."""
     num_qubits = sum(1 for target in op.targets_copy() if not target.is_combiner)
     _validate_rule_for_arity(
         rule,
         num_qubits,
-        context=f"rule_func returned a rule for {op.name!r}",
+        context,
         can_measure=op.name in JUST_MEASURE_OPS or op.name in MEASURE_AND_RESET_OPS,
         can_reset=op.name in JUST_RESET_OPS or op.name in MEASURE_AND_RESET_OPS,
     )
@@ -387,10 +383,10 @@ def _rule_with_immunity(
     """The noise rule of one gate application on some immune qubits, or None for no noise.
 
     A gate application on no immune qubits keeps its rule, and one on only immune qubits gets no
-    noise.  On a mix of immune and other qubits, it gets no noise if ``immunize_gates`` is True.
-    Otherwise, its ``PauliChannel`` noise keeps only the Pauli strings that act as identity on
-    immune qubits (see ``PauliChannel.conditioned_on``).  Other noise cannot be restricted in this
-    way, and raises an error.
+    noise.  One on both immune and other qubits gets no noise if ``immunize_gates`` is True, or if
+    its rule adds no noise and its class is ``NoiseRule`` itself.  Otherwise, a rule with
+    ``PauliChannel`` noise becomes a ``NoiseRule`` with the Pauli strings that act as the identity
+    on immune qubits, from ``PauliChannel.conditioned_on``.  Other rules raise an error.
     """
     if not immune_qubits:
         return rule
@@ -398,7 +394,8 @@ def _rule_with_immunity(
     immune_flags = [q in immune_qubits for q in qubits]
     if not any(immune_flags):
         return rule
-    if all(immune_flags) or immunize_gates:
+    # a subclass of NoiseRule may add noise in noisy_operation or emit_after
+    if all(immune_flags) or immunize_gates or (type(rule) is NoiseRule and not rule):
         return None
     if isinstance(rule.after, PauliChannel) and rule.after:
         immune_positions = [i for i, immune in enumerate(immune_flags) if immune]

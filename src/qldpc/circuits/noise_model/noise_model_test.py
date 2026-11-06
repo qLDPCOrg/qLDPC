@@ -701,7 +701,7 @@ def test_pauli_product_cliffords() -> None:
     circuit = stim.Circuit("""
         SPP X0 X0*Y1*Z2
     """)
-    with pytest.raises(ValueError, match="has arity 1, but"):
+    with pytest.raises(ValueError, match=r"rules\['SPP'\]: `after` has arity 1; expected 3"):
         noise_model.noisy_circuit(circuit)
 
     measurement_rule = circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(2, 0.1))
@@ -710,14 +710,13 @@ def test_pauli_product_cliffords() -> None:
     )
     measured = measurement_model.noisy_circuit(stim.Circuit("MXX 0 1\nMYY 2 3\nMZZ 4 5"))
     assert measured == stim.Circuit("MXX 0 1\nMYY 2 3\nMZZ 4 5\nDEPOLARIZE2(0.1) 0 1 2 3 4 5")
+    readout_rule = circuits.NoiseRule(readout_error=0.1)
     with pytest.raises(ValueError, match="readout_error"):
-        circuits.NoiseModel(rules={"SPP": circuits.NoiseRule(readout_error=0.1)}).noisy_circuit(
-            stim.Circuit("SPP X0")
-        )
-    with pytest.raises(ValueError, match="reset_error"):
-        circuits.NoiseModel(rules={"SPP": circuits.NoiseRule(reset_error=0.1)}).noisy_circuit(
-            stim.Circuit("SPP X0")
-        )
+        circuits.NoiseModel(rules={"SPP": readout_rule}).noisy_circuit(stim.Circuit("SPP X0"))
+    measured = circuits.NoiseModel(rules={"MPP": readout_rule}).noisy_circuit(
+        stim.Circuit("MPP X0")
+    )
+    assert measured == stim.Circuit("MPP(0.1) X0")
 
 
 def test_correlated_error_chains_stay_whole() -> None:
@@ -1010,38 +1009,29 @@ def test_clifford_nq_error_errors() -> None:
     with pytest.raises(ValueError, match="arity 2; expected 3"):
         circuits.NoiseModel(clifford_nq_error={3: circuits.PauliChannel.depolarizing(2, 0.01)})
 
-    # num_qubits mismatch via `rules=` is not caught at construction (arity varies), but is caught
-    # at emission by `emit_after`.
-    bad_rule = circuits.NoiseRule(after=circuits.PauliChannel({"XY": 0.01}))
-    noise_model = circuits.NoiseModel(rules={"SPP": bad_rule})
-    with pytest.raises(ValueError, match="has arity 2, but"):
-        noise_model.noisy_circuit(stim.Circuit("SPP X0*Y1*Z2"))
-
     # A 2-qubit `after` broadcast (via a 2q PauliChannel) applied to a wrong-arity basis-suffixed
     # rule key raises at construction time ("MXYZ" is arity 3 — a 2q `after` is caught up front).
     with pytest.raises(ValueError, match="arity 2; expected 3"):
         circuits.NoiseModel(
             rules={"MXYZ": circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(2, 0.01))}
         )
-    # Bare "MPP" / "SPP" remain variable-arity; wrong-arity `after` is caught at emission.
-    with pytest.raises(ValueError, match="has arity 2, but"):
-        circuits.NoiseModel(
-            rules={"MPP": circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(2, 0.01))}
-        ).noisy_circuit(stim.Circuit("MPP X0*Y1*Z2"))
 
 
-def test_pauli_channel_idle_error_rejection() -> None:
-    """Multi-qubit `after` rules are not accepted on idle-error rules (all shapes rejected)."""
-    channel = circuits.PauliChannel({"XY": 0.01})
-    with pytest.raises(ValueError, match=r"idle_error.*multi-qubit"):
-        circuits.NoiseModel(idle_error=circuits.NoiseRule(after=channel))
-    with pytest.raises(ValueError, match=r"additional_error_waiting_for_m_or_r.*multi-qubit"):
-        circuits.NoiseModel(additional_error_waiting_for_m_or_r=circuits.NoiseRule(after=channel))
-    # stim.Circuit form is rejected on the same grounds
-    with pytest.raises(ValueError, match=r"idle_error.*multi-qubit"):
-        circuits.NoiseModel(
-            idle_error=circuits.NoiseRule(after=stim.Circuit("DEPOLARIZE2(0.1) 0 1"))
-        )
+def test_empty_mapping_is_no_noise() -> None:
+    """An empty Mapping of Pauli strings adds no noise, but other Mappings must fit their gates."""
+    assert not circuits.NoiseModel(idle_error={})
+    with pytest.raises(ValueError, match="arity 2; expected 1"):
+        circuits.NoiseModel(idle_error={"XX": 0.0})
+    with pytest.raises(ValueError, match="arity 1; expected 2"):
+        circuits.NoiseModel(clifford_nq_error={2: {"X": 0.0}})
+
+
+def test_idle_error_rule_validation() -> None:
+    """Idle errors reject rules with readout or reset errors, which they cannot apply."""
+    with pytest.raises(ValueError, match=r"idle_error: `readout_error` is only valid"):
+        circuits.NoiseModel(idle_error=circuits.NoiseRule(readout_error=0.1))
+    with pytest.raises(ValueError, match=r"additional_error_waiting_for_m_or_r: `reset_error`"):
+        circuits.NoiseModel(additional_error_waiting_for_m_or_r=circuits.NoiseRule(reset_error=0.1))
 
 
 def test_quadratic_idle_error_runs() -> None:

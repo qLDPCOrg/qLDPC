@@ -33,7 +33,7 @@ def test_noise_rule_errors() -> None:
         circuits.NoiseModel(clifford_nq_error={2: circuits.PauliChannel({}, num_qubits=3)})
     # Same policy for idle_error: an explicitly-declared arity is validated BEFORE trivializing, so
     # a shape-wrong empty channel is flagged rather than silently accepted.
-    with pytest.raises(ValueError, match=r"idle_error.*multi-qubit"):
+    with pytest.raises(ValueError, match=r"idle_error: `after` has arity 3; expected 1"):
         circuits.NoiseModel(
             idle_error=circuits.NoiseRule(after=circuits.PauliChannel({}, num_qubits=3))
         )
@@ -201,7 +201,7 @@ def test_normalize_clifford_nq_error() -> None:
     rule = circuits.NoiseRule(after={"XXX": 0.1})
     assert rules._normalize_clifford_nq_error(None) == {}
     normalized = rules._normalize_clifford_nq_error(
-        {1: 0.1, 2: circuits.PauliChannel({"XX": 0.1}), 3: rule, 4: {"XXXX": 0.1}, 5: 0}
+        {1: 0.1, 2: circuits.PauliChannel({"XX": 0.1}), 3: rule, 4: {"XXXX": 0.1}, 5: 0, 6: {}}
     )
     assert {weight: rule.after for weight, rule in normalized.items()} == {
         1: circuits.PauliChannel.depolarizing(1, 0.1),
@@ -242,11 +242,11 @@ def test_rule_validation() -> None:
     with pytest.raises(ValueError, match="reset_error"):
         rules._validate_rule_for_arity(circuits.NoiseRule(reset_error=0.1), 1, "context")
 
-    rules._validate_custom_rule(
-        circuits.NoiseRule(readout_error=0.1), stim.CircuitInstruction("MR", [0])
+    rules._validate_rule_for_op(
+        circuits.NoiseRule(readout_error=0.1), stim.CircuitInstruction("MR", [0]), "context"
     )
-    with pytest.raises(ValueError, match="rule_func returned a rule for 'CX'"):
-        rules._validate_custom_rule(rule, stim.CircuitInstruction("CX", [0, 1]))
+    with pytest.raises(ValueError, match="rule for 'CX': `after` has arity 1; expected 2"):
+        rules._validate_rule_for_op(rule, stim.CircuitInstruction("CX", [0, 1]), "rule for 'CX'")
 
 
 def test_rule_with_immunity() -> None:
@@ -257,13 +257,19 @@ def test_rule_with_immunity() -> None:
     assert rules._rule_with_immunity(rule, op, frozenset({2}), immunize_gates=True) is rule
     assert rules._rule_with_immunity(rule, op, frozenset({0, 1}), immunize_gates=False) is None
     assert rules._rule_with_immunity(rule, op, frozenset({1}), immunize_gates=True) is None
+    empty_rule = circuits.NoiseRule(readout_error=0)
+    mxx = stim.CircuitInstruction("MXX", [0, 1])
+    assert rules._rule_with_immunity(empty_rule, mxx, frozenset({1}), immunize_gates=False) is None
+
+    class SubRule(circuits.NoiseRule):
+        pass  # a subclass may add noise in noisy_operation or emit_after
+
+    with pytest.raises(ValueError, match="partial immunity"):
+        rules._rule_with_immunity(SubRule(), mxx, frozenset({1}), immunize_gates=False)
     rule = circuits.NoiseRule(after={"XI": 0.1, "XX": 0.2})
     conditioned = rules._rule_with_immunity(rule, op, frozenset({1}), immunize_gates=False)
     assert conditioned is not None and conditioned.after == circuits.PauliChannel({"XI": 0.1})
     with pytest.raises(ValueError, match="partial immunity"):
         rules._rule_with_immunity(
-            circuits.NoiseRule(readout_error=0.1),
-            stim.CircuitInstruction("MXX", [0, 1]),
-            frozenset({1}),
-            immunize_gates=False,
+            circuits.NoiseRule(readout_error=0.1), mxx, frozenset({1}), immunize_gates=False
         )

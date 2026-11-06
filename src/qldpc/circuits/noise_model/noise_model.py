@@ -60,7 +60,8 @@ from .rules import (
     _normalize_clifford_nq_error,
     _normalize_rules,
     _rule_with_immunity,
-    _validate_custom_rule,
+    _validate_rule_for_arity,
+    _validate_rule_for_op,
 )
 from .scheduling import (
     ASAPScheduler,
@@ -204,19 +205,15 @@ class NoiseModel:
         self.additional_error_waiting_for_m_or_r = _as_noise_rule(
             additional_error_waiting_for_m_or_r, 1
         )
-        # idle errors act on one qubit at a time.  Check this before dropping errors that add no
-        # noise, so that an empty channel on the wrong number of qubits is still caught.
+        # idle errors act on one qubit at a time, and neither measure nor reset it.  Check this
+        # before dropping errors that add no noise, so that an empty channel on the wrong number of
+        # qubits is still caught.
         for field_name, idle_rule in (
             ("idle_error", self.idle_error),
             ("additional_error_waiting_for_m_or_r", self.additional_error_waiting_for_m_or_r),
         ):
-            if idle_rule is None:
-                continue
-            if idle_rule.after is not None and idle_rule.after.num_qubits != 1:
-                raise ValueError(
-                    f"`{field_name}` does not support a multi-qubit `after` rule "
-                    f"(arity={idle_rule.after.num_qubits})."
-                )
+            if idle_rule is not None:
+                _validate_rule_for_arity(idle_rule, 1, field_name)
         # a quadratic idle error must be a one-qubit Pauli channel of total probability at most 1/2
         self.quadratic_idle_error: PauliChannel | None = None
         quadratic_idle_rule = _as_noise_rule(quadratic_idle_error, 1)
@@ -320,18 +317,11 @@ class NoiseModel:
         if this_op_type in (ANNOTATION, NOISE) or involves_classical_bits(op):
             return None
 
-        # the number of qubits in the Pauli product of an MPP, SPP, or SPP_DAG instruction
-        product_arity = (
-            sum(1 for target in op.targets_copy() if not target.is_combiner)
-            if this_op_type in (CLIFFORD_PP, JUST_MEASURE_PP)
-            else 0
-        )
-
         # a rule from rule_func comes first
         if self.rule_func is not None and this_op_type in GATE_OP_TYPES:
             rule = self.rule_func(op)
             if rule is not None:
-                _validate_custom_rule(rule, op)
+                _validate_rule_for_op(rule, op, f"rule_func returned a rule for {op.name!r}")
                 return rule
 
         # then a rule by the most specific name of the gate.  A rule for bare MPP, SPP, or SPP_DAG
@@ -341,20 +331,15 @@ class NoiseModel:
                 rule = self.rules.get(name)
                 if rule is not None:
                     if name in {"MPP", "SPP", "SPP_DAG"}:
-                        if rule.after is not None and rule.after.num_qubits != product_arity:
-                            raise ValueError(
-                                f"This NoiseRule has arity {rule.after.num_qubits}, but"
-                                f" {op.name!r} has {product_arity} qubit targets"
-                            )
-                        if rule.readout_error is not None and op.name not in JUST_MEASURE_OPS:
-                            raise ValueError(f"`readout_error` is not valid on {op.name!r}")
-                        if rule.reset_error is not None:
-                            raise ValueError(f"`reset_error` is not valid on {op.name!r}")
+                        _validate_rule_for_op(rule, op, f"rules[{name!r}]")
                     return rule
 
         # then the default rule for unitary Cliffords on this number of qubits
         if this_op_type in (CLIFFORD_1Q, CLIFFORD_2Q, CLIFFORD_PP):
-            num_qubits = {CLIFFORD_1Q: 1, CLIFFORD_2Q: 2}.get(this_op_type, product_arity)
+            if this_op_type == CLIFFORD_PP:
+                num_qubits = sum(1 for target in op.targets_copy() if not target.is_combiner)
+            else:
+                num_qubits = 1 if this_op_type == CLIFFORD_1Q else 2
             if num_qubits in self.clifford_nq_error:
                 return self.clifford_nq_error[num_qubits]
 
