@@ -25,6 +25,7 @@ from ..common import (
     DEFAULT_IMMUNE_QUBIT_TAG,
     StimCircuitLike,
     _get_immune_qubits,
+    _get_instructions,
 )
 from ..transforms import with_remapped_qubits
 from ._operations import (
@@ -491,7 +492,7 @@ class NoiseModel:
         if self.quadratic_idle_error is not None and any(
             isinstance(instruction, stim.CircuitRepeatBlock)
             and (immune_op_tag is None or immune_op_tag not in instruction.tag)
-            for instruction in stim_circuit
+            for instruction in _get_instructions(stim_circuit)
         ):
             warnings.warn(
                 "Quadratic idle errors are split at the boundaries of REPEAT blocks and of their"
