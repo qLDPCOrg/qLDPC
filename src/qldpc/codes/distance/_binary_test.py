@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import itertools
+from typing import Any
 
 import numpy as np
 import pytest
@@ -33,6 +34,16 @@ def test_binary_matrices_and_nested_bases() -> None:
     basis, tags = binary.get_nested_code_basis(matrix, np.array([[1, 0, 1]], dtype=np.uint8))
     np.testing.assert_array_equal(basis, [[1, 0, 1], [0, 1, 1]])
     np.testing.assert_array_equal(tags, [[0], [1]])
+
+
+def test_integer_arguments() -> None:
+    """Integers of any type become Python integers, and bools and other values are rejected."""
+    value = binary.as_integer(np.int64(3), "value")
+    assert value == 3 and type(value) is int
+    for invalid in (True, 2.5, "3"):
+        not_an_integer: Any = invalid
+        with pytest.raises(TypeError, match="value must be an integer"):
+            binary.as_integer(not_an_integer, "value")
 
 
 def test_eligible_rows_have_nonzero_labels() -> None:

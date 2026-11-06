@@ -4,8 +4,7 @@
 
 from __future__ import annotations
 
-import operator
-from typing import Literal, get_args
+from typing import Literal, SupportsIndex, get_args
 
 import numpy as np
 import numpy.typing as npt
@@ -14,6 +13,7 @@ from qldpc._binary import get_independent_rows
 
 from ._binary import (
     as_binary_matrix,
+    as_integer,
     assert_binary,
     get_nested_code_basis,
     symplectic_to_hamming,
@@ -48,7 +48,7 @@ def get_distance_classical(
     cutoff: int = 1,
     block_size: int = 15,
     method: DistanceMethod = "brouwer_zimmermann",
-    max_weight: int | None = None,
+    max_weight: SupportsIndex | None = None,
 ) -> int:
     """Distance of a classical linear binary code.
 
@@ -76,7 +76,7 @@ def get_distance_classical(
         that every nontrivial code word is heavier than ``max_weight``.
 
     Raises:
-        TypeError: If ``max_weight`` is not an integer.
+        TypeError: If ``max_weight`` is not an integer, or is a bool.
         ValueError: If ``max_weight`` is negative, if the method is unknown, or if the generators
             are not a binary matrix.
     """
@@ -117,7 +117,7 @@ def get_distance_quantum(
     block_size: int = 15,
     homogeneous: bool = False,
     method: DistanceMethod = "brouwer_zimmermann",
-    max_weight: int | None = None,
+    max_weight: SupportsIndex | None = None,
 ) -> int:
     """Distance of a binary quantum code.
 
@@ -155,7 +155,7 @@ def get_distance_quantum(
         operator is heavier than ``max_weight``.
 
     Raises:
-        TypeError: If ``max_weight`` is not an integer.
+        TypeError: If ``max_weight`` is not an integer, or is a bool.
         ValueError: If ``max_weight`` is negative, if the method is unknown, or if the operators
             are not binary matrices of equal width, with an even width if ``homogeneous`` is False.
 
@@ -225,17 +225,14 @@ def get_distance_quantum(
     return distance // divisor
 
 
-def _get_weight_limit(cutoff: int, max_weight: int | None) -> tuple[int, int | None]:
+def _get_weight_limit(cutoff: int, max_weight: SupportsIndex | None) -> tuple[int, int | None]:
     """The cutoff to use under a weight limit, and the upper bound ``max_weight + 1`` (or None).
 
     The limit caps the cutoff, so that an early exit still returns the weight of a word within it.
     """
     if max_weight is None:
         return cutoff, None
-    if isinstance(max_weight, bool):
-        raise TypeError(f"max_weight must be an integer, not {max_weight}")
-    # A NumPy integer becomes a Python integer, so that results are Python integers too.
-    max_weight = operator.index(max_weight)
+    max_weight = as_integer(max_weight, "max_weight")
     if max_weight < 0:
         raise ValueError(f"max_weight must be nonnegative, not {max_weight}")
     return min(cutoff, max_weight), max_weight + 1

@@ -26,7 +26,6 @@ References:
 from __future__ import annotations
 
 import functools
-import operator
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, SupportsIndex
@@ -39,7 +38,7 @@ from qldpc._compilation import set_on_request_functions_compiled
 from qldpc._utils import format_docstring
 
 from . import _information_sets
-from ._binary import get_nested_code_basis
+from ._binary import as_integer, get_nested_code_basis
 from ._brouwer_zimmermann import get_distance_brouwer_zimmermann_many
 from ._brute_force import get_nested_distance_brute_force
 from ._counting import local_cliffords, macwilliams, scan
@@ -211,7 +210,7 @@ class CSSLogicalCounter:
     @format_docstring(MAX_SETS=_information_sets.MAX_SETS)
     def count_logical_ops(
         self,
-        weight: int | None = None,
+        weight: SupportsIndex | None = None,
         *,
         method: LogicalCountMethod = "brouwer_zimmermann",
         count_pauli: bool = False,
@@ -252,26 +251,24 @@ class CSSLogicalCounter:
             qubits, the returned weight is the number of qubits and every count is zero.
 
         Raises:
-            TypeError: If ``max_information_sets`` is not an integer, or is a bool.
-            ValueError: If the weight is not an integer between zero and the number of qubits, if
+            TypeError: If the weight or ``max_information_sets`` is not an integer, or is a bool.
+            ValueError: If the weight is not between zero and the number of qubits, if
                 the method is unknown, if the weight is above the distance and ``count_pauli`` or
                 ``within_distance`` is set, or if the MacWilliams method does not support the code
                 or the request.
         """
         # Validate the inputs, resolving method aliases.
         method = _validate_logical_count_method(method)
-        if weight is not None and (
-            not isinstance(weight, (int, np.integer))
-            or isinstance(weight, bool)
-            or not 0 <= weight <= self.num_qubits
-        ):
-            raise ValueError("The weight must be an integer between zero and the number of qubits")
+        if weight is not None:
+            weight = as_integer(weight, "weight")
+            if not 0 <= weight <= self.num_qubits:
+                raise ValueError(
+                    f"The weight must be between zero and {self.num_qubits}, not {weight}"
+                )
         if method == "macwilliams":
             self._validate_macwilliams_request(count_pauli)
-        if isinstance(max_information_sets, bool):
-            raise TypeError(f"max_information_sets must be an integer, not {max_information_sets}")
         # Compiled code specializes on the type of each argument, so fix it to a Python integer.
-        max_sets = operator.index(max_information_sets)
+        max_sets = as_integer(max_information_sets, "max_information_sets")
 
         # A code without logicals needs no scan, and the MacWilliams method needs no sectors.
         if not self.dimension:
@@ -375,8 +372,9 @@ class CSSLogicalCounter:
             A new counter.  This counter is not modified.
 
         Raises:
-            TypeError: If the targets are not a collection of qubit indices.
-            ValueError: If the targets are invalid, or if ``matrix_x`` is not an invertible binary
+            TypeError: If the targets are not a collection of integer qubit indices.
+            ValueError: If the targets are not 1 to 64 distinct, in-range indices, or if
+                ``matrix_x`` is not an invertible binary
                 matrix that matches the number of targets.
         """
         positions = self._get_positions(targets)
@@ -397,6 +395,7 @@ class CSSLogicalCounter:
             A new counter.  This counter is not modified.
 
         Raises:
+            TypeError: If a qubit is not an integer index.
             ValueError: If the qubits are not distinct, in-range indices.
         """
         return self._deformed(self._get_positions([control, target]), *local_cliffords.CNOT)
@@ -421,6 +420,7 @@ class CSSLogicalCounter:
             A new counter.  This counter is not modified.
 
         Raises:
+            TypeError: If a qubit is not an integer index.
             ValueError: If the qubits are not distinct, in-range indices.
         """
         positions = self._get_positions([qubit_0, qubit_1, qubit_2, qubit_3])
@@ -434,14 +434,10 @@ class CSSLogicalCounter:
             raise TypeError(
                 f"Clifford targets must be a collection of qubit indices (got {targets!r})"
             ) from error
+        positions = [as_integer(index, "a Clifford target") for index in positions]
         if (
             not 1 <= len(positions) <= 64
-            or any(
-                not isinstance(index, (int, np.integer))
-                or isinstance(index, bool)
-                or not 0 <= index < self.num_qubits
-                for index in positions
-            )
+            or any(not 0 <= index < self.num_qubits for index in positions)
             or len(set(positions)) != len(positions)
         ):
             raise ValueError(
@@ -620,7 +616,7 @@ class CSSLogicalCounter:
 
 def count_logical_ops_css(
     code: CSSCode,
-    weight: int | None = None,
+    weight: SupportsIndex | None = None,
     *,
     method: LogicalCountMethod = "brouwer_zimmermann",
     count_pauli: bool = False,
@@ -637,7 +633,7 @@ def count_logical_ops_css(
         The counted weight and the counts.
 
     Raises:
-        TypeError: If the code is not a :class:`~qldpc.codes.CSSCode`, or if
+        TypeError: If the code is not a :class:`~qldpc.codes.CSSCode`, or if the weight or
             ``max_information_sets`` is not an integer, or is a bool.
         ValueError: If the code is not binary, or for invalid arguments as described in
             :meth:`CSSLogicalCounter.count_logical_ops`.

@@ -246,7 +246,7 @@ def test_max_weight_conventions_and_validation() -> None:
         with pytest.raises(TypeError):
             qldpc.codes.get_distance_classical([[1, 1]], max_weight=cast(int, not_an_integer))
     distance = qldpc.codes.get_distance_classical(
-        [[1, 1, 1, 1]], max_weight=cast(int, np.int64(1)), method="brute_force"
+        [[1, 1, 1, 1]], max_weight=np.int64(1), method="brute_force"
     )
     assert distance == 2 and type(distance) is int
 

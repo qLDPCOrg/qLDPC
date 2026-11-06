@@ -7,12 +7,33 @@ The generic bit-packed linear algebra over GF(2) that the searches use is in ``q
 
 from __future__ import annotations
 
+import operator
+from typing import SupportsIndex
+
 import numpy as np
 import numpy.typing as npt
 
 from qldpc._binary import get_independent_rows
 
 _MASK55 = np.uint64(0x5555555555555555)
+
+
+####################################################################################################
+# input checks
+
+
+def as_integer(value: SupportsIndex, name: str) -> int:
+    """Return an integer argument as a Python integer, or raise a TypeError if it is not one.
+
+    A NumPy integer becomes a Python integer, so that results are Python integers too.  A bool is
+    rejected, although Python treats it as an integer.
+    """
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be an integer, not {value!r}")
+    try:
+        return operator.index(value)
+    except TypeError as error:
+        raise TypeError(f"{name} must be an integer, not {value!r}") from error
 
 
 ####################################################################################################
