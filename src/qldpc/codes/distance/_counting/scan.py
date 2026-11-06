@@ -24,7 +24,6 @@ from qldpc._compilation import always_compiled, compiled_on_request
 
 from .. import _information_sets
 from .._information_sets import advance_support
-from ..core import DistanceMethod
 from . import local_cliffords
 
 _PackedMatrix = npt.NDArray[np.uint64]
@@ -54,7 +53,7 @@ def count_words(
     basis: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8],
     weight: int,
-    method: DistanceMethod,
+    brute_force: bool,
     rank_rows: _PackedMatrix,
     *,
     complement: bool,
@@ -69,10 +68,11 @@ def count_words(
     is the support of the word, or its complement.  The histogram sums to the number of words, and
     the caller weighs each exponent by ``2**exponent``, which could overflow a native integer.  The
     scan also visits every lighter word, so with ``reject_lighter`` it returns None as soon as it
-    finds a nontrivial one.
+    finds a nontrivial one.  With ``brute_force``, it scans the whole basis as one set, rather than
+    the information sets of the Brouwer-Zimmermann search.
     """
     # Select the information sets, or scan the whole basis as one set for brute force.
-    if method == "brute_force":
+    if brute_force:
         rows, packed_labels = pack_bits(basis)[np.newaxis], pack_bits(labels)[np.newaxis]
         extractors = np.zeros((1, 0, rows.shape[2]), dtype=np.uint64)
         last_layer, last_num_completed = len(basis), 1
