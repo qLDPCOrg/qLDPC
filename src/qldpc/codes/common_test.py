@@ -749,17 +749,17 @@ def test_automorphisms_from_bliss_or_construction(monkeypatch: pytest.MonkeyPatc
     The bliss search is mocked here, and checked against the real package in its own tests.
     """
     poly_x = sympy.abc.x
-    translations = codes.QCCode([7], 1 + poly_x, 1 + poly_x**3)._get_qudit_automorphisms()
+    translations = codes.MBCode([7], 1 + poly_x, 1 + poly_x**3)._get_qudit_automorphisms()
 
     # without pybliss, or if bliss finds nothing, codes return the automorphisms of their family
     monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
-    code = codes.QCCode([7], 1 + poly_x, 1 + poly_x**3)
+    code = codes.MBCode([7], 1 + poly_x, 1 + poly_x**3)
     assert (found := code._found_qudit_automorphisms) is not None
     assert np.array_equal(found, translations)
     assert codes.CSSCode(code.matrix_x, code.matrix_z)._found_qudit_automorphisms is None
     monkeypatch.setattr(common._bliss, "is_installed", lambda: True)
     monkeypatch.setattr(common._bliss, "get_matrix_automorphism_generators", lambda *_: [])
-    code = codes.QCCode([7], 1 + poly_x, 1 + poly_x**3)
+    code = codes.MBCode([7], 1 + poly_x, 1 + poly_x**3)
     assert (found := code._found_qudit_automorphisms) is not None
     assert np.array_equal(found, translations)
 

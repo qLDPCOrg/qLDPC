@@ -201,18 +201,18 @@ def test_get_distance_quantum_noncss_codes(
 def test_quantum_distances_use_qubit_automorphisms(monkeypatch: pytest.MonkeyPatch) -> None:
     """Searches use qubit permutations for homogeneous operators, and lift them for Pauli operators.
 
-    Hadamards on the second block of this [[14, 6, 3]] quasi-cyclic code make a code that is not
-    CSS, which translations of both blocks still preserve.  A wrong permutation fails loudly.
+    Hadamards on the second block of this [[14, 6, 3]] multivariate bicycle code make a code that is
+    not CSS, which translations of both blocks still preserve.  A wrong permutation fails loudly.
     """
     monkeypatch.setattr(_brouwer_zimmermann, "MINIMUM_LAYER_WORK", 0)
-    qc_code = qldpc.codes.QCCode([7], 1 + x + x**3, 1 + x**2 + x**3 + x**4)
-    translations = qc_code._get_qudit_automorphisms()
-    transposition = np.arange(len(qc_code))
+    bicycle_code = qldpc.codes.MBCode([7], 1 + x + x**3, 1 + x**2 + x**3 + x**4)
+    translations = bicycle_code._get_qudit_automorphisms()
+    transposition = np.arange(len(bicycle_code))
     transposition[[0, 1]] = [1, 0]
-    code = qc_code.conjugated(range(7, 14))
+    code = bicycle_code.conjugated(range(7, 14))
     problems = [
         (code.get_logical_ops(), code.get_stabilizer_ops(), False),
-        (qc_code.get_logical_ops("X"), qc_code.get_stabilizer_ops("X"), True),
+        (bicycle_code.get_logical_ops("X"), bicycle_code.get_stabilizer_ops("X"), True),
     ]
     for logical_ops, stabilizers, homogeneous in problems:
         search = functools.partial(

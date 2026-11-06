@@ -107,6 +107,7 @@ ALIASES: dict[str, dict[str, str]] = {
         ),
     },
     "qldpc.codes": {
+        "QCCode": "qldpc.codes.quantum:MBCode",
         "code_capacity": "qldpc.codes._code_capacity",
         "get_distance_css_brouwer_zimmermann": (
             "qldpc.codes.distance.core:_get_distance_css_brouwer_zimmermann"
@@ -123,6 +124,9 @@ ALIASES: dict[str, dict[str, str]] = {
     },
     "qldpc.codes.monte_carlo": {
         "OneOrManyFloats": "qldpc._deprecations.core:OneOrManyFloats",
+    },
+    "qldpc.codes.quantum": {
+        "QCCode": "qldpc.codes.quantum:MBCode",
     },
     "qldpc.decoders": {
         "BatchDecoder": "qldpc.decoders.protocols:BatchErrorDecoder",

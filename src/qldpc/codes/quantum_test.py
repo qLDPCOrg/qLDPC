@@ -483,15 +483,15 @@ def get_dist_l1(
     return sum(min(diff, length - diff) for diff, length in zip(diffs, torus_shape))
 
 
-def test_quasi_cyclic_codes() -> None:
+def test_multivariate_bicycle_codes() -> None:
     """Multivariate versions of the bicycle codes in arXiv:2308.07915 and arXiv:2311.16980."""
 
     # not enough orders provided
     with pytest.raises(ValueError, match=r"Provided .* symbols, but only .* orders"):
-        codes.QCCode([], x, y)
+        codes.MBCode([], x, y)
 
     # add placeholder symbols if necessary
-    code = codes.QCCode([2, 1, 3], x, x * y)
+    code = codes.MBCode([2, 1, 3], x, x * y)
     assert len(code.symbols) == 3
 
     assert_valid_subgraphs(code)
@@ -499,25 +499,25 @@ def test_quasi_cyclic_codes() -> None:
         code.get_syndrome_subgraphs(strategy="smallest_last")
 
     # a symbol whose cyclic group is trivial acts as the identity, so all of its powers agree
-    assert np.array_equal(code.matrix, codes.QCCode([2, 1, 3], x, x * y**2).matrix)
+    assert np.array_equal(code.matrix, codes.MBCode([2, 1, 3], x, x * y**2).matrix)
 
     # distinct monomials can name the same group element, and are simplified into a single term
-    assert_valid_subgraphs(codes.QCCode([3], 1 + x**3 + x**6, 1 + x))
+    assert_valid_subgraphs(codes.MBCode([3], 1 + x**3 + x**6, 1 + x))
 
     # the coefficients of such monomials are summed in the base field, each denoting a field element
     # rather than a multiplicity: over GF(4) the elements 1, 1 and -2 sum to 2, not to the 0 that
     # the same integers give
-    assert codes.QCCode([3], 1 + x**3 - 2 * x**6, 1 + x, field=4).poly_a.as_expr() == 2
+    assert codes.MBCode([3], 1 + x**3 - 2 * x**6, 1 + x, field=4).poly_a.as_expr() == 2
 
     # more than one placeholder symbol is needed when the orders outnumber the symbols by 2 or more
     for orders, poly_a, poly_b in [([3, 4, 5], 1 + x, 1 + x**2), ([3, 4, 5, 6], 1 + x, 1 + y)]:
-        code = codes.QCCode(orders, poly_a, poly_b)
+        code = codes.MBCode(orders, poly_a, poly_b)
         assert len(code.symbols) == len(orders)
         assert len(set(code.symbols)) == len(orders)  # every placeholder is distinct
         assert len(code) == 2 * np.prod(orders)
 
     # placeholder names do not depend on the iteration order of a set of symbols
-    assert [str(symbol) for symbol in codes.QCCode([3, 4, 5, 6], 1 + x, 1 + y).symbols] == [
+    assert [str(symbol) for symbol in codes.MBCode([3, 4, 5, 6], 1 + x, 1 + y).symbols] == [
         "x",
         "y",
         "~xy_2",
@@ -525,12 +525,12 @@ def test_quasi_cyclic_codes() -> None:
     ]
 
 
-def test_quasi_cyclic_translations_preserve_checks() -> None:
-    """Translations of a quasi-cyclic code map its checks of each type onto themselves.
+def test_multivariate_bicycle_translations_preserve_checks() -> None:
+    """Translations of a multivariate bicycle code map its checks of each type onto themselves.
 
     One cyclic factor of this code is trivial, so its group has fewer generators than symbols.
     """
-    code = codes.QCCode([2, 1, 3], x + 1, x * y + 1)
+    code = codes.MBCode([2, 1, 3], x + 1, x * y + 1)
     for permutation in code._get_qudit_automorphisms():
         for matrix in (code.matrix_x, code.matrix_z):
             permuted = np.zeros_like(matrix)
@@ -560,11 +560,11 @@ def test_block_translations() -> None:
 
 
 @pytest.mark.parametrize("num_terms", [1, 3, 4])
-def test_quasi_cyclic_syndrome_subgraphs_by_term_count(num_terms: int) -> None:
+def test_multivariate_bicycle_syndrome_subgraphs_by_term_count(num_terms: int) -> None:
     """Syndrome subgraphs partition every Tanner edge beyond the two-term documented example."""
     poly_a = sum(x**power for power in range(1, num_terms + 1))
     poly_b = sum(x**power for power in range(6, 6 + num_terms))
-    code = codes.QCCode([11], poly_a, poly_b)
+    code = codes.MBCode([11], poly_a, poly_b)
 
     assert len(code.poly_a.terms()) == num_terms
     assert len(code.poly_b.terms()) == num_terms
@@ -1063,19 +1063,19 @@ def test_lifted_product_codes() -> None:
         assert subsystem_rate > rate
 
 
-def test_one_by_one_lifted_product_is_quasi_cyclic() -> None:
-    """A one-by-one lifted product is the corresponding quasi-cyclic code."""
+def test_one_by_one_lifted_product_is_multivariate_bicycle() -> None:
+    """A one-by-one lifted product over an abelian group is a multivariate bicycle code."""
     ring = abstract.GroupRing(abstract.CyclicGroup(5), field=3)
     shift = ring.generators[0]
     element_a = ring.one + shift
     element_b = ring.one + shift**2
 
     lifted = codes.LPCode([[element_a.T]], [[element_b]])
-    quasi_cyclic = codes.QCCode([5], 1 + x, 1 + x**2, field=3)
+    bicycle = codes.MBCode([5], 1 + x, 1 + x**2, field=3)
 
-    assert np.array_equal(lifted.matrix_x, quasi_cyclic.matrix_x)
-    assert np.array_equal(lifted.matrix_z, -quasi_cyclic.matrix_z)
-    assert lifted.is_equiv_to(quasi_cyclic)
+    assert np.array_equal(lifted.matrix_x, bicycle.matrix_x)
+    assert np.array_equal(lifted.matrix_z, -bicycle.matrix_z)
+    assert lifted.is_equiv_to(bicycle)
 
 
 def test_subsystem_lifted_product_codes(ring_cyclic3_gf2: abstract.GroupRing) -> None:
