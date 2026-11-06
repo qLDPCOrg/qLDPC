@@ -116,7 +116,7 @@ Algebraic inputs of lifted and geometric families
 Lifted-product families such as :class:`~qldpc.codes.quantum.LPCode` take :class:`~qldpc.abstract.ring_array.RingArray` matrices, whose entries belong to a :class:`~qldpc.abstract.rings.GroupRing` over a finite field.
 Each entry lifts to a block matrix over that field, and ``RingArray.lift()`` returns the resulting ``galois.FieldArray``.
 Every ``RingArray`` has one base ring, and arithmetic between arrays over different rings raises an error.
-:class:`~qldpc.codes.quantum.QTCode` builds a :class:`~qldpc.objects.CayleyComplex` from two subsets of a group, and families such as :class:`~qldpc.codes.quantum.T4Code` (built from a 4×4 integer lattice matrix) build a :class:`~qldpc.objects.ChainComplex` internally and expose it as ``code.chain``.
+:class:`~qldpc.codes.quantum.QTCode` builds a :class:`~qldpc.objects.complexes.CayleyComplex` from two subsets of a group, and families such as :class:`~qldpc.codes.quantum.T4Code` (built from a 4×4 integer lattice matrix) build a :class:`~qldpc.objects.complexes.ChainComplex` internally and expose it as ``code.chain``.
 The API reference documents each family's conventions and literature.
 
 Distances across packages
