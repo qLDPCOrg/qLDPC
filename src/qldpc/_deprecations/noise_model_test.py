@@ -4,9 +4,22 @@
 
 from __future__ import annotations
 
+import pytest
 import stim
 
-from qldpc._deprecations.noise_model import lay_out_with_ticks
+from qldpc import circuits
+from qldpc._deprecations.noise_model import apply_insert_ticks, lay_out_with_ticks
+
+
+def test_deprecated_insert_ticks() -> None:
+    """insert_ticks=True lays a circuit out in moments, and insert_ticks=False has no effect."""
+    circuit = stim.Circuit("CX 0 1 1 2")
+    scheduler = circuits.ASAPScheduler()
+    with pytest.warns(DeprecationWarning, match="insert_ticks=True"):
+        layout, _ = apply_insert_ticks(True, circuit, scheduler)
+    assert layout == lay_out_with_ticks(circuit)[0]
+    with pytest.warns(DeprecationWarning, match="insert_ticks=False"):
+        assert apply_insert_ticks(False, circuit, scheduler) == (circuit, scheduler)
 
 
 def test_deprecated_insert_ticks_layout() -> None:

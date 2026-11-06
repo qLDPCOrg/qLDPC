@@ -10,6 +10,7 @@ import stim
 
 from qldpc import circuits, codes
 from qldpc.circuits import common
+from qldpc.circuits.conftest import StimCircuitWrapper
 from qldpc.math import symplectic_conjugate
 from qldpc.objects import Pauli
 
@@ -88,6 +89,14 @@ def test_get_immune_qubits() -> None:
     assert common._get_immune_qubits(circuit, None) == frozenset()
     with pytest.raises(ValueError, match="non-empty"):
         common._get_immune_qubits(circuit, "")
+
+
+def test_as_stim_circuit() -> None:
+    """Copy a stim-wrapping circuit, including its REPEAT blocks, into a stim.Circuit."""
+    circuit = stim.Circuit("H[tag] 0\nREPEAT[block] 2 {\n    CX 0 1\n}\nM 1")
+    copy = common._as_stim_circuit(StimCircuitWrapper(circuit))
+    assert isinstance(copy, stim.Circuit)
+    assert str(copy) == str(circuit)
 
 
 def test_new_instruction() -> None:
