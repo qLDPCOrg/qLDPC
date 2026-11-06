@@ -622,7 +622,7 @@ def test_translated_searches_find_exact_distances() -> None:
             for get_automorphisms in (
                 None,
                 code._get_qudit_automorphisms,
-                lambda: identity,
+                lambda identity=identity: identity,
                 lambda: None,
             ):
                 distance = bz.get_distance_brouwer_zimmermann_many(
@@ -655,6 +655,48 @@ def test_searches_ask_for_automorphisms_only_before_costly_layers(
             [problem], cutoff=0, block_size=15, get_automorphisms=get_automorphisms
         )
         assert get_automorphisms.call_count == expected_calls
+
+
+@pytest.mark.usefixtures("force_information_sets")
+def test_translated_searches_restart_from_layer_two(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A search that switches to translates before a later layer scans its new set from layer two.
+
+    The certificate of translates counts every layer of the scanned set, including the layers that
+    the search scanned only with its previous family.  The [[90, 8, 10]] bivariate bicycle code of
+    arXiv:2308.07915 takes more than one layer to search.
+    """
+    code = qldpc.codes.BBCode({x: 15, y: 3}, x**9 + y + y**2, 1 + x**2 + x**7)
+    basis, labels = get_nested_code_basis(
+        np.asarray(code.get_logical_ops(Pauli.X), dtype=np.uint8),
+        np.asarray(code.get_stabilizer_ops(Pauli.X, canonicalized=True), dtype=np.uint8),
+    )
+    search = bz._prepare_brouwer_zimmermann_search(
+        basis,
+        labels,
+        cutoff=0,
+        block_size=15,
+        weight_divisor=1,
+        upper_bound=basis.shape[1] + 1,
+        get_automorphisms=code._get_qudit_automorphisms,
+    )
+    assert isinstance(search, bz._BrouwerZimmermannSearch)
+
+    # Scan layer two with the disjoint family, and then switch before layer three.
+    monkeypatch.setattr(_automorphisms, "MINIMUM_LAYER_WORK", 10**12)
+    search.advance()
+    assert not search.finished
+    monkeypatch.setattr(_automorphisms, "MINIMUM_LAYER_WORK", 0)
+    scanned_weights = []
+    original_scan = bz._scan_brouwer_zimmermann
+
+    def scan(*args: Any) -> tuple[int, int, int]:
+        scanned_weights.append(len(args[5]))
+        return original_scan(*args)
+
+    monkeypatch.setattr(bz, "_scan_brouwer_zimmermann", scan)
+    while not search.finished:
+        search.advance()
+    assert scanned_weights[0] == 2
 
 
 @pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")

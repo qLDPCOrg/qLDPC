@@ -754,12 +754,14 @@ def test_css_automorphisms_from_bliss_or_construction(monkeypatch: pytest.Monkey
     # without pybliss, or if bliss finds nothing, codes return the automorphisms of their family
     monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
     code = codes.QCCode([7], 1 + poly_x, 1 + poly_x**3)
-    assert np.array_equal(code._found_qudit_automorphisms, translations)
+    assert (found := code._found_qudit_automorphisms) is not None
+    assert np.array_equal(found, translations)
     assert codes.CSSCode(code.matrix_x, code.matrix_z)._found_qudit_automorphisms is None
     monkeypatch.setattr(common._bliss, "is_installed", lambda: True)
     monkeypatch.setattr(common._bliss, "get_binary_matrix_automorphism_generators", lambda *_: [])
     code = codes.QCCode([7], 1 + poly_x, 1 + poly_x**3)
-    assert np.array_equal(code._found_qudit_automorphisms, translations)
+    assert (found := code._found_qudit_automorphisms) is not None
+    assert np.array_equal(found, translations)
 
     # bliss permutes checks and qudits; codes keep the permutations of qudits, which follow checks
     def get_generators(matrix: npt.NDArray[np.int_], row_colors: list[int]) -> list[list[int]]:
@@ -768,8 +770,9 @@ def test_css_automorphisms_from_bliss_or_construction(monkeypatch: pytest.Monkey
         return [list(range(num_checks)) + [num_checks + qudit for qudit in translations[0]]]
 
     monkeypatch.setattr(common._bliss, "get_binary_matrix_automorphism_generators", get_generators)
-    code = codes.CSSCode(code.matrix_x, code.matrix_z)
-    assert np.array_equal(code._found_qudit_automorphisms, translations)
+    css_code = codes.CSSCode(code.matrix_x, code.matrix_z)
+    assert (found := css_code._found_qudit_automorphisms) is not None
+    assert np.array_equal(found, translations)
 
 
 def test_css_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch) -> None:

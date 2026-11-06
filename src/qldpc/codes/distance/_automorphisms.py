@@ -27,7 +27,7 @@ from ._information_sets import BasisFamily, Certificate, get_capped_binomials
 # The estimated work, in candidate/set evaluations, of the first coefficient layer before which a
 # search asks for automorphisms.  Finding them can take milliseconds (see the optional bliss search
 # of ``CSSCode``), which is a small fraction of the time to scan such a layer.
-MINIMUM_LAYER_WORK = 10_000_000
+MINIMUM_LAYER_WORK = 100_000_000
 
 ####################################################################################################
 # families of translates

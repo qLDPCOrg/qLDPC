@@ -55,8 +55,8 @@ def get_binary_matrix_automorphism_generators(
 ) -> list[list[int]]:
     """Generators of the automorphism group of a binary matrix whose rows are colored.
 
-    These automorphisms are those of ``get_matrix_automorphism_generators``, in the same format, that
-    also map each row to a row of the same color in ``row_colors``.  They are computed as
+    These automorphisms are those of ``get_matrix_automorphism_generators``, in the same format,
+    that also map each row to a row of the same color in ``row_colors``.  They are computed as
     automorphisms of the bipartite graph of the matrix, with a vertex for every row and column,
     which is smaller than the graph of ``get_matrix_automorphism_generators``.
 
