@@ -730,6 +730,10 @@ class QCCode(TBCode):
     - https://arxiv.org/abs/2203.17216
 
     Bivariate quasi-cyclic codes are bivariate bicycle codes; see the BBCode class.
+
+    The X-distance and Z-distance of a quasi-cyclic code are equal.  Swapping the two blocks,
+    inverting group elements, and negating one block maps the X-type checks onto the Z-type checks,
+    and preserves the weights of operators.
     """
 
     poly_a: sympy.Poly
@@ -930,6 +934,15 @@ class QCCode(TBCode):
             + subgraphs_ZR[1::2]
             + subgraphs_XL[::2]
         )
+
+    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_]:
+        """Translations of both blocks of qudits by the generators of the group of this code.
+
+        The qudits of each block, and the checks of each type, are indexed by group elements.
+        Translating every qudit by a group element maps each check to the check of the translated
+        group element, so it maps the rows of both parity check matrices onto themselves.
+        """
+        return _get_block_translations(self.group, 2)
 
 
 class BBCode(QCCode):
@@ -1295,6 +1308,28 @@ class TwoGrossCode(BBCode):
         x, y = sympy.symbols("x y")
         super().__init__({x: 12, y: 12}, x**3 + y**2 + y**7, y**3 + x + x**2)
         self._distance_x = self._distance_z = 18
+
+
+def _get_block_translations(group: abstract.Group, num_blocks: int) -> npt.NDArray[np.int_]:
+    """Qudit permutations that translate several blocks of qudits at once by group generators.
+
+    The qudits form ``num_blocks`` consecutive blocks.  The qudits of each block are indexed like
+    the rows of the lifts of ``group``, which must be permutation matrices.  Row ``i`` of the result
+    moves the qudits of every block as the lift of generator ``i`` moves its rows.
+
+    These permutations preserve a code whose checks they permute, as when the parity check matrices
+    are arrays of lifts of elements of an abelian group algebra, as in a quasi-cyclic code.  Such a
+    code can return them from ``_get_qudit_automorphisms``.
+    """
+    block_size = len(group.lift(group.identity))
+    offsets = block_size * np.arange(num_blocks)[:, None]
+    return np.array(
+        [
+            (np.argmax(group.lift(generator), axis=0) + offsets).ravel()
+            for generator in group.generators
+        ],
+        dtype=int,
+    ).reshape(-1, num_blocks * block_size)
 
 
 ####################################################################################################

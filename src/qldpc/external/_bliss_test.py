@@ -8,6 +8,7 @@ import importlib.util
 import itertools
 import sys
 import types
+import unittest.mock
 from collections.abc import Callable
 
 import numpy as np
@@ -67,6 +68,25 @@ def test_get_matrix_automorphism_generators(fake_pybliss: None) -> None:
     assert _bliss.get_matrix_automorphism_generators(three_valued_matrix) == [[1, 0, 2, 3, 5, 4]]
 
 
+def test_get_binary_matrix_automorphism_generators(fake_pybliss: None) -> None:
+    """Automorphisms of a binary matrix permute rows and columns, preserving row colors."""
+    # swapping the two rows and the outer columns preserves the matrix
+    matrix = np.array([[1, 1, 0], [0, 1, 1]])
+    assert _bliss.get_binary_matrix_automorphism_generators(matrix, [0, 0]) == [[1, 0, 4, 3, 2]]
+    assert _bliss.get_binary_matrix_automorphism_generators(matrix, [0, 1]) == []
+
+    # row colors need not be consecutive integers, and must not be confused with columns
+    assert _bliss.get_binary_matrix_automorphism_generators(np.array([[1]]), [5]) == []
+
+
+def test_is_installed() -> None:
+    """Report whether the optional pybliss package is discoverable."""
+    with unittest.mock.patch("importlib.util.find_spec", return_value=unittest.mock.Mock()):
+        assert _bliss.is_installed()
+    with unittest.mock.patch("importlib.util.find_spec", return_value=None):
+        assert not _bliss.is_installed()
+
+
 def test_real_pybliss_package() -> None:
     """Check the published pybliss package whenever it is installed.
 
@@ -90,6 +110,10 @@ for perm in generators:
 assert codes.RingCode(6).get_matrix_automorphism_group().order == 12
 three_valued_matrix = np.array([[0, 2, 3], [0, 3, 2], [1, 0, 0]])
 assert _bliss.get_matrix_automorphism_generators(three_valued_matrix) == [[1, 0, 2, 3, 5, 4]]
+assert _bliss.is_installed()
+binary_matrix = np.array([[1, 1, 0], [0, 1, 1]])
+assert _bliss.get_binary_matrix_automorphism_generators(binary_matrix, [0, 0]) == [[1, 0, 4, 3, 2]]
+assert _bliss.get_binary_matrix_automorphism_generators(binary_matrix, [0, 1]) == []
 """
 
 

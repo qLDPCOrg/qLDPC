@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import itertools
 import pathlib
 import random
 import unittest.mock
@@ -21,6 +22,8 @@ from qldpc.math import resolve_field
 from qldpc.objects import ChainComplex, Node, Pauli
 
 from .common_test import assert_valid_subgraphs
+from .distance import _automorphisms
+from .quantum import _get_block_translations
 
 
 def test_trivial_code() -> None:
@@ -518,6 +521,40 @@ def test_quasi_cyclic_codes() -> None:
         "~xy_2",
         "~xy_3",
     ]
+
+
+def test_quasi_cyclic_translations_preserve_checks() -> None:
+    """Translations of a quasi-cyclic code map its checks of each type onto themselves.
+
+    One cyclic factor of this code is trivial, so its group has fewer generators than symbols.
+    """
+    code = codes.QCCode([2, 1, 3], x + 1, x * y + 1)
+    for permutation in code._get_qudit_automorphisms():
+        for matrix in (code.matrix_x, code.matrix_z):
+            permuted = np.zeros_like(matrix)
+            permuted[:, permutation] = matrix
+            assert {row.tobytes() for row in permuted} == {row.tobytes() for row in matrix}
+
+
+def test_block_translations() -> None:
+    """Block translations move every block of qudits alike, and act regularly on each block.
+
+    Translations by the generators of an abelian group commute, and a commuting group of
+    permutations that takes any qudit of a block to any other acts on it regularly.
+    """
+    group = abstract.AbelianGroup(2, 3)
+    num_blocks, block_size = 3, group.order
+    translations = _get_block_translations(group, num_blocks)
+    assert len(translations) == len(group.generators)
+
+    blocks = np.arange(num_blocks * block_size).reshape(num_blocks, block_size)
+    for translation in translations:
+        assert np.array_equal(translation[blocks] - blocks[:, :1], [translation[:block_size]] * 3)
+    for first, second in itertools.combinations(translations, 2):
+        assert np.array_equal(first[second], second[first])
+    orbits = _automorphisms._get_orbits(translations, num_blocks * block_size)
+    assert [len(set(orbits[block])) for block in blocks] == [1] * num_blocks
+    assert len(set(orbits)) == num_blocks
 
 
 @pytest.mark.parametrize("num_terms", [1, 3, 4])

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import functools
 import itertools
+import math
 from collections.abc import Callable
 from typing import Any
 from unittest import mock
@@ -17,10 +18,11 @@ from sympy.abc import x, y, z
 
 import qldpc
 from qldpc._binary import get_independent_rows
+from qldpc.objects import PAULIS_XZ, Pauli
 
 from . import _brouwer_zimmermann as bz
 from . import _information_sets
-from .conftest import get_random_full_rank_matrix
+from .conftest import get_random_full_rank_matrix, get_sector_problem
 
 
 @pytest.mark.parametrize("interpreted", [False, True])
@@ -542,6 +544,152 @@ def test_a_search_through_the_costly_stages_finds_the_distance(
     basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
     assert qldpc.codes.get_distance_classical(basis, cutoff=0, method="brute_force") == 6
     assert qldpc.codes.get_distance_classical(basis, cutoff=0) == 6
+
+
+@pytest.fixture
+def switch_before_any_layer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Let searches consider translates before their first layer, however cheap it is."""
+    monkeypatch.setattr(bz, "MINIMUM_LAYER_WORK", 0)
+
+
+@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
+def test_translated_searches_scan_every_layer_they_certify() -> None:
+    """A translated search that reaches the distance only in layer four, its last.
+
+    This [[72, 4, 8]] bivariate bicycle code comes from a search for codes like those of
+    arXiv:2308.07915.  In its X sector, the lightest rows of the scanned set weigh ten, and the
+    first word of weight eight that the search finds is a sum of four of them.  Completing layer
+    four also certifies that no unexamined word weighs less than ten, so a search that certified
+    layer four before scanning it would return ten.
+    """
+    code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
+    problem = get_sector_problem(code, Pauli.X)
+    expected = bz.get_distance_brouwer_zimmermann_many([problem], cutoff=0, block_size=15)
+    assert expected == 8
+    distance = bz.get_distance_brouwer_zimmermann_many(
+        [problem], cutoff=0, block_size=15, get_automorphisms=code._get_qudit_automorphisms
+    )
+    assert distance == expected
+
+
+@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
+def test_translated_searches_find_exact_distances() -> None:
+    """Searches given automorphisms agree with brute force, alone or sharing witnesses.
+
+    The searches use the translations of a quasi-cyclic code, the identity alone, which does not
+    reduce work, or a function that returns no automorphisms.
+    """
+    code = qldpc.codes.QCCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
+    identity = np.arange(len(code))[None]
+    problems = [get_sector_problem(code, pauli) for pauli in PAULIS_XZ]
+    for problem, pauli in zip(problems, PAULIS_XZ):
+        expected = qldpc.codes.get_distance_quantum(
+            code.get_logical_ops(pauli),
+            code.get_stabilizer_ops(pauli),
+            homogeneous=True,
+            cutoff=0,
+            method="brute_force",
+        )
+        for get_automorphisms in (code._get_qudit_automorphisms, lambda: identity, lambda: None):
+            distance = bz.get_distance_brouwer_zimmermann_many(
+                [problem], cutoff=0, block_size=15, get_automorphisms=get_automorphisms
+            )
+            assert distance == expected
+    assert bz.get_distance_brouwer_zimmermann_many(
+        problems, cutoff=0, block_size=15, get_automorphisms=code._get_qudit_automorphisms
+    ) == code.get_distance(method="brute_force")
+
+
+@pytest.mark.usefixtures("force_information_sets")
+def test_translated_searches_scan_their_new_set_from_layer_two(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A search that switches to translates before layer three scans the new set from layer two.
+
+    This [16, 8, 4] quasi-cyclic code has the generator matrix ``[I | circ(1 + x + x^3 + x^4)]``,
+    and shifting both blocks at once preserves it.  The search starts with one information set,
+    the first block, which holds four ones of each word of weight four, so its first two layers
+    miss them.  Before layer three it switches to a set with half of its columns in each block,
+    which holds two ones of every translate of these words.  A search that continued the new set
+    from layer three would certify that no word is lighter than its best witness of weight five.
+    """
+    size, word = 8, [1, 1, 0, 1, 1, 0, 0, 0]
+    basis = np.hstack(
+        [np.eye(size, dtype=np.uint8), np.array([np.roll(word, i) for i in range(size)], np.uint8)]
+    )
+    labels = _no_labels(basis)
+    shift = np.roll(np.arange(size), -1)
+    automorphisms = np.concatenate([shift, shift + size])[None]
+    first_family = _information_sets.BasisFamily(
+        basis[None],
+        labels[None],
+        np.arange(size)[None],
+        np.array([size]),
+        _information_sets.infer_weight_divisor(basis),
+        1,
+    )
+    monkeypatch.setattr(bz, "MINIMUM_LAYER_WORK", math.comb(size, 3))
+    distance = bz.get_distance_brouwer_zimmermann_many(
+        [(basis, labels)],
+        cutoff=0,
+        block_size=15,
+        get_disjoint_basis_families=[lambda: first_family],
+        get_automorphisms=lambda: automorphisms,
+    )
+    assert distance == qldpc.codes.get_distance_classical(basis, method="brute_force") == 4
+
+
+@pytest.mark.usefixtures("force_information_sets")
+def test_searches_ask_for_automorphisms_only_before_costly_layers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A search asks for automorphisms once, and only before a layer that costs enough to repay.
+
+    Finding automorphisms can cost more than an easy search, so a search that finishes before any
+    costly layer does not ask for them.
+    """
+    code = qldpc.codes.QCCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
+    problem = get_sector_problem(code, Pauli.X)
+    for minimum_layer_work, expected_calls in ((10**9, 0), (0, 1)):
+        monkeypatch.setattr(bz, "MINIMUM_LAYER_WORK", minimum_layer_work)
+        get_automorphisms = mock.Mock(wraps=code._get_qudit_automorphisms)
+        bz.get_distance_brouwer_zimmermann_many(
+            [problem], cutoff=0, block_size=15, get_automorphisms=get_automorphisms
+        )
+        assert get_automorphisms.call_count == expected_calls
+
+
+@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
+def test_translated_rows_can_reach_the_cutoff() -> None:
+    """The rows of a scanned set with translates can end a search at the cutoff.
+
+    In the Z sector of this [[36, 4, 4]] bivariate bicycle code, the rows of the first family weigh
+    more than six, and a row of the scanned set weighs six.  With a cutoff of six, the search
+    returns that weight, an upper bound on the distance, rather than scanning on to a word of
+    weight four.
+    """
+    code = qldpc.codes.BBCode({x: 6, y: 3}, 1 + x + x**3 * y, 1 + y + x)
+    problem = get_sector_problem(code, Pauli.Z)
+    assert bz.get_distance_brouwer_zimmermann_many([problem], cutoff=0, block_size=15) == 4
+    distance = bz.get_distance_brouwer_zimmermann_many(
+        [problem], cutoff=6, block_size=15, get_automorphisms=code._get_qudit_automorphisms
+    )
+    assert distance == 6
+
+
+@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
+def test_searches_reject_wrong_automorphisms() -> None:
+    """A permutation that does not preserve a problem fails loudly when a search would use it."""
+    code = qldpc.codes.QCCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
+    transposition = np.arange(len(code))
+    transposition[[0, 1]] = [1, 0]
+    with pytest.raises(ValueError, match="not an automorphism"):
+        bz.get_distance_brouwer_zimmermann_many(
+            [get_sector_problem(code, Pauli.X)],
+            cutoff=0,
+            block_size=15,
+            get_automorphisms=lambda: transposition[None],
+        )
 
 
 def _no_labels(basis: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
