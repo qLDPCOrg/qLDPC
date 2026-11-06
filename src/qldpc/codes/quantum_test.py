@@ -648,6 +648,14 @@ def test_pair_partition_codes() -> None:
     assert_pair_partition_cycle_properties(code)
     assert "lift size 7" in str(code)
 
+    # translating every block column by the same cyclic shift preserves the checks of each type
+    (translation,) = code._get_qudit_automorphisms()
+    assert np.array_equal(translation, ((np.arange(7) + 1) % 7 + 7 * np.arange(8)[:, None]).ravel())
+    for matrix in [code.matrix_x, code.matrix_z]:
+        permuted = np.zeros_like(matrix)
+        permuted[:, translation] = matrix
+        assert {row.tobytes() for row in permuted} == {row.tobytes() for row in matrix}
+
     # exponents are stored modulo the lift size
     shifted = codes.PairPartitionCode(np.array(exponents_x) - 7, exponents_z, lift_size=7)
     assert np.array_equal(shifted.exponents_x, exponents_x)

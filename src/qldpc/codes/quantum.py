@@ -1349,6 +1349,10 @@ class PairPartitionCode(CSSCode):
     mixed-distinctness, which makes every X-type check overlap every Z-type check on zero or two
     qubits (see PairPartitionCode.is_mixed_distinct).
 
+    Translating every block column of qubits by the same cyclic shift maps the checks of each type
+    onto themselves.  Exact distance searches use these translations to search less if the optional
+    pybliss package, which finds such symmetries by itself, is not installed.
+
     PairPartitionCode does not record a code distance.  The ``[[276, 98, 14]]`` code below has
     ``(J, L, P) = (4, 12, 23)``, and is instance ``qc_276_98_14`` in the repository of
     arXiv:2607.14091.  Its distance of 14 is taken from the references, rather than computed::
@@ -1597,6 +1601,17 @@ class PairPartitionCode(CSSCode):
         exponents = combination @ basis.reshape(len(basis), math.prod(basis.shape[1:]))
         exponents_x, exponents_z = np.array(exponents.reshape(basis.shape[1:]), dtype=int)
         return cls(exponents_x, exponents_z, lift_size)
+
+    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_]:
+        """Translations of every block column of qubits by the generator of the cyclic group Z_P.
+
+        The X-type check in row ``r`` of block row ``i`` addresses qubit ``r - e_{il}`` of each
+        block column ``l``.  Translating every qubit ``t`` of every block column to ``t + 1``
+        therefore maps this check to the X-type check in row ``r + 1`` of the same block row, so it
+        maps the rows of ``matrix_x`` onto themselves.  The same argument applies to ``matrix_z``.
+        """
+        num_blocks = self.exponents_x.shape[1]
+        return _get_block_translations(abstract.CyclicGroup(self.lift_size), num_blocks)
 
     @staticmethod
     def _validate_exponents(
