@@ -70,21 +70,26 @@ class _IndependentSet:
         self.elements: list[int] = []
         self._rows: list[tuple[int, int, int]] = []
 
+    def add(self, element: int, vectors: list[int]) -> None:
+        """Add an element whose vector is independent of the members, and reduce the rows."""
+        vector, mask = self._reduce(vectors[element], 1 << len(self.elements))
+        assert vector, "a member depends on the others"
+        pivot = vector.bit_length() - 1
+        # Clear the new pivot from the other rows, so that every query reduces in one pass.
+        self._rows = [
+            (row_pivot, row ^ vector, row_mask ^ mask)
+            if row >> pivot & 1
+            else (row_pivot, row, row_mask)
+            for row_pivot, row, row_mask in self._rows
+        ]
+        self._rows.append((pivot, vector, mask))
+        self.elements.append(element)
+
     def rebuild(self, vectors: list[int]) -> None:
-        """Row reduce the vectors of the members again, after members have changed."""
-        self._rows = []
-        for position, element in enumerate(self.elements):
-            vector, mask = self._reduce(vectors[element], 1 << position)
-            assert vector, "a member depends on the others"
-            pivot = vector.bit_length() - 1
-            # Clear the new pivot from the other rows, so that every query reduces in one pass.
-            self._rows = [
-                (row_pivot, row ^ vector, row_mask ^ mask)
-                if row >> pivot & 1
-                else (row_pivot, row, row_mask)
-                for row_pivot, row, row_mask in self._rows
-            ]
-            self._rows.append((pivot, vector, mask))
+        """Row reduce the vectors of the members again, after members have been exchanged."""
+        elements, self.elements, self._rows = self.elements, [], []
+        for element in elements:
+            self.add(element, vectors)
 
     def get_circuit(self, vector: int) -> list[int] | None:
         """The members that sum to ``vector``, or None if it is independent of them."""
@@ -129,9 +134,8 @@ class _Partition:
             if len(last.elements) == size:
                 return True
             if self.owner[element] < 0 and last.get_circuit(vector) is None:
-                last.elements.append(element)
+                last.add(element, self.vectors)
                 self.owner[element] = len(self.sets) - 1
-                last.rebuild(self.vectors)
 
         # Then move elements between sets along augmenting paths.
         stuck_columns: set[int] = set()

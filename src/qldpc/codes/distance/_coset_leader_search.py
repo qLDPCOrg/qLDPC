@@ -662,8 +662,8 @@ def _search_coset(
         bits = syndrome[syndrome_word]
         while bits:
             bit = 64 * syndrome_word + trailing_zeros_word(bits)
-            for word in range(width):
-                best[word] ^= inverse[bit, word]
+            for index in range(width):
+                best[index] ^= inverse[bit, index]
             bits &= bits - np.uint64(1)
     best_weight = _get_weight(best, zero, x_mask, css_weight)
     if best_weight <= max_weight:
@@ -671,15 +671,15 @@ def _search_coset(
 
     # Reduce the error on each information set to its offset, which is zero on its pivot columns.
     offsets = np.empty((num_sets, width), dtype=np.uint64)
-    for basis in range(num_sets):
-        offsets[basis] = best
+    for set_index in range(num_sets):
+        offsets[set_index] = best
         for row in range(num_rows):
-            pivot = pivots[basis, row]
+            pivot = pivots[set_index, row]
             if pivot < 0:
                 break
-            if offsets[basis, pivot // 64] >> np.uint64(pivot % 64) & np.uint64(1):
-                for word in range(width):
-                    offsets[basis, word] ^= generators[basis, row, word]
+            if offsets[set_index, pivot // 64] >> np.uint64(pivot % 64) & np.uint64(1):
+                for index in range(width):
+                    offsets[set_index, index] ^= generators[set_index, row, index]
 
     # Find the first step whose bound exceeds the maximum weight: ``stop_num_completed`` sets
     # complete layer ``stop_layer``.  The search stops there, unless it finds a light enough word
@@ -697,29 +697,29 @@ def _search_coset(
     # Skip the sets whose rank deficiency exceeds the last layer that they would complete, since
     # they add nothing to the bound of that step.
     skipped = np.zeros(num_sets, dtype=np.bool_)
-    for basis in range(num_sets):
+    for set_index in range(num_sets):
         rank = 0
-        while rank < num_rows and pivots[basis, rank] >= 0:
+        while rank < num_rows and pivots[set_index, rank] >= 0:
             rank += 1
-        last_layer = stop_layer if basis < stop_num_completed else stop_layer - 1
-        skipped[basis] = last_layer + 1 <= num_rows - rank
+        last_layer = stop_layer if set_index < stop_num_completed else stop_layer - 1
+        skipped[set_index] = last_layer + 1 <= num_rows - rank
 
     # The arguments of ``_visit_layer``, which visits one information set at a time.
     widths = np.full(1, width, dtype=np.int64)
     support = np.empty(num_rows, dtype=np.int64)
     prefixes = np.empty((num_rows, 1, width), dtype=np.uint64)
     for layer in range(stop_layer + 1):
-        for basis in range(num_sets if layer < stop_layer else stop_num_completed):
-            if skipped[basis]:
+        for set_index in range(num_sets if layer < stop_layer else stop_num_completed):
+            if skipped[set_index]:
                 continue
             if layer == 0:
                 best_weight = _keep_lighter(
-                    offsets[basis], zero, best, best_weight, x_mask, css_weight
+                    offsets[set_index], zero, best, best_weight, x_mask, css_weight
                 )
             else:
                 best_weight = _visit_layer(
-                    offsets[basis],
-                    generators[basis : basis + 1],
+                    offsets[set_index],
+                    generators[set_index : set_index + 1],
                     widths,
                     support[:layer],
                     prefixes,
@@ -812,8 +812,8 @@ def _keep_lighter(
     weight = _get_weight(first, second, x_mask, css_weight)
     if weight >= best_weight:
         return best_weight
-    for word in range(len(best)):
-        best[word] = first[word] ^ second[word]
+    for index in range(len(best)):
+        best[index] = first[index] ^ second[index]
     return weight
 
 
@@ -851,7 +851,7 @@ def _map_syndromes(
             bits = syndromes[row, syndrome_word]
             while bits:
                 bit = 64 * syndrome_word + trailing_zeros_word(bits)
-                for word in range(width):
-                    mapped[row, word] ^= map_columns[bit, word]
+                for index in range(width):
+                    mapped[row, index] ^= map_columns[bit, index]
                 bits &= bits - np.uint64(1)
     return mapped

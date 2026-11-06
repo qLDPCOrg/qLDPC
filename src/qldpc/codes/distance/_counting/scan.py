@@ -24,10 +24,8 @@ from qldpc._compilation import always_compiled, compiled_on_request
 
 from .. import _information_sets
 from .._information_sets import advance_support
-from ..core import DistanceMethod
 from . import local_cliffords
 
-_BinaryMatrix = npt.NDArray[np.uint8]
 _PackedMatrix = npt.NDArray[np.uint64]
 
 # Supports, choices of rows of a set, that one call of ``_count_chunk`` visits.
@@ -52,10 +50,10 @@ _CURSOR_LAYER, _CURSOR_SET, _CURSOR_DEPTH = 0, 1, 2
 
 
 def count_words(
-    basis: _BinaryMatrix,
-    labels: _BinaryMatrix,
+    basis: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8],
     weight: int,
-    method: DistanceMethod,
+    brute_force: bool,
     rank_rows: _PackedMatrix,
     *,
     complement: bool,
@@ -70,15 +68,16 @@ def count_words(
     is the support of the word, or its complement.  The histogram sums to the number of words, and
     the caller weighs each exponent by ``2**exponent``, which could overflow a native integer.  The
     scan also visits every lighter word, so with ``reject_lighter`` it returns None as soon as it
-    finds a nontrivial one.
+    finds a nontrivial one.  With ``brute_force``, it scans the whole basis as one set, rather than
+    the information sets of the Brouwer-Zimmermann search.
     """
     # Select the information sets, or scan the whole basis as one set for brute force.
-    if method == "brute_force":
+    if brute_force:
         rows, packed_labels = pack_bits(basis)[np.newaxis], pack_bits(labels)[np.newaxis]
         extractors = np.zeros((1, 0, rows.shape[2]), dtype=np.uint64)
         last_layer, last_num_completed = len(basis), 1
     else:
-        sets = _select_sets(
+        basis_family = _select_basis_family(
             basis,
             labels,
             weight,
@@ -86,15 +85,17 @@ def count_words(
             max_sets,
             *_information_sets.get_overlapping_family_policy(len(basis)),
         )
-        # Matroid partitioning runs outside of _select_sets, which can be compiled.
+        # Matroid partitioning runs outside of _select_basis_family, which can be compiled.
         partitioned = _information_sets.get_partitioned_family(
-            basis, labels, sets, weight + 1, max_sets
+            basis, labels, basis_family, weight + 1, max_sets
         )
         if len(partitioned.ranks):
-            sets = partitioned
-        rows, packed_labels, extractors = _pack_sets(sets, basis.shape[1], labels.shape[1])
+            basis_family = partitioned
+        rows, packed_labels, extractors = _pack_basis_family(
+            basis_family, basis.shape[1], labels.shape[1]
+        )
         last_layer, last_num_completed = _get_last_step(
-            sets.get_search_certificate(weight + 1), weight
+            basis_family.get_search_certificate(weight + 1), weight
         )
 
     # Scan in bounded calls, which compiled code cannot be interrupted within.
@@ -133,7 +134,7 @@ def transport_basis_family(
     basis_family: _information_sets.BasisFamily,
     positions: npt.NDArray[np.int64],
     local: npt.NDArray[np.uint64],
-    basis: _BinaryMatrix,
+    basis: npt.NDArray[np.uint8],
 ) -> _information_sets.BasisFamily | None:
     """The basis family of a sector after a local gate, or None if one of its sets stops being one.
 
@@ -159,9 +160,9 @@ def transport_basis_family(
 
 
 @compiled_on_request
-def _select_sets(
-    basis: _BinaryMatrix,
-    labels: _BinaryMatrix,
+def _select_basis_family(
+    basis: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8],
     weight: int,
     basis_family: _information_sets.BasisFamily,
     max_sets: int,
@@ -175,29 +176,29 @@ def _select_sets(
     count.
     """
     upper_bound = weight + 1
-    sets = _information_sets.prune_family(basis_family, upper_bound)
+    pruned = _information_sets.prune_family(basis_family, upper_bound)
     replacement = _information_sets.get_overlapping_family(
-        basis, labels, sets, upper_bound, max_sets, minimum_work, binomials, rng
+        basis, labels, pruned, upper_bound, max_sets, minimum_work, binomials, rng
     )
-    return replacement if len(replacement.ranks) > 0 else sets
+    return replacement if len(replacement.ranks) > 0 else pruned
 
 
 @compiled_on_request
-def _pack_sets(
-    sets: _information_sets.BasisFamily, num_columns: int, num_label_columns: int
+def _pack_basis_family(
+    basis_family: _information_sets.BasisFamily, num_columns: int, num_label_columns: int
 ) -> tuple[_PackedMatrix, _PackedMatrix, _PackedMatrix]:
-    """Pack the rows and labels of the sets, and their coefficient extractors.
+    """Pack the rows and labels of the sets of a basis family, and their coefficient extractors.
 
     The extractors are empty for a single set, since ownership compares sets.
     """
-    num_sets, dimension = sets.generators.shape[:2]
+    num_sets, dimension = basis_family.generators.shape[:2]
     width = (num_columns + 63) // 64
     rows = np.empty((num_sets, dimension, width), dtype=np.uint64)
     packed_labels = np.empty((num_sets, dimension, (num_label_columns + 63) // 64), dtype=np.uint64)
     for index in range(num_sets):
-        rows[index] = pack_bits(sets.generators[index])
-        packed_labels[index] = pack_bits(sets.labels[index])
-    return rows, packed_labels, _get_coefficient_extractors(sets, width)
+        rows[index] = pack_bits(basis_family.generators[index])
+        packed_labels[index] = pack_bits(basis_family.labels[index])
+    return rows, packed_labels, _get_coefficient_extractors(basis_family, width)
 
 
 def _get_last_step(certificate: _information_sets.Certificate, weight: int) -> tuple[int, int]:

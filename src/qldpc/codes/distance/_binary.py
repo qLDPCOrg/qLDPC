@@ -7,6 +7,9 @@ The generic bit-packed linear algebra over GF(2) that the searches use is in ``q
 
 from __future__ import annotations
 
+import operator
+from typing import SupportsIndex
+
 import numpy as np
 import numpy.typing as npt
 
@@ -16,14 +19,32 @@ _MASK55 = np.uint64(0x5555555555555555)
 
 
 ####################################################################################################
+# input checks
+
+
+def as_integer(value: SupportsIndex, name: str) -> int:
+    """Return an integer argument as a Python integer, or raise a TypeError if it is not one.
+
+    A NumPy integer becomes a Python integer, so that results are Python integers too.  A bool is
+    rejected, although Python treats it as an integer.
+    """
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be an integer, not {value!r}")
+    try:
+        return operator.index(value)
+    except TypeError as error:
+        raise TypeError(f"{name} must be an integer, not {value!r}") from error
+
+
+####################################################################################################
 # binary matrices
 
 
 def assert_binary(vectors: npt.ArrayLike, name: str) -> None:
     """Assert that the given vectors are binary.
 
-    The enumeration below packs each row into the bits of ``uint64`` words and combines rows by
-    bitwise XOR, so it is only correct over GF(2).  Non-binary input would otherwise be truncated
+    The distance searches pack rows into the bits of ``uint64`` words and combine them by bitwise
+    XOR, so they are only correct over GF(2).  Non-binary input would otherwise be truncated
     silently and yield a wrong distance rather than an error.
     """
     order = getattr(type(vectors), "order", None)
@@ -77,6 +98,18 @@ def get_nested_code_basis(
     labels = np.zeros((len(basis), len(logical_quotient)), dtype=np.uint8)
     labels[len(stabilizer_basis) :] = np.eye(len(logical_quotient), dtype=np.uint8)
     return basis, labels
+
+
+def get_eligible_rows(labels: npt.NDArray[np.uint8]) -> npt.NDArray[np.bool_]:
+    """Mark the rows of a nested-code basis that are outside its excluded subcode.
+
+    Row ``i`` of ``labels`` holds the quotient coordinates of row ``i`` of the basis (see
+    ``get_nested_code_basis``), so a row is outside the excluded subcode if its labels are nonzero.
+    Labels with no columns mean that nothing is excluded, so that every row is eligible.
+    """
+    if labels.shape[1] == 0:
+        return np.ones(len(labels), dtype=bool)
+    return np.any(labels, axis=1)
 
 
 def symplectic_to_hamming(vectors: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
