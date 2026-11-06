@@ -1308,11 +1308,12 @@ class PairPartitionCode(CSSCode):
 
     Here ``e_{il}`` and ``d_{jl}`` are the entries of the integer arrays ``exponents_x`` and
     ``exponents_z``, and ``P`` is ``lift_size``.  The CPM ``C(s)`` has the nonzero entry of its row
-    ``r`` in column ``r - s`` (mod ``P``), which makes it the lift of the monomial ``x**s`` in the
-    group algebra ``F_2[Z_P]``.  The code has ``L * P`` qubits and ``J * P`` parity checks of each
-    type.  Every parity check has weight ``L``, and every qubit is addressed by ``J`` parity checks
-    of each type.  Qubit ``l * P + r`` is qubit ``r`` of block column ``l``.  The reference
-    implementation below interleaves block columns instead, which permutes qubits.
+    ``r`` in column ``r - s`` (mod ``P``).  It is therefore the lift of ``x**s`` in the group
+    algebra ``F_2[Z_P]``, where ``x`` generates the cyclic group ``Z_P``.  The code has ``L * P``
+    qubits and ``J * P`` parity checks of each type.  Every parity check has weight ``L``, and every
+    qubit is addressed by ``J`` parity checks of each type.  Qubit ``l * P + r`` is qubit ``r`` of
+    block column ``l``.  The repositories in the references below interleave block columns instead,
+    which permutes qubits.
 
     The parity check matrices are CPM lifts of the all-ones ``J x L`` base matrix, as in the
     standard construction of quasi-cyclic LDPC codes.  The block of ``matrix_x @ matrix_z.T`` in
@@ -1326,15 +1327,17 @@ class PairPartitionCode(CSSCode):
 
     The relabelings ``e_{il} -> e_{il} + tau_l + alpha_i`` and ``d_{jl} -> d_{jl} + tau_l + beta_j``
     preserve the paired-difference equations, and change the code only by permuting qubits and
-    parity checks.  Two further properties of the exponents help belief-propagation decoding.  The
-    first is the absence of 4-cycles in the Tanner graphs of ``matrix_x`` and ``matrix_z`` (see
-    PairPartitionCode.has_4_cycles).  The second is mixed-distinctness, which makes every X-type
-    check overlap every Z-type check on zero or two qubits (see
-    PairPartitionCode.is_mixed_distinct).
+    parity checks.  Two further properties of the exponents are heuristics for better
+    belief-propagation decoding.  The first is the absence of 4-cycles in the Tanner graphs of
+    ``matrix_x`` and ``matrix_z`` (see PairPartitionCode.has_4_cycles).  The second is
+    mixed-distinctness, which makes every X-type check overlap every Z-type check on zero or two
+    qubits (see PairPartitionCode.is_mixed_distinct).
 
     PairPartitionCode does not record a code distance.  The ``[[276, 98, 14]]`` code below has
-    ``(J, L, P) = (4, 12, 23)``, and is instance ``qc_276_98_14`` of the reference implementation.
-    Its distance of 14 is taken from the references, rather than computed::
+    ``(J, L, P) = (4, 12, 23)``, and is instance ``qc_276_98_14`` in the repository of
+    arXiv:2607.14091.  Its distance of 14 is taken from the references, rather than computed::
+
+        from qldpc import codes
 
         exponents_x = [
             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -1348,13 +1351,14 @@ class PairPartitionCode(CSSCode):
             [0, 5, 6, 1, 4, 11, 1, 0, 4, 5, 11, 6],
             [0, 8, 22, 21, 12, 20, 12, 22, 0, 20, 21, 8],
         ]
-        code = PairPartitionCode(exponents_x, exponents_z, lift_size=23)
+        code = codes.PairPartitionCode(exponents_x, exponents_z, lift_size=23)
         assert (code.num_qubits, code.dimension) == (276, 98)
 
     References:
 
     - https://arxiv.org/abs/2609.30069, which subsumes https://arxiv.org/abs/2607.14091
-    - https://github.com/kasaikenta/pair-partition-cpm-css-codes (reference implementation)
+    - https://github.com/ultra-high-rate-qec/design-principles-data (instances of arXiv:2609.30069)
+    - https://github.com/kasaikenta/pair-partition-cpm-css-codes (instances of arXiv:2607.14091)
 
     Args:
         exponents_x: A ``J x L`` array of integer exponents ``e_{il}`` for the X-type checks.
@@ -1428,14 +1432,14 @@ class PairPartitionCode(CSSCode):
         """Does the Tanner graph of matrix_x or matrix_z contain a 4-cycle?
 
         The Tanner graph of ``matrix_x`` has a 4-cycle if and only if, for some two block rows
-        ``i != i'``, the differences ``e_{il} - e_{i'l}`` (mod ``P``) take some value at two block
-        columns ``l != l'``.  The same holds for ``matrix_z``.  See
+        ``i != i'``, the differences ``e_{il} - e_{i'l}`` (mod ``P``) take the same value at two
+        block columns ``l != l'``.  The same holds for ``matrix_z``.  See
         https://doi.org/10.1109/TIT.2004.831841.
         """
         for exponents in [self.exponents_x, self.exponents_z]:
             for row_a, row_b in itertools.combinations(exponents, 2):
                 diffs = (row_a - row_b) % self.lift_size
-                if len(set(diffs.tolist())) < len(diffs):
+                if np.bincount(diffs).max() > 1:
                     return True
         return False
 
@@ -1444,11 +1448,11 @@ class PairPartitionCode(CSSCode):
 
         The X-type check in row ``r`` of block row ``i`` and the Z-type check in row ``r'`` of block
         row ``j`` overlap in block column ``l`` exactly when ``d_{jl} - e_{il} = r' - r`` (mod
-        ``P``).  Every such overlap has an even size, because the code is CSS-orthogonal.  This
-        method is therefore equivalent to the mixed-distinctness condition of arXiv:2609.30069:
-        distinct pairs ``{u, v}`` in each pair partition of a pair-partition array have distinct
-        differences ``d_{ju} - e_{iu}``.  Mixed-distinctness reduces the number of 4-cycles that
-        alternate between X-type and Z-type checks.
+        ``P``).  If the code is CSS-orthogonal, every such overlap has an even size, so this method
+        is equivalent to the mixed-distinctness condition of arXiv:2609.30069: distinct pairs
+        ``{u, v}`` in each pair partition of a pair-partition array have distinct differences
+        ``d_{ju} - e_{iu}``.  Mixed-distinctness reduces the number of 4-cycles that alternate
+        between X-type and Z-type checks.
         """
         for row_x in self.exponents_x:
             for row_z in self.exponents_z:
@@ -1489,8 +1493,9 @@ class PairPartitionCode(CSSCode):
                 above.  Default: False.
 
         Returns:
-            A basis for the solution space over ``F_P``, with one basis vector per row.  Each row
-            concatenates the row-major flattenings of ``exponents_x`` and ``exponents_z``.
+            A basis for the solution space over ``F_P``, as an array with shape ``(K, 2, J, L)``,
+            where ``K`` is the dimension of the solution space.  Basis vector ``basis[m]`` stacks
+            the exponent arrays ``exponents_x = basis[m, 0]`` and ``exponents_z = basis[m, 1]``.
         """
         if not sympy.isprime(lift_size):
             raise ValueError(
@@ -1526,7 +1531,9 @@ class PairPartitionCode(CSSCode):
             fixed[0, 0, :] = fixed[:, :, 0] = True
             equations.extend(np.eye(fixed.size, dtype=int)[fixed.ravel()])
 
-        return galois.GF(lift_size)(np.array(equations) % lift_size).null_space()
+        field = galois.GF(lift_size)
+        null_space = field(np.array(equations) % lift_size).null_space()
+        return null_space.reshape(-1, 2, num_rows, num_cols).view(field)
 
     @classmethod
     def from_pair_partition_array(
@@ -1548,8 +1555,8 @@ class PairPartitionCode(CSSCode):
 
         Every member of a family is CSS-orthogonal, but its girth, dimension, and distance depend on
         the member.  The code search of arXiv:2609.30069 samples random members, and rejects those
-        that fail PairPartitionCode.has_4_cycles or PairPartitionCode.is_mixed_distinct.  Most
-        members can fail these tests, especially when ``P`` is small.
+        that fail PairPartitionCode.has_4_cycles or PairPartitionCode.is_mixed_distinct.  Often
+        most members fail these tests, especially when ``P`` is small.
 
         Args:
             matchings: A ``J x J`` pair-partition array (see solve_pair_partition_array).
@@ -1570,8 +1577,8 @@ class PairPartitionCode(CSSCode):
             )
         else:
             combination = field(np.array(coefficients, dtype=int) % lift_size)
-        exponents = np.array(combination @ basis, dtype=int)
-        exponents_x, exponents_z = exponents.reshape(2, len(matchings), -1)
+        exponents = combination @ basis.reshape(len(basis), -1)
+        exponents_x, exponents_z = np.array(exponents.reshape(basis.shape[1:]), dtype=int)
         return cls(exponents_x, exponents_z, lift_size)
 
     @staticmethod
