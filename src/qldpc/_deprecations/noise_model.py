@@ -9,7 +9,7 @@ import qldpc.circuits at import time without an import cycle.
 from __future__ import annotations
 
 import itertools
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 
 import stim
 
@@ -38,9 +38,7 @@ def lay_out_with_ticks(circuit: stim.Circuit) -> tuple[stim.Circuit, Scheduler]:
 class _InsertTicksScheduler(TickScheduler):
     """A TickScheduler with the rules of the released insert_ticks=True (see lay_out_with_ticks)."""
 
-    def _get_moments(
-        self, segment: _Segment, takes_time: Sequence[bool], next_gates: Mapping[int, bool]
-    ) -> list[int]:
+    def _get_moments(self, segment: _Segment, takes_time: Sequence[bool]) -> list[int]:
         # place each gate in the current moment, or in a new one after a TICK or where it acts on a
         # qubit that is already occupied
         nodes = _get_nodes(segment.operations)

@@ -149,7 +149,7 @@ def test_min_idle() -> None:
         assert scheduler.get_schedule(circuit).num_moments == 8
         assert _get_effective_idle_slots(circuit, scheduler, False) == num_effective_idle_slots
 
-    # each part of a circuit has moments of its own
+    # each part of a circuit is scheduled on its own
     scheduler = circuits.MinIdleScheduler()
     schedule = scheduler.get_schedule(circuit)
     repeated = scheduler.get_schedule(circuit + stim.Circuit(f"REPEAT 2 {{\n{circuit}\n}}"))
@@ -198,45 +198,6 @@ def test_min_idle_is_optimal(pytestconfig: pytest.Config) -> None:
             noisy_circuit.detector_error_model(allow_gauge_detectors=True)
 
 
-def test_min_idle_across_parts() -> None:
-    """Min-idle schedules count the idle runs that continue past the end of a part of a circuit.
-
-    In the first circuit, CX 0 1 can be in moment 1 or 2.  If the REPEAT block measures qubits 0
-    and 1, then their runs after M 0 1 count, so qubit 0 idles for two slots in any schedule, and
-    moment 2 saves qubit 1 a slot.  If the block resets them, then those runs do not count, and
-    moment 1 saves qubit 0 a slot.  In the second circuit, the run of qubit 1 after M 0 1 continues
-    to M 1 in the next iteration, so moving CX 0 1 from moment 2 to 3 saves a slot in each
-    iteration but the last, in which it costs qubit 0 a slot.
-    """
-    scheduler = circuits.MinIdleScheduler()
-    cx = stim.CircuitInstruction("CX", [0, 1])
-    for body, moment, num_effective_idle_slots in [("M", 2, 2), ("R", 1, 1)]:
-        circuit = stim.Circuit(f"""
-            CX 2 3 2 3 2 3 2 3
-            R 1
-            CX 0 1
-            M 0 1
-            REPEAT 2 {{
-                {body} 0 1 2 3
-            }}
-        """)
-        assert cx in scheduler.get_schedule(circuit).get_moments()[moment]
-        assert _get_effective_idle_slots(circuit, scheduler, False) == num_effective_idle_slots
-
-    circuit = stim.Circuit("""
-        REPEAT 3 {
-            CX 2 3 2 3 2 3 2 3 2 3
-            M 1
-            R 1
-            CX 0 1
-            M 0 1
-        }
-    """)
-    ((_, body_schedule),) = scheduler.get_schedule(circuit).get_moments()
-    assert cx in body_schedule.get_moments()[3]
-    assert _get_effective_idle_slots(circuit, scheduler, False) == 9
-
-
 def test_min_idle_solver_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     """A solution of the linear program that does not round to a valid layout is an error."""
     monkeypatch.setattr(
@@ -255,18 +216,18 @@ def _get_effective_idle_slots(
     scheduler: circuits.Scheduler | circuits.Schedule,
     single_qubit_gates_take_time: bool,
 ) -> int:
-    """The number of effective idle slots of a circuit, from the idle noise of its flattened form.
+    """The number of effective idle slots of a circuit without REPEAT blocks, from its idle noise.
 
     Each idle moment of a qubit has an X error with probability 1/4, so ``k`` moments have one with
     probability ``(1 - 2**-k) / 2``.  A moment is effective unless it is in an idle run that ends at
     a reset, or after the last gate on its qubit if that gate measures it.  Runs end at gates that
-    take time, and continue across the iterations of REPEAT blocks.
+    take time.
     """
     noise_model = circuits.NoiseModel(idle_error={"X": 0.25}, scheduler=scheduler)
     num_slots = 0
     run_lengths: dict[int, int] = collections.defaultdict(int)  # by qubit
     measured: dict[int, bool] = {}  # by qubit, whether the last gate that takes time measures it
-    for instruction in noise_model.noisy_circuit(circuit).flattened():
+    for instruction in noise_model.noisy_circuit(circuit):
         gate_data = stim.gate_data(instruction.name)
         if instruction.name == "X_ERROR":
             (probability,) = instruction.gate_args_copy()
