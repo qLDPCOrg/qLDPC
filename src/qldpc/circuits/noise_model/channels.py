@@ -8,7 +8,6 @@ See :mod:`qldpc.circuits.noise_model` for attribution and license information.
 from __future__ import annotations
 
 import abc
-import copy
 import functools
 import itertools
 import math
@@ -239,19 +238,15 @@ class PauliChannel(AbstractPauliChannel):
             ValueError: If any index is outside ``[0, num_qubits)``.
         """
         immune_qubits = frozenset(immune_qubits)
-        for qubit in immune_qubits:
-            if not 0 <= qubit < self._num_qubits:
-                raise ValueError(f"index {qubit} not in [0, {self._num_qubits})")
-        result = copy.deepcopy(self)
-        if immune_qubits:
-            result._probabilities = {
-                string: prob
-                for string, prob in result._probabilities.items()
-                if all(string[i] == "I" for i in immune_qubits)
-            }
-            # the deep copy may hold the simple form of self, which no longer applies
-            result.__dict__.pop("_simple_form", None)
-        return result
+        for position in immune_qubits:
+            if not 0 <= position < self._num_qubits:
+                raise ValueError(f"index {position} not in [0, {self._num_qubits})")
+        probabilities = {
+            string: probability
+            for string, probability in self._probabilities.items()
+            if all(string[position] == "I" for position in immune_qubits)
+        }
+        return PauliChannel(probabilities, num_qubits=self._num_qubits)
 
     @overload
     def to_circuit(
