@@ -6,9 +6,9 @@ The disjoint/rank-deficient certificates follow `Algorithm 994 <https://arxiv.or
 the symplectic reduction follows the `quantum-code adaptation <https://arxiv.org/abs/2408.10743>`_.
 The overlapping-set certificate and implementation invariants are derived in
 ``brouwer_zimmermann.md`` beside this module.  Information-set families and their certificates are
-built in ``_information_sets.py``, which fixed-weight logical counting shares.  Families of
-translates of one information set by automorphisms are built in ``_automorphisms.py``.  This module
-owns witness discovery, early exits, exhaustive dispatch, and the resumable native scan.
+built in ``information_sets.py``, which fixed-weight logical counting shares.  Families of
+translates of one information set by automorphisms are built in ``automorphism_families.py``.  This
+module owns witness discovery, early exits, exhaustive dispatch, and the resumable native scan.
 """
 
 from __future__ import annotations
@@ -24,10 +24,10 @@ import numpy.typing as npt
 from qldpc._binary import pack_bits, popcount_word
 from qldpc._compilation import always_compiled
 
-from . import _automorphisms, _information_sets
-from ._binary import get_eligible_rows
-from ._brute_force import get_nested_distance_brute_force
-from ._information_sets import advance_support
+from .._binary import get_eligible_rows
+from . import automorphism_families, information_sets
+from .brute_force import get_nested_distance_brute_force
+from .information_sets import advance_support
 
 # A search asks for automorphisms before the first layer whose scan takes at least this many
 # candidate/set evaluations.  Finding automorphisms can take milliseconds, a small fraction of such
@@ -36,7 +36,7 @@ MINIMUM_LAYER_WORK = 100_000_000
 
 # A function that returns the family of translates of a problem for a weight divisor, or None.
 _GetTranslatedFamily = Callable[
-    [int], tuple[_information_sets.BasisFamily, _information_sets.Certificate] | None
+    [int], tuple[information_sets.BasisFamily, information_sets.Certificate] | None
 ]
 
 ####################################################################################################
@@ -50,8 +50,7 @@ def get_distance_brouwer_zimmermann_many(
     block_size: int,
     weight_divisor: int = 1,
     upper_bound: int | None = None,
-    get_disjoint_basis_families: Sequence[Callable[[], _information_sets.BasisFamily]]
-    | None = None,
+    get_disjoint_basis_families: Sequence[Callable[[], information_sets.BasisFamily]] | None = None,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
 ) -> int:
     """Advance nested-code searches round-robin while sharing their best upper bound.
@@ -59,14 +58,14 @@ def get_distance_brouwer_zimmermann_many(
     ``get_disjoint_basis_families``, if given, holds a function for each problem that returns a
     disjoint basis family of it: sets with pairwise disjoint pivot blocks that span the problem's
     basis, with quotient labels of the problem, certified with this ``weight_divisor``.  The result
-    of ``_information_sets.get_disjoint_family`` is one, and a caller that keeps such families saves
+    of ``information_sets.get_disjoint_family`` is one, and a caller that keeps such families saves
     that first stage.  Each function is called only if its search needs it.
 
     ``get_automorphisms``, if given, returns an array of generators of a group of column
     permutations, or None.  Row ``i`` of the array maps column ``j`` to column ``row[j]``.  Each
     generator must map the searched space and the excluded subspace of every problem onto
     themselves.  A search calls the function before a costly layer, verifies the generators for its
-    problem, and may then scan fewer information sets (see ``_automorphisms``).
+    problem, and may then scan fewer information sets (see ``automorphism_families``).
 
     Raises:
         ValueError: If a generator from ``get_automorphisms`` is not an automorphism of a problem
@@ -163,7 +162,7 @@ def enumeration_is_cheaper_than_setup(dimension: int, length: int) -> bool:
 def _enumeration_is_cheaper_than_search(
     *,
     num_logical_rows: int,
-    certificate: _information_sets.Certificate,
+    certificate: information_sets.Certificate,
     upper_bound: int,
 ) -> bool:
     """Estimate whether exhaustive nested-code enumeration will outperform BZ.
@@ -192,8 +191,8 @@ class _BrouwerZimmermannSearch:
     family that certifies the search.  This family is the packed family, unless the search is
     ``translated``.  A translated search packs one set, and its family holds the translates of that
     set by automorphisms of the problem, which complete each layer when the set does (see
-    ``_automorphisms``).  ``ranks`` is the native copy of the ranks of the packed sets for the
-    compiled scan.
+    ``automorphism_families``).  ``ranks`` is the native copy of the ranks of the packed sets for
+    the compiled scan.
 
     ``get_translated_family``, if given, returns a family of translates of the problem, or None.
     The search calls it once, before the first layer whose scan would cost at least
@@ -205,7 +204,7 @@ class _BrouwerZimmermannSearch:
     labels: npt.NDArray[np.uint64]
     widths: npt.NDArray[np.int64]
     label_widths: npt.NDArray[np.int64]
-    certificate: _information_sets.Certificate
+    certificate: information_sets.Certificate
     cutoff: int
     batch_size: int
     best: int
@@ -318,7 +317,7 @@ class _BrouwerZimmermannSearch:
         # The rows of the scanned set are the layer-one words of every translate.
         basis_family, certificate = translated
         self.best = _get_basis_family_upper_bound(basis_family, self.best)
-        work = _automorphisms.estimate_translate_work(certificate, self.best)
+        work = automorphism_families.estimate_translate_work(certificate, self.best)
         if work >= self.certificate.work(self.best):
             return
         self.generators, self.labels, self.widths, self.label_widths = _pack_basis_family(
@@ -340,12 +339,12 @@ def _prepare_brouwer_zimmermann_search(
     weight_divisor: int,
     upper_bound: int,
     initial_upper_bound: int | None = None,
-    get_disjoint_basis_family: Callable[[], _information_sets.BasisFamily] | None = None,
+    get_disjoint_basis_family: Callable[[], information_sets.BasisFamily] | None = None,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
 ) -> int | _BrouwerZimmermannSearch:
     """Prepare one BZ search, or return immediately when another route is cheaper.
 
-    The basis family stages of ``_information_sets`` run in order, with distance-specific witness,
+    The basis family stages of ``information_sets`` run in order, with distance-specific witness,
     cutoff, certificate, and exhaustive exits between them.  ``get_disjoint_basis_family``, if
     given, returns the result of the first stage.  ``get_automorphisms``, if given, lets the search
     switch to a family of translates before a costly layer (see ``_BrouwerZimmermannSearch``).
@@ -370,7 +369,7 @@ def _prepare_brouwer_zimmermann_search(
 
     # The disjoint basis family's certificate also uses any inferred even ambient parity.
     basis_family = (
-        _information_sets.get_disjoint_family(basis, labels, weight_divisor=weight_divisor)
+        information_sets.get_disjoint_family(basis, labels, weight_divisor=weight_divisor)
         if get_disjoint_basis_family is None
         else get_disjoint_basis_family()
     )
@@ -378,7 +377,7 @@ def _prepare_brouwer_zimmermann_search(
     if best <= cutoff:
         return best
 
-    basis_family = _information_sets.prune_family(basis_family, upper_bound=best)
+    basis_family = information_sets.prune_family(basis_family, upper_bound=best)
     # Each basis family of an independent basis has a set, whose systematic rows complete layer one.
     completed_weight = 1
     lower_bound = basis_family.certificate.lower_bound(completed_weight)
@@ -388,16 +387,16 @@ def _prepare_brouwer_zimmermann_search(
     # Replace the basis family only when overlapping sets, built heuristically and then, for costly
     # searches, by matroid partitioning, predict less certification work.
     for get_replacement in (
-        lambda family, best: _information_sets.get_overlapping_family(
+        lambda family, best: information_sets.get_overlapping_family(
             basis,
             labels,
             family,
             best,
-            _information_sets.MAX_SETS,
-            *_information_sets.get_overlapping_family_policy(dimension),
+            information_sets.MAX_SETS,
+            *information_sets.get_overlapping_family_policy(dimension),
         ),
-        lambda family, best: _information_sets.get_partitioned_family(
-            basis, labels, family, best, _information_sets.MAX_SETS
+        lambda family, best: information_sets.get_partitioned_family(
+            basis, labels, family, best, information_sets.MAX_SETS
         ),
     ):
         replacement = get_replacement(basis_family, best)
@@ -444,7 +443,7 @@ def _get_translated_family(
     labels: npt.NDArray[np.uint8],
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None],
     weight_divisor: int,
-) -> tuple[_information_sets.BasisFamily, _information_sets.Certificate] | None:
+) -> tuple[information_sets.BasisFamily, information_sets.Certificate] | None:
     """Verify the automorphisms of a problem, and build the family of translates of one set.
 
     Args:
@@ -455,7 +454,7 @@ def _get_translated_family(
         weight_divisor: A proven divisor of the Hamming weight of every eligible word.
 
     Returns:
-        The family and certificate of ``_automorphisms.get_translate_family``, or None if
+        The family and certificate of ``automorphism_families.get_translate_family``, or None if
         ``get_automorphisms`` returns None.
 
     Raises:
@@ -464,12 +463,12 @@ def _get_translated_family(
     automorphisms = get_automorphisms()
     if automorphisms is None:
         return None
-    _automorphisms.verify_automorphisms(basis, labels, automorphisms)
-    return _automorphisms.get_translate_family(basis, labels, automorphisms, weight_divisor)
+    automorphism_families.verify_automorphisms(basis, labels, automorphisms)
+    return automorphism_families.get_translate_family(basis, labels, automorphisms, weight_divisor)
 
 
 def _pack_basis_family(
-    basis_family: _information_sets.BasisFamily,
+    basis_family: information_sets.BasisFamily,
 ) -> tuple[
     npt.NDArray[np.uint64], npt.NDArray[np.uint64], npt.NDArray[np.int64], npt.NDArray[np.int64]
 ]:
@@ -510,7 +509,7 @@ def _get_lightest_eligible_row_weight(
 
 
 def _get_basis_family_upper_bound(
-    basis_family: _information_sets.BasisFamily,
+    basis_family: information_sets.BasisFamily,
     upper_bound: int,
 ) -> int:
     """Tighten an upper bound with the systematic rows of a basis family: its layer-one words."""

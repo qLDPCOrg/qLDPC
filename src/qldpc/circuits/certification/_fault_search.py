@@ -24,7 +24,7 @@ import numpy.typing as npt
 
 from qldpc._binary import get_rank_packed, popcount_word, trailing_zeros_word
 from qldpc._compilation import always_compiled
-from qldpc.codes.distance._coset_leader_search import CosetLeaderSearch, MinWeightBound
+from qldpc.codes.distance._search.coset_leader_search import CosetLeaderSearch, MinWeightBound
 
 # The peak number of bytes per pair of classes for the closing map of pairs of classes (see
 # ``FaultLister``).  While a counting sort builds its closing table, each pair takes an 8-byte hash,

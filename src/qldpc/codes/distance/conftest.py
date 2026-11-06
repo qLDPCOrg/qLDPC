@@ -16,9 +16,9 @@ from qldpc import _compilation, codes
 from qldpc._binary import get_independent_rows, get_kernel
 from qldpc.objects import Pauli, PauliXZ
 
-from . import _automorphisms, _coset_leader_search, _information_sets
 from . import logical_counts as lc
 from ._binary import get_nested_code_basis
+from ._search import automorphism_families, coset_leader_search, information_sets
 from .core import DistanceMethod
 
 
@@ -26,7 +26,7 @@ from .core import DistanceMethod
 def force_information_sets() -> Iterator[None]:
     """Route Brouwer-Zimmermann searches through information sets instead of exhaustive search."""
     with mock.patch.multiple(
-        "qldpc.codes.distance._brouwer_zimmermann",
+        "qldpc.codes.distance._search.brouwer_zimmermann",
         enumeration_is_cheaper_than_setup=mock.Mock(return_value=False),
         _enumeration_is_cheaper_than_search=mock.Mock(return_value=False),
     ):
@@ -45,7 +45,7 @@ def compilation_mode(
     functions once per session, and restores plain Python afterwards.
     """
     if request.param == "python":
-        for module in (_automorphisms, _information_sets, _coset_leader_search):
+        for module in (automorphism_families, information_sets, coset_leader_search):
             for name, function in list(vars(module).items()):
                 if hasattr(function, "py_func") and function.py_func.__module__ == module.__name__:
                     monkeypatch.setattr(module, name, function.py_func)

@@ -6,7 +6,7 @@ See :class:`CSSLogicalCounter` for the conventions.
 
 Each X/Z sector uses a normalizer basis whose quotient labels mark nontrivial words (Section 3.4 of
 ``brouwer_zimmermann.md``).  Words are enumerated in layers over Brouwer--Zimmermann (BZ)
-information sets, whose family and certificate come from the stages in ``_information_sets.py`` that
+information sets, whose family and certificate come from the stages in ``information_sets.py`` that
 the distance search shares.  Unlike a distance search, the scan stops only when the BZ lower bound
 exceeds ``w`` (Section 5 of ``brouwer_zimmermann.md``), and a word visited by several information
 sets is counted by only one of them.  Full Pauli counts are derived from the homogeneous words of
@@ -37,11 +37,11 @@ from qldpc._binary import get_independent_rows, get_kernel, pack_bits
 from qldpc._compilation import set_on_request_functions_compiled
 from qldpc._utils import format_docstring
 
-from . import _information_sets
 from ._binary import as_integer, get_nested_code_basis
-from ._brouwer_zimmermann import get_distance_brouwer_zimmermann_many
-from ._brute_force import get_nested_distance_brute_force
 from ._counting import local_cliffords, macwilliams, scan
+from ._search import information_sets
+from ._search.brouwer_zimmermann import get_distance_brouwer_zimmermann_many
+from ._search.brute_force import get_nested_distance_brute_force
 from .core import _DISTANCE_METHODS, DistanceMethod
 
 # codes.common imports this package, and codes.quantum imports codes.common, so code classes are
@@ -207,7 +207,7 @@ class CSSLogicalCounter:
         """Whether the X and Z checks span the same row space."""
         return self._self_dual or np.array_equal(*self._get_canonical_checks())
 
-    @format_docstring(MAX_SETS=_information_sets.MAX_SETS)
+    @format_docstring(MAX_SETS=information_sets.MAX_SETS)
     def count_logical_ops(
         self,
         weight: SupportsIndex | None = None,
@@ -215,7 +215,7 @@ class CSSLogicalCounter:
         method: LogicalCountMethod = "brouwer_zimmermann",
         count_pauli: bool = False,
         within_distance: bool = False,
-        max_information_sets: SupportsIndex = _information_sets.MAX_SETS,
+        max_information_sets: SupportsIndex = information_sets.MAX_SETS,
     ) -> CSSLogicalCounts:
         """Count the nontrivial logical operators of a given weight.
 
@@ -517,7 +517,7 @@ class CSSLogicalCounter:
         """Drop the work that is done on demand and kept for later counts."""
         self._distances: dict[DistanceMethod, int] = {}
         self._sectors: tuple[_Sector, _Sector] | None = None
-        self._disjoint_basis_families: dict[int, _information_sets.BasisFamily] = {}
+        self._disjoint_basis_families: dict[int, information_sets.BasisFamily] = {}
         self._enumerators: macwilliams.CheckEnumerators | None = None
 
     def _validate_macwilliams_request(self, count_pauli: bool) -> None:
@@ -593,14 +593,14 @@ class CSSLogicalCounter:
             self._sectors = (sector_x, sector_z)
         return self._sectors
 
-    def _get_disjoint_basis_family(self, index: int) -> _information_sets.BasisFamily:
+    def _get_disjoint_basis_family(self, index: int) -> information_sets.BasisFamily:
         """The disjoint basis family of a sector, the first stage of its basis families, kept.
 
         This stage does not depend on the counted weight, so counting at another weight, as when a
         guessed weight fails, does not repeat it.
         """
         if index not in self._disjoint_basis_families:
-            self._disjoint_basis_families[index] = _information_sets.get_disjoint_family(
+            self._disjoint_basis_families[index] = information_sets.get_disjoint_family(
                 *self._get_sectors()[index]
             )
         return self._disjoint_basis_families[index]
@@ -622,7 +622,7 @@ def count_logical_ops_css(
     method: LogicalCountMethod = "brouwer_zimmermann",
     count_pauli: bool = False,
     within_distance: bool = False,
-    max_information_sets: SupportsIndex = _information_sets.MAX_SETS,
+    max_information_sets: SupportsIndex = information_sets.MAX_SETS,
 ) -> CSSLogicalCounts:
     """Count the nontrivial logical operators of a given weight in a binary CSS code.
 
@@ -706,16 +706,16 @@ def _warm_up_compiled_functions() -> None:
 
     # The distance search of so small a code is exhaustive, so call the stages that it uses here.
     basis, labels = counter._get_sectors()[0]
-    basis_family = _information_sets.prune_family(
-        _information_sets.get_disjoint_family(basis, labels), 4
+    basis_family = information_sets.prune_family(
+        information_sets.get_disjoint_family(basis, labels), 4
     )
-    _information_sets.get_overlapping_family(
+    information_sets.get_overlapping_family(
         basis,
         labels,
         basis_family,
         4,
-        _information_sets.MAX_SETS,
-        *_information_sets.get_overlapping_family_policy(len(basis)),
+        information_sets.MAX_SETS,
+        *information_sets.get_overlapping_family_policy(len(basis)),
     )
 
 
@@ -726,7 +726,7 @@ def _warm_up_compiled_functions() -> None:
 def _get_distance(
     sectors: Sequence[_Sector],
     method: DistanceMethod,
-    get_disjoint_basis_families: Sequence[Callable[[], _information_sets.BasisFamily]],
+    get_disjoint_basis_families: Sequence[Callable[[], information_sets.BasisFamily]],
 ) -> int:
     """Minimum weight of a nontrivial word in any of the given sectors.
 

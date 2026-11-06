@@ -23,7 +23,7 @@ import sympy.abc
 
 from qldpc import abstract, codes, decoders, external, math
 from qldpc.codes import _code_capacity, common
-from qldpc.codes.distance import _brouwer_zimmermann
+from qldpc.codes.distance._search import brouwer_zimmermann
 from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ
 
 ####################################################################################################
@@ -816,7 +816,7 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch) -> None
 
     # use the automorphisms of the code's family before the first layer of these quick searches
     monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
-    monkeypatch.setattr(_brouwer_zimmermann, "MINIMUM_LAYER_WORK", 0)
+    monkeypatch.setattr(brouwer_zimmermann, "MINIMUM_LAYER_WORK", 0)
     x, y = sympy.abc.x, sympy.abc.y
     bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
     translations = bb_code._get_qudit_automorphisms()
@@ -852,7 +852,7 @@ def test_distances_with_bliss(monkeypatch: pytest.MonkeyPatch) -> None:
     matrices alone.
     """
     pytest.importorskip("pybliss")
-    monkeypatch.setattr(_brouwer_zimmermann, "MINIMUM_LAYER_WORK", 0)
+    monkeypatch.setattr(brouwer_zimmermann, "MINIMUM_LAYER_WORK", 0)
     x, y = sympy.abc.x, sympy.abc.y
     bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
     shuffle = np.random.default_rng(0).permutation(len(bb_code))

@@ -15,8 +15,8 @@ import stim
 from qldpc import math
 from qldpc._binary import get_kernel, row_reduce_binary
 
-from . import _coset_leader_search
-from ._coset_leader_search import CosetLeaderSearch
+from . import coset_leader_search
+from .coset_leader_search import CosetLeaderSearch
 
 
 def _stabilizer_matrix(generators: Sequence[stim.PauliString]) -> npt.NDArray[np.uint8]:
@@ -228,7 +228,7 @@ def test_bounds_match_exhaustive_minima(
     errors of CSS weight one.
     """
     if not css_singles_table:
-        monkeypatch.setattr(_coset_leader_search, "_MAX_CSS_SINGLES", 0)
+        monkeypatch.setattr(coset_leader_search, "_MAX_CSS_SINGLES", 0)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 7):
         edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
@@ -414,7 +414,7 @@ def test_layers_reach_their_last_support() -> None:
         for layer in range(1, num_rows + 1):
             offset = np.bitwise_xor.reduce(rows[0, num_rows - layer :])
             best = np.empty(1, dtype=np.uint64)
-            weight = _coset_leader_search._visit_layer(
+            weight = coset_leader_search._visit_layer(
                 offset,
                 rows,
                 np.ones(1, dtype=np.int64),
@@ -550,7 +550,7 @@ def test_cached_searches_answer_only_for_their_stabilizer_group(
     zero_plus = np.block([[zeros, eye, zeros, zeros], [zeros, zeros, eye, zeros]])
     plus_zero = np.block([[eye, zeros, zeros, zeros], [zeros, zeros, zeros, eye]])
     matrices = [_scramble(matrix, rng) for matrix in (zero_plus, zero_plus, plus_zero)]
-    _coset_leader_search._get_css_searches.cache_clear()
+    coset_leader_search._get_css_searches.cache_clear()
     oracles = [CosetLeaderSearch(matrix, css_weight=True) for matrix in matrices]
     for oracle, matrix in zip(oracles, matrices, strict=True):
         minima = _css_minima(matrix)

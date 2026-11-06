@@ -21,8 +21,8 @@ import numpy.typing as npt
 from qldpc._binary import get_rank_packed, pack_bits, row_reduce_packed, unpack_bits
 from qldpc._compilation import always_compiled
 
-from ._binary import get_eligible_rows
-from ._information_sets import BasisFamily, Certificate, get_capped_binomials
+from .._binary import get_eligible_rows
+from .information_sets import BasisFamily, Certificate, get_capped_binomials
 
 ####################################################################################################
 # families of translates

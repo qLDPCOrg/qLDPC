@@ -19,12 +19,12 @@ from sympy.abc import x, y
 
 import qldpc
 from qldpc import abstract, codes, decoders
+from qldpc.codes.distance._search import automorphism_families
 from qldpc.conftest import run_python
 from qldpc.math import resolve_field
 from qldpc.objects import ChainComplex, Node, Pauli
 
 from .common_test import assert_valid_subgraphs
-from .distance import _automorphisms
 from .quantum import _get_block_translations
 
 
@@ -554,7 +554,7 @@ def test_block_translations() -> None:
         assert np.array_equal(translation[blocks] - blocks[:, :1], [translation[:block_size]] * 3)
     for first, second in itertools.combinations(translations, 2):
         assert np.array_equal(first[second], second[first])
-    orbits = _automorphisms._get_orbits(translations, num_blocks * block_size)
+    orbits = automorphism_families._get_orbits(translations, num_blocks * block_size)
     assert [len(set(orbits[block])) for block in blocks] == [1] * num_blocks
     assert len(set(orbits)) == num_blocks
 

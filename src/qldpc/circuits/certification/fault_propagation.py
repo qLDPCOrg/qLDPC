@@ -13,7 +13,7 @@ import stim
 
 from qldpc import math
 from qldpc._binary import get_rank_packed, pack_bits
-from qldpc.codes.distance._coset_leader_search import MinWeightBound
+from qldpc.codes.distance._search.coset_leader_search import MinWeightBound
 
 from .._post_selection import get_flag_detectors, get_selected_detectors, is_integer
 from ..bookkeeping import DetectorRecord
