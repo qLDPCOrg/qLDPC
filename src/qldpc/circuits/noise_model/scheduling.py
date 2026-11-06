@@ -198,15 +198,15 @@ class Scheduler(abc.ABC):
     """A rule that places the operations of circuits in moments.
 
     A :class:`~qldpc.circuits.NoiseModel` with idle noise uses its scheduler to find how long each
-    qubit idles.  The built-in schedulers are :class:`TickScheduler`, :class:`ASAPScheduler`, and
-    :class:`ALAPScheduler`.  Each places the gates of a circuit in its own way, and the other
-    operations in the same way.  A noise channel, or a Pauli target of an observable, joins the
-    latest moment of the operations before it on its qubits, or moment zero.  Other annotations,
-    such as detectors and QUBIT_COORDS, join the moment of the last gate before them, or moment
-    zero.  An annotation joins a later moment if it must follow a measurement that it reads, and a
-    heralded noise channel, which records measurements, joins no earlier moment than the measurement
-    before it.  The coordinate annotations DETECTOR, QUBIT_COORDS, and SHIFT_COORDS also keep their
-    order, which sets the coordinates of detectors and qubits.
+    qubit idles.  The built-in schedulers are :class:`TickScheduler`, :class:`ASAPScheduler`,
+    :class:`ALAPScheduler`, and :class:`MinIdleScheduler`.  Each places the gates of a circuit in
+    its own way, and the other operations in the same way.  A noise channel, or a Pauli target of
+    an observable, joins the latest moment of the operations before it on its qubits, or moment
+    zero.  Other annotations, such as detectors and QUBIT_COORDS, join the moment of the last gate
+    before them, or moment zero.  An annotation joins a later moment if it must follow a measurement
+    that it reads, and a heralded noise channel, which records measurements, joins no earlier moment
+    than the measurement before it.  The coordinate annotations DETECTOR, QUBIT_COORDS, and
+    SHIFT_COORDS also keep their order, which sets the coordinates of detectors and qubits.
 
     A custom scheduler implements :meth:`get_schedule`, for example by laying a circuit out with
     TICKs and returning ``TickScheduler().get_schedule(timed_circuit)``.  A noise model can also
@@ -395,6 +395,59 @@ class ALAPScheduler(_LayerScheduler):
     @property
     def _gates_moved_back(self) -> frozenset[str]:
         return JUST_MEASURE_OPS if self.early_measurements else frozenset()
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True, repr=False)
+class MinIdleScheduler(_BuiltInScheduler):
+    """A scheduler that ignores TICKs and minimizes the effective idling of qubits.
+
+    It uses as few moments as :class:`ASAPScheduler`, which is the fewest possible, and places gates
+    to minimize the number of effective idle slots.  These are the moments in which a qubit idles,
+    except in an idle run that ends at a reset (R, RX, RY, or RZ), which erases its errors, or that
+    follows the last gate on the qubit if that gate measures it.  Each part of a circuit (see
+    :class:`Schedule`) is scheduled as if it were the whole circuit.  A linear program finds an
+    optimal placement.
+
+    Args:
+        single_qubit_gates_take_time: As in :class:`ASAPScheduler`.
+    """
+
+    single_qubit_gates_take_time: bool = False
+
+    def __repr__(self) -> str:
+        return _get_repr(self)
+
+    def _get_moments(self, segment: _Segment, takes_time: Sequence[bool]) -> list[int]:
+        # group the operations into nodes, and find the constraints on their order and the depth
+        operations = segment.operations
+        nodes = _get_nodes(operations)
+        num_nodes = nodes[-1] + 1 if nodes else 0
+        edges = _get_edges(operations, nodes, takes_time)
+        num_layers = max(_get_layers(num_nodes, edges, reverse=False), default=0) + 1
+
+        # the effective idle slots are, up to a constant, the sum of costs[node] * layers[node]:
+        # each counted run adds the layer of the gate that ends it, and subtracts the layer of the
+        # gate that starts it
+        costs = [0] * num_nodes
+        last_gates: dict[int, tuple[int, _Operation]] = {}  # by qubit, the last that takes time
+        for node, operation, operation_takes_time in zip(nodes, operations, takes_time):
+            if operation_takes_time:
+                for qubit in operation.qubits:
+                    if operation.instruction.name not in JUST_RESET_OPS:
+                        costs[node] += 1
+                        if qubit in last_gates:
+                            costs[last_gates[qubit][0]] -= 1
+                    last_gates[qubit] = (node, operation)
+        for node, operation in last_gates.values():
+            if not operation.num_records:
+                costs[node] -= 1  # the run after a last gate that does not measure counts
+        layers = _get_min_cost_layers(costs, edges, num_layers)
+
+        # place annotations and noise channels in the moments of operations before them
+        gate_moments = {
+            node: layers[node] for node, operation in zip(nodes, operations) if operation.is_gate
+        }
+        return _place_annotations(operations, nodes, gate_moments)
 
 
 def _get_repr(scheduler: DataclassInstance) -> str:
@@ -818,3 +871,40 @@ def _get_layers(
         depths = get_depths({index: num_layers - 1 - layer for index, layer in fixed.items()})
         return [num_layers - 1 - depth for depth in depths]
     return get_depths(fixed)
+
+
+def _get_min_cost_layers(
+    costs: Sequence[int], edges: Sequence[tuple[int, int, int]], num_layers: int
+) -> list[int]:
+    """Place nodes in ``num_layers`` layers to minimize the sum of ``costs[node] * layers[node]``.
+
+    Each edge ``(earlier, later, gap)`` places node ``later`` at least ``gap`` layers after node
+    ``earlier``.  Each constraint bounds a difference of two layers, so the constraint matrix is
+    totally unimodular, and the optimal vertex that the linear program finds is a placement in
+    integer layers.
+
+    Raises:
+        RuntimeError: If the solver fails to find a placement.
+    """
+    # scipy.optimize is slow to import, so it is imported only when needed
+    import scipy.optimize
+    import scipy.sparse
+
+    if not costs:
+        return []
+    # each edge is the constraint layers[earlier] - layers[later] <= -gap
+    rows = [row for row in range(len(edges)) for _ in range(2)]
+    columns = [node for earlier, later, _ in edges for node in (earlier, later)]
+    constraints = scipy.sparse.coo_array(
+        ([1, -1] * len(edges), (rows, columns)), shape=(len(edges), len(costs))
+    )
+    result = scipy.optimize.linprog(
+        costs,
+        A_ub=constraints,
+        b_ub=[-gap for _, _, gap in edges],
+        bounds=(0, num_layers - 1),
+        method="highs-ds",
+    )
+    if not result.success:
+        raise RuntimeError(f"The linear program failed to place nodes in layers: {result.message}")
+    return [round(layer) for layer in result.x]
