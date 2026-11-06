@@ -20,7 +20,7 @@ import pytest
 import stim
 
 from qldpc import decoders
-from qldpc.decoders.conftest import fail_import
+from qldpc.conftest import fail_import
 from qldpc.decoders.external import pymatching
 from qldpc.decoders.external.pymatching import (
     _get_decoder_mwpm,

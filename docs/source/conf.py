@@ -100,9 +100,50 @@ def _skip_decoder_specification_helpers(
     return skip
 
 
+def _resolve_package_reexports(
+    app: typing.Any, env: typing.Any, node: typing.Any, contnode: typing.Any
+) -> typing.Any:
+    """Resolve references to names that a qLDPC package re-exports from one of its modules.
+
+    AutoAPI documents each object only in the module that defines it (see autoapi_options), but type
+    annotations name objects by the paths that code imports them from, such as qldpc.objects.Pauli.
+    This handler resolves such a reference to the documented object that the package re-exports.
+    """
+    if node.get("refdomain") != "py":
+        return None
+    package_name, _, attribute = node.get("reftarget", "").rpartition(".")
+    if not package_name.startswith("qldpc"):
+        return None
+    try:
+        package = importlib.import_module(package_name)
+    except ImportError:
+        return None
+    if attribute not in getattr(package, "__all__", ()):
+        return None
+
+    objects = env.get_domain("py").objects
+    targets = [
+        name
+        for name in objects
+        if name.startswith(f"{package_name}.")
+        and name.endswith(f".{attribute}")
+        and getattr(sys.modules.get(name.rpartition(".")[0]), attribute, None)
+        is getattr(package, attribute)
+    ]
+    if len(targets) != 1:
+        return None
+    from sphinx.util.nodes import make_refnode
+
+    entry = objects[targets[0]]
+    return make_refnode(
+        app.builder, node["refdoc"], entry.docname, entry.node_id, contnode, targets[0]
+    )
+
+
 def setup(app: typing.Any) -> None:
     """Register Sphinx event handlers."""
     app.connect("autoapi-skip-member", _skip_decoder_specification_helpers)
+    app.connect("missing-reference", _resolve_package_reexports)
 
 
 # -- Options for HTML output -------------------------------------------------

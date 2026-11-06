@@ -45,6 +45,7 @@ dependencies = [
   "sympy>=1.12.1",   # 1.12 accepts mpmath 1.4, which it cannot import
   "tqdm>=4",
 ]
+optional-dependencies.bliss = [ "pybliss>=2025.5" ]
 optional-dependencies.decoders = [
   "qldpc[ilp]",
   "qldpc[relay-bp]",
@@ -65,6 +66,10 @@ optional-dependencies.dev = [
   "pytest-socket>=0.7",           # implements the --disable-socket in [tool.pytest] addopts below
   "pytest-xdist>=3",              # parallel test runs, as in checks/coverage_.py
   "python-lsp-server[all]>=1.14",
+  """\
+  qldpc[bliss]; (sys_platform=='darwin' and platform_machine=='arm64') or (sys_platform=='linux' and \
+  platform_machine=='x86_64')\
+  """,
   "qldpc[decoders,docs,gap]",
   "stim>=1.17.dev1793242987",     # stim.Circuit.append is about 1,000 times faster than in 1.16
 ]

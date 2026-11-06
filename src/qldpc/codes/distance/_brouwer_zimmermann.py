@@ -12,7 +12,6 @@ witness discovery, early exits, exhaustive dispatch, and the resumable native sc
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
@@ -23,68 +22,16 @@ from qldpc._binary import pack_bits, popcount_word
 from qldpc._compilation import always_compiled
 
 from . import _information_sets
-from ._binary import as_binary_matrix, assert_binary, get_nested_code_basis
-from ._brute_force import (
-    get_distance_quantum_brute_force,
-)
+from ._binary import get_eligible_rows
+from ._brute_force import get_nested_distance_brute_force
 from ._information_sets import advance_support
 
 ####################################################################################################
 # search entry points
 
 
-def get_distance_css_brouwer_zimmermann(
-    sectors: Sequence[tuple[npt.ArrayLike, npt.ArrayLike]],
-    *,
-    cutoff: int,
-    block_size: int = 15,
-    upper_bound: int | None = None,
-) -> int:
-    """Compute the minimum distance across homogeneous binary CSS sectors.
-
-    Args:
-        sectors: Logical operators and stabilizers for every sector to search.  All operators use
-            homogeneous binary support vectors rather than symplectic vectors.
-        cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
-        block_size: Batch size exponent, as in get_distance_quantum.
-        upper_bound: Weight of a known logical operator from an omitted sector, if any.  The result
-            is the minimum of this bound and the distances of the supplied sectors.
-
-    Returns:
-        The minimum exact distance across the supplied sectors and optional upper bound.  As with
-        get_distance_quantum, a result at or below ``cutoff`` is an observed upper bound.
-    """
-    problems: list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]] = []
-    best = upper_bound
-    for logical_ops, stabilizers in sectors:
-        assert_binary(logical_ops, "logical_ops")
-        assert_binary(stabilizers, "stabilizers")
-        logical_matrix = as_binary_matrix(logical_ops)
-        stabilizer_matrix = as_binary_matrix(stabilizers, num_cols=logical_matrix.shape[1])
-        basis, labels = get_nested_code_basis(logical_matrix, stabilizer_matrix)
-        if labels.shape[1]:
-            problems.append((basis, labels))
-            continue
-
-        # A supplied but trivial quotient has distance zero; an empty sector contributes its width.
-        sector_distance = 0 if len(logical_matrix) else logical_matrix.shape[1]
-        best = sector_distance if best is None else min(best, sector_distance)
-
-    if best is not None and best <= cutoff:
-        return best
-    if not problems:
-        assert best is not None
-        return best
-    return get_distance_brouwer_zimmermann_many(
-        problems,
-        cutoff=cutoff,
-        block_size=block_size,
-        upper_bound=best,
-    )
-
-
 def get_distance_brouwer_zimmermann_many(
-    problems: Sequence[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8] | None]],
+    problems: Sequence[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]],
     *,
     cutoff: int,
     block_size: int,
@@ -102,12 +49,11 @@ def get_distance_brouwer_zimmermann_many(
     that first stage.  Each function is called only if its search needs it.
     """
     initial_upper_bounds = [
-        _get_brouwer_zimmermann_initial_upper_bound(basis, labels) for basis, labels in problems
+        _get_lightest_eligible_row_weight(basis, labels) for basis, labels in problems
     ]
-    best = min(
-        *initial_upper_bounds,
-        math.inf if upper_bound is None else upper_bound,
-    )
+    best = min(initial_upper_bounds)
+    if upper_bound is not None:
+        best = min(best, upper_bound)
     searches: list[_BrouwerZimmermannSearch] = []
     for index, ((basis, labels), initial_upper_bound) in enumerate(
         zip(problems, initial_upper_bounds, strict=True)
@@ -118,7 +64,7 @@ def get_distance_brouwer_zimmermann_many(
             cutoff=cutoff,
             block_size=block_size,
             weight_divisor=weight_divisor,
-            upper_bound=int(best),
+            upper_bound=best,
             initial_upper_bound=initial_upper_bound,
             get_disjoint_basis_family=None
             if get_disjoint_basis_families is None
@@ -129,26 +75,25 @@ def get_distance_brouwer_zimmermann_many(
         else:
             searches.append(prepared)
 
-    while searches:
+    # Advance every unfinished search in turn, until all have finished.
+    advanced = True
+    while advanced:
         advanced = False
         for search in searches:
             # Share witnesses between sectors, but keep each lower certificate independent.
-            search.update_upper_bound(int(best))
+            search.update_upper_bound(best)
             if search.finished:
                 continue
             best = min(best, search.advance())
             advanced = True
             if best <= cutoff:
-                return int(best)
-        if not advanced:
-            break
-
-    return int(best)
+                return best
+    return best
 
 
 def get_distance_brouwer_zimmermann(
     basis: npt.NDArray[np.uint8],
-    labels: npt.NDArray[np.uint8] | None,
+    labels: npt.NDArray[np.uint8],
     *,
     cutoff: int,
     block_size: int,
@@ -159,8 +104,9 @@ def get_distance_brouwer_zimmermann(
 
     The disjoint and rank-deficient bound follows Algorithm 1 of https://arxiv.org/abs/1603.06757.
     The overlapping-set extension divides pivot occupancy by the maximum coordinate coverage.
-    Nonzero ``labels`` identify rows outside an excluded subcode; transforming them alongside the
-    generators makes the upper-bound search exact for logical operators modulo stabilizers.
+    Nonzero ``labels`` identify rows outside an excluded subcode, and labels with no columns exclude
+    nothing (see ``get_eligible_rows``).  Transforming the labels alongside the generators makes the
+    upper-bound search exact for logical operators modulo stabilizers.
 
     An ``upper_bound`` starts the search as though a witness of that weight were known, so the
     search returns ``min(distance, upper_bound)`` and stops once it certifies that no word is
@@ -179,7 +125,7 @@ def get_distance_brouwer_zimmermann(
 # cost models
 
 
-def exhaustive_is_cheaper(dimension: int, length: int) -> bool:
+def enumeration_is_cheaper_than_setup(dimension: int, length: int) -> bool:
     """Estimate whether enumerating every codeword is cheaper than building information sets.
 
     Setup costs dominate the Brouwer-Zimmermann search for dimensions up to 20.  For long,
@@ -189,7 +135,7 @@ def exhaustive_is_cheaper(dimension: int, length: int) -> bool:
     return dimension <= 20 or (dimension < 63 and 1 << dimension <= 128 * dimension * length)
 
 
-def _brute_force_is_cheaper(
+def _enumeration_is_cheaper_than_search(
     *,
     num_logical_rows: int,
     certificate: _information_sets.Certificate,
@@ -307,7 +253,7 @@ class _BrouwerZimmermannSearch:
 
 def _prepare_brouwer_zimmermann_search(
     basis: npt.NDArray[np.uint8],
-    labels: npt.NDArray[np.uint8] | None,
+    labels: npt.NDArray[np.uint8],
     *,
     cutoff: int,
     block_size: int,
@@ -323,22 +269,10 @@ def _prepare_brouwer_zimmermann_search(
     given, returns the result of the first stage.
     """
     dimension = len(basis)
-    eligible = np.ones(dimension, dtype=bool) if labels is None else np.any(labels, axis=1)
-
-    def brute_force_distance() -> int:
-        distance = get_distance_quantum_brute_force(
-            basis[eligible],
-            basis[~eligible],
-            cutoff=cutoff,
-            block_size=block_size,
-            homogeneous=True,
-        )
-        return min(best, distance)
-
     best = min(
         upper_bound,
         (
-            _get_brouwer_zimmermann_initial_upper_bound(basis, labels)
+            _get_lightest_eligible_row_weight(basis, labels)
             if initial_upper_bound is None
             else initial_upper_bound
         ),
@@ -346,8 +280,11 @@ def _prepare_brouwer_zimmermann_search(
     if best <= cutoff:
         return best
 
-    if exhaustive_is_cheaper(dimension, basis.shape[1]):
-        return brute_force_distance()
+    if enumeration_is_cheaper_than_setup(dimension, basis.shape[1]):
+        distance = get_nested_distance_brute_force(
+            basis, labels, cutoff=cutoff, block_size=block_size, homogeneous=True
+        )
+        return min(best, distance)
 
     # The disjoint basis family's certificate also uses any inferred even ambient parity.
     basis_family = (
@@ -355,7 +292,7 @@ def _prepare_brouwer_zimmermann_search(
         if get_disjoint_basis_family is None
         else get_disjoint_basis_family()
     )
-    best = _get_basis_family_upper_bound(basis_family, labels, best)
+    best = _get_basis_family_upper_bound(basis_family, best)
     if best <= cutoff:
         return best
 
@@ -368,18 +305,17 @@ def _prepare_brouwer_zimmermann_search(
 
     # Replace the basis family only when overlapping sets, built heuristically and then, for costly
     # searches, by matroid partitioning, predict less certification work.
-    set_labels = np.empty((dimension, 0), dtype=np.uint8) if labels is None else labels
     for get_replacement in (
         lambda family, best: _information_sets.get_overlapping_family(
             basis,
-            set_labels,
+            labels,
             family,
             best,
             _information_sets.MAX_SETS,
             *_information_sets.get_overlapping_family_policy(dimension),
         ),
         lambda family, best: _information_sets.get_partitioned_family(
-            basis, set_labels, family, best, _information_sets.MAX_SETS
+            basis, labels, family, best, _information_sets.MAX_SETS
         ),
     ):
         replacement = get_replacement(basis_family, best)
@@ -388,7 +324,7 @@ def _prepare_brouwer_zimmermann_search(
         basis_family = replacement
 
         # Check the replacement rows for lighter witnesses before scanning combinations.
-        best = _get_basis_family_upper_bound(basis_family, labels, best)
+        best = _get_basis_family_upper_bound(basis_family, best)
         if best <= cutoff:
             return best
 
@@ -397,12 +333,15 @@ def _prepare_brouwer_zimmermann_search(
         if lower_bound >= best:
             return best
 
-    if _brute_force_is_cheaper(
-        num_logical_rows=int(np.count_nonzero(eligible)),
+    if _enumeration_is_cheaper_than_search(
+        num_logical_rows=int(np.count_nonzero(get_eligible_rows(labels))),
         certificate=basis_family.certificate,
         upper_bound=best,
     ):
-        return brute_force_distance()
+        distance = get_nested_distance_brute_force(
+            basis, labels, cutoff=cutoff, block_size=block_size, homogeneous=True
+        )
+        return min(best, distance)
 
     # Remove systematic pivots; advance() restores their known weight arithmetically.
     packed_rows = [
@@ -437,33 +376,23 @@ def _prepare_brouwer_zimmermann_search(
     )
 
 
-def _get_brouwer_zimmermann_initial_upper_bound(
+def _get_lightest_eligible_row_weight(
     basis: npt.NDArray[np.uint8],
-    labels: npt.NDArray[np.uint8] | None,
+    labels: npt.NDArray[np.uint8],
 ) -> int:
-    """Return the lightest eligible row in a nested-code basis."""
-    eligible = np.ones(len(basis), dtype=bool) if labels is None else np.any(labels, axis=1)
-    packed_basis = pack_bits(basis[eligible])
+    """Return the weight of the lightest eligible row of a nested-code basis."""
+    packed_basis = pack_bits(basis[get_eligible_rows(labels)])
     # get row weights, summing in uint64 to avoid overflow in wide rows
     return int(np.bitwise_count(packed_basis).sum(axis=-1, dtype=np.uint64).min())
 
 
 def _get_basis_family_upper_bound(
     basis_family: _information_sets.BasisFamily,
-    labels: npt.NDArray[np.uint8] | None,
     upper_bound: int,
 ) -> int:
-    """Tighten an upper bound with the systematic rows of a basis family, all layer-one candidates.
-
-    ``labels`` are those of the searched basis, or None if every nonzero word is eligible.
-    """
+    """Tighten an upper bound with the systematic rows of a basis family: its layer-one words."""
     for generators, set_labels in zip(basis_family.generators, basis_family.labels, strict=True):
-        upper_bound = min(
-            upper_bound,
-            _get_brouwer_zimmermann_initial_upper_bound(
-                generators, None if labels is None else set_labels
-            ),
-        )
+        upper_bound = min(upper_bound, _get_lightest_eligible_row_weight(generators, set_labels))
     return upper_bound
 
 
@@ -518,10 +447,10 @@ def _scan_brouwer_zimmermann(
             for set_index in range(len(ranks)):
                 # Each selected row whose pivot column was deleted contributes one to the Hamming
                 # weight; packed words hold the remaining columns.
-                candidate_weight = (
-                    np.int64(weight) if ranks[set_index] == dimension else np.int64(0)
-                )
-                if ranks[set_index] != dimension:
+                if ranks[set_index] == dimension:
+                    candidate_weight = np.int64(weight)
+                else:
+                    candidate_weight = np.int64(0)
                     for selected in range(weight):
                         if support[selected] < ranks[set_index]:
                             candidate_weight += 1

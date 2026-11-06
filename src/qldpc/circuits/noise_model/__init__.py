@@ -43,7 +43,7 @@ Examples of basic usage with a predefined noise model::
 Pauli product of an SPP or SPP_DAG gate counts as a gate on its qubits.  :class:`NoiseModel` lists
 the forms that this noise can take::
 
-    from qldpc.circuits.noise_model import NoiseModel, NoiseRule, PauliChannel
+    from qldpc.circuits.noise_model import NoiseModel, PauliChannel
 
     noise_model = NoiseModel(
         clifford_nq_error={
@@ -124,9 +124,9 @@ apart from their measurement-record targets.  The noisy circuit keeps the order 
 the next.  Over an idle run, such noise rotates a qubit about a fixed axis.  The angle grows
 linearly, at a random rate with a Gaussian distribution.  Averaged over this rate, the Pauli twirl
 of the rotation has an error probability that grows quadratically at first and saturates at 1/2.
-For a channel with several Paulis, the axis may change from one idle run to the next, for example
-as a compiler changes the frame of a qubit.  The channel then sets the mean squared components of
-the axis.  The model treats idle runs as independent, and all moments as equally long.
+For a channel with several Paulis, the axis may change from one idle run to the next, for example as
+a compiler changes the frame of a qubit.  The channel then sets the mean squared components of the
+axis.  The model treats idle runs as independent, and all moments as equally long.
 
 .. rubric:: Attribution and license
 

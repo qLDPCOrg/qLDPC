@@ -34,15 +34,13 @@ it, and none if the axis of the rotation commutes with the core and every axis o
 
 # Graduation plan: once the API of this module settles, it moves to qldpc.objects, as follows.
 #
-# 1. Turn the module qldpc/objects.py into a package qldpc/objects/ that keeps every name of the
-#    module importable from qldpc.objects.
-# 2. Move this module, _packed_circuits.py, _packed_paulis.py, _symplectic.py, their test files,
+# 1. Move this module, _packed_circuits.py, _packed_paulis.py, _symplectic.py, their test files,
 #    and the fixtures and helpers of qldpc/experimental/objects/conftest.py into qldpc/objects/.
 #    Their tests also use the circuit helpers of qldpc/experimental/conftest.py, which move into
 #    qldpc/objects/conftest.py.
-# 3. Re-export RotatedPauliString from qldpc.objects, and remove qldpc.experimental.objects;
+# 2. Re-export RotatedPauliString from qldpc.objects, and remove qldpc.experimental.objects;
 #    experimental modules need no deprecation shims.
-# 4. Mention RotatedPauliString in the description of qldpc.objects in docs/source/library_map.rst,
+# 3. Mention RotatedPauliString in the description of qldpc.objects in docs/source/library_map.rst,
 #    and update the Clifford+T bullet in docs/source/contributing.rst.
 
 from __future__ import annotations

@@ -51,8 +51,9 @@ From the top:
 4. `_matroid_partition.py`, which `_information_sets.py` uses to build some of those families.
 5. `_binary.py`, the foundation.
 
-A module imports only modules of its own level or below, except that `_counting/scan.py` takes `DistanceMethod` from `core.py` for an annotation.
+A module imports only modules of its own level or below.
 Modules of every level may also import `src/qldpc/_binary.py`, the bit-packed linear algebra over GF(2) that other subpackages share.
+`src/qldpc/codes/common.py` imports this package, so `logical_counts.py` imports the code classes of `codes.common` and `codes.quantum` inside the functions that use them.
 Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py`, modules in `src/qldpc/circuits/certification/`, and the deprecation registry in `src/qldpc/_deprecations/core.py`, use private names of this package, so grep `src/qldpc` for a private name before you move or rename it.
 
 ## Compiled code
