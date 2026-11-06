@@ -21,12 +21,13 @@ from __future__ import annotations
 
 import dataclasses
 import math
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from typing import Protocol
 
 import galois
 import numpy as np
 import numpy.typing as npt
+import scipy.special
 import stim
 
 from qldpc import circuits
@@ -37,7 +38,6 @@ from qldpc.circuits.certification.fault_propagation import (
     _get_primitive_fault_signatures,
     _get_unmeasured_qubits,
     _is_css_state,
-    _validate_output_qubits,
 )
 from qldpc.codes.distance._coset_leader_search import CosetLeaderSearch
 from qldpc.objects import Pauli, PauliXZ, PauliXZLike
@@ -600,6 +600,24 @@ def _check_integer(value: int, name: str, minimum: int) -> int:
     return int(value)
 
 
+def _validate_indices(
+    indices: Iterable[int], size: int, name: str = "output_qubits"
+) -> tuple[int, ...]:
+    """Return indices, such as output qubits, which must be distinct integers in ``range(size)``.
+
+    There must be at least one index.  ``name`` names the argument in error messages.
+    """
+    try:
+        values = tuple(indices)
+    except TypeError as error:
+        raise TypeError(f"{name} must be a sequence of integer indices") from error
+    if not all(is_integer(jj) for jj in values):
+        raise TypeError(f"{name} must contain integer indices")
+    if not values or any(not 0 <= jj < size for jj in values) or len(set(values)) != len(values):
+        raise ValueError(f"{name} must contain distinct indices in range({size}), at least one")
+    return tuple(map(int, values))
+
+
 def _get_combinations(num_items: int, size: int) -> npt.NDArray[np.intp]:
     """All increasing tuples of ``size`` distinct indices below ``num_items``, one per row."""
     combinations = np.zeros((1, 0), dtype=np.intp)
@@ -628,7 +646,7 @@ def _get_selection(
         output_qubits = _get_unmeasured_qubits(circuit)
         if not output_qubits:
             raise ValueError("The circuit has no unmeasured qubits to use as output_qubits")
-    qubits = _validate_output_qubits(output_qubits, circuit.num_qubits)
+    qubits = _validate_indices(output_qubits, circuit.num_qubits)
 
     # flag detectors come after the detectors that the circuit already has
     detector_record = DetectorRecord({"prep": range(circuit.num_detectors)})
@@ -642,12 +660,13 @@ def _get_fault_weight_probabilities(
     probabilities: npt.NDArray[np.float64],
     max_fault_weight: int | None,
     base_fault_weight: int = 0,
+    tolerance: float = _TRUNCATION_TOLERANCE,
 ) -> tuple[npt.NDArray[np.float64], float]:
     """The probability of each fault weight up to a maximum, and of any larger fault weight.
 
     If ``max_fault_weight`` is None, the maximum is the smallest fault weight, from
-    ``base_fault_weight`` on, beyond which the remaining probability is at most
-    ``_TRUNCATION_TOLERANCE`` times the probability of ``base_fault_weight``.  The search stops at
+    ``base_fault_weight`` on, beyond which the remaining probability is at most ``tolerance`` times
+    the probability of ``base_fault_weight``.  The search stops at
     ``base_fault_weight + _MAX_EXTRA_FAULT_WEIGHT`` or at the number of error mechanisms, whichever
     is smaller.
     """
@@ -670,7 +689,7 @@ def _get_fault_weight_probabilities(
         # tails[f] is the probability of more than f error mechanisms
         tails = np.cumsum(distribution[::-1])[::-1][1:]
         base = min(base_fault_weight, cap)
-        small = np.flatnonzero(tails[base:] <= _TRUNCATION_TOLERANCE * distribution[base])
+        small = np.flatnonzero(tails[base:] <= tolerance * distribution[base])
         max_fault_weight = base + int(small[0]) if len(small) else cap
         return distribution[: max_fault_weight + 1], float(tails[max_fault_weight])
     return distribution[:-1], float(distribution[-1])
@@ -724,27 +743,19 @@ def _sample_faults(
     )
     for start in range(0, num_shots, _CHUNK_SIZE):
         chunk = min(_CHUNK_SIZE, num_shots - start)
-        # an exact Bernoulli sample: draw how many shots each mechanism occurs in, then which
-        counts = rng.binomial(chunk, probabilities)
-        mechanism_indices = np.repeat(np.arange(len(mechanisms)), counts)
-        shot_indices = np.concatenate(
-            [np.zeros(0, dtype=np.intp)]
-            + [rng.choice(chunk, size=count, replace=False) for count in counts if count]
-        )
-        fault_weights = np.bincount(shot_indices, minlength=chunk)
-        num_flagged = np.bincount(shot_indices[flagged[mechanism_indices]], minlength=chunk)
+        fault_weights, grouped_mechanisms = _sample_bernoulli_faults(probabilities, chunk, rng)
+        shots_of_mechanisms = np.repeat(np.arange(chunk), fault_weights)
+        num_flagged = np.bincount(shots_of_mechanisms[flagged[grouped_mechanisms]], minlength=chunk)
         importance = _FLAGGED_ODDS_FACTOR ** -num_flagged.astype(float)
 
-        # group the occurring mechanisms by shot, and keep the shots of the requested fault weights
-        order = np.argsort(shot_indices, kind="stable")
-        grouped_mechanisms = mechanism_indices[order]
+        # keep the shots of the requested fault weights
         keep = (fault_weights >= lowest) & (fault_weights <= highest)
         outcomes = np.zeros(chunk, dtype=np.intp)
         for fault_weight in np.unique(fault_weights[keep]):
-            shots = np.flatnonzero(fault_weights == fault_weight)
-            starts = np.concatenate([[0], np.cumsum(fault_weights)])[shots]
-            members = grouped_mechanisms[starts[:, None] + np.arange(fault_weight)]
-            outcomes[shots] = _get_outcomes(mechanisms, members, oracle, cache)
+            members = _get_fault_members(fault_weights, grouped_mechanisms, fault_weight)
+            outcomes[fault_weights == fault_weight] = _get_outcomes(
+                mechanisms, members, oracle, cache
+            )
         bins = fault_weights[keep] * num_columns + outcomes[keep]
         size = weight_sums.size
         weight_sums += np.bincount(bins, weights=importance[keep], minlength=size).reshape(
@@ -756,24 +767,64 @@ def _sample_faults(
         sample_counts += np.bincount(fault_weights[keep], minlength=len(sample_counts))
 
 
+def _sample_bernoulli_faults(
+    probabilities: npt.NDArray[np.float64], num_shots: int, rng: np.random.Generator
+) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]:
+    """Sample which error mechanisms occur in each shot, independently with given probabilities.
+
+    This is an exact Bernoulli sample: it draws how many shots each mechanism occurs in, and then
+    which shots, uniformly at random.
+
+    Returns:
+        The fault weight of each shot, and the indices of the mechanisms that occur, grouped by
+        shot in increasing order of shot.
+    """
+    counts = rng.binomial(num_shots, probabilities)
+    mechanism_indices = np.repeat(np.arange(len(probabilities)), counts)
+    shot_indices = np.concatenate(
+        [np.zeros(0, dtype=np.intp)]
+        + [rng.choice(num_shots, size=count, replace=False) for count in counts if count]
+    )
+    order = np.argsort(shot_indices, kind="stable")
+    return np.bincount(shot_indices, minlength=num_shots), mechanism_indices[order]
+
+
+def _get_fault_members(
+    fault_weights: npt.NDArray[np.intp], grouped_mechanisms: npt.NDArray[np.intp], fault_weight: int
+) -> npt.NDArray[np.intp]:
+    """The mechanisms of the shots of one fault weight from ``_sample_bernoulli_faults``.
+
+    Returns:
+        One row per shot with the given fault weight, in increasing order of shot, holding the
+        indices of its mechanisms.
+    """
+    shots = np.flatnonzero(fault_weights == fault_weight)
+    starts = np.concatenate([[0], np.cumsum(fault_weights)])[shots]
+    return grouped_mechanisms[starts[:, None] + np.arange(fault_weight)]
+
+
 def _get_proposal_probabilities(
     odds: npt.NDArray[np.float64], target_fault_weight: float
 ) -> npt.NDArray[np.float64]:
     """Probabilities with odds proportional to the given odds, and a given expected fault weight.
 
-    The expected fault weight is capped just below the number of error mechanisms.
+    The expected fault weight is capped just below the number of error mechanisms.  Bisection finds
+    the log of the common factor between bounds at which the expected fault weight is at most and at
+    least the target.  These bounds hold for odds of any positive magnitude.
     """
     target = min(target_fault_weight, len(odds) - 0.5)
-    low, high = -100.0, 100.0
+    log_odds = np.log(odds)
+    fraction = target / len(odds)
+    # n expit(max + low) <= n exp(max + low) = target, and n expit(min + high) = target
+    low = math.log(fraction) - log_odds.max()
+    high = math.log(fraction / (1 - fraction)) - log_odds.min()
     for _ in range(200):
         middle = (low + high) / 2
-        scaled = math.exp(middle) * odds
-        if np.sum(scaled / (1 + scaled)) < target:
+        if np.sum(scipy.special.expit(log_odds + middle)) < target:
             low = middle
         else:
             high = middle
-    scaled = math.exp((low + high) / 2) * odds
-    return scaled / (1 + scaled)
+    return scipy.special.expit(log_odds + (low + high) / 2)
 
 
 def _get_outcomes(
@@ -868,6 +919,7 @@ class _ResidualWeightSetup:
             )
         self.oracle: _ResidualWeightOracle
         self.syndrome_mask = (1 << num_qubits) - 1
+        self._cache: dict[bytes, int] = {}
         if not is_css or (pauli is None and not (css_weight and num_qubits <= _MAX_TABLE_QUBITS)):
             self.matrix = stabilizers
             self.oracle = _CosetSearchWeights(stabilizers, css_weight, max_residual_weight)
@@ -890,6 +942,18 @@ class _ResidualWeightSetup:
     def stabilizers(self) -> list[stim.PauliString]:
         """The stabilizer generators with respect to which syndromes are taken."""
         return [qldpc_math.op_to_string(row) for row in self.matrix]
+
+    def get_error_weights(self, errors: npt.NDArray[np.uint8]) -> npt.NDArray[np.intp]:
+        """Residual weights of Pauli errors in ``[X|Z]`` form, one per row, capped by the oracle."""
+        conjugate = qldpc_math.symplectic_conjugate(self.matrix.astype(int)) % 2
+        bits = errors.astype(int) @ conjugate.T % 2
+        unique, inverse = np.unique(bits, axis=0, return_inverse=True)
+        syndromes = [sum(int(bit) << index for index, bit in enumerate(row)) for row in unique]
+        keys = np.array(
+            [self.oracle.get_key_words(syndrome & self.syndrome_mask) for syndrome in syndromes],
+            dtype=np.uint64,
+        ).reshape(len(unique), self.oracle.num_key_words)
+        return _get_cached_weights(keys, self.oracle, self._cache)[inverse.reshape(-1)]
 
 
 class _CSSWeightTables:
