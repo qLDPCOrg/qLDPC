@@ -156,7 +156,7 @@ def test_min_idle() -> None:
     assert repeated.get_moments() == [*schedule.get_moments(), (2, schedule)]
 
     # the run after a last gate that does not measure counts, so qubit 2 is reset in moment 1, not
-    # in moment 0 as by ASAP, and only qubit 3 idles, in 2 moments
+    # in moment 0 as by ASAP, and the effective idle slots are those of qubit 3 in moments 0 and 1
     circuit = stim.Circuit("CX 0 1 0 1 0 1\nR 2\nCX 2 3")
     assert _get_effective_idle_slots(circuit, circuits.MinIdleScheduler(), False) == 2
 
@@ -200,7 +200,7 @@ def test_min_idle_is_optimal(pytestconfig: pytest.Config) -> None:
 
 
 def test_min_idle_solver_failure() -> None:
-    """The linear program raises an error if it finds no placement, here as none exists."""
+    """Placing nodes in layers raises an error if no placement exists."""
     with pytest.raises(RuntimeError):
         scheduling._get_min_cost_layers([0, 0], [(0, 1, 1)], 1)
 
@@ -244,8 +244,7 @@ def _get_min_effective_idle_slots(
 ) -> tuple[int, int]:
     """The fewest moments of a valid layout, and the fewest effective idle slots with them.
 
-    Each classically controlled gate in the circuit reads the measurement just before it.  Each
-    layout is laid out with TICKs to find its idle noise.
+    Each classically controlled gate in the circuit reads the measurement just before it.
     """
     # the earlier gates that each gate application follows, and whether it must be in a later moment
     gates = [

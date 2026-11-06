@@ -401,13 +401,12 @@ class ALAPScheduler(_LayerScheduler):
 class MinIdleScheduler(_BuiltInScheduler):
     """A scheduler that ignores TICKs and minimizes the effective idling of qubits.
 
-    It places gates to minimize the number of effective idle slots, which are the moments in which a
-    qubit idles, except those of an idle run that ends at a reset (R, RX, RY, or RZ) or that follows
-    the last gate on the qubit if that gate measures it.  Idle errors in the excluded moments are
-    erased by the reset, or come after the last measurement of the qubit.  Each part of a circuit
-    (see :class:`Schedule`) is scheduled as if it were the whole circuit, and keeps the number of
-    moments that :class:`ASAPScheduler` gives it, which is the fewest possible.  The placement comes
-    from a linear program, which is solved exactly.
+    It uses as few moments as :class:`ASAPScheduler`, which is the fewest possible, and places gates
+    to minimize the number of effective idle slots.  These are the moments in which a qubit idles,
+    except in an idle run that ends at a reset (R, RX, RY, or RZ), which erases its errors, or that
+    follows the last gate on the qubit if that gate measures it.  Each part of a circuit (see
+    :class:`Schedule`) is scheduled as if it were the whole circuit.  A linear program finds an
+    optimal placement.
 
     Args:
         single_qubit_gates_take_time: As in :class:`ASAPScheduler`.
@@ -442,9 +441,9 @@ class MinIdleScheduler(_BuiltInScheduler):
         for node, operation in last_gates.values():
             if not operation.num_records:
                 costs[node] -= 1  # the run after a last gate that does not measure counts
+        layers = _get_min_cost_layers(costs, edges, num_layers)
 
         # place annotations and noise channels in the moments of operations before them
-        layers = _get_min_cost_layers(costs, edges, num_layers)
         gate_moments = {
             node: layers[node] for node, operation in zip(nodes, operations) if operation.is_gate
         }
@@ -883,9 +882,9 @@ def _get_min_cost_layers(
     """Place nodes in ``num_layers`` layers to minimize the sum of ``costs[node] * layers[node]``.
 
     Each edge ``(earlier, later, gap)`` places node ``later`` at least ``gap`` layers after node
-    ``earlier``, and such a placement must exist.  Each constraint bounds a difference of two
-    layers, so the constraint matrix is totally unimodular, and the optimal vertex that the linear
-    program finds is a placement in integer layers.
+    ``earlier``.  Each constraint bounds a difference of two layers, so the constraint matrix is
+    totally unimodular, and the optimal vertex that the linear program finds is a placement in
+    integer layers.
 
     Raises:
         RuntimeError: If the solver fails to find a placement.
