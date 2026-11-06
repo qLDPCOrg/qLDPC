@@ -347,8 +347,10 @@ In qLDPC, `D` comes from two sources:
   The XOR of two even-weight words has even weight, so if all rows are even, every word in the space is even.
   When this holds, `D = 2` is combined with any existing divisor by taking the least common multiple.
 
-Parity is the only property checked in this way, because evenness of the rows carries over to all of their sums.
-A larger divisor does not: the rows `11110` and `01111` each have weight four, but their XOR `10001` has weight two.
+qLDPC checks only parity, which carries over from the rows to all of their sums.
+Divisibility by four does not carry over from the row weights alone: the rows `11110` and `01111` each have weight four, but their XOR `10001` has weight two.
+Since `wt(u + v) = wt(u) + wt(v) - 2|u ∩ v|`, every word in the space has a weight divisible by four exactly when every row does and every two rows overlap in an even number of coordinates.
+That stronger test mainly helps doubly even classical codes: in a CSS sector, it requires every logical operator of the sector to lie, as a binary vector, in the span of the stabilizers of the other type.
 
 ### 3.3 Sharing witnesses between CSS sectors
 
