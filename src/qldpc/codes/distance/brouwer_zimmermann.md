@@ -493,19 +493,36 @@ $$
 
 where the minimum is over the orbits that meet `I`, rounded up to a proven weight divisor as in [Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple).
 This bound is strongest when `I` meets every orbit in an even share `|I ∩ O| / |O|`.
-For a quasi-cyclic code, the orbits are the two blocks of `N/2` qubits, and a balanced information set with `r/2` columns in each block gives `L(t) = ceil(N(t+1)/r)`.
+If every orbit meets `I` in the share `r/N`, as for a single orbit of all `N` coordinates, or for the two blocks of a quasi-cyclic code and a set with `r/2` columns in each, then `L(t) = ceil(N(t+1)/r)`.
 No family of information sets has a larger coverage-divided certificate, because a family of `m` sets with maximum coverage `C` has `m r ≤ C N`.
 
 #### Choosing the scanned set
 
 qLDPC row reduces on the nonzero columns in their natural order, and then exchanges pivots between orbits while that lowers the largest share: pivoting the row of a pivot column on another column with a one in that row gives another information set.
 For two orbits, this reaches the fewest pivots in the fuller orbit that any information set has, because if no exchange moves a pivot out of that orbit, every column of the other orbit lies in the span of the pivots in it.
-A search uses the family of translates if its estimated work is less than that of the disjoint family of [Section 2.4](#24-search-bases-and-rank-deficient-blocks), and then skips the overlapping and partitioned families of [Section 3.1](#31-overlapping-search-bases).
+With more orbits, it is a heuristic.
+
+#### When a search uses translates
+
+Finding automorphisms can take milliseconds, which is as long as many searches take altogether, and the work estimate of [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) is too pessimistic to tell such searches apart before they find a light witness.
+A search therefore starts with the families of Sections [2.4](#24-search-bases-and-rank-deficient-blocks) and [3.1](#31-overlapping-search-bases).
+Before the first layer whose scan would cost at least `MINIMUM_LAYER_WORK` candidate/set evaluations, it asks for automorphisms once.
+If their family of translates has a smaller work estimate for the current `U`, the search continues with it, from layer two.
+
+This switch keeps both certificates.
+An eligible word lighter than `U` is unexamined by both families, since examining it would have lowered `U`, so the bounds that both families have reached hold for it, and the search takes the larger.
+Words that the first family examined still contribute their witnesses to `U`.
 
 #### Where automorphisms come from
 
-Code classes supply generators of a group of automorphisms through a `_get_qudit_automorphisms` method, and `QCCode` supplies the translations of its group, which act on all qubits of a block by a regular permutation.
-A wrong generator would make the certificate unsound, so a search first checks that each generator maps `V` and `S` onto themselves, and raises an error if one does not.
+A CSS code finds automorphisms by itself if the optional `pybliss` package is installed.
+Bliss finds the automorphisms of the Tanner graph of the code, with X-type and Z-type checks colored apart, and their permutations of qubits map the rows of `matrix_x` and of `matrix_z` to rows of the same matrix.
+They therefore preserve both check spaces, and with them the logical operators and stabilizers of each sector.
+These are the symmetries of the given parity checks, a subgroup of the automorphisms of the code, which suffices, since every group of automorphisms gives a sound certificate.
+
+Without `pybliss`, or if bliss finds none, code classes can supply generators through a `_get_qudit_automorphisms` method.
+`QCCode` supplies the translations of its group, which act on the qubits of each block by a regular permutation.
+A wrong generator would make the certificate unsound, so a search checks that each generator maps `V` and `S` onto themselves before it uses them, and raises an error if one does not.
 Counting the logical operators of a given weight ([Section 5](#5-correctness-requirements)) must visit every word of that weight, not one word per orbit, so it does not use automorphisms.
 
 ### 3.8 Worked example
@@ -565,7 +582,7 @@ The family policy lives only in [_information_sets.py](_information_sets.py), in
 All three modules use [_binary.py](_binary.py), and they and [_information_sets.py](_information_sets.py) use the bit-packed linear algebra over GF(2) in [qldpc/_binary.py](../../_binary.py).
 Every module with compiled functions uses [_compilation.py](../../_compilation.py).
 `_get_distance_css_brouwer_zimmermann` of [core.py](core.py) builds an adapted basis ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)) for each nontrivial sector, then passes the resulting problems to `get_distance_brouwer_zimmermann_many`.
-It also passes any automorphisms of the code, which `get_distance_exact` of `CSSCode` in `src/qldpc/codes/common.py` takes from the code's `_get_qudit_automorphisms` method.
+It also passes a function that returns automorphisms of the code: `get_distance_exact` of `CSSCode` in `src/qldpc/codes/common.py` passes the code's `_found_qudit_automorphisms`, which uses bliss from `src/qldpc/external/_bliss.py` or the code's `_get_qudit_automorphisms` method.
 [_automorphisms.py](_automorphisms.py) verifies automorphisms and builds the families of translates of [Section 3.7](#37-translates-of-an-information-set-by-automorphisms), using [_information_sets.py](_information_sets.py) for their certificates.
 
 `CosetLeaderSearch` in [_coset_leader_search.py](_coset_leader_search.py), which the fault-propagation certifier in `qldpc.circuits.certification` uses, applies the same search to a coset `e + V` instead of `V`.
@@ -577,7 +594,7 @@ For the CSS weight `max(|x|, |z|)` on a CSS state, whose stabilizer group is gen
 ### 4.2 Flow and exit points
 
 A public entry point validates inputs and chooses a route.
-For the BZ route, `get_distance_brouwer_zimmermann_many` verifies any automorphisms, raising a `ValueError` if one does not preserve every problem, then prepares each problem and coordinates any searches that remain.
+For the BZ route, `get_distance_brouwer_zimmermann_many` prepares each problem and coordinates any searches that remain.
 Preparation either returns a result immediately or produces a `_BrouwerZimmermannSearch` whose `advance` method searches one coefficient layer, or only the leading search bases of a layer whose completion of it certifies `U`.
 For a joint CSS search, the coordinator advances the prepared searches in round-robin order and shares the best witness weight.
 
@@ -598,7 +615,6 @@ The disjoint family, its pruning, and any overlapping or partitioned replacement
 | Exhaustive by size | Runs exhaustive enumeration if `enumeration_is_cheaper_than_setup(dimension, length)` approves |
 | Rows of the disjoint family | Returns if checking the rows of every search basis gives `U ≤ cutoff` |
 | Certificate of the disjoint family | Returns if `L(1) ≥ U` |
-| Family of translates, if automorphisms are given and its estimated work is less than that of the disjoint family | Returns if its rows give `U ≤ cutoff`, or if its `L(1) ≥ U`; otherwise skips the replacement families |
 | Rows of each replacement family, overlapping and then partitioned, if selected | Returns if `U ≤ cutoff` |
 | Certificate of each replacement family | Returns if `L(1) ≥ U` |
 | Exhaustive by work | Runs exhaustive enumeration if `_enumeration_is_cheaper_than_search` finds that the eligible-word count is at most the estimated BZ work of [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) |
@@ -608,7 +624,7 @@ Exhaustive enumeration is chosen automatically at three points: the direct short
 
 | Search location | Outcome |
 | --- | --- |
-| `_BrouwerZimmermannSearch.advance` | Returns after one layer, or after the leading search bases of a layer that certify `U`, or earlier if `U ≤ cutoff`; a translated search scans its one set, which completes the layer for every translate; a finished search does no further work |
+| `_BrouwerZimmermannSearch.advance` | Returns after one layer, or after the leading search bases of a layer that certify `U`, or earlier if `U ≤ cutoff`; a translated search scans its one set, which completes the layer for every translate; before its first costly layer, a search given automorphisms may switch to translates ([Section 3.7](#37-translates-of-an-information-set-by-automorphisms)), and returns if the rows of the scanned set give `U ≤ cutoff`; a finished search does no further work |
 | `_BrouwerZimmermannSearch.finished` | Marks a search finished if `U ≤ cutoff`, `L ≥ U`, or every layer has been enumerated (`next_weight > dimension`) |
 | `get_distance_brouwer_zimmermann_many` | Returns the shared best bound when it is at most `cutoff` after an advance, or when no search can advance |
 
@@ -623,8 +639,8 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Certificate within a layer `L(t, j)` | `Certificate.step_lower_bound(weight, num_completed)` and the table of `get_step_lower_bounds`; `Certificate.get_num_sets_to_certify` gives the smallest `j` that certifies a bound |
 | Certificate from linear programming | `get_lp_lower_bound`, which a `Certificate` with `pivot_blocks` combines with the coverage-divided certificate; `BasisFamily.get_search_certificate` adds the blocks to costly searches of overlapping families |
 | Family of search bases | `BasisFamily`, which stacks the search bases into arrays and gives their `Certificate`; a search keeps only the certificate |
-| Automorphisms, generators of `G` | `automorphisms`, whose row `i` maps column `j` to column `automorphisms[i, j]`; `_get_qudit_automorphisms` of code classes |
-| Family of translates | `get_translate_family` of [_automorphisms.py](_automorphisms.py), which returns a `BasisFamily` of the scanned set and the `Certificate` of all of its translates; a search of such a family is `translated` |
+| Automorphisms, generators of `G` | `automorphisms`, whose row `i` maps column `j` to column `automorphisms[i, j]`, as returned by `get_automorphisms`; `_found_qudit_automorphisms` and `_get_qudit_automorphisms` of `CSSCode` |
+| Family of translates | `get_translate_family` of [_automorphisms.py](_automorphisms.py), which returns a `BasisFamily` of the scanned set and the `Certificate` of all of its translates; `_prepare_translated_search` packs it, and a search of such a family is `translated` |
 | Last completed layer `t`, next layer | `completed_weight`, `next_weight` |
 | Divisor `D` | `Certificate.weight_divisor`, in Hamming units of the searched basis |
 | Maximum coverage `C` | `Certificate.max_coverage` |
@@ -670,7 +686,7 @@ With an early-exit cutoff above one, a different search order can find a differe
 - **`get_search_certificate`** adds the certificate from linear programming ([Section 3.1](#31-overlapping-search-bases)) to searches of overlapping families whose estimated work reaches `LP_MINIMUM_WORK`, since smaller searches cost less than their linear programs.
   The work estimates that choose families use only the coverage-divided certificate.
 - **`get_translate_family`** row reduces in natural column order, then exchanges pivots between orbits in the compiled `_balance_orbit_shares`, as [Section 3.7](#37-translates-of-an-information-set-by-automorphisms) explains.
-  A search uses the family of translates if `estimate_translate_work` is less than the `Certificate.work` of the disjoint family.
+  A search asks for automorphisms before the first layer whose scan would cost at least `MINIMUM_LAYER_WORK`, and switches to translates if `estimate_translate_work` is less than the `Certificate.work` of its family.
 - **`Certificate.work`, `estimate_translate_work`, `_enumeration_is_cheaper_than_search`, and `enumeration_is_cheaper_than_setup`** are cost models, which Sections [3.6](#36-exhaustive-enumeration-as-a-fallback) and [3.7](#37-translates-of-an-information-set-by-automorphisms) explain.
   They are not runtime guarantees.
   `enumeration_is_cheaper_than_setup` compares the setup cost of BZ with packed enumeration of all words, and its rule is in the source.
@@ -707,14 +723,15 @@ With an early-exit cutoff above one, a different search order can find a differe
 - **Resumable layers.**
   The compiled scan returns after at most `batch_size` supports.
   Within one `advance` call, successive compiled batches reuse the local `support` and `prefixes` arrays.
-  `advance` changes `lower_bound` and `next_weight` only after a layer is complete in every search basis.
+  `advance` changes `lower_bound` and `next_weight` only after a layer is complete in every search basis, or when the search switches to translates, which sets `next_weight` to two and keeps the larger `lower_bound`.
   Aborting `advance`, for example with an exception or a cutoff return, leaves those completed-layer fields unchanged.
   A subsequent call that is still permitted to advance restarts the unfinished layer from its first support.
 - **CSS sectors.**
   A joint search runs one search per sector in round-robin order and shares the best bound.
   Each sector keeps its own `lower_bound` and `certificate`, including its coverage and divisor.
 - **Automorphisms.**
-  `get_distance_exact` of `CSSCode` passes the generators from the code's `_get_qudit_automorphisms` to every sector of its BZ searches, which use them only after `verify_automorphisms` accepts them for each sector.
+  `get_distance_exact` of `CSSCode` passes the code's `_found_qudit_automorphisms` to every sector of its BZ searches, as a function that each search calls only before a costly layer, and that bliss runs at most once for the code.
+  A search uses the generators only after `verify_automorphisms` accepts them for its sector.
   A generator preserves both sectors if it maps the row spaces of both parity check matrices onto themselves.
   Searches over general Pauli problems, the `brute_force` method, and counting do not use automorphisms.
 

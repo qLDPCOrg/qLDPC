@@ -22,6 +22,7 @@ import sympy.abc
 
 from qldpc import abstract, codes, decoders, external, math
 from qldpc.codes import _code_capacity, common
+from qldpc.codes.distance import _automorphisms, _brouwer_zimmermann
 from qldpc.objects import PAULIS_XZ, Pauli
 
 ####################################################################################################
@@ -741,7 +742,37 @@ def test_css_joint_distance_cache() -> None:
     assert subsystem_code.get_distance_exact(Pauli.X) == 1
 
 
-def test_css_distances_verify_automorphisms() -> None:
+def test_css_automorphisms_from_bliss_or_construction(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Codes find their automorphisms with bliss if it is installed, and otherwise ask the code.
+
+    The bliss search is mocked here, and checked against the real package in its own tests.
+    """
+    poly_x = sympy.abc.x
+    num_checks = 14
+    translations = codes.QCCode([7], 1 + poly_x, 1 + poly_x**3)._get_qudit_automorphisms()
+
+    # without pybliss, or if bliss finds nothing, codes return the automorphisms of their family
+    monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
+    code = codes.QCCode([7], 1 + poly_x, 1 + poly_x**3)
+    assert np.array_equal(code._found_qudit_automorphisms, translations)
+    assert codes.CSSCode(code.matrix_x, code.matrix_z)._found_qudit_automorphisms is None
+    monkeypatch.setattr(common._bliss, "is_installed", lambda: True)
+    monkeypatch.setattr(common._bliss, "get_binary_matrix_automorphism_generators", lambda *_: [])
+    code = codes.QCCode([7], 1 + poly_x, 1 + poly_x**3)
+    assert np.array_equal(code._found_qudit_automorphisms, translations)
+
+    # bliss permutes checks and qudits; codes keep the permutations of qudits, which follow checks
+    def get_generators(matrix: npt.NDArray[np.int_], row_colors: list[int]) -> list[list[int]]:
+        assert matrix.shape == (num_checks, 14)
+        assert row_colors == [0] * 7 + [1] * 7
+        return [list(range(num_checks)) + [num_checks + qudit for qudit in translations[0]]]
+
+    monkeypatch.setattr(common._bliss, "get_binary_matrix_automorphism_generators", get_generators)
+    code = codes.CSSCode(code.matrix_x, code.matrix_z)
+    assert np.array_equal(code._found_qudit_automorphisms, translations)
+
+
+def test_css_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch) -> None:
     """Exact CSS distances use the qudit automorphisms of a code only after verifying them."""
 
     class CodeWithAutomorphisms(codes.CSSCode):
@@ -750,8 +781,20 @@ def test_css_distances_verify_automorphisms() -> None:
         def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_]:
             return self.automorphisms
 
+    # let these small searches use the information sets and automorphisms of costly searches
+    monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
+    monkeypatch.setattr(_automorphisms, "MINIMUM_LAYER_WORK", 0)
+    monkeypatch.setattr(_brouwer_zimmermann, "enumeration_is_cheaper_than_setup", lambda *_: False)
+    monkeypatch.setattr(
+        _brouwer_zimmermann, "_enumeration_is_cheaper_than_search", lambda **_: False
+    )
+
     poly_x = sympy.abc.x
-    qc_code = codes.QCCode([7], 1 + poly_x + poly_x**3, 1 + poly_x**2 + poly_x**3 + poly_x**4)
+    qc_code = codes.QCCode(
+        [12],
+        poly_x**10 + poly_x**4 + poly_x**2 + poly_x,
+        poly_x**9 + poly_x**8 + poly_x**3 + poly_x,
+    )
     transposition = np.arange(len(qc_code))
     transposition[[0, 1]] = [1, 0]
     for pauli in (None, Pauli.X):
@@ -766,6 +809,28 @@ def test_css_distances_verify_automorphisms() -> None:
         code.automorphisms = transposition[None]
         with pytest.raises(ValueError, match="not an automorphism"):
             code.get_distance_exact(pauli)
+
+
+def test_css_distances_with_bliss(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With pybliss, exact distances find and use the symmetries of codes by themselves.
+
+    The qudits of this quasi-cyclic code are shuffled, and its distance is computed from its parity
+    check matrices alone.
+    """
+    pytest.importorskip("pybliss")
+    monkeypatch.setattr(_automorphisms, "MINIMUM_LAYER_WORK", 0)
+    monkeypatch.setattr(_brouwer_zimmermann, "enumeration_is_cheaper_than_setup", lambda *_: False)
+    poly_x = sympy.abc.x
+    qc_code = codes.QCCode(
+        [12],
+        poly_x**10 + poly_x**4 + poly_x**2 + poly_x,
+        poly_x**9 + poly_x**8 + poly_x**3 + poly_x,
+    )
+    shuffle = np.random.default_rng(0).permutation(len(qc_code))
+    code = codes.CSSCode(qc_code.matrix_x[:, shuffle], qc_code.matrix_z[:, shuffle])
+    assert code._found_qudit_automorphisms is not None
+    expected = codes.CSSCode(code.matrix_x, code.matrix_z).get_distance_exact(method="brute_force")
+    assert code.get_distance_exact() == expected
 
 
 @pytest.mark.parametrize("field", [2, 3])

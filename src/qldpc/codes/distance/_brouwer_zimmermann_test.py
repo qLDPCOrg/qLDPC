@@ -19,8 +19,8 @@ import qldpc
 from qldpc._binary import get_independent_rows
 from qldpc.objects import Pauli, PauliXZ
 
+from . import _automorphisms, _information_sets
 from . import _brouwer_zimmermann as bz
-from . import _information_sets
 from ._binary import get_nested_code_basis
 from .conftest import get_random_full_rank_matrix
 
@@ -546,7 +546,13 @@ def test_a_search_through_the_costly_stages_finds_the_distance(
     assert qldpc.codes.get_distance_classical(basis, cutoff=0) == 6
 
 
-@pytest.mark.usefixtures("force_information_sets")
+@pytest.fixture
+def switch_before_any_layer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Let searches consider translates before their first layer, however cheap it is."""
+    monkeypatch.setattr(_automorphisms, "MINIMUM_LAYER_WORK", 0)
+
+
+@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
 @pytest.mark.parametrize(
     "orders, poly_a, poly_b, pauli",
     [
@@ -573,18 +579,18 @@ def test_translated_searches_scan_every_layer_they_certify(
         [get_nested_code_basis(logical_ops, stabilizers)],
         cutoff=0,
         block_size=15,
-        automorphisms=code._get_qudit_automorphisms(),
+        get_automorphisms=code._get_qudit_automorphisms,
     )
     assert distance == expected
 
 
-@pytest.mark.usefixtures("force_information_sets")
+@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
 def test_translated_searches_find_exact_distances() -> None:
-    """Searches that scan one set and certify with its translates find exact distances.
+    """Searches that can switch to translates find exact distances.
 
     The translations of random quasi-cyclic codes preserve both sectors.  The searches, of each
-    sector alone and of both sectors together, agree with brute force and with searches that do not
-    use the translations.
+    sector alone and of both sectors together, agree with brute force, as do searches given no
+    automorphisms, the identity alone, which does not help, or a function that returns None.
     """
     rng = np.random.default_rng(2)
     groups = [((9,), (x,)), ((14,), (x,)), ((5, 3), (x, y)), ((4, 2, 2), (x, y, z))]
@@ -604,7 +610,7 @@ def test_translated_searches_find_exact_distances() -> None:
         if not code.dimension:
             continue
         num_codes += 1
-        automorphisms = code._get_qudit_automorphisms()
+        identity = np.arange(len(code))[None]
         problems = []
         for pauli in (Pauli.X, Pauli.Z):
             logical_ops = np.asarray(code.get_logical_ops(pauli), dtype=np.uint8)
@@ -613,26 +619,54 @@ def test_translated_searches_find_exact_distances() -> None:
                 logical_ops, stabilizers, homogeneous=True, cutoff=0, method="brute_force"
             )
             problems.append(get_nested_code_basis(logical_ops, stabilizers))
-            for given_automorphisms in (None, automorphisms):
+            for get_automorphisms in (
+                None,
+                code._get_qudit_automorphisms,
+                lambda: identity,
+                lambda: None,
+            ):
                 distance = bz.get_distance_brouwer_zimmermann_many(
-                    problems[-1:], cutoff=0, block_size=15, automorphisms=given_automorphisms
+                    problems[-1:], cutoff=0, block_size=15, get_automorphisms=get_automorphisms
                 )
                 assert distance == expected
         assert bz.get_distance_brouwer_zimmermann_many(
-            problems, cutoff=0, block_size=15, automorphisms=automorphisms
+            problems, cutoff=0, block_size=15, get_automorphisms=code._get_qudit_automorphisms
         ) == code.get_distance(method="brute_force")
 
 
-def test_translated_rows_can_reach_the_cutoff(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The rows of a scanned set with translates can end search setup at the cutoff.
+@pytest.mark.usefixtures("force_information_sets")
+def test_searches_ask_for_automorphisms_only_before_costly_layers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A search asks for automorphisms once, and only before a layer that costs enough to repay.
+
+    Finding automorphisms can cost more than an easy search, so a search that finishes before any
+    costly layer does not ask for them.
+    """
+    code = qldpc.codes.QCCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
+    problem = get_nested_code_basis(
+        np.asarray(code.get_logical_ops(Pauli.X), dtype=np.uint8),
+        np.asarray(code.get_stabilizer_ops(Pauli.X, canonicalized=True), dtype=np.uint8),
+    )
+    for minimum_layer_work, expected_calls in ((10**9, 0), (0, 1)):
+        monkeypatch.setattr(_automorphisms, "MINIMUM_LAYER_WORK", minimum_layer_work)
+        get_automorphisms = mock.Mock(wraps=code._get_qudit_automorphisms)
+        bz.get_distance_brouwer_zimmermann_many(
+            [problem], cutoff=0, block_size=15, get_automorphisms=get_automorphisms
+        )
+        assert get_automorphisms.call_count == expected_calls
+
+
+@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
+def test_translated_rows_can_reach_the_cutoff() -> None:
+    """The rows of a scanned set with translates can end a search at the cutoff.
 
     In this sector, the rows of the disjoint basis family have weight five or more, and a row of the
     scanned set has weight four.
     """
-    monkeypatch.setattr(bz, "enumeration_is_cheaper_than_setup", lambda *_: False)
     code = qldpc.codes.QCCode({x: 5, y: 3}, x**4 * y + x + y**2, x**4 * y + x**3 * y)
-    logical_ops = np.asarray(code.get_logical_ops("X"), dtype=np.uint8)
-    stabilizers = np.asarray(code.get_stabilizer_ops("X", canonicalized=True), dtype=np.uint8)
+    logical_ops = np.asarray(code.get_logical_ops(Pauli.X), dtype=np.uint8)
+    stabilizers = np.asarray(code.get_stabilizer_ops(Pauli.X, canonicalized=True), dtype=np.uint8)
     expected = qldpc.codes.get_distance_quantum(
         logical_ops, stabilizers, homogeneous=True, cutoff=0, method="brute_force"
     )
@@ -641,23 +675,24 @@ def test_translated_rows_can_reach_the_cutoff(monkeypatch: pytest.MonkeyPatch) -
         [get_nested_code_basis(logical_ops, stabilizers)],
         cutoff=cutoff,
         block_size=15,
-        automorphisms=code._get_qudit_automorphisms(),
+        get_automorphisms=code._get_qudit_automorphisms,
     )
     assert expected <= distance <= max(cutoff, expected)
 
 
+@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
 def test_searches_reject_wrong_automorphisms() -> None:
-    """A permutation that does not preserve a problem fails loudly, even for a small problem."""
-    code = qldpc.codes.QCCode([7], 1 + x + x**3, 1 + x**2 + x**3 + x**4)
+    """A permutation that does not preserve a problem fails loudly when a search would use it."""
+    code = qldpc.codes.QCCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
     problem = get_nested_code_basis(
-        np.asarray(code.get_logical_ops("X"), dtype=np.uint8),
-        np.asarray(code.get_stabilizer_ops("X", canonicalized=True), dtype=np.uint8),
+        np.asarray(code.get_logical_ops(Pauli.X), dtype=np.uint8),
+        np.asarray(code.get_stabilizer_ops(Pauli.X, canonicalized=True), dtype=np.uint8),
     )
     transposition = np.arange(len(code))
     transposition[[0, 1]] = [1, 0]
     with pytest.raises(ValueError, match="not an automorphism"):
         bz.get_distance_brouwer_zimmermann_many(
-            [problem], cutoff=0, block_size=15, automorphisms=transposition[None]
+            [problem], cutoff=0, block_size=15, get_automorphisms=lambda: transposition[None]
         )
 
 

@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Literal, SupportsIndex, get_args
 
 import numpy as np
@@ -221,7 +221,7 @@ def _get_distance_css_brouwer_zimmermann(
     cutoff: int,
     block_size: int = 15,
     upper_bound: int | None = None,
-    automorphisms: npt.NDArray[np.int_] | None = None,
+    get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
 ) -> int:
     """Compute the minimum distance across homogeneous binary CSS sectors.
 
@@ -232,9 +232,10 @@ def _get_distance_css_brouwer_zimmermann(
         block_size: Batch size exponent, as in get_distance_quantum.
         upper_bound: Weight of a known logical operator from an omitted sector, if any.  The result
             is the minimum of this bound and the distances of the supplied sectors.
-        automorphisms: Generators of a group of qubit permutations that map the stabilizers and the
-            logical operators of every sector onto themselves, if known, which can speed up the
-            search.  Row ``i`` maps qubit ``j`` to qubit ``automorphisms[i, j]``.
+        get_automorphisms: A function that returns generators of a group of qubit permutations
+            that map the stabilizers and the logical operators of every sector onto themselves, as
+            rows that map qubit ``j`` to qubit ``row[j]``, or None.  The search of a sector calls it
+            before a costly layer, and verifies the generators before it uses them to search less.
 
     Returns:
         The minimum exact distance across the supplied sectors and the optional upper bound.  A
@@ -244,8 +245,9 @@ def _get_distance_css_brouwer_zimmermann(
 
     Raises:
         ValueError: If there are neither sectors nor an upper bound, if the operators of a sector
-            are not binary matrices of equal width, or if a row of ``automorphisms`` does not map
-            the stabilizers and logical operators of a searched sector onto themselves.
+            are not binary matrices of equal width, or if a generator from ``get_automorphisms``
+            does not map the stabilizers and logical operators of a searched sector onto
+            themselves.
     """
     if not sectors and upper_bound is None:
         raise ValueError("Require at least one sector or an upper bound")
@@ -275,7 +277,7 @@ def _get_distance_css_brouwer_zimmermann(
         cutoff=cutoff,
         block_size=block_size,
         upper_bound=upper_bound,
-        automorphisms=automorphisms,
+        get_automorphisms=get_automorphisms,
     )
     return min([distance, *bounds])
 

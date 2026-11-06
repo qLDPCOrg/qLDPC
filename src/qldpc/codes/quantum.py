@@ -735,7 +735,8 @@ class QCCode(TBCode):
     inverting group elements, and negating one block maps the X-type checks onto the Z-type checks,
     and preserves the weights of operators.  Translating both blocks by a group element maps the
     checks of each type onto themselves, and exact distance searches use these translations to
-    search less.
+    search less if the optional pybliss package, which finds such symmetries by itself, is not
+    installed.
     """
 
     poly_a: sympy.Poly

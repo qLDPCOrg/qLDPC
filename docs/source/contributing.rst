@@ -162,6 +162,9 @@ Add or change a code construction
 3. Add a linked literature reference and document the field, subsystem, distance, and validation assumptions in the class docstring.
 4. Add co-located tests with independent invariants: rank-derived dimension, CSS orthogonality, symplectic commutation, row-space identities, known small distances, or exact cross-family equivalence.
    Do not validate construction-supplied or cached parameters by reading those same values back.
+5. If the construction comes with a group of qudit permutations that preserve a CSS code, consider overriding ``_get_qudit_automorphisms`` to return its generators, so that exact distances search less when the optional ``pybliss`` package, which finds such symmetries by itself, is not installed.
+   ``_get_block_translations`` in ``codes/quantum.py`` builds them for a group that translates blocks of qudits.
+   Prove in the docstring that each generator maps the row spaces of both ``matrix_x`` and ``matrix_z`` onto themselves, and test it.
 
 Change code-core algebra
 ~~~~~~~~~~~~~~~~~~~~~~~~
