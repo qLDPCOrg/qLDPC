@@ -53,11 +53,13 @@ def get_distance_css_brouwer_zimmermann(
             is the minimum of this bound and the distances of the supplied sectors.
 
     Returns:
-        The minimum exact distance across the supplied sectors and optional upper bound.  As with
-        get_distance_quantum, a result at or below ``cutoff`` is an observed upper bound.
+        The minimum exact distance across the supplied sectors and optional upper bound, where a
+        sector without nontrivial logical operators counts as one more than its width, as in
+        get_distance_quantum.  As there, that value is not the weight of an operator, even if it is
+        at most ``cutoff``, and any other result at or below ``cutoff`` is an observed upper bound.
     """
     problems: list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]] = []
-    best = upper_bound
+    no_distance_bound: int | None = None
     for logical_ops, stabilizers in sectors:
         assert_binary(logical_ops, "logical_ops")
         assert_binary(stabilizers, "stabilizers")
@@ -68,21 +70,25 @@ def get_distance_css_brouwer_zimmermann(
             problems.append((basis, labels))
             continue
 
-        # A supplied but trivial quotient has distance zero; an empty sector contributes its width.
-        sector_distance = 0 if len(logical_matrix) else logical_matrix.shape[1]
-        best = sector_distance if best is None else min(best, sector_distance)
+        # A sector without nontrivial logical operators has no distance, and contributes one more
+        # than its width, the weight of no operator, as get_distance_quantum returns.
+        sector_bound = logical_matrix.shape[1] + 1
+        no_distance_bound = (
+            sector_bound if no_distance_bound is None else min(no_distance_bound, sector_bound)
+        )
 
-    if best is not None and best <= cutoff:
-        return best
-    if not problems:
-        assert best is not None
-        return best
-    return get_distance_brouwer_zimmermann_many(
+    # Only the weight of a known operator can end the search early, or bound the searches of the
+    # other sectors, since no operator has the weight of a sector without one.
+    bounds = [bound for bound in (upper_bound, no_distance_bound) if bound is not None]
+    if (upper_bound is not None and upper_bound <= cutoff) or not problems:
+        return min(bounds)
+    distance = get_distance_brouwer_zimmermann_many(
         problems,
         cutoff=cutoff,
         block_size=block_size,
-        upper_bound=best,
+        upper_bound=upper_bound,
     )
+    return min([distance, *bounds])
 
 
 def get_distance_brouwer_zimmermann_many(

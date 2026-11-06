@@ -67,13 +67,15 @@ def get_distance_classical(
             proves that every nontrivial code word is heavier than ``max_weight``, which can be much
             faster than computing a large distance exactly.  The limit also caps ``cutoff``; pass
             ``cutoff=max_weight`` as well to stop at the first code word within the limit.  A code
-            without nontrivial code words gives its usual result, capped likewise.
+            without nontrivial code words gives ``n + 1``, capped likewise.
 
     Returns:
         The minimum Hamming distance between different code words, or equivalently the minimum
-        Hamming weight of a nontrivial code word.  If ``max_weight`` is given, the result is the
-        smaller of this distance and ``max_weight + 1``, so a result of ``max_weight + 1`` means
-        that every nontrivial code word is heavier than ``max_weight``.
+        Hamming weight of a nontrivial code word.  A code of length ``n`` without nontrivial code
+        words has no distance and gives ``n + 1``, which no code word reaches, even if it is at most
+        ``cutoff``.  If ``max_weight`` is given, the result is the smaller of this value and
+        ``max_weight + 1``, so a result of ``max_weight + 1`` means that every nontrivial code word
+        is heavier than ``max_weight``.
 
     Raises:
         TypeError: If ``max_weight`` is not an integer, or is a bool.
@@ -86,7 +88,7 @@ def get_distance_classical(
     matrix = as_binary_matrix(generators)
     basis = get_independent_rows(matrix)
     if not len(basis):
-        return _apply_upper_bound(matrix.shape[1], upper_bound)
+        return _apply_upper_bound(matrix.shape[1] + 1, upper_bound)
 
     if method == "brouwer_zimmermann":
         # Labels with no columns exclude no subcode.
@@ -141,7 +143,7 @@ def get_distance_quantum(
             be much faster than computing a large distance exactly.  The limit also caps ``cutoff``,
             so an early exit still returns the weight of an operator within the limit; pass
             ``cutoff=max_weight`` as well to stop at the first such operator.  Inputs without
-            nontrivial logical operators give their usual results, capped likewise.
+            nontrivial logical operators give ``n + 1``, capped likewise.
 
     Returns:
         The exact minimum weight of a nontrivial logical operator in ``logical_ops`` modulo
@@ -150,9 +152,11 @@ def get_distance_quantum(
         bound on the true distance, in ``[distance, cutoff]``.  With the default ``cutoff=1`` this
         still returns the exact distance for every valid input (an early return can exceed the
         distance only when ``cutoff >= 2``).  Pass ``cutoff=0`` to disable the early exit and force
-        the exact minimum.  If ``max_weight`` is given, the result is the smaller of this value and
-        ``max_weight + 1``, so a result of ``max_weight + 1`` means that every nontrivial logical
-        operator is heavier than ``max_weight``.
+        the exact minimum.  Inputs on ``n`` qubits without nontrivial logical operators have no
+        distance and give ``n + 1``, which no operator reaches, even if it is at most ``cutoff``.
+        If ``max_weight`` is given, the result is the smaller of this value and ``max_weight + 1``,
+        so a result of ``max_weight + 1`` means that every nontrivial logical operator is heavier
+        than ``max_weight``.
 
     Raises:
         TypeError: If ``max_weight`` is not an integer, or is a bool.
@@ -181,8 +185,11 @@ def get_distance_quantum(
     physical_size = num_bits if homogeneous else num_bits // 2
     if not homogeneous and num_bits % 2:
         raise ValueError("Symplectic operators must have an even number of columns")
+    # Without a nontrivial logical operator there is no distance, and the result is n + 1, one more
+    # than the weight of any operator.
+    no_distance = _apply_upper_bound(physical_size + 1, upper_bound)
     if not len(logical_matrix):
-        return _apply_upper_bound(physical_size, upper_bound)
+        return no_distance
 
     if method == "brouwer_zimmermann":
         # Verify independence before bypassing adapted-basis preparation.
@@ -202,7 +209,7 @@ def get_distance_quantum(
     # Separate an independent excluded basis from a complement representing the quotient.
     basis, labels = get_nested_code_basis(logical_matrix, stabilizer_matrix)
     if labels.shape[1] == 0:
-        return 0
+        return no_distance
     if method == "brute_force":
         distance = get_nested_distance_brute_force(
             basis, labels, cutoff=cutoff, block_size=block_size, homogeneous=homogeneous
