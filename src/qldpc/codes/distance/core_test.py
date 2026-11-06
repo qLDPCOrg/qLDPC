@@ -82,6 +82,43 @@ def test_css_brouwer_zimmermann_special_inputs() -> None:
         core._get_distance_css_brouwer_zimmermann([], cutoff=0)
 
 
+@pytest.mark.usefixtures("compilation_mode")
+def test_css_connected_support_inputs() -> None:
+    """The connected-support helper takes the checks and excluded rows of each sector.
+
+    The words of the checks [[1, 1, 0], [0, 1, 1]] are 000 and 111, so the distance of a sector
+    that excludes nothing is 3, and a sector that excludes 111 has no distance and counts as 4.
+    """
+    checks = [[1, 1, 0], [0, 1, 1]]
+    sector = (checks, [[0, 0, 0]])
+    trivial = (checks, [[1, 1, 1]])
+    assert core._get_distance_css_connected_support([sector], cutoff=0) == 3
+    assert core._get_distance_css_connected_support([trivial], cutoff=0) == 4
+    assert core._get_distance_css_connected_support([sector, trivial], cutoff=0) == 3
+
+    # The result is the minimum of the upper bound and the distances of the supplied sectors.
+    assert core._get_distance_css_connected_support([sector], cutoff=0, upper_bound=2) == 2
+    assert core._get_distance_css_connected_support([], cutoff=0, upper_bound=2) == 2
+    with pytest.raises(ValueError, match="at least one sector or an upper bound"):
+        core._get_distance_css_connected_support([], cutoff=0)
+
+    # The matrices must be binary, and have equal widths.
+    with pytest.raises(ValueError, match="binary"):
+        core._get_distance_css_connected_support([([[2, 0, 0]], [[0, 0, 0]])], cutoff=0)
+    with pytest.raises(ValueError, match="binary"):
+        core._get_distance_css_connected_support([(checks, [[0, 3, 0]])], cutoff=0)
+    with pytest.raises(ValueError, match="incompatible widths"):
+        core._get_distance_css_connected_support([(checks, [[1, 1]])], cutoff=0)
+
+
+def test_connected_support_is_for_css_codes() -> None:
+    """Generator matrices do not describe Tanner graphs, so these functions reject the method."""
+    with pytest.raises(ValueError, match=r"CSSCode\.get_distance_exact"):
+        qldpc.codes.get_distance_classical([[1, 1, 0]], method="connected_support")
+    with pytest.raises(ValueError, match=r"CSSCode\.get_distance_exact"):
+        qldpc.codes.get_distance_quantum([[1, 0]], [[1, 1]], method="connected_support")
+
+
 def test_brouwer_zimmermann_special_inputs() -> None:
     """Brouwer-Zimmermann validates matrix shapes and preserves quotient edge cases.
 
@@ -328,7 +365,7 @@ def test_distance_backend_validation() -> None:
     with pytest.raises(ValueError, match="Unknown distance backend"):
         core._validate_distance_backend("other")  # type: ignore[arg-type]
 
-    for method in ["brouwer_zimmermann", "brute_force"]:
+    for method in ["brouwer_zimmermann", "brute_force", "connected_support"]:
         assert core._validate_distance_method(method) == method  # type: ignore[arg-type]
     assert core._validate_distance_method("information_sets") == "brouwer_zimmermann"
     with pytest.raises(ValueError, match="Unknown distance method"):

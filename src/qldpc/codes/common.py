@@ -54,7 +54,9 @@ from .distance import (
 )
 from .distance.core import (
     _get_distance_css_brouwer_zimmermann,
+    _get_distance_css_connected_support,
     _get_distance_quantum,
+    _reject_connected_support,
     _validate_distance_backend,
     _validate_distance_method,
 )
@@ -474,7 +476,8 @@ class ClassicalCode(AbstractCode):
             method: Binary exact-distance method, unused when bounding the distance.
                 ``"brouwer_zimmermann"`` is the default, with alias ``"information_sets"``;
                 ``"brute_force"`` enumerates every nonzero code word.  Nonbinary and vector-distance
-                calculations always use exhaustive enumeration.
+                calculations always use exhaustive enumeration.  The ``"connected_support"`` method
+                is only available for binary CSS codes.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
@@ -512,12 +515,17 @@ class ClassicalCode(AbstractCode):
                 an upper bound on distance, and no result is remembered.
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
                 alias ``"information_sets"``; ``"brute_force"`` enumerates every nonzero code word.
-                Nonbinary and vector-distance calculations always use exhaustive enumeration.
+                Nonbinary and vector-distance calculations always use exhaustive enumeration.  The
+                ``"connected_support"`` method is only available for binary CSS codes.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
+
+        Raises:
+            ValueError: If the method is unknown or is ``"connected_support"``.
         """
         method = _validate_distance_method(method)
+        _reject_connected_support(method)
         if (known_distance := self.get_distance_if_known(vector)) is not None:
             return known_distance
 
@@ -1871,7 +1879,8 @@ class QuditCode(AbstractCode):
             method: Binary exact-distance method, unused when bounding the distance.
                 ``"brouwer_zimmermann"`` is the default, with alias ``"information_sets"``;
                 ``"brute_force"`` enumerates every nontrivial logical operator.  Nonbinary
-                calculations always use exhaustive enumeration.
+                calculations always use exhaustive enumeration.  The ``"connected_support"``
+                method is only available for binary CSS codes.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
@@ -1906,12 +1915,17 @@ class QuditCode(AbstractCode):
                 an upper bound on distance, and no result is remembered.
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
                 alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
-                operator.  Nonbinary calculations always use exhaustive enumeration.
+                operator.  Nonbinary calculations always use exhaustive enumeration.  The
+                ``"connected_support"`` method is only available for binary CSS codes.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
+
+        Raises:
+            ValueError: If the method is unknown or is ``"connected_support"``.
         """
         method = _validate_distance_method(method)
+        _reject_connected_support(method)
         if (known_distance := self.get_distance_if_known()) is not None:
             return known_distance
 
@@ -3419,8 +3433,10 @@ class CSSCode(QuditCode):
             decoder: Decoder input used to bound distance; see help(get_distance_bound).
             method: Binary exact-distance method, unused when bounding the distance.
                 ``"brouwer_zimmermann"`` is the default, with alias ``"information_sets"``;
-                ``"brute_force"`` enumerates every nontrivial logical operator.  Nonbinary
-                calculations always use exhaustive enumeration.
+                ``"brute_force"`` enumerates every nontrivial logical operator;
+                ``"connected_support"`` searches supports that are connected in the Tanner graph of
+                the parity checks (see help(CSSCode.get_distance_exact)).  Nonbinary calculations
+                always use exhaustive enumeration.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
@@ -3461,12 +3477,25 @@ class CSSCode(QuditCode):
                 an upper bound on distance, and no result is remembered.
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
                 alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
-                operator.  Nonbinary calculations always use exhaustive enumeration.
+                operator.  ``"connected_support"`` searches supports that are connected in the
+                Tanner graph of the parity checks, and is fast for sparse parity checks with a high
+                rate, where the cost of Brouwer-Zimmermann grows quickly with the distance.  It is
+                slow for codes with many stabilizers that weigh much less than the distance, such
+                as surface codes, and for a subsystem code, whose stabilizers need not be sparse.
+                See ``connected_support.md`` in ``qldpc/codes/distance/``.  Nonbinary calculations
+                always use exhaustive enumeration, except that ``"connected_support"`` raises an
+                error for them.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
+
+        Raises:
+            ValueError: If the method is unknown, or is ``"connected_support"`` for a nonbinary
+                code.
         """
         method = _validate_distance_method(method)
+        if method == "connected_support" and self.field is not galois.GF2:
+            _reject_connected_support(method)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
         if (known_distance := self.get_distance_if_known(pauli)) is not None:
             return known_distance
@@ -3480,7 +3509,7 @@ class CSSCode(QuditCode):
         # Subclasses with specialized formulas keep control of their exact-distance calculation.
         if (
             pauli is None
-            and method == "brouwer_zimmermann"
+            and method in ("brouwer_zimmermann", "connected_support")
             and self.field is galois.GF2
             and type(self)._get_distance_exact is CSSCode._get_distance_exact
         ):
@@ -3498,20 +3527,10 @@ class CSSCode(QuditCode):
                         sector_bound if upper_bound is None else min(upper_bound, sector_bound)
                     )
                     continue
+                sectors.append(self._get_distance_sector(sector_pauli, method))
 
-                logical_ops = self.get_logical_ops(sector_pauli)
-                stabilizers = self.get_stabilizer_ops(sector_pauli, canonicalized=True)
-                if self.is_subsystem_code:
-                    stabilizers = np.vstack([stabilizers, self.get_gauge_ops(sector_pauli)]).view(
-                        self.field
-                    )
-                sectors.append((logical_ops, stabilizers))
-
-            distance = _get_distance_css_brouwer_zimmermann(
-                sectors,
-                cutoff=cutoff,
-                upper_bound=upper_bound,
-                get_automorphisms=lambda: self._found_qudit_automorphisms,
+            distance = self._get_distance_of_sectors(
+                sectors, method, cutoff=cutoff, upper_bound=upper_bound
             )
             if cutoff <= 1:
                 # The joint search proves only the minimum, not either individual sector distance.
@@ -3525,19 +3544,13 @@ class CSSCode(QuditCode):
             )
 
         # we do not know the exact distance, so compute it
-        logical_ops = self.get_logical_ops(pauli)
-        stabilizers = self.get_stabilizer_ops(pauli, canonicalized=True)
-        if self.is_subsystem_code:
-            stabilizers = np.vstack([stabilizers, self.get_gauge_ops(pauli)]).view(self.field)
-
-        if self.field is galois.GF2 and method == "brouwer_zimmermann":
-            distance = _get_distance_css_brouwer_zimmermann(
-                [(logical_ops, stabilizers)],
-                cutoff=cutoff,
-                get_automorphisms=lambda: self._found_qudit_automorphisms,
+        if self.field is galois.GF2 and method in ("brouwer_zimmermann", "connected_support"):
+            distance = self._get_distance_of_sectors(
+                [self._get_distance_sector(pauli, method)], method, cutoff=cutoff
             )
 
         elif self.field is galois.GF2:
+            logical_ops, stabilizers = self._get_distance_sector(pauli, method)
             distance = get_distance_quantum(
                 logical_ops,
                 stabilizers,
@@ -3552,6 +3565,7 @@ class CSSCode(QuditCode):
                 stacklevel=get_external_caller_stacklevel(),
             )
             distance = len(self)
+            logical_ops, stabilizers = self._get_distance_sector(pauli, method)
             code_logical_ops = ClassicalCode.from_generator(logical_ops)
             code_stabilizers = ClassicalCode.from_generator(stabilizers)
             for word_l, word_s in itertools.product(
@@ -4216,6 +4230,58 @@ class CSSCode(QuditCode):
             len(self),
             max_error_rate,
             min_error_weight,
+        )
+
+    def _get_distance_sector(
+        self, pauli: PauliXZ, method: DistanceMethod
+    ) -> tuple[galois.FieldArray, galois.FieldArray]:
+        """The matrices that describe the logical operators of one type to a binary exact method.
+
+        The result for ``"connected_support"`` is the parity checks whose kernel holds the operators
+        of type ``pauli``, and the matrix whose row space has the trivial ones.  These are the
+        stabilizers of the opposite type, and the gauge generators and stabilizers of type
+        ``pauli``.  For other methods, the result is a basis of the logical operators, and the
+        gauge operators and stabilizers that act trivially (so that the operators are dressed).
+        """
+        if method == "connected_support":
+            opposite: PauliXZ = Pauli.Z if pauli is Pauli.X else Pauli.X
+            checks = (
+                self.get_stabilizer_ops(opposite)
+                if self.is_subsystem_code
+                else self.get_matrix(opposite)
+            )
+            return checks, self.get_matrix(pauli)
+        logical_ops = self.get_logical_ops(pauli)
+        stabilizers = self.get_stabilizer_ops(pauli, canonicalized=True)
+        if self.is_subsystem_code:
+            stabilizers = np.vstack([stabilizers, self.get_gauge_ops(pauli)]).view(self.field)
+        return logical_ops, stabilizers
+
+    def _get_distance_of_sectors(
+        self,
+        sectors: list[tuple[npt.ArrayLike, npt.ArrayLike]],
+        method: DistanceMethod,
+        *,
+        cutoff: int,
+        upper_bound: int | None = None,
+    ) -> int:
+        """The exact distance of a binary code from sectors that ``_get_distance_sector`` returns.
+
+        The search uses the automorphisms of this code.  Its method is Brouwer-Zimmermann, unless
+        ``method`` is ``"connected_support"``.
+        """
+        if method == "connected_support":
+            return _get_distance_css_connected_support(
+                sectors,
+                cutoff=cutoff,
+                upper_bound=upper_bound,
+                get_automorphisms=lambda: self._found_qudit_automorphisms,
+            )
+        return _get_distance_css_brouwer_zimmermann(
+            sectors,
+            cutoff=cutoff,
+            upper_bound=upper_bound,
+            get_automorphisms=lambda: self._found_qudit_automorphisms,
         )
 
     def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:

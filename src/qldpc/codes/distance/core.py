@@ -25,18 +25,21 @@ from ._search.brouwer_zimmermann import (
     get_distance_brouwer_zimmermann_many,
 )
 from ._search.brute_force import get_distance_quantum_brute_force, get_nested_distance_brute_force
+from ._search.connected_support import get_distance_connected_support
 
 DistanceBackend = Literal["auto", "decoder", "gap", "sqetch"]
-DistanceMethod = Literal["brouwer_zimmermann", "brute_force", "information_sets"]
+DistanceMethod = Literal[
+    "brouwer_zimmermann", "brute_force", "information_sets", "connected_support"
+]
 
-_CanonicalDistanceMethod = Literal["brouwer_zimmermann", "brute_force"]
+_CanonicalDistanceMethod = Literal["brouwer_zimmermann", "brute_force", "connected_support"]
 
-# The canonical name of every accepted exact-distance method name, including aliases.  Logical
-# counts accept the same names.
+# The canonical name of every accepted exact-distance method name, including aliases.
 _DISTANCE_METHODS: dict[str, _CanonicalDistanceMethod] = {
     "brouwer_zimmermann": "brouwer_zimmermann",
     "brute_force": "brute_force",
     "information_sets": "brouwer_zimmermann",
+    "connected_support": "connected_support",
 }
 
 
@@ -63,7 +66,8 @@ def get_distance_classical(
         method: Exact-distance method.  ``"brouwer_zimmermann"`` (default) enumerates fixed-weight
             combinations in several information-set bases and stops once its lower and upper bounds
             meet.  ``"brute_force"`` enumerates every nonzero codeword.  ``"information_sets"`` is
-            an alias for ``"brouwer_zimmermann"``.
+            an alias for ``"brouwer_zimmermann"``.  The ``"connected_support"`` method of binary CSS
+            codes is not available for a generator matrix.
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
             then the smaller of the distance and ``max_weight + 1``.  The search stops as soon as it
             proves that every nontrivial code word is heavier than ``max_weight``, which can be much
@@ -81,10 +85,11 @@ def get_distance_classical(
 
     Raises:
         TypeError: If ``max_weight`` is not an integer, or is a bool.
-        ValueError: If ``max_weight`` is negative, if the method is unknown, or if the generators
-            are not a binary matrix.
+        ValueError: If ``max_weight`` is negative, if the method is unknown or is
+            ``"connected_support"``, or if the generators are not a binary matrix.
     """
     method = _validate_distance_method(method)
+    _reject_connected_support(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
     assert_binary(generators, "generators")
     matrix = as_binary_matrix(generators)
@@ -138,7 +143,8 @@ def get_distance_quantum(
         method: Exact-distance method.  ``"brouwer_zimmermann"`` (default) uses an exclusion-aware
             search over the logical space modulo stabilizers.  ``"brute_force"`` enumerates eligible
             words using independent bases constructed internally.  ``"information_sets"`` is an
-            alias for ``"brouwer_zimmermann"``.
+            alias for ``"brouwer_zimmermann"``.  The ``"connected_support"`` method of binary CSS
+            codes is not available for logical operators and stabilizers.
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
             then the smaller of the distance and ``max_weight + 1``.  The search stops as soon as it
             proves that every nontrivial logical operator is heavier than ``max_weight``, which can
@@ -162,8 +168,9 @@ def get_distance_quantum(
 
     Raises:
         TypeError: If ``max_weight`` is not an integer, or is a bool.
-        ValueError: If ``max_weight`` is negative, if the method is unknown, or if the operators
-            are not binary matrices of equal width, with an even width if ``homogeneous`` is False.
+        ValueError: If ``max_weight`` is negative, if the method is unknown or is
+            ``"connected_support"``, or if the operators are not binary matrices of equal width,
+            with an even width if ``homogeneous`` is False.
 
     More specifically, if homogeneous is True, then::
 
@@ -213,6 +220,7 @@ def _get_distance_quantum(
             ``get_automorphisms`` is not an automorphism.
     """
     method = _validate_distance_method(method)
+    _reject_connected_support(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
     logical_matrix, stabilizer_matrix = _as_operator_matrices(logical_ops, stabilizers)
     num_bits = logical_matrix.shape[1]
@@ -323,6 +331,56 @@ def _get_distance_css_brouwer_zimmermann(
     return min([distance, *bounds])
 
 
+def _get_distance_css_connected_support(
+    sectors: Sequence[tuple[npt.ArrayLike, npt.ArrayLike]],
+    *,
+    cutoff: int,
+    upper_bound: int | None = None,
+    get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
+) -> int:
+    """Compute the minimum distance across homogeneous binary CSS sectors by connected supports.
+
+    Args:
+        sectors: A pair ``(checks, excluded)`` of binary matrices with equal widths for every
+            sector to search.  The distance of a sector is the least weight of a vector in the
+            kernel of ``checks`` and outside the row space of ``excluded``, whose rows must lie in
+            that kernel.  The search is fast if ``checks`` is sparse (see
+            ``_connected_support.py``).
+        cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
+        upper_bound: Weight of a known logical operator from an omitted sector, if any.  The result
+            is the minimum of this bound and the distances of the supplied sectors.
+        get_automorphisms: A function that returns an array of generators of a group of qubit
+            permutations, or None.  Row ``i`` of the array maps qubit ``j`` to qubit ``row[j]``.
+            Each generator must map the kernel of the checks of every sector, and the row space of
+            its excluded rows, onto themselves.  The search of a sector calls the function after it
+            has visited many states, and verifies the generators before it uses them.
+
+    Returns:
+        The minimum exact distance across the supplied sectors and the optional upper bound.  A
+        sector without nontrivial logical operators counts as one more than its width, as in
+        get_distance_quantum, and no operator has that weight.  Any other result at or below
+        ``cutoff`` is an observed upper bound.
+
+    Raises:
+        ValueError: If there are neither sectors nor an upper bound, if the matrices of a sector are
+            not binary matrices of equal width, if the excluded rows of a sector are not in the
+            kernel of its checks, or if a generator from ``get_automorphisms`` does not map the
+            kernel of the checks of a searched sector, or the row space of its excluded rows, onto
+            itself.
+    """
+    if not sectors and upper_bound is None:
+        raise ValueError("Require at least one sector or an upper bound")
+    problems = []
+    for checks, excluded in sectors:
+        assert_binary(checks, "checks")
+        assert_binary(excluded, "excluded")
+        check_matrix = as_binary_matrix(checks)
+        problems.append((check_matrix, as_binary_matrix(excluded, num_cols=check_matrix.shape[1])))
+    return get_distance_connected_support(
+        problems, cutoff=cutoff, upper_bound=upper_bound, get_automorphisms=get_automorphisms
+    )
+
+
 def _as_operator_matrices(
     logical_ops: npt.ArrayLike, stabilizers: npt.ArrayLike
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
@@ -393,7 +451,16 @@ def _validate_distance_method(
     """
     if method not in _DISTANCE_METHODS:
         raise ValueError(
-            f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann' or "
-            "'brute_force'."
+            f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann', 'brute_force',"
+            " or 'connected_support'."
         )
     return _DISTANCE_METHODS[method]
+
+
+def _reject_connected_support(method: _CanonicalDistanceMethod) -> None:
+    """Raise an error if the method is ``"connected_support"``, which only binary CSS codes use."""
+    if method == "connected_support":
+        raise ValueError(
+            "The 'connected_support' distance method searches the Tanner graphs of the parity"
+            " checks of a binary CSS code: use CSSCode.get_distance_exact"
+        )

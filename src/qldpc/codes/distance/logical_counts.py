@@ -42,7 +42,7 @@ from ._counting import local_cliffords, macwilliams, scan
 from ._search import information_sets
 from ._search.brouwer_zimmermann import get_distance_brouwer_zimmermann_many
 from ._search.brute_force import get_nested_distance_brute_force
-from .core import _DISTANCE_METHODS, DistanceMethod
+from .core import DistanceMethod
 
 # codes.common imports this package, and codes.quantum imports codes.common, so code classes are
 # imported only where they are used.
@@ -69,7 +69,9 @@ _CanonicalLogicalCountMethod = Literal["brouwer_zimmermann", "macwilliams", "bru
 
 # The canonical name of every accepted logical-count method name, including aliases.
 _LOGICAL_COUNT_METHODS: dict[str, _CanonicalLogicalCountMethod] = {
-    **_DISTANCE_METHODS,
+    "brouwer_zimmermann": "brouwer_zimmermann",
+    "brute_force": "brute_force",
+    "information_sets": "brouwer_zimmermann",
     "macwilliams": "macwilliams",
     "weight_enumerator": "macwilliams",
 }

@@ -35,7 +35,6 @@ from .conftest import (
     get_expected_counts,
     get_random_css_code,
 )
-from .core import DistanceMethod
 
 STABILIZER_METHODS: tuple[lc.LogicalCountMethod, ...] = (
     "brouwer_zimmermann",
@@ -61,7 +60,7 @@ def _random_subsystem_code(
 
 
 @pytest.mark.parametrize("method", METHODS)
-def test_known_codes(method: DistanceMethod) -> None:
+def test_known_codes(method: lc.LogicalCountMethod) -> None:
     steane = codes.SteaneCode()
     examples = (
         (steane.matrix_x, steane.matrix_z, Counts(3, 7, 7, 21)),
@@ -80,7 +79,7 @@ def test_known_codes(method: DistanceMethod) -> None:
 
 
 @pytest.mark.parametrize("method", METHODS)
-def test_counts_match_enumeration(method: DistanceMethod) -> None:
+def test_counts_match_enumeration(method: lc.LogicalCountMethod) -> None:
     """Compare every weight, and full Pauli counts, with an enumeration of both normalizers."""
     rng = np.random.default_rng(17)
     examples = [
@@ -112,7 +111,7 @@ def test_counting_continues_at_an_equal_lower_bound() -> None:
 
 
 @pytest.mark.parametrize("method", METHODS)
-def test_pauli_counts_away_from_the_distance(method: DistanceMethod) -> None:
+def test_pauli_counts_away_from_the_distance(method: lc.LogicalCountMethod) -> None:
     counter = lc.CSSLogicalCounter(codes.SteaneCode())
     for weight in (0, 2):
         expected = Counts(weight, 0, 0, 0)
@@ -571,6 +570,10 @@ def test_invalid_inputs() -> None:
     invalid_method: Any = "unknown"
     with pytest.raises(ValueError, match="Unknown logical-count method"):
         counter.count_logical_ops(method=invalid_method)
+
+    # The connected-support distance method does not count logical operators of every weight.
+    with pytest.raises(ValueError, match="Unknown logical-count method"):
+        counter.count_logical_ops(method="connected_support")  # type: ignore[arg-type]
     for method in ("brouwer_zimmermann", "macwilliams", "brute_force"):
         assert lc._validate_logical_count_method(method) == method
     assert lc._validate_logical_count_method("information_sets") == "brouwer_zimmermann"

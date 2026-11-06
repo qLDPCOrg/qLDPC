@@ -696,6 +696,53 @@ def test_exact_code_distance_method_api() -> None:
     mock_joint_distance.assert_called_once()
 
 
+def test_connected_support_method_is_only_for_binary_css_codes() -> None:
+    """Classical, non-CSS, and nonbinary codes reject the connected-support method."""
+    nonbinary_css_code = codes.HGPCode(codes.RepetitionCode(3, field=3))
+    for code in (
+        codes.RepetitionCode(3),
+        codes.RepetitionCode(3, field=3),
+        codes.FiveQubitCode(),
+        codes.FiveQuditCode(3),
+        nonbinary_css_code,
+    ):
+        with pytest.raises(ValueError, match="connected_support"):
+            code.get_distance_exact(method="connected_support")
+    with pytest.raises(ValueError, match="connected_support"):
+        codes.FiveQubitCode().get_distance(method="connected_support")
+
+
+def test_connected_support_distances_of_css_codes() -> None:
+    """Sector distances, joint distances, and their caches match the other exact methods."""
+    steane_code = codes.SteaneCode()
+    for pauli in (Pauli.X, Pauli.Z, None):
+        steane_code.forget_distance()
+        assert steane_code.get_distance_exact(pauli, cutoff=0, method="connected_support") == 3
+        assert steane_code.get_distance_if_known(pauli) == 3
+
+    # the sectors of this code have distances 3 and 2, and a known sector bounds the other search
+    checks_x = [[1, 1, 1, 1, 1, 1, 1], [1, 0, 1, 1, 1, 0, 0]]
+    checks_z = [[1, 1, 0, 1, 0, 0, 1], [1, 1, 1, 0, 0, 1, 0], [1, 0, 1, 1, 1, 0, 0]]
+    code = codes.CSSCode(checks_x, checks_z)
+    assert code.get_distance_exact(Pauli.X, method="connected_support") == 3
+    assert code.get_distance_exact(cutoff=0, method="connected_support") == 2
+    assert code.get_distance_if_known() == 2 and code.get_distance_if_known(Pauli.Z) is None
+    assert code.get_distance_exact(Pauli.Z, method="connected_support") == 2
+
+    # an exit at a cutoff returns an upper bound, which is not remembered
+    code = codes.CSSCode(checks_x, checks_z)
+    assert 2 <= code.get_distance_exact(cutoff=7, method="connected_support") <= 7
+    assert code.get_distance_if_known() is None
+
+    # a subsystem code has dressed logical operators: here every even-weight X string is a gauge
+    # operator, so a single-qubit X operator is a dressed logical operator
+    subsystem_code = codes.CSSCode([[0, 1, 1], [1, 1, 0]], [[1, 0, 1], [1, 1, 0]])
+    assert subsystem_code.is_subsystem_code
+    assert subsystem_code.get_distance_exact(Pauli.X, method="connected_support") == 1
+    bacon_shor_code = codes.BaconShorCode(3)
+    assert bacon_shor_code.get_distance_exact(method="connected_support") == 3
+
+
 def test_css_joint_distance_cache() -> None:
     """A joint CSS search caches only the global distance, leaving sector distances independent."""
     checks_x = [
