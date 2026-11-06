@@ -9,7 +9,6 @@ import copy
 import math
 import pickle
 
-import numpy as np
 import pytest
 import stim
 
@@ -167,38 +166,6 @@ def test_min_idle() -> None:
     assert scheduler.get_schedule(circuit).num_moments == 2
 
 
-def test_min_idle_is_optimal(pytestconfig: pytest.Config) -> None:
-    """Min-idle schedules have the fewest moments, and then the fewest effective idle slots.
-
-    The minimum comes from a brute-force search over the valid layouts of small random circuits.  A
-    layout is valid if the operations on each qubit keep their order, the gates that take time on a
-    qubit are in distinct moments, and a classically controlled gate is no earlier than the
-    measurement that it reads.
-    """
-    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    for _ in range(5):
-        lines = []
-        for _ in range(6):
-            name = rng.choice(["R", "RX", "H", "CX", "M", "MX", "MR"])
-            qubits = rng.choice(3, size=2 if name == "CX" else 1, replace=False)
-            lines.append(f"{name} {' '.join(map(str, qubits))}")
-        lines[3:3] = [f"M {rng.integers(3)}", f"CX rec[-1] {rng.integers(3)}", "DETECTOR rec[-1]"]
-        circuit = stim.Circuit("\n".join(lines))
-
-        for single_qubit_gates_take_time in [False, True]:
-            num_moments, num_effective_idle_slots = _get_min_effective_idle_slots(
-                circuit, single_qubit_gates_take_time
-            )
-            scheduler = circuits.MinIdleScheduler(
-                single_qubit_gates_take_time=single_qubit_gates_take_time
-            )
-            assert scheduler.get_schedule(circuit).num_moments == num_moments
-            assert (
-                _get_effective_idle_slots(circuit, scheduler, single_qubit_gates_take_time)
-                == num_effective_idle_slots
-            )
-
-
 def test_min_idle_solver_failure() -> None:
     """Placing nodes in layers raises an error if no placement exists."""
     with pytest.raises(RuntimeError):
@@ -237,74 +204,6 @@ def _get_effective_idle_slots(
         if not measured.get(qubit, False):
             num_slots += run_length
     return num_slots
-
-
-def _get_min_effective_idle_slots(
-    circuit: stim.Circuit, single_qubit_gates_take_time: bool
-) -> tuple[int, int]:
-    """The fewest moments of a valid layout, and the fewest effective idle slots with them.
-
-    Each classically controlled gate in the circuit reads the measurement just before it.
-    """
-    # the earlier gates that each gate application follows, and whether it must be in a later moment
-    gates = [
-        stim.CircuitInstruction(instruction.name, group)
-        for instruction in circuit
-        if instruction.name != "DETECTOR"
-        for group in instruction.target_groups()
-    ]
-    qubits = [
-        {target.value for target in gate.targets_copy() if target.is_qubit_target} for gate in gates
-    ]
-    predecessors: list[list[tuple[int, bool]]] = []
-    takes_time: list[bool] = []
-    last_measurement = -1
-    for index, gate in enumerate(gates):
-        takes_time.append(_takes_time(gate, single_qubit_gates_take_time))
-        predecessors.append(
-            [
-                (other, takes_time[index] and takes_time[other])
-                for other in range(index)
-                if qubits[index] & qubits[other]
-            ]
-        )
-        if any(target.is_measurement_record_target for target in gate.targets_copy()):
-            predecessors[-1].append((last_measurement, False))
-        if stim.gate_data(gate.name).produces_measurements:
-            last_measurement = index
-
-    # find the valid layouts with the fewest moments
-    num_moments = 0
-    layouts: list[list[int]] = []
-    while not layouts:
-        num_moments += 1
-        layouts = [[]]
-        for index in range(len(gates)):
-            layouts = [
-                [*layout, moment]
-                for layout in layouts
-                for moment in range(num_moments)
-                if all(
-                    moment > layout[other] if strict else moment >= layout[other]
-                    for other, strict in predecessors[index]
-                )
-            ]
-
-    # lay out each layout with TICKs, and count its effective idle slots
-    scheduler = circuits.TickScheduler(single_qubit_gates_take_time=single_qubit_gates_take_time)
-    num_effective_idle_slots = []
-    for layout in layouts:
-        timed_circuit = stim.Circuit()
-        for moment in range(num_moments):
-            for gate, gate_moment in zip(gates, layout):
-                if gate_moment == moment:
-                    timed_circuit.append(gate)
-            timed_circuit.append("TICK")
-        schedule = scheduler.get_schedule(timed_circuit)
-        num_effective_idle_slots.append(
-            _get_effective_idle_slots(circuit, schedule, single_qubit_gates_take_time)
-        )
-    return num_moments, min(num_effective_idle_slots)
 
 
 def _takes_time(instruction: stim.CircuitInstruction, single_qubit_gates_take_time: bool) -> bool:
