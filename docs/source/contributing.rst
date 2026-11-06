@@ -157,8 +157,11 @@ Common change recipes
 Add or change a code construction
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-1. Put a classical family in ``codes/classical.py`` and a quantum or CSS family in ``codes/quantum.py``, next to its closest base or sibling.
-2. Re-export public names from ``codes/__init__.py``.
+1. Put a classical family in ``codes/classical.py``, next to its closest base or sibling.
+   Put a quantum or CSS family in the module of ``codes/quantum/`` for its construction, such as ``two_block.py`` or ``hypergraph_product.py``, or in a new module named after a new construction.
+   Name modules by construction, not by properties that several constructions share, such as being quasi-cyclic.
+   Put a named code with a fixed length and dimension, such as ``SteaneCode``, in ``codes/quantum/named.py``.
+2. Re-export public names from ``codes/__init__.py``, and quantum ones from ``codes/quantum/__init__.py`` as well.
 3. Add a linked literature reference and document the field, subsystem, distance, and validation assumptions in the class docstring.
 4. Add co-located tests with independent invariants: rank-derived dimension, CSS orthogonality, symplectic commutation, row-space identities, known small distances, or exact cross-family equivalence.
    Do not validate construction-supplied or cached parameters by reading those same values back.

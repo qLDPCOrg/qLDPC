@@ -26,6 +26,8 @@ from qldpc.codes import _code_capacity, common
 from qldpc.codes.distance._search import brouwer_zimmermann
 from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ
 
+from .conftest import assert_valid_subgraphs
+
 ####################################################################################################
 # classical code tests
 
@@ -454,13 +456,6 @@ def test_qubit_code(num_qubits: int = 5, num_checks: int = 3) -> None:
     assert get_random_qudit_code(num_qubits, num_checks).num_qubits == num_qubits
     with pytest.raises(ValueError, match="3-dimensional qudits"):
         assert get_random_qudit_code(num_qubits, num_checks, field=3).num_qubits
-
-
-def assert_valid_subgraphs(code: codes.QuditCode) -> None:
-    """Every edge of the Tanner graph occurs in exactly one syndrome measurement subgraph."""
-    edges = [edge for graph in code.get_syndrome_subgraphs() for edge in graph.edges]
-    assert len(edges) == len(set(edges))
-    assert set(edges) == set(code.graph.edges)
 
 
 def test_qudit_codes() -> None:
