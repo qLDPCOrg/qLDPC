@@ -12,6 +12,7 @@ import unittest.mock
 import galois
 import networkx as nx
 import numpy as np
+import numpy.typing as npt
 import pytest
 import sympy
 from sympy.abc import x, y
@@ -641,25 +642,28 @@ def test_pair_partition_codes() -> None:
     assert code.is_mixed_distinct()
     assert_pair_partition_cycle_properties(code)
 
-    # a code with (J, L, P) = (3, 8, 7), which has 4-cycles and is not mixed-distinct
-    exponents_x = [[3, 6, 0, 4, 6, 0, 1, 0], [4, 3, 4, 6, 2, 6, 3, 0], [1, 5, 2, 4, 1, 0, 2, 3]]
-    exponents_z = [[4, 4, 6, 2, 4, 6, 6, 1], [5, 3, 2, 5, 1, 4, 3, 1], [2, 3, 1, 3, 0, 6, 0, 4]]
-    code = codes.PairPartitionCode(exponents_x, exponents_z, lift_size=7)
+    # a code with (J, L, P) = (2, 4, 5), which has 4-cycles and is not mixed-distinct
+    exponents_x = [[4, 3, 2, 1], [1, 0, 0, 4]]
+    exponents_z = [[0, 4, 4, 3], [0, 4, 3, 2]]
+    code = codes.PairPartitionCode(exponents_x, exponents_z, lift_size=5)
     assert code.has_4_cycles()
     assert not code.is_mixed_distinct()
     assert_pair_partition_cycle_properties(code)
-    assert "lift size 7" in str(code)
+    assert "lift size 5" in str(code)
 
-    # translating every block column by the same cyclic shift preserves the checks of each type
+    # translating every block column by the same cyclic shift preserves the checks of each type,
+    # and moves each qubit through every position of its block column
     (translation,) = code._get_qudit_automorphisms()
-    assert np.array_equal(translation, ((np.arange(7) + 1) % 7 + 7 * np.arange(8)[:, None]).ravel())
+    shifts = (translation.reshape(4, 5) - np.arange(5)) % 5
+    assert np.all(shifts == shifts[0, 0]) and shifts[0, 0] != 0
+    assert np.all(translation.reshape(4, 5) // 5 == np.arange(4)[:, None])
     for matrix in [code.matrix_x, code.matrix_z]:
         permuted = np.zeros_like(matrix)
         permuted[:, translation] = matrix
         assert {row.tobytes() for row in permuted} == {row.tobytes() for row in matrix}
 
     # exponents are stored modulo the lift size
-    shifted = codes.PairPartitionCode(np.array(exponents_x) - 7, exponents_z, lift_size=7)
+    shifted = codes.PairPartitionCode(np.array(exponents_x) - 5, exponents_z, lift_size=5)
     assert np.array_equal(shifted.exponents_x, exponents_x)
     assert shifted == code
 
@@ -688,20 +692,33 @@ def test_pair_partition_code_validation() -> None:
         codes.PairPartitionCode([[0, 0]], [[0, 1]], lift_size=3)
 
 
-def test_pair_partition_from_array() -> None:
+def test_pair_partition_from_array(pytestconfig: pytest.Config) -> None:
     """Building a pair-partition code from a pair-partition array by solving its constraints."""
     matchings = [
         [[[0, 1], [2, 3]], [[0, 2], [1, 3]]],
         [[[0, 3], [1, 2]], [[0, 1], [2, 3]]],
     ]
-    lift_size = 5
 
-    # every basis vector of the solution space satisfies the paired-difference equations
-    basis = codes.PairPartitionCode.solve_pair_partition_array(matchings, lift_size)
-    for exponents_x, exponents_z in np.array(basis, dtype=int):
+    def is_solution(exponents: npt.NDArray[np.int_], lift_size: int) -> npt.NDArray[np.bool_]:
+        """Which stacked exponent arrays satisfy the paired-difference equations of matchings?"""
+        satisfied = np.ones(len(exponents), dtype=bool)
         for i, j in itertools.product(range(2), repeat=2):
-            diffs = (exponents_z[j] - exponents_x[i]) % lift_size
-            assert all(diffs[uu] == diffs[vv] for uu, vv in matchings[i][j])
+            diffs = exponents[:, 1, j] - exponents[:, 0, i]
+            for uu, vv in matchings[i][j]:
+                satisfied &= (diffs[:, uu] - diffs[:, vv]) % lift_size == 0
+        return satisfied
+
+    # the basis spans exactly the solutions that brute force finds for a lift size of 2
+    basis = codes.PairPartitionCode.solve_pair_partition_array(matchings, 2)
+    vectors = np.array(list(itertools.product(range(2), repeat=16))).reshape(-1, 2, 2, 4)
+    assert np.all(is_solution(np.array(basis, dtype=int), 2))
+    assert np.linalg.matrix_rank(basis.reshape(len(basis), -1)) == len(basis)
+    assert 2 ** len(basis) == np.count_nonzero(is_solution(vectors, 2))
+
+    # for a lift size of 5, the signs of the paired-difference equations matter
+    lift_size = 5
+    basis = codes.PairPartitionCode.solve_pair_partition_array(matchings, lift_size)
+    assert np.all(is_solution(np.array(basis, dtype=int), lift_size))
 
     # members of the family are chosen by their coefficients in the basis, or at random
     coefficients = list(range(len(basis)))
@@ -711,8 +728,11 @@ def test_pair_partition_from_array() -> None:
     exponents_x, exponents_z = np.tensordot(coefficients, np.array(basis, dtype=int), axes=1)
     assert np.array_equal(code.exponents_x, exponents_x % lift_size)
     assert np.array_equal(code.exponents_z, exponents_z % lift_size)
-    code = codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size, seed=1)
-    assert code == codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size, seed=1)
+    seed = pytestconfig.getoption("randomly_seed")
+    code = codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size, seed=seed)
+    assert code == codes.PairPartitionCode.from_pair_partition_array(
+        matchings, lift_size, seed=seed
+    )
 
     # a family can consist of a single member, with all exponents equal to zero
     code = codes.PairPartitionCode.from_pair_partition_array(
