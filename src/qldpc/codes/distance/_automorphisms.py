@@ -123,17 +123,20 @@ def estimate_translate_work(certificate: Certificate, upper_bound: int) -> int:
     return work
 
 
-def _get_orbits(automorphisms: npt.NDArray[np.int_], num_columns: int) -> npt.NDArray[np.int_]:
-    """Label each column by its orbit under the group that the permutations generate."""
-    # Import the graph algorithms only here, since importing qLDPC does not otherwise load them.
-    import scipy.sparse
-    import scipy.sparse.csgraph
-
-    sources = np.tile(np.arange(num_columns), len(automorphisms))
-    graph = scipy.sparse.coo_array(
-        (np.ones(len(sources)), (sources, automorphisms.ravel())), shape=(num_columns, num_columns)
-    )
-    return scipy.sparse.csgraph.connected_components(graph, directed=False)[1].astype(np.int64)
+def _get_orbits(automorphisms: npt.NDArray[np.int_], num_columns: int) -> npt.NDArray[np.int64]:
+    """Number the orbits of the group that the permutations generate, and label each column."""
+    # Give each column the least column that it is known to share an orbit with, until no
+    # permutation lowers a label.  Every label is a column of the same orbit, so the labels
+    # settle on the least column of each orbit.
+    least = np.arange(num_columns)
+    while True:
+        previous = least
+        for permutation in automorphisms:
+            least = np.minimum(least, least[permutation])
+            np.minimum.at(least, permutation, least.copy())
+        least = least[least]
+        if np.array_equal(least, previous):
+            return np.unique(least, return_inverse=True)[1].astype(np.int64)
 
 
 @always_compiled
