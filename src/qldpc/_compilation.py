@@ -203,13 +203,23 @@ def _compile_with_cache_in(
     return None
 
 
-@functools.cache
 def _get_cache_directory(package: Path) -> Path | None:
     """A directory that can be written for the compiled code of a package, or None with a warning.
 
+    The directory is inside ``NUMBA_CACHE_DIR`` if that is set, and otherwise inside the ``numba``
+    directory of qLDPC's user cache directory.
+    """
+    base = _numba_config.CACHE_DIR or str(qldpc.cache.get_disk_cache_path("numba"))
+    return _get_cache_directory_in(Path(base), package)
+
+
+@functools.cache
+def _get_cache_directory_in(base: Path, package: Path) -> Path | None:
+    """A directory in a base directory that can be written for the compiled code of a package.
+
     Numba needs to be able to write in the directory, and checks this itself only when it has
     already moved on to another directory.  Outdated directories of the same package beside it are
-    deleted.
+    deleted.  If the directory cannot be used, warn and return None.
     """
     try:
         source_hash = _get_source_hash(package)
@@ -219,8 +229,7 @@ def _get_cache_directory(package: Path) -> Path | None:
     if source_hash is None:
         _warn_not_cached(f"{package} has no source files")
         return None
-    base = _numba_config.CACHE_DIR or str(qldpc.cache.get_disk_cache_path("numba"))
-    directory = Path(base) / f"qldpc-{source_hash}"
+    directory = base / f"qldpc-{source_hash}"
     try:
         directory.mkdir(parents=True, exist_ok=True)
         tempfile.TemporaryFile(dir=directory).close()

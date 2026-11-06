@@ -373,11 +373,9 @@ class SimplexCode(ClassicalCode):
             raise ValueError(f"Simplex codes require a dimension of at least 2 (provided: {dim})")
 
         # first try finding a primitive three-term polynomial of degree dim
-        try:
-            primitive_polys = galois.primitive_polys(order=field.order, degree=dim, terms=3)
-            return next(primitive_polys)
-        except StopIteration:
-            pass
+        primitive_poly = next(galois.primitive_polys(order=field.order, degree=dim, terms=3), None)
+        if primitive_poly is not None:
+            return primitive_poly
 
         # find a suitable polynomial by brute force
 
