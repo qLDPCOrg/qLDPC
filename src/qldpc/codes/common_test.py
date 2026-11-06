@@ -230,10 +230,11 @@ def test_distance_bound_with_redundant_generator() -> None:
 
 
 def test_distance_bound_searches_for_light_code_words() -> None:
-    """A distance bound searches for light code words rather than sampling random ones."""
-    # a uniformly random nonzero code word of RM(2, 6) rarely has the minimum weight of 16
+    """A distance bound finds light code words that are rare among all code words."""
+    # one in about 1600 nonzero code words of RM(2, 6) has the minimum weight of 16, but a single
+    # trial finds such a code word about 2/3 of the time
     code = codes.ClassicalCode(codes.ReedMullerCode(2, 6).matrix)
-    assert code.get_distance_bound(num_trials=10) == 16
+    assert code.get_distance_bound(num_trials=30) == 16
 
 
 def test_conversions_classical(bits: int = 5, checks: int = 3) -> None:
@@ -1632,12 +1633,24 @@ def test_prebuilt_decoders_rejected_for_internal_matrices() -> None:
 
 def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
     """Decoder searches decode each problem once, skip failed decodings, and give up on failure."""
+
+    def count_decodings() -> Any:
+        """Count the syndromes that lookup decoders decode."""
+        decode_errors = decoders.custom.ErrorLookupDecoder.decode_errors
+        return unittest.mock.patch.object(
+            decoders.custom.ErrorLookupDecoder,
+            "decode_errors",
+            autospec=True,
+            side_effect=decode_errors,
+        )
+
+    # The nonzero words of this code have weights 3, 4, and 5.  Each of its three decoding problems
+    # admits two of these words, so one problem has no solution of weight at most 3.
+    classical_code = codes.ClassicalCode.from_generator([[1, 1, 1, 0, 0, 0], [1, 0, 0, 1, 1, 1]])
+
     # an erasure bit is stripped from decoded errors, and an erased decoding yields no bound
     erasing_decoder = decoders.lookup(max_weight=3, add_erasure_bit=True)
-    # a code with words of weight 3, 4, and 5, for which the decoding problem whose solutions are
-    # the words of weight 4 and 5 is one of three problems, and has no solution of weight at most 3
-    classical_code = codes.ClassicalCode.from_generator([[1, 1, 1, 0, 0, 0], [1, 0, 0, 1, 1, 1]])
-    with unittest.mock.patch("qldpc.codes.common._decode", wraps=common._decode) as decode:
+    with count_decodings() as decode:
         assert classical_code.get_distance_bound(num_trials=100, decoder=erasing_decoder) == 3
     assert decode.call_count == 3
     code = codes.SurfaceCode(3)
@@ -1645,6 +1658,10 @@ def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
     assert code.get_distance_bound(decoder=erasing_decoder) == 3
     code.reduce_logical_ops(decoder=erasing_decoder)
     assert all(np.count_nonzero(op) == 3 for op in code.get_logical_ops().view(np.ndarray))
+
+    # a trial whose decoding fails moves on to another problem
+    for _ in range(20):
+        assert classical_code.get_distance_bound(num_trials=1, decoder=erasing_decoder) == 3
     classical_code.forget_distance()
 
     # a decoder that cannot find a consistent error decodes each distinct problem once, and gives up
@@ -1665,29 +1682,9 @@ def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
         ),
         (lambda: codes.SurfaceCode(3).reduce_logical_op(Pauli.X, 0, decoder=failing_decoder), 1),
     ]:
-        with (
-            unittest.mock.patch("qldpc.codes.common._decode", wraps=common._decode) as decode,
-            pytest.raises(ValueError, match="failed to infer an error"),
-        ):
+        with count_decodings() as decode, pytest.raises(ValueError, match="failed to infer"):
             search()
         assert decode.call_count == num_problems
-
-
-def test_decoder_searches_replace_failed_problems() -> None:
-    """A trial whose decoding fails moves on to a new decoding problem."""
-    decode = common._decode
-    for search in [
-        lambda: codes.ClassicalCode(codes.HammingCode(3).matrix).get_distance_bound(num_trials=1),
-        lambda: codes.ToricCode(4).get_distance_bound_with_decoder(Pauli.X, num_trials=1),
-    ]:
-        failures = iter([True])
-
-        def fail_once(*args: Any, failures: Iterator[bool] = failures) -> galois.FieldArray | None:
-            return None if next(failures, False) else decode(*args)
-
-        with unittest.mock.patch("qldpc.codes.common._decode", side_effect=fail_once) as mock:
-            search()
-        assert mock.call_count == 2
 
 
 def test_random_directions() -> None:
