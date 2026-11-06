@@ -1348,7 +1348,7 @@ class PairPartitionCode(CSSCode):
 
     Translating every block column of qubits by the same cyclic shift maps the checks of each type
     onto themselves.  Exact distance searches use these translations to search less if the optional
-    pybliss package, which finds such symmetries by itself, is not installed.
+    pybliss package is not installed, or finds no symmetries of the code.
 
     PairPartitionCode does not record a code distance.  The ``[[276, 98, 14]]`` code below has
     ``(J, L, P) = (4, 12, 23)``, and is instance ``qc_276_98_14`` in the repository of
