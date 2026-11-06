@@ -751,19 +751,20 @@ class ClassicalCode(AbstractCode):
 
         code_str = f"CheckMatCode({matrix_str}, GF({self.field.order}))"
 
-        # try GAP/GAUAVA's AutomorphismGroup method
+        def get_group(gap_function: str) -> abstract.Group:
+            """Compute the automorphism group of this code with a GAP/GUAVA function."""
+            return abstract.Group.from_name(
+                f"{gap_function}({code_str})", warning_to_raise_if_calling_gap=warning
+            )
+
+        # For a binary code, try GAP/GUAVA's AutomorphismGroup method, and fall back to its
+        # PermutationAutomorphismGroup method if GAP fails to compute that group.
         if self.field is galois.GF2:
             try:
-                return abstract.Group.from_name(
-                    f"AutomorphismGroup({code_str})", warning_to_raise_if_calling_gap=warning
-                )
+                return get_group("AutomorphismGroup")
             except external.gap.GAPError:
-                pass
-
-        # fall back to GAP/GAUAVA's PermutationAutomorphismGroup method
-        return abstract.Group.from_name(
-            f"PermutationAutomorphismGroup({code_str})", warning_to_raise_if_calling_gap=warning
-        )
+                return get_group("PermutationAutomorphismGroup")
+        return get_group("PermutationAutomorphismGroup")
 
     def get_matrix_automorphism_group(self) -> abstract.Group:
         """Get the automorphism group of the parity check matrix of this code.
