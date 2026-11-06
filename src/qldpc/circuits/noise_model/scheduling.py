@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, ClassVar, NoReturn
 
 import stim
 
-from ..common import StimCircuitLike, _get_instructions
+from ..common import StimCircuitLike, _get_instructions, _new_instruction
 from ._operations import (
     CLIFFORD_1Q,
     CLIFFORD_PP,
@@ -755,10 +755,7 @@ def _split_operations(instruction: stim.CircuitInstruction) -> list[stim.Circuit
     else:
         groups = instruction.target_groups()
     args = instruction.gate_args_copy()
-    return [
-        stim.CircuitInstruction(instruction.name, group, args, tag=instruction.tag)
-        for group in groups
-    ]
+    return [_new_instruction(instruction.name, group, args, instruction.tag) for group in groups]
 
 
 @functools.cache

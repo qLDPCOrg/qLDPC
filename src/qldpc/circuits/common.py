@@ -184,3 +184,21 @@ def _get_instructions(
     models handle many small circuits, so this indexes the circuit instead.
     """
     return (circuit[index] for index in range(len(circuit)))
+
+
+def _new_instruction(
+    name: str, targets: Sequence[stim.GateTarget], args: Sequence[float], tag: str
+) -> stim.CircuitInstruction:
+    """Build a ``stim.CircuitInstruction`` by appending it to an empty circuit.
+
+    Stim's ``CircuitInstruction`` constructor takes tens of microseconds per target, while appending
+    an instruction to a circuit takes about a microsecond.  An instruction that a circuit rejects,
+    such as a REPEAT instruction, comes from the constructor, which accepts it or raises its own
+    error.
+    """
+    circuit = stim.Circuit()
+    try:
+        circuit.append(name, targets, args, tag=tag)
+    except (TypeError, ValueError):
+        return stim.CircuitInstruction(name, targets, args, tag=tag)
+    return circuit[0]

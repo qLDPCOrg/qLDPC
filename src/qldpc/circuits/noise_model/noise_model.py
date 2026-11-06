@@ -26,6 +26,7 @@ from ..common import (
     StimCircuitLike,
     _get_immune_qubits,
     _get_instructions,
+    _new_instruction,
 )
 from ..transforms import with_remapped_qubits
 from ._operations import (
@@ -934,7 +935,7 @@ def _join_operations(operations: Sequence[_Operation]) -> stim.CircuitInstructio
     targets = [
         target for operation in operations for target in operation.instruction.targets_copy()
     ]
-    return stim.CircuitInstruction(first.name, targets, first.gate_args_copy(), tag=first.tag)
+    return _new_instruction(first.name, targets, first.gate_args_copy(), first.tag)
 
 
 def _get_gate_qubits(circuit: stim.Circuit, schedule: Schedule) -> frozenset[int]:

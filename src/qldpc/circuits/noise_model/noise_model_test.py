@@ -904,6 +904,23 @@ def test_rule_func() -> None:
     assert "X_ERROR" not in str(result)
 
 
+def test_noise_rule_subclass() -> None:
+    """A noise model adds noise with the noisy_operation method of a subclass of NoiseRule."""
+
+    class DephasingRule(circuits.NoiseRule):
+        def noisy_operation(
+            self, op: stim.CircuitInstruction
+        ) -> tuple[stim.CircuitInstruction, stim.Circuit]:
+            noisy_op, after = super().noisy_operation(op)
+            after.append("Z_ERROR", [target.value for target in op.targets_copy()], [0.5])
+            return noisy_op, after
+
+    model = circuits.NoiseModel(rules={"H": DephasingRule(after={"X": 0.1})})
+    assert model.noisy_circuit(stim.Circuit("H 0 1")) == stim.Circuit(
+        "H 0 1\nX_ERROR(0.1) 0 1\nZ_ERROR(0.5) 0 1"
+    )
+
+
 def test_clifford_nq_error() -> None:
     """clifford_nq_error dispatches by qubit count k."""
 

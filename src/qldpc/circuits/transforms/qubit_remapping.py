@@ -10,6 +10,9 @@ import stim
 
 from ..common import StimCircuitLike
 
+# the number of qubit indices that stim targets can address, since stim keeps them in 24 bits
+_NUM_QUBIT_INDICES = 2**24
+
 ####################################################################################################
 # qubit remapping
 
@@ -60,12 +63,10 @@ def with_remapped_qubits(
             new_targets = (
                 op.targets_copy()
                 if op.name == "MPAD"
-                else [remap_qubit_target(target, qubit_map) for target in op.targets_copy()]
+                else [_remap_target_for_append(target, qubit_map) for target in op.targets_copy()]
             )
-            new_op = stim.CircuitInstruction(
-                name=op.name, targets=new_targets, gate_args=op.gate_args_copy(), tag=op.tag
-            )
-            new_circuit.append(new_op)
+            # stim's CircuitInstruction constructor is slow, so append the instruction by its parts
+            new_circuit.append(op.name, new_targets, op.gate_args_copy(), tag=op.tag)
 
     return new_circuit
 
@@ -91,3 +92,19 @@ def remap_qubit_target(target: stim.GateTarget, qubit_map: Mapping[int, int]) ->
         return stim.target_inv(new_qubit_value)
 
     return stim.GateTarget(new_qubit_value)
+
+
+def _remap_target_for_append(
+    target: stim.GateTarget, qubit_map: Mapping[int, int]
+) -> int | stim.GateTarget:
+    """Remap a target as :func:`remap_qubit_target` does, but give a plain qubit as an integer.
+
+    Stim's GateTarget constructor is slow, and circuits accept integer qubits instead.  Other
+    targets, and remapped values that are not valid qubit indices, go through
+    :func:`remap_qubit_target`, so that they give the same targets and errors.
+    """
+    if target.is_qubit_target and not target.is_inverted_result_target:
+        qubit = qubit_map.get(target.value, target.value)
+        if isinstance(qubit, int) and 0 <= qubit < _NUM_QUBIT_INDICES:
+            return qubit
+    return remap_qubit_target(target, qubit_map)

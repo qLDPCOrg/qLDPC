@@ -88,3 +88,17 @@ def test_get_immune_qubits() -> None:
     assert common._get_immune_qubits(circuit, None) == frozenset()
     with pytest.raises(ValueError, match="non-empty"):
         common._get_immune_qubits(circuit, "")
+
+
+def test_new_instruction() -> None:
+    """Build the same instructions as stim's CircuitInstruction constructor."""
+    product = [stim.target_x(0), stim.target_combiner(), stim.target_z(1)]
+    cases: list[tuple[str, list[stim.GateTarget], list[float], str]] = [
+        ("MPP", product, [0.01], "tag"),
+        ("OBSERVABLE_INCLUDE", [], [0], ""),
+        ("DETECTOR", [stim.target_rec(-1)], [], ""),
+        ("REPEAT", [], [], ""),
+    ]
+    for name, targets, args, tag in cases:
+        expected = stim.CircuitInstruction(name, targets, args, tag=tag)
+        assert common._new_instruction(name, targets, args, tag) == expected
