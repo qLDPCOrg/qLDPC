@@ -15,6 +15,22 @@ One calibration of a consumer then scores many preparation circuits.
 Use the figure of merit to compare preparation circuits for one fixed consumer.
 It is not a logical error rate, a fault-tolerance certificate, or a bound on the failure of a real computation.
 
+## Two-call workflow
+
+The [built-in consumer](#the-built-in-consumer), a window of swap-type Steane QEC, scores a preparation circuit in two calls:
+
+```python
+calibration = get_steane_swap_consumer(code, noise_model).calibrate()
+phi, standard_error = calibration.estimate_excess_failure_probability(preparation_circuit)
+```
+
+The first call simulates the consumer once.
+The second call scores a preparation circuit from the residual weights of its errors, without simulating the consumer again.
+By default, the consumer tests a fresh `|0>` block, and `basis="X"` tests a fresh `|+>` block (see [What a calibration measures](#what-a-calibration-measures)).
+One calibration scores every preparation circuit of the same ideal block, whatever its noise and post-selection.
+The rest of this guide defines `phi`, written `Φ` below, and explains the calibration and its approximations.
+The [state-preparation benchmarking notebook](../../../../../examples/experimental/logical_state_preparation.ipynb) demonstrates the workflow.
+
 ## Definitions
 
 ### Error mechanisms, faults, and acceptance
@@ -58,6 +74,74 @@ It averages over the consumer's own noise and over the calibration ensemble of e
 The **excess** `c_s(m) - c_s(0)` is the signed cost of residual weight `m`.
 It is normally positive, but an error can occasionally turn a failure of the consumer into a success.
 A measured or supplied profile therefore need not increase with `m`.
+
+## The built-in consumer
+
+`get_steane_swap_consumer(code, noise_model)` builds a window of swap-type Steane QEC, as in Figure 4d of [arXiv:2603.04584](https://arxiv.org/abs/2603.04584).
+Swap-type Steane QEC teleports the logical qubits of a CSS code from block to block, in steps of two kinds:
+
+- A Z-correction step applies a transversal CNOT from the current block to a fresh `|0>` block, and measures the current block in the X basis.
+  The X-type stabilizers of the measured block define detectors, which detect Z errors.
+- An X-correction step applies a transversal CNOT from a fresh `|+>` block to the current block, and measures the current block in the Z basis.
+  The Z-type stabilizers of the measured block define detectors, which detect X errors.
+
+Each kind of step consumes one kind of fresh block, so a repeating cycle has two slots for fresh blocks: one for `|0>` blocks and one for `|+>` blocks.
+The measured logical operators of each step extend the observables.
+The observables compare the logical X and Z operators of the data block at the start of the window with those of the last block at its end.
+
+### The window
+
+A fresh `|0>` block enters by a Z-correction step.
+The CNOT of this entry step copies the Z errors of the fresh block onto the block that the step measures, and the step decodes the copy.
+The original Z errors stay on the fresh block.
+The CNOT of the next step copies them onto the following block, which the step two steps after entry measures, so that this step decodes them again.
+Without faults, the two decodings see the same syndrome, and their corrections cancel.
+The step after entry decodes the X errors of the fresh block once, by measuring the block, which removes them.
+For a fresh `|+>` block, X and Z are exchanged.
+
+The entry step and the step after it also decode errors that the consumer's own faults leave on the blocks that they measure.
+In a repeating cycle, faults in the two steps before entry leave such errors, which combine with the errors of the fresh block.
+The window therefore starts two noisy steps before the entry step, from an ideal data block in logical `|0>`.
+It ends with the step two steps after entry, which decodes the copied errors again, so that this decoding is noisy as in a cycle.
+In all, the window runs five noisy steps of alternating kind:
+
+- With `basis="Z"`, the default, the steps are Z-, X-, Z-, X-, and Z-correction steps, and the fresh `|0>` block under test enters by the third.
+- With `basis="X"`, the steps are X-, Z-, X-, Z-, and X-correction steps, and the fresh `|+>` block under test enters by the third.
+
+Suppose that the decoder decodes each step on its own, as the default decoder does, and corrects every single fault.
+Then further noisy steps before or after the window do not change the cost of an error on the block under test, to first order in the consumer's error probabilities.
+The result therefore does not depend on whether a cycle starts with X or Z correction, and the windows of the two slots have the same form, with X and Z exchanged.
+A decoder of the whole window, such as one built from its detector error model, does not have this property.
+With such a decoder, the calibration depends on the length of the window that the decoder sees.
+After the five steps, the stabilizers of the last block are measured noiselessly to define detectors.
+No error on the block under test reaches this readout.
+
+### What a calibration measures
+
+A calibration of the consumer measures the cost of one imperfect fresh block in the slot under test.
+It makes these approximations:
+
+- The window is finite: it starts from an ideal data block and ends with a noiseless readout.
+  With a decoder that decodes each step on its own and corrects every single fault, the steps that it omits change the cost only at second order in the consumer's error probabilities.
+- The data block and every fresh block other than the block under test are ideal.
+  Every block, including the block under test, starts in its ideal state.
+  `circuits.get_encoding_circuit` prepares these states noiselessly, and the calibration adds errors only to the block under test.
+- The cost is first order in imperfect blocks, so errors on several fresh blocks at once are neglected.
+- Noise acts on the CNOTs and measurements of each step, and any idle noise that the noise model specifies acts on the two blocks of the step.
+  Noise outside the steps is neglected, such as the idling of the data block while a fresh block is prepared, or of a fresh block before its step.
+
+A cycle consumes fresh `|0>` and `|+>` blocks.
+To score a scheme that prepares both, calibrate both slots, with `basis="Z"` and `basis="X"`.
+Score the `|0>` preparation circuit with the first calibration and the `|+>` preparation circuit with the second, then add the two scores.
+With the default decoder, a self-dual CSS code such as the Steane code, and a noise model that transversal Hadamard gates leave unchanged, such as `DepolarizingNoiseModel`, the two slots have the same costs with X and Z exchanged.
+The [Steane-QEC notebook](../../../../../examples/logical_error_rates/6_steane_qec.ipynb) simulates a full cycle instead, with noisy flagged preparations of its fresh blocks.
+
+### The default decoder
+
+The default decoder decodes the syndrome of each step, and the final syndrome, separately, with a minimum-weight lookup table for each type of stabilizer.
+The detectors and the tables use independent stabilizer generators of each type, even if the code has redundant checks.
+The docstring of `get_steane_swap_consumer` gives the size limits of the tables, and larger codes need another decoder.
+The default `correctable_weight` is `t = ⌊(d - 1) / 2⌋` for a code of distance `d`, so `calibrate` resolves residual weights up to `t + 1` by default.
 
 ## The stratified calibration
 
@@ -196,7 +280,8 @@ Report `Φ`, its standard error, and the acceptance probability of the circuit t
 1. **Independent error mechanisms.**
    The consumer's and the preparation's noise channels are replaced by independent DEM mechanisms, as described [above](#error-mechanisms-faults-and-acceptance).
 2. **Separate Pauli types.**
-   The X and Z contributions are added, which neglects their interaction when both parts of an error occur in one shot, such as the two parts of a Y error.
+   The X and Z contributions are added, which neglects their interaction when both parts of an error occur in one shot.
+   Examples are the two parts of a Y error, and X and Z errors that one fault leaves on different qubits.
 3. **The calibration ensemble.**
    Each excess `c_s(m) - c(0)` averages over the [calibration's errors](#how-it-is-sampled) of residual weight `m`, not over those of the preparation circuit.
 4. **Truncation.**
@@ -231,6 +316,9 @@ Check the histogram's `num_samples` when an error looks too small.
 
 ## Supplying a consumer's response
 
+- **The built-in consumer.**
+  `get_steane_swap_consumer(code, noise_model).calibrate()` estimates stratified tables for the [built-in consumer](#the-built-in-consumer).
+  `get_steane_swap_consumer` also takes the slot under test, a decoder, and the correctable weight.
 - **A Poisson profile.**
   `ConsumerProfile.poisson(expected_fault_weight, t)` models a consumer that fails exactly when `m + g > t` for a Poisson-distributed `g`.
   `estimate_downstream_fault_weight` estimates the expected fault weight from an operation-count preset.
@@ -260,8 +348,11 @@ Check the histogram's `num_samples` when an error looks too small.
   It samples the noise channels of both circuits with Stim, and keeps the joint X and Z parts of each error and the circuit's own errors.
   It therefore probes approximations 1, 2, and 3 together, and a discrepancy does not identify its cause.
   Its `pauli` option keeps one part of each error.
-  Within their reported sampling errors, compare the whole-error estimate with the sum of the X-only and Z-only estimates.
+  Compare the whole-error estimate with the sum of the X-only and Z-only estimates.
   Their difference estimates the X–Z interaction neglected by approximation 2.
+  With the same `seed`, the three runs share their shots, so that the difference has a much smaller error than the three reported standard errors suggest.
+  For a decoder that decodes the two Pauli types independently, the difference counts only shots in which both parts change the outcome, and it is usually negative.
+  Direct simulation runs the same consumer as the calibration, so it does not test how well the consumer models a larger computation.
   Compare the calibrated estimate with direct simulation when introducing a new consumer, code family, or noise regime.
   Direct simulation must be repeated for every circuit, and its cost grows as failures become rarer.
 - **Fault tolerance of the consumer.**
