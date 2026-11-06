@@ -98,8 +98,12 @@ MEASURE_AND_RESET_OPS = frozenset(
 MEASURE_OR_RESET_OPS = JUST_MEASURE_OPS | JUST_RESET_OPS | MEASURE_AND_RESET_OPS
 
 
+@functools.lru_cache(maxsize=4096)
 def involves_classical_bits(op: stim.CircuitInstruction) -> bool:
     """Determines if an operation involves classical bits.
+
+    Noise models and schedulers check each operation several times, and circuits repeat
+    instructions, so recent results are cached.  Instructions are hashed by value.
 
     Args:
         op: The circuit instruction to check.
