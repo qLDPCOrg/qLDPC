@@ -11,7 +11,7 @@ import itertools
 import math
 import os
 from collections.abc import Collection, Iterable, Iterator, Sequence
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 import galois
 import numpy as np
@@ -21,7 +21,7 @@ import sympy
 from sympy.matrices.normalforms import hermite_normal_form
 
 import qldpc
-from qldpc import abstract
+from qldpc import _deprecations, abstract
 from qldpc._utils import networkx as nx
 from qldpc.math import IntegerArray, resolve_field
 from qldpc.objects import (
@@ -501,8 +501,8 @@ class TBCode(CSSCode):
     Commutativity of A and B ensures that ``matrix_x @ matrix_z.T = AB - BA = 0``, which makes
     matrix_x and matrix_z a valid choice of parity check matrices of a CSSCode.
 
-    Two-block codes constructed out of circulant matrices (i.e., matrices chosen from a ring over an
-    abelian group) are known as quasi-cyclic codes (QCCodes).
+    Two-block codes whose matrices A and B are elements of an abelian group algebra are multivariate
+    bicycle codes (MBCodes).
 
     References:
 
@@ -694,12 +694,12 @@ class GALACode(CSSCode):
         )
 
 
-class QCCode(TBCode):
-    """Quasi-cyclic code.
+class MBCode(TBCode):
+    """Multivariate bicycle code, also known as an abelian two-block group-algebra code.
 
-    A QCCode is a two block code (TBCode) built out of matrices A and B that are chosen from a ring
-    over an abelian group to ensure that A and B commute.  More specifically, a QCCode is a CSS code
-    with subcode parity check matrices
+    An MBCode is a two block code (TBCode) built out of matrices A and B that are chosen from a ring
+    over an abelian group to ensure that A and B commute.  More specifically, an MBCode is a CSS
+    code with subcode parity check matrices
 
     - ``matrix_x = [A, B]``, and
     - ``matrix_z = [B.T, -A.T]``.
@@ -711,7 +711,7 @@ class QCCode(TBCode):
     - x, y, z, ... are generators of cyclic groups of orders ``R_x``, ``R_y``, ``R_z``, ...
     - the monomial ``x^i y^j z^k ...`` represents a tensor product of cyclic shift matrices.
 
-    A quasi-cyclic code is defined by...
+    A multivariate bicycle code is defined by...
     [1] a sequence of cyclic group orders, and
     [2] two multivariate polynomials.
     The polynomials should be sympy expressions such as 1 + x + x * y**2 with sympy.abc variables x
@@ -721,19 +721,20 @@ class QCCode(TBCode):
 
     References:
 
-    - https://errorcorrectionzoo.org/c/quantum_quasi_cyclic
-    - https://arxiv.org/abs/2109.14609
+    - https://errorcorrectionzoo.org/c/abelian_2bga
+    - https://arxiv.org/abs/2406.19151
+    - https://arxiv.org/abs/2306.16400
 
-    Univariate quasi-cyclic codes are generalized bicycle codes:
+    With polynomials in one variable, multivariate bicycle codes are generalized bicycle codes:
 
     - https://errorcorrectionzoo.org/c/generalized_bicycle
     - https://arxiv.org/abs/2203.17216
 
-    Bivariate quasi-cyclic codes are bivariate bicycle codes; see the BBCode class.
+    With polynomials in two variables, they are bivariate bicycle codes; see the BBCode class.
 
-    The X-distance and Z-distance of a quasi-cyclic code are equal.  Swapping the two blocks,
-    inverting group elements, and negating one block maps the X-type checks onto the Z-type checks,
-    and preserves the weights of operators.
+    The X-distance and Z-distance of a multivariate bicycle code are equal.  Swapping the two
+    blocks, inverting group elements, and negating one block maps the X-type checks onto the Z-type
+    checks, and preserves the weights of operators.
     """
 
     poly_a: sympy.Poly
@@ -753,7 +754,7 @@ class QCCode(TBCode):
         poly_b: sympy.Basic,
         field: int | type[galois.FieldArray] | None = None,
     ) -> None:
-        """Construct a generalized bicycle code."""
+        """Construct a multivariate bicycle code."""
         # identify the symbols used to denote cyclic group generators
         symbols = poly_a.free_symbols | poly_b.free_symbols
         if len(orders) < len(symbols):
@@ -793,7 +794,7 @@ class QCCode(TBCode):
         self.poly_a = self.get_simplified_form(poly_a)
         self.poly_b = self.get_simplified_form(poly_b)
 
-        # build defining matrices of a quasi-cyclic code; transpose the lift by convention
+        # build defining matrices of a multivariate bicycle code; transpose the lift by convention
         matrix_a = self.ring.eval(self.poly_a, self.symbol_gens).lift().T
         matrix_b = self.ring.eval(self.poly_b, self.symbol_gens).lift().T
         super().__init__(
@@ -945,8 +946,8 @@ class QCCode(TBCode):
         return _get_block_translations(self.group, 2)
 
 
-class BBCode(QCCode):
-    """Bivariate bicycle code, or a quasi-cyclic code with polynomials in two variables.
+class BBCode(MBCode):
+    """Bivariate bicycle code, or a multivariate bicycle code with polynomials in two variables.
 
     A bivariate bicycle code is a CSS code with subcode parity check matrices
 
@@ -1374,6 +1375,7 @@ class PairPartitionCode(CSSCode):
     References:
 
     - https://arxiv.org/abs/2609.30069, which subsumes https://arxiv.org/abs/2607.14091
+    - https://errorcorrectionzoo.org/c/quasi_cyclic_qldpc
     - https://github.com/ultra-high-rate-qec/design-principles-data (instances of arXiv:2609.30069)
     - https://github.com/kasaikenta/pair-partition-cpm-css-codes (instances of arXiv:2607.14091)
 
@@ -2025,7 +2027,7 @@ class HGPCode(CSSCode):
 
 
 class CHGPCode(HGPCode):
-    """Cyclic hypergraph product code.
+    """Cyclic hypergraph product code, called a CxC code in arXiv:2511.09683.
 
     A CHGPCode is a hypergraph product of classical CyclicCodes.
 
@@ -2055,7 +2057,7 @@ class CHGPCode(HGPCode):
 
 
 class CRCode(HGPCode):
-    """Repeated cyclic hypergraph product code.
+    """Repeated cyclic hypergraph product code, called a CxR code in arXiv:2511.09683.
 
     A CRCode is a hypergraph product of a CyclicCode and a RingCode.
 
@@ -3539,3 +3541,9 @@ def _rotated_check_is_used(row: int, col: int, rows: int, cols: int) -> bool:
 
 # offsets from a data qubit at (row, col) to its neighboring checks in a rotated surface code
 _CHECK_OFFSETS = {"nw": (0, 0), "ne": (0, 1), "sw": (1, 0), "se": (1, 1)}
+
+
+if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations
+
+    def __getattr__(name: str) -> object:
+        return _deprecations.get_deprecated_attribute(__name__, name)

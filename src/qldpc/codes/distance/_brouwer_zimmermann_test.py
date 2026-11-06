@@ -414,9 +414,9 @@ def test_the_lightest_eligible_row_excludes_stabilizers() -> None:
     assert bz._get_lightest_eligible_row_weight(basis, labels) == 2
 
 
-def test_brouwer_zimmermann_overlap_qc(get_candidate_count: Callable[[], int]) -> None:
-    """The default QC64 X-sector search stays within a broad candidate-work budget."""
-    code = qldpc.codes.QCCode(
+def test_brouwer_zimmermann_overlap_mb(get_candidate_count: Callable[[], int]) -> None:
+    """The default MB64 X-sector search stays within a broad candidate-work budget."""
+    code = qldpc.codes.MBCode(
         {x: 4, y: 4, z: 2},
         1 + x + y + x * y * z,
         1 + x * y + x**2 * y**3 * z + x**3 * y**2,
@@ -576,10 +576,10 @@ def test_translated_searches_scan_every_layer_they_certify() -> None:
 def test_translated_searches_find_exact_distances() -> None:
     """Searches given automorphisms agree with brute force, alone or sharing witnesses.
 
-    The searches use the translations of a quasi-cyclic code, the identity alone, which does not
-    reduce work, or a function that returns no automorphisms.
+    The searches use the translations of a multivariate bicycle code, the identity alone, which does
+    not reduce work, or a function that returns no automorphisms.
     """
-    code = qldpc.codes.QCCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
+    code = qldpc.codes.MBCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
     identity = np.arange(len(code))[None]
     problems = [get_sector_problem(code, pauli) for pauli in PAULIS_XZ]
     for problem, pauli in zip(problems, PAULIS_XZ):
@@ -648,7 +648,7 @@ def test_searches_ask_for_automorphisms_only_before_costly_layers(
     Finding automorphisms can cost more than an easy search, so a search that finishes before any
     costly layer does not ask for them.
     """
-    code = qldpc.codes.QCCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
+    code = qldpc.codes.MBCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
     problem = get_sector_problem(code, Pauli.X)
     for minimum_layer_work, expected_calls in ((10**9, 0), (0, 1)):
         monkeypatch.setattr(bz, "MINIMUM_LAYER_WORK", minimum_layer_work)
@@ -680,7 +680,7 @@ def test_translated_rows_can_reach_the_cutoff() -> None:
 @pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
 def test_searches_reject_wrong_automorphisms() -> None:
     """A permutation that does not preserve a problem fails loudly when a search would use it."""
-    code = qldpc.codes.QCCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
+    code = qldpc.codes.MBCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
     transposition = np.arange(len(code))
     transposition[[0, 1]] = [1, 0]
     with pytest.raises(ValueError, match="not an automorphism"):

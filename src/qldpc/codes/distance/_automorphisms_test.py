@@ -22,7 +22,7 @@ from .conftest import get_sector_problem
 
 def test_automorphisms_must_map_both_spaces_onto_themselves() -> None:
     """Only permutations that preserve the searched space and its excluded subspace pass."""
-    code = codes.QCCode([7], 1 + x + x**3, 1 + x**2 + x**3 + x**4)
+    code = codes.MBCode([7], 1 + x + x**3, 1 + x**2 + x**3 + x**4)
     basis, labels = get_sector_problem(code, Pauli.X)
     shift = np.concatenate([np.roll(np.arange(7), 1), np.roll(np.arange(7), 1) + 7])
     _automorphisms.verify_automorphisms(basis, labels, shift[None])
@@ -52,7 +52,7 @@ def test_translates_certify_like_the_family_of_all_translates() -> None:
     groups include one that acts on each block with several orbits.
     """
     rng = np.random.default_rng(0)
-    for code in _get_random_qc_codes(rng, 12):
+    for code in _get_random_mb_codes(rng, 12):
         translations = code._get_qudit_automorphisms()
         for automorphisms in (translations, translations[:1]):
             elements = _get_group_elements(automorphisms)
@@ -98,7 +98,7 @@ def test_scanned_sets_balance_two_orbits() -> None:
     rank(O')`` in the other orbit ``O'``, and every count between these bounds is attained.
     """
     rng = np.random.default_rng(1)
-    for code in _get_random_qc_codes(rng, 12):
+    for code in _get_random_mb_codes(rng, 12):
         for pauli in (Pauli.X, Pauli.Z):
             basis, labels = get_sector_problem(code, pauli)
             dimension, num_columns = basis.shape
@@ -123,8 +123,8 @@ def test_translate_work_scans_one_set_per_layer() -> None:
     assert _automorphisms.estimate_translate_work(certificate, 100) == 2**5 - 1
 
 
-def _get_random_qc_codes(rng: np.random.Generator, count: int) -> list[codes.QCCode]:
-    """Random binary quasi-cyclic codes that encode logical qubits, over small abelian groups."""
+def _get_random_mb_codes(rng: np.random.Generator, count: int) -> list[codes.MBCode]:
+    """Random binary multivariate bicycle codes over small groups that encode logical qubits."""
     groups = [
         ((7,), (x,)),
         ((12,), (x,)),
@@ -132,7 +132,7 @@ def _get_random_qc_codes(rng: np.random.Generator, count: int) -> list[codes.QCC
         ((6, 2), (x, y)),
         ((2, 2, 3), (x, y, z)),
     ]
-    found: list[codes.QCCode] = []
+    found: list[codes.MBCode] = []
     while len(found) < count:
         orders, symbols = groups[len(found) % len(groups)]
         polys = [
@@ -144,7 +144,7 @@ def _get_random_qc_codes(rng: np.random.Generator, count: int) -> list[codes.QCC
             )
             for _ in range(2)
         ]
-        code = codes.QCCode(dict(zip(symbols, orders)), *polys)
+        code = codes.MBCode(dict(zip(symbols, orders)), *polys)
         if code.dimension:
             found.append(code)
     return found

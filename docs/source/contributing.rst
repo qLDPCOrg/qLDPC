@@ -164,7 +164,7 @@ Add or change a code construction
    Do not validate construction-supplied or cached parameters by reading those same values back.
 5. If the construction of a CSS code comes with a group of qudit permutations that preserve the code, consider overriding ``_get_qudit_automorphisms`` to return generators of that group.
    Exact distance searches use them to search less when the optional ``pybliss`` package does not find such permutations.
-   ``QCCode._get_qudit_automorphisms`` is an example, which uses ``_get_block_translations`` for a group that translates every block of qudits at once.
+   ``MBCode._get_qudit_automorphisms`` is an example, which uses ``_get_block_translations`` for a group that translates every block of qudits at once.
    Prove in the docstring that each generator maps the row spaces of both ``matrix_x`` and ``matrix_z`` onto themselves, and test it.
 
 Change code-core algebra

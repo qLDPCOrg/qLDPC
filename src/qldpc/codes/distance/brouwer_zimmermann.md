@@ -466,7 +466,7 @@ It enumerates words in vectorized, packed blocks and updates them with Gray-code
 ### 3.7 Translates of an information set by automorphisms
 
 Many code constructions come with a group of qubit permutations that preserve the code.
-For example, translating both blocks of qubits of a quasi-cyclic code by an element of its group maps its checks of each type onto themselves.
+For example, translating both blocks of qubits of a multivariate bicycle code by an element of its group maps its checks of each type onto themselves.
 Such a group lets a search certify with a large family of information sets while scanning only one of them, which removes most of the cost of the layers that dominate a search.
 
 #### The certificate of translates
@@ -494,7 +494,7 @@ $$
 
 where the minimum is over the orbits that meet `I`, rounded up to a proven weight divisor as in [Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple).
 This bound is strongest when `I` meets every orbit in an even share `|I ∩ O| / |O|`.
-If every orbit meets `I` in the share `r/N`, as for a single orbit of all `N` coordinates, or for the two blocks of a quasi-cyclic code and a set with `r/2` columns in each, then `L(t) = ceil(N(t+1)/r)`.
+If every orbit meets `I` in the share `r/N`, as for a single orbit of all `N` coordinates, or for the two blocks of a multivariate bicycle code and a set with `r/2` columns in each, then `L(t) = ceil(N(t+1)/r)`.
 No family of information sets has a larger coverage-divided certificate, because a family of `m` sets with maximum coverage `C` has `m r ≤ C N`.
 
 #### Choosing the scanned set
@@ -529,14 +529,14 @@ They are the symmetries of the given parity checks, a subgroup of the automorphi
 This subgroup suffices, since every group of automorphisms gives a sound certificate.
 
 Without `pybliss`, or if bliss finds none, code classes can supply generators through a `_get_qudit_automorphisms` method.
-`QCCode` supplies the translations of its group, which act on the qubits of each block by a regular permutation.
+`MBCode` supplies the translations of its group, which act on the qubits of each block by a regular permutation.
 A wrong generator would make the certificate unsound.
 So before a search uses the generators, it checks that each maps `V` and `S` onto themselves, and raises an error if one does not.
 Only distance searches use automorphisms: counting the logical operators of a given weight ([Section 5](#5-correctness-requirements)) must visit every word of that weight, not one word per orbit.
 
 ### 3.8 Worked example
 
-This example uses one CSS sector of the QC64 code from the test suite ([_brouwer_zimmermann_test.py](_brouwer_zimmermann_test.py)).
+This example uses one CSS sector of the MB64 code from the test suite ([_brouwer_zimmermann_test.py](_brouwer_zimmermann_test.py)).
 The sector has these properties:
 
 - It has 64 coordinates and dimension `r = 41`.
