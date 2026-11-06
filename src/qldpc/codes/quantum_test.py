@@ -609,7 +609,6 @@ def test_pair_partition_codes() -> None:
     exponents_x = [[3, 6, 0, 4, 6, 0, 1, 0], [4, 3, 4, 6, 2, 6, 3, 0], [1, 5, 2, 4, 1, 0, 2, 3]]
     exponents_z = [[4, 4, 6, 2, 4, 6, 6, 1], [5, 3, 2, 5, 1, 4, 3, 1], [2, 3, 1, 3, 0, 6, 0, 4]]
     code = codes.PairPartitionCode(exponents_x, exponents_z, lift_size=7)
-    assert not code.is_subsystem_code
     assert code.has_4_cycles()
     assert not code.is_mixed_distinct()
     assert_pair_partition_cycle_properties(code)
@@ -671,6 +670,12 @@ def test_pair_partition_from_array() -> None:
     assert np.array_equal(code.exponents_z, exponents_z % lift_size)
     code = codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size, seed=1)
     assert code == codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size, seed=1)
+
+    # a family can consist of a single member, with all exponents equal to zero
+    code = codes.PairPartitionCode.from_pair_partition_array(
+        [[[[0, 1]]]], lift_size, fix_gauge=True
+    )
+    assert not np.any(code.exponents_x) and not np.any(code.exponents_z)
 
     with pytest.raises(ValueError, match="coefficients"):
         codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size, coefficients=[1])

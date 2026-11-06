@@ -1369,16 +1369,14 @@ class PairPartitionCode(CSSCode):
     Keyword args:
         promise_equal_distance_xz: Passed to CSSCode: a promise, which is not verified, that the
             X-distance and Z-distance of this code are equal.  Default: False.
-        skip_validation: If True, skip the check that ``matrix_x @ matrix_z.T == 0``.  Structural
+        skip_validation: If True, skip the check that ``matrix_x @ matrix_z.T == 0``.  If the
+            exponents then violate CSS orthogonality, the result is a subsystem code.  Structural
             input validation is performed regardless.  Default: False.
     """
 
     exponents_x: npt.NDArray[np.int_]
     exponents_z: npt.NDArray[np.int_]
     lift_size: int
-
-    ring_array_x: abstract.RingArray
-    ring_array_z: abstract.RingArray
 
     def __init__(
         self,
@@ -1401,14 +1399,6 @@ class PairPartitionCode(CSSCode):
                 f" shape (got shapes {self.exponents_x.shape} and {self.exponents_z.shape})"
             )
 
-        ring = abstract.GroupRing(abstract.CyclicGroup(lift_size))
-        generator = ring.group.generators[0]
-        self.ring_array_x = abstract.RingArray.build(
-            [[generator ** int(exp) for exp in row] for row in self.exponents_x], ring
-        )
-        self.ring_array_z = abstract.RingArray.build(
-            [[generator ** int(exp) for exp in row] for row in self.exponents_z], ring
-        )
         matrix_x = self.ring_array_x.lift()
         matrix_z = self.ring_array_z.lift()
         if not skip_validation and np.any(matrix_x @ matrix_z.T):
@@ -1427,6 +1417,16 @@ class PairPartitionCode(CSSCode):
         text += f"\n  X: {self.exponents_x.tolist()}"
         text += f"\n  Z: {self.exponents_z.tolist()}"
         return text
+
+    @property
+    def ring_array_x(self) -> abstract.RingArray:
+        """The X-type parity check matrix as an array of monomials in F_2[Z_P]."""
+        return self._get_ring_array(self.exponents_x)
+
+    @property
+    def ring_array_z(self) -> abstract.RingArray:
+        """The Z-type parity check matrix as an array of monomials in F_2[Z_P]."""
+        return self._get_ring_array(self.exponents_z)
 
     def has_4_cycles(self) -> bool:
         """Does the Tanner graph of matrix_x or matrix_z contain a 4-cycle?
@@ -1489,8 +1489,8 @@ class PairPartitionCode(CSSCode):
         Args:
             matchings: A ``J x J`` pair-partition array.
             lift_size: The size ``P`` of the circulant permutation matrices, a prime number.
-            fix_gauge: If True, only return solutions that satisfy the gauge-fixing conditions
-                above.  Default: False.
+            fix_gauge: If True, restrict the solution space by the gauge-fixing conditions above.
+                Default: False.
 
         Returns:
             A basis for the solution space over ``F_P``, as an array with shape ``(K, 2, J, L)``,
@@ -1555,8 +1555,9 @@ class PairPartitionCode(CSSCode):
 
         Every member of a family is CSS-orthogonal, but its girth, dimension, and distance depend on
         the member.  The code search of arXiv:2609.30069 samples random members, and rejects those
-        that fail PairPartitionCode.has_4_cycles or PairPartitionCode.is_mixed_distinct.  Often
-        most members fail these tests, especially when ``P`` is small.
+        with 4-cycles (see PairPartitionCode.has_4_cycles) or without mixed-distinctness (see
+        PairPartitionCode.is_mixed_distinct).  Often most members are rejected, especially when
+        ``P`` is small.
 
         Args:
             matchings: A ``J x J`` pair-partition array (see solve_pair_partition_array).
@@ -1567,7 +1568,7 @@ class PairPartitionCode(CSSCode):
             seed: A seed or random number generator for choosing a random member.  Default: None.
         """
         basis = cls.solve_pair_partition_array(matchings, lift_size, fix_gauge=fix_gauge)
-        field = galois.GF(lift_size)
+        field = type(basis)
         if coefficients is None:
             combination = field(np.random.default_rng(seed).integers(lift_size, size=len(basis)))
         elif len(coefficients) != len(basis):
@@ -1577,7 +1578,7 @@ class PairPartitionCode(CSSCode):
             )
         else:
             combination = field(np.array(coefficients, dtype=int) % lift_size)
-        exponents = combination @ basis.reshape(len(basis), -1)
+        exponents = combination @ basis.reshape(len(basis), math.prod(basis.shape[1:]))
         exponents_x, exponents_z = np.array(exponents.reshape(basis.shape[1:]), dtype=int)
         return cls(exponents_x, exponents_z, lift_size)
 
@@ -1593,6 +1594,14 @@ class PairPartitionCode(CSSCode):
                 f" array of integers (got shape {array.shape} and dtype {array.dtype})"
             )
         return array.astype(int)
+
+    def _get_ring_array(self, exponents: npt.NDArray[np.int_]) -> abstract.RingArray:
+        """Build the array of monomials x**e in F_2[Z_P] for an array of exponents e."""
+        ring = abstract.GroupRing(abstract.CyclicGroup(self.lift_size))
+        generator = ring.group.generators[0]
+        return abstract.RingArray.build(
+            [[generator ** int(exp) for exp in row] for row in exponents], ring
+        )
 
 
 ####################################################################################################
