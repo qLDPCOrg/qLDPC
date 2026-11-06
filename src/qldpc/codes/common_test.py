@@ -18,6 +18,7 @@ import numpy.typing as npt
 import pytest
 import scipy.sparse
 import stim
+import sympy.abc
 
 from qldpc import abstract, codes, decoders, external, math
 from qldpc.codes import _code_capacity, common
@@ -710,6 +711,33 @@ def test_css_joint_distance_cache() -> None:
     subsystem_code = codes.CSSCode([[0, 1, 1], [1, 1, 0]], [[1, 0, 1], [1, 1, 0]])
     assert subsystem_code.is_subsystem_code
     assert subsystem_code.get_distance_exact(Pauli.X) == 1
+
+
+def test_css_distances_verify_automorphisms() -> None:
+    """Exact CSS distances use the qudit automorphisms of a code only after verifying them."""
+
+    class CodeWithAutomorphisms(codes.CSSCode):
+        automorphisms: npt.NDArray[np.int_]
+
+        def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_]:
+            return self.automorphisms
+
+    poly_x = sympy.abc.x
+    qc_code = codes.QCCode([7], 1 + poly_x + poly_x**3, 1 + poly_x**2 + poly_x**3 + poly_x**4)
+    transposition = np.arange(len(qc_code))
+    transposition[[0, 1]] = [1, 0]
+    for pauli in (None, Pauli.X):
+        expected = codes.CSSCode(qc_code.matrix_x, qc_code.matrix_z).get_distance_exact(
+            pauli, method="brute_force"
+        )
+        code = CodeWithAutomorphisms(qc_code.matrix_x, qc_code.matrix_z)
+        code.automorphisms = qc_code._get_qudit_automorphisms()
+        assert code.get_distance_exact(pauli) == expected
+
+        code = CodeWithAutomorphisms(qc_code.matrix_x, qc_code.matrix_z)
+        code.automorphisms = transposition[None]
+        with pytest.raises(ValueError, match="not an automorphism"):
+            code.get_distance_exact(pauli)
 
 
 @pytest.mark.parametrize("field", [2, 3])

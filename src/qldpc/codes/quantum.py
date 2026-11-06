@@ -728,6 +728,12 @@ class QCCode(TBCode):
     - https://arxiv.org/abs/2203.17216
 
     Bivariate quasi-cyclic codes are bivariate bicycle codes; see the BBCode class.
+
+    The X-distance and Z-distance of a quasi-cyclic code are equal: swapping the two blocks,
+    inverting group elements, and negating one block maps the X-type checks onto the Z-type checks,
+    and preserves the weights of operators.  Translating both blocks by a group element maps the
+    checks of each type onto themselves, and exact distance searches use these translations to
+    search less.
     """
 
     poly_a: sympy.Poly
@@ -928,6 +934,25 @@ class QCCode(TBCode):
             + subgraphs_ZR[1::2]
             + subgraphs_XL[::2]
         )
+
+    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_]:
+        """Translations of both blocks of qudits by the generators of the group of this code.
+
+        The qudits of each block, and the checks of each type, are indexed by group elements.
+        Translating every qudit by a group element maps each check to the check of the translated
+        group element, so it maps the rows of both parity check matrices onto themselves.
+        """
+        block_size = len(self) // 2
+        translations = [
+            np.argmax(self.group.lift(generator), axis=0) for generator in self.group.generators
+        ]
+        return np.array(
+            [
+                np.concatenate([translation, translation + block_size])
+                for translation in translations
+            ],
+            dtype=int,
+        ).reshape(-1, len(self))
 
 
 class BBCode(QCCode):

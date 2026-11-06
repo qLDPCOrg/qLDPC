@@ -221,6 +221,7 @@ def _get_distance_css_brouwer_zimmermann(
     cutoff: int,
     block_size: int = 15,
     upper_bound: int | None = None,
+    automorphisms: npt.NDArray[np.int_] | None = None,
 ) -> int:
     """Compute the minimum distance across homogeneous binary CSS sectors.
 
@@ -231,6 +232,9 @@ def _get_distance_css_brouwer_zimmermann(
         block_size: Batch size exponent, as in get_distance_quantum.
         upper_bound: Weight of a known logical operator from an omitted sector, if any.  The result
             is the minimum of this bound and the distances of the supplied sectors.
+        automorphisms: Generators of a group of qubit permutations that map the stabilizers and the
+            logical operators of every sector onto themselves, if known, which can speed up the
+            search.  Row ``i`` maps qubit ``j`` to qubit ``automorphisms[i, j]``.
 
     Returns:
         The minimum exact distance across the supplied sectors and the optional upper bound.  A
@@ -239,8 +243,9 @@ def _get_distance_css_brouwer_zimmermann(
         ``cutoff`` is an observed upper bound.
 
     Raises:
-        ValueError: If there are neither sectors nor an upper bound, or if the operators of a sector
-            are not binary matrices of equal width.
+        ValueError: If there are neither sectors nor an upper bound, if the operators of a sector
+            are not binary matrices of equal width, or if a row of ``automorphisms`` does not map
+            the stabilizers and logical operators of a searched sector onto themselves.
     """
     if not sectors and upper_bound is None:
         raise ValueError("Require at least one sector or an upper bound")
@@ -270,6 +275,7 @@ def _get_distance_css_brouwer_zimmermann(
         cutoff=cutoff,
         block_size=block_size,
         upper_bound=upper_bound,
+        automorphisms=automorphisms,
     )
     return min([distance, *bounds])
 

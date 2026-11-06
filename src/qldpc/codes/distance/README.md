@@ -30,6 +30,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | A distance method, or the validation of method and backend names | `core.py`, and where `logical_counts.py`, `_counting/scan.py`, and `get_distance_exact` in `src/qldpc/codes/common.py` dispatch on the method name |
 | The Brouwer–Zimmermann (BZ) distance search | `_brouwer_zimmermann.py` |
 | How basis families and their certificates are built | `_information_sets.py` |
+| Families of translates of one information set by automorphisms of a code, and the check of those automorphisms | `_automorphisms.py` |
 | Information sets with bounded column coverage, by matroid partitioning | `_matroid_partition.py` |
 | Exhaustive enumeration, for small codes, fallbacks, and the `brute_force` method | `_brute_force.py` |
 | Minimum weights of syndrome classes of Pauli errors (coset-leader weights), with two classical searches for the CSS weight on CSS states, used by `src/qldpc/circuits/certification/` | `_coset_leader_search.py` |
@@ -47,7 +48,7 @@ From the top:
 
 1. `core.py` and `logical_counts.py`, the public interfaces.
 2. `_brouwer_zimmermann.py`, `_brute_force.py`, `_coset_leader_search.py`, and the `_counting` package, the searches.
-3. `_information_sets.py`, the basis families that the searches share.
+3. `_information_sets.py`, the basis families that the searches share, and `_automorphisms.py`, which builds families of translates from them.
 4. `_matroid_partition.py`, which `_information_sets.py` uses to build some of those families.
 5. `_binary.py`, the foundation.
 

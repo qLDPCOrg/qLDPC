@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Exact binary BZ searches using disjoint or overlapping information sets.
+"""Exact binary BZ searches using disjoint, overlapping, or translated information sets.
 
 The disjoint/rank-deficient certificates follow `Algorithm 994 <https://arxiv.org/abs/1603.06757>`_;
 the symplectic reduction follows the `quantum-code adaptation <https://arxiv.org/abs/2408.10743>`_.
 The overlapping-set certificate and implementation invariants are derived in
 ``brouwer_zimmermann.md`` beside this module.  Information-set families and their certificates are
-built in ``_information_sets.py``, which fixed-weight logical counting shares; this module owns
-witness discovery, early exits, exhaustive dispatch, and the resumable native scan.
+built in ``_information_sets.py``, which fixed-weight logical counting shares, and families of
+translates by automorphisms in ``_automorphisms.py``; this module owns witness discovery, early
+exits, exhaustive dispatch, and the resumable native scan.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ import numpy.typing as npt
 from qldpc._binary import pack_bits, popcount_word
 from qldpc._compilation import always_compiled
 
-from . import _information_sets
+from . import _automorphisms, _information_sets
 from ._binary import get_eligible_rows
 from ._brute_force import get_nested_distance_brute_force
 from ._information_sets import advance_support
@@ -39,6 +40,7 @@ def get_distance_brouwer_zimmermann_many(
     upper_bound: int | None = None,
     get_disjoint_basis_families: Sequence[Callable[[], _information_sets.BasisFamily]]
     | None = None,
+    automorphisms: npt.NDArray[np.int_] | None = None,
 ) -> int:
     """Advance nested-code searches round-robin while sharing their best upper bound.
 
@@ -47,7 +49,16 @@ def get_distance_brouwer_zimmermann_many(
     basis, with quotient labels of the problem, certified with this ``weight_divisor``.  The result
     of ``_information_sets.get_disjoint_family`` is one, and a caller that keeps such families saves
     that first stage.  Each function is called only if its search needs it.
+
+    ``automorphisms``, if given, holds generators of a group of column permutations that map the
+    searched space and the excluded subspace of every problem onto themselves, which a search can
+    use to scan fewer information sets (see ``_automorphisms``).  Row ``i`` maps column ``j`` to
+    column ``automorphisms[i, j]``.  They are verified first, and a ``ValueError`` is raised if one
+    is not an automorphism of every problem.
     """
+    if automorphisms is not None:
+        for basis, labels in problems:
+            _automorphisms.verify_automorphisms(basis, labels, automorphisms)
     initial_upper_bounds = [
         _get_lightest_eligible_row_weight(basis, labels) for basis, labels in problems
     ]
@@ -69,6 +80,7 @@ def get_distance_brouwer_zimmermann_many(
             get_disjoint_basis_family=None
             if get_disjoint_basis_families is None
             else get_disjoint_basis_families[index],
+            automorphisms=automorphisms,
         )
         if isinstance(prepared, int):
             best = min(best, prepared)
@@ -138,21 +150,20 @@ def enumeration_is_cheaper_than_setup(dimension: int, length: int) -> bool:
 def _enumeration_is_cheaper_than_search(
     *,
     num_logical_rows: int,
-    certificate: _information_sets.Certificate,
-    upper_bound: int,
+    dimension: int,
+    work: int,
 ) -> bool:
     """Estimate whether exhaustive nested-code enumeration will outperform BZ.
 
-    The BZ estimate pessimistically assumes that the search must certify the current upper bound,
-    whereas lighter witnesses usually end the search sooner.  Although the vectorized exhaustive
-    kernel is a few times cheaper per candidate than the serial Numba BZ kernel, whole-search
-    timings near this boundary favor BZ until the exhaustive count reaches roughly the estimated BZ
-    count, so the two counts are compared directly.
+    ``work`` is the BZ estimate of the family to search, such as ``Certificate.work``, which
+    pessimistically assumes that the search must certify the current upper bound, whereas lighter
+    witnesses usually end the search sooner.  Although the vectorized exhaustive kernel is a few
+    times cheaper per candidate than the serial Numba BZ kernel, whole-search timings near this
+    boundary favor BZ until the exhaustive count reaches roughly the estimated BZ count, so the two
+    counts are compared directly.
     """
-    dimension = certificate.dimension
-    bz_candidates = certificate.work(upper_bound)
     exhaustive_candidates = ((1 << num_logical_rows) - 1) << (dimension - num_logical_rows)
-    return exhaustive_candidates <= bz_candidates
+    return exhaustive_candidates <= work
 
 
 ####################################################################################################
@@ -164,7 +175,10 @@ class _BrouwerZimmermannSearch:
     """State for one resumable Brouwer-Zimmermann search.
 
     ``certificate`` records the ranks, maximum coordinate coverage, and proven weight divisor of the
-    packed family.  ``ranks`` is its native copy for the compiled scan.
+    family that certifies the search.  If ``translated``, that family holds the translates of the
+    one packed set by automorphisms of the problem, which complete each layer when it does (see
+    ``_automorphisms``), and otherwise it is the packed family.  ``ranks`` is the native copy of the
+    ranks of the packed sets for the compiled scan.
     """
 
     generators: npt.NDArray[np.uint64]
@@ -177,11 +191,12 @@ class _BrouwerZimmermannSearch:
     best: int
     lower_bound: int
     next_weight: int = 1
+    translated: bool = False
     ranks: npt.NDArray[np.int64] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        self.ranks = np.array(self.certificate.ranks, dtype=np.int64)
-        assert len(self.ranks) == len(self.generators)
+        self.ranks = np.array(self.certificate.ranks[: len(self.generators)], dtype=np.int64)
+        assert len(self.generators) == (1 if self.translated else len(self.certificate.ranks))
         assert self.certificate.dimension == self.dimension
 
     @property
@@ -207,7 +222,8 @@ class _BrouwerZimmermannSearch:
 
         The search scans the fewest leading sets whose completion of the layer certifies the best
         weight at the start of the layer, or every set if no fewer do (see
-        ``Certificate.get_num_sets_to_certify``).
+        ``Certificate.get_num_sets_to_certify``).  A translated search scans its one set, which
+        completes the layer for the whole family.
         """
         if self.finished:
             return self.best
@@ -216,12 +232,17 @@ class _BrouwerZimmermannSearch:
         # weight: an unvisited eligible word lighter than that would contradict the certificate, and
         # lighter witnesses found during the scan only lower the best weight further.
         weight = self.next_weight
-        num_completed = self.certificate.get_num_sets_to_certify(weight, self.best)
-        scanned = slice(0, num_completed)
+        num_sets = len(self.certificate.ranks)
+        if self.translated:
+            num_scanned, num_completed = 1, num_sets
+        else:
+            num_completed = self.certificate.get_num_sets_to_certify(weight, self.best)
+            num_scanned = num_completed
+        scanned = slice(0, num_scanned)
 
         # Start a fresh enumeration of all supports with this coefficient weight.
         support = np.zeros(weight, dtype=np.int64)
-        prefixes = np.zeros((weight + 1, num_completed, self.generators.shape[2]), dtype=np.uint64)
+        prefixes = np.zeros((weight + 1, num_scanned, self.generators.shape[2]), dtype=np.uint64)
         depth = 0
         # Any negative Python cutoff disables early exit; keep its native value in int64 range.
         cutoff = max(-1, self.cutoff)
@@ -246,7 +267,7 @@ class _BrouwerZimmermannSearch:
 
         # The scanned sets have completed the layer, so the family certificate may advance.
         self.lower_bound = self.certificate.step_lower_bound(weight, num_completed)
-        if num_completed == len(self.ranks):
+        if num_completed == num_sets:
             self.next_weight += 1
         return self.best
 
@@ -261,12 +282,14 @@ def _prepare_brouwer_zimmermann_search(
     upper_bound: int,
     initial_upper_bound: int | None = None,
     get_disjoint_basis_family: Callable[[], _information_sets.BasisFamily] | None = None,
+    automorphisms: npt.NDArray[np.int_] | None = None,
 ) -> int | _BrouwerZimmermannSearch:
     """Prepare one BZ search, or return immediately when another route is cheaper.
 
     The basis family stages of ``_information_sets`` run in order, with distance-specific witness,
     cutoff, certificate, and exhaustive exits between them.  ``get_disjoint_basis_family``, if
-    given, returns the result of the first stage.
+    given, returns the result of the first stage.  Verified ``automorphisms`` of the problem, if
+    given, can replace the later stages by a family of translates of one information set.
     """
     dimension = len(basis)
     best = min(
@@ -303,9 +326,29 @@ def _prepare_brouwer_zimmermann_search(
     if lower_bound >= best:
         return best
 
-    # Replace the basis family only when overlapping sets, built heuristically and then, for costly
-    # searches, by matroid partitioning, predict less certification work.
-    for get_replacement in (
+    # With automorphisms, scan one information set and certify with its translates, if that
+    # predicts less certification work than the disjoint basis family.
+    translate_certificate: _information_sets.Certificate | None = None
+    if automorphisms is not None:
+        translate_family, certificate = _automorphisms.get_translate_family(
+            basis, labels, automorphisms, basis_family.weight_divisor
+        )
+        if _automorphisms.estimate_translate_work(certificate, best) < (
+            basis_family.certificate.work(best)
+        ):
+            basis_family, translate_certificate = translate_family, certificate
+
+            # The rows of the scanned set are the layer-one words of every translate.
+            best = _get_basis_family_upper_bound(basis_family, best)
+            if best <= cutoff:
+                return best
+            lower_bound = translate_certificate.lower_bound(completed_weight)
+            if lower_bound >= best:
+                return best
+
+    # Otherwise, replace the basis family only when overlapping sets, built heuristically and then,
+    # for costly searches, by matroid partitioning, predict less certification work.
+    replacement_stages = (
         lambda family, best: _information_sets.get_overlapping_family(
             basis,
             labels,
@@ -317,7 +360,8 @@ def _prepare_brouwer_zimmermann_search(
         lambda family, best: _information_sets.get_partitioned_family(
             basis, labels, family, best, _information_sets.MAX_SETS
         ),
-    ):
+    )
+    for get_replacement in replacement_stages if translate_certificate is None else ():
         replacement = get_replacement(basis_family, best)
         if not len(replacement.ranks):
             continue
@@ -335,8 +379,10 @@ def _prepare_brouwer_zimmermann_search(
 
     if _enumeration_is_cheaper_than_search(
         num_logical_rows=int(np.count_nonzero(get_eligible_rows(labels))),
-        certificate=basis_family.certificate,
-        upper_bound=best,
+        dimension=dimension,
+        work=basis_family.certificate.work(best)
+        if translate_certificate is None
+        else _automorphisms.estimate_translate_work(translate_certificate, best),
     ):
         distance = get_nested_distance_brute_force(
             basis, labels, cutoff=cutoff, block_size=block_size, homogeneous=True
@@ -367,12 +413,15 @@ def _prepare_brouwer_zimmermann_search(
         packed_labels,
         widths,
         label_widths,
-        basis_family.get_search_certificate(best),
+        basis_family.get_search_certificate(best)
+        if translate_certificate is None
+        else translate_certificate,
         cutoff,
         1 << min(block_size, 15),
         best,
         lower_bound,
         completed_weight + 1,
+        translate_certificate is not None,
     )
 
 

@@ -512,6 +512,40 @@ def test_quasi_cyclic_codes() -> None:
     ]
 
 
+def test_quasi_cyclic_translations_preserve_checks() -> None:
+    """Translations of a quasi-cyclic code map its checks of each type onto themselves.
+
+    They generate a group with one element for each qudit of a block, which takes any qudit of a
+    block to any other.
+    """
+    for code in [
+        codes.BBCode({x: 6, y: 3}, x**2 + y, 1 + x * y**2),
+        codes.QCCode([2, 1, 3], x + 1, x * y + 1),
+        codes.QCCode([5], 1 + 2 * x, 1 + x**2, field=3),
+    ]:
+        automorphisms = code._get_qudit_automorphisms()
+        for permutation in automorphisms:
+            for matrix in (code.matrix_x, code.matrix_z):
+                permuted = np.zeros_like(matrix)
+                permuted[:, permutation] = matrix
+                assert {row.tobytes() for row in permuted} == {row.tobytes() for row in matrix}
+
+        block_size = len(code) // 2
+        elements = {tuple(range(len(code)))}
+        frontier = list(elements)
+        while frontier:
+            products = {
+                tuple(permutation[list(element)])
+                for element in frontier
+                for permutation in automorphisms
+            }
+            frontier = list(products - elements)
+            elements |= products
+        assert len(elements) == block_size
+        assert {element[0] for element in elements} == set(range(block_size))
+        assert {element[block_size] for element in elements} == set(range(block_size, len(code)))
+
+
 @pytest.mark.parametrize("num_terms", [1, 3, 4])
 def test_quasi_cyclic_syndrome_subgraphs_by_term_count(num_terms: int) -> None:
     """Syndrome subgraphs partition every Tanner edge beyond the two-term documented example."""

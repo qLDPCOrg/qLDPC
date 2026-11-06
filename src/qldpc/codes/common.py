@@ -3436,6 +3436,7 @@ class CSSCode(QuditCode):
                 sectors,
                 cutoff=cutoff,
                 upper_bound=upper_bound,
+                automorphisms=self._get_qudit_automorphisms(),
             )
             if cutoff <= 1:
                 # The joint search proves only the minimum, not either individual sector distance.
@@ -3454,7 +3455,14 @@ class CSSCode(QuditCode):
         if self.is_subsystem_code:
             stabilizers = np.vstack([stabilizers, self.get_gauge_ops(pauli)]).view(self.field)
 
-        if self.field is galois.GF2:
+        if self.field is galois.GF2 and method == "brouwer_zimmermann":
+            distance = _get_distance_css_brouwer_zimmermann(
+                [(logical_ops, stabilizers)],
+                cutoff=cutoff,
+                automorphisms=self._get_qudit_automorphisms(),
+            )
+
+        elif self.field is galois.GF2:
             distance = get_distance_quantum(
                 logical_ops,
                 stabilizers,
@@ -4137,6 +4145,16 @@ class CSSCode(QuditCode):
     def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
         """Method for subclasses to compute specialized exact distance calculations."""
         return NotImplemented
+
+    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+        """Generators of a group of qudit permutations that preserve this code, if known.
+
+        Subclasses whose construction comes with such a group return its generators as rows, where
+        row ``i`` maps qudit ``j`` to qudit ``result[i, j]``, and each generator maps the row spaces
+        of both ``matrix_x`` and ``matrix_z`` onto themselves.  Exact distance searches verify the
+        generators before they use them to search less.
+        """
+        return None
 
     def _get_distance_bound_if_known(self, pauli: PauliXZ | None = None) -> int | float | None:
         """Retrieve the best known upper bound on (X-, Z-, or ordinary) distance, or ``None``."""

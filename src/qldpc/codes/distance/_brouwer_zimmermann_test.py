@@ -17,9 +17,11 @@ from sympy.abc import x, y, z
 
 import qldpc
 from qldpc._binary import get_independent_rows
+from qldpc.objects import Pauli, PauliXZ
 
 from . import _brouwer_zimmermann as bz
 from . import _information_sets
+from ._binary import get_nested_code_basis
 from .conftest import get_random_full_rank_matrix
 
 
@@ -542,6 +544,121 @@ def test_a_search_through_the_costly_stages_finds_the_distance(
     basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
     assert qldpc.codes.get_distance_classical(basis, cutoff=0, method="brute_force") == 6
     assert qldpc.codes.get_distance_classical(basis, cutoff=0) == 6
+
+
+@pytest.mark.usefixtures("force_information_sets")
+@pytest.mark.parametrize(
+    "orders, poly_a, poly_b, pauli",
+    [
+        ({x: 6, y: 3}, x**3 * y**2 + x**3 * y + x**3 + x * y, x**2 * y + x * y, Pauli.Z),
+        ({x: 2, y: 3, z: 4}, x * y * z**2 + x * z**3, x * y**2 * z**3 + x * y * z**2, Pauli.X),
+        ({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x, Pauli.X),
+    ],
+)
+def test_translated_searches_scan_every_layer_they_certify(
+    orders: dict[Any, int], poly_a: Any, poly_b: Any, pauli: PauliXZ
+) -> None:
+    """Sectors whose translated searches find a lightest word only in their last layer.
+
+    A search that stopped a layer early, or certified layers without scanning them, would
+    overestimate these distances.
+    """
+    code = qldpc.codes.QCCode(orders, poly_a, poly_b)
+    logical_ops = np.asarray(code.get_logical_ops(pauli), dtype=np.uint8)
+    stabilizers = np.asarray(code.get_stabilizer_ops(pauli, canonicalized=True), dtype=np.uint8)
+    expected = qldpc.codes.get_distance_quantum(
+        logical_ops, stabilizers, homogeneous=True, cutoff=0, method="brute_force"
+    )
+    distance = bz.get_distance_brouwer_zimmermann_many(
+        [get_nested_code_basis(logical_ops, stabilizers)],
+        cutoff=0,
+        block_size=15,
+        automorphisms=code._get_qudit_automorphisms(),
+    )
+    assert distance == expected
+
+
+@pytest.mark.usefixtures("force_information_sets")
+def test_translated_searches_find_exact_distances() -> None:
+    """Searches that scan one set and certify with its translates find exact distances.
+
+    The translations of random quasi-cyclic codes preserve both sectors.  The searches, of each
+    sector alone and of both sectors together, agree with brute force and with searches that do not
+    use the translations.
+    """
+    rng = np.random.default_rng(2)
+    groups = [((9,), (x,)), ((14,), (x,)), ((5, 3), (x, y)), ((4, 2, 2), (x, y, z))]
+    num_codes = 0
+    while num_codes < 16:
+        orders, symbols = groups[num_codes % len(groups)]
+        polys = [
+            sum(
+                np.prod(
+                    [symbol ** int(rng.integers(order)) for symbol, order in zip(symbols, orders)]
+                )
+                for _ in range(int(rng.integers(2, 5)))
+            )
+            for _ in range(2)
+        ]
+        code = qldpc.codes.QCCode(dict(zip(symbols, orders)), *polys)
+        if not code.dimension:
+            continue
+        num_codes += 1
+        automorphisms = code._get_qudit_automorphisms()
+        problems = []
+        for pauli in (Pauli.X, Pauli.Z):
+            logical_ops = np.asarray(code.get_logical_ops(pauli), dtype=np.uint8)
+            stabilizers = np.asarray(code.get_stabilizer_ops(pauli, canonicalized=True), np.uint8)
+            expected = qldpc.codes.get_distance_quantum(
+                logical_ops, stabilizers, homogeneous=True, cutoff=0, method="brute_force"
+            )
+            problems.append(get_nested_code_basis(logical_ops, stabilizers))
+            for given_automorphisms in (None, automorphisms):
+                distance = bz.get_distance_brouwer_zimmermann_many(
+                    problems[-1:], cutoff=0, block_size=15, automorphisms=given_automorphisms
+                )
+                assert distance == expected
+        assert bz.get_distance_brouwer_zimmermann_many(
+            problems, cutoff=0, block_size=15, automorphisms=automorphisms
+        ) == code.get_distance(method="brute_force")
+
+
+def test_translated_rows_can_reach_the_cutoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The rows of a scanned set with translates can end search setup at the cutoff.
+
+    In this sector, the rows of the disjoint basis family have weight five or more, and a row of the
+    scanned set has weight four.
+    """
+    monkeypatch.setattr(bz, "enumeration_is_cheaper_than_setup", lambda *_: False)
+    code = qldpc.codes.QCCode({x: 5, y: 3}, x**4 * y + x + y**2, x**4 * y + x**3 * y)
+    logical_ops = np.asarray(code.get_logical_ops("X"), dtype=np.uint8)
+    stabilizers = np.asarray(code.get_stabilizer_ops("X", canonicalized=True), dtype=np.uint8)
+    expected = qldpc.codes.get_distance_quantum(
+        logical_ops, stabilizers, homogeneous=True, cutoff=0, method="brute_force"
+    )
+    cutoff = 4
+    distance = bz.get_distance_brouwer_zimmermann_many(
+        [get_nested_code_basis(logical_ops, stabilizers)],
+        cutoff=cutoff,
+        block_size=15,
+        automorphisms=code._get_qudit_automorphisms(),
+    )
+    assert expected <= distance <= max(cutoff, expected)
+
+
+def test_searches_reject_wrong_automorphisms() -> None:
+    """A permutation that does not preserve a problem fails loudly, even for a small problem."""
+    code = qldpc.codes.QCCode([7], 1 + x + x**3, 1 + x**2 + x**3 + x**4)
+    problem = get_nested_code_basis(
+        np.asarray(code.get_logical_ops("X"), dtype=np.uint8),
+        np.asarray(code.get_stabilizer_ops("X", canonicalized=True), dtype=np.uint8),
+    )
+    transposition = np.arange(len(code))
+    transposition[[0, 1]] = [1, 0]
+    with pytest.raises(ValueError, match="not an automorphism"):
+        bz.get_distance_brouwer_zimmermann_many(
+            [problem], cutoff=0, block_size=15, automorphisms=transposition[None]
+        )
 
 
 def _no_labels(basis: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
