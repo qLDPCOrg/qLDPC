@@ -1297,56 +1297,44 @@ class TwoGrossCode(BBCode):
         self._distance_x = self._distance_z = 18
 
 
-####################################################################################################
-# pair-partition code
-
-
 class PairPartitionCode(CSSCode):
     """Pair-partition code: a quasi-cyclic CSS code built from circulant permutation matrices.
 
-    A pair-partition code is a binary (qubit) CSS code whose X-type and Z-type parity check matrices
-    are ``J x L`` arrays of ``P x P`` circulant permutation matrices (CPMs),
+    A pair-partition code is a binary CSS code whose X-type and Z-type parity check matrices are
+    ``J x L`` arrays of ``P x P`` circulant permutation matrices (CPMs),
 
     - ``matrix_x = [[C(e_{il})]]``, and
-    - ``matrix_z = [[C(d_{jl})]]``,
+    - ``matrix_z = [[C(d_{jl})]]``.
 
-    where ``e_{il}`` and ``d_{jl}`` are the entries of the integer exponent arrays ``exponents_x``
-    and ``exponents_z``, and ``C(s)`` is the CPM whose row ``a`` has its nonzero entry in column
-    ``a - s`` (mod ``P``), which is the lift of the monomial ``x**s`` in the group algebra
-    ``F_2[Z_P]``.  Here ``J`` and ``L`` are the numbers of rows and columns of the exponent arrays,
-    and ``P`` is ``lift_size``.  The code has ``L * P`` qubits and ``J * P`` parity checks of each
-    type, every parity check has weight ``L``, and every qubit has degree ``J`` in each of
-    ``matrix_x`` and ``matrix_z``.  Qubits are ordered block by block, so qubit ``l * P + a`` is
-    qubit ``a`` of block ``l``.  (The reference implementation below interleaves blocks instead; the
-    two orderings differ only by a permutation of qubits.)
+    Here ``e_{il}`` and ``d_{jl}`` are the entries of the integer arrays ``exponents_x`` and
+    ``exponents_z``, and ``P`` is ``lift_size``.  The CPM ``C(s)`` has the nonzero entry of its row
+    ``r`` in column ``r - s`` (mod ``P``), which makes it the lift of the monomial ``x**s`` in the
+    group algebra ``F_2[Z_P]``.  The code has ``L * P`` qubits and ``J * P`` parity checks of each
+    type.  Every parity check has weight ``L``, and every qubit is addressed by ``J`` parity checks
+    of each type.  Qubit ``l * P + r`` is qubit ``r`` of block column ``l``.  The reference
+    implementation below interleaves block columns instead, which permutes qubits.
 
-    In other words, the parity check matrices are CPM lifts of the all-ones ``J x L`` protograph, as
-    in the standard construction of quasi-cyclic LDPC codes.  The block of ``matrix_x @ matrix_z.T``
-    indexed by X-block-row ``i`` and Z-block-row ``j`` is ``sum_l C(e_{il} - d_{jl})``.  Distinct
-    CPMs have disjoint supports, so this block vanishes over ``F_2`` if and only if the ``L`` block
-    columns can be partitioned into pairs ``{u, v}`` that satisfy the paired-difference equation
-    ``d_{j,u} - e_{i,u} = d_{j,v} - e_{i,v}`` (mod ``P``), so that the two CPMs in each pair
-    coincide and cancel.  A ``J x J`` array ``M`` of such pair partitions, one per pair of block
-    rows ``(i, j)``, is called a pair-partition array.  To build a code from a pair-partition array
-    (rather than from exponents worked out by hand), see
-    PairPartitionCode.from_pair_partition_array.
+    The parity check matrices are CPM lifts of the all-ones ``J x L`` base matrix, as in the
+    standard construction of quasi-cyclic LDPC codes.  The block of ``matrix_x @ matrix_z.T`` in
+    block row ``i`` and block column ``j`` is ``sum_l C(e_{il} - d_{jl})``.  Distinct CPMs have
+    disjoint supports, so this block vanishes over ``F_2`` if and only if the ``L`` block columns
+    of the parity check matrices split into pairs ``{u, v}`` that satisfy the paired-difference
+    equation ``d_{ju} - e_{iu} = d_{jv} - e_{iv}`` (mod ``P``).  The two CPMs of each pair then
+    coincide and cancel.  A ``J x J`` array of such pair partitions, one for each pair of block rows
+    ``(i, j)``, is called a pair-partition array.  PairPartitionCode.from_pair_partition_array
+    builds codes from a pair-partition array.
 
-    The paired-difference equations and the code are invariant under the relabelings
-    ``e_{il} -> e_{il} + t_l + a_i`` and ``d_{jl} -> d_{jl} + t_l + b_j``, which permute qubits
-    within blocks and checks within block rows.  Two further properties of the exponents are useful
-    for decoding: the absence of 4-cycles in the Tanner graphs of ``matrix_x`` and ``matrix_z`` (see
-    PairPartitionCode.has_4_cycles), and the mixed-distinctness condition of arXiv:2609.30069, which
-    makes every X-type check overlap with every Z-type check on zero or two qubits (see
+    The relabelings ``e_{il} -> e_{il} + tau_l + alpha_i`` and ``d_{jl} -> d_{jl} + tau_l + beta_j``
+    preserve the paired-difference equations, and change the code only by permuting qubits and
+    parity checks.  Two further properties of the exponents help belief-propagation decoding.  The
+    first is the absence of 4-cycles in the Tanner graphs of ``matrix_x`` and ``matrix_z`` (see
+    PairPartitionCode.has_4_cycles).  The second is mixed-distinctness, which makes every X-type
+    check overlap every Z-type check on zero or two qubits (see
     PairPartitionCode.is_mixed_distinct).
 
-    References:
-
-    - https://arxiv.org/abs/2607.14091
-    - https://arxiv.org/abs/2609.30069
-    - https://github.com/kasaikenta/pair-partition-cpm-css-codes (reference implementation)
-
-    Example: the ``[[276, 98, 14]]`` code with ``(J, L, P) = (4, 12, 23)`` from Table I of
-    arXiv:2607.14091 (instance ``qc_276_98_14`` of the reference implementation) is constructed by::
+    PairPartitionCode does not record a code distance.  The ``[[276, 98, 14]]`` code below has
+    ``(J, L, P) = (4, 12, 23)``, and is instance ``qc_276_98_14`` of the reference implementation.
+    Its distance of 14 is taken from the references, rather than computed::
 
         exponents_x = [
             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -1362,6 +1350,23 @@ class PairPartitionCode(CSSCode):
         ]
         code = PairPartitionCode(exponents_x, exponents_z, lift_size=23)
         assert (code.num_qubits, code.dimension) == (276, 98)
+
+    References:
+
+    - https://arxiv.org/abs/2609.30069, which subsumes https://arxiv.org/abs/2607.14091
+    - https://github.com/kasaikenta/pair-partition-cpm-css-codes (reference implementation)
+
+    Args:
+        exponents_x: A ``J x L`` array of integer exponents ``e_{il}`` for the X-type checks.
+        exponents_z: A ``J x L`` array of integer exponents ``d_{jl}`` for the Z-type checks.
+        lift_size: The size ``P`` of the circulant permutation matrices, a positive integer.
+            Exponents are stored modulo ``P``.
+
+    Keyword args:
+        promise_equal_distance_xz: Passed to CSSCode: a promise, which is not verified, that the
+            X-distance and Z-distance of this code are equal.  Default: False.
+        skip_validation: If True, skip the check that ``matrix_x @ matrix_z.T == 0``.  Structural
+            input validation is performed regardless.  Default: False.
     """
 
     exponents_x: npt.NDArray[np.int_]
@@ -1380,18 +1385,7 @@ class PairPartitionCode(CSSCode):
         promise_equal_distance_xz: bool = False,
         skip_validation: bool = False,
     ) -> None:
-        """Construct a pair-partition code from two exponent arrays and a cyclic lift size.
-
-        Args:
-            exponents_x: A ``J x L`` array of integer exponents ``e_{il}`` for the X-type checks.
-            exponents_z: A ``J x L`` array of integer exponents ``d_{jl}`` for the Z-type checks.
-            lift_size: The size ``P`` of the circulant permutation matrices; a positive integer.
-                Exponents are stored modulo ``P``.
-            promise_equal_distance_xz: Passed to CSSCode; a promise (which is not verified) that the
-                X-distance and Z-distance of this code are equal.  Default: False.
-            skip_validation: If True, skip checking that ``matrix_x @ matrix_z.T == 0``.  Only use
-                this if the exponents are known to define a valid CSS code.  Default: False.
-        """
+        """Construct a pair-partition code from two exponent arrays and a cyclic lift size."""
         if lift_size < 1:
             raise ValueError(f"The lift size must be positive (got {lift_size})")
         self.lift_size = lift_size
@@ -1403,8 +1397,7 @@ class PairPartitionCode(CSSCode):
                 f" shape (got shapes {self.exponents_x.shape} and {self.exponents_z.shape})"
             )
 
-        # build the monomial RingArrays over F_2[Z_P] whose lifts are the CSS parity check matrices
-        ring = abstract.GroupRing(abstract.CyclicGroup(self.lift_size))
+        ring = abstract.GroupRing(abstract.CyclicGroup(lift_size))
         generator = ring.group.generators[0]
         self.ring_array_x = abstract.RingArray.build(
             [[generator ** int(exp) for exp in row] for row in self.exponents_x], ring
@@ -1414,20 +1407,14 @@ class PairPartitionCode(CSSCode):
         )
         matrix_x = self.ring_array_x.lift()
         matrix_z = self.ring_array_z.lift()
-
         if not skip_validation and np.any(matrix_x @ matrix_z.T):
             raise ValueError(
                 "The exponent arrays provided for this PairPartitionCode violate CSS orthogonality"
-                " (matrix_x @ matrix_z.T != 0); see the pair-partition constraints in"
-                " help(qldpc.codes.PairPartitionCode)"
+                " (matrix_x @ matrix_z.T != 0); see help(qldpc.codes.PairPartitionCode)"
             )
-
-        super().__init__(
-            matrix_x,
-            matrix_z,
-            is_subsystem_code=False,
-            promise_equal_distance_xz=promise_equal_distance_xz,
-        )
+        super().__init__(matrix_x, matrix_z, promise_equal_distance_xz=promise_equal_distance_xz)
+        if not skip_validation:
+            self._is_subsystem_code = False  # verified above
 
     def __str__(self) -> str:
         """Human-readable representation of this code."""
@@ -1437,26 +1424,13 @@ class PairPartitionCode(CSSCode):
         text += f"\n  Z: {self.exponents_z.tolist()}"
         return text
 
-    @staticmethod
-    def _validate_exponents(
-        exponents: npt.NDArray[np.int_] | Sequence[Sequence[int]], pauli: str
-    ) -> npt.NDArray[np.int_]:
-        """Check that an exponent array is a 2D array of integers, and return it."""
-        array = np.asarray(exponents)
-        if array.ndim != 2 or not np.issubdtype(array.dtype, np.integer):
-            raise ValueError(
-                f"The {pauli}-type exponent array of a PairPartitionCode must be a two-dimensional"
-                f" array of integers (got shape {array.shape} and dtype {array.dtype})"
-            )
-        return array.astype(int)
-
     def has_4_cycles(self) -> bool:
         """Does the Tanner graph of matrix_x or matrix_z contain a 4-cycle?
 
-        A CPM lift of the all-ones protograph with exponents ``e_{il}`` has a 4-cycle if and only if
-        ``e_{il} - e_{il'} + e_{i'l'} - e_{i'l} = 0`` (mod ``P``) for some ``i != i'`` and ``l !=
-        l'``; equivalently, if and only if the differences ``e_{il} - e_{i'l}`` of two block rows
-        take some value twice.  See https://doi.org/10.1109/TIT.2004.831841.
+        The Tanner graph of ``matrix_x`` has a 4-cycle if and only if, for some two block rows
+        ``i != i'``, the differences ``e_{il} - e_{i'l}`` (mod ``P``) take some value at two block
+        columns ``l != l'``.  The same holds for ``matrix_z``.  See
+        https://doi.org/10.1109/TIT.2004.831841.
         """
         for exponents in [self.exponents_x, self.exponents_z]:
             for row_a, row_b in itertools.combinations(exponents, 2):
@@ -1466,14 +1440,15 @@ class PairPartitionCode(CSSCode):
         return False
 
     def is_mixed_distinct(self) -> bool:
-        """Does every X-type check overlap with every Z-type check on at most two qubits?
+        """Does every X-type check overlap every Z-type check on at most two qubits?
 
-        The X-type check in row ``a`` of block row ``i`` and the Z-type check in row ``b`` of block
-        row ``j`` overlap in block column ``l`` exactly when ``d_{jl} - e_{il} = b - a`` (mod
-        ``P``).  For a CSS code, this condition is therefore equivalent to the mixed-distinctness
-        condition of arXiv:2609.30069: that distinct pairs in each pair partition ``M[i][j]`` have
-        distinct mixed differences ``d_{j,u} - e_{i,u}``.  This condition reduces the number of
-        mixed 4-cycles in the combined X/Z incidence graph.
+        The X-type check in row ``r`` of block row ``i`` and the Z-type check in row ``r'`` of block
+        row ``j`` overlap in block column ``l`` exactly when ``d_{jl} - e_{il} = r' - r`` (mod
+        ``P``).  Every such overlap has an even size, because the code is CSS-orthogonal.  This
+        method is therefore equivalent to the mixed-distinctness condition of arXiv:2609.30069:
+        distinct pairs ``{u, v}`` in each pair partition of a pair-partition array have distinct
+        differences ``d_{ju} - e_{iu}``.  Mixed-distinctness reduces the number of 4-cycles that
+        alternate between X-type and Z-type checks.
         """
         for row_x in self.exponents_x:
             for row_z in self.exponents_z:
@@ -1489,39 +1464,33 @@ class PairPartitionCode(CSSCode):
         *,
         fix_gauge: bool = False,
     ) -> galois.FieldArray:
-        """Solve the paired-difference equations induced by a pair-partition array.
+        """Solve the paired-difference equations of a pair-partition array.
 
         A pair-partition array is a ``J x J`` array whose entry ``matchings[i][j]`` is a perfect
-        matching of ``range(L)``: a sequence of ``L / 2`` disjoint index pairs ``(u, v)`` that
-        together cover every column ``0, 1, ..., L - 1``.  Each pair imposes the linear equation
-        ``d_{j,u} - e_{i,u} = d_{j,v} - e_{i,v}`` over ``F_P`` on the exponents, and together these
-        equations guarantee that a pair-partition code is CSS-orthogonal (see
-        help(qldpc.codes.PairPartitionCode)).
+        matching of ``range(L)``: a sequence of ``L / 2`` disjoint pairs ``(u, v)`` that together
+        cover ``0, 1, ..., L - 1``.  Each pair imposes the linear equation
+        ``d_{ju} - e_{iu} = d_{jv} - e_{iv}`` over ``F_P`` on the exponents of a PairPartitionCode,
+        and every solution defines a valid CSS code (see help(qldpc.codes.PairPartitionCode)).
 
-        This method follows arXiv:2607.14091 in requiring that the lift size ``P`` is prime, so that
-        the equations can be solved over the field ``F_P``.  The definition in arXiv:2609.30069 also
-        allows a composite lift size; codes with a composite lift size can be constructed by passing
-        exponents directly to PairPartitionCode.
+        As in arXiv:2609.30069, this method requires a prime lift size ``P``, so that it can solve
+        the equations over the field ``F_P``.  Codes with a composite lift size can be constructed
+        by passing exponents to PairPartitionCode directly.
 
-        Every solution remains a solution under the relabelings ``e_{il} -> e_{il} + t_l + a_i`` and
-        ``d_{jl} -> d_{jl} + t_l + b_j``, which do not change the code up to a permutation of qubits
-        and checks.  These relabelings account for ``2 * J + L - 1`` dimensions of the solution
-        space.  If ``fix_gauge`` is True, this method removes these trivial directions by imposing
-        ``e_{0,l} = 0`` for all ``l`` (as in arXiv:2609.30069), together with ``e_{i,0} = 0`` and
-        ``d_{j,0} = 0`` for all ``i`` and ``j``.  Every solution is related by a relabeling to a
-        unique gauge-fixed solution.
+        The relabelings in help(qldpc.codes.PairPartitionCode) account for ``2 * J + L - 1``
+        dimensions of the solution space.  If ``fix_gauge`` is True, this method removes them by
+        imposing ``e_{0l} = 0`` for all ``l`` (as in arXiv:2609.30069), ``e_{i0} = 0`` for all
+        ``i``, and ``d_{j0} = 0`` for all ``j``.  Every solution is then related by a relabeling to
+        exactly one gauge-fixed solution.
 
         Args:
-            matchings: A ``J x J`` pair-partition array, as described above.
-            lift_size: The size ``P`` of the circulant permutation matrices; a prime number.
+            matchings: A ``J x J`` pair-partition array.
+            lift_size: The size ``P`` of the circulant permutation matrices, a prime number.
             fix_gauge: If True, only return solutions that satisfy the gauge-fixing conditions
                 above.  Default: False.
 
         Returns:
-            A basis for the solution space of the paired-difference equations over ``F_P``, with
-            one basis vector per row.  Each row is a flattened ``(vec(exponents_x),
-            vec(exponents_z))`` of length ``2 * J * L``, and any ``F_P``-linear combination of the
-            rows is a valid choice of exponents.
+            A basis for the solution space over ``F_P``, with one basis vector per row.  Each row
+            concatenates the row-major flattenings of ``exponents_x`` and ``exponents_z``.
         """
         if not sympy.isprime(lift_size):
             raise ValueError(
@@ -1530,9 +1499,9 @@ class PairPartitionCode(CSSCode):
         num_rows = len(matchings)  # J
         if num_rows == 0 or any(len(matching_row) != num_rows for matching_row in matchings):
             raise ValueError("A pair-partition array must be nonempty and square")
-        num_cols = 2 * len(matchings[0][0])  # L = 2 * (number of pairs per matching)
+        num_cols = 2 * len(matchings[0][0])  # L
 
-        # each pair imposes -e_{i,u} + e_{i,v} + d_{j,u} - d_{j,v} = 0 on the exponents (e, d)
+        # each pair imposes -e_{iu} + e_{iv} + d_{ju} - d_{jv} = 0 on the exponents (e, d)
         equations = []
         for i, matching_row in enumerate(matchings):
             for j, matching in enumerate(matching_row):
@@ -1567,76 +1536,56 @@ class PairPartitionCode(CSSCode):
         coefficients: Sequence[int] | None = None,
         *,
         fix_gauge: bool = False,
-        require_no_4_cycles: bool = False,
-        require_mixed_distinct: bool = False,
-        max_attempts: int = 1000,
         seed: int | np.random.Generator | None = None,
     ) -> PairPartitionCode:
         """Construct a pair-partition code from a pair-partition array.
 
-        The array determines only a linear family of valid codes (the solution space returned by
-        solve_pair_partition_array); this method selects one member of that family and builds it.
-        The member is the ``F_P``-linear combination of the basis returned by
-        solve_pair_partition_array given by ``coefficients``, or, if ``coefficients`` is None, a
-        uniformly random member of the family.  The resulting exponents satisfy the
-        paired-difference equations by construction, so the code is CSS-orthogonal.
+        The solutions to the paired-difference equations of a pair-partition array form a linear
+        family of codes (see PairPartitionCode.solve_pair_partition_array).  This method builds the
+        member of that family whose coefficients in the basis returned by
+        solve_pair_partition_array are ``coefficients``.  If ``coefficients`` is None, this method
+        builds a uniformly random member instead.
 
-        Note that a pair-partition array fixes CSS orthogonality but not code quality: the girth,
-        dimension, and distance depend on which member of the family is chosen.  When choosing a
-        random member, the requirements ``require_no_4_cycles`` and ``require_mixed_distinct`` can
-        be used to reject unwanted members, as in the search procedure of arXiv:2609.30069.  Most
-        members of a family may violate these requirements, especially when the lift size is small,
-        in which case a targeted search over the family may be necessary.
+        Every member of a family is CSS-orthogonal, but its girth, dimension, and distance depend on
+        the member.  The code search of arXiv:2609.30069 samples random members, and rejects those
+        that fail PairPartitionCode.has_4_cycles or PairPartitionCode.is_mixed_distinct.  Most
+        members can fail these tests, especially when ``P`` is small.
 
         Args:
-            matchings: A ``J x J`` pair-partition array; see solve_pair_partition_array.
-            lift_size: The size ``P`` of the circulant permutation matrices; a prime number.
+            matchings: A ``J x J`` pair-partition array (see solve_pair_partition_array).
+            lift_size: The size ``P`` of the circulant permutation matrices, a prime number.
             coefficients: The coefficients of the chosen member in the basis returned by
                 solve_pair_partition_array, or None to choose a random member.  Default: None.
             fix_gauge: Passed to solve_pair_partition_array.  Default: False.
-            require_no_4_cycles: If True, require that the Tanner graphs of matrix_x and matrix_z
-                have no 4-cycles (see PairPartitionCode.has_4_cycles).  Default: False.
-            require_mixed_distinct: If True, require that the exponents satisfy the
-                mixed-distinctness condition (see PairPartitionCode.is_mixed_distinct).  Default:
-                False.
-            max_attempts: The maximum number of random members to try before giving up on the
-                requirements above.  Default: 1000.
             seed: A seed or random number generator for choosing a random member.  Default: None.
-
-        Raises:
-            ValueError: If the chosen member (or every random member that was tried) violates the
-                requirements above.
         """
         basis = cls.solve_pair_partition_array(matchings, lift_size, fix_gauge=fix_gauge)
-        num_rows, num_cols = len(matchings), 2 * len(matchings[0][0])
         field = galois.GF(lift_size)
+        if coefficients is None:
+            combination = field(np.random.default_rng(seed).integers(lift_size, size=len(basis)))
+        elif len(coefficients) != len(basis):
+            raise ValueError(
+                f"Expected {len(basis)} coefficients for this pair-partition array, got"
+                f" {len(coefficients)}"
+            )
+        else:
+            combination = field(np.array(coefficients, dtype=int) % lift_size)
+        exponents = np.array(combination @ basis, dtype=int)
+        exponents_x, exponents_z = exponents.reshape(2, len(matchings), -1)
+        return cls(exponents_x, exponents_z, lift_size)
 
-        if coefficients is not None:
-            if len(coefficients) != len(basis):
-                raise ValueError(
-                    f"Expected {len(basis)} coefficients for this pair-partition array, got"
-                    f" {len(coefficients)}"
-                )
-            max_attempts = 1
-        rng = np.random.default_rng(seed)
-
-        for _ in range(max_attempts):
-            if coefficients is not None:
-                combination = field(np.array(coefficients, dtype=int) % lift_size)
-            else:
-                combination = field(rng.integers(lift_size, size=len(basis)))
-            exponents = np.array(combination @ basis, dtype=int)
-            exponents_x, exponents_z = exponents.reshape(2, num_rows, num_cols)
-            code = cls(exponents_x, exponents_z, lift_size)
-            if (not require_no_4_cycles or not code.has_4_cycles()) and (
-                not require_mixed_distinct or code.is_mixed_distinct()
-            ):
-                return code
-
-        raise ValueError(
-            "Failed to find a member of this pair-partition family that satisfies the requested"
-            f" requirements (attempts: {max_attempts})"
-        )
+    @staticmethod
+    def _validate_exponents(
+        exponents: npt.NDArray[np.int_] | Sequence[Sequence[int]], pauli: str
+    ) -> npt.NDArray[np.int_]:
+        """Check that an exponent array is a 2D array of integers, and return it."""
+        array = np.asarray(exponents)
+        if array.ndim != 2 or not np.issubdtype(array.dtype, np.integer):
+            raise ValueError(
+                f"The {pauli}-type exponent array of a PairPartitionCode must be a two-dimensional"
+                f" array of integers (got shape {array.shape} and dtype {array.dtype})"
+            )
+        return array.astype(int)
 
 
 ####################################################################################################

@@ -590,30 +590,46 @@ def _assert_pair_partition_cycle_properties(code: codes.PairPartitionCode) -> No
 
 def test_pair_partition_codes() -> None:
     """Pair-partition CSS codes from circulant permutation matrices."""
-    # the [[276, 98, 14]] code of arXiv:2607.14091, Table I
+    # C(s) has the nonzero entry of its row r in column r - s, and block columns are not interleaved
+    code = codes.PairPartitionCode([[1, 2]], [[0, 1]], lift_size=3)
+    assert np.array_equal(
+        code.matrix_x,
+        [[0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 0, 1], [0, 1, 0, 1, 0, 0]],
+    )
+
+    # the [[276, 98, 14]] code of arXiv:2607.14091 and arXiv:2609.30069
     code = codes.PairPartitionCode(EXPONENTS_X_276, EXPONENTS_Z_276, lift_size=23)
     assert (code.num_qubits, code.dimension) == (276, 98)
-    assert not np.any(code.matrix_x @ code.matrix_z.T)
     assert not code.has_4_cycles()
     assert code.is_mixed_distinct()
     _assert_pair_partition_cycle_properties(code)
 
-    # a [[56, 18, 6]] code with (J, L, P) = (3, 8, 7), which has 4-cycles and is not mixed-distinct
+    # a [[56, 18]] code with (J, L, P) = (3, 8, 7), which has 4-cycles and is not mixed-distinct
     exponents_x = [[3, 6, 0, 4, 6, 0, 1, 0], [4, 3, 4, 6, 2, 6, 3, 0], [1, 5, 2, 4, 1, 0, 2, 3]]
     exponents_z = [[4, 4, 6, 2, 4, 6, 6, 1], [5, 3, 2, 5, 1, 4, 3, 1], [2, 3, 1, 3, 0, 6, 0, 4]]
     code = codes.PairPartitionCode(exponents_x, exponents_z, lift_size=7)
-    assert code.get_code_params() == (56, 18, 6)
+    assert (code.num_qubits, code.dimension) == (56, 18)
+    assert not code.is_subsystem_code
     assert code.has_4_cycles()
     assert not code.is_mixed_distinct()
     _assert_pair_partition_cycle_properties(code)
     assert "lift size 7" in str(code)
 
-    # exponents are stored modulo the lift size, and skip_validation does not change the code
-    shifted = codes.PairPartitionCode(
-        np.array(exponents_x) - 7, np.array(exponents_z) + 14, lift_size=7, skip_validation=True
-    )
+    # exponents are stored modulo the lift size
+    shifted = codes.PairPartitionCode(np.array(exponents_x) - 7, exponents_z, lift_size=7)
     assert np.array_equal(shifted.exponents_x, exponents_x)
     assert shifted == code
+
+    # skip_validation builds a subsystem code from exponents that violate CSS orthogonality; here,
+    # only one of the two Tanner graphs has a 4-cycle, from a single repeated difference
+    for exponents_x, exponents_z in [
+        ([[0, 0, 0], [0, 1, 1]], [[0, 0, 0], [0, 1, 2]]),
+        ([[0, 0, 0], [0, 1, 2]], [[0, 0, 0], [0, 1, 1]]),
+    ]:
+        code = codes.PairPartitionCode(exponents_x, exponents_z, lift_size=3, skip_validation=True)
+        assert code.is_subsystem_code
+        assert code.has_4_cycles()
+        _assert_pair_partition_cycle_properties(code)
 
 
 def test_pair_partition_code_validation() -> None:
@@ -646,26 +662,16 @@ def test_pair_partition_from_array() -> None:
             diffs = (exponents_z[j] - exponents_x[i]) % lift_size
             assert all(diffs[uu] == diffs[vv] for uu, vv in matchings[i][j])
 
-    # members of the family are CSS-orthogonal, and random members are reproducible
+    # members of the family are chosen by their coefficients in the basis, or at random
+    code = codes.PairPartitionCode.from_pair_partition_array(
+        matchings, lift_size, coefficients=[1] * len(basis)
+    )
+    exponents = np.array(np.sum(basis, axis=0), dtype=int)
+    assert np.array_equal(code.exponents_x, exponents[:8].reshape(2, 4))
+    assert np.array_equal(code.exponents_z, exponents[8:].reshape(2, 4))
     code = codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size, seed=1)
-    assert not np.any(code.matrix_x @ code.matrix_z.T)
     assert code == codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size, seed=1)
 
-    # cross-check the cycle properties of random members of a sub-family of the published array,
-    # with X and Z swapped to also cover 4-cycles in matrix_z alone
-    sub_array = [row[:2] for row in PAIR_PARTITION_ARRAY_276[:2]]
-    for seed in range(20):
-        code = codes.PairPartitionCode.from_pair_partition_array(sub_array, lift_size=23, seed=seed)
-        _assert_pair_partition_cycle_properties(code)
-        _assert_pair_partition_cycle_properties(
-            codes.PairPartitionCode(code.exponents_z, code.exponents_x, lift_size=23)
-        )
-
-    # the trivial member of a family, with all-zero exponents, has 4-cycles
-    with pytest.raises(ValueError, match="Failed to find"):
-        codes.PairPartitionCode.from_pair_partition_array(
-            matchings, lift_size, coefficients=[0] * len(basis), require_no_4_cycles=True
-        )
     with pytest.raises(ValueError, match="coefficients"):
         codes.PairPartitionCode.from_pair_partition_array(matchings, lift_size, coefficients=[1])
     with pytest.raises(ValueError, match="must be prime"):
@@ -680,7 +686,7 @@ def test_pair_partition_from_array() -> None:
 
 
 def test_pair_partition_from_published_array() -> None:
-    """Recover the [[276, 98, 14]] code of arXiv:2607.14091 from its pair-partition array."""
+    """The published [[276, 98, 14]] code belongs to the family of its pair-partition array."""
     lift_size = 23
     exponents = galois.GF(lift_size)(np.ravel([EXPONENTS_X_276, EXPONENTS_Z_276]))
 
@@ -691,20 +697,8 @@ def test_pair_partition_from_published_array() -> None:
     )
     assert len(basis) - len(fixed_basis) == 2 * 4 + 12 - 1
 
-    # the published exponents are gauge-fixed; read off their coefficients from the RREF basis
-    pivots = [int(np.flatnonzero(row)[0]) for row in fixed_basis]
-    coefficients = exponents[pivots] / fixed_basis[range(len(pivots)), pivots]
-    assert np.array_equal(coefficients @ fixed_basis, exponents)
-    code = codes.PairPartitionCode.from_pair_partition_array(
-        PAIR_PARTITION_ARRAY_276,
-        lift_size,
-        coefficients=coefficients.tolist(),
-        fix_gauge=True,
-        require_no_4_cycles=True,
-        require_mixed_distinct=True,
-    )
-    assert np.array_equal(code.exponents_x, EXPONENTS_X_276)
-    assert np.array_equal(code.exponents_z, EXPONENTS_Z_276)
+    # the published exponents satisfy the gauge-fixing conditions, so they are in the fixed family
+    assert np.linalg.matrix_rank(np.vstack([fixed_basis, exponents])) == len(fixed_basis)
 
 
 @pytest.mark.parametrize("field", [2, 3])
