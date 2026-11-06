@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import functools
 import itertools
+import math
 from collections.abc import Callable
 from typing import Any
 from unittest import mock
@@ -17,12 +18,11 @@ from sympy.abc import x, y, z
 
 import qldpc
 from qldpc._binary import get_independent_rows
-from qldpc.objects import Pauli, PauliXZ
+from qldpc.objects import PAULIS_XZ, Pauli
 
-from . import _automorphisms, _information_sets
 from . import _brouwer_zimmermann as bz
-from ._binary import get_nested_code_basis
-from .conftest import get_random_full_rank_matrix
+from . import _information_sets
+from .conftest import get_random_full_rank_matrix, get_sector_problem
 
 
 @pytest.mark.parametrize("interpreted", [False, True])
@@ -549,89 +549,94 @@ def test_a_search_through_the_costly_stages_finds_the_distance(
 @pytest.fixture
 def switch_before_any_layer(monkeypatch: pytest.MonkeyPatch) -> None:
     """Let searches consider translates before their first layer, however cheap it is."""
-    monkeypatch.setattr(_automorphisms, "MINIMUM_LAYER_WORK", 0)
+    monkeypatch.setattr(bz, "MINIMUM_LAYER_WORK", 0)
 
 
 @pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
-@pytest.mark.parametrize(
-    "orders, poly_a, poly_b, pauli",
-    [
-        ({x: 6, y: 3}, x**3 * y**2 + x**3 * y + x**3 + x * y, x**2 * y + x * y, Pauli.Z),
-        ({x: 2, y: 3, z: 4}, x * y * z**2 + x * z**3, x * y**2 * z**3 + x * y * z**2, Pauli.X),
-        ({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x, Pauli.X),
-    ],
-)
-def test_translated_searches_scan_every_layer_they_certify(
-    orders: dict[Any, int], poly_a: Any, poly_b: Any, pauli: PauliXZ
-) -> None:
-    """Sectors whose translated searches find a lightest word only in their last layer.
+def test_translated_searches_scan_every_layer_they_certify() -> None:
+    """A translated search that reaches the distance only in layer four, its last.
 
-    A search that stopped a layer early, or certified layers without scanning them, would
-    overestimate these distances.
+    This [[72, 4, 8]] bivariate bicycle code comes from a search for codes like those of
+    arXiv:2308.07915.  In its X sector, the lightest rows of the scanned set weigh ten, and the
+    first word of weight eight that the search finds is a sum of four of them.  Completing layer
+    four also certifies that no unexamined word weighs less than ten, so a search that certified
+    layer four before scanning it would return ten.
     """
-    code = qldpc.codes.QCCode(orders, poly_a, poly_b)
-    logical_ops = np.asarray(code.get_logical_ops(pauli), dtype=np.uint8)
-    stabilizers = np.asarray(code.get_stabilizer_ops(pauli, canonicalized=True), dtype=np.uint8)
-    expected = qldpc.codes.get_distance_quantum(
-        logical_ops, stabilizers, homogeneous=True, cutoff=0, method="brute_force"
-    )
+    code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
+    problem = get_sector_problem(code, Pauli.X)
+    expected = bz.get_distance_brouwer_zimmermann_many([problem], cutoff=0, block_size=15)
+    assert expected == 8
     distance = bz.get_distance_brouwer_zimmermann_many(
-        [get_nested_code_basis(logical_ops, stabilizers)],
-        cutoff=0,
-        block_size=15,
-        get_automorphisms=code._get_qudit_automorphisms,
+        [problem], cutoff=0, block_size=15, get_automorphisms=code._get_qudit_automorphisms
     )
     assert distance == expected
 
 
 @pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
 def test_translated_searches_find_exact_distances() -> None:
-    """Searches that can switch to translates find exact distances.
+    """Searches given automorphisms agree with brute force, alone or sharing witnesses.
 
-    The translations of random quasi-cyclic codes preserve both sectors.  The searches, of each
-    sector alone and of both sectors together, agree with brute force, as do searches given no
-    automorphisms, the identity alone, which does not help, or a function that returns None.
+    The searches use the translations of a quasi-cyclic code, the identity alone, which does not
+    reduce work, or a function that returns no automorphisms.
     """
-    rng = np.random.default_rng(2)
-    groups = [((9,), (x,)), ((14,), (x,)), ((5, 3), (x, y)), ((4, 2, 2), (x, y, z))]
-    num_codes = 0
-    while num_codes < 16:
-        orders, symbols = groups[num_codes % len(groups)]
-        polys = [
-            sum(
-                np.prod(
-                    [symbol ** int(rng.integers(order)) for symbol, order in zip(symbols, orders)]
-                )
-                for _ in range(int(rng.integers(2, 5)))
+    code = qldpc.codes.QCCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
+    identity = np.arange(len(code))[None]
+    problems = [get_sector_problem(code, pauli) for pauli in PAULIS_XZ]
+    for problem, pauli in zip(problems, PAULIS_XZ):
+        expected = qldpc.codes.get_distance_quantum(
+            code.get_logical_ops(pauli),
+            code.get_stabilizer_ops(pauli),
+            homogeneous=True,
+            cutoff=0,
+            method="brute_force",
+        )
+        for get_automorphisms in (code._get_qudit_automorphisms, lambda: identity, lambda: None):
+            distance = bz.get_distance_brouwer_zimmermann_many(
+                [problem], cutoff=0, block_size=15, get_automorphisms=get_automorphisms
             )
-            for _ in range(2)
-        ]
-        code = qldpc.codes.QCCode(dict(zip(symbols, orders)), *polys)
-        if not code.dimension:
-            continue
-        num_codes += 1
-        identity = np.arange(len(code))[None]
-        problems = []
-        for pauli in (Pauli.X, Pauli.Z):
-            logical_ops = np.asarray(code.get_logical_ops(pauli), dtype=np.uint8)
-            stabilizers = np.asarray(code.get_stabilizer_ops(pauli, canonicalized=True), np.uint8)
-            expected = qldpc.codes.get_distance_quantum(
-                logical_ops, stabilizers, homogeneous=True, cutoff=0, method="brute_force"
-            )
-            problems.append(get_nested_code_basis(logical_ops, stabilizers))
-            for get_automorphisms in (
-                None,
-                code._get_qudit_automorphisms,
-                lambda identity=identity: identity,
-                lambda: None,
-            ):
-                distance = bz.get_distance_brouwer_zimmermann_many(
-                    problems[-1:], cutoff=0, block_size=15, get_automorphisms=get_automorphisms
-                )
-                assert distance == expected
-        assert bz.get_distance_brouwer_zimmermann_many(
-            problems, cutoff=0, block_size=15, get_automorphisms=code._get_qudit_automorphisms
-        ) == code.get_distance(method="brute_force")
+            assert distance == expected
+    assert bz.get_distance_brouwer_zimmermann_many(
+        problems, cutoff=0, block_size=15, get_automorphisms=code._get_qudit_automorphisms
+    ) == code.get_distance(method="brute_force")
+
+
+@pytest.mark.usefixtures("force_information_sets")
+def test_translated_searches_scan_their_new_set_from_layer_two(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A search that switches to translates before layer three scans the new set from layer two.
+
+    This [16, 8, 4] quasi-cyclic code has the generator matrix ``[I | circ(1 + x + x^3 + x^4)]``,
+    and shifting both blocks at once preserves it.  The search starts with one information set,
+    the first block, which holds four ones of each word of weight four, so its first two layers
+    miss them.  Before layer three it switches to a set with half of its columns in each block,
+    which holds two ones of every translate of these words.  A search that continued the new set
+    from layer three would certify that no word is lighter than its best witness of weight five.
+    """
+    size, word = 8, [1, 1, 0, 1, 1, 0, 0, 0]
+    basis = np.hstack(
+        [np.eye(size, dtype=np.uint8), np.array([np.roll(word, i) for i in range(size)], np.uint8)]
+    )
+    labels = _no_labels(basis)
+    shift = np.roll(np.arange(size), -1)
+    automorphisms = np.concatenate([shift, shift + size])[None]
+    first_family = _information_sets.BasisFamily(
+        basis[None],
+        labels[None],
+        np.arange(size)[None],
+        np.array([size]),
+        _information_sets.infer_weight_divisor(basis),
+        1,
+    )
+    monkeypatch.setattr(bz, "MINIMUM_LAYER_WORK", math.comb(size, 3))
+    distance = bz.get_distance_brouwer_zimmermann_many(
+        [(basis, labels)],
+        cutoff=0,
+        block_size=15,
+        get_disjoint_basis_families=[lambda: first_family],
+        get_automorphisms=lambda: automorphisms,
+    )
+    assert distance == qldpc.codes.get_distance_classical(basis, method="brute_force") == 4
 
 
 @pytest.mark.usefixtures("force_information_sets")
@@ -644,12 +649,9 @@ def test_searches_ask_for_automorphisms_only_before_costly_layers(
     costly layer does not ask for them.
     """
     code = qldpc.codes.QCCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
-    problem = get_nested_code_basis(
-        np.asarray(code.get_logical_ops(Pauli.X), dtype=np.uint8),
-        np.asarray(code.get_stabilizer_ops(Pauli.X, canonicalized=True), dtype=np.uint8),
-    )
+    problem = get_sector_problem(code, Pauli.X)
     for minimum_layer_work, expected_calls in ((10**9, 0), (0, 1)):
-        monkeypatch.setattr(_automorphisms, "MINIMUM_LAYER_WORK", minimum_layer_work)
+        monkeypatch.setattr(bz, "MINIMUM_LAYER_WORK", minimum_layer_work)
         get_automorphisms = mock.Mock(wraps=code._get_qudit_automorphisms)
         bz.get_distance_brouwer_zimmermann_many(
             [problem], cutoff=0, block_size=15, get_automorphisms=get_automorphisms
@@ -657,84 +659,36 @@ def test_searches_ask_for_automorphisms_only_before_costly_layers(
         assert get_automorphisms.call_count == expected_calls
 
 
-@pytest.mark.usefixtures("force_information_sets")
-def test_translated_searches_restart_from_layer_two(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A search that switches to translates before a later layer scans its new set from layer two.
-
-    The certificate of translates counts every layer of the scanned set, including the layers that
-    the search scanned only with its previous family.  The [[90, 8, 10]] bivariate bicycle code of
-    arXiv:2308.07915 takes more than one layer to search.
-    """
-    code = qldpc.codes.BBCode({x: 15, y: 3}, x**9 + y + y**2, 1 + x**2 + x**7)
-    basis, labels = get_nested_code_basis(
-        np.asarray(code.get_logical_ops(Pauli.X), dtype=np.uint8),
-        np.asarray(code.get_stabilizer_ops(Pauli.X, canonicalized=True), dtype=np.uint8),
-    )
-    search = bz._prepare_brouwer_zimmermann_search(
-        basis,
-        labels,
-        cutoff=0,
-        block_size=15,
-        weight_divisor=1,
-        upper_bound=basis.shape[1] + 1,
-        get_automorphisms=code._get_qudit_automorphisms,
-    )
-    assert isinstance(search, bz._BrouwerZimmermannSearch)
-
-    # Scan layer two with the disjoint family, and then switch before layer three.
-    monkeypatch.setattr(_automorphisms, "MINIMUM_LAYER_WORK", 10**12)
-    search.advance()
-    assert not search.finished
-    monkeypatch.setattr(_automorphisms, "MINIMUM_LAYER_WORK", 0)
-    scanned_weights = []
-    original_scan = bz._scan_brouwer_zimmermann
-
-    def scan(*args: Any) -> tuple[int, int, int]:
-        scanned_weights.append(len(args[5]))
-        return original_scan(*args)
-
-    monkeypatch.setattr(bz, "_scan_brouwer_zimmermann", scan)
-    while not search.finished:
-        search.advance()
-    assert scanned_weights[0] == 2
-
-
 @pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
 def test_translated_rows_can_reach_the_cutoff() -> None:
     """The rows of a scanned set with translates can end a search at the cutoff.
 
-    In this sector, the rows of the disjoint basis family have weight five or more, and a row of the
-    scanned set has weight four.
+    In the Z sector of this [[36, 4, 4]] bivariate bicycle code, the rows of the first family weigh
+    more than six, and a row of the scanned set weighs six.  With a cutoff of six, the search
+    returns that weight, an upper bound on the distance, rather than scanning on to a word of
+    weight four.
     """
-    code = qldpc.codes.QCCode({x: 5, y: 3}, x**4 * y + x + y**2, x**4 * y + x**3 * y)
-    logical_ops = np.asarray(code.get_logical_ops(Pauli.X), dtype=np.uint8)
-    stabilizers = np.asarray(code.get_stabilizer_ops(Pauli.X, canonicalized=True), dtype=np.uint8)
-    expected = qldpc.codes.get_distance_quantum(
-        logical_ops, stabilizers, homogeneous=True, cutoff=0, method="brute_force"
-    )
-    cutoff = 4
+    code = qldpc.codes.BBCode({x: 6, y: 3}, 1 + x + x**3 * y, 1 + y + x)
+    problem = get_sector_problem(code, Pauli.Z)
+    assert bz.get_distance_brouwer_zimmermann_many([problem], cutoff=0, block_size=15) == 4
     distance = bz.get_distance_brouwer_zimmermann_many(
-        [get_nested_code_basis(logical_ops, stabilizers)],
-        cutoff=cutoff,
-        block_size=15,
-        get_automorphisms=code._get_qudit_automorphisms,
+        [problem], cutoff=6, block_size=15, get_automorphisms=code._get_qudit_automorphisms
     )
-    assert expected <= distance <= max(cutoff, expected)
+    assert distance == 6
 
 
 @pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
 def test_searches_reject_wrong_automorphisms() -> None:
     """A permutation that does not preserve a problem fails loudly when a search would use it."""
     code = qldpc.codes.QCCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
-    problem = get_nested_code_basis(
-        np.asarray(code.get_logical_ops(Pauli.X), dtype=np.uint8),
-        np.asarray(code.get_stabilizer_ops(Pauli.X, canonicalized=True), dtype=np.uint8),
-    )
     transposition = np.arange(len(code))
     transposition[[0, 1]] = [1, 0]
     with pytest.raises(ValueError, match="not an automorphism"):
         bz.get_distance_brouwer_zimmermann_many(
-            [problem], cutoff=0, block_size=15, get_automorphisms=lambda: transposition[None]
+            [get_sector_problem(code, Pauli.X)],
+            cutoff=0,
+            block_size=15,
+            get_automorphisms=lambda: transposition[None],
         )
 
 

@@ -14,10 +14,11 @@ import pytest
 
 from qldpc import _compilation, codes
 from qldpc._binary import get_independent_rows, get_kernel
-from qldpc.objects import Pauli
+from qldpc.objects import Pauli, PauliXZ
 
 from . import _automorphisms, _coset_leader_search, _information_sets
 from . import logical_counts as lc
+from ._binary import get_nested_code_basis
 from .core import DistanceMethod
 
 
@@ -118,6 +119,16 @@ def get_random_css_code(
     kernel = get_kernel(checks_x)
     checks_z = rng.integers(0, 2, (rank_z, len(kernel))) @ kernel % 2
     return codes.CSSCode(checks_x.astype(int), checks_z.astype(int))
+
+
+def get_sector_problem(
+    code: codes.CSSCode, pauli: PauliXZ
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
+    """The adapted basis and quotient labels of one sector of a binary CSS code."""
+    return get_nested_code_basis(
+        np.asarray(code.get_logical_ops(pauli), dtype=np.uint8),
+        np.asarray(code.get_stabilizer_ops(pauli, canonicalized=True), dtype=np.uint8),
+    )
 
 
 def get_span(rows: npt.ArrayLike) -> set[int]:

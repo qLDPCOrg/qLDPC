@@ -4190,11 +4190,10 @@ class CSSCode(QuditCode):
     def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """Generators of a group of qudit permutations that preserve this code, if known.
 
-        Subclasses whose construction comes with such a group return its generators as rows, where
-        row ``i`` maps qudit ``j`` to qudit ``result[i, j]``, and each generator maps the row spaces
-        of both ``matrix_x`` and ``matrix_z`` onto themselves.  Exact distance searches use them if
-        the optional pybliss package, which finds automorphisms by itself, is not installed (see
-        ``_found_qudit_automorphisms``).
+        Subclasses whose construction comes with such a group return an array of its generators.
+        Row ``i`` of the array maps qudit ``j`` to qudit ``row[j]``.  Each generator maps the row
+        spaces of both ``matrix_x`` and ``matrix_z`` onto themselves.  Exact distance searches use
+        these generators when bliss finds none (see ``_found_qudit_automorphisms``).
         """
         return None
 
@@ -4202,12 +4201,13 @@ class CSSCode(QuditCode):
     def _found_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """Generators of a group of qudit permutations that preserve this code, or None.
 
-        With the optional pybliss package, these generate the permutations of qudits that, together
-        with permutations of the parity checks of each type, leave both ``matrix_x`` and
-        ``matrix_z`` unchanged, which bliss finds as automorphisms of their Tanner graph with its
-        two types of checks colored apart.  Otherwise, or if bliss finds none, these are the
-        generators from ``_get_qudit_automorphisms``.  Exact distance searches verify the generators
-        before they use them to search less.
+        With the optional pybliss package, bliss finds the automorphisms of the Tanner graph of this
+        code, with its X-type and Z-type checks colored apart.  Each automorphism permutes the rows
+        of ``matrix_x``, the rows of ``matrix_z``, and the qudits, and leaves both matrices
+        unchanged.  The result holds the permutations of qudits of its generators.  Without pybliss,
+        or if bliss finds no automorphisms, the result holds the generators from
+        ``_get_qudit_automorphisms``.  Exact distance searches verify these generators before they
+        use them.
         """
         if _bliss.is_installed():
             num_checks = self.num_checks_x + self.num_checks_z
