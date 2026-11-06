@@ -20,7 +20,6 @@ from ._binary import (
     symplectic_to_hamming,
 )
 from ._brouwer_zimmermann import (
-    enumeration_is_cheaper_than_setup,
     get_distance_brouwer_zimmermann,
     get_distance_brouwer_zimmermann_many,
 )
@@ -189,21 +188,6 @@ def get_distance_quantum(
     no_distance = _apply_upper_bound(physical_size + 1, upper_bound)
     if not len(logical_matrix):
         return no_distance
-
-    if method == "brouwer_zimmermann":
-        # Verify independence before bypassing adapted-basis preparation.
-        num_rows = len(logical_matrix) + len(stabilizer_matrix)
-        if enumeration_is_cheaper_than_setup(num_rows, num_bits) and num_rows == len(
-            get_independent_rows(np.vstack([stabilizer_matrix, logical_matrix]))
-        ):
-            distance = get_distance_quantum_brute_force(
-                logical_matrix,
-                stabilizer_matrix,
-                cutoff=cutoff,
-                block_size=block_size,
-                homogeneous=homogeneous,
-            )
-            return _apply_upper_bound(distance, upper_bound)
 
     # Separate an independent excluded basis from a complement representing the quotient.
     basis, labels = get_nested_code_basis(logical_matrix, stabilizer_matrix)

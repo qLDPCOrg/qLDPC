@@ -19,7 +19,7 @@ import qldpc
 from qldpc._binary import get_independent_rows
 
 from . import _brouwer_zimmermann as bz
-from . import _information_sets, core
+from . import _information_sets
 from .conftest import get_random_full_rank_matrix
 
 
@@ -217,7 +217,6 @@ def test_brouwer_zimmermann_setup_exits(
 
     # Lower only the cost knobs, so that these small inputs reach the information-set search.
     monkeypatch.setattr(bz, "enumeration_is_cheaper_than_setup", lambda *_: False)
-    monkeypatch.setattr(core, "enumeration_is_cheaper_than_setup", lambda *_: False)
     if overlap:
         monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
     distance = qldpc.codes.get_distance_quantum(
@@ -386,11 +385,8 @@ def test_brouwer_zimmermann_packed_widths(length: int) -> None:
     assert qldpc.codes.get_distance_classical(generators, cutoff=0) == length
 
 
-def test_brouwer_zimmermann_exhaustive_dispatch() -> None:
-    """Dependent logical rows skip the top-level independent-row exhaustive path.
-
-    The exhaustive dispatcher uses the reduced quotient basis instead.
-    """
+def test_dependent_logical_rows_give_the_distance_of_their_span() -> None:
+    """Repeated logical rows are reduced to a basis of the quotient before any search."""
     distance = qldpc.codes.get_distance_quantum(
         [[1, 1, 1], [1, 1, 1]], [], homogeneous=True, cutoff=0
     )

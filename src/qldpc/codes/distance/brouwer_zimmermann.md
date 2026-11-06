@@ -538,7 +538,6 @@ An integer returned by preparation can incorporate a witness from another sector
 | Public route in [core.py](core.py) | Outcome |
 | --- | --- |
 | Trivial input | Returns `n+1`, capped at `max_weight+1`, for an empty classical code, a quantum problem with no logical rows, or `V = S` |
-| Direct exhaustive shortcut in `get_distance_quantum` with `method="brouwer_zimmermann"` | Runs exhaustive enumeration if `enumeration_is_cheaper_than_setup` approves the number of supplied rows and those rows are linearly independent |
 | `method="brute_force"` | Runs exhaustive enumeration over an independent basis, adapted to `S ⊆ V` for a quantum problem |
 
 `_prepare_brouwer_zimmermann_search` considers the following exits in order.
