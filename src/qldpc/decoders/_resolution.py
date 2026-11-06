@@ -7,21 +7,21 @@ from __future__ import annotations
 import galois
 import stim
 
-from .._capabilities import compiles_for_dem, is_prebuilt_decoder
-from ..adapters._observable_decoders import BitPackedObservableDecoder, validate_observable_decoder
-from ..adapters.error_decoders import ErrorsToObservablesDecoder
-from ..common import _PLACEHOLDER_ERROR_RATE
-from ..custom.guf import guf
-from ..external.ldpc import bp_osd
-from ..protocols import ErrorDecoder, ObservableDecoder, _as_error_decoder
-from .factories import DEMDecoderFactory, MatrixDecoderFactory
-from .specs import (
+from ._capabilities import compiles_for_dem, is_prebuilt_decoder
+from .adapters._observable_decoders import BitPackedObservableDecoder, validate_observable_decoder
+from .adapters.error_decoders import ErrorsToObservablesDecoder
+from .common import _PLACEHOLDER_ERROR_RATE
+from .construction.factories import DEMDecoderFactory, MatrixDecoderFactory
+from .construction.specs import (
     DecoderInput,
     DecoderSpec,
     ErrorDecoderInput,
     ObservableDecoderCompiler,
     PcmOrDem,
 )
+from .custom.guf import guf
+from .external.ldpc import bp_osd
+from .protocols import ErrorDecoder, ObservableDecoder, _as_error_decoder
 
 # The error rate that decoders assume when none is given, which qldpc.codes also uses to build
 # detector error models for code-capacity estimates.

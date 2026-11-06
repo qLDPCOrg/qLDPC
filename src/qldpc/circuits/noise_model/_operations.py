@@ -12,6 +12,9 @@ import re
 
 import stim
 
+# a rule key that names a Pauli product of an MPP, SPP, or SPP_DAG gate, as in "MXYZ" or "SXY_DAG"
+_BASIS_SUFFIXED_RULE_KEY = re.compile(r"([MS])([XYZ]+)(_DAG)?")
+
 ####################################################################################################
 # instruction classification
 
@@ -27,9 +30,8 @@ ANNOTATION = "info"
 NOISE = "!?"
 UNSUPPORTED = "unsupported"
 
-# The op-type categories that name a genuine noisy gate (as opposed to pure-noise, annotation, or
-# unsupported instructions).  These are the operations a user-provided ``rule_func`` is consulted
-# for, once decomposed into individual gate applications.
+# the op types of gates, as opposed to noise channels, annotations, and unsupported instructions.
+# Noise rules, including those from a rule_func, apply to gates.
 GATE_OP_TYPES = frozenset(
     {
         CLIFFORD_1Q,
@@ -81,7 +83,7 @@ def op_type(op_name: str) -> str:
     )
 
 
-# All canonical + alias names stim knows about, plus their aliases (so lookups by any name work).
+# every name of every Stim gate, including aliases
 ALL_STIM_GATE_NAMES = frozenset(alias for gd in stim.gate_data().values() for alias in gd.aliases)
 
 JUST_MEASURE_OPS = frozenset(
@@ -90,19 +92,20 @@ JUST_MEASURE_OPS = frozenset(
     if op_type(name) in (JUST_MEASURE_1Q, JUST_MEASURE_2Q, JUST_MEASURE_PP)
 )
 JUST_RESET_OPS = frozenset(name for name in ALL_STIM_GATE_NAMES if op_type(name) == JUST_RESET_1Q)
+# gates that measure and then reset, such as MR
 MEASURE_AND_RESET_OPS = frozenset(
     name for name in ALL_STIM_GATE_NAMES if op_type(name) == MEASURE_RESET_1Q
 )
-COLLAPSING_OPS = JUST_MEASURE_OPS | JUST_RESET_OPS | MEASURE_AND_RESET_OPS
-
-# Stim's explicit idle markers describe waiting, rather than noisy Clifford gates.  They remain in
-# the output circuit and receive the model's idle noise; explicit rules may add marker-specific
-# noise.
-IDLE_OPS = frozenset({"I", "II"})
+# all measurements and resets, including gates that measure and then reset
+MEASURE_OR_RESET_OPS = JUST_MEASURE_OPS | JUST_RESET_OPS | MEASURE_AND_RESET_OPS
 
 
+@functools.lru_cache(maxsize=4096)
 def involves_classical_bits(op: stim.CircuitInstruction) -> bool:
     """Determines if an operation involves classical bits.
+
+    Noise models and schedulers check each operation several times, and circuits repeat
+    instructions, so recent results are cached.  Instructions are hashed by value.
 
     Args:
         op: The circuit instruction to check.
@@ -121,23 +124,27 @@ def involves_classical_bits(op: stim.CircuitInstruction) -> bool:
 
 
 def get_gate_aliases(op: stim.CircuitInstruction) -> tuple[str, ...]:
-    """Return the names by which ``op`` can be matched in ``rules`` and ``rule_func``.
+    """The names by which the keys of ``NoiseModel.rules`` match an operation, most specific first.
 
-    For a single-product MPP / SPP / SPP_DAG op, the basis-suffixed name (e.g. ``"MXYZ"`` for ``MPP
-    X*Y*Z``, ``"SXY_DAG"`` for ``SPP_DAG X*Y``) is yielded first — it's more specific than the raw
-    ``"MPP"`` / ``"SPP"`` / ``"SPP_DAG"`` — followed by the corresponding stim aliases.  For every
-    other gate, this is just stim's alias list, which begins with the canonical name.  Single-qubit
-    ``MPP Z`` uses the canonical measurement name ``"M"``, making it equivalent to ``M`` / ``MZ``.
+    These are Stim's aliases of the gate, which start with the key that ``canonical_rule_key`` gives
+    it.  A Pauli product of an MPP, SPP, or SPP_DAG gate is first named by its Paulis, as in
+    ``"MXYZ"`` for ``MPP X*Y*Z`` or ``"SXY_DAG"`` for ``SPP_DAG X*Y``, except that ``MPP Z`` is
+    named ``"M"``.
     """
+    # other gates are named by Stim's aliases only
     aliases = _stim_aliases(op.name)
     if op.name not in ("MPP", "SPP", "SPP_DAG"):
         return aliases
+
+    # a Pauli product must be a single product, alternating Paulis and combiners
     prefix, suffix = ("S", "_DAG") if op.name == "SPP_DAG" else (op.name[0], "")
     targets = op.targets_copy()
     if not all(target.is_combiner for target in targets[1::2]):
         raise ValueError(
             f"{op.name} must be split into a single Pauli product before alias enumeration"
         )
+
+    # name the product by its Paulis, as in "MXYZ" or "SXY_DAG", before stim's names
     basis = ""
     for target in targets[::2]:
         if target.is_x_target:
@@ -159,15 +166,16 @@ def canonical_rule_key(op_name: str) -> str:
     try:
         gate_data = stim.gate_data(op_name)
     except IndexError:
+        # a name that stim does not know must name a Pauli product, as in "MXYZ" or "SXY_DAG"
         match = _BASIS_SUFFIXED_RULE_KEY.fullmatch(op_name)
         if match is None:
             raise ValueError(f"Unrecognized noise rule key {op_name!r}") from None
         prefix, _basis, dag = match.groups()
         if prefix == "M" and dag:
             raise ValueError(f"Invalid noise rule key {op_name!r}: MPP has no _DAG form")
-        stim.gate_data(f"{prefix}PP{dag or ''}")
         return op_name
     else:
+        # a name that stim knows becomes its canonical name, which must name a gate
         canonical = gate_data.aliases[0]
         if op_type(canonical) not in GATE_OP_TYPES:
             raise ValueError(f"Noise rules cannot target {op_name!r}")
@@ -175,22 +183,23 @@ def canonical_rule_key(op_name: str) -> str:
 
 
 def known_gate_shape(op_name: str) -> tuple[int, bool, bool] | None:
-    """Return ``(arity, can_measure, can_reset)`` for a rule key with statically-known shape.
+    """The number of qubits of the gates that a rule key names, and whether they measure or reset.
 
-    Applies to fixed-arity stim gates (e.g. ``"H"``, ``"CX"``, ``"M"``, ``"R"``, ``"MR"``) and to
-    basis-suffixed rule keys (``"MXYZ"`` for ``MPP X*Y*Z``, ``"SXY_DAG"`` for ``SPP_DAG X*Y``).
-    Returns ``None`` for variable-arity names (bare ``"MPP"`` / ``"SPP"`` / ``"SPP_DAG"``) or for
-    names not recognized as either kind.
+    Keys that name gates on any number of qubits, such as ``"MPP"``, and keys that name no gate,
+    have no fixed shape, and give None.
     """
-    this_op_type = op_type(op_name)
-    if this_op_type in (CLIFFORD_1Q, JUST_MEASURE_1Q, JUST_RESET_1Q, MEASURE_RESET_1Q):
+    if op_type(op_name) in (
+        CLIFFORD_1Q,
+        CLIFFORD_2Q,
+        JUST_MEASURE_1Q,
+        JUST_MEASURE_2Q,
+        JUST_RESET_1Q,
+        MEASURE_RESET_1Q,
+    ):
         gate_data = stim.gate_data(op_name)
-        return 1, gate_data.produces_measurements, gate_data.is_reset
-    if this_op_type in (CLIFFORD_2Q, JUST_MEASURE_2Q):
-        gate_data = stim.gate_data(op_name)
-        return 2, gate_data.produces_measurements, gate_data.is_reset
-    # Basis-suffixed rule keys parse as `[MS](XYZ)+(_DAG)?` — look up the underlying PP gate
-    # (``MPP`` / ``SPP`` / ``SPP_DAG``) for the measurement/reset flags.
+        arity = 2 if gate_data.is_two_qubit_gate else 1
+        return arity, gate_data.produces_measurements, gate_data.is_reset
+    # a key that names a Pauli product, as in "MXYZ" or "SXY_DAG", has a qubit per Pauli
     match = _BASIS_SUFFIXED_RULE_KEY.fullmatch(op_name)
     if match is None:
         return None
@@ -203,6 +212,3 @@ def known_gate_shape(op_name: str) -> tuple[int, bool, bool] | None:
 def _stim_aliases(op_name: str) -> tuple[str, ...]:
     """Cached stim aliases of a gate name."""
     return tuple(stim.gate_data(op_name).aliases)
-
-
-_BASIS_SUFFIXED_RULE_KEY = re.compile(r"([MS])([XYZ]+)(?:(_DAG))?")

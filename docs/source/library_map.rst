@@ -36,9 +36,9 @@ Packages at a glance
      - Specifications such as ``bp_osd``, ``mwpm``, ``guf``, and ``tesseract``; their ``build`` and ``build_observable_decoder`` methods; ``SinterDecoder``.
      - :doc:`Choosing a decoder <decoders>` and the :doc:`decoders notebook <examples/decoders>`
    * - ``qldpc.circuits``
-     - Qubit-only Stim circuits: memory experiments, noise models, encoders, state-preparation diagnostics, and transversal gates.
-     - ``get_memory_experiment``, ``DepolarizingNoiseModel``, ``SI1000NoiseModel``, ``get_encoding_circuit``, and ``get_transversal_ops``.
-     - :doc:`Noise models <examples/noise_models>` and :doc:`transversal gates <examples/transversal_gates>`
+     - Qubit-only Stim circuits: memory experiments, noise models, encoders, state-preparation diagnostics, fault-tolerance certificates, and transversal gates.
+     - ``get_memory_experiment``, ``DepolarizingNoiseModel``, ``SI1000NoiseModel``, ``get_encoding_circuit``, ``get_fault_distance``, ``certify_bounded_fault_propagation``, and ``get_transversal_ops``.
+     - :doc:`Noise models <examples/noise_models>`, :doc:`fault-tolerance certificates <examples/logical_error_rates/5_fault_tolerance_certificates>`, and :doc:`transversal gates <examples/transversal_gates>`
    * - ``qldpc.abstract``
      - Finite groups, group rings, matrices over group algebras, and semisimple-ring linear algebra.
      - ``Group``, ``GroupRing``, and ``RingArray``.
@@ -52,9 +52,9 @@ Packages at a glance
      - ``external.gap``, ``external.sqetch``, and ``cache.clear_entry``.
      - `External tools, side effects, and caching`_
    * - ``qldpc.experimental``
-     - Unstable research code, currently lattice surgery.
-     - ``experimental.surgery``.
-     - :doc:`Lattice surgery <examples/lattice_surgery>`
+     - Unstable research code: lattice surgery, and decoder-free benchmarks of state-preparation circuits.
+     - ``experimental.surgery`` and ``experimental.circuits.estimate_residual_weight_histogram``.
+     - :doc:`Lattice surgery <examples/lattice_surgery>` and :doc:`benchmarking state preparation <examples/experimental/logical_state_preparation>`
 
 The arrows below show which objects pass between packages.
 
@@ -116,7 +116,7 @@ Algebraic inputs of lifted and geometric families
 Lifted-product families such as :class:`~qldpc.codes.quantum.LPCode` take :class:`~qldpc.abstract.ring_array.RingArray` matrices, whose entries belong to a :class:`~qldpc.abstract.rings.GroupRing` over a finite field.
 Each entry lifts to a block matrix over that field, and ``RingArray.lift()`` returns the resulting ``galois.FieldArray``.
 Every ``RingArray`` has one base ring, and arithmetic between arrays over different rings raises an error.
-:class:`~qldpc.codes.quantum.QTCode` builds a :class:`~qldpc.objects.CayleyComplex` from two subsets of a group, and families such as :class:`~qldpc.codes.quantum.T4Code` (built from a 4×4 integer lattice matrix) build a :class:`~qldpc.objects.ChainComplex` internally and expose it as ``code.chain``.
+:class:`~qldpc.codes.quantum.QTCode` builds a :class:`~qldpc.objects.complexes.CayleyComplex` from two subsets of a group, and families such as :class:`~qldpc.codes.quantum.T4Code` (built from a 4×4 integer lattice matrix) build a :class:`~qldpc.objects.complexes.ChainComplex` internally and expose it as ``code.chain``.
 The API reference documents each family's conventions and literature.
 
 Balanced products
@@ -124,7 +124,7 @@ Balanced products
 
 A balanced product code is a quotient of the hypergraph product code of two classical codes by symmetries that the classical codes share.
 This quotient has fewer qudits than the hypergraph product code, and with suitable classical codes and distance balancing, it yields codes whose distance grows faster than the square root of their length (`arXiv:2012.09271 <https://arxiv.org/abs/2012.09271>`_).
-More generally, :meth:`ChainComplex.balanced_product <qldpc.objects.ChainComplex.balanced_product>` takes the quotient of the tensor product of two chain complexes by symmetries, which are permutations of basis elements that preserve the boundary operators.
+More generally, :meth:`ChainComplex.balanced_product <qldpc.objects.complexes.ChainComplex.balanced_product>` takes the quotient of the tensor product of two chain complexes by symmetries, which are permutations of basis elements that preserve the boundary operators.
 :class:`~qldpc.codes.quantum.BPCode` is the CSS code obtained in this way from two classical codes.
 Without symmetries it is a hypergraph product code, and if the symmetries generate a group that acts freely on both classical codes, it is a lifted product code.
 :meth:`BPCode.from_seed <qldpc.codes.quantum.BPCode.from_seed>` builds the cyclic construction of `arXiv:2505.13679 <https://arxiv.org/abs/2505.13679>`_ from a seed matrix, and :meth:`BPCode.get_seed_symmetries <qldpc.codes.quantum.BPCode.get_seed_symmetries>` finds symmetries of the seed matrix from its automorphisms.
@@ -172,6 +172,8 @@ Stim converts the circuit into a ``stim.DetectorErrorModel`` with ``circuit.dete
 
 .. code-block:: python
 
+   import sinter
+
    from qldpc import circuits, codes, decoders
    from qldpc.objects import Pauli
 
@@ -181,24 +183,33 @@ Stim converts the circuit into a ``stim.DetectorErrorModel`` with ``circuit.dete
        code, basis=Pauli.Z, num_rounds=3, noise_model=noise_model
    )
    sinter_decoder = decoders.SinterDecoder(decoder=decoders.mwpm())
-   logical_error_rate, discard_rate = circuits.get_logical_error_and_discard_rate(
-       circuit, sinter_decoder, num_samples=1000
+   (stats,) = sinter.collect(
+       tasks=[sinter.Task(circuit=circuit, decoder="mwpm")],
+       custom_decoders={"mwpm": sinter_decoder},
+       num_workers=1,
+       max_shots=1000,
    )
+   logical_error_rate = stats.errors / stats.shots
 
-For larger studies, pass the ``SinterDecoder`` to ``sinter.collect``.
 The :doc:`code-capacity <examples/logical_error_rates/1_code_capacity>`, :doc:`quantum-memory <examples/logical_error_rates/2_quantum_memory_x_or_z>`, and :doc:`sliding-window <examples/logical_error_rates/specialized/sliding_window_decoding>` notebooks develop these workflows, and the :doc:`noise-model notebook <examples/noise_models>` explains the noise models.
 
-Certify fault-tolerant state preparation
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Certify fault tolerance
+~~~~~~~~~~~~~~~~~~~~~~~
 
-:func:`qldpc.circuits.certify_bounded_fault_propagation <qldpc.circuits.certification.fault_propagation.certify_bounded_fault_propagation>` certifies bounded fault propagation in a noisy Clifford circuit that prepares a stabilizer state.
-A fault is a set of error mechanisms, which are the error instructions of the detector error model that the certificate returns: the circuit's, after adding any flag detectors and one noiseless detector for each stabilizer of the prepared state.
-Propagation is bounded if, for every fault, the error left on the output is equivalent to an error whose Pauli weight is at most the number of error mechanisms in the fault.
-The Pauli weight of an error is either its physical weight or its CSS weight.
-For protocols that post-select on detectors such as measurement flags, only faults that pass post-selection are required to satisfy the bound.
+:func:`qldpc.circuits.certify_bounded_fault_propagation <qldpc.circuits.certification.fault_propagation.certify_bounded_fault_propagation>` checks whether a noisy Clifford circuit that prepares a stabilizer state has bounded fault propagation.
 Bounded fault propagation is a sufficient criterion for fault-tolerant state preparation; see Definition 3 in Section 4.2 of `arXiv:0904.2557 <https://arxiv.org/abs/0904.2557>`_.
-The function's docstring states the limitations of the certificate, and a `design note <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/circuits/certification/fault_propagation.md>`_ proves that its search is exact.
-The :doc:`fault-tolerance notebook <examples/logical_error_rates/6_certifying_fault_tolerance>` shows examples.
+An error mechanism is an error instruction of the circuit's detector error model, and a fault is a set of error mechanisms.
+A fault leaves a Pauli error on the prepared state.
+The residual weight of the fault is the smallest weight of that Pauli error after multiplying it by any stabilizer of the state.
+Fault propagation is bounded if the residual weight of every fault is at most its number of error mechanisms.
+For circuits that post-select on detectors such as measurement flags, only faults that pass post-selection count.
+The docstring of ``certify_bounded_fault_propagation`` defines these terms precisely and states the limitations of its check, and the :doc:`fault-tolerance certificates notebook <examples/logical_error_rates/5_fault_tolerance_certificates>` applies it to a flagged preparation circuit.
+For annotated memory circuits, :func:`~qldpc.circuits.certification.fault_distance.get_fault_distance` instead computes the minimum number of detector-error-model mechanisms causing an undetected logical-observable flip.
+The same notebook illustrates why this circuit property need not equal the code distance.
+
+Bounded fault propagation is a yes-or-no criterion.
+To compare preparation circuits, including those that satisfy it, the experimental :func:`qldpc.experimental.circuits.estimate_residual_weight_histogram <qldpc.experimental.circuits.benchmarking.residual_weights.estimate_residual_weight_histogram>` estimates, over the shots that pass post-selection, the probability distribution of the residual weight of the fault that occurs in a shot.
+The residual weight needs no decoder, and it accounts for Pauli errors that a chosen logical readout cannot detect, such as Z errors on a logical :math:`|0\rangle` state.
 
 Support and limitations
 -----------------------
@@ -225,7 +236,7 @@ Other limitations:
 What qLDPC computes exactly, bounds, and trusts
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-* Exact: ``get_distance_exact`` with ``cutoff <= 1`` (the default is 1), or whenever its result exceeds the cutoff, which ``get_distance`` calls unless it is given ``bound=``, and logical-operator counts.
+* Exact: ``get_distance_exact`` with ``cutoff <= 1`` (the default is 1), or whenever its result exceeds the cutoff, which ``get_distance`` calls unless it is given ``bound=``; logical-operator counts; circuit fault distances from ``get_fault_distance``; and bounded-propagation certificates up to their ``max_weight``, if one is given.
 * Upper bounds: ``get_distance_bound`` with every backend.
 * Estimates: code-capacity and circuit-level logical error rates are sampled.
   A code-capacity estimate treats unsampled heavy errors as failures, so it can be high by up to the amount that its ``truncation_error_bound`` method reports.

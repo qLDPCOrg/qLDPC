@@ -114,3 +114,19 @@ def test_post_selection() -> None:
     )
     duplicate = circuits.DetectorRecord({"flags": [0, 0], "a": [1, 2]})
     assert duplicate.after_post_selection("flags") == circuits.DetectorRecord({"a": [0, 1]})
+
+
+def test_finding_unaddressed_measurements() -> None:
+    """Identify measurements in a circuit that are not addressed by detectors or observables."""
+    circuit = stim.Circuit("""
+        M 0 1 2
+        DETECTOR rec[-3] rec[-1]
+    """)
+    assert circuits.get_unaddressed_measurements(circuit) == [1]
+
+    observable_only = stim.Circuit("M 0 1\nOBSERVABLE_INCLUDE(0) rec[-1]")
+    assert circuits.get_unaddressed_measurements(observable_only) == [0]
+    pauli_observable = stim.Circuit("M 0 1\nOBSERVABLE_INCLUDE(0) X0")
+    assert circuits.get_unaddressed_measurements(pauli_observable) == [0, 1]
+    out_of_range_pauli = stim.Circuit("M 0\nOBSERVABLE_INCLUDE(0) X5")
+    assert circuits.get_unaddressed_measurements(out_of_range_pauli) == [0]

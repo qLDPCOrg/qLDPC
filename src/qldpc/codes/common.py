@@ -32,7 +32,7 @@ from qldpc._deprecations.decoders import (
 from qldpc._utils import format_docstring, get_external_caller_stacklevel
 from qldpc._utils import networkx as nx
 from qldpc.decoders._capabilities import is_prebuilt_decoder, is_prebuilt_observable_decoder
-from qldpc.decoders.construction._resolution import build_error_decoder, reject_prebuilt_decoder
+from qldpc.decoders._resolution import build_error_decoder, reject_prebuilt_decoder
 from qldpc.external import _bliss, _codes
 from qldpc.math import IntegerArray, resolve_field
 from qldpc.objects import (
@@ -52,8 +52,11 @@ from .distance import (
     get_distance_classical,
     get_distance_quantum,
 )
-from .distance._brouwer_zimmermann import get_distance_css_brouwer_zimmermann
-from .distance.core import _validate_distance_backend, _validate_distance_method
+from .distance.core import (
+    _get_distance_css_brouwer_zimmermann,
+    _validate_distance_backend,
+    _validate_distance_method,
+)
 from .monte_carlo import ErrorRateFunc
 
 Slice = slice | npt.NDArray[np.int_] | list[int]
@@ -488,10 +491,15 @@ class ClassicalCode(AbstractCode):
     ) -> int | float:
         """Compute the exact minimum Hamming weight of nontrivial code words.
 
+        The cost of this computation generally grows exponentially with the size of the code.  The
+        computed code distance is remembered for later calls unless cutoff is greater than 1.
+
         Args:
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
+                With a cutoff greater than 1, a result at or below the cutoff may therefore be only
+                an upper bound on distance, and no result is remembered.
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
                 alias ``"information_sets"``; ``"brute_force"`` enumerates every nonzero code word.
                 Nonbinary and vector-distance calculations always use exhaustive enumeration.
@@ -565,9 +573,12 @@ class ClassicalCode(AbstractCode):
         """Use a randomized algorithm to compute an upper bound on code distance.
 
         The code distance is the minimum Hamming distance between two code words, or equivalently
-        the minimum Hamming weight of nonzero code words.  To find a minimal nonzero code word we
-        decode a trivial (all-0) syndrome, but enforce that the code word has nonzero overlap with a
-        random word, which excludes the all-0 word as a candidate.
+        the minimum Hamming weight of nonzero code words.  To find a low-weight nonzero code word we
+        decode a trivial (all-0) syndrome, but enforce that the overlaps of the code word with the
+        rows of a dual basis of a basis of the code equal a random nonzero vector, which excludes
+        the all-0 word as a candidate.  These overlaps are the coefficients of the code word in
+        that basis, so they determine the code word, and each trial yields a uniformly random
+        nonzero code word.  The weight of that code word is an upper bound on distance.
 
         If bounding the minimum distance between a vector and a code word, we can interpret the
         vector as an error, and find a minimal-weight correction from decoding the syndrome induced
@@ -578,20 +589,30 @@ class ClassicalCode(AbstractCode):
                 default), return the best known upper bound on distance, or compute a single upper
                 bound if no bound is known.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
-            vector: If not None, rather than computing the code distance, compute the minimum
-                Hamming distance between this vector and a code word.  Default: None.
+            vector: If not None, rather than bounding the code distance, bound the minimum Hamming
+                distance between this vector and a code word.  Default: None.
             decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None to
-                select the default.  It is built for this code's parity-check matrix if vector is
-                provided, and for an internal effective check matrix otherwise.
-            backend: Distance-bound backend.  Classical codes use only the decoder path; this
-                argument is accepted for compatibility with shared distance-bound workflows.
+                select BP+OSD for a binary code and GUF otherwise.  It is built for this code's
+                parity-check matrix if vector is provided, and for an internal effective check
+                matrix otherwise.  A prebuilt error decoder is accepted only together with vector,
+                and must decode this code's parity-check matrix.
+            backend: Distance-bound backend.  Classical codes use only the decoder path, selected
+                by ``"auto"`` (the default) or ``"decoder"``; this argument is accepted for
+                compatibility with shared distance-bound workflows.
             **decoder_kwargs: Deprecated decoder-selection options; pass a specification as
                 ``decoder=`` instead.
 
         Returns:
-            An upper bound on distance if it is defined, or np.nan otherwise.  When bounding code
-            distance, the returned bound is never worse than the best bound already known for this
-            code, and the best bound is remembered for later calls.
+            An upper bound on distance if it is defined, or np.nan otherwise.  If the exact distance
+            is already known, it is returned.  When bounding code distance, the returned bound is
+            never worse than the best bound already known for this code, and the best bound is
+            remembered for later calls.
+
+        Raises:
+            TypeError: If num_trials is not an integer or None.
+            ValueError: If backend is not ``"auto"`` or ``"decoder"``, if a prebuilt decoder is
+                given without vector, or if the decoder fails in 100 consecutive attempts to infer
+                an error that reproduces the syndrome that it decodes.
         """
         _validate_distance_backend(backend)
         _validate_num_trials(num_trials)
@@ -613,7 +634,9 @@ class ClassicalCode(AbstractCode):
             check_matrix = self.matrix
             syndrome = self.matrix @ np.asanyarray(vector).view(self.field)
         else:
-            check_matrix = np.vstack([self.matrix, self.generator]).view(self.field)
+            # a generator matrix may have dependent rows, so dualize a basis of the code instead
+            basis = self.generator.row_reduce()[: self.dimension]
+            check_matrix = np.vstack([self.matrix, math.get_dual_basis(basis)]).view(self.field)
             syndrome = np.zeros(len(check_matrix), dtype=int).view(self.field)
         if decoder_kwargs:  # DEPRECATED: see qldpc._deprecations
             decoder = merge_legacy_decoder_args(check_matrix, decoder, decoder_kwargs)
@@ -622,8 +645,8 @@ class ClassicalCode(AbstractCode):
         def get_syndrome() -> npt.NDArray[np.int_]:
             """Get a syndrome to decode, randomizing its overlap with code words if necessary."""
             if vector is None:
-                syndrome[-len(self.generator) :] = _get_random_array(
-                    self.field, len(self.generator), satisfy=lambda vec: vec.any()
+                syndrome[-self.dimension :] = _get_random_array(
+                    self.field, self.dimension, satisfy=lambda vec: vec.any()
                 )
             return syndrome
 
@@ -821,6 +844,7 @@ class ClassicalCode(AbstractCode):
         *,
         min_error_weight: int = 1,
         decoder: decoders.DecoderInput = None,
+        seed: np.random.Generator | int | None = None,
         **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
@@ -840,7 +864,8 @@ class ClassicalCode(AbstractCode):
         be read off the code distance.  See help(qldpc.codes.ErrorRateFunc) for the full caveats.
 
         The physical error rate provided to the constructed function is the probability with which
-        each bit experiences a bit-flip error.  The constructed function will throw an error if
+        each bit experiences an error, which is a bit flip for a binary code, and adds a uniformly
+        random nonzero field element otherwise.  The constructed function will throw an error if
         given a physical error rate larger than max_error_rate.
 
         The logical error rate returned by the constructed function is the probability that a code
@@ -856,8 +881,9 @@ class ClassicalCode(AbstractCode):
         mechanism per bit.  If that build raises a ValueError, an ObservableDecodingFallbackWarning
         is emitted and the specification decodes errors instead; wrap it as
         ``decoders.from_matrix(spec.build)`` to select error decoding explicitly.  A Sinter-style
-        decoder is compiled for the same detector error model, and a prebuilt observable decoder
-        must be built for the syndromes and observables of this code.
+        decoder is compiled for the same detector error model.  A prebuilt error decoder must decode
+        the parity-check matrix of this code, and a prebuilt observable decoder must be built for
+        the syndromes and observables of this code.
 
         The basic idea in this method, written here for a decoder that never discards, is to think
         of the fidelity
@@ -892,6 +918,27 @@ class ClassicalCode(AbstractCode):
         With a decoder that discards, ``F_k`` is instead the probability that a weight-k error is
         corrected or discarded, and the reported rate is ``(1 - F(p)) / (1 - D(p))``, where ``D(p)``
         is the discard rate; see help(qldpc.codes.ErrorRateFunc).
+
+        Args:
+            num_samples: The total number of errors to sample, apportioned among error weights
+                according to their largest probabilities at physical error rates up to
+                max_error_rate.  Every sampled weight gets at least one sample, so a small budget
+                spread over many weights can be exceeded.
+            max_error_rate: The largest physical error rate at which the constructed function can
+                be evaluated.  Default: 0.1.
+            min_error_weight: The smallest error weight to sample; lighter errors are taken on
+                trust to be decoded perfectly, as explained above.  Default: 1.
+            decoder: A decoder specification such as ``decoders.bp_osd(...)``, a Sinter-style
+                decoder, a prebuilt decoder, or None to select the default, as explained above.
+            seed: An integer to seed a local random number generator for sampling errors, or a
+                numpy.random.Generator to use (and advance).  If None (the default), sampling uses
+                NumPy's global random number generator.  Decoder randomness is separate.
+            **decoder_kwargs: Deprecated decoder-selection options; pass a specification as
+                ``decoder=`` instead.
+
+        Returns:
+            An ErrorRateFunc that maps a physical error rate to a logical error rate and its
+            uncertainty, or with ``discard_rate=True`` to a discard rate and its uncertainty.
         """
         if decoder_kwargs:  # DEPRECATED: see qldpc._deprecations
             decoder = merge_legacy_decoder_args(self.matrix, decoder, decoder_kwargs)
@@ -900,7 +947,9 @@ class ClassicalCode(AbstractCode):
         # sample errors of fixed weight and record failure/discard counts
         return ErrorRateFunc.from_sampler(
             functools.partial(
-                self._sample_failure_and_discard_counts, decoder=code_capacity_decoder
+                self._sample_failure_and_discard_counts,
+                decoder=code_capacity_decoder,
+                rng=None if seed is None else np.random.default_rng(seed),
             ),
             num_samples,
             len(self),
@@ -909,7 +958,11 @@ class ClassicalCode(AbstractCode):
         )
 
     def _sample_failure_and_discard_counts(
-        self, error_weight: int, num_samples: int, decoder: CodeCapacityDecoder
+        self,
+        error_weight: int,
+        num_samples: int,
+        decoder: CodeCapacityDecoder,
+        rng: np.random.Generator | None,
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.
 
@@ -917,11 +970,12 @@ class ClassicalCode(AbstractCode):
         """
         num_failures = 0
         num_discards = 0
+        choice = np.random.choice if rng is None else rng.choice
         for _ in range(num_samples):
             # construct an error
-            error_locations = np.random.choice(range(len(self)), size=error_weight, replace=False)
+            error_locations = choice(range(len(self)), size=error_weight, replace=False)
             error = self.field.Zeros(len(self))
-            error[error_locations] = np.random.choice(self.field.elements[1:], size=error_weight)
+            error[error_locations] = choice(self.field.elements[1:], size=error_weight)
 
             # decode the error
             failure, erasure = decoder.get_failure_and_erasure(error)
@@ -1957,8 +2011,15 @@ class QuditCode(AbstractCode):
     ) -> int | float:
         """Compute the exact minimum weight of nontrivial logical operators.
 
+        The weight of an operator is the number of qudits on which it acts nontrivially.  For a
+        subsystem code, logical operators are dressed: they may be multiplied by gauge operators.
+        The cost of this computation generally grows exponentially with the size of the code.  The
+        computed distance is remembered for later calls unless cutoff is greater than 1.
+
         Args:
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
+                With a cutoff greater than 1, a result at or below the cutoff may therefore be only
+                an upper bound on distance, and no result is remembered.
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
                 alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
                 operator.  Nonbinary calculations always use exhaustive enumeration.
@@ -2058,8 +2119,10 @@ class QuditCode(AbstractCode):
         Raises:
             NotImplementedError: If GAP cannot be called with ``backend="auto"``, or if the manual
                 workflow is declined with ``backend="gap"``.
-            ValueError: If given options that GAP/QDistRnd does not recognize, or options for GAP
-                with ``backend="auto"`` when GAP cannot be called.
+            TypeError: If num_trials is not an integer or None.
+            ValueError: If backend is ``"decoder"`` or ``"sqetch"``, if given options that
+                GAP/QDistRnd does not recognize, or if given options for GAP with
+                ``backend="auto"`` when GAP cannot be called.
         """
         _validate_distance_backend(backend)
         _validate_num_trials(num_trials)
@@ -2269,6 +2332,7 @@ class QuditCode(AbstractCode):
         *,
         min_error_weight: int = 1,
         decoder: decoders.DeferredDecoderInput = None,
+        seed: np.random.Generator | int | None = None,
         **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
@@ -2278,13 +2342,15 @@ class QuditCode(AbstractCode):
         (see help(qldpc.codes.ErrorRateFunc)).
 
         The physical error rate provided to the constructed function is the probability with which
-        each qubit experiences a Pauli error.  The constructed function will throw an error if given
+        each qudit experiences a Pauli error.  The constructed function will throw an error if given
         a physical error rate larger than max_error_rate.  If a pauli_bias is provided, it is
-        treated as the relative probabilities of an X, Y, and Z error on each qubit; otherwise,
-        these errors occur with equal probability, corresponding to a depolarizing error.
+        treated as the relative probabilities of an X, Y, and Z error on each qudit; otherwise,
+        these errors occur with equal probability, corresponding to a depolarizing error.  For
+        qudits of dimension q > 2, each nonzero X-type and Z-type component of an error is a
+        uniformly random nonzero element of the field of the code.
 
         The logical error rate returned by the constructed function is the probability that a code
-        error (obtained by sampling independent errors on all qubits) is converted into a logical
+        error (obtained by sampling independent errors on all qudits) is converted into a logical
         error by the decoder, given that the decoder does not discard it.
 
         Decoding succeeds if the decoder predicts the logical action of the sampled error, that is,
@@ -2316,6 +2382,32 @@ class QuditCode(AbstractCode):
 
         See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
         this method works.
+
+        Args:
+            num_samples: The total number of errors to sample, apportioned among error weights
+                according to their largest probabilities at physical error rates up to
+                max_error_rate.  Every sampled weight gets at least one sample, so a small budget
+                spread over many weights can be exceeded.
+            max_error_rate: The largest physical error rate at which the constructed function can
+                be evaluated.  Default: 0.1.
+            pauli_bias: The relative probabilities of X, Y, and Z errors, which need not be
+                normalized, or None (the default) for equal probabilities.
+            min_error_weight: The smallest error weight to sample; lighter errors are taken on
+                trust to be decoded perfectly, as explained above.  Default: 1.
+            decoder: A decoder specification such as ``decoders.bp_osd(...)``, a Sinter-style
+                decoder, or None to select the default, as explained above.
+            seed: An integer to seed a local random number generator for sampling errors, or a
+                numpy.random.Generator to use (and advance).  If None (the default), sampling uses
+                NumPy's global random number generator.  Decoder randomness is separate.
+            **decoder_kwargs: Deprecated decoder-selection options; pass a specification as
+                ``decoder=`` instead.
+
+        Returns:
+            An ErrorRateFunc that maps a physical error rate to a logical error rate and its
+            uncertainty, or with ``discard_rate=True`` to a discard rate and its uncertainty.
+
+        Raises:
+            ValueError: If pauli_bias does not have three entries, or if decoder is prebuilt.
         """
         pauli_bias_zxy = _as_pauli_bias_zxy(pauli_bias)
 
@@ -2353,6 +2445,7 @@ class QuditCode(AbstractCode):
                 self._sample_failure_and_discard_counts,
                 decoder=code_capacity_decoder,
                 pauli_bias_zxy=pauli_bias_zxy,
+                rng=None if seed is None else np.random.default_rng(seed),
             ),
             num_samples,
             len(self),
@@ -2441,6 +2534,7 @@ class QuditCode(AbstractCode):
         num_samples: int,
         decoder: CodeCapacityDecoder,
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
+        rng: np.random.Generator | None,
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.
 
@@ -2453,22 +2547,19 @@ class QuditCode(AbstractCode):
         """
         num_failures = 0
         num_discards = 0
+        choice = np.random.choice if rng is None else rng.choice
         for _ in range(num_samples):
             # construct an error
-            error_locations = np.random.choice(range(len(self)), size=error_weight, replace=False)
-            error_paulis = np.random.choice([1, 2, 3], size=error_weight, p=pauli_bias_zxy)
+            error_locations = choice(range(len(self)), size=error_weight, replace=False)
+            error_paulis = choice([1, 2, 3], size=error_weight, p=pauli_bias_zxy)
 
             # decode errors
             error_locs_x = error_locations[error_paulis > 1]
             error_x = np.zeros(len(self), dtype=int)
-            error_x[error_locs_x] = np.random.choice(
-                range(1, self.field.order), size=len(error_locs_x)
-            )
+            error_x[error_locs_x] = choice(range(1, self.field.order), size=len(error_locs_x))
             error_locs_z = error_locations[(error_paulis % 2).astype(bool)]
             error_z = np.zeros(len(self), dtype=int)
-            error_z[error_locs_z] = np.random.choice(
-                range(1, self.field.order), size=len(error_locs_z)
-            )
+            error_z[error_locs_z] = choice(range(1, self.field.order), size=len(error_locs_z))
 
             error = np.concatenate([error_x, error_z]).view(self.field)
             failure, erasure = decoder.get_failure_and_erasure(error)
@@ -3297,12 +3388,18 @@ class CSSCode(QuditCode):
     ) -> int | float:
         """Compute the exact minimum weight of nontrivial logical operators.
 
+        For a subsystem code, logical operators are dressed: they may be multiplied by gauge
+        operators.  The cost of this computation generally grows exponentially with the size of the
+        code.  Computed distances are remembered for later calls unless cutoff is greater than 1.
+
         Args:
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
                 X-type logical operator).  If passed qldpc.objects.Pauli.Z, compute the Z-distance.
                 The strings "X" and "Z" (case-insensitive) are also accepted.  If None (the
                 default), minimize over X and Z.
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
+                With a cutoff greater than 1, a result at or below the cutoff may therefore be only
+                an upper bound on distance, and no result is remembered.
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
                 alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
                 operator.  Nonbinary calculations always use exhaustive enumeration.
@@ -3351,7 +3448,7 @@ class CSSCode(QuditCode):
                     )
                 sectors.append((logical_ops, stabilizers))
 
-            distance = get_distance_css_brouwer_zimmermann(
+            distance = _get_distance_css_brouwer_zimmermann(
                 sectors,
                 cutoff=cutoff,
                 upper_bound=upper_bound,
@@ -3462,7 +3559,7 @@ class CSSCode(QuditCode):
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
                 X-type logical operator).  If passed qldpc.objects.Pauli.Z, compute the Z-distance.
                 The strings "X" and "Z" (case-insensitive) are also accepted.  If None (the
-                default), minimize over X and Z.
+                default), minimize over X and Z, splitting the num_trials trials between them.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
             decoder: Decoder input for the decoder-based algorithm; see
                 help(get_distance_bound_with_decoder).  Providing a decoder selects the
@@ -3477,9 +3574,17 @@ class CSSCode(QuditCode):
                 that backend, and raise a ValueError if it is unavailable.
 
         Returns:
-            An upper bound on distance if it is defined, or np.nan otherwise.  The returned bound is
-            never worse than the best bound already known for this code, and the best bound is
-            remembered for later calls.
+            An upper bound on distance if it is defined, or np.nan otherwise.  If the exact distance
+            is already known, it is returned.  The returned bound is never worse than the best bound
+            already known for this code, and the best bound is remembered for later calls.
+
+        Raises:
+            NotImplementedError: If the manual GAP workflow is declined with ``backend="gap"``.
+            TypeError: If num_trials is not an integer or None.
+            ValueError: If decoder is prebuilt or is combined with the ``"gap"`` or ``"sqetch"``
+                backend, if given options that the selected backend does not recognize, if options
+                select an unavailable backend with ``backend="auto"``, or if the decoder-based
+                algorithm fails to find a logical operator.
         """
         _validate_distance_backend(backend)
         _validate_num_trials(num_trials)
@@ -3873,6 +3978,7 @@ class CSSCode(QuditCode):
         decoder: decoders.DecoderInput = None,
         decoder_x: decoders.DecoderInput = None,
         decoder_z: decoders.DecoderInput = None,
+        seed: np.random.Generator | int | None = None,
         decoder_x_kwargs: dict[str, Any] | None = None,  # DEPRECATED: see qldpc._deprecations
         decoder_z_kwargs: dict[str, Any] | None = None,  # DEPRECATED: see qldpc._deprecations
         **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
@@ -3884,22 +3990,33 @@ class CSSCode(QuditCode):
         (see help(qldpc.codes.ErrorRateFunc)).
 
         The physical error rate provided to the constructed function is the probability with which
-        each qubit experiences a Pauli error.  The constructed function will throw an error if given
+        each qudit experiences a Pauli error.  The constructed function will throw an error if given
         a physical error rate larger than max_error_rate.  If a pauli_bias is provided, it is
-        treated as the relative probabilities of an X, Y, and Z error on each qubit; otherwise,
-        these errors occur with equal probability, corresponding to a depolarizing error.
+        treated as the relative probabilities of an X, Y, and Z error on each qudit; otherwise,
+        these errors occur with equal probability, corresponding to a depolarizing error.  For
+        qudits of dimension q > 2, each nonzero X-type and Z-type component of an error is a
+        uniformly random nonzero element of the field of the code.  The bias changes only the
+        sampled errors: the decoders of the X and Z sectors are each built once, by default with a
+        uniform prior on each qudit that depends neither on pauli_bias nor on the physical error
+        rate at which the constructed function is evaluated.  Replacing it with another uniform
+        prior does not change the output of decoders that minimize error weight, such as MWPM, or of
+        min-sum belief propagation.  To choose sector-specific priors anyway, pass specifications
+        such as ``decoders.bp_osd(error_channel=...)`` as ``decoder_x=`` and ``decoder_z=``.
 
         The logical error rate returned by the constructed function is the probability that a code
-        error (obtained by sampling independent errors on all qubits) is converted into a logical
+        error (obtained by sampling independent errors on all qudits) is converted into a logical
         error by the decoder, given that the decoder does not discard it.
 
-        The X and Z sectors are decoded independently.  Pass a decoder specification such as
-        ``decoders.bp_osd(...)`` as ``decoder=`` for both sectors, or set ``decoder_x=`` and
-        ``decoder_z=`` separately.  An omitted sector uses the shared ``decoder=`` specification.
-        With no specification, the default is BP+OSD for binary codes and GUF otherwise.  For a
-        binary code, a specification that predicts observables natively is built as an observable
-        decoder for the code-capacity detector error model of each sector, which has one error
-        mechanism per qubit.  If that build raises a ValueError, an
+        The X and Z sectors are decoded independently: the X-type part of an error is decoded from
+        its syndrome against the Z-type stabilizers, and the Z-type part from its syndrome against
+        the X-type stabilizers.  Decoding fails if it fails in either sector, and a sample is
+        discarded if either sector is discarded.  Pass a decoder specification such as
+        ``decoders.bp_osd(...)`` as ``decoder=`` for both sectors, or set ``decoder_x=`` (for X-type
+        errors) and ``decoder_z=`` (for Z-type errors) separately.  An omitted sector uses the
+        shared ``decoder=`` specification.  With no specification, the default is BP+OSD for binary
+        codes and GUF otherwise.  For a binary code, a specification that predicts observables
+        natively is built as an observable decoder for the code-capacity detector error model of
+        each sector, which has one error mechanism per qubit.  If that build raises a ValueError, an
         ObservableDecodingFallbackWarning is emitted and the specification decodes errors instead;
         wrap it as ``decoders.from_matrix(spec.build)`` to select error decoding explicitly.  A
         Sinter-style decoder is compiled for the detector error model of each sector, and a prebuilt
@@ -3922,6 +4039,37 @@ class CSSCode(QuditCode):
 
         See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
         this method works.
+
+        Args:
+            num_samples: The total number of errors to sample, apportioned among error weights
+                according to their largest probabilities at physical error rates up to
+                max_error_rate.  Every sampled weight gets at least one sample, so a small budget
+                spread over many weights can be exceeded.
+            max_error_rate: The largest physical error rate at which the constructed function can
+                be evaluated.  Default: 0.1.
+            pauli_bias: The relative probabilities of X, Y, and Z errors, which need not be
+                normalized, or None (the default) for equal probabilities.
+            min_error_weight: The smallest error weight to sample; lighter errors are taken on
+                trust to be decoded perfectly, as explained above.  Default: 1.
+            decoder: A decoder input for both sectors, as explained above, or None to select the
+                default.
+            decoder_x: A decoder input for X-type errors, overriding decoder.
+            decoder_z: A decoder input for Z-type errors, overriding decoder.
+            seed: An integer to seed a local random number generator for sampling errors, or a
+                numpy.random.Generator to use (and advance).  If None (the default), sampling uses
+                NumPy's global random number generator.  Decoder randomness is separate.
+            decoder_x_kwargs: Deprecated; pass a specification as ``decoder_x=`` instead.
+            decoder_z_kwargs: Deprecated; pass a specification as ``decoder_z=`` instead.
+            **decoder_kwargs: Deprecated decoder-selection options; pass a specification as
+                ``decoder=`` instead.
+
+        Returns:
+            An ErrorRateFunc that maps a physical error rate to a logical error rate and its
+            uncertainty, or with ``discard_rate=True`` to a discard rate and its uncertainty.
+
+        Raises:
+            ValueError: If pauli_bias does not have three entries, or if a shared prebuilt decoder
+                cannot decode both sectors.
         """
         pauli_bias_zxy = _as_pauli_bias_zxy(pauli_bias)
 
@@ -3994,6 +4142,7 @@ class CSSCode(QuditCode):
                 decoder_x=code_capacity_decoder_x,
                 decoder_z=code_capacity_decoder_z,
                 pauli_bias_zxy=pauli_bias_zxy,
+                rng=None if seed is None else np.random.default_rng(seed),
             ),
             num_samples,
             len(self),
@@ -4039,6 +4188,7 @@ class CSSCode(QuditCode):
         decoder_x: CodeCapacityDecoder,
         decoder_z: CodeCapacityDecoder,
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
+        rng: np.random.Generator | None,
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.
 
@@ -4052,17 +4202,24 @@ class CSSCode(QuditCode):
         """
         num_failures = 0
         num_discards = 0
+        choice = np.random.choice if rng is None else rng.choice
         for _ in range(num_samples):
             # construct an error
-            error_locations = np.random.choice(range(len(self)), size=error_weight, replace=False)
-            error_paulis = np.random.choice([1, 2, 3], size=error_weight, p=pauli_bias_zxy)
+            error_locations = choice(range(len(self)), size=error_weight, replace=False)
+            error_paulis = choice([1, 2, 3], size=error_weight, p=pauli_bias_zxy)
 
             # decode Z-type errors
             error_locs_z = error_locations[(error_paulis % 2).astype(bool)]
             error_z = self.field.Zeros(len(self))
-            error_z[error_locs_z] = np.random.choice(
-                range(1, self.field.order), size=len(error_locs_z)
-            )
+            error_z[error_locs_z] = choice(range(1, self.field.order), size=len(error_locs_z))
+
+            # Complete seeded errors before decoding so early exits cannot change later samples.
+            error_x = None
+            if rng is not None:
+                error_locs_x = error_locations[error_paulis > 1]
+                error_x = self.field.Zeros(len(self))
+                error_x[error_locs_x] = choice(range(1, self.field.order), size=len(error_locs_x))
+
             failure_z, erasure = decoder_z.get_failure_and_erasure(error_z)
             if erasure:
                 num_discards += 1
@@ -4075,11 +4232,10 @@ class CSSCode(QuditCode):
                 continue
 
             # decode X-type errors
-            error_locs_x = error_locations[error_paulis > 1]
-            error_x = self.field.Zeros(len(self))
-            error_x[error_locs_x] = np.random.choice(
-                range(1, self.field.order), size=len(error_locs_x)
-            )
+            if error_x is None:
+                error_locs_x = error_locations[error_paulis > 1]
+                error_x = self.field.Zeros(len(self))
+                error_x[error_locs_x] = choice(range(1, self.field.order), size=len(error_locs_x))
             failure_x, erasure = decoder_x.get_failure_and_erasure(error_x)
             if erasure:
                 num_discards += 1

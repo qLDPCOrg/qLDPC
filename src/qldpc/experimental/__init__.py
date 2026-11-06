@@ -6,8 +6,10 @@ EXPERIMENTAL: everything under ``qldpc.experimental`` is under active developmen
 are unstable and may change without notice or deprecation.
 """
 
-from . import surgery
+from . import circuits, objects, surgery
 
 __all__ = [
+    "circuits",
+    "objects",
     "surgery",
 ]

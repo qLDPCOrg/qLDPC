@@ -336,16 +336,15 @@ class TetrahedralCode(CSSCode):
     - https://arxiv.org/abs/1403.2734
     - https://arxiv.org/abs/2409.13465
     - https://errorcorrectionzoo.org/c/stab_15_1_3
+
+    Args:
+        algebraic: Choose Z-type stabilizers according to the algebraic (if True) or geometric
+            (if False) definition of the TetrahedralCode, as described above.  The remaining
+            stabilizers and logical operators are unaffected by this flag.  Default: False.
     """
 
     def __init__(self, *, algebraic: bool = False) -> None:
-        """Construct an instance of the [15, 1, 3] tetrahedral code.
-
-        Args:
-            algebraic: Choose Z-type stabilizers according to the algebraic (if True) or geometric
-                (if False) definition of the TetrahedralCode, as described above.  The remaining
-                stabilizers and logical operators are unaffected by this flag.  Default: False.
-        """
+        """Construct an instance of the [15, 1, 3] tetrahedral code."""
         code_x = ReedMullerCode(2, 4).punctured([0])  # or HammingCode(4)
 
         if algebraic:
@@ -577,6 +576,15 @@ class GALACode(CSSCode):
     References:
 
     - https://arxiv.org/abs/2608.07431
+
+    Args:
+        generators_f: The sequence (F_0, ..., F_{L/2-1}) of group-ring elements.
+        generators_g: The sequence (G_0, ..., G_{L/2-1}) of group-ring elements.
+        num_active_rows: The number J of active block rows, with 1 <= J <= L/2.
+
+    Keyword args:
+        skip_validation: If True, skip the check that the active X-type and Z-type parity checks
+            commute.  Structural input validation is performed regardless.  Default: False.
     """
 
     generators_f: tuple[abstract.RingMember, ...]
@@ -601,17 +609,7 @@ class GALACode(CSSCode):
         *,
         skip_validation: bool = False,
     ) -> None:
-        """Construct a GALA code from two sequences of group-ring generators.
-
-        Args:
-            generators_f: The sequence (F_0, ..., F_{L/2-1}) of group-ring elements.
-            generators_g: The sequence (G_0, ..., G_{L/2-1}) of group-ring elements.
-            num_active_rows: The number J of active block rows, with 1 <= J <= L/2.
-
-        Keyword args:
-            skip_validation: If True, skip the check that the active X-type and Z-type parity checks
-                commute.  Structural input validation is performed regardless.  Default: False.
-        """
+        """Construct a GALA code from two sequences of group-ring generators."""
         generators_f, generators_g, ring = self._validate_generators(
             generators_f, generators_g, num_active_rows
         )
@@ -2171,9 +2169,10 @@ class BPCode(CSSCode):
     ``p[j]`` of every index ``j``, or a SymPy permutation, which fixes the indices beyond its size.
     The balanced product code identifies the qudits and checks of the hypergraph product code that
     are related by pairs of symmetries of the two classical codes (see
-    :meth:`qldpc.objects.ChainComplex.balanced_product`).  Without symmetries, a balanced product
-    code is a hypergraph product code.  If the pairs of symmetries generate a group that acts freely
-    on both classical codes, a balanced product code is a lifted product code (see :class:`LPCode`).
+    :meth:`qldpc.objects.complexes.ChainComplex.balanced_product`).  Without symmetries, a balanced
+    product code is a hypergraph product code.  If the pairs of symmetries generate a group that
+    acts freely on both classical codes, a balanced product code is a lifted product code (see
+    :class:`LPCode`).
 
     The static method :meth:`from_seed` constructs balanced product codes from a single seed matrix
     with a symmetry, as in https://arxiv.org/abs/2505.13679, and :meth:`get_seed_symmetries` finds

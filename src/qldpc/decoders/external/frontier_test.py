@@ -17,8 +17,7 @@ import pytest
 import stim
 
 from qldpc import decoders
-from qldpc.conftest import run_python
-from qldpc.decoders.construction._resolution import build_observable_decoder
+from qldpc.decoders._resolution import build_observable_decoder
 from qldpc.decoders.external import frontier
 from qldpc.decoders.external.frontier import _get_observable_decoder_frontier
 
@@ -104,8 +103,11 @@ def test_frontier_decoding(calls: list[_Call]) -> None:
     assert decoder.decode_observables(syndromes[0]).tolist() == [0, 0, 0]
 
 
-def test_frontier_builder() -> None:
-    """The frontier helper has the defaults of the builder."""
+def test_frontier_builder(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The frontier helper has the defaults of the builder, and does not import Frontier."""
+    monkeypatch.setitem(sys.modules, "frontier", None)
+    decoders.frontier(committee=True)
+
     builder_parameters = inspect.signature(_get_observable_decoder_frontier).parameters
     helper_parameters = inspect.signature(decoders.frontier).parameters
     assert {name: parameter.default for name, parameter in helper_parameters.items()} == {
@@ -214,17 +216,6 @@ def test_frontier_missing_installation(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(ModuleNotFoundError) as error:
         _get_observable_decoder_frontier(dem)
     assert "Install it with" not in str(error.value)
-
-
-def test_frontier_import_is_lazy() -> None:
-    """Importing the integration and configuring a decoder does not import Frontier."""
-    code = """
-import sys
-from qldpc import decoders
-decoders.frontier(committee=True)
-assert "frontier" not in sys.modules
-"""
-    run_python(code)
 
 
 @dataclasses.dataclass(frozen=True)

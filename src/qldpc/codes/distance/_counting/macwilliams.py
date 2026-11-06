@@ -33,11 +33,8 @@ import math
 import numpy as np
 import numpy.typing as npt
 
+from qldpc._binary import pack_bits, popcount_word, trailing_zeros_word
 from qldpc._compilation import always_compiled
-
-from .._binary import pack_bits, popcount_word, trailing_zeros_word
-
-_BinaryMatrix = npt.NDArray[np.uint8]
 
 # Gray-code steps visited per native call, which bounds the time between interruptions.
 _CHUNK_SIZE = 1 << 16
@@ -62,7 +59,7 @@ class CheckEnumerators:
         ValueError: If a check space has more than ``2**63`` words.
     """
 
-    def __init__(self, checks_x: _BinaryMatrix, checks_z: _BinaryMatrix) -> None:
+    def __init__(self, checks_x: npt.NDArray[np.uint8], checks_z: npt.NDArray[np.uint8]) -> None:
         for checks in (checks_x, checks_z):
             if len(checks) > _MAX_RANK:
                 raise ValueError(
@@ -75,9 +72,9 @@ class CheckEnumerators:
         self.self_dual = checks_z is checks_x
         self.weights_z = self.weights_x if self.self_dual else get_span_weights(checks_z)
         # Counts of the light words of ker(H_Z) and ker(H_X), from one 64-bit transform each.
-        self.kernel_x = _count_light_dual_words(self.weights_z, self.rank_z, self.num_bits)
-        self.kernel_z = (
-            self.kernel_x
+        self.light_counts_x = _count_light_dual_words(self.weights_z, self.rank_z, self.num_bits)
+        self.light_counts_z = (
+            self.light_counts_x
             if self.self_dual
             else _count_light_dual_words(self.weights_x, self.rank_x, self.num_bits)
         )
@@ -85,12 +82,12 @@ class CheckEnumerators:
     def count_logical_ops(self, weight: int) -> tuple[int, int]:
         """The numbers of nontrivial X-only and Z-only logical operators of the given weight."""
         count_x = self._count_sector(
-            self.weights_z, self.rank_z, self.kernel_x, self.weights_x, weight
+            self.weights_z, self.rank_z, self.light_counts_x, self.weights_x, weight
         )
         if self.self_dual:
             return count_x, count_x
         return count_x, self._count_sector(
-            self.weights_x, self.rank_x, self.kernel_z, self.weights_z, weight
+            self.weights_x, self.rank_x, self.light_counts_z, self.weights_z, weight
         )
 
     def _count_sector(
@@ -115,7 +112,7 @@ class CheckEnumerators:
 # weight distributions and transforms
 
 
-def get_span_weights(generators: _BinaryMatrix) -> npt.NDArray[np.uint64]:
+def get_span_weights(generators: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint64]:
     """The number of words of each weight in the span of independent binary rows, as uint64s."""
     rank, num_bits = generators.shape
     weights = np.zeros(num_bits + 1, dtype=np.uint64)

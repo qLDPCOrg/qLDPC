@@ -16,35 +16,11 @@ import pytest
 from sympy.abc import x, y, z
 
 import qldpc
+from qldpc._binary import get_independent_rows
 
-from . import _binary as binary
 from . import _brouwer_zimmermann as bz
-from . import _information_sets, core
+from . import _information_sets
 from .conftest import get_random_full_rank_matrix
-
-
-def test_css_brouwer_zimmermann_special_inputs() -> None:
-    """The joint CSS helper handles empty, trivial, and nontrivial quotient sectors."""
-    empty = np.empty((0, 4), dtype=np.uint8)
-    assert (
-        bz.get_distance_css_brouwer_zimmermann(
-            [(empty, empty)],
-            cutoff=0,
-        )
-        == 4
-    )
-    assert (
-        bz.get_distance_css_brouwer_zimmermann(
-            [([[1, 0]], [[1, 0]])],
-            cutoff=0,
-        )
-        == 0
-    )
-
-    # The result is the minimum of the upper bound and the distances of the supplied sectors.
-    sectors: list[tuple[npt.ArrayLike, npt.ArrayLike]] = [([[1, 1]], [])]
-    assert bz.get_distance_css_brouwer_zimmermann(sectors, cutoff=0, upper_bound=3) == 2
-    assert bz.get_distance_css_brouwer_zimmermann(sectors, cutoff=0, upper_bound=1) == 1
 
 
 @pytest.mark.parametrize("interpreted", [False, True])
@@ -158,8 +134,9 @@ def test_brouwer_zimmermann_search_state() -> None:
     search.cutoff = -(2**100)
     assert search.advance() == 1
     assert (search.lower_bound, search.next_weight) == (0, 2)
+    # After the last layer, every word has been visited, so the certificate rules out all of them.
     assert search.advance() == 1
-    assert (search.lower_bound, search.next_weight) == (1, 3)
+    assert (search.lower_bound, search.next_weight) == (np.iinfo(np.int64).max, 3)
 
 
 # Each case reaches one early exit from search setup or a shared search with real inputs.  These
@@ -239,8 +216,7 @@ def test_brouwer_zimmermann_setup_exits(
     )
 
     # Lower only the cost knobs, so that these small inputs reach the information-set search.
-    monkeypatch.setattr(bz, "exhaustive_is_cheaper", lambda *_: False)
-    monkeypatch.setattr(core, "exhaustive_is_cheaper", lambda *_: False)
+    monkeypatch.setattr(bz, "enumeration_is_cheaper_than_setup", lambda *_: False)
     if overlap:
         monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
     distance = qldpc.codes.get_distance_quantum(
@@ -254,17 +230,27 @@ def test_brouwer_zimmermann_setup_cutoffs() -> None:
     basis = np.array([[1, 0, 1, 1], [0, 1, 1, 1]], dtype=np.uint8)
     assert (
         bz._prepare_brouwer_zimmermann_search(
-            basis, None, cutoff=3, block_size=2, weight_divisor=1, upper_bound=4
+            basis, _no_labels(basis), cutoff=3, block_size=2, weight_divisor=1, upper_bound=4
         )
         == 3
     )
-    with mock.patch.object(bz, "exhaustive_is_cheaper", return_value=False):
+    with mock.patch.object(bz, "enumeration_is_cheaper_than_setup", return_value=False):
         assert (
             bz._prepare_brouwer_zimmermann_search(
-                basis, None, cutoff=2, block_size=2, weight_divisor=1, upper_bound=4
+                basis, _no_labels(basis), cutoff=2, block_size=2, weight_divisor=1, upper_bound=4
             )
             == 2
         )
+
+
+def test_an_upper_bound_acts_as_a_known_witness() -> None:
+    """A search returns the smaller of its upper bound and the distance."""
+    basis = get_independent_rows(np.asarray(qldpc.codes.HammingCode(3).generator, dtype=np.uint8))
+    for upper_bound, expected in ((2, 2), (3, 3), (5, 3)):
+        distance = bz.get_distance_brouwer_zimmermann(
+            basis, _no_labels(basis), cutoff=0, block_size=15, upper_bound=upper_bound
+        )
+        assert distance == expected
 
 
 @pytest.mark.usefixtures("force_information_sets")
@@ -293,7 +279,7 @@ def test_brouwer_zimmermann_shared_search() -> None:
         method="brute_force",
     )
     actual = bz.get_distance_brouwer_zimmermann_many(
-        [(basis_a, None), (basis_b, labels_b)],
+        [(basis_a, _no_labels(basis_a)), (basis_b, labels_b)],
         cutoff=0,
         block_size=2,
     )
@@ -331,10 +317,10 @@ def test_a_given_disjoint_basis_family_replaces_the_first_stage() -> None:
 def test_brouwer_zimmermann_sector_certificates() -> None:
     """A completed sector's certificate must not finish a different sector's search."""
     generators = np.asarray(qldpc.codes.HammingCode(4).generator, dtype=np.uint8)
-    basis_a = binary.get_independent_rows(
+    basis_a = get_independent_rows(
         np.column_stack([generators, np.bitwise_xor.reduce(generators, axis=1)])
     )
-    basis_b = binary.get_independent_rows(
+    basis_b = get_independent_rows(
         np.array(
             [
                 [0, 0, 1, 0, 0, 0, 0, 0, 1, 1],
@@ -373,7 +359,7 @@ def test_brouwer_zimmermann_sector_certificates() -> None:
         mock.patch.object(bz._BrouwerZimmermannSearch, "advance", advance),
     ):
         actual = bz.get_distance_brouwer_zimmermann_many(
-            [(basis_a, None), (basis_b, None)], cutoff=0, block_size=2
+            [(basis_a, _no_labels(basis_a)), (basis_b, _no_labels(basis_b))], cutoff=0, block_size=2
         )
     assert actual == min(expected)
     assert len(searches) == 2
@@ -399,11 +385,8 @@ def test_brouwer_zimmermann_packed_widths(length: int) -> None:
     assert qldpc.codes.get_distance_classical(generators, cutoff=0) == length
 
 
-def test_brouwer_zimmermann_exhaustive_dispatch() -> None:
-    """Dependent logical rows skip the top-level independent-row exhaustive path.
-
-    The exhaustive dispatcher uses the reduced quotient basis instead.
-    """
+def test_dependent_logical_rows_give_the_distance_of_their_span() -> None:
+    """Repeated logical rows are reduced to a basis of the quotient before any search."""
     distance = qldpc.codes.get_distance_quantum(
         [[1, 1, 1], [1, 1, 1]], [], homogeneous=True, cutoff=0
     )
@@ -419,14 +402,14 @@ def test_brouwer_zimmermann_reduces_enumeration_work(
     if extended:
         generators = np.column_stack([generators, np.bitwise_xor.reduce(generators, axis=1)])
     assert qldpc.codes.get_distance_classical(generators, cutoff=0) == (4 if extended else 3)
-    assert 1000 * get_candidate_count() < 2 ** len(generators)
+    assert 0 < 1000 * get_candidate_count() < 2 ** len(generators)
 
 
-def test_brouwer_zimmermann_initial_upper_bound_excludes_stabilizers() -> None:
-    """The initial upper bound comes from eligible rows, not lighter stabilizers."""
+def test_the_lightest_eligible_row_excludes_stabilizers() -> None:
+    """Upper bounds from rows come from eligible rows, not lighter stabilizers."""
     basis = np.array([[1, 0, 0], [1, 1, 0]], dtype=np.uint8)
     labels = np.array([[0], [1]], dtype=np.uint8)
-    assert bz._get_brouwer_zimmermann_initial_upper_bound(basis, labels) == 2
+    assert bz._get_lightest_eligible_row_weight(basis, labels) == 2
 
 
 def test_brouwer_zimmermann_overlap_qc(get_candidate_count: Callable[[], int]) -> None:
@@ -437,17 +420,19 @@ def test_brouwer_zimmermann_overlap_qc(get_candidate_count: Callable[[], int]) -
         1 + x * y + x**2 * y**3 * z + x**3 * y**2,
     )
     assert code.forget_distance().get_distance_exact("X", cutoff=0) == 8
-    assert get_candidate_count() < 1_000_000
+    assert 0 < get_candidate_count() < 1_000_000
 
 
 @pytest.mark.usefixtures("force_information_sets")
-def test_brouwer_zimmermann_overlap_improves_quotient_witness() -> None:
+def test_brouwer_zimmermann_overlap_improves_quotient_witness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Compare witness-improving overlap enumeration with an exhaustive quotient oracle."""
 
     # Shorten a systematic BCH(31,21) basis to [26,16] and isolate a one-bit quotient.
-    basis = binary.get_independent_rows(
-        np.asarray(qldpc.codes.BCHCode(31, 21).generator, dtype=np.uint8)
-    )[5:, 5:]
+    basis = get_independent_rows(np.asarray(qldpc.codes.BCHCode(31, 21).generator, dtype=np.uint8))[
+        5:, 5:
+    ]
     logicals = basis[13:14]
     stabilizers = np.delete(basis, 13, axis=0)
     expected = qldpc.codes.get_distance_quantum(
@@ -455,16 +440,16 @@ def test_brouwer_zimmermann_overlap_improves_quotient_witness() -> None:
     )
 
     # Lower only the work threshold so this small oracle exercises production basis family
-    # construction.
+    # construction, and check that the overlapping family has no witness as light as the distance.
+    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
     original = _information_sets.get_overlapping_family
 
-    def select(*args: Any) -> _information_sets.BasisFamily:
-        basis, labels, basis_family, upper_bound, max_sets, _, binomials, rng = args
-        selected = original(basis, labels, basis_family, upper_bound, max_sets, 0, binomials, rng)
+    def select(*args: Any, **kwargs: Any) -> _information_sets.BasisFamily:
+        selected = original(*args, **kwargs)
         assert len(selected.ranks) and selected.max_coverage > 1
         assert (
             min(
-                bz._get_brouwer_zimmermann_initial_upper_bound(generators, labels)
+                bz._get_lightest_eligible_row_weight(generators, labels)
                 for generators, labels in zip(selected.generators, selected.labels, strict=True)
             )
             > expected
@@ -507,3 +492,58 @@ def get_candidate_count(monkeypatch: pytest.MonkeyPatch) -> Callable[[], int]:
     monkeypatch.setattr(np, "bitwise_count", counting_bitwise_count)
     monkeypatch.setattr(bz, "_scan_brouwer_zimmermann", counting_scan)
     return lambda: num_candidates
+
+
+@pytest.mark.usefixtures("force_information_sets")
+def test_a_search_scans_every_set_that_its_certificate_counts() -> None:
+    """A [22, 7, 5] code whose search finds a word of weight five only in its second set.
+
+    Its two disjoint information sets reach the certificate six once both complete layer two, and
+    the first word of weight five is in layer two of the second set.  A search that counted the
+    second set's layer without scanning it would return six.
+    """
+    rows = [
+        "1000100010001101001110",
+        "0100100010000111110000",
+        "0010000010000100101010",
+        "0001100010000000011111",
+        "0000010110000001011001",
+        "0000001100000010001011",
+        "0000000000101110101110",
+    ]
+    basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
+    assert qldpc.codes.get_distance_classical(basis, cutoff=0, method="brute_force") == 5
+    assert qldpc.codes.get_distance_classical(basis, cutoff=0) == 5
+
+
+@pytest.mark.usefixtures("force_information_sets")
+def test_a_search_through_the_costly_stages_finds_the_distance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A [21, 8, 6] code, searched with a partitioned family and a certificate of linear programs.
+
+    With the thresholds of the costly stages lowered, the search of this code replaces its family by
+    information sets from matroid partitioning, whose columns lie in up to two of them, and bounds
+    unvisited words by linear programming.
+    """
+    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
+    monkeypatch.setattr(_information_sets, "LP_MINIMUM_WORK", 0)
+    monkeypatch.setattr(_information_sets, "PARTITION_WORK_RATIO", 0)
+    rows = [
+        "100000010110010010011",
+        "010000010100101111100",
+        "001000000111011111100",
+        "000100010101000101010",
+        "000010010110000011000",
+        "000001010011000111011",
+        "000000110001110101011",
+        "000000001110001010110",
+    ]
+    basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
+    assert qldpc.codes.get_distance_classical(basis, cutoff=0, method="brute_force") == 6
+    assert qldpc.codes.get_distance_classical(basis, cutoff=0) == 6
+
+
+def _no_labels(basis: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+    """Quotient labels with no columns, which exclude no subcode."""
+    return np.empty((len(basis), 0), dtype=np.uint8)

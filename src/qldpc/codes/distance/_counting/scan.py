@@ -13,20 +13,19 @@ local gate, for deformed counters.  ``logical_counts.py`` calls both.  Section 3
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Callable
 
 import numpy as np
 import numpy.typing as npt
 
+from qldpc._binary import pack_bits, popcount_word, row_reduce_packed, unpack_bits
 from qldpc._compilation import always_compiled, compiled_on_request
 
 from .. import _information_sets
-from .._binary import pack_bits, popcount_word, row_reduce_packed
 from .._information_sets import advance_support
-from ..core import DistanceMethod
 from . import local_cliffords
 
-_BinaryMatrix = npt.NDArray[np.uint8]
 _PackedMatrix = npt.NDArray[np.uint64]
 
 # Supports, choices of rows of a set, that one call of ``_count_chunk`` visits.
@@ -51,10 +50,10 @@ _CURSOR_LAYER, _CURSOR_SET, _CURSOR_DEPTH = 0, 1, 2
 
 
 def count_words(
-    basis: _BinaryMatrix,
-    labels: _BinaryMatrix,
+    basis: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8],
     weight: int,
-    method: DistanceMethod,
+    brute_force: bool,
     rank_rows: _PackedMatrix,
     *,
     complement: bool,
@@ -69,21 +68,34 @@ def count_words(
     is the support of the word, or its complement.  The histogram sums to the number of words, and
     the caller weighs each exponent by ``2**exponent``, which could overflow a native integer.  The
     scan also visits every lighter word, so with ``reject_lighter`` it returns None as soon as it
-    finds a nontrivial one.
+    finds a nontrivial one.  With ``brute_force``, it scans the whole basis as one set, rather than
+    the information sets of the Brouwer-Zimmermann search.
     """
     # Select the information sets, or scan the whole basis as one set for brute force.
-    if method == "brute_force":
+    if brute_force:
         rows, packed_labels = pack_bits(basis)[np.newaxis], pack_bits(labels)[np.newaxis]
         extractors = np.zeros((1, 0, rows.shape[2]), dtype=np.uint64)
-        last_layer = len(basis)
+        last_layer, last_num_completed = len(basis), 1
     else:
-        rows, packed_labels, extractors, last_layer = _prepare_scan(
+        basis_family = _select_basis_family(
             basis,
             labels,
             weight,
             get_disjoint_basis_family(),
             max_sets,
             *_information_sets.get_overlapping_family_policy(len(basis)),
+        )
+        # Matroid partitioning runs outside of _select_basis_family, which can be compiled.
+        partitioned = _information_sets.get_partitioned_family(
+            basis, labels, basis_family, weight + 1, max_sets
+        )
+        if len(partitioned.ranks):
+            basis_family = partitioned
+        rows, packed_labels, extractors = _pack_basis_family(
+            basis_family, basis.shape[1], labels.shape[1]
+        )
+        last_layer, last_num_completed = _get_last_step(
+            basis_family.get_search_certificate(weight + 1), weight
         )
 
     # Scan in bounded calls, which compiled code cannot be interrupted within.
@@ -102,6 +114,7 @@ def count_words(
             rows.shape[2],
             extractors,
             last_layer,
+            last_num_completed,
             weight,
             rank_rows,
             complement,
@@ -121,7 +134,7 @@ def transport_basis_family(
     basis_family: _information_sets.BasisFamily,
     positions: npt.NDArray[np.int64],
     local: npt.NDArray[np.uint64],
-    basis: _BinaryMatrix,
+    basis: npt.NDArray[np.uint8],
 ) -> _information_sets.BasisFamily | None:
     """The basis family of a sector after a local gate, or None if one of its sets stops being one.
 
@@ -147,50 +160,60 @@ def transport_basis_family(
 
 
 @compiled_on_request
-def _prepare_scan(
-    basis: _BinaryMatrix,
-    labels: _BinaryMatrix,
+def _select_basis_family(
+    basis: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8],
     weight: int,
     basis_family: _information_sets.BasisFamily,
     max_sets: int,
     minimum_work: int,
     binomials: npt.NDArray[np.int64],
     rng: np.random.Generator,
-) -> tuple[_PackedMatrix, _PackedMatrix, _PackedMatrix, int]:
-    """Select BZ information sets that certify every word of the given weight, and pack them.
+) -> _information_sets.BasisFamily:
+    """Run the basis family stages that can be compiled: pruning, then an overlapping replacement.
 
-    The basis family stages aim at the counting stop ``L(t) >= weight + 1``; any basis family gives
-    an exact count.  Returns the packed rows and labels of the sets, their coefficient extractors
-    (which are empty for a single set, since ownership compares sets), and the last layer to scan,
-    which is the first one after which the certificate rules out unvisited words of the weight.
+    The stages aim at the counting stop ``L(t) >= weight + 1``; any basis family gives an exact
+    count.
     """
-    dimension = basis.shape[0]
     upper_bound = weight + 1
-    sets = _information_sets.prune_family(basis_family, upper_bound)
+    pruned = _information_sets.prune_family(basis_family, upper_bound)
     replacement = _information_sets.get_overlapping_family(
-        basis, labels, sets, upper_bound, max_sets, minimum_work, binomials, rng
+        basis, labels, pruned, upper_bound, max_sets, minimum_work, binomials, rng
     )
-    if len(replacement.ranks) > 0:
-        sets = replacement
+    return replacement if len(replacement.ranks) > 0 else pruned
 
-    num_sets = len(sets.ranks)
-    width = (basis.shape[1] + 63) // 64
+
+@compiled_on_request
+def _pack_basis_family(
+    basis_family: _information_sets.BasisFamily, num_columns: int, num_label_columns: int
+) -> tuple[_PackedMatrix, _PackedMatrix, _PackedMatrix]:
+    """Pack the rows and labels of the sets of a basis family, and their coefficient extractors.
+
+    The extractors are empty for a single set, since ownership compares sets.
+    """
+    num_sets, dimension = basis_family.generators.shape[:2]
+    width = (num_columns + 63) // 64
     rows = np.empty((num_sets, dimension, width), dtype=np.uint64)
-    packed_labels = np.empty((num_sets, dimension, (labels.shape[1] + 63) // 64), dtype=np.uint64)
+    packed_labels = np.empty((num_sets, dimension, (num_label_columns + 63) // 64), dtype=np.uint64)
     for index in range(num_sets):
-        rows[index] = pack_bits(sets.generators[index])
-        packed_labels[index] = pack_bits(sets.labels[index])
+        rows[index] = pack_bits(basis_family.generators[index])
+        packed_labels[index] = pack_bits(basis_family.labels[index])
+    return rows, packed_labels, _get_coefficient_extractors(basis_family, width)
 
-    bounds = _information_sets.get_certificate_lower_bounds(
-        dimension, sets.ranks, sets.weight_divisor, sets.max_coverage
+
+def _get_last_step(certificate: _information_sets.Certificate, weight: int) -> tuple[int, int]:
+    """The first step after which the certificate rules out unvisited words of the given weight.
+
+    A step completes a layer of one set, and the scan visits the sets of each layer in family order.
+    Returns the layer of that step, and the number of sets that have completed that layer.  Equality
+    with the weight would still allow unvisited words of the weight, so the certificate must exceed
+    it.
+    """
+    # The first set to complete the last layer visits every word, so some step certifies.
+    steps = itertools.product(
+        range(1, certificate.dimension + 1), range(1, len(certificate.ranks) + 1)
     )
-    last_layer = dimension
-    for layer in range(1, dimension + 1):
-        # Equality would still allow unvisited words of the target weight.
-        if bounds[layer] > weight:
-            last_layer = layer
-            break
-    return rows, packed_labels, _get_coefficient_extractors(sets, width), last_layer
+    return next(step for step in steps if certificate.certifies(*step, weight + 1))
 
 
 @compiled_on_request
@@ -216,10 +239,11 @@ def _get_coefficient_extractors(
 
         # Row reduction finds T with T @ generators = R, where R is the identity on its pivot
         # columns P, so that w[P] @ T recovers the coefficients of w.
-        identity = np.eye(dimension, dtype=np.uint8)
-        _, transform, pivots = row_reduce_packed(
-            basis_family.generators[index], identity, np.arange(num_columns)
+        identity = pack_bits(np.eye(dimension, dtype=np.uint8))
+        _, packed_transform, pivots = row_reduce_packed(
+            pack_bits(basis_family.generators[index]), identity, np.arange(num_columns)
         )
+        transform = unpack_bits(packed_transform, dimension)
         extractor = np.zeros((dimension, num_columns), dtype=np.uint8)
         for row in range(len(pivots)):
             extractor[:, pivots[row]] = transform[row]
@@ -233,6 +257,7 @@ def _scan_coefficient_layers(
     width: int,
     extractors: _PackedMatrix,
     last_layer: int,
+    last_num_completed: int,
     target: int,
     rank_rows: _PackedMatrix,
     complement: bool,
@@ -248,8 +273,13 @@ def _scan_coefficient_layers(
     """Visit the supports of each layer in each set, for at most ``max_chunks`` chunks.
 
     The layers run from one to ``last_layer``, and each set visits all of its supports of that many
-    rows (see ``_count_chunk``).  This loop is a function of its own so that it can be compiled,
-    which saves a call from Python for every chunk.
+    rows (see ``_count_chunk``), except that only the first ``last_num_completed`` sets visit the
+    last layer.  The scan visits the steps, the pairs of a layer and a set, in lexicographic order,
+    so the steps that it visits are a prefix of that order.  Each word of the target weight is owned
+    by the first step that visits it (see ``_is_owned``), which therefore lies in the prefix, since
+    the certificate rules out unvisited words of the target weight after its last step.  This loop
+    is a function of its own so that it can be compiled, which saves a call from Python for every
+    chunk.
 
     The scan is resumable, since compiled code cannot be interrupted.  ``cursor`` holds the layer,
     the set, and the depth at which to resume, and ``support`` and ``prefixes`` hold the current
@@ -263,7 +293,8 @@ def _scan_coefficient_layers(
     """
     while cursor[_CURSOR_LAYER] <= last_layer:
         layer = cursor[_CURSOR_LAYER]
-        while cursor[_CURSOR_SET] < len(rows_and_labels):
+        num_sets = last_num_completed if layer == last_layer else len(rows_and_labels)
+        while cursor[_CURSOR_SET] < num_sets:
             while cursor[_CURSOR_DEPTH] >= 0:
                 if max_chunks == 0:
                     return _SCAN_UNFINISHED
@@ -313,12 +344,12 @@ def _transport_sets(
     for index in range(len(ranks)):
         moved = local_cliffords.apply_local(generators[index], positions, local)
         reduced, reduced_labels, new_pivots = row_reduce_packed(
-            moved, labels[index], pivots[index, : ranks[index]]
+            pack_bits(moved), pack_bits(labels[index]), pivots[index, : ranks[index]]
         )
         if len(new_pivots) != ranks[index]:
             return False, moved_generators, moved_labels
-        moved_generators[index] = reduced
-        moved_labels[index] = reduced_labels
+        moved_generators[index] = unpack_bits(reduced, generators.shape[2])
+        moved_labels[index] = unpack_bits(reduced_labels, labels.shape[2])
     return True, moved_generators, moved_labels
 
 

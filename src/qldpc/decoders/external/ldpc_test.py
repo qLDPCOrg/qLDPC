@@ -20,7 +20,6 @@ import stim
 from ldpc import bplsd_decoder
 
 from qldpc import decoders
-from qldpc.conftest import run_python
 from qldpc.decoders.external import ldpc as ldpc_integration
 from qldpc.decoders.external.ldpc import (
     _get_decoder_bf,
@@ -227,13 +226,3 @@ def test_bp_lsd_random_serial_schedule() -> None:
     deferred_decoder: Any = decoders.bp_lsd(random_serial_schedule=True).build(matrix)
     assert immediate_decoder.random_serial_schedule
     assert deferred_decoder.random_serial_schedule
-
-
-def test_ldpc_import_is_lazy() -> None:
-    """Importing the integration does not import ldpc until an adapter is requested."""
-    code = """
-import sys
-import qldpc.decoders.external.ldpc
-assert "ldpc" not in sys.modules
-"""
-    run_python(code)

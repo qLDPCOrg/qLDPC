@@ -2,11 +2,16 @@
 
 """Unit tests for channels.py."""
 
+import math
+from collections.abc import Mapping
+
+import numpy as np
 import pytest
 import stim
 
 from qldpc import circuits
 from qldpc.circuits.conftest import circuits_are_equivalent
+from qldpc.circuits.noise_model import channels
 
 
 def test_pauli_channel_class() -> None:
@@ -20,9 +25,6 @@ def test_pauli_channel_class() -> None:
     assert ch != circuits.PauliChannel({"XYZ": 0.01})
     assert ch != "foo"  # __eq__ returns NotImplemented for non-PauliChannel operands
     assert repr(ch).startswith("PauliChannel(")
-
-    # zero-prob channel is falsy but still constructible
-    assert not bool(circuits.PauliChannel({"X": 0.0}))
 
     # depolarizing(n, p): 4**n - 1 entries, probabilities sum to p, first key in lex order is "IX"
     dp = circuits.PauliChannel.depolarizing(2, 0.15)
@@ -38,8 +40,6 @@ def test_pauli_channel_class() -> None:
     assert not bool(empty)
 
     # validation errors
-    with pytest.raises(ValueError, match="Identity string"):
-        circuits.PauliChannel({"": 0.1})
     with pytest.raises(ValueError, match="must have length"):
         circuits.PauliChannel({"XY": 0.1, "X": 0.1})
     with pytest.raises(ValueError, match="invalid characters"):
@@ -97,17 +97,16 @@ def test_pauli_channel_conditioned_on() -> None:
 
     channel = circuits.PauliChannel({"XYZ": 0.01, "XIZ": 0.02, "IZI": 0.03, "XII": 0.04})
 
-    # Marginalize position 1 (middle): keep strings with I at pos 1.  Arity is preserved, so the
-    # surviving strings still have an I at position 1.
+    # keep the strings that are I at position 1, which keep their length
     assert channel.conditioned_on([1]) == circuits.PauliChannel({"XIZ": 0.02, "XII": 0.04})
 
-    # Marginalize positions 0 and 2: only "IZI" has I at both.
+    # keep the strings that are I at positions 0 and 2
     assert channel.conditioned_on([0, 2]) == circuits.PauliChannel({"IZI": 0.03})
 
     # Empty index list is a no-op (returns an equal channel).
     assert channel.conditioned_on([]) == channel
 
-    # Marginalizing every position yields an empty channel on the same number of qubits.
+    # conditioning on every position gives an empty channel on the same number of qubits
     empty_3q = channel.conditioned_on([0, 1, 2])
     assert empty_3q == circuits.PauliChannel({}, num_qubits=3)
     assert empty_3q.num_qubits == 3
@@ -122,6 +121,14 @@ def test_pauli_channel_conditioned_on() -> None:
         channel.conditioned_on([3])
     with pytest.raises(ValueError, match="not in"):
         channel.conditioned_on([-1])
+
+    # A sub-channel of a channel that has been emitted emits its own instruction.
+    two_qubit = circuits.PauliChannel({"XZ": 0.01, "IY": 0.02})
+    assert two_qubit.to_circuit() == stim.Circuit(
+        "PAULI_CHANNEL_2(0,0.02,0,0,0,0,0.01,0,0,0,0,0,0,0,0) 0 1"
+    )
+    expected = circuits.PauliChannel({"IY": 0.02}).to_circuit()
+    assert two_qubit.conditioned_on([0]).to_circuit() == expected == stim.Circuit("Y_ERROR(0.02) 1")
 
 
 def test_pauli_channel_to_circuit() -> None:
@@ -178,7 +185,7 @@ def test_pauli_channel_1_shortcut() -> None:
 
 
 def test_high_probability_pauli_channels_remain_dem_analyzable() -> None:
-    """Avoid Stim's over-mixing rejection when simplifying uniform channels."""
+    """A uniform channel that DEPOLARIZE1 or DEPOLARIZE2 cannot express stays a PAULI_CHANNEL."""
     channel_1 = circuits.PauliChannel.depolarizing(1, 0.8)
     circuit_1 = channel_1.to_circuit() + stim.Circuit("M 0\nDETECTOR rec[-1]")
     assert "PAULI_CHANNEL_1" in str(channel_1.to_circuit())
@@ -204,6 +211,12 @@ def test_pauli_channel_float_drift_clamped() -> None:
     """)
     assert circuits_are_equivalent(expected, channel.to_circuit())
 
+    # a Pauli string after the clamped one is not emitted
+    channel = circuits.PauliChannel({"X": 0.5, "Y": 0.5, "Z": 1e-16})
+    assert channel.to_circuit(simplify=False) == stim.Circuit(
+        "CORRELATED_ERROR(0.5) X0\nELSE_CORRELATED_ERROR(1) Y0"
+    )
+
 
 def test_pauli_channel_sequence() -> None:
     """PauliChannelSequence emits independent errors and skips PauliChannel's normalization.
@@ -221,3 +234,85 @@ def test_pauli_channel_sequence() -> None:
 
     # A PauliChannel and a PauliChannelSequence with identical probabilities are unequal.
     assert circuits.PauliChannelSequence({"X": 0.1}) != circuits.PauliChannel({"X": 0.1})
+
+
+def test_repeated_idle_channel() -> None:
+    """Repeating a Pauli channel raises the eigenvalues of its Pauli transfer matrix to a power."""
+    p_x, p_y, p_z = 0.1, 0.2, 0.3
+    eigenvalues = (1 - 2 * (p_y + p_z), 1 - 2 * (p_x + p_z), 1 - 2 * (p_x + p_y))
+    for repetitions in [1, 2, 3, 2**40]:
+        l_x, l_y, l_z = (eigenvalue**repetitions for eigenvalue in eigenvalues)
+        expected = {
+            "X": (1 + l_x - l_y - l_z) / 4,
+            "Y": (1 - l_x + l_y - l_z) / 4,
+            "Z": (1 - l_x - l_y + l_z) / 4,
+        }
+        channel = circuits.PauliChannel({"X": p_x, "Y": p_y, "Z": p_z})
+        assert channels._repeated_idle_channel(channel, repetitions).probabilities == pytest.approx(
+            expected
+        )
+
+    # each independent error of a sequence takes effect if it fires an odd number of times
+    sequence = channels._repeated_idle_channel(
+        circuits.PauliChannelSequence({"X": p_x, "Z": p_z}), 3
+    )
+    assert sequence.probabilities == pytest.approx(
+        {
+            pauli: sum(math.comb(3, k) * p**k * (1 - p) ** (3 - k) for k in [1, 3])
+            for pauli, p in [("X", p_x), ("Z", p_z)]
+        }
+    )
+
+
+def test_quadratic_idle_channel() -> None:
+    """The twirl of a rotation by a Gaussian random angle that grows linearly over idle moments."""
+    paulis = {
+        "X": np.array([[0, 1], [1, 0]]),
+        "Y": np.array([[0, -1j], [1j, 0]]),
+        "Z": np.diag([1, -1]),
+    }
+    channel = circuits.PauliChannel({"X": 0.01, "Y": 0.02, "Z": 0.03})
+    total = math.fsum(channel.probabilities.values())
+    axis = sum(math.sqrt(p / total) * paulis[pauli] for pauli, p in channel.probabilities.items())
+
+    # one moment rotates by an angle with standard deviation sigma, which flips a qubit with total
+    # probability (1 - exp(-sigma**2 / 2)) / 2; average the twirl of two moments over the angle
+    sigma = math.sqrt(-2 * math.log(1 - 2 * total))
+    angles = np.linspace(-12 * sigma, 12 * sigma, 4001)
+    weights = np.exp(-(angles**2) / (2 * sigma**2))
+    weights /= weights.sum()
+    expected = dict.fromkeys(paulis, 0.0)
+    for angle, weight in zip(2 * angles, weights, strict=True):
+        unitary = math.cos(angle / 2) * np.eye(2) - 1j * math.sin(angle / 2) * axis
+        for pauli, matrix in paulis.items():
+            expected[pauli] += weight * abs(np.trace(matrix @ unitary) / 2) ** 2
+    repeated = channels._quadratic_idle_channel(channel, 2)
+    assert repeated.probabilities == pytest.approx(expected, rel=1e-6)
+
+    # a fully dephasing moment stays fully dephasing
+    dephased = channels._quadratic_idle_channel(circuits.PauliChannel({"Z": 0.5}), 3)
+    assert dephased.probabilities == pytest.approx({"Z": 0.5})
+
+
+def test_compose_idle_channels() -> None:
+    """Independent idle errors compose into one channel, whether exclusive or independent events."""
+    exclusive = circuits.PauliChannel({"X": 0.1, "Z": 0.2})
+    independent = circuits.PauliChannelSequence({"X": 0.1, "Z": 0.2})
+    other = circuits.PauliChannel({"Y": 0.05, "Z": 0.3})
+    # the eigenvalues of the Pauli transfer matrix of a composition are products of eigenvalues
+    other_eigenvalues = np.array(_eigenvalues({"Y": 0.05, "Z": 0.3}))
+    exclusive_eigenvalues = np.array(_eigenvalues({"X": 0.1, "Z": 0.2}))
+    composed = channels._compose_idle_channels(exclusive, other)
+    expected = exclusive_eigenvalues * other_eigenvalues
+    assert _eigenvalues(composed.probabilities) == pytest.approx(expected)
+
+    # independent events compose like channels of one Pauli each
+    independent_eigenvalues = np.multiply(_eigenvalues({"X": 0.1}), _eigenvalues({"Z": 0.2}))
+    composed = channels._compose_idle_channels(independent, other)
+    expected = independent_eigenvalues * other_eigenvalues
+    assert _eigenvalues(composed.probabilities) == pytest.approx(expected)
+
+
+def _eigenvalues(probabilities: Mapping[str, float]) -> list[float]:
+    """The eigenvalues for X, Y, and Z of the Pauli transfer matrix of a one-qubit channel."""
+    return [1 - 2 * sum(p for q, p in probabilities.items() if q != pauli) for pauli in "XYZ"]

@@ -186,6 +186,21 @@ class WedderburnArtinComponentTransformer:
     For background, see the `Wedderburn-Artin theorem
     <https://en.wikipedia.org/wiki/Wedderburn%E2%80%93Artin_theorem>`_ and `Wedderburn's little
     theorem <https://en.wikipedia.org/wiki/Wedderburn%27s_little_theorem>`_.
+
+    By default the provided RingMember is checked against the necessary conditions of a
+    primitive central idempotent (nonzero, idempotent, central, and consistent rank).  These
+    conditions are necessary but not sufficient for primitivity; see
+    _validate_primitive_central_idempotent.
+
+    Args:
+        pci: A primitive central idempotent of a ring.
+        seed: Random number generator seed.
+        galois_compile: The ufunc calculation mode for the galois field extension ``GF(q^d)``.
+            Default: 'python-calculate', which is empirically faster for small field arrays.
+            See help(galois.GF), and the 'compile' argument in particular.
+        skip_validation: If False (the default), check the necessary conditions above and raise
+            a ``ValueError`` when the provided RingMember fails them; pass True to skip the
+            check (e.g. when the idempotent comes from a trusted source).
     """
 
     ring: GroupRing  # base ring, R
@@ -223,23 +238,7 @@ class WedderburnArtinComponentTransformer:
         | None = "python-calculate",
         skip_validation: bool = False,
     ) -> None:
-        """Initialize from a primitive central idempotent (PCI) of a ring.
-
-        By default the provided RingMember is checked against the necessary conditions of a
-        primitive central idempotent (nonzero, idempotent, central, and consistent rank).  These
-        conditions are necessary but not sufficient for primitivity; see
-        _validate_primitive_central_idempotent.
-
-        Args:
-            pci: A primitive central idempotent of a ring.
-            seed: Random number generator seed.
-            galois_compile: The ufunc calculation mode for the galois field extension ``GF(q^d)``.
-                Default: 'python-calculate', which is empirically faster for small field arrays.
-                See help(galois.GF), and the 'compile' argument in particular.
-            skip_validation: If False (the default), check the necessary conditions above and raise
-                a ``ValueError`` when the provided RingMember fails them; pass True to skip the
-                check (e.g. when the idempotent comes from a trusted source).
-        """
+        """Initialize from a primitive central idempotent (PCI) of a ring."""
         if not pci.ring.is_semisimple:
             raise ValueError("The Wedderburn-Artin decomposition only exists for semisimple rings")
         seed = seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)

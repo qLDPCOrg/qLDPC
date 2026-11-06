@@ -158,6 +158,23 @@ jobs:
           enable-cache: true
       - name: Install package and dependencies
         run: uv sync --extra bliss --extra decoders --extra gap --group ci-test
+      - name: Identify the target of compiled code
+        # Numba uses cached code only on the CPU model that compiled it, and runners vary.
+        id: numba-target
+        run: |
+          target=$(uv run --extra bliss --extra decoders --extra gap --group ci-test python -c \
+            "from numba.core.registry import cpu_target as t; print(t.target_context.codegen().magic_tuple())")
+          echo "hash=$(echo "$target" | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: Cache compiled code
+        # qLDPC keeps the code that numba compiles in a directory named by a hash of its source files
+        # other than tests, so code cached for the same source files is never outdated.  A run that
+        # misses saves the code that its tests compiled.
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/qldpc/numba
+          key: >-
+            numba-${{ runner.os }}-python3.14-${{ steps.numba-target.outputs.hash }}-${{
+            hashFiles('src/qldpc/**/*.py', '!src/qldpc/**/*_test.py', '!src/qldpc/**/conftest.py') }}
       - name: Run coverage
         # Use every CPU of the dedicated runner (the check defaults to half of them).
         run: >-

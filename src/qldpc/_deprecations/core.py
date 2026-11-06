@@ -41,6 +41,8 @@ import warnings
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, TypeVar
 
+import stim
+
 from qldpc._utils import get_external_caller_stacklevel
 
 if TYPE_CHECKING:
@@ -51,7 +53,6 @@ if TYPE_CHECKING:
     import networkx as nx
     import numpy as np
     import numpy.typing as npt
-    import stim
 
     from qldpc.abstract.groups import NestedSequence
     from qldpc.codes import QuditCode
@@ -60,6 +61,9 @@ if TYPE_CHECKING:
 
 # the type of physical error rates that qldpc.codes.monte_carlo.ErrorRateFunc formerly accepted
 OneOrManyFloats = TypeVar("OneOrManyFloats", float, Iterable[float])
+
+# the return type of circuit and tableau constructors that qldpc.circuits.common formerly exported
+CircuitOrTableau = TypeVar("CircuitOrTableau", stim.Circuit, stim.Tableau)
 
 _FunctionT = TypeVar("_FunctionT", bound=Callable[..., object])
 
@@ -89,6 +93,14 @@ ALIASES: dict[str, dict[str, str]] = {
             "qldpc.circuits.memory.syndrome_measurement:_validate_syndrome_qubit_ids"
         ),
     },
+    "qldpc.circuits.common": {
+        "CircuitOrTableau": "qldpc._deprecations.core:CircuitOrTableau",
+        "Params": "qldpc.circuits.common:_Params",
+        "get_unaddressed_measurements": "qldpc.circuits.bookkeeping:get_unaddressed_measurements",
+        "remap_qubit_target": "qldpc.circuits.transforms.qubit_remapping:remap_qubit_target",
+        "restrict_to_qubits": "qldpc.circuits.common:_restrict_to_qubits",
+        "with_remapped_qubits": "qldpc.circuits.transforms.qubit_remapping:with_remapped_qubits",
+    },
     "qldpc.circuits.memory": {
         "validate_syndrome_qubit_ids": (
             "qldpc.circuits.memory.syndrome_measurement:_validate_syndrome_qubit_ids"
@@ -97,14 +109,14 @@ ALIASES: dict[str, dict[str, str]] = {
     "qldpc.codes": {
         "code_capacity": "qldpc.codes._code_capacity",
         "get_distance_css_brouwer_zimmermann": (
-            "qldpc.codes.distance._brouwer_zimmermann:get_distance_css_brouwer_zimmermann"
+            "qldpc.codes.distance.core:_get_distance_css_brouwer_zimmermann"
         ),
         "validate_distance_backend": "qldpc.codes.distance.core:_validate_distance_backend",
         "validate_distance_method": "qldpc.codes.distance.core:_validate_distance_method",
     },
     "qldpc.codes.distance": {
         "get_distance_css_brouwer_zimmermann": (
-            "qldpc.codes.distance._brouwer_zimmermann:get_distance_css_brouwer_zimmermann"
+            "qldpc.codes.distance.core:_get_distance_css_brouwer_zimmermann"
         ),
         "validate_distance_backend": "qldpc.codes.distance.core:_validate_distance_backend",
         "validate_distance_method": "qldpc.codes.distance.core:_validate_distance_method",
@@ -160,9 +172,7 @@ ALIASES: dict[str, dict[str, str]] = {
         "match_error_decoder_to_dem": (
             "qldpc.decoders.adapters.error_decoders:_match_error_decoder_to_dem"
         ),
-        "reject_prebuilt_decoder": (
-            "qldpc.decoders.construction._resolution:reject_prebuilt_decoder"
-        ),
+        "reject_prebuilt_decoder": "qldpc.decoders._resolution:reject_prebuilt_decoder",
         "reject_removed_decoder_args": "qldpc._deprecations.decoders:reject_removed_decoder_args",
         "resolve_decoder": "qldpc._deprecations.decoders:resolve_decoder",
         "resolve_observable_decoder": "qldpc._deprecations.decoders:resolve_observable_decoder",

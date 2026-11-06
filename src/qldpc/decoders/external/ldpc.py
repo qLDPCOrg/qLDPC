@@ -183,7 +183,8 @@ Args:
     error_channel: Matrix-column error probabilities, as one value or a vector.  Defaults to
         {_PLACEHOLDER_ERROR_RATE}.  A DEM supplies its own probabilities and does not accept
         an override.
-    max_iter: Maximum number of belief-propagation iterations.
+    max_iter: Maximum number of belief-propagation iterations, or 0 for the number of columns of
+        the parity-check matrix (error mechanisms of a DEM).
     bp_method: Belief-propagation method.
     ms_scaling_factor: Scaling factor for minimum-sum belief propagation.
     schedule: Parallel or serial update schedule.
@@ -216,7 +217,8 @@ Args:
     error_channel: Matrix-column error probabilities, as one value or a vector.  Defaults to
         {_PLACEHOLDER_ERROR_RATE}.  A DEM supplies its own probabilities and does not accept
         an override.
-    max_iter: Maximum number of belief-propagation iterations.
+    max_iter: Maximum number of belief-propagation iterations, or 0 for the number of columns of
+        the parity-check matrix (error mechanisms of a DEM).
     bp_method: Belief-propagation method.
     ms_scaling_factor: Scaling factor for minimum-sum belief propagation.
     schedule: Parallel or serial update schedule.
@@ -255,7 +257,8 @@ Args:
     error_channel: Matrix-column error probabilities, as one value or a vector.  Defaults to
         {_PLACEHOLDER_ERROR_RATE}.  A DEM supplies its own probabilities and does not accept
         an override.
-    max_iter: Maximum number of belief-propagation iterations.
+    max_iter: Maximum number of belief-propagation iterations, or 0 for the number of columns of
+        the parity-check matrix (error mechanisms of a DEM).
     bp_method: Belief-propagation method.
     ms_scaling_factor: Scaling factor for minimum-sum belief propagation.
     schedule: Parallel or serial update schedule.

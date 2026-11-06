@@ -998,9 +998,10 @@ lookup = decoder_spec(
 
 Args:
     max_weight: Maximum error weight to enumerate; required to bound construction.
-    error_channel: Independent error probabilities for each matrix column, or a callable
-        returning the normalized log probability of a complete error.  A DEM supplies its
-        own probabilities and does not accept this option.
+    error_channel: Independent error probabilities for each matrix column, a callable
+        returning the normalized log probability of a complete error, or None (the default) to
+        treat all enumerated errors as equally likely.  A DEM supplies its own probabilities and
+        does not accept this option.
     observable_flip_matrix: Observable values of matrix-column errors.  A DEM supplies its
         own observables.  An error decoder with observables selects an error from the most
         likely observable class, which need not contain the most likely individual error.
@@ -1009,8 +1010,8 @@ Args:
         when ``confidence_ratio`` is positive.
     confidence_ratio: Minimum likelihood ratio of the best observable class to all others;
         an ambiguous syndrome is erased.  Requires observable metadata.
-    probability_cutoff: Ignore errors below this probability; not supported with a callable
-        ``error_channel``.
+    probability_cutoff: Ignore errors below this probability.  A positive cutoff requires a DEM
+        or an array-like ``error_channel``.
     symplectic: Treat ``[X|Z]`` columns as two error components per qudit.
 
 Returns:

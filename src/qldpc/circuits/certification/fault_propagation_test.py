@@ -8,7 +8,7 @@ import functools
 import itertools
 import operator
 from collections.abc import Collection, Sequence
-from typing import Literal, cast
+from typing import cast
 
 import numpy as np
 import numpy.typing as npt
@@ -16,7 +16,7 @@ import pytest
 import stim
 
 from qldpc import circuits
-from qldpc.codes.distance._bounded_weight_search import MinWeightBound
+from qldpc.codes.distance._coset_leader_search import MinWeightBound
 
 from . import fault_propagation
 
@@ -91,9 +91,9 @@ def _assert_valid_counterexample(
     pauli = failure.output_pauli
     stabilizers = certificate.state_stabilizers
     assert tuple(int(not pauli.commutes(ss)) for ss in stabilizers) == failure.output_syndrome
-    assert failure.output_weight_lower_bound > failure.fault_weight
+    assert failure.residual_weight_lower_bound > failure.fault_weight
     minimum = _true_minimum(certificate.state_stabilizers, syndrome, certificate.css_weight)
-    assert failure.output_weight_lower_bound <= minimum
+    assert failure.residual_weight_lower_bound <= minimum
 
 
 def _assert_matches_brute_force(certificate: circuits.BoundedFaultPropagationCertificate) -> None:
@@ -255,13 +255,13 @@ def test_unmeasured_qubits_account_for_every_kind_of_measurement() -> None:
 
 
 def test_correlated_mechanism_is_one_primitive_fault() -> None:
-    """A two-qubit error mechanism is one primitive fault whose error has Pauli weight two."""
+    """A two-qubit error mechanism is one primitive fault, with an output error of weight two."""
     circuit = stim.Circuit("I 0 1\nCORRELATED_ERROR(0.01) X0 Y1")
     result = circuits.certify_bounded_fault_propagation(circuit, output_qubits=[1, 0])
     _assert_valid_counterexample(result, circuit)
     failure = result.counterexample
     assert failure is not None
-    assert failure.fault_indices == (0,) and failure.output_weight_lower_bound == 2
+    assert failure.fault_indices == (0,) and failure.residual_weight_lower_bound == 2
     assert result.output_qubits == (1, 0)
 
 
@@ -270,6 +270,34 @@ def test_exclusive_errors_count_as_separate_primitive_faults() -> None:
     circuit = stim.Circuit("I 0 1\nCORRELATED_ERROR(0.1) X0\nELSE_CORRELATED_ERROR(0.1) X0 X1")
     result = circuits.certify_bounded_fault_propagation(circuit, output_qubits=[0, 1])
     _assert_valid_counterexample(result, circuit)
+
+
+def test_tags_do_not_change_primitive_fault_signatures() -> None:
+    """The flags and syndrome of an error mechanism come from its targets, not from its tag.
+
+    Stim escapes "]" and line feeds in tags, but writes other line breaks, such as a form feed, as
+    they are.
+    """
+    circuit = stim.Circuit("R 0 1 2")
+    targets = [stim.target_x(0), stim.target_x(2)]
+    circuit.append("CORRELATED_ERROR", targets, 0.1, tag="a]b) D1 (")
+    circuit.append("X_ERROR", [1], 0.1, tag=" D0\x0cerror(0.1) D2 ")
+    circuit += stim.Circuit("M 2\nDETECTOR rec[-1]")
+    stabilizers = [stim.PauliString("Z_"), stim.PauliString("_Z")]
+    _, dem, flags, syndromes = fault_propagation._get_primitive_fault_signatures(
+        circuit, stabilizers, [0, 1], [0]
+    )
+    # Detector 0 flags qubit 2, and detectors 1 and 2 measure the stabilizers Z0 and Z1.
+    expected = [
+        (int(0 in events), sum(1 << (detector - 1) for detector in events if detector >= 1))
+        for events in (
+            {target.val for target in instruction.targets_copy()}
+            for instruction in dem
+            if instruction.type == "error"
+        )
+    ]
+    assert list(zip(flags, syndromes, strict=True)) == expected
+    assert sorted(expected) == [(0, 0b10), (1, 0b01)]
 
 
 def test_existing_detectors_do_not_enter_the_syndrome() -> None:
@@ -297,7 +325,8 @@ def test_existing_observables_do_not_enter_the_syndrome() -> None:
 def test_primitive_faults_inside_repeat_blocks_are_certified() -> None:
     """Primitive faults in a loop count although Stim folds the loop into a repeat block."""
     looped = stim.Circuit("REPEAT 3 {\n    CORRELATED_ERROR(0.01) X0 X1\n}")
-    # A loop without detectors keeps its errors in a repeat block, which would hide them.
+    # A loop without detectors keeps its error instructions in a repeat block, which would hide
+    # them.
     readout = stim.Circuit("M 0 1\nDETECTOR rec[-2]\nDETECTOR rec[-1]")
     folded = (looped + readout).detector_error_model(approximate_disjoint_errors=True)
     assert any(instruction.type == "repeat" for instruction in folded)
@@ -309,8 +338,8 @@ def test_primitive_faults_inside_repeat_blocks_are_certified() -> None:
     assert result.counterexample is not None and written_out.counterexample is not None
     assert result.counterexample.output_syndrome == written_out.counterexample.output_syndrome
     assert (
-        result.counterexample.output_weight_lower_bound
-        == written_out.counterexample.output_weight_lower_bound
+        result.counterexample.residual_weight_lower_bound
+        == written_out.counterexample.residual_weight_lower_bound
     )
 
 
@@ -365,6 +394,108 @@ def test_post_selection_can_accept_a_damaging_fault() -> None:
     assert unselected.counterexample is not None and unselected.counterexample.fault_weight == 1
     default = circuits.certify_bounded_fault_propagation(circuit, output_qubits=[0, 1, 2, 3])
     assert default == certify(None, False)
+
+
+def test_diagnostic_circuit_locates_counterexample_faults() -> None:
+    """The diagnostic circuit has the certificate's DEM, so Stim can explain each fault in it."""
+    circuit = stim.Circuit("""
+        I 0 1 2 3 4
+        CORRELATED_ERROR(0.01) X0 X1 X4
+        CORRELATED_ERROR(0.01) X2 X3 X4
+        M 4
+    """)
+    certificate = circuits.certify_bounded_fault_propagation(
+        circuit, output_qubits=[0, 1, 2, 3], add_flags=True
+    )
+    diagnostic_circuit = certificate.diagnostic_circuit
+    assert diagnostic_circuit.num_detectors == 1 + len(certificate.state_stabilizers)
+    dem = diagnostic_circuit.detector_error_model(approximate_disjoint_errors=True)
+    assert dem.flattened() == certificate.detector_error_model
+
+    counterexample = certificate.counterexample
+    assert counterexample is not None
+    errors = [inst for inst in certificate.detector_error_model if inst.type == "error"]
+    explained = diagnostic_circuit.explain_detector_error_model_errors(
+        dem_filter=stim.DetectorErrorModel(
+            "\n".join(str(errors[index]) for index in counterexample.fault_indices)
+        )
+    )
+    offsets = {
+        location.stack_frames[0].instruction_offset
+        for explanation in explained
+        for location in explanation.circuit_error_locations
+    }
+    assert offsets == {1, 2}
+
+
+def test_certificate_prints_a_summary_and_locates_counterexample_faults() -> None:
+    """A violation lists each fault's circuit location and the output error on the qubit indices."""
+    circuit = stim.Circuit("""
+        R 9
+        I 0 1 2 3 4
+        CORRELATED_ERROR(0.01) X0 X1 X4
+        CORRELATED_ERROR(0.01) X2 X3 X4
+        TICK
+        M 4
+    """)
+    certificate = circuits.certify_bounded_fault_propagation(
+        circuit, output_qubits=[3, 2, 1, 0, 9], add_flags=True
+    )
+    # The faults are listed in DEM order, and Stim names CORRELATED_ERROR by its alias E.  The
+    # instruction indices point into the certified circuit.
+    assert [circuit[index].name for index in (2, 3)] == ["E", "E"]
+    header, faults, first, second, error, bound = str(certificate).splitlines()
+    assert header == (
+        "Bounded fault propagation violated at fault weight 2"
+        " (CSS weight, post-selecting on 1 detector)"
+    )
+    assert faults == "  fault of 2 error mechanisms, which passes post-selection:"
+    assert {first, second} == {
+        "    X0 X1 X4 from E on qubits [0, 1, 4] at instruction 2, tick 0",
+        "    X2 X3 X4 from E on qubits [2, 3, 4] at instruction 3, tick 0",
+    }
+    assert error == "  output error, up to stabilizers: X on [3, 2, 1, 0], Z on []"
+    assert certificate.counterexample is not None
+    lower_bound = certificate.counterexample.residual_weight_lower_bound
+    assert bound == f"  residual weight >= {lower_bound} > fault weight 2"
+
+    certified = circuits.certify_bounded_fault_propagation(stim.Circuit("X_ERROR(0.1) 0"))
+    assert str(certified) == (
+        "Bounded fault propagation certified up to any fault weight (CSS weight, no post-selection)"
+    )
+    limited = circuits.certify_bounded_fault_propagation(circuit, max_weight=1, add_flags=True)
+    assert str(limited).startswith("Bounded fault propagation certified up to fault weight 1")
+
+
+def test_error_mechanism_descriptions_name_measurements_and_loops() -> None:
+    """Measurement flips and REPEAT iterations are named, and unplaced mechanisms shown as is."""
+    circuit = stim.Circuit("M(0.1) 0\nDETECTOR rec[-1]")
+    error = circuit.detector_error_model()[0]
+    description = fault_propagation._describe_error_mechanism(circuit, error)
+    assert description == "flip of measurement 0 from M on qubits [0] at instruction 0, tick 0"
+
+    # Detector 5 is in iteration 1 of the outer loop and iteration 2 of the inner loop.
+    nested = stim.Circuit("""
+        REPEAT 2 {
+            TICK
+            REPEAT 3 {
+                R 0
+                X_ERROR(0.1) 0
+                M 0
+                DETECTOR rec[-1]
+            }
+        }
+    """)
+    error = stim.DetectorErrorModel("error(0.1) D5")[0]
+    assert fault_propagation._describe_error_mechanism(nested, error) == (
+        "X0 from X_ERROR on qubits [0]"
+        " at instruction 1 in iteration 2 of REPEAT instruction 1"
+        " in iteration 1 of REPEAT instruction 0, tick 2"
+    )
+
+    unexplained = stim.DetectorErrorModel("error(0.1) D0 D1")[0]
+    noiseless = stim.Circuit("M 0 1\nDETECTOR rec[-1]\nDETECTOR rec[-2]")
+    assert fault_propagation._describe_error_mechanism(noiseless, unexplained) == str(unexplained)
 
 
 def test_flagged_circuit_with_permuted_signed_outputs() -> None:
@@ -448,7 +579,7 @@ def test_added_flags_match_explicit_flag_detectors() -> None:
 
     def certify(
         circuit: stim.Circuit,
-        post_select: bool | Sequence[int] | Literal["flags"],
+        post_select: bool | Sequence[int] | None,
         add_flags: bool,
     ) -> circuits.BoundedFaultPropagationCertificate:
         return circuits.certify_bounded_fault_propagation(
@@ -460,18 +591,19 @@ def test_added_flags_match_explicit_flag_detectors() -> None:
     assert not reference.certified and reference.counterexample is not None
     assert reference.counterexample.fault_weight == 2
     # The added flag is detector 0, so these all select it.
-    for post_select in ("flags", True, [0], [-1]):
+    for post_select in (None, True, [0], [-1]):
         assert certify(stim.Circuit(body), post_select, add_flags=True) == reference
     # The measurement is already addressed, so there is no flag to select and a primitive fault
     # alone fails.
-    unflagged = certify(explicit, "flags", add_flags=True)
+    unflagged = certify(explicit, None, add_flags=True)
     assert unflagged.counterexample is not None and unflagged.counterexample.fault_weight == 1
     assert reference.post_selection_detectors == (0,) and unflagged.post_selection_detectors == ()
     # The added flag follows the circuit's own detectors, and a selection lists each detector once,
     # in increasing order.
     with_detector = stim.Circuit(body + "M 3\nDETECTOR rec[-1]")
-    selections: list[tuple[bool | Sequence[int] | Literal["flags"], tuple[int, ...]]] = [
-        ("flags", (1,)),
+    selections: list[tuple[bool | Sequence[int] | None, tuple[int, ...]]] = [
+        (None, (1,)),
+        (False, ()),
         ([-1], (1,)),
         (True, (0, 1)),
         ([1, 0, -1], (0, 1)),
@@ -482,7 +614,7 @@ def test_added_flags_match_explicit_flag_detectors() -> None:
 
 
 def test_invalid_post_selection_is_rejected() -> None:
-    """Flags need add_flags, and selections are integer indices of selectable detectors."""
+    """Selections are None, a bool, or integer indices of selectable detectors."""
     circuit = stim.Circuit("I 0\nCORRELATED_ERROR(0.01) X0\nM 1\nDETECTOR rec[-1]")
 
     def certify(
@@ -495,17 +627,14 @@ def test_invalid_post_selection_is_rejected() -> None:
             post_select=cast(Collection[int], post_select),
         )
 
-    assert certify("flags", add_flags=True).certified
-    for valid in (True, False, [0], [-1], [0, -1], range(1), [np.int64(0)]):
+    for valid in (None, True, False, [0], [-1], [0, -1], range(1), [np.int64(0)]):
         assert certify(valid).certified
-    for wrong_type in ([0.5], [False], 0):
+    for wrong_type in ("flags", [0.5], [False], 0):
         with pytest.raises(TypeError, match="post_select"):
             certify(wrong_type)
-    for wrong_value in ("flags", "all", [1], [-2]):
+    for wrong_value in ([1], [-2]):
         with pytest.raises(ValueError, match=r"post[_-]select"):
             certify(wrong_value)
-    with pytest.raises(ValueError, match="post_select"):
-        certify("all", add_flags=True)
 
 
 @pytest.mark.parametrize("css_weight", [np.bool_(True), 1, 0])

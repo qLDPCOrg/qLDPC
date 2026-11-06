@@ -18,10 +18,10 @@ import pytest
 import stim
 
 from qldpc import decoders
+from qldpc.decoders._resolution import build_error_decoder
 from qldpc.decoders.adapters import error_decoders
 from qldpc.decoders.common import _PLACEHOLDER_ERROR_RATE
 from qldpc.decoders.construction import specs
-from qldpc.decoders.construction._resolution import build_error_decoder
 
 
 def test_decoder_specs() -> None:
@@ -436,7 +436,7 @@ def test_deprecated_error_rate_option_is_last_and_warns() -> None:
     for entry_point in entry_points:
         assert list(inspect.signature(entry_point).parameters)[-1] == "error_rate"
 
-    docstring = inspect.getdoc(decoders.external.TesseractDecoder.__init__)
+    docstring = inspect.getdoc(decoders.external.TesseractDecoder)
     assert docstring is not None
     arguments = docstring.split("Args:\n", maxsplit=1)[1].split("\n\n", maxsplit=1)[0]
     documented_names = [

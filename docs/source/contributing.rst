@@ -45,14 +45,32 @@ Code style and organization
   Put a helper in the section of the code that mainly uses it, or in a final helper section if several sections share it, and do not move existing helpers merely because their usage changes.
   Private constants and types may sit near the imports.
 * Within a class, put public methods first (for decoders, the decode methods) and private helper methods after them.
+* Keep code only as complex as its uses require.
+  Avoid storing data that can be derived from other stored data, accepting arguments that are unused or derivable from other arguments, and adding options, parameters, or code paths that nothing uses.
+  Reuse existing implementations, such as ``qldpc._binary``, rather than duplicating them, and remove dead code and comments that describe removed designs.
+  Deliberate exceptions are fine when a clear benefit, such as a performance gain at negligible cost, justifies them; explain the reason in a comment.
 * ``src/qldpc/code_style_test.py`` checks license headers, section headers, and the order of plain and underscore names.
+* The top-level modules and subpackages of ``qldpc.circuits`` and ``qldpc.decoders`` import each other in layers: each imports only from itself and from lower layers, and never from the root of its package.
+  ``_LAYERS`` in the package's ``layering_test.py`` lists the layers and is the only place to update when adding a top-level module or subpackage; changes inside a subpackage need no edits.
+  Imports in functions and under ``TYPE_CHECKING`` count; tests and ``conftest.py`` files may import from any layer.
+  To keep an import that breaks the layers, end its line (for an import that spans several lines, its first line) with ``# layering-exception: <reason>``; the check fails if such a comment is no longer needed.
+  To layer another package, add a ``layering_test.py`` to its directory that calls ``check_import_layering`` from ``src/qldpc/conftest.py``.
 
 Prose style
 ~~~~~~~~~~~
 
 * Choose material for a document's audience and purpose.
   Keep docstrings focused on documented objects and contributor guidance focused on contribution decisions; omit tangents and prose that merely restates implementation details.
+* Write and review prose by purpose.
+  For each paragraph, docstring section, or comment, ask what its reader needs from it, and whether that reader would miss it if it were gone.
+  If not, delete it, or point to where the information lives.
+  If so, state its message in one line, then write the simplest text that gets that message across.
+* Prefer short sentences with one idea each.
+  Split a sentence with stacked clauses, parenthetical asides, or chains of semicolons rather than compressing it.
+* Describe what code does, not what it does not do or how it used to work.
+  Give readers a sense of what happens, and point to where details live rather than repeating them.
 * In substantial scientific exposition, introduce a problem and explain why it matters before describing implementation details.
+  Worked examples also need enough context to explain the question they answer and what their results establish.
   Include background only where it helps intended readers.
 * Introduce or explicitly identify an object, quantity, or concept before using a definite reference or pronoun.
   A clear name or defining description is sufficient; identical wording need not appear earlier.
@@ -60,6 +78,7 @@ Prose style
   * **Unclear without prior context:** ``Run a simulation and check the estimate.``
   * **Clear:** ``Run a simulation to estimate a failure rate, then check that estimate.``
 
+* Use the serial (Oxford) comma before the conjunction in a list of three or more items, as in ``X, Y, and Z``.
 * Docstrings follow the Google convention.
 * Python comments and docstrings use ordinary paragraphs: separate sentences with two spaces and fill lines to the 100-column limit.
 * Keep one prose sentence per physical source line in repository ``.rst`` and ``.md`` files and notebook Markdown cells.
@@ -98,6 +117,7 @@ Circuits
   Do not infer roles from coincident integer indices.
 * Preserve memory-circuit detector-coordinate semantics; a monotone check index must not be interpreted as time.
 * Noise-model operation immunity and qubit immunity are separate controls; preserve both.
+* Encode T gates and other π/4 rotations in Clifford+T tools as ``RotatedPauliString`` documents, following tsim.
 
 External systems and caching
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -111,6 +131,9 @@ Tests
 -----
 
 * Every module needs its own co-located ``*_test.py``: the coverage gate requires each module to be fully covered by its own test file, and does not gate a module without one.
+  The gate runs the selected test files in one parallel pytest run, and credits a module only with the lines that its own test file runs in the test process, not in subprocesses (see ``checks/coverage_contexts.py``).
+  Between test files on one worker, it resets the repository's shared fixtures and qLDPC's ``functools`` caches, but not other module-level state.
+  ``python checks/coverage_.py --isolated`` instead runs each test file in its own process: use it to audit the gate, for example when tests change module-level state.
   Reach a hard-to-reach branch with a focused test rather than a broad scenario.
 * Tests run with network sockets disabled.
   Mock only external boundaries such as web, subprocess, clipboard, prompt, and optional-package paths, or a module's own thin wrappers around them, never the logic under test, and do not add a live-service test.
@@ -182,6 +205,33 @@ Add documentation or an example
 Use the smallest meaningful example and explain the scientific choices and limitations, with pointers to the relevant literature and implementation.
 Make examples easy to adapt to a new question rather than requiring users to adopt a complete workflow.
 
+Example notebooks
+^^^^^^^^^^^^^^^^^
+
+Example notebooks should help readers understand and adapt a scientific workflow, not merely show that API calls run.
+Use these criteria when writing new notebooks and reviewing existing ones:
+
+* **Purpose:** introduce the question an example answers and why it is useful before presenting implementation details.
+  Explain why the chosen code, model, or comparison helps answer that question.
+  Orient introductions toward readers exploring the possibilities, not only those who have already adopted qLDPC or chosen a workflow.
+* **Framing:** state what an example enables without inventing a mistaken approach or assuming the reader needs correction.
+  Show readers what they can explore or accomplish, rather than prescribing what they should do.
+  Describe the choices made in an example as choices for that example; reserve imperatives for procedural steps and genuine requirements.
+  Avoid straw-man motivation: a contrast such as "do X rather than Y" needs a reason to discuss Y beyond making X sound useful.
+  Retain contrasts that clarify scientific assumptions, genuine alternatives, or limitations.
+* **Background and assumptions:** introduce the concepts, quantities, and notation needed to follow the example before using them.
+  State the scientific assumptions that affect its meaning, without turning a focused example into a textbook chapter.
+* **Terminology:** define metrics and any conditioning, such as on accepted shots, where they are introduced, then use concise names consistently.
+  Retain qualifiers only where they distinguish quantities.
+* **Interpretation:** explain how outputs, assertions, and figures answer the question.
+  Distinguish demonstrations of an interface from scientific checks, and exact results from estimates or bounds.
+  State what a result does not establish when that affects its interpretation.
+* **Figures:** explain shared plot conventions, such as reference lines and uncertainty bands, before the first figure that uses them.
+
+Review the prose, code, and saved outputs together from the intended reader's perspective; successful execution alone does not establish that an example is clear or meaningful.
+Keep explanations focused on the ideas and decisions, rather than narrating each API call.
+Related cells may share an introduction or interpretation, and a few focused sentences can be enough.
+
 Deprecations and future changes
 -------------------------------
 
@@ -232,6 +282,7 @@ CI's exact environments and commands are in ``.github/workflows/``.
 Use the `validation commands in the agent and contributor guide <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md#validation-commands>`_.
 
 Run checks on what you changed while iterating, and save repository-wide runs for a finished change.
+A change is usually not finished until it has been through review, so until then the tests of the changed modules usually suffice, and coverage gates, the documentation build, and the full test suite can wait for the end.
 Every check script except ``build_docs.py`` accepts explicit files, as in ``python checks/coverage_.py src/qldpc/codes/common.py``, or ``-i/--incremental [REVISION ...]``.
 The incremental mode checks only the files changed since the merge base with ``upstream/main``, ``origin/main``, or ``main`` (the first that exists), or with the given revisions.
 For example, ``python checks/coverage_.py -i`` runs the per-module coverage gate for changed modules only, which is much faster than a full run.
@@ -247,6 +298,18 @@ The TQEC notebook (``examples/logical_error_rates/specialized/decoding_tqec_circ
 Some check wrappers discover files through Git.
 Add new source and test files to the index before relying on the full gate to include them.
 Do not weaken a failure with ``noqa``, ``type: ignore``, or coverage exclusions unless the exceptional condition is real and documented.
+
+Reviewing a change
+------------------
+
+Review a change in separate passes, each against one part of this guide, before running the finishing checks:
+
+* **Correctness:** results, edge cases, and documented contracts, checked against independent oracles where possible.
+* **Tests:** the rules of `Tests`_.
+* **Code and prose:** the rules of `Code style and organization`_ and `Prose style`_.
+* **Simplicity:** redundant stored data, superfluous arguments, unused generality, duplicated logic, and dead code, apart from deliberate exceptions with an explained reason.
+
+Fix what a pass finds before the next pass, and run the slow checks of `Validation commands`_ once, after the last pass.
 
 Pull request summaries
 ----------------------

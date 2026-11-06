@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Shared pytest fixtures for decoders tests."""
+"""Shared pytest fixtures and test helpers for decoders tests."""
 
 from __future__ import annotations
 
+import builtins
 import itertools
 import random
+import types
 
 import galois
 import numpy as np
@@ -43,3 +45,25 @@ def surface_code_problem(pytestconfig: pytest.Config) -> SurfaceCodeProblem:
         # a few weight-2 errors are stabilizers, which leave decoders nothing to decode
         if np.any(syndrome):
             return code, error, syndrome
+
+
+def fail_import(monkeypatch: pytest.MonkeyPatch, module: str, error: ImportError) -> None:
+    """Make importing a module raise an error, while every other import works as usual.
+
+    Other imports must keep working: other threads, such as those of pytest-xdist workers, can
+    import modules while the error is in place.
+    """
+    original_import = builtins.__import__
+
+    def import_or_fail(
+        name: str,
+        globals_: dict[str, object] | None = None,
+        locals_: dict[str, object] | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> types.ModuleType:
+        if name == module:
+            raise error
+        return original_import(name, globals_, locals_, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", import_or_fail)

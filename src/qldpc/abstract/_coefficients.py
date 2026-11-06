@@ -11,6 +11,8 @@ import galois
 import numpy as np
 import numpy.typing as npt
 
+# ring_array imports this module, so import the ring_array module rather than its names, and look up
+# RingArray when a function runs; ring_array loads first (see qldpc/abstract/__init__.py)
 from . import ring_array
 from .groups import Group, GroupMember
 from .rings import GroupRing, RingMember

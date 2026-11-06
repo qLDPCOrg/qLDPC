@@ -12,6 +12,7 @@ import numpy.typing as npt
 import pytest
 
 import qldpc
+from qldpc._binary import pack_bits
 
 from . import _binary as binary
 from .conftest import count_set_bits
@@ -40,7 +41,7 @@ def test_get_distance_classical(block_size: int) -> None:
             method="brute_force",
         )
 
-    int_generators = binary.pack_bits(np.asarray(generators, dtype=np.uint8))
+    int_generators = pack_bits(np.asarray(generators, dtype=np.uint8))
     expected_bitstrings = [
         tuple(np.bitwise_xor.reduce(np.vstack(gens)).tolist())
         for n in range(1, len(generators) + 1)
@@ -96,8 +97,8 @@ def test_get_distance_quantum(homogeneous: bool, block_size: int) -> None:
     # Symplectic words are packed with their X and Z bits interleaved.
     stabilizer_bits = stabilizers if homogeneous else binary.riffle(stabilizers)
     logical_bits = logical_ops if homogeneous else binary.riffle(logical_ops)
-    int_stabilizers = binary.pack_bits(np.asarray(stabilizer_bits, dtype=np.uint8))
-    int_logical_ops = binary.pack_bits(np.asarray(logical_bits, dtype=np.uint8))
+    int_stabilizers = pack_bits(np.asarray(stabilizer_bits, dtype=np.uint8))
+    int_logical_ops = pack_bits(np.asarray(logical_bits, dtype=np.uint8))
     expected_bitstrings = np.array(
         [
             np.bitwise_xor.reduce(np.vstack(stabs + ops))

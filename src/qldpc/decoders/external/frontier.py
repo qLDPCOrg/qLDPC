@@ -35,6 +35,14 @@ class FrontierObservableDecoder(ObservableDecoder):
     Build one with ``decoders.frontier(...).build_observable_decoder(dem)``.
 
     See `arXiv:2606.20513 <https://arxiv.org/abs/2606.20513>`_ for a discussion of decoder options.
+
+    Args:
+        model: A frontier.FrontierModel, which may have more detectors than the syndromes to
+            decode, in which case the extra detectors are never flipped.
+        decode_func: frontier.decode_frontier or frontier.decode_frontier_committee.
+        num_detectors: The number of detectors in a syndrome to decode.
+        decode_options: Keyword arguments for decode_func.
+        add_erasure_bit: Whether to append an erasure flag to every prediction.
     """
 
     def __init__(
@@ -46,16 +54,7 @@ class FrontierObservableDecoder(ObservableDecoder):
         decode_options: Mapping[str, object],
         add_erasure_bit: bool = False,
     ) -> None:
-        """Initialize from a Frontier model and decoding function.
-
-        Args:
-            model: A frontier.FrontierModel, which may have more detectors than the syndromes to
-                decode, in which case the extra detectors are never flipped.
-            decode_func: frontier.decode_frontier or frontier.decode_frontier_committee.
-            num_detectors: The number of detectors in a syndrome to decode.
-            decode_options: Keyword arguments for decode_func.
-            add_erasure_bit: Whether to append an erasure flag to every prediction.
-        """
+        """Initialize from a Frontier model and decoding function."""
         self.model = model
         self.decode_func = decode_func
         self.num_detectors = num_detectors

@@ -74,7 +74,7 @@ Read the relevant recipe before starting:
 | Decoder | [Decoder recipe](docs/source/contributing.rst#add-or-adapt-a-decoder) and [adding a decoder](docs/source/adding_decoders.rst) |
 | Circuit workflow | [Circuit recipe](docs/source/contributing.rst#change-a-circuit-workflow) |
 | External integration | [Integration recipe](docs/source/contributing.rst#change-an-external-integration) |
-| Documentation or example | [Documentation recipe](docs/source/contributing.rst#add-documentation-or-an-example) |
+| Documentation or example | [Documentation recipe](docs/source/contributing.rst#add-documentation-or-an-example) and [notebook review criteria](docs/source/contributing.rst#example-notebooks) |
 
 ## Deprecations and future changes
 
@@ -86,6 +86,7 @@ Keep substantial compatibility code in [`qldpc/_deprecations/`](src/qldpc/_depre
 
 ## Pull requests
 
+Review a change in the passes of [reviewing a change](docs/source/contributing.rst#reviewing-a-change) before running the finishing checks.
 Follow the [PR-summary guidance](docs/source/contributing.rst#pull-request-summaries) when preparing a PR description.
 
 ## Validation commands
