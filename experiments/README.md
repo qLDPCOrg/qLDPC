@@ -8,6 +8,7 @@ They are not part of the installed `qldpc` package, and the test suite does not 
 | [`bivariate_bicycle/`](bivariate_bicycle/) | Brute-force search for bivariate bicycle codes with toric layouts | `run_search.py`, then `collect_results.py` |
 | [`quantum_tanner/`](quantum_tanner/) | Randomized search for quantum Tanner codes | `run_search.py`, then `collect_results.py` and `verify_codes.py` |
 | [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#lattice-surgery)) | `collect_ler.py` |
+| [`parallel_distance/`](parallel_distance/) | Prototype that scans layers of the exact-distance search with parallel threads, to measure speedups | `prototype.py` |
 
 Each script's module docstring summarizes its method and outputs; run it with `--help` to see its options.
 The quantum Tanner `run_search.py` and `verify_codes.py` require [GAP](https://www.gap-system.org) for their groups (the SmallGroups library) and Cordaro–Wagner base codes (the GUAVA package), whereas `collect_results.py` only reads saved files.
@@ -17,8 +18,8 @@ Commands below are written relative to the repository root.
 
 ## Results
 
-Every experiment stores its results in a `results/` directory beside its scripts, which Git ignores.
-Every script accepts `--results-dir` to use another directory instead, such as a scratch directory for a quick trial run; pass the same `--results-dir` to all scripts of an experiment.
+Every experiment that saves results stores them in a `results/` directory beside its scripts, which Git ignores.
+Every script that saves results accepts `--results-dir` to use another directory instead, such as a scratch directory for a quick trial run; pass the same `--results-dir` to all scripts of an experiment.
 Each results directory holds a CSV summary, together with the resumable intermediate data from which that summary is built:
 
 | Experiment | Intermediate data | CSV summary |
@@ -110,3 +111,18 @@ Verification requires `codes.QTCode.random` to sample the same code for the same
 `collect_ler.py --preset PRESET` runs one of the presets `bb72`, `bb18`, or `steane-joint`, and writes aggregate sample counts, from which its logical error rates follow, to `results/{preset}.csv`.
 Collection is resumable, and some presets take hours to days at publication scale.
 See the [lattice-surgery README](lattice_surgery/README.md) for example commands, provenance tracking, and costs.
+
+## Parallel exact distance
+
+[`parallel_distance/`](parallel_distance/) holds a prototype that measures how well the exact-distance search of `qldpc.codes.distance` would parallelize, without changing the library.
+`prototype.py CODE LAYER` runs the Brouwer–Zimmermann search of a built-in example code until it reaches coefficient layer `LAYER`, and reports how much of the time so far was serial setup.
+It then splits that layer into ranges of supports, scans them with a thread pool for each count in `--threads`, and reports the speedup.
+With `--serial`, it also times a serial scan, and simulates the scheduling of the measured range times on up to 64 workers.
+It prints its results and saves nothing.
+
+```bash
+python experiments/parallel_distance/prototype.py bb144 5 --threads 1,2 --serial
+```
+
+Each layer takes roughly `r / t` times as long as the one before, so choose `LAYER` with care: layer 5 of `bb288` takes several seconds on one thread, and layer 6 a few minutes.
+Pass only as many threads as the machine can spare.
