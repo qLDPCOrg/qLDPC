@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, ClassVar, NoReturn
 
 import stim
 
-from ..common import StimCircuitLike
+from ..common import StimCircuitLike, _get_instructions, _new_instruction
 from ._operations import (
     CLIFFORD_1Q,
     CLIFFORD_PP,
@@ -696,7 +696,7 @@ def _get_segments(
     takes_time = iter(() if schedule is None else schedule._takes_time)
     segment = _Segment([], [], [], [])
     num_records = 0
-    for instruction in circuit:
+    for instruction in _get_instructions(circuit):
         # a REPEAT block ends the current _Segment, and a new one starts after it
         if isinstance(instruction, stim.CircuitRepeatBlock):
             yield segment
@@ -755,10 +755,7 @@ def _split_operations(instruction: stim.CircuitInstruction) -> list[stim.Circuit
     else:
         groups = instruction.target_groups()
     args = instruction.gate_args_copy()
-    return [
-        stim.CircuitInstruction(instruction.name, group, args, tag=instruction.tag)
-        for group in groups
-    ]
+    return [_new_instruction(instruction.name, group, args, instruction.tag) for group in groups]
 
 
 @functools.cache

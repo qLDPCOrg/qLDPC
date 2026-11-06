@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import functools
 import itertools
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from typing import TYPE_CHECKING, ParamSpec, Protocol, Self, TypeVar
 
 import galois
@@ -140,7 +140,7 @@ def _get_immune_qubits(circuit: stim.Circuit, immune_qubit_tag: str | None) -> f
     if immune_qubit_tag == "":
         raise ValueError("immune_qubit_tag must be non-empty or None")
     immune_qubits: set[int] = set()
-    for instruction in circuit:
+    for instruction in _get_instructions(circuit):
         if isinstance(instruction, stim.CircuitRepeatBlock):
             immune_qubits.update(_get_immune_qubits(instruction.body_copy(), immune_qubit_tag))
         elif instruction.name == "QUBIT_COORDS" and immune_qubit_tag in instruction.tag:
@@ -173,3 +173,32 @@ if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations
 
     def __getattr__(name: str) -> object:
         return _deprecations.get_deprecated_attribute(__name__, name)
+
+
+def _get_instructions(
+    circuit: stim.Circuit,
+) -> Iterator[stim.CircuitInstruction | stim.CircuitRepeatBlock]:
+    """The instructions and REPEAT blocks of a circuit, in order.
+
+    Stim's iterator over a circuit takes tens of microseconds to finish, which adds up when noise
+    models handle many small circuits, so this indexes the circuit instead.
+    """
+    return (circuit[index] for index in range(len(circuit)))
+
+
+def _new_instruction(
+    name: str, targets: Sequence[stim.GateTarget], args: Sequence[float], tag: str
+) -> stim.CircuitInstruction:
+    """Build a ``stim.CircuitInstruction`` by appending it to an empty circuit.
+
+    Stim's ``CircuitInstruction`` constructor takes tens of microseconds per target, while appending
+    an instruction to a circuit takes about a microsecond.  An instruction that a circuit rejects,
+    such as a REPEAT instruction, comes from the constructor, which accepts it or raises its own
+    error.
+    """
+    circuit = stim.Circuit()
+    try:
+        circuit.append(name, targets, args, tag=tag)
+    except (TypeError, ValueError):
+        return stim.CircuitInstruction(name, targets, args, tag=tag)
+    return circuit[0]

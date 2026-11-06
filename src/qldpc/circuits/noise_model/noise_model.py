@@ -25,6 +25,8 @@ from ..common import (
     DEFAULT_IMMUNE_QUBIT_TAG,
     StimCircuitLike,
     _get_immune_qubits,
+    _get_instructions,
+    _new_instruction,
 )
 from ..transforms import with_remapped_qubits
 from ._operations import (
@@ -491,7 +493,7 @@ class NoiseModel:
         if self.quadratic_idle_error is not None and any(
             isinstance(instruction, stim.CircuitRepeatBlock)
             and (immune_op_tag is None or immune_op_tag not in instruction.tag)
-            for instruction in stim_circuit
+            for instruction in _get_instructions(stim_circuit)
         ):
             warnings.warn(
                 "Quadratic idle errors are split at the boundaries of REPEAT blocks and of their"
@@ -609,6 +611,9 @@ class _NoisyCircuitBuilder:
         # the noise of an idle run on qubit 0, cached by its two counts of moments (see
         # NoiseModel._get_idle_noise)
         self.idle_noise_by_num_moments: dict[tuple[int, int], stim.Circuit] = {}
+        # that noise on each qubit, cached by the qubit and the counts.  Remapping qubits is slow,
+        # and the idle runs of a qubit often repeat their counts of moments.
+        self.idle_noise_by_qubit_and_num_moments: dict[tuple[int, int, int], stim.Circuit] = {}
 
         # the current idle run of each qubit, and the moments that contain a measurement or reset
         self.idle_runs: dict[int, _IdleRun] = {}
@@ -667,10 +672,9 @@ class _NoisyCircuitBuilder:
 
         # end the idle runs after the last moment
         if self.has_idle_noise:
+            num_moments = segment.num_moments
             for qubit in self.idle_runs:
-                self.add_idle_noise(
-                    qubit, self.end_idle_run(qubit, segment.num_moments, False, False)
-                )
+                self.add_idle_noise(qubit, self.end_idle_run(qubit, num_moments, False, False))
 
     def append_gate(
         self,
@@ -881,13 +885,15 @@ class _NoisyCircuitBuilder:
         """
         if not any(idle_counts):
             return
-        if idle_counts not in self.idle_noise_by_num_moments:
-            self.idle_noise_by_num_moments[idle_counts] = self.noise_model._get_idle_noise(
-                *idle_counts
-            )
-        noise = self.idle_noise_by_num_moments[idle_counts]
-        if noise:
-            self.add_pending_noise(with_remapped_qubits(noise, [qubit]), (qubit,))
+        key = (qubit, *idle_counts)
+        if key not in self.idle_noise_by_qubit_and_num_moments:
+            if idle_counts not in self.idle_noise_by_num_moments:
+                self.idle_noise_by_num_moments[idle_counts] = self.noise_model._get_idle_noise(
+                    *idle_counts
+                )
+            noise = self.idle_noise_by_num_moments[idle_counts]
+            self.idle_noise_by_qubit_and_num_moments[key] = with_remapped_qubits(noise, [qubit])
+        self.add_pending_noise(self.idle_noise_by_qubit_and_num_moments[key], (qubit,))
 
     def add_pending_noise(self, noise: stim.Circuit, qubits: Iterable[int]) -> None:
         """Add noise on some qubits to the pending noise."""
@@ -933,7 +939,7 @@ def _join_operations(operations: Sequence[_Operation]) -> stim.CircuitInstructio
     targets = [
         target for operation in operations for target in operation.instruction.targets_copy()
     ]
-    return stim.CircuitInstruction(first.name, targets, first.gate_args_copy(), tag=first.tag)
+    return _new_instruction(first.name, targets, first.gate_args_copy(), first.tag)
 
 
 def _get_gate_qubits(circuit: stim.Circuit, schedule: Schedule) -> frozenset[int]:
