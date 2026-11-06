@@ -34,8 +34,11 @@ def use_disk_cache(
     cache entry, recomputes the result, and saves the new result to the cache.  Refreshing only
     affects this cache, and does not clear other caches used internally by the function.
 
-    The decorator is intended for module-level functions: a decorated function is pickled by
-    reference to its qualified name, and it does not bind as a method.
+    The cache stores most results with pickle, so reading it can run code that anyone who can write
+    to its directory placed there.  Pass a cache_dir only if no one else can write to it.
+
+    Use this decorator only on module-level functions.  A decorated function cannot be a method, and
+    it is pickled as a reference to its module and name, so that worker processes can import it.
 
     Disk caching is bypassed when running with pytest.
     """
@@ -104,6 +107,9 @@ def get_disk_cache(
     cache_name: str, *, cache_dir: pathlib.Path | str | None = None
 ) -> MutableMapping[Hashable, Any]:
     """Retrieve a dictionary-like cache object.
+
+    The cache stores most values with pickle, so reading it can run code that anyone who can write
+    to its directory placed there.  Pass a cache_dir only if no one else can write to it.
 
     While pytest is imported, this returns a new, empty dict rather than a persistent disk cache.
     """

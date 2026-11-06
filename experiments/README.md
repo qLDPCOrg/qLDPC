@@ -60,11 +60,12 @@ python experiments/bivariate_bicycle/collect_results.py
 Code distances are upper bounds, each minimized over `--num-trials` randomized trials.
 Before symmetry reduction, each torus height contributes roughly `DIM_X^4` candidate codes, so the cost of a search grows rapidly with `DIM_X`.
 `collect_results.py` only exports results computed with its own `--num-trials`, so pass the same value to both scripts.
-To try the pipeline cheaply first, write a small search to a scratch directory:
+To try the pipeline cheaply first, write a small search to a new private scratch directory:
 
 ```bash
-python experiments/bivariate_bicycle/run_search.py 6 --num-trials 10 --results-dir /tmp/bbcodes
-python experiments/bivariate_bicycle/collect_results.py --num-trials 10 --results-dir /tmp/bbcodes
+RESULTS=$(mktemp -d)
+python experiments/bivariate_bicycle/run_search.py 6 --num-trials 10 --results-dir "$RESULTS"
+python experiments/bivariate_bicycle/collect_results.py --num-trials 10 --results-dir "$RESULTS"
 ```
 
 ## Quantum Tanner codes
@@ -85,12 +86,13 @@ python experiments/quantum_tanner/collect_results.py
 python experiments/quantum_tanner/verify_codes.py
 ```
 
-To try the pipeline cheaply first, write a small search to a scratch directory:
+To try the pipeline cheaply first, write a small search to a new private scratch directory:
 
 ```bash
-python experiments/quantum_tanner/run_search.py --max-order 6 --num-samples 2 --num-trials 10 --results-dir /tmp/qtcodes
-python experiments/quantum_tanner/collect_results.py --results-dir /tmp/qtcodes
-python experiments/quantum_tanner/verify_codes.py --results-dir /tmp/qtcodes
+RESULTS=$(mktemp -d)
+python experiments/quantum_tanner/run_search.py --max-order 6 --num-samples 2 --num-trials 10 --results-dir "$RESULTS"
+python experiments/quantum_tanner/collect_results.py --results-dir "$RESULTS"
+python experiments/quantum_tanner/verify_codes.py --results-dir "$RESULTS"
 ```
 
 With default settings, the search covers the 18 groups of order at most 10, with up to 100 random codes per group and base code (only one if the base code has as many bits as the group has elements), which amounts to roughly 11,000 saved codes.
