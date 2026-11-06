@@ -128,6 +128,14 @@ def test_pauli_channel_conditioned_on() -> None:
     with pytest.raises(ValueError, match="not in"):
         channel.conditioned_on([-1])
 
+    # A sub-channel of a channel that has been emitted emits its own instruction.
+    two_qubit = circuits.PauliChannel({"XZ": 0.01, "IY": 0.02})
+    assert two_qubit.to_circuit() == stim.Circuit(
+        "PAULI_CHANNEL_2(0,0.02,0,0,0,0,0.01,0,0,0,0,0,0,0,0) 0 1"
+    )
+    expected = circuits.PauliChannel({"IY": 0.02}).to_circuit()
+    assert two_qubit.conditioned_on([0]).to_circuit() == expected == stim.Circuit("Y_ERROR(0.02) 1")
+
 
 def test_pauli_channel_to_circuit() -> None:
     """PauliChannel.to_circuit emits noise, optionally appending to a given circuit and qubits."""

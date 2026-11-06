@@ -12,7 +12,7 @@ from typing import TypeAlias
 
 import stim
 
-from ..common import StimCircuitLike
+from ..common import StimCircuitLike, _new_instruction
 from ..transforms import with_remapped_qubits
 from ._operations import JUST_MEASURE_OPS, JUST_RESET_OPS, MEASURE_AND_RESET_OPS, NOISE, op_type
 from .channels import AbstractPauliChannel, PauliChannel
@@ -142,7 +142,7 @@ class NoiseRule:
                 # combine independent readout flips using the chance of an odd number of flips
                 args = [self.readout_error + args[0] - 2 * self.readout_error * args[0]]
 
-        noisy_op = stim.CircuitInstruction(op.name, targets, args, tag=op.tag)
+        noisy_op = _new_instruction(op.name, targets, args, op.tag)
         noise_after = stim.Circuit()
 
         if self.reset_error:
@@ -152,8 +152,7 @@ class NoiseRule:
             # reset is modeled by an error that anticommutes with B.  Z-basis (canonical `R`/`MR`)
             # and Y-basis (`RY`/`MRY`) resets get X_ERROR; X-basis (`RX`/`MRX`) gets Z_ERROR.
             error_name = "Z_ERROR" if op.name.endswith("X") else "X_ERROR"
-            error_op = stim.CircuitInstruction(error_name, qubit_targets, [self.reset_error])
-            noise_after.append(error_op)
+            noise_after.append(error_name, qubit_targets, [self.reset_error])
 
         self.emit_after(noise_after, qubit_targets, context=f"operation {op.name!r}")
         return noisy_op, noise_after

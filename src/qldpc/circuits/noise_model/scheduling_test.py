@@ -4,7 +4,9 @@
 
 from __future__ import annotations
 
+import collections
 import copy
+import math
 import pickle
 
 import pytest
@@ -12,6 +14,7 @@ import stim
 
 from qldpc import circuits
 from qldpc.circuits.conftest import StimCircuitWrapper
+from qldpc.circuits.noise_model import scheduling
 
 # A circuit whose moments differ for each way of scheduling it.
 CIRCUIT = stim.Circuit("""
@@ -113,6 +116,108 @@ def test_alap() -> None:
     scheduler = circuits.ALAPScheduler(single_qubit_gates_take_time=True)
     assert scheduler.get_schedule(CIRCUIT).to_circuit() == stim.Circuit(
         expected.format(early_measurement="M 0", measurements="M 1\nTICK\nM 2")
+    )
+
+
+def test_min_idle() -> None:
+    """Min-idle schedules can have fewer effective idle slots than ASAP and ALAP schedules.
+
+    Ancilla 2 measures Z0 Z1 with flag 3.  Data qubit 0 is busy in moments 0-2, and data qubit 1 in
+    moments 5-7, so CX 0 2 and CX 1 2 are in moments 3 and 4.  ASAP opens the flag in moment 1, so
+    the ancilla waits in moment 2.  ALAP closes the flag in moment 6, so the ancilla waits in moment
+    5.  The min-idle schedule opens the flag in moment 2 and closes it in moment 5.  The data qubits
+    have 18 effective idle slots in every schedule with 8 moments.
+    """
+    circuit = stim.Circuit("""
+        CX 0 4 0 4 0 4
+        R 2 3
+        H 3
+        CX 3 2
+        CX 0 2
+        CX 1 2
+        CX 3 2
+        H 3
+        M 2 3
+        CX 1 5 1 5 1 5
+    """)
+    for scheduler, num_effective_idle_slots in [
+        (circuits.ASAPScheduler(), 18 + 1 + 3),
+        (circuits.ALAPScheduler(), 18 + 1 + 3),
+        (circuits.MinIdleScheduler(), 18 + 0 + 2),
+    ]:
+        assert scheduler.get_schedule(circuit).num_moments == 8
+        assert _get_effective_idle_slots(circuit, scheduler, False) == num_effective_idle_slots
+
+    # each part of a circuit is scheduled on its own
+    scheduler = circuits.MinIdleScheduler()
+    schedule = scheduler.get_schedule(circuit)
+    repeated = scheduler.get_schedule(circuit + stim.Circuit(f"REPEAT 2 {{\n{circuit}\n}}"))
+    assert repeated.get_moments() == [*schedule.get_moments(), (2, schedule)]
+
+    # the run after a last gate that does not measure counts, so qubit 2 is reset in moment 1, not
+    # in moment 0 as by ASAP, and the effective idle slots are those of qubit 3 in moments 0 and 1
+    circuit = stim.Circuit("CX 0 1 0 1 0 1\nR 2\nCX 2 3")
+    assert _get_effective_idle_slots(circuit, circuits.MinIdleScheduler(), False) == 2
+
+    # single-qubit gates can take time
+    circuit = stim.Circuit("H 0\nH 0")
+    assert circuits.MinIdleScheduler().get_schedule(circuit).num_moments == 1
+    scheduler = circuits.MinIdleScheduler(single_qubit_gates_take_time=True)
+    assert scheduler.get_schedule(circuit).num_moments == 2
+
+
+def test_min_idle_solver_failure() -> None:
+    """Placing nodes in layers raises an error if no placement exists."""
+    with pytest.raises(RuntimeError):
+        scheduling._get_min_cost_layers([0, 0], [(0, 1, 1)], 1)
+
+
+def _get_effective_idle_slots(
+    circuit: stim.Circuit,
+    scheduler: circuits.Scheduler | circuits.Schedule,
+    single_qubit_gates_take_time: bool,
+) -> int:
+    """The number of effective idle slots of a circuit without REPEAT blocks, from its idle noise.
+
+    Each idle moment of a qubit has an X error with probability 1/4, so ``k`` moments have one with
+    probability ``(1 - 2**-k) / 2``.  A moment is effective unless it is in an idle run that ends at
+    a reset, or after the last gate on its qubit if that gate measures it.  Runs end at gates that
+    take time.
+    """
+    noise_model = circuits.NoiseModel(idle_error={"X": 0.25}, scheduler=scheduler)
+    num_slots = 0
+    run_lengths: dict[int, int] = collections.defaultdict(int)  # by qubit
+    measured: dict[int, bool] = {}  # by qubit, whether the last gate that takes time measures it
+    for instruction in noise_model.noisy_circuit(circuit):
+        gate_data = stim.gate_data(instruction.name)
+        if instruction.name == "X_ERROR":
+            (probability,) = instruction.gate_args_copy()
+            for target in instruction.targets_copy():
+                run_lengths[target.value] += round(-math.log2(1 - 2 * probability))
+        elif _takes_time(instruction, single_qubit_gates_take_time):
+            for target in instruction.targets_copy():
+                if instruction.name not in ["R", "RX", "RY", "RZ"]:
+                    num_slots += run_lengths[target.value]
+                run_lengths[target.value] = 0
+                measured[target.value] = gate_data.produces_measurements
+    for qubit, run_length in run_lengths.items():
+        if not measured.get(qubit, False):
+            num_slots += run_length
+    return num_slots
+
+
+def _takes_time(instruction: stim.CircuitInstruction, single_qubit_gates_take_time: bool) -> bool:
+    """Does an instruction contain a gate that takes time, as for the built-in schedulers?"""
+    gate_data = stim.gate_data(instruction.name)
+    is_gate = gate_data.is_unitary or gate_data.is_reset or gate_data.produces_measurements
+    is_controlled = any(
+        target.is_measurement_record_target for target in instruction.targets_copy()
+    )
+    is_single_qubit_unitary = gate_data.is_unitary and gate_data.is_single_qubit_gate
+    return (
+        is_gate
+        and not is_controlled
+        and (single_qubit_gates_take_time or not is_single_qubit_unitary)
     )
 
 
@@ -502,10 +607,14 @@ def test_built_in_schedulers() -> None:
         "ASAPScheduler()": circuits.ASAPScheduler(),
         "ALAPScheduler()": circuits.ALAPScheduler(),
         "TickScheduler()": circuits.TickScheduler(),
+        "MinIdleScheduler()": circuits.MinIdleScheduler(),
         "ASAPScheduler(late_resets=False)": circuits.ASAPScheduler(late_resets=False),
         "ALAPScheduler(early_measurements=False)": circuits.ALAPScheduler(early_measurements=False),
         "TickScheduler(single_qubit_gates_take_time=False)": (
             circuits.TickScheduler(single_qubit_gates_take_time=False)
+        ),
+        "MinIdleScheduler(single_qubit_gates_take_time=True)": (
+            circuits.MinIdleScheduler(single_qubit_gates_take_time=True)
         ),
     }
     for text, scheduler in schedulers.items():
@@ -521,6 +630,7 @@ def test_built_in_schedulers() -> None:
             {"early_measurements": True, "single_qubit_gates_take_time": True},
         ),
         (circuits.TickScheduler(), {"single_qubit_gates_take_time": True}),
+        (circuits.MinIdleScheduler(), {"single_qubit_gates_take_time": False}),
     ]:
         names = {name for name in dir(scheduler) if not name.startswith("_")}
         names -= set(dir(circuits.Scheduler))
