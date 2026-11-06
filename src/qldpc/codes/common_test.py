@@ -1661,8 +1661,8 @@ def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
 
     # a trial whose decoding fails moves on to another problem
     for _ in range(20):
+        classical_code.forget_distance()
         assert classical_code.get_distance_bound(num_trials=1, decoder=erasing_decoder) == 3
-    classical_code.forget_distance()
 
     # a decoder that cannot find a consistent error decodes each distinct problem once, and gives up
     failing_decoder = decoders.lookup(max_weight=0)
