@@ -24,8 +24,8 @@ from qldpc.conftest import run_python
 from qldpc.math import resolve_field
 from qldpc.objects import ChainComplex, Node, Pauli
 
-from .common_test import assert_valid_subgraphs
-from .quantum import _get_block_translations
+from ..common_test import assert_valid_subgraphs
+from .two_block import _get_block_translations
 
 
 def test_trivial_code() -> None:

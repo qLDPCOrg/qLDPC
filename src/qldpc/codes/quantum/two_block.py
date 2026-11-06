@@ -11,7 +11,7 @@ import itertools
 import math
 import os
 from collections.abc import Collection, Iterable, Iterator, Sequence
-from typing import TYPE_CHECKING, TypeVar
+from typing import TypeVar
 
 import galois
 import numpy as np
@@ -21,7 +21,7 @@ import sympy
 from sympy.matrices.normalforms import hermite_normal_form
 
 import qldpc
-from qldpc import _deprecations, abstract
+from qldpc import abstract
 from qldpc._utils import networkx as nx
 from qldpc.math import IntegerArray, resolve_field
 from qldpc.objects import (
@@ -36,7 +36,7 @@ from qldpc.objects import (
 )
 from qldpc.objects._symmetries import get_block_permutations
 
-from .classical import (
+from ..classical import (
     CyclicCode,
     GolayCode,
     HammingCode,
@@ -46,7 +46,7 @@ from .classical import (
     SimplexCode,
     TannerCode,
 )
-from .common import AbstractCode, ClassicalCode, CSSCode, QuditCode, _get_scrambled_seed
+from ..common import AbstractCode, ClassicalCode, CSSCode, QuditCode, _get_scrambled_seed
 
 ####################################################################################################
 # small named codes
@@ -3541,9 +3541,3 @@ def _rotated_check_is_used(row: int, col: int, rows: int, cols: int) -> bool:
 
 # offsets from a data qubit at (row, col) to its neighboring checks in a rotated surface code
 _CHECK_OFFSETS = {"nw": (0, 0), "ne": (0, 1), "sw": (1, 0), "se": (1, 1)}
-
-
-if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations
-
-    def __getattr__(name: str) -> object:
-        return _deprecations.get_deprecated_attribute(__name__, name)
