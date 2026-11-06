@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""The layout of the deprecated NoiseModel.noisy_circuit(..., insert_ticks=True).
+"""The deprecated insert_ticks argument of NoiseModel.noisy_circuit.
 
 NoiseModel.noisy_circuit imports this module within its deprecated block, so that this module can
 import qldpc.circuits at import time without an import cycle.
@@ -12,11 +12,44 @@ from collections.abc import Sequence
 
 import stim
 
+from qldpc import _deprecations
+from qldpc._utils import get_external_caller_stacklevel
 from qldpc.circuits.noise_model.scheduling import (
+    Schedule,
     Scheduler,
     TickScheduler,
     _Segment,
 )
+
+
+def apply_insert_ticks(
+    insert_ticks: bool, circuit: stim.Circuit, scheduler: Scheduler | Schedule
+) -> tuple[stim.Circuit, Scheduler | Schedule]:
+    """Warn about insert_ticks, and give the circuit and scheduler that noisy_circuit then uses.
+
+    With insert_ticks=True, these are the layout of lay_out_with_ticks and a scheduler of its
+    moments.  insert_ticks=False has no effect.
+    """
+    _deprecations.warn_deprecated(
+        (
+            "noisy_circuit(..., insert_ticks=True) is deprecated and will be removed in a future"
+            " release.  To lay out a noisy circuit in moments, add noise to the layout of a"
+            " schedule, as in noise_model.noisy_circuit(layout) for layout ="
+            " TickScheduler().get_schedule(circuit).to_circuit(), and pass"
+            " scheduler=TickScheduler() to the noise model so that its idle noise uses those"
+            " moments"
+        )
+        if insert_ticks
+        else (
+            "noisy_circuit(..., insert_ticks=False) is deprecated, has no effect, and will be"
+            " removed in a future release, since noisy_circuit keeps the TICKs of its input and"
+            " adds only noise.  Remove the argument"
+        ),
+        stacklevel=get_external_caller_stacklevel(),
+    )
+    if insert_ticks:
+        return lay_out_with_ticks(circuit)
+    return circuit, scheduler
 
 
 def lay_out_with_ticks(circuit: stim.Circuit) -> tuple[stim.Circuit, Scheduler]:

@@ -17,7 +17,6 @@ from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 
 import stim
 
-from qldpc import _deprecations
 from qldpc._utils import format_docstring
 
 from ..common import (
@@ -402,29 +401,12 @@ class NoiseModel:
                 ``immunize_gates=False``, also if a gate on both immune and other qubits has noise
                 other than a Pauli channel.
         """
-        # check the immunity tags, and handle the deprecated insert_ticks option
+        # check the immunity tags
         if immune_op_tag == "":
             raise ValueError("immune_op_tag must be non-empty or None")
         if immune_qubit_tag == "":
             raise ValueError("immune_qubit_tag must be non-empty or None")
-        if insert_ticks is not None:  # DEPRECATED: see qldpc._deprecations
-            _deprecations.warn_deprecated(
-                (
-                    "noisy_circuit(..., insert_ticks=True) is deprecated and will be removed in a"
-                    " future release.  To lay out a noisy circuit in moments, add noise to the"
-                    " layout of a schedule, as in noise_model.noisy_circuit(layout) for layout ="
-                    " TickScheduler().get_schedule(circuit).to_circuit(), and pass"
-                    " scheduler=TickScheduler() to the noise model so that its idle noise uses"
-                    " those moments"
-                )
-                if insert_ticks
-                else (
-                    "noisy_circuit(..., insert_ticks=False) is deprecated, has no effect, and will"
-                    " be removed in a future release, since noisy_circuit keeps the TICKs of its"
-                    " input and adds only noise.  Remove the argument"
-                ),
-                stacklevel=2,
-            )
+
         # find the qubits that may idle, and those that are immune to noise
         stim_circuit = _as_stim_circuit(circuit)
         system_qubits = frozenset(
@@ -434,12 +416,11 @@ class NoiseModel:
             stim_circuit, immune_qubit_tag
         )
 
-        # for the deprecated insert_ticks=True, lay out the circuit in moments before adding noise
         scheduler = self.scheduler
-        if insert_ticks:  # DEPRECATED: see qldpc._deprecations
-            from qldpc._deprecations.noise_model import lay_out_with_ticks
+        if insert_ticks is not None:  # DEPRECATED: see qldpc._deprecations
+            from qldpc._deprecations.noise_model import apply_insert_ticks
 
-            stim_circuit, scheduler = lay_out_with_ticks(stim_circuit)
+            stim_circuit, scheduler = apply_insert_ticks(insert_ticks, stim_circuit, scheduler)
 
         # warn if REPEAT blocks that get noise split quadratic idle errors
         if self.quadratic_idle_error is not None and any(

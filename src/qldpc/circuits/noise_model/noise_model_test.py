@@ -524,8 +524,9 @@ def test_deprecated_insert_ticks() -> None:
         H 1
         Z_ERROR(0.2) 0
     """)
-    with pytest.warns(DeprecationWarning, match="insert_ticks"):
+    with pytest.warns(DeprecationWarning, match="insert_ticks") as record:
         noisy_circuit = noise_model.noisy_circuit(circuit, insert_ticks=False)
+    assert record[0].filename == __file__
     assert noisy_circuit == noise_model.noisy_circuit(circuit)
 
 
