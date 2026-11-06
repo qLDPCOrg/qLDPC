@@ -408,66 +408,22 @@ def estimate_residual_weight_histogram(
         raise TypeError("css_weight must be a bool or None")
     pauli = None if pauli is None else Pauli.coerce_xz(pauli)
     full_circuit, qubits, selected = _get_selection(circuit, output_qubits, add_flags, post_select)
-
-    stabilizers = circuits.get_state_stabilizers(full_circuit, qubits)
-    if len(stabilizers) != len(qubits):
-        raise ValueError("The output qubits must end in a definite pure stabilizer state")
-    matrix = np.array([qldpc_math.string_to_op(op) for op in stabilizers], dtype=np.uint8)
-    css_weight = _is_css_state(matrix) if css_weight is None else css_weight
-    setup = _ResidualWeightSetup(matrix, css_weight, pauli, max_residual_weight)
-    oracle = setup.oracle
-
-    _, dem, flags, syndromes = _get_primitive_fault_signatures(
-        full_circuit, setup.stabilizers, qubits, selected
+    mechanisms, oracle, css_weight = _get_mechanisms(
+        full_circuit,
+        qubits,
+        selected,
+        css_weight=css_weight,
+        pauli=pauli,
+        max_residual_weight=max_residual_weight,
     )
-    syndromes = [syndrome & setup.syndrome_mask for syndrome in syndromes]
-    probabilities = [
-        instruction.args_copy()[0] for instruction in dem if instruction.type == "error"
-    ]
-    if any(probability >= 1 for probability in probabilities):
-        raise ValueError("The circuit has an error instruction with probability one")
-    mechanisms = _Mechanisms.from_signatures(probabilities, flags, syndromes, len(selected), oracle)
 
     probabilities_by_fault_weight, truncated_probability = _get_fault_weight_probabilities(
         mechanisms.probabilities, max_fault_weight, max_residual_weight + 1
     )
     max_fault_weight = len(probabilities_by_fault_weight) - 1
-    num_columns = max_residual_weight + 3
-    weight_sums = np.zeros((max_fault_weight + 1, num_columns))
-    squared_weight_sums = np.zeros_like(weight_sums)
-    sample_counts = np.zeros(max_fault_weight + 1, dtype=int)
-    exact = np.zeros(max_fault_weight + 1, dtype=bool)
-
-    # no error mechanism occurs in fault weight zero, so the shot is accepted with no error
-    weight_sums[0, 1] = 1.0
-    exact[0] = True
-    cache: dict[bytes, int] = {}
-    max_exact_fault_weight = 0
-    for fault_weight in range(1, max_fault_weight + 1):
-        num_faults = math.comb(len(mechanisms), fault_weight)
-        if num_faults > max_exact_faults:
-            break
-        # a fault weight above the number of error mechanisms has probability zero
-        if num_faults:
-            weight_sums[fault_weight] = _list_faults(mechanisms, fault_weight, oracle, cache)
-        exact[fault_weight] = True
-        max_exact_fault_weight = fault_weight
-
-    if max_exact_fault_weight < max_fault_weight:
-        rng = np.random.default_rng(seed)
-        targets = range(max_exact_fault_weight + 1, max_fault_weight + 1)
-        for index, fault_weight in enumerate(targets):
-            shots = num_samples // len(targets) + (index < num_samples % len(targets))
-            _sample_faults(
-                mechanisms,
-                fault_weight,
-                shots,
-                (max_exact_fault_weight + 1, max_fault_weight),
-                oracle,
-                cache,
-                rng,
-                (weight_sums, squared_weight_sums, sample_counts),
-            )
+    weight_sums, squared_weight_sums, sample_counts, exact = _get_weight_sums(
+        mechanisms, oracle, max_fault_weight, max_exact_faults, num_samples, seed
+    )
 
     return ResidualWeightHistogram(
         max_residual_weight=max_residual_weight,
@@ -538,6 +494,101 @@ class _Mechanisms:
                 [oracle.get_key_words(syndrome) for _, _, syndrome in kept], dtype=np.uint64
             ).reshape(len(kept), oracle.num_key_words),
         )
+
+
+def _get_mechanisms(
+    full_circuit: stim.Circuit,
+    qubits: tuple[int, ...],
+    selected: tuple[int, ...],
+    *,
+    css_weight: bool | None,
+    pauli: PauliXZ | None,
+    max_residual_weight: int,
+) -> tuple[_Mechanisms, _ResidualWeightOracle, bool]:
+    """Get the error mechanisms of a circuit, and an oracle for the residual weights of syndromes.
+
+    The circuit, output qubits, and selected detectors are those of ``_get_selection``, and the
+    other arguments are those of ``estimate_residual_weight_histogram``.  Also return whether the
+    Pauli weight is the CSS weight, which by default it is for a CSS state.
+    """
+    stabilizers = circuits.get_state_stabilizers(full_circuit, qubits)
+    if len(stabilizers) != len(qubits):
+        raise ValueError("The output qubits must end in a definite pure stabilizer state")
+    matrix = np.array([qldpc_math.string_to_op(op) for op in stabilizers], dtype=np.uint8)
+    css_weight = _is_css_state(matrix) if css_weight is None else css_weight
+    setup = _ResidualWeightSetup(matrix, css_weight, pauli, max_residual_weight)
+
+    _, dem, flags, syndromes = _get_primitive_fault_signatures(
+        full_circuit, setup.stabilizers, qubits, selected
+    )
+    syndromes = [syndrome & setup.syndrome_mask for syndrome in syndromes]
+    probabilities = [
+        instruction.args_copy()[0] for instruction in dem if instruction.type == "error"
+    ]
+    if any(probability >= 1 for probability in probabilities):
+        raise ValueError("The circuit has an error instruction with probability one")
+    mechanisms = _Mechanisms.from_signatures(
+        probabilities, flags, syndromes, len(selected), setup.oracle
+    )
+    return mechanisms, setup.oracle, css_weight
+
+
+def _get_weight_sums(
+    mechanisms: _Mechanisms,
+    oracle: _ResidualWeightOracle,
+    max_fault_weight: int,
+    max_exact_faults: int,
+    num_samples: int,
+    seed: int | None,
+) -> tuple[
+    npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.int_], npt.NDArray[np.bool_]
+]:
+    """Sum the probabilities of residual weights over faults of each fault weight.
+
+    List every fault of each fault weight up to the largest at which there are at most
+    max_exact_faults faults, and sample num_samples faults of the higher fault weights up to
+    max_fault_weight.  Return the sums and squared sums of the weighted outcomes of each fault
+    weight, the number of faults sampled for each, and whether each was listed exactly.
+    """
+    max_residual_weight = oracle.max_residual_weight
+    num_columns = max_residual_weight + 3
+    weight_sums = np.zeros((max_fault_weight + 1, num_columns))
+    squared_weight_sums = np.zeros_like(weight_sums)
+    sample_counts = np.zeros(max_fault_weight + 1, dtype=int)
+    exact = np.zeros(max_fault_weight + 1, dtype=bool)
+
+    # no error mechanism occurs in fault weight zero, so the shot is accepted with no error
+    weight_sums[0, 1] = 1.0
+    exact[0] = True
+    cache: dict[bytes, int] = {}
+    max_exact_fault_weight = 0
+    for fault_weight in range(1, max_fault_weight + 1):
+        num_faults = math.comb(len(mechanisms), fault_weight)
+        if num_faults > max_exact_faults:
+            break
+        # a fault weight above the number of error mechanisms has probability zero
+        if num_faults:
+            weight_sums[fault_weight] = _list_faults(mechanisms, fault_weight, oracle, cache)
+        exact[fault_weight] = True
+        max_exact_fault_weight = fault_weight
+
+    if max_exact_fault_weight < max_fault_weight:
+        rng = np.random.default_rng(seed)
+        targets = range(max_exact_fault_weight + 1, max_fault_weight + 1)
+        for index, fault_weight in enumerate(targets):
+            shots = num_samples // len(targets) + (index < num_samples % len(targets))
+            _sample_faults(
+                mechanisms,
+                fault_weight,
+                shots,
+                (max_exact_fault_weight + 1, max_fault_weight),
+                oracle,
+                cache,
+                rng,
+                (weight_sums, squared_weight_sums, sample_counts),
+            )
+
+    return weight_sums, squared_weight_sums, sample_counts, exact
 
 
 def _check_integer(value: int, name: str, minimum: int) -> int:
