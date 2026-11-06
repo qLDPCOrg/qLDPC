@@ -84,6 +84,7 @@ _QUDIT_SYNDROME_MATRIX_REASON = "errors are decoded against an internal syndrome
 
 # a decoder, a check matrix, and a syndrome for the decoder to decode
 _DecodingProblem = tuple[decoders.ErrorDecoder, npt.NDArray[np.int_], npt.NDArray[np.int_]]
+
 # the number of decoding problems, beyond the number of trials, that a randomized decoder search
 # draws to replace problems on which its decoder fails; an arbitrary limit for a hopeless search
 _MAX_DECODING_FAILURES = 100
