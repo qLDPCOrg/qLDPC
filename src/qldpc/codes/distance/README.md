@@ -19,6 +19,8 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
   `brouwer_zimmermann.md` calls this basis a search basis, and uses "information set" for the block of columns itself.
 - **Basis family** (`BasisFamily`): the information sets that one search uses together, stacked into arrays.
 - **Certificate** (`Certificate`): a lower bound on the weight of the words that a search has not yet visited, which tells the search when it can stop.
+- **Connected-support search** (`SupportSearch`): the depth-first search of the supports that grow through unsatisfied parity checks, for a binary matrix of checks `H` and an excluded matrix `G`.
+  It is the second exact method, selected by `method="connected_support"`.
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer.
   Counting scans in `_counting/scan.py`, and the distance search in `_search/brouwer_zimmermann.py`.
   Both scans and `_search/coset_leader_search.py` step through a layer with `advance_support` in `_search/information_sets.py`.
@@ -29,8 +31,9 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | --- | --- |
 | A distance method, or the validation of method and backend names | `core.py`, and where `logical_counts.py`, `_counting/scan.py`, and `get_distance_exact` in `src/qldpc/codes/common.py` dispatch on the method name |
 | The Brouwer–Zimmermann (BZ) distance search | `_search/brouwer_zimmermann.py` |
+| The connected-support distance search | `_search/connected_support.py` |
 | How basis families and their certificates are built | `_search/information_sets.py` |
-| Automorphism families: the images of one information set under automorphisms of a code, and the check of those automorphisms | `_search/automorphism_families.py` |
+| Automorphism families: the images of one information set under automorphisms of a code, and the check of those automorphisms, which the connected-support search uses too | `_search/automorphism_families.py` |
 | Information sets with bounded column coverage, by matroid partitioning | `_search/matroid_partition.py` |
 | Exhaustive enumeration, for small codes, fallbacks, and the `brute_force` method | `_search/brute_force.py` |
 | Minimum weights of syndrome classes of Pauli errors (coset-leader weights), with two classical searches for the CSS weight on CSS states, used by `src/qldpc/circuits/certification/` | `_search/coset_leader_search.py` |
@@ -48,7 +51,7 @@ From the top:
 
 1. `logical_counts.py`, the public interface of the counts, and `core.py`, the public interface of the distances.
 2. The `_counting` package, the counting methods.
-3. `_search/brouwer_zimmermann.py`, `_search/brute_force.py`, and `_search/coset_leader_search.py`, the searches.
+3. `_search/brouwer_zimmermann.py`, `_search/brute_force.py`, `_search/connected_support.py`, and `_search/coset_leader_search.py`, the searches.
 4. `_search/information_sets.py`, the basis families that the searches share, and `_search/automorphism_families.py`, which builds automorphism families from them.
 5. `_search/matroid_partition.py`, which `_search/information_sets.py` uses to build some of those families.
 6. `_binary.py`, the foundation.
