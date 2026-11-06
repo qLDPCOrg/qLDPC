@@ -52,6 +52,33 @@ def test_brouwer_zimmermann_information_set_search() -> None:
     assert qldpc.codes.get_distance_classical([[1, 1, 0], [0, 1, 1], [1, 1, 1]], cutoff=1) == 1
 
 
+def test_css_brouwer_zimmermann_special_inputs() -> None:
+    """The joint CSS helper handles empty, trivial, and nontrivial quotient sectors.
+
+    A sector without nontrivial logical operators counts as one more than its width, so that it
+    never lowers the distance of the other sectors.
+    """
+    empty = np.empty((0, 4), dtype=np.uint8)
+    assert core._get_distance_css_brouwer_zimmermann([(empty, empty)], cutoff=0) == 5
+    trivial = ([[1, 0]], [[1, 0]])
+    assert core._get_distance_css_brouwer_zimmermann([trivial], cutoff=0) == 3
+    assert core._get_distance_css_brouwer_zimmermann([trivial, ([[1, 1]], [])], cutoff=0) == 2
+    # It is not the weight of an operator, so it does not end the search even at the cutoff.
+    assert core._get_distance_css_brouwer_zimmermann([trivial, ([[1, 1]], [])], cutoff=3) == 2
+
+    # The result is the minimum of the upper bound and the distances of the supplied sectors.
+    assert core._get_distance_css_brouwer_zimmermann([([[1, 1]], [])], cutoff=0) == 2
+    sectors: list[tuple[list[list[int]], list[list[int]]]] = [([[1, 1]], [])]
+    assert core._get_distance_css_brouwer_zimmermann(sectors, cutoff=0, upper_bound=3) == 2
+    assert core._get_distance_css_brouwer_zimmermann(sectors, cutoff=0, upper_bound=1) == 1
+
+    # A known operator at the cutoff ends the search before it starts.
+    assert core._get_distance_css_brouwer_zimmermann(sectors, cutoff=1, upper_bound=1) == 1
+    assert core._get_distance_css_brouwer_zimmermann([], cutoff=0, upper_bound=4) == 4
+    with pytest.raises(ValueError, match="at least one sector or an upper bound"):
+        core._get_distance_css_brouwer_zimmermann([], cutoff=0)
+
+
 def test_brouwer_zimmermann_special_inputs() -> None:
     """Brouwer-Zimmermann validates matrix shapes and preserves quotient edge cases.
 

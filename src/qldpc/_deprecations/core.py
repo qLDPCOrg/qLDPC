@@ -109,14 +109,14 @@ ALIASES: dict[str, dict[str, str]] = {
     "qldpc.codes": {
         "code_capacity": "qldpc.codes._code_capacity",
         "get_distance_css_brouwer_zimmermann": (
-            "qldpc.codes.distance._brouwer_zimmermann:get_distance_css_brouwer_zimmermann"
+            "qldpc.codes.distance.core:_get_distance_css_brouwer_zimmermann"
         ),
         "validate_distance_backend": "qldpc.codes.distance.core:_validate_distance_backend",
         "validate_distance_method": "qldpc.codes.distance.core:_validate_distance_method",
     },
     "qldpc.codes.distance": {
         "get_distance_css_brouwer_zimmermann": (
-            "qldpc.codes.distance._brouwer_zimmermann:get_distance_css_brouwer_zimmermann"
+            "qldpc.codes.distance.core:_get_distance_css_brouwer_zimmermann"
         ),
         "validate_distance_backend": "qldpc.codes.distance.core:_validate_distance_backend",
         "validate_distance_method": "qldpc.codes.distance.core:_validate_distance_method",

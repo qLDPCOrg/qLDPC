@@ -664,7 +664,7 @@ def test_exact_code_distance_method_api() -> None:
     hgp_code = codes.HGPCode(codes.RepetitionCode(3), codes.RepetitionCode(4))
     css_code = codes.CSSCode(hgp_code.matrix_x, hgp_code.matrix_z)
     with unittest.mock.patch(
-        "qldpc.codes.common.get_distance_css_brouwer_zimmermann", return_value=3
+        "qldpc.codes.common._get_distance_css_brouwer_zimmermann", return_value=3
     ) as mock_joint_distance:
         assert css_code.get_distance_exact(method="information_sets") == 3
     mock_joint_distance.assert_called_once()

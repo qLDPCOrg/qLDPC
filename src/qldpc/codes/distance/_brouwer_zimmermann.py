@@ -22,73 +22,12 @@ from qldpc._binary import pack_bits, popcount_word
 from qldpc._compilation import always_compiled
 
 from . import _information_sets
-from ._binary import (
-    as_binary_matrix,
-    assert_binary,
-    get_eligible_rows,
-    get_nested_code_basis,
-)
+from ._binary import get_eligible_rows
 from ._brute_force import get_nested_distance_brute_force
 from ._information_sets import advance_support
 
 ####################################################################################################
 # search entry points
-
-
-def get_distance_css_brouwer_zimmermann(
-    sectors: Sequence[tuple[npt.ArrayLike, npt.ArrayLike]],
-    *,
-    cutoff: int,
-    block_size: int = 15,
-    upper_bound: int | None = None,
-) -> int:
-    """Compute the minimum distance across homogeneous binary CSS sectors.
-
-    Args:
-        sectors: Logical operators and stabilizers for every sector to search.  All operators use
-            homogeneous binary support vectors rather than symplectic vectors.
-        cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
-        block_size: Batch size exponent, as in get_distance_quantum.
-        upper_bound: Weight of a known logical operator from an omitted sector, if any.  The result
-            is the minimum of this bound and the distances of the supplied sectors.
-
-    Returns:
-        The minimum exact distance across the supplied sectors and optional upper bound, where a
-        sector without nontrivial logical operators counts as one more than its width, as in
-        get_distance_quantum.  As there, that value is not the weight of an operator, even if it is
-        at most ``cutoff``, and any other result at or below ``cutoff`` is an observed upper bound.
-    """
-    problems: list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]] = []
-    no_distance_bound: int | None = None
-    for logical_ops, stabilizers in sectors:
-        assert_binary(logical_ops, "logical_ops")
-        assert_binary(stabilizers, "stabilizers")
-        logical_matrix = as_binary_matrix(logical_ops)
-        stabilizer_matrix = as_binary_matrix(stabilizers, num_cols=logical_matrix.shape[1])
-        basis, labels = get_nested_code_basis(logical_matrix, stabilizer_matrix)
-        if labels.shape[1]:
-            problems.append((basis, labels))
-            continue
-
-        # A sector without nontrivial logical operators has no distance, and contributes one more
-        # than its width, the weight of no operator, as get_distance_quantum returns.
-        sector_bound = logical_matrix.shape[1] + 1
-        no_distance_bound = (
-            sector_bound if no_distance_bound is None else min(no_distance_bound, sector_bound)
-        )
-
-    # Only the weight of a known operator can end the search early, or bound the searches of the
-    # other sectors, since no operator has the weight of a sector without one.
-    bounds = [bound for bound in (upper_bound, no_distance_bound) if bound is not None]
-    if (upper_bound is not None and upper_bound <= cutoff) or not problems:
-        return min(bounds)
-    distance = get_distance_brouwer_zimmermann_many(
-        problems,
-        cutoff=cutoff,
-        block_size=block_size,
-        upper_bound=upper_bound,
-    )
-    return min([distance, *bounds])
 
 
 def get_distance_brouwer_zimmermann_many(

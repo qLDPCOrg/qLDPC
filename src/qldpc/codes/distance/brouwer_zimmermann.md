@@ -517,7 +517,7 @@ The family policy lives only in [_information_sets.py](_information_sets.py), in
 [core.py](core.py) calls [_brouwer_zimmermann.py](_brouwer_zimmermann.py) and [_brute_force.py](_brute_force.py), and [_brouwer_zimmermann.py](_brouwer_zimmermann.py) calls [_brute_force.py](_brute_force.py) for its exhaustive routes.
 All three modules use [_binary.py](_binary.py), and they and [_information_sets.py](_information_sets.py) use the bit-packed linear algebra over GF(2) in [qldpc/_binary.py](../../_binary.py).
 Every module with compiled functions uses [_compilation.py](../../_compilation.py).
-`get_distance_css_brouwer_zimmermann` builds an adapted basis ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)) for each nontrivial sector, then passes the resulting problems to `get_distance_brouwer_zimmermann_many`.
+`_get_distance_css_brouwer_zimmermann` of [core.py](core.py) builds an adapted basis ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)) for each nontrivial sector, then passes the resulting problems to `get_distance_brouwer_zimmermann_many`.
 
 `CosetLeaderSearch` in [_coset_leader_search.py](_coset_leader_search.py), which the fault-propagation certifier in `qldpc.circuits.certification` uses, applies the same search to a coset `e + V` instead of `V`.
 There a layer adds `w` rows to an **offset**, a word of the coset that is zero on the pivot columns ([Section 2.3](#23-systematic-bases-and-information-sets)), so layer zero is the offset itself.
@@ -625,7 +625,7 @@ With an early-exit cutoff above one, a different search order can find a differe
 ### 4.5 Behavior spanning files
 
 - **Cutoff.**
-  `get_distance_classical` and `get_distance_quantum` default to `cutoff=1`, and `get_distance_css_brouwer_zimmermann` requires a `cutoff`.
+  `get_distance_classical` and `get_distance_quantum` default to `cutoff=1`, and `_get_distance_css_brouwer_zimmermann` requires a `cutoff`.
   If a witness reaches `cutoff`, the computation can return its weight immediately as an upper bound, which can exceed the exact distance.
   Otherwise, the search continues and returns the exact distance, which may be larger than `cutoff`.
   The default of one is still exact for a valid nontrivial binary problem, because a distance is at least one.

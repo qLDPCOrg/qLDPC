@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Literal, SupportsIndex, get_args
 
 import numpy as np
@@ -21,6 +22,7 @@ from ._binary import (
 from ._brouwer_zimmermann import (
     enumeration_is_cheaper_than_setup,
     get_distance_brouwer_zimmermann,
+    get_distance_brouwer_zimmermann_many,
 )
 from ._brute_force import get_distance_quantum_brute_force, get_nested_distance_brute_force
 
@@ -177,10 +179,7 @@ def get_distance_quantum(
     """
     method = _validate_distance_method(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
-    assert_binary(logical_ops, "logical_ops")
-    assert_binary(stabilizers, "stabilizers")
-    logical_matrix = as_binary_matrix(logical_ops)
-    stabilizer_matrix = as_binary_matrix(stabilizers, num_cols=logical_matrix.shape[1])
+    logical_matrix, stabilizer_matrix = _as_operator_matrices(logical_ops, stabilizers)
     num_bits = logical_matrix.shape[1]
     physical_size = num_bits if homogeneous else num_bits // 2
     if not homogeneous and num_bits % 2:
@@ -230,6 +229,78 @@ def get_distance_quantum(
         upper_bound=None if upper_bound is None else upper_bound * divisor,
     )
     return distance // divisor
+
+
+def _get_distance_css_brouwer_zimmermann(
+    sectors: Sequence[tuple[npt.ArrayLike, npt.ArrayLike]],
+    *,
+    cutoff: int,
+    block_size: int = 15,
+    upper_bound: int | None = None,
+) -> int:
+    """Compute the minimum distance across homogeneous binary CSS sectors.
+
+    Args:
+        sectors: Logical operators and stabilizers for every sector to search.  All operators use
+            homogeneous binary support vectors rather than symplectic vectors.
+        cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
+        block_size: Batch size exponent, as in get_distance_quantum.
+        upper_bound: Weight of a known logical operator from an omitted sector, if any.  The result
+            is the minimum of this bound and the distances of the supplied sectors.
+
+    Returns:
+        The minimum exact distance across the supplied sectors and optional upper bound, where a
+        sector without nontrivial logical operators counts as one more than its width, as in
+        get_distance_quantum.  As there, that value is not the weight of an operator, even if it is
+        at most ``cutoff``, and any other result at or below ``cutoff`` is an observed upper bound.
+
+    Raises:
+        ValueError: If there are neither sectors nor an upper bound, or if the operators of a sector
+            are not binary matrices of equal width.
+    """
+    if not sectors and upper_bound is None:
+        raise ValueError("Require at least one sector or an upper bound")
+    problems: list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]] = []
+    no_distance_bound: int | None = None
+    for logical_ops, stabilizers in sectors:
+        logical_matrix, stabilizer_matrix = _as_operator_matrices(logical_ops, stabilizers)
+        basis, labels = get_nested_code_basis(logical_matrix, stabilizer_matrix)
+        if labels.shape[1]:
+            problems.append((basis, labels))
+            continue
+
+        # A sector without nontrivial logical operators has no distance, and contributes one more
+        # than its width, the weight of no operator, as get_distance_quantum returns.
+        sector_bound = logical_matrix.shape[1] + 1
+        no_distance_bound = (
+            sector_bound if no_distance_bound is None else min(no_distance_bound, sector_bound)
+        )
+
+    # Only the weight of a known operator can end the search early, or bound the searches of the
+    # other sectors, since no operator has the weight of a sector without one.
+    bounds = [bound for bound in (upper_bound, no_distance_bound) if bound is not None]
+    if (upper_bound is not None and upper_bound <= cutoff) or not problems:
+        return min(bounds)
+    distance = get_distance_brouwer_zimmermann_many(
+        problems,
+        cutoff=cutoff,
+        block_size=block_size,
+        upper_bound=upper_bound,
+    )
+    return min([distance, *bounds])
+
+
+def _as_operator_matrices(
+    logical_ops: npt.ArrayLike, stabilizers: npt.ArrayLike
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
+    """Check that logical operators and stabilizers are binary, and return them as matrices.
+
+    The stabilizers must have as many columns as the logical operators.
+    """
+    assert_binary(logical_ops, "logical_ops")
+    assert_binary(stabilizers, "stabilizers")
+    logical_matrix = as_binary_matrix(logical_ops)
+    return logical_matrix, as_binary_matrix(stabilizers, num_cols=logical_matrix.shape[1])
 
 
 def _get_weight_limit(cutoff: int, max_weight: SupportsIndex | None) -> tuple[int, int | None]:

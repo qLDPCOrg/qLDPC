@@ -23,30 +23,6 @@ from . import _information_sets, core
 from .conftest import get_random_full_rank_matrix
 
 
-def test_css_brouwer_zimmermann_special_inputs() -> None:
-    """The joint CSS helper handles empty, trivial, and nontrivial quotient sectors.
-
-    A sector without nontrivial logical operators counts as one more than its width, so that it
-    never lowers the distance of the other sectors.
-    """
-    empty = np.empty((0, 4), dtype=np.uint8)
-    assert bz.get_distance_css_brouwer_zimmermann([(empty, empty)], cutoff=0) == 5
-    trivial = ([[1, 0]], [[1, 0]])
-    assert bz.get_distance_css_brouwer_zimmermann([trivial], cutoff=0) == 3
-    assert bz.get_distance_css_brouwer_zimmermann([trivial, ([[1, 1]], [])], cutoff=0) == 2
-    # It is not the weight of an operator, so it does not end the search even at the cutoff.
-    assert bz.get_distance_css_brouwer_zimmermann([trivial, ([[1, 1]], [])], cutoff=3) == 2
-
-    # The result is the minimum of the upper bound and the distances of the supplied sectors.
-    assert bz.get_distance_css_brouwer_zimmermann([([[1, 1]], [])], cutoff=0) == 2
-    sectors: list[tuple[npt.ArrayLike, npt.ArrayLike]] = [([[1, 1]], [])]
-    assert bz.get_distance_css_brouwer_zimmermann(sectors, cutoff=0, upper_bound=3) == 2
-    assert bz.get_distance_css_brouwer_zimmermann(sectors, cutoff=0, upper_bound=1) == 1
-
-    # A known operator at the cutoff ends the search before it starts.
-    assert bz.get_distance_css_brouwer_zimmermann(sectors, cutoff=1, upper_bound=1) == 1
-
-
 @pytest.mark.parametrize("interpreted", [False, True])
 def test_brouwer_zimmermann_scan(interpreted: bool) -> None:
     """Chunked kernel calls enumerate each combination of basis rows once.
@@ -266,6 +242,16 @@ def test_brouwer_zimmermann_setup_cutoffs() -> None:
             )
             == 2
         )
+
+
+def test_an_upper_bound_acts_as_a_known_witness() -> None:
+    """A search returns the smaller of its upper bound and the distance."""
+    basis = get_independent_rows(np.asarray(qldpc.codes.HammingCode(3).generator, dtype=np.uint8))
+    for upper_bound, expected in ((2, 2), (3, 3), (5, 3)):
+        distance = bz.get_distance_brouwer_zimmermann(
+            basis, _no_labels(basis), cutoff=0, block_size=15, upper_bound=upper_bound
+        )
+        assert distance == expected
 
 
 @pytest.mark.usefixtures("force_information_sets")
