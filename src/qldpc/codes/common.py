@@ -84,6 +84,9 @@ _QUDIT_SYNDROME_MATRIX_REASON = "errors are decoded against an internal syndrome
 
 # a decoder, a check matrix, and a syndrome for the decoder to decode
 _DecodingProblem = tuple[decoders.ErrorDecoder, npt.NDArray[np.int_], npt.NDArray[np.int_]]
+# the number of decoding problems, beyond the number of trials, that a randomized decoder search
+# draws to replace problems on which its decoder fails; an arbitrary limit for a hopeless search
+_MAX_DECODING_FAILURES = 100
 _DECODING_FAILURE_MESSAGE = (
     "The decoder failed to infer an error that reproduces its syndrome in every decoding problem"
     " that it attempted.  Try a more thorough decoder, such as"
@@ -586,17 +589,19 @@ class ClassicalCode(AbstractCode):
         and leaves a fraction 1/q of all code words for a field of order q.  The decoder searches
         these code words for one of low weight, whose weight is an upper bound on distance.  Each
         trial builds a new decoder for its requirement.  Coefficients that are equal up to a scalar
-        factor define equivalent decoding problems, so each problem is decoded at most once, and a
-        trial whose decoding fails yields no bound.
+        factor define equivalent decoding problems, so each problem is decoded at most once.  If the
+        decoder fails on a problem, its trial moves on to another problem, and at most 100 problems
+        beyond ``num_trials`` are drawn in total.
 
         If bounding the minimum distance between a vector and a code word, we can interpret the
         vector as an error, and find a minimal-weight correction from decoding the syndrome induced
         by this vector.  This is a single decoding problem, so it is decoded at most once.
 
         Args:
-            num_trials: Minimize over at most this many independent upper bounds, as explained
-                above.  If ``None`` (the default), return the best known upper bound on distance,
-                or compute a single upper bound if no bound is known.
+            num_trials: Minimize over this many independent upper bounds, or fewer if there are
+                fewer distinct decoding problems, as explained above.  If ``None`` (the default),
+                return the best known upper bound on distance, or compute a single upper bound if no
+                bound is known.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
             vector: If not None, rather than bounding the code distance, bound the minimum Hamming
                 distance between this vector and a code word.  Default: None.
@@ -643,20 +648,22 @@ class ClassicalCode(AbstractCode):
         def get_problems() -> Iterator[_DecodingProblem]:
             """Get decoding problems whose solutions bound distance, building decoders lazily."""
             if vector is not None:
-                if num_trials:
-                    syndrome = self.matrix @ np.asanyarray(vector).view(self.field)
-                    yield build_error_decoder(self.matrix, decoder=decoder), self.matrix, syndrome
+                syndrome = self.matrix @ np.asanyarray(vector).view(self.field)
+                yield build_error_decoder(self.matrix, decoder=decoder), self.matrix, syndrome
                 return
             # a generator matrix may have dependent rows, so dualize a basis of the code instead
             dual_basis = math.get_dual_basis(self.generator.row_reduce()[: self.dimension])
             syndrome = self.field.Zeros(len(self.matrix) + 1)
             syndrome[-1] = 1
-            for coefficients in _get_random_directions(self.field, self.dimension, num_trials):
+            num_draws = num_trials + _MAX_DECODING_FAILURES
+            for coefficients in _get_random_directions(self.field, self.dimension, num_draws):
                 check_matrix = np.vstack([self.matrix, coefficients @ dual_basis]).view(self.field)
                 yield build_error_decoder(check_matrix, decoder=decoder), check_matrix, syndrome
 
         min_bound = len(self) if known_bound is None else int(known_bound)
-        min_bound = _minimize_decoded_weight(get_problems(), self.field, min_bound, cutoff or 0)
+        min_bound = _minimize_decoded_weight(
+            get_problems(), self.field, num_trials, min_bound, cutoff or 0
+        )
         if vector is None:
             self._distance_bound = min_bound
         return min_bound
@@ -3663,8 +3670,8 @@ class CSSCode(QuditCode):
         Args:
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
                 X-type logical operator).  If passed qldpc.objects.Pauli.Z, compute the Z-distance.
-            num_trials: Minimize over at most this many independent upper bounds, as explained
-                below.
+            num_trials: Minimize over this many independent upper bounds, or fewer if there are
+                fewer distinct decoding problems, as explained below.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
             decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None to
                 select the default.  It is built for an internal effective check matrix.
@@ -3699,7 +3706,8 @@ class CSSCode(QuditCode):
         corresponds to a logical X type operator ``X(w_x)`` -- and presumably one of low Hamming
         weight, assuming that the decoder tries to find low-weight solutions to the decoding
         problem.  The Hamming weight ``|w_x|`` is then our upper bound on the X-distance of this
-        code.  If the decoder fails to find a solution, this trial yields no bound.
+        code.  If the decoder fails to find a solution, try again with a new random logical
+        operator ``Z(w_z)``.
 
         In practice, we want to minimize over many randomized trials that compute an upper bound.
         To avoid constructing a new decoder for every trial, we set the effective parity check
@@ -3707,8 +3715,8 @@ class CSSCode(QuditCode):
         nontrivial logical Z-type operators.  In each trial, we then construct an effective syndrome
         by enforcing that it has trivial stabilizers and that it anti-commutes with a random nonzero
         choice of the logical operators in ``L_z``.  Choices that are equal up to a scalar factor
-        define equivalent decoding problems, so each problem is decoded at most once, and
-        ``num_trials`` is an upper limit on the number of decoding problems.
+        define equivalent decoding problems, so each problem is decoded at most once, and at most
+        100 problems beyond ``num_trials`` are drawn to replace problems on which the decoder fails.
 
         Raises:
             ValueError: If the decoder fails to infer an error that reproduces its syndrome in every
@@ -3731,12 +3739,13 @@ class CSSCode(QuditCode):
 
         def get_problems() -> Iterator[_DecodingProblem]:
             """Get decoding problems for random X-type logical operators."""
-            for coefficients in _get_random_directions(self.field, self.dimension, num_trials):
+            num_draws = num_trials + _MAX_DECODING_FAILURES
+            for coefficients in _get_random_directions(self.field, self.dimension, num_draws):
                 effective_syndrome = self.field.Zeros(len(effective_check_matrix))
                 effective_syndrome[-self.dimension :] = coefficients
                 yield error_decoder, effective_check_matrix, effective_syndrome
 
-        return _minimize_decoded_weight(get_problems(), self.field, len(self), cutoff)
+        return _minimize_decoded_weight(get_problems(), self.field, num_trials, len(self), cutoff)
 
     def forget_distance(self) -> Self:
         """Forget the known distances (and known distance bounds) of this code."""
@@ -4375,29 +4384,30 @@ def _decode(
 def _minimize_decoded_weight(
     problems: Iterator[_DecodingProblem],
     field: type[galois.FieldArray],
+    num_trials: int,
     min_weight: int,
     cutoff: int,
 ) -> int:
-    """Minimize the weight of errors inferred for decoding problems, starting from a given minimum.
+    """Minimize, starting from a given minimum, the weight of errors that solve decoding problems.
 
     Each problem is decoded once, and a problem whose decoding fails is skipped.  Problems are
-    decoded until they run out, or until the minimum falls to or below the cutoff.
+    decoded until num_trials of them are solved, the minimum falls to or below the cutoff, or the
+    problems run out.
 
     Raises:
         ValueError: If the decoder fails on every problem that it decodes.
     """
-    if min_weight <= cutoff:
+    if num_trials <= 0 or min_weight <= cutoff:
         return min_weight
-    num_decoded = num_failed = 0
+    num_solved = 0
     for decoder, check_matrix, syndrome in problems:
-        num_decoded += 1
         if (error := _decode(decoder, check_matrix, syndrome, field)) is None:
-            num_failed += 1
             continue
+        num_solved += 1
         min_weight = min(min_weight, int(np.count_nonzero(error)))
-        if min_weight <= cutoff:
+        if num_solved == num_trials or min_weight <= cutoff:
             break
-    if num_decoded and num_failed == num_decoded:
+    if not num_solved:
         raise ValueError(_DECODING_FAILURE_MESSAGE)
     return min_weight
 

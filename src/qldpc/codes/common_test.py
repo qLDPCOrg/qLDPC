@@ -1673,6 +1673,23 @@ def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
         assert decode.call_count == num_problems
 
 
+def test_decoder_searches_replace_failed_problems() -> None:
+    """A trial whose decoding fails moves on to a new decoding problem."""
+    decode = common._decode
+    for search in [
+        lambda: codes.ClassicalCode(codes.HammingCode(3).matrix).get_distance_bound(num_trials=1),
+        lambda: codes.ToricCode(4).get_distance_bound_with_decoder(Pauli.X, num_trials=1),
+    ]:
+        failures = iter([True])
+
+        def fail_once(*args: Any, failures: Iterator[bool] = failures) -> galois.FieldArray | None:
+            return None if next(failures, False) else decode(*args)
+
+        with unittest.mock.patch("qldpc.codes.common._decode", side_effect=fail_once) as mock:
+            search()
+        assert mock.call_count == 2
+
+
 def test_random_directions() -> None:
     """Random directions are distinct nonzero vectors whose first nonzero entries are 1."""
     field = galois.GF(3)
