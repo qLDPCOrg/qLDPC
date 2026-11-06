@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import builtins
 import functools
 import importlib
 import inspect
@@ -12,6 +13,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import types
 from collections.abc import Iterator, Mapping, Sequence
 
 import grimp
@@ -54,6 +56,28 @@ def run_python(
     )
     assert result.returncode == 0, result.stderr
     return result.stdout
+
+
+def fail_import(monkeypatch: pytest.MonkeyPatch, module: str, error: ImportError) -> None:
+    """Make importing a module raise an error, while every other import works as usual.
+
+    Other imports must keep working: other threads, such as those of pytest-xdist workers, can
+    import modules while the error is in place.
+    """
+    original_import = builtins.__import__
+
+    def import_or_fail(
+        name: str,
+        globals_: dict[str, object] | None = None,
+        locals_: dict[str, object] | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> types.ModuleType:
+        if name == module:
+            raise error
+        return original_import(name, globals_, locals_, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", import_or_fail)
 
 
 @pytest.fixture(autouse=True)

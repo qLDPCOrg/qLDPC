@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import builtins
 import importlib.util
 import itertools
 import sys
@@ -15,7 +14,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from qldpc.conftest import run_python
+from qldpc.conftest import fail_import, run_python
 from qldpc.external import _bliss
 
 
@@ -101,20 +100,8 @@ def test_missing_pybliss(monkeypatch: pytest.MonkeyPatch) -> None:
         _bliss.get_matrix_automorphism_generators(np.array([[1, 1]]))
 
     monkeypatch.delitem(sys.modules, "pybliss")
-    original_import = builtins.__import__
-
-    def import_pybliss(
-        name: str,
-        globals_: dict[str, object] | None = None,
-        locals_: dict[str, object] | None = None,
-        fromlist: tuple[str, ...] = (),
-        level: int = 0,
-    ) -> types.ModuleType:
-        if name == "pybliss":
-            raise ModuleNotFoundError("No module named 'other'", name="other")
-        return original_import(name, globals_, locals_, fromlist, level)
-
-    assert import_pybliss("types") is types
-    monkeypatch.setattr(builtins, "__import__", import_pybliss)
+    fail_import(
+        monkeypatch, "pybliss", ModuleNotFoundError("No module named 'other'", name="other")
+    )
     with pytest.raises(ModuleNotFoundError, match="other"):
         _bliss.get_matrix_automorphism_generators(np.array([[1, 1]]))

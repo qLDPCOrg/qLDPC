@@ -765,10 +765,13 @@ class ClassicalCode(AbstractCode):
 
         An automorphism of an ``m × n`` parity check matrix ``H`` is a permutation ``p`` of the
         ``m`` checks and ``n`` bits (in that order) that leaves ``H`` invariant, in the sense that
-        ``H[p[:m]][:, p[m:] - m] == H``.  Unlike the automorphism group of a code (see
-        :meth:`get_automorphism_group`), the automorphism group of a parity check matrix depends on
-        the choice of parity checks.  Computing this group requires the optional ``pybliss``
-        package, which can be installed with ``pip install 'qldpc[bliss]'``.
+        ``H[p_checks][:, p_bits] == H`` for ``p_checks = p.array_form[:m]`` and
+        ``p_bits = [bit - m for bit in p.array_form[m:]]``.  Unlike the automorphism group of a code
+        (see :meth:`get_automorphism_group`), the automorphism group of a parity check matrix
+        depends on the choice of parity checks.  Its members are symmetries of this code, which
+        :class:`~qldpc.codes.quantum.BPCode` uses to construct balanced product codes.  Computing
+        this group requires the optional ``pybliss`` package, which can be installed with
+        ``pip install 'qldpc[bliss]'``.
         """
         generators = _bliss.get_matrix_automorphism_generators(self.matrix)
         size = sum(self.matrix.shape)

@@ -131,42 +131,33 @@ def test_balanced_product() -> None:
 
     # orbits that contribute to the same boundary operator entry, whose contributions cancel
     chain = objects.ChainComplex([np.ones((2, 1), dtype=int)])
-    balanced = assert_valid_balanced_product(
-        chain, chain, [([1, 0], [0])], [([1, 0], [0])], [2, 2, 1]
-    )
-    assert not np.any(balanced.op(2))
+    assert_valid_balanced_product(chain, chain, [([1, 0], [0])], [([1, 0], [0])], [2, 2, 1])
 
     # without symmetries, the balanced product is the tensor product, here of a two-link complex
     # (with an empty module) over a field in which signs matter
     chain_c = objects.ChainComplex([np.zeros((0, 2), dtype=int), np.array([[1], [2]])], field=3)
     chain_d = objects.ChainComplex([np.array([[1, 1]])], field=3)
     assert_valid_balanced_product(chain_c, chain_d, [], [], [0, 2, 5, 2])
-    balanced = objects.ChainComplex.balanced_product(chain_c, chain_d, [], [])
-    tensor = objects.ChainComplex.tensor_product(chain_c, chain_d)
-    assert all(np.array_equal(op, tensor_op) for op, tensor_op in zip(balanced.ops, tensor.ops))
 
+    # a symmetry can also be one permutation of the bases of all modules, in order of degree
+    member_a = abstract.GroupMember(swap_one) @ abstract.GroupMember(swap_two)
+    balanced = objects.ChainComplex.balanced_product(chain_a, chain_b, symmetries_a, symmetries_b)
+    balanced_from_members = objects.ChainComplex.balanced_product(
+        chain_a, chain_b, [member_a], [comb.Permutation(0, 1)]
+    )
+    assert all(np.array_equal(*ops) for ops in zip(balanced.ops, balanced_from_members.ops))
+
+    ring_chain = objects.ChainComplex(
+        [abstract.RingArray.build([[1]], abstract.GroupRing(abstract.TrivialGroup()))]
+    )
     with pytest.raises(ValueError, match="over rings are not supported"):
-        ring_chain = objects.ChainComplex(
-            [abstract.RingArray.build([[1]], abstract.GroupRing(abstract.TrivialGroup()))]
-        )
         objects.ChainComplex.balanced_product(chain_a, ring_chain, [], [])
     with pytest.raises(ValueError, match="same field"):
         objects.ChainComplex.balanced_product(chain_a, chain, [], [])
     with pytest.raises(ValueError, match="same number of symmetries"):
         objects.ChainComplex.balanced_product(chain_a, chain_b, symmetries_a, [])
-    with pytest.raises(ValueError, match=r"symmetries_a\[0\] must have 2 permutations"):
-        objects.ChainComplex.balanced_product(chain_a, chain_b, [(swap_one,)], symmetries_b)
-    # permutations are integer sequences that list every image, or SymPy permutations that fit
-    for permutation, error in [
-        ("1023", TypeError),
-        ([1.0, 0.0, 2.0, 3.0], TypeError),
-        ([1, 0], ValueError),
-        (comb.Permutation(4), ValueError),
-    ]:
-        with pytest.raises(error, match=r"symmetries_a\[0\]\[0\]"):
-            objects.ChainComplex.balanced_product(
-                chain_a, chain_b, [(permutation, swap_two)], symmetries_b
-            )
+    with pytest.raises(ValueError, match=r"symmetries_a\[0\]\[1\] must be a permutation"):
+        objects.ChainComplex.balanced_product(chain_a, chain_b, [(swap_one, [0])], symmetries_b)
     with pytest.raises(ValueError, match=r"symmetries_a\[0\] is not a symmetry"):
         objects.ChainComplex.balanced_product(
             chain_a, chain_b, [(swap_two, swap_one)], symmetries_b
@@ -179,7 +170,7 @@ def assert_valid_balanced_product(
     symmetries_a: Sequence[Sequence[Iterable[int]]],
     symmetries_b: Sequence[Sequence[Iterable[int]]],
     dims: list[int],
-) -> objects.ChainComplex:
+) -> None:
     """Check that projecting onto orbits maps a tensor product onto a balanced product."""
     tensor = objects.ChainComplex.tensor_product(chain_a, chain_b)
     balanced = objects.ChainComplex.balanced_product(chain_a, chain_b, symmetries_a, symmetries_b)
@@ -216,4 +207,3 @@ def assert_valid_balanced_product(
         assert np.array_equal(
             balanced.op(degree) @ projections[degree], projections[degree - 1] @ tensor.op(degree)
         )
-    return balanced

@@ -388,6 +388,26 @@ def test_gross_codes() -> None:
     assert codes.TwoGrossCode().get_code_params() == (288, 12, 18)
 
 
+def tanner_graphs_are_isomorphic(code_a: codes.QuditCode, code_b: codes.QuditCode) -> bool:
+    """Are two codes equal up to the order of their qudits and parity checks?
+
+    The codes are compared by their Pauli-labelled Tanner graphs, keeping qudits and checks apart.
+    """
+
+    def tagged_graph(code: codes.QuditCode) -> nx.DiGraph:
+        """Copy a Tanner graph with its data/check partition available to the matcher."""
+        graph = code.graph.copy()
+        nx.set_node_attributes(graph, {node: node.is_data for node in graph}, "is_data")
+        return graph
+
+    return nx.is_isomorphic(
+        tagged_graph(code_a),
+        tagged_graph(code_b),
+        node_match=nx.algorithms.isomorphism.categorical_node_match(["is_data"], [None]),
+        edge_match=nx.algorithms.isomorphism.categorical_edge_match([Pauli], [None]),
+    )
+
+
 @pytest.mark.parametrize("orders, field", [((3, 3), 2), ((6, 3), 3)])
 def test_bivariate_bicycle_toric_layout_equivalence(orders: tuple[int, int], field: int) -> None:
     """Every reported toric layout is a relabeling of the original Pauli-labelled Tanner graph."""
@@ -395,22 +415,9 @@ def test_bivariate_bicycle_toric_layout_equivalence(orders: tuple[int, int], fie
     layouts = original.get_equivalent_toric_layout_code_data()
     assert layouts
 
-    def tagged_graph(code: codes.CSSCode) -> nx.DiGraph:
-        """Copy a Tanner graph with its data/check partition available to the matcher."""
-        graph = code.graph.copy()
-        nx.set_node_attributes(graph, {node: node.is_data for node in graph}, "is_data")
-        return graph
-
-    node_match = nx.algorithms.isomorphism.categorical_node_match(["is_data"], [None])
-    edge_match = nx.algorithms.isomorphism.categorical_edge_match([Pauli], [None])
-    original_graph = tagged_graph(original)
     for new_orders, poly_a, poly_b in layouts:
-        candidate_graph = tagged_graph(codes.BBCode(new_orders, poly_a, poly_b, field))
-        assert nx.is_isomorphic(
-            candidate_graph,
-            original_graph,
-            node_match=node_match,
-            edge_match=edge_match,
+        assert tanner_graphs_are_isomorphic(
+            codes.BBCode(new_orders, poly_a, poly_b, field), original
         )
 
 
@@ -947,46 +954,61 @@ def test_balanced_product_code() -> None:
 
     # with symmetries that generate a group acting freely, a balanced product code is a lifted
     # product code: pairing a cyclic shift within each block of one lifted matrix with the inverse
-    # shift in the other gives the lifted product of the two matrices
+    # shift in the other gives the lifted product of the two matrices, up to the order of qudits and
+    # checks; over GF(3), pairing equal shifts here would give an inequivalent code
     group = abstract.CyclicGroup(3)
-    ring = abstract.GroupRing(group)
+    ring = abstract.GroupRing(group, field=3)
     one, shift, shift_squared = (abstract.RingMember(ring, member) for member in group.generate())
-    matrix = abstract.RingArray.build([[one + shift, shift_squared]], ring)
+    matrix = abstract.RingArray.build([[one + 2 * shift, shift_squared]], ring)
     symmetry = ([1, 2, 0], [1, 2, 0, 4, 5, 3])
-    inverse_symmetry = ([2, 0, 1], [2, 0, 1, 5, 3, 4])
+    # the inverse shift as one permutation of the 3 checks followed by the 6 bits
+    inverse_symmetry = abstract.GroupMember([2, 0, 1, 5, 3, 4, 8, 6, 7])
     code = codes.BPCode(matrix.lift(), matrix.lift(), [symmetry], [inverse_symmetry])
-    assert code.get_code_params() == codes.LPCode(matrix, matrix).get_code_params() == (15, 3, 3)
+    assert tanner_graphs_are_isomorphic(code, codes.LPCode(matrix, matrix))
 
-    # over GF(2), from_seed constructs the code in Definition 1 of arXiv:2505.13679v2, up to qudit
-    # order, even if the symmetry of the seed matrix has orbits of different lengths
-    for seed, (p_rows, p_cols) in [
-        (codes.RingCode(6).matrix.view(np.ndarray), ([2, 3, 4, 5, 0, 1], [2, 3, 4, 5, 0, 1])),
-        (np.array([[1, 0, 1, 0], [0, 1, 1, 0], [0, 0, 1, 1]]), ([1, 0, 2], [1, 0, 2, 3])),
+    # over GF(2), from_seed constructs the code of Eq. (3) in Definition 1 of arXiv:2505.13679v2, up
+    # to qudit order, even if the symmetry of the seed matrix has orbits of different lengths, which
+    # Definition 1 excludes; the seed can also be given as a code, and its symmetry as one
+    # permutation of rows followed by columns
+    ring_seed = codes.RingCode(6).matrix.view(np.ndarray)
+    seed = np.array([[1, 0, 1, 0], [0, 1, 1, 0], [0, 0, 1, 1]])
+    for seed_matrix, (p_rows, p_cols), as_objects in [
+        (ring_seed, ([2, 3, 4, 5, 0, 1], [2, 3, 4, 5, 0, 1]), False),
+        (seed, ([1, 0, 2], [1, 0, 2, 3]), True),
     ]:
-        num_checks, num_bits = seed.shape
-        mat_rows = abstract.GroupMember(p_rows, size=num_checks).to_matrix()
-        mat_cols = abstract.GroupMember(p_cols, size=num_bits).to_matrix().T
-        code = codes.BPCode.from_seed(seed, (p_rows, p_cols))
-        matrix_x = code.field(np.hstack([seed.T, np.eye(num_bits, dtype=int) + mat_cols]) % 2)
-        matrix_z = code.field(np.hstack([np.eye(num_checks, dtype=int) + mat_rows, seed]) % 2)
+        num_checks, num_bits = seed_matrix.shape
+        mat_rows = abstract.GroupMember(p_rows).to_matrix()
+        mat_cols = abstract.GroupMember(p_cols).to_matrix().T
+        if as_objects:
+            member = abstract.GroupMember(p_rows) @ abstract.GroupMember(p_cols)
+            code = codes.BPCode.from_seed(codes.ClassicalCode(seed_matrix), member)
+        else:
+            code = codes.BPCode.from_seed(seed_matrix, (p_rows, p_cols))
+        matrix_x = np.hstack([seed_matrix.T, np.eye(num_bits, dtype=int) + mat_cols]) % 2
+        matrix_z = np.hstack([np.eye(num_checks, dtype=int) + mat_rows, seed_matrix]) % 2
         qudit_order = [*range(num_bits, num_bits + num_checks), *p_cols]
-        assert np.array_equal(code.matrix_x[:, qudit_order].row_space(), matrix_x.row_space())
-        assert np.array_equal(code.matrix_z[:, qudit_order].row_space(), matrix_z.row_space())
+        assert np.array_equal(
+            code.matrix_x[:, qudit_order].row_space(), code.field(matrix_x).row_space()
+        )
+        assert np.array_equal(
+            code.matrix_z[:, qudit_order].row_space(), code.field(matrix_z).row_space()
+        )
 
-    with pytest.raises(ValueError, match="symmetry is not a symmetry"):
+    with pytest.raises(ValueError, match="not a symmetry of the seed matrix"):
         codes.BPCode.from_seed(seed, ([1, 0, 2], [0, 1, 2, 3]))
 
 
 def test_balanced_product_seed_symmetries() -> None:
     """Find the symmetry of the [[12, 2, 3]] code in Example 1 of arXiv:2505.13679v2."""
     # mock the optional pybliss boundary with generators of the dihedral symmetries of a 6-cycle
-    seed = codes.RingCode(6).matrix
+    seed = codes.RingCode(6)
     generators = [[0, 5, 4, 3, 2, 1, 7, 6, 11, 10, 9, 8], [1, 2, 3, 4, 5, 0, 7, 8, 9, 10, 11, 6]]
     with unittest.mock.patch(
         "qldpc.external._bliss.get_matrix_automorphism_generators", return_value=generators
     ):
         [symmetry] = codes.BPCode.get_seed_symmetries(seed, 3)
         assert codes.BPCode.get_seed_symmetries(seed, 5) == []
+    assert symmetry.order() == 3
     assert codes.BPCode.from_seed(seed, symmetry).get_code_params() == (12, 2, 3)
 
 
@@ -1029,8 +1051,8 @@ def test_distance_balanced_code() -> None:
     code = codes.CSSCode([[1, 1], [1, 1]], np.zeros((0, 2), dtype=int))
     assert codes.DistanceBalancedCode(code, [[1, 1], [1, 1]], "x").dimension == 2
 
+    subsystem_code = codes.CSSCode([[1]], [[1]], is_subsystem_code=True)
     with pytest.raises(ValueError, match="not a subsystem code"):
-        subsystem_code = codes.CSSCode([[1]], [[1]], is_subsystem_code=True)
         codes.DistanceBalancedCode(subsystem_code, codes.RepetitionCode(2), "x")
 
 
