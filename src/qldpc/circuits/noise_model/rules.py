@@ -12,6 +12,9 @@ from typing import TypeAlias
 
 import stim
 
+from qldpc import _deprecations
+from qldpc._utils import get_external_caller_stacklevel
+
 from ..common import StimCircuitLike, _new_instruction
 from ..transforms import with_remapped_qubits
 from ._operations import (
@@ -252,7 +255,12 @@ def _as_noise_rule(error: ErrorSpec | None, default_arity: int) -> NoiseRule | N
     """
     if isinstance(error, NoiseRule):
         return error
-    if error is False:
+    if error is False:  # DEPRECATED: see qldpc._deprecations
+        _deprecations.warn_deprecated(
+            "Passing False for no error to a NoiseModel is deprecated and will be removed in a"
+            " future release.  Pass None instead",
+            stacklevel=get_external_caller_stacklevel(),
+        )
         return None
     if error is None or (isinstance(error, Mapping) and not error):
         return None

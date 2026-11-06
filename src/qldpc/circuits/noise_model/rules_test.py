@@ -186,7 +186,6 @@ def test_as_noise_rule() -> None:
     rule = circuits.NoiseRule(after={"X": 0.1})
     assert rules._as_noise_rule(rule, 1) is rule
     assert rules._as_noise_rule(None, 1) is None
-    assert rules._as_noise_rule(False, 1) is None
     assert repr(rules._as_noise_rule(circuits.PauliChannel({"X": 0.1}), 1)) == repr(rule)
     assert repr(rules._as_noise_rule({"X": 0.1}, 1)) == repr(rule)
     assert repr(rules._as_noise_rule(0.1, 2)) == repr(
@@ -194,6 +193,14 @@ def test_as_noise_rule() -> None:
     )
     with pytest.raises(TypeError, match="expected a float"):
         rules._as_noise_rule(True, 1)
+
+
+def test_deprecated_false_for_no_error() -> None:
+    """Passing False for no error to a NoiseModel warns, at the caller, and gives no error."""
+    with pytest.warns(DeprecationWarning, match="Pass None instead") as record:
+        noise_model = circuits.NoiseModel(idle_error=False)
+    assert record[0].filename == __file__
+    assert noise_model.idle_error is None
 
 
 def test_normalize_clifford_nq_error() -> None:

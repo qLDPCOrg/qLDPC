@@ -1104,7 +1104,6 @@ def test_quadratic_idle_error_specifications() -> None:
         quadratic_idle_error=0.5
     ).noisy_circuit(circuit)
     assert circuits.NoiseModel(quadratic_idle_error={"X": 0.25, "Z": 0.25 + 1e-16})
-    assert circuits.NoiseModel(quadratic_idle_error=False).quadratic_idle_error is None
 
     sequence = circuits.PauliChannelSequence({"Z": 0.01})
     for invalid in ({"X": 0.3, "Z": 0.3}, {"XY": 0.01}, sequence):
