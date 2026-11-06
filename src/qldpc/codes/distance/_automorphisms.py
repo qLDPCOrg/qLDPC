@@ -18,7 +18,8 @@ from fractions import Fraction
 import numpy as np
 import numpy.typing as npt
 
-from qldpc._binary import get_rank_packed, pack_bits, row_reduce_binary
+from qldpc._binary import get_rank_packed, pack_bits, row_reduce_packed, unpack_bits
+from qldpc._compilation import always_compiled
 
 from ._binary import get_eligible_rows
 from ._information_sets import BasisFamily, Certificate, get_capped_binomials
@@ -76,13 +77,16 @@ def get_translate_family(
 
     Returns a basis family of ``I`` alone, and the certificate of all of its translates.
     """
-    dimension = len(basis)
-    orbits = _get_orbits(automorphisms, basis.shape[1])
-    generators, set_labels, pivots = row_reduce_binary(
-        basis, labels, columns=np.flatnonzero(np.any(basis, axis=0))
+    dimension, num_columns = basis.shape
+    orbits = _get_orbits(automorphisms, num_columns)
+    rows, packed_labels, pivots = row_reduce_packed(
+        pack_bits(basis), pack_bits(labels), np.flatnonzero(np.any(basis, axis=0))
     )
-    assert set_labels is not None  # labels in give labels out
-    _balance_orbit_shares(generators, set_labels, pivots, orbits)
+    _balance_orbit_shares(rows, packed_labels, pivots, orbits)
+    generators, set_labels = (
+        unpack_bits(rows, num_columns),
+        unpack_bits(packed_labels, labels.shape[1]),
+    )
 
     # Each column of an orbit O lies in |I ∩ O| |G| / |O| of the |G| translates.  So the coverage
     # bound of the family, ceil(|G| (t + 1) / C) for maximum coverage C, is that of |O| sets with
@@ -129,19 +133,20 @@ def _get_orbits(automorphisms: npt.NDArray[np.int_], num_columns: int) -> npt.ND
     graph = scipy.sparse.coo_array(
         (np.ones(len(sources)), (sources, automorphisms.ravel())), shape=(num_columns, num_columns)
     )
-    return scipy.sparse.csgraph.connected_components(graph, directed=False)[1]
+    return scipy.sparse.csgraph.connected_components(graph, directed=False)[1].astype(np.int64)
 
 
+@always_compiled
 def _balance_orbit_shares(
-    generators: npt.NDArray[np.uint8],
-    labels: npt.NDArray[np.uint8],
-    pivots: npt.NDArray[np.int_],
-    orbits: npt.NDArray[np.int_],
+    rows: npt.NDArray[np.uint64],
+    labels: npt.NDArray[np.uint64],
+    pivots: npt.NDArray[np.int64],
+    orbits: npt.NDArray[np.int64],
 ) -> None:
     """Exchange pivots between orbits, in place, while that lowers the largest orbit share.
 
-    ``generators`` is a basis row reduced on the information set ``pivots``, and ``labels`` its
-    quotient labels.  Pivoting row ``i`` on another column ``c`` with ``generators[i, c] == 1``
+    ``rows`` is a packed basis row reduced on the information set ``pivots``, and ``labels`` its
+    packed quotient labels.  Pivoting row ``i`` on another column ``c`` where row ``i`` has a one
     replaces ``pivots[i]`` by ``c`` in the information set.  Each exchange moves a pivot from an
     orbit ``O`` with the largest share ``|I ∩ O| / |O|`` to an orbit whose share stays below it.
 
@@ -150,23 +155,47 @@ def _balance_orbit_shares(
     it, so no information set has fewer pivots in ``O``.
     """
     sizes = np.bincount(orbits)
-    is_pivot = np.zeros(len(orbits), dtype=bool)
-    is_pivot[pivots] = True
+    counts = np.zeros(len(sizes), dtype=np.int64)
+    is_pivot = np.zeros(len(orbits), dtype=np.bool_)
+    for pivot in pivots:
+        counts[orbits[pivot]] += 1
+        is_pivot[pivot] = True
     while True:
-        counts = np.bincount(orbits[pivots], minlength=len(sizes))
-        largest = int(np.argmax(counts / sizes))
-        receivers = (counts + 1) * sizes[largest] < counts[largest] * sizes
-        rows = np.flatnonzero(orbits[pivots] == largest)
-        columns = np.flatnonzero(~is_pivot & receivers[orbits])
-        candidates = generators[np.ix_(rows, columns)]
-        exchangeable = np.any(candidates, axis=1)
-        if not np.any(exchangeable):
+        largest = 0
+        for orbit in range(1, len(sizes)):
+            if counts[orbit] * sizes[largest] > counts[largest] * sizes[orbit]:
+                largest = orbit
+
+        # Find a pivot of the fullest orbit, and a column of an orbit that can take it.
+        row, column = -1, -1
+        for candidate_row in range(len(pivots)):
+            if orbits[pivots[candidate_row]] != largest:
+                continue
+            for candidate_column in range(len(orbits)):
+                orbit = orbits[candidate_column]
+                word = rows[candidate_row, candidate_column // 64]
+                if (
+                    not is_pivot[candidate_column]
+                    and (counts[orbit] + 1) * sizes[largest] < counts[largest] * sizes[orbit]
+                    and (word >> np.uint64(candidate_column % 64)) & np.uint64(1)
+                ):
+                    row, column = candidate_row, candidate_column
+                    break
+            if row >= 0:
+                break
+        if row < 0:
             return
-        index = int(np.argmax(exchangeable))
-        row, column = rows[index], columns[np.argmax(candidates[index])]
-        others = np.flatnonzero(generators[:, column])
-        others = others[others != row]
-        generators[others] ^= generators[row]
-        labels[others] ^= labels[row]
-        is_pivot[pivots[row]], is_pivot[column] = False, True
+
+        # Clear the new pivot column from the other rows, transforming the labels alongside.
+        bit = np.uint64(1) << np.uint64(column % 64)
+        for other in range(len(rows)):
+            if other != row and rows[other, column // 64] & bit:
+                for index in range(rows.shape[1]):
+                    rows[other, index] ^= rows[row, index]
+                for index in range(labels.shape[1]):
+                    labels[other, index] ^= labels[row, index]
+        counts[largest] -= 1
+        counts[orbits[column]] += 1
+        is_pivot[pivots[row]] = False
+        is_pivot[column] = True
         pivots[row] = column

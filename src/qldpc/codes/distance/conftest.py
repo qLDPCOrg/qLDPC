@@ -16,7 +16,7 @@ from qldpc import _compilation, codes
 from qldpc._binary import get_independent_rows, get_kernel
 from qldpc.objects import Pauli
 
-from . import _coset_leader_search, _information_sets
+from . import _automorphisms, _coset_leader_search, _information_sets
 from . import logical_counts as lc
 from .core import DistanceMethod
 
@@ -39,12 +39,12 @@ def compilation_mode(
     """Run the compiled functions of the distance searches as plain Python, or compiled.
 
     In the plain Python mode, the compiled-on-request functions, and the always-compiled functions
-    that the basis family stages and the coset-leader search define, run as Python, which coverage
-    can trace.  The compiled mode compiles the compiled-on-request functions once per session, and
-    restores plain Python afterwards.
+    that the basis family stages, the families of translates, and the coset-leader search define,
+    run as Python, which coverage can trace.  The compiled mode compiles the compiled-on-request
+    functions once per session, and restores plain Python afterwards.
     """
     if request.param == "python":
-        for module in (_information_sets, _coset_leader_search):
+        for module in (_automorphisms, _information_sets, _coset_leader_search):
             for name, function in list(vars(module).items()):
                 if hasattr(function, "py_func") and function.py_func.__module__ == module.__name__:
                     monkeypatch.setattr(module, name, function.py_func)

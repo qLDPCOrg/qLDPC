@@ -669,7 +669,7 @@ With an early-exit cutoff above one, a different search order can find a differe
   It tries this only if its estimated work is at least `PARTITION_WORK_RATIO` times an estimate of the work of partitioning, and the optimistic coverage `ceil(m*r/N)` does not rule out an improvement.
 - **`get_search_certificate`** adds the certificate from linear programming ([Section 3.1](#31-overlapping-search-bases)) to searches of overlapping families whose estimated work reaches `LP_MINIMUM_WORK`, since smaller searches cost less than their linear programs.
   The work estimates that choose families use only the coverage-divided certificate.
-- **`get_translate_family`** row reduces in natural column order, then exchanges pivots between orbits in `_balance_orbit_shares`, as [Section 3.7](#37-translates-of-an-information-set-by-automorphisms) explains.
+- **`get_translate_family`** row reduces in natural column order, then exchanges pivots between orbits in the compiled `_balance_orbit_shares`, as [Section 3.7](#37-translates-of-an-information-set-by-automorphisms) explains.
   A search uses the family of translates if `estimate_translate_work` is less than the `Certificate.work` of the disjoint family.
 - **`Certificate.work`, `estimate_translate_work`, `_enumeration_is_cheaper_than_search`, and `enumeration_is_cheaper_than_setup`** are cost models, which Sections [3.6](#36-exhaustive-enumeration-as-a-fallback) and [3.7](#37-translates-of-an-information-set-by-automorphisms) explain.
   They are not runtime guarantees.
