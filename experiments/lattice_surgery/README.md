@@ -12,16 +12,17 @@ Each preset samples a lattice-surgery experiment and a quantum memory baseline u
 The module docstring of `collect_ler.py` describes the presets, and its `DECODER_OPTIONS` dictionary sets the decoder options of each preset.
 Run `python experiments/lattice_surgery/collect_ler.py --help` to see all options.
 
-To try the script cheaply first, write a small run to a scratch directory; this usually takes under a minute:
+To try the script cheaply first, write a small run to a new private scratch directory; this usually takes under a minute:
 
 ```bash
+RESULTS=$(mktemp -d)
 python experiments/lattice_surgery/collect_ler.py \
     --preset steane-joint \
     --p-values 0.002 \
     --max-shots 1000 \
     --max-errors 10 \
     --workers 2 \
-    --results-dir /tmp/ler
+    --results-dir "$RESULTS"
 ```
 
 Publication-scale examples, which write their results to `experiments/lattice_surgery/results/`:
