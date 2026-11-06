@@ -14,7 +14,15 @@ import stim
 
 from ..common import StimCircuitLike, _new_instruction
 from ..transforms import with_remapped_qubits
-from ._operations import JUST_MEASURE_OPS, JUST_RESET_OPS, MEASURE_AND_RESET_OPS, NOISE, op_type
+from ._operations import (
+    JUST_MEASURE_OPS,
+    JUST_RESET_OPS,
+    MEASURE_AND_RESET_OPS,
+    NOISE,
+    canonical_rule_key,
+    known_gate_shape,
+    op_type,
+)
 from .channels import AbstractPauliChannel, PauliChannel
 
 ####################################################################################################
@@ -160,13 +168,10 @@ class NoiseRule:
     def emit_after(
         self, circuit: StimCircuitLike, qubit_targets: list[int], *, context: str = "operation"
     ) -> None:
-        """Append this rule's ``after`` noise in-place to the provided circuit.
+        """Append this rule's ``after`` noise in-place to the provided circuit, once per gate.
 
-        If the operation packages multiple independent gates (e.g., ``H 0 1 2`` — three ``H`` gates
-        in one instruction), the noise is applied per gate.  For broadcast forms (``PauliChannel``
-        of arity 1 or 2), this is achieved by a single emission on all targets, since stim's
-        ``PAULI_CHANNEL_1``/``PAULI_CHANNEL_2`` broadcast natively.  For higher-arity
-        ``PauliChannel`` and for the ``stim.Circuit`` form, the fragment is emitted once per gate.
+        An operation may apply several gates, as ``H 0 1 2`` applies three ``H`` gates.  The noise
+        applies to each consecutive block of ``after.num_qubits`` qubits in ``qubit_targets``.
 
         Args:
             circuit: The circuit to append the noise instructions to.
@@ -193,8 +198,7 @@ class NoiseRule:
             for i in range(0, n_targets, num_qubits):
                 self.after.to_circuit(append_to=circuit, qubits=qubit_targets[i : i + num_qubits])
         else:
-            # stim.Circuit escape hatch: apply the fragment verbatim to each k-qubit block, with
-            # qubit indices remapped from [0, k) to the block's targets.
+            # apply a stim.Circuit fragment to each block of qubits, with its qubits remapped
             assert isinstance(self.after, stim.Circuit)
             for i in range(0, n_targets, num_qubits):
                 circuit += with_remapped_qubits(self.after, qubit_targets[i : i + num_qubits])
@@ -240,19 +244,13 @@ def _validate_after_circuit(after_circuit: stim.Circuit) -> None:
 
 
 def _as_noise_rule(error: ErrorSpec | None, default_arity: int) -> NoiseRule | None:
-    """Normalize a noise-error argument to a NoiseRule (or None if the input is ``None``).
+    """Normalize an error argument of ``NoiseModel`` to a noise rule, or None for no error.
 
-    A float scalar is interpreted as a uniform depolarizing channel of the given ``default_arity``.
-    A ``PauliChannel`` / ``PauliChannelSequence`` — or a raw ``Mapping[str, float]`` of Pauli-string
-    probabilities, which is auto-wrapped as a ``PauliChannel`` — is used as the rule's ``after``.
-    Storing the depolarizing shape as a ``PauliChannel`` (rather than a Mapping-form
-    ``DEPOLARIZE{n}`` fragment) preserves the Pauli-channel structure so downstream
-    ``PauliChannel.conditioned_on`` can project it under partial immunity.
-
-    Does NOT trivialize an empty NoiseRule to ``None`` — callers must run their guard checks on the
-    declared shape (e.g. arity) BEFORE trivializing, so that user typos like
-    ``PauliChannel({}, num_qubits=3)`` in a 1-qubit-only slot are surfaced.  Trivialize via
-    ``rule or None`` after the guard checks.
+    A number becomes a depolarizing ``PauliChannel`` on ``default_arity`` qubits, which
+    ``PauliChannel.conditioned_on`` can restrict to qubits that are not immune.  A Pauli channel, or
+    a Mapping from Pauli strings to probabilities, becomes the ``after`` noise of a rule.  A rule
+    that adds no noise is returned as it is, so that callers can check its number of qubits before
+    they drop it.
     """
     if isinstance(error, NoiseRule):
         return error
@@ -275,25 +273,17 @@ def _as_noise_rule(error: ErrorSpec | None, default_arity: int) -> NoiseRule | N
 def _normalize_clifford_nq_error(
     error: Mapping[int, ErrorSpec] | None,
 ) -> dict[int, NoiseRule]:
-    """Normalize the ``clifford_nq_error`` argument to a ``dict[int, NoiseRule]``.
+    """Normalize the ``clifford_nq_error`` argument of ``NoiseModel`` to rules by number of qubits.
 
-    - Floats become uniform ``k``-qubit depolarizing noise: ``DEPOLARIZE1`` for ``k == 1``,
-      ``DEPOLARIZE2`` for ``k == 2``, and ``PauliChannel.depolarizing`` otherwise.
-    - ``PauliChannel`` / ``PauliChannelSequence`` values (or raw Pauli-string
-      ``Mapping[str, float]`` dicts, auto-wrapped as a ``PauliChannel``) become a
-      ``NoiseRule(after=<channel>)``.
-    - ``NoiseRule`` values are used directly.
-    - Falsy entries (0.0, empty NoiseRule, empty channel) are dropped.
-    - Entries are rejected if their joint Pauli channel's ``num_qubits`` disagrees with the key, if
-      their ``after`` broadcast channels are incompatible with ``k`` qubits, or if they set
-      ``readout_error`` / ``reset_error`` (Pauli-product Cliffords are neither).
+    Entries become rules as in ``_as_noise_rule``, and a number must be a probability.  Each rule
+    must fit unitary gates on its number of qubits, and rules that add no noise are dropped.
     """
     if not error:
         return {}
     result: dict[int, NoiseRule] = {}
-    for weight, entry in error.items():
-        if weight < 1:
-            raise ValueError(f"clifford_nq_error key {weight} must be >= 1")
+    for num_qubits, entry in error.items():
+        if num_qubits < 1:
+            raise ValueError(f"clifford_nq_error key {num_qubits} must be >= 1")
         if isinstance(entry, NoiseRule):
             rule = entry
         elif isinstance(entry, AbstractPauliChannel):
@@ -302,20 +292,45 @@ def _normalize_clifford_nq_error(
             rule = NoiseRule(after=PauliChannel(entry))
         elif isinstance(entry, bool) or not isinstance(entry, (int, float)):
             raise TypeError(
-                f"clifford_nq_error[{weight}] has unsupported type {type(entry).__name__}; "
+                f"clifford_nq_error[{num_qubits}] has unsupported type {type(entry).__name__}; "
                 "expected NoiseRule, PauliChannel, PauliChannelSequence, Mapping[str, float], int, "
                 "or float"
             )
         else:
             if not (0 <= entry <= 1):
-                raise ValueError(f"clifford_nq_error[{weight}]={entry} is not in [0, 1]")
+                raise ValueError(f"clifford_nq_error[{num_qubits}]={entry} is not in [0, 1]")
             if entry == 0:
                 continue
-            rule = NoiseRule(after=PauliChannel.depolarizing(weight, entry))
-        _validate_rule_for_arity(rule, weight, f"clifford_nq_error[{weight}]")
+            rule = NoiseRule(after=PauliChannel.depolarizing(num_qubits, entry))
+        _validate_rule_for_arity(rule, num_qubits, f"clifford_nq_error[{num_qubits}]")
         if rule:
-            result[weight] = rule
+            result[num_qubits] = rule
     return result
+
+
+def _normalize_rules(rules: Mapping[str, NoiseRule]) -> dict[str, NoiseRule]:
+    """Normalize the ``rules`` argument of ``NoiseModel`` to rules by canonical key.
+
+    Each rule whose key fixes its number of qubits must fit gates on those qubits.  Rules for bare
+    MPP, SPP, and SPP_DAG are checked when they are used.
+    """
+    normalized_rules: dict[str, NoiseRule] = {}
+    for op_name, rule in rules.items():
+        canonical_name = canonical_rule_key(op_name)
+        if canonical_name in normalized_rules:
+            raise ValueError(f"Duplicate noise rules after canonicalization: {op_name!r}")
+        normalized_rules[canonical_name] = rule
+        shape = known_gate_shape(canonical_name)
+        if shape is not None:
+            arity, can_measure, can_reset = shape
+            _validate_rule_for_arity(
+                rule,
+                arity,
+                f"rules[{op_name!r}]",
+                can_measure=can_measure,
+                can_reset=can_reset,
+            )
+    return normalized_rules
 
 
 ####################################################################################################
@@ -330,13 +345,11 @@ def _validate_rule_for_arity(
     can_measure: bool = False,
     can_reset: bool = False,
 ) -> None:
-    """Reject a NoiseRule whose channels are ambiguous / incompatible on ``num_qubits`` qubits.
+    """Reject a noise rule that does not fit gates on ``num_qubits`` qubits.
 
-    - The rule's ``after`` arity must equal ``num_qubits`` unless ``after`` is ``None`` (the trivial
-      default).  An explicitly-declared arity — even on an empty PauliChannel like
-      ``PauliChannel({}, num_qubits=3)`` — is honored so callers can flag user typos.
-    - ``readout_error`` is only meaningful if ``can_measure`` is True.
-    - ``reset_error`` is only meaningful if ``can_reset`` is True.
+    The ``after`` noise of the rule must act on ``num_qubits`` qubits, even if it is an empty
+    channel.  A rule may set ``readout_error`` only if ``can_measure``, and ``reset_error`` only if
+    ``can_reset``.
     """
     if rule.after is not None and rule.after.num_qubits != num_qubits:
         raise ValueError(
@@ -371,22 +384,13 @@ def _rule_with_immunity(
     *,
     immunize_gates: bool,
 ) -> NoiseRule | None:
-    """Return the ``NoiseRule`` to apply to ``op`` given ``immune_qubits``, or ``None`` to skip.
+    """The noise rule of one gate application on some immune qubits, or None for no noise.
 
-    Policy — ``op``'s qubits fall into three immunity states:
-
-    - **None immune**: apply ``rule`` unchanged.
-    - **All immune**: skip noise entirely (return ``None``); the op still appears in the output
-      circuit, but no ``after``, ``readout_error``, or ``reset_error`` is applied.
-    - **Mixed** (only possible for atomic ``k>=2`` ops the splitter cannot decompose further —
-      2-qubit Clifford pairs, ``MXX``/``MYY``/``MZZ``, and MPP/SPP Pauli products):
-        - ``immunize_gates=True`` (default): dead simple — drop everything (``after``,
-          ``readout_error``, ``reset_error``).  The gate touches an immune qubit, so no noise is
-          applied.
-        - ``immunize_gates=False``: only ``PauliChannel`` ``after``-noise supports proper
-          conditioning via ``PauliChannel.conditioned_on``.  Anything else (a ``stim.Circuit``
-          ``after``, ``readout_error``, or ``reset_error``) has no defined projection on the
-          identity-on-immune subspace and raises.
+    A gate application on no immune qubits keeps its rule, and one on only immune qubits gets no
+    noise.  On a mix of immune and other qubits, it gets no noise if ``immunize_gates`` is True.
+    Otherwise, its ``PauliChannel`` noise keeps only the Pauli strings that act as identity on
+    immune qubits (see ``PauliChannel.conditioned_on``).  Other noise cannot be restricted in this
+    way, and raises an error.
     """
     if not immune_qubits:
         return rule
@@ -394,12 +398,8 @@ def _rule_with_immunity(
     immune_flags = [q in immune_qubits for q in qubits]
     if not any(immune_flags):
         return rule
-    if all(immune_flags):
+    if all(immune_flags) or immunize_gates:
         return None
-    # Partial immunity: the atom touches both immune and non-immune qubits.
-    if immunize_gates:
-        return None  # dead simple: no noise on gates that touch immune qubits.
-    # immunize_gates=False: only PauliChannel `after` supports proper conditioning.
     if isinstance(rule.after, PauliChannel) and rule.after:
         immune_positions = [i for i, immune in enumerate(immune_flags) if immune]
         return NoiseRule(after=rule.after.conditioned_on(immune_positions))

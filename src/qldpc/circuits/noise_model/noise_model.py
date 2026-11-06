@@ -13,7 +13,7 @@ import dataclasses
 import functools
 import math
 import warnings
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 
 import stim
 
@@ -24,6 +24,7 @@ from ..common import (
     DEFAULT_IMMUNE_OP_TAG,
     DEFAULT_IMMUNE_QUBIT_TAG,
     StimCircuitLike,
+    _as_stim_circuit,
     _get_immune_qubits,
     _get_instructions,
     _new_instruction,
@@ -41,14 +42,11 @@ from ._operations import (
     MEASURE_AND_RESET_OPS,
     MEASURE_OR_RESET_OPS,
     NOISE,
-    canonical_rule_key,
     get_gate_aliases,
     involves_classical_bits,
-    known_gate_shape,
     op_type,
 )
 from .channels import (
-    _ABSOLUTE_ERROR_TOLERANCE,
     PauliChannel,
     PauliChannelSequence,
     _compose_idle_channels,
@@ -60,16 +58,14 @@ from .rules import (
     NoiseRule,
     _as_noise_rule,
     _normalize_clifford_nq_error,
+    _normalize_rules,
     _rule_with_immunity,
     _validate_custom_rule,
-    _validate_rule_for_arity,
 )
 from .scheduling import (
     ASAPScheduler,
     Schedule,
     Scheduler,
-    _as_stim_circuit,
-    _get_instruction_operations,
     _get_segments,
     _match_schedule,
     _Operation,
@@ -93,12 +89,7 @@ def as_noiseless_circuit(circuit: StimCircuitLike) -> StimCircuitLike:
         and DEFAULT_IMMUNE_OP_TAG in circuit[0].tag
     ):
         return circuit
-    # copy the instructions into a stim.Circuit for the REPEAT block.  Indexing works for any
-    # stim-wrapping circuit.
-    body = stim.Circuit()
-    for index in range(len(circuit)):
-        body.append(circuit[index])
-
+    body = _as_stim_circuit(circuit)
     block = stim.CircuitRepeatBlock(repeat_count=1, body=body, tag=DEFAULT_IMMUNE_OP_TAG)
     noiseless_circuit = type(circuit)()
     noiseless_circuit.append(block)
@@ -180,29 +171,9 @@ class NoiseModel:
         scheduler: Scheduler | Schedule | None = None,
     ) -> None:
         """Initializes a noise model with specified parameters."""
-        self.rules = rules
+        self.rules = None if rules is None else _normalize_rules(rules)
         self.rule_func = rule_func
         self.scheduler = ASAPScheduler() if scheduler is None else scheduler
-        if rules is not None:
-            normalized_rules: dict[str, NoiseRule] = {}
-            # canonicalize the rule keys, and check each rule whose key fixes its number of qubits.
-            # Rules for bare MPP, SPP, and SPP_DAG are checked when they are used.
-            for op_name, rule in rules.items():
-                canonical_name = canonical_rule_key(op_name)
-                if canonical_name in normalized_rules:
-                    raise ValueError(f"Duplicate noise rules after canonicalization: {op_name!r}")
-                normalized_rules[canonical_name] = rule
-                shape = known_gate_shape(canonical_name)
-                if shape is not None:
-                    arity, can_measure, can_reset = shape
-                    _validate_rule_for_arity(
-                        rule,
-                        arity,
-                        f"rules[{op_name!r}]",
-                        can_measure=can_measure,
-                        can_reset=can_reset,
-                    )
-            self.rules = normalized_rules
         for probability in (readout_error, reset_error):
             if probability is not None and not (0 <= probability <= 1):
                 raise ValueError(f"{probability=} is not between 0 and 1")
@@ -253,7 +224,8 @@ class NoiseModel:
             channel = quadratic_idle_rule.after
             if not isinstance(channel, PauliChannel) or channel.num_qubits != 1:
                 raise ValueError("`quadratic_idle_error` must be a one-qubit PauliChannel")
-            if math.fsum(channel.probabilities.values()) > 0.5 + _ABSOLUTE_ERROR_TOLERANCE:
+            # allow for rounding errors in probabilities that sum to 1/2
+            if math.fsum(channel.probabilities.values()) > 0.5 + 1e-9:
                 raise ValueError(
                     "`quadratic_idle_error` must have a total probability of at most 1/2"
                 )
@@ -382,12 +354,7 @@ class NoiseModel:
 
         # then the default rule for unitary Cliffords on this number of qubits
         if this_op_type in (CLIFFORD_1Q, CLIFFORD_2Q, CLIFFORD_PP):
-            if this_op_type == CLIFFORD_1Q:
-                num_qubits = 1
-            elif this_op_type == CLIFFORD_2Q:
-                num_qubits = 2
-            else:
-                num_qubits = product_arity
+            num_qubits = {CLIFFORD_1Q: 1, CLIFFORD_2Q: 2}.get(this_op_type, product_arity)
             if num_qubits in self.clifford_nq_error:
                 return self.clifford_nq_error[num_qubits]
 
@@ -561,11 +528,7 @@ class NoiseModel:
 
         # combine the Pauli channels into one
         if channels:
-            channel = (
-                channels[0]
-                if len(channels) == 1
-                else functools.reduce(_compose_idle_channels, channels)
-            )
+            channel = functools.reduce(_compose_idle_channels, channels)
             NoiseRule(after=channel).emit_after(noise, [0], context="idle qubits")
         return noise
 
@@ -604,7 +567,7 @@ class _NoisyCircuitBuilder:
 
         # the pending noise and its qubits, keyed by the order in which it was added, and the keys
         # of the pending noise on each qubit
-        self.pending_noise: dict[int, tuple[Iterable[int], stim.Circuit]] = {}
+        self.pending_noise: dict[int, tuple[Collection[int], stim.Circuit]] = {}
         self.pending_noise_keys_by_qubit: dict[int, set[int]] = collections.defaultdict(set)
         self.next_noise_key = 0
 
@@ -652,14 +615,11 @@ class _NoisyCircuitBuilder:
 
         # add noise to each gate, and append each other instruction after the pending noise on the
         # qubits that it depends on, which only an observable has.  Only gates end idle runs.
-        start = 0
-        for instruction in segment.instructions:
-            end = start + len(_get_instruction_operations(instruction))
-            operations = segment.operations[start:end]
+        for instruction, span in zip(segment.instructions, segment.spans):
+            operations = segment.operations[span]
             timing = None
             if self.has_idle_noise:
-                timing = list(zip(segment.moments[start:end], segment.takes_time[start:end]))
-            start = end
+                timing = list(zip(segment.moments[span], segment.takes_time[span]))
             if operations and operations[0].is_gate:
                 self.append_gate(instruction, operations, timing, output)
             else:
@@ -895,7 +855,7 @@ class _NoisyCircuitBuilder:
             self.idle_noise_by_qubit_and_num_moments[key] = with_remapped_qubits(noise, [qubit])
         self.add_pending_noise(self.idle_noise_by_qubit_and_num_moments[key], (qubit,))
 
-    def add_pending_noise(self, noise: stim.Circuit, qubits: Iterable[int]) -> None:
+    def add_pending_noise(self, noise: stim.Circuit, qubits: Collection[int]) -> None:
         """Add noise on some qubits to the pending noise."""
         if not noise:
             return
@@ -1001,7 +961,7 @@ class DepolarizingNoiseModel(NoiseModel):
             clifford_nq_error={size: p for size in range(1, max_gate_size + 1)},
             readout_error=p,
             reset_error=p,
-            idle_error=p if include_idling_error else False,
+            idle_error=p if include_idling_error else None,
             scheduler=scheduler,
         )
 

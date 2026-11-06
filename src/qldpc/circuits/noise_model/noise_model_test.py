@@ -85,15 +85,6 @@ def test_gate_errors() -> None:
 
     with pytest.raises(ValueError, match="between 0 and 1"):
         circuits.NoiseModel(readout_error=2)
-    with pytest.raises(ValueError, match="Duplicate noise rules"):
-        circuits.NoiseModel(rules={"CX": circuits.NoiseRule(), "cnot": circuits.NoiseRule()})
-    with pytest.raises(ValueError, match="Duplicate noise rules"):
-        circuits.NoiseModel(
-            rules={
-                "M": circuits.NoiseRule(readout_error=0.1),
-                "MZ": circuits.NoiseRule(readout_error=0.2),
-            }
-        )
     measurement_model = circuits.NoiseModel(rules={"M": circuits.NoiseRule(readout_error=0.1)})
     assert measurement_model.noisy_circuit(stim.Circuit("M 0\nMPP Z1")) == stim.Circuit(
         "M(0.1) 0\nMPP(0.1) Z1"

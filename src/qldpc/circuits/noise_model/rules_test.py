@@ -217,6 +217,20 @@ def test_normalize_clifford_nq_error() -> None:
         rules._normalize_clifford_nq_error({1: 1.5})
 
 
+def test_normalize_rules() -> None:
+    """Rule keys become canonical and must be distinct, and keys that fix a shape check it."""
+    rule = circuits.NoiseRule(readout_error=0.1)
+    product_rule = circuits.NoiseRule(after={"XXX": 0.1})
+    assert rules._normalize_rules({"mz": rule, "spp": product_rule}) == {
+        "M": rule,
+        "SPP": product_rule,
+    }
+    with pytest.raises(ValueError, match="Duplicate noise rules"):
+        rules._normalize_rules({"CX": circuits.NoiseRule(), "cnot": circuits.NoiseRule()})
+    with pytest.raises(ValueError, match=r"rules\['H'\]: `readout_error` is only valid"):
+        rules._normalize_rules({"H": rule})
+
+
 def test_rule_validation() -> None:
     """Rules are validated against the shape of the operations they apply to."""
     rule = circuits.NoiseRule(after={"X": 0.1})

@@ -8,7 +8,6 @@ import qldpc.circuits at import time without an import cycle.
 
 from __future__ import annotations
 
-import itertools
 from collections.abc import Sequence
 
 import stim
@@ -16,9 +15,6 @@ import stim
 from qldpc.circuits.noise_model.scheduling import (
     Scheduler,
     TickScheduler,
-    _get_instruction_operations,
-    _get_nodes,
-    _place_annotations,
     _Segment,
 )
 
@@ -38,26 +34,23 @@ def lay_out_with_ticks(circuit: stim.Circuit) -> tuple[stim.Circuit, Scheduler]:
 class _InsertTicksScheduler(TickScheduler):
     """A TickScheduler with the rules of the released insert_ticks=True (see lay_out_with_ticks)."""
 
-    def _get_moments(self, segment: _Segment, takes_time: Sequence[bool]) -> list[int]:
+    def _place_gates(
+        self, segment: _Segment, nodes: Sequence[int], takes_time: Sequence[bool]
+    ) -> dict[int, int]:
         # place each gate in the current moment, or in a new one after a TICK or where it acts on a
         # qubit that is already occupied
-        nodes = _get_nodes(segment.operations)
-        gate_moments: dict[int, int] = {}  # the moment of each node with a gate
+        gate_moments: dict[int, int] = {}
         moment = 0
         occupied: set[int] = set()  # the qubits of gates in the moment
         closed = False  # whether a TICK has ended the current moment
-        operations = iter(zip(nodes, segment.operations))
-        for instruction in segment.instructions:
+        for instruction, span in zip(segment.instructions, segment.spans):
             if instruction.name == "TICK":
                 closed = bool(gate_moments)
-            num_operations = len(_get_instruction_operations(instruction))
-            for node, operation in itertools.islice(operations, num_operations):
+            for node, operation in zip(nodes[span], segment.operations[span]):
                 if not operation.is_gate:
                     continue
                 if closed or not occupied.isdisjoint(operation.qubits):
                     moment, occupied, closed = moment + 1, set(), False
                 occupied.update(operation.qubits)
                 gate_moments[node] = moment
-
-        # annotations and noise channels join the moments of operations before them
-        return _place_annotations(segment.operations, nodes, gate_moments)
+        return gate_moments

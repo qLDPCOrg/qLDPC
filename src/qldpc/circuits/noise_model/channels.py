@@ -19,11 +19,6 @@ import stim
 
 from ..common import StimCircuitLike
 
-# Floating-point tolerance used for probability comparisons throughout this module.  Small enough to
-# catch real bugs, large enough to absorb the ~O(n * eps) drift that accumulates when summing or
-# renormalizing many probabilities.
-_ABSOLUTE_ERROR_TOLERANCE = 1e-9
-
 # the order of the probability arguments of Stim's PAULI_CHANNEL_1 and PAULI_CHANNEL_2 instructions
 _PAULI_CHANNEL_1_ORDER = ("X", "Y", "Z")
 _PAULI_CHANNEL_2_ORDER = tuple(a + b for a in "IXYZ" for b in "IXYZ" if (a, b) != ("I", "I"))
@@ -202,12 +197,9 @@ class PauliChannel(AbstractPauliChannel):
         """Instantiate a Pauli channel."""
         super().__init__(probabilities, num_qubits=num_qubits)
 
-        # Ensure the sum of all probabilities does not exceed 1.  Use math.fsum for a precise sum,
-        # and allow a small tolerance so a mathematically normalized input isn't rejected due to
-        # per-value rounding (e.g., ``[p_i / sum(p_i) for p_i in ...]`` can accumulate to
-        # ~1 + O(n * eps)).
+        # the probabilities must sum to at most 1, up to the rounding errors of normalized inputs
         total = math.fsum(self._probabilities.values())
-        if not (-1e-15 <= total <= 1 + 1e-15):
+        if total > 1 + 1e-15:
             raise ValueError(f"Sum of Pauli channel probabilities {total} is not in [0, 1]")
 
     @staticmethod
@@ -221,15 +213,10 @@ class PauliChannel(AbstractPauliChannel):
             raise ValueError(f"num_qubits={num_qubits} must be >= 1")
         if not (0 <= probability <= 1):
             raise ValueError(f"probability={probability} is not in [0, 1]")
-        num_terms = 4**num_qubits - 1
-        weight = probability / num_terms
-        identity = "I" * num_qubits
-        probs: dict[str, float] = {}
-        for tup in itertools.product("IXYZ", repeat=num_qubits):
-            string = "".join(tup)
-            if string != identity:
-                probs[string] = weight
-        return PauliChannel(probs)
+        term_probability = probability / (4**num_qubits - 1)
+        # the first Pauli string of the product is the identity
+        strings = itertools.islice(itertools.product("IXYZ", repeat=num_qubits), 1, None)
+        return PauliChannel({"".join(string): term_probability for string in strings})
 
     def conditioned_on(self, immune_qubits: Iterable[int]) -> PauliChannel:
         """Return the sub-channel of error mechanisms that act as identity on the given qubits.
@@ -470,8 +457,8 @@ def _pauli_channel_2_shortcut(args: list[float]) -> tuple[str, list[float]]:
     return "PAULI_CHANNEL_2", args
 
 
-def _is_uniform_depolarizing(args: list[float], *, atol: float = _ABSOLUTE_ERROR_TOLERANCE) -> bool:
-    """Return True if all ``args`` are equal (up to ``atol``) and non-zero.
+def _is_uniform_depolarizing(args: list[float]) -> bool:
+    """Return True if all ``args`` are nonzero and equal, up to rounding errors.
 
     Detects a ``PauliChannel.depolarizing(k, p)`` shape at emit time so it can be written as
     ``DEPOLARIZE{k}(p)`` instead of ``PAULI_CHANNEL_{k}(p/n, ..., p/n)``.
@@ -479,7 +466,7 @@ def _is_uniform_depolarizing(args: list[float], *, atol: float = _ABSOLUTE_ERROR
     return (
         bool(args)
         and args[0] > 0
-        and all(math.isclose(x, args[0], rel_tol=1e-12, abs_tol=min(atol, 1e-15)) for x in args[1:])
+        and all(math.isclose(x, args[0], rel_tol=1e-12, abs_tol=1e-15) for x in args[1:])
     )
 
 
@@ -511,8 +498,7 @@ def _repeated_idle_channel(
         )
 
     # compose the distribution over (I, X, Y, Z) by repeated squaring
-    probabilities = tuple(channel.probabilities.get(pauli, 0.0) for pauli in "XYZ")
-    single: tuple[float, ...] = (max(0.0, 1 - math.fsum(probabilities)), *probabilities)
+    single = _pauli_distribution(channel)
     result: tuple[float, ...] = (1.0, 0.0, 0.0, 0.0)
     while repetitions:
         if repetitions & 1:
@@ -553,10 +539,14 @@ def _compose_idle_channels(
                 event["IXYZ".index(pauli)] = probability
                 distribution = _compose_pauli_distributions(distribution, tuple(event))
         else:
-            probabilities = tuple(channel.probabilities.get(pauli, 0.0) for pauli in "XYZ")
-            single = (max(0.0, 1 - math.fsum(probabilities)), *probabilities)
-            distribution = _compose_pauli_distributions(distribution, single)
+            distribution = _compose_pauli_distributions(distribution, _pauli_distribution(channel))
     return PauliChannel(dict(zip("XYZ", distribution[1:], strict=True)))
+
+
+def _pauli_distribution(channel: PauliChannel) -> tuple[float, ...]:
+    """The probabilities of I, X, Y, and Z in a one-qubit Pauli channel."""
+    probabilities = tuple(channel.probabilities.get(pauli, 0.0) for pauli in "XYZ")
+    return (max(0.0, 1 - math.fsum(probabilities)), *probabilities)
 
 
 def _compose_pauli_distributions(
