@@ -40,7 +40,7 @@ def compilation_mode(
     """Run the compiled functions of the distance searches as plain Python, or compiled.
 
     In the plain Python mode, the compiled-on-request functions, and the always-compiled functions
-    that the basis family stages, the families of translates, and the coset-leader search define,
+    that the basis family stages, the automorphism families, and the coset-leader search define,
     run as Python, which coverage can trace.  The compiled mode compiles the compiled-on-request
     functions once per session, and restores plain Python afterwards.
     """

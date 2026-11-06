@@ -548,13 +548,13 @@ def test_a_search_through_the_costly_stages_finds_the_distance(
 
 @pytest.fixture
 def switch_before_any_layer(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Let searches consider translates before their first layer, however cheap it is."""
+    """Let searches consider automorphism families before their first layer, however cheap it is."""
     monkeypatch.setattr(bz, "MINIMUM_LAYER_WORK", 0)
 
 
 @pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
-def test_translated_searches_scan_every_layer_they_certify() -> None:
-    """A translated search that reaches the distance only in layer four, its last.
+def test_automorphism_family_searches_scan_every_layer_they_certify() -> None:
+    """A search with an automorphism family that reaches the distance only in layer four, its last.
 
     This [[72, 4, 8]] bivariate bicycle code comes from a search for codes like those of
     arXiv:2308.07915.  In its X sector, the lightest rows of the scanned set weigh ten, and the
@@ -573,7 +573,7 @@ def test_translated_searches_scan_every_layer_they_certify() -> None:
 
 
 @pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
-def test_translated_searches_find_exact_distances() -> None:
+def test_automorphism_family_searches_find_exact_distances() -> None:
     """Searches given automorphisms agree with brute force, alone or sharing witnesses.
 
     The searches use the translations of a multivariate bicycle code, the identity alone, which does
@@ -601,16 +601,16 @@ def test_translated_searches_find_exact_distances() -> None:
 
 
 @pytest.mark.usefixtures("force_information_sets")
-def test_translated_searches_scan_their_new_set_from_layer_two(
+def test_automorphism_family_searches_scan_their_new_set_from_layer_two(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A search that switches to translates before layer three scans the new set from layer two.
+    """A search that switches to an automorphism family before layer three rescans from layer two.
 
     This [16, 8, 4] quasi-cyclic code has the generator matrix ``[I | circ(1 + x + x^3 + x^4)]``,
     and shifting both blocks at once preserves it.  The search starts with one information set,
     the first block, which holds four ones of each word of weight four, so its first two layers
     miss them.  Before layer three it switches to a set with half of its columns in each block,
-    which holds two ones of every translate of these words.  A search that continued the new set
+    which holds two ones of every shift of these words.  A search that continued the new set
     from layer three would certify that no word is lighter than its best witness of weight five.
     """
     size, word = 8, [1, 1, 0, 1, 1, 0, 0, 0]
@@ -660,8 +660,8 @@ def test_searches_ask_for_automorphisms_only_before_costly_layers(
 
 
 @pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
-def test_translated_rows_can_reach_the_cutoff() -> None:
-    """The rows of a scanned set with translates can end a search at the cutoff.
+def test_rows_of_an_automorphism_family_can_reach_the_cutoff() -> None:
+    """The rows of a scanned set with images can end a search at the cutoff.
 
     In the Z sector of this [[36, 4, 4]] bivariate bicycle code, the rows of the first family weigh
     more than six, and a row of the scanned set weighs six.  With a cutoff of six, the search
