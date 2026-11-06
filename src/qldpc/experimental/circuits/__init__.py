@@ -8,6 +8,7 @@ settles.
 
 from . import benchmarking, transforms
 from .benchmarking import (
+    ConsumerCalibration,
     ConsumerProfile,
     ResidualWeightHistogram,
     estimate_downstream_fault_weight,
@@ -15,6 +16,7 @@ from .benchmarking import (
 )
 
 __all__ = [
+    "ConsumerCalibration",
     "ConsumerProfile",
     "ResidualWeightHistogram",
     "benchmarking",
