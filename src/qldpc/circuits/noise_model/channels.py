@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Pauli channels used to specify noise.
+"""Pauli channels used to specify noise, and their composition into idle noise.
 
 See :mod:`qldpc.circuits.noise_model` for attribution and license information.
 """
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import abc
 import copy
+import functools
 import itertools
 import math
 from collections.abc import Iterable, Mapping
@@ -261,6 +262,8 @@ class PauliChannel(AbstractPauliChannel):
                 for string, prob in result._probabilities.items()
                 if all(string[i] == "I" for i in immune_qubits)
             }
+            # the deep copy may hold the simple form of self, which no longer applies
+            result.__dict__.pop("_simple_form", None)
         return result
 
     @overload
@@ -324,33 +327,11 @@ class PauliChannel(AbstractPauliChannel):
         if not self.probabilities:
             return circuit
 
-        if simplify:
-            # restrict to the qubits addressed nontrivially by this PauliChannel
-            positions = sorted(
-                {i for string in self.probabilities for i, p in enumerate(string) if p != "I"}
-            )
-            target_qubits = [qubits[i] for i in positions]
-
-            # Single-qubit channel: PAULI_CHANNEL_1 / DEPOLARIZE1 / [XYZ]_ERROR
-            if len(positions) == 1:
-                probs_1q = {"X": 0.0, "Y": 0.0, "Z": 0.0}
-                for string, prob in self.probabilities.items():
-                    probs_1q[string[positions[0]]] = prob
-                args = [probs_1q[p] for p in _PAULI_CHANNEL_1_ORDER]
-                name, name_args = _pauli_channel_1_shortcut(args)
-                circuit.append(name, target_qubits, name_args, tag=tag)
-                return circuit
-
-            # Two-qubit channel: PAULI_CHANNEL_2 / DEPOLARIZE2
-            if len(positions) == 2:
-                pos0, pos1 = positions
-                probs_2q = {pair: 0.0 for pair in _PAULI_CHANNEL_2_ORDER}
-                for string, prob in self.probabilities.items():
-                    probs_2q[string[pos0] + string[pos1]] = prob
-                args = [probs_2q[p] for p in _PAULI_CHANNEL_2_ORDER]
-                name, name_args = _pauli_channel_2_shortcut(args)
-                circuit.append(name, target_qubits, name_args, tag=tag)
-                return circuit
+        # a channel that acts nontrivially on one or two qubits becomes one instruction on them
+        if simplify and self._simple_form is not None:
+            name, positions, args = self._simple_form
+            circuit.append(name, [qubits[i] for i in positions], args, tag=tag)
+            return circuit
 
         # Emit a CORRELATED_ERROR / ELSE_CORRELATED_ERROR chain
         remaining = 1.0
@@ -372,6 +353,43 @@ class PauliChannel(AbstractPauliChannel):
                 circuit.append("ELSE_CORRELATED_ERROR", pauli_targets, [prob / remaining], tag=tag)
             remaining -= prob
         return circuit
+
+    @functools.cached_property
+    def _simple_form(self) -> tuple[str, tuple[int, ...], tuple[float, ...]] | None:
+        """The simplest Stim instruction of this channel, if it acts on one or two qubits.
+
+        Noise models emit the same channel after many gates, so the instruction is found once.
+
+        Returns:
+            The name of the instruction, the positions of the qubits of this channel that it acts
+            on, and its arguments, or None if this channel acts nontrivially on no qubits or on
+            more than two.
+        """
+        # the positions of the qubits that the channel acts on nontrivially
+        positions = tuple(
+            sorted({i for string in self.probabilities for i, p in enumerate(string) if p != "I"})
+        )
+
+        # Single-qubit channel: PAULI_CHANNEL_1 / DEPOLARIZE1 / [XYZ]_ERROR
+        if len(positions) == 1:
+            probs_1q = {"X": 0.0, "Y": 0.0, "Z": 0.0}
+            for string, prob in self.probabilities.items():
+                probs_1q[string[positions[0]]] = prob
+            args = [probs_1q[p] for p in _PAULI_CHANNEL_1_ORDER]
+            name, name_args = _pauli_channel_1_shortcut(args)
+            return name, positions, tuple(name_args)
+
+        # Two-qubit channel: PAULI_CHANNEL_2 / DEPOLARIZE2
+        if len(positions) == 2:
+            pos0, pos1 = positions
+            probs_2q = {pair: 0.0 for pair in _PAULI_CHANNEL_2_ORDER}
+            for string, prob in self.probabilities.items():
+                probs_2q[string[pos0] + string[pos1]] = prob
+            args = [probs_2q[p] for p in _PAULI_CHANNEL_2_ORDER]
+            name, name_args = _pauli_channel_2_shortcut(args)
+            return name, positions, tuple(name_args)
+
+        return None
 
 
 class PauliChannelSequence(AbstractPauliChannel):
@@ -472,3 +490,86 @@ def _pauli_string_to_targets(string: str, qubit_targets: list[int]) -> list[stim
         for pauli, qubit in zip(string, qubit_targets, strict=True)
         if pauli != "I"
     ]
+
+
+####################################################################################################
+# composing one-qubit Pauli channels, for idle noise
+
+
+def _repeated_idle_channel(
+    channel: PauliChannel | PauliChannelSequence, repetitions: int
+) -> PauliChannel | PauliChannelSequence:
+    """Compose ``repetitions`` independent applications of a one-qubit Pauli channel."""
+    if isinstance(channel, PauliChannelSequence):
+        # an independent Pauli event that fires with probability p in each of n repetitions has a
+        # net effect with probability (1 - (1 - 2p)^n) / 2
+        return PauliChannelSequence(
+            {
+                pauli: (1 - (1 - 2 * probability) ** repetitions) / 2
+                for pauli, probability in channel.probabilities.items()
+            }
+        )
+
+    # compose the distribution over (I, X, Y, Z) by repeated squaring
+    probabilities = tuple(channel.probabilities.get(pauli, 0.0) for pauli in "XYZ")
+    single: tuple[float, ...] = (max(0.0, 1 - math.fsum(probabilities)), *probabilities)
+    result: tuple[float, ...] = (1.0, 0.0, 0.0, 0.0)
+    while repetitions:
+        if repetitions & 1:
+            result = _compose_pauli_distributions(result, single)
+        repetitions >>= 1
+        if repetitions:
+            single = _compose_pauli_distributions(single, single)
+    return PauliChannel(dict(zip("XYZ", result[1:], strict=True)))
+
+
+def _quadratic_idle_channel(channel: PauliChannel, num_moments: int) -> PauliChannel:
+    """The error of a run of consecutive idle moments, given the quadratic idle error of one.
+
+    If ``channel`` applies Paulis with total probability ``p``, the result applies the same Paulis
+    in the same proportions with total probability ``(1 - (1 - 2 * p)**(num_moments**2)) / 2``.
+    This is the Pauli twirl of a rotation about a fixed axis by an angle that grows linearly over
+    the run, at a Gaussian random rate whose spread is set by ``p``.
+    """
+    total = math.fsum(channel.probabilities.values())
+    # compute (1 - 2 * total)**(num_moments**2) - 1 to full relative precision
+    decay = math.expm1(num_moments**2 * math.log1p(-2 * total)) if total < 0.5 else -1.0
+    scale = -decay / (2 * total)
+    return PauliChannel(
+        {pauli: probability * scale for pauli, probability in channel.probabilities.items()}
+    )
+
+
+def _compose_idle_channels(
+    first: PauliChannel | PauliChannelSequence, second: PauliChannel | PauliChannelSequence
+) -> PauliChannel:
+    """The one-qubit Pauli channel that applies independent errors from two one-qubit channels."""
+    distribution: tuple[float, ...] = (1.0, 0.0, 0.0, 0.0)
+    for channel in (first, second):
+        if isinstance(channel, PauliChannelSequence):
+            # a sequence of independent Pauli events, each of which fires with its own probability
+            for pauli, probability in channel.probabilities.items():
+                event = [1 - probability, 0.0, 0.0, 0.0]
+                event["IXYZ".index(pauli)] = probability
+                distribution = _compose_pauli_distributions(distribution, tuple(event))
+        else:
+            probabilities = tuple(channel.probabilities.get(pauli, 0.0) for pauli in "XYZ")
+            single = (max(0.0, 1 - math.fsum(probabilities)), *probabilities)
+            distribution = _compose_pauli_distributions(distribution, single)
+    return PauliChannel(dict(zip("XYZ", distribution[1:], strict=True)))
+
+
+def _compose_pauli_distributions(
+    left: tuple[float, ...], right: tuple[float, ...]
+) -> tuple[float, ...]:
+    """Distribution of the product of independent Paulis, indexed as (I, X, Y, Z).
+
+    Up to phase, Paulis multiply by XOR-ing their indices: e.g. X * Z ~ (1 ^ 3) = 2 ~ Y.  The result
+    is renormalized to prevent rounding errors from compounding over repeated compositions.
+    """
+    distribution = [
+        math.fsum(left[index] * right[index ^ outcome] for index in range(4))
+        for outcome in range(4)
+    ]
+    total = math.fsum(distribution)
+    return tuple(probability / total for probability in distribution)

@@ -21,7 +21,11 @@ def test_op_type() -> None:
     assert _operations.op_type("DETECTOR") == _operations.ANNOTATION
     assert _operations.op_type("X_ERROR") == _operations.NOISE
     assert _operations.op_type("NOT_A_GATE") == _operations.UNSUPPORTED
-    assert {"M", "R", "MR"} <= _operations.COLLAPSING_OPS and "H" not in _operations.COLLAPSING_OPS
+    assert {
+        "M",
+        "R",
+        "MR",
+    } <= _operations.MEASURE_OR_RESET_OPS and "H" not in _operations.MEASURE_OR_RESET_OPS
     assert {"M", "MZ", "MPP", "MXX"} <= _operations.JUST_MEASURE_OPS
 
 

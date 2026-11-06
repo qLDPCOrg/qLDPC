@@ -7,13 +7,9 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
-from ._binary import (
-    count_trailing_zeros,
-    inplace_rowsum,
-    pack_bits,
-    riffle,
-    symplectic_weight,
-)
+from qldpc._binary import count_trailing_zeros, pack_bits
+
+from ._binary import get_eligible_rows, inplace_rowsum, riffle, symplectic_weight
 
 ####################################################################################################
 # exhaustive enumeration
@@ -57,10 +53,9 @@ def get_distance_quantum_brute_force(
     int_stabilizers = pack_bits(np.asarray(stabilizers, dtype=np.uint8))
     num_stabilizers = len(int_stabilizers)
 
-    # Number of generators to include in the operational array.  Most calculations will then be
-    # vectorized over ``2**block_size`` values.  Clamp at 0: when the packed word-count per row
-    # exceeds ``block_size + 1`` the first term goes negative, which would make a negative slice and
-    # build an uncapped ``2**(S-k)`` array, defeating the block_size cap.
+    # Choose how many generators to vectorize over, so that most calculations act on at most
+    # ``2**block_size`` values.  Rows of more packed words allow fewer generators, and never fewer
+    # than zero.
     num_vectorized_ops = max(
         0,
         min(
@@ -86,13 +81,11 @@ def get_distance_quantum_brute_force(
     # Everything below will run much faster if we use Fortran-style ordering
     arrayf = np.asarray(array, order="F", dtype=np.uint64)
 
-    # out is the uint64 buffer for the in-loop weight_func calls: passing out=out keeps
-    # np.bitwise_count's uint8 result cast to uint64, avoiding the weight-reduction overflow for
-    # codes with >= 256 columns (the pre-loop call below casts explicitly for the same reason).
+    # np.bitwise_count returns uint8, whose row sums would overflow at 256 or more columns.  The
+    # loop below therefore writes the weights into this uint64 buffer.
     out = np.empty_like(arrayf)
 
-    # Min weight of the block containing logical ops.  Cast to uint64 because np.bitwise_count
-    # returns uint8 without ``out=``, which would overflow the reduction below for >= 256 columns.
+    # Min weight of the block containing logical ops, with weights cast to uint64 as above.
     weights = np.asarray(weight_func(arrayf[2**num_stabilizers :]), dtype=np.uint64)
     min_weight = inplace_rowsum(weights).min(initial=num_bits)
     if min_weight <= cutoff:
@@ -121,3 +114,28 @@ def get_distance_quantum_brute_force(
                 return int(min_weight)
 
     return int(min_weight)
+
+
+def get_nested_distance_brute_force(
+    basis: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8],
+    *,
+    cutoff: int,
+    block_size: int,
+    homogeneous: bool,
+) -> int:
+    """Find the minimum weight of an eligible word of a nested-code basis by exhaustive enumeration.
+
+    The rows of ``basis`` are independent, and ``labels`` are its quotient labels (see
+    ``get_nested_code_basis``).  The rows marked by ``get_eligible_rows`` are the logical rows of
+    ``get_distance_quantum_brute_force``, and the others are its stabilizers.  The other arguments
+    and the result are those of ``get_distance_quantum_brute_force``.
+    """
+    eligible = get_eligible_rows(labels)
+    return get_distance_quantum_brute_force(
+        basis[eligible],
+        basis[~eligible],
+        cutoff=cutoff,
+        block_size=block_size,
+        homogeneous=homogeneous,
+    )

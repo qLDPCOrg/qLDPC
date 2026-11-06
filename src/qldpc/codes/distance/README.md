@@ -21,7 +21,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 - **Certificate** (`Certificate`): a lower bound on the weight of the words that a search has not yet visited, which tells the search when it can stop.
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer.
   Counting scans in `_counting/scan.py`, and the distance search in `_brouwer_zimmermann.py`.
-  Both scans and `_bounded_weight_search.py` step through a layer with `advance_support` in `_information_sets.py`.
+  Both scans and `_coset_leader_search.py` step through a layer with `advance_support` in `_information_sets.py`.
 
 ## Where to look
 
@@ -30,13 +30,15 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | A distance method, or the validation of method and backend names | `core.py`, and where `logical_counts.py`, `_counting/scan.py`, and `get_distance_exact` in `src/qldpc/codes/common.py` dispatch on the method name |
 | The Brouwer–Zimmermann (BZ) distance search | `_brouwer_zimmermann.py` |
 | How basis families and their certificates are built | `_information_sets.py` |
+| Information sets with bounded column coverage, by matroid partitioning | `_matroid_partition.py` |
 | Exhaustive enumeration, for small codes, fallbacks, and the `brute_force` method | `_brute_force.py` |
-| Minimum-weight queries for syndrome classes of Pauli errors, used only by `src/qldpc/circuits/certification/` | `_bounded_weight_search.py` |
+| Minimum weights of syndrome classes of Pauli errors (coset-leader weights), with two classical searches for the CSS weight on CSS states, used by `src/qldpc/circuits/certification/` | `_coset_leader_search.py` |
 | The counter, its deformed counters, or `compile_search_setup` | `logical_counts.py` |
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
 | The MacWilliams counting method | `_counting/macwilliams.py` |
-| Binary algebra, bit packing, or bit counts | `_binary.py` |
+| Binary input checks, nested bases, or packed weights | `_binary.py` |
+| Bit packing, bit counts, or row reduction over GF(2), which other subpackages share | `src/qldpc/_binary.py` |
 | How numba code is compiled or cached | `src/qldpc/_compilation.py` |
 
 ## How the modules depend on each other
@@ -44,11 +46,14 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 From the top:
 
 1. `core.py` and `logical_counts.py`, the public interfaces.
-2. `_brouwer_zimmermann.py`, `_brute_force.py`, `_bounded_weight_search.py`, and the `_counting` package, the searches.
+2. `_brouwer_zimmermann.py`, `_brute_force.py`, `_coset_leader_search.py`, and the `_counting` package, the searches.
 3. `_information_sets.py`, the basis families that the searches share.
-4. `_binary.py`, the foundation.
+4. `_matroid_partition.py`, which `_information_sets.py` uses to build some of those families.
+5. `_binary.py`, the foundation.
 
-A module imports only modules of its own level or below, except that `_counting/scan.py` takes `DistanceMethod` from `core.py` for an annotation.
+A module imports only modules of its own level or below.
+Modules of every level may also import `src/qldpc/_binary.py`, the bit-packed linear algebra over GF(2) that other subpackages share.
+`src/qldpc/codes/common.py` imports this package, so `logical_counts.py` imports the code classes of `codes.common` and `codes.quantum` inside the functions that use them.
 Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py`, modules in `src/qldpc/circuits/certification/`, and the deprecation registry in `src/qldpc/_deprecations/core.py`, use private names of this package, so grep `src/qldpc` for a private name before you move or rename it.
 
 ## Compiled code

@@ -8,16 +8,16 @@ It is written for contributors who need to understand, debug, or modify the BZ c
 It is organized as follows:
 
 - [Section 2](#2-the-brouwer-zimmermann-algorithm) explains the BZ algorithm as published, including its adaptation to quantum codes.
-- [Section 3](#3-extensions-and-optimizations) explains what qLDPC adds to the published algorithm: extensions that strengthen the lower certificate or improve the upper bound, and optimizations that make the search cheaper to run.
+- [Section 3](#3-extensions-and-optimizations) explains what qLDPC uses beyond the algorithm of Section 2, and where each part comes from: extensions that strengthen the lower certificate or improve the upper bound, and optimizations that make the search cheaper to run.
 - [Section 4](#4-guide-to-the-source-code) is a guide to the source code: how the modules are organized, how a computation flows through them, which code names correspond to the concepts of [Section 2](#2-the-brouwer-zimmermann-algorithm) and [Section 3](#3-extensions-and-optimizations), and which behavior spans several files.
 - [Section 5](#5-correctness-requirements) summarizes the correctness requirements that apply when changing the implementation.
 
-Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations) have been carefully reviewed to help human readers understand the BZ algorithm and its implementation in qLDPC at a high level.
+Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations) are intended to help readers understand the BZ algorithm and its implementation in qLDPC at a high level.
 Sections [4](#4-guide-to-the-source-code) and [5](#5-correctness-requirements) are highly technical summaries written to help AI agents navigate the BZ implementation in qLDPC.
 
 ## 2. The Brouwer-Zimmermann algorithm
 
-This section describes BZ as presented in [arXiv:1603.06757](https://arxiv.org/abs/1603.06757) and [arXiv:2408.10743](https://arxiv.org/abs/2408.10743).
+This section describes BZ as presented in [arXiv:1603.06757](https://arxiv.org/abs/1603.06757) and [arXiv:2408.10743](https://arxiv.org/abs/2408.10743), and it also describes the certificate within a layer, from Grassl's chapter and from Lisoněk and Trummer (see [References](#references)).
 
 ### 2.1 The problem
 
@@ -157,9 +157,25 @@ The search always terminates, because after `t = r` every nonzero word has been 
 The result is then the exact distance.
 Algorithm 1 of [arXiv:1603.06757](https://arxiv.org/abs/1603.06757v2) gives this loop and this certificate for disjoint and rank-deficient blocks.
 
+The certificate can also advance within a layer.
+Suppose that the first `j` search bases have been searched through coefficient weight `t`, and the others through `t-1`.
+An unexamined eligible word then has coefficient weight at least `t+1` in each of the first `j` bases, and at least `t` in the others, so
+
+$$
+\operatorname{wt}(v) \ge \sum_{i \le j} b_i(t) + \sum_{i > j} b_i(t-1) =: L(t, j).
+$$
+
+`L(t, 0) = L(t-1)` and `L(t, m) = L(t)`.
+Completing layer `t` in search basis `j` is step `(t, j)`, and the steps run in the order `(1, 1), ..., (1, m), (2, 1), ...`.
+When a layer starts, qLDPC finds the fewest leading bases whose completion of the layer makes `L(t, j) ≥ U`, and it searches only those bases in that layer.
+This can save most of the last layer, which often dominates the cost.
+Grassl notes this improvement in footnote 2 of his chapter, on page 295 of *Discovering Mathematics with Magma*, and Magma uses it.
+Equation (5) of Lisoněk and Trummer gives the same certificate for these disjoint blocks.
+
 The cost of this loop is measured in **candidate/set evaluations**.
 One candidate/set evaluation is the examination of one selection of rows in one basis.
 Searching the `m` search bases through coefficient weight `t` therefore costs `m` times the number of selections of at most `t` rows, which is `m * sum_{w=1}^{t} binom(r, w)`.
+Stopping after the first `j` bases of layer `t` costs `m * sum_{w=1}^{t-1} binom(r, w) + j * binom(r, t)`.
 
 ### 2.6 Excluding stabilizers
 
@@ -198,12 +214,13 @@ Because `T` is linear and injective, it maps the spaces `S ⊆ V` to spaces `T(S
 
 ## 3. Extensions and optimizations
 
-qLDPC adds extensions and optimizations to the published BZ algorithm.
+qLDPC uses extensions and optimizations beyond the algorithm of [Section 2](#2-the-brouwer-zimmermann-algorithm).
+Several of them are published, as the sections below say; the others are choices of this implementation.
 Extensions strengthen the lower certificate or the upper bound, while optimizations make the search cheaper to run.
 
 The extensions are:
 
-- [Section 3.1](#31-overlapping-search-bases) strengthens the lower certificate by allowing for search bases with overlapping blocks.
+- [Section 3.1](#31-overlapping-search-bases) strengthens the lower certificate by allowing for search bases with overlapping blocks, chosen heuristically or by matroid partitioning, and certified by coverage or by linear programming.
 - [Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple) strengthens the lower certificate by rounding it up when the weight of every eligible word is a multiple of some integer.
 - [Section 3.3](#33-sharing-witnesses-between-css-sectors) tightens the upper bound by sharing witnesses between the two sectors of a CSS code.
 
@@ -248,7 +265,7 @@ For `m` blocks that are information sets, this yields a certificate `L(t)` of ab
 Let `C` be the **maximum coverage** of an overlapping family, which is the largest number of blocks `B_i` that contain any single column index.
 Suppose that each search basis of the family has been searched through coefficient weight `t`, and let `v` be an eligible word that was not examined in any of them.
 As in [Section 2.5](#25-the-stopping-certificate), `wt(v|_{B_i}) ≥ b_i(t)` for every `i`.
-Each nonzero coordinate `j` of `v` is counted in `wt(v|_{B_i})` for every block `B_i` that contains `j`, and there are at most `C` such blocks.
+Each nonzero coordinate `c` of `v` is counted in `wt(v|_{B_i})` for every block `B_i` that contains `c`, and there are at most `C` such blocks.
 Summing over blocks therefore gives
 
 $$
@@ -270,9 +287,13 @@ $$
 
 A disjoint family is the special case `C = 1`, which recovers [Section 2.5](#25-the-stopping-certificate).
 The formula holds whether or not each block is an information set, through the terms `b_i(t)`.
+Within a layer, the same argument divides the sum of [Section 2.5](#25-the-stopping-certificate) that defines `L(t, j)` by `C`.
 
-[arXiv:1603.06757](https://arxiv.org/abs/1603.06757v2) mentions in its Section 2 that overlapping information sets require a different formula for the certificate, citing Grassl, but does not give one.
-The coverage-divided certificate above is derived for qLDPC.
+Overlapping information sets are part of the published algorithm.
+Grassl's chapter (page 291 and Algorithm 2.5, see [References](#references)) credits Zimmermann with a certificate for an ordered list of blocks that are information sets, `sum_i max(0, t+1 - o_i)`, where `o_i` is the number of columns of the `i`-th block that also lie in an earlier block; Grassl calls `r - o_i` the relative rank of the block.
+Proposition 5 of Lisoněk and Trummer gives the coverage-divided certificate above when every block has the same bound `b_i(t) = t+1`, and its proof covers different bounds, which qLDPC uses for rank-deficient blocks and for steps within a layer.
+Neither Zimmermann's certificate nor the coverage-divided one dominates the other, and the linear program below dominates both.
+[arXiv:1603.06757](https://arxiv.org/abs/1603.06757v2) mentions the overlapping case in its Section 2, citing Grassl, without giving a formula.
 
 #### A small example
 
@@ -284,11 +305,38 @@ After all three search bases have been searched through coefficient weight `t = 
 This exceeds the distance, which is allowed because `L(t)` is a statement only about words that have not been examined.
 Every row has weight two, so `U = 2 ≤ L(1)`, and the search stops with distance two.
 
+#### A certificate from linear programming
+
+The coverage-divided certificate treats every column as if it lay in `C` blocks, so it is weak when coverage is uneven.
+An unexamined eligible word `v` satisfies `wt(v|_{B_i}) ≥ b_i` for every block, where `b_i` is `b_i(t)` after layer `t`, or the mix of `b_i(t)` and `b_i(t-1)` of [Section 2.5](#25-the-stopping-certificate) within a layer.
+Relaxing the coordinates of `v` to `0 ≤ x_c ≤ 1` gives the linear program
+
+$$
+\text{minimize} \sum_c x_c \quad \text{subject to} \quad \sum_{c \in B_i} x_c \ge b_i \text{ for each } i, \quad 0 \le x_c \le 1,
+$$
+
+whose optimum is a lower bound on `wt(v)`.
+By weak duality, every `y ≥ 0` gives the bound
+
+$$
+\operatorname{wt}(v) \ge \sum_i b_i y_i - \sum_c \max\Big(0, \sum_{i : c \in B_i} y_i - 1\Big).
+$$
+
+The coverage-divided certificate is the value of `y_i = 1/C`, and Zimmermann's certificate is at most the value of `y_i = 1` on the blocks that contribute to it, so the optimum is at least both, and it can be larger.
+For example, take the columns `e1, e2, e3, e1+e2+e3, e1, e2, e3`, the four 3-subsets of the first four columns, and the last three columns as blocks, with `b_i = 2`: the coverage-divided certificate and Zimmermann's certificate, in every order of the blocks, are four, and the linear program gives `ceil(14/3) = 5`.
+
+qLDPC solves the linear program with `scipy.optimize.linprog`, and takes as its bound the ceiling of the dual value of the solver's `y` in exact rational arithmetic, so that rounding in the solver can only weaken the bound.
+For disjoint blocks, the linear program separates by block and gives the certificate of [Section 2.5](#25-the-stopping-certificate), so only overlapping families use it.
+Because each linear program takes milliseconds, only searches whose estimated work reaches `LP_MINIMUM_WORK` use it.
+To decide how many bases of a layer to search, a search solves a linear program only when the coverage-divided certificate falls short of `U` and a feasible point of the linear program shows that its optimum could reach `U`.
+It also solves one at the end of each layer, to update its lower certificate.
+
 ### 3.2 Rounding the certificate to a proven weight multiple
 
 Suppose that every eligible word has a weight that is a multiple of an integer `D`.
 An unexamined eligible word then has a weight that is at least `L(t)` and a multiple of `D`, so it has a weight of at least `D * ceil(L(t)/D)`, the smallest multiple of `D` that is at least `L(t)`.
 The certificate can therefore be rounded up to that value.
+Grassl's chapter notes this rounding on page 299, and Magma uses it for even binary and quaternary codes, doubly even binary codes, and ternary codes whose weights are all multiples of three.
 
 In qLDPC, `D` comes from two sources:
 
@@ -393,16 +441,16 @@ A candidate whose weight is at least `U` cannot lower `U`, so its label is not e
 ### 3.6 Exhaustive enumeration as a fallback
 
 For small or low-dimensional problems, the setup cost of BZ exceeds the cost of enumerating every eligible word.
-Neither [arXiv:1603.06757](https://arxiv.org/abs/1603.06757v2) nor [arXiv:2408.10743](https://arxiv.org/abs/2408.10743v2) describes switching to exhaustive enumeration, so it is a qLDPC choice.
+Algorithm 2.11 of Grassl's chapter (page 300) makes a similar choice: it compares the work estimate of BZ with the number of codewords of the code or of its dual, and computes the weight distribution when that is cheaper.
 With `q = dim(V/S)` as in [Section 3.4](#34-quotient-labels-for-the-stabilizer-test), the number of eligible words is `(2^q - 1) * 2^(r-q)`.
 
 The estimated cost of BZ is a work estimate in candidate/set evaluations.
-Let `m` be the number of search bases, and let `t*` be the smallest layer after which the certificate reaches `U`.
+Let `m` be the number of search bases, and let `(t*, j*)` be the first step, in the order of [Section 2.5](#25-the-stopping-certificate), after which the certificate reaches `U`: the first `j*` bases have completed layer `t*`.
 The certificate is the one of [Section 3.1](#31-overlapping-search-bases), rounded as in [Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple), for the ranks and maximum coverage of the family of search bases under consideration.
 The estimate is
 
 $$
-W = m\sum_{w=1}^{t_*} \binom{r}{w}.
+W = m\sum_{w=1}^{t_* - 1} \binom{r}{w} + j_* \binom{r}{t_*}.
 $$
 
 The estimate is pessimistic, because it assumes that no lighter witness is found before the certificate reaches `U`.
@@ -448,7 +496,7 @@ The counts cover only enumeration; building and packing the search bases costs e
 ## 4. Guide to the source code
 
 **Audience note:** This section is a highly technical summary written to help AI agents navigate the BZ implementation in qLDPC.
-For a carefully reviewed, high-level explanation intended for human readers, see Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations).
+For a high-level explanation, see Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations).
 
 This section is a guide to the source files in this directory.
 It connects the concepts of Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations) to modules, identifiers, and behavior that spans files.
@@ -462,24 +510,26 @@ The rest of this section describes how the searches use those modules.
 [`__init__.py`](__init__.py) exports names from [core.py](core.py) and [logical_counts.py](logical_counts.py).
 [logical_counts.py](logical_counts.py) counts the logical operators of a given weight exactly.
 It builds its families and certificates with the same stages of [_information_sets.py](_information_sets.py) as the distance search, under the constraint in [Section 5](#5-correctness-requirements).
-It runs the stages in `_prepare_scan` of [_counting/scan.py](_counting/scan.py), and its distance search starts from the disjoint basis families that it keeps for counting.
+It runs the stages in `_select_basis_family` and `count_words` of [_counting/scan.py](_counting/scan.py), and its distance search starts from the disjoint basis families that it keeps for counting.
 The set-up functions of both searches can be compiled on request, through [_compilation.py](../../_compilation.py).
 The code that only counting uses is in the `_counting` package.
 The family policy lives only in [_information_sets.py](_information_sets.py), including the minimum work and the fixed-seed generator that `get_overlapping_family_policy` gives every caller of the overlapping stage, so a change to it applies to both consumers.
 [core.py](core.py) calls [_brouwer_zimmermann.py](_brouwer_zimmermann.py) and [_brute_force.py](_brute_force.py), and [_brouwer_zimmermann.py](_brouwer_zimmermann.py) calls [_brute_force.py](_brute_force.py) for its exhaustive routes.
-All three modules, and [_information_sets.py](_information_sets.py), use [_binary.py](_binary.py).
+All three modules use [_binary.py](_binary.py), and they and [_information_sets.py](_information_sets.py) use the bit-packed linear algebra over GF(2) in [qldpc/_binary.py](../../_binary.py).
 Every module with compiled functions uses [_compilation.py](../../_compilation.py).
-`get_distance_css_brouwer_zimmermann` builds an adapted basis ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)) for each nontrivial sector, then passes the resulting problems to `get_distance_brouwer_zimmermann_many`.
+`_get_distance_css_brouwer_zimmermann` of [core.py](core.py) builds an adapted basis ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)) for each nontrivial sector, then passes the resulting problems to `get_distance_brouwer_zimmermann_many`.
 
-`PauliCosetSearch` in [_bounded_weight_search.py](_bounded_weight_search.py), which the fault-propagation certifier in `qldpc.circuits.certification` uses, applies the same search to a coset `e + V` instead of `V`.
+`CosetLeaderSearch` in [_coset_leader_search.py](_coset_leader_search.py), which the fault-propagation certifier in `qldpc.circuits.certification` uses, applies the same search to a coset `e + V` instead of `V`.
 There a layer adds `w` rows to an **offset**, a word of the coset that is zero on the pivot columns ([Section 2.3](#23-systematic-bases-and-information-sets)), so layer zero is the offset itself.
 The certificate applies unchanged, except that it takes no weight divisor ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)), because the words of a coset need not share the divisibility of `V`.
+A query stops at the first step whose certificate exceeds its threshold, and it skips each rank-deficient search basis whose deficiency keeps it out of that certificate.
+For the CSS weight `max(|x|, |z|)` on a CSS state, whose stabilizer group is generated by stabilizers with no Z part and stabilizers with no X part, `CosetLeaderSearch` instead runs this search on two classical codes, spanned by the X parts of the first kind and by the Z parts of the second, with words weighed by their Hamming weight.
 
 ### 4.2 Flow and exit points
 
 A public entry point validates inputs and chooses a route.
 For the BZ route, `get_distance_brouwer_zimmermann_many` prepares each problem and coordinates any searches that remain.
-Preparation either returns a result immediately or produces a `_BrouwerZimmermannSearch` whose `advance` method searches one coefficient layer.
+Preparation either returns a result immediately or produces a `_BrouwerZimmermannSearch` whose `advance` method searches one coefficient layer, or only the leading search bases of a layer whose completion of it certifies `U`.
 For a joint CSS search, the coordinator advances the prepared searches in round-robin order and shares the best witness weight.
 
 The tables below index the public routes, the preparation exits, and the subsequent search.
@@ -487,29 +537,28 @@ An integer returned by preparation can incorporate a witness from another sector
 
 | Public route in [core.py](core.py) | Outcome |
 | --- | --- |
-| Trivial input | Handles an empty classical code, a quantum problem with no logical rows, or `V = S` using the entry point's return convention |
-| Direct exhaustive shortcut in `get_distance_quantum` with `method="brouwer_zimmermann"` | Runs exhaustive enumeration if `exhaustive_is_cheaper` approves the number of supplied rows and those rows are linearly independent |
+| Trivial input | Returns `n+1`, capped at `max_weight+1`, for an empty classical code, a quantum problem with no logical rows, or `V = S` |
 | `method="brute_force"` | Runs exhaustive enumeration over an independent basis, adapted to `S ⊆ V` for a quantum problem |
 
 `_prepare_brouwer_zimmermann_search` considers the following exits in order.
-The disjoint family, its pruning, and any overlapping replacement come from the stages of [_information_sets.py](_information_sets.py); the exits between those stages belong to the distance search.
+The disjoint family, its pruning, and any overlapping or partitioned replacement come from the stages of [_information_sets.py](_information_sets.py); the exits between those stages belong to the distance search.
 
 | Preparation stage | Outcome |
 | --- | --- |
 | Initial row witness | Returns if `U ≤ cutoff`, where `U` includes the lightest eligible row and any supplied bound (from another sector or a weight limit) |
-| Exhaustive by size | Runs exhaustive enumeration if `exhaustive_is_cheaper(dimension, length)` approves |
+| Exhaustive by size | Runs exhaustive enumeration if `enumeration_is_cheaper_than_setup(dimension, length)` approves |
 | Rows of the disjoint family | Returns if checking the rows of every search basis gives `U ≤ cutoff` |
 | Certificate of the disjoint family | Returns if `L(1) ≥ U` |
-| Rows of a replacement overlapping family, if selected | Returns if `U ≤ cutoff` |
-| Certificate of the replacement family | Returns if `L(1) ≥ U` |
-| Exhaustive by work | Runs exhaustive enumeration if `_brute_force_is_cheaper` finds that the eligible-word count is at most the estimated BZ work of [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) |
+| Rows of each replacement family, overlapping and then partitioned, if selected | Returns if `U ≤ cutoff` |
+| Certificate of each replacement family | Returns if `L(1) ≥ U` |
+| Exhaustive by work | Runs exhaustive enumeration if `_enumeration_is_cheaper_than_search` finds that the eligible-word count is at most the estimated BZ work of [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) |
 | Ready search | Returns a `_BrouwerZimmermannSearch` that scans from layer two |
 
 Exhaustive enumeration is chosen automatically at three points: the direct shortcut, preparation's size check, and preparation's work check.
 
 | Search location | Outcome |
 | --- | --- |
-| `_BrouwerZimmermannSearch.advance` | Returns after one layer, or earlier if `U ≤ cutoff`; a finished search does no further work |
+| `_BrouwerZimmermannSearch.advance` | Returns after one layer, or after the leading search bases of a layer that certify `U`, or earlier if `U ≤ cutoff`; a finished search does no further work |
 | `_BrouwerZimmermannSearch.finished` | Marks a search finished if `U ≤ cutoff`, `L ≥ U`, or every layer has been enumerated (`next_weight > dimension`) |
 | `get_distance_brouwer_zimmermann_many` | Returns the shared best bound when it is at most `cutoff` after an advance, or when no search can advance |
 
@@ -521,6 +570,8 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | --- | --- |
 | Upper bound `U` | `best`, or `upper_bound` as a parameter |
 | Lower certificate `L` | `lower_bound` of a search, computed by `Certificate.lower_bound(completed_weight)` from the certificate's `dimension`, `ranks`, `weight_divisor`, and `max_coverage` |
+| Certificate within a layer `L(t, j)` | `Certificate.step_lower_bound(weight, num_completed)` and the table of `get_step_lower_bounds`; `Certificate.get_num_sets_to_certify` gives the smallest `j` that certifies a bound |
+| Certificate from linear programming | `get_lp_lower_bound`, which a `Certificate` with `pivot_blocks` combines with the coverage-divided certificate; `BasisFamily.get_search_certificate` adds the blocks to costly searches of overlapping families |
 | Family of search bases | `BasisFamily`, which stacks the search bases into arrays and gives their `Certificate`; a search keeps only the certificate |
 | Last completed layer `t`, next layer | `completed_weight`, `next_weight` |
 | Divisor `D` | `Certificate.weight_divisor`, in Hamming units of the searched basis |
@@ -529,8 +580,8 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Search basis and its block | One set of a `BasisFamily`: its entries of `generators`, `labels`, `pivots`, and `ranks`; the recorded block is the pivot subset, as explained below |
 | Number of coordinates `N` | The length of `columns` (or `nonzero_columns`), the array of nonzero columns, in the functions that build families of search bases |
 | Stored width `N_stored` | `basis.shape[1]` before pivot deletion, including any all-zero columns |
-| Labels `M` | `labels`, which is `None` for a classical problem |
-| Eligible rows | Every row of a classical basis; rows with nonzero labels for a quantum problem |
+| Labels `M` | `labels`, which has no columns for a classical problem |
+| Eligible rows | `get_eligible_rows` of [_binary.py](_binary.py): every row of a classical basis; rows with nonzero labels for a quantum problem |
 | Support, prefix XORs | `support` and `prefixes` in `advance` and `_scan_brouwer_zimmermann`, which steps through a layer with `advance_support` of [_information_sets.py](_information_sets.py) |
 | Packed generators | `generators` of `_BrouwerZimmermannSearch`: `uint64` words after deleting pivot columns; `widths` counts the valid words for each search basis |
 | Packed labels | `labels` of `_BrouwerZimmermannSearch`: `uint64` quotient-label words, without pivot-column deletion; `label_widths` counts the valid words |
@@ -560,14 +611,20 @@ With an early-exit cutoff above one, a different search order can find a differe
   It returns a basis family with no sets if the existing work is below `minimum_work`, if the blocks already use every nonzero column, if the family is at `max_sets`, or if even the optimistic coverage `ceil(m*r/N)` cannot reduce the estimate.
   Otherwise it builds search bases by row reducing on column orders that put the least-used columns first, breaking ties with a generator that `get_overlapping_family_policy` seeds afresh for every call, and keeps the cheapest family built.
   A repeated pivot set is discarded, but it still consumes one of a bounded number of attempts.
-- **`Certificate.work`, `_brute_force_is_cheaper`, and `exhaustive_is_cheaper`** are cost models, which [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) explains.
+- **`get_partitioned_family`** builds families of information sets in which no column appears more than `b` times, for `b` from two to four.
+  It uses the matroid partitioning of Section 5.1 of Lisoněk and Trummer (see [References](#references)), in `_matroid_partition.py`, so each family has the most information sets, up to `max_sets`, that its coverage allows.
+  A search uses the family with the least estimated work if it does less work than the family of the earlier stages.
+  It tries this only if its estimated work is at least `PARTITION_WORK_RATIO` times an estimate of the work of partitioning, and the optimistic coverage `ceil(m*r/N)` does not rule out an improvement.
+- **`get_search_certificate`** adds the certificate from linear programming ([Section 3.1](#31-overlapping-search-bases)) to searches of overlapping families whose estimated work reaches `LP_MINIMUM_WORK`, since smaller searches cost less than their linear programs.
+  The work estimates that choose families use only the coverage-divided certificate.
+- **`Certificate.work`, `_enumeration_is_cheaper_than_search`, and `enumeration_is_cheaper_than_setup`** are cost models, which [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) explains.
   They are not runtime guarantees.
-  `exhaustive_is_cheaper` compares the setup cost of BZ with packed enumeration of all words, and its rule is in the source.
+  `enumeration_is_cheaper_than_setup` compares the setup cost of BZ with packed enumeration of all words, and its rule is in the source.
 
 ### 4.5 Behavior spanning files
 
 - **Cutoff.**
-  `get_distance_classical` and `get_distance_quantum` default to `cutoff=1`, and `get_distance_css_brouwer_zimmermann` requires a `cutoff`.
+  `get_distance_classical` and `get_distance_quantum` default to `cutoff=1`, and `_get_distance_css_brouwer_zimmermann` requires a `cutoff`.
   If a witness reaches `cutoff`, the computation can return its weight immediately as an upper bound, which can exceed the exact distance.
   Otherwise, the search continues and returns the exact distance, which may be larger than `cutoff`.
   The default of one is still exact for a valid nontrivial binary problem, because a distance is at least one.
@@ -580,7 +637,8 @@ With an early-exit cutoff above one, a different search order can find a differe
   The limit also caps `cutoff` at `max_weight`.
   Without that cap, a cutoff at or above `max_weight+1` would end the search at once on the assumed witness, even if a lighter word exists.
   Passing `cutoff=max_weight` as well stops the search at the first word within the limit.
-  Inputs without nontrivial words keep their usual results, capped at `max_weight+1`.
+  Inputs without nontrivial words have no distance and give `n+1`, capped at `max_weight+1`.
+  No word on `n` bits or qubits has weight `n+1`.
   For non-homogeneous input, the BZ route doubles the bound along with `cutoff`.
 - **Units.**
   Homogeneous input represents a pure-X or pure-Z problem with one support bit per qubit.
@@ -605,7 +663,7 @@ With an early-exit cutoff above one, a different search order can find a differe
 ## 5. Correctness requirements
 
 **Audience note:** This section is a highly technical summary written to help AI agents navigate the BZ implementation in qLDPC.
-For a carefully reviewed, high-level explanation intended for human readers, see Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations).
+For a high-level explanation, see Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations).
 
 Changes to the BZ algorithm can use different representations, certificates, and search strategies while preserving the following requirements for the nontrivial problems of [Section 2.1](#21-the-problem).
 
@@ -622,8 +680,9 @@ Changes to the BZ algorithm can use different representations, certificates, and
   Optional rounding requires a divisor valid for every eligible weight ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)).
   A certificate from another CSS sector needs justification for the sector where it is applied, just as any other certificate does.
 - **Keep the strict certificate available to fixed-weight counting.**
-  [logical_counts.py](logical_counts.py) builds its basis family with the same stages as the distance search, in `_prepare_scan` of [_counting/scan.py](_counting/scan.py), and stops at the first layer after which that basis family's certificate exceeds a target weight `w`, to count every word of weight `w`, which defaults to the distance.
-  Distance may stop at `L(t) ≥ U`, but counting must also exhaust words of weight exactly `w`, so it stops only at `L(t) > w`.
+  [logical_counts.py](logical_counts.py) builds its basis family with the same stages as the distance search, in `_select_basis_family` and `count_words` of [_counting/scan.py](_counting/scan.py), and stops at the first step after which that basis family's certificate exceeds a target weight `w`, to count every word of weight `w`, which defaults to the distance.
+  Distance may stop at `L(t, j) ≥ U`, but counting must also exhaust words of weight exactly `w`, so it stops only at `L(t, j) > w`.
+  A word of weight `w` belongs to the first step that visits it, and the steps that the scan visits are the first ones in order, so stopping within a layer still counts every such word once.
   Its bound must use the ranks and actual maximum coverage of the family it scans; it passes `upper_bound=w+1` to the family stages only to aim them at that stopping point.
 - **Preserve the return contract.**
   Return the exact minimum unless taking an early exit permitted by `cutoff`.
@@ -641,6 +700,8 @@ Those tests can evolve with the implementation; they do not make a particular in
 ## References
 
 - [arXiv:1603.06757v2](https://arxiv.org/abs/1603.06757v2) (Algorithm 1): Section 2 and Algorithm 1 give the classical disjoint and rank-deficient bound.
+- M. Grassl, "Searching for linear codes with large minimum distance," in *Discovering Mathematics with Magma*, Springer, 2006, pp. 287-313 ([doi:10.1007/978-3-540-37634-7_13](https://doi.org/10.1007/978-3-540-37634-7_13)): Algorithm 2.5 gives the certificate for overlapping information sets, footnote 2 on page 295 the certificate within a layer, page 299 the rounding to a weight divisor, and Algorithm 2.11 the choice between BZ and the weight distribution.
+- P. Lisoněk and L. Trummer, "Algorithms for the minimum weight of linear codes," *Advances in Mathematics of Communications* 10(1), 195-207, 2016 ([doi:10.3934/amc.2016.10.195](https://doi.org/10.3934/amc.2016.10.195)): equation (5) gives the certificate within a layer, Proposition 5 a coverage-divided certificate for any blocks, and Section 5.1 builds families of information sets with bounded coverage by matroid partitioning.
 - [arXiv:2408.10743v2](https://arxiv.org/abs/2408.10743v2): Section 2.4 describes the `Saved_isometry` symplectic-to-Hamming construction.
-- [core.py](core.py), [_brouwer_zimmermann.py](_brouwer_zimmermann.py), [_information_sets.py](_information_sets.py), [_brute_force.py](_brute_force.py), and [_binary.py](_binary.py): the implementation.
+- [core.py](core.py), [_brouwer_zimmermann.py](_brouwer_zimmermann.py), [_information_sets.py](_information_sets.py), [_matroid_partition.py](_matroid_partition.py), [_brute_force.py](_brute_force.py), [_binary.py](_binary.py), and [qldpc/_binary.py](../../_binary.py): the implementation.
 - [_brouwer_zimmermann_test.py](_brouwer_zimmermann_test.py), [_information_sets_test.py](_information_sets_test.py), and [core_test.py](core_test.py): executable invariants and independent small-instance oracles.

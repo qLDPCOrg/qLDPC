@@ -7,13 +7,13 @@ from __future__ import annotations
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 
-import galois
 import numpy as np
 import numpy.typing as npt
 import stim
 
 from qldpc import math
-from qldpc.codes.distance._bounded_weight_search import MinWeightBound
+from qldpc._binary import get_rank_packed, pack_bits
+from qldpc.codes.distance._coset_leader_search import MinWeightBound
 
 from .._post_selection import get_flag_detectors, get_selected_detectors, is_integer
 from ..bookkeeping import DetectorRecord
@@ -348,21 +348,29 @@ def _get_primitive_fault_signatures(
     # which only approximates their probabilities, and no probabilities are used here.
     dem = diagnostic_circuit.detector_error_model(approximate_disjoint_errors=True).flattened()
 
+    # Read the error instructions from the DEM's text, which is several times faster than reading
+    # their targets through stim's Python objects.  An instruction such as "error[tag](0.1) D0 L1"
+    # escapes "]" in its tag, so its targets follow the first ")" after the tag, if any.  Stim also
+    # escapes line feeds in tags, but not other line breaks, so split lines only at line feeds.
     flag_bit = {detector: jj for jj, detector in enumerate(selected)}
+    first_stabilizer_detector = circuit.num_detectors
     flags: list[int] = []
     syndromes: list[int] = []
-    for instruction in dem:
-        if instruction.type != "error":
+    for line in str(dem).split("\n"):
+        if not line.startswith("error"):
             continue
+        arguments_start = line.index("]") + 1 if line.startswith("error[") else len("error")
         # Detector ``circuit.num_detectors + j`` measures stabilizer ``j``.
         flag = syndrome = 0
-        for target in instruction.targets_copy():
-            if not target.is_relative_detector_id():
+        for target in line[line.index(")", arguments_start) + 1 :].split():
+            if not target.startswith("D"):
                 continue
-            if target.val in flag_bit:
-                flag ^= 1 << flag_bit[target.val]
-            if target.val >= circuit.num_detectors:
-                syndrome ^= 1 << (target.val - circuit.num_detectors)
+            detector = int(target[1:])
+            bit = flag_bit.get(detector)
+            if bit is not None:
+                flag ^= 1 << bit
+            if detector >= first_stabilizer_detector:
+                syndrome ^= 1 << (detector - first_stabilizer_detector)
         flags.append(flag)
         syndromes.append(syndrome)
     return diagnostic_circuit, dem, flags, syndromes
@@ -409,7 +417,6 @@ def _is_css_state(stabilizers: npt.NDArray[np.uint8]) -> bool:
     # pure-Z elements of W have dimensions n-rank(W_Z) and n-rank(W_X) and meet only in 0, so they
     # span W exactly when rank(W_X)+rank(W_Z)=n, whatever generators are used.
     ranks = [
-        np.linalg.matrix_rank(galois.GF2(sector))
-        for sector in (stabilizers[:, :n], stabilizers[:, n:])
+        get_rank_packed(pack_bits(sector)) for sector in (stabilizers[:, :n], stabilizers[:, n:])
     ]
     return sum(ranks) == n

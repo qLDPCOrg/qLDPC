@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Circuit types, Pauli-product measurements, and the guard for qubit-only methods.
+"""Circuit types, noise-immunity tags, Pauli-product measurements, and the qubit-only guard.
 
 This module is the foundation of ``qldpc.circuits``: it imports no other module of
 ``qldpc.circuits``, so that all of them can import it.
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import functools
 import itertools
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from typing import TYPE_CHECKING, ParamSpec, Protocol, Self, TypeVar
 
 import galois
@@ -22,6 +22,12 @@ from qldpc import _deprecations, codes, math
 
 _ReturnType = TypeVar("_ReturnType")
 _Params = ParamSpec("_Params")
+
+# Tags that, by default, make an operation or repeat block noiseless, or declare that the qubits of
+# a tagged QUBIT_COORDS annotation are immune to noise.  The noise models of qldpc.circuits use
+# them, and they are defined here so that circuit transformations can respect them.
+DEFAULT_IMMUNE_OP_TAG = "__IMMUNE_TO_NOISE__"
+DEFAULT_IMMUNE_QUBIT_TAG = "__IMMUNE_QUBIT_TO_NOISE__"
 
 
 class StimCircuitProtocol(Protocol):
@@ -120,6 +126,32 @@ def get_pauli_product_measurements(
     return circuit
 
 
+def _get_immune_qubits(circuit: stim.Circuit, immune_qubit_tag: str | None) -> frozenset[int]:
+    """Identify qubits declared immune to noise by tagged coordinate annotations.
+
+    A qubit is declared immune if a QUBIT_COORDS annotation for it has a tag that contains
+    immune_qubit_tag.  If immune_qubit_tag is None, no qubit is declared immune.
+
+    Raises:
+        ValueError: If immune_qubit_tag is empty.
+    """
+    if immune_qubit_tag is None:
+        return frozenset()
+    if immune_qubit_tag == "":
+        raise ValueError("immune_qubit_tag must be non-empty or None")
+    immune_qubits: set[int] = set()
+    for instruction in _get_instructions(circuit):
+        if isinstance(instruction, stim.CircuitRepeatBlock):
+            immune_qubits.update(_get_immune_qubits(instruction.body_copy(), immune_qubit_tag))
+        elif instruction.name == "QUBIT_COORDS" and immune_qubit_tag in instruction.tag:
+            immune_qubits.update(
+                target.qubit_value
+                for target in instruction.targets_copy()
+                if target.qubit_value is not None
+            )
+    return frozenset(immune_qubits)
+
+
 def _restrict_to_qubits(
     func: Callable[_Params, _ReturnType],
 ) -> Callable[_Params, _ReturnType]:
@@ -141,3 +173,32 @@ if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations
 
     def __getattr__(name: str) -> object:
         return _deprecations.get_deprecated_attribute(__name__, name)
+
+
+def _get_instructions(
+    circuit: stim.Circuit,
+) -> Iterator[stim.CircuitInstruction | stim.CircuitRepeatBlock]:
+    """The instructions and REPEAT blocks of a circuit, in order.
+
+    Stim's iterator over a circuit takes tens of microseconds to finish, which adds up when noise
+    models handle many small circuits, so this indexes the circuit instead.
+    """
+    return (circuit[index] for index in range(len(circuit)))
+
+
+def _new_instruction(
+    name: str, targets: Sequence[stim.GateTarget], args: Sequence[float], tag: str
+) -> stim.CircuitInstruction:
+    """Build a ``stim.CircuitInstruction`` by appending it to an empty circuit.
+
+    Stim's ``CircuitInstruction`` constructor takes tens of microseconds per target, while appending
+    an instruction to a circuit takes about a microsecond.  An instruction that a circuit rejects,
+    such as a REPEAT instruction, comes from the constructor, which accepts it or raises its own
+    error.
+    """
+    circuit = stim.Circuit()
+    try:
+        circuit.append(name, targets, args, tag=tag)
+    except (TypeError, ValueError):
+        return stim.CircuitInstruction(name, targets, args, tag=tag)
+    return circuit[0]

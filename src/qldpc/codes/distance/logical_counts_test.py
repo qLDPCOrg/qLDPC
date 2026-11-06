@@ -19,10 +19,10 @@ import pytest
 
 import qldpc
 from qldpc import _compilation, codes
+from qldpc._binary import get_independent_rows
 
 from . import _information_sets
 from . import logical_counts as lc
-from ._binary import get_independent_rows
 from ._counting import macwilliams
 from .conftest import (
     HAND_X,
@@ -577,19 +577,24 @@ def test_invalid_inputs() -> None:
     assert lc._validate_logical_count_method("weight_enumerator") == "macwilliams"
     with pytest.raises(ValueError, match="Unknown logical-count method"):
         lc._validate_logical_count_method(invalid_method)
-    for weight in (-1, 3, 1.5, True, "1"):
-        invalid_weight: Any = weight
-        with pytest.raises(ValueError, match="weight must be an integer"):
-            counter.count_logical_ops(invalid_weight)
-    numpy_weight: Any = np.int64(2)
-    assert counter.count_logical_ops(numpy_weight) == Counts(2, 1, 1, None)
+    for weight in (-1, 3):
+        with pytest.raises(ValueError, match="weight must be between"):
+            counter.count_logical_ops(weight)
+    for value in (1.5, True, "1"):
+        not_an_integer: Any = value
+        with pytest.raises(TypeError, match="weight must be an integer"):
+            counter.count_logical_ops(not_an_integer)
+    assert counter.count_logical_ops(np.int64(2)) == Counts(2, 1, 1, None)
 
     steane = lc.CSSLogicalCounter(codes.SteaneCode())
     wide = get_counter(np.zeros((0, 65)), np.zeros((0, 65)))
-    for targets in ([0, 0], [-1, 2], [0, 7], [0.5, 2], [True, 2], [], list(range(65))):
-        invalid_targets: Any = targets
+    for targets in ([0, 0], [-1, 2], [0, 7], [], list(range(65))):
         with pytest.raises(ValueError, match="1 to 64 distinct"):
-            (wide if len(targets) == 65 else steane).deformed(invalid_targets, [[1]])
+            (wide if len(targets) == 65 else steane).deformed(targets, [[1]])
+    for values in ([0.5, 2], [True, 2]):
+        invalid_targets: Any = values
+        with pytest.raises(TypeError, match="Clifford target must be an integer"):
+            steane.deformed(invalid_targets, [[1]])
     with pytest.raises(ValueError, match="1 to 64 distinct"):
         steane.deformed_swel(0, 1, 1, 2)
     not_a_collection: Any = 3

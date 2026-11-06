@@ -60,15 +60,21 @@ from .noise_model import (
     DEFAULT_IMMUNE_OP_TAG,
     DEFAULT_IMMUNE_QUBIT_TAG,
     AbstractPauliChannel,
+    ALAPScheduler,
+    ASAPScheduler,
     DepolarizingNoiseModel,
+    MinIdleScheduler,
     NoiseModel,
     NoiseRule,
     PauliChannel,
     PauliChannelSequence,
+    Schedule,
+    Scheduler,
     SI1000NoiseModel,
+    TickScheduler,
     as_noiseless_circuit,
 )
-from .transforms import remap_qubit_target, with_remapped_qubits
+from .transforms import remap_qubit_target, transpile_to_cz, with_remapped_qubits
 from .transversal import (
     get_transversal_automorphism_group,
     get_transversal_circuit,
@@ -80,6 +86,8 @@ from .transversal import (
 __all__ = [
     "DEFAULT_IMMUNE_OP_TAG",
     "DEFAULT_IMMUNE_QUBIT_TAG",
+    "ALAPScheduler",
+    "ASAPScheduler",
     "AbstractPauliChannel",
     "AlphaSyndrome",
     "BoundedFaultPropagationCertificate",
@@ -90,6 +98,7 @@ __all__ = [
     "EdgeColoringXZ",
     "MeasurementRecord",
     "MemoryExperimentParts",
+    "MinIdleScheduler",
     "NoiseModel",
     "NoiseRule",
     "PauliChannel",
@@ -97,9 +106,12 @@ __all__ = [
     "QubitIDs",
     "Record",
     "SI1000NoiseModel",
+    "Schedule",
+    "Scheduler",
     "StimCircuitLike",
     "StimCircuitProtocol",
     "SyndromeMeasurementStrategy",
+    "TickScheduler",
     "as_noiseless_circuit",
     "certify_bounded_fault_propagation",
     "get_encoder_and_decoder",
@@ -126,6 +138,7 @@ __all__ = [
     "get_unaddressed_measurements",
     "remap_qubit_target",
     "restrict_tableau",
+    "transpile_to_cz",
     "with_remapped_qubits",
 ]
 

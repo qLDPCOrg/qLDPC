@@ -86,6 +86,7 @@ Keep substantial compatibility code in [`qldpc/_deprecations/`](src/qldpc/_depre
 
 ## Pull requests
 
+Review a change in the passes of [reviewing a change](docs/source/contributing.rst#reviewing-a-change) before running the finishing checks.
 Follow the [PR-summary guidance](docs/source/contributing.rst#pull-request-summaries) when preparing a PR description.
 
 ## Validation commands

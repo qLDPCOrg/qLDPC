@@ -13,25 +13,21 @@ import numpy.typing as npt
 import pytest
 
 from qldpc import _compilation, codes
+from qldpc._binary import get_independent_rows, get_kernel
 from qldpc.objects import Pauli
 
-from . import _binary as binary
-from . import _bounded_weight_search, _information_sets
+from . import _coset_leader_search, _information_sets
 from . import logical_counts as lc
-from ._binary import get_kernel
 from .core import DistanceMethod
 
 
 @pytest.fixture
 def force_information_sets() -> Iterator[None]:
     """Route Brouwer-Zimmermann searches through information sets instead of exhaustive search."""
-    with (
-        mock.patch.multiple(
-            "qldpc.codes.distance._brouwer_zimmermann",
-            exhaustive_is_cheaper=mock.Mock(return_value=False),
-            _brute_force_is_cheaper=mock.Mock(return_value=False),
-        ),
-        mock.patch("qldpc.codes.distance.core.exhaustive_is_cheaper", return_value=False),
+    with mock.patch.multiple(
+        "qldpc.codes.distance._brouwer_zimmermann",
+        enumeration_is_cheaper_than_setup=mock.Mock(return_value=False),
+        _enumeration_is_cheaper_than_search=mock.Mock(return_value=False),
     ):
         yield
 
@@ -43,12 +39,12 @@ def compilation_mode(
     """Run the compiled functions of the distance searches as plain Python, or compiled.
 
     In the plain Python mode, the compiled-on-request functions, and the always-compiled functions
-    that the basis family stages and the Pauli-coset search define, run as Python, which coverage
+    that the basis family stages and the coset-leader search define, run as Python, which coverage
     can trace.  The compiled mode compiles the compiled-on-request functions once per session, and
     restores plain Python afterwards.
     """
     if request.param == "python":
-        for module in (_information_sets, _bounded_weight_search):
+        for module in (_information_sets, _coset_leader_search):
             for name, function in list(vars(module).items()):
                 if hasattr(function, "py_func") and function.py_func.__module__ == module.__name__:
                     monkeypatch.setattr(module, name, function.py_func)
@@ -67,7 +63,7 @@ def get_random_full_rank_matrix(
     """Return a random full-row-rank binary matrix with the requested row and column counts."""
     while True:
         matrix = rng.integers(0, 2, size=(rows, cols), dtype=np.uint8)
-        if len(binary.get_independent_rows(matrix)) == rows:
+        if len(get_independent_rows(matrix)) == rows:
             return matrix
 
 

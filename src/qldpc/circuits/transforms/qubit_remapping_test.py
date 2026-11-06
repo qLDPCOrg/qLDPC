@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import random
+import re
 
 import pytest
 import stim
@@ -60,3 +61,19 @@ def test_qubit_remap_edge_cases() -> None:
     assert circuits.with_remapped_qubits(mpad, [1, 0]) == mpad
     with pytest.raises(ValueError, match="injective"):
         circuits.with_remapped_qubits(stim.Circuit("H 0 1"), [0, 0])
+
+    # an invalid qubit index raises the error of remap_qubit_target
+    for qubit in [-1, 2**40]:
+        with pytest.raises(ValueError) as error:
+            circuits.remap_qubit_target(stim.GateTarget(0), {0: qubit})
+        with pytest.raises(ValueError, match=re.escape(str(error.value))):
+            circuits.with_remapped_qubits(stim.Circuit("H 0"), {0: qubit})
+
+
+def test_remap_qubit_target() -> None:
+    """Remap the qubit of a target, and keep targets on unmapped qubits or without qubits."""
+    qubit_map = {0: 3}
+    assert circuits.remap_qubit_target(stim.GateTarget(0), qubit_map) == stim.GateTarget(3)
+    assert circuits.remap_qubit_target(stim.target_x(0), qubit_map) == stim.target_x(3)
+    for target in [stim.GateTarget(1), stim.target_rec(-1)]:
+        assert circuits.remap_qubit_target(target, qubit_map) == target

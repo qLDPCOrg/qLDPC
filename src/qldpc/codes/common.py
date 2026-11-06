@@ -52,8 +52,11 @@ from .distance import (
     get_distance_classical,
     get_distance_quantum,
 )
-from .distance._brouwer_zimmermann import get_distance_css_brouwer_zimmermann
-from .distance.core import _validate_distance_backend, _validate_distance_method
+from .distance.core import (
+    _get_distance_css_brouwer_zimmermann,
+    _validate_distance_backend,
+    _validate_distance_method,
+)
 from .monte_carlo import ErrorRateFunc
 
 Slice = slice | npt.NDArray[np.int_] | list[int]
@@ -3439,7 +3442,7 @@ class CSSCode(QuditCode):
                     )
                 sectors.append((logical_ops, stabilizers))
 
-            distance = get_distance_css_brouwer_zimmermann(
+            distance = _get_distance_css_brouwer_zimmermann(
                 sectors,
                 cutoff=cutoff,
                 upper_bound=upper_bound,

@@ -26,7 +26,6 @@ References:
 from __future__ import annotations
 
 import functools
-import operator
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, SupportsIndex
@@ -34,18 +33,14 @@ from typing import TYPE_CHECKING, Literal, SupportsIndex
 import numpy as np
 import numpy.typing as npt
 
+from qldpc._binary import get_independent_rows, get_kernel, pack_bits
 from qldpc._compilation import set_on_request_functions_compiled
 from qldpc._utils import format_docstring
 
 from . import _information_sets
-from ._binary import (
-    get_independent_rows,
-    get_kernel,
-    get_nested_code_basis,
-    pack_bits,
-)
+from ._binary import as_integer, get_nested_code_basis
 from ._brouwer_zimmermann import get_distance_brouwer_zimmermann_many
-from ._brute_force import get_distance_quantum_brute_force
+from ._brute_force import get_nested_distance_brute_force
 from ._counting import local_cliffords, macwilliams, scan
 from .core import _DISTANCE_METHODS, DistanceMethod
 
@@ -53,8 +48,6 @@ from .core import _DISTANCE_METHODS, DistanceMethod
 # imported only where they are used.
 if TYPE_CHECKING:
     from ..common import CSSCode
-
-_BinaryMatrix = npt.NDArray[np.uint8]
 
 
 # Batch size exponent passed to the distance searches, as in get_distance_quantum.
@@ -66,7 +59,7 @@ _BLOCK_SIZE = 15
 _MIN_SHARED_WALK_RANK = 14
 
 # The basis of a homogeneous sector, and its quotient labels.
-_Sector = tuple[_BinaryMatrix, _BinaryMatrix]
+_Sector = tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]
 
 LogicalCountMethod = Literal[
     "brouwer_zimmermann", "macwilliams", "brute_force", "information_sets", "weight_enumerator"
@@ -170,11 +163,11 @@ class CSSLogicalCounter:
         self._dimension = self._num_qubits - len(self._gauge_x) - len(self._stabilizers_z)
 
         # Work that is done on demand and kept for later counts.
-        self._distances: dict[DistanceMethod, int] = {}
-        self._sectors: tuple[_Sector, _Sector] | None = None
-        self._disjoint_basis_families: dict[int, _information_sets.BasisFamily] = {}
-        self._enumerators: macwilliams.CheckEnumerators | None = None
-        self._canonical: tuple[_BinaryMatrix, _BinaryMatrix] | None = (self._gauge_x, self._gauge_z)
+        self._forget_kept_work()
+        self._canonical: tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]] | None = (
+            self._gauge_x,
+            self._gauge_z,
+        )
 
     @property
     def num_qubits(self) -> int:
@@ -217,7 +210,7 @@ class CSSLogicalCounter:
     @format_docstring(MAX_SETS=_information_sets.MAX_SETS)
     def count_logical_ops(
         self,
-        weight: int | None = None,
+        weight: SupportsIndex | None = None,
         *,
         method: LogicalCountMethod = "brouwer_zimmermann",
         count_pauli: bool = False,
@@ -258,26 +251,24 @@ class CSSLogicalCounter:
             qubits, the returned weight is the number of qubits and every count is zero.
 
         Raises:
-            TypeError: If ``max_information_sets`` is not an integer, or is a bool.
-            ValueError: If the weight is not an integer between zero and the number of qubits, if
+            TypeError: If the weight or ``max_information_sets`` is not an integer, or is a bool.
+            ValueError: If the weight is not between zero and the number of qubits, if
                 the method is unknown, if the weight is above the distance and ``count_pauli`` or
                 ``within_distance`` is set, or if the MacWilliams method does not support the code
                 or the request.
         """
         # Validate the inputs, resolving method aliases.
         method = _validate_logical_count_method(method)
-        if weight is not None and (
-            not isinstance(weight, (int, np.integer))
-            or isinstance(weight, bool)
-            or not 0 <= weight <= self.num_qubits
-        ):
-            raise ValueError("The weight must be an integer between zero and the number of qubits")
+        if weight is not None:
+            weight = as_integer(weight, "weight")
+            if not 0 <= weight <= self.num_qubits:
+                raise ValueError(
+                    f"The weight must be between zero and {self.num_qubits}, not {weight}"
+                )
         if method == "macwilliams":
             self._validate_macwilliams_request(count_pauli)
-        if isinstance(max_information_sets, bool):
-            raise TypeError(f"max_information_sets must be an integer, not {max_information_sets}")
         # Compiled code specializes on the type of each argument, so fix it to a Python integer.
-        max_sets = operator.index(max_information_sets)
+        max_sets = as_integer(max_information_sets, "max_information_sets")
 
         # A code without logicals needs no scan, and the MacWilliams method needs no sectors.
         if not self.dimension:
@@ -316,37 +307,40 @@ class CSSLogicalCounter:
         # carries exactly three operators, so self-dual codes need no ranks.  Above d, a logical
         # Pauli need not have the support of a homogeneous logical, so the scans reject any
         # nontrivial word lighter than the target.
-        weigh = count_pauli and not self._self_dual
-        reject_above = count_pauli or within_distance
+        count_masked_ranks = count_pauli and not self._self_dual
+        reject_lighter = count_pauli or within_distance
         no_rows = self._gauge_x[:0]
 
         # Scan each sector, or only the X sector of a self-dual code.
         counts_x = scan.count_words(
             *sector_x,
             target,
-            method,
-            pack_bits(self._stabilizers_x if weigh else no_rows),
+            method == "brute_force",
+            pack_bits(self._stabilizers_x if count_masked_ranks else no_rows),
             complement=False,
-            max_exponent=target if weigh else 0,
-            reject_lighter=reject_above,
+            max_exponent=target if count_masked_ranks else 0,
+            reject_lighter=reject_lighter,
             get_disjoint_basis_family=get_disjoint_basis_families[0],
             max_sets=max_sets,
         )
-        if self._self_dual or counts_x is None:
+        if counts_x is None:
+            raise _get_above_distance_error(target)
+        counts_z: npt.NDArray[np.int64] | None
+        if self._self_dual:
             counts_z = counts_x
         else:
             counts_z = scan.count_words(
                 *sector_z,
                 target,
-                method,
-                pack_bits(self._gauge_x if weigh else no_rows),
+                method == "brute_force",
+                pack_bits(self._gauge_x if count_masked_ranks else no_rows),
                 complement=True,
-                max_exponent=len(self._gauge_x) if weigh else 0,
-                reject_lighter=reject_above,
+                max_exponent=len(self._gauge_x) if count_masked_ranks else 0,
+                reject_lighter=reject_lighter,
                 get_disjoint_basis_family=get_disjoint_basis_families[1],
                 max_sets=max_sets,
             )
-        if counts_x is None or counts_z is None:
+        if counts_z is None:
             raise _get_above_distance_error(target)
 
         # Sum the histograms, and derive the full Pauli count as described above.
@@ -378,8 +372,9 @@ class CSSLogicalCounter:
             A new counter.  This counter is not modified.
 
         Raises:
-            TypeError: If the targets are not a collection of qubit indices.
-            ValueError: If the targets are invalid, or if ``matrix_x`` is not an invertible binary
+            TypeError: If the targets are not a collection of integer qubit indices.
+            ValueError: If the targets are not 1 to 64 distinct, in-range indices, or if
+                ``matrix_x`` is not an invertible binary
                 matrix that matches the number of targets.
         """
         positions = self._get_positions(targets)
@@ -400,6 +395,7 @@ class CSSLogicalCounter:
             A new counter.  This counter is not modified.
 
         Raises:
+            TypeError: If a qubit is not an integer index.
             ValueError: If the qubits are not distinct, in-range indices.
         """
         return self._deformed(self._get_positions([control, target]), *local_cliffords.CNOT)
@@ -424,6 +420,7 @@ class CSSLogicalCounter:
             A new counter.  This counter is not modified.
 
         Raises:
+            TypeError: If a qubit is not an integer index.
             ValueError: If the qubits are not distinct, in-range indices.
         """
         positions = self._get_positions([qubit_0, qubit_1, qubit_2, qubit_3])
@@ -437,14 +434,10 @@ class CSSLogicalCounter:
             raise TypeError(
                 f"Clifford targets must be a collection of qubit indices (got {targets!r})"
             ) from error
+        positions = [as_integer(index, "a Clifford target") for index in positions]
         if (
             not 1 <= len(positions) <= 64
-            or any(
-                not isinstance(index, (int, np.integer))
-                or isinstance(index, bool)
-                or not 0 <= index < self.num_qubits
-                for index in positions
-            )
+            or any(not 0 <= index < self.num_qubits for index in positions)
             or len(set(positions)) != len(positions)
         ):
             raise ValueError(
@@ -494,13 +487,10 @@ class CSSLogicalCounter:
             )
 
         # Transform the kept work where the gate allows it, and drop the rest.  A gate can change
-        # the distance, so the deformed counter searches for it again.
-        counter._distances = {}
-        counter._sectors = None
-        counter._disjoint_basis_families = {}
-        # A gate changes the weight of every check word that touches its qubits, so the weight
-        # enumerators are not kept.
-        counter._enumerators = None
+        # the distance, so the deformed counter searches for it again.  A gate also changes the
+        # weight of every check word that touches its qubits, so the weight enumerators are not
+        # kept.
+        counter._forget_kept_work()
         if self._sectors is not None:
             (basis_x, labels_x), (basis_z, labels_z) = self._sectors
             sector_x = (local_cliffords.apply_local(basis_x, positions, local_x), labels_x)
@@ -522,6 +512,13 @@ class CSSLogicalCounter:
                     if moved is not None:
                         counter._disjoint_basis_families[index] = moved
         return counter
+
+    def _forget_kept_work(self) -> None:
+        """Drop the work that is done on demand and kept for later counts."""
+        self._distances: dict[DistanceMethod, int] = {}
+        self._sectors: tuple[_Sector, _Sector] | None = None
+        self._disjoint_basis_families: dict[int, _information_sets.BasisFamily] = {}
+        self._enumerators: macwilliams.CheckEnumerators | None = None
 
     def _validate_macwilliams_request(self, count_pauli: bool) -> None:
         """Reject codes and requests that the MacWilliams method does not support.
@@ -608,7 +605,7 @@ class CSSLogicalCounter:
             )
         return self._disjoint_basis_families[index]
 
-    def _get_canonical_checks(self) -> tuple[_BinaryMatrix, _BinaryMatrix]:
+    def _get_canonical_checks(self) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
         """The checks in reduced row echelon form, which deformation does not preserve."""
         if self._canonical is None:
             self._canonical = (
@@ -620,7 +617,7 @@ class CSSLogicalCounter:
 
 def count_logical_ops_css(
     code: CSSCode,
-    weight: int | None = None,
+    weight: SupportsIndex | None = None,
     *,
     method: LogicalCountMethod = "brouwer_zimmermann",
     count_pauli: bool = False,
@@ -637,7 +634,7 @@ def count_logical_ops_css(
         The counted weight and the counts.
 
     Raises:
-        TypeError: If the code is not a :class:`~qldpc.codes.CSSCode`, or if
+        TypeError: If the code is not a :class:`~qldpc.codes.CSSCode`, or if the weight or
             ``max_information_sets`` is not an integer, or is a bool.
         ValueError: If the code is not binary, or for invalid arguments as described in
             :meth:`CSSLogicalCounter.count_logical_ops`.
@@ -737,7 +734,12 @@ def _get_distance(
     family, for the BZ search.
     """
     if method == "brute_force":
-        return min(_get_brute_force_distance(sector) for sector in sectors)
+        return min(
+            get_nested_distance_brute_force(
+                basis, labels, cutoff=0, block_size=_BLOCK_SIZE, homogeneous=True
+            )
+            for basis, labels in sectors
+        )
     return get_distance_brouwer_zimmermann_many(
         sectors,
         cutoff=0,
@@ -746,22 +748,13 @@ def _get_distance(
     )
 
 
-def _get_brute_force_distance(sector: _Sector) -> int:
-    """Minimum weight of a nontrivial word of one sector, by exhaustive enumeration."""
-    basis, labels = sector
-    eligible = np.any(labels, axis=1)
-    return get_distance_quantum_brute_force(
-        basis[eligible], basis[~eligible], cutoff=0, block_size=_BLOCK_SIZE, homogeneous=True
-    )
-
-
 ####################################################################################################
 # stabilizers of subsystem codes
 
 
 def _get_stabilizers(
-    gauge_x: _BinaryMatrix, gauge_z: _BinaryMatrix
-) -> tuple[_BinaryMatrix, _BinaryMatrix]:
+    gauge_x: npt.NDArray[np.uint8], gauge_z: npt.NDArray[np.uint8]
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
     """Independent bases of the stabilizers among the given gauge generators.
 
     The stabilizers are the gauge operators that commute with every gauge operator of the other

@@ -6,11 +6,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-import galois
 import numpy as np
 import stim
 
 from qldpc import _deprecations, codes, math
+from qldpc._binary import get_independent_rows
 from qldpc._utils import get_external_caller_stacklevel
 from qldpc.objects import Pauli
 
@@ -222,23 +222,14 @@ def get_state_stabilizers(
     num_columns = 2 * num_qubits + num_measurements + num_observables
     num_rows = len(flow_generators) + state_prep_circuit.num_detectors
 
-    # identify where all qubits live
-    other_qubits = np.array([qq for qq in range(num_qubits) if qq not in state_qubits], dtype=int)
-    cols_state_x = state_qubits
-    cols_other_x = other_qubits
-    cols_state_z = state_qubits + num_qubits
-    cols_other_z = other_qubits + num_qubits
-
     # build a matrix of stabilizers for the entire circuit output, determined by the flows
-    matrix = galois.GF2.Zeros((num_rows, num_columns))
+    matrix = np.zeros((num_rows, num_columns), dtype=np.uint8)
     for gg, flow in enumerate(flow_generators):
         pauli_string = flow.output_copy()
         if pauli_string:
             xs, zs = pauli_string.to_numpy()
-            matrix[gg, cols_state_x] = xs[state_qubits].astype(np.uint8)
-            matrix[gg, cols_state_z] = zs[state_qubits].astype(np.uint8)
-            matrix[gg, cols_other_x] = xs[other_qubits].astype(np.uint8)
-            matrix[gg, cols_other_z] = zs[other_qubits].astype(np.uint8)
+            matrix[gg, :num_qubits] = xs
+            matrix[gg, num_qubits : 2 * num_qubits] = zs
         for measurement in flow.measurements_copy():
             matrix[gg, -num_observables - num_measurements + measurement] = 1
         for observable in flow.included_observables_copy():  # pragma: no cover technical edge case
@@ -253,39 +244,47 @@ def get_state_stabilizers(
             row = len(flow_generators) + detector_counter
             for target in instruction.targets_copy():
                 col = -num_observables - num_measurements + measurement_counter + target.value
-                matrix[row, col] = int(matrix[row, col]) ^ 1
+                matrix[row, col] ^= 1
             detector_counter += 1
 
     # Row reduction must eliminate unwanted support before selecting a basis supported on the
     # requested qubits.  Natural column order would instead preserve state-qubit pivots and lose
-    # stabilizers that are sums of the original flow rows.
+    # stabilizers that are sums of the original flow rows.  Columns q and num_qubits + q hold the X
+    # and Z parts on qubit q.
+    other_qubits = np.array([qq for qq in range(num_qubits) if qq not in state_qubits], dtype=int)
     unwanted_columns = np.concatenate(
-        [cols_other_x, cols_other_z, np.arange(2 * num_qubits, num_columns, dtype=int)]
+        [other_qubits, other_qubits + num_qubits, np.arange(2 * num_qubits, num_columns, dtype=int)]
     )
-    state_columns = np.concatenate([cols_state_x, cols_state_z])
-    reduced_matrix = matrix[:, np.concatenate([unwanted_columns, state_columns])]
+    state_columns = np.concatenate([state_qubits, state_qubits + num_qubits])
+    reordered_matrix = matrix[:, np.concatenate([unwanted_columns, state_columns])]
 
-    # identify stabilizers that are supported entirely on the data qubits of the code
-    stabilizers = []
+    # Identify stabilizers supported only on the requested qubits.  The unwanted columns come
+    # first, so the rows of the reduced row echelon form with pivots on requested qubits vanish on
+    # the unwanted columns.  These rows span every such stabilizer, since a sum of rows is nonzero
+    # at the pivot of each row in the sum.
+    rows = get_independent_rows(reordered_matrix)
     num_unwanted_columns = len(unwanted_columns)
-    for row in reduced_matrix.row_space():
-        other_xs = row[: len(cols_other_x)]
-        other_zs = row[len(cols_other_x) : len(cols_other_x) + len(cols_other_z)]
-        meas_obs = row[len(cols_other_x) + len(cols_other_z) : num_unwanted_columns]
-        state_xs = row[num_unwanted_columns : num_unwanted_columns + len(cols_state_x)]
-        state_zs = row[num_unwanted_columns + len(cols_state_x) :]
-        any_on_others = np.any(other_xs) or np.any(other_zs) or np.any(meas_obs)
-        if (np.any(state_xs) or np.any(state_zs)) and not any_on_others:
-            string = stim.PauliString.from_numpy(xs=state_xs != 0, zs=state_zs != 0)
-            stabilizers.append(string)
+    on_state = np.any(rows[:, num_unwanted_columns:], axis=1)
+    on_others = np.any(rows[:, :num_unwanted_columns], axis=1)
+    stabilizers = [
+        stim.PauliString.from_numpy(
+            xs=row[num_unwanted_columns : num_unwanted_columns + len(state_qubits)] != 0,
+            zs=row[num_unwanted_columns + len(state_qubits) :] != 0,
+        )
+        for row in rows[on_state & ~on_others]
+    ]
 
-    # fix signs
+    # Fix signs.  Build each physical Pauli string from arrays, since assigning Paulis to a
+    # stim.PauliString one qubit at a time is slow.
     simulator = stim.TableauSimulator()
     simulator.do(state_prep_circuit.without_noise())
     for ss, stabilizer in enumerate(stabilizers):
-        physical_stabilizer = stim.PauliString(num_qubits)
-        for qubit, pauli in zip(state_qubits, str(stabilizer)[1:], strict=True):
-            physical_stabilizer[qubit] = pauli
+        xs, zs = stabilizer.to_numpy()
+        physical_xs = np.zeros(num_qubits, dtype=bool)
+        physical_zs = np.zeros(num_qubits, dtype=bool)
+        physical_xs[state_qubits] = xs
+        physical_zs[state_qubits] = zs
+        physical_stabilizer = stim.PauliString.from_numpy(xs=physical_xs, zs=physical_zs)
         expectation = simulator.peek_observable_expectation(physical_stabilizer)
         if expectation == 0:
             raise ValueError("The prepared state is not an eigenstate of a returned stabilizer")

@@ -52,19 +52,55 @@ def test_brouwer_zimmermann_information_set_search() -> None:
     assert qldpc.codes.get_distance_classical([[1, 1, 0], [0, 1, 1], [1, 1, 1]], cutoff=1) == 1
 
 
+def test_css_brouwer_zimmermann_special_inputs() -> None:
+    """The joint CSS helper handles empty, trivial, and nontrivial quotient sectors.
+
+    A sector without nontrivial logical operators counts as one more than its width, so that it
+    never lowers the distance of the other sectors.
+    """
+    empty = np.empty((0, 4), dtype=np.uint8)
+    assert core._get_distance_css_brouwer_zimmermann([(empty, empty)], cutoff=0) == 5
+    trivial = ([[1, 0]], [[1, 0]])
+    assert core._get_distance_css_brouwer_zimmermann([trivial], cutoff=0) == 3
+    assert core._get_distance_css_brouwer_zimmermann([trivial, ([[1, 1]], [])], cutoff=0) == 2
+    # It is not the weight of an operator, so it does not end the search even at the cutoff.
+    assert core._get_distance_css_brouwer_zimmermann([trivial, ([[1, 1]], [])], cutoff=3) == 2
+
+    # The result is the minimum of the upper bound and the distances of the supplied sectors.
+    assert core._get_distance_css_brouwer_zimmermann([([[1, 1]], [])], cutoff=0) == 2
+    sectors: list[tuple[list[list[int]], list[list[int]]]] = [([[1, 1]], [])]
+    assert core._get_distance_css_brouwer_zimmermann(sectors, cutoff=0, upper_bound=3) == 2
+    assert core._get_distance_css_brouwer_zimmermann(sectors, cutoff=0, upper_bound=1) == 1
+
+    # A known operator at the cutoff ends the search before it starts.
+    assert core._get_distance_css_brouwer_zimmermann(sectors, cutoff=1, upper_bound=1) == 1
+    assert core._get_distance_css_brouwer_zimmermann([], cutoff=0, upper_bound=4) == 4
+    with pytest.raises(ValueError, match="at least one sector or an upper bound"):
+        core._get_distance_css_brouwer_zimmermann([], cutoff=0)
+
+
 def test_brouwer_zimmermann_special_inputs() -> None:
-    """Brouwer-Zimmermann validates matrix shapes and preserves quotient edge cases."""
-    assert qldpc.codes.get_distance_classical(np.empty((0, 4), dtype=np.uint8), cutoff=0) == 4
+    """Brouwer-Zimmermann validates matrix shapes and preserves quotient edge cases.
+
+    Inputs on n bits or qubits without nontrivial words have no distance and give n + 1, whether
+    they have no logical rows or only logical rows in the stabilizer span.
+    """
+    assert qldpc.codes.get_distance_classical(np.empty((0, 4), dtype=np.uint8), cutoff=0) == 5
     assert (
         qldpc.codes.get_distance_quantum(
             np.empty((0, 4), dtype=np.uint8),
             np.empty((0, 4), dtype=np.uint8),
             homogeneous=True,
         )
-        == 4
+        == 5
     )
-    assert qldpc.codes.get_distance_quantum([[1, 0]], [[1, 0]], homogeneous=True) == 0
-    assert qldpc.codes.get_distance_quantum(np.empty((0, 4), dtype=np.uint8), [[1, 0, 0, 0]]) == 2
+    for method in ("brouwer_zimmermann", "brute_force"):
+        distance = qldpc.codes.get_distance_quantum(
+            [[1, 0]], [[1, 0]], homogeneous=True, method=method
+        )
+        assert distance == 3
+    assert qldpc.codes.get_distance_quantum(np.empty((0, 4), dtype=np.uint8), [[1, 0, 0, 0]]) == 3
+    assert qldpc.codes.get_distance_quantum([[1, 0, 0, 0]], [[1, 0, 0, 0]]) == 3
 
     with pytest.raises(ValueError, match="incompatible widths"):
         qldpc.codes.get_distance_quantum([[1, 0, 0]], [[1, 0]], homogeneous=True)
@@ -130,7 +166,7 @@ def test_get_distance_quantum_css_codes(code: qldpc.codes.CSSCode, expected_dist
         code.get_stabilizer_ops(),
         homogeneous=True,
     )
-    assert min(distance_x, distance_z, distance_all) == expected_distance
+    assert distance_x == distance_z == distance_all == expected_distance
 
     # CSSCode.forget_distance clears the X-sector and Z-sector distance caches before recomputation.
     # Assigning only CSSCode._distance would leave cached sector distances available to the method.
@@ -235,6 +271,7 @@ def test_max_weight_conventions_and_validation() -> None:
     assert qldpc.codes.get_distance_classical([[0, 0, 0]], max_weight=1) == 2
     no_logical_ops = np.zeros((0, 4), dtype=int)
     assert qldpc.codes.get_distance_quantum(no_logical_ops, [[1, 1, 0, 0]], max_weight=0) == 1
+    assert qldpc.codes.get_distance_quantum([[1, 1, 0, 0]], [[1, 1, 0, 0]], max_weight=1) == 2
     with pytest.raises(ValueError, match="max_weight must be nonnegative"):
         qldpc.codes.get_distance_classical([[1, 1]], max_weight=-1)
     with pytest.raises(ValueError, match="max_weight must be nonnegative"):
@@ -246,7 +283,7 @@ def test_max_weight_conventions_and_validation() -> None:
         with pytest.raises(TypeError):
             qldpc.codes.get_distance_classical([[1, 1]], max_weight=cast(int, not_an_integer))
     distance = qldpc.codes.get_distance_classical(
-        [[1, 1, 1, 1]], max_weight=cast(int, np.int64(1)), method="brute_force"
+        [[1, 1, 1, 1]], max_weight=np.int64(1), method="brute_force"
     )
     assert distance == 2 and type(distance) is int
 

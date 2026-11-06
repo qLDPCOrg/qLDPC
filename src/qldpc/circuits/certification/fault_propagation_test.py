@@ -16,7 +16,7 @@ import pytest
 import stim
 
 from qldpc import circuits
-from qldpc.codes.distance._bounded_weight_search import MinWeightBound
+from qldpc.codes.distance._coset_leader_search import MinWeightBound
 
 from . import fault_propagation
 
@@ -270,6 +270,34 @@ def test_exclusive_errors_count_as_separate_primitive_faults() -> None:
     circuit = stim.Circuit("I 0 1\nCORRELATED_ERROR(0.1) X0\nELSE_CORRELATED_ERROR(0.1) X0 X1")
     result = circuits.certify_bounded_fault_propagation(circuit, output_qubits=[0, 1])
     _assert_valid_counterexample(result, circuit)
+
+
+def test_tags_do_not_change_primitive_fault_signatures() -> None:
+    """The flags and syndrome of an error mechanism come from its targets, not from its tag.
+
+    Stim escapes "]" and line feeds in tags, but writes other line breaks, such as a form feed, as
+    they are.
+    """
+    circuit = stim.Circuit("R 0 1 2")
+    targets = [stim.target_x(0), stim.target_x(2)]
+    circuit.append("CORRELATED_ERROR", targets, 0.1, tag="a]b) D1 (")
+    circuit.append("X_ERROR", [1], 0.1, tag=" D0\x0cerror(0.1) D2 ")
+    circuit += stim.Circuit("M 2\nDETECTOR rec[-1]")
+    stabilizers = [stim.PauliString("Z_"), stim.PauliString("_Z")]
+    _, dem, flags, syndromes = fault_propagation._get_primitive_fault_signatures(
+        circuit, stabilizers, [0, 1], [0]
+    )
+    # Detector 0 flags qubit 2, and detectors 1 and 2 measure the stabilizers Z0 and Z1.
+    expected = [
+        (int(0 in events), sum(1 << (detector - 1) for detector in events if detector >= 1))
+        for events in (
+            {target.val for target in instruction.targets_copy()}
+            for instruction in dem
+            if instruction.type == "error"
+        )
+    ]
+    assert list(zip(flags, syndromes, strict=True)) == expected
+    assert sorted(expected) == [(0, 0b10), (1, 0b01)]
 
 
 def test_existing_detectors_do_not_enter_the_syndrome() -> None:
