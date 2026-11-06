@@ -11,8 +11,8 @@ import pytest
 
 from qldpc import codes
 
-from .. import _information_sets
 from .. import logical_counts as lc
+from .._search import information_sets
 from ..conftest import (
     HAND_X,
     HAND_Z,
@@ -34,7 +34,7 @@ def test_counts_against_enumeration(
 ) -> None:
     """Counts match an independent enumeration, as do those of codes deformed after a count."""
     # Build overlapping basis families even for cheap counts.
-    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
+    monkeypatch.setattr(information_sets, "MINIMUM_WORK", 0)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     counter = lc.CSSLogicalCounter(get_random_css_code(rng, 12, 4, 4))
     assert_counts_match_enumeration(counter, max_information_sets=max_sets)
@@ -60,7 +60,7 @@ def test_scans_resume_after_every_chunk(
     monkeypatch: pytest.MonkeyPatch, pytestconfig: pytest.Config, method: DistanceMethod
 ) -> None:
     """A scan that stops after each combination, and after each call, still visits every word."""
-    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
+    monkeypatch.setattr(information_sets, "MINIMUM_WORK", 0)
     monkeypatch.setattr(scan, "_CHUNK_SIZE", 1)
     monkeypatch.setattr(scan, "_CHUNKS_PER_SCAN_CALL", 1)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
@@ -74,7 +74,7 @@ def test_overlapping_basis_families_count_every_word_once(
     monkeypatch: pytest.MonkeyPatch, max_sets: int
 ) -> None:
     """Large basis families of overlapping sets give the counts of a brute-force scan."""
-    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
+    monkeypatch.setattr(information_sets, "MINIMUM_WORK", 0)
     # This code makes the basis family stages choose basis families of over four overlapping sets.
     code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
     counter = lc.CSSLogicalCounter(code)
@@ -89,9 +89,9 @@ def test_counts_through_the_costly_stages_count_every_word_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Counts that try partitioned families and the certificate of linear programs are exact."""
-    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
-    monkeypatch.setattr(_information_sets, "LP_MINIMUM_WORK", 0)
-    monkeypatch.setattr(_information_sets, "PARTITION_WORK_RATIO", 0)
+    monkeypatch.setattr(information_sets, "MINIMUM_WORK", 0)
+    monkeypatch.setattr(information_sets, "LP_MINIMUM_WORK", 0)
+    monkeypatch.setattr(information_sets, "PARTITION_WORK_RATIO", 0)
     code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
     counter = lc.CSSLogicalCounter(code)
     weights = range(len(code) + 1)
@@ -104,15 +104,15 @@ def test_the_information_set_limit_bounds_the_basis_families_of_a_count(
 ) -> None:
     """The limit shrinks the overlapping basis families that a count may use, not the counts."""
     sizes: list[int] = []
-    original = _information_sets.get_overlapping_family
+    original = information_sets.get_overlapping_family
 
-    def record(*args: Any) -> _information_sets.BasisFamily:
+    def record(*args: Any) -> information_sets.BasisFamily:
         replacement = original(*args)
         sizes.append(len(replacement.ranks))
         return replacement
 
-    monkeypatch.setattr(_information_sets, "get_overlapping_family", record)
-    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
+    monkeypatch.setattr(information_sets, "get_overlapping_family", record)
+    monkeypatch.setattr(information_sets, "MINIMUM_WORK", 0)
     code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
     weights = range(len(code) + 1)
     for weight in weights:

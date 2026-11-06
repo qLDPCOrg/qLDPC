@@ -28,9 +28,9 @@ from qldpc._binary import (
 )
 from qldpc._compilation import always_compiled
 
-from . import _information_sets
-from ._binary import as_binary_matrix, assert_binary, symplectic_to_hamming
-from ._information_sets import advance_support
+from .._binary import as_binary_matrix, assert_binary, symplectic_to_hamming
+from . import information_sets
+from .information_sets import advance_support
 
 # The largest number of pairs of a single-qubit X error and a single-qubit Z error (or the identity)
 # that a search of Pauli errors by their CSS weight tabulates by syndrome, in
@@ -494,13 +494,13 @@ def _get_search_tables(
     num_generators, num_columns = generators.shape
     width = max(1, (num_columns + 63) // 64)
     if num_generators:
-        family = _information_sets.get_disjoint_family(generators, None)
+        family = information_sets.get_disjoint_family(generators, None)
         num_sets = family.generators.shape[0]
         packed_generators = pack_bits(family.generators.reshape(-1, num_columns)).reshape(
             num_sets, num_generators, -1
         )
         set_pivots = family.pivots
-        certificate_bounds = _information_sets.get_step_lower_bounds(
+        certificate_bounds = information_sets.get_step_lower_bounds(
             num_generators, family.ranks, 1, 1
         )
         # Round half of each bound up, without overflowing the bounds after the last layer.

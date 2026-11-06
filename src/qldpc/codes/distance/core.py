@@ -20,11 +20,11 @@ from ._binary import (
     get_nested_code_basis,
     symplectic_to_hamming,
 )
-from ._brouwer_zimmermann import (
+from ._search.brouwer_zimmermann import (
     get_distance_brouwer_zimmermann,
     get_distance_brouwer_zimmermann_many,
 )
-from ._brute_force import get_distance_quantum_brute_force, get_nested_distance_brute_force
+from ._search.brute_force import get_distance_quantum_brute_force, get_nested_distance_brute_force
 
 DistanceBackend = Literal["auto", "decoder", "gap", "sqetch"]
 DistanceMethod = Literal["brouwer_zimmermann", "brute_force", "information_sets"]

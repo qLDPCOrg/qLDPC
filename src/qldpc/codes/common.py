@@ -776,9 +776,9 @@ class ClassicalCode(AbstractCode):
         ``p_bits = [bit - m for bit in p.array_form[m:]]``.  Unlike the automorphism group of a code
         (see :meth:`get_automorphism_group`), the automorphism group of a parity check matrix
         depends on the choice of parity checks.  Its members are symmetries of this code, which
-        :class:`~qldpc.codes.quantum.BPCode` uses to construct balanced product codes.  Computing
-        this group requires the optional ``pybliss`` package, which can be installed with
-        ``pip install 'qldpc[bliss]'``.
+        :class:`~qldpc.codes.quantum.balanced_product.BPCode` uses to construct balanced product
+        codes.  Computing this group requires the optional ``pybliss`` package, which can be
+        installed with ``pip install 'qldpc[bliss]'``.
         """
         generators = _bliss.get_matrix_automorphism_generators(self.matrix)
         size = sum(self.matrix.shape)

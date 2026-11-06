@@ -2,13 +2,13 @@
 
 """Basis families of information sets and their certificates, shared by exact BZ and coset searches.
 
-Exact distance search (``_brouwer_zimmermann.py``) and fixed-weight logical counting
+Exact distance search (``brouwer_zimmermann.py``) and fixed-weight logical counting
 (``_counting/scan.py``) enumerate coefficient layers over the same basis families (see
 ``brouwer_zimmermann.md`` for the terminology).  Layer ``w`` of an information set holds the words
 that add ``w`` of its rows to an offset.  The offset is zero in the distance and counting scans,
 which search a space, and is a fixed word of the searched coset in the coset-leader oracle
 (``CosetLeaderSearch``), which searches a coset (see ``_search_coset`` in
-``_coset_leader_search.py``).  This module owns how those basis families are built, pruned, and
+``coset_leader_search.py``).  This module owns how those basis families are built, pruned, and
 replaced by overlapping ones, and the certificate that bounds the Hamming weight of eligible words
 that a basis family has not yet visited.  The coset-leader oracle uses the disjoint information sets
 for its own layered search.  All three enumerate a layer with :func:`advance_support`.
@@ -48,7 +48,7 @@ import numpy.typing as npt
 from qldpc._binary import pack_bits, row_reduce_binary, row_reduce_packed, unpack_bits
 from qldpc._compilation import always_compiled, compiled_on_request
 
-from . import _matroid_partition
+from . import matroid_partition
 
 # Default limit on the number of sets in a replacement basis family (see get_overlapping_family).
 MAX_SETS = 16
@@ -466,7 +466,7 @@ def get_partitioned_family(
     ``basis``, whose quotient labels ``labels`` have no columns if it has none.  For each maximum
     coverage from two to ``_MAX_PARTITION_COVERAGE``, matroid partitioning finds the most full
     information sets, up to ``max_sets``, that contain no column more often than that coverage (see
-    ``_matroid_partition``).  This follows Section 5.1 of Lisoněk and Trummer (2016), which shows
+    ``matroid_partition``).  This follows Section 5.1 of Lisoněk and Trummer (2016), which shows
     that such families can do less work than those of the Brouwer-Zimmermann algorithm.
 
     Returns the family that certifies ``upper_bound`` with the least estimated work, if that is less
@@ -500,7 +500,7 @@ def get_partitioned_family(
 
     # Build a family for each coverage, and keep the one that does the least work.
     for coverage in range(2, _MAX_PARTITION_COVERAGE + 1):
-        column_sets = _matroid_partition.get_information_sets_with_coverage(
+        column_sets = matroid_partition.get_information_sets_with_coverage(
             basis, coverage, max_sets
         )
 

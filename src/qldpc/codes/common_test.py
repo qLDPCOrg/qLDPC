@@ -23,8 +23,10 @@ import sympy.abc
 
 from qldpc import abstract, codes, decoders, external, math
 from qldpc.codes import _code_capacity, common
-from qldpc.codes.distance import _brouwer_zimmermann
+from qldpc.codes.distance._search import brouwer_zimmermann
 from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ
+
+from .conftest import assert_valid_subgraphs
 
 ####################################################################################################
 # classical code tests
@@ -456,13 +458,6 @@ def test_qubit_code(num_qubits: int = 5, num_checks: int = 3) -> None:
         assert get_random_qudit_code(num_qubits, num_checks, field=3).num_qubits
 
 
-def assert_valid_subgraphs(code: codes.QuditCode) -> None:
-    """Every edge of the Tanner graph occurs in exactly one syndrome measurement subgraph."""
-    edges = [edge for graph in code.get_syndrome_subgraphs() for edge in graph.edges]
-    assert len(edges) == len(set(edges))
-    assert set(edges) == set(code.graph.edges)
-
-
 def test_qudit_codes() -> None:
     """Miscellaneous qudit code tests and coverage."""
     code = codes.FiveQubitCode()
@@ -816,7 +811,7 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch) -> None
 
     # use the automorphisms of the code's family before the first layer of these quick searches
     monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
-    monkeypatch.setattr(_brouwer_zimmermann, "MINIMUM_LAYER_WORK", 0)
+    monkeypatch.setattr(brouwer_zimmermann, "MINIMUM_LAYER_WORK", 0)
     x, y = sympy.abc.x, sympy.abc.y
     bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
     translations = bb_code._get_qudit_automorphisms()
@@ -852,7 +847,7 @@ def test_distances_with_bliss(monkeypatch: pytest.MonkeyPatch) -> None:
     matrices alone.
     """
     pytest.importorskip("pybliss")
-    monkeypatch.setattr(_brouwer_zimmermann, "MINIMUM_LAYER_WORK", 0)
+    monkeypatch.setattr(brouwer_zimmermann, "MINIMUM_LAYER_WORK", 0)
     x, y = sympy.abc.x, sympy.abc.y
     bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
     shuffle = np.random.default_rng(0).permutation(len(bb_code))

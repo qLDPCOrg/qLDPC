@@ -57,10 +57,10 @@ autoapi_dirs = [
 autoapi_type = "python"
 
 # Note: "imported-members" is intentionally omitted.  Including it re-documents every object on each
-# parent package's page (e.g. classes defined in qldpc/codes/quantum.py would also appear on the
-# qldpc.codes page), which both roughly doubles the number of pages/warnings and produces ambiguous
-# cross-references.  Each object is instead documented once, on the page of the module that defines
-# it.
+# parent package's page (e.g. classes defined in qldpc/codes/quantum/surface.py would also appear on
+# the qldpc.codes and qldpc.codes.quantum pages), which both roughly doubles the number of
+# pages/warnings and produces ambiguous cross-references.  Each object is instead documented once,
+# on the page of the module that defines it.
 autoapi_options = [
     "members",
     "undoc-members",

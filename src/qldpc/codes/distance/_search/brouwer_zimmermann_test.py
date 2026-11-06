@@ -20,9 +20,9 @@ import qldpc
 from qldpc._binary import get_independent_rows
 from qldpc.objects import PAULIS_XZ, Pauli
 
-from . import _brouwer_zimmermann as bz
-from . import _information_sets
-from .conftest import get_random_full_rank_matrix, get_sector_problem
+from ..conftest import get_random_full_rank_matrix, get_sector_problem
+from . import brouwer_zimmermann as bz
+from . import information_sets
 
 
 @pytest.mark.parametrize("interpreted", [False, True])
@@ -109,7 +109,7 @@ def test_brouwer_zimmermann_search_state() -> None:
         np.ones((1, 2, 1), dtype=np.uint64),
         np.array([1], dtype=np.int64),
         np.array([1], dtype=np.int64),
-        _information_sets.Certificate(2, (0,)),
+        information_sets.Certificate(2, (0,)),
         cutoff=1,
         batch_size=1,
         best=3,
@@ -119,7 +119,7 @@ def test_brouwer_zimmermann_search_state() -> None:
     # An interrupted coefficient-weight layer leaves the lower-bound certificate unchanged.
     with (
         mock.patch(
-            "qldpc.codes.distance._brouwer_zimmermann._scan_brouwer_zimmermann",
+            "qldpc.codes.distance._search.brouwer_zimmermann._scan_brouwer_zimmermann",
             side_effect=KeyboardInterrupt,
         ),
         pytest.raises(KeyboardInterrupt),
@@ -220,7 +220,7 @@ def test_brouwer_zimmermann_setup_exits(
     # Lower only the cost knobs, so that these small inputs reach the information-set search.
     monkeypatch.setattr(bz, "enumeration_is_cheaper_than_setup", lambda *_: False)
     if overlap:
-        monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
+        monkeypatch.setattr(information_sets, "MINIMUM_WORK", 0)
     distance = qldpc.codes.get_distance_quantum(
         logicals, stabilizers, homogeneous=True, cutoff=cutoff
     )
@@ -298,7 +298,7 @@ def test_a_given_disjoint_basis_family_replaces_the_first_stage() -> None:
     basis = get_random_full_rank_matrix(rng, 5, 9)
     labels = np.vstack([np.zeros((2, 3), dtype=np.uint8), np.eye(3, dtype=np.uint8)])
     expected = bz.get_distance_brouwer_zimmermann_many([(basis, labels)], cutoff=0, block_size=2)
-    get_basis_family = mock.Mock(return_value=_information_sets.get_disjoint_family(basis, labels))
+    get_basis_family = mock.Mock(return_value=information_sets.get_disjoint_family(basis, labels))
     search = functools.partial(
         bz.get_distance_brouwer_zimmermann_many,
         [(basis, labels)],
@@ -306,7 +306,7 @@ def test_a_given_disjoint_basis_family_replaces_the_first_stage() -> None:
         get_disjoint_basis_families=[get_basis_family],
     )
     with mock.patch.object(
-        _information_sets, "get_disjoint_family", wraps=_information_sets.get_disjoint_family
+        information_sets, "get_disjoint_family", wraps=information_sets.get_disjoint_family
     ) as first_stage:
         assert search(cutoff=0) == expected
         get_basis_family.assert_called_once_with()
@@ -443,10 +443,10 @@ def test_brouwer_zimmermann_overlap_improves_quotient_witness(
 
     # Lower only the work threshold so this small oracle exercises production basis family
     # construction, and check that the overlapping family has no witness as light as the distance.
-    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
-    original = _information_sets.get_overlapping_family
+    monkeypatch.setattr(information_sets, "MINIMUM_WORK", 0)
+    original = information_sets.get_overlapping_family
 
-    def select(*args: Any, **kwargs: Any) -> _information_sets.BasisFamily:
+    def select(*args: Any, **kwargs: Any) -> information_sets.BasisFamily:
         selected = original(*args, **kwargs)
         assert len(selected.ranks) and selected.max_coverage > 1
         assert (
@@ -459,7 +459,7 @@ def test_brouwer_zimmermann_overlap_improves_quotient_witness(
         return selected
 
     with mock.patch.object(
-        _information_sets, "get_overlapping_family", side_effect=select
+        information_sets, "get_overlapping_family", side_effect=select
     ) as select_mock:
         assert (
             qldpc.codes.get_distance_quantum(logicals, stabilizers, homogeneous=True, cutoff=0)
@@ -528,9 +528,9 @@ def test_a_search_through_the_costly_stages_finds_the_distance(
     information sets from matroid partitioning, whose columns lie in up to two of them, and bounds
     unvisited words by linear programming.
     """
-    monkeypatch.setattr(_information_sets, "MINIMUM_WORK", 0)
-    monkeypatch.setattr(_information_sets, "LP_MINIMUM_WORK", 0)
-    monkeypatch.setattr(_information_sets, "PARTITION_WORK_RATIO", 0)
+    monkeypatch.setattr(information_sets, "MINIMUM_WORK", 0)
+    monkeypatch.setattr(information_sets, "LP_MINIMUM_WORK", 0)
+    monkeypatch.setattr(information_sets, "PARTITION_WORK_RATIO", 0)
     rows = [
         "100000010110010010011",
         "010000010100101111100",
@@ -548,13 +548,13 @@ def test_a_search_through_the_costly_stages_finds_the_distance(
 
 @pytest.fixture
 def switch_before_any_layer(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Let searches consider translates before their first layer, however cheap it is."""
+    """Let searches consider automorphism families before their first layer, however cheap it is."""
     monkeypatch.setattr(bz, "MINIMUM_LAYER_WORK", 0)
 
 
 @pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
-def test_translated_searches_scan_every_layer_they_certify() -> None:
-    """A translated search that reaches the distance only in layer four, its last.
+def test_automorphism_family_searches_scan_every_layer_they_certify() -> None:
+    """A search with an automorphism family that reaches the distance only in layer four, its last.
 
     This [[72, 4, 8]] bivariate bicycle code comes from a search for codes like those of
     arXiv:2308.07915.  In its X sector, the lightest rows of the scanned set weigh ten, and the
@@ -573,7 +573,7 @@ def test_translated_searches_scan_every_layer_they_certify() -> None:
 
 
 @pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
-def test_translated_searches_find_exact_distances() -> None:
+def test_automorphism_family_searches_find_exact_distances() -> None:
     """Searches given automorphisms agree with brute force, alone or sharing witnesses.
 
     The searches use the translations of a multivariate bicycle code, the identity alone, which does
@@ -601,16 +601,16 @@ def test_translated_searches_find_exact_distances() -> None:
 
 
 @pytest.mark.usefixtures("force_information_sets")
-def test_translated_searches_scan_their_new_set_from_layer_two(
+def test_automorphism_family_searches_scan_their_new_set_from_layer_two(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A search that switches to translates before layer three scans the new set from layer two.
+    """A search that switches to an automorphism family before layer three rescans from layer two.
 
     This [16, 8, 4] quasi-cyclic code has the generator matrix ``[I | circ(1 + x + x^3 + x^4)]``,
     and shifting both blocks at once preserves it.  The search starts with one information set,
     the first block, which holds four ones of each word of weight four, so its first two layers
     miss them.  Before layer three it switches to a set with half of its columns in each block,
-    which holds two ones of every translate of these words.  A search that continued the new set
+    which holds two ones of every shift of these words.  A search that continued the new set
     from layer three would certify that no word is lighter than its best witness of weight five.
     """
     size, word = 8, [1, 1, 0, 1, 1, 0, 0, 0]
@@ -620,12 +620,12 @@ def test_translated_searches_scan_their_new_set_from_layer_two(
     labels = _no_labels(basis)
     shift = np.roll(np.arange(size), -1)
     automorphisms = np.concatenate([shift, shift + size])[None]
-    first_family = _information_sets.BasisFamily(
+    first_family = information_sets.BasisFamily(
         basis[None],
         labels[None],
         np.arange(size)[None],
         np.array([size]),
-        _information_sets.infer_weight_divisor(basis),
+        information_sets.infer_weight_divisor(basis),
         1,
     )
     monkeypatch.setattr(bz, "MINIMUM_LAYER_WORK", math.comb(size, 3))
@@ -660,8 +660,8 @@ def test_searches_ask_for_automorphisms_only_before_costly_layers(
 
 
 @pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
-def test_translated_rows_can_reach_the_cutoff() -> None:
-    """The rows of a scanned set with translates can end a search at the cutoff.
+def test_rows_of_an_automorphism_family_can_reach_the_cutoff() -> None:
+    """The rows of a scanned set with images can end a search at the cutoff.
 
     In the Z sector of this [[36, 4, 4]] bivariate bicycle code, the rows of the first family weigh
     more than six, and a row of the scanned set weighs six.  With a cutoff of six, the search

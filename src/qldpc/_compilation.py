@@ -26,7 +26,7 @@ version compiled in memory, which is never cached on disk.  A function calls oth
 their module-level names, which are looked up when it is compiled, so a compiled function calls
 compiled functions.  This is why every function that a compiled-on-request function calls must be
 always-compiled or compiled on request too.  Other modules must call a compiled-on-request function
-through the module that defines it, as in ``_information_sets.get_overlapping_family(...)``, and
+through the module that defines it, as in ``information_sets.get_overlapping_family(...)``, and
 never through a name imported by ``from``, which would keep the version that was current at import
 time.
 

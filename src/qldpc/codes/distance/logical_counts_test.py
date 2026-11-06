@@ -21,9 +21,9 @@ import qldpc
 from qldpc import _compilation, codes
 from qldpc._binary import get_independent_rows
 
-from . import _information_sets
 from . import logical_counts as lc
 from ._counting import macwilliams
+from ._search import information_sets
 from .conftest import (
     HAND_X,
     HAND_Z,
@@ -234,7 +234,7 @@ def test_a_failed_compilation_leaves_the_set_up_code_as_plain_python(
     monkeypatch.setattr(lc, "_warm_up_compiled_functions", refuse)
     with pytest.raises(RuntimeError, match="refused"):
         qldpc.codes.distance.compile_search_setup()
-    select = _information_sets.get_overlapping_family
+    select = information_sets.get_overlapping_family
     assert not isinstance(select, numba.core.registry.CPUDispatcher)
 
 
@@ -257,7 +257,7 @@ def test_later_counts_reuse_the_first_family_stage() -> None:
     """
     counter = lc.CSSLogicalCounter(codes.SurfaceCode(5, rotated=False))
     with mock.patch.object(
-        _information_sets, "get_disjoint_family", wraps=_information_sets.get_disjoint_family
+        information_sets, "get_disjoint_family", wraps=information_sets.get_disjoint_family
     ) as first_stage:
         assert counter.count_logical_ops() == Counts(5, 5, 5, None)
         num_first_stages = first_stage.call_count
@@ -295,7 +295,7 @@ def test_deformed_counter_reuses_the_first_family_stage() -> None:
     fresh = get_counter(deformed.checks_x, deformed.checks_z)
     expected = [fresh.count_logical_ops(weight) for weight in weights]
     with mock.patch.object(
-        _information_sets, "get_disjoint_family", wraps=_information_sets.get_disjoint_family
+        information_sets, "get_disjoint_family", wraps=information_sets.get_disjoint_family
     ) as first_stage:
         counts = [deformed.count_logical_ops(weights[0])]
         num_first_stages = first_stage.call_count
