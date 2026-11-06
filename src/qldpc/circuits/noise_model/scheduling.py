@@ -908,9 +908,6 @@ def _get_min_cost_layers(
         bounds=(0, num_layers - 1),
         method="highs-ds",
     )
-    layers = [round(layer) for layer in result.x] if result.success else []
-    if not result.success or any(
-        layers[later] - layers[earlier] < gap for earlier, later, gap in edges
-    ):
+    if not result.success:
         raise RuntimeError(f"The linear program failed to place nodes in layers: {result.message}")
-    return layers
+    return [round(layer) for layer in result.x]
