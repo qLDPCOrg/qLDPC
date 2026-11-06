@@ -521,11 +521,11 @@ Words that the first family examined still contribute their witnesses to `U`.
 
 #### Where automorphisms come from
 
-A CSS code finds automorphisms by itself if the optional `pybliss` package is installed.
-Bliss finds the automorphisms of the Tanner graph of the code, with X-type and Z-type checks colored apart.
-Their permutations of qubits map the rows of `matrix_x` and of `matrix_z` to rows of the same matrix.
-They therefore preserve both check spaces, and with them the logical operators and stabilizers of each sector.
-They are the symmetries of the given parity checks, a subgroup of the automorphisms of the code.
+A binary quantum code finds automorphisms by itself if the optional `pybliss` package is installed.
+Bliss finds the automorphisms of the Tanner graph of the code, whose edges are colored by the Pauli operators of the checks.
+Their permutations of qubits map each check to a check, so they preserve the stabilizers, gauge operators, and logical operators.
+For a CSS code, the colors keep X-type and Z-type checks apart, so the permutations also preserve the logical operators and stabilizers of each sector.
+These automorphisms are the symmetries of the given parity checks, a subgroup of the automorphisms of the code.
 This subgroup suffices, since every group of automorphisms gives a sound certificate.
 
 Without `pybliss`, or if bliss finds none, code classes can supply generators through a `_get_qudit_automorphisms` method.
@@ -533,6 +533,12 @@ Without `pybliss`, or if bliss finds none, code classes can supply generators th
 A wrong generator would make the certificate unsound.
 So before a search uses the generators, it checks that each maps `V` and `S` onto themselves, and raises an error if one does not.
 Only distance searches use automorphisms: counting the logical operators of a given weight ([Section 5](#5-correctness-requirements)) must visit every word of that weight, not one word per orbit.
+
+Generators from either source act on qubits.
+The search of a general Pauli problem runs over the coordinates `(x | z | x+z)` of [Section 2.7](#27-pauli-weight-as-hamming-weight).
+A permutation of qubits acts on these coordinates by moving each of the three blocks alike.
+The map `T` commutes with these lifted permutations, so a lifted permutation preserves `T(V)` and `T(S)` exactly if the permutation preserves `V` and `S`.
+Verification of a lifted permutation therefore checks the original one.
 
 ### 3.8 Worked example
 
@@ -593,6 +599,8 @@ Every module with compiled functions uses [_compilation.py](../../_compilation.p
 `_get_distance_css_brouwer_zimmermann` of [core.py](core.py) builds an adapted basis ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)) for each nontrivial sector, then passes the resulting problems to `get_distance_brouwer_zimmermann_many`.
 It also passes a function that returns automorphisms of the code.
 `get_distance_exact` of `CSSCode` in `src/qldpc/codes/common.py` passes the code's `_found_qudit_automorphisms`, which uses bliss from `src/qldpc/external/_bliss.py` or the code's `_get_qudit_automorphisms` method.
+`get_distance_exact` of `QuditCode` passes the same function to `_get_distance_quantum`, a private form of `get_distance_quantum` that accepts automorphisms.
+`_get_distance_quantum` lifts them to the coordinates of a general Pauli problem with `_get_lifted_automorphisms`, and passes its problem to `get_distance_brouwer_zimmermann_many`.
 [_automorphisms.py](_automorphisms.py) verifies automorphisms and builds the families of translates of [Section 3.7](#37-translates-of-an-information-set-by-automorphisms), using [_information_sets.py](_information_sets.py) for their certificates.
 
 `CosetLeaderSearch` in [_coset_leader_search.py](_coset_leader_search.py), which the fault-propagation certifier in `qldpc.circuits.certification` uses, applies the same search to a coset `e + V` instead of `V`.
@@ -649,7 +657,7 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Certificate within a layer `L(t, j)` | `Certificate.step_lower_bound(weight, num_completed)` and the table of `get_step_lower_bounds`; `Certificate.get_num_sets_to_certify` gives the smallest `j` that certifies a bound |
 | Certificate from linear programming | `get_lp_lower_bound`, which a `Certificate` with `pivot_blocks` combines with the coverage-divided certificate; `BasisFamily.get_search_certificate` adds the blocks to costly searches of overlapping families |
 | Family of search bases | `BasisFamily`, which stacks the search bases into arrays and gives their `Certificate`; a search keeps only the certificate |
-| Automorphisms, generators of `G` | `automorphisms`, whose row `i` maps column `j` to column `automorphisms[i, j]`, as returned by `get_automorphisms`; `_found_qudit_automorphisms` and `_get_qudit_automorphisms` of `CSSCode` |
+| Automorphisms, generators of `G` | `automorphisms`, whose row `i` maps column `j` to column `automorphisms[i, j]`, as returned by `get_automorphisms`; `_found_qudit_automorphisms` and `_get_qudit_automorphisms` of `QuditCode` |
 | Family of translates | `get_translate_family` of [_automorphisms.py](_automorphisms.py), which returns a `BasisFamily` of the scanned set and the `Certificate` of all of its translates; `_switch_to_translates` adopts them, and a search of such a family is `translated` |
 | Last completed layer `t`, next layer | `completed_weight`, `next_weight` |
 | Divisor `D` | `Certificate.weight_divisor`, in Hamming units of the searched basis |
@@ -740,11 +748,12 @@ With an early-exit cutoff above one, a different search order can find a differe
   A joint search runs one search per sector in round-robin order and shares the best bound.
   Each sector keeps its own `lower_bound` and `certificate`, including its coverage and divisor.
 - **Automorphisms.**
-  `get_distance_exact` of `CSSCode` passes the code's `_found_qudit_automorphisms` to the BZ searches of its sectors, as a function.
+  `get_distance_exact` of `QuditCode` and of `CSSCode` pass the code's `_found_qudit_automorphisms` to their BZ searches, as a function.
   Each search calls the function only before a costly layer, and the code caches its result, so bliss runs at most once for the code.
-  A search uses the generators only after `verify_automorphisms` accepts them for its sector.
-  A generator preserves both sectors if it maps the row spaces of both parity check matrices onto themselves.
-  Only these BZ searches of binary CSS sectors receive automorphisms.
+  A search uses the generators only after `verify_automorphisms` accepts them for its problem.
+  A generator preserves both sectors of a CSS code if it maps the row spaces of both parity check matrices onto themselves.
+  For a general Pauli problem, `_get_distance_quantum` lifts each generator to the three blocks of coordinates of [Section 2.7](#27-pauli-weight-as-hamming-weight).
+  Only these BZ searches of binary codes receive automorphisms.
 
 ## 5. Correctness requirements
 

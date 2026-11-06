@@ -7,13 +7,15 @@ from __future__ import annotations
 import functools
 from collections.abc import Callable
 from typing import cast
+from unittest import mock
 
 import numpy as np
 import pytest
+from sympy.abc import x
 
 import qldpc
 
-from . import core
+from . import _brouwer_zimmermann, core
 from .conftest import get_random_full_rank_matrix, get_span
 
 
@@ -193,6 +195,36 @@ def test_get_distance_quantum_noncss_codes(
 
     code._distance = None
     assert code.get_distance_exact() == expected_distance
+
+
+@pytest.mark.usefixtures("force_information_sets")
+def test_quantum_distances_use_qubit_automorphisms(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Searches use qubit permutations for homogeneous operators, and lift them for Pauli operators.
+
+    Hadamards on the second block of this [[14, 6, 3]] multivariate bicycle code make a code that is
+    not CSS, which translations of both blocks still preserve.  A wrong permutation fails loudly.
+    """
+    monkeypatch.setattr(_brouwer_zimmermann, "MINIMUM_LAYER_WORK", 0)
+    bicycle_code = qldpc.codes.MBCode([7], 1 + x + x**3, 1 + x**2 + x**3 + x**4)
+    translations = bicycle_code._get_qudit_automorphisms()
+    transposition = np.arange(len(bicycle_code))
+    transposition[[0, 1]] = [1, 0]
+    code = bicycle_code.conjugated(range(7, 14))
+    problems = [
+        (code.get_logical_ops(), code.get_stabilizer_ops(), False),
+        (bicycle_code.get_logical_ops("X"), bicycle_code.get_stabilizer_ops("X"), True),
+    ]
+    for logical_ops, stabilizers, homogeneous in problems:
+        search = functools.partial(
+            core._get_distance_quantum, logical_ops, stabilizers, homogeneous=homogeneous
+        )
+        expected = search(method="brute_force")
+        for automorphisms in (translations, None):
+            get_automorphisms = mock.Mock(return_value=automorphisms)
+            assert search(get_automorphisms=get_automorphisms) == expected == 3
+            get_automorphisms.assert_called()
+        with pytest.raises(ValueError, match="not an automorphism"):
+            search(get_automorphisms=lambda: transposition[None])
 
 
 @pytest.mark.usefixtures("force_information_sets", "compilation_mode")
