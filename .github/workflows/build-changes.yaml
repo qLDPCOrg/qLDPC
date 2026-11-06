@@ -22,22 +22,23 @@ concurrency:
 
 jobs:
   ubuntu:
-    name: Ubuntu check (Python 3.11 + pip)
+    name: Ubuntu check of minimum dependency versions (Python 3.11)
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.11"
-          cache: pip
-          cache-dependency-path: pyproject.toml
-      - name: Install package and dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install '.[dev]'
+          activate-environment: true
+          # setup-uv's cache key hashes pyproject.toml, which every run of this workflow changes
+          enable-cache: false
+      # Install the lowest versions that pyproject.toml allows for the direct dependencies of the
+      # package and its decoders extra, which tests the declared minimum versions.
+      - name: Install package and minimum versions of its dependencies
+        run: uv pip install --resolution lowest-direct '.[decoders]' --group ci-test
       - name: Run pytest
         run: python checks/pytest_.py
 

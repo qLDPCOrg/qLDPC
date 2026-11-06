@@ -5,11 +5,6 @@
 .. warning::
     This module does not promise to be performant.  If you need to do heavy numerical abstract
     algebra, you're probably better served by GAP or MAGMA (or maybe SageMath).
-
-``RingArray`` and its deprecated ``Protograph`` alias now live in ``.ring_array``, but this module
-still re-exports them lazily (see ``__getattr__`` below) for backward compatibility with existing
-imports and pickled objects that reference ``qldpc.abstract.rings.RingArray``.
-
 """
 
 from __future__ import annotations
@@ -19,9 +14,8 @@ import copy
 import functools
 import itertools
 import operator
-import warnings
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import galois
 import numpy as np
@@ -29,16 +23,15 @@ import numpy.typing as npt
 import sympy.abc
 import sympy.core
 
-from qldpc import external
-from qldpc._util import get_deprecated_alias
+from qldpc import _deprecations
+from qldpc.math import resolve_field
 
-from ._monomials import iter_monomial_terms
-from .groups import AbelianGroup, Group, GroupMember, resolve_field
+from .groups import AbelianGroup, Group, GroupMember
+from .monomials import iter_monomial_terms
 
 if TYPE_CHECKING:
-    # re-exported for type checkers only; see the module-level __getattr__ for the runtime shim
-    from .ring_array import Protograph, RingArray  # noqa: F401
     from .wedderburn_artin import WedderburnArtinTransformer
+
 
 ####################################################################################################
 # group algebra and elements thereof
@@ -77,6 +70,9 @@ class GroupRing:
 
         By default each component's primitive central idempotent is validated; pass
         ``skip_validation=True`` to skip the check (see WedderburnArtinComponentTransformer).
+
+        Unless the ring's primitive central idempotents are already known, this may run GAP, prompt
+        on standard input, and use the system clipboard; see get_primitive_central_idempotents.
         """
         from .wedderburn_artin import WedderburnArtinTransformer  # avoid circular import
 
@@ -186,11 +182,19 @@ class GroupRing:
 
         See `Idempotent (ring theory)
         <https://en.wikipedia.org/wiki/Idempotent_%28ring_theory%29>`_.
+
+        Unless they are already known, the idempotents are computed with the GAP Wedderga package
+        and cached to disk.  If GAP can be called but lacks Wedderga, qLDPC asks for consent on
+        standard input to install it.  If GAP cannot be called directly, qLDPC asks on standard
+        input whether GAP is available for copy/paste, and then prints the GAP commands, copies
+        them to the system clipboard, and reads the output that the user pastes into standard input.
         """
         if not self.is_semisimple:
             raise ValueError("Only semisimple rings have primitive central idempotents")
         if self._idempotents is None:
-            idempotents_as_tuples = external.groups.get_primitive_central_idempotents(
+            from qldpc.external import _groups  # avoid circular import
+
+            idempotents_as_tuples = _groups.get_primitive_central_idempotents(
                 self.group.to_gap_group(), self.field.order
             )
             idempotents = []
@@ -506,11 +510,10 @@ class RingMember:
     @classmethod
     def from_vector(cls, vector: npt.NDArray[np.int_], ring: GroupRing | Group) -> RingMember:
         """Construct a group algebra element from vector of coefficients, ``(x_g : g in G)``."""
-        if isinstance(vector, (GroupRing, Group)):
-            warnings.warn(
+        if isinstance(vector, (GroupRing, Group)):  # DEPRECATED: see qldpc._deprecations
+            _deprecations.warn_deprecated(
                 "Check argument order: it should be RingMember.from_vector(vector, ring)."
                 "  The order (ring, vector) is DEPRECATED and will throw an error in the future!",
-                DeprecationWarning,
                 stacklevel=2,
             )
             vector, ring = ring, vector
@@ -526,25 +529,7 @@ class RingMember:
         return vector
 
 
-DEPRECATED_ALIASES = {"Element": RingMember}
+if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations
 
-# Deprecated names resolve at runtime through a module-level __getattr__ that warns when accessed.
-# Type checkers instead see plain aliases, so that they still flag misspelled attributes.
-if TYPE_CHECKING:
-    Element = RingMember
-else:
-
-    def __getattr__(name: str) -> Any:
-        """Resolve deprecated names, and lazily re-export names that moved to ``.ring_array``.
-
-        The lazy re-export preserves ``qldpc.abstract.rings.RingArray`` (and the deprecated
-        ``Protograph`` alias) as a valid, if no longer canonical, import path -- including for
-        unpickling objects saved before the split -- without importing ``.ring_array`` eagerly at
-        module load time, which would recreate the import cycle (``.ring_array`` imports
-        ``GroupRing``/``RingMember`` from here) that motivated splitting it out in the first place.
-        """
-        if name in ("RingArray", "Protograph"):
-            from . import ring_array
-
-            return getattr(ring_array, name)
-        return get_deprecated_alias(__name__, name, DEPRECATED_ALIASES)
+    def __getattr__(name: str) -> object:
+        return _deprecations.get_deprecated_attribute(__name__, name)

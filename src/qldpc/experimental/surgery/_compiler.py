@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Private compiler-facing records and lowering for lattice surgery."""
 
 from __future__ import annotations
@@ -16,6 +18,9 @@ from qldpc.objects import Pauli, PauliXZ
 from .bridge import build_bridge
 from .circuit import _build_joint_ppm_circuit, keep_only_observable, logical_state_init
 from .gadget import build_gadget
+
+####################################################################################################
+# compiler records
 
 
 class _SurgeryBackendUnsupportedError(RuntimeError):
@@ -90,131 +95,8 @@ class _CompiledPairMeasurement:
     resources: _SurgeryResourceCounts
 
 
-def _as_pauli_xz(basis: Pauli) -> PauliXZ:
-    """Validate and narrow a Pauli value to an X/Z basis."""
-    if basis is Pauli.X:
-        return Pauli.X
-    if basis is Pauli.Z:
-        return Pauli.Z
-    raise ValueError(f"logical Pauli basis must be Pauli.X or Pauli.Z, got {basis!r}")
-
-
-def _validate_blocks(blocks: Collection[_LogicalBlock]) -> dict[str, _LogicalBlock]:
-    """Validate and index the two logical blocks in one pair-measurement request."""
-    block_list = tuple(blocks)
-    if len(block_list) != 2:
-        raise ValueError(
-            f"an inter-block pair measurement requires exactly 2 blocks, got {len(block_list)}"
-        )
-
-    block_by_id: dict[str, _LogicalBlock] = {}
-    for block in block_list:
-        if not isinstance(block, _LogicalBlock):
-            raise TypeError(f"blocks must contain _LogicalBlock values, got {type(block).__name__}")
-        if not isinstance(block.identifier, str):
-            raise TypeError("logical block identifiers must be strings")
-        if not block.identifier.strip():
-            raise ValueError("logical block identifiers must not be empty")
-        if block.identifier in block_by_id:
-            raise ValueError(f"duplicate logical block identifier: {block.identifier!r}")
-        if not isinstance(block.code, CSSCode):
-            raise TypeError(
-                f"logical block {block.identifier!r} must contain a CSSCode, "
-                f"got {type(block.code).__name__}"
-            )
-        if block.code.field.order != 2:
-            raise ValueError(
-                f"logical block {block.identifier!r} must contain a binary CSS code, "
-                f"got GF({block.code.field.order})"
-            )
-        if block.code.is_subsystem_code:
-            raise ValueError(
-                f"logical block {block.identifier!r} must contain a stabilizer CSS code, "
-                "not a subsystem code"
-            )
-        block_by_id[block.identifier] = block
-    return block_by_id
-
-
-def _validate_request(
-    request: _PauliPairMeasurement,
-    block_by_id: Mapping[str, _LogicalBlock],
-) -> tuple[tuple[_LogicalPauliRef, _LogicalBlock], tuple[_LogicalPauliRef, _LogicalBlock]]:
-    """Validate a pair request and resolve its factors to logical blocks."""
-    if not isinstance(request, _PauliPairMeasurement):
-        raise TypeError(f"request must be a _PauliPairMeasurement, got {type(request).__name__}")
-    if not isinstance(request.result_key, str):
-        raise TypeError("measurement result_key must be a string")
-    if not request.result_key.strip():
-        raise ValueError("measurement result_key must not be empty")
-    if not isinstance(request.factors, tuple) or len(request.factors) != 2:
-        raise ValueError("a Pauli-pair measurement requires exactly 2 factors")
-
-    resolved: list[tuple[_LogicalPauliRef, _LogicalBlock]] = []
-    for factor in request.factors:
-        if not isinstance(factor, _LogicalPauliRef):
-            raise TypeError(
-                f"measurement factors must be _LogicalPauliRef values, got {type(factor).__name__}"
-            )
-        if not isinstance(factor.block_id, str):
-            raise TypeError("logical Pauli block identifiers must be strings")
-        if factor.block_id not in block_by_id:
-            raise ValueError(f"measurement references unknown logical block {factor.block_id!r}")
-        _as_pauli_xz(factor.basis)
-        if not isinstance(factor.logical_index, int) or isinstance(factor.logical_index, bool):
-            raise TypeError("logical indices must be integers")
-        block = block_by_id[factor.block_id]
-        if not 0 <= factor.logical_index < block.code.dimension:
-            raise IndexError(
-                f"logical_index={factor.logical_index} is out of range for block "
-                f"{factor.block_id!r} with dimension={block.code.dimension}"
-            )
-        resolved.append((factor, block))
-
-    (factor_l, block_l), (factor_r, block_r) = resolved
-    if factor_l.block_id == factor_r.block_id:
-        raise ValueError("an inter-block pair measurement requires two distinct block identifiers")
-    if factor_l.basis is not factor_r.basis:
-        raise ValueError(
-            "the Webster fallback requires same-basis factors, got "
-            f"{factor_l.basis!r} and {factor_r.basis!r}"
-        )
-    return (factor_l, block_l), (factor_r, block_r)
-
-
-def _resolve_initial_states(
-    initial_states: Mapping[str, str] | None,
-    resolved: tuple[
-        tuple[_LogicalPauliRef, _LogicalBlock],
-        tuple[_LogicalPauliRef, _LogicalBlock],
-    ],
-) -> tuple[str, str] | None:
-    """Resolve logical state labels to per-physical-qubit initialization strings."""
-    if initial_states is None:
-        return None
-    if not isinstance(initial_states, Mapping):
-        raise TypeError("initial_states must be a mapping from block identifiers to state labels")
-
-    expected_ids = {factor.block_id for factor, _ in resolved}
-    provided_ids = set(initial_states)
-    if provided_ids != expected_ids:
-        missing = sorted(expected_ids - provided_ids)
-        extra = sorted(provided_ids - expected_ids, key=repr)
-        raise ValueError(
-            f"initial_states must name exactly the measured blocks; missing={missing}, extra={extra}"
-        )
-
-    data_init: list[str] = []
-    for factor, block in resolved:
-        state = initial_states[factor.block_id]
-        if not isinstance(state, str):
-            raise TypeError(f"initial state for block {factor.block_id!r} must be a string")
-        if state not in ("0", "1", "+", "-"):
-            raise ValueError(
-                f"initial state for block {factor.block_id!r} must be one of '0', '1', '+', '-'"
-            )
-        data_init.append(logical_state_init(block.code, state, log_idx=factor.logical_index))
-    return data_init[0], data_init[1]
+####################################################################################################
+# pair-measurement lowering
 
 
 def _compile_interblock_pair_measurement(
@@ -226,18 +108,14 @@ def _compile_interblock_pair_measurement(
     initial_states: Mapping[str, str] | None = None,
 ) -> _CompiledPairMeasurement:
     """Lower one explicit inter-block Pauli-pair request through the fallback backend."""
-    if not isinstance(rounds, int) or isinstance(rounds, bool):
-        raise TypeError("rounds must be an integer")
     if rounds < 1:
         raise ValueError(f"rounds must be >= 1, got {rounds}")
 
     block_by_id = _validate_blocks(blocks)
-    resolved_l, resolved_r = _validate_request(request, block_by_id)
+    resolved_l, resolved_r, basis = _validate_request(request, block_by_id)
     resolved = (resolved_l, resolved_r)
     factor_l, block_l = resolved_l
     factor_r, block_r = resolved_r
-    basis = _as_pauli_xz(factor_l.basis)
-    assert _as_pauli_xz(factor_r.basis) is basis
     data_init = _resolve_initial_states(initial_states, resolved)
 
     operators = (
@@ -325,3 +203,104 @@ def _compile_interblock_pair_measurement(
         ),
         resources=resources,
     )
+
+
+def _as_pauli_xz(basis: Pauli) -> PauliXZ:
+    """Validate and narrow a Pauli value to an X/Z basis."""
+    if basis is Pauli.X:
+        return Pauli.X
+    if basis is Pauli.Z:
+        return Pauli.Z
+    raise ValueError(f"logical Pauli basis must be Pauli.X or Pauli.Z, got {basis!r}")
+
+
+def _validate_blocks(blocks: Collection[_LogicalBlock]) -> dict[str, _LogicalBlock]:
+    """Validate and index the two logical blocks in one pair-measurement request."""
+    block_list = tuple(blocks)
+    if len(block_list) != 2:
+        raise ValueError(
+            f"an inter-block pair measurement requires exactly 2 blocks, got {len(block_list)}"
+        )
+
+    block_by_id: dict[str, _LogicalBlock] = {}
+    for block in block_list:
+        if not block.identifier.strip():
+            raise ValueError("logical block identifiers must not be empty")
+        if block.identifier in block_by_id:
+            raise ValueError(f"duplicate logical block identifier: {block.identifier!r}")
+        if block.code.field.order != 2:
+            raise ValueError(
+                f"logical block {block.identifier!r} must contain a binary CSS code, "
+                f"got GF({block.code.field.order})"
+            )
+        if block.code.is_subsystem_code:
+            raise ValueError(
+                f"logical block {block.identifier!r} must contain a stabilizer CSS code, "
+                "not a subsystem code"
+            )
+        block_by_id[block.identifier] = block
+    return block_by_id
+
+
+def _validate_request(
+    request: _PauliPairMeasurement,
+    block_by_id: Mapping[str, _LogicalBlock],
+) -> tuple[tuple[_LogicalPauliRef, _LogicalBlock], tuple[_LogicalPauliRef, _LogicalBlock], PauliXZ]:
+    """Validate a pair request, resolve its factors to logical blocks, and identify its basis."""
+    if not request.result_key.strip():
+        raise ValueError("measurement result_key must not be empty")
+
+    resolved: list[tuple[_LogicalPauliRef, _LogicalBlock]] = []
+    for factor in request.factors:
+        if factor.block_id not in block_by_id:
+            raise ValueError(f"measurement references unknown logical block {factor.block_id!r}")
+        basis = _as_pauli_xz(factor.basis)
+        block = block_by_id[factor.block_id]
+        if not 0 <= factor.logical_index < block.code.dimension:
+            raise IndexError(
+                f"logical_index={factor.logical_index} is out of range for block "
+                f"{factor.block_id!r} with dimension={block.code.dimension}"
+            )
+        resolved.append((factor, block))
+
+    (factor_l, block_l), (factor_r, block_r) = resolved
+    if factor_l.block_id == factor_r.block_id:
+        raise ValueError("an inter-block pair measurement requires two distinct block identifiers")
+    if factor_l.basis is not factor_r.basis:
+        raise ValueError(
+            "the Webster fallback requires same-basis factors, got "
+            f"{factor_l.basis!r} and {factor_r.basis!r}"
+        )
+    return (factor_l, block_l), (factor_r, block_r), basis
+
+
+def _resolve_initial_states(
+    initial_states: Mapping[str, str] | None,
+    resolved: tuple[
+        tuple[_LogicalPauliRef, _LogicalBlock],
+        tuple[_LogicalPauliRef, _LogicalBlock],
+    ],
+) -> tuple[str, str] | None:
+    """Resolve logical state labels to per-physical-qubit initialization strings."""
+    if initial_states is None:
+        return None
+
+    expected_ids = {factor.block_id for factor, _ in resolved}
+    provided_ids = set(initial_states)
+    if provided_ids != expected_ids:
+        missing = sorted(expected_ids - provided_ids)
+        extra = sorted(provided_ids - expected_ids, key=repr)
+        raise ValueError(
+            "initial_states must name exactly the measured blocks; "
+            f"missing={missing}, extra={extra}"
+        )
+
+    data_init: list[str] = []
+    for factor, block in resolved:
+        state = initial_states[factor.block_id]
+        if state not in ("0", "1", "+", "-"):
+            raise ValueError(
+                f"initial state for block {factor.block_id!r} must be one of '0', '1', '+', '-'"
+            )
+        data_init.append(logical_state_init(block.code, state, log_idx=factor.logical_index))
+    return data_init[0], data_init[1]

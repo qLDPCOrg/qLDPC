@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import functools
 import importlib
-import os
 import re
 import subprocess
 from collections.abc import Callable, Sequence
@@ -17,9 +16,11 @@ from typing import Protocol
 
 import pyperclip
 
-import qldpc
+import qldpc.cache
 
-GAP_ROOT = os.path.join(os.path.dirname(os.path.dirname(qldpc.__file__)), "gap")
+
+class GAPError(ValueError):
+    """GAP reported an error while evaluating commands."""
 
 
 class _LibGap(Protocol):
@@ -51,18 +52,12 @@ end, [])"""
 
 @functools.cache
 def is_callable() -> bool:
-    """Can we call GAP 4, directly through libgap or from the command line?"""
-    if _get_libgap() is not None:
-        return True
+    """Can we call GAP 4, directly through libgap or from the command line?
 
-    commands = ["gap", "-q", "-c", r'Print(GAPInfo.Version, "\n");; QUIT;;']
-    try:
-        result = subprocess.run(commands, capture_output=True, text=True, check=False)
-        version = result.stdout.strip()
-        return bool(version) and bool(re.match(r"4\.\d+\.\d+", version))
-    except FileNotFoundError:
-        pass
-    return False
+    Unlike :func:`is_installed`, this check never prompts for input, so it is safe to use for
+    automatic backend selection and fallbacks.
+    """
+    return _get_libgap() is not None or _is_gap_executable()
 
 
 @functools.cache
@@ -71,7 +66,7 @@ def is_installed() -> bool:
 
     When neither libgap nor the command-line program is available, this function prompts on standard
     input, so it blocks in a non-interactive context (and raises ``EOFError`` if standard input is
-    closed).
+    closed).  Use :func:`is_callable` for a check that never prompts.
     """
     if is_callable():
         return True
@@ -81,18 +76,6 @@ def is_installed() -> bool:
     return answer == "y" or answer == "yes"
 
 
-def sanitize_commands(commands: Sequence[str]) -> tuple[str, ...]:
-    """Sanitize GAP commands: don't format Print statements, and quit at the end."""
-    stream = "__stream__"
-    prefix = [
-        f"{stream} := OutputTextUser();;",
-        f"SetPrintFormattingStatus({stream},false);;",
-    ]
-    suffix = ["QUIT;;"]
-    commands = [cmd.replace("Print(", f"PrintTo({stream}, ") for cmd in commands]
-    return tuple(prefix + commands + suffix)
-
-
 def get_output(*commands: str, use_pipe: bool = False) -> str:
     """Get the output from the given GAP commands.
 
@@ -100,11 +83,14 @@ def get_output(*commands: str, use_pipe: bool = False) -> str:
     libgap binding.  Otherwise, when GAP is callable, it runs the commands in a subprocess.
     Finally, it falls back to a manual workflow that prints the commands, copies them to the system
     clipboard, and reads the pasted output from standard input (blocking, and raising ``EOFError``
-    if standard input is closed), caching the result to disk.
+    if standard input is closed), caching the result to disk.  Once :func:`require_package` has
+    fallen back from libgap to the GAP executable, every later call in the process uses the
+    executable.
 
     Raises:
         FileNotFoundError: If GAP 4 is not installed.
-        ValueError: If GAP reports an error (a nonzero exit code or output on standard error).
+        GAPError: If GAP reports an error: through libgap, or with a nonzero exit code or output on
+            standard error from the GAP executable.
     """
     if not is_installed():
         raise FileNotFoundError("GAP 4 is required to proceed, but is not installed")
@@ -172,7 +158,8 @@ def require_package(name: str, repo: str | None = None) -> bool:
     the user package directory visible to libgap.  If that installation fails but a GAP executable
     is available, qLDPC prints instructions for installing the package for libgap before falling
     back to the executable backend.  With the executable backend, qLDPC installs a missing package
-    by cloning its repository into the GAP root's ``pkg`` directory.
+    by cloning its repository into the ``gap/pkg`` subdirectory of qLDPC's user cache directory
+    (see :func:`qldpc.cache.get_disk_cache_path`), which qLDPC adds to the GAP root directories.
 
     Args:
         name: The GAP package name.
@@ -181,6 +168,7 @@ def require_package(name: str, repo: str | None = None) -> bool:
             package name for PackageManager or f"https://github.com/gap-packages/{name}" for Git.
 
     Raises:
+        EOFError: If a missing package needs confirmation to install, but standard input is closed.
         ModuleNotFoundError: If the package is missing and GAP cannot be called to install it.
         ValueError: If the user declines to install a missing package, or the installation fails.
 
@@ -197,7 +185,8 @@ def require_package(name: str, repo: str | None = None) -> bool:
             _libgap_packages[name.lower()] = (name, repo)
             return True
 
-        _confirm_package_install(name)
+        source = _get_package_manager_source(name, repo) if repo else "GAP's package distribution"
+        _confirm_package_install(name, source)
         try:
             installed = _install_package_libgap(name, repo, libgap)
         except (ModuleNotFoundError, ValueError) as error:
@@ -219,7 +208,9 @@ def require_package(name: str, repo: str | None = None) -> bool:
                 package,
                 package_repo,
                 availability,
-                confirm_install=package.lower() != name.lower(),
+                # the user agreed to install this package from a repo, or else from GAP's package
+                # distribution, so ask again before cloning a default repo instead
+                confirm_install=package.lower() != name.lower() or package_repo is None,
             )
         _subprocess_packages.update(requirements)
         _libgap_packages.clear()
@@ -238,8 +229,16 @@ def require_package(name: str, repo: str | None = None) -> bool:
     return True
 
 
-####################################################################################################
-# helper methods
+def clear_cache() -> None:
+    """Forget which GAP backends and packages are available, so that later calls check again.
+
+    Call this function after installing or removing GAP or a GAP package in a running Python
+    session, or after declining a prompt that asks whether GAP is available.
+    """
+    for function in (is_callable, is_installed, _is_gap_executable, require_package):
+        function.cache_clear()
+    _libgap_packages.clear()
+    _subprocess_packages.clear()
 
 
 def _get_libgap() -> _LibGap | None:
@@ -275,7 +274,7 @@ def _gap_string(value: object) -> str:
     if isinstance(value, str):
         return value
     try:
-        converted = value.sage()  # type: ignore[attr-defined]
+        converted = value.sage()  # type: ignore[attr-defined]  # caught below if absent
     except (AttributeError, NotImplementedError, ValueError):
         converted = str(value)
     return converted if isinstance(converted, str) else str(converted)
@@ -304,20 +303,33 @@ def _get_output_libgap(commands: Sequence[str], libgap: _LibGap) -> str:
         result = libgap.eval(direct_command)
         libgap.eval(_RESET_LIBGAP_ERROR_OUTPUT)
     except Exception as error:
-        raise ValueError(
+        raise GAPError(
             "Error encountered when running GAP through libgap\n\n"
             f"{error}\n\nGAP command:\n{' '.join(commands)}"
         ) from error
     return _gap_string(result)
 
 
+def _sanitize_commands(commands: Sequence[str]) -> tuple[str, ...]:
+    """Sanitize GAP commands: don't format Print statements, and quit at the end."""
+    stream = "__stream__"
+    prefix = [
+        f"{stream} := OutputTextUser();;",
+        f"SetPrintFormattingStatus({stream},false);;",
+    ]
+    suffix = ["QUIT;;"]
+    commands = [cmd.replace("Print(", f"PrintTo({stream}, ") for cmd in commands]
+    return tuple(prefix + commands + suffix)
+
+
 def _get_output_subprocess(commands: Sequence[str], use_pipe: bool = False) -> str:
     """Evaluate commands through the GAP executable."""
-    commands = sanitize_commands(commands)
+    commands = _sanitize_commands(commands)
+    gap_root = qldpc.cache.get_disk_cache_path("gap")  # for packages that qLDPC installs
     shell_commands = [
         "gap",
         "-l",
-        f";{GAP_ROOT}",
+        f";{gap_root}",
         "-q",
         "--quitonbreak",
     ]
@@ -339,14 +351,17 @@ def _get_output_subprocess(commands: Sequence[str], use_pipe: bool = False) -> s
         if result.stderr:
             parts.append(result.stderr)
         parts.append(f"GAP command:\n{' '.join(commands)}")
-        raise ValueError("\n\n".join(parts))
+        raise GAPError("\n\n".join(parts))
     return result.stdout
 
 
-def _confirm_package_install(name: str) -> None:
-    """Ask the user for permission to install a missing GAP package."""
+def _confirm_package_install(name: str, source: str) -> None:
+    """Ask the user for permission to install a missing GAP package from the given source."""
     response = (
-        input(f"GAP package '{name}' is required but not installed.  Try to install it? (Y/n)")
+        input(
+            f"GAP package '{name}' is required but not installed.  Try to install it from {source}?"
+            " (Y/n)"
+        )
         .strip()
         .lower()
     )
@@ -356,7 +371,8 @@ def _confirm_package_install(name: str) -> None:
 
 def _install_package_subprocess(name: str, repo: str) -> None:
     """Install a GAP package for the executable backend."""
-    commands = ["git", "clone", repo, os.path.join(GAP_ROOT, "pkg", name.lower())]
+    package_dir = qldpc.cache.get_disk_cache_path("gap") / "pkg" / name.lower()
+    commands = ["git", "clone", repo, str(package_dir)]
     print(" ".join(commands))
     install_result = subprocess.run(commands, capture_output=True, text=True, check=False)
     if install_result.returncode:
@@ -376,7 +392,7 @@ def _require_package_subprocess(
     if availability.strip() == "fail":
         repo = repo or f"https://github.com/gap-packages/{name}"
         if confirm_install:
-            _confirm_package_install(name)
+            _confirm_package_install(name, repo)
         _install_package_subprocess(name, repo)
     return True
 

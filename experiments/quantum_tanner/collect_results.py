@@ -1,46 +1,106 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 
-"""Script to collect search results into a local database."""
+"""Summarize the results of a search for quantum Tanner codes in a CSV file.
+
+This script reads the files of codes saved by run_search.py, and writes their parameters to
+codes.csv in --results-dir (by default, results/codes.csv in this directory), with one row per
+saved code that has at least one logical qubit.  The columns of the CSV file are CSV_FIELDS:
+- group_order, group_index: the group that defines the code, identified by its order and its index
+  among groups of the same order in the GAP SmallGroups library,
+- base_code: the identifier of the classical base code (see run_search.get_base_code),
+- seed: the random seed used to construct the code,
+- n, k, d: the number of physical qubits, the number of logical qubits, and an upper bound on the
+  code distance,
+- num_trials: the number of randomized trials used to bound the code distance, and
+- stabilizer_weight: the maximum weight of a stabilizer of the code.
+
+Example:
+    python experiments/quantum_tanner/collect_results.py
+"""
 
 from __future__ import annotations
 
-import ast
-import glob
-import os
+import argparse
+import csv
+import pathlib
 
-import run_randomized_search as search
+import run_search as search
 
-import qldpc.cache
+OUTPUT_NAME = "codes.csv"  # name of the summary file in the results directory
 
-# identify where codes are saved
-file_dir = os.path.dirname(__file__)
-save_dir = os.path.join(file_dir, "codes")
+# columns of the summary file
+CSV_FIELDS = (
+    "group_order",
+    "group_index",
+    "base_code",
+    "seed",
+    "n",
+    "k",
+    "d",
+    "num_trials",
+    "stabilizer_weight",
+)
 
-# initialize database
-cache = qldpc.cache.get_disk_cache(".code_cache", cache_dir=file_dir)
+####################################################################################################
+# command-line interface
 
-# loop over all groups and base codes
-for group_order, group_index in search.get_small_groups(search.MAX_ORDER):
-    group_id = f"SmallGroup-{group_order}-{group_index}"
-    for _, base_code in search.get_base_codes():
-        paths = f"{save_dir}/qtcode_{group_id}_{base_code}_s*.txt"
 
-        # collect all data for into a list
-        data = []
-        for path in glob.glob(paths):
-            seed = path.split("_")[-1].removesuffix(".txt")[1:]
-            with open(path, "r") as file:
-                num_trials = ast.literal_eval(file.readline().split(":")[-1])
-                param_text = file.readline().split(":")[-1]
-                if "0, nan)" in param_text:
-                    # this is a trivial code, we can ignore it
-                    continue
-                params = ast.literal_eval(param_text)
-                weight = ast.literal_eval(file.readline().split(":")[-1])
+def main() -> None:
+    """Summarize the parameters of saved quantum Tanner codes in a CSV file."""
+    args = parse_args()
+    rows = get_code_data(args.results_dir / search.CODES_NAME)
+    output = args.results_dir / OUTPUT_NAME
+    with output.open("w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(CSV_FIELDS)
+        writer.writerows(rows)
+    print(f"Wrote {len(rows)} codes to {output}")
 
-            data.append((*params, num_trials, weight))
 
-        if data:
-            # save data to the database
-            cache[group_order, group_index, base_code] = data
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    search.add_results_dir_argument(parser)
+    return parser.parse_args()
+
+
+####################################################################################################
+# data collection
+
+
+def get_code_data(codes_dir: pathlib.Path) -> list[tuple[int | str, ...]]:
+    """Collect the parameters of saved quantum Tanner codes with k > 0.
+
+    Returns one row with the fields in CSV_FIELDS per code, sorted by group, base code, and seed.
+    """
+    rows: list[tuple[int | str, ...]] = []
+    for path in search.get_saved_code_paths(codes_dir):
+        group_order, group_index, base_code_id, seed = search.parse_code_path(path)
+        num_trials, (num_qudits, dimension, distance), weight = search.read_code_header(path)
+
+        # this code has no logical qubits, so we can ignore it
+        if dimension == 0:
+            continue
+
+        # codes with k > 0 have an integer distance bound
+        rows.append(
+            (
+                group_order,
+                group_index,
+                base_code_id,
+                seed,
+                num_qudits,
+                dimension,
+                int(distance),
+                num_trials,
+                weight,
+            )
+        )
+    return sorted(rows)
+
+
+if __name__ == "__main__":
+    main()

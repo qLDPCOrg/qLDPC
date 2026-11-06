@@ -1,106 +1,36 @@
 # qLDPC
 
 `qLDPC` is a Python toolkit for constructing and analyzing finite-size [quantum low-density parity-check codes](https://errorcorrectionzoo.org/c/qldpc), as well as stabilizer and subsystem codes more broadly.
-The goal is simple: make the quantum error-correction literature easier to explore, reproduce, and build on.
-Codes can start from parity-check matrices or from higher-level ingredients such as polynomials, group rings, Tanner graphs, and chain complexes.
-Once a code is built, you can inspect its logical operators, compute or bound its distance, plug in a decoder, estimate logical error rates, and—for qubit codes—build [`stim`](https://github.com/quantumlib/Stim) circuits.
+It provides shared implementations and scientific conventions that researchers and their AI assistants can inspect, combine, and extend.
 
 Most code-level tools work over arbitrary finite fields.
 Circuit tools currently only support qubit codes.
 
-## ✨ A taste of qLDPC
+## 🎯 Goals
 
-- **From textbook codes to the research frontier.**
-  Build familiar surface, toric, Hamming, and Reed–Muller codes alongside hypergraph-product, lifted-product, bivariate-bicycle, quantum Tanner, SHYPS, GALA, pair-partition, and other modern families.
-- **Go beyond binary.**
-  Many constructions and core algorithms work over arbitrary prime-power finite fields, not just qubits.
-- **Ask more of a code than `[[n, k, d]]`.**
-  Work with check matrices, Tanner graphs, canonical logical operators, subsystem gauges, exact distances, upper bounds, and code-capacity error estimates.
-- **Move from codes to circuits.**
-  Build memory experiments, encoding circuits, Pauli noise models, state-preparation diagnostics, Sinter decoders, sliding-window decoders, and transversal Clifford searches.
-- **Use the algebra that modern constructions need.**
-  qLDPC includes finite groups, group rings, lifted matrices, Cayley complexes, chain complexes, and optional GAP integration.
-- **Steal from the examples.**
-  The notebooks progress from the basics to circuit-level logical error rates, custom noise, transversal gates, and experimental lattice surgery.
+- **Enable exploration.**
+  Favor small, composable tools and extension points that let users quickly investigate and prototype new ideas.
+- **Make scientific meaning explicit.**
+  Expose conventions, assumptions, and limitations, and distinguish exact results, bounds, estimates, and trusted inputs.
+- **Support checking and reproduction.**
+  Provide independent evidence for maintained behavior and make the configuration needed to interpret and reproduce experiments clear.
+- **Support learning.**
+  Use small examples and explanations to connect computations to ideas, literature, and implementations.
 
-qLDPC is still research software, and it is honest about the tradeoffs.
-Some searches are expensive, some bounds are heuristic, experimental APIs can change, and optional tools may have side effects.
+## ✨ A few things to try
 
-## 📦 Installation
+- **Code families.**
+  Construct surface, toric, Hamming, and Reed–Muller codes, along with hypergraph-product, lifted-product, bivariate-bicycle, quantum Tanner, SHYPS, GALA, and other families.
+- **Distance calculations.**
+  Compute exact distances of binary codes with an [optimized Brouwer–Zimmermann search](src/qldpc/codes/distance/brouwer_zimmermann.md), or bound code distance using [QDistRnd](https://arxiv.org/abs/2308.15140) or [`sqetch`](https://github.com/a7b/yarn/tree/main/sqetch).
+- **Code structure and analysis.**
+  Work with check matrices, Tanner graphs, canonical logical operators, subsystem gauge operators, and code-capacity error estimates.
+- **Circuits and decoding workflows.**
+  Build memory experiments, encoding circuits, Pauli noise models, and state-preparation diagnostics; use Sinter and sliding-window decoders; certify fault distances and bounded fault propagation exactly; or search for transversal Clifford gates.
+- **Algebraic tools.**
+  Work with finite groups, group rings, lifted matrices, Cayley complexes, chain complexes, and optional GAP integration.
 
-### Standard installation
-
-qLDPC requires Python 3.11 or later:
-
-```bash
-python -m pip install qldpc
-```
-
-### Optional extras
-
-#### Decoders
-
-qLDPC installs `ldpc` and `pymatching` by default, which include a host of decoders.
-Install the optional decoder integrations published as qLDPC extras for your platform with:
-
-```bash
-python -m pip install 'qldpc[decoders]'
-```
-
-You can also use individual extras to install a specific optional decoder:
-
-```bash
-python -m pip install 'qldpc[relay-bp]'
-python -m pip install 'qldpc[tesseract]'
-```
-
-The [Tesseract](https://github.com/quantumlib/tesseract-decoder) decoder requires CPython 3.12–3.14 on macOS arm64 or Linux x86-64.
-[Frontier](https://github.com/aleverrier/frontier) is not published on PyPI and is not included in an extra; see the [decoder guide](https://qldpc.readthedocs.io/decoders.html) for availability and build-time installation guidance.
-
-#### GAP integration
-
-Some algebra tools, code lookups, and distance estimates require [GAP](https://www.gap-system.org).
-For the recommended in-process integration, install qLDPC with its maintained libgap extra:
-
-```bash
-python -m pip install 'qldpc[gap]'
-```
-
-qLDPC uses `passagemath-gap` when available, so supported GAP operations do not launch a separate process.
-The in-process binding requires Python 3.13 on a non-Windows platform.
-If `passagemath-gap` is unavailable, qLDPC relies on a GAP executable in your `PATH` (possibly obtainable with `conda install -c conda-forge gap`), and a manual copy/paste fallback.
-GAP integration on Windows remains limited; see [issue #294](https://github.com/qLDPCOrg/qLDPC/issues/294).
-
-#### `sqetch` distance estimation
-
-You can install the optional `sqetch` distance-estimation backend with:
-
-```bash
-python -m pip install 'sqetch[gpu] @ git+https://github.com/a7b/yarn.git@e9ce9d0fcecc973988558bfee27fab6d6b8d7f97#subdirectory=sqetch'
-```
-
-This command installs the upstream version of `sqetch` that qLDPC is tested against, with GPU support.
-`sqetch` is not published on PyPI, so it is not available as a qLDPC extra.
-For binary CSS codes, you can select this backend with `code.get_distance_bound(backend="sqetch")`.
-
-### Troubleshooting
-
-On macOS, you may need to install `cvxpy` manually by following its [installation instructions](https://www.cvxpy.org/install) before installing qLDPC.
-If you use Conda to manage your Python environment, install `cvxpy` with:
-
-```bash
-conda install -c conda-forge cvxpy
-```
-
-### Development installation
-
-For a development installation:
-
-```bash
-git clone https://github.com/qLDPCOrg/qLDPC.git
-cd qLDPC
-python -m pip install -e '.[dev]'
-```
+The [example notebooks](https://qldpc.readthedocs.io/examples/index.html) cover (among other things) code construction, custom noise models, circuit-level logical error rates, and fault-tolerance certificates.
 
 ## 🚀 Quickstart
 
@@ -117,9 +47,11 @@ print("physical qubits:", len(code))
 print("logical qubits:", code.dimension)
 ```
 
-### Go deeper: a subsystem lifted-product code
+The gross code is also available as the named construction, `codes.GrossCode()`.
 
-The next example builds a parity-check matrix over the group algebra `GF(2)[C₅]`, lifts each group-ring entry to a 5×5 binary block, and hands the result to `SLPCode`.
+### A subsystem lifted-product code
+
+This example builds a parity-check matrix over the group algebra `GF(2)[C₅]`, lifts each group-ring entry to a 5×5 binary block, and passes the result to `SLPCode`.
 The [subsystem lifted-product construction](https://arxiv.org/abs/2404.18302) produces an 80-qubit CSS subsystem code with 5 logical qubits and 45 gauge qubits.
 
 ```python
@@ -144,33 +76,47 @@ print("logical qubits:", code.dimension)        # 5
 print("gauge qubits:", code.gauge_dimension)    # 45
 ```
 
-Continue with the [library map](https://qldpc.readthedocs.io/library_map.html) for the data model and package structure, or open the [example notebooks](https://qldpc.readthedocs.io/examples/index.html) for complete workflows.
+The [library map](https://qldpc.readthedocs.io/library_map.html) explains the data model and package structure.
+
+## 📦 Installation
+
+qLDPC requires Python 3.11 or later:
+
+```bash
+python -m pip install qldpc
+```
+
+The standard installation includes the `ldpc` and `pymatching` decoders.
+See the [installation guide](https://qldpc.readthedocs.io/installation.html) for optional decoders, GAP integration, GPU distance estimation with `sqetch`, and troubleshooting.
+For a development checkout, follow the [contributor reference](https://qldpc.readthedocs.io/contributing.html#development-installation).
 
 ## 🧭 Find your way around
 
 | Goal | Start here |
 | --- | --- |
 | Understand code representations and how packages fit together | [Library map](https://qldpc.readthedocs.io/library_map.html) |
-| Learn by running complete workflows | [Examples](https://qldpc.readthedocs.io/examples/index.html) |
+| Learn the concepts through runnable examples | [Examples](https://qldpc.readthedocs.io/examples/index.html) |
 | Browse code families, functions, and exact signatures | [API reference](https://qldpc.readthedocs.io/autoapi/index.html) |
-| Construct and analyze a first code | [qLDPC basics](https://qldpc.readthedocs.io/examples/basics.html) |
+| Construct and analyze a code | [qLDPC basics](https://qldpc.readthedocs.io/examples/basics.html) |
 | Estimate logical error rates | [Logical-error-rate examples](https://qldpc.readthedocs.io/examples/index.html#logical-error-rates) |
 | Build memory circuits or noise models | [Circuit examples](https://qldpc.readthedocs.io/examples/index.html) |
 | Change or extend qLDPC safely | [Agent and contributor guide](https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md) |
 
-For the complete list of classes and functions, including construction-specific literature, use the API reference and source docstrings.
-This README focuses on getting started and finding the right documentation.
-
 ## ⚠️ Limitations and caveats
+
+qLDPC is research software.
+Some searches are expensive, some bounds are heuristic, experimental APIs can change, and optional tools may have side effects.
 
 - Circuit and tableau tools only work with qubit codes, even though other parts of qLDPC support prime-power-dimensional qudits.
 - Circuits returned by `get_encoding_circuit` are not fault-tolerant.
   Fault-tolerant encoding is tracked in [issue #327](https://github.com/qLDPCOrg/qLDPC/issues/327).
-- Exact distance calculations and transversal-gate searches can be exponential.
+- Exact distance calculations, fault-tolerance certificates, and transversal-gate searches can take exponential time.
   When a method returns a bound rather than an exact distance, its docstring explains what kind of bound it is.
-- Features that use GAP may start subprocesses, use local disk caches, access online resources, or ask for manual input or permission to install a package.
+- Features that use GAP may start subprocesses, access online resources, or ask for manual input or permission to install a package.
+- Code lookups such as `QuditCode.from_qecdb_id` access online resources and cache results on disk; pass `refresh=True` to fetch the latest data.
 - Everything under `qldpc.experimental` has an unstable public API and may change without deprecation.
-  In particular, lattice-surgery support has not yet received independent expert review; validate its results independently and pin the qLDPC version if you depend on it.
+- Lattice-surgery support in `qldpc.experimental.surgery` is experimental and unstable, and its implementation is still pending careful expert review.
+  Validate its results independently, and pin the qLDPC version if you depend on it.
 
 ## 📚 Documentation and support
 
@@ -182,26 +128,15 @@ This README focuses on getting started and finding the right documentation.
 
 Questions, feedback, and ideas are welcome through [GitHub issues](https://github.com/qLDPCOrg/qLDPC/issues/new) or by email at [mika.perlin@gmail.com](mailto:mika.perlin@gmail.com).
 
+## AI usage
+
+AI assistants are used in qLDPC's development and maintenance.
+Human maintainers direct and approve changes, but may rely on AI-assisted review and automated checks rather than reviewing every implementation detail.
+AI-assisted contributions are held to the same [standards for scientific correctness, testing, documentation, and compatibility](AGENTS.md) as other contributions.
+Project maintainers remain responsible for accepting contributions and communicating their assumptions and limitations.
+
 ## ⚓ Attribution
 
-If you use this software in your work, please cite with:
-
-```bibtex
-@misc{perlin2023qldpc,
-  author = {Perlin, Michael A.},
-  title = {{qLDPC}},
-  year = {2023},
-  publisher = {GitHub},
-  journal = {GitHub repository},
-  howpublished = {\url{https://github.com/qLDPCOrg/qLDPC}},
-}
-```
-
-This may require adding `\usepackage{url}` to your LaTeX file header.
-Alternatively:
-
-```text
-Michael A. Perlin. qLDPC. https://github.com/qLDPCOrg/qLDPC, 2023.
-```
+If you use qLDPC in your work, please follow the [citation instructions](CITATION.md).
 
 qLDPC is distributed under the [Apache License 2.0](https://github.com/qLDPCOrg/qLDPC/blob/main/LICENSE).

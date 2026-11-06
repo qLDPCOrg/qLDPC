@@ -4,8 +4,9 @@
 
 from __future__ import annotations
 
+import types
 import warnings
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import galois
 import numpy as np
@@ -13,6 +14,7 @@ import numpy.typing as npt
 import scipy.sparse
 import stim
 
+from qldpc._utils import get_external_caller_stacklevel
 from qldpc.math import IntegerArray
 
 from ..common import _erasure_bit_support, _to_pcm, with_erasure_bits
@@ -45,7 +47,7 @@ class ILPDecoder(ErrorDecoder):
     def __init__(
         self, matrix: IntegerArray, *, add_erasure_bit: bool = False, **decoder_args: object
     ) -> None:
-        import cvxpy
+        cvxpy = _get_cvxpy()
 
         self.has_erasure_bit = add_erasure_bit
 
@@ -61,19 +63,19 @@ class ILPDecoder(ErrorDecoder):
         self.matrix = np.asarray(matrix, dtype=int) % self.modulus
         _num_checks, num_variables = self.matrix.shape
 
-        self.variable_constraints = []
+        self._variable_constraints = []
         if self.modulus == 2:
-            self.variables = cvxpy.Variable(num_variables, boolean=True)
-            self.objective = cvxpy.Minimize(cvxpy.norm(self.variables, 1))
+            self._variables = cvxpy.Variable(num_variables, boolean=True)
+            self._objective = cvxpy.Minimize(cvxpy.norm(self._variables, 1))
         else:
-            self.variables = cvxpy.Variable(num_variables, integer=True)
+            self._variables = cvxpy.Variable(num_variables, integer=True)
             nonzero_variable_flags = cvxpy.Variable(num_variables, boolean=True)
-            self.variable_constraints += [var >= 0 for var in iter(self.variables)]
-            self.variable_constraints += [var <= self.modulus - 1 for var in iter(self.variables)]
-            self.variable_constraints += [self.modulus * nonzero_variable_flags >= self.variables]
-            self.objective = cvxpy.Minimize(cvxpy.norm(nonzero_variable_flags, 1))
+            self._variable_constraints += [var >= 0 for var in iter(self._variables)]
+            self._variable_constraints += [var <= self.modulus - 1 for var in iter(self._variables)]
+            self._variable_constraints += [self.modulus * nonzero_variable_flags >= self._variables]
+            self._objective = cvxpy.Minimize(cvxpy.norm(nonzero_variable_flags, 1))
 
-        self.decoder_args = decoder_args
+        self._decoder_args = decoder_args
 
     def decode_errors(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
@@ -94,7 +96,7 @@ class ILPDecoder(ErrorDecoder):
             diagnostics["ilp.objective_value"] = problem.value
         return ErrorDecodeResult(error, erased, diagnostics)
 
-    def cvxpy_constraints_for_syndrome(
+    def _cvxpy_constraints_for_syndrome(
         self, syndrome: npt.NDArray[np.int_]
     ) -> list[cvxpy.Constraint]:
         """Build cvxpy constraints of the form ``matrix @ variables == syndrome (mod q)``.
@@ -118,12 +120,12 @@ class ILPDecoder(ErrorDecoder):
 
             num_bits = (max_offset // self.modulus).bit_length() if max_offset > 0 else 0
             if not num_bits:
-                zero_mod_q: Any = 0
+                zero_mod_q: int | cvxpy.Expression = 0
             else:
                 slack_bits = cvxpy.Variable(num_bits, boolean=True)
                 zero_mod_q = [self.modulus * 2**jj for jj in range(num_bits)] @ slack_bits
 
-            constraint = check @ self.variables == syndrome_bit + zero_mod_q
+            constraint = check @ self._variables == syndrome_bit + zero_mod_q
             constraints.append(constraint)
 
         return constraints
@@ -137,22 +139,26 @@ class ILPDecoder(ErrorDecoder):
         """
         import cvxpy
 
-        constraints = self.variable_constraints + self.cvxpy_constraints_for_syndrome(syndrome)
+        constraints = self._variable_constraints + self._cvxpy_constraints_for_syndrome(syndrome)
 
-        problem = cvxpy.Problem(self.objective, constraints)
-        result = problem.solve(**self.decoder_args)
+        problem = cvxpy.Problem(self._objective, constraints)
+        result = problem.solve(**self._decoder_args)
 
-        if not isinstance(result, float) or not np.isfinite(result) or self.variables.value is None:
+        if (
+            not isinstance(result, float)
+            or not np.isfinite(result)
+            or self._variables.value is None
+        ):
             message = (
                 "Optimal solution to integer linear program could not be found!"
                 f"\nSolver output: {result}"
             )
             if not signal_erasure:
                 raise ValueError(message)
-            warnings.warn(message, stacklevel=3)
+            warnings.warn(message, stacklevel=get_external_caller_stacklevel())
             return np.zeros(self.matrix.shape[1], dtype=syndrome.dtype), True, problem
 
-        error = (np.rint(self.variables.value) % self.modulus).astype(int)
+        error = (np.rint(self._variables.value) % self.modulus).astype(int)
 
         reproduces_syndrome = np.array_equal(
             self.matrix @ error % self.modulus,
@@ -173,21 +179,7 @@ def _get_decoder_ilp(
     add_erasure_bit: bool = False,
     **decoder_args: object,
 ) -> ILPDecoder:
-    """Build an integer-linear-program (ILP) decoder.
-
-    Args:
-        pcm_or_dem: A parity-check matrix or detector error model to decode.  A DEM is converted to
-            its dense detector-flip matrix.
-        add_erasure_bit: Whether to append a flag when the solver cannot produce an error that
-            reproduces the syndrome.
-        **decoder_args: Arguments passed to ``cvxpy.Problem.solve``.
-
-    Returns:
-        An :class:`~qldpc.decoders.custom.ilp.ILPDecoder`.
-
-    ILP decoding supports prime fields.  Without an erasure bit, an unexplained syndrome is rejected
-    rather than returned as an ordinary inferred error.
-    """
+    """Build an ILP decoder; see ``decoders.ilp`` for its options."""
     return ILPDecoder(_to_pcm(pcm_or_dem), add_erasure_bit=add_erasure_bit, **decoder_args)
 
 
@@ -208,3 +200,17 @@ Returns:
     its dense detector-flip matrix.
 """,
 )
+
+
+def _get_cvxpy() -> types.ModuleType:
+    """Import the optional cvxpy package or raise an actionable error."""
+    try:
+        import cvxpy
+    except ModuleNotFoundError as error:
+        if error.name != "cvxpy":
+            raise
+        raise ModuleNotFoundError(
+            "The ILP decoder requires the optional 'cvxpy' package.  Install it with"
+            " `pip install 'qldpc[ilp]'`"
+        ) from error
+    return cvxpy

@@ -12,6 +12,21 @@ import stim
 import qldpc
 
 
+def test_log() -> None:
+    """Log choose function."""
+    assert qldpc.math.log_choose(1, 1) == 0
+    assert np.allclose(qldpc.math.log_choose(4, 1), np.log(4))
+    assert np.allclose(qldpc.math.log_choose(5, 2), np.log(10))
+
+
+def test_resolve_field() -> None:
+    """A field argument may be None (for GF(2)), the order of a field, or a Galois field class."""
+    assert qldpc.math.resolve_field(None) is galois.GF2
+    assert qldpc.math.resolve_field(3).order == 3
+    field = galois.GF(4)
+    assert qldpc.math.resolve_field(field) is field
+
+
 def test_pauli_strings() -> None:
     """Conversion between symplectic vectors and stim.PauliString objects."""
     code = qldpc.codes.FiveQubitCode()
@@ -38,6 +53,8 @@ def test_vectors() -> None:
     assert np.array_equal(qldpc.math.symplectic_conjugate(vectors), vectors_conj)
     assert np.array_equal(qldpc.math.first_nonzero_cols(vectors), [1, 0])
     assert np.array_equal(qldpc.math.first_nonzero_cols(vectors_conj), [0, 0])
+    with pytest.raises(ValueError, match="even length"):
+        qldpc.math.symplectic_weight(np.zeros(3, dtype=int))
 
 
 def test_symplectic_conjugate_identity() -> None:
@@ -72,6 +89,28 @@ def test_nonzero_cols() -> None:
 
     tensor = np.ones((1, 1, 1), dtype=int)
     assert np.array_equal(qldpc.math.first_nonzero_cols(tensor), [0])
+
+
+def test_block_matrix() -> None:
+    """block_matrix assembles a nested block structure into a single NumPy array."""
+    eye = np.eye(2, dtype=float)
+    zero = np.zeros_like(eye)
+    blocks = [[eye, 1], [0, eye]]
+    matrix = np.block([[eye, eye], [zero, eye]])
+    assert np.array_equal(qldpc.math.block_matrix(blocks), matrix)
+
+    with pytest.raises(ValueError, match="Inconsistent numbers of blocks in each row"):
+        qldpc.math.block_matrix([[0, 1], [1]])
+    with pytest.raises(ValueError, match="Inconsistent row numbers"):
+        qldpc.math.block_matrix([[np.eye(1), np.eye(2)]])
+    with pytest.raises(ValueError, match="Inconsistent column numbers"):
+        qldpc.math.block_matrix([[np.eye(1)], [np.eye(2)]])
+    with pytest.raises(ValueError, match="Inconsistent block data types"):
+        qldpc.math.block_matrix([[np.eye(1, dtype=int), np.eye(1, dtype=float)]])
+    # a literal other than 0 or 1 is rejected (and does so under `python -O`, unlike an assert)
+    with pytest.raises(ValueError, match="Unrecognized block: 2"):
+        zero = np.zeros((2, 2), dtype=int)
+        qldpc.math.block_matrix([[np.eye(2, dtype=int), zero], [zero, 2]])
 
 
 def test_dual_basis() -> None:
@@ -158,32 +197,3 @@ def test_symplectic_gram_schmidt() -> None:
         assert check(field.Zeros((0, 4)), promise_full_rank=True) == (0, 0)
         # linearly dependent rows are reduced to a basis first (promise_full_rank=False)
         assert check(field([[1, 0, 0, 0], [0, 0, 1, 0], [1, 0, 1, 0]])) == (1, 0)
-
-
-def test_block_matrix() -> None:
-    """block_matrix assembles a nested block structure into a single NumPy array."""
-    eye = np.eye(2, dtype=float)
-    zero = np.zeros_like(eye)
-    blocks = [[eye, 1], [0, eye]]
-    matrix = np.block([[eye, eye], [zero, eye]])
-    assert np.array_equal(qldpc.math.block_matrix(blocks), matrix)
-
-    with pytest.raises(ValueError, match="Inconsistent numbers of blocks in each row"):
-        qldpc.math.block_matrix([[0, 1], [1]])
-    with pytest.raises(ValueError, match="Inconsistent row numbers"):
-        qldpc.math.block_matrix([[np.eye(1), np.eye(2)]])
-    with pytest.raises(ValueError, match="Inconsistent column numbers"):
-        qldpc.math.block_matrix([[np.eye(1)], [np.eye(2)]])
-    with pytest.raises(ValueError, match="Inconsistent block data types"):
-        qldpc.math.block_matrix([[np.eye(1, dtype=int), np.eye(1, dtype=float)]])
-    # a literal other than 0 or 1 is rejected (and does so under `python -O`, unlike an assert)
-    with pytest.raises(ValueError, match="Unrecognized block: 2"):
-        zero = np.zeros((2, 2), dtype=int)
-        qldpc.math.block_matrix([[np.eye(2, dtype=int), zero], [zero, 2]])
-
-
-def test_log() -> None:
-    """Log choose function."""
-    assert qldpc.math.log_choose(1, 1) == 0
-    assert np.allclose(qldpc.math.log_choose(4, 1), np.log(4))
-    assert np.allclose(qldpc.math.log_choose(5, 2), np.log(10))

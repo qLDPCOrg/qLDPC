@@ -13,7 +13,8 @@ import numpy.typing as npt
 import sympy
 
 from qldpc import abstract
-from qldpc._util import networkx as nx
+from qldpc._utils import networkx as nx
+from qldpc.math import resolve_field
 
 from .common import ClassicalCode
 
@@ -27,7 +28,7 @@ class RepetitionCode(ClassicalCode):
     """
 
     def __init__(self, bits: int, field: int | type[galois.FieldArray] | None = None) -> None:
-        self._field = abstract.resolve_field(field)
+        self._field = resolve_field(field)
         self._matrix = self.field.Zeros((bits - 1, bits))
         for row in range(bits - 1):
             self._matrix[row, row] = 1
@@ -49,7 +50,7 @@ class RingCode(ClassicalCode):
     """
 
     def __init__(self, bits: int, field: int | type[galois.FieldArray] | None = None) -> None:
-        self._field = abstract.resolve_field(field)
+        self._field = resolve_field(field)
         self._matrix = self.field.Zeros((bits, bits))
         for row in range(bits):
             self._matrix[row, row] += self.field(1)
@@ -134,7 +135,7 @@ class HammingCode(ClassicalCode):
         """Construct a Hamming code of a given rank."""
         if size < 2:
             raise ValueError(f"Hamming codes require a rank of at least 2 (provided: {size})")
-        self._field = abstract.resolve_field(field)
+        self._field = resolve_field(field)
         if self.field is galois.GF2:
             # collect all nonzero bitstrings
             bitstrings = list(itertools.product([0, 1], repeat=size))
@@ -205,7 +206,7 @@ class ReedMullerCode(ClassicalCode):
 
         generator = ReedMullerCode.get_generator(order, size)
         self._matrix = ClassicalCode(generator, field).generator
-        self._field = abstract.resolve_field(field)
+        self._field = resolve_field(field)
 
         self._dimension = len(generator)
         self._distance = 2 ** (size - order)
@@ -274,13 +275,16 @@ class BCHCode(ClassicalCode):
     def __init__(
         self, length: int, dimension: int, field: int | type[galois.FieldArray] | None = None
     ) -> None:
-        field = abstract.resolve_field(field)
+        field = resolve_field(field)
         if not BCHCode._is_valid_bch_length(length, field.order):
             raise ValueError(
                 f"BCH codes over F_{field.order} are only defined for block lengths"
                 f" {field.order}^m - 1 with integer m."
             )
-        super().__init__(galois.BCH(length, dimension, field=field).H)
+        # for m = 1 the extension field is the field itself, which galois cannot infer
+        extension_field = field if length == field.order - 1 else None
+        bch = galois.BCH(length, dimension, field=field, extension_field=extension_field)
+        super().__init__(bch.H)
         self._dimension = dimension
 
     @staticmethod
@@ -327,7 +331,7 @@ class SimplexCode(ClassicalCode):
     """
 
     def __init__(self, dim: int, field: int | type[galois.FieldArray] | None = None) -> None:
-        field = abstract.resolve_field(field)
+        field = resolve_field(field)
         if dim < 2:
             raise ValueError(f"Simplex codes require a dimension of at least 2 (provided: {dim})")
 
@@ -364,7 +368,7 @@ class SimplexCode(ClassicalCode):
         A dimension of at least 2 is required: a one-dimensional simplex code has block length
         ``field.order - 1 == 1``, for which no nontrivial check polynomial exists.
         """
-        field = abstract.resolve_field(field)
+        field = resolve_field(field)
         if dim < 2:
             raise ValueError(f"Simplex codes require a dimension of at least 2 (provided: {dim})")
 
@@ -462,13 +466,6 @@ class TannerCode(ClassicalCode):
             matrix[np.ix_(checks, bits)] = subcode.matrix
         super().__init__(matrix, subcode.field)
 
-    def _get_sorted_neighbors(self, node: object) -> Sequence[object]:
-        """Sorted neighbors of the given node."""
-        return sorted(
-            self.subgraph.neighbors(node),
-            key=lambda neighbor: self.subgraph[node][neighbor].get("sort", neighbor),
-        )
-
     @staticmethod
     def as_directed_subgraph(subgraph: nx.Graph) -> nx.DiGraph:
         """Convert an undirected graph for a Tanner code into a directed graph for the same code."""
@@ -481,3 +478,10 @@ class TannerCode(ClassicalCode):
                 directed_subgraph[node_a][edge]["sort"] = sort_data[node_a]
                 directed_subgraph[node_b][edge]["sort"] = sort_data[node_b]
         return directed_subgraph
+
+    def _get_sorted_neighbors(self, node: object) -> Sequence[object]:
+        """Sorted neighbors of the given node."""
+        return sorted(
+            self.subgraph.neighbors(node),
+            key=lambda neighbor: self.subgraph[node][neighbor].get("sort", neighbor),
+        )

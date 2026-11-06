@@ -1,22 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Stim surgery circuit construction (single-PPM and joint-PPM).
 
 References:
     Cain et al. arXiv:2603.28627 §B.1  — single-PPM measurement protocol.
     Webster, Smith, Cohen arXiv:2511.15989  — gadget Eqs. (1)-(4) observable.
-
-Copyright 2026 The qLDPC Authors
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
 """
 
 from __future__ import annotations
@@ -272,26 +260,6 @@ def build_joint_ppm_circuit(
 # helper methods
 
 
-def _gadget_merged_csscode(g: GadgetLayout) -> CSSCode:
-    """Compatibility wrapper for the internal merged-code accessor."""
-    return _merged_csscode(g)
-
-
-def _validate_one_logical_measurement(
-    merged_code: CSSCode,
-    *,
-    input_dimension: int,
-    operation: str,
-) -> None:
-    """Reject finalized surgery layouts that fix anything other than one logical constraint."""
-    _validate_logical_loss(
-        merged_code,
-        input_dimension=input_dimension,
-        expected_logical_loss=1,
-        operation=operation,
-    )
-
-
 def _validate_bridge_gadget(
     gadget: GadgetLayout,
     augmented: GadgetLayout,
@@ -345,53 +313,38 @@ def _surgery_qubit_coordinates(
     """
     circuit = stim.Circuit()
 
-    if joint is None:
-        g_l = gadget
-        g_r = None
-        bridge = None
-        intercode = False
-    else:
-        g_l = gadget
-        g_r, bridge, intercode = joint
-
     # Sizes for left side (always present).
+    g_l = gadget
     n_l = g_l.code.num_qudits
     m_X_l = g_l.code.matrix_x.shape[0]
     m_Z_l = g_l.code.matrix_z.shape[0]
     n_meas_l = len(g_l.support)
-    n_gauge_l = g_l.gauge.shape[0]
-    k_l = g_l.incidence.shape[0]
 
-    # Sizes for right side (joint+intercode only — intracode shares data).
-    if joint is not None and intercode:
-        assert g_r is not None
-        n_r = g_r.code.num_qudits
-        m_X_r = g_r.code.matrix_x.shape[0]
-        m_Z_r = g_r.code.matrix_z.shape[0]
-        n_meas_r = len(g_r.support)
-        n_gauge_r = g_r.gauge.shape[0]
-    elif joint is not None:  # intracode: data shared, ancillas separate per gadget
-        assert g_r is not None
-        n_r = 0
-        m_X_r = m_Z_r = 0  # data checks not duplicated for intracode
-        n_meas_r = len(g_r.support)
-        n_gauge_r = g_r.gauge.shape[0]
-    else:
+    # Sizes for right side, and gadget ancilla counts.  For joint PPM, the in-circuit κ and gauge
+    # counts are the augmented values (the bridge may have added κ' ancillas during cellulation), so
+    # use the bridge's augmented gadgets as the source of truth.
+    if joint is None:
+        bridge = None
         n_r = 0
         m_X_r = m_Z_r = 0
-        n_meas_r = n_gauge_r = k_r = 0
-
-    # For joint PPM, the in-circuit κ count is the augmented value (bridge may have added κ'
-    # ancillas during cellulation); use the bridge's augmented gadgets as the source of truth.
-    if joint is not None:
-        assert bridge is not None
-        k_l = bridge.g_l_aug.incidence.shape[0]
-        k_r = bridge.g_r_aug.incidence.shape[0]
-        n_gauge_l = bridge.g_l_aug.gauge.shape[0]
-        n_gauge_r = bridge.g_r_aug.gauge.shape[0]
+        n_meas_r = 0
+        k_l, k_r = g_l.incidence.shape[0], 0
+        n_gauge_l, n_gauge_r = g_l.gauge.shape[0], 0
+    else:
+        g_r, bridge, intercode = joint
+        if intercode:
+            n_r = g_r.code.num_qudits
+            m_X_r = g_r.code.matrix_x.shape[0]
+            m_Z_r = g_r.code.matrix_z.shape[0]
+        else:  # intracode: data and data checks are shared, ancillas separate per gadget
+            n_r = 0
+            m_X_r = m_Z_r = 0
+        n_meas_r = len(g_r.support)
+        k_l, k_r = bridge.g_l_aug.incidence.shape[0], bridge.g_r_aug.incidence.shape[0]
+        n_gauge_l, n_gauge_r = bridge.g_l_aug.gauge.shape[0], bridge.g_r_aug.gauge.shape[0]
 
     n_data_total = n_l + n_r
-    w = bridge.width if joint is not None and bridge is not None else 0
+    w = bridge.width if bridge is not None else 0
 
     # y=0 data
     for i in range(n_data_total):
@@ -745,43 +698,6 @@ def _stitch_intracode(g_l: GadgetLayout, g_r: GadgetLayout, bridge: Bridge) -> C
     return CSSCode(field(M_comp), field(M_meas), is_subsystem_code=False)
 
 
-def _stitch_to_joint_csscode(
-    g_l: GadgetLayout,
-    g_r: GadgetLayout,
-    bridge: Bridge,
-    *,
-    intercode: bool | None = None,
-) -> CSSCode:
-    """Assemble merged CSSCode for two-PPM surgery.
-
-    ``intercode`` explicitly selects whether the two gadgets occupy disjoint data blocks.  The
-    default retains the historical object-identity behavior for existing internal callers.
-    """
-    if intercode is None:
-        intercode = g_l.code is not g_r.code
-    if intercode:
-        return _stitch_intercode(g_l, g_r, bridge)
-    return _stitch_intracode(g_l, g_r, bridge)
-
-
-def _merged_csscode(
-    g_l: GadgetLayout,
-    g_r: GadgetLayout | None = None,
-    bridge: Bridge | None = None,
-    *,
-    intercode: bool | None = None,
-) -> CSSCode:
-    """Construct the merged code for either a single or joint PPM layout."""
-    if (g_r is None) != (bridge is None):
-        raise ValueError("g_r and bridge must either both be provided or both be omitted")
-    if g_r is None:
-        if intercode is not None:
-            raise ValueError("intercode is only valid for a joint PPM layout")
-        return g_l._get_cone_result().code
-    assert bridge is not None
-    return _stitch_to_joint_csscode(g_l, g_r, bridge, intercode=intercode)
-
-
 def _expand_joint_data_init(
     data_init: str | tuple[str, ...] | list[str] | None,
     n_l: int,
@@ -849,11 +765,14 @@ def _build_joint_ppm_circuit(
         raise ValueError(f"rounds must be >= 1, got {rounds}.")
     _validate_bridge_gadget(g_l, bridge.g_l_aug, bridge.extra_ancilla_l, side="l")
     _validate_bridge_gadget(g_r, bridge.g_r_aug, bridge.extra_ancilla_r, side="r")
-    joint_code = _merged_csscode(g_l, g_r, bridge, intercode=intercode)
+    joint_code = (
+        _stitch_intercode(g_l, g_r, bridge) if intercode else _stitch_intracode(g_l, g_r, bridge)
+    )
     input_dimension = g_l.code.dimension + (g_r.code.dimension if intercode else 0)
-    _validate_one_logical_measurement(
+    _validate_logical_loss(
         joint_code,
         input_dimension=input_dimension,
+        expected_logical_loss=1,
         operation="build_joint_ppm_circuit",
     )
     qubit_ids = QubitIDs.from_code(joint_code)

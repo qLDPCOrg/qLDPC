@@ -304,7 +304,7 @@ def test_post_selection() -> None:
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
     assert dem_arrays.post_selected_on([0]).to_dem() == post_selected_dem
 
-    # if passed an integer order=2, pairs error mechanisms that whose post-selected detector flips
+    # if passed an integer order=2, pairs error mechanisms that whose post-selection detector flips
     # cancel out are added back to the detector error model
     prob = 0.1
     dem = stim.DetectorErrorModel(f"""
@@ -324,7 +324,7 @@ def test_post_selection() -> None:
     dem_arrays = decoders.DetectorErrorModelArrays(dem)
     assert dem_arrays.post_selected_on([0, 1], order=2).to_dem() == post_selected_dem
 
-    # setting order=3 will recover combinations of four error mechanisms
+    # setting order=3 will recover combinations of three error mechanisms
     prob = 0.1
     dem = stim.DetectorErrorModel(f"""
         detector D0
@@ -368,7 +368,7 @@ def test_post_selection() -> None:
     with pytest.raises(ValueError, match="order"):
         decoders.DetectorErrorModelArrays(dem).post_selected_on([0], order=0)
 
-    # order=4 also recovers four error mechanisms that all trigger the same post-selected detector
+    # order=4 also recovers four error mechanisms that all trigger the same post-selection detector
     prob = 0.1
     dem = stim.DetectorErrorModel(f"""
         detector D0
@@ -391,7 +391,7 @@ def test_post_selection() -> None:
         .approx_equals(post_selected_dem, atol=1e-10)
     )
 
-    # an error whose components cancel on a post-selected detector survives, but loses a whole
+    # an error whose components cancel on a post-selection detector survives, but loses a whole
     # decomposition component along with that detector, leaving no decomposition to suggest
     dem = stim.DetectorErrorModel("""
         detector D0
@@ -404,7 +404,7 @@ def test_post_selection() -> None:
     assert not post_selected.suggested_decompositions
     assert error_instructions(post_selected.to_dem()) == ["error(0.1) D0", "error(0.2) D0"]
 
-    # keep_detectors retains the post-selected detectors, leaving them untriggered
+    # keep_detectors retains the post-selection detectors, leaving them untriggered
     dem = stim.DetectorErrorModel("""
         detector D0
         detector D1

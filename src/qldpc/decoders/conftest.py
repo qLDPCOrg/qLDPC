@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Shared pytest fixtures for decoders tests."""
+"""Shared pytest fixtures and test helpers for decoders tests."""
 
 from __future__ import annotations
 
+import builtins
 import itertools
 import random
+import types
 
 import galois
 import numpy as np
@@ -29,14 +31,39 @@ def toy_problem() -> ToyProblem:
 
 @pytest.fixture
 def surface_code_problem(pytestconfig: pytest.Config) -> SurfaceCodeProblem:
-    """A random weight-2 error and its syndrome in a GF(3) surface code."""
+    """A random weight-2 error with a nonzero syndrome in a GF(3) surface code."""
     np.random.seed(pytestconfig.getoption("randomly_seed"))
     code = codes.SurfaceCode(4, field=3)
     local_errors = tuple(itertools.product(code.field.elements, repeat=2))[1:]
-    qubit_a, qubit_b = np.random.choice(range(len(code)), size=2, replace=False)
-    pauli_a, pauli_b = random.choices(local_errors, k=2)
-    error = code.field.Zeros(2 * len(code))
-    error[[qubit_a, qubit_a + len(code)]] = pauli_a
-    error[[qubit_b, qubit_b + len(code)]] = pauli_b
-    syndrome = code.matrix @ math.symplectic_conjugate(error)
-    return code, error, syndrome
+    while True:
+        qubit_a, qubit_b = np.random.choice(range(len(code)), size=2, replace=False)
+        pauli_a, pauli_b = random.choices(local_errors, k=2)
+        error = code.field.Zeros(2 * len(code))
+        error[[qubit_a, qubit_a + len(code)]] = pauli_a
+        error[[qubit_b, qubit_b + len(code)]] = pauli_b
+        syndrome = code.matrix @ math.symplectic_conjugate(error)
+        # a few weight-2 errors are stabilizers, which leave decoders nothing to decode
+        if np.any(syndrome):
+            return code, error, syndrome
+
+
+def fail_import(monkeypatch: pytest.MonkeyPatch, module: str, error: ImportError) -> None:
+    """Make importing a module raise an error, while every other import works as usual.
+
+    Other imports must keep working: other threads, such as those of pytest-xdist workers, can
+    import modules while the error is in place.
+    """
+    original_import = builtins.__import__
+
+    def import_or_fail(
+        name: str,
+        globals_: dict[str, object] | None = None,
+        locals_: dict[str, object] | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> types.ModuleType:
+        if name == module:
+            raise error
+        return original_import(name, globals_, locals_, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", import_or_fail)

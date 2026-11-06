@@ -1,5 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
+"""Stim circuits: encoding, memory, noise, benchmarking, certification, and transversal gates.
+
+The top-level modules and subpackages of this package import each other in layers, from shared
+foundations to complete workflows: each imports only from itself and from lower layers, which rules
+out import cycles between them.  ``layering_test.py`` lists the layers and checks these imports,
+apart from any that are marked as exceptions.
+"""
+
+from typing import TYPE_CHECKING
+
+from qldpc import _deprecations
+
 from .benchmarking import (
     get_logical_error_and_discard_rate,
     get_state_prep_diagnostic_circuit,
@@ -10,15 +22,18 @@ from .bookkeeping import (
     MeasurementRecord,
     QubitIDs,
     Record,
+    get_unaddressed_measurements,
+)
+from .certification import (
+    BoundedFaultPropagationCertificate,
+    BoundedFaultPropagationCounterexample,
+    certify_bounded_fault_propagation,
+    get_fault_distance,
 )
 from .common import (
     StimCircuitLike,
     StimCircuitProtocol,
     get_pauli_product_measurements,
-    get_unaddressed_measurements,
-    remap_qubit_target,
-    restrict_to_qubits,
-    with_remapped_qubits,
 )
 from .encoding import (
     get_encoder_and_decoder,
@@ -40,20 +55,26 @@ from .memory import (
     get_memory_experiment_parts,
     get_observables,
     get_qubit_coordinates,
-    validate_syndrome_qubit_ids,
 )
 from .noise_model import (
     DEFAULT_IMMUNE_OP_TAG,
     DEFAULT_IMMUNE_QUBIT_TAG,
     AbstractPauliChannel,
+    ALAPScheduler,
+    ASAPScheduler,
     DepolarizingNoiseModel,
+    MinIdleScheduler,
     NoiseModel,
     NoiseRule,
     PauliChannel,
     PauliChannelSequence,
+    Schedule,
+    Scheduler,
     SI1000NoiseModel,
+    TickScheduler,
     as_noiseless_circuit,
 )
+from .transforms import remap_qubit_target, transpile_to_cz, with_remapped_qubits
 from .transversal import (
     get_transversal_automorphism_group,
     get_transversal_circuit,
@@ -65,14 +86,19 @@ from .transversal import (
 __all__ = [
     "DEFAULT_IMMUNE_OP_TAG",
     "DEFAULT_IMMUNE_QUBIT_TAG",
+    "ALAPScheduler",
+    "ASAPScheduler",
     "AbstractPauliChannel",
     "AlphaSyndrome",
+    "BoundedFaultPropagationCertificate",
+    "BoundedFaultPropagationCounterexample",
     "DepolarizingNoiseModel",
     "DetectorRecord",
     "EdgeColoring",
     "EdgeColoringXZ",
     "MeasurementRecord",
     "MemoryExperimentParts",
+    "MinIdleScheduler",
     "NoiseModel",
     "NoiseRule",
     "PauliChannel",
@@ -80,13 +106,18 @@ __all__ = [
     "QubitIDs",
     "Record",
     "SI1000NoiseModel",
+    "Schedule",
+    "Scheduler",
     "StimCircuitLike",
     "StimCircuitProtocol",
     "SyndromeMeasurementStrategy",
+    "TickScheduler",
     "as_noiseless_circuit",
+    "certify_bounded_fault_propagation",
     "get_encoder_and_decoder",
     "get_encoding_circuit",
     "get_encoding_tableau",
+    "get_fault_distance",
     "get_logical_bell_prep",
     "get_logical_error_and_discard_rate",
     "get_logical_state_stabilizers",
@@ -107,7 +138,11 @@ __all__ = [
     "get_unaddressed_measurements",
     "remap_qubit_target",
     "restrict_tableau",
-    "restrict_to_qubits",
-    "validate_syndrome_qubit_ids",
+    "transpile_to_cz",
     "with_remapped_qubits",
 ]
+
+if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations
+
+    def __getattr__(name: str) -> object:
+        return _deprecations.get_deprecated_attribute(__name__, name)

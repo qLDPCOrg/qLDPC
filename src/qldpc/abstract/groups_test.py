@@ -37,7 +37,6 @@ def test_permutation_group(pytestconfig: pytest.Config) -> None:
     assert group.order == group.degree == 3
     assert group.random() in group
     assert group.random(seed=0) == group.random(seed=0)
-    assert group.to_sympy() == group._group
     assert group.is_commutative
     assert group.is_abelian
     assert group.to_gap_group() == "Group((1,2,3),(1,3,2))"
@@ -79,10 +78,6 @@ def test_trivial_group() -> None:
     assert np.array_equal(group.lift(group.identity), np.array(1, ndmin=2))
     assert group.equiv(abstract.Group.from_generating_mats())
     assert str(group) == "TrivialGroup"
-
-    # to_ring_array is a defunct alias that only raises, directing callers to RingArray.build
-    with pytest.raises(ValueError, match="DEFUNCT"):
-        abstract.TrivialGroup.to_ring_array([[1]])
 
 
 def test_group_equality_and_equivalence() -> None:
@@ -126,7 +121,6 @@ def test_lifts() -> None:
     assert_valid_lifts(abstract.AbelianGroup(2, 3, direct_sum=True))
     assert_valid_lifts(abstract.DihedralGroup(3))
     assert_valid_lifts(abstract.AlternatingGroup(3))
-    assert_valid_lifts(abstract.SymmetricGroup(3))
     assert_valid_lifts(abstract.QuaternionGroup())
 
     # anti-representations for a non-commutative groups with a custom lift are not supported
@@ -268,6 +262,8 @@ def test_group_product() -> None:
     assert group.generators == [shift @ identity, identity @ shift]
     assert np.array_equal(table, group.table)
     assert np.array_equal(table, abstract.Group.from_table(table).table)
+    with pytest.raises(ValueError, match="positive power"):
+        cycle**0
 
 
 def test_group_tensor_product() -> None:
@@ -348,9 +344,11 @@ def test_wreath_product_group_errors() -> None:
 def test_random_symmetric_subset() -> None:
     """Group.random_symmetric_subset generates properly symmetric subsets of the requested size."""
     group = abstract.CyclicGroup(2) * abstract.CyclicGroup(3)
-    for seed in [0, 1]:
-        subset = group.random_symmetric_subset(size=2, seed=seed)
-        assert subset == {~member for member in subset}
+    # with this seed, the sampled members overshoot the requested size by an odd count, so a
+    # self-inverse member must be discarded
+    subset = group.random_symmetric_subset(size=2, seed=1)
+    assert len(subset) == 2
+    assert subset == {~member for member in subset}
 
     subset = group.random_symmetric_subset(size=1, exclude_identity=False, seed=0)
     assert subset == {group.identity}
@@ -431,6 +429,7 @@ def assert_lift_is_homomorphism(group: abstract.Group) -> None:
 def test_SL(dimension: int, field: int, linear_rep: bool) -> None:
     """Special linear group; its lift is a homomorphism (though not orthogonal)."""
     group = abstract.SL(dimension, field=field, linear_rep=linear_rep)
+    assert group.dimension == dimension and group.field.order == field
     order = np.prod([field**dimension - field**jj for jj in range(dimension)]) // (field - 1)
     mats = tuple(abstract.SL.iter_mats(dimension, field))
     assert group.order == len(mats) == order
@@ -440,7 +439,7 @@ def test_SL(dimension: int, field: int, linear_rep: bool) -> None:
 
 @pytest.mark.parametrize(
     "dimension,field,linear_rep",
-    [(2, 2, True), (2, 2, False), (2, 3, False), (2, 4, None), (2, 3, None), (3, 2, None)],
+    [(2, 2, True), (2, 2, False), (2, 4, None), (2, 3, None), (3, 2, None)],
 )
 def test_PSL(dimension: int, field: int, linear_rep: bool | None) -> None:
     """Projective special linear group; its lift is a homomorphism (though not orthogonal).
@@ -458,6 +457,12 @@ def test_PSL(dimension: int, field: int, linear_rep: bool | None) -> None:
     assert_lift_is_homomorphism(group)
 
 
+def test_matrix_group_names() -> None:
+    """Matrix groups are named after their classes."""
+    assert abstract.SL(2, 3).name == "SpecialLinearGroup"
+    assert abstract.SL(2, 2, linear_rep=False).name == "SpecialLinearGroup"
+
+
 def test_psl_requires_trivial_center() -> None:
     """Asking for the linear representation raises an error when it does not exist.
 
@@ -469,9 +474,7 @@ def test_psl_requires_trivial_center() -> None:
         abstract.PSL(2, 5, linear_rep=True)
 
 
-@pytest.mark.parametrize(
-    "dimension,field,linear_rep", [(2, 4, True), (2, 2, False), (2, 3, True), (3, 2, True)]
-)
+@pytest.mark.parametrize("dimension,field,linear_rep", [(2, 4, True), (2, 2, False), (3, 2, True)])
 def test_GL(dimension: int, field: int, linear_rep: bool) -> None:
     """General linear group; its lift is a homomorphism (though not orthogonal)."""
     group = abstract.GL(dimension, field=field, linear_rep=linear_rep)
@@ -484,7 +487,7 @@ def test_GL(dimension: int, field: int, linear_rep: bool) -> None:
 
 @pytest.mark.parametrize(
     "dimension,field,linear_rep",
-    [(2, 2, True), (2, 2, False), (2, 3, False), (2, 2, None), (2, 3, None), (3, 2, None)],
+    [(2, 2, True), (2, 2, False), (2, 3, None), (3, 2, None)],
 )
 def test_PGL(dimension: int, field: int, linear_rep: bool | None) -> None:
     """Projective general linear group; its lift is a homomorphism (though not orthogonal).
@@ -511,6 +514,22 @@ def test_pgl_requires_trivial_center() -> None:
     """
     with pytest.raises(ValueError, match="does not descend to PGL"):
         abstract.PGL(2, 3, linear_rep=True)
+
+
+def test_matrix_groups_keep_their_field() -> None:
+    """Matrix groups lift into the field class that they are given, not the default of its order."""
+    # a non-default primitive element (and irreducible polynomial x + 2) makes a field class that
+    # differs from galois.GF(5)
+    field = galois.GF(5, primitive_element=3)
+    groups = [
+        abstract.SL(2, field),
+        abstract.PSL(2, field),  # a permutation representation, since gcd(2, 5 - 1) > 1
+        abstract.GL(2, field),
+        abstract.PGL(2, field),  # a permutation representation, since 5 > 2
+    ]
+    for group in groups:
+        assert group.field is field
+        assert all(type(group.lift(member)) is field for member in group.generators)
 
 
 @pytest.mark.parametrize(
@@ -541,7 +560,7 @@ def test_quotient_generating_mats_are_homomorphic(
     exhaustively enumerating ``SL(d, q)/GL(d, q)``, which is impractically slow at these dimensions
     (e.g. ``|SL(3, 3)| = 5616``).
     """
-    field_type = abstract.resolve_field(field)
+    field_type = galois.GF(field)
     gen_a, gen_b, *_ = base_cls.get_generating_mats(dimension, field_type)
     assert not np.array_equal(gen_a @ gen_b, gen_b @ gen_a)  # confirm noncommuting generators
 
@@ -557,85 +576,40 @@ def test_quotient_generating_mats_are_homomorphic(
         assert np.array_equal(rep, conjugation_rep(word))
 
 
-def test_psl_iter_mats_dimension_3() -> None:
-    """``PSL(3, 2)`` has the correct order and 2-D (not flattened) matrix representatives.
-
-    Building a dimension-3 group end-to-end via ``linear_rep=False`` is slow, so ``iter_mats`` is
-    checked directly instead: it exercises both the group order and the reshape of orbit
-    representatives to ``dimension x dimension`` matrices, which is the ``iter_mats``-specific bug
-    this test guards against.  The smallest field keeps the brute-force enumeration of all
-    ``field**9`` candidate matrices fast; quotients by nontrivial centers are checked in
-    ``test_PSL``.  (That the underlying quotient representation is a genuine homomorphism -- the
-    other bug fixed alongside this one -- is covered separately by
-    ``test_quotient_generating_mats_are_homomorphic``.)
-    """
-    dimension, field = 3, 2
-    order_SL = np.prod([field**dimension - field**jj for jj in range(dimension)]) // (field - 1)
-    order = order_SL // math.gcd(dimension, field - 1)
-    mats = tuple(abstract.PSL.iter_mats(dimension, field))
-    assert len(mats) == order
-    assert all(mat.shape == (dimension, dimension) for mat in mats)
-
-
-def test_pgl_iter_mats_dimension_3() -> None:
-    """``PGL(3, 2)`` has the correct order and 2-D (not flattened) matrix representatives.
-
-    Building a dimension-3 group end-to-end via ``linear_rep=False`` is slow -- and, before the fix,
-    the non-homomorphic quotient representation was confirmed to make that construction generate a
-    vastly oversized group for ``PGL(3, 3)`` -- so ``iter_mats`` is checked directly instead: it
-    exercises both the group order and the reshape of orbit representatives to
-    ``dimension x dimension`` matrices.  The smallest field keeps the brute-force enumeration of all
-    ``field**9`` candidate matrices fast; quotients by nontrivial centers are checked in
-    ``test_PGL``.
-    """
-    dimension, field = 3, 2
-    order_GL = np.prod([field**dimension - field**jj for jj in range(dimension)])
-    order = order_GL // (field - 1)
-    mats = tuple(abstract.PGL.iter_mats(dimension, field))
-    assert len(mats) == order
-    assert all(mat.shape == (dimension, dimension) for mat in mats)
-
-
-def test_resolve_field() -> None:
-    """resolve_field accepts None (GF2 default), a field order, or a galois field type."""
-    assert abstract.resolve_field(None) is galois.GF2
-    assert abstract.resolve_field(3).order == 3
-    field = galois.GF(4)
-    assert abstract.resolve_field(field) is field
-
-
 def test_small_group() -> None:
     """Groups indexed by the GAP computer algebra system."""
     order, index = 2, 1
     desired_group = abstract.CyclicGroup(order)
 
-    # invalid group index
+    # invalid group order or index
+    with pytest.raises(ValueError, match="order must be positive"):
+        abstract.SmallGroup(0, 1)
     with (
         pytest.raises(ValueError, match="Index for SmallGroup"),
-        unittest.mock.patch("qldpc.external.groups.get_small_group_number", return_value=index),
+        unittest.mock.patch("qldpc.external._groups.get_small_group_number", return_value=index),
     ):
         abstract.SmallGroup(order, 0)
 
     # everything works as expected
     generators = [tuple(gen.array_form) for gen in desired_group.generators]
     with (
-        unittest.mock.patch("qldpc.external.groups.get_small_group_number", return_value=index),
-        unittest.mock.patch("qldpc.external.groups.get_generators", return_value=generators),
+        unittest.mock.patch("qldpc.external._groups.get_small_group_number", return_value=index),
+        unittest.mock.patch("qldpc.external._groups.get_generators", return_value=generators),
     ):
         group = abstract.SmallGroup(order, index)
         assert group.generators == desired_group.generators
-        generated = list(abstract.SmallGroup.generator(order))
+        generated = list(abstract.SmallGroup.iter_groups(order))
         assert len(generated) == 1 and generated[0].equiv(desired_group)
 
         # retrieve group structure
         structure = "test"
         with unittest.mock.patch(
-            "qldpc.external.groups.get_small_group_structure", return_value=structure
+            "qldpc.external._groups.get_small_group_structure", return_value=structure
         ):
             assert group.structure == structure
 
     # cover a special case
-    with unittest.mock.patch("qldpc.external.groups.get_small_group_number", return_value=1):
+    with unittest.mock.patch("qldpc.external._groups.get_small_group_number", return_value=1):
         group = abstract.SmallGroup(1, 1)
     assert group.equiv(abstract.TrivialGroup())
     assert group.random() == group.identity

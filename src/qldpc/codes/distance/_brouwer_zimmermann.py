@@ -1,0 +1,481 @@
+# SPDX-License-Identifier: Apache-2.0
+
+"""Exact binary BZ searches using disjoint or overlapping information sets.
+
+The disjoint/rank-deficient certificates follow `Algorithm 994 <https://arxiv.org/abs/1603.06757>`_;
+the symplectic reduction follows the `quantum-code adaptation <https://arxiv.org/abs/2408.10743>`_.
+The overlapping-set certificate and implementation invariants are derived in
+``brouwer_zimmermann.md`` beside this module.  Information-set families and their certificates are
+built in ``_information_sets.py``, which fixed-weight logical counting shares; this module owns
+witness discovery, early exits, exhaustive dispatch, and the resumable native scan.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
+
+import numpy as np
+import numpy.typing as npt
+
+from qldpc._binary import pack_bits, popcount_word
+from qldpc._compilation import always_compiled
+
+from . import _information_sets
+from ._binary import get_eligible_rows
+from ._brute_force import get_nested_distance_brute_force
+from ._information_sets import advance_support
+
+####################################################################################################
+# search entry points
+
+
+def get_distance_brouwer_zimmermann_many(
+    problems: Sequence[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]],
+    *,
+    cutoff: int,
+    block_size: int,
+    weight_divisor: int = 1,
+    upper_bound: int | None = None,
+    get_disjoint_basis_families: Sequence[Callable[[], _information_sets.BasisFamily]]
+    | None = None,
+) -> int:
+    """Advance nested-code searches round-robin while sharing their best upper bound.
+
+    ``get_disjoint_basis_families``, if given, holds a function for each problem that returns a
+    disjoint basis family of it: sets with pairwise disjoint pivot blocks that span the problem's
+    basis, with quotient labels of the problem, certified with this ``weight_divisor``.  The result
+    of ``_information_sets.get_disjoint_family`` is one, and a caller that keeps such families saves
+    that first stage.  Each function is called only if its search needs it.
+    """
+    initial_upper_bounds = [
+        _get_lightest_eligible_row_weight(basis, labels) for basis, labels in problems
+    ]
+    best = min(initial_upper_bounds)
+    if upper_bound is not None:
+        best = min(best, upper_bound)
+    searches: list[_BrouwerZimmermannSearch] = []
+    for index, ((basis, labels), initial_upper_bound) in enumerate(
+        zip(problems, initial_upper_bounds, strict=True)
+    ):
+        prepared = _prepare_brouwer_zimmermann_search(
+            basis,
+            labels,
+            cutoff=cutoff,
+            block_size=block_size,
+            weight_divisor=weight_divisor,
+            upper_bound=best,
+            initial_upper_bound=initial_upper_bound,
+            get_disjoint_basis_family=None
+            if get_disjoint_basis_families is None
+            else get_disjoint_basis_families[index],
+        )
+        if isinstance(prepared, int):
+            best = min(best, prepared)
+        else:
+            searches.append(prepared)
+
+    # Advance every unfinished search in turn, until all have finished.
+    advanced = True
+    while advanced:
+        advanced = False
+        for search in searches:
+            # Share witnesses between sectors, but keep each lower certificate independent.
+            search.update_upper_bound(best)
+            if search.finished:
+                continue
+            best = min(best, search.advance())
+            advanced = True
+            if best <= cutoff:
+                return best
+    return best
+
+
+def get_distance_brouwer_zimmermann(
+    basis: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8],
+    *,
+    cutoff: int,
+    block_size: int,
+    weight_divisor: int = 1,
+    upper_bound: int | None = None,
+) -> int:
+    """Compute an exact nested-code distance with the Brouwer-Zimmermann algorithm.
+
+    The disjoint and rank-deficient bound follows Algorithm 1 of https://arxiv.org/abs/1603.06757.
+    The overlapping-set extension divides pivot occupancy by the maximum coordinate coverage.
+    Nonzero ``labels`` identify rows outside an excluded subcode, and labels with no columns exclude
+    nothing (see ``get_eligible_rows``).  Transforming the labels alongside the generators makes the
+    upper-bound search exact for logical operators modulo stabilizers.
+
+    An ``upper_bound`` starts the search as though a witness of that weight were known, so the
+    search returns ``min(distance, upper_bound)`` and stops once it certifies that no word is
+    lighter than ``upper_bound``.
+    """
+    return get_distance_brouwer_zimmermann_many(
+        [(basis, labels)],
+        cutoff=cutoff,
+        block_size=block_size,
+        weight_divisor=weight_divisor,
+        upper_bound=upper_bound,
+    )
+
+
+####################################################################################################
+# cost models
+
+
+def enumeration_is_cheaper_than_setup(dimension: int, length: int) -> bool:
+    """Estimate whether enumerating every codeword is cheaper than building information sets.
+
+    Setup costs dominate the Brouwer-Zimmermann search for dimensions up to 20.  For long,
+    low-dimensional codes, byte-wise elimination for each information set can cost more than packed
+    ``uint64`` enumeration of all ``2**dimension`` codewords.
+    """
+    return dimension <= 20 or (dimension < 63 and 1 << dimension <= 128 * dimension * length)
+
+
+def _enumeration_is_cheaper_than_search(
+    *,
+    num_logical_rows: int,
+    certificate: _information_sets.Certificate,
+    upper_bound: int,
+) -> bool:
+    """Estimate whether exhaustive nested-code enumeration will outperform BZ.
+
+    The BZ estimate pessimistically assumes that the search must certify the current upper bound,
+    whereas lighter witnesses usually end the search sooner.  Although the vectorized exhaustive
+    kernel is a few times cheaper per candidate than the serial Numba BZ kernel, whole-search
+    timings near this boundary favor BZ until the exhaustive count reaches roughly the estimated BZ
+    count, so the two counts are compared directly.
+    """
+    dimension = certificate.dimension
+    bz_candidates = certificate.work(upper_bound)
+    exhaustive_candidates = ((1 << num_logical_rows) - 1) << (dimension - num_logical_rows)
+    return exhaustive_candidates <= bz_candidates
+
+
+####################################################################################################
+# resumable searches
+
+
+@dataclass
+class _BrouwerZimmermannSearch:
+    """State for one resumable Brouwer-Zimmermann search.
+
+    ``certificate`` records the ranks, maximum coordinate coverage, and proven weight divisor of the
+    packed family.  ``ranks`` is its native copy for the compiled scan.
+    """
+
+    generators: npt.NDArray[np.uint64]
+    labels: npt.NDArray[np.uint64]
+    widths: npt.NDArray[np.int64]
+    label_widths: npt.NDArray[np.int64]
+    certificate: _information_sets.Certificate
+    cutoff: int
+    batch_size: int
+    best: int
+    lower_bound: int
+    next_weight: int = 1
+    ranks: npt.NDArray[np.int64] = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self.ranks = np.array(self.certificate.ranks, dtype=np.int64)
+        assert len(self.ranks) == len(self.generators)
+        assert self.certificate.dimension == self.dimension
+
+    @property
+    def dimension(self) -> int:
+        """Number of basis rows searched."""
+        return self.generators.shape[1]
+
+    @property
+    def finished(self) -> bool:
+        """Whether this sector cannot improve the shared upper bound."""
+        return (
+            self.best <= self.cutoff
+            or self.lower_bound >= self.best
+            or self.next_weight > self.dimension
+        )
+
+    def update_upper_bound(self, upper_bound: int) -> None:
+        """Import a witness found by another search."""
+        self.best = min(self.best, upper_bound)
+
+    def advance(self) -> int:
+        """Search the next coefficient layer, and return the best shared upper bound.
+
+        The search scans the fewest leading sets whose completion of the layer certifies the best
+        weight at the start of the layer, or every set if no fewer do (see
+        ``Certificate.get_num_sets_to_certify``).
+        """
+        if self.finished:
+            return self.best
+
+        # Scan only the first sets of this layer if their completion of it certifies the best
+        # weight: an unvisited eligible word lighter than that would contradict the certificate, and
+        # lighter witnesses found during the scan only lower the best weight further.
+        weight = self.next_weight
+        num_completed = self.certificate.get_num_sets_to_certify(weight, self.best)
+        scanned = slice(0, num_completed)
+
+        # Start a fresh enumeration of all supports with this coefficient weight.
+        support = np.zeros(weight, dtype=np.int64)
+        prefixes = np.zeros((weight + 1, num_completed, self.generators.shape[2]), dtype=np.uint64)
+        depth = 0
+        # Any negative Python cutoff disables early exit; keep its native value in int64 range.
+        cutoff = max(-1, self.cutoff)
+
+        # Scan in chunks, returning early once the upper bound reaches the cutoff.
+        while depth >= 0:
+            self.best, depth, _ = _scan_brouwer_zimmermann(
+                self.generators[scanned],
+                self.labels[scanned],
+                self.ranks[scanned],
+                self.widths[scanned],
+                self.label_widths[scanned],
+                support,
+                prefixes,
+                depth,
+                self.best,
+                cutoff,
+                self.batch_size,
+            )
+            if self.best <= self.cutoff:
+                return self.best
+
+        # The scanned sets have completed the layer, so the family certificate may advance.
+        self.lower_bound = self.certificate.step_lower_bound(weight, num_completed)
+        if num_completed == len(self.ranks):
+            self.next_weight += 1
+        return self.best
+
+
+def _prepare_brouwer_zimmermann_search(
+    basis: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8],
+    *,
+    cutoff: int,
+    block_size: int,
+    weight_divisor: int,
+    upper_bound: int,
+    initial_upper_bound: int | None = None,
+    get_disjoint_basis_family: Callable[[], _information_sets.BasisFamily] | None = None,
+) -> int | _BrouwerZimmermannSearch:
+    """Prepare one BZ search, or return immediately when another route is cheaper.
+
+    The basis family stages of ``_information_sets`` run in order, with distance-specific witness,
+    cutoff, certificate, and exhaustive exits between them.  ``get_disjoint_basis_family``, if
+    given, returns the result of the first stage.
+    """
+    dimension = len(basis)
+    best = min(
+        upper_bound,
+        (
+            _get_lightest_eligible_row_weight(basis, labels)
+            if initial_upper_bound is None
+            else initial_upper_bound
+        ),
+    )
+    if best <= cutoff:
+        return best
+
+    if enumeration_is_cheaper_than_setup(dimension, basis.shape[1]):
+        distance = get_nested_distance_brute_force(
+            basis, labels, cutoff=cutoff, block_size=block_size, homogeneous=True
+        )
+        return min(best, distance)
+
+    # The disjoint basis family's certificate also uses any inferred even ambient parity.
+    basis_family = (
+        _information_sets.get_disjoint_family(basis, labels, weight_divisor=weight_divisor)
+        if get_disjoint_basis_family is None
+        else get_disjoint_basis_family()
+    )
+    best = _get_basis_family_upper_bound(basis_family, best)
+    if best <= cutoff:
+        return best
+
+    basis_family = _information_sets.prune_family(basis_family, upper_bound=best)
+    # Each basis family of an independent basis has a set, whose systematic rows complete layer one.
+    completed_weight = 1
+    lower_bound = basis_family.certificate.lower_bound(completed_weight)
+    if lower_bound >= best:
+        return best
+
+    # Replace the basis family only when overlapping sets, built heuristically and then, for costly
+    # searches, by matroid partitioning, predict less certification work.
+    for get_replacement in (
+        lambda family, best: _information_sets.get_overlapping_family(
+            basis,
+            labels,
+            family,
+            best,
+            _information_sets.MAX_SETS,
+            *_information_sets.get_overlapping_family_policy(dimension),
+        ),
+        lambda family, best: _information_sets.get_partitioned_family(
+            basis, labels, family, best, _information_sets.MAX_SETS
+        ),
+    ):
+        replacement = get_replacement(basis_family, best)
+        if not len(replacement.ranks):
+            continue
+        basis_family = replacement
+
+        # Check the replacement rows for lighter witnesses before scanning combinations.
+        best = _get_basis_family_upper_bound(basis_family, best)
+        if best <= cutoff:
+            return best
+
+        # The replacement certificate uses its own ranks and coordinate multiplicity.
+        lower_bound = basis_family.certificate.lower_bound(completed_weight)
+        if lower_bound >= best:
+            return best
+
+    if _enumeration_is_cheaper_than_search(
+        num_logical_rows=int(np.count_nonzero(get_eligible_rows(labels))),
+        certificate=basis_family.certificate,
+        upper_bound=best,
+    ):
+        distance = get_nested_distance_brute_force(
+            basis, labels, cutoff=cutoff, block_size=block_size, homogeneous=True
+        )
+        return min(best, distance)
+
+    # Remove systematic pivots; advance() restores their known weight arithmetically.
+    packed_rows = [
+        pack_bits(np.delete(generators, pivots[:rank], axis=1))
+        for generators, pivots, rank in zip(
+            basis_family.generators, basis_family.pivots, basis_family.ranks, strict=True
+        )
+    ]
+
+    # Zero-pad every set to a common word width, so the Numba kernel receives single arrays.  The
+    # labels of every set already have the same width, which is zero for a basis without labels.
+    widths = np.array([rows.shape[1] for rows in packed_rows], dtype=np.int64)
+    packed_generators = np.zeros(
+        (len(packed_rows), dimension, int(widths.max(initial=0))), dtype=np.uint64
+    )
+    for index, rows in enumerate(packed_rows):
+        packed_generators[index, :, : widths[index]] = rows
+    packed_labels = np.stack([pack_bits(set_labels) for set_labels in basis_family.labels])
+    label_widths = np.full(len(packed_labels), packed_labels.shape[2], dtype=np.int64)
+
+    return _BrouwerZimmermannSearch(
+        packed_generators,
+        packed_labels,
+        widths,
+        label_widths,
+        basis_family.get_search_certificate(best),
+        cutoff,
+        1 << min(block_size, 15),
+        best,
+        lower_bound,
+        completed_weight + 1,
+    )
+
+
+def _get_lightest_eligible_row_weight(
+    basis: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8],
+) -> int:
+    """Return the weight of the lightest eligible row of a nested-code basis."""
+    packed_basis = pack_bits(basis[get_eligible_rows(labels)])
+    # get row weights, summing in uint64 to avoid overflow in wide rows
+    return int(np.bitwise_count(packed_basis).sum(axis=-1, dtype=np.uint64).min())
+
+
+def _get_basis_family_upper_bound(
+    basis_family: _information_sets.BasisFamily,
+    upper_bound: int,
+) -> int:
+    """Tighten an upper bound with the systematic rows of a basis family: its layer-one words."""
+    for generators, set_labels in zip(basis_family.generators, basis_family.labels, strict=True):
+        upper_bound = min(upper_bound, _get_lightest_eligible_row_weight(generators, set_labels))
+    return upper_bound
+
+
+####################################################################################################
+# native scan
+
+
+@always_compiled
+def _scan_brouwer_zimmermann(
+    generators: npt.NDArray[np.uint64],
+    labels: npt.NDArray[np.uint64],
+    ranks: npt.NDArray[np.int64],
+    widths: npt.NDArray[np.int64],
+    label_widths: npt.NDArray[np.int64],
+    support: npt.NDArray[np.int64],
+    prefixes: npt.NDArray[np.uint64],
+    depth: int,
+    best: int,
+    cutoff: int,
+    batch_size: int,
+) -> tuple[int, int, int]:
+    """Scan one bounded chunk of coefficient supports for Brouwer-Zimmermann search.
+
+    Args:
+        generators: Packed information-set rows after pivot columns have been deleted.
+        labels: Packed quotient labels whose nonzero XOR marks eligible candidates.
+        ranks: Rank of each information-set block before pivot columns were deleted.
+        widths: Number of packed generator words used by each information-set block.
+        label_widths: Number of packed label words used by each information-set block.
+        support: Mutable row indices for the current coefficient support.
+        prefixes: Mutable prefix XORs for internal support depths and information-set blocks.
+        depth: Current support-tree depth, or ``-1`` when the coefficient layer is complete.
+        best: Current upper bound; only strictly lighter eligible candidates replace it.
+        cutoff: Weight threshold that stops this chunk once ``best <= cutoff``.
+        batch_size: Maximum number of complete supports visited by this chunk.
+
+    Returns:
+        Updated ``best``, updated ``depth``, and number of complete supports visited.
+    """
+    dimension = generators.shape[1]
+    weight = len(support)
+    visited = 0
+    while True:
+        depth = advance_support(generators, widths, support, prefixes, depth)
+        if depth < 0:
+            return best, depth, visited
+
+        # Visit the remaining supports that differ from this one only in their last row, in each
+        # information set, returning at the cutoff or at the end of this chunk.
+        while support[depth] < dimension:
+            row = support[depth]
+            for set_index in range(len(ranks)):
+                # Each selected row whose pivot column was deleted contributes one to the Hamming
+                # weight; packed words hold the remaining columns.
+                if ranks[set_index] == dimension:
+                    candidate_weight = np.int64(weight)
+                else:
+                    candidate_weight = np.int64(0)
+                    for selected in range(weight):
+                        if support[selected] < ranks[set_index]:
+                            candidate_weight += 1
+                for word in range(widths[set_index]):
+                    value = prefixes[depth, set_index, word] ^ generators[set_index, row, word]
+                    candidate_weight += popcount_word(value)
+                    if candidate_weight >= best:
+                        break
+                if candidate_weight >= best:
+                    continue
+
+                # A candidate is eligible when no subcode is excluded or its quotient label is
+                # nonzero.
+                eligible = label_widths[set_index] == 0
+                for word in range(label_widths[set_index]):
+                    combined = labels[set_index, support[0], word]
+                    for selected in range(1, weight):
+                        combined ^= labels[set_index, support[selected], word]
+                    if combined:
+                        eligible = True
+                        break
+                if eligible:
+                    best = int(candidate_weight)
+
+            visited += 1
+            support[depth] += 1
+            if best <= cutoff or visited >= batch_size:
+                return best, depth, visited

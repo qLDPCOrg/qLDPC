@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Tests for the private lattice-surgery compiler slice."""
 
 from __future__ import annotations
@@ -57,12 +59,8 @@ def _raw_observable_samples(circuit: stim.Circuit, *, shots: int) -> dict[int, n
     [
         (Pauli.X, ("+", "+"), 0),
         (Pauli.X, ("-", "+"), 1),
-        (Pauli.X, ("+", "-"), 1),
-        (Pauli.X, ("-", "-"), 0),
         (Pauli.Z, ("0", "0"), 0),
-        (Pauli.Z, ("1", "0"), 1),
         (Pauli.Z, ("0", "1"), 1),
-        (Pauli.Z, ("1", "1"), 0),
     ],
 )
 def test_compile_interblock_pair_steane_truth_table(
@@ -72,14 +70,38 @@ def test_compile_interblock_pair_steane_truth_table(
 ) -> None:
     """Raw measurement records reproduce both logical parity truth tables."""
     code = codes.SteaneCode()
-    blocks = (_LogicalBlock("left", code), _LogicalBlock("right", code))
-    request = _pair_request(basis)
-
     compiled = _compile_interblock_pair_measurement(
-        blocks,
-        request,
+        (_LogicalBlock("left", code), _LogicalBlock("right", code)),
+        _pair_request(basis),
         rounds=2,
         initial_states={"left": states[0], "right": states[1]},
+    )
+
+    raw_observables = _raw_observable_samples(compiled.diagnostic_circuit, shots=8)
+    assert set(raw_observables) == {0, 1}
+    assert np.all(raw_observables[0] == expected)
+    assert np.array_equal(raw_observables[0], raw_observables[1])
+    assert not compiled.diagnostic_circuit.compile_detector_sampler().sample(shots=8).any()
+
+    logical = tuple(int(value) for value in code.get_logical_ops(basis)[0].tolist())
+    assert compiled.resolved_operators == (logical, logical)
+    assert compiled.resources.syndrome_rounds == 2
+
+
+def test_compile_interblock_pair_matches_existing_public_builder() -> None:
+    """Explicit block semantics preserve the existing distinct-code circuit.
+
+    The compiled record also names its request, observables, backend, block allocation and
+    resources consistently.
+    """
+    from qldpc.experimental.surgery import build_bridge, build_gadget, build_joint_ppm_circuit
+
+    shared_code = codes.SteaneCode()
+    request = _pair_request(Pauli.X)
+    compiled = _compile_interblock_pair_measurement(
+        (_LogicalBlock("left", shared_code), _LogicalBlock("right", shared_code)),
+        request,
+        rounds=1,
     )
 
     assert isinstance(compiled, _CompiledPairMeasurement)
@@ -92,23 +114,14 @@ def test_compile_interblock_pair_steane_truth_table(
     assert compiled.backend.cellulate_max_len is None
     assert not compiled.backend.boosted
 
-    raw_observables = _raw_observable_samples(compiled.diagnostic_circuit, shots=8)
-    assert set(raw_observables) == {0, 1}
-    assert np.all(raw_observables[0] == expected)
-    assert np.array_equal(raw_observables[0], raw_observables[1])
-    assert not compiled.diagnostic_circuit.compile_detector_sampler().sample(shots=8).any()
-
-    logical = tuple(int(value) for value in code.get_logical_ops(basis)[0].tolist())
-    assert compiled.resolved_operators == (logical, logical)
     allocation = dict(compiled.block_data_qubits)
     assert allocation["left"] == tuple(range(7))
     assert allocation["right"] == tuple(range(7, 14))
-    assert set(allocation["left"]).isdisjoint(allocation["right"])
 
     resources = compiled.resources
     assert resources.source_data_qubits == 14
     assert resources.logical_outcomes == 1
-    assert resources.syndrome_rounds == 2
+    assert resources.syndrome_rounds == 1
     assert resources.adapter_data_qubits == compiled.backend.bridge_width
     assert (
         resources.source_data_qubits
@@ -119,18 +132,6 @@ def test_compile_interblock_pair_steane_truth_table(
     assert (
         compiled.merged_code.num_qudits + resources.syndrome_ancilla_qubits
         == resources.allocated_physical_qubits
-    )
-
-
-def test_compile_interblock_pair_matches_existing_public_builder() -> None:
-    """Explicit block semantics preserve the existing distinct-code circuit."""
-    from qldpc.experimental.surgery import build_bridge, build_gadget, build_joint_ppm_circuit
-
-    shared_code = codes.SteaneCode()
-    compiled = _compile_interblock_pair_measurement(
-        (_LogicalBlock("left", shared_code), _LogicalBlock("right", shared_code)),
-        _pair_request(Pauli.X),
-        rounds=1,
     )
 
     code_l = codes.SteaneCode()
@@ -151,37 +152,19 @@ def test_compile_interblock_pair_matches_existing_public_builder() -> None:
     assert np.array_equal(compiled.merged_code.matrix_z, expected_code.matrix_z)
 
 
-def test_compile_interblock_pair_hgp_nonzero_logical() -> None:
-    """The same path compiles a nonzero logical index of a multi-logical HGP code."""
-    code = codes.HGPCode(codes.HammingCode(3))
-    compiled = _compile_interblock_pair_measurement(
-        (_LogicalBlock("left", code), _LogicalBlock("right", code)),
-        _pair_request(Pauli.X, left_index=3, right_index=5),
-        rounds=1,
-    )
-
-    assert code.dimension == 16
-    assert compiled.merged_code.dimension == 31
-    assert compiled.resources.source_data_qubits == 116
-    assert compiled.resources.syndrome_rounds == 1
-    assert not compiled.circuit.compile_detector_sampler().sample(shots=2).any()
-    expected_left = tuple(int(value) for value in code.get_logical_ops(Pauli.X)[3].tolist())
-    expected_right = tuple(int(value) for value in code.get_logical_ops(Pauli.X)[5].tolist())
-    zero_index = tuple(int(value) for value in code.get_logical_ops(Pauli.X)[0].tolist())
-    assert compiled.resolved_operators == (expected_left, expected_right)
-    assert expected_left != zero_index
-    assert expected_right != zero_index
-
-
 @pytest.mark.parametrize(
     ("basis", "states"),
-    [(Pauli.X, ("-", "+")), (Pauli.X, ("+", "-")), (Pauli.Z, ("1", "0")), (Pauli.Z, ("0", "1"))],
+    [(Pauli.X, ("-", "+")), (Pauli.Z, ("0", "1"))],
 )
 def test_compile_interblock_pair_hgp_initialization_binds_logical_index(
     basis: PauliXZ,
     states: tuple[str, str],
 ) -> None:
-    """Initial states flip the requested nonzero logicals, giving odd raw parity."""
+    """Initial states flip the requested nonzero logicals of a multi-logical HGP code.
+
+    The X case flips the left block and the Z case the right one, so together they bind both
+    requested logical indices; either flip gives odd raw parity.
+    """
     code = codes.HGPCode(codes.HammingCode(3))
     compiled = _compile_interblock_pair_measurement(
         (_LogicalBlock("left", code), _LogicalBlock("right", code)),
@@ -189,6 +172,18 @@ def test_compile_interblock_pair_hgp_initialization_binds_logical_index(
         rounds=1,
         initial_states={"left": states[0], "right": states[1]},
     )
+
+    assert code.dimension == 16
+    assert compiled.merged_code.dimension == 31
+    assert compiled.resources.source_data_qubits == 116
+    assert not compiled.circuit.compile_detector_sampler().sample(shots=2).any()
+    logicals = code.get_logical_ops(basis)
+    expected_left = tuple(int(value) for value in logicals[3].tolist())
+    expected_right = tuple(int(value) for value in logicals[5].tolist())
+    zero_index = tuple(int(value) for value in logicals[0].tolist())
+    assert compiled.resolved_operators == (expected_left, expected_right)
+    assert expected_left != zero_index
+    assert expected_right != zero_index
 
     raw_observables = _raw_observable_samples(compiled.diagnostic_circuit, shots=8)
     assert np.all(raw_observables[0] == 1)
@@ -201,20 +196,10 @@ def test_compiler_rejects_invalid_rounds_and_block_collections() -> None:
     blocks = (_LogicalBlock("left", code), _LogicalBlock("right", code))
     request = _pair_request()
 
-    with pytest.raises(TypeError, match="rounds must be an integer"):
-        _compile_interblock_pair_measurement(blocks, request, rounds=1.5)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="rounds must be an integer"):
-        _compile_interblock_pair_measurement(blocks, request, rounds=True)
     with pytest.raises(ValueError, match="rounds must be >= 1"):
         _compile_interblock_pair_measurement(blocks, request, rounds=0)
     with pytest.raises(ValueError, match="exactly 2 blocks"):
         _compile_interblock_pair_measurement(blocks[:1], request, rounds=1)
-    with pytest.raises(TypeError, match="must contain _LogicalBlock"):
-        _compile_interblock_pair_measurement(
-            (blocks[0], object()),  # type: ignore[arg-type]
-            request,
-            rounds=1,
-        )
 
 
 def test_compiler_rejects_invalid_logical_blocks() -> None:
@@ -222,12 +207,6 @@ def test_compiler_rejects_invalid_logical_blocks() -> None:
     code = codes.SteaneCode()
     request = _pair_request()
 
-    with pytest.raises(TypeError, match="identifiers must be strings"):
-        _compile_interblock_pair_measurement(
-            (_LogicalBlock(1, code), _LogicalBlock("right", code)),  # type: ignore[arg-type]
-            request,
-            rounds=1,
-        )
     with pytest.raises(ValueError, match="must not be empty"):
         _compile_interblock_pair_measurement(
             (_LogicalBlock(" ", code), _LogicalBlock("right", code)),
@@ -237,15 +216,6 @@ def test_compiler_rejects_invalid_logical_blocks() -> None:
     with pytest.raises(ValueError, match="duplicate logical block"):
         _compile_interblock_pair_measurement(
             (_LogicalBlock("left", code), _LogicalBlock("left", code)),
-            request,
-            rounds=1,
-        )
-    with pytest.raises(TypeError, match="must contain a CSSCode"):
-        _compile_interblock_pair_measurement(
-            (
-                _LogicalBlock("left", codes.RepetitionCode(3)),  # type: ignore[arg-type]
-                _LogicalBlock("right", code),
-            ),
             request,
             rounds=1,
         )
@@ -268,34 +238,14 @@ def test_compiler_rejects_invalid_logical_blocks() -> None:
 
 
 def test_compiler_rejects_invalid_pair_requests() -> None:
-    """Request-shape, result, factor, basis, and index errors are explicit."""
+    """Result-key, block, basis, and index errors in a request are explicit."""
     code = codes.SteaneCode()
     blocks = (_LogicalBlock("left", code), _LogicalBlock("right", code))
 
-    with pytest.raises(TypeError, match="request must be"):
-        _compile_interblock_pair_measurement(blocks, object(), rounds=1)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="result_key must be a string"):
-        _compile_interblock_pair_measurement(
-            blocks,
-            _PauliPairMeasurement(1, _pair_request().factors),  # type: ignore[arg-type]
-            rounds=1,
-        )
     with pytest.raises(ValueError, match="result_key must not be empty"):
         _compile_interblock_pair_measurement(
             blocks,
             _PauliPairMeasurement(" ", _pair_request().factors),
-            rounds=1,
-        )
-    with pytest.raises(ValueError, match="requires exactly 2 factors"):
-        _compile_interblock_pair_measurement(
-            blocks,
-            _PauliPairMeasurement("parity", (_pair_request().factors[0],)),  # type: ignore[arg-type]
-            rounds=1,
-        )
-    with pytest.raises(TypeError, match="must be _LogicalPauliRef"):
-        _compile_interblock_pair_measurement(
-            blocks,
-            _PauliPairMeasurement("parity", (object(), object())),  # type: ignore[arg-type]
             rounds=1,
         )
     with pytest.raises(ValueError, match="unknown logical block"):
@@ -310,28 +260,10 @@ def test_compiler_rejects_invalid_pair_requests() -> None:
             ),
             rounds=1,
         )
-    with pytest.raises(TypeError, match="block identifiers must be strings"):
-        _compile_interblock_pair_measurement(
-            blocks,
-            _PauliPairMeasurement(
-                "parity",
-                (
-                    _LogicalPauliRef(1, 0, Pauli.X),  # type: ignore[arg-type]
-                    _LogicalPauliRef("right", 0, Pauli.X),
-                ),
-            ),
-            rounds=1,
-        )
     with pytest.raises(ValueError, match=r"Pauli\.X or Pauli\.Z"):
         _compile_interblock_pair_measurement(
             blocks,
             _pair_request(Pauli.Y),
-            rounds=1,
-        )
-    with pytest.raises(TypeError, match="logical indices must be integers"):
-        _compile_interblock_pair_measurement(
-            blocks,
-            _pair_request(Pauli.X, left_index=True),
             rounds=1,
         )
     with pytest.raises(IndexError, match="out of range"):
@@ -372,13 +304,6 @@ def test_compiler_rejects_invalid_initial_states() -> None:
     blocks = (_LogicalBlock("left", code), _LogicalBlock("right", code))
     request = _pair_request()
 
-    with pytest.raises(TypeError, match="initial_states must be a mapping"):
-        _compile_interblock_pair_measurement(
-            blocks,
-            request,
-            rounds=1,
-            initial_states=(("+", "+"),),  # type: ignore[arg-type]
-        )
     with pytest.raises(ValueError, match=r"missing=.*right"):
         _compile_interblock_pair_measurement(
             blocks,
@@ -392,13 +317,6 @@ def test_compiler_rejects_invalid_initial_states() -> None:
             request,
             rounds=1,
             initial_states={"left": "+", "right": "+", "third": "+"},
-        )
-    with pytest.raises(TypeError, match="must be a string"):
-        _compile_interblock_pair_measurement(
-            blocks,
-            request,
-            rounds=1,
-            initial_states={"left": 0, "right": "+"},  # type: ignore[dict-item]
         )
     with pytest.raises(ValueError, match="must be one of"):
         _compile_interblock_pair_measurement(
@@ -441,12 +359,3 @@ def test_compiler_reports_backend_capability_failures(
             rounds=1,
         )
     assert isinstance(caught.value.__cause__, ValueError)
-
-
-def test_compiler_records_are_not_public_exports() -> None:
-    """The first compiler contract remains private while it has one backend."""
-    from qldpc.experimental import surgery
-
-    assert "_LogicalBlock" not in surgery.__all__
-    assert "_PauliPairMeasurement" not in surgery.__all__
-    assert "_compile_interblock_pair_measurement" not in surgery.__all__

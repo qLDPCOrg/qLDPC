@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+
+"""Run the pytest suite, excluding non-test scripts and duplicate notebook links."""
+
 import os
 import sys
 

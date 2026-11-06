@@ -22,7 +22,7 @@ class MatrixDecoderFactory:
     only has a detector error model rejects it.
     """
 
-    factory: Callable[..., ErrorDecoder | SupportsDecode]
+    factory: Callable[[IntegerArray], ErrorDecoder | SupportsDecode]
 
     def build(self, matrix: IntegerArray) -> ErrorDecoder | SupportsDecode:
         """Build an error decoder for a parity-check matrix."""
@@ -37,21 +37,23 @@ class DEMDecoderFactory:
     needs inferred errors, such as a window decoder, rejects it.
     """
 
-    factory: Callable[..., ObservableDecoder]
+    factory: Callable[[stim.DetectorErrorModel], ObservableDecoder]
 
     def build(self, dem: stim.DetectorErrorModel) -> ObservableDecoder:
         """Build an observable decoder for a detector error model."""
         return self.factory(dem)
 
 
-def from_matrix(factory: Callable[..., ErrorDecoder | SupportsDecode]) -> MatrixDecoderFactory:
+def from_matrix(
+    factory: Callable[[IntegerArray], ErrorDecoder | SupportsDecode],
+) -> MatrixDecoderFactory:
     """Declare a parity-check matrix input for a custom error-decoder factory."""
     if not callable(factory):
         raise TypeError("from_matrix requires a callable factory")
     return MatrixDecoderFactory(factory)
 
 
-def from_dem(factory: Callable[..., ObservableDecoder]) -> DEMDecoderFactory:
+def from_dem(factory: Callable[[stim.DetectorErrorModel], ObservableDecoder]) -> DEMDecoderFactory:
     """Declare a binary detector error model input for a custom observable-decoder factory."""
     if not callable(factory):
         raise TypeError("from_dem requires a callable factory")

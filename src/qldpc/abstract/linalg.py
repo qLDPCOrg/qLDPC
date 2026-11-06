@@ -5,7 +5,6 @@
 .. warning::
     This module does not promise to be performant.  If you need to do heavy numerical abstract
     algebra, you're probably better served by GAP or MAGMA (or maybe SageMath).
-
 """
 
 from __future__ import annotations
@@ -20,8 +19,9 @@ import scipy.linalg
 
 from qldpc import math
 
+from ._coefficients import coefficient_matmul
 from .groups import Group, GroupMember
-from .ring_array import RingArray, _coefficient_matmul
+from .ring_array import RingArray
 from .rings import GroupRing
 
 if TYPE_CHECKING:
@@ -58,7 +58,7 @@ def matmul(
     if ring.is_commutative or not right:
         return (matrix_a @ matrix_b).view(RingArray)
 
-    if (matrix := _coefficient_matmul(matrix_a, matrix_b, ring=ring, right=True)) is not None:
+    if (matrix := coefficient_matmul(matrix_a, matrix_b, ring=ring, right=True)) is not None:
         assert isinstance(matrix, RingArray)
         return matrix
 
@@ -79,14 +79,14 @@ def kron(
     """Take the Kronecker product of two matrices over a ring.
 
     If the base ring R is commutative, this is the ordinary Kronecker product.  Otherwise, matrix
-    entries of the Kronecker product live in the bimodule of R.  See get_bimodule for additional
-    information.
+    entries of the Kronecker product live in the bimodule R ⨂ R of R, whose elements r ⨂ s act on
+    elements t of R as (r ⨂ s)(t) = r·t·s⁻¹.
     """
     ring = _get_ring(matrix_a, matrix_b)
 
     if not ring.is_commutative:
         # keep left and right multiplication in separate halves of the bimodule representation
-        bimodule = get_bimodule(ring)
+        bimodule = _get_bimodule(ring)
         sector_size = ring.group.identity.size
         swap_sectors = GroupMember(
             list(range(sector_size, 2 * sector_size)) + list(range(sector_size))
@@ -95,31 +95,6 @@ def kron(
         matrix_b = swap_sectors * ~RingArray.build(matrix_b, bimodule) * swap_sectors
 
     return np.kron(matrix_a, matrix_b).view(RingArray)
-
-
-@functools.cache
-def get_bimodule(ring: GroupRing) -> GroupRing:
-    """Map a group algebra ``F[G]`` to its induced bimodule ``F[G ⨂ G]``.
-
-    Elements ``r ⨂ s ∈ F[G ⨂ G]`` of the bimodule act on elements of the base ring as::
-
-        (r ⨂ s)(t) = r·t·s⁻¹.
-
-    (The right sector lifts to an anti-representation of the inverse, hence ``s⁻¹`` rather than
-    ``s``.)
-
-    When lifting a RingArray matrix over a bimodule, the "left" entries of ``G ⨂ G`` get lifted to
-    an ordinary representation, while the "right" entries get lifted to an anti-representation.
-    """
-    size = ring.group.identity.size
-
-    def lift(member: GroupMember) -> npt.NDArray[np.int_]:
-        part_l = GroupMember(member.array_form[:size])
-        part_r = GroupMember([val - size for val in member.array_form[size:]])
-        return ring.group.lift(part_l) @ ring.group.lift(~part_r, right=True)
-
-    bimodule_group = Group(ring.group.to_sympy() * ring.group.to_sympy(), lift=lift)
-    return GroupRing(bimodule_group, ring.field)
 
 
 def block_diag(
@@ -168,7 +143,9 @@ def get_howell_dual(
 
     The ``transformer`` must be the one used to build ``matrix_hnf``, since the dual is built in
     that transformer's basis.  By default it is read from ``matrix_hnf`` (the transformer recorded
-    when the Howell form was built).
+    when the Howell form was built).  If neither provides one, this function uses the ring's
+    transformer, which may run GAP, prompt on standard input, and use the system clipboard; see
+    GroupRing.get_transformer.
 
     Likewise, the ``right`` flag must match the orientation used to build ``matrix_hnf`` (the
     ``right`` passed to ``null_space``/``howell_normal_form_semisimple``).  For a non-commutative
@@ -248,8 +225,29 @@ def get_howell_dual(
     return dual
 
 
-####################################################################################################
-# helper methods
+@functools.cache
+def _get_bimodule(ring: GroupRing) -> GroupRing:
+    """Map a group algebra ``F[G]`` to its induced bimodule ``F[G ⨂ G]``.
+
+    Elements ``r ⨂ s ∈ F[G ⨂ G]`` of the bimodule act on elements of the base ring as::
+
+        (r ⨂ s)(t) = r·t·s⁻¹.
+
+    (The right sector lifts to an anti-representation of the inverse, hence ``s⁻¹`` rather than
+    ``s``.)
+
+    When lifting a RingArray matrix over a bimodule, the "left" entries of ``G ⨂ G`` get lifted to
+    an ordinary representation, while the "right" entries get lifted to an anti-representation.
+    """
+    size = ring.group.identity.size
+
+    def lift(member: GroupMember) -> npt.NDArray[np.int_]:
+        part_l = GroupMember(member.array_form[:size])
+        part_r = GroupMember([val - size for val in member.array_form[size:]])
+        return ring.group.lift(part_l) @ ring.group.lift(~part_r, right=True)
+
+    bimodule_group = Group(ring.group.to_sympy() * ring.group.to_sympy(), lift=lift)
+    return GroupRing(bimodule_group, ring.field)
 
 
 def _validate_howell_dual(
@@ -314,10 +312,12 @@ def _get_ring(
     matrix_a: RingArray | npt.NDArray[np.int_], matrix_b: RingArray | npt.NDArray[np.int_]
 ) -> GroupRing:
     """Identify the ring that at least one of the matrices is over."""
-    ring_a = matrix_a.ring if isinstance(matrix_a, RingArray) else None
-    ring_b = matrix_b.ring if isinstance(matrix_b, RingArray) else None
-    if ring_a is None and ring_b is None:
-        raise ValueError("At least one of the provided matrices must be a RingArray")
-    if ring_a is not None and ring_b is not None and ring_a != ring_b:
+    ring_a = matrix_a._ring if isinstance(matrix_a, RingArray) else None
+    ring_b = matrix_b._ring if isinstance(matrix_b, RingArray) else None
+    if ring_a is None:
+        if ring_b is None:
+            raise ValueError("At least one of the provided matrices must be a RingArray")
+        return ring_b
+    if ring_b is not None and ring_a != ring_b:
         raise ValueError("The provided matrices are over different rings")
-    return ring_a if ring_a is not None else ring_b  # type:ignore[return-value]
+    return ring_a

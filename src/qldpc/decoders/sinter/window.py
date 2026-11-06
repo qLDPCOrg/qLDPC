@@ -12,11 +12,11 @@ import numpy as np
 import numpy.typing as npt
 import stim
 
-from ..adapters.error_decoders import match_error_decoder_to_dem
-from ..construction.resolution import _resolve_error_decoder
+from .._resolution import build_error_decoder
+from ..adapters.error_decoders import _match_error_decoder_to_dem
 from ..construction.specs import DeferredErrorDecoderInput
 from ..dems import DetectorErrorModelArrays
-from ..protocols import ErrorDecoder, batch_decode_errors
+from ..protocols import ErrorDecoder, _batch_decode_errors
 from .core import CompiledSinterDecoder, SinterDecoder
 
 
@@ -47,6 +47,27 @@ class SequentialWindowDecoder(SinterDecoder):
     A special case of SequentialWindowDecoder is a SlidingWindowDecoder, in which case this decoding
     method is known as the "overlapping recovery method" in arXiv:quant-ph/0110143, which is
     explained more nicely in arXiv:2012.15403 and arXiv:2209.08552.
+
+    A SequentialWindowDecoder is used by Sinter to decode detection events from a detector error
+    model to predict observable flips.
+
+    See help(sinter.Decoder) for additional information.
+
+    Args:
+        detection_regions: A sequence containing a set of detectors for each window.
+        commit_regions: A sequence containing a set of detectors for each window, or None, in
+            which case the commit region of each window is equal to its detection regions.
+            Default: None.  The errors triggered by a commit region must also be triggered by
+            the detection region of the same window, which holds whenever the commit region is a
+            subset of the detection region.
+        simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for that
+            DEM.
+        decompose_errors: Whether to decompose errors according to their suggested decomposition
+            when compiling a decoder for a DEM.
+        decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None for
+            the default.  Each window builds its own decoder to infer errors it can commit.
+        **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
+            ``decoder=`` instead.
     """
 
     _prebuilt_decoder_rejection_reason = (
@@ -64,37 +85,15 @@ class SequentialWindowDecoder(SinterDecoder):
         simplify: bool = True,
         decompose_errors: bool = False,
         decoder: DeferredErrorDecoderInput = None,
-        **decoder_kwargs: object,
+        **decoder_kwargs: object,  # DEPRECATED: see qldpc._deprecations
     ) -> None:
-        """Initialize an observable decoder that splits a detector error model into windows.
-
-        A SequentialWindowDecoder is used by Sinter to decode detection events from a detector error
-        model to predict observable flips.
-
-        See help(sinter.Decoder) for additional information.
-
-        Args:
-            detection_regions: A sequence containing a set of detectors for each window.
-            commit_regions: A sequence containing a set of detectors for each window, or None, in
-                which case the commit region of each window is equal to its detection regions.
-                Default: None.  The errors triggered by a commit region must also be triggered by
-                the detection region of the same window, which holds whenever the commit region is a
-                subset of the detection region.
-            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for that
-                DEM.
-            decompose_errors: Whether to decompose errors according to their suggested decomposition
-                when compiling a decoder for a DEM.
-            decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None for
-                the default.  Each window builds its own decoder to infer errors it can commit.
-            **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
-                ``decoder=`` instead.
-        """
+        """Initialize an observable decoder that splits a detector error model into windows."""
         SinterDecoder.__init__(
             self,
             simplify=simplify,
             decompose_errors=decompose_errors,
             decoder=decoder,
-            **decoder_kwargs,
+            **decoder_kwargs,  # DEPRECATED: see qldpc._deprecations
         )
 
         if commit_regions is not None and len(detection_regions) != len(commit_regions):
@@ -117,6 +116,12 @@ class SequentialWindowDecoder(SinterDecoder):
 
         See help(sinter.Decoder) for additional information.
         """
+        return self._compile_windows(dem, self.windows)
+
+    def _compile_windows(
+        self, dem: stim.DetectorErrorModel, windows: Sequence[tuple[list[int], list[int]]]
+    ) -> CompiledSequentialWindowDecoder:
+        """Compile a decoder for each (detection region, commit region) window of a model."""
         dem_arrays = DetectorErrorModelArrays(
             dem, simplify=self.simplify, decompose_errors=self.decompose_errors
         )
@@ -126,7 +131,7 @@ class SequentialWindowDecoder(SinterDecoder):
         window_errors = []
         window_decoders = []
         addressed_errors = np.zeros(dem_arrays.num_errors, dtype=bool)
-        for d_detectors, c_detectors in self.windows:
+        for d_detectors, c_detectors in windows:
             # identify errors in the detection region
             d_errors = dem_arrays.detector_flip_matrix[d_detectors].getnnz(axis=0) != 0
             d_errors[addressed_errors] = False
@@ -138,16 +143,11 @@ class SequentialWindowDecoder(SinterDecoder):
                 dem_arrays.error_probs[d_errors],
             )
             window_dem = window_dem_arrays.to_dem()
-            window_decoder = _resolve_error_decoder(
-                window_dem,
-                self.decoder_input,
-                self.decoder_kwargs.copy(),
-                warn_deprecated=False,
-            )
+            window_decoder = build_error_decoder(window_dem, decoder=self.decoder_input)
             # Windows commit inferred errors, so they need error decoders.  Restricting the DEM to
             # this window may leave equivalent error mechanisms, which the window_decoder may merge
             # into one, so align the errors that it infers with the error mechanisms of the window.
-            window_decoder = match_error_decoder_to_dem(window_decoder, window_dem)
+            window_decoder = _match_error_decoder_to_dem(window_decoder, window_dem)
 
             # identify errors in the commit region
             c_errors = dem_arrays.detector_flip_matrix[c_detectors].getnnz(axis=0) != 0
@@ -266,7 +266,7 @@ class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
             ) % 2
 
             # decode this syndrome and update the net error appropriately
-            decoded_error = batch_decode_errors(decoder, syndromes)
+            decoded_error = _batch_decode_errors(decoder, syndromes)
             if getattr(decoder, "has_erasure_bit", False):
                 erased |= decoded_error[:, -1] != 0
                 decoded_error = decoded_error[:, :-1]
@@ -303,11 +303,58 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                                       v
                                      ...
 
-    If provided a sequence of subsets of detectors, construct sliding windows for each subset.  This
-    functionality is used to independently decode X and Z sectors of a CSS code.
+    The last window spans all remaining time steps, which can number up to
+    ``window_size + stride - 1``, and commits to all of them.  Time steps are consecutive integers,
+    so a gap in the time indices of detectors still counts toward the size of a window.
+
+    If provided a collection of subsets of detectors, construct sliding windows for each subset.
+    This functionality is used to decode the X and Z sectors of a CSS code separately.  The windows
+    of all subsets are still decoded in sequence, one subset after another, so an error mechanism
+    committed in a window of one subset is removed from the windows of later subsets, whose
+    syndromes are updated accordingly.
 
     This decoding method is known as the "overlapping recovery method" in arXiv:quant-ph/0110143,
     which is explained more nicely in arXiv:2012.15403 and arXiv:2209.08552.
+
+    A SlidingWindowDecoder is used by Sinter to decode detection events from a detector error
+    model to predict observable flips.
+
+    See help(sinter.Decoder) for additional information.
+
+    Args:
+        window_size: The size of each window, measured in discrete time steps.
+        stride: The number of time steps by which to slide each window forward to get the next
+            window.  Equivalently, the size of each commit region.
+        detector_subsets: A collection of subsets of detectors from a detector error model, or
+            None.  If not None, windows are constructed separately for each provided subset, and
+            decoded one subset after another.  If None, all detectors are decoded together, as
+            if the detector_subsets was a one-element list containing the set of all detectors.
+            Default: None.
+        detector_to_time: A function that maps each detector to a time coordinate that is used
+            to decide window boundaries, or None.  If None, the time index of each detector is
+            read from its coordinates in DetectorErrorModel.get_detector_coordinates(): the
+            first coordinate unless that coordinate decreases from one detector to the next.
+            Otherwise, a later coordinate that varies and never decreases is read instead,
+            provided exactly one qualifies.  A constant first coordinate is retained because a
+            later monotone coordinate may merely enumerate checks within one round.  Pass an
+            explicit detector_to_time mapping when this fallback does not match the model's
+            coordinate convention.  Only the detectors that get windowed are consulted, and one
+            of those with no coordinates at all is rejected, since there is nothing to read a
+            time index from.  A non-None ``detector_to_time`` mapping is assumed to be valid and
+            compatible with every detector error model that this decoder is later compiled to
+            with ``SlidingWindowDecoder.compile_decoder_for_dem``.
+        simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for that
+            DEM.
+        decompose_errors: Whether to decompose errors according to their suggested decomposition
+            when compiling a decoder for a DEM.
+        decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None for
+            the default (BP+OSD).  Each window builds its own decoder to infer errors it can
+            commit, so prebuilt decoders are rejected.
+        **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
+            ``decoder=`` instead.
+
+    Raises:
+        ValueError: If window_size >= stride > 0 does not hold, or if decoder is prebuilt.
     """
 
     def __init__(
@@ -320,51 +367,15 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
         simplify: bool = True,
         decompose_errors: bool = False,
         decoder: DeferredErrorDecoderInput = None,
-        **decoder_kwargs: object,
+        **decoder_kwargs: object,  # DEPRECATED: see qldpc._deprecations
     ) -> None:
-        """Initialize an observable decoder that splits a model into temporal windows.
-
-        A SlidingWindowDecoder is used by Sinter to decode detection events from a detector error
-        model to predict observable flips.
-
-        See help(sinter.Decoder) for additional information.
-
-        Args:
-            window_size: The size of each window, measured in discrete time steps.
-            stride: The number of time steps by which to slide each window forward to get the next
-                window.  Equivalently, the size of each commit region.
-            detector_subsets: A collection of subsets of detectors from a detector error model, or
-                None.  If not None, each provided subset is decoded independently.  If None, all
-                detectors are decoded together, as if the detector_subsets was a one-element list
-                containing the set of all detectors.  Default: None.
-            detector_to_time: A function that maps each detector to a time coordinate that is used
-                to decide window boundaries, or None.  If None, the time index of each detector is
-                read from its coordinates in DetectorErrorModel.get_detector_coordinates(): the
-                first coordinate unless that coordinate decreases from one detector to the next.
-                Otherwise, a later coordinate that varies and never decreases is read instead,
-                provided exactly one qualifies.  A constant first coordinate is retained because a
-                later monotone coordinate may merely enumerate checks within one round.  Pass an
-                explicit detector_to_time mapping when this fallback does not match the model's
-                coordinate convention.  Only the detectors that get windowed are consulted, and one
-                of those with no coordinates at all is rejected, since there is nothing to read a
-                time index from.  A non-None ``detector_to_time`` mapping is assumed to be valid and
-                compatible with every detector error model that this decoder is later compiled to
-                with ``SlidingWindowDecoder.compile_decoder_for_dem``.
-            simplify: Whether to merge equivalent errors in a DEM when compiling a decoder for that
-                DEM.
-            decompose_errors: Whether to decompose errors according to their suggested decomposition
-                when compiling a decoder for a DEM.
-            decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None for
-                the default.  Each window builds its own decoder to infer errors it can commit.
-            **decoder_kwargs: Deprecated keyword-based decoder options; pass a specification as
-                ``decoder=`` instead.
-        """
+        """Initialize an observable decoder that splits a model into temporal windows."""
         SinterDecoder.__init__(
             self,
             simplify=simplify,
             decompose_errors=decompose_errors,
             decoder=decoder,
-            **decoder_kwargs,
+            **decoder_kwargs,  # DEPRECATED: see qldpc._deprecations
         )
 
         if not window_size >= stride > 0:
@@ -415,7 +426,7 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
             detector_to_time = coordinate_to_time
 
         # construct windows defined by "detection" and "commit" regions
-        self.windows = []
+        windows: list[tuple[list[int], list[int]]] = []
         for detectors in self.detector_subsets or [range(dem.num_detectors)]:
             # collect detectors according to their time index
             time_to_dets: dict[int, list[int]] = collections.defaultdict(list)
@@ -426,6 +437,8 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                         f"detector {detector} has an invalid (non-integer) time index: {time}"
                     )
                 time_to_dets[int(time)].append(detector)
+            if not time_to_dets:
+                continue
 
             # add one window at a time (except the last window)
             start_time = min(time_to_dets)
@@ -439,22 +452,18 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                     [det for dets in window_time_to_dets for det in dets],
                     [det for dets in window_time_to_dets[: self.stride] for det in dets],
                 )
-                self.windows.append(window)
+                windows.append(window)
                 start_time += self.stride
 
             # add last window
             window_time_to_dets = [time_to_dets[tt] for tt in range(start_time, end_time)]
             last_dets = [det for dets in window_time_to_dets for det in dets]
-            self.windows.append((last_dets, last_dets))
+            windows.append((last_dets, last_dets))
 
         # drop windows with nothing to commit, which arise from gaps between time indices
-        self.windows = [(d_dets, c_dets) for d_dets, c_dets in self.windows if c_dets]
+        windows = [(d_dets, c_dets) for d_dets, c_dets in windows if c_dets]
 
-        return SequentialWindowDecoder.compile_decoder_for_dem(self, dem)
-
-
-####################################################################################################
-# helper methods
+        return self._compile_windows(dem, windows)
 
 
 def _time_coordinate(dem_coords: dict[int, list[float]]) -> int:

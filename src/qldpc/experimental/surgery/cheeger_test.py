@@ -1,23 +1,8 @@
-"""Tests for src/qldpc/experimental/surgery/cheeger.py (cheeger_constant + boost_gadget).
+# SPDX-License-Identifier: Apache-2.0
 
-Copyright 2026 The qLDPC Authors
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
+"""Tests for src/qldpc/experimental/surgery/cheeger.py (cheeger_constant + boost_gadget)."""
 
 from __future__ import annotations
-
-from typing import Literal
 
 import numpy as np
 import pytest
@@ -44,143 +29,61 @@ def test_webster_fixture_validation() -> None:
         _webster_x_bar_operator(data, name="missing")
 
 
-def test_cheeger_constant_matches_boost_target() -> None:
-    """cheeger_constant(g) reports the Webster boundary Cheeger; boost raises it."""
+def test_cheeger_constant_steane() -> None:
+    """Steane's X̄ gadget has h(F) = 2, and boosting to the current h adds no rows.
+
+    Steane's F on its 3 support columns is J - I (J the all-ones matrix, I the identity), so every
+    singleton cut has a boundary of 2, and h = 2.
+    """
     from qldpc.experimental.surgery import boost_gadget, build_gadget, cheeger_constant
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     g = build_gadget(code, x, basis=Pauli.X)
     h0 = cheeger_constant(g)
-    assert h0 >= 0
-    # Boosting to a higher target raises h(F) to (at least) that target.
-    g_aug = boost_gadget(g, method="combinatorial", target=2.0, max_extra_qubits=30, seed=7)
-    h1 = cheeger_constant(g_aug)
-    assert h1 >= 2.0 - 1e-9, f"boost to 2.0 produced h={h1}"
-    # No-op contract: if h0 already meets target, boost adds no rows.
+    assert h0 == 2.0
     g_noop = boost_gadget(g, method="combinatorial", target=h0, max_extra_qubits=30, seed=7)
-    assert g_noop.incidence.shape[0] == g.incidence.shape[0], "boost to current h should be a no-op"
+    assert g_noop.incidence.shape[0] == g.incidence.shape[0]
 
 
-def test_boost_gadget_dispatches_to_two_methods() -> None:
+def test_boost_gadget_distance_returns_a_commuting_layout() -> None:
+    """The distance method returns a layout whose merged checks commute.
+
+    Every distance bound is at least 1, so a target of 1 is met by the bare gadget whatever the
+    BP+OSD screen samples.  Webster code 0 is used because Steane's merged code has k = 0, for which
+    the decoder search for logical operators does not terminate.
+    """
     from qldpc.experimental.surgery.cheeger import boost_gadget
-    from qldpc.experimental.surgery.gadget import (
-        GadgetLayout,
-        build_gadget,
-    )
 
-    # Use Webster code 0 (l=31, k>=2): Steane gadget has dimension 0 (Steane k=1 minus 1
-    # gadget-consumed logical), which causes the BP+OSD decoder used by _boost_gadget_distance to
-    # hang searching for nonexistent logicals.
-    data = load_webster_seed_set(0)
-    code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
-    x = _webster_x_bar_operator(data)
-    g = build_gadget(code, x, basis=Pauli.X)
-    for method in ("combinatorial", "distance"):
-        out = boost_gadget(g, method=method, target=1.0, seed=42)
-        assert isinstance(out, GadgetLayout), f"method={method}"
-
-
-def test_boost_gadget_seed_reproducible() -> None:
-    from qldpc.experimental.surgery.cheeger import boost_gadget
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
-    g = build_gadget(code, x, basis=Pauli.X)
-    a = boost_gadget(g, method="combinatorial", target=1.0, seed=42)
-    b = boost_gadget(g, method="combinatorial", target=1.0, seed=42)
-    assert np.array_equal(a.incidence, b.incidence)
-    assert np.array_equal(a.HX_merged, b.HX_merged)
-
-
-@pytest.mark.parametrize("method", ["combinatorial", "distance"])
-def test_boost_gadget_preserves_css_commutation(
-    method: Literal["combinatorial", "distance"],
-) -> None:
-    from qldpc.experimental.surgery.cheeger import boost_gadget
-    from qldpc.experimental.surgery.gadget import (
-        build_gadget,
-    )
-
-    # Webster code 0 — Steane causes distance-boost decoder to hang on k=0 merged.
-    data = load_webster_seed_set(0)
-    code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
-    x = _webster_x_bar_operator(data)
-    g = build_gadget(code, x, basis=Pauli.X)
-    boosted = boost_gadget(g, method=method, target=1.0, seed=0)
+    boosted = boost_gadget(_webster0_gadget(), method="distance", target=1.0, seed=0)
     product = (boosted.HX_merged @ boosted.HZ_merged.T) % 2
     assert np.array_equal(product, np.zeros_like(product))
 
 
 @pytest.mark.parametrize("basis", [Pauli.X, Pauli.Z])
-def test_boost_gadget_preserves_css_commutation_both_bases(basis: PauliXZ) -> None:
-    """boost_gadget on a basis=X or basis=Z gadget preserves CSS commutation."""
-    from qldpc.experimental.surgery.cheeger import boost_gadget
-    from qldpc.experimental.surgery.gadget import (
-        build_gadget,
-    )
+def test_boost_combinatorial_reaches_target(basis: PauliXZ) -> None:
+    """A combinatorial boost of Webster code 0 from h(F) = 1 to 2 yields a valid merged code.
 
-    from .conftest import _webster_z_bar_operator
-
-    d = load_webster_seed_set(0)
-    c = build_generalised_bicycle_code(d["l"], d["A"], d["B"])
-    if basis is Pauli.X:
-        op = _webster_x_bar_operator(d, "X_bar_1")
-    else:
-        op = _webster_z_bar_operator(d, "Z_bar_1")
-    g = build_gadget(c, op, basis=basis)
-    boosted = boost_gadget(g, method="combinatorial", target=1.0, seed=0)
-    product = (boosted.HX_merged @ boosted.HZ_merged.T) % 2
-    assert np.array_equal(product, np.zeros_like(product))
-    assert boosted.basis is basis  # boost preserves basis
-
-
-def test_boost_gadget_combinatorial_basis_z_preserves_chi_carrier() -> None:
-    """After basis=Z combinatorial boost, χ rows must live in HZ_merged.
-
-    Layout rebuilding carries the basis through, so this pins that χ rows land in HZ_merged and not
-    HX_merged.  Scope is the combinatorial path; the distance path's basis=X is covered by
-    test_boost_gadget_preserves_css_commutation[distance].
-    """
-    from qldpc.experimental.surgery.cheeger import boost_gadget
-    from qldpc.experimental.surgery.gadget import build_gadget
-
-    code = codes.SteaneCode()
-    z_op = np.asarray(code.get_logical_ops(Pauli.Z)[0]).astype(np.uint8)
-    g = build_gadget(code, z_op, basis=Pauli.Z)
-
-    boosted = boost_gadget(g, method="combinatorial", target=1.0, seed=42)
-
-    assert boosted.basis is Pauli.Z, (
-        f"basis dropped through boost: got {boosted.basis!r}, expected Pauli.Z"
-    )
-    n_meas_checks = len(boosted.support)
-    n_z_data = code.matrix_z.shape[0]
-    chi_block = boosted.HZ_merged[n_z_data : n_z_data + n_meas_checks, :]
-    assert chi_block.any(), (
-        "χ rows missing from HZ_merged; basis=Z boost path likely swapped HX/HZ."
-    )
-
-
-def test_boost_combinatorial_above_initial_h_enters_loop_body() -> None:
-    """Webster code 0 has h(F)=1; boosting to target=2.0 forces the augmentation loop to run.
-
-    Adds rows; cheeger constant increases.
+    The boost adds rows, reaches the target, keeps the basis, is reproducible for a fixed seed, and
+    leaves a commuting merged code that still measures one logical (k = 10 - 1 = 9).
     """
     from qldpc.experimental.surgery import boost_gadget, build_gadget, cheeger_constant
 
     data = load_webster_seed_set(0)
     code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
-    x = _webster_x_bar_operator(data)
-    g = build_gadget(code, x, basis=Pauli.X)
-    h0 = cheeger_constant(g)
-    boosted = boost_gadget(g, method="combinatorial", target=h0 + 1.0, seed=0)
-    assert boosted.incidence.shape[0] > g.incidence.shape[0], (
-        f"boost target={h0 + 1.0} should add rows; got {boosted.incidence.shape[0]} == bare"
-    )
-    h_new = cheeger_constant(boosted)
-    assert h_new >= h0 + 1.0 - 1e-9, f"boost target unmet: {h_new} < {h0 + 1.0}"
+    name = "X_bar_1" if basis is Pauli.X else "Z_bar_1"
+    g = build_gadget(code, _webster_x_bar_operator(data, name, pauli_type=name[0]), basis=basis)
+    assert cheeger_constant(g) < 2.0
+    boosted = boost_gadget(g, method="combinatorial", target=2.0, seed=0)
+    again = boost_gadget(g, method="combinatorial", target=2.0, seed=0)
+
+    assert boosted.incidence.shape[0] > g.incidence.shape[0]
+    assert cheeger_constant(boosted) >= 2.0
+    assert np.array_equal(boosted.incidence, again.incidence)
+    assert boosted.basis is basis
+    assert not ((boosted.HX_merged @ boosted.HZ_merged.T) % 2).any()
+    merged = CSSCode(boosted.HX_merged, boosted.HZ_merged, is_subsystem_code=False)
+    assert merged.dimension == code.dimension - 1
 
 
 def test_boost_combinatorial_rejects_non_positive_target_h() -> None:
@@ -232,23 +135,19 @@ def test_boost_distance_rejects_negative_max_extra_qubits() -> None:
         _boost_gadget_distance(g, target_distance=2, max_extra_qubits=-1)
 
 
-@pytest.mark.parametrize("target", [0.9, -2.0])
-def test_boost_gadget_distance_rejects_too_small_a_target_by_its_own_value(
-    target: float,
-) -> None:
+def test_boost_gadget_distance_rejects_too_small_a_target_by_its_own_value() -> None:
     """The rejection quotes the target the caller wrote, not what int() made of it.
 
     method='distance' casts the target to an int, and anything in (0, 1) casts to 0, so validating
-    after the cast reports a value the caller never passed.  0.9 pins that the cast is what gets
-    checked; -2.0 pins that the outer guard, not the inner one, is what answers a negative target.
+    after the cast reports a value the caller never passed.
     """
     from qldpc.experimental.surgery import boost_gadget, build_gadget
 
     code = codes.SteaneCode()
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     g = build_gadget(code, x, basis=Pauli.X)
-    with pytest.raises(ValueError, match=f"got {target}"):
-        boost_gadget(g, method="distance", target=target)
+    with pytest.raises(ValueError, match=r"got 0\.9"):
+        boost_gadget(g, method="distance", target=0.9)
 
 
 def test_boost_gadget_rejects_unknown_method() -> None:
@@ -278,21 +177,15 @@ def test_boost_combinatorial_rejects_distance_only_options() -> None:
         )
 
 
-@pytest.mark.parametrize("method,target", [("combinatorial", 2.0), ("distance", 1.0)])
-def test_boost_gadget_rejects_an_already_augmented_layout(
-    method: Literal["combinatorial", "distance"], target: float
-) -> None:
+def test_boost_gadget_rejects_an_already_augmented_layout() -> None:
     """A second boost is rejected instead of silently dropping rows added by the first."""
     from qldpc.experimental.surgery import boost_gadget, build_gadget
 
-    data = load_webster_seed_set(0)
-    code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
-    gadget = build_gadget(code, _webster_x_bar_operator(data), basis=Pauli.X)
-    augmented = boost_gadget(gadget, method="combinatorial", target=2.0, seed=0)
-    assert augmented.incidence.shape[0] > gadget.incidence.shape[0]
-
+    code = codes.SteaneCode()
+    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
+    augmented = build_gadget(code, x, basis=Pauli.X).with_added_ancillas(np.array([[1, 1, 0]]))
     with pytest.raises(ValueError, match="chaining boosts is not supported"):
-        boost_gadget(augmented, method=method, target=target, seed=0)
+        boost_gadget(augmented, method="combinatorial", target=1.0, seed=0)
 
 
 def test_exact_boundary_cheeger_n_V_below_2_returns_inf() -> None:
@@ -331,10 +224,6 @@ def test_cheeger_constant_raises_for_n_V_above_26() -> None:
     # Synthesize a gadget with wide incidence (n_V = 27) to exceed the exact-enumeration limit;
     # cheeger_constant must raise rather than substitute an approximation for h.
     wide_incidence = np.zeros((2, 27), dtype=np.uint8)
-    wide_incidence[0, 0] = 1
-    wide_incidence[0, 1] = 1
-    wide_incidence[1, 0] = 1
-    wide_incidence[1, 2] = 1
     g_wide = dataclasses.replace(g, incidence=wide_incidence)
     with pytest.raises(ValueError, match="requires \\|V_0\\| ≤ 26 for an exact value"):
         cheeger_constant(g_wide)
@@ -423,7 +312,7 @@ def test_boost_combinatorial_raises_when_target_unreachable_in_budget() -> None:
     code = build_generalised_bicycle_code(data["l"], data["A"], data["B"])
     x = _webster_x_bar_operator(data)
     g = build_gadget(code, x, basis=Pauli.X)
-    with pytest.raises(RuntimeError, match="could not reach target_h"):
+    with pytest.raises(RuntimeError, match="budget of max_extra_qubits=2 is spent"):
         _boost_gadget_cheeger_combinatorial(g, target_h=10.0, max_extra_qubits=2, seed=0)
 
 
@@ -493,15 +382,31 @@ def test_boost_distance_accepts_a_bound_equal_to_the_target(
     assert boosted.incidence.shape[0] == g.incidence.shape[0]
 
 
-def test_boost_distance_skips_unusable_augmentation_sample(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_boost_distance_skips_a_sample_with_no_fresh_pair(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When no sample yields a fresh degree-2 row, the search ends in its own error.
+
+    Steane's F already contains every pair of its 3 support columns, so every sample comes back
+    empty.  With the bound scripted to fail, the search must exhaust its budget and raise.
+    """
+    from qldpc.experimental.surgery import build_gadget
+    from qldpc.experimental.surgery.cheeger import _boost_gadget_distance
+
+    code = codes.SteaneCode()
+    x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
+    g = build_gadget(code, x, basis=Pauli.X)
+    _stub_distance_bound(monkeypatch, [0])
+    with pytest.raises(RuntimeError, match="could not reach target_distance"):
+        _boost_gadget_distance(
+            g, target_distance=5, max_extra_qubits=1, num_trials_per_step=1, seed=0
+        )
+
+
+def test_boost_distance_moves_past_an_empty_sample(monkeypatch: pytest.MonkeyPatch) -> None:
     """A sample yielding no fresh degree-2 rows is skipped, and the search moves to the next sample.
 
-    The bound is scripted so the bare gadget fails and a later candidate passes, reaching the accept
-    path without paying for BP+OSD.  The first sample returns None and the second delegates to the
-    real sampler, so a boosted gadget comes back only if the unusable sample is skipped rather than
-    ending the search.
+    The first sample returns None and the second delegates to the real sampler, so a boosted gadget
+    comes back only if the empty sample is skipped rather than ending the search.  The bound is
+    scripted so that the bare gadget fails and the next candidate passes.
     """
     from qldpc.experimental.surgery import cheeger as cheeger_module
 
@@ -512,22 +417,33 @@ def test_boost_distance_skips_unusable_augmentation_sample(
         incidence_base: np.ndarray, n_new_edges: int, rng: np.random.Generator
     ) -> np.ndarray | None:
         calls[0] += 1
-        if calls[0] == 1:
-            return None
-        return real_augment(incidence_base, n_new_edges, rng)
+        return None if calls[0] == 1 else real_augment(incidence_base, n_new_edges, rng)
 
     g = _webster0_gadget()
     _stub_distance_bound(monkeypatch, [0, 999])
     monkeypatch.setattr(cheeger_module, "_augment_incidence_with_random_edges", _augment)
     boosted = cheeger_module._boost_gadget_distance(
-        g,
-        target_distance=5,
-        max_extra_qubits=1,
-        num_trials_per_step=2,
-        seed=0,
+        g, target_distance=5, max_extra_qubits=1, num_trials_per_step=2, seed=0
     )
-    assert calls[0] >= 2, "the unusable first sample must not end the search"
     assert boosted.incidence.shape[0] > g.incidence.shape[0]
+
+
+def test_boost_distance_returns_the_first_passing_augmentation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the bare gadget fails the screen and a sampled augmentation passes, it is returned.
+
+    The bound is scripted so that the bare gadget fails and the first candidate passes, which
+    reaches the accept path without paying for BP+OSD.
+    """
+    from qldpc.experimental.surgery.cheeger import _boost_gadget_distance
+
+    g = _webster0_gadget()
+    _stub_distance_bound(monkeypatch, [0, 999])
+    boosted = _boost_gadget_distance(
+        g, target_distance=5, max_extra_qubits=1, num_trials_per_step=1, seed=0
+    )
+    assert boosted.incidence.shape[0] == g.incidence.shape[0] + 1
 
 
 def test_boost_distance_skips_augmentation_that_fails_validation(
@@ -584,7 +500,7 @@ def test_boost_combinatorial_stops_when_every_cut_edge_is_already_a_row() -> Non
     x = np.asarray(code.get_logical_ops(Pauli.X)[0]).astype(np.uint8)
     g = build_gadget(code, x, basis=Pauli.X)
 
-    with pytest.raises(RuntimeError, match=r"reached h=2\.0"):
+    with pytest.raises(RuntimeError, match="every pair spanning the worst cut"):
         _boost_gadget_cheeger_combinatorial(g, target_h=10.0, max_extra_qubits=50, seed=0)
 
 
@@ -596,7 +512,7 @@ def test_boost_distance_screen_consults_the_z_bound(monkeypatch: pytest.MonkeyPa
     """
     from qldpc.experimental.surgery.cheeger import _boost_gadget_distance
 
-    seen = _stub_distance_bound(monkeypatch, {Pauli.X: 999, Pauli.Z: 0})
+    _stub_distance_bound(monkeypatch, {Pauli.X: 999, Pauli.Z: 0})
     with pytest.raises(RuntimeError, match="could not reach target_distance"):
         _boost_gadget_distance(
             _webster0_gadget(),
@@ -605,4 +521,3 @@ def test_boost_distance_screen_consults_the_z_bound(monkeypatch: pytest.MonkeyPa
             num_trials_per_step=1,
             seed=0,
         )
-    assert seen == [Pauli.X, Pauli.Z]

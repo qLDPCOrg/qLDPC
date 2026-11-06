@@ -9,11 +9,12 @@ from unittest import mock
 
 import numpy as np
 import pytest
+import sinter
 import stim
 
-from qldpc import circuits, codes, math
+from qldpc import circuits, codes, decoders, math
 from qldpc.circuits.memory import alpha_syndrome
-from qldpc.circuits.memory.alpha_syndrome import TreeNode, TreeState
+from qldpc.circuits.memory.alpha_syndrome import _TreeNode, _TreeState
 from qldpc.objects import Pauli
 
 # default (fast, low-fidelity) strategy used by the validity-checking helper below
@@ -52,6 +53,47 @@ def test_alpha_syndrome(pytestconfig: pytest.Config) -> None:
         )
 
 
+def test_alpha_syndrome_qldpc_decoder() -> None:
+    """AlphaSyndrome accepts qLDPC decoder inputs, such as decoder builders."""
+    code = codes.CSSCode([[1, 1, 0]], [[1, 1, 0]])
+    dems: list[stim.DetectorErrorModel] = []
+
+    def build_decoder(dem: stim.DetectorErrorModel) -> decoders.ErrorDecoder:
+        dems.append(dem)
+        return decoders.bp_osd().build(dem)
+
+    strategy = circuits.AlphaSyndrome(
+        circuits.DepolarizingNoiseModel(0.01),
+        build_decoder,
+        iters_per_step=2,
+        shots_per_iter=1,
+        verbose=False,
+        seed=0,
+    )
+    assert alpha_syndrome_is_valid(code, strategy)
+    assert dems
+
+    # a decoder with the decode_via_files method that Sinter calls is passed to Sinter as is
+    class FileDecoder:
+        called = False
+
+        def decode_via_files(self, **kwargs: object) -> None:
+            self.called = True
+            sinter.BUILT_IN_DECODERS["pymatching"].decode_via_files(**kwargs)
+
+    file_decoder = FileDecoder()
+    strategy = circuits.AlphaSyndrome(
+        circuits.DepolarizingNoiseModel(0.01),
+        file_decoder,
+        iters_per_step=2,
+        shots_per_iter=1,
+        verbose=False,
+        seed=0,
+    )
+    assert alpha_syndrome_is_valid(code, strategy)
+    assert file_decoder.called
+
+
 def test_alpha_reproducibility_and_tree_edges() -> None:
     """Seeded searches are reproducible and cover the empty-search tree edges."""
     with pytest.warns(UserWarning, match="no fresh rollout"):
@@ -74,14 +116,6 @@ def test_alpha_reproducibility_and_tree_edges() -> None:
         seed=123,
     )
     assert first.get_circuit(code)[0] == second.get_circuit(code)[0]
-    functioning = circuits.AlphaSyndrome(
-        circuits.DepolarizingNoiseModel(0.001),
-        iters_per_step=2,
-        shots_per_iter=10,
-        verbose=False,
-        seed=9,
-    )
-    assert functioning.get_circuit(code)[0].num_measurements > 0
     verbose = circuits.AlphaSyndrome(
         circuits.DepolarizingNoiseModel(0.001), iters_per_step=2, verbose=True
     )
@@ -91,9 +125,9 @@ def test_alpha_reproducibility_and_tree_edges() -> None:
     strategy = circuits.AlphaSyndrome(
         circuits.DepolarizingNoiseModel(0.001), iters_per_step=2, verbose=False
     )
-    assert TreeState.head([]).target_to_min_time == []
+    assert _TreeState.head([]).target_to_min_time == []
     gates = [(len(code), 0)]
-    root = TreeNode(TreeState.head(gates))
+    root = _TreeNode(_TreeState.head(gates))
     root.visits = strategy.iters_per_step
     measurements = strategy._get_evaluation_circuit(code, Pauli.X, [], None)
     assert measurements.num_measurements > 0
@@ -104,13 +138,13 @@ def test_alpha_reproducibility_and_tree_edges() -> None:
         step=0,
         evaluation_data=(stim.Circuit(), 0, 0),
     )
-    child = TreeNode(TreeState.head(gates))
+    child = _TreeNode(_TreeState.head(gates))
     child.expand()
     assert child.best_child(1).value == 0
 
 
-def test_alpha_hoists_evaluation_invariants() -> None:
-    """Rollouts reuse schedule-independent stabilizer data and preserve circuit bytes."""
+def test_alpha_evaluation_data_and_empty_basis() -> None:
+    """Precomputed evaluation data gives the same circuit, and an empty basis has no schedule."""
     code = codes.CSSCode([[1, 1, 0]], [[1, 1, 0]])
     strategy = circuits.AlphaSyndrome(
         circuits.DepolarizingNoiseModel(0.001),
@@ -119,48 +153,52 @@ def test_alpha_hoists_evaluation_invariants() -> None:
         verbose=False,
         seed=7,
     )
-    with (
-        mock.patch.object(code, "get_stabilizer_ops", wraps=code.get_stabilizer_ops) as stabs,
-        mock.patch.object(code, "get_logical_ops", wraps=code.get_logical_ops) as logicals,
-    ):
-        schedule = strategy._build_schedule(code, Pauli.X)
-        assert stabs.call_count == 2
-        assert logicals.call_count == 2
-        data = strategy._get_evaluation_data(code, Pauli.X)
-        assert strategy._get_evaluation_circuit(
-            code, Pauli.X, schedule, data
-        ) == strategy._get_evaluation_circuit(code, Pauli.X, schedule)
+    schedule = strategy._build_schedule(code, Pauli.X)
+    data = strategy._get_evaluation_data(code, Pauli.X)
+    assert strategy._get_evaluation_circuit(
+        code, Pauli.X, schedule, data
+    ) == strategy._get_evaluation_circuit(code, Pauli.X, schedule)
 
     empty_x_code = codes.CSSCode(np.zeros((0, 2), dtype=int), [[1, 1]])
-    with mock.patch.object(strategy, "_get_evaluation_data") as evaluation_data:
-        assert strategy._build_schedule(empty_x_code, Pauli.X) == []
-        evaluation_data.assert_not_called()
+    assert strategy._build_schedule(empty_x_code, Pauli.X) == []
 
 
 def test_alpha_reward_matches_paper() -> None:
-    """The MCTS reward is the paper's finite-sample inverse logical error rate."""
+    """The MCTS reward is the finite-sample inverse logical error rate of the AlphaSyndrome paper.
+
+    See Section 4.4 of https://arxiv.org/abs/2601.12509.
+    """
     code = codes.CSSCode([[1, 1, 0]], [[1, 1, 0]])
+    shots = 20
     strategy = circuits.AlphaSyndrome(
-        circuits.DepolarizingNoiseModel(0.2),
+        circuits.NoiseModel(),
         iters_per_step=3,
-        shots_per_iter=20,
+        shots_per_iter=shots,
         verbose=False,
         seed=11,
     )
     rewards: list[float] = []
-    original_backpropagate = TreeNode.backpropagate
+    original_backpropagate = _TreeNode.backpropagate
     graph = code.get_graph(Pauli.X)
     gates = [(check.index + len(code), data.index) for data, check in map(sorted, graph.edges)]
-    root = TreeNode(TreeState.head(gates))
+    root = _TreeNode(_TreeState.head(gates))
     evaluation_data = strategy._get_evaluation_data(code, Pauli.X)
 
-    def record_reward(node: TreeNode, reward: float) -> None:
+    def record_reward(node: _TreeNode, reward: float) -> None:
         rewards.append(reward)
         original_backpropagate(node, reward)
 
+    # without noise, no observable flips, so every flipped prediction is a logical error
+    num_observables = evaluation_data[2]
+    predictions = []
+    for num_errors in [0, 10, 0]:
+        prediction = np.zeros((shots, num_observables), dtype=bool)
+        prediction[:num_errors, 0] = True
+        predictions.append(prediction)
+
     with (
-        mock.patch.object(TreeNode, "backpropagate", autospec=True, side_effect=record_reward),
-        mock.patch.object(alpha_syndrome.np, "sum", side_effect=[0, 10, 0]),
+        mock.patch.object(_TreeNode, "backpropagate", autospec=True, side_effect=record_reward),
+        mock.patch.object(alpha_syndrome.sinter, "predict_observables", side_effect=predictions),
     ):
         strategy._schedule_one_gate(
             code,

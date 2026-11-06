@@ -20,7 +20,7 @@ from qldpc.decoders.construction.factories import (
     from_dem,
     from_matrix,
 )
-from qldpc.decoders.custom.lookup import LookupDecoder, ObservableLookupDecoder
+from qldpc.decoders.custom.lookup import ErrorLookupDecoder, ObservableLookupDecoder
 
 
 def test_factories_pass_their_input_to_the_wrapped_factory() -> None:
@@ -29,9 +29,9 @@ def test_factories_pass_their_input_to_the_wrapped_factory() -> None:
     dem = stim.DetectorErrorModel("error(0.1) D0 L0\nerror(0.1) D0 D1\nerror(0.1) D1")
     seen: list[object] = []
 
-    def build_errors(matrix: npt.NDArray[np.int_]) -> LookupDecoder:
+    def build_errors(matrix: npt.NDArray[np.int_]) -> ErrorLookupDecoder:
         seen.append(matrix)
-        return LookupDecoder(matrix, max_weight=1)
+        return ErrorLookupDecoder(matrix, max_weight=1)
 
     def build_observables(dem: stim.DetectorErrorModel) -> ObservableLookupDecoder:
         seen.append(dem)
@@ -45,7 +45,7 @@ def test_factories_pass_their_input_to_the_wrapped_factory() -> None:
     assert dem_factory.factory is build_observables
 
     error_decoder = matrix_factory.build(matrix)
-    assert isinstance(error_decoder, LookupDecoder)
+    assert isinstance(error_decoder, ErrorLookupDecoder)
     assert np.array_equal(matrix @ error_decoder.decode_errors(np.array([1, 0])) % 2, [1, 0])
     observable_decoder = dem_factory.build(dem)
     assert isinstance(observable_decoder, ObservableLookupDecoder)
@@ -64,17 +64,19 @@ def test_factories_validate_and_are_immutable() -> None:
         from_matrix(None)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="from_dem requires a callable factory"):
         from_dem("lookup")  # type: ignore[arg-type]
+    # type checkers also reject a factory that build() cannot call with its one input
+    from_matrix(ErrorLookupDecoder)  # type: ignore[arg-type]
 
-    factory = from_matrix(functools.partial(LookupDecoder, max_weight=1))
+    factory = from_matrix(functools.partial(ErrorLookupDecoder, max_weight=1))
     with pytest.raises(dataclasses.FrozenInstanceError):
-        factory.factory = LookupDecoder  # type: ignore[misc]
+        factory.factory = factory.factory  # type: ignore[misc]
 
 
 def test_factories_pickle() -> None:
     """Factories of importable callables survive pickling, as Sinter worker processes require."""
     matrix = np.array([[1, 1]])
     dem = stim.DetectorErrorModel("error(0.1) D0 L0")
-    matrix_factory = from_matrix(functools.partial(LookupDecoder, max_weight=1))
+    matrix_factory = from_matrix(functools.partial(ErrorLookupDecoder, max_weight=1))
     dem_factory = from_dem(functools.partial(ObservableLookupDecoder, max_weight=1))
 
     restored_matrix_factory = pickle.loads(pickle.dumps(matrix_factory))  # noqa: S301

@@ -11,9 +11,9 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 import pytest
-import stim
 
 from qldpc import decoders
+from qldpc.decoders import protocols
 
 
 def test_error_decoder_protocols() -> None:
@@ -51,7 +51,7 @@ def test_error_decoder_protocols() -> None:
 
 
 def test_error_decoder_coercion() -> None:
-    """Objects with a decode method are wrapped to provide decode_errors."""
+    """Objects with only one of the decode and decode_errors methods are wrapped to provide both."""
     syndromes = np.eye(2, dtype=int)
 
     class BareDecoder:
@@ -66,9 +66,9 @@ def test_error_decoder_coercion() -> None:
 
     # a wrapped decoder decodes with, and reads attributes of, the object that it wraps
     bare_decoder = BareDecoder()
-    decoder: Any = decoders.as_error_decoder(bare_decoder)
+    decoder: Any = protocols._as_error_decoder(bare_decoder)
     assert decoder.decoder is bare_decoder
-    assert repr(decoder) == f"WrappedErrorDecoder({bare_decoder!r})"
+    assert repr(decoder) == f"_WrappedErrorDecoder({bare_decoder!r})"
     assert np.array_equal(decoder.decode_errors(syndromes[0]), [2, 0])
     assert np.array_equal(decoder.decode(syndromes[0]), [2, 0])
     bare_decoder.scale = 4
@@ -78,16 +78,26 @@ def test_error_decoder_coercion() -> None:
     assert copy.copy(decoder).decoder is bare_decoder
 
     # batch decoding methods are provided if the wrapped object has them
-    decoder = decoders.as_error_decoder(BareBatchDecoder())
+    decoder = protocols._as_error_decoder(BareBatchDecoder())
     assert np.array_equal(decoder.decode_errors_batch(syndromes), 3 * syndromes)
-    assert decoders.supports_batch_decoding(decoder)
-    assert np.array_equal(decoders.batch_decode_errors(decoder, syndromes), 3 * syndromes)
+    assert protocols._supports_batch_decoding(decoder)
+    assert np.array_equal(protocols._batch_decode_errors(decoder, syndromes), 3 * syndromes)
+
+    # an object that implements only decode_errors is wrapped to provide decode
+    decoder = protocols._as_error_decoder(
+        types.SimpleNamespace(
+            decode_errors=lambda syndrome: 2 * syndrome,
+            decode_errors_batch=lambda syndromes: 3 * syndromes,
+        )
+    )
+    assert np.array_equal(decoder.decode(syndromes[0]), [2, 0])
+    assert np.array_equal(decoder.decode_batch(syndromes), 3 * syndromes)
 
     # an error decoder is returned as is, and its native batch method is used
-    lookup_decoder = decoders.custom.LookupDecoder(np.eye(2, dtype=int), max_weight=1)
-    assert decoders.as_error_decoder(lookup_decoder) is lookup_decoder
-    assert decoders.supports_batch_decoding(lookup_decoder)
-    assert np.array_equal(decoders.batch_decode_errors(lookup_decoder, syndromes), syndromes)
+    lookup_decoder = decoders.custom.ErrorLookupDecoder(np.eye(2, dtype=int), max_weight=1)
+    assert protocols._as_error_decoder(lookup_decoder) is lookup_decoder
+    assert protocols._supports_batch_decoding(lookup_decoder)
+    assert np.array_equal(protocols._batch_decode_errors(lookup_decoder, syndromes), syndromes)
 
     # an error decoder without a batch method decodes batches one syndrome at a time
     class SingleSyndromeDecoder(decoders.ErrorDecoder):
@@ -95,28 +105,29 @@ def test_error_decoder_coercion() -> None:
             return np.concatenate([syndrome, syndrome])
 
     error_decoder = SingleSyndromeDecoder()
-    assert not decoders.supports_batch_decoding(error_decoder)
-    batch = decoders.batch_decode_errors(error_decoder, syndromes)
+    assert not protocols._supports_batch_decoding(error_decoder)
+    batch = protocols._batch_decode_errors(error_decoder, syndromes)
     assert np.array_equal(batch, np.hstack([syndromes, syndromes]))
-    assert decoders.batch_decode_errors(error_decoder, syndromes[:0]).shape == (0, 4)
+    assert protocols._batch_decode_errors(error_decoder, syndromes[:0]).shape == (0, 4)
 
     # objects that predict observable flips, or that do not decode, are rejected
-    dem = stim.DetectorErrorModel("error(0.1) D0 L0")
-    with pytest.warns(DeprecationWarning):
-        legacy_decoder = decoders.custom.LookupDecoder(
-            dem, max_weight=1, predict_observable_flips=True
+    with pytest.raises(TypeError, match="observable flips rather than errors"):
+        protocols._as_error_decoder(
+            types.SimpleNamespace(decode_observables=lambda syndrome: syndrome)
         )
-
-    observable_decoders = [
-        decoders.custom.ObservableLookupDecoder(dem, max_weight=1),
-        legacy_decoder,
-        decoders.TrivialDecoder().compile_decoder_for_dem(dem),
-        types.SimpleNamespace(decode_observables=lambda syndrome: syndrome),
-    ]
-    for observable_decoder in observable_decoders:
-        with pytest.raises(TypeError, match="observable flips rather than errors"):
-            decoders.as_error_decoder(observable_decoder)
     with pytest.raises(TypeError, match="cannot decode until it is compiled"):
-        decoders.as_error_decoder(decoders.SinterDecoder())
+        protocols._as_error_decoder(decoders.SinterDecoder())
     with pytest.raises(TypeError, match="must be an ErrorDecoder, or have a decode method"):
-        decoders.as_error_decoder(object())
+        protocols._as_error_decoder(object())
+
+
+def test_deprecated_decode_returns_observables() -> None:
+    """A decode method that declares deprecated decode_returns_observables=True predicts flips."""
+    legacy_decoder = types.SimpleNamespace(
+        decode=lambda syndrome: syndrome, decode_returns_observables=True
+    )
+    with (
+        pytest.warns(DeprecationWarning, match="decode_returns_observables=True is deprecated"),
+        pytest.raises(TypeError, match="observable flips rather than errors"),
+    ):
+        protocols._as_error_decoder(legacy_decoder)

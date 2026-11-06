@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Typed decoder specifications for deferred construction."""
+"""Typed decoder specifications for deferred construction, and the decoder inputs they accept."""
 
 from __future__ import annotations
 
@@ -24,10 +24,8 @@ import stim
 
 from qldpc.math import IntegerArray
 
+from ..adapters._observable_decoders import validate_observable_decoder
 from ..adapters.error_decoders import ErrorsToObservablesDecoder as _ErrorsToObservablesDecoder
-from ..adapters.observable_decoders import (
-    validate_observable_decoder as _validate_observable_decoder,
-)
 from ..protocols import ErrorDecoder, ObservableDecoder, SupportsDecode
 from .factories import DEMDecoderFactory, MatrixDecoderFactory
 
@@ -98,7 +96,7 @@ class DecoderSpec(Generic[_DecoderT_co]):
     def build_observable_decoder(self, dem: stim.DetectorErrorModel) -> ObservableDecoder:
         """Build a decoder that predicts the observable flips of a detector error model."""
         if self._observable_builder is not None:
-            return _validate_observable_decoder(
+            return validate_observable_decoder(
                 self._observable_builder(dem, **self.options), "A decoder specification"
             )
         return _ErrorsToObservablesDecoder(self.build(dem), dem)
@@ -225,60 +223,6 @@ def observable_decoder_spec(
     return make_spec
 
 
-####################################################################################################
-# decoder inputs
-
-
-class ErrorDecoderConstructor(Protocol):
-    """Callable that builds an error decoder from a matrix or detector error model."""
-
-    def __call__(self, pcm_or_dem: PcmOrDem, /) -> ErrorDecoder | SupportsDecode:
-        """Build an error decoder."""
-
-
-class ObservableDecoderConstructor(Protocol):
-    """Callable that builds an observable decoder from a detector error model."""
-
-    def __call__(self, dem: stim.DetectorErrorModel, /) -> ObservableDecoder:
-        """Build an observable decoder."""
-
-
-class ObservableDecoderCompiler(Protocol):
-    """Object that compiles an observable decoder for a detector error model."""
-
-    def compile_decoder_for_dem(self, dem: stim.DetectorErrorModel) -> ObservableDecoder:
-        """Build an observable decoder specialized to one detector error model."""
-
-
-DeferredErrorDecoderInput: TypeAlias = (
-    DecoderSpec[ErrorDecoder] | ErrorDecoderConstructor | MatrixDecoderFactory | None
-)
-"""A deferred input for an error decoder; use a decoder specification for the model the
-receiving method constructs."""
-
-
-ErrorDecoderInput: TypeAlias = DeferredErrorDecoderInput | ErrorDecoder | SupportsDecode
-"""An input for a decoder that infers errors; configure it with a decoder specification."""
-
-
-DeferredDecoderInput: TypeAlias = (
-    DeferredErrorDecoderInput
-    | ObservableDecoderConstructor
-    | DEMDecoderFactory
-    | ObservableDecoderCompiler
-)
-"""A deferred input for error or observable decoding; configure it with a decoder specification
-for the receiving method's matrix or detector error model."""
-
-
-DecoderInput: TypeAlias = ErrorDecoderInput | DeferredDecoderInput | ObservableDecoder
-"""An input for error or observable decoding; use a decoder specification to select a backend."""
-
-
-####################################################################################################
-# private helpers
-
-
 def _set_helper_metadata(
     helper: Callable[..., object],
     helper_name: str,
@@ -332,6 +276,8 @@ def _get_spec_options(
         bound = signature.bind(*args, **kwargs)
     except TypeError as error:
         raise TypeError(f"{helper_name}() {error}") from None
+    # DEPRECATED: see qldpc._deprecations
+    # only the deprecated error_rate option needs to know which options were passed explicitly
     explicitly_provided: set[str] = set()
     for name, value in bound.arguments.items():
         if signature.parameters[name].kind is inspect.Parameter.VAR_KEYWORD:
@@ -387,3 +333,53 @@ def _is_default_value(value: object, default: object) -> bool:
         return True
     plain_types = (bool, int, float, str)
     return type(value) is type(default) and isinstance(value, plain_types) and value == default
+
+
+####################################################################################################
+# decoder inputs
+
+
+class ErrorDecoderConstructor(Protocol):
+    """Callable that builds an error decoder from a matrix or detector error model."""
+
+    def __call__(self, pcm_or_dem: PcmOrDem, /) -> ErrorDecoder | SupportsDecode:
+        """Build an error decoder."""
+
+
+class ObservableDecoderConstructor(Protocol):
+    """Callable that builds an observable decoder from a detector error model."""
+
+    def __call__(self, dem: stim.DetectorErrorModel, /) -> ObservableDecoder:
+        """Build an observable decoder."""
+
+
+class ObservableDecoderCompiler(Protocol):
+    """Object that compiles an observable decoder for a detector error model."""
+
+    def compile_decoder_for_dem(self, dem: stim.DetectorErrorModel) -> ObservableDecoder:
+        """Build an observable decoder specialized to one detector error model."""
+
+
+DeferredErrorDecoderInput: TypeAlias = (
+    DecoderSpec[ErrorDecoder] | ErrorDecoderConstructor | MatrixDecoderFactory | None
+)
+"""A deferred input for an error decoder; use a decoder specification for the model the
+receiving method constructs."""
+
+
+ErrorDecoderInput: TypeAlias = DeferredErrorDecoderInput | ErrorDecoder | SupportsDecode
+"""An input for a decoder that infers errors; configure it with a decoder specification."""
+
+
+DeferredDecoderInput: TypeAlias = (
+    DeferredErrorDecoderInput
+    | ObservableDecoderConstructor
+    | DEMDecoderFactory
+    | ObservableDecoderCompiler
+)
+"""A deferred input for error or observable decoding; configure it with a decoder specification
+for the receiving method's matrix or detector error model."""
+
+
+DecoderInput: TypeAlias = ErrorDecoderInput | DeferredDecoderInput | ObservableDecoder
+"""An input for error or observable decoding; use a decoder specification to select a backend."""

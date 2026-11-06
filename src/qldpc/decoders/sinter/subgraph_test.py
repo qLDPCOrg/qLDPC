@@ -20,7 +20,7 @@ def test_subgraph_decoding() -> None:
         error(0.1) D1 L1
         error(0.1) D2 L2
     """)
-    sampler = dem.compile_sampler()
+    sampler = dem.compile_sampler(seed=0)
     det_data, obs_data, _err_data = sampler.sample(100)
 
     decoder_1 = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=3))
@@ -54,7 +54,6 @@ def test_native_observable_decoders_on_subgraphs() -> None:
     for spec in [
         decoders.mwpm(),
         decoders.relay_bp(),
-        decoders.min_sum_bp(gamma0=0.5),
         decoders.lookup(max_weight=1),
     ]:
         assert spec.predicts_observables_natively

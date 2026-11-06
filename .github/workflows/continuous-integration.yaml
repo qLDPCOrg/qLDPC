@@ -121,6 +121,28 @@ jobs:
           uv run --group ci-test --group ci-notebooks python checks/pytest_.py --notebook
           examples/decoders.ipynb examples/basics.ipynb examples/noise_models.ipynb
 
+  gap:
+    name: GAP integration (Python 3.13)
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          # the gap extra (passagemath-gap) is only available for Python 3.13
+          python-version: 3.13
+          enable-cache: true
+      - name: Install package and dependencies
+        run: uv sync --extra gap --group ci-test
+      - name: Check that libgap is available
+        run: >-
+          uv run --extra gap --group ci-test python -c
+          "import qldpc.external.gap as gap; assert gap._get_libgap() is not None"
+      - name: Run GAP tests
+        run: uv run --extra gap --group ci-test python checks/pytest_.py src/qldpc/external/
+
   coverage:
     name: Pytest and coverage check
     if: github.event.pull_request.draft == false
@@ -136,6 +158,23 @@ jobs:
           enable-cache: true
       - name: Install package and dependencies
         run: uv sync --extra decoders --extra gap --group ci-test
+      - name: Identify the target of compiled code
+        # Numba uses cached code only on the CPU model that compiled it, and runners vary.
+        id: numba-target
+        run: |
+          target=$(uv run --extra decoders --extra gap --group ci-test python -c \
+            "from numba.core.registry import cpu_target as t; print(t.target_context.codegen().magic_tuple())")
+          echo "hash=$(echo "$target" | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: Cache compiled code
+        # qLDPC keeps the code that numba compiles in a directory named by a hash of its source files
+        # other than tests, so code cached for the same source files is never outdated.  A run that
+        # misses saves the code that its tests compiled.
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/qldpc/numba
+          key: >-
+            numba-${{ runner.os }}-python3.14-${{ steps.numba-target.outputs.hash }}-${{
+            hashFiles('src/qldpc/**/*.py', '!src/qldpc/**/*_test.py', '!src/qldpc/**/conftest.py') }}
       - name: Run coverage
         # Use every CPU of the dedicated runner (the check defaults to half of them).
         run: >-

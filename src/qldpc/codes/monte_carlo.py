@@ -10,17 +10,14 @@ that those methods perform.
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Iterable
-from typing import TypeVar
+from collections.abc import Callable, Iterable
+from typing import TYPE_CHECKING, overload
 
 import numpy as np
 import numpy.typing as npt
 import scipy.special
 
-from qldpc import math
-
-OneOrManyFloats = TypeVar("OneOrManyFloats", float, Iterable[float])
-
+from qldpc import _deprecations, math
 
 ####################################################################################################
 # logical error rate estimation
@@ -30,27 +27,40 @@ OneOrManyFloats = TypeVar("OneOrManyFloats", float, Iterable[float])
 class ErrorRateFunc:
     """Container for raw simulation data used to compute logical error and discard rates.
 
-    An instance of this class is built and returned by the .get_logical_error_rate_func method of
-    ClassicalCode, QuditCode, and CSSCode.  If::
+    An instance of this class is built with ErrorRateFunc.from_sampler and returned by the
+    .get_logical_error_rate_func method of ClassicalCode, QuditCode, and CSSCode.  If::
 
         func = code.get_logical_error_rate_func(...),
 
     then ``func`` takes a physical error rate ``p`` as an argument and returns two numbers:
 
-    (1) A logical error rate, estimated over the error weights that were sampled.
-    (2) A statistical uncertainty in that rate: the standard deviation propagated from the
-        per-weight Jeffreys posterior variances.
+    (1) A logical error rate: the probability that a shot fails given that the decoder keeps it, as
+        defined below.
+    (2) A statistical uncertainty in that rate: the standard deviation propagated to first order
+        from the Jeffreys posterior over the failed, discarded, and corrected samples of each weight
+        (a Dirichlet distribution), which grows large, and loses meaning, as the discard rate
+        approaches one.
 
     If called with an array of physical error rates, this function returns two arrays.  If called
     with ``discard_rate=True``, it computes a discard rate instead of an error rate.
 
+    The logical error rate is the probability that a shot fails given that the decoder keeps it,
+    that is, the number of failed kept shots divided by the number of kept shots.  Writing ``q_w``
+    for the probability of a weight-w error, and ``f_w``, ``d_w`` and ``n_w`` for the failures,
+    discards and samples at weight w, it is::
+
+        ``(sum_w q_w f_w / n_w + T) / (1 - sum_w q_w d_w / n_w)``,
+
+    where the denominator is one minus the discard rate, and ``T`` is the probability of an error
+    too heavy to have been sampled.  Without discards, the rate is ``sum_w q_w f_w / n_w + T``.
+
     Errors of weight above the max_error_weight are never sampled, and this class counts every one
-    of them as a failure.  The reported error rate therefore sits above the true error rate, by at
-    most func.truncation_error_bound(p), which is the probability of drawing such a heavy error.  A
-    plot of the reported rate usually carries a vertical bar spanning the range in which the true
-    rate might lie.  That bar is asymmetric here: the statistical uncertainty spreads in both
-    directions, but counting the unsampled errors as failures only pushes the reported rate up.
-    Writing ``value, error = func(p)``, the bottom and top of the bar are::
+    of them as a kept failure, which gives ``T`` above.  The reported error rate therefore sits
+    above the true error rate, by at most func.truncation_error_bound(p).  A plot of the reported
+    rate usually carries a vertical bar spanning the range in which the true rate might lie.  That
+    bar is asymmetric here: the statistical uncertainty spreads in both directions, but counting the
+    unsampled errors as failures only pushes the reported rate up.  Writing ``value, error =
+    func(p)``, the bottom and top of the bar are::
 
         ``lower = max(value - error - func.truncation_error_bound(p), 0)``,
         ``upper = value + error``.
@@ -58,8 +68,7 @@ class ErrorRateFunc:
     The error bar defined by ``lower`` and ``upper`` is almost, but not exactly a confidence
     interval: its lower edge mixes a posterior standard deviation with a bound that is not
     statistical at all, and its center is the observed failure rate rather than the mean of the
-    posterior that supplies its width (see infidelities).  Read it as a rough indication of what is
-    unknown.
+    posterior that supplies its width.  Read it as a rough indication of what is unknown.
 
     No truncation bound enters a discard rate, because an error counted as a failure is not counted
     as a discard.  A discard rate's bar runs from ``value - error`` to ``value + error``.
@@ -71,7 +80,8 @@ class ErrorRateFunc:
     # number of times we sampled each error weight
     num_samples: npt.NDArray[np.int_]
 
-    # number of failures and discards by error weight
+    # number of samples at each error weight that the decoder kept but decoded incorrectly
+    # (failures), and that it discarded (discards); no sample is both
     num_failures: npt.NDArray[np.int_]
     num_discards: npt.NDArray[np.int_]
 
@@ -104,6 +114,51 @@ class ErrorRateFunc:
                 " decoded perfectly, so they cannot fail or be discarded"
             )
 
+    @classmethod
+    def from_sampler(
+        cls,
+        sample_failures_and_discards: Callable[[int, int], tuple[int, int]],
+        num_samples: int,
+        num_error_locations: int,
+        max_error_rate: float,
+        min_error_weight: int = 1,
+    ) -> ErrorRateFunc:
+        """Sample errors of fixed weight, and collect the counts.
+
+        The sample budget is apportioned in proportion to the largest probability that each error
+        weight has at physical error rates up to max_error_rate, with at least one sample for every
+        weight from min_error_weight up to the heaviest weight sampled.
+
+        Args:
+            sample_failures_and_discards: A function that samples and decodes errors of a given
+                weight a given number of times, and returns the numbers of failures and discards.
+            num_samples: The total sample budget.
+            num_error_locations: The number of error locations, or block length.
+            max_error_rate: The largest physical error rate that the ErrorRateFunc can evaluate.
+            min_error_weight: The smallest error weight that the decoder is taken to be able to fail
+                on; lighter errors are taken to be decoded perfectly.
+
+        Returns:
+            An ErrorRateFunc.
+        """
+        sample_allocation = _get_sample_allocation(
+            num_samples, num_error_locations, max_error_rate, min_error_weight
+        )
+        num_failures = np.zeros(sample_allocation.size, dtype=int)
+        num_discards = np.zeros(sample_allocation.size, dtype=int)
+        for weight in np.nonzero(sample_allocation)[0].tolist():
+            num_failures[weight], num_discards[weight] = sample_failures_and_discards(
+                weight, sample_allocation[weight]
+            )
+        return cls(
+            sample_allocation,
+            num_failures,
+            num_discards,
+            num_error_locations,
+            float(max_error_rate),
+            min_error_weight,
+        )
+
     @property
     def max_error_weight(self) -> int:
         """Max error weight considered."""
@@ -111,11 +166,15 @@ class ErrorRateFunc:
 
     @property
     def infidelities(self) -> npt.NDArray[np.floating]:
-        """Mean infidelity at each error weight.
+        """Mean infidelity at each error weight: the failure rate among its kept samples.
 
         This is the observed failure rate.  The posterior whose variance infidelity_variances
         reports sits above it, by 1/(2n + 2) at a weight with n kept samples and no observed
-        failure, so the reported rate and its uncertainty do not come from the same estimator.
+        failure, so the two do not come from the same estimator.  The logical error rate averages
+        these rates over the weights of kept shots: it weights the rate at weight w by
+        ``q_w (1 - d_w / n_w)``, the probability of a kept weight-w shot, adds the probability ``T``
+        of an error too heavy to have been sampled, and divides by the probability that a shot is
+        kept (see help(ErrorRateFunc)).
         """
         return self.num_failures / self._as_divisor(self.num_samples - self.num_discards)
 
@@ -124,26 +183,19 @@ class ErrorRateFunc:
         """Discard rate at each error weight."""
         return self.num_discards / self._as_divisor(self.num_samples)
 
-    @staticmethod
-    def _as_divisor(counts: npt.NDArray[np.int_]) -> npt.NDArray[np.floating]:
-        """Cast sample counts to float for use as a divisor, mapping zeros to infinity.
-
-        Dividing by infinity yields zero, so a weight with no (kept) samples is recorded with a zero
-        rate rather than nan or inf.  That is optimistic for a weight with no data; the reported
-        variance does not share this optimism (see jeffreys_variance).
-        """
-        divisor = counts.astype(float)
-        divisor[divisor == 0] = np.inf
-        return divisor
-
     @property
     def infidelity_variances(self) -> npt.NDArray[np.floating]:
         """The Jeffreys posterior variance of the infidelity at each error weight.
 
-        See help(qldpc.codes.monte_carlo.jeffreys_variance) for additional info.
+        With x failures in n kept samples, this is the variance of the Beta(x + 1/2, n - x + 1/2)
+        posterior, which is positive even if x = 0.
+
+        These are per-weight diagnostics.  The uncertainty that the function reports comes from the
+        joint posterior of failures and discards instead, so it differs slightly from propagating
+        these variances, even when nothing is discarded.
         """
         num_samples_kept = self.num_samples - self.num_discards
-        variances = jeffreys_variance(self.num_failures, num_samples_kept)
+        variances = _jeffreys_variance(self.num_failures, num_samples_kept)
         variances[: self.min_error_weight] = 0.0  # a perfectly decoded weight cannot fail
         return variances
 
@@ -151,19 +203,43 @@ class ErrorRateFunc:
     def discard_rate_variances(self) -> npt.NDArray[np.floating]:
         """The Jeffreys posterior variance of the discard rate at each error weight.
 
-        See help(qldpc.codes.monte_carlo.jeffreys_variance) for additional info.
+        With x discards in n samples, this is the variance of the Beta(x + 1/2, n - x + 1/2)
+        posterior, which is positive even if x = 0.
         """
-        variances = jeffreys_variance(self.num_discards, self.num_samples)
+        variances = _jeffreys_variance(self.num_discards, self.num_samples)
         variances[: self.min_error_weight] = 0.0  # a perfectly decoded weight is never discarded
         return variances
 
+    @overload
+    def __call__(self, error_rate: float, *, discard_rate: bool = False) -> tuple[float, float]: ...
+
+    @overload
     def __call__(
-        self, error_rate: OneOrManyFloats, *, discard_rate: bool = False
-    ) -> tuple[OneOrManyFloats, OneOrManyFloats]:
-        """Compute the logical error rate (or discard rate) at a given physical error rate."""
+        self, error_rate: Iterable[float], *, discard_rate: bool = False
+    ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]: ...
+
+    def __call__(
+        self, error_rate: float | Iterable[float], *, discard_rate: bool = False
+    ) -> tuple[float, float] | tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]:
+        """Compute the logical error rate (or discard rate) at one or more physical error rates.
+
+        Args:
+            error_rate: A physical error rate, at most max_error_rate, or an iterable of them.
+            discard_rate: If True, compute the discard rate instead of the logical error rate.
+
+        Returns:
+            The rate and its statistical uncertainty: two floats for one physical error rate, or two
+            one-dimensional arrays with one entry per physical error rate.  The logical error rate
+            is taken among kept shots (see help(ErrorRateFunc)), so if every shot is discarded at a
+            physical error rate, the logical error rate and its uncertainty are both NaN there, as
+            in qldpc.circuits.get_logical_error_and_discard_rate.
+
+        Raises:
+            ValueError: If a physical error rate exceeds max_error_rate.
+        """
         if isinstance(error_rate, Iterable):
             results = [self(rate, discard_rate=discard_rate) for rate in error_rate]
-            return (  # type:ignore[return-value]
+            return (
                 np.array([result[0] for result in results]),
                 np.array([result[1] for result in results]),
             )
@@ -176,26 +252,72 @@ class ErrorRateFunc:
         weight_probs = _get_error_probs_by_weight(
             self.num_error_locations, error_rate, self.max_error_weight
         )
-        value: OneOrManyFloats
         if discard_rate:
             # an error treated as a failure is not a discard, so no such term applies here
             value = float(weight_probs @ self.discard_rates)
-            variances = self.discard_rate_variances
-        else:
-            # errors heavier than max_error_weight are all treated as failures, so their probability
-            # enters the rate in full
-            truncation = self.truncation_error_bound(error_rate)
-            value = float(weight_probs @ self.infidelities) + truncation
-            variances = self.infidelity_variances
-        error = float(np.sqrt(weight_probs**2 @ variances))
+            error = float(np.sqrt(weight_probs**2 @ self.discard_rate_variances))
+            return value, error
+
+        # errors heavier than max_error_weight are all treated as kept failures
+        tail = self._get_tail_probability(error_rate)
+        kept = self._get_kept_probability(weight_probs, tail)
+        if kept == 0:
+            # every shot is discarded, so no kept shot can define a failure rate
+            return float("nan"), float("nan")
+        failures = self.num_failures / self._as_divisor(self.num_samples)
+        value = (float(weight_probs @ failures) + tail) / kept
+
+        # propagate the per-weight posterior covariances of the failure and discard fractions to the
+        # rate, whose derivatives with respect to them are q_w / kept and value * q_w / kept
+        failure_variances, discard_variances, covariances = _jeffreys_multinomial_covariances(
+            self.num_failures, self.num_discards, self.num_samples
+        )
+        variances = failure_variances + value**2 * discard_variances + 2 * value * covariances
+        variances[: self.min_error_weight] = 0.0  # a perfectly decoded weight is certain
+        error = float(np.sqrt(weight_probs**2 @ variances)) / kept
         return value, error
 
-    def truncation_error_bound(self, error_rate: OneOrManyFloats) -> OneOrManyFloats:
-        """Contribution to the reported infidelity from errors too heavy to have been sampled.
+    @overload
+    def truncation_error_bound(self, error_rate: float) -> float: ...
 
-        Errors heavier than max_error_weight are all treated as failures, so this is the probability
-        of such an error.  Takes one physical error rate or an iterable of them, and returns one
-        bound or an array of them to match, as the constructed function itself does.
+    @overload
+    def truncation_error_bound(self, error_rate: Iterable[float]) -> npt.NDArray[np.floating]: ...
+
+    def truncation_error_bound(
+        self, error_rate: float | Iterable[float]
+    ) -> float | npt.NDArray[np.floating]:
+        """Contribution to the reported logical error rate from errors above max_error_weight.
+
+        Errors heavier than max_error_weight are never sampled, and are all treated as kept
+        failures.  This is their contribution to the reported rate: the probability ``T`` of such an
+        error, divided by one minus the discard rate (see help(ErrorRateFunc)), which is ``T``
+        itself without discards.  It is also the most by which the reported rate can exceed the true
+        rate, which it does if every such error is in fact kept and decoded correctly.  Takes one
+        physical error rate or an iterable of them, and returns one bound or an array of them to
+        match, as the constructed function itself does.
+        """
+        if isinstance(error_rate, Iterable):
+            values = [self.truncation_error_bound(rate) for rate in error_rate]
+            return np.array(values)
+        tail = self._get_tail_probability(error_rate)
+        if tail == 0:
+            return 0.0
+        weight_probs = _get_error_probs_by_weight(
+            self.num_error_locations, error_rate, self.max_error_weight
+        )
+        return tail / self._get_kept_probability(weight_probs, tail)
+
+    def _get_kept_probability(self, weight_probs: npt.NDArray[np.floating], tail: float) -> float:
+        """The probability that a shot is kept, counting every unsampled error as kept.
+
+        This is one minus the discard rate, summed from nonnegative terms so that it is never
+        negative and never below the tail probability, as subtracting the discard rate from one can
+        be when nearly every shot is discarded.
+        """
+        return float(weight_probs @ (1 - self.discard_rates)) + tail
+
+    def _get_tail_probability(self, error_rate: float) -> float:
+        """The probability of an error too heavy to have been sampled.
 
         The probability of an error heavier than a given weight is the upper tail of a binomial
         distribution, which the regularized incomplete beta function gives in closed form.  With
@@ -204,9 +326,6 @@ class ErrorRateFunc:
 
             ``sum_(j=k+1)^(n) (n choose j) p**j (1-p)**(n-j) = I_p(k + 1, n - k)``.
         """
-        if isinstance(error_rate, Iterable):
-            values = [self.truncation_error_bound(rate) for rate in error_rate]
-            return np.array(values)  # type:ignore[return-value]
         if self.max_error_weight >= self.num_error_locations:
             # no error is heavier than the number of error locations, so nothing is truncated.  The
             # closed form cannot be relied on to say so, because its second parameter is zero here:
@@ -221,31 +340,21 @@ class ErrorRateFunc:
             )
         )
 
+    @staticmethod
+    def _as_divisor(counts: npt.NDArray[np.int_]) -> npt.NDArray[np.floating]:
+        """Cast sample counts to float for use as a divisor, mapping zeros to infinity.
 
-def jeffreys_variance(
-    num_events: npt.NDArray[np.int_], num_trials: npt.NDArray[np.int_]
-) -> npt.NDArray[np.floating]:
-    """Posterior variance of a binomial rate under a Jeffreys prior.
-
-    With x events observed in n trials, the rate posterior is Beta(x + 1/2, n - x + 1/2), whose mean
-    is (x + 1/2) / (n + 1) and whose variance is mean * (1 - mean) / (n + 2).  Unlike the plug-in
-    variance f (1 - f) / n, this is positive at x = 0, so a weight with no observed events still
-    carries uncertainty, and finite at n = 0, where it reverts to the prior variance 1/8 for a
-    weight with no data at all.
-
-    See Brown, Cai & DasGupta, "Interval Estimation for a Binomial Proportion," Statist. Sci. 16
-    (2001) 101-133, https://doi.org/10.1214/ss/1009213286, for this posterior and its behaviour at
-    small counts.  That work recommends quoting an interval between two quantiles of the posterior,
-    which callers here cannot use: they need one uncertainty on a weighted sum over error weights,
-    and variances add in quadrature across that sum while quantiles do not.  A variance is therefore
-    what this function returns, at the price of a symmetric half-width that does not inherit the
-    coverage of the recommended interval.
-    """
-    smoothed_rate = (num_events + 0.5) / (num_trials + 1)
-    return smoothed_rate * (1 - smoothed_rate) / (num_trials + 2)
+        Dividing by infinity yields zero, so a weight with no (kept) samples is recorded with a zero
+        rate rather than nan or inf.  That is optimistic for a weight with no data; the reported
+        variance does not share this optimism (see _jeffreys_variance and
+        _jeffreys_multinomial_covariances).
+        """
+        divisor = counts.astype(float)
+        divisor[divisor == 0] = np.inf
+        return divisor
 
 
-def get_sample_allocation(
+def _get_sample_allocation(
     num_samples: int, block_length: int, max_error_rate: float, min_error_weight: int = 1
 ) -> npt.NDArray[np.int_]:
     """Construct an allocation of samples by error weight.
@@ -307,8 +416,52 @@ def get_sample_allocation(
     return sample_allocation
 
 
-####################################################################################################
-# helper methods
+def _jeffreys_variance(
+    num_events: npt.NDArray[np.int_], num_trials: npt.NDArray[np.int_]
+) -> npt.NDArray[np.floating]:
+    """Posterior variance of a binomial rate under a Jeffreys prior.
+
+    With x events observed in n trials, the rate posterior is Beta(x + 1/2, n - x + 1/2), whose mean
+    is (x + 1/2) / (n + 1) and whose variance is mean * (1 - mean) / (n + 2).  Unlike the plug-in
+    variance f (1 - f) / n, this is positive at x = 0, so a weight with no observed events still
+    carries uncertainty, and finite at n = 0, where it reverts to the prior variance 1/8 for a
+    weight with no data at all.
+
+    See Brown, Cai & DasGupta, "Interval Estimation for a Binomial Proportion," Statist. Sci. 16
+    (2001) 101-133, https://doi.org/10.1214/ss/1009213286, for this posterior and its behaviour at
+    small counts.  That work recommends quoting an interval between two quantiles of the posterior,
+    which callers here cannot use: they need one uncertainty on a weighted sum over error weights,
+    and variances add in quadrature across that sum while quantiles do not.  A variance is therefore
+    what this function returns, at the price of a symmetric half-width that does not inherit the
+    coverage of the recommended interval.
+    """
+    smoothed_rate = (num_events + 0.5) / (num_trials + 1)
+    return smoothed_rate * (1 - smoothed_rate) / (num_trials + 2)
+
+
+def _jeffreys_multinomial_covariances(
+    num_failures: npt.NDArray[np.int_],
+    num_discards: npt.NDArray[np.int_],
+    num_samples: npt.NDArray[np.int_],
+) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating], npt.NDArray[np.floating]]:
+    """Posterior covariances of the failure and discard rates under a Jeffreys prior.
+
+    Each sample fails, is discarded, or is corrected, so the three counts are multinomial, and their
+    Jeffreys posterior is Dirichlet(f + 1/2, d + 1/2, c + 1/2) for f failures, d discards and c
+    corrected samples.  With ``a = n + 3/2`` for n samples and the posterior means ``m = (x + 1/2) /
+    a``, this returns the variances ``m (1 - m) / (a + 1)`` of the failure and discard rates and
+    their covariance ``-m_f m_d / (a + 1)``.  This covariance matrix is positive definite, so no
+    outcome is taken to be certain from a finite number of samples, and with no data it reverts to
+    the prior Dirichlet(1/2, 1/2, 1/2).
+    """
+    concentration = num_samples + 1.5
+    failure_mean = (num_failures + 0.5) / concentration
+    discard_mean = (num_discards + 0.5) / concentration
+    return (
+        failure_mean * (1 - failure_mean) / (concentration + 1),
+        discard_mean * (1 - discard_mean) / (concentration + 1),
+        -failure_mean * discard_mean / (concentration + 1),
+    )
 
 
 def _check_error_weight(min_error_weight: int) -> None:
@@ -336,7 +489,7 @@ def _get_max_error_weight(
         # perfectly.  Nothing anywhere in range can fail, so cover all of it and truncate nothing.
         return block_length
     # a weight's share is measured against the weights covered when it is the heaviest one, which is
-    # the range get_sample_allocation apportions over, so the share tested is the one that weight
+    # the range _get_sample_allocation apportions over, so the share tested is the one that weight
     # would receive.  The cumulative sum is zero below min_error_weight, where nothing is eligible.
     covered = np.cumsum(envelope)
     fractions = np.divide(envelope, covered, out=np.zeros_like(envelope), where=covered > 0)
@@ -418,3 +571,9 @@ def _get_error_probs_by_weight(
         for kk in range(max_weight + 1)
     ]
     return np.exp(log_probs)
+
+
+if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations
+
+    def __getattr__(name: str) -> object:
+        return _deprecations.get_deprecated_attribute(__name__, name)

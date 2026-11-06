@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+
+"""Build the documentation strictly, then check the rendered HTML for malformed docstrings."""
+
 import html
 import os
 import pathlib

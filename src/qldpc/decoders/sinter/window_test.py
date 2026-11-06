@@ -11,7 +11,8 @@ import numpy as np
 import pytest
 import stim
 
-from qldpc import decoders
+from qldpc import circuits, codes, decoders
+from qldpc.decoders.adapters.error_decoders import _ExpandedErrorDecoder
 
 
 def test_sequential_decoding() -> None:
@@ -24,7 +25,7 @@ def test_sequential_decoding() -> None:
         error(0.1) D1 D2 L1
         error(0.1) D2 L2
     """)
-    sampler = dem.compile_sampler()
+    sampler = dem.compile_sampler(seed=0)
     det_data, obs_data, _err_data = sampler.sample(100)
 
     decoder_1 = decoders.SinterDecoder(decoder=decoders.lookup(max_weight=3))
@@ -65,7 +66,7 @@ def test_sequential_decoding_with_merged_window_errors() -> None:
     compiled_sinter_decoder = sinter_decoder.compile_decoder_for_dem(dem)
     assert isinstance(
         compiled_sinter_decoder.window_decoders[0],
-        decoders.ExpandedErrorDecoder,
+        _ExpandedErrorDecoder,
     )
 
     shots = np.array(
@@ -132,7 +133,7 @@ def test_sequential_window_decoder_erasure_with_merged_window_errors() -> None:
     ).compile_decoder_for_dem(dem)
 
     window_decoder = compiled.window_decoders[0]
-    assert isinstance(window_decoder, decoders.ExpandedErrorDecoder)
+    assert isinstance(window_decoder, _ExpandedErrorDecoder)
     assert window_decoder.has_erasure_bit
 
     explained = window_decoder.decode(np.array([1, 1, 0]))
@@ -215,6 +216,22 @@ def test_sliding_window_time_coordinate() -> None:
     assert list(compiled.window_detectors) == [[1], [0, 2]]
 
 
+def test_sliding_window_memory_experiment() -> None:
+    """A sliding window decoder windows the detector error model of a memory experiment by round."""
+    noise_model = circuits.DepolarizingNoiseModel(1e-3)
+    circuit = circuits.get_memory_experiment(
+        codes.SurfaceCode(2), num_rounds=4, noise_model=noise_model
+    )
+    dem = circuit.detector_error_model()
+    round_of = {det: int(coords[0]) for det, coords in dem.get_detector_coordinates().items()}
+    compiled = decoders.SlidingWindowDecoder(2, 1).compile_decoder_for_dem(dem)
+    detectors = np.arange(dem.num_detectors)
+    spans = [
+        sorted({round_of[det] for det in detectors[window]}) for window in compiled.window_detectors
+    ]
+    assert spans == [[0, 1], [1, 2], [2, 3], [3, 4]]
+
+
 def test_sliding_window_time_gaps() -> None:
     """A gap between time indices contributes no window of its own."""
     dem = stim.DetectorErrorModel("""
@@ -231,6 +248,15 @@ def test_sliding_window_time_gaps() -> None:
     decoder = decoders.SlidingWindowDecoder(2, 1, decoder=decoders.lookup(max_weight=1))
     compiled = decoder.compile_decoder_for_dem(dem)
     assert list(compiled.window_detectors) == [[0], [1], [2]]
+
+
+def test_sliding_window_without_detectors() -> None:
+    """A model without detectors contributes no window."""
+    dem = stim.DetectorErrorModel("error(0.1) L0")
+    decoder = decoders.SlidingWindowDecoder(1, 1, decoder=decoders.lookup(1))
+    compiled = decoder.compile_decoder_for_dem(dem)
+    assert list(compiled.window_detectors) == []
+    assert np.array_equal(compiled.decode_shots(np.zeros((2, 0), dtype=np.uint8)), [[0], [0]])
 
 
 def test_sliding_window_ignores_undecoded_detectors() -> None:
