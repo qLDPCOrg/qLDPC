@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable, Sequence
 from typing import Literal, SupportsIndex, get_args
 
@@ -176,6 +177,41 @@ def get_distance_quantum(
             qubits) with the first and second halves indicating the X and Z Pauli support; and
         (b) the weight of a Pauli string is the symplectic weight of the corresponding bitstring.
     """
+    return _get_distance_quantum(
+        logical_ops,
+        stabilizers,
+        cutoff=cutoff,
+        block_size=block_size,
+        homogeneous=homogeneous,
+        method=method,
+        max_weight=max_weight,
+    )
+
+
+def _get_distance_quantum(
+    logical_ops: npt.ArrayLike,
+    stabilizers: npt.ArrayLike,
+    *,
+    cutoff: int = 1,
+    block_size: int = 15,
+    homogeneous: bool = False,
+    method: DistanceMethod = "brouwer_zimmermann",
+    max_weight: SupportsIndex | None = None,
+    get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
+) -> int:
+    """Compute the distance of ``get_distance_quantum``, letting BZ use qubit automorphisms.
+
+    ``get_automorphisms``, if given, is a function that returns an array of generators of a group
+    of qubit permutations, or None.  Row ``i`` of the array maps qubit ``j`` to qubit ``row[j]``.
+    Each generator must map the span of the stabilizers, and the span of the stabilizers and logical
+    operators, onto themselves.  A BZ search calls the function before a costly layer, and verifies
+    the generators before it uses them.  The other arguments and the result are those of
+    ``get_distance_quantum``.
+
+    Raises:
+        ValueError: In the cases of ``get_distance_quantum``, or if a generator from
+            ``get_automorphisms`` is not an automorphism.
+    """
     method = _validate_distance_method(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
     logical_matrix, stabilizer_matrix = _as_operator_matrices(logical_ops, stabilizers)
@@ -203,14 +239,18 @@ def get_distance_quantum(
     if not homogeneous:
         basis = symplectic_to_hamming(basis)
         divisor = 2
+        if get_automorphisms is not None:
+            get_automorphisms = functools.partial(
+                _get_lifted_automorphisms, get_automorphisms, physical_size
+            )
 
-    distance = get_distance_brouwer_zimmermann(
-        basis,
-        labels,
+    distance = get_distance_brouwer_zimmermann_many(
+        [(basis, labels)],
         cutoff=cutoff * divisor,
         block_size=block_size,
         weight_divisor=divisor,
         upper_bound=None if upper_bound is None else upper_bound * divisor,
+        get_automorphisms=get_automorphisms,
     )
     return distance // divisor
 
@@ -312,6 +352,23 @@ def _get_weight_limit(cutoff: int, max_weight: SupportsIndex | None) -> tuple[in
 def _apply_upper_bound(distance: int, upper_bound: int | None) -> int:
     """The smaller of a distance and an optional upper bound."""
     return distance if upper_bound is None else min(distance, upper_bound)
+
+
+def _get_lifted_automorphisms(
+    get_automorphisms: Callable[[], npt.NDArray[np.int_] | None], num_qubits: int
+) -> npt.NDArray[np.int_] | None:
+    """Call a function that returns qubit permutations, and lift them to Hamming coordinates.
+
+    The Hamming coordinates are ``(x | z | x + z)``, as in ``symplectic_to_hamming``.  Each lifted
+    permutation moves the coordinates of each of the three blocks as the permutation moves the
+    qubits.  The map of ``symplectic_to_hamming`` commutes with these permutations, so a lifted
+    permutation preserves the image of a space exactly if the permutation preserves the space.  The
+    result is None if ``get_automorphisms`` returns None.
+    """
+    automorphisms = get_automorphisms()
+    if automorphisms is None:
+        return None
+    return np.hstack([automorphisms + block * num_qubits for block in range(3)])
 
 
 ####################################################################################################
