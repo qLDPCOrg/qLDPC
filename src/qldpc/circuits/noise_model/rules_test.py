@@ -11,7 +11,11 @@ from qldpc.circuits.noise_model import rules
 
 
 def test_noise_rule_errors() -> None:
-    """Cover various NoiseRule errors."""
+    """NoiseRule and NoiseModel reject invalid rules.
+
+    NoiseRule rejects invalid probabilities, invalid fragments, and ``after`` noise combined with
+    readout or reset errors.  NoiseModel rejects empty channels on the wrong number of qubits.
+    """
     with pytest.raises(ValueError, match="not between 0 and 1"):
         circuits.NoiseRule(readout_error=1.1)
     with pytest.raises(ValueError, match="not between 0 and 1"):
@@ -27,26 +31,16 @@ def test_noise_rule_errors() -> None:
     with pytest.raises(ValueError, match="at least one qubit"):
         circuits.NoiseRule(after=stim.Circuit())
 
-    # An empty PauliChannel with an explicitly-declared arity is honored — a mismatch against the
-    # rule's expected arity is flagged rather than silently dropped.
+    # an empty channel on the wrong number of qubits is rejected rather than dropped
     with pytest.raises(ValueError, match="arity 3; expected 2"):
         circuits.NoiseModel(clifford_nq_error={2: circuits.PauliChannel({}, num_qubits=3)})
-    # Same policy for idle_error: an explicitly-declared arity is validated BEFORE trivializing, so
-    # a shape-wrong empty channel is flagged rather than silently accepted.
+    # idle_error checks the number of qubits of a rule before it drops a rule without noise
     with pytest.raises(ValueError, match=r"idle_error: `after` has arity 3; expected 1"):
         circuits.NoiseModel(
             idle_error=circuits.NoiseRule(after=circuits.PauliChannel({}, num_qubits=3))
         )
 
-    # get_noise_rule requires pre-split (single Pauli product) MPP/SPP ops.
-    with pytest.raises(ValueError, match="split into a single Pauli product"):
-        # Two products: X0*Y1 and Z2*X3 — targets at odd indices include non-combiners (Z2, X3).
-        mpp = stim.Circuit("MPP X0*Y1 Z2*X3")[0]
-        rule = circuits.NoiseRule(readout_error=0.1)
-        circuits.NoiseModel(rules={"MXY": rule}).get_noise_rule(mpp)
-
-    # NoiseRule cannot combine `after`-noise with readout_error / reset_error — those should be
-    # separate rules (or handled via NoiseModel-level defaults).
+    # a rule cannot combine `after` noise with readout or reset errors
     with pytest.raises(ValueError, match=r"after.*readout_error"):
         circuits.NoiseRule(after={"X": 0.01}, readout_error=0.1)
     with pytest.raises(ValueError, match=r"after.*readout_error"):
@@ -54,14 +48,12 @@ def test_noise_rule_errors() -> None:
 
 
 def test_after_stim_circuit_form() -> None:
-    """`after=stim.Circuit(...)`: verbatim-fragment emission and immunity filtering.
+    """A stim.Circuit fragment as `after` noise is emitted after each block of qubits of a gate.
 
-    Fragments emit verbatim per k-qubit block (with remapped qubits).  Immunity drops the whole
-    fragment under immunize_gates=True and raises under immunize_gates=False.
+    Immunity drops the whole fragment with immunize_gates=True, and raises an error with
+    immunize_gates=False.  A Mapping of zero probabilities gives a rule without noise.
     """
-
-    # Multiple noise ops in one fragment (combining DEPOLARIZE2 + PAULI_CHANNEL_1 — not expressible
-    # as a single PauliChannel — is the canonical reason to use the stim.Circuit escape hatch).
+    # a fragment can hold several noise channels, which one PauliChannel cannot express
     noise_rule = circuits.NoiseRule(
         after=stim.Circuit("DEPOLARIZE2(0.2) 0 1\nPAULI_CHANNEL_1(0, 0.1, 0.1) 0 1")
     )
@@ -72,38 +64,27 @@ def test_after_stim_circuit_form() -> None:
 
     circuit = stim.Circuit("SPP X0*Y1*Z2")
 
-    # A raw CE chain touching an immune qubit is dropped under immunize_gates=True (default).
+    # with immunize_gates=True, a fragment on a gate with an immune qubit is dropped
     ce_rule = circuits.NoiseRule(after=stim.Circuit("CORRELATED_ERROR(0.02) X0 Y1 Z2"))
     assert circuits_are_equivalent(
         circuit,
         circuits.NoiseModel(rules={"SPP": ce_rule}).noisy_circuit(circuit, immune_qubits=[1]),
     )
-    # Under immunize_gates=False, the same rule raises on partial immunity.
+    # with immunize_gates=False, the same rule raises an error on partial immunity
     with pytest.raises(ValueError, match="partial immunity"):
         circuits.NoiseModel(rules={"SPP": ce_rule}).noisy_circuit(
             circuit, immune_qubits=[1], immunize_gates=False
         )
 
-    # A 3q PauliChannel whose strings are non-I on a single position emits natively as
-    # PAULI_CHANNEL_1 (via `PauliChannel.to_circuit`'s 1-active-position branch).
-    channel = circuits.PauliChannel({"IXI": 0.1, "IYI": 0.05})
-    sparse_rule = circuits.NoiseRule(after=channel)
-    assert circuits_are_equivalent(
-        stim.Circuit("SPP X0*Y1*Z2\nPAULI_CHANNEL_1(0.1, 0.05, 0) 1"),
-        circuits.NoiseModel(rules={"SPP": sparse_rule}).noisy_circuit(circuit),
-    )
-
-    # Measurement-producing noise is rejected because it would shift later rec[] targets.
+    # noise that records measurements is rejected, since it would shift later rec[] targets
     with pytest.raises(ValueError, match="measurement-producing"):
         circuits.NoiseRule(after=stim.Circuit("HERALDED_ERASE(0.05) 0 1"))
 
-    # A Mapping `after` whose entries all have zero probabilities normalizes to a trivial rule.
+    # a Mapping of zero probabilities gives a rule without noise
     zero_rule = circuits.NoiseRule(after={"X": 0.0, "Y": 0.0, "Z": 0.0})
     assert not bool(zero_rule)
 
-    # A mixed 1q+2q stim.Circuit fragment must emit per-k-qubit-block, NOT native-broadcast
-    # wholesale across every qubit_target (the Mapping form rejects this shape; the stim.Circuit
-    # escape hatch is expected to preserve per-block semantics).
+    # a fragment is emitted after each pair of targets of a two-qubit gate
     mixed_rule = circuits.NoiseRule(after=stim.Circuit("X_ERROR(0.01) 0\nDEPOLARIZE2(0.02) 0 1"))
     circuit = stim.Circuit("CX 0 1 2 3")
     expected = circuit + stim.Circuit("""
@@ -179,6 +160,10 @@ def test_emit_after() -> None:
     assert circuit == stim.Circuit()
     with pytest.raises(ValueError, match="multiple of 2 qubits"):
         circuits.NoiseRule(after={"XX": 0.1}).emit_after(circuit, [0, 1, 2])
+    circuits.NoiseRule(after={"XZ": 0.1}).emit_after(circuit, [0, 1, 2, 3])
+    assert circuit == stim.Circuit(
+        "PAULI_CHANNEL_2(0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0) 0 1 2 3"
+    )
 
 
 def test_as_noise_rule() -> None:

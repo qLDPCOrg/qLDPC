@@ -30,30 +30,22 @@ _PAULI_CHANNEL_2_ORDER = tuple(a + b for a in "IXYZ" for b in "IXYZ" if (a, b) !
 class AbstractPauliChannel(abc.ABC):
     """Base class for sparse Pauli channels.
 
-    Every ``AbstractPauliChannel`` maps non-identity Pauli strings (over the alphabet
-    ``{I, X, Y, Z}``) to their probabilities.  The interpretation of those probabilities depends on
-    the ``AbstractPauliChannel`` subclass.
-
-    Subclasses of ``AbstractPauliChannel`` are required to define a ``.to_circuit`` method.
-
-    Performs only *per-entry* validation (string shape / alphabet, not-identity, each
-    probability in [0, 1]).  Any aggregate constraint (such as normalization) is left to the
-    subclass.
+    An ``AbstractPauliChannel`` maps non-identity Pauli strings to their probabilities.  Each
+    subclass sets what the probabilities mean, checks any constraint on their sum, and defines
+    ``to_circuit``.
 
     Args:
-        probabilities: Mapping from non-identity Pauli strings to their probabilities.  All
-            strings must have the same length ``n`` and contain only ``I``, ``X``, ``Y``, or
-            ``Z``.  The all-identity string ``"I" * n`` must not appear.  Entries with
-            probability zero are silently dropped.
-        num_qubits: The arity of the channel.  Required only for an empty ``probabilities`` on a
-            nontrivial number of qubits — otherwise defaults to the length of the Pauli strings
-            when ``probabilities`` is non-empty, or ``0`` when empty.  If both are supplied and
-            inconsistent, a ``ValueError`` is raised.
+        probabilities: Mapping from non-identity Pauli strings to their probabilities.  All strings
+            must have the same length ``n`` and contain only ``I``, ``X``, ``Y``, or ``Z``.  The
+            all-identity string ``"I" * n`` must not appear.  Entries with probability zero are
+            silently dropped.
+        num_qubits: The number of qubits of the channel.  Defaults to the length of the Pauli
+            strings, or to 0 if ``probabilities`` is empty.  It is needed only for an empty channel
+            on one or more qubits.
 
     Raises:
-        ValueError: If the input contains an invalid Pauli string, contains the identity string,
-            any probability is not in [0, 1], or ``num_qubits`` disagrees with the length of the
-            Pauli strings.
+        ValueError: If a Pauli string is invalid or is the identity, a probability is not in [0, 1],
+            or ``num_qubits`` is negative or differs from the length of the Pauli strings.
     """
 
     def __init__(
@@ -107,7 +99,7 @@ class AbstractPauliChannel(abc.ABC):
         return hash((type(self), self._num_qubits, tuple(self._probabilities.items())))
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, AbstractPauliChannel) or type(other) is not type(self):
+        if type(other) is not type(self):
             return NotImplemented
         return self._num_qubits == other._num_qubits and self._probabilities == other._probabilities
 
@@ -169,25 +161,23 @@ class AbstractPauliChannel(abc.ABC):
 class PauliChannel(AbstractPauliChannel):
     """A sparse multi-qubit Pauli channel.
 
-    Maps non-identity Pauli strings (over the alphabet ``{I, X, Y, Z}``) to their probabilities.
-    The strings name mutually exclusive outcomes: this channel applies exactly one Pauli string
-    (possibly the identity).  The all-identity string is implicit; its probability is
-    ``1 - sum(others)``, so the listed probabilities must sum to at most 1.
+    Maps non-identity Pauli strings to their probabilities.  The strings are mutually exclusive
+    outcomes, so the channel applies exactly one of them or the identity.  The identity has
+    probability 1 minus the sum of the listed probabilities, which must be at most 1.
 
     Args:
-        probabilities: Mapping from non-identity Pauli strings to their probabilities.  All
-            strings must have the same length ``n`` and contain only ``I``, ``X``, ``Y``, or
-            ``Z``.  The all-identity string ``"I" * n`` must not appear.  Entries with
-            probability zero are silently dropped.
-        num_qubits: The arity of the channel.  Required only for an empty ``probabilities`` on a
-            nontrivial number of qubits — otherwise defaults to the length of the Pauli strings
-            when ``probabilities`` is non-empty, or ``0`` when empty.  If both are supplied and
-            inconsistent, a ``ValueError`` is raised.
+        probabilities: Mapping from non-identity Pauli strings to their probabilities.  All strings
+            must have the same length ``n`` and contain only ``I``, ``X``, ``Y``, or ``Z``.  The
+            all-identity string ``"I" * n`` must not appear.  Entries with probability zero are
+            silently dropped.
+        num_qubits: The number of qubits of the channel.  Defaults to the length of the Pauli
+            strings, or to 0 if ``probabilities`` is empty.  It is needed only for an empty channel
+            on one or more qubits.
 
     Raises:
-        ValueError: If the input contains an invalid Pauli string, contains the identity string,
-            any probability is not in [0, 1], the sum of probabilities is not in [0, 1], or
-            ``num_qubits`` disagrees with the length of the Pauli strings.
+        ValueError: If a Pauli string is invalid or is the identity, a probability is not in [0, 1],
+            the probabilities sum to more than 1, or ``num_qubits`` is negative or differs from the
+            length of the Pauli strings.
     """
 
     def __init__(
@@ -205,8 +195,11 @@ class PauliChannel(AbstractPauliChannel):
     def depolarizing(num_qubits: int, probability: float) -> PauliChannel:
         """Uniform ``num_qubits``-qubit depolarizing channel with total error ``probability``.
 
-        Each of the ``4**num_qubits - 1`` non-identity Pauli strings is assigned probability
-        ``probability / (4**num_qubits - 1)``.  Strings are inserted in lexicographic order.
+        Each of the ``4**num_qubits - 1`` non-identity Pauli strings has an equal share of
+        ``probability``.
+
+        Raises:
+            ValueError: If ``num_qubits`` is less than 1, or ``probability`` is not in [0, 1].
         """
         if num_qubits < 1:
             raise ValueError(f"num_qubits={num_qubits} must be >= 1")
@@ -218,24 +211,23 @@ class PauliChannel(AbstractPauliChannel):
         return PauliChannel({"".join(string): term_probability for string in strings})
 
     def conditioned_on(self, immune_qubits: Iterable[int]) -> PauliChannel:
-        """Return the sub-channel of error mechanisms that act as identity on the given qubits.
+        """Return the part of this channel that acts as the identity on the given positions.
 
-        Keeps only Pauli strings whose positions in ``immune_qubits`` are all ``I``, with their
-        original probabilities.  The returned channel has the same ``num_qubits`` as ``self`` —
-        surviving strings retain their length; the immune positions are still present, always as
-        ``I``.  Total probability is in general reduced (the dropped weight represents error events
-        that would have acted nontrivially on an immune qubit, which are assumed to not occur).
+        Keeps the Pauli strings that are ``I`` at every position in ``immune_qubits``, with their
+        probabilities.  The strings keep their length, so the result has the same ``num_qubits`` as
+        this channel.  Its total probability is lower if it drops strings that act on an immune
+        position.
 
         Args:
-            immune_qubits: Positions in ``[0, num_qubits)`` to constrain to identity.  Repeats are
-                ignored.
+            immune_qubits: Positions in ``[0, num_qubits)`` at which to keep only the identity.
+                Repeats are ignored.
 
         Returns:
-            A ``PauliChannel`` on the same qubits as ``self``.  If no strings survive, the returned
-                channel is empty but still reports ``num_qubits == self.num_qubits``.
+            A ``PauliChannel`` with the same ``num_qubits`` as this channel.  It is empty if no
+            strings survive.
 
         Raises:
-            ValueError: If any index is outside ``[0, num_qubits)``.
+            ValueError: If a position is outside ``[0, num_qubits)``.
         """
         immune_qubits = frozenset(immune_qubits)
         for position in immune_qubits:
@@ -278,18 +270,16 @@ class PauliChannel(AbstractPauliChannel):
     ) -> StimCircuitLike | stim.Circuit:
         """Convert this PauliChannel into a circuit.
 
-        If provided a circuit, append to that circuit in-place and return it.
+        With ``simplify=True``, a channel that acts nontrivially on one or two qubits becomes one
+        ``X_ERROR``, ``Y_ERROR``, ``Z_ERROR``, ``DEPOLARIZE1``, ``DEPOLARIZE2``,
+        ``PAULI_CHANNEL_1``, or ``PAULI_CHANNEL_2`` instruction.  Other channels, and every channel
+        with ``simplify=False``, become a ``CORRELATED_ERROR`` followed by one
+        ``ELSE_CORRELATED_ERROR`` per remaining Pauli string.  The conditional probabilities of this
+        chain give each string its probability in this channel.
 
-        By default (with ``simplify=True``), the channel is emitted in the simplest form its
-        probabilities permit: channels that address only one or two qubits nontrivially become
-        ``PAULI_CHANNEL_[12]`` / ``DEPOLARIZE[12]`` / ``[XYZ]_ERROR``.
-
-        With ``simplify=False`` the channel is always emitted as a ``CORRELATED_ERROR`` followed by
-        one ``ELSE_CORRELATED_ERROR`` per remaining Pauli string, with conditional probabilities
-        renormalized so each string's unconditional firing probability matches this channel.  For
-        channels with three or more active qubits, this correlated chain requires
-        ``approximate_disjoint_errors=True`` when converting a containing Stim circuit to a detector
-        error model.
+        Stim needs ``approximate_disjoint_errors=True`` to make a detector error model from a chain
+        with an ``ELSE_CORRELATED_ERROR``, or from a ``PAULI_CHANNEL_1`` or ``PAULI_CHANNEL_2`` with
+        more than one nonzero probability.
 
         Args:
             append_to: The circuit to append to; if ``None`` (default), create a new circuit.
@@ -315,7 +305,7 @@ class PauliChannel(AbstractPauliChannel):
             circuit.append(name, [qubits[i] for i in positions], args, tag=tag)
             return circuit
 
-        # Emit a CORRELATED_ERROR / ELSE_CORRELATED_ERROR chain
+        # otherwise, emit a chain of CORRELATED_ERROR and ELSE_CORRELATED_ERROR instructions
         remaining = 1.0
         first = True
         for string, prob in self.probabilities.items():
@@ -324,11 +314,9 @@ class PauliChannel(AbstractPauliChannel):
                 circuit.append("CORRELATED_ERROR", pauli_targets, [prob], tag=tag)
                 first = False
             else:
-                # `remaining` is `1 - sum_of_prior` in exact arithmetic and is guaranteed >= prob
-                # because the constructor rejects total > 1.  If floating-point subtraction leaves
-                # `remaining` a hair smaller than prob (or zero), emit an ELSE_CORRELATED_ERROR(1)
-                # that absorbs the rest of the probability mass and stop — any subsequent
-                # ELSE_CORRELATED_ERROR would never fire.
+                # rounding can leave `remaining` at or below `prob`, although the probabilities sum
+                # to at most 1.  ELSE_CORRELATED_ERROR(1) then takes all of the remaining
+                # probability, and later strings could never fire.
                 if remaining <= prob:
                     circuit.append("ELSE_CORRELATED_ERROR", pauli_targets, [1.0], tag=tag)
                     break
@@ -344,8 +332,8 @@ class PauliChannel(AbstractPauliChannel):
 
         Returns:
             The name of the instruction, the positions of the qubits of this channel that it acts
-            on, and its arguments, or None if this channel acts nontrivially on no qubits or on
-            more than two.
+            on, and its arguments, or None if this channel acts nontrivially on no qubits or on more
+            than two.
         """
         # the positions of the qubits that the channel acts on nontrivially
         positions = tuple(
@@ -377,9 +365,8 @@ class PauliChannel(AbstractPauliChannel):
 class PauliChannelSequence(AbstractPauliChannel):
     """A sequence of independent Pauli-string error mechanisms.
 
-    Like :class:`PauliChannel`, this maps non-identity Pauli strings to probabilities, but the
-    entries are *independent* events rather than mutually-exclusive outcomes: each fires (or not) on
-    its own, and several may fire together.
+    Like :class:`PauliChannel`, this maps non-identity Pauli strings to probabilities.  Its entries
+    are independent events, rather than mutually exclusive outcomes, so several may fire together.
     """
 
     @overload
@@ -405,8 +392,6 @@ class PauliChannelSequence(AbstractPauliChannel):
     ) -> StimCircuitLike | stim.Circuit:
         """Emit each entry of this channel as an independent ``CORRELATED_ERROR``.
 
-        If provided a circuit, append to that circuit in-place and return it.
-
         Args:
             append_to: The circuit to append to; if ``None`` (default), create a new circuit.
             qubits: The qubit targets, one per position of the channel; if ``None`` (default), set
@@ -429,8 +414,9 @@ class PauliChannelSequence(AbstractPauliChannel):
 def _pauli_channel_1_shortcut(args: list[float]) -> tuple[str, list[float]]:
     """Return the compact stim ``(name, args)`` for a 1-qubit Pauli-channel probability vector.
 
-    Emits ``DEPOLARIZE1(p)`` when the three probabilities are equal and non-zero, or
-    ``{X,Y,Z}_ERROR(p)`` when exactly one is non-zero, else falls back to ``PAULI_CHANNEL_1``.
+    Gives ``DEPOLARIZE1(p)`` if the three probabilities are equal and nonzero and their sum ``p`` is
+    at most 3/4, and ``X_ERROR(p)``, ``Y_ERROR(p)``, or ``Z_ERROR(p)`` if only one probability ``p``
+    is nonzero.  Gives ``PAULI_CHANNEL_1`` otherwise.
     """
     if _is_uniform_depolarizing(args) and sum(args) <= 0.75:
         return "DEPOLARIZE1", [sum(args)]
@@ -444,8 +430,8 @@ def _pauli_channel_1_shortcut(args: list[float]) -> tuple[str, list[float]]:
 def _pauli_channel_2_shortcut(args: list[float]) -> tuple[str, list[float]]:
     """Return the compact stim ``(name, args)`` for a 2-qubit Pauli-channel probability vector.
 
-    Emits ``DEPOLARIZE2(p)`` when the fifteen probabilities are equal and non-zero, else falls back
-    to ``PAULI_CHANNEL_2``.
+    Gives ``DEPOLARIZE2(p)`` if the fifteen probabilities are equal and nonzero and their sum ``p``
+    is at most 15/16, and ``PAULI_CHANNEL_2`` otherwise.
     """
     if _is_uniform_depolarizing(args) and sum(args) <= 15 / 16:
         return "DEPOLARIZE2", [sum(args)]
@@ -455,8 +441,8 @@ def _pauli_channel_2_shortcut(args: list[float]) -> tuple[str, list[float]]:
 def _is_uniform_depolarizing(args: list[float]) -> bool:
     """Return True if all ``args`` are nonzero and equal, up to rounding errors.
 
-    Detects a ``PauliChannel.depolarizing(k, p)`` shape at emit time so it can be written as
-    ``DEPOLARIZE{k}(p)`` instead of ``PAULI_CHANNEL_{k}(p/n, ..., p/n)``.
+    Detects a ``PauliChannel.depolarizing(k, p)`` shape, so that it can be written as
+    ``DEPOLARIZE{k}(p)`` rather than as ``PAULI_CHANNEL_{k}`` with equal arguments.
     """
     return (
         bool(args)

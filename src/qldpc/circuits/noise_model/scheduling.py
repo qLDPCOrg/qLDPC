@@ -44,11 +44,11 @@ _COORDINATE_ANNOTATIONS = frozenset({"DETECTOR", "QUBIT_COORDS", "SHIFT_COORDS"}
 class Schedule:
     """The moments of the operations of a circuit, as made by a :class:`Scheduler`.
 
-    An operation is a part of an instruction that acts independently on its qubits.  A gate or
-    noise channel has one operation per application, such as one target of ``H``, one pair of
-    targets of ``CX``, or one Pauli product of ``MPP``.  An observable has one operation for each of
-    its Pauli targets, and one for its measurement records, unless it has Pauli targets but no
-    records.  Other annotations are one operation each, and TICKs are not operations.
+    An operation is a part of an instruction that acts independently on its qubits.  A gate or noise
+    channel has one operation per application, such as one target of ``H``, one pair of targets of
+    ``CX``, or one Pauli product of ``MPP``.  An observable has one operation for each of its Pauli
+    targets, and one for its measurement records, unless it has Pauli targets but no records.  Other
+    annotations are one operation each, and TICKs are not operations.
 
     A schedule places each operation in a moment, numbered from zero, and says whether each gate
     takes time.  Each moment is one unit of time.  A qubit idles in a moment unless a gate that
@@ -200,17 +200,17 @@ class Scheduler(abc.ABC):
     A :class:`~qldpc.circuits.NoiseModel` with idle noise uses its scheduler to find how long each
     qubit idles.  The built-in schedulers are :class:`TickScheduler`, :class:`ASAPScheduler`,
     :class:`ALAPScheduler`, and :class:`MinIdleScheduler`.  Each places the gates of a circuit in
-    its own way, and the other operations in the same way.  A noise channel, or a Pauli target of
-    an observable, joins the latest moment of the operations before it on its qubits, or moment
-    zero.  Other annotations, such as detectors and QUBIT_COORDS, join the moment of the last gate
-    before them, or moment zero.  An annotation joins a later moment if it must follow a measurement
-    that it reads, and a heralded noise channel, which records measurements, joins no earlier moment
-    than the measurement before it.  The coordinate annotations DETECTOR, QUBIT_COORDS, and
-    SHIFT_COORDS also keep their order, which sets the coordinates of detectors and qubits.
+    its own way, and the other operations in the same way.  A noise channel, or a Pauli target of an
+    observable, joins the latest moment of the operations before it on its qubits, or moment zero.
+    Other annotations, such as detectors and QUBIT_COORDS, join the moment of the last gate before
+    them, or moment zero.  An annotation joins a later moment if it must follow a measurement that
+    it reads.  A heralded noise channel records measurements, so it joins no earlier moment than the
+    measurement before it.  The coordinate annotations DETECTOR, QUBIT_COORDS, and SHIFT_COORDS also
+    keep their order, which sets the coordinates of detectors and qubits.
 
     A custom scheduler implements :meth:`get_schedule`, for example by laying a circuit out with
-    TICKs and returning ``TickScheduler().get_schedule(timed_circuit)``.  A noise model can also
-    use one schedule for many circuits (see :mod:`qldpc.circuits.noise_model`).
+    TICKs and returning ``TickScheduler().get_schedule(timed_circuit)``.  A noise model can also use
+    one schedule for many circuits (see :mod:`qldpc.circuits.noise_model`).
     """
 
     @abc.abstractmethod
@@ -410,12 +410,12 @@ class ALAPScheduler(_LayerScheduler):
 class MinIdleScheduler(_BuiltInScheduler):
     """A scheduler that ignores TICKs and minimizes the effective idling of qubits.
 
-    It uses as few moments as :class:`ASAPScheduler`, which is the fewest possible, and places gates
-    to minimize the number of effective idle slots.  These are the moments in which a qubit idles,
-    except in an idle run that ends at a reset (R, RX, RY, or RZ), which erases its errors, or that
-    follows the last gate on the qubit if that gate measures it.  Each part of a circuit (see
-    :class:`Schedule`) is scheduled as if it were the whole circuit.  A linear program finds an
-    optimal placement.
+    It uses the fewest possible moments, as :class:`ASAPScheduler` does, and places gates to
+    minimize the number of effective idle slots.  These are the moments in which a qubit idles,
+    except in two kinds of idle runs.  A run that ends at a reset (R, RX, RY, or RZ) does not count,
+    because the reset erases its errors.  Neither does the run after the last gate on a qubit, if
+    that gate measures the qubit.  Each part of a circuit (see :class:`Schedule`) is scheduled as if
+    it were the whole circuit.  A linear program finds an optimal placement.
 
     Args:
         single_qubit_gates_take_time: As in :class:`ASAPScheduler`.
@@ -724,7 +724,7 @@ class _Segment:
         )
 
     def get_moments(self) -> list[list[stim.CircuitInstruction]]:
-        """The operations in each moment, which are none without gates."""
+        """The operations in each moment.  A ``_Segment`` without gates has no moments."""
         moments: list[list[stim.CircuitInstruction]] = [[] for _ in range(self.num_moments)]
         if moments:
             for operation, moment in zip(self.operations, self.moments):
@@ -735,7 +735,7 @@ class _Segment:
 def _get_segments(
     circuit: stim.Circuit, schedule: Schedule | None
 ) -> Iterator[_Segment | tuple[stim.CircuitRepeatBlock, Schedule | None]]:
-    """The ``_Segment``s and REPEAT blocks of a circuit in order, with a schedule of each body.
+    """The ``_Segment`` objects and REPEAT blocks of a circuit, with a schedule of each body.
 
     A ``_Segment`` precedes each REPEAT block and ends the circuit.  The records that its operations
     read are indexed from its first measurement record, so earlier records have negative indices.
