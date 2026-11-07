@@ -43,9 +43,16 @@ Run the finishing checks individually rather than through `checks/all_.py`, whos
 Leave `pytest_.py --notebook` runs and the GAP integration tests to CI.
 As part of drafting, refresh the saved outputs of a notebook that you change, even though CI executes notebooks.
 
-## Changes to the standards and this file
+## Protected files
 
-This file and every file under [`docs/source/contributing/`](docs/source/contributing/) change only through a patch that a maintainer approves, including changes that a maintainer requests directly:
+These files state the rules for working on qLDPC, or enforce them:
+
+- this file;
+- the "Goals" and "AI usage" sections of [`README.md`](README.md);
+- every file under [`docs/source/contributing/`](docs/source/contributing/), [`checks/`](checks/), and [`.github/`](.github/);
+- the tests that enforce the standards: [`code_style_test.py`](src/qldpc/code_style_test.py), [`_compilation_test.py`](src/qldpc/_compilation_test.py), and [`contributor_docs_test.py`](src/qldpc/contributor_docs_test.py).
+
+They change only through a patch that a maintainer approves, including changes that a maintainer requests directly:
 
 1. Write the changes to these files as a `.patch` file in a safe, untracked place outside the repository, such as a session directory, and give the maintainer a link to it.
    Changes to other files follow the usual workflow.
@@ -55,7 +62,7 @@ This file and every file under [`docs/source/contributing/`](docs/source/contrib
 
 Apply a change to these files directly only when a maintainer explicitly says to apply it directly.
 Updates that a change elsewhere forces on these files, such as a renamed path that they cite, also go through a patch, which you may present together with that change.
-[`contributor_docs_test.py`](src/qldpc/contributor_docs_test.py) fails when a path or qLDPC name that these files cite no longer exists.
+`contributor_docs_test.py` fails when a path or qLDPC name that this file or the contributor docs cite no longer exists.
 
 When you notice a pattern worth codifying, such as a repeated request or a recurring review finding, describe it and the rule you would propose.
 Write a patch for it only once the maintainer wants the rule.
