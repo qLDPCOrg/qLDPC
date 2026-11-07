@@ -66,14 +66,22 @@ Validation commands
 CI's exact environments and commands are in ``.github/workflows/``.
 Use the `validation commands in the agent and contributor guide <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md#validation-commands>`_.
 
-While iterating, run checks on what you changed; the tests of the changed modules usually suffice.
-Run the coverage gates, the documentation build, and the full test suite once review is done, as in the last step of a :doc:`standard review <reviewing>`.
+Checks run in two stages:
+
+* **Drafting** covers implementation, the rounds of a :doc:`standard review <reviewing>`, and preparing a draft pull request.
+  Run the tests of the changed modules, and the formatting, lint, and type checks on changed files.
+* **Finishing** starts only when a maintainer explicitly asks to finish or finalize a pull request, as in "finish this PR" or "run the finishing checks", or to make it ready to merge or ready for review.
+  Then run the finishing checks once, each over the whole repository: ``format_.py --check``, ``lint_.py``, ``mypy_.py``, ``coverage_.py``, which runs the tests, and ``build_docs.py``.
+  Fix any failures, and review a significant fix again.
+
+CI skips draft pull requests.
+Once a pull request is ready for review, CI also runs checks that are left to it, such as the notebook and GAP integration tests.
+``all_.py`` runs most checks in one command as a convenience for people, but it repeats the test run that ``coverage_.py`` makes; agents run the individual checks instead.
 Every check script except ``build_docs.py`` accepts explicit files, as in ``python checks/coverage_.py src/qldpc/codes/common.py``, or ``-i/--incremental [REVISION ...]``.
 The incremental mode checks only the files changed since the merge base with ``upstream/main``, ``origin/main``, or ``main`` (the first that exists), or with the given revisions.
 For example, ``python checks/coverage_.py -i`` runs the per-module coverage gate for changed modules only, which is much faster than a full run.
 ``format_.py`` always checks, or with ``--fix`` rewrites, ``pyproject.toml`` as well, whatever files it is given.
-Prefer the individual scripts for incremental runs: ``all_.py -i`` measures overall coverage over only the selected tests, so shared fixtures in ``conftest.py`` files can fail it spuriously.
-Before merging, run ``python checks/all_.py`` and ``python checks/coverage_.py``.
+For incremental runs, prefer the individual scripts: ``all_.py -i`` measures overall coverage over only the selected tests, so shared fixtures in ``conftest.py`` files can fail it spuriously.
 
 The docs build renders saved notebook outputs without executing code cells, so refresh them as the :doc:`writing standard <standards/writing>` describes.
 Pass an absolute path to this checkout's ``src`` directory in ``PYTHONPATH`` if a notebook runner starts its kernel from ``examples/``.

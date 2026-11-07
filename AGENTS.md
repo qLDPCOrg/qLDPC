@@ -79,6 +79,12 @@ When asked for a **standard review**, follow [reviewing changes](docs/source/con
 Agents run a standard review before reporting a change as ready for a pull request, unless told otherwise.
 Follow the [pull request standard](docs/source/contributing/standards/pull_requests.rst) when preparing a PR description.
 
+## Changes to standards and agent guidance
+
+Do not change `AGENTS.md` or any file under [`docs/source/contributing/`](docs/source/contributing/) on your own, including mechanical edits such as updating a renamed path.
+Change these files only as a maintainer requested or approved, and show the maintainer the exact diff before committing it.
+When you notice a pattern worth codifying, such as a repeated request or a recurring review finding, propose the wording and where it belongs instead of applying it.
+
 ## Validation commands
 
 Install the development environment with `python -m pip install -e '.[dev]'`.
@@ -89,14 +95,17 @@ CI's exact environments and commands are in [`.github/workflows/`](.github/workf
 | --- | --- |
 | `python checks/pytest_.py [paths]` | Pytest suite, or the tests under the given paths; does not execute notebooks by default |
 | `python -m pytest path/to/module_test.py::test_name -v` | One focused test |
-| `python checks/pytest_.py --notebook examples/decoders.ipynb examples/basics.ipynb examples/noise_models.ipynb` | Execute the notebooks that CI executes, with their dependencies installed |
+| `python checks/pytest_.py --notebook examples/decoders.ipynb examples/basics.ipynb examples/noise_models.ipynb` | Execute the notebooks that CI executes, with their dependencies installed; left to CI |
 | `python checks/format_.py --check` / `--fix` | Check, or apply, Ruff and `pyproject.toml` formatting |
 | `python checks/lint_.py` | Ruff lint |
 | `python checks/mypy_.py` | mypy with the repository's typing settings, over source and tests |
 | `python checks/coverage_.py` | 100% statement coverage of each module by its own test file, as in CI |
 | `python checks/build_docs.py` | Strict Sphinx and notebook documentation build |
-| `python checks/all_.py` | Combined gate: formatting, lint, mypy, tests with overall 100% coverage, and (on full runs) the docs build; it does not run the per-module coverage gate or `pyproject.toml` formatting |
+| `python checks/all_.py` | Convenience for people, not agents: formatting, lint, mypy, tests with overall 100% coverage, and (on full runs) the docs build; it does not run the per-module coverage gate or `pyproject.toml` formatting |
 
-Run checks on what you changed while iterating, and save repository-wide runs for a finished change.
-Before merging, run `python checks/all_.py` and `python checks/coverage_.py`.
+While drafting, run only the tests of the changed modules and the formatting, lint, and type checks on changed files.
+Run the [finishing checks](docs/source/contributing/index.rst#validation-commands), the full format, lint, type, coverage, and documentation checks, only when a maintainer explicitly asks to finish or finalize a pull request, or to make it ready to merge or ready for review.
+Never start them on your own; you may report that a change looks ready for them.
+Run the checks individually; do not run `checks/all_.py`, which repeats the test run.
+Leave notebook and GAP integration tests to CI.
 Do not weaken a failure with `noqa`, `type: ignore`, or coverage exclusions unless the exceptional condition is real and documented.

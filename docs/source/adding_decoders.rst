@@ -127,5 +127,5 @@ Replace the GUF test path below with your own test file:
 
    python -m pytest src/qldpc/decoders/custom/guf_test.py -q
 
-Use the :ref:`validation commands <validation-commands>` for targeted formatting, typing, coverage, and documentation checks.
-Run the strict documentation build to check guide and API references; it does not execute the examples.
+While drafting, also run the formatting, lint, and type checks of the :ref:`validation commands <validation-commands>` on changed files.
+The finishing checks include the strict documentation build, which checks guide and API references but does not execute the examples.

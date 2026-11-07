@@ -2,6 +2,7 @@ Standards
 =========
 
 Standards state the rules that a change to qLDPC must satisfy, one topic per standard.
+Only a maintainer can approve a change to a standard or to the :doc:`review protocol </contributing/reviewing>`; agents propose such changes rather than making them.
 The :ref:`kinds-of-change table <kinds-of-change>` lists which standards apply to each kind of change, and a :doc:`standard review </contributing/reviewing>` checks a change against them.
 
 * :doc:`Code standard <code>`: public and private names, code style and organization, and simplicity and clarity.

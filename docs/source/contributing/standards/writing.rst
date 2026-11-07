@@ -47,7 +47,6 @@ Documentation and examples
 * Before changing a notebook example, refresh its outputs by executing the entire canonical notebook in an offline, editable installation.
 * Keep README and the library map selective; AutoAPI lists the public symbols.
 * When a public limitation changes, update the relevant function or class docstring and every README or guide that repeats it in the same pull request.
-* Run the strict documentation build before considering the change complete.
 
 Use the smallest meaningful example and explain the scientific choices and limitations, with pointers to the relevant literature and implementation.
 Make examples easy to adapt to a new question rather than requiring users to adopt a complete workflow.

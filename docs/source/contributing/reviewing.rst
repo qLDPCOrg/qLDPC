@@ -61,12 +61,11 @@ The coordinator runs each round as follows:
 2. Fix clear problems, and verify each fix with the tests of the changed modules.
    If the coordinator did not write the change, as for another contributor's pull request, report fixes as suggestions instead of making them.
    The review then ends after one round.
-3. Leave decisions, such as design changes, public API changes, and disagreements with a reviewer, to the person the coordinator works for.
+3. Leave decisions, such as design changes, public API changes, changes to the standards or to this protocol, and disagreements with a reviewer, to the person the coordinator works for.
    Record each open decision, continue with the other fixes, and list the open decisions in the report.
 4. Start another round with fresh reviewers if the round led to significant revisions, unless three rounds have run.
 
-After the last round, run ``python checks/all_.py`` and ``python checks/coverage_.py`` once, and fix any failures.
-A fix that is a significant revision calls for another round, within the same limit of three rounds.
-Then report what each round found and changed, and list the decisions that remain open.
+After the last round, report what each round found and changed, and list the decisions that remain open.
+A standard review does not run the finishing checks of the :ref:`validation commands <validation-commands>`, which belong to finishing a pull request.
 If the limit ended the review, ask whether to start another round.
 For a change intended as a pull request, end with a title and summary in a code block, following the :doc:`pull request standard <standards/pull_requests>`.
