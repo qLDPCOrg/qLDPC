@@ -115,7 +115,7 @@ python experiments/connected_support_distance/benchmark.py gross surface:11 surf
 ```
 
 Numba compiles the searches on first use, so run the script twice for the times of a warm cache.
-Some searches run for hours, so run it under a deadline: certifying the `944` instance takes about half a day per sector, by extrapolation, and Brouwer–Zimmermann is infeasible for the larger instances.
+Some searches run for hours or more, so run it under a deadline; Section 2 of the guide lists the times of the instances.
 
 ## Lattice surgery
 

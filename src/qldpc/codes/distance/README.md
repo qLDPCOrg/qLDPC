@@ -3,7 +3,7 @@
 This directory is the package `qldpc.codes.distance`.
 It computes exact distances of binary codes, and counts the logical operators of a given weight in binary CSS codes.
 Users reach it through the `get_distance_exact` method of binary codes in `src/qldpc/codes/common.py`, and through `CSSLogicalCounter`.
-`brouwer_zimmermann.md` explains the algorithm, maps its concepts to names in the code, describes its heuristics for choosing basis families, and lists the correctness requirements that every change to a search must keep.
+`brouwer_zimmermann.md` explains the Brouwer–Zimmermann algorithm, maps its concepts to names in the code, describes its heuristics for choosing basis families, and lists the correctness requirements that every change to a search must keep.
 `connected_support.md` explains the search of sparse CSS codes over supports that are connected in a Tanner graph, maps it to the code, says when to choose it over Brouwer–Zimmermann, and lists its correctness requirements.
 
 ## Public names
@@ -32,7 +32,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 
 | To change… | Look in (this directory) |
 | --- | --- |
-| A distance method, or the validation of method and backend names | `core.py`, and where `logical_counts.py`, `_counting/scan.py`, and `get_distance_exact` in `src/qldpc/codes/common.py` dispatch on the method name |
+| A distance method, or the validation of method and backend names | `core.py`, and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact`, `get_distance`, and `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py`, and `_get_classical_distance_method` in `src/qldpc/codes/quantum/hypergraph_product.py` dispatch on the method name |
 | The Brouwer–Zimmermann (BZ) distance search | `_search/brouwer_zimmermann.py` |
 | The connected-support distance search | `_search/connected_support.py` |
 | How basis families and their certificates are built | `_search/information_sets.py` |
@@ -44,7 +44,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
 | The MacWilliams counting method | `_counting/macwilliams.py` |
-| The thresholds that choose between exhaustive enumeration and the kinds of information-set families, the threshold from which a connected-support search uses automorphisms, and the batch sizes of the counting loops (`SearchTuning`, `use_tuning`) | `_tuning.py` |
+| The thresholds that choose between exhaustive enumeration and the kinds of information-set families, the threshold of states before which a connected-support search asks for automorphisms, and the batch sizes of the counting loops (`SearchTuning`, `use_tuning`) | `_tuning.py` |
 | Binary input checks, nested bases, or packed weights | `_binary.py` |
 | Bit packing, bit counts, or row reduction over GF(2), which other subpackages share | `src/qldpc/_binary.py` |
 | How numba code is compiled or cached | `src/qldpc/_compilation.py` |

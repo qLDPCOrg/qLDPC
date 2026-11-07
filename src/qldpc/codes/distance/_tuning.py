@@ -165,16 +165,15 @@ class SearchTuning:
             :func:`~qldpc.codes.distance.get_distance_classical`,
             :func:`~qldpc.codes.distance.get_distance_quantum`, and counts of logical operators do
             not.  Defaults to 100,000,000.
-        automorphism_minimum_states: The number of visited states, counted over all weight
-            limits of the search of one sector, from which a connected-support search
-            (``method="connected_support"``) uses automorphisms of its code.  It asks for them
-            before the first weight limit at which it expects to reach this number, from the growth
-            in states between its last two limits, and then searches from one variable of each
-            orbit of the automorphisms, rather than from every variable (Section 3.5 of
-            ``connected_support.md``).  Finding automorphisms
-            takes milliseconds for codes of hundreds of qubits, and about half a second with
-            ``pybliss`` for a code of thousands of qubits.  Zero asks for them before the first
-            weight limit, and ``MAX_VALUE`` in effect never does.  Defaults to 100,000.
+        automorphism_minimum_states: The number of visited states, over all weight limits of the
+            search of one sector, that a connected-support search (``method="connected_support"``)
+            expects to reach before it asks for automorphisms of its code.  It predicts the states
+            of its next weight limit from the growth in states between its last two limits.  With
+            automorphisms, it searches from one variable of each of their orbits, rather than from
+            every variable (Section 3.5 of ``connected_support.md``).  Finding automorphisms takes
+            milliseconds for codes of hundreds of qubits, and about half a second with ``pybliss``
+            for a code of thousands of qubits.  Zero asks for them before the first weight limit,
+            and ``MAX_VALUE`` in effect never does.  Defaults to 100,000.
         scan_chunk_size: The most supports, which are choices of rows of an information set, that
             one compiled call of the scan of a count with the BZ or brute-force method visits.  A
             scan proceeds in steps, each of which is one coefficient layer of one information set,

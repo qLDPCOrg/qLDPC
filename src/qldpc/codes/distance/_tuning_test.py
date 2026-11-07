@@ -94,6 +94,7 @@ def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> N
         "partition_work_ratio": 0,
         "lp_minimum_work": 0,
         "automorphism_minimum_layer_work": 0,
+        "automorphism_minimum_states": 0,
         "scan_chunk_size": 1,
         "scan_chunks_per_call": 1,
         "macwilliams_shared_walk_rank": 0,
@@ -109,7 +110,9 @@ def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> N
         with _tuning.use_tuning(**changes):
             # New codes and counters, since codes and counters remember their distances.
             fresh = codes.CSSCode(code.matrix_x, code.matrix_z)
-            distances = (fresh.get_distance_exact(Pauli.X), fresh.get_distance_exact(Pauli.Z))
+            distances = [fresh.get_distance_exact(Pauli.X), fresh.get_distance_exact(Pauli.Z)]
+            fresh = codes.CSSCode(code.matrix_x, code.matrix_z)
+            distances.append(fresh.get_distance_exact(method="connected_support"))
             counter_code = codes.CSSCode(code.matrix_x, code.matrix_z)
             counts = lc.CSSLogicalCounter(counter_code).count_logical_ops(count_pauli=True)
             macwilliams = lc.CSSLogicalCounter(counter_code).count_logical_ops(

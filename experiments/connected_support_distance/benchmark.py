@@ -8,21 +8,21 @@ src/qldpc/codes/distance/connected_support.md describes.  The embedded instances
 ``qldpc.codes.PairPartitionCode`` codes, quasi-cyclic CSS codes with sparse parity checks, mostly of
 high rate (arXiv:2607.14091 and arXiv:2609.30069).  They come from
 https://github.com/ultra-high-rate-qec/design-principles-data (``codes/css/cpm_pp/instances``), and
-the ``276`` instance is ``qc_276_98_14`` of
-https://github.com/kasaikenta/pair-partition-cpm-css-codes.
+https://github.com/kasaikenta/pair-partition-cpm-css-codes also publishes the ``276`` instance.
 They are in the ``.cpm`` format, a whitespace-separated token stream: ``CPM_CSS_V1``, a name, the
 lift size ``P``, the block length ``L``, the numbers ``J_X`` and ``J_Z`` of block rows, and then the
 X-type exponents and the Z-type exponents in row-major order.  A path to another such file also
 names a code.
 
 The script also builds a few other codes to contrast the two methods: ``gross`` (the [[144, 12,
-12]] bivariate bicycle code), and ``surface:D`` and ``toric:D`` (rotated, with distance ``D``).
+12]] bivariate bicycle code), and ``surface:D`` and ``toric:D`` (rotated, with distance ``D``, which
+is even for a toric code).
 
 It calls ``get_distance_exact`` once for each code, method, and sector, and prints the distance,
-and the wall and CPU time.  It notes a distance of an embedded instance that differs from the
-published one.  The searches run on one core, but numba compiles on first use, and the compiled
-code is cached on disk, so run the script twice for the times of a warm cache.  The script prints
-its results, and saves nothing.
+and the wall and CPU time.  It notes a distance of both sectors of an embedded instance that
+differs from the published distance of the code.  The searches run on one core, but numba compiles
+on first use, and the compiled code is cached on disk, so run the script twice for the times of a
+warm cache.  The script prints its results, and saves nothing.
 
 Examples (run them under a guard, such as a hard deadline, as some searches run for hours):
 
@@ -30,9 +30,8 @@ Examples (run them under a guard, such as a hard deadline, as some searches run 
     python experiments/connected_support_distance/benchmark.py 232 --methods brouwer_zimmermann
     python experiments/connected_support_distance/benchmark.py gross surface:11 surface:15
 
-With the connected-support method, certifying the distance of the ``518`` instance takes minutes.
-Extrapolated from lower weights, that of the ``372`` instance takes about ten minutes per sector,
-and that of the ``944`` instance about half a day per sector.  BZ is infeasible for all three.
+Section 2 of the guide lists the times of the instances with both methods, some of which take
+hours or more.
 """
 
 from __future__ import annotations
@@ -62,7 +61,7 @@ def main() -> None:
             for sector in args.sectors:
                 distance, wall, cpu = time_distance(code, method, sector)
                 note = ""
-                if parameters is not None and distance != parameters[2]:
+                if parameters is not None and sector == "both" and distance != parameters[2]:
                     note = f"  (differs from the published distance {parameters[2]})"
                 print(
                     f"  {method:19s} {sector:4s} d={distance}  wall {wall:.2f} s  cpu {cpu:.2f} s"

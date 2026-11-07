@@ -126,7 +126,10 @@ def estimate_automorphism_family_work(certificate: Certificate, upper_bound: int
 
 
 def get_orbits(automorphisms: npt.NDArray[np.int_], num_columns: int) -> npt.NDArray[np.int64]:
-    """Number the orbits of the group that the permutations generate, and label each column."""
+    """Number the orbits of the group that the permutations generate, and label each column.
+
+    The orbits are numbered in the order of their least columns.
+    """
     # Give each column the least column that it is known to share an orbit with, until no
     # permutation lowers a label.  Every label is a column of the same orbit, so the labels
     # settle on the least column of each orbit.

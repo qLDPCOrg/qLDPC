@@ -3493,8 +3493,8 @@ class CSSCode(QuditCode):
                 alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
                 operator.  ``"connected_support"`` searches supports that are connected in the
                 Tanner graph of the parity checks, which is fast for sparse parity checks, and
-                especially at a high rate; its guide says when to use it:
-                https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md
+                especially at a high rate.  Its guide, ``connected_support.md`` in
+                ``src/qldpc/codes/distance/`` of the qLDPC repository, says when to use it.
                 Closed forms that search classical codes, such as those of hypergraph product
                 codes, search them with Brouwer-Zimmermann instead.  Nonbinary calculations use
                 exhaustive enumeration, and reject ``"connected_support"``.

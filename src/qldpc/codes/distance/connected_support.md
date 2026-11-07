@@ -22,12 +22,12 @@ The sectors of CSS codes usually have `r > n/2`, hence `m = 1`, and a high rate 
 The connected-support search instead enumerates supports that grow through unsatisfied checks, so its cost depends on the sparsity of the checks and on `d`, and not on `r`.
 Its cost grows by a roughly constant factor for each additional unit of weight, which is about 5 for the pair-partition codes below, with row weight 8 to 16, and about 3 for surface codes.
 
+A **sector** of a CSS code is its X-type or its Z-type logical operators, which a search treats as separate problems ([Section 3.1](#31-the-problem)).
 The table lists times on one core of an Apple M3 Max laptop, run at low priority, with the benchmark script [experiments/connected_support_distance/benchmark.py](../../../../experiments/connected_support_distance/benchmark.py).
 The codes are the pair-partition codes of Okada and Kasai and of Lee et al., which are quasi-cyclic CSS codes, mostly of high rate, with parity checks of column weight 3 to 5 (see the [references](#references)).
-The instances, and their distances, come from the data of Lee et al., except that the [[276, 98, 14]] code comes from Okada and Kasai.
+The instances, and their distances, come from the data of Lee et al., and Okada and Kasai also publish the [[276, 98, 14]] code.
 Times are CPU times, for the whole code unless they say per sector.
 The BZ times of the larger codes are estimated from the work that BZ predicts for them (Sections 3.6 and 3.7 of [brouwer_zimmermann.md](brouwer_zimmermann.md)), with the cyclic automorphisms that qLDPC finds for these codes.
-A **sector** is the X-type or the Z-type logical operators of a code, which [Section 3.1](#31-the-problem) defines, and which are searched separately.
 
 | Code | BZ | Connected support | Faster |
 | --- | --- | --- | --- |
@@ -41,7 +41,7 @@ A **sector** is the X-type or the Z-type logical operators of a code, which [Sec
 
 Choose the connected-support search for sparse codes, and especially for high-rate ones, and BZ for codes with dense checks, as the quantum Reed–Muller code below shows.
 For sparse codes of low rate and high distance, the two can be comparable, as the [[170, 8, 20]] row shows.
-The script measures the other connected-support times, and the extrapolations come from timed searches through lower weights, whose costs grow by a factor of 20 to 33 per two units of weight for these codes.
+The script measures the other connected-support times of the table, and those of the surface codes below, and the extrapolations come from timed searches through lower weights, whose costs grow by a factor of 20 to 33 per two units of weight for these codes.
 They assume that this growth continues, and the connected-support times of the [[372, 130, 18]], [[170, 8, 20]], and [[944, 478, 20]] codes are not measured.
 
 The cost of the connected-support search grows quickly if the checks are dense, because every unsatisfied check offers many variables to branch on.
@@ -112,11 +112,11 @@ So the search reaches `supp(x)` itself.
 Every bound of [Section 3.4](#34-pruning) holds for a state of this kind, since `x` is a witness that extends it, and so does every variable that [Section 3.4](#34-pruning) forbids for a subtree.
 
 Forbidding the variables of earlier siblings makes the search visit each support at most once.
-A search through a weight limit `W` has `W - s` variables to spare at a state with `s` variables.
 
 ### 3.4 Pruning
 
-A state with `s` variables prunes itself if its unsatisfied checks need more than `W - s` further variables.
+A search through a weight limit `W` has `W - s` variables to spare at a state with `s` variables.
+A state prunes itself if its unsatisfied checks need more than `W - s` further variables.
 Every unsatisfied check needs a variable of its available set, since a witness that extends the state has no variable of `F`.
 So the number of further variables is at least the value of any feasible solution of the dual of this hitting-set problem.
 That solution gives each unsatisfied check `c` a weight `y_c ≥ 0`, so that the weights of the unsatisfied checks that contain any available variable total at most one.
@@ -138,10 +138,10 @@ Suppose that a completion `T` of the state contains `v`.
 Every unsatisfied check meets `T`, the variables of `T` other than `v` repair at most one each, and `v` repairs `R_v`.
 So `|T| ≥ 1 + Y - R_v`, and if this exceeds `W - s`, then `v` is in no completion of the state.
 Otherwise `v` is **viable**.
-Such a variable is forbidden in the whole subtree of the state, not only for its children.
+A variable that is not viable is forbidden in the whole subtree of the state, not only for its children.
 This holds for every variable outside the unsatisfied checks, whose repair is zero, as soon as `1 + Y > W - s`, so such a state restricts its subtree to the viable variables of its unsatisfied checks.
 A state is pruned if an unsatisfied check has no viable variable, and otherwise it branches on the check with the fewest.
-Forbidding variables for a subtree raises the weights of its states, since their checks have fewer variables, and on the pair-partition codes it removes about a third of the states.
+Forbidding variables for a subtree can raise the weights of its states, since their checks have fewer variables, and on the [[276, 98, 14]] code it removes more than half of the states.
 
 A cheaper test runs first: a child is not visited if its unsatisfied checks outnumber `Δ` times its remaining weight limit, which is `b1`.
 
@@ -155,7 +155,7 @@ Other bounds that hold, and that qLDPC tested and does not use, added little on 
 
 Let `Γ` be a group of column permutations that map both `ker(H)` and `rowspan(G)` onto themselves.
 It maps every witness to a witness of the same weight, so it maps the set of minimum-weight witnesses to itself.
-Rank the variables so that each orbit of `Γ` has a variable of lowest rank, its root.
+Rank the variables, and call the variable of lowest rank of each orbit of `Γ` its root.
 Among the minimum-weight witnesses, take one whose variable `m` of lowest rank is as low as possible.
 Then `m` is the root of its orbit, since a variable of the orbit of lower rank than `m` would give an image with a variable of lower rank.
 So it suffices to search from the roots.
@@ -222,7 +222,7 @@ The names below are in `_search/connected_support.py`, unless the table says oth
 `logical_counts.py` does not accept the method, since counting needs every word of a weight, and not one witness.
 `get_distance_classical` and `get_distance_quantum` reject it, since their inputs are generators and not parity checks.
 Classical codes reject it too, so the closed forms of hypergraph product codes, which search their classical seed codes, search them with Brouwer–Zimmermann instead.
-`_search_supports` is compiled with `always_compiled`, as [README.md](README.md) explains.
+`_search_supports`, `_get_branches`, and `_is_outside_excluded` are compiled with `always_compiled`, and their small helpers with `always_compiled(inline=True)`, as [README.md](README.md) explains.
 
 ## 5. Correctness requirements
 
@@ -232,7 +232,7 @@ Changes to the search can use other bounds and orders, while keeping these requi
   A bound may use the available variables, which exclude `S` and `F`, since a minimum-weight witness extending the state has no other variables.
   `F` includes the variables of lower rank than the root, and the variables that a state forbade for its subtree.
   A bound must be a lower bound on the number of further variables that such a witness needs.
-  A bound that is too strong only loses witnesses of the weight that it is tight for, so a test needs a case where it is tight, as the tests of the distances of known codes are.
+  A bound that is too strong can still find the distance, unless it prunes a lightest witness, so a test needs a case where the bound is tight at the distance, as the tests of the distances of known codes are.
 - **Forbid a variable for a subtree only if no completion of the state contains it.**
   The variables that a state forbids must become available again when the search leaves the state.
 - **Block siblings and variables of lower rank than the root.**

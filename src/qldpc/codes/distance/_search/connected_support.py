@@ -4,16 +4,14 @@
 
 The search finds a nonzero vector ``x`` with ``H x = 0`` outside the row space of ``G``, for sparse
 parity checks ``H``, by growing a support only through unsatisfied checks, and pruning with bounds
-on the number of variables that a support still needs.  It is the quantum version of the searches
-for small stopping sets and low-weight codewords in classical LDPC codes by G. Richter (Turbo Codes
-2006), Rosnes and Ytrehus (IEEE Trans. Inf. Theory 55, 4167, 2009), and Khatami, Danjean, Nguyen,
-and Vasić (ITA 2013), as Okada and Kasai describe in Section V of https://arxiv.org/abs/2607.14091.
-The authors' implementation is in https://github.com/kasaikenta/pair-partition-cpm-css-codes.
+on the number of variables that a support still needs.  It is a quantum version of the searches for
+small stopping sets and low-weight codewords of classical LDPC codes, as Okada and Kasai describe in
+Section V of https://arxiv.org/abs/2607.14091 (see the references of ``connected_support.md``).
 
 ``connected_support.md`` beside this module derives the search and states its correctness
 requirements.  The Brouwer-Zimmermann search in ``brouwer_zimmermann.py`` solves the same problem
 for any binary code.  This module reuses the weight divisors of ``information_sets.py``, and the
-checks and orbits of automorphisms of ``automorphism_families.py``.
+verification and orbits of automorphisms of ``automorphism_families.py``.
 """
 
 from __future__ import annotations
@@ -151,8 +149,9 @@ class SupportSearch:
             permutations, or None, as in ``get_distance_connected_support``.  The search calls it
             at most once, before the first weight limit whose states, together with those visited
             so far, are expected to reach ``automorphism_minimum_states``.
-        automorphism_minimum_states: The number of states from which the search uses
-            automorphisms.  Zero, the default, asks for them before the first weight limit.
+        automorphism_minimum_states: The number of visited states, over all weight limits, that
+            the search expects to reach before it asks for automorphisms.  Zero, the default, asks
+            for them before the first weight limit.
 
     Attributes:
         num_variables: The number of columns of ``checks``.
@@ -179,7 +178,7 @@ class SupportSearch:
     ) -> None:
         if checks.ndim != 2 or excluded.ndim != 2 or checks.shape[1] != excluded.shape[1]:
             raise ValueError("Checks and excluded rows must be matrices with equal widths")
-        if np.any(checks > 1) or np.any(excluded > 1):
+        if np.any((checks != 0) & (checks != 1)) or np.any((excluded != 0) & (excluded != 1)):
             raise ValueError("Checks and excluded rows must be binary")
         if np.any(checks.astype(np.float32) @ excluded.astype(np.float32).T % 2):
             raise ValueError("The excluded rows must lie in the kernel of the checks")
@@ -230,9 +229,12 @@ class SupportSearch:
             ``max_weight``.  A witness need not be a lightest one.
 
         Raises:
-            ValueError: If this search asks for automorphisms, and a generator does not map the
-                kernel of the checks, or the row space of the excluded rows, onto itself.
+            ValueError: If the weight limit is less than one, or if this search asks for
+                automorphisms, and a generator does not map the kernel of the checks, or the row
+                space of the excluded rows, onto itself.
         """
+        if max_weight < 1:
+            raise ValueError(f"The weight limit must be at least one, not {max_weight}")
         # Ask for automorphisms once, before the first weight limit that is expected to reach the
         # threshold.
         if (
@@ -292,9 +294,7 @@ class SupportSearch:
         orbits = automorphism_families.get_orbits(automorphisms, self.num_variables)
         self._roots = np.unique(orbits, return_index=True)[1].astype(np.int64)
         self._ranks = np.empty(self.num_variables, dtype=np.int64)
-        self._ranks[np.lexsort((np.arange(self.num_variables), orbits))] = np.arange(
-            self.num_variables
-        )
+        self._ranks[np.argsort(orbits, kind="stable")] = np.arange(self.num_variables)
 
 
 ####################################################################################################
@@ -343,7 +343,7 @@ def _search_supports(
         max_row_weight = max(max_row_weight, check_starts[check + 1] - check_starts[check])
 
     # The level of a variable counts the states in the stack whose restrictions allow it, plus
-    # _BLOCKED if it is blocked: if it is in the support, was tried by an earlier sibling of a state
+    # _BLOCKED if it is blocked: if it is in the support, was already tried as a branch by a state
     # in the stack, or has a lower rank than the root.  A variable is available if its level is the
     # number of active restrictions, which is never as large as _BLOCKED.
     levels = np.zeros(num_variables, dtype=np.int64)
@@ -351,7 +351,8 @@ def _search_supports(
 
     # The state at each depth has its syndrome, its branch variables, and the cursor of the next
     # branch variable to try.  If it restricts its subtree, the variables that it allows are
-    # allowances[allowance_starts[depth] : allowance_starts[depth + 1]].  A state allows each
+    # allowances[allowance_starts[depth] : allowance_starts[depth + 1]], and restricts[depth] says
+    # so, which the range alone would not for a state that allows nothing.  A state allows each
     # variable at most once, and allowances grows if a state could overflow it.
     syndromes = np.zeros((max_weight + 2, num_blocks), dtype=np.uint64)
     support = np.empty(max_weight + 1, dtype=np.int64)
@@ -510,8 +511,9 @@ def _get_branches(
             if count < fewest:
                 branch_check, fewest = check, count
 
-    # A variable outside the unsatisfied checks repairs nothing, so it is viable only if every
-    # variable is.  Otherwise allow only the viable variables, and count them in each check.
+    # A variable outside the unsatisfied checks repairs nothing, so it is viable exactly when every
+    # variable is.  When it is not, allow only the viable variables of the unsatisfied checks, and
+    # count them in each check.
     if total_weight > (slack - 1) * scale:
         restricts[depth] = True
         allowance_end = allowance_starts[depth]
@@ -540,9 +542,8 @@ def _get_branches(
         allowance_starts[depth + 1] = allowance_end
         available_level += 1
 
-    # Branch on the available variables of the chosen check, most repairing first.  On the
-    # [[276, 98, 14]] code, this order visits a quarter of the states of the order of the variables
-    # through the weight limit at which the search finds a witness (Section 3.3 of the guide).
+    # Branch on the available variables of the chosen check, most repairing first, which Section 3.3
+    # of connected_support.md measures.
     num_branches = 0
     for position in range(check_starts[branch_check], check_starts[branch_check + 1]):
         variable = check_variables[position]

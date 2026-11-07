@@ -118,11 +118,26 @@ PROBLEMS["capped-scale"] = (
     np.zeros((0, 32), dtype=np.uint8),
 )
 
+# The states of a search of these checks allow more variables in total than there are variables, so
+# the search needs more room for them than it starts with.
+PROBLEMS["many-allowances"] = (
+    np.array(
+        [
+            [1, 1, 0, 0, 1, 0, 0, 0, 0],
+            [1, 0, 1, 1, 0, 0, 0, 1, 1],
+            [0, 1, 1, 1, 0, 1, 0, 0, 0],
+            [1, 0, 1, 0, 1, 0, 1, 0, 1],
+        ],
+        dtype=np.uint8,
+    ),
+    np.zeros((0, 9), dtype=np.uint8),
+)
+
 
 @pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("problem", PROBLEMS.values(), ids=PROBLEMS.keys())
 def test_the_distance_matches_enumeration(problem: Problem) -> None:
-    """Both searches of a sector agree with an enumeration of its vectors."""
+    """The distance search, and a search through each weight limit, agree with an enumeration."""
     distance = get_brute_force_distance(problem)
     assert cs.get_distance_connected_support([problem], cutoff=0) == distance
 
@@ -431,7 +446,10 @@ def test_invalid_problems_are_rejected() -> None:
         cs.SupportSearch(np.zeros((1, 3), dtype=np.uint8), np.zeros((1, 4), dtype=np.uint8))
     with pytest.raises(ValueError, match="kernel"):
         cs.SupportSearch(np.ones((1, 3), dtype=np.uint8), np.array([[1, 0, 0]], dtype=np.uint8))
-    with pytest.raises(ValueError, match="binary"):
-        cs.SupportSearch(np.full((1, 3), 2, dtype=np.uint8), np.zeros((0, 3), dtype=np.uint8))
+    for entry in (2, -1, 0.5):
+        with pytest.raises(ValueError, match="binary"):
+            cs.SupportSearch(np.array([[1, entry, 0]]), np.zeros((0, 3), dtype=np.uint8))
+    with pytest.raises(ValueError, match="at least one"):
+        cs.SupportSearch(*PROBLEMS["steane-X"]).find_witness(0)
     with pytest.raises(ValueError, match="at least one problem or an upper bound"):
         cs.get_distance_connected_support([], cutoff=0)
