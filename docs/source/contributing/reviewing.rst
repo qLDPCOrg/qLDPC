@@ -26,9 +26,9 @@ A reviewer is a person or agent who did not write the change and who examines it
 The coordinator gives each reviewer:
 
 * the purpose of the change and its scope;
-* the reviewer's angle and the guide that defines it;
+* the reviewer's angle and the standard that defines it;
 * the decisions made so far, such as those of earlier rounds, so that reviewers do not reopen them;
-* these instructions: report findings without editing the change, and check whether the change requires updates elsewhere, such as to callers, to docstrings or guides that repeat a changed limitation, or to the :doc:`library map <library_map>` and examples.
+* these instructions: report findings without editing the change, and check whether the change requires updates elsewhere, such as to callers, to docstrings or guides that repeat a changed limitation, or to the :doc:`library map </library_map>` and examples.
 
 A finding gives a location, the problem, why it matters, and a suggested fix.
 
@@ -38,15 +38,15 @@ Angles
 A standard review has one reviewer for each of these angles that the change can affect:
 
 * **Correctness:** results, edge cases, error handling, and documented contracts, checked against independent oracles where possible.
-  Also check the requirements and the recipe for the kind of change in the :doc:`implementation guide <implementation_guide>`.
+  Also check the :doc:`implementation standard <standards/implementation>` and the :doc:`decoder standard <standards/decoders>`, as they apply.
   For a refactor, check that behavior is unchanged.
-* **Clarity:** names and commented paragraphs of code, following :ref:`simplicity and clarity <simplicity-and-clarity>` in the code guide.
+* **Clarity:** names and commented paragraphs of code, following :ref:`simplicity and clarity <simplicity-and-clarity>` in the code standard.
   Also check that comments and docstrings match what the code does.
 * **Simplicity:** the rule to keep code only as complex as its uses require, in :ref:`simplicity and clarity <simplicity-and-clarity>`.
-* **Code guide:** the rest of the :doc:`code guide <code_guide>`, including public and private names, module layout, and import layers.
-* **Testing guide:** the :doc:`testing guide <testing_guide>`.
-* **Writing guide:** the :doc:`writing guide <writing_guide>`, applied to every changed comment, docstring, document, and notebook.
-* **Deprecations:** the :doc:`deprecations guide <deprecations>`, for a change to a public name, argument, mode, or default.
+* **Code standard:** the rest of the :doc:`code standard <standards/code>`, including public and private names, module layout, and import layers.
+* **Testing standard:** the :doc:`testing standard <standards/testing>`.
+* **Writing standard:** the :doc:`writing standard <standards/writing>`, applied to every changed comment, docstring, document, and notebook.
+* **Deprecations:** the :doc:`deprecation standard <standards/deprecations>`, for a change to a public name, argument, mode, or default.
 
 One reviewer may cover several angles of a small change, such as a change to one module or to prose only.
 

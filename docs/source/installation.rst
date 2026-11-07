@@ -43,7 +43,7 @@ Choose tools for the task
    * - Estimate binary CSS code distances with the GPU-based ``sqetch`` backend
      - :ref:`GPU distance estimation <installation-sqetch>`.
    * - Modify qLDPC itself
-     - :ref:`Development installation <development-installation>` and the :doc:`contributor guides <contributing>`.
+     - :ref:`Development installation <development-installation>` and the :doc:`contributing page <contributing/index>`.
 
 .. _installation-decoders:
 

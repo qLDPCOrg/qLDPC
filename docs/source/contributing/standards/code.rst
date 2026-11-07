@@ -1,8 +1,8 @@
-Code guide
-==========
+Code standard
+=============
 
-This guide covers which names are public, how source files are organized, and how to keep code simple and clear.
-The :doc:`writing guide <writing_guide>` covers the prose of comments and docstrings.
+This standard covers which names are public, how source files are organized, and how to keep code simple and clear.
+The :doc:`writing standard <writing>` covers the prose of comments and docstrings.
 
 Public API and private code
 ---------------------------

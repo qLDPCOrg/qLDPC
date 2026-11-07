@@ -1,8 +1,8 @@
-Writing guide
-=============
+Writing standard
+================
 
-This guide covers prose in comments, docstrings, documentation, and example notebooks, and where each kind of documentation belongs.
-The :ref:`code guide <simplicity-and-clarity>` covers names and the comments that outline long blocks of code.
+This standard covers prose in comments, docstrings, documentation, and example notebooks, and where each kind of documentation belongs.
+The :ref:`code standard <simplicity-and-clarity>` covers names and the comments that outline long blocks of code.
 
 Prose style
 -----------
@@ -37,7 +37,9 @@ Prose style
 Documentation and examples
 --------------------------
 
-* Put explanations that span packages in the :doc:`library map <library_map>`, exact API behavior in docstrings, and executable workflows in ``examples/``.
+* Put rules that a change must satisfy in the :doc:`standards <index>`, one topic per standard, and state each rule in exactly one standard.
+  Guides explain how qLDPC works and how to do things, and link to the standards rather than restating them.
+* Put explanations that span packages in the :doc:`library map </library_map>`, exact API behavior in docstrings, and executable workflows in ``examples/``.
 * The notebooks under ``docs/source/examples/`` are links to the canonical files under ``examples/``.
   Edit the canonical notebook, not the documentation-tree link.
 * Keep README and the library map selective; AutoAPI lists the public symbols.

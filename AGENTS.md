@@ -7,8 +7,8 @@ Apply the goals to the requested work rather than using them to justify unrelate
 
 A change need not advance every goal or include a tutorial.
 Make significant tradeoffs explicit, and keep the supported scope maintainable.
-The [contributor guides](docs/source/contributing.rst) give the detailed rules and procedures by topic.
-Read the applicable guides before editing.
+The [standards](docs/source/contributing/standards/index.rst) state the detailed rules that a change must satisfy, one topic per standard, and the [contributing page](docs/source/contributing/index.rst) explains the workflow.
+Read the applicable standards before editing.
 For a human-facing explanation of the data model and package relationships, start with the [library map](docs/source/library_map.rst).
 For exact signatures and per-object literature, use the source docstrings or the generated [API reference](https://qldpc.readthedocs.io/autoapi/index.html).
 
@@ -21,32 +21,32 @@ For what the code does, use this order:
 3. The [library map](docs/source/library_map.rst) and executable [examples](examples/).
 4. Historical discussion, issues, or review notes.
 
-For how code should be written, this guide and the contributor guides take precedence over existing code: code that breaks a rule is debt to fix, not a precedent to copy.
+For how code should be written, this guide and the standards take precedence over existing code: code that breaks a rule is debt to fix, not a precedent to copy.
 Re-derive behavior from the current branch before documenting or changing it.
 Do not copy transient project history, machine-specific paths, or local-session instructions into production files.
 
 ## Orientation
 
 Canonical executable notebooks live in [`examples/`](examples/), Sphinx pages and the library map in [`docs/source/`](docs/source/), local wrappers for CI's quality gates in [`checks/`](checks/), and untested research scripts in [`experiments/`](experiments/).
-Read the [orientation](docs/source/contributing.rst#orientation) and the [code guide](docs/source/code_guide.rst) before reorganizing code.
+Read the [orientation](docs/source/contributing/index.rst#orientation) and the [code standard](docs/source/contributing/standards/code.rst) before reorganizing code.
 
 ## Public API and private code
 
 Plain names defined in public modules are public API, even when they are not re-exported.
 Preserve released public import paths and respect top-level subpackage boundaries for underscore names.
-Before adding or moving names, read the [public/private rules](docs/source/code_guide.rst#public-api-and-private-code), including the exceptions for experimental and deprecation code.
+Before adding or moving names, read the [public/private rules](docs/source/contributing/standards/code.rst#public-api-and-private-code), including the exceptions for experimental and deprecation code.
 
 ## Code style and organization
 
-Read the [code guide](docs/source/code_guide.rst), including its [simplicity and clarity rules](docs/source/code_guide.rst#simplicity-and-clarity), before changing source.
+Read the [code standard](docs/source/contributing/standards/code.rst), including its [simplicity and clarity rules](docs/source/contributing/standards/code.rst#simplicity-and-clarity), before changing source.
 Source files need an SPDX license header and a module docstring.
 Sections use a line of exactly 100 `#` characters and a title; plain names precede underscore names unless import-time dependencies require otherwise.
 [`code_style_test.py`](src/qldpc/code_style_test.py) checks these layout rules.
-Follow the [prose style rules](docs/source/writing_guide.rst#prose-style) when writing comments, docstrings, or documentation.
+Follow the [prose style rules](docs/source/contributing/standards/writing.rst#prose-style) when writing comments, docstrings, or documentation.
 
 ## Core invariants
 
-Read the applicable [implementation requirements](docs/source/implementation_guide.rst#implementation-requirements) before changing algebra, decoding, circuits, or integrations.
+Read the applicable sections of the [implementation standard](docs/source/contributing/standards/implementation.rst) and the [decoder standard](docs/source/contributing/standards/decoders.rst) before changing algebra, decoding, circuits, or integrations.
 
 - Preserve concrete finite fields and compatible group rings; extension-field values are not integers modulo the field order.
 - Distinguish subsystem gauge generators from stabilizers, and preserve symplectic conventions.
@@ -57,44 +57,35 @@ Read the applicable [implementation requirements](docs/source/implementation_gui
 
 ## Tests
 
-Read the [testing guide](docs/source/testing_guide.rst) before adding or rewriting tests.
+Read the [testing standard](docs/source/contributing/standards/testing.rst) before adding or rewriting tests.
 Every module needs a co-located `*_test.py` that fully covers it.
 Use small, independent oracles and guard scientific behavior, not incidental implementation details.
 Mock external boundaries, never the logic under test.
 Tests must work offline, without persistent result caches or order dependence, and treat deprecation and future-change warnings as errors.
 Check that a new or rewritten test fails when its guarded behavior is broken.
 
-## Common change recipes
+## Kinds of change
 
-Read the relevant recipe before starting:
-
-| Change | Required reference |
-| --- | --- |
-| Code construction | [Construction recipe](docs/source/implementation_guide.rst#add-or-change-a-code-construction) |
-| Code-core algebra or cached state | [Algebra recipe](docs/source/implementation_guide.rst#change-code-core-algebra) |
-| Decoder | [Decoder requirements](docs/source/implementation_guide.rst#decoder-integration) and [adding a decoder](docs/source/adding_decoders.rst) |
-| Circuit workflow | [Circuit recipe](docs/source/implementation_guide.rst#change-a-circuit-workflow) |
-| External integration | [Integration recipe](docs/source/implementation_guide.rst#change-an-external-integration) |
-| Documentation or example | [Documentation guidance](docs/source/writing_guide.rst#documentation-and-examples) and [notebook review criteria](docs/source/writing_guide.rst#example-notebooks) |
+Before starting, read the standards that the [kinds-of-change table](docs/source/contributing/index.rst#kinds-of-change) lists for your change.
 
 ## Deprecations and future changes
 
 Never break callers of a released public API without warning.
-Read the [full compatibility procedure](docs/source/deprecations.rst) before changing a public name, argument, mode, or default.
+Read the [deprecation standard](docs/source/contributing/standards/deprecations.rst) before changing a public name, argument, mode, or default.
 Deprecations use `DeprecationWarning`; changes that would silently alter the same call use `FutureWarning`.
 Future changes move through an old default that warns, a new default that warns on explicit old usage, and defunct old usage, at least one minor release apart.
 Keep substantial compatibility code in [`qldpc/_deprecations/`](src/qldpc/_deprecations/).
 
 ## Reviews and pull requests
 
-When asked for a **standard review**, follow [reviewing changes](docs/source/reviewing.rst).
+When asked for a **standard review**, follow [reviewing changes](docs/source/contributing/reviewing.rst).
 Agents run a standard review before reporting a change as ready for a pull request, unless told otherwise.
-Follow the [PR-summary guidance](docs/source/contributing.rst#pull-request-summaries) when preparing a PR description.
+Follow the [pull request standard](docs/source/contributing/standards/pull_requests.rst) when preparing a PR description.
 
 ## Validation commands
 
 Install the development environment with `python -m pip install -e '.[dev]'`.
-Read the [validation details](docs/source/contributing.rst#validation-commands) for incremental checks, notebook environments, and coverage caveats.
+Read the [validation details](docs/source/contributing/index.rst#validation-commands) for incremental checks, notebook environments, and coverage caveats.
 CI's exact environments and commands are in [`.github/workflows/`](.github/workflows/).
 
 | Command | Purpose |

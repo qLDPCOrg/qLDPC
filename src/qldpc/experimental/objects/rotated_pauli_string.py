@@ -41,7 +41,7 @@ it, and none if the axis of the rotation commutes with the core and every axis o
 # 2. Re-export RotatedPauliString from qldpc.objects, and remove qldpc.experimental.objects;
 #    experimental modules need no deprecation shims.
 # 3. Mention RotatedPauliString in the description of qldpc.objects in docs/source/library_map.rst,
-#    and update the Clifford+T bullet in docs/source/implementation_guide.rst.
+#    and update the Clifford+T bullet in docs/source/contributing/standards/implementation.rst.
 
 from __future__ import annotations
 

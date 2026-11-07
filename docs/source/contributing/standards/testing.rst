@@ -1,7 +1,7 @@
-Testing guide
-=============
+Testing standard
+================
 
-This guide covers what tests should guard and the conditions under which they run.
+This standard covers what tests should guard and the conditions under which they run.
 
 * Every module needs its own co-located ``*_test.py``: the coverage gate requires each module to be fully covered by its own test file, and does not gate a module without one.
   The gate runs the selected test files in one parallel pytest run, and credits a module only with the lines that its own test file runs in the test process, not in subprocesses (see ``checks/coverage_contexts.py``).

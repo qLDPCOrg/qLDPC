@@ -1,5 +1,7 @@
-Deprecations and future changes
-===============================
+Deprecation standard
+====================
+
+This standard covers deprecations and future changes to released public APIs.
 
 Never break callers of a released public API without warning.
 Removing or renaming a name, argument, or mode is a deprecation: old usage keeps working with a ``DeprecationWarning``, and fails once the deprecation is removed.
@@ -18,7 +20,7 @@ Making the same call silently behave differently, as when a default changes, is 
 * A future change takes three steps, at least one minor release apart:
 
   1. Give the keyword that selects the behavior (a new keyword, or the one whose default changes) a default of ``None`` that keeps the old behavior and warns; explicit values select the old or the new behavior without a warning.
-     Describe both behaviors in the docstring, and the change in a "Future changes" section of the :doc:`library map <library_map>`, which is added when needed and removed when empty.
+     Describe both behaviors in the docstring, and the change in a "Future changes" section of the :doc:`library map </library_map>`, which is added when needed and removed when empty.
   2. Make ``None`` select the new behavior without a warning, keep the old value working with a ``FutureWarning`` that it will be removed, update the docstring, and remove the library-map entry.
   3. Make the old value raise ``_deprecations.defunct(...)``, mark the block ``DEPRECATED``, and rename its tests ``test_deprecated_*``.
      If the new value is the only one left, also deprecate the keyword.

@@ -88,7 +88,7 @@ python -m pip install qldpc
 
 The standard installation includes the `ldpc` and `pymatching` decoders.
 See the [installation guide](https://qldpc.readthedocs.io/installation.html) for optional decoders, GAP integration, GPU distance estimation with `sqetch`, and troubleshooting.
-For a development checkout, follow the [development installation instructions](https://qldpc.readthedocs.io/contributing.html#development-installation).
+For a development checkout, follow the [development installation instructions](https://qldpc.readthedocs.io/contributing/index.html#development-installation).
 
 ## 🧭 Find your way around
 
