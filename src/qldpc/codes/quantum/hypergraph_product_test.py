@@ -104,7 +104,7 @@ def test_hypergraph_product_distance_by_sector(
     "method, seed_method",
     [("brute_force", "brute_force"), ("connected_support", "brouwer_zimmermann")],
 )
-def test_closed_forms_search_seed_codes_with_the_given_method(
+def test_closed_forms_search_seed_codes_with_a_classical_method(
     pauli: PauliXZ | None, method: DistanceMethod, seed_method: DistanceMethod
 ) -> None:
     """The closed-form distances of product codes search their seed codes with a classical method.

@@ -103,5 +103,5 @@ def assert_valid_translations(
             permuted = np.zeros_like(matrix)
             permuted[:, translation] = matrix
             assert {row.tobytes() for row in permuted} == {row.tobytes() for row in matrix}
-    orbits = automorphism_families._get_orbits(translations, len(code))
+    orbits = automorphism_families.get_orbits(translations, len(code))
     assert (np.bincount(orbits) == group_order).all()

@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import unittest.mock
+
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -19,7 +21,8 @@ from . import connected_support as cs
 
 Problem = tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]
 
-# The [[276, 98, 14]] pair-partition code, instance qc_276_98_14 of arXiv:2607.14091.
+# The [[276, 98, 14]] pair-partition code: normalized exponents of instance qc_276_98_14 of
+# arXiv:2607.14091, whose first row and column are zero.
 EXPONENTS_X_276 = [
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     [0, 10, 16, 12, 20, 9, 6, 11, 2, 5, 21, 22],
@@ -48,15 +51,15 @@ def get_sectors(code: codes.CSSCode) -> list[Problem]:
     ]
 
 
-def get_cyclic_problem(num_variables: int, exponents: list[int], dimension: int) -> Problem:
-    """The CSS sector of a cyclic code that contains its dual, with its dual as the excluded rows.
+def get_golay_problem() -> Problem:
+    """The CSS sector of the [23, 12, 7] Golay code, with its dual as the excluded rows.
 
-    The code has the generator polynomial with the given exponents, and its checks are a basis of
-    its dual, so cyclic shifts map its kernel and its excluded rows onto themselves.
+    The Golay code is a cyclic code that contains its dual, and its checks are a basis of its dual,
+    so cyclic shifts map its kernel and its excluded rows onto themselves.
     """
-    generator = np.zeros(num_variables, dtype=np.uint8)
-    generator[exponents] = 1
-    checks = get_kernel(np.array([np.roll(generator, shift) for shift in range(dimension)]))
+    generator = np.zeros(23, dtype=np.uint8)
+    generator[[0, 1, 5, 6, 7, 9, 11]] = 1
+    checks = get_kernel(np.array([np.roll(generator, shift) for shift in range(12)]))
     return checks, checks
 
 
@@ -91,17 +94,28 @@ CODES = {
     ),
     "reed-muller": codes.QuantumReedMullerCode(1, 4),
 }
-PROBLEMS = {
-    f"{name}-{pauli.name}": problem
-    for name, code in CODES.items()
-    for pauli, problem in zip(PAULIS_XZ, get_sectors(code))
-}
+PROBLEMS: dict[str, Problem] = {}
+for name, code in CODES.items():
+    # The two sectors of the Steane and Reed-Muller codes are the same, so they are searched once.
+    sector_x, sector_z = get_sectors(code)
+    PROBLEMS[f"{name}-X"] = sector_x
+    if not all(
+        np.array_equal(matrix_x, matrix_z) for matrix_x, matrix_z in zip(sector_x, sector_z)
+    ):
+        PROBLEMS[f"{name}-Z"] = sector_z
 
 # Words of weight 3 on the first three variables, and of weight 2 on the last two.  The distance is
 # the weight of the second, whose least variable is greater than that of the first.
 PROBLEMS["components"] = (
     np.array([[1, 1, 0, 0, 0], [0, 1, 1, 0, 0], [0, 0, 0, 1, 1]], dtype=np.uint8),
     np.zeros((0, 5), dtype=np.uint8),
+)
+
+# Variables 0 and 1 are in all 30 checks, and each other variable in one, so the distance is 2.  The
+# scale lcm(1, ..., 30) of the weights of checks exceeds 2**40, so the weights are rounded down.
+PROBLEMS["capped-scale"] = (
+    np.hstack([np.ones((30, 2), dtype=np.uint8), np.eye(30, dtype=np.uint8)]),
+    np.zeros((0, 32), dtype=np.uint8),
 )
 
 
@@ -200,7 +214,7 @@ def test_automorphisms_reduce_the_roots_and_keep_the_distance() -> None:
     The Golay code is a cyclic code that contains its dual, so cyclic shifts of its qubits map its
     kernel and its excluded rows onto themselves.
     """
-    problem = get_cyclic_problem(23, [0, 1, 5, 6, 7, 9, 11], 12)
+    problem = get_golay_problem()
     distance = get_brute_force_distance(problem)
     shift = (np.arange(23) + 1) % 23
     plain = cs.SupportSearch(*problem)
@@ -243,12 +257,19 @@ def test_each_root_excludes_the_orbits_before_its_own() -> None:
 
 
 @pytest.mark.usefixtures("compilation_mode")
-def test_automorphisms_may_be_missing(tune: Tune) -> None:
-    """A function that finds no automorphisms leaves the search as it is."""
-    tune(automorphism_minimum_states=0)
-    assert cs.get_distance_connected_support(
-        [PROBLEMS["steane-X"]], cutoff=0, get_automorphisms=lambda: None
-    ) == get_brute_force_distance(PROBLEMS["steane-X"])
+def test_the_tuning_decides_whether_to_find_automorphisms(tune: Tune) -> None:
+    """A search asks for automorphisms at once, or never, as its tuning says.
+
+    A function that finds no automorphisms leaves the search as it is.
+    """
+    problem = PROBLEMS["steane-X"]
+    for minimum_states, num_calls in [(0, 1), (_tuning.MAX_VALUE, 0)]:
+        tune(automorphism_minimum_states=minimum_states)
+        get_automorphisms = unittest.mock.Mock(return_value=None)
+        assert cs.get_distance_connected_support(
+            [problem], cutoff=0, get_automorphisms=get_automorphisms
+        ) == get_brute_force_distance(problem)
+        assert get_automorphisms.call_count == num_calls
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -325,16 +346,30 @@ def test_sectors_are_searched_together(monkeypatch: pytest.MonkeyPatch) -> None:
     sectors = get_sectors(codes.TetrahedralCode())
     assert [get_brute_force_distance(sector) for sector in sectors] == [7, 3]
 
-    limits: dict[bool, list[int]] = {True: [], False: []}
+    limits = []
     find_witness = cs.SupportSearch.find_witness
 
     def record_limit(search: cs.SupportSearch, max_weight: int) -> npt.NDArray[np.int64] | None:
-        limits[np.array_equal(search._excluded, sectors[0][1])].append(max_weight)
+        limits.append(max_weight)
         return find_witness(search, max_weight)
 
     monkeypatch.setattr(cs.SupportSearch, "find_witness", record_limit)
     assert cs.get_distance_connected_support(sectors, cutoff=0) == 3
-    assert limits[False] and max(limits[True]) <= 3
+    assert max(limits) == 3
+
+
+@pytest.mark.usefixtures("compilation_mode")
+def test_the_logical_test_reads_every_block() -> None:
+    """A witness may fail only tests past the first 64, in a later block of each packed column.
+
+    Prepending a block of zeros to the tests of the Steane code moves every test it has there.
+    """
+    problem = PROBLEMS["steane-X"]
+    search = cs.SupportSearch(*problem)
+    zeros = np.zeros((search.num_variables, 1), dtype=np.uint64)
+    search._test_columns = np.hstack([zeros, search._test_columns])
+    witness = search.find_witness(3)
+    assert witness is not None and is_witness(problem, witness)
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -388,8 +423,15 @@ def test_the_weight_divisor_is_inferred_from_the_kernel() -> None:
 
 
 def test_invalid_problems_are_rejected() -> None:
-    """The checks and excluded rows need equal widths, and the excluded rows are in the kernel."""
+    """Problems need binary matrices of equal widths, whose excluded rows are in the kernel.
+
+    A distance search also needs a problem or an upper bound.
+    """
     with pytest.raises(ValueError, match="equal widths"):
         cs.SupportSearch(np.zeros((1, 3), dtype=np.uint8), np.zeros((1, 4), dtype=np.uint8))
     with pytest.raises(ValueError, match="kernel"):
         cs.SupportSearch(np.ones((1, 3), dtype=np.uint8), np.array([[1, 0, 0]], dtype=np.uint8))
+    with pytest.raises(ValueError, match="binary"):
+        cs.SupportSearch(np.full((1, 3), 2, dtype=np.uint8), np.zeros((0, 3), dtype=np.uint8))
+    with pytest.raises(ValueError, match="at least one problem or an upper bound"):
+        cs.get_distance_connected_support([], cutoff=0)

@@ -79,7 +79,7 @@ def get_automorphism_family(
         A basis family of ``I`` alone, and the certificate of all of its images.
     """
     dimension, num_columns = basis.shape
-    orbits = _get_orbits(automorphisms, num_columns)
+    orbits = get_orbits(automorphisms, num_columns)
     rows, packed_labels, pivots = row_reduce_packed(
         pack_bits(basis), pack_bits(labels), np.flatnonzero(np.any(basis, axis=0))
     )
@@ -125,7 +125,7 @@ def estimate_automorphism_family_work(certificate: Certificate, upper_bound: int
     return work
 
 
-def _get_orbits(automorphisms: npt.NDArray[np.int_], num_columns: int) -> npt.NDArray[np.int64]:
+def get_orbits(automorphisms: npt.NDArray[np.int_], num_columns: int) -> npt.NDArray[np.int64]:
     """Number the orbits of the group that the permutations generate, and label each column."""
     # Give each column the least column that it is known to share an orbit with, until no
     # permutation lowers a label.  Every label is a column of the same orbit, so the labels

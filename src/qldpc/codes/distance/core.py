@@ -342,16 +342,13 @@ def _get_distance_css_connected_support(
 
     Each sector is a pair ``(checks, excluded)`` of binary matrices with equal widths, whose
     distance is the least weight of a vector in the kernel of ``checks`` and outside the row space
-    of ``excluded``.  The other arguments, the result, and the errors are those of
-    ``get_distance_connected_support`` in ``_search/connected_support.py``, which this function
-    calls after it checks that the matrices are binary.
+    of ``excluded``.  This function converts the sectors to binary matrices, and checks them.  Its
+    other arguments, its result, and its errors are those of ``get_distance_connected_support`` in
+    ``_search/connected_support.py``, which it calls.
 
     Raises:
-        ValueError: If there are neither sectors nor an upper bound, or if the matrices of a sector
-            are not binary matrices of equal width.
+        ValueError: If the matrices of a sector are not binary matrices of equal width.
     """
-    if not sectors and upper_bound is None:
-        raise ValueError("Require at least one sector or an upper bound")
     problems = [
         _as_binary_matrices(checks, excluded, names=("checks", "excluded"))
         for checks, excluded in sectors
@@ -369,7 +366,8 @@ def _as_binary_matrices(
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
     """Check that two arrays are binary, and return them as matrices with the same width.
 
-    The second array must have as many columns as the first, and errors name the arrays ``names``.
+    The second array must have as many columns as the first.  An error for an array that is not
+    binary names it as in ``names``.
     """
     assert_binary(first, names[0])
     assert_binary(second, names[1])

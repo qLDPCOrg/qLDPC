@@ -8,7 +8,8 @@ src/qldpc/codes/distance/connected_support.md describes.  The embedded instances
 ``qldpc.codes.PairPartitionCode`` codes, quasi-cyclic CSS codes with sparse parity checks, mostly of
 high rate (arXiv:2607.14091 and arXiv:2609.30069).  They come from
 https://github.com/ultra-high-rate-qec/design-principles-data (``codes/css/cpm_pp/instances``), and
-the ``276`` instance is ``qc_276_98_14`` of https://github.com/kasaikenta/pair-partition-cpm-css-codes.
+the ``276`` instance is ``qc_276_98_14`` of
+https://github.com/kasaikenta/pair-partition-cpm-css-codes.
 They are in the ``.cpm`` format, a whitespace-separated token stream: ``CPM_CSS_V1``, a name, the
 lift size ``P``, the block length ``L``, the numbers ``J_X`` and ``J_Z`` of block rows, and then the
 X-type exponents and the Z-type exponents in row-major order.  A path to another such file also
@@ -29,9 +30,9 @@ Examples (run them under a guard, such as a hard deadline, as some searches run 
     python experiments/connected_support_distance/benchmark.py 232 --methods brouwer_zimmermann
     python experiments/connected_support_distance/benchmark.py gross surface:11 surface:15
 
-With the connected-support method, certifying the distance of the ``518`` instance takes minutes,
-that of the ``372`` instance about ten minutes per sector, and that of the ``944`` instance hours.
-BZ is infeasible for all three.
+With the connected-support method, certifying the distance of the ``518`` instance takes minutes.
+Extrapolated from lower weights, that of the ``372`` instance takes about ten minutes per sector,
+and that of the ``944`` instance about half a day per sector.  BZ is infeasible for all three.
 """
 
 from __future__ import annotations
@@ -39,7 +40,6 @@ from __future__ import annotations
 import argparse
 import pathlib
 import time
-from collections.abc import Sequence
 from typing import Literal
 
 import numpy as np
@@ -47,6 +47,58 @@ import numpy as np
 from qldpc import codes
 from qldpc.codes.distance import DistanceMethod
 from qldpc.objects import Pauli
+
+####################################################################################################
+# command-line interface
+
+
+def main() -> None:
+    """Time the requested searches."""
+    args = parse_args()
+    for name in args.codes:
+        code, parameters = get_code(name)
+        print(f"{name}: n={len(code)}, k={code.dimension}", flush=True)
+        for method in args.methods:
+            for sector in args.sectors:
+                distance, wall, cpu = time_distance(code, method, sector)
+                note = ""
+                if parameters is not None and distance != parameters[2]:
+                    note = f"  (differs from the published distance {parameters[2]})"
+                print(
+                    f"  {method:19s} {sector:4s} d={distance}  wall {wall:.2f} s  cpu {cpu:.2f} s"
+                    + note,
+                    flush=True,
+                )
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "codes",
+        nargs="+",
+        help="embedded instances (" + ", ".join(INSTANCES) + "), gross, surface:D, toric:D, or"
+        " .cpm files",
+    )
+    parser.add_argument(
+        "--methods",
+        nargs="+",
+        default=["connected_support"],
+        choices=["connected_support", "brouwer_zimmermann"],
+        help="the exact-distance methods to time (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--sectors",
+        nargs="+",
+        default=["both"],
+        choices=["X", "Z", "both"],
+        help="the logical operators to search: X-type, Z-type, or both, whose joint search finds"
+        " the minimum (default: %(default)s)",
+    )
+    return parser.parse_args()
+
 
 ####################################################################################################
 # embedded instances
@@ -163,48 +215,6 @@ def time_distance(
     wall, cpu = time.perf_counter(), time.process_time()
     distance = code.get_distance_exact(pauli, method=method)
     return distance, time.perf_counter() - wall, time.process_time() - cpu
-
-
-def main(arguments: Sequence[str] | None = None) -> None:
-    """Time the requested searches."""
-    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
-    parser.add_argument(
-        "codes",
-        nargs="+",
-        help="Embedded instances (" + ", ".join(INSTANCES) + "), gross, surface:D, toric:D, or"
-        " .cpm files.",
-    )
-    parser.add_argument(
-        "--methods",
-        nargs="+",
-        default=["connected_support"],
-        choices=["connected_support", "brouwer_zimmermann"],
-        help="The exact-distance methods to time.  Default: connected_support.",
-    )
-    parser.add_argument(
-        "--sectors",
-        nargs="+",
-        default=["both"],
-        choices=["X", "Z", "both"],
-        help="The logical operators to search: X-type, Z-type, or both, whose joint search finds"
-        " the minimum.  Default: both.",
-    )
-    options = parser.parse_args(arguments)
-
-    for name in options.codes:
-        code, parameters = get_code(name)
-        print(f"{name}: n={len(code)}, k={code.dimension}", flush=True)
-        for method in options.methods:
-            for sector in options.sectors:
-                distance, wall, cpu = time_distance(code, method, sector)
-                note = ""
-                if parameters is not None and distance != parameters[2]:
-                    note = f"  (differs from the published distance {parameters[2]})"
-                print(
-                    f"  {method:19s} {sector:4s} d={distance}  wall {wall:.2f} s  cpu {cpu:.2f} s"
-                    + note,
-                    flush=True,
-                )
 
 
 if __name__ == "__main__":

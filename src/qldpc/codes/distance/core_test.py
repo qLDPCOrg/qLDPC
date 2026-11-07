@@ -98,7 +98,7 @@ def test_css_connected_support_inputs() -> None:
     # The result is the minimum of the upper bound and the distances of the supplied sectors.
     assert core._get_distance_css_connected_support([sector], cutoff=0, upper_bound=2) == 2
     assert core._get_distance_css_connected_support([], cutoff=0, upper_bound=2) == 2
-    with pytest.raises(ValueError, match="at least one sector or an upper bound"):
+    with pytest.raises(ValueError, match="at least one problem or an upper bound"):
         core._get_distance_css_connected_support([], cutoff=0)
 
     # The matrices must be binary, and have equal widths.

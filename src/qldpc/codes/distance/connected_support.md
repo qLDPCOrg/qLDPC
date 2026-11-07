@@ -3,8 +3,8 @@
 ## 1. Purpose and scope
 
 The connected-support search computes the exact distance of a binary CSS code, including a subsystem code, from the Tanner graphs of its parity checks.
-It is the method `"connected_support"` of `get_distance_exact`.
-Brouwer–Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) remains the default.
+It is the method `"connected_support"` of `CSSCode.get_distance_exact`.
+Brouwer–Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) is the default.
 The connected-support search is a quantum version of the searches for small stopping sets and low-weight codewords of classical LDPC codes (Richter, Rosnes and Ytrehus, and Khatami et al. in the [references](#references)), and follows Section V of Okada and Kasai (also in the references).
 This guide explains the search, maps it to the code, and states what a change to it must preserve.
 It is organized as follows:
@@ -18,15 +18,16 @@ It is organized as follows:
 
 BZ examines the words of a basis of the searched space in layers of increasing coefficient weight, and its cost grows like `binom(r, d/m)`.
 Here `r` is the dimension of the searched space, `d` is the distance, and `m` is the number of disjoint information sets.
-A high-rate code has `r > n/2`, hence `m = 1`, and BZ becomes infeasible at modest distances.
+The sectors of CSS codes usually have `r > n/2`, hence `m = 1`, and a high rate pushes `r` towards `n`, so that BZ becomes infeasible at modest distances.
 The connected-support search instead enumerates supports that grow through unsatisfied checks, so its cost depends on the sparsity of the checks and on `d`, and not on `r`.
 Its cost grows by a roughly constant factor for each additional unit of weight, which is about 5 for the pair-partition codes below, with row weight 8 to 16, and about 3 for surface codes.
 
 The table lists times on one core of an Apple M3 Max laptop, run at low priority, with the benchmark script [experiments/connected_support_distance/benchmark.py](../../../../experiments/connected_support_distance/benchmark.py).
 The codes are the pair-partition codes of Okada and Kasai and of Lee et al., which are quasi-cyclic CSS codes, mostly of high rate, with parity checks of column weight 3 to 5 (see the [references](#references)).
-Times are CPU times.
-The BZ times of the larger codes are estimated from the work that BZ predicts for them (Section 3.6 of [brouwer_zimmermann.md](brouwer_zimmermann.md)), with the cyclic automorphisms that qLDPC finds for these codes.
-A **sector** is the X-type or the Z-type logical operators of a code, which [Section 3.1](#31-the-problem) searches separately.
+The instances, and their distances, come from the data of Lee et al., except that the [[276, 98, 14]] code comes from Okada and Kasai.
+Times are CPU times, for the whole code unless they say per sector.
+The BZ times of the larger codes are estimated from the work that BZ predicts for them (Sections 3.6 and 3.7 of [brouwer_zimmermann.md](brouwer_zimmermann.md)), with the cyclic automorphisms that qLDPC finds for these codes.
+A **sector** is the X-type or the Z-type logical operators of a code, which [Section 3.1](#31-the-problem) defines, and which are searched separately.
 
 | Code | BZ | Connected support | Faster |
 | --- | --- | --- | --- |
@@ -45,7 +46,8 @@ They assume that this growth continues, and the connected-support times of the [
 
 The cost of the connected-support search grows quickly if the checks are dense, because every unsatisfied check offers many variables to branch on.
 The [[128, 70, 8]] quantum Reed–Muller code, which has checks of weight 32, takes 0.9 s, and BZ takes 0.1 s.
-The cost also grows exponentially with the distance of codes with many low-weight stabilizers, such as surface codes.
+These times are for a plain `CSSCode` built from the matrices of `QuantumReedMullerCode(2, 7)`, since that class knows its distance without a search.
+The stabilizers of surface codes weigh much less than their distances, so that many supports grow without being pruned, but the search is still much faster than BZ.
 Searching rotated surface codes takes 0.03 s for distance 11, 0.8 s for distance 15, 6.1 s for distance 17, and 47 s for distance 19.
 BZ takes 0.5 s for distance 11, and more than 200 s for distance 15.
 A subsystem code searches the Tanner graph of its stabilizers, which can be dense.
@@ -72,7 +74,7 @@ A witness is then a dressed logical operator, as in BZ.
 
 ### 3.2 Light words are connected
 
-**Lemma** (Lemma 2 of [Okada and Kasai](#references)).
+**Lemma** (after Lemma 2 of [Okada and Kasai](#references)).
 Every witness of minimum weight has a support that is connected in the Tanner graph of `H`, and that contains no support of a nonzero vector of `ker(H)` but its own.
 
 *Proof.*
@@ -95,7 +97,8 @@ The search starts from a **root** `r`, with `S = {r}`, and every variable of low
 At a state with an empty syndrome, the search stops branching.
 It reports `S` if it is a witness, and otherwise leaves the state.
 At any other state, it chooses an unsatisfied check `c` with the fewest **available** variables, those of `c` that are neither in `S` nor in `F`.
-It visits the states `S ∪ {v}` for each available variable `v` of `c`, in a fixed order, and adds `v` to `F` for its later siblings once its state is done.
+It visits the states `S ∪ {v}` for each available variable `v` of `c`, and adds `v` to `F` for its later siblings once its state is done.
+Its children come in the order of their repairs ([Section 3.4](#34-pruning)), most repairing first, which on the [[276, 98, 14]] code visits a quarter of the states of the order of the variables through the weight limit at which the search finds a witness.
 Every state grows only through unsatisfied checks, so every support that it visits is connected.
 
 **Completeness.**
@@ -167,11 +170,12 @@ On the pair-partition codes, this removes a quarter of the states of the natural
 Without symmetries, every variable is a root, and the ranks are the variables themselves.
 
 The `_found_qudit_automorphisms` of the code provide generators of `Γ`.
-Finding them can take milliseconds, so a search asks for them once, before the first weight limit at which it expects to reach `automorphism_minimum_states` states, a field of the tuning of `_tuning.py`.
-It expects each search to grow by the ratio between its last two.
+Finding them takes milliseconds for codes of hundreds of qubits, but about half a second with `pybliss` for a code of 5,200 qubits, as long as a search of more than a million states on one core.
+So the search of each sector asks for them once, before the first weight limit at which it expects to reach `automorphism_minimum_states` states, a field of the tuning of `_tuning.py`.
+It expects each weight limit to grow by the ratio between its last two.
 Waiting until it has visited that many states instead would let a search that prunes well run a whole weight limit without them: on the [[276, 98, 14]] code, that limit took nearly half of the time of the search.
 
-Even then, the search from the first root does most of the work, since every witness that meets the first orbit is found through it.
+With symmetries, the search from the first root does most of the work, since every witness that meets the first orbit is found through it.
 A witness that meets the first orbit several times can have several images that contain the first root, as many as its variables in that orbit if the group acts regularly on the orbit, and the search can visit images of a state more than once.
 In the [[276, 98, 14]] code, two thirds of the states of that search hold two or more variables of the first orbit.
 Rejecting such duplicates soundly for general groups is left open.
@@ -248,7 +252,7 @@ Changes to the search can use other bounds and orders, while keeping these requi
 ## References
 
 - K. Okada and K. Kasai, "Pair-partition constructions for CPM-based quantum LDPC codes", Section V, [arXiv:2607.14091](https://arxiv.org/abs/2607.14091): the connected-support search for the pair-partition codes, with the implementation in [kasaikenta/pair-partition-cpm-css-codes](https://github.com/kasaikenta/pair-partition-cpm-css-codes).
-- Lee, Okada, Maskara, Kasai, and Zhou, "Design principles for ultra-high-rate quantum codes", [arXiv:2609.30069](https://arxiv.org/abs/2609.30069): the pair-partition codes, with the instances of [ultra-high-rate-qec/design-principles-data](https://github.com/ultra-high-rate-qec/design-principles-data).
+- J. Y. Lee, K. Okada, N. Maskara, K. Kasai, and H. Zhou, "Design principles for ultra-high-rate quantum codes", [arXiv:2609.30069](https://arxiv.org/abs/2609.30069): the pair-partition codes, with the instances of [ultra-high-rate-qec/design-principles-data](https://github.com/ultra-high-rate-qec/design-principles-data).
 - G. Richter, "Finding small stopping sets in the Tanner graphs of LDPC codes", 4th International Symposium on Turbo Codes and Related Topics, 2006.
 - E. Rosnes and Ø. Ytrehus, "An efficient algorithm to find all small-size stopping sets of low-density parity-check matrices", IEEE Transactions on Information Theory 55, 4167 (2009).
 - S. M. Khatami, L. Danjean, D. V. Nguyen, and B. Vasić, "An efficient exhaustive low-weight codeword search for structured LDPC codes", Information Theory and Applications Workshop, 2013, pp. 401–410.

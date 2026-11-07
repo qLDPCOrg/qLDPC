@@ -109,8 +109,10 @@ class SearchTuning:
     otherwise use.  The threshold ``lp_minimum_work`` decides whether a search of overlapping sets
     uses linear programming.  A threshold of zero makes every search to which a heuristic applies
     consider its family, or use linear programming, and the largest value, ``MAX_VALUE``, makes no
-    search do so.  Every integer field is a Python integer between zero and ``MAX_VALUE``, and the
-    batch sizes are positive.
+    search do so.  The threshold ``automorphism_minimum_states`` of the connected-support search
+    counts visited states rather than candidate/set evaluations (Section 3.5 of
+    ``connected_support.md``).  Every integer field is a Python integer between zero and
+    ``MAX_VALUE``, and the batch sizes are positive.
 
     Counts with the BZ method always scan information sets, rather than enumerate every word.  The
     distance searches that find their default weights consult both ``allow_enumeration`` fields.
@@ -164,14 +166,15 @@ class SearchTuning:
             :func:`~qldpc.codes.distance.get_distance_quantum`, and counts of logical operators do
             not.  Defaults to 100,000,000.
         automorphism_minimum_states: The number of visited states, counted over all weight
-            limits, from which a connected-support search (``method="connected_support"``) uses
-            automorphisms of its code.  It asks for them before the first weight limit at which it
-            expects to reach this number, from the growth in states between its last two limits,
-            and then searches from one variable of each orbit of the automorphisms, rather than
-            from every variable (Section 3.5 of ``connected_support.md``).  Finding automorphisms
-            can take milliseconds, as long as a search of this many states takes.  Zero asks for
-            them before the first search, and ``MAX_VALUE`` in effect never does.  Defaults to
-            100,000.
+            limits of the search of one sector, from which a connected-support search
+            (``method="connected_support"``) uses automorphisms of its code.  It asks for them
+            before the first weight limit at which it expects to reach this number, from the growth
+            in states between its last two limits, and then searches from one variable of each
+            orbit of the automorphisms, rather than from every variable (Section 3.5 of
+            ``connected_support.md``).  Finding automorphisms
+            takes milliseconds for codes of hundreds of qubits, and about half a second with
+            ``pybliss`` for a code of thousands of qubits.  Zero asks for them before the first
+            weight limit, and ``MAX_VALUE`` in effect never does.  Defaults to 100,000.
         scan_chunk_size: The most supports, which are choices of rows of an information set, that
             one compiled call of the scan of a count with the BZ or brute-force method visits.  A
             scan proceeds in steps, each of which is one coefficient layer of one information set,

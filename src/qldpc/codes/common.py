@@ -482,8 +482,12 @@ class ClassicalCode(AbstractCode):
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
+
+        Raises:
+            ValueError: If the method is unknown or is ``"connected_support"``.
         """
         method = _validate_distance_method(method)
+        _reject_connected_support(method)
         if not bound:
             if decoder is not None or bound_kwargs:
                 warnings.warn(
@@ -1885,8 +1889,12 @@ class QuditCode(AbstractCode):
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
+
+        Raises:
+            ValueError: If the method is unknown or is ``"connected_support"``.
         """
         method = _validate_distance_method(method)
+        _reject_connected_support(method)
         if not bound:
             if bound_kwargs:
                 warnings.warn(
@@ -3441,8 +3449,14 @@ class CSSCode(QuditCode):
 
         Returns:
             An integer distance (or bound) if it is defined, and np.nan otherwise.
+
+        Raises:
+            ValueError: If the method is unknown, or is ``"connected_support"`` for a nonbinary
+                code.
         """
         method = _validate_distance_method(method)
+        if method == "connected_support" and self.field is not galois.GF2:
+            raise ValueError("The 'connected_support' distance method is only for binary CSS codes")
         if not bound:
             if decoder is not None or bound_kwargs:
                 warnings.warn(
@@ -3478,16 +3492,12 @@ class CSSCode(QuditCode):
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
                 alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
                 operator.  ``"connected_support"`` searches supports that are connected in the
-                Tanner graph of the parity checks.  It is fast for sparse parity checks, especially
-                at a high rate, where the cost of Brouwer-Zimmermann grows quickly with the
-                distance, and slower than Brouwer-Zimmermann for dense parity checks.  Its cost
-                grows exponentially with the distance of codes with many stabilizers that weigh
-                much less than the distance, such as surface codes, and a subsystem code searches
-                its stabilizers, which need not be sparse.  Closed forms that search classical
-                codes, such as those of hypergraph product codes, search them with
-                Brouwer-Zimmermann instead.  See ``connected_support.md`` in
-                ``qldpc/codes/distance/``.  Nonbinary calculations use exhaustive enumeration, and
-                reject ``"connected_support"``.
+                Tanner graph of the parity checks, which is fast for sparse parity checks, and
+                especially at a high rate; its guide says when to use it:
+                https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md
+                Closed forms that search classical codes, such as those of hypergraph product
+                codes, search them with Brouwer-Zimmermann instead.  Nonbinary calculations use
+                exhaustive enumeration, and reject ``"connected_support"``.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
@@ -4248,11 +4258,14 @@ class CSSCode(QuditCode):
     def _get_parity_check_sector(
         self, pauli: PauliXZ
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """The parity checks whose kernel holds the operators of one type, and the trivial ones.
+        """Parity checks whose kernel holds the operators of one type, and their trivial operators.
 
-        The checks are the stabilizers of the opposite type, and the operators of type ``pauli``
-        that act trivially are spanned by its gauge generators, which include its stabilizers.
+        The checks are the stabilizers of the opposite type.  The second matrix holds the gauge
+        generators of type ``pauli``, which include its stabilizers and span the operators of that
+        type that act trivially.
         """
+        # The rows of the matrix of a stabilizer code can be redundant, which strengthens the
+        # search, while the stabilizers of a subsystem code need to be computed.
         opposite: PauliXZ = Pauli.Z if pauli is Pauli.X else Pauli.X
         checks = (
             self.get_stabilizer_ops(opposite)
@@ -4269,7 +4282,7 @@ class CSSCode(QuditCode):
         cutoff: int,
         upper_bound: int | None = None,
     ) -> int:
-        """The minimum distance of the logical operators of the given types, by a binary search.
+        """The minimum distance of the logical operators of the given types, over GF(2).
 
         The search uses the automorphisms of this code.  It searches connected supports if
         ``method`` is ``"connected_support"``, and is Brouwer-Zimmermann otherwise.  A result at or

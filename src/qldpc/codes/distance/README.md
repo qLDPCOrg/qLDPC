@@ -4,7 +4,7 @@ This directory is the package `qldpc.codes.distance`.
 It computes exact distances of binary codes, and counts the logical operators of a given weight in binary CSS codes.
 Users reach it through the `get_distance_exact` method of binary codes in `src/qldpc/codes/common.py`, and through `CSSLogicalCounter`.
 `brouwer_zimmermann.md` explains the algorithm, maps its concepts to names in the code, describes its heuristics for choosing basis families, and lists the correctness requirements that every change to a search must keep.
-`connected_support.md` does the same for the search of sparse CSS codes over supports that are connected in a Tanner graph, and says when to choose each of the two methods.
+`connected_support.md` explains the search of sparse CSS codes over supports that are connected in a Tanner graph, maps it to the code, says when to choose it over Brouwer–Zimmermann, and lists its correctness requirements.
 
 ## Public names
 
@@ -71,7 +71,7 @@ Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py`, modules in `src
 
 The thresholds of the heuristics that choose a search route, such as when to build overlapping information sets or to use linear programming, are the fields of `SearchTuning` in `_tuning.py`.
 Its docstrings give the meaning and default of each field.
-Section 4.4 of `brouwer_zimmermann.md` says where each threshold of a Brouwer–Zimmermann search route is used, and Section 3.5 of `connected_support.md` where the threshold of the connected-support search is.
+Section 4.4 of `brouwer_zimmermann.md` says where each threshold of a Brouwer–Zimmermann search route is used, and Section 3.5 of `connected_support.md` where the threshold of the connected-support search is used.
 
 - A search reads the active tuning once, when it starts, and passes the values that it needs down to the stages and loops that use them.
   `get_distance_brouwer_zimmermann_many` and `get_distance_connected_support` read it for a distance search, and `CSSLogicalCounter.count_logical_ops` for a count.

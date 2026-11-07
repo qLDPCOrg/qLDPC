@@ -102,6 +102,21 @@ Distances `d` are upper bounds.
 Saved code files record `d` as `nan` for codes with no logical qubits, and `collect_results.py` omits such codes.
 Verification requires `codes.QTCode.random` to sample the same code for the same seed, so codes saved with a different version of `qldpc` may fail verification.
 
+## Connected-support distance
+
+[`connected_support_distance/benchmark.py`](connected_support_distance/benchmark.py) times the exact distance searches of `qldpc` on the pair-partition codes that [the connected-support guide](../src/qldpc/codes/distance/connected_support.md) uses, and on a few other codes.
+It prints its results and saves nothing, so it takes no `--results-dir`.
+For example:
+
+```bash
+python experiments/connected_support_distance/benchmark.py 110 232 276
+python experiments/connected_support_distance/benchmark.py 232 --methods brouwer_zimmermann
+python experiments/connected_support_distance/benchmark.py gross surface:11 surface:15
+```
+
+Numba compiles the searches on first use, so run the script twice for the times of a warm cache.
+Some searches run for hours, so run it under a deadline: certifying the `944` instance takes about half a day per sector, by extrapolation, and Brouwer–Zimmermann is infeasible for the larger instances.
+
 ## Lattice surgery
 
 > [!WARNING]

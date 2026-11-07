@@ -44,7 +44,6 @@ from ._search import information_sets
 from ._search.brouwer_zimmermann import get_distance_brouwer_zimmermann_many
 from ._search.brute_force import get_nested_distance_brute_force
 from ._tuning import DEFAULT_TUNING, SearchTuning, get_tuning
-from .core import DistanceMethod
 
 # codes.common imports this package, and codes.quantum imports codes.common, so code classes are
 # imported only where they are used.
@@ -63,6 +62,9 @@ LogicalCountMethod = Literal[
 ]
 
 _CanonicalLogicalCountMethod = Literal["brouwer_zimmermann", "macwilliams", "brute_force"]
+
+# The distance searches that a count runs to find its default weight.
+_CountDistanceMethod = Literal["brouwer_zimmermann", "brute_force"]
 
 # The canonical name of every accepted logical-count method name, including aliases.
 _LOGICAL_COUNT_METHODS: dict[str, _CanonicalLogicalCountMethod] = {
@@ -522,7 +524,7 @@ class CSSLogicalCounter:
 
     def _forget_kept_work(self) -> None:
         """Drop the work that is done on demand and kept for later counts."""
-        self._distances: dict[DistanceMethod, int] = {}
+        self._distances: dict[_CountDistanceMethod, int] = {}
         self._sectors: tuple[_Sector, _Sector] | None = None
         self._disjoint_basis_families: dict[int, information_sets.BasisFamily] = {}
         self._enumerators: macwilliams.CheckEnumerators | None = None
@@ -731,7 +733,7 @@ def _warm_up_compiled_functions() -> None:
 
 def _get_distance(
     sectors: Sequence[_Sector],
-    method: DistanceMethod,
+    method: _CountDistanceMethod,
     get_disjoint_basis_families: Sequence[Callable[[], information_sets.BasisFamily]],
     tuning: SearchTuning,
 ) -> int:

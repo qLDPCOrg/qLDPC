@@ -701,15 +701,19 @@ def test_connected_support_method_is_only_for_binary_css_codes() -> None:
     for code in (codes.RepetitionCode(3), codes.FiveQubitCode()):
         with pytest.raises(ValueError, match=r"CSSCode\.get_distance_exact"):
             code.get_distance_exact(method="connected_support")
-    with pytest.raises(ValueError, match=r"CSSCode\.get_distance_exact"):
-        codes.FiveQubitCode().get_distance(method="connected_support")
+    for code in (codes.RepetitionCode(3), codes.FiveQubitCode()):
+        for bound in (None, 1):
+            with pytest.raises(ValueError, match=r"CSSCode\.get_distance_exact"):
+                code.get_distance(bound=bound, method="connected_support")
     nonbinary_css_code = codes.HGPCode(codes.RepetitionCode(3, field=3))
     with pytest.raises(ValueError, match="only for binary CSS codes"):
         nonbinary_css_code.get_distance_exact(method="connected_support")
+    with pytest.raises(ValueError, match="only for binary CSS codes"):
+        nonbinary_css_code.get_distance(bound=1, method="connected_support")
 
 
 def test_connected_support_distances_of_css_codes() -> None:
-    """Sector distances, joint distances, and their caches match the other exact methods."""
+    """Sector distances, joint distances, and their caches have their known values."""
     steane_code = codes.SteaneCode()
     for pauli in (Pauli.X, Pauli.Z, None):
         steane_code.forget_distance()
