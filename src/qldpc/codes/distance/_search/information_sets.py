@@ -2,13 +2,13 @@
 
 """Basis families of information sets and their certificates, shared by exact BZ and coset searches.
 
-Exact distance search (``_brouwer_zimmermann.py``) and fixed-weight logical counting
+Exact distance search (``brouwer_zimmermann.py``) and fixed-weight logical counting
 (``_counting/scan.py``) enumerate coefficient layers over the same basis families (see
 ``brouwer_zimmermann.md`` for the terminology).  Layer ``w`` of an information set holds the words
 that add ``w`` of its rows to an offset.  The offset is zero in the distance and counting scans,
 which search a space, and is a fixed word of the searched coset in the coset-leader oracle
 (``CosetLeaderSearch``), which searches a coset (see ``_search_coset`` in
-``_coset_leader_search.py``).  This module owns how those basis families are built, pruned, and
+``coset_leader_search.py``).  This module owns how those basis families are built, pruned, and
 replaced by overlapping ones, and the certificate that bounds the Hamming weight of eligible words
 that a basis family has not yet visited.  The coset-leader oracle uses the disjoint information sets
 for its own layered search.  All three enumerate a layer with :func:`advance_support`.
@@ -48,22 +48,8 @@ import numpy.typing as npt
 from qldpc._binary import pack_bits, row_reduce_binary, row_reduce_packed, unpack_bits
 from qldpc._compilation import always_compiled, compiled_on_request
 
-from . import _matroid_partition
-
-# Default limit on the number of sets in a replacement basis family (see get_overlapping_family).
-MAX_SETS = 16
-
-# Estimated work below which a basis family is not replaced by one of overlapping sets.
-MINIMUM_WORK = 100_000
-
-# Estimated work from which a search of overlapping sets also bounds unvisited words by linear
-# programming (see get_lp_lower_bound), whose linear programs take milliseconds each.
-LP_MINIMUM_WORK = 1_000_000_000
-
-# A search tries basis families built by matroid partitioning (see get_partitioned_family) only if
-# its estimated work is at least this multiple of the estimated work of partitioning, so that the
-# attempt adds at most about a tenth to a search that it does not speed up.
-PARTITION_WORK_RATIO = 10
+from .._tuning import SearchTuning
+from . import matroid_partition
 
 # The largest coverage of a column for which get_partitioned_family builds a basis family.
 _MAX_PARTITION_COVERAGE = 4
@@ -252,14 +238,14 @@ class BasisFamily(NamedTuple):
             self.max_coverage,
         )
 
-    def get_search_certificate(self, upper_bound: int) -> Certificate:
+    def get_search_certificate(self, upper_bound: int, lp_minimum_work: int) -> Certificate:
         """The certificate with which to search this basis family for ``upper_bound``.
 
-        A search of overlapping sets whose estimated work reaches ``LP_MINIMUM_WORK`` also bounds
+        A search of overlapping sets whose estimated work reaches ``lp_minimum_work`` also bounds
         unvisited words by linear programming, which can stop it sooner.
         """
         certificate = self.certificate
-        if self.max_coverage == 1 or certificate.work(upper_bound) < LP_MINIMUM_WORK:
+        if self.max_coverage == 1 or certificate.work(upper_bound) < lp_minimum_work:
             return certificate
         pivot_blocks = tuple(
             tuple(int(column) for column in pivots[:rank])
@@ -341,7 +327,7 @@ def get_overlapping_family(
 
     Returns the replacement, which has no sets if no replacement does less work.  ``binomials`` are
     ``get_capped_binomials(dimension)``, and ``rng`` breaks ties between equally used columns.
-    Searches take ``minimum_work``, ``binomials`` and ``rng`` from
+    Searches take ``max_sets``, ``minimum_work``, ``binomials``, and ``rng`` from
     :func:`get_overlapping_family_policy`.
     """
     dimension = basis.shape[0]
@@ -442,15 +428,20 @@ def get_overlapping_family(
 
 
 def get_overlapping_family_policy(
-    dimension: int,
-) -> tuple[int, npt.NDArray[np.int64], np.random.Generator]:
-    """The ``minimum_work``, ``binomials`` and ``rng`` that every search passes to stage three.
+    tuning: SearchTuning, dimension: int
+) -> tuple[int, int, npt.NDArray[np.int64], np.random.Generator]:
+    """The ``max_sets``, ``minimum_work``, ``binomials``, and ``rng`` of stage three for a search.
 
-    They are ``MINIMUM_WORK``, read at each call, the capped binomials of the dimension, and a new
-    generator with a fixed seed, so that every search, distance or count, chooses the same
-    replacement for the same basis family.
+    They are the limit and the minimum work of ``tuning``, the capped binomials of the dimension,
+    and a new generator with a fixed seed, so that every search, distance or count, chooses the same
+    replacement for the same basis family and tuning.
     """
-    return MINIMUM_WORK, get_capped_binomials(dimension), np.random.default_rng(0)
+    return (
+        tuning.max_information_sets,
+        tuning.overlapping_minimum_work,
+        get_capped_binomials(dimension),
+        np.random.default_rng(0),
+    )
 
 
 def get_partitioned_family(
@@ -459,6 +450,7 @@ def get_partitioned_family(
     basis_family: BasisFamily,
     upper_bound: int,
     max_sets: int,
+    work_ratio: int,
 ) -> BasisFamily:
     """Stage four: a basis family of information sets with bounded coverage, if it does less work.
 
@@ -466,15 +458,15 @@ def get_partitioned_family(
     ``basis``, whose quotient labels ``labels`` have no columns if it has none.  For each maximum
     coverage from two to ``_MAX_PARTITION_COVERAGE``, matroid partitioning finds the most full
     information sets, up to ``max_sets``, that contain no column more often than that coverage (see
-    ``_matroid_partition``).  This follows Section 5.1 of Lisoněk and Trummer (2016), which shows
+    ``matroid_partition``).  This follows Section 5.1 of Lisoněk and Trummer (2016), which shows
     that such families can do less work than those of the Brouwer-Zimmermann algorithm.
 
     Returns the family that certifies ``upper_bound`` with the least estimated work, if that is less
     than the work of ``basis_family``, and otherwise a family with no sets.  No family is built if
-    the estimated work of ``basis_family`` is below ``PARTITION_WORK_RATIO``, read at each call,
-    times the estimated work of partitioning, or if no family of at most ``max_sets`` full sets
-    could do less work: some column of ``m`` such sets is in at least ``ceil(m * k / n)`` of them,
-    for ``k`` rows and ``n`` nonzero columns.
+    the estimated work of ``basis_family`` is below ``work_ratio`` times the estimated work of
+    partitioning, or if no family of at most ``max_sets`` full sets could do less work: some column
+    of ``m`` such sets is in at least ``ceil(m * k / n)`` of them, for ``k`` rows and ``n`` nonzero
+    columns.
     """
     best_work = basis_family.certificate.work(upper_bound)
     best = _get_no_replacement(basis_family, basis, labels)
@@ -485,7 +477,7 @@ def get_partitioned_family(
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
     total_coverage = sum(range(2, _MAX_PARTITION_COVERAGE + 1))
     partition_work = _PARTITION_COST_FACTOR * total_coverage * dimension**2 * num_columns
-    if best_work < PARTITION_WORK_RATIO * partition_work:
+    if best_work < work_ratio * partition_work:
         return best
     optimistic_work = _estimate_optimistic_work(
         dimension,
@@ -500,7 +492,7 @@ def get_partitioned_family(
 
     # Build a family for each coverage, and keep the one that does the least work.
     for coverage in range(2, _MAX_PARTITION_COVERAGE + 1):
-        column_sets = _matroid_partition.get_information_sets_with_coverage(
+        column_sets = matroid_partition.get_information_sets_with_coverage(
             basis, coverage, max_sets
         )
 

@@ -16,6 +16,16 @@ directory, such as one that many jobs share, to avoid this.
 in the current process only, for programs that count the logical operators of very many similar
 codes.
 
+Exact distance searches and logical-operator counts choose between routes, such as exhaustive
+enumeration and searches of overlapping information sets, by cost models with thresholds.  These
+thresholds affect how long a search takes, but not its exact result, and the defaults suit typical
+searches.  Experienced users of very costly searches can change them within a ``with`` block, by
+``use_tuning`` of ``qldpc.codes.distance._tuning``.  The docstrings of that module describe each
+threshold and what a tuning can and cannot change.  The API reference omits that private module, so
+read them with ``help(qldpc.codes.distance._tuning)`` or in the source.  Its names, fields, and
+defaults can change in any release, without a deprecation period or any other warning, so code that
+uses it should pin the exact version of qLDPC that it was written for.
+
 Contributors can find a map of the modules in the README.md of this directory.
 """
 

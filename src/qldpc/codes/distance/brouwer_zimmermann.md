@@ -230,8 +230,8 @@ The optimizations are:
 - [Section 3.5](#35-packed-enumeration-with-pivot-column-deletion) packs words into machine words, reuses partial XORs, and avoids storing pivot columns.
 - [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) enumerates every word when that is cheaper than running BZ.
 
-[Section 3.7](#37-translates-of-an-information-set-by-automorphisms) is both an extension and an optimization, for problems that a group of coordinate permutations preserves.
-It certifies with the translates of one information set by the group, and scans only that set.
+[Section 3.7](#37-images-of-an-information-set-under-automorphisms) is both an extension and an optimization, for problems that a group of coordinate permutations preserves.
+It certifies with the images of one information set under the group, and scans only that set.
 [Section 3.8](#38-worked-example) illustrates [Section 3.1](#31-overlapping-search-bases) and [Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple) with an example.
 
 ### 3.1 Overlapping search bases
@@ -329,7 +329,7 @@ For example, take the columns `e1, e2, e3, e1+e2+e3, e1, e2, e3`, the four 3-sub
 
 qLDPC solves the linear program with `scipy.optimize.linprog`, and takes as its bound the ceiling of the dual value of the solver's `y` in exact rational arithmetic, so that rounding in the solver can only weaken the bound.
 For disjoint blocks, the linear program separates by block and gives the certificate of [Section 2.5](#25-the-stopping-certificate), so only overlapping families use it.
-Because each linear program takes milliseconds, only searches whose estimated work reaches `LP_MINIMUM_WORK` use it.
+Because each linear program takes milliseconds, only searches whose estimated work reaches the threshold `lp_minimum_work` of [Section 4.4](#44-heuristics-and-cost-models) use it.
 To decide how many bases of a layer to search, a search solves a linear program only when the coverage-divided certificate falls short of `U` and a feasible point of the linear program shows that its optimum could reach `U`.
 It also solves one at the end of each layer, to update its lower certificate.
 
@@ -347,8 +347,10 @@ In qLDPC, `D` comes from two sources:
   The XOR of two even-weight words has even weight, so if all rows are even, every word in the space is even.
   When this holds, `D = 2` is combined with any existing divisor by taking the least common multiple.
 
-Parity is the only property checked in this way, because evenness of the rows carries over to all of their sums.
-A larger divisor does not: the rows `11110` and `01111` each have weight four, but their XOR `10001` has weight two.
+qLDPC checks only parity, which carries over from the rows to all of their sums.
+Divisibility by four does not carry over from the row weights alone: the rows `11110` and `01111` each have weight four, but their XOR `10001` has weight two.
+Since `wt(u + v) = wt(u) + wt(v) - 2|u ∩ v|`, every word in the space has a weight divisible by four exactly when every row does and every two rows overlap in an even number of coordinates.
+That stronger test mainly helps doubly even classical codes: in a CSS sector, it requires every logical operator of the sector to lie, as a binary vector, in the span of the stabilizers of the other type.
 
 ### 3.3 Sharing witnesses between CSS sectors
 
@@ -463,30 +465,30 @@ Actual runtime also depends on basis construction, the width of packed words, an
 Exhaustive enumeration is chosen at three points, which [Section 4.2](#42-flow-and-exit-points) lists.
 It enumerates words in vectorized, packed blocks and updates them with Gray-code steps, and it does not use the BZ certificate.
 
-### 3.7 Translates of an information set by automorphisms
+### 3.7 Images of an information set under automorphisms
 
 Many code constructions come with a group of qubit permutations that preserve the code.
 For example, translating both blocks of qubits of a multivariate bicycle code by an element of its group maps its checks of each type onto themselves.
 Such a group lets a search certify with a large family of information sets while scanning only one of them, which removes most of the cost of the layers that dominate a search.
 
-#### The certificate of translates
+#### The certificate of an automorphism family
 
 Call a permutation `g` of the coordinates an **automorphism** of a problem if it maps both `V` and `S` onto themselves.
 An automorphism maps each eligible word to an eligible word of the same weight, and each information set `I` to another information set `g(I)`.
-Let `G` be a group of automorphisms, and consider the family of the translates `g(I)` for all `g` in `G`.
+Let `G` be a group of automorphisms, and consider the family of the images `g(I)` for all `g` in `G`, which we call an automorphism family.
 
 Suppose that the search has examined every word `v` with `wt(v|_I) ≤ t`, as searching the systematic basis `G_I` through weight `t` does ([Section 2.3](#23-systematic-bases-and-information-sets)).
-If an eligible word `c` has at most `t` ones on a translate `g(I)`, then `g⁻¹(c)` is an eligible word of the same weight with at most `t` ones on `I`, which the search has examined.
-So if no word of the orbit of `c` under `G` has been examined, `c` has at least `t+1` ones on every translate, and the certificate of the family of translates bounds its weight.
+If an eligible word `c` has at most `t` ones on an image `g(I)`, then `g⁻¹(c)` is an eligible word of the same weight with at most `t` ones on `I`, which the search has examined.
+So if no word of the orbit of `c` under `G` has been examined, `c` has at least `t+1` ones on every image, and the certificate of the automorphism family bounds its weight.
 Every other eligible word weighs as much as an examined word, and hence at least `U`.
 So once that certificate reaches `U`, no eligible word is lighter than `U`, and the search stops with the exact distance, just as in [Section 2.5](#25-the-stopping-certificate).
 
-The search therefore scans only `I`, and every translate completes each layer when `I` does.
-Each layer costs `binom(r, t)` candidate/set evaluations however many translates the family has, so the work estimate of [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) becomes `W = sum_{w=1}^{t*} binom(r, w)`, where `t*` is the first layer after which the certificate reaches `U`.
-Every translate completes a layer together, so the certificate advances once per layer, rather than in the steps within a layer of [Section 2.5](#25-the-stopping-certificate).
+The search therefore scans only `I`, and every image completes each layer when `I` does.
+Each layer costs `binom(r, t)` candidate/set evaluations however many images the family has, so the work estimate of [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) becomes `W = sum_{w=1}^{t*} binom(r, w)`, where `t*` is the first layer after which the certificate reaches `U`.
+Every image completes a layer together, so the certificate advances once per layer, rather than in the steps within a layer of [Section 2.5](#25-the-stopping-certificate).
 
 A column `c` in an orbit `O` of `G` lies in `g(I)` for `|I ∩ O| |G| / |O|` elements `g`, since `G` maps each column of `I ∩ O` to `c` equally often.
-The family of the `|G|` translates therefore has maximum coverage `C = |G| max_O |I ∩ O| / |O|`, and the coverage-divided certificate of [Section 3.1](#31-overlapping-search-bases) is
+The family of the `|G|` images therefore has maximum coverage `C = |G| max_O |I ∩ O| / |O|`, and the coverage-divided certificate of [Section 3.1](#31-overlapping-search-bases) is
 
 $$
 L(t) = \left\lceil (t+1) \min_O \frac{|O|}{|I \cap O|} \right\rceil,
@@ -506,13 +508,13 @@ For two orbits, these exchanges reach the fewest pivots in the fuller orbit that
 If no exchange moves a pivot out of that orbit, every column of the other orbit lies in the span of the pivots in it.
 With more orbits, the exchanges are a heuristic.
 
-#### When a search uses translates
+#### When a search uses an automorphism family
 
 Finding automorphisms can take milliseconds, as long as many whole searches take.
 Before a search finds a light witness, its work estimate of [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) is too pessimistic to tell such easy searches apart.
 A search therefore starts with the families of Sections [2.4](#24-search-bases-and-rank-deficient-blocks) and [3.1](#31-overlapping-search-bases).
-Before the first layer whose scan would cost at least `MINIMUM_LAYER_WORK` candidate/set evaluations, it asks for automorphisms once.
-If their family of translates has a smaller work estimate for the current `U`, the search continues with it, from layer two.
+Before the first layer whose scan would cost at least `automorphism_minimum_layer_work` candidate/set evaluations ([Section 4.4](#44-heuristics-and-cost-models)), it asks for automorphisms once.
+If their automorphism family has a smaller work estimate for the current `U`, the search continues with it, from layer two.
 
 This switch keeps both certificates.
 An eligible word lighter than `U` is unexamined by both families, since examining it would have lowered `U`.
@@ -529,7 +531,8 @@ These automorphisms are the symmetries of the given parity checks, a subgroup of
 This subgroup suffices, since every group of automorphisms gives a sound certificate.
 
 Without `pybliss`, or if bliss finds none, code classes can supply generators through a `_get_qudit_automorphisms` method.
-`MBCode` supplies the translations of its group, which act on the qubits of each block by a regular permutation.
+`MBCode` and `PairPartitionCode` supply the translations of their groups, which act on the qubits of each block by a regular permutation.
+`GALACode`, `LPCode`, and `SLPCode` supply them when their groups are abelian and lift to permutation matrices.
 A wrong generator would make the certificate unsound.
 So before a search uses the generators, it checks that each maps `V` and `S` onto themselves, and raises an error if one does not.
 Only distance searches use automorphisms: counting the logical operators of a given weight ([Section 5](#5-correctness-requirements)) must visit every word of that weight, not one word per orbit.
@@ -542,7 +545,7 @@ Verification of a lifted permutation therefore checks the original one.
 
 ### 3.8 Worked example
 
-This example uses one CSS sector of the MB64 code from the test suite ([_brouwer_zimmermann_test.py](_brouwer_zimmermann_test.py)).
+This example uses one CSS sector of the MB64 code from the test suite ([_search/brouwer_zimmermann_test.py](_search/brouwer_zimmermann_test.py)).
 The sector has these properties:
 
 - It has 64 coordinates and dimension `r = 41`.
@@ -579,7 +582,7 @@ For a high-level explanation, see Sections [2](#2-the-brouwer-zimmermann-algorit
 
 This section is a guide to the source files in this directory.
 It connects the concepts of Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations) to modules, identifiers, and behavior that spans files.
-Heuristic tunables are identified by parameter name so that their current values can be found in the source.
+The thresholds of the heuristics are fields of `SearchTuning` in [_tuning.py](_tuning.py), whose docstrings give their meanings and defaults, and [Section 4.4](#44-heuristics-and-cost-models) says where each threshold of a search route is used.
 
 ### 4.1 Module map and layering
 
@@ -588,22 +591,22 @@ The rest of this section describes how the searches use those modules.
 
 [`__init__.py`](__init__.py) exports names from [core.py](core.py) and [logical_counts.py](logical_counts.py).
 [logical_counts.py](logical_counts.py) counts the logical operators of a given weight exactly.
-It builds its families and certificates with the same stages of [_information_sets.py](_information_sets.py) as the distance search, under the constraint in [Section 5](#5-correctness-requirements).
+It builds its families and certificates with the same stages of [_search/information_sets.py](_search/information_sets.py) as the distance search, under the constraint in [Section 5](#5-correctness-requirements).
 It runs the stages in `_select_basis_family` and `count_words` of [_counting/scan.py](_counting/scan.py), and its distance search starts from the disjoint basis families that it keeps for counting.
 The set-up functions of both searches can be compiled on request, through [_compilation.py](../../_compilation.py).
 The code that only counting uses is in the `_counting` package.
-The family policy lives only in [_information_sets.py](_information_sets.py), including the minimum work and the fixed-seed generator that `get_overlapping_family_policy` gives every caller of the overlapping stage, so a change to it applies to both consumers.
-[core.py](core.py) calls [_brouwer_zimmermann.py](_brouwer_zimmermann.py) and [_brute_force.py](_brute_force.py), and [_brouwer_zimmermann.py](_brouwer_zimmermann.py) calls [_brute_force.py](_brute_force.py) for its exhaustive routes.
-All three modules use [_binary.py](_binary.py), and they and [_information_sets.py](_information_sets.py) use the bit-packed linear algebra over GF(2) in [qldpc/_binary.py](../../_binary.py).
+`get_overlapping_family_policy` in [_search/information_sets.py](_search/information_sets.py) gives every caller of the overlapping stage its thresholds and its fixed-seed generator, so a change to either applies to both consumers.
+[core.py](core.py) calls [_search/brouwer_zimmermann.py](_search/brouwer_zimmermann.py) and [_search/brute_force.py](_search/brute_force.py), and [_search/brouwer_zimmermann.py](_search/brouwer_zimmermann.py) calls [_search/brute_force.py](_search/brute_force.py) for its exhaustive routes.
+All three modules use [_binary.py](_binary.py), and they and [_search/information_sets.py](_search/information_sets.py) use the bit-packed linear algebra over GF(2) in [qldpc/_binary.py](../../_binary.py).
 Every module with compiled functions uses [_compilation.py](../../_compilation.py).
 `_get_distance_css_brouwer_zimmermann` of [core.py](core.py) builds an adapted basis ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)) for each nontrivial sector, then passes the resulting problems to `get_distance_brouwer_zimmermann_many`.
 It also passes a function that returns automorphisms of the code.
 `get_distance_exact` of `CSSCode` in `src/qldpc/codes/common.py` passes the code's `_found_qudit_automorphisms`, which uses bliss from `src/qldpc/external/_bliss.py` or the code's `_get_qudit_automorphisms` method.
 `get_distance_exact` of `QuditCode` passes the same function to `_get_distance_quantum`, a private form of `get_distance_quantum` that accepts automorphisms.
 `_get_distance_quantum` lifts them to the coordinates of a general Pauli problem with `_get_lifted_automorphisms`, and passes its problem to `get_distance_brouwer_zimmermann_many`.
-[_automorphisms.py](_automorphisms.py) verifies automorphisms and builds the families of translates of [Section 3.7](#37-translates-of-an-information-set-by-automorphisms), using [_information_sets.py](_information_sets.py) for their certificates.
+[_search/automorphism_families.py](_search/automorphism_families.py) verifies automorphisms and builds the automorphism families of [Section 3.7](#37-images-of-an-information-set-under-automorphisms), using [_search/information_sets.py](_search/information_sets.py) for their certificates.
 
-`CosetLeaderSearch` in [_coset_leader_search.py](_coset_leader_search.py), which the fault-propagation certifier in `qldpc.circuits.certification` uses, applies the same search to a coset `e + V` instead of `V`.
+`CosetLeaderSearch` in [_search/coset_leader_search.py](_search/coset_leader_search.py), which the fault-propagation certifier in `qldpc.circuits.certification` uses, applies the same search to a coset `e + V` instead of `V`.
 There a layer adds `w` rows to an **offset**, a word of the coset that is zero on the pivot columns ([Section 2.3](#23-systematic-bases-and-information-sets)), so layer zero is the offset itself.
 The certificate applies unchanged, except that it takes no weight divisor ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)), because the words of a coset need not share the divisibility of `V`.
 A query stops at the first step whose certificate exceeds its threshold, and it skips each rank-deficient search basis whose deficiency keeps it out of that certificate.
@@ -625,28 +628,28 @@ An integer returned by preparation can incorporate a witness from another sector
 | `method="brute_force"` | Runs exhaustive enumeration over an independent basis, adapted to `S ⊆ V` for a quantum problem |
 
 `_prepare_brouwer_zimmermann_search` considers the following exits in order.
-The disjoint family, its pruning, and any overlapping or partitioned replacement come from the stages of [_information_sets.py](_information_sets.py); the exits between those stages belong to the distance search.
+The disjoint family, its pruning, and any overlapping or partitioned replacement come from the stages of [_search/information_sets.py](_search/information_sets.py); the exits between those stages belong to the distance search.
 
 | Preparation stage | Outcome |
 | --- | --- |
 | Initial row witness | Returns if `U ≤ cutoff`, where `U` includes the lightest eligible row and any supplied bound (from another sector or a weight limit) |
-| Exhaustive by size | Runs exhaustive enumeration if `enumeration_is_cheaper_than_setup(dimension, length)` approves |
+| Exhaustive by size | Runs exhaustive enumeration if the tuning field `allow_enumeration_by_size` is true and `enumeration_is_cheaper_than_setup(dimension, length)` approves |
 | Rows of the disjoint family | Returns if checking the rows of every search basis gives `U ≤ cutoff` |
 | Certificate of the disjoint family | Returns if `L(1) ≥ U` |
 | Rows of each replacement family, overlapping and then partitioned, if selected | Returns if `U ≤ cutoff` |
 | Certificate of each replacement family | Returns if `L(1) ≥ U` |
-| Exhaustive by work | Runs exhaustive enumeration if `_enumeration_is_cheaper_than_search` finds that the eligible-word count is at most the estimated BZ work of [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) |
+| Exhaustive by work | Runs exhaustive enumeration if the tuning field `allow_enumeration_by_work` is true and `_enumeration_is_cheaper_than_search` finds that the eligible-word count is at most the estimated BZ work of [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) |
 | Ready search | Returns a `_BrouwerZimmermannSearch` that scans from layer two |
 
 Exhaustive enumeration is chosen automatically at three points: the direct shortcut, preparation's size check, and preparation's work check.
 
 | Search location | Outcome |
 | --- | --- |
-| `_BrouwerZimmermannSearch.advance` | Returns after one layer, or after the leading search bases of a layer that certify `U`, or earlier if `U ≤ cutoff`; a search may first switch to translates ([Section 3.7](#37-translates-of-an-information-set-by-automorphisms)); a finished search does no further work |
+| `_BrouwerZimmermannSearch.advance` | Returns after one layer, or after the leading search bases of a layer that certify `U`, or earlier if `U ≤ cutoff`; a search may first switch to an automorphism family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)); a finished search does no further work |
 | `_BrouwerZimmermannSearch.finished` | Marks a search finished if `U ≤ cutoff`, `L ≥ U`, or every layer has been enumerated (`next_weight > dimension`) |
 | `get_distance_brouwer_zimmermann_many` | Returns the shared best bound when it is at most `cutoff` after an advance, or when no search can advance |
 
-The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_cutoffs`, `test_translated_rows_can_reach_the_cutoff`, and `test_brouwer_zimmermann_exhaustive_dispatch` exercise these exits.
+The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_cutoffs`, `test_rows_of_an_automorphism_family_can_reach_the_cutoff`, and `test_brouwer_zimmermann_exhaustive_dispatch` exercise these exits.
 
 ### 4.3 Concept-to-code glossary
 
@@ -658,7 +661,7 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Certificate from linear programming | `get_lp_lower_bound`, which a `Certificate` with `pivot_blocks` combines with the coverage-divided certificate; `BasisFamily.get_search_certificate` adds the blocks to costly searches of overlapping families |
 | Family of search bases | `BasisFamily`, which stacks the search bases into arrays and gives their `Certificate`; a search keeps only the certificate |
 | Automorphisms, generators of `G` | `automorphisms`, whose row `i` maps column `j` to column `automorphisms[i, j]`, as returned by `get_automorphisms`; `_found_qudit_automorphisms` and `_get_qudit_automorphisms` of `QuditCode` |
-| Family of translates | `get_translate_family` of [_automorphisms.py](_automorphisms.py), which returns a `BasisFamily` of the scanned set and the `Certificate` of all of its translates; `_switch_to_translates` adopts them, and a search of such a family is `translated` |
+| Automorphism family | `get_automorphism_family` of [_search/automorphism_families.py](_search/automorphism_families.py), which returns a `BasisFamily` of the scanned set and the `Certificate` of all of its images; `_switch_to_automorphism_family` adopts them, and a search of such a family is `translated` |
 | Last completed layer `t`, next layer | `completed_weight`, `next_weight` |
 | Divisor `D` | `Certificate.weight_divisor`, in Hamming units of the searched basis |
 | Maximum coverage `C` | `Certificate.max_coverage` |
@@ -668,7 +671,7 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Stored width `N_stored` | `basis.shape[1]` before pivot deletion, including any all-zero columns |
 | Labels `M` | `labels`, which has no columns for a classical problem |
 | Eligible rows | `get_eligible_rows` of [_binary.py](_binary.py): every row of a classical basis; rows with nonzero labels for a quantum problem |
-| Support, prefix XORs | `support` and `prefixes` in `advance` and `_scan_brouwer_zimmermann`, which steps through a layer with `advance_support` of [_information_sets.py](_information_sets.py) |
+| Support, prefix XORs | `support` and `prefixes` in `advance` and `_scan_brouwer_zimmermann`, which steps through a layer with `advance_support` of [_search/information_sets.py](_search/information_sets.py) |
 | Packed generators | `generators` of `_BrouwerZimmermannSearch`: `uint64` words after deleting pivot columns; `widths` counts the valid words for each search basis |
 | Packed labels | `labels` of `_BrouwerZimmermannSearch`: `uint64` quotient-label words, without pivot-column deletion; `label_widths` counts the valid words |
 | Chunk | `batch_size`, equal to `1 << min(block_size, 15)` supports |
@@ -685,6 +688,8 @@ The certificate is computed from verified ranks and the actual maximum coverage 
 The heuristics below change search work while preserving certificate validity.
 With an early-exit cutoff above one, a different search order can find a different first witness at or below the cutoff, while preserving the upper-bound contract of [Section 4.5](#45-behavior-spanning-files).
 
+The Tuning section of [README.md](README.md) explains how searches read the thresholds of these heuristics.
+
 - **`get_disjoint_family`** builds the disjoint family greedily in natural column order.
   If that does not reach the maximum number of blocks that are information sets, it tries a small fixed number of fixed-seed random column orders and keeps the family with the lexicographically largest tuple of ranks.
   Fixed seeds keep results reproducible, and the bounded retries keep setup cheap.
@@ -693,19 +698,19 @@ With an early-exit cutoff above one, a different search order can find a differe
   A search basis whose block has rank deficiency `d = r - r_i` has a term `b_i(t)` that is zero for `t < d`.
   The function removes such a search basis when the blocks that are information sets reach `U` by layer `d`, so the removal leaves the result unchanged and saves enumeration.
   It removes nothing if no block is an information set.
-- **`get_overlapping_family`** tries to lower the work estimate of the disjoint family, with tunables `max_sets` and `minimum_work`.
+- **`get_overlapping_family`** tries to lower the work estimate of the disjoint family, with the thresholds `max_information_sets` and `overlapping_minimum_work`, which it receives as `max_sets` and `minimum_work`.
   It returns a basis family with no sets if the existing work is below `minimum_work`, if the blocks already use every nonzero column, if the family is at `max_sets`, or if even the optimistic coverage `ceil(m*r/N)` cannot reduce the estimate.
   Otherwise it builds search bases by row reducing on column orders that put the least-used columns first, breaking ties with a generator that `get_overlapping_family_policy` seeds afresh for every call, and keeps the cheapest family built.
   A repeated pivot set is discarded, but it still consumes one of a bounded number of attempts.
 - **`get_partitioned_family`** builds families of information sets in which no column appears more than `b` times, for `b` from two to four.
-  It uses the matroid partitioning of Section 5.1 of Lisoněk and Trummer (see [References](#references)), in `_matroid_partition.py`, so each family has the most information sets, up to `max_sets`, that its coverage allows.
+  It uses the matroid partitioning of Section 5.1 of Lisoněk and Trummer (see [References](#references)), in `_search/matroid_partition.py`, so each family has the most information sets, up to `max_information_sets`, that its coverage allows.
   A search uses the family with the least estimated work if it does less work than the family of the earlier stages.
-  It tries this only if its estimated work is at least `PARTITION_WORK_RATIO` times an estimate of the work of partitioning, and the optimistic coverage `ceil(m*r/N)` does not rule out an improvement.
-- **`get_search_certificate`** adds the certificate from linear programming ([Section 3.1](#31-overlapping-search-bases)) to searches of overlapping families whose estimated work reaches `LP_MINIMUM_WORK`, since smaller searches cost less than their linear programs.
+  It tries this only if its estimated work is at least `partition_work_ratio` times an estimate of the work of partitioning, and the optimistic coverage `ceil(m*r/N)` does not rule out an improvement.
+- **`get_search_certificate`** adds the certificate from linear programming ([Section 3.1](#31-overlapping-search-bases)) to searches of overlapping families whose estimated work reaches `lp_minimum_work`, since smaller searches cost less than their linear programs.
   The work estimates that choose families use only the coverage-divided certificate.
-- **`get_translate_family`** row reduces in natural column order, then exchanges pivots between orbits in the compiled `_balance_orbit_shares`, as [Section 3.7](#37-translates-of-an-information-set-by-automorphisms) explains.
-  A search asks for automorphisms before the first layer whose scan would cost at least `MINIMUM_LAYER_WORK`, and switches to translates if `estimate_translate_work` is less than the `Certificate.work` of its family.
-- **`Certificate.work`, `estimate_translate_work`, `_enumeration_is_cheaper_than_search`, and `enumeration_is_cheaper_than_setup`** are cost models, which Sections [3.6](#36-exhaustive-enumeration-as-a-fallback) and [3.7](#37-translates-of-an-information-set-by-automorphisms) explain.
+- **`get_automorphism_family`** row reduces in natural column order, then exchanges pivots between orbits in the compiled `_balance_orbit_shares`, as [Section 3.7](#37-images-of-an-information-set-under-automorphisms) explains.
+  A search asks for automorphisms before the first layer whose scan would cost at least `automorphism_minimum_layer_work`, and switches to the automorphism family if `estimate_automorphism_family_work` is less than the `Certificate.work` of its family.
+- **`Certificate.work`, `estimate_automorphism_family_work`, `_enumeration_is_cheaper_than_search`, and `enumeration_is_cheaper_than_setup`** are cost models, which Sections [3.6](#36-exhaustive-enumeration-as-a-fallback) and [3.7](#37-images-of-an-information-set-under-automorphisms) explain.
   They are not runtime guarantees.
   `enumeration_is_cheaper_than_setup` compares the setup cost of BZ with packed enumeration of all words, and its rule is in the source.
 
@@ -741,7 +746,7 @@ With an early-exit cutoff above one, a different search order can find a differe
 - **Resumable layers.**
   The compiled scan returns after at most `batch_size` supports.
   Within one `advance` call, successive compiled batches reuse the local `support` and `prefixes` arrays.
-  `advance` changes `lower_bound` and `next_weight` only after a layer is complete in every search basis, or when the search switches to translates, which sets `next_weight` to two and keeps the larger `lower_bound`.
+  `advance` changes `lower_bound` and `next_weight` only after a layer is complete in every search basis, or when the search switches to an automorphism family, which sets `next_weight` to two and keeps the larger `lower_bound`.
   Aborting `advance`, for example with an exception or a cutoff return, leaves those completed-layer fields unchanged.
   A subsequent call that is still permitted to advance restarts the unfinished layer from its first support.
 - **CSS sectors.**
@@ -774,7 +779,7 @@ Changes to the BZ algorithm can use different representations, certificates, and
   Coverage may be conservatively overestimated; underestimating it can make the formula unsound.
   Optional rounding requires a divisor valid for every eligible weight ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)).
   A certificate from another CSS sector needs justification for the sector where it is applied, just as any other certificate does.
-  The certificate of a family of translates holds instead for every eligible word whose images under the automorphisms are all unexamined, so it requires automorphisms that map `V` and `S` onto themselves ([Section 3.7](#37-translates-of-an-information-set-by-automorphisms)), which searches verify before they use them.
+  The certificate of an automorphism family holds instead for every eligible word whose images under the automorphisms are all unexamined, so it requires automorphisms that map `V` and `S` onto themselves ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), which searches verify before they use them.
 - **Keep the strict certificate available to fixed-weight counting.**
   [logical_counts.py](logical_counts.py) builds its basis family with the same stages as the distance search, in `_select_basis_family` and `count_words` of [_counting/scan.py](_counting/scan.py), and stops at the first step after which that basis family's certificate exceeds a target weight `w`, to count every word of weight `w`, which defaults to the distance.
   Distance may stop at `L(t, j) ≥ U`, but counting must also exhaust words of weight exactly `w`, so it stops only at `L(t, j) > w`.
@@ -785,10 +790,10 @@ Changes to the BZ algorithm can use different representations, certificates, and
   Such an early exit returns the weight of a known eligible witness, an upper bound between the distance and `cutoff` ([Section 4.5](#45-behavior-spanning-files)).
   Under a weight limit, return the smaller of the distance and `max_weight+1`; an early exit must still return a witness within the limit.
 
-Representative correctness tests check certificate validity against exhaustive words, including rank-deficient blocks, inferred parity, and overlapping coverage (`test_family_certificates` and `test_overlapping_family_certificates` in [_information_sets_test.py](_information_sets_test.py)), and joint-search results with distinct sector certificates (`test_brouwer_zimmermann_sector_certificates` in [_brouwer_zimmermann_test.py](_brouwer_zimmermann_test.py)).
+Representative correctness tests check certificate validity against exhaustive words, including rank-deficient blocks, inferred parity, and overlapping coverage (`test_family_certificates` and `test_overlapping_family_certificates` in [_search/information_sets_test.py](_search/information_sets_test.py)), and joint-search results with distinct sector certificates (`test_brouwer_zimmermann_sector_certificates` in [_search/brouwer_zimmermann_test.py](_search/brouwer_zimmermann_test.py)).
 `test_counting_continues_at_an_equal_lower_bound` in [logical_counts_test.py](logical_counts_test.py) checks the strict counting stop with a count that a stop at `L(t) = w` would miss.
-`test_translates_certify_like_the_family_of_all_translates` in [_automorphisms_test.py](_automorphisms_test.py) checks the certificate of translates against every translate of the scanned set, and `test_translated_searches_scan_every_layer_they_certify` in [_brouwer_zimmermann_test.py](_brouwer_zimmermann_test.py) checks a translated search whose lightest word appears only in its last layer.
-`test_translated_searches_scan_their_new_set_from_layer_two` checks a distance that a search that switched to translates would miss if it skipped the early layers of its new set.
+`test_automorphism_families_certify_like_the_family_of_all_images` in [_search/automorphism_families_test.py](_search/automorphism_families_test.py) checks the certificate of an automorphism family against every image of the scanned set, and `test_automorphism_family_searches_scan_every_layer_they_certify` in [_search/brouwer_zimmermann_test.py](_search/brouwer_zimmermann_test.py) checks a translated search whose lightest word appears only in its last layer.
+`test_automorphism_family_searches_scan_their_new_set_from_layer_two` checks a distance that a search that switched to an automorphism family would miss if it skipped the early layers of its new set.
 `test_searches_ask_for_automorphisms_only_before_costly_layers` checks that easy searches do not pay to find automorphisms.
 In [core_test.py](core_test.py), `test_brouwer_zimmermann_random_cross_checks` forces the BZ route and compares both homogeneous and general Pauli problems with exhaustive results.
 `test_max_weight` checks weight-limited results against enumeration on every route, and `test_max_weight_caps_cutoff` checks a case that a weight limit without the `cutoff` cap would get wrong.
@@ -802,5 +807,5 @@ Those tests can evolve with the implementation; they do not make a particular in
 - M. Grassl, "Searching for linear codes with large minimum distance," in *Discovering Mathematics with Magma*, Springer, 2006, pp. 287-313 ([doi:10.1007/978-3-540-37634-7_13](https://doi.org/10.1007/978-3-540-37634-7_13)): Algorithm 2.5 gives the certificate for overlapping information sets, footnote 2 on page 295 the certificate within a layer, page 299 the rounding to a weight divisor, and Algorithm 2.11 the choice between BZ and the weight distribution.
 - P. Lisoněk and L. Trummer, "Algorithms for the minimum weight of linear codes," *Advances in Mathematics of Communications* 10(1), 195-207, 2016 ([doi:10.3934/amc.2016.10.195](https://doi.org/10.3934/amc.2016.10.195)): equation (5) gives the certificate within a layer, Proposition 5 a coverage-divided certificate for any blocks, and Section 5.1 builds families of information sets with bounded coverage by matroid partitioning.
 - [arXiv:2408.10743v2](https://arxiv.org/abs/2408.10743v2): Section 2.4 describes the `Saved_isometry` symplectic-to-Hamming construction.
-- [core.py](core.py), [_brouwer_zimmermann.py](_brouwer_zimmermann.py), [_information_sets.py](_information_sets.py), [_automorphisms.py](_automorphisms.py), [_matroid_partition.py](_matroid_partition.py), [_brute_force.py](_brute_force.py), [_binary.py](_binary.py), and [qldpc/_binary.py](../../_binary.py): the implementation.
-- [_brouwer_zimmermann_test.py](_brouwer_zimmermann_test.py), [_information_sets_test.py](_information_sets_test.py), [_automorphisms_test.py](_automorphisms_test.py), and [core_test.py](core_test.py): executable invariants and independent small-instance oracles.
+- [core.py](core.py), [_search/brouwer_zimmermann.py](_search/brouwer_zimmermann.py), [_search/information_sets.py](_search/information_sets.py), [_search/automorphism_families.py](_search/automorphism_families.py), [_search/matroid_partition.py](_search/matroid_partition.py), [_search/brute_force.py](_search/brute_force.py), [_binary.py](_binary.py), and [qldpc/_binary.py](../../_binary.py): the implementation.
+- [_search/brouwer_zimmermann_test.py](_search/brouwer_zimmermann_test.py), [_search/information_sets_test.py](_search/information_sets_test.py), [_search/automorphism_families_test.py](_search/automorphism_families_test.py), and [core_test.py](core_test.py): executable invariants and independent small-instance oracles.

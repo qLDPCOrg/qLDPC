@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Families of the translates of one information set by automorphisms of a search problem.
+"""Automorphism families: the images of one information set under automorphisms of a problem.
 
 A permutation of columns that maps both the space ``V`` of a search and its excluded subspace ``S``
 onto themselves maps each eligible word to an eligible word of the same weight.  Let ``G`` be a
-group of such permutations, and ``I`` an information set.  A word with at most ``t`` ones on a
-translate ``g(I)`` is the image of a word with the same weight and eligibility and at most ``t``
-ones on ``I``.  So a BZ search can scan ``I`` alone, and certify with the family of all of its
-translates, which completes each coefficient layer when ``I`` does.  Section 3.7 of
-``brouwer_zimmermann.md`` derives the certificate of this family.
+group of such permutations, and ``I`` an information set.  A word with at most ``t`` ones on an
+image ``g(I)`` is the image of a word with the same weight and eligibility and at most ``t`` ones
+on ``I``.  So a BZ search can scan ``I`` alone, and certify with the automorphism family of the
+images of ``I`` under all of ``G``, which completes each coefficient layer when ``I`` does.
+Section 3.7 of ``brouwer_zimmermann.md`` derives the certificate of this family.
 """
 
 from __future__ import annotations
@@ -21,11 +21,11 @@ import numpy.typing as npt
 from qldpc._binary import get_rank_packed, pack_bits, row_reduce_packed, unpack_bits
 from qldpc._compilation import always_compiled
 
-from ._binary import get_eligible_rows
-from ._information_sets import BasisFamily, Certificate, get_capped_binomials
+from .._binary import get_eligible_rows
+from .information_sets import BasisFamily, Certificate, get_capped_binomials
 
 ####################################################################################################
-# families of translates
+# automorphism families
 
 
 def verify_automorphisms(
@@ -61,22 +61,22 @@ def verify_automorphisms(
                 raise ValueError("A permutation is not an automorphism of the search problem")
 
 
-def get_translate_family(
+def get_automorphism_family(
     basis: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8],
     automorphisms: npt.NDArray[np.int_],
     weight_divisor: int,
 ) -> tuple[BasisFamily, Certificate]:
-    """Choose an information set to scan, and certify it with its translates.
+    """Choose an information set to scan, and certify it with its images under automorphisms.
 
     ``basis``, ``labels``, and ``automorphisms`` are as in ``verify_automorphisms``, which must
     accept them, and ``weight_divisor`` is a proven divisor of the Hamming weight of every eligible
-    word.  A column of an orbit ``O`` of the group lies in the same number of translates as every
-    other column of ``O``, so the certificate is strongest when the scanned set ``I`` meets every
-    orbit in an even share ``|I ∩ O| / |O|``.
+    word.  A column of an orbit ``O`` of the group lies in the same number of images of ``I`` as
+    every other column of ``O``, so the certificate is strongest when the scanned set ``I`` meets
+    every orbit in an even share ``|I ∩ O| / |O|``.
 
     Returns:
-        A basis family of ``I`` alone, and the certificate of all of its translates.
+        A basis family of ``I`` alone, and the certificate of all of its images.
     """
     dimension, num_columns = basis.shape
     orbits = _get_orbits(automorphisms, num_columns)
@@ -89,7 +89,7 @@ def get_translate_family(
         unpack_bits(packed_labels, labels.shape[1]),
     )
 
-    # Each column of an orbit O lies in |I ∩ O| |G| / |O| of the |G| translates.  The coverage
+    # Each column of an orbit O lies in |I ∩ O| |G| / |O| of the |G| images.  The coverage
     # bound of the family, ceil(|G| (t + 1) / C) for maximum coverage C, depends only on the ratio
     # |G| / C.  For the orbit with the largest share |I ∩ O| / |O|, this ratio is |O| / |I ∩ O|,
     # which the certificate represents in lowest terms as a number of sets and a coverage.
@@ -110,11 +110,11 @@ def get_translate_family(
     return basis_family, certificate
 
 
-def estimate_translate_work(certificate: Certificate, upper_bound: int) -> int:
-    """Estimate the candidate/set evaluations of a search that certifies with translates.
+def estimate_automorphism_family_work(certificate: Certificate, upper_bound: int) -> int:
+    """Estimate the candidate/set evaluations of a search that certifies with automorphisms.
 
     This is ``Certificate.work`` for a search that scans one set of the family of ``certificate``,
-    whose other sets are its translates, and it is pessimistic in the same way.
+    whose other sets are its images, and it is pessimistic in the same way.
     """
     binomials = get_capped_binomials(certificate.dimension)
     work = 0

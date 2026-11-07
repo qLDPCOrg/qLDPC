@@ -14,8 +14,8 @@ import pytest
 import qldpc
 from qldpc._binary import pack_bits
 
-from . import _binary as binary
-from .conftest import count_set_bits
+from .. import _binary as binary
+from ..conftest import count_set_bits
 
 
 @pytest.mark.parametrize("block_size", [1, 3, 13])
@@ -83,7 +83,7 @@ def test_get_distance_quantum(homogeneous: bool, block_size: int) -> None:
     spy = (
         mock.patch.object(np, "bitwise_count", _spy_weight)
         if homogeneous
-        else mock.patch("qldpc.codes.distance._brute_force.symplectic_weight", _spy_weight)
+        else mock.patch("qldpc.codes.distance._search.brute_force.symplectic_weight", _spy_weight)
     )
     with spy:
         distance = qldpc.codes.distance.get_distance_quantum(

@@ -13,8 +13,8 @@ import pytest
 
 from qldpc._binary import row_reduce_binary
 
-from ._matroid_partition import get_information_sets_with_coverage
-from .conftest import get_random_full_rank_matrix
+from ..conftest import get_random_full_rank_matrix
+from .matroid_partition import get_information_sets_with_coverage
 
 
 def _is_information_set(basis: npt.NDArray[np.uint8], columns: list[int]) -> bool:

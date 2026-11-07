@@ -57,10 +57,10 @@ autoapi_dirs = [
 autoapi_type = "python"
 
 # Note: "imported-members" is intentionally omitted.  Including it re-documents every object on each
-# parent package's page (e.g. classes defined in qldpc/codes/quantum.py would also appear on the
-# qldpc.codes page), which both roughly doubles the number of pages/warnings and produces ambiguous
-# cross-references.  Each object is instead documented once, on the page of the module that defines
-# it.
+# parent package's page (e.g. classes defined in qldpc/codes/quantum/surface.py would also appear on
+# the qldpc.codes and qldpc.codes.quantum pages), which both roughly doubles the number of
+# pages/warnings and produces ambiguous cross-references.  Each object is instead documented once,
+# on the page of the module that defines it.
 autoapi_options = [
     "members",
     "undoc-members",
@@ -85,8 +85,8 @@ def _skip_decoder_specification_helpers(
     """Skip static AutoAPI entries of generated decoder specification helpers.
 
     Helpers such as ``bp_osd = decoder_spec(...)`` are assignments, so AutoAPI, which reads source
-    statically, would render them as data with no signature.  decoders.rst documents them instead
-    with autodoc, which inspects their runtime signatures and docstrings.
+    statically, would render them as data with no signature.  decoders/reference.rst documents them
+    instead with autodoc, which inspects their runtime signatures and docstrings.
     """
     if what != "data":
         return skip

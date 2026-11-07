@@ -9,7 +9,7 @@ import numpy.typing as npt
 
 from qldpc._binary import count_trailing_zeros, pack_bits
 
-from ._binary import get_eligible_rows, inplace_rowsum, riffle, symplectic_weight
+from .._binary import get_eligible_rows, inplace_rowsum, riffle, symplectic_weight
 
 ####################################################################################################
 # exhaustive enumeration

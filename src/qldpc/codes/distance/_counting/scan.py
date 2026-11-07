@@ -3,7 +3,7 @@
 """The scan of the words of one weight in a sector: its set-up, its loop, and its native chunks.
 
 A sector is a basis whose quotient labels mark its nontrivial words.  ``count_words`` selects
-information sets for the basis, with the basis family stages of ``_information_sets.py``, packs
+information sets for the basis, with the basis family stages of ``information_sets.py``, packs
 them, and visits each word of the given weight once, by enumerating combinations of the rows of
 every set, layer by layer.  ``transport_basis_family`` moves the disjoint basis family that a
 counter keeps for a sector, from which both its counts and its distance searches start, through a
@@ -22,19 +22,12 @@ import numpy.typing as npt
 from qldpc._binary import pack_bits, popcount_word, row_reduce_packed, unpack_bits
 from qldpc._compilation import always_compiled, compiled_on_request
 
-from .. import _information_sets
-from .._information_sets import advance_support
+from .._search import information_sets
+from .._search.information_sets import advance_support
+from .._tuning import SearchTuning
 from . import local_cliffords
 
 _PackedMatrix = npt.NDArray[np.uint64]
-
-# Supports, choices of rows of a set, that one call of ``_count_chunk`` visits.
-_CHUNK_SIZE = 1 << 16
-
-# Chunks that one call of ``_scan_coefficient_layers`` visits before it returns, unless the scan
-# ends sooner.  Compiled code cannot be interrupted, so a compiled scan is interruptible only
-# between its calls.
-_CHUNKS_PER_SCAN_CALL = 64
 
 # How a scan call ends: with every layer visited, after its allowance of chunks, or at a word that
 # is lighter than the target and nontrivial.
@@ -59,8 +52,8 @@ def count_words(
     complement: bool,
     max_exponent: int,
     reject_lighter: bool,
-    get_disjoint_basis_family: Callable[[], _information_sets.BasisFamily],
-    max_sets: int,
+    get_disjoint_basis_family: Callable[[], information_sets.BasisFamily],
+    tuning: SearchTuning,
 ) -> npt.NDArray[np.int64] | None:
     """Visit each nontrivial word of one sector with the given weight exactly once.
 
@@ -69,7 +62,8 @@ def count_words(
     the caller weighs each exponent by ``2**exponent``, which could overflow a native integer.  The
     scan also visits every lighter word, so with ``reject_lighter`` it returns None as soon as it
     finds a nontrivial one.  With ``brute_force``, it scans the whole basis as one set, rather than
-    the information sets of the Brouwer-Zimmermann search.
+    the information sets of the Brouwer-Zimmermann search.  ``tuning`` sets the thresholds that
+    choose those information sets, and the sizes of the chunks of the scan (see ``_tuning``).
     """
     # Select the information sets, or scan the whole basis as one set for brute force.
     if brute_force:
@@ -82,12 +76,16 @@ def count_words(
             labels,
             weight,
             get_disjoint_basis_family(),
-            max_sets,
-            *_information_sets.get_overlapping_family_policy(len(basis)),
+            *information_sets.get_overlapping_family_policy(tuning, len(basis)),
         )
         # Matroid partitioning runs outside of _select_basis_family, which can be compiled.
-        partitioned = _information_sets.get_partitioned_family(
-            basis, labels, basis_family, weight + 1, max_sets
+        partitioned = information_sets.get_partitioned_family(
+            basis,
+            labels,
+            basis_family,
+            weight + 1,
+            tuning.max_information_sets,
+            tuning.partition_work_ratio,
         )
         if len(partitioned.ranks):
             basis_family = partitioned
@@ -95,10 +93,10 @@ def count_words(
             basis_family, basis.shape[1], labels.shape[1]
         )
         last_layer, last_num_completed = _get_last_step(
-            basis_family.get_search_certificate(weight + 1), weight
+            basis_family.get_search_certificate(weight + 1, tuning.lp_minimum_work), weight
         )
 
-    # Scan in bounded calls, which compiled code cannot be interrupted within.
+    # Scan in bounded calls, since compiled code cannot be interrupted within a call.
     histogram = np.zeros(max_exponent + 1, dtype=np.int64)
     cursor = np.zeros(3, dtype=np.int64)
     cursor[_CURSOR_LAYER] = 1
@@ -124,18 +122,18 @@ def count_words(
             support,
             prefixes,
             histogram,
-            _CHUNK_SIZE,
-            _CHUNKS_PER_SCAN_CALL,
+            tuning.scan_chunk_size,
+            tuning.scan_chunks_per_call,
         )
     return None if status == _SCAN_FOUND_LIGHTER_WORD else histogram
 
 
 def transport_basis_family(
-    basis_family: _information_sets.BasisFamily,
+    basis_family: information_sets.BasisFamily,
     positions: npt.NDArray[np.int64],
     local: npt.NDArray[np.uint64],
     basis: npt.NDArray[np.uint8],
-) -> _information_sets.BasisFamily | None:
+) -> information_sets.BasisFamily | None:
     """The basis family of a sector after a local gate, or None if one of its sets stops being one.
 
     Each set is mapped through the gate and reduced again on its own pivot columns, so the pivots
@@ -155,7 +153,7 @@ def transport_basis_family(
     return basis_family._replace(
         generators=generators,
         labels=labels,
-        weight_divisor=_information_sets.infer_weight_divisor(basis),
+        weight_divisor=information_sets.infer_weight_divisor(basis),
     )
 
 
@@ -164,20 +162,20 @@ def _select_basis_family(
     basis: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8],
     weight: int,
-    basis_family: _information_sets.BasisFamily,
+    basis_family: information_sets.BasisFamily,
     max_sets: int,
     minimum_work: int,
     binomials: npt.NDArray[np.int64],
     rng: np.random.Generator,
-) -> _information_sets.BasisFamily:
+) -> information_sets.BasisFamily:
     """Run the basis family stages that can be compiled: pruning, then an overlapping replacement.
 
     The stages aim at the counting stop ``L(t) >= weight + 1``; any basis family gives an exact
     count.
     """
     upper_bound = weight + 1
-    pruned = _information_sets.prune_family(basis_family, upper_bound)
-    replacement = _information_sets.get_overlapping_family(
+    pruned = information_sets.prune_family(basis_family, upper_bound)
+    replacement = information_sets.get_overlapping_family(
         basis, labels, pruned, upper_bound, max_sets, minimum_work, binomials, rng
     )
     return replacement if len(replacement.ranks) > 0 else pruned
@@ -185,7 +183,7 @@ def _select_basis_family(
 
 @compiled_on_request
 def _pack_basis_family(
-    basis_family: _information_sets.BasisFamily, num_columns: int, num_label_columns: int
+    basis_family: information_sets.BasisFamily, num_columns: int, num_label_columns: int
 ) -> tuple[_PackedMatrix, _PackedMatrix, _PackedMatrix]:
     """Pack the rows and labels of the sets of a basis family, and their coefficient extractors.
 
@@ -201,7 +199,7 @@ def _pack_basis_family(
     return rows, packed_labels, _get_coefficient_extractors(basis_family, width)
 
 
-def _get_last_step(certificate: _information_sets.Certificate, weight: int) -> tuple[int, int]:
+def _get_last_step(certificate: information_sets.Certificate, weight: int) -> tuple[int, int]:
     """The first step after which the certificate rules out unvisited words of the given weight.
 
     A step completes a layer of one set, and the scan visits the sets of each layer in family order.
@@ -218,7 +216,7 @@ def _get_last_step(certificate: _information_sets.Certificate, weight: int) -> t
 
 @compiled_on_request
 def _get_coefficient_extractors(
-    basis_family: _information_sets.BasisFamily, width: int
+    basis_family: information_sets.BasisFamily, width: int
 ) -> _PackedMatrix:
     """Packed rows ``E.T`` for each set such that ``generators @ E`` is the identity over GF(2).
 

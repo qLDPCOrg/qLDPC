@@ -16,7 +16,7 @@ import pytest
 import stim
 
 from qldpc import circuits
-from qldpc.codes.distance._coset_leader_search import MinWeightBound
+from qldpc.codes.distance._search.coset_leader_search import MinWeightBound
 
 from . import fault_propagation
 

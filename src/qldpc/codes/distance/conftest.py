@@ -4,8 +4,7 @@
 
 import itertools
 from collections.abc import Iterator
-from typing import Any
-from unittest import mock
+from typing import Any, NamedTuple
 
 import galois
 import numpy as np
@@ -16,21 +15,52 @@ from qldpc import _compilation, codes
 from qldpc._binary import get_independent_rows, get_kernel
 from qldpc.objects import Pauli, PauliXZ
 
-from . import _automorphisms, _coset_leader_search, _information_sets
+from ..conftest import Tune
 from . import logical_counts as lc
 from ._binary import get_nested_code_basis
+from ._search import automorphism_families, coset_leader_search, information_sets
 from .core import DistanceMethod
 
 
 @pytest.fixture
-def force_information_sets() -> Iterator[None]:
+def force_information_sets(tune: Tune) -> None:
     """Route Brouwer-Zimmermann searches through information sets instead of exhaustive search."""
-    with mock.patch.multiple(
-        "qldpc.codes.distance._brouwer_zimmermann",
-        enumeration_is_cheaper_than_setup=mock.Mock(return_value=False),
-        _enumeration_is_cheaper_than_search=mock.Mock(return_value=False),
-    ):
-        yield
+    tune(allow_enumeration_by_size=False, allow_enumeration_by_work=False)
+
+
+class CostlyStages(NamedTuple):
+    """The results of the costly stages of searches, which the costly_stages fixture records."""
+
+    partitioned_families: list[information_sets.BasisFamily]
+    search_certificates: list[information_sets.Certificate]
+
+
+@pytest.fixture
+def costly_stages(monkeypatch: pytest.MonkeyPatch) -> CostlyStages:
+    """Record the families of matroid partitioning and the certificates that searches choose.
+
+    A family with sets and a maximum coverage above one shows that a search took a partitioned
+    family, and a certificate with pivot blocks shows that a search used linear programming.
+    """
+    stages = CostlyStages([], [])
+    get_partitioned_family = information_sets.get_partitioned_family
+    get_search_certificate = information_sets.BasisFamily.get_search_certificate
+
+    def record_family(*args: Any, **kwargs: Any) -> information_sets.BasisFamily:
+        family = get_partitioned_family(*args, **kwargs)
+        stages.partitioned_families.append(family)
+        return family
+
+    def record_certificate(
+        basis_family: information_sets.BasisFamily, *args: Any, **kwargs: Any
+    ) -> information_sets.Certificate:
+        certificate = get_search_certificate(basis_family, *args, **kwargs)
+        stages.search_certificates.append(certificate)
+        return certificate
+
+    monkeypatch.setattr(information_sets, "get_partitioned_family", record_family)
+    monkeypatch.setattr(information_sets.BasisFamily, "get_search_certificate", record_certificate)
+    return stages
 
 
 @pytest.fixture(params=["python", "compiled"])
@@ -40,12 +70,12 @@ def compilation_mode(
     """Run the compiled functions of the distance searches as plain Python, or compiled.
 
     In the plain Python mode, the compiled-on-request functions, and the always-compiled functions
-    that the basis family stages, the families of translates, and the coset-leader search define,
+    that the basis family stages, the automorphism families, and the coset-leader search define,
     run as Python, which coverage can trace.  The compiled mode compiles the compiled-on-request
     functions once per session, and restores plain Python afterwards.
     """
     if request.param == "python":
-        for module in (_automorphisms, _information_sets, _coset_leader_search):
+        for module in (automorphism_families, information_sets, coset_leader_search):
             for name, function in list(vars(module).items()):
                 if hasattr(function, "py_func") and function.py_func.__module__ == module.__name__:
                     monkeypatch.setattr(module, name, function.py_func)

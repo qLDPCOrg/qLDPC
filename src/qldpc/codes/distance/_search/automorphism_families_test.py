@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Unit tests for families of translates of an information set by automorphisms."""
+"""Unit tests for automorphism families of information sets."""
 
 from __future__ import annotations
 
@@ -15,9 +15,9 @@ from qldpc import codes
 from qldpc._binary import get_rank_packed, pack_bits
 from qldpc.objects import Pauli
 
-from . import _automorphisms, _information_sets
-from ._binary import get_eligible_rows
-from .conftest import get_sector_problem
+from .._binary import get_eligible_rows
+from ..conftest import get_sector_problem
+from . import automorphism_families, information_sets
 
 
 def test_automorphisms_must_map_both_spaces_onto_themselves() -> None:
@@ -25,15 +25,15 @@ def test_automorphisms_must_map_both_spaces_onto_themselves() -> None:
     code = codes.MBCode([7], 1 + x + x**3, 1 + x**2 + x**3 + x**4)
     basis, labels = get_sector_problem(code, Pauli.X)
     shift = np.concatenate([np.roll(np.arange(7), 1), np.roll(np.arange(7), 1) + 7])
-    _automorphisms.verify_automorphisms(basis, labels, shift[None])
-    _automorphisms.verify_automorphisms(basis, labels, np.empty((0, 14), dtype=int))
+    automorphism_families.verify_automorphisms(basis, labels, shift[None])
+    automorphism_families.verify_automorphisms(basis, labels, np.empty((0, 14), dtype=int))
 
     transposition = np.arange(14)
     transposition[[0, 1]] = [1, 0]
     not_permutations = [np.zeros((1, 14), dtype=int), np.arange(13)[None], np.arange(14)]
     for automorphisms in [np.stack([shift, transposition]), *not_permutations]:
         with pytest.raises(ValueError):
-            _automorphisms.verify_automorphisms(basis, labels, automorphisms)
+            automorphism_families.verify_automorphisms(basis, labels, automorphisms)
 
     # Swapping the last two columns preserves the excluded subspace, spanned by 100, but not the
     # searched space; swapping the first two preserves the searched space, but not the excluded one.
@@ -41,14 +41,14 @@ def test_automorphisms_must_map_both_spaces_onto_themselves() -> None:
     labels = np.array([[0], [1]], dtype=np.uint8)
     for swap in ([0, 2, 1], [1, 0, 2]):
         with pytest.raises(ValueError, match="not an automorphism"):
-            _automorphisms.verify_automorphisms(basis, labels, np.array([swap]))
+            automorphism_families.verify_automorphisms(basis, labels, np.array([swap]))
 
 
 @pytest.mark.usefixtures("compilation_mode")
-def test_translates_certify_like_the_family_of_all_translates() -> None:
-    """The certificate is that of the translates of the scanned set by every group element.
+def test_automorphism_families_certify_like_the_family_of_all_images() -> None:
+    """The certificate is that of the images of the scanned set under every group element.
 
-    Each translate is an information set, and the coverage of the family is counted directly.  The
+    Each image is an information set, and the coverage of the family is counted directly.  The
     groups include one that acts on each block with several orbits.
     """
     rng = np.random.default_rng(0)
@@ -59,7 +59,7 @@ def test_translates_certify_like_the_family_of_all_translates() -> None:
             for pauli in (Pauli.X, Pauli.Z):
                 basis, labels = get_sector_problem(code, pauli)
                 divisor = 2 if np.all(basis.sum(axis=1) % 2 == 0) else 1
-                family, certificate = _automorphisms.get_translate_family(
+                family, certificate = automorphism_families.get_automorphism_family(
                     basis, labels, automorphisms, divisor
                 )
                 [generators], [set_labels], [pivots] = (
@@ -102,7 +102,7 @@ def test_scanned_sets_balance_two_orbits() -> None:
         for pauli in (Pauli.X, Pauli.Z):
             basis, labels = get_sector_problem(code, pauli)
             dimension, num_columns = basis.shape
-            family, _ = _automorphisms.get_translate_family(
+            family, _ = automorphism_families.get_automorphism_family(
                 basis, labels, code._get_qudit_automorphisms(), 1
             )
             blocks = (np.arange(num_columns // 2), np.arange(num_columns // 2, num_columns))
@@ -111,16 +111,16 @@ def test_scanned_sets_balance_two_orbits() -> None:
             assert max(counts) == max((dimension + 1) // 2, dimension - min(ranks))
 
 
-def test_translate_work_scans_one_set_per_layer() -> None:
+def test_automorphism_family_work_scans_one_set_per_layer() -> None:
     """The work estimate counts each layer of one set, through the layer that certifies a bound.
 
     This certificate of a five-row basis bounds unvisited words by ``t + 1`` after layer ``t``.
     """
-    certificate = _information_sets.Certificate(5, (5,))
+    certificate = information_sets.Certificate(5, (5,))
     # layer one certifies weight two; layer two certifies three; no layer certifies 100
-    assert _automorphisms.estimate_translate_work(certificate, 2) == 5
-    assert _automorphisms.estimate_translate_work(certificate, 3) == 5 + 10
-    assert _automorphisms.estimate_translate_work(certificate, 100) == 2**5 - 1
+    assert automorphism_families.estimate_automorphism_family_work(certificate, 2) == 5
+    assert automorphism_families.estimate_automorphism_family_work(certificate, 3) == 5 + 10
+    assert automorphism_families.estimate_automorphism_family_work(certificate, 100) == 2**5 - 1
 
 
 def _get_random_mb_codes(rng: np.random.Generator, count: int) -> list[codes.MBCode]:
