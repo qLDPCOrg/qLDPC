@@ -346,16 +346,18 @@ def test_steane_swap_consumer(basis: PauliXZ) -> None:
     """The Steane-swap window corrects single faults and fails on a logical error of its block.
 
     Stim raises an error when building the detector error model of a circuit with a
-    nondeterministic detector or observable.  The default decoder predicts the observable flips of
-    every error mechanism, each of which is a fault of weight one.  The distance-3 surface code,
+    nondeterministic detector or observable, so building the model of each window checks that its
+    detectors and observables are deterministic.  The default decoder predicts the observable flips
+    of every error mechanism, each of which is a fault of weight one.  The distance-3 surface code,
     unlike the Steane code, has X-type and Z-type operators with different supports, so it catches
-    X and Z exchanged by mistake.  A logical error on the block under test (logical X on |0>, or
-    logical Z on |+>) fires no detector.  It flips the logical Z observables for a |0> block, and
-    the logical X observables for a |+> block, so that the default decoder, which sees no detector,
-    mispredicts them.
+    X and Z exchanged by mistake.  The distance-4 toric code has two logical qubits, so it catches
+    mistakes in the layout of several logical operators.  A logical error on the block under test
+    (logical X on |0>, or logical Z on |+>) fires no detector.  It flips the logical Z observables
+    for a |0> block, and the logical X observables for a |+> block, so that the default decoder,
+    which sees no detector, mispredicts them.
     """
     model = circuits.DepolarizingNoiseModel(1e-3)
-    for code in (_CODE, codes.SurfaceCode(3)):
+    for code in (_CODE, codes.SurfaceCode(3), codes.ToricCode(4)):
         _assert_decodes_single_faults(get_steane_swap_consumer(code, model, basis=basis))
 
     noiseless = get_steane_swap_consumer(_CODE, circuits.DepolarizingNoiseModel(0), basis=basis)
@@ -375,11 +377,11 @@ def test_steane_swap_consumer(basis: PauliXZ) -> None:
 def test_steane_swap_decoder_specifications(basis: PauliXZ) -> None:
     """Decoder specifications see the code's own checks, so matching decodes every single fault.
 
-    The detectors of the window measure checks of the code, which keep their weight and locality.
-    A matching decoder built from the detector error model of the distance-3 surface-code window
-    therefore predicts the observable flips of every error mechanism.  The distance-5 surface code
-    has checks of weight at most four, so every error mechanism of its window flips few enough
-    detectors for Stim to decompose the detector error model that decoder specifications use.
+    The detectors of the window measure checks of the code, with their weight and locality.  A
+    matching decoder built from the detector error model of the distance-3 surface-code window
+    therefore predicts the observable flips of every error mechanism.  The window of the distance-5
+    surface code, whose checks have weight at most four, also has a detector error model that Stim
+    decomposes into graphlike errors, which a matching decoder needs to be built.
     """
     model = circuits.DepolarizingNoiseModel(1e-3)
     spec = decoders.mwpm(decompose_errors=True)
@@ -388,7 +390,9 @@ def test_steane_swap_decoder_specifications(basis: PauliXZ) -> None:
     _assert_decodes_single_faults(consumer, spec.build_observable_decoder(model_of_window))
 
     consumer = get_steane_swap_consumer(codes.SurfaceCode(5), model, basis=basis, decoder=spec)
-    consumers._get_decoding_model(consumer.block_preparation + consumer.circuit)
+    spec.build_observable_decoder(
+        consumers._get_decoding_model(consumer.block_preparation + consumer.circuit)
+    )
 
 
 @pytest.mark.parametrize("basis", [Pauli.Z, Pauli.X])
@@ -398,9 +402,9 @@ def test_steane_swap_window(basis: PauliXZ) -> None:
     A fresh |0> block enters by the third step, a Z-correction step.  Its CNOT copies a Z error on
     the block onto the block that the step measures, and leaves the error in place.  The next CNOT
     copies the error onto the next fresh block, which the fifth step measures.  The fourth step
-    detects an X error on the block by measuring the block.  The same holds with X and Z exchanged
-    for a fresh |+> block.  No error on the block under test reaches the first two steps or the
-    final noiseless readout.
+    detects an X error on the block by measuring the block, with one detector for each Z-type check
+    of the code, in order.  The same holds with X and Z exchanged for a fresh |+> block.  No error
+    on the block under test reaches the first two steps or the final noiseless readout.
     """
     consumer = get_steane_swap_consumer(_CODE, circuits.DepolarizingNoiseModel(0), basis=basis)
     assert consumer.block_qubits is not None
@@ -410,11 +414,15 @@ def test_steane_swap_window(basis: PauliXZ) -> None:
     assert consumer.circuit.num_detectors == boundaries[-1]
     for pauli in (Pauli.X, Pauli.Z):
         expected = {3} if pauli is basis.swap_xz() else {2, 4}
-        for qubit in consumer.block_qubits:
+        # the checks of the Steane code are independent, so every check defines a detector
+        checks = (_CODE.matrix_z if pauli is Pauli.X else _CODE.matrix_x).view(np.ndarray)
+        for index, qubit in enumerate(consumer.block_qubits):
             error = stim.Circuit(f"{pauli}_ERROR(1) {qubit}")
             detectors, _ = _sample_once(consumer.block_preparation + error + consumer.circuit)
             steps = np.searchsorted(boundaries, np.flatnonzero(detectors), side="right") - 1
             assert set(steps.tolist()) == expected
+            if pauli is basis.swap_xz():
+                assert detectors[9:12].tolist() == checks[:, index].tolist()
 
 
 @pytest.mark.parametrize("basis", [Pauli.Z, Pauli.X])
@@ -423,15 +431,16 @@ def test_steane_swap_window_length(basis: PauliXZ) -> None:
 
     In a repeating cycle, faults in the two steps before the entry step leave errors that the entry
     step or the step after it decodes, together with the errors of the block under test.  Faults
-    in the two steps after the entry step can make the two decodings of the copied errors differ.
-    The exact first-order excess is therefore the same with a further noisy step before or after
-    the window, and differs with only one step before or after the entry step.
+    in the two steps after the entry step can make the two decodings of the Z errors of a fresh |0>
+    block (X errors of a fresh |+> block) differ.  The exact first-order excess is therefore the
+    same with a further noisy step before or after the window, and differs with only one step before
+    or after the entry step.
     """
     model = circuits.DepolarizingNoiseModel(1e-3)
     reference = get_steane_swap_consumer(_CODE, model, basis=basis)
     first_order_terms = [_get_excess_terms(reference, pauli)[:, 1] for pauli in (Pauli.X, Pauli.Z)]
     for num_before, num_after, same in [(3, 2, True), (2, 3, True), (1, 2, False), (2, 1, False)]:
-        preparation, circuit, qubits, bases = consumers._get_window(
+        preparation, circuit, qubits, bases = consumers._get_steane_swap_window(
             _CODE, model, basis, num_before, num_after
         )
         decoder = consumers._SteaneSwapDecoder(_CODE, bases)
@@ -512,8 +521,8 @@ def test_steane_swap_decoders() -> None:
     """A Steane-swap consumer keeps a decoder specification, and rejects other decoders.
 
     The consumer builds the circuit that its decoder decodes, so a decoder built for another circuit
-    is rejected, such as the default decoder of the other slot.  The descriptions of consumers name
-    their decoders and slots.
+    is rejected, such as the default decoder of the other slot.  The descriptions of consumers
+    differ by decoder and by slot.
     """
     model = circuits.DepolarizingNoiseModel(0)
     spec = decoders.lookup(max_weight=1)
