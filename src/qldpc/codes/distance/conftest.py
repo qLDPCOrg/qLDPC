@@ -4,8 +4,7 @@
 
 import itertools
 from collections.abc import Iterator
-from typing import Any
-from unittest import mock
+from typing import Any, NamedTuple
 
 import galois
 import numpy as np
@@ -16,6 +15,7 @@ from qldpc import _compilation, codes
 from qldpc._binary import get_independent_rows, get_kernel
 from qldpc.objects import Pauli, PauliXZ
 
+from ..conftest import Tune
 from . import logical_counts as lc
 from ._binary import get_nested_code_basis
 from ._search import automorphism_families, coset_leader_search, information_sets
@@ -23,14 +23,44 @@ from .core import DistanceMethod
 
 
 @pytest.fixture
-def force_information_sets() -> Iterator[None]:
+def force_information_sets(tune: Tune) -> None:
     """Route Brouwer-Zimmermann searches through information sets instead of exhaustive search."""
-    with mock.patch.multiple(
-        "qldpc.codes.distance._search.brouwer_zimmermann",
-        enumeration_is_cheaper_than_setup=mock.Mock(return_value=False),
-        _enumeration_is_cheaper_than_search=mock.Mock(return_value=False),
-    ):
-        yield
+    tune(allow_enumeration_by_size=False, allow_enumeration_by_work=False)
+
+
+class CostlyStages(NamedTuple):
+    """The results of the costly stages of searches, which the costly_stages fixture records."""
+
+    partitioned_families: list[information_sets.BasisFamily]
+    search_certificates: list[information_sets.Certificate]
+
+
+@pytest.fixture
+def costly_stages(monkeypatch: pytest.MonkeyPatch) -> CostlyStages:
+    """Record the families of matroid partitioning and the certificates that searches choose.
+
+    A family with sets and a maximum coverage above one shows that a search took a partitioned
+    family, and a certificate with pivot blocks shows that a search used linear programming.
+    """
+    stages = CostlyStages([], [])
+    get_partitioned_family = information_sets.get_partitioned_family
+    get_search_certificate = information_sets.BasisFamily.get_search_certificate
+
+    def record_family(*args: Any, **kwargs: Any) -> information_sets.BasisFamily:
+        family = get_partitioned_family(*args, **kwargs)
+        stages.partitioned_families.append(family)
+        return family
+
+    def record_certificate(
+        basis_family: information_sets.BasisFamily, *args: Any, **kwargs: Any
+    ) -> information_sets.Certificate:
+        certificate = get_search_certificate(basis_family, *args, **kwargs)
+        stages.search_certificates.append(certificate)
+        return certificate
+
+    monkeypatch.setattr(information_sets, "get_partitioned_family", record_family)
+    monkeypatch.setattr(information_sets.BasisFamily, "get_search_certificate", record_certificate)
+    return stages
 
 
 @pytest.fixture(params=["python", "compiled"])

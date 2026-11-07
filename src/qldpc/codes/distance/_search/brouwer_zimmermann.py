@@ -25,14 +25,10 @@ from qldpc._binary import pack_bits, popcount_word
 from qldpc._compilation import always_compiled
 
 from .._binary import get_eligible_rows
+from .._tuning import SearchTuning, get_tuning
 from . import automorphism_families, information_sets
 from .brute_force import get_nested_distance_brute_force
 from .information_sets import advance_support
-
-# A search asks for automorphisms before the first layer whose scan takes at least this many
-# candidate/set evaluations.  Finding automorphisms can take milliseconds, a small fraction of such
-# a scan.
-MINIMUM_LAYER_WORK = 100_000_000
 
 # A function that returns the automorphism family of a problem for a weight divisor, or None.
 _GetAutomorphismFamily = Callable[
@@ -52,6 +48,7 @@ def get_distance_brouwer_zimmermann_many(
     upper_bound: int | None = None,
     get_disjoint_basis_families: Sequence[Callable[[], information_sets.BasisFamily]] | None = None,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
+    tuning: SearchTuning | None = None,
 ) -> int:
     """Advance nested-code searches round-robin while sharing their best upper bound.
 
@@ -67,10 +64,14 @@ def get_distance_brouwer_zimmermann_many(
     themselves.  A search calls the function before a costly layer, verifies the generators for its
     problem, and may then scan fewer information sets (see ``automorphism_families``).
 
+    ``tuning`` sets the thresholds that choose the route of each search (see ``_tuning``), and
+    defaults to the active tuning, which every search then uses throughout.
+
     Raises:
         ValueError: If a generator from ``get_automorphisms`` is not an automorphism of a problem
             whose search uses it.
     """
+    tuning = get_tuning() if tuning is None else tuning
     initial_upper_bounds = [
         _get_lightest_eligible_row_weight(basis, labels) for basis, labels in problems
     ]
@@ -93,6 +94,7 @@ def get_distance_brouwer_zimmermann_many(
             if get_disjoint_basis_families is None
             else get_disjoint_basis_families[index],
             get_automorphisms=get_automorphisms,
+            tuning=tuning,
         )
         if isinstance(prepared, int):
             best = min(best, prepared)
@@ -196,7 +198,7 @@ class _BrouwerZimmermannSearch:
 
     ``get_automorphism_family``, if given, returns an automorphism family of the problem, or None.
     The search calls it once, before the first layer whose scan would cost at least
-    ``MINIMUM_LAYER_WORK`` candidate/set evaluations.  The search switches to the automorphism
+    ``minimum_layer_work`` candidate/set evaluations.  The search switches to the automorphism
     family if it predicts less work (see ``_switch_to_automorphism_family``).
     """
 
@@ -207,6 +209,7 @@ class _BrouwerZimmermannSearch:
     certificate: information_sets.Certificate
     cutoff: int
     batch_size: int
+    minimum_layer_work: int
     best: int
     lower_bound: int
     next_weight: int = 1
@@ -259,9 +262,13 @@ class _BrouwerZimmermannSearch:
             num_completed = self.certificate.get_num_sets_to_certify(weight, self.best)
             num_scanned = num_completed
 
-        # Before a costly layer, consider scanning one set and certifying with its images.
-        layer_work = num_scanned * math.comb(self.dimension, weight)
-        if self.get_automorphism_family is not None and layer_work >= MINIMUM_LAYER_WORK:
+        # Before a costly layer, consider scanning one set and certifying with its images.  Like
+        # the work estimates of certificates, this estimate saturates at their cap, so that the
+        # largest threshold of a tuning forbids the switch.
+        layer_work = min(
+            num_scanned * math.comb(self.dimension, weight), information_sets._WORK_CAP
+        )
+        if self.get_automorphism_family is not None and layer_work >= self.minimum_layer_work:
             self._switch_to_automorphism_family()
             return self.advance()
 
@@ -341,13 +348,15 @@ def _prepare_brouwer_zimmermann_search(
     initial_upper_bound: int | None = None,
     get_disjoint_basis_family: Callable[[], information_sets.BasisFamily] | None = None,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
+    tuning: SearchTuning,
 ) -> int | _BrouwerZimmermannSearch:
     """Prepare one BZ search, or return immediately when another route is cheaper.
 
     The basis family stages of ``information_sets`` run in order, with distance-specific witness,
-    cutoff, certificate, and exhaustive exits between them.  ``get_disjoint_basis_family``, if
-    given, returns the result of the first stage.  ``get_automorphisms``, if given, lets the search
-    switch to an automorphism family before a costly layer (see ``_BrouwerZimmermannSearch``).
+    cutoff, certificate, and exhaustive exits between them.  ``tuning`` sets the thresholds of the
+    stages and exits.  ``get_disjoint_basis_family``, if given, returns the result of the first
+    stage.  ``get_automorphisms``, if given, lets the search switch to an automorphism family before
+    a costly layer (see ``_BrouwerZimmermannSearch``).
     """
     dimension = len(basis)
     best = min(
@@ -361,7 +370,9 @@ def _prepare_brouwer_zimmermann_search(
     if best <= cutoff:
         return best
 
-    if enumeration_is_cheaper_than_setup(dimension, basis.shape[1]):
+    if tuning.allow_enumeration_by_size and enumeration_is_cheaper_than_setup(
+        dimension, basis.shape[1]
+    ):
         distance = get_nested_distance_brute_force(
             basis, labels, cutoff=cutoff, block_size=block_size, homogeneous=True
         )
@@ -392,11 +403,15 @@ def _prepare_brouwer_zimmermann_search(
             labels,
             family,
             best,
-            information_sets.MAX_SETS,
-            *information_sets.get_overlapping_family_policy(dimension),
+            *information_sets.get_overlapping_family_policy(tuning, dimension),
         ),
         lambda family, best: information_sets.get_partitioned_family(
-            basis, labels, family, best, information_sets.MAX_SETS
+            basis,
+            labels,
+            family,
+            best,
+            tuning.max_information_sets,
+            tuning.partition_work_ratio,
         ),
     ):
         replacement = get_replacement(basis_family, best)
@@ -414,7 +429,7 @@ def _prepare_brouwer_zimmermann_search(
         if lower_bound >= best:
             return best
 
-    if _enumeration_is_cheaper_than_search(
+    if tuning.allow_enumeration_by_work and _enumeration_is_cheaper_than_search(
         num_logical_rows=int(np.count_nonzero(get_eligible_rows(labels))),
         certificate=basis_family.certificate,
         upper_bound=best,
@@ -426,9 +441,10 @@ def _prepare_brouwer_zimmermann_search(
 
     return _BrouwerZimmermannSearch(
         *_pack_basis_family(basis_family),
-        basis_family.get_search_certificate(best),
+        basis_family.get_search_certificate(best, tuning.lp_minimum_work),
         cutoff,
         1 << min(block_size, 15),
+        tuning.automorphism_minimum_layer_work,
         best,
         lower_bound,
         completed_weight + 1,

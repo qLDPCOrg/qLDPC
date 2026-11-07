@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import dataclasses
+import functools
 import itertools
 import math
 
@@ -17,6 +18,7 @@ import qldpc
 from qldpc import _compilation
 from qldpc._binary import get_independent_rows, row_reduce_binary
 
+from .._tuning import DEFAULT_TUNING, SearchTuning
 from ..conftest import get_random_full_rank_matrix
 from . import information_sets
 
@@ -139,6 +141,8 @@ def test_a_cheap_search_keeps_its_disjoint_basis_family() -> None:
     disjoint = information_sets.get_disjoint_family(basis, labels)
     assert not len(_get_overlapping_family(basis, labels, disjoint, 3).ranks)
     assert len(_get_overlapping_family(basis, labels, disjoint, 3, minimum_work=0).ranks)
+    # A limit of zero sets builds no family at all.
+    assert not len(_get_overlapping_family(basis, labels, disjoint, 3, 0, minimum_work=0).ranks)
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -215,7 +219,7 @@ def test_certificate_follows_its_definition(pytestconfig: pytest.Config) -> None
     assert information_sets.Certificate(3, ()).work(2) == 0
 
 
-def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_partitioned_families_replace_costlier_ones() -> None:
     """Matroid partitioning replaces a disjoint family only in costly searches, and only if cheaper.
 
     This [11, 4] basis has disjoint information sets of ranks four, four, and two, and information
@@ -226,12 +230,12 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
     labels = np.eye(len(basis), dtype=np.uint8)
     disjoint = information_sets.get_disjoint_family(basis, labels)
     assert disjoint.ranks.tolist() == [4, 4, 2]
-    monkeypatch.setattr(information_sets, "PARTITION_WORK_RATIO", 2**62)
-    assert not len(information_sets.get_partitioned_family(basis, labels, disjoint, 5, 16).ranks)
-
-    monkeypatch.setattr(information_sets, "PARTITION_WORK_RATIO", 0)
-    assert not len(information_sets.get_partitioned_family(basis, labels, disjoint, 5, 0).ranks)
-    family = information_sets.get_partitioned_family(basis, labels, disjoint, 5, 16)
+    get_family = functools.partial(
+        information_sets.get_partitioned_family, basis, labels, disjoint, 5
+    )
+    assert not len(get_family(16, 2**62).ranks)
+    assert not len(get_family(0, 0).ranks)
+    family = get_family(16, 0)
     assert family.max_coverage > 1
     assert family.certificate.work(5) < disjoint.certificate.work(5)
     for generators, set_labels, pivots in zip(*family[:3], strict=True):
@@ -293,19 +297,15 @@ def test_linear_programming_certificates_bound_unvisited_words(pytestconfig: pyt
         _assert_certificate_bounds_unvisited_words(basis, family)
 
 
-def test_searches_of_overlapping_sets_use_linear_programming_when_costly(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_searches_of_overlapping_sets_use_linear_programming_when_costly() -> None:
     """Only a costly search of overlapping sets gets the bound of linear programming."""
     basis = np.asarray(qldpc.codes.HammingCode(4).generator, dtype=np.uint8)
     disjoint = information_sets.get_disjoint_family(basis, None)
     overlapping = _get_overlapping_family(basis, None, disjoint, 3, minimum_work=0)
     assert overlapping.max_coverage > 1
-    monkeypatch.setattr(information_sets, "LP_MINIMUM_WORK", 2**62)
-    assert not overlapping.get_search_certificate(3).pivot_blocks
-    monkeypatch.setattr(information_sets, "LP_MINIMUM_WORK", 0)
-    assert len(overlapping.get_search_certificate(3).pivot_blocks) == len(overlapping.ranks)
-    assert not disjoint.get_search_certificate(3).pivot_blocks
+    assert not overlapping.get_search_certificate(3, 2**62).pivot_blocks
+    assert len(overlapping.get_search_certificate(3, 0).pivot_blocks) == len(overlapping.ranks)
+    assert not disjoint.get_search_certificate(3, 0).pivot_blocks
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -427,21 +427,18 @@ def _get_overlapping_family(
     labels: npt.NDArray[np.uint8] | None,
     basis_family: information_sets.BasisFamily,
     upper_bound: int,
-    max_sets: int = information_sets.MAX_SETS,
+    max_sets: int = DEFAULT_TUNING.max_information_sets,
     *,
-    minimum_work: int | None = None,
+    minimum_work: int = DEFAULT_TUNING.overlapping_minimum_work,
 ) -> information_sets.BasisFamily:
-    """Stage three, as the searches call it, or with another minimum work if one is given."""
-    policy_minimum_work, binomials, rng = information_sets.get_overlapping_family_policy(len(basis))
+    """Stage three, as a search whose tuning has these thresholds calls it."""
+    tuning = SearchTuning(max_information_sets=max_sets, overlapping_minimum_work=minimum_work)
     return information_sets.get_overlapping_family(
         basis,
         np.empty((len(basis), 0), dtype=np.uint8) if labels is None else labels,
         basis_family,
         upper_bound,
-        max_sets,
-        policy_minimum_work if minimum_work is None else minimum_work,
-        binomials,
-        rng,
+        *information_sets.get_overlapping_family_policy(tuning, len(basis)),
     )
 
 

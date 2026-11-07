@@ -1,15 +1,35 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Shared test helpers for tests of codes."""
+"""Shared test fixtures and helpers for tests of codes."""
 
 from __future__ import annotations
 
+import contextlib
 import unittest.mock
+from collections.abc import Callable, Iterator
 
 import networkx as nx
+import pytest
 
 from qldpc import codes
+from qldpc.codes.distance import _tuning
 from qldpc.objects import Pauli
+
+# Changes fields of the active search tuning until the end of a test (see the tune fixture).
+Tune = Callable[..., _tuning.SearchTuning]
+
+
+@pytest.fixture
+def tune() -> Iterator[Tune]:
+    """Change fields of the active search tuning, as ``use_tuning`` does, until the test ends.
+
+    Fixtures and tests that change the tuning share this one stack of changes, so that every change
+    is undone in reverse order, whatever order pytest tears fixtures down in.
+    """
+    with contextlib.ExitStack() as stack:
+        yield lambda **changes: stack.enter_context(_tuning.use_tuning(**changes))
+    # A change that outlives its test, as one made by tune within a use_tuning block would, fails.
+    assert _tuning.get_tuning() == _tuning.DEFAULT_TUNING
 
 
 def assert_valid_subgraphs(code: codes.QuditCode) -> None:
