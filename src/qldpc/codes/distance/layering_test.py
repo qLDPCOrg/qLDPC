@@ -10,6 +10,7 @@ from qldpc.conftest import check_import_layering
 # (first) to public interfaces (last).  Add each new top-level module or subpackage to a layer.
 _LAYERS = (
     ("_binary",),
+    ("_tuning",),
     ("_search",),
     ("_counting",),
     ("core",),

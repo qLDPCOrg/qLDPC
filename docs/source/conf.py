@@ -85,8 +85,8 @@ def _skip_decoder_specification_helpers(
     """Skip static AutoAPI entries of generated decoder specification helpers.
 
     Helpers such as ``bp_osd = decoder_spec(...)`` are assignments, so AutoAPI, which reads source
-    statically, would render them as data with no signature.  decoders.rst documents them instead
-    with autodoc, which inspects their runtime signatures and docstrings.
+    statically, would render them as data with no signature.  decoders/reference.rst documents them
+    instead with autodoc, which inspects their runtime signatures and docstrings.
     """
     if what != "data":
         return skip

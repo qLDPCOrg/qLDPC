@@ -43,7 +43,7 @@ Choose tools for the task
    * - Estimate binary CSS code distances with the GPU-based ``sqetch`` backend
      - :ref:`GPU distance estimation <installation-sqetch>`.
    * - Modify qLDPC itself
-     - :ref:`Development installation <development-installation>` and the :doc:`contributor reference <contributing>`.
+     - :ref:`Development installation <development-installation>` and the :doc:`contributing guide <contributing/index>`.
 
 .. _installation-decoders:
 
@@ -67,7 +67,7 @@ Alternatively, install only the extra needed for a specific decoder:
 The `Tesseract <https://github.com/quantumlib/tesseract-decoder>`_ decoder requires CPython 3.12--3.14 on macOS arm64 or Linux x86-64.
 `Frontier <https://github.com/aleverrier/frontier>`_ is not published on PyPI and is not included in an extra.
 Building a Frontier decoder without Frontier installed raises an error that shows how to install the version that qLDPC is tested against.
-See :doc:`Choosing a decoder <decoders>` for backend capabilities.
+See the :doc:`decoder reference <decoders/reference>` for backend capabilities.
 
 .. _installation-gap:
 
@@ -133,4 +133,4 @@ For a Conda-managed environment, install ``cvxpy`` with:
 Working on qLDPC
 ----------------
 
-Follow the :ref:`development installation <development-installation>` instructions in the contributor reference for an editable checkout and the project's validation tools.
+Follow the :ref:`development installation <development-installation>` instructions in the contributing guide for an editable checkout and the project's validation tools.

@@ -15,6 +15,7 @@ from qldpc import abstract
 
 from ..common import CSSCode
 from .hypergraph_product import HGPCode, SHPCode
+from .two_block import _get_abelian_block_translations
 
 ####################################################################################################
 # lifted product codes
@@ -86,7 +87,15 @@ class LPCode(CSSCode):
         *,
         set_logicals: bool = False,
     ) -> None:
-        """Lifted product of two RingArrays, as in arXiv:2012.04068."""
+        """Lifted product of two RingArrays, as in arXiv:2012.04068.
+
+        If ``set_logicals`` is True, set the canonical logical line operators of the code (see
+        ``get_canonical_logical_line_ops``).  These use semisimple Howell normal forms, which need a
+        field characteristic that does not divide the order of the group.  Lifted products of binary
+        codes over groups of even order are common but fail this condition, so ``set_logicals``
+        defaults to False, and if it is True for a group algebra that fails it, a ValueError is
+        raised.
+        """
         if matrix_b is None:
             matrix_b = matrix_a
         self.matrix_a = abstract.RingArray(matrix_a)
@@ -193,6 +202,11 @@ class LPCode(CSSCode):
 
         return lifted_ops_x, lifted_ops_z
 
+    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+        """Translations of every block of qudits, or None (see _get_abelian_block_translations)."""
+        group = self.matrix_a.group
+        return _get_abelian_block_translations(group, len(self) // group.lift_dim)
+
 
 class SLPCode(CSSCode):
     """Subsystem lifted product code.
@@ -236,7 +250,10 @@ class SLPCode(CSSCode):
         *,
         set_logicals: bool = False,
     ) -> None:
-        """Subsystem lifted product of two RingArrays, as in arXiv:2404.18302."""
+        """Subsystem lifted product of two RingArrays, as in arXiv:2404.18302.
+
+        ``set_logicals`` is as for :class:`LPCode`.
+        """
         if matrix_b is None:
             matrix_b = matrix_a
         self.matrix_a = abstract.RingArray(matrix_a)
@@ -295,3 +312,8 @@ class SLPCode(CSSCode):
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
         """Lift logical operators over a ring to logical operators over the base field."""
         return LPCode.to_lifted_logical_ops(logical_ops_x, logical_ops_z)
+
+    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+        """Translations of every block of qudits, or None (see _get_abelian_block_translations)."""
+        group = self.matrix_a.group
+        return _get_abelian_block_translations(group, len(self) // group.lift_dim)

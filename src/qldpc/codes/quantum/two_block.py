@@ -230,6 +230,10 @@ class GALACode(CSSCode):
             [[generators[(col - row) % size] for col in range(size)] for row in range(size)]
         )
 
+    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+        """Translations of every block of qudits, or None (see _get_abelian_block_translations)."""
+        return _get_abelian_block_translations(self.group, self.num_blocks)
+
 
 class MBCode(TBCode):
     """Multivariate bicycle code, also known as an abelian two-block group-algebra code.
@@ -836,3 +840,36 @@ def _get_block_translations(group: abstract.Group, num_blocks: int) -> npt.NDArr
         ],
         dtype=int,
     ).reshape(-1, num_blocks * block_size)
+
+
+def _get_abelian_block_translations(
+    group: abstract.Group, num_blocks: int
+) -> npt.NDArray[np.int_] | None:
+    """Block translations that preserve a code built from lifts of an abelian group algebra.
+
+    The parity check matrices of such a code are arrays of blocks, each of which is a linear
+    combination of the lifts of group elements.  The qudits form ``num_blocks`` blocks, and the
+    checks of each type form blocks, which are indexed like the rows of the lifts.  Translating
+    every block of qudits by a group element multiplies a parity check matrix ``H`` on the right by
+    a block-diagonal matrix ``D`` of copies of ``T``, the lift of that element or of its inverse.
+    If the group is abelian, ``T`` commutes with every block of ``H``, so ``H D = D' H``, where
+    ``D'`` is a block-diagonal matrix with one copy of ``T`` for each block of checks.  If ``T`` is
+    a permutation matrix, ``D'`` permutes the rows of ``H``, so the translation maps the rows of
+    ``H`` onto themselves.
+
+    Returns:
+        The translations by the generators of the group (see ``_get_block_translations``), or None
+        if the group is not abelian or the lift of a generator is not a permutation matrix.
+    """
+    if not group.is_abelian:
+        return None
+    for generator in group.generators:
+        lift = group.lift(generator)
+        is_permutation = (
+            np.isin(lift, (0, 1)).all()
+            and (lift.sum(axis=0) == 1).all()
+            and (lift.sum(axis=1) == 1).all()
+        )
+        if not is_permutation:
+            return None
+    return _get_block_translations(group, num_blocks)

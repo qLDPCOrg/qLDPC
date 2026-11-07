@@ -13,6 +13,8 @@ import qldpc
 from qldpc import abstract, codes
 from qldpc.objects import ChainComplex, Pauli
 
+from ..conftest import assert_valid_translations
+
 
 def test_trivial_lift(
     pytestconfig: pytest.Config,
@@ -260,3 +262,15 @@ def test_unsupported_line_logicals(rows: int = 2, cols: int = 3) -> None:
         codes.LPCode(matrix, set_logicals=True)
     with pytest.raises(ValueError, match="not yet supported"):
         codes.SLPCode(matrix, set_logicals=True)
+
+
+def test_lifted_product_translations() -> None:
+    """Translations of lifted products over abelian groups preserve their checks."""
+    ring = abstract.GroupRing(abstract.AbelianGroup(2, 3))
+    gen_a, gen_b = ring.generators
+    matrix_a = abstract.RingArray([[ring.one + gen_a, gen_b, gen_a * gen_b]])
+    matrix_b = abstract.RingArray([[ring.one + gen_b], [gen_a]])
+    for code in (codes.LPCode(matrix_a, matrix_b), codes.SLPCode(matrix_a, matrix_b)):
+        translations = code._get_qudit_automorphisms()
+        assert translations is not None and len(translations) == 2
+        assert_valid_translations(code, translations, group_order=6)

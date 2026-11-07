@@ -1,14 +1,11 @@
-# Agent and contributor guide
+# Working on qLDPC
 
-This guide is for people and agents changing qLDPC.
-Before proposing, implementing, or reviewing changes, read the [project purpose and goals](README.md#-goals) and keep them in mind.
-Use them to guide scope, design, validation, and explanation.
+Before proposing, implementing, or reviewing changes, read the [project purpose and goals](README.md#-goals), and use them to guide scope, design, validation, and explanation.
 Apply the goals to the requested work rather than using them to justify unrelated changes.
-
 A change need not advance every goal or include a tutorial.
-Make significant tradeoffs explicit, and keep the supported scope maintainable.
-The [contributor reference](docs/source/contributing.rst) contains the detailed rules and procedures; read its applicable sections before editing.
-For a human-facing explanation of the data model and package relationships, start with the [library map](docs/source/library_map.rst).
+
+The [contributing guide](docs/source/contributing/index.rst) explains how to set up, validate, and review a change, and the [standards](docs/source/contributing/standards/index.rst) state the rules that a change must satisfy.
+For the data model and how the packages relate, start with the [library map](docs/source/library_map.rst).
 For exact signatures and per-object literature, use the source docstrings or the generated [API reference](https://qldpc.readthedocs.io/autoapi/index.html).
 
 ## What to trust when documents disagree
@@ -17,96 +14,54 @@ For what the code does, use this order:
 
 1. Current implementation and its invariant tests.
 2. Public docstrings and the `__all__` lists in package `__init__.py` files.
-3. The [library map](docs/source/library_map.rst) and executable [examples](examples/).
+3. The library map and executable [examples](examples/).
 4. Historical discussion, issues, or review notes.
 
-For how code should be written, this guide and the contributor reference take precedence over existing code: code that breaks a rule is debt to fix, not a precedent to copy.
+For how code should be written, the standards take precedence over existing code.
 Re-derive behavior from the current branch before documenting or changing it.
-Do not copy transient project history, machine-specific paths, or local-session instructions into production files.
 
-## Orientation
+## Before editing
 
-Canonical executable notebooks live in [`examples/`](examples/), Sphinx pages and the library map in [`docs/source/`](docs/source/), local wrappers for CI's quality gates in [`checks/`](checks/), and untested research scripts in [`experiments/`](experiments/).
-Read the [orientation](docs/source/contributing.rst#orientation) before reorganizing code or changing shared code-core state.
+Read the standards that the [kinds-of-change table](docs/source/contributing/index.rst#kinds-of-change) lists for the change.
+Read the [orientation](docs/source/contributing/index.rst#orientation) before reorganizing code.
 
-## Public API and private code
+## Reviews
 
-Plain names defined in public modules are public API, even when they are not re-exported.
-Preserve released public import paths and respect top-level subpackage boundaries for underscore names.
-Before adding or moving names, read the [public/private rules](docs/source/contributing.rst#public-api-and-private-code), including the exceptions for experimental and deprecation code.
+When asked to run a **standard review**, coordinate it as [reviewing changes](docs/source/contributing/reviewing.rst) describes.
+Run a standard review only when asked; you may suggest one.
+As a reviewer within a standard review, follow the coordinator's instructions, and end your report without a review status.
+Otherwise, end every report on a change with its review status, as in "standard review: not run" or "standard review: 2 rounds; open decisions: none".
+When asked for a pull request description, follow the [pull request standard](docs/source/contributing/standards/pull_requests.rst).
 
-## Code style and organization
+## When to run checks
 
-Read the [style and organization rules](docs/source/contributing.rst#code-style-and-organization) before changing source or documentation.
-Source files need an SPDX license header and a module docstring.
-Sections use a line of exactly 100 `#` characters and a title; plain names precede underscore names unless import-time dependencies require otherwise.
-[`code_style_test.py`](src/qldpc/code_style_test.py) checks these layout rules.
-Follow the [prose style rules](docs/source/contributing.rst#prose-style) when writing comments, docstrings, or documentation.
+The [validation commands](docs/source/contributing/index.rst#validation-commands) define three tiers of checks: anytime, as needed, and finishing.
+Run anytime checks freely, and as-needed checks when writing, reviewing, or verifying a change.
+Run the finishing checks only when a maintainer explicitly asks to finish, finalize, or make a pull request ready to merge or ready for review.
+Examples of such requests are "finish this PR" and "run the finishing checks".
+You may report that a change appears ready for the finishing checks.
+Run checks individually, never through `checks/all_.py`.
+Leave `pytest_.py --notebook` runs and the GAP integration tests to CI.
 
-## Core invariants
+## Protected files
 
-Read the applicable [implementation requirements](docs/source/contributing.rst#core-invariants) before changing algebra, decoding, circuits, or integrations.
+These files state the rules for working on qLDPC, or enforce them:
 
-- Preserve concrete finite fields and compatible group rings; extension-field values are not integers modulo the field order.
-- Distinguish subsystem gauge generators from stabilizers, and preserve symplectic conventions.
-- Keep error inference distinct from observable prediction, and dispatch on explicit decoder capabilities.
-- Circuit tools are qubit-only, and a valid encoding circuit is not necessarily fault-tolerant.
-- Treat supplied parameters and constructor promises as trusted inputs, not independent evidence.
-- Make external side effects explicit and report failures rather than returning success-shaped defaults.
+- this file;
+- the "Goals" and "AI usage" sections of [`README.md`](README.md);
+- every file under [`docs/source/contributing/`](docs/source/contributing/), [`checks/`](checks/), and [`.github/`](.github/);
+- the tests that enforce the standards: [`code_style_test.py`](src/qldpc/code_style_test.py), [`_compilation_test.py`](src/qldpc/_compilation_test.py), and [`contributor_docs_test.py`](src/qldpc/contributor_docs_test.py).
 
-## Tests
+They change only through a patch that a maintainer approves, including changes that a maintainer asks for.
+The exception is a change that the maintainer explicitly says to apply directly.
 
-Read the [testing rules](docs/source/contributing.rst#tests) before adding or rewriting tests.
-Every module needs a co-located `*_test.py` that fully covers it.
-Use small, independent oracles and guard scientific behavior, not incidental implementation details.
-Mock external boundaries, never the logic under test.
-Tests must work offline, without persistent result caches or order dependence, and treat deprecation and future-change warnings as errors.
-Check that a new or rewritten test fails when its guarded behavior is broken.
+1. Write the changes to protected files as a `.patch` file outside the repository, such as in a session directory, and give the maintainer a link to it.
+2. If the maintainer asks for revisions, write a new patch, which may replace the old one, and link it again.
+3. Once the maintainer approves a patch, apply exactly that patch with `git apply`, and commit it.
+   If it no longer applies, regenerate it and ask for approval again, rather than editing protected files by hand.
 
-## Common change recipes
+Updates that a change elsewhere forces on protected files, such as a renamed path that they cite, also go through a patch, which you may present together with that change.
+Changes to other files follow the usual workflow.
 
-Read the relevant recipe before starting:
-
-| Change | Required reference |
-| --- | --- |
-| Code construction | [Construction recipe](docs/source/contributing.rst#add-or-change-a-code-construction) |
-| Code-core algebra or cached state | [Algebra recipe](docs/source/contributing.rst#change-code-core-algebra) |
-| Decoder | [Decoder recipe](docs/source/contributing.rst#add-or-adapt-a-decoder) and [adding a decoder](docs/source/adding_decoders.rst) |
-| Circuit workflow | [Circuit recipe](docs/source/contributing.rst#change-a-circuit-workflow) |
-| External integration | [Integration recipe](docs/source/contributing.rst#change-an-external-integration) |
-| Documentation or example | [Documentation recipe](docs/source/contributing.rst#add-documentation-or-an-example) and [notebook review criteria](docs/source/contributing.rst#example-notebooks) |
-
-## Deprecations and future changes
-
-Never break callers of a released public API without warning.
-Read the [full compatibility procedure](docs/source/contributing.rst#deprecations-and-future-changes) before changing a public name, argument, mode, or default.
-Deprecations use `DeprecationWarning`; changes that would silently alter the same call use `FutureWarning`.
-Future changes move through an old default that warns, a new default that warns on explicit old usage, and defunct old usage, at least one minor release apart.
-Keep substantial compatibility code in [`qldpc/_deprecations/`](src/qldpc/_deprecations/).
-
-## Pull requests
-
-Review a change in the passes of [reviewing a change](docs/source/contributing.rst#reviewing-a-change) before running the finishing checks.
-Follow the [PR-summary guidance](docs/source/contributing.rst#pull-request-summaries) when preparing a PR description.
-
-## Validation commands
-
-Install the development environment with `python -m pip install -e '.[dev]'`.
-Read the [validation details](docs/source/contributing.rst#validation-commands) for incremental checks, notebook environments, and coverage caveats.
-CI's exact environments and commands are in [`.github/workflows/`](.github/workflows/).
-
-| Command | Purpose |
-| --- | --- |
-| `python checks/pytest_.py [paths]` | Pytest suite, or the tests under the given paths; does not execute notebooks by default |
-| `python -m pytest path/to/module_test.py::test_name -v` | One focused test |
-| `python checks/pytest_.py --notebook examples/decoders.ipynb examples/basics.ipynb examples/noise_models.ipynb` | Execute the notebooks that CI executes, with their dependencies installed |
-| `python checks/format_.py --check` / `--fix` | Check, or apply, Ruff and `pyproject.toml` formatting |
-| `python checks/lint_.py` | Ruff lint |
-| `python checks/mypy_.py` | mypy with the repository's typing settings, over source and tests |
-| `python checks/coverage_.py` | 100% statement coverage of each module by its own test file, as in CI |
-| `python checks/build_docs.py` | Strict Sphinx and notebook documentation build |
-| `python checks/all_.py` | Combined gate: formatting, lint, mypy, tests with overall 100% coverage, and (on full runs) the docs build; it does not run the per-module coverage gate or `pyproject.toml` formatting |
-
-Run checks on what you changed while iterating, and save repository-wide runs for a finished change.
-Before merging, run `python checks/all_.py` and `python checks/coverage_.py`.
-Do not weaken a failure with `noqa`, `type: ignore`, or coverage exclusions unless the exceptional condition is real and documented.
+When you notice a pattern worth codifying, such as a repeated request or a recurring review finding, describe it and the rule you would propose.
+Write a patch for it only once the maintainer wants the rule.

@@ -25,6 +25,7 @@ References:
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -42,6 +43,7 @@ from ._counting import local_cliffords, macwilliams, scan
 from ._search import information_sets
 from ._search.brouwer_zimmermann import get_distance_brouwer_zimmermann_many
 from ._search.brute_force import get_nested_distance_brute_force
+from ._tuning import DEFAULT_TUNING, SearchTuning, get_tuning
 from .core import _DISTANCE_METHODS, DistanceMethod
 
 # codes.common imports this package, and codes.quantum imports codes.common, so code classes are
@@ -49,14 +51,9 @@ from .core import _DISTANCE_METHODS, DistanceMethod
 if TYPE_CHECKING:
     from ..common import CSSCode
 
-
 # Batch size exponent passed to the distance searches, as in get_distance_quantum.
 _BLOCK_SIZE = 15
 
-# Check rank from which the MacWilliams method row-reduces both checks of a counter not known to be
-# self-dual, to share one walk if they span the same space.  Below it, a second walk over the
-# 2**rank words costs less than the row reduction.
-_MIN_SHARED_WALK_RANK = 14
 
 # The basis of a homogeneous sector, and its quotient labels.
 _Sector = tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]
@@ -207,7 +204,7 @@ class CSSLogicalCounter:
         """Whether the X and Z checks span the same row space."""
         return self._self_dual or np.array_equal(*self._get_canonical_checks())
 
-    @format_docstring(MAX_SETS=information_sets.MAX_SETS)
+    @format_docstring(MAX_SETS=DEFAULT_TUNING.max_information_sets)
     def count_logical_ops(
         self,
         weight: SupportsIndex | None = None,
@@ -215,7 +212,7 @@ class CSSLogicalCounter:
         method: LogicalCountMethod = "brouwer_zimmermann",
         count_pauli: bool = False,
         within_distance: bool = False,
-        max_information_sets: SupportsIndex = information_sets.MAX_SETS,
+        max_information_sets: SupportsIndex | None = None,
     ) -> CSSLogicalCounts:
         """Count the nontrivial logical operators of a given weight.
 
@@ -243,8 +240,10 @@ class CSSLogicalCounter:
                 count may use when it replaces its first, disjoint sets by overlapping ones.  More
                 sets can skip costly layers of a hard count, but each set costs setup work, which
                 dominates a cheap count.  A small limit suits many cheap counts on a large code.
-                This never changes the counts, and the other methods do not use it.  Defaults to
-                {MAX_SETS}.
+                The limit also applies to the distance search that finds the default weight.  This
+                never changes the counts, and the other methods do not use it.  If None (the
+                default), the limit is that of the active search tuning, which is {MAX_SETS} unless
+                changed (see :mod:`qldpc.codes.distance`).
 
         Returns:
             The counted weight and the counts.  If no weight is given and the code encodes no
@@ -253,9 +252,9 @@ class CSSLogicalCounter:
         Raises:
             TypeError: If the weight or ``max_information_sets`` is not an integer, or is a bool.
             ValueError: If the weight is not between zero and the number of qubits, if
-                the method is unknown, if the weight is above the distance and ``count_pauli`` or
-                ``within_distance`` is set, or if the MacWilliams method does not support the code
-                or the request.
+                ``max_information_sets`` is negative or above 2**62, if the method is unknown, if
+                the weight is above the distance and ``count_pauli`` or ``within_distance`` is set,
+                or if the MacWilliams method does not support the code or the request.
         """
         # Validate the inputs, resolving method aliases.
         method = _validate_logical_count_method(method)
@@ -267,8 +266,11 @@ class CSSLogicalCounter:
                 )
         if method == "macwilliams":
             self._validate_macwilliams_request(count_pauli)
-        # Compiled code specializes on the type of each argument, so fix it to a Python integer.
-        max_sets = as_integer(max_information_sets, "max_information_sets")
+        # Every search of this count uses one tuning, which validates the limit.
+        tuning = get_tuning()
+        if max_information_sets is not None:
+            max_sets = as_integer(max_information_sets, "max_information_sets")
+            tuning = dataclasses.replace(tuning, max_information_sets=max_sets)
 
         # A code without logicals needs no scan, and the MacWilliams method needs no sectors.
         if not self.dimension:
@@ -278,7 +280,10 @@ class CSSLogicalCounter:
             )
         if method == "macwilliams":
             return self._count_with_macwilliams(
-                weight, count_pauli=count_pauli, reject_lighter=count_pauli or within_distance
+                weight,
+                count_pauli=count_pauli,
+                reject_lighter=count_pauli or within_distance,
+                shared_walk_rank=tuning.macwilliams_shared_walk_rank,
             )
 
         sector_x, sector_z = self._get_sectors()
@@ -296,7 +301,7 @@ class CSSLogicalCounter:
         elif method in self._distances:
             target = self._distances[method]
         else:
-            target = _get_distance(sectors, method, get_disjoint_basis_families)
+            target = _get_distance(sectors, method, get_disjoint_basis_families, tuning)
             self._distances[method] = target
 
         # A nontrivial logical Pauli (x, z) of weight d has one of two disjoint forms.  Either x is
@@ -321,7 +326,7 @@ class CSSLogicalCounter:
             max_exponent=target if count_masked_ranks else 0,
             reject_lighter=reject_lighter,
             get_disjoint_basis_family=get_disjoint_basis_families[0],
-            max_sets=max_sets,
+            tuning=tuning,
         )
         if counts_x is None:
             raise _get_above_distance_error(target)
@@ -338,7 +343,7 @@ class CSSLogicalCounter:
                 max_exponent=len(self._gauge_x) if count_masked_ranks else 0,
                 reject_lighter=reject_lighter,
                 get_disjoint_basis_family=get_disjoint_basis_families[1],
-                max_sets=max_sets,
+                tuning=tuning,
             )
         if counts_z is None:
             raise _get_above_distance_error(target)
@@ -539,7 +544,7 @@ class CSSLogicalCounter:
             )
 
     def _count_with_macwilliams(
-        self, weight: int | None, *, count_pauli: bool, reject_lighter: bool
+        self, weight: int | None, *, count_pauli: bool, reject_lighter: bool, shared_walk_rank: int
     ) -> CSSLogicalCounts:
         """Count logical operators by the weight enumerators of the checks of a stabilizer code.
 
@@ -557,7 +562,7 @@ class CSSLogicalCounter:
             share = (
                 count_pauli
                 or self._self_dual
-                or (rank == len(self._gauge_z) >= _MIN_SHARED_WALK_RANK and self.is_self_dual)
+                or (rank == len(self._gauge_z) >= shared_walk_rank and self.is_self_dual)
             )
             self._enumerators = macwilliams.CheckEnumerators(
                 self._gauge_x, self._gauge_x if share else self._gauge_z
@@ -622,7 +627,7 @@ def count_logical_ops_css(
     method: LogicalCountMethod = "brouwer_zimmermann",
     count_pauli: bool = False,
     within_distance: bool = False,
-    max_information_sets: SupportsIndex = information_sets.MAX_SETS,
+    max_information_sets: SupportsIndex | None = None,
 ) -> CSSLogicalCounts:
     """Count the nontrivial logical operators of a given weight in a binary CSS code.
 
@@ -714,8 +719,7 @@ def _warm_up_compiled_functions() -> None:
         labels,
         basis_family,
         4,
-        information_sets.MAX_SETS,
-        *information_sets.get_overlapping_family_policy(len(basis)),
+        *information_sets.get_overlapping_family_policy(DEFAULT_TUNING, len(basis)),
     )
 
 
@@ -727,11 +731,12 @@ def _get_distance(
     sectors: Sequence[_Sector],
     method: DistanceMethod,
     get_disjoint_basis_families: Sequence[Callable[[], information_sets.BasisFamily]],
+    tuning: SearchTuning,
 ) -> int:
     """Minimum weight of a nontrivial word in any of the given sectors.
 
     ``get_disjoint_basis_families`` holds a function for each sector that returns its disjoint basis
-    family, for the BZ search.
+    family, and ``tuning`` sets the thresholds, for the BZ search.
     """
     if method == "brute_force":
         return min(
@@ -745,6 +750,7 @@ def _get_distance(
         cutoff=0,
         block_size=_BLOCK_SIZE,
         get_disjoint_basis_families=get_disjoint_basis_families[: len(sectors)],
+        tuning=tuning,
     )
 
 

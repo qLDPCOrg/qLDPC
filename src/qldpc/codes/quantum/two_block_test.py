@@ -7,6 +7,7 @@ from __future__ import annotations
 import itertools
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 import sympy
 from sympy.abc import x, y
@@ -15,8 +16,12 @@ from qldpc import abstract, codes
 from qldpc.codes.distance._search import automorphism_families
 from qldpc.objects import Node
 
-from ..conftest import assert_valid_subgraphs, tanner_graphs_are_isomorphic
-from .two_block import _get_block_translations
+from ..conftest import (
+    assert_valid_subgraphs,
+    assert_valid_translations,
+    tanner_graphs_are_isomorphic,
+)
+from .two_block import _get_abelian_block_translations, _get_block_translations
 
 
 def test_two_block_code_error() -> None:
@@ -386,11 +391,46 @@ def test_multivariate_bicycle_translations_preserve_checks() -> None:
     One cyclic factor of this code is trivial, so its group has fewer generators than symbols.
     """
     code = codes.MBCode([2, 1, 3], x + 1, x * y + 1)
-    for permutation in code._get_qudit_automorphisms():
-        for matrix in (code.matrix_x, code.matrix_z):
-            permuted = np.zeros_like(matrix)
-            permuted[:, permutation] = matrix
-            assert {row.tobytes() for row in permuted} == {row.tobytes() for row in matrix}
+    assert_valid_translations(code, code._get_qudit_automorphisms(), group_order=6)
+
+
+def test_gala_translations_preserve_checks() -> None:
+    """Translations of a GALA code over an abelian group map its checks onto themselves."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3))
+    xx = ring.generators[0]
+    code = codes.GALACode(
+        generators_f=[ring.one, xx], generators_g=[xx**2, ring.one], num_active_rows=1
+    )
+    translations = code._get_qudit_automorphisms()
+    assert translations is not None and len(translations) == 1
+    assert_valid_translations(code, translations, group_order=3)
+
+
+def test_nonabelian_groups_give_no_block_translations() -> None:
+    """Translations by the generators of a nonabelian group need not preserve a code."""
+    assert _get_abelian_block_translations(abstract.DihedralGroup(3), 2) is None
+
+
+@pytest.mark.parametrize(
+    "lifts",
+    [
+        # projections, which move two coordinates to one, or one coordinate to two
+        [np.array([[1, 1], [0, 0]])] * 3,
+        [np.array([[1, 0], [1, 0]])] * 3,
+        # a projection whose rows and columns each sum to one, but which has a negative entry
+        [np.array([[1, 0, 0], [1, 0, 0], [-1, 1, 1]])] * 3,
+    ],
+)
+def test_abelian_block_translations_need_permutation_lifts(
+    lifts: list[npt.NDArray[np.int_]],
+) -> None:
+    """Lifts of an abelian group that are not permutation matrices give no block translations."""
+    table = [[0, 1, 2], [1, 2, 0], [2, 0, 1]]
+    for aa, bb in itertools.product(range(3), repeat=2):
+        assert np.array_equal(lifts[table[aa][bb]], lifts[aa] @ lifts[bb])
+    group = abstract.Group.from_table(table, integer_lift=lambda member: lifts[member])
+    assert group.is_abelian
+    assert _get_abelian_block_translations(group, 2) is None
 
 
 def test_block_translations() -> None:

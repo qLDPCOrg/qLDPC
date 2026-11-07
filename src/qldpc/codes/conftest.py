@@ -1,15 +1,38 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Shared test helpers for tests of codes."""
+"""Shared test fixtures and helpers for tests of codes."""
 
 from __future__ import annotations
 
+import contextlib
 import unittest.mock
+from collections.abc import Callable, Iterator
 
 import networkx as nx
+import numpy as np
+import numpy.typing as npt
+import pytest
 
 from qldpc import codes
+from qldpc.codes.distance import _tuning
+from qldpc.codes.distance._search import automorphism_families
 from qldpc.objects import Pauli
+
+# Changes fields of the active search tuning until the end of a test (see the tune fixture).
+Tune = Callable[..., _tuning.SearchTuning]
+
+
+@pytest.fixture
+def tune() -> Iterator[Tune]:
+    """Change fields of the active search tuning, as ``use_tuning`` does, until the test ends.
+
+    Fixtures and tests that change the tuning share this one stack of changes, so that every change
+    is undone in reverse order, whatever order pytest tears fixtures down in.
+    """
+    with contextlib.ExitStack() as stack:
+        yield lambda **changes: stack.enter_context(_tuning.use_tuning(**changes))
+    # A change that outlives its test, as one made by tune within a use_tuning block would, fails.
+    assert _tuning.get_tuning() == _tuning.DEFAULT_TUNING
 
 
 def assert_valid_subgraphs(code: codes.QuditCode) -> None:
@@ -63,3 +86,22 @@ def assert_cached_parameters_are_genuine(
             # smaller of the two
             assert code.get_distance(Pauli.X) == rebuilt.get_distance(Pauli.X)
             assert code.get_distance(Pauli.Z) == rebuilt.get_distance(Pauli.Z)
+
+
+def assert_valid_translations(
+    code: codes.CSSCode, translations: npt.NDArray[np.int_], group_order: int
+) -> None:
+    """Translations of qudits by a group map the checks of each type of a CSS code onto themselves.
+
+    Row ``i`` of ``translations`` maps qudit ``j`` to qudit ``translations[i, j]``.  Each row must
+    permute the qudits, and every orbit of the group that the rows generate must contain
+    ``group_order`` qudits, as when the group acts regularly on each block of qudits.
+    """
+    for translation in translations:
+        assert sorted(translation) == list(range(len(code)))
+        for matrix in (code.matrix_x, code.matrix_z):
+            permuted = np.zeros_like(matrix)
+            permuted[:, translation] = matrix
+            assert {row.tobytes() for row in permuted} == {row.tobytes() for row in matrix}
+    orbits = automorphism_families._get_orbits(translations, len(code))
+    assert (np.bincount(orbits) == group_order).all()

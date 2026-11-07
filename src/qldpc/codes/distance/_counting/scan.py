@@ -24,17 +24,10 @@ from qldpc._compilation import always_compiled, compiled_on_request
 
 from .._search import information_sets
 from .._search.information_sets import advance_support
+from .._tuning import SearchTuning
 from . import local_cliffords
 
 _PackedMatrix = npt.NDArray[np.uint64]
-
-# Supports, choices of rows of a set, that one call of ``_count_chunk`` visits.
-_CHUNK_SIZE = 1 << 16
-
-# Chunks that one call of ``_scan_coefficient_layers`` visits before it returns, unless the scan
-# ends sooner.  Compiled code cannot be interrupted, so a compiled scan is interruptible only
-# between its calls.
-_CHUNKS_PER_SCAN_CALL = 64
 
 # How a scan call ends: with every layer visited, after its allowance of chunks, or at a word that
 # is lighter than the target and nontrivial.
@@ -60,7 +53,7 @@ def count_words(
     max_exponent: int,
     reject_lighter: bool,
     get_disjoint_basis_family: Callable[[], information_sets.BasisFamily],
-    max_sets: int,
+    tuning: SearchTuning,
 ) -> npt.NDArray[np.int64] | None:
     """Visit each nontrivial word of one sector with the given weight exactly once.
 
@@ -69,7 +62,8 @@ def count_words(
     the caller weighs each exponent by ``2**exponent``, which could overflow a native integer.  The
     scan also visits every lighter word, so with ``reject_lighter`` it returns None as soon as it
     finds a nontrivial one.  With ``brute_force``, it scans the whole basis as one set, rather than
-    the information sets of the Brouwer-Zimmermann search.
+    the information sets of the Brouwer-Zimmermann search.  ``tuning`` sets the thresholds that
+    choose those information sets, and the sizes of the chunks of the scan (see ``_tuning``).
     """
     # Select the information sets, or scan the whole basis as one set for brute force.
     if brute_force:
@@ -82,12 +76,16 @@ def count_words(
             labels,
             weight,
             get_disjoint_basis_family(),
-            max_sets,
-            *information_sets.get_overlapping_family_policy(len(basis)),
+            *information_sets.get_overlapping_family_policy(tuning, len(basis)),
         )
         # Matroid partitioning runs outside of _select_basis_family, which can be compiled.
         partitioned = information_sets.get_partitioned_family(
-            basis, labels, basis_family, weight + 1, max_sets
+            basis,
+            labels,
+            basis_family,
+            weight + 1,
+            tuning.max_information_sets,
+            tuning.partition_work_ratio,
         )
         if len(partitioned.ranks):
             basis_family = partitioned
@@ -95,10 +93,10 @@ def count_words(
             basis_family, basis.shape[1], labels.shape[1]
         )
         last_layer, last_num_completed = _get_last_step(
-            basis_family.get_search_certificate(weight + 1), weight
+            basis_family.get_search_certificate(weight + 1, tuning.lp_minimum_work), weight
         )
 
-    # Scan in bounded calls, which compiled code cannot be interrupted within.
+    # Scan in bounded calls, since compiled code cannot be interrupted within a call.
     histogram = np.zeros(max_exponent + 1, dtype=np.int64)
     cursor = np.zeros(3, dtype=np.int64)
     cursor[_CURSOR_LAYER] = 1
@@ -124,8 +122,8 @@ def count_words(
             support,
             prefixes,
             histogram,
-            _CHUNK_SIZE,
-            _CHUNKS_PER_SCAN_CALL,
+            tuning.scan_chunk_size,
+            tuning.scan_chunks_per_call,
         )
     return None if status == _SCAN_FOUND_LIGHTER_WORD else histogram
 
