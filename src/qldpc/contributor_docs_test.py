@@ -7,30 +7,67 @@ import pathlib
 import pkgutil
 import re
 
-import pytest
-
 _ROOT = pathlib.Path(__file__).parents[2]
 _DOCS = [*sorted((_ROOT / "docs/source/contributing").rglob("*.rst")), _ROOT / "AGENTS.md"]
 
-# a literal is a path if it ends with a slash or a file extension, as in ``codes/common.py``
+# a path ends with a slash or with one of these file extensions, as in ``codes/common.py``
 _PATH = re.compile(r"[\w./-]*[\w-](/|\.(py|rst|md|toml|yaml|yml|ipynb))")
 _NAME = re.compile(r"qldpc(\.\w+)+")
 _LINK = re.compile(r"\]\((?![a-z]+:)([^)#\s]+)")
 
 
-def _cited(pattern: re.Pattern[str]) -> list[tuple[str, str]]:
-    """Find the literals in the contributor docs that match a pattern, with the doc citing each."""
-    cited: set[tuple[str, str]] = set()
+def test_cited_paths_exist() -> None:
+    """Each cited path names a file or directory of the repository, or ends the path of one."""
+    known = _repository_paths()
+    missing = {
+        (doc, path)
+        for doc, path in _cited_paths()
+        if not any(known_path == path or known_path.endswith(f"/{path}") for known_path in known)
+    }
+    assert not missing, sorted(missing)
+
+
+def test_cited_names_exist() -> None:
+    """Each cited qLDPC module or object can be imported."""
+    for name in sorted({name for _, literal in _literals() for name in _names(literal)}):
+        pkgutil.resolve_name(name)
+
+
+def test_agents_md_links_exist() -> None:
+    """Each relative link in AGENTS.md points to a file or directory of the repository."""
+    links = set(_LINK.findall((_ROOT / "AGENTS.md").read_text(encoding="utf-8")))
+    missing = [link for link in sorted(links) if not (_ROOT / link).exists()]
+    assert not missing, missing
+
+
+def _literals() -> list[tuple[str, str]]:
+    """List the inline literals of the contributor docs, with the doc that contains each."""
+    literals: list[tuple[str, str]] = []
     for doc in _DOCS:
-        for literal in re.findall(r"``([^`]+)``|`([^`]+)`", doc.read_text(encoding="utf-8")):
-            text = literal[0] or literal[1]
-            if pattern.fullmatch(text):
-                cited.add((doc.relative_to(_ROOT).as_posix(), text))
-    return sorted(cited)
+        name = doc.relative_to(_ROOT).as_posix()
+        for double, single in re.findall(r"``([^`]+)``|`([^`]+)`", doc.read_text(encoding="utf-8")):
+            literals.append((name, double or single))
+    return literals
+
+
+def _cited_paths() -> set[tuple[str, str]]:
+    """Find the paths in the literals, including paths inside commands, without trailing slashes."""
+    return {
+        (doc, token.rstrip("/"))
+        for doc, literal in _literals()
+        for token in re.split(r"\s+|::", literal)
+        if _PATH.fullmatch(token)
+    }
+
+
+def _names(literal: str) -> list[str]:
+    """Find the dotted qLDPC names in a literal, such as a role target or a call."""
+    return [match.group() for match in _NAME.finditer(literal)]
 
 
 def _repository_paths() -> set[str]:
     """List the files and directories of the repository, relative to its root."""
+    # skip caches, build outputs, and hidden directories other than .github, such as .git and .venv
     skipped = {"__pycache__", "autoapi", "build"}
     paths: set[str] = set()
     for directory, subdirectories, files in os.walk(_ROOT):
@@ -42,27 +79,3 @@ def _repository_paths() -> set[str]:
         relative = pathlib.Path(directory).relative_to(_ROOT).as_posix()
         paths.update(f"{relative}/{name}".removeprefix("./") for name in subdirectories + files)
     return paths
-
-
-_PATHS = _repository_paths()
-
-
-@pytest.mark.parametrize(("doc", "path"), _cited(_PATH), ids=lambda value: value)
-def test_cited_path_exists(doc: str, path: str) -> None:
-    """A cited path names a file or directory of the repository, or the end of one's path."""
-    path = path.rstrip("/")
-    assert any(known == path or known.endswith(f"/{path}") for known in _PATHS), doc
-
-
-@pytest.mark.parametrize(("doc", "name"), _cited(_NAME), ids=lambda value: value)
-def test_cited_name_exists(doc: str, name: str) -> None:
-    """A cited qLDPC module or object can be imported."""
-    assert pkgutil.resolve_name(name) is not None, doc
-
-
-@pytest.mark.parametrize(
-    "link", _LINK.findall((_ROOT / "AGENTS.md").read_text(encoding="utf-8")), ids=str
-)
-def test_agents_md_link_exists(link: str) -> None:
-    """Every relative link in AGENTS.md points to a file or directory of the repository."""
-    assert (_ROOT / link).exists()

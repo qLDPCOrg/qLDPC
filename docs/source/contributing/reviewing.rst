@@ -2,8 +2,7 @@ Reviewing changes
 =================
 
 In a standard review, independent reviewers examine a change from several angles, and the change is revised in response.
-Review and revision repeat in rounds while a round finds significant problems.
-A problem is significant if fixing it changes behavior, an interface, a test, or what documentation says, rather than only polishing wording.
+Review and revision repeat in rounds while a round finds significant problems, as the reviewer instructions below define them.
 
 To request a standard review, name it, as in "run a standard review of this branch".
 A request can narrow or extend the review, as in "standard review of the tests and prose".
@@ -30,9 +29,13 @@ The coordinator gives each reviewer:
 * the purpose of the change and its scope;
 * the reviewer's angle and the standard that defines it;
 * the decisions made so far, such as those of earlier rounds, so that reviewers do not reopen them;
-* these instructions: report findings without editing the change, run only the drafting checks of the :ref:`validation commands <validation-commands>`, with ``format_.py --check`` rather than ``--fix``, and check whether the change requires updates elsewhere, such as to callers, to docstrings or guides that repeat a changed limitation, or to the :doc:`library map </library_map>` and examples.
+* these instructions:
 
-A finding gives a location, the problem, why it matters, and a suggested fix.
+  * Report findings without editing the change.
+  * Give each finding a location, the problem, why it matters, and a suggested fix.
+  * Mark each finding significant if fixing it changes behavior, an interface, a test, or what documentation says, and minor if it only polishes wording.
+  * Run only the drafting checks of the :ref:`validation commands <validation-commands>`, and run ``format_.py`` only with ``--check``.
+  * Check whether the change requires updates elsewhere, such as to callers, to docstrings or guides that repeat a changed limitation, or to the :doc:`library map </library_map>` and examples.
 
 Angles
 ------
