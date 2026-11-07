@@ -115,8 +115,10 @@ Add these only when the experiment or integration needs them:
 Ship a decoder with qLDPC
 -------------------------
 
-A decoder that ships with qLDPC needs an implementation, a public specification helper, and tests.
-The :doc:`decoder standard </contributing/standards/decoders>` lists the steps and requirements.
+To ship a decoder with qLDPC, follow the :doc:`decoder standard </contributing/standards/decoders>`.
+Existing integrations such as :mod:`qldpc.decoders.external.tesseract` show a backend with both output contracts.
+A :class:`~qldpc.decoders.construction.specs.DecoderSpec` holds a builder and its options; call ``build`` or ``build_observable_decoder`` to construct a decoder.
+A test discovers the generated specification helpers that ``qldpc.decoders`` exports, and checks their signatures, written documentation, and guide entries automatically.
 
 Run focused co-located tests while developing.
 Replace the GUF test path below with your own test file:

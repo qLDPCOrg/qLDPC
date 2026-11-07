@@ -69,4 +69,4 @@ After the last round, run ``python checks/all_.py`` and ``python checks/coverage
 A fix that is a significant revision calls for another round, within the same limit of three rounds.
 Then report what each round found and changed, and list the decisions that remain open.
 If the limit ended the review, ask whether to start another round.
-For a change intended as a pull request, end with a title and summary in a code block, following the :ref:`pull request summary guidance <pull-request-summaries>`.
+For a change intended as a pull request, end with a title and summary in a code block, following the :doc:`pull request standard <standards/pull_requests>`.

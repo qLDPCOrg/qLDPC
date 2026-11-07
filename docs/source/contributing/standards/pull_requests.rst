@@ -1,5 +1,3 @@
-.. _pull-request-summaries:
-
 Pull request standard
 =====================
 

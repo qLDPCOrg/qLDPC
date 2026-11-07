@@ -31,7 +31,7 @@ Algebra and code state
 ----------------------
 
 * Read the cached-state interactions in ``codes/common.py`` before changing standard form, logicals, stabilizers, gauges, dimension, or distance.
-* Preserve public imports and invalidate or transfer cached values deliberately.
+* Invalidate or transfer cached values deliberately.
 * Preserve concrete ``galois.FieldArray`` types when copying or transforming code data.
   Do not coerce extension-field values with ``% field.order``.
 * Reject incompatible group rings in NumPy operations, including arrays supplied through keyword arguments such as ``out=``.
@@ -48,13 +48,13 @@ Circuits
 * Use the ``_restrict_to_qubits`` guard from ``circuits/common.py`` in circuit and tableau constructors.
 * Keep data, check, reference, and ancilla roles explicit through ``QubitIDs`` and bookkeeping types.
   Do not infer roles from coincident integer indices.
-* Keep matrix, qubit-role, measurement-record, detector-record, and Stim-circuit bookkeeping in sync.
 * Preserve memory-circuit detector-coordinate semantics; a monotone check index must not be interpreted as time.
 * Noise-model operation immunity and qubit immunity are separate controls; preserve both.
 * Encode T gates and other π/4 rotations in Clifford+T tools as ``RotatedPauliString`` documents, following tsim.
-* Test noiseless detector determinism and observable behavior before adding noise.
-* Exercise repeated rounds and seam behavior; a locally valid circuit fragment can still become wrong when initialization, QEC cycles, and readout are joined.
 * State computational and fault-tolerance limitations in the relevant function or class docstring.
+* In a circuit workflow, such as a memory experiment, keep matrix, qubit-role, measurement-record, detector-record, and Stim-circuit bookkeeping in sync.
+  Test noiseless detector determinism and observable behavior before adding noise.
+  Exercise repeated rounds and seam behavior; a locally valid circuit fragment can still become wrong when initialization, QEC cycles, and readout are joined.
 
 .. _implementation-external-systems:
 
@@ -65,7 +65,6 @@ External systems and caching
 * Separate parsing/encoding logic from process, network, clipboard, and prompt mechanics.
 * For finite fields, round-trip values through the external system's actual element encoding; do not assume integer storage conventions match.
 * Report nonzero return codes, standard error, malformed output, and missing data clearly.
-* Test both the callable-tool path and the absent/manual/error paths without live resources.
-* Expensive reusable computations should use ``qldpc.cache.use_disk_cache(cache_name)``.
   Do not hide errors by returning a default value that looks successful.
-* Numba code uses ``always_compiled`` or ``compiled_on_request`` from ``qldpc/_compilation.py``, never ``njit(cache=True)``; that module's docstring says which to use, and ``_compilation_test.py`` enforces its rules.
+* For an external tool, test both the callable-tool path and the absent/manual/error paths without live resources.
+* Expensive reusable computations should use ``qldpc.cache.use_disk_cache(cache_name)``.

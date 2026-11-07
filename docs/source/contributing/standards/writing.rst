@@ -32,22 +32,27 @@ Prose style
 * Python comments and docstrings use ordinary paragraphs: separate sentences with two spaces and fill lines to the 100-column limit.
 * Keep one prose sentence per physical source line in repository ``.rst`` and ``.md`` files and notebook Markdown cells.
   Put ``First sentence.`` and ``Second sentence.`` on separate source lines; leave code blocks, equations, and table syntax intact.
-  For PR-summary text, use the paragraph formatting in :ref:`pull-request-summaries` instead.
+  For PR-summary text, use the paragraph formatting in the :doc:`pull request standard <pull_requests>` instead.
+
+.. _writing-documentation:
 
 Documentation and examples
 --------------------------
 
-* Put rules that a change must satisfy in the :doc:`standards <index>`, one topic per standard, and state each rule in exactly one standard.
-  Guides explain how qLDPC works and how to do things, and link to the standards rather than restating them.
+* Put each rule that a change must satisfy in exactly one :doc:`standard <index>`; each standard covers one topic.
+  In guides, which explain how qLDPC works and how to make a change, link to the relevant standard rather than restating its rules.
 * Put explanations that span packages in the :doc:`library map </library_map>`, exact API behavior in docstrings, and executable workflows in ``examples/``.
 * The notebooks under ``docs/source/examples/`` are links to the canonical files under ``examples/``.
   Edit the canonical notebook, not the documentation-tree link.
+* Before changing a notebook example, refresh its outputs by executing the entire canonical notebook in an offline, editable installation.
 * Keep README and the library map selective; AutoAPI lists the public symbols.
 * When a public limitation changes, update the relevant function or class docstring and every README or guide that repeats it in the same pull request.
 * Run the strict documentation build before considering the change complete.
 
 Use the smallest meaningful example and explain the scientific choices and limitations, with pointers to the relevant literature and implementation.
 Make examples easy to adapt to a new question rather than requiring users to adopt a complete workflow.
+
+.. _writing-notebooks:
 
 Example notebooks
 ~~~~~~~~~~~~~~~~~

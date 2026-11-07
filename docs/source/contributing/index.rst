@@ -23,18 +23,20 @@ Some kinds of change have further requirements:
    * - Change
      - Further requirements
    * - Code construction
-     - :ref:`Code constructions <implementation-code-constructions>`
+     - Implementation standard: :ref:`code constructions <implementation-code-constructions>` and :ref:`algebra and code state <implementation-algebra>`
    * - Code-core algebra or cached state
-     - :ref:`Algebra and code state <implementation-algebra>`
+     - Implementation standard: :ref:`algebra and code state <implementation-algebra>`
    * - Decoder
      - :doc:`Decoder standard <standards/decoders>`, and the :doc:`guide to adding a decoder </adding_decoders>`
-   * - Circuit workflow
-     - :ref:`Circuits <implementation-circuits>`
+   * - Circuit or tableau tool
+     - Implementation standard: :ref:`circuits <implementation-circuits>`
    * - External integration or caching
-     - :ref:`External systems and caching <implementation-external-systems>`
+     - Implementation standard: :ref:`external systems and caching <implementation-external-systems>`
+   * - Documentation or example
+     - Writing standard: :ref:`documentation and examples <writing-documentation>` and :ref:`example notebooks <writing-notebooks>`
    * - Public name, argument, mode, or default
      - :doc:`Deprecation standard <standards/deprecations>`
-   * - Pull request
+   * - Pull request description
      - :doc:`Pull request standard <standards/pull_requests>`
 
 Orientation
@@ -64,8 +66,7 @@ Validation commands
 CI's exact environments and commands are in ``.github/workflows/``.
 Use the `validation commands in the agent and contributor guide <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md#validation-commands>`_.
 
-Run checks on what you changed while iterating, and save repository-wide runs for a finished change.
-While iterating, the tests of the changed modules usually suffice.
+While iterating, run checks on what you changed; the tests of the changed modules usually suffice.
 Run the coverage gates, the documentation build, and the full test suite once review is done, as in the last step of a :doc:`standard review <reviewing>`.
 Every check script except ``build_docs.py`` accepts explicit files, as in ``python checks/coverage_.py src/qldpc/codes/common.py``, or ``-i/--incremental [REVISION ...]``.
 The incremental mode checks only the files changed since the merge base with ``upstream/main``, ``origin/main``, or ``main`` (the first that exists), or with the given revisions.
@@ -74,8 +75,7 @@ For example, ``python checks/coverage_.py -i`` runs the per-module coverage gate
 Prefer the individual scripts for incremental runs: ``all_.py -i`` measures overall coverage over only the selected tests, so shared fixtures in ``conftest.py`` files can fail it spuriously.
 Before merging, run ``python checks/all_.py`` and ``python checks/coverage_.py``.
 
-The docs build renders saved notebook outputs without executing code cells.
-Refresh outputs by executing the entire canonical notebook in an offline, editable installation before changing a notebook example.
+The docs build renders saved notebook outputs without executing code cells, so refresh them as the :doc:`writing standard <standards/writing>` describes.
 Pass an absolute path to this checkout's ``src`` directory in ``PYTHONPATH`` if a notebook runner starts its kernel from ``examples/``.
 The TQEC notebook (``examples/logical_error_rates/specialized/decoding_tqec_circuits.ipynb``) requires Python 3.11--3.13 because its pinned TQEC dependency does not support Python 3.14.
 

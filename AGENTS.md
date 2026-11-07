@@ -7,8 +7,9 @@ Apply the goals to the requested work rather than using them to justify unrelate
 
 A change need not advance every goal or include a tutorial.
 Make significant tradeoffs explicit, and keep the supported scope maintainable.
-The [standards](docs/source/contributing/standards/index.rst) state the detailed rules that a change must satisfy, one topic per standard, and the [contributing page](docs/source/contributing/index.rst) explains the workflow.
-Read the applicable standards before editing.
+The [standards](docs/source/contributing/standards/index.rst) state the rules that a change must satisfy, one topic per standard.
+The [contributing page](docs/source/contributing/index.rst) explains how to set up, validate, and review a change.
+Before editing, read the standards that its [kinds-of-change table](docs/source/contributing/index.rst#kinds-of-change) lists for the change.
 For a human-facing explanation of the data model and package relationships, start with the [library map](docs/source/library_map.rst).
 For exact signatures and per-object literature, use the source docstrings or the generated [API reference](https://qldpc.readthedocs.io/autoapi/index.html).
 
@@ -63,10 +64,6 @@ Use small, independent oracles and guard scientific behavior, not incidental imp
 Mock external boundaries, never the logic under test.
 Tests must work offline, without persistent result caches or order dependence, and treat deprecation and future-change warnings as errors.
 Check that a new or rewritten test fails when its guarded behavior is broken.
-
-## Kinds of change
-
-Before starting, read the standards that the [kinds-of-change table](docs/source/contributing/index.rst#kinds-of-change) lists for your change.
 
 ## Deprecations and future changes
 
