@@ -216,6 +216,7 @@ The names below are in `_search/connected_support.py`, unless the table says oth
 `CSSCode.get_distance_exact` in `src/qldpc/codes/common.py` builds the sectors and calls `_get_distance_css_connected_support` of `core.py`, which validates them.
 `logical_counts.py` does not accept the method, since counting needs every word of a weight, and not one witness.
 `get_distance_classical` and `get_distance_quantum` reject it, since their inputs are generators and not parity checks.
+Classical codes reject it too, so the closed forms of hypergraph product codes, which search their classical seed codes, search them with Brouwer–Zimmermann instead.
 `_search_supports` is compiled with `always_compiled`, as [README.md](README.md) explains.
 
 ## 5. Correctness requirements

@@ -9,7 +9,7 @@ import functools
 import itertools
 import math
 from dataclasses import replace
-from typing import Any
+from typing import Any, get_args
 from unittest import mock
 
 import galois
@@ -628,6 +628,10 @@ def test_invalid_inputs() -> None:
     assert lc._validate_logical_count_method("weight_enumerator") == "macwilliams"
     with pytest.raises(ValueError, match="Unknown logical-count method"):
         lc._validate_logical_count_method(invalid_method)
+    # The types of method names agree with the table that validates them.
+    assert set(get_args(lc.LogicalCountMethod)) == set(lc._LOGICAL_COUNT_METHODS)
+    canonical_methods = set(lc._LOGICAL_COUNT_METHODS.values())
+    assert set(get_args(lc._CanonicalLogicalCountMethod)) == canonical_methods
     for weight in (-1, 3):
         with pytest.raises(ValueError, match="weight must be between"):
             counter.count_logical_ops(weight)

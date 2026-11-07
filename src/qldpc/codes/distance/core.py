@@ -464,3 +464,13 @@ def _reject_connected_support(method: _CanonicalDistanceMethod) -> None:
             "The 'connected_support' distance method searches the Tanner graphs of the parity"
             " checks of a binary CSS code: use CSSCode.get_distance_exact"
         )
+
+
+def _get_classical_distance_method(method: DistanceMethod) -> _CanonicalDistanceMethod:
+    """The method of a search of a classical code, in a calculation that asks for ``method``.
+
+    A closed form of the distance of a CSS code can search classical codes, which the
+    ``"connected_support"`` method does not accept, so those searches use the default method.
+    """
+    method = _validate_distance_method(method)
+    return "brouwer_zimmermann" if method == "connected_support" else method

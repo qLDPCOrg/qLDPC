@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable
-from typing import cast
+from typing import cast, get_args
 from unittest import mock
 
 import numpy as np
@@ -117,6 +117,11 @@ def test_connected_support_is_for_css_codes() -> None:
         qldpc.codes.get_distance_classical([[1, 1, 0]], method="connected_support")
     with pytest.raises(ValueError, match=r"CSSCode\.get_distance_exact"):
         qldpc.codes.get_distance_quantum([[1, 0]], [[1, 1]], method="connected_support")
+
+    # Searches of classical codes for a CSS code use the default method instead.
+    assert core._get_classical_distance_method("connected_support") == "brouwer_zimmermann"
+    assert core._get_classical_distance_method("brute_force") == "brute_force"
+    assert core._get_classical_distance_method("information_sets") == "brouwer_zimmermann"
 
 
 def test_brouwer_zimmermann_special_inputs() -> None:
@@ -370,3 +375,7 @@ def test_distance_backend_validation() -> None:
     assert core._validate_distance_method("information_sets") == "brouwer_zimmermann"
     with pytest.raises(ValueError, match="Unknown distance method"):
         core._validate_distance_method("other")  # type: ignore[arg-type]
+
+    # The types of method names agree with the table that validates them.
+    assert set(get_args(core.DistanceMethod)) == set(core._DISTANCE_METHODS)
+    assert set(get_args(core._CanonicalDistanceMethod)) == set(core._DISTANCE_METHODS.values())

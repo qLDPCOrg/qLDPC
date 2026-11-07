@@ -12,8 +12,9 @@ import pytest
 from sympy.abc import x, y
 
 from qldpc import codes
+from qldpc.codes.distance import DistanceMethod
 from qldpc.math import resolve_field
-from qldpc.objects import ChainComplex, Pauli
+from qldpc.objects import ChainComplex, Pauli, PauliXZ
 
 from ..conftest import assert_cached_parameters_are_genuine, assert_valid_subgraphs
 
@@ -96,6 +97,35 @@ def test_hypergraph_product_distance_by_sector(
         # the same distances that a code carrying no closed form of its own computes
         assert code.get_distance(Pauli.X) == plain.get_distance(Pauli.X)
         assert code.get_distance(Pauli.Z) == plain.get_distance(Pauli.Z)
+
+
+@pytest.mark.parametrize("pauli", [None, Pauli.X, Pauli.Z])
+@pytest.mark.parametrize(
+    "method, seed_method",
+    [("brute_force", "brute_force"), ("connected_support", "brouwer_zimmermann")],
+)
+def test_closed_forms_search_seed_codes_with_the_given_method(
+    pauli: PauliXZ | None, method: DistanceMethod, seed_method: DistanceMethod
+) -> None:
+    """The closed-form distances of product codes search their seed codes with the given method.
+
+    Classical codes do not accept the connected-support method, so the seed codes use the default.
+    """
+    for product in (codes.HGPCode, codes.SHPCode):
+        # A generic copy of a ring code records no distance, and its dependent checks give its
+        # transpose code words, so the closed form of HGPCode searches both.
+        seed = codes.ClassicalCode(codes.RingCode(4).matrix)
+        code = product(seed, seed)
+        with unittest.mock.patch.object(
+            codes.ClassicalCode,
+            "get_distance",
+            autospec=True,
+            side_effect=codes.ClassicalCode.get_distance,
+        ) as get_distance:
+            distance = code.get_distance_exact(pauli, method=method)
+        assert distance == product(seed, seed).get_distance_exact(pauli)
+        assert get_distance.call_args_list
+        assert all(call.kwargs["method"] == seed_method for call in get_distance.call_args_list)
 
 
 def test_hypergraph_product_syndrome_subgraphs() -> None:

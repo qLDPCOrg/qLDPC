@@ -35,6 +35,8 @@ from ..classical import (
     SimplexCode,
 )
 from ..common import ClassicalCode, CSSCode
+from ..distance import DistanceMethod
+from ..distance.core import _get_classical_distance_method
 
 ####################################################################################################
 # hypergraph product codes and their variants
@@ -373,7 +375,7 @@ class HGPCode(CSSCode):
         logical_ops_z = scipy.linalg.block_diag(logical_ops_z_l, logical_ops_z_r)
         return logical_ops_x.view(field), logical_ops_z.view(field)
 
-    def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
+    def _get_distance_exact(self, pauli: PauliXZ | None, *, method: DistanceMethod) -> int | float:
         """Exact distance calculation for hypergraph product codes.
 
         These calculations are based on arXiv:2308.15520, but additionally allow for the separate
@@ -389,18 +391,21 @@ class HGPCode(CSSCode):
         if pauli is None:
             # this case is implicitly covered by the cases of Pauli.X and Pauli.Z below
             return NotImplemented
+        method = _get_classical_distance_method(method)
 
         # a transpose seed code has code words exactly when that seed code has a dependent check
         dependent_a = self.code_a.rank < len(self.code_a.matrix)
         dependent_b = self.code_b.rank < len(self.code_b.matrix)
 
         if pauli is Pauli.X:
-            dist_a = ClassicalCode(self.code_a.matrix.T).get_distance() if dependent_b else np.nan
-            dist_b = self.code_b.get_distance() if self.code_a.dimension else np.nan
+            transpose_a = ClassicalCode(self.code_a.matrix.T)
+            dist_a = transpose_a.get_distance(method=method) if dependent_b else np.nan
+            dist_b = self.code_b.get_distance(method=method) if self.code_a.dimension else np.nan
         else:
             assert pauli is Pauli.Z
-            dist_a = self.code_a.get_distance() if self.code_b.dimension else np.nan
-            dist_b = ClassicalCode(self.code_b.matrix.T).get_distance() if dependent_a else np.nan
+            dist_a = self.code_a.get_distance(method=method) if self.code_b.dimension else np.nan
+            transpose_b = ClassicalCode(self.code_b.matrix.T)
+            dist_b = transpose_b.get_distance(method=method) if dependent_a else np.nan
 
         return dist_a if np.isnan(dist_b) else dist_b if np.isnan(dist_a) else min(dist_a, dist_b)
 
@@ -547,15 +552,18 @@ class SHPCode(CSSCode):
         logical_ops_z = np.kron(generator_a, pivots_b)
         return logical_ops_x.view(field), logical_ops_z.view(field)
 
-    def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
+    def _get_distance_exact(self, pauli: PauliXZ | None, *, method: DistanceMethod) -> int | float:
         """Exact distance calculation for subsystem hypergraph product codes."""
+        method = _get_classical_distance_method(method)
         match pauli:
             case Pauli.X:
-                return self.code_b.get_distance()
+                return self.code_b.get_distance(method=method)
             case Pauli.Z:
-                return self.code_a.get_distance()
+                return self.code_a.get_distance(method=method)
             case _:
-                return min(self.code_a.get_distance(), self.code_b.get_distance())
+                return min(
+                    self.code_a.get_distance(method=method), self.code_b.get_distance(method=method)
+                )
 
 
 class BaconShorCode(SHPCode):
