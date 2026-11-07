@@ -154,7 +154,7 @@ Replace the GUF test path below with your own test file:
 
    python -m pytest src/qldpc/decoders/custom/guf_test.py -q
 
-Use the :doc:`contributor reference <contributing>` for targeted formatting, typing, coverage, and documentation checks.
+Use the :ref:`validation commands <validation-commands>` for targeted formatting, typing, coverage, and documentation checks.
 The repository still requires full per-module statement coverage and offline tests.
 Run the strict documentation build to check guide and API references; it does not execute the examples.
 
@@ -165,7 +165,7 @@ These requirements apply when changing existing integration paths, not merely im
 
 * Coerce user-supplied error decoders with ``_as_error_decoder`` from ``decoders/protocols.py`` inside ``qldpc.decoders``, or ``build_error_decoder`` from ``decoders/_resolution.py`` outside it, and call ``decode_errors``.
 * Reject prebuilt decoders with ``reject_prebuilt_decoder`` from ``decoders/_resolution.py`` when a method constructs the matrix that it decodes.
-* Keep the import layers of ``qldpc.decoders`` that ``_LAYERS`` in ``decoders/layering_test.py`` lists, and add a new top-level module or subpackage to a layer there; the :doc:`contributor reference <contributing>` describes the rule and its exceptions.
+* Keep the import layers of ``qldpc.decoders`` that ``_LAYERS`` in ``decoders/layering_test.py`` lists, and add a new top-level module or subpackage to a layer there; the :doc:`code guide <code_guide>` describes the rule and its exceptions.
 * Keep ``build_error_decoder`` specific to error decoders.
   Dispatch on explicit capabilities such as ``compile_decoder_for_dem``, ``decode_observables``, and ``ErrorDecoder``, never on output length.
 * In code-capacity callers under ``qldpc.codes``, resolve decoder inputs with ``get_code_capacity_decoder`` from ``codes/_code_capacity.py``.

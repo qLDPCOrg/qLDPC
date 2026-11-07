@@ -7,7 +7,8 @@ Apply the goals to the requested work rather than using them to justify unrelate
 
 A change need not advance every goal or include a tutorial.
 Make significant tradeoffs explicit, and keep the supported scope maintainable.
-The [contributor reference](docs/source/contributing.rst) contains the detailed rules and procedures; read its applicable sections before editing.
+The [contributor guides](docs/source/contributing.rst) give the detailed rules and procedures by topic.
+Read the applicable guides before editing.
 For a human-facing explanation of the data model and package relationships, start with the [library map](docs/source/library_map.rst).
 For exact signatures and per-object literature, use the source docstrings or the generated [API reference](https://qldpc.readthedocs.io/autoapi/index.html).
 
@@ -20,32 +21,32 @@ For what the code does, use this order:
 3. The [library map](docs/source/library_map.rst) and executable [examples](examples/).
 4. Historical discussion, issues, or review notes.
 
-For how code should be written, this guide and the contributor reference take precedence over existing code: code that breaks a rule is debt to fix, not a precedent to copy.
+For how code should be written, this guide and the contributor guides take precedence over existing code: code that breaks a rule is debt to fix, not a precedent to copy.
 Re-derive behavior from the current branch before documenting or changing it.
 Do not copy transient project history, machine-specific paths, or local-session instructions into production files.
 
 ## Orientation
 
 Canonical executable notebooks live in [`examples/`](examples/), Sphinx pages and the library map in [`docs/source/`](docs/source/), local wrappers for CI's quality gates in [`checks/`](checks/), and untested research scripts in [`experiments/`](experiments/).
-Read the [orientation](docs/source/contributing.rst#orientation) before reorganizing code or changing shared code-core state.
+Read the [orientation](docs/source/contributing.rst#orientation) and the [code guide](docs/source/code_guide.rst) before reorganizing code.
 
 ## Public API and private code
 
 Plain names defined in public modules are public API, even when they are not re-exported.
 Preserve released public import paths and respect top-level subpackage boundaries for underscore names.
-Before adding or moving names, read the [public/private rules](docs/source/contributing.rst#public-api-and-private-code), including the exceptions for experimental and deprecation code.
+Before adding or moving names, read the [public/private rules](docs/source/code_guide.rst#public-api-and-private-code), including the exceptions for experimental and deprecation code.
 
 ## Code style and organization
 
-Read the [style and organization rules](docs/source/contributing.rst#code-style-and-organization) before changing source or documentation.
+Read the [code guide](docs/source/code_guide.rst), including its [simplicity and clarity rules](docs/source/code_guide.rst#simplicity-and-clarity), before changing source.
 Source files need an SPDX license header and a module docstring.
 Sections use a line of exactly 100 `#` characters and a title; plain names precede underscore names unless import-time dependencies require otherwise.
 [`code_style_test.py`](src/qldpc/code_style_test.py) checks these layout rules.
-Follow the [prose style rules](docs/source/contributing.rst#prose-style) when writing comments, docstrings, or documentation.
+Follow the [prose style rules](docs/source/writing_guide.rst#prose-style) when writing comments, docstrings, or documentation.
 
 ## Core invariants
 
-Read the applicable [implementation requirements](docs/source/contributing.rst#core-invariants) before changing algebra, decoding, circuits, or integrations.
+Read the applicable [implementation requirements](docs/source/implementation_guide.rst#implementation-requirements) before changing algebra, decoding, circuits, or integrations.
 
 - Preserve concrete finite fields and compatible group rings; extension-field values are not integers modulo the field order.
 - Distinguish subsystem gauge generators from stabilizers, and preserve symplectic conventions.
@@ -56,7 +57,7 @@ Read the applicable [implementation requirements](docs/source/contributing.rst#c
 
 ## Tests
 
-Read the [testing rules](docs/source/contributing.rst#tests) before adding or rewriting tests.
+Read the [testing guide](docs/source/testing_guide.rst) before adding or rewriting tests.
 Every module needs a co-located `*_test.py` that fully covers it.
 Use small, independent oracles and guard scientific behavior, not incidental implementation details.
 Mock external boundaries, never the logic under test.
@@ -69,24 +70,25 @@ Read the relevant recipe before starting:
 
 | Change | Required reference |
 | --- | --- |
-| Code construction | [Construction recipe](docs/source/contributing.rst#add-or-change-a-code-construction) |
-| Code-core algebra or cached state | [Algebra recipe](docs/source/contributing.rst#change-code-core-algebra) |
-| Decoder | [Decoder recipe](docs/source/contributing.rst#add-or-adapt-a-decoder) and [adding a decoder](docs/source/adding_decoders.rst) |
-| Circuit workflow | [Circuit recipe](docs/source/contributing.rst#change-a-circuit-workflow) |
-| External integration | [Integration recipe](docs/source/contributing.rst#change-an-external-integration) |
-| Documentation or example | [Documentation recipe](docs/source/contributing.rst#add-documentation-or-an-example) and [notebook review criteria](docs/source/contributing.rst#example-notebooks) |
+| Code construction | [Construction recipe](docs/source/implementation_guide.rst#add-or-change-a-code-construction) |
+| Code-core algebra or cached state | [Algebra recipe](docs/source/implementation_guide.rst#change-code-core-algebra) |
+| Decoder | [Decoder requirements](docs/source/implementation_guide.rst#decoder-integration) and [adding a decoder](docs/source/adding_decoders.rst) |
+| Circuit workflow | [Circuit recipe](docs/source/implementation_guide.rst#change-a-circuit-workflow) |
+| External integration | [Integration recipe](docs/source/implementation_guide.rst#change-an-external-integration) |
+| Documentation or example | [Documentation guidance](docs/source/writing_guide.rst#documentation-and-examples) and [notebook review criteria](docs/source/writing_guide.rst#example-notebooks) |
 
 ## Deprecations and future changes
 
 Never break callers of a released public API without warning.
-Read the [full compatibility procedure](docs/source/contributing.rst#deprecations-and-future-changes) before changing a public name, argument, mode, or default.
+Read the [full compatibility procedure](docs/source/deprecations.rst) before changing a public name, argument, mode, or default.
 Deprecations use `DeprecationWarning`; changes that would silently alter the same call use `FutureWarning`.
 Future changes move through an old default that warns, a new default that warns on explicit old usage, and defunct old usage, at least one minor release apart.
 Keep substantial compatibility code in [`qldpc/_deprecations/`](src/qldpc/_deprecations/).
 
-## Pull requests
+## Reviews and pull requests
 
-Review a change in the passes of [reviewing a change](docs/source/contributing.rst#reviewing-a-change) before running the finishing checks.
+When asked for a **standard review**, follow [reviewing changes](docs/source/reviewing.rst).
+Agents run a standard review before reporting a change as ready for a pull request, unless told otherwise.
 Follow the [PR-summary guidance](docs/source/contributing.rst#pull-request-summaries) when preparing a PR description.
 
 ## Validation commands

@@ -1,0 +1,25 @@
+Testing guide
+=============
+
+This guide covers what tests should guard and the conditions under which they run.
+
+* Every module needs its own co-located ``*_test.py``: the coverage gate requires each module to be fully covered by its own test file, and does not gate a module without one.
+  The gate runs the selected test files in one parallel pytest run, and credits a module only with the lines that its own test file runs in the test process, not in subprocesses (see ``checks/coverage_contexts.py``).
+  Between test files on one worker, it resets the repository's shared fixtures and qLDPC's ``functools`` caches, but not other module-level state.
+  ``python checks/coverage_.py --isolated`` instead runs each test file in its own process: use it to audit the gate, for example when tests change module-level state.
+  Reach a hard-to-reach branch with a focused test rather than a broad scenario.
+* Tests run with network sockets disabled.
+  Mock only external boundaries such as web, subprocess, clipboard, prompt, and optional-package paths, or a module's own thin wrappers around them, never the logic under test, and do not add a live-service test.
+* Disk caches are bypassed while pytest is imported, so tests must not depend on cache persistence.
+* Pytest turns every ``DeprecationWarning`` and ``FutureWarning`` into an error, so tests use the modern API, and test deprecated usage and future-change warnings with ``pytest.warns`` (see :doc:`deprecations`).
+  This applies to warnings from other packages too; avoid the call that triggers one, or add a narrow ``ignore`` entry to ``filterwarnings`` in ``pyproject.toml``.
+* A test should guard behavior that matters: results, invariants, documented errors, and contracts between modules.
+  Do not pin implementation choices such as internal call order, cache layouts, or incidental error-message wording.
+  A test may call a private helper of the module that it tests to check the helper's contract or reach coverage, and may set private state of objects to construct a case, but should not assert on private state.
+* Keep each test minimal: use the smallest code, field, or circuit that exercises the behavior, do not parametrize over cases that take the same path, and delete tests implied by others.
+* Prefer independent oracles (rank, commutation, row-space identities, or brute force on small instances) over values that the code under test computed or cached.
+  Checking a stored value against an independent expected value, such as one from the literature, is not tautological; deriving the expected value from the code under test is.
+* Keep tests that reproduce results from the literature, and cite the source in the test.
+* Tests run in random order with a per-run random seed (pytest-randomly), so they must not depend on order.
+  Seed random inputs from ``pytestconfig.getoption("randomly_seed")`` for reproducibility, and make sure that the assertions hold for every seed; otherwise use a fixed seed.
+* Check that a new or rewritten test fails when the behavior it guards is broken.
