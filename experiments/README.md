@@ -18,8 +18,8 @@ Commands below are written relative to the repository root.
 
 ## Results
 
-Every experiment stores its results in a `results/` directory beside its scripts, which Git ignores.
-Every script accepts `--results-dir` to use another directory instead, such as a scratch directory for a quick trial run; pass the same `--results-dir` to all scripts of an experiment.
+Every experiment that saves results stores them in a `results/` directory beside its scripts, which Git ignores.
+Its scripts accept `--results-dir` to use another directory instead, such as a scratch directory for a quick trial run; pass the same `--results-dir` to all scripts of an experiment.
 Each results directory holds a CSV summary, together with the resumable intermediate data from which that summary is built:
 
 | Experiment | Intermediate data | CSV summary |

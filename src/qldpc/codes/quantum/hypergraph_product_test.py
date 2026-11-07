@@ -107,9 +107,11 @@ def test_hypergraph_product_distance_by_sector(
 def test_closed_forms_search_seed_codes_with_the_given_method(
     pauli: PauliXZ | None, method: DistanceMethod, seed_method: DistanceMethod
 ) -> None:
-    """The closed-form distances of product codes search their seed codes with the given method.
+    """The closed-form distances of product codes search their seed codes with a classical method.
 
-    Classical codes do not accept the connected-support method, so the seed codes use the default.
+    That is the given method, except that classical codes do not accept the connected-support
+    method, so the seed codes use the default instead.  Both products of the ring code of length 4
+    have distance 4 in every sector.
     """
     for product in (codes.HGPCode, codes.SHPCode):
         # A generic copy of a ring code records no distance, and its dependent checks give its
@@ -123,7 +125,7 @@ def test_closed_forms_search_seed_codes_with_the_given_method(
             side_effect=codes.ClassicalCode.get_distance,
         ) as get_distance:
             distance = code.get_distance_exact(pauli, method=method)
-        assert distance == product(seed, seed).get_distance_exact(pauli)
+        assert distance == 4
         assert get_distance.call_args_list
         assert all(call.kwargs["method"] == seed_method for call in get_distance.call_args_list)
 

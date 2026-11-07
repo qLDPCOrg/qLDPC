@@ -15,13 +15,15 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 
 ## Terms
 
-- **Sector:** a basis of the words that a search examines, with labels that tell nontrivial words from trivial ones, such as the logical operators of one type of a CSS code from its stabilizers.
+- **Sector:** the words of one type that a search examines, such as the logical operators of one type of a CSS code.
+  A Brouwer–Zimmermann search takes a basis of them, with labels that tell nontrivial words from trivial ones, such as logical operators from stabilizers.
+  A connected-support search takes the parity checks whose kernel holds them, and a matrix whose row space has the trivial ones.
 - **Information set:** in the code, the basis of a sector, row reduced so that a block of its columns forms an identity matrix.
   `brouwer_zimmermann.md` calls this basis a search basis, and uses "information set" for the block of columns itself.
 - **Basis family** (`BasisFamily`): the information sets that one search uses together, stacked into arrays.
 - **Certificate** (`Certificate`): a lower bound on the weight of the words that a search has not yet visited, which tells the search when it can stop.
 - **Connected-support search** (`SupportSearch`): the depth-first search of the supports that grow through unsatisfied parity checks, for a binary matrix of checks `H` and an excluded matrix `G`.
-  It is the second exact method, selected by `method="connected_support"`.
+  It is another exact method, selected by `method="connected_support"`.
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer.
   Counting scans in `_counting/scan.py`, and the distance search in `_search/brouwer_zimmermann.py`.
   Both scans and `_search/coset_leader_search.py` step through a layer with `advance_support` in `_search/information_sets.py`.
@@ -42,7 +44,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
 | The MacWilliams counting method | `_counting/macwilliams.py` |
-| The thresholds that choose between exhaustive enumeration and the kinds of information-set families, and the batch sizes of the counting loops (`SearchTuning`, `use_tuning`) | `_tuning.py` |
+| The thresholds that choose between exhaustive enumeration and the kinds of information-set families, the threshold from which a connected-support search uses automorphisms, and the batch sizes of the counting loops (`SearchTuning`, `use_tuning`) | `_tuning.py` |
 | Binary input checks, nested bases, or packed weights | `_binary.py` |
 | Bit packing, bit counts, or row reduction over GF(2), which other subpackages share | `src/qldpc/_binary.py` |
 | How numba code is compiled or cached | `src/qldpc/_compilation.py` |
@@ -68,10 +70,11 @@ Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py`, modules in `src
 ## Tuning
 
 The thresholds of the heuristics that choose a search route, such as when to build overlapping information sets or to use linear programming, are the fields of `SearchTuning` in `_tuning.py`.
-Its docstrings give the meaning and default of each field, and Section 4.4 of `brouwer_zimmermann.md` says where each threshold of a search route is used.
+Its docstrings give the meaning and default of each field.
+Section 4.4 of `brouwer_zimmermann.md` says where each threshold of a Brouwer–Zimmermann search route is used, and Section 3.5 of `connected_support.md` where the threshold of the connected-support search is.
 
 - A search reads the active tuning once, when it starts, and passes the values that it needs down to the stages and loops that use them.
-  `get_distance_brouwer_zimmermann_many` reads it for a distance search, and `CSSLogicalCounter.count_logical_ops` for a count.
+  `get_distance_brouwer_zimmermann_many` and `get_distance_connected_support` read it for a distance search, and `CSSLogicalCounter.count_logical_ops` for a count.
   Pass these values as arguments, including to compiled code, and do not read the tuning anywhere else, so that one search never mixes two tunings.
 - Put a threshold in `SearchTuning` if a user might measure and change it.
   Keep the measured constants of cost models, such as `_PARTITION_COST_FACTOR`, in the modules that use them.

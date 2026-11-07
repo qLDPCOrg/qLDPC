@@ -222,7 +222,7 @@ def _get_distance_quantum(
     method = _validate_distance_method(method)
     _reject_connected_support(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
-    logical_matrix, stabilizer_matrix = _as_operator_matrices(logical_ops, stabilizers)
+    logical_matrix, stabilizer_matrix = _as_binary_matrices(logical_ops, stabilizers)
     num_bits = logical_matrix.shape[1]
     physical_size = num_bits if homogeneous else num_bits // 2
     if not homogeneous and num_bits % 2:
@@ -303,7 +303,7 @@ def _get_distance_css_brouwer_zimmermann(
     problems: list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]] = []
     no_distance_bound: int | None = None
     for logical_ops, stabilizers in sectors:
-        logical_matrix, stabilizer_matrix = _as_operator_matrices(logical_ops, stabilizers)
+        logical_matrix, stabilizer_matrix = _as_binary_matrices(logical_ops, stabilizers)
         basis, labels = get_nested_code_basis(logical_matrix, stabilizer_matrix)
         if labels.shape[1]:
             problems.append((basis, labels))
@@ -340,58 +340,41 @@ def _get_distance_css_connected_support(
 ) -> int:
     """Compute the minimum distance across homogeneous binary CSS sectors by connected supports.
 
-    Args:
-        sectors: A pair ``(checks, excluded)`` of binary matrices with equal widths for every
-            sector to search.  The distance of a sector is the least weight of a vector in the
-            kernel of ``checks`` and outside the row space of ``excluded``, whose rows must lie in
-            that kernel.  The search is fast if ``checks`` is sparse (see
-            ``_connected_support.py``).
-        cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
-        upper_bound: Weight of a known logical operator from an omitted sector, if any.  The result
-            is the minimum of this bound and the distances of the supplied sectors.
-        get_automorphisms: A function that returns an array of generators of a group of qubit
-            permutations, or None.  Row ``i`` of the array maps qubit ``j`` to qubit ``row[j]``.
-            Each generator must map the kernel of the checks of every sector, and the row space of
-            its excluded rows, onto themselves.  The search of a sector calls the function after it
-            has visited many states, and verifies the generators before it uses them.
-
-    Returns:
-        The minimum exact distance across the supplied sectors and the optional upper bound.  A
-        sector without nontrivial logical operators counts as one more than its width, as in
-        get_distance_quantum, and no operator has that weight.  Any other result at or below
-        ``cutoff`` is an observed upper bound.
+    Each sector is a pair ``(checks, excluded)`` of binary matrices with equal widths, whose
+    distance is the least weight of a vector in the kernel of ``checks`` and outside the row space
+    of ``excluded``.  The other arguments, the result, and the errors are those of
+    ``get_distance_connected_support`` in ``_search/connected_support.py``, which this function
+    calls after it checks that the matrices are binary.
 
     Raises:
-        ValueError: If there are neither sectors nor an upper bound, if the matrices of a sector are
-            not binary matrices of equal width, if the excluded rows of a sector are not in the
-            kernel of its checks, or if a generator from ``get_automorphisms`` does not map the
-            kernel of the checks of a searched sector, or the row space of its excluded rows, onto
-            itself.
+        ValueError: If there are neither sectors nor an upper bound, or if the matrices of a sector
+            are not binary matrices of equal width.
     """
     if not sectors and upper_bound is None:
         raise ValueError("Require at least one sector or an upper bound")
-    problems = []
-    for checks, excluded in sectors:
-        assert_binary(checks, "checks")
-        assert_binary(excluded, "excluded")
-        check_matrix = as_binary_matrix(checks)
-        problems.append((check_matrix, as_binary_matrix(excluded, num_cols=check_matrix.shape[1])))
+    problems = [
+        _as_binary_matrices(checks, excluded, names=("checks", "excluded"))
+        for checks, excluded in sectors
+    ]
     return get_distance_connected_support(
         problems, cutoff=cutoff, upper_bound=upper_bound, get_automorphisms=get_automorphisms
     )
 
 
-def _as_operator_matrices(
-    logical_ops: npt.ArrayLike, stabilizers: npt.ArrayLike
+def _as_binary_matrices(
+    first: npt.ArrayLike,
+    second: npt.ArrayLike,
+    *,
+    names: tuple[str, str] = ("logical_ops", "stabilizers"),
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
-    """Check that logical operators and stabilizers are binary, and return them as matrices.
+    """Check that two arrays are binary, and return them as matrices with the same width.
 
-    The stabilizers must have as many columns as the logical operators.
+    The second array must have as many columns as the first, and errors name the arrays ``names``.
     """
-    assert_binary(logical_ops, "logical_ops")
-    assert_binary(stabilizers, "stabilizers")
-    logical_matrix = as_binary_matrix(logical_ops)
-    return logical_matrix, as_binary_matrix(stabilizers, num_cols=logical_matrix.shape[1])
+    assert_binary(first, names[0])
+    assert_binary(second, names[1])
+    first_matrix = as_binary_matrix(first)
+    return first_matrix, as_binary_matrix(second, num_cols=first_matrix.shape[1])
 
 
 def _get_weight_limit(cutoff: int, max_weight: SupportsIndex | None) -> tuple[int, int | None]:
@@ -466,11 +449,10 @@ def _reject_connected_support(method: _CanonicalDistanceMethod) -> None:
         )
 
 
-def _get_classical_distance_method(method: DistanceMethod) -> _CanonicalDistanceMethod:
+def _get_classical_distance_method(method: DistanceMethod) -> DistanceMethod:
     """The method of a search of a classical code, in a calculation that asks for ``method``.
 
     A closed form of the distance of a CSS code can search classical codes, which the
     ``"connected_support"`` method does not accept, so those searches use the default method.
     """
-    method = _validate_distance_method(method)
     return "brouwer_zimmermann" if method == "connected_support" else method

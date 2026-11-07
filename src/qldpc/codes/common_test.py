@@ -23,6 +23,7 @@ import sympy.abc
 
 from qldpc import abstract, codes, decoders, external, math
 from qldpc.codes import _code_capacity, common
+from qldpc.codes.distance import DistanceMethod
 from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ
 
 from .conftest import Tune, assert_valid_subgraphs
@@ -697,18 +698,14 @@ def test_exact_code_distance_method_api() -> None:
 
 def test_connected_support_method_is_only_for_binary_css_codes() -> None:
     """Classical, non-CSS, and nonbinary codes reject the connected-support method."""
-    nonbinary_css_code = codes.HGPCode(codes.RepetitionCode(3, field=3))
-    for code in (
-        codes.RepetitionCode(3),
-        codes.RepetitionCode(3, field=3),
-        codes.FiveQubitCode(),
-        codes.FiveQuditCode(3),
-        nonbinary_css_code,
-    ):
-        with pytest.raises(ValueError, match="connected_support"):
+    for code in (codes.RepetitionCode(3), codes.FiveQubitCode()):
+        with pytest.raises(ValueError, match=r"CSSCode\.get_distance_exact"):
             code.get_distance_exact(method="connected_support")
-    with pytest.raises(ValueError, match="connected_support"):
+    with pytest.raises(ValueError, match=r"CSSCode\.get_distance_exact"):
         codes.FiveQubitCode().get_distance(method="connected_support")
+    nonbinary_css_code = codes.HGPCode(codes.RepetitionCode(3, field=3))
+    with pytest.raises(ValueError, match="only for binary CSS codes"):
+        nonbinary_css_code.get_distance_exact(method="connected_support")
 
 
 def test_connected_support_distances_of_css_codes() -> None:
@@ -738,8 +735,22 @@ def test_connected_support_distances_of_css_codes() -> None:
     subsystem_code = codes.CSSCode([[0, 1, 1], [1, 1, 0]], [[1, 0, 1], [1, 1, 0]])
     assert subsystem_code.is_subsystem_code
     assert subsystem_code.get_distance_exact(Pauli.X, method="connected_support") == 1
+
+    # a generic copy of the [[9, 1, 3]] Bacon-Shor code, which knows no distance of its own,
+    # searches its gauge operators jointly and by sector
     bacon_shor_code = codes.BaconShorCode(3)
-    assert bacon_shor_code.get_distance_exact(method="connected_support") == 3
+    generic_bacon_shor_code = codes.CSSCode(
+        bacon_shor_code.matrix_x, bacon_shor_code.matrix_z, is_subsystem_code=True
+    )
+    paulis: list[PauliXZ | None] = [Pauli.X, Pauli.Z, None]
+    for pauli in paulis:
+        generic_bacon_shor_code.forget_distance()
+        assert generic_bacon_shor_code.get_distance_exact(pauli, method="connected_support") == 3
+
+    # a code without logical operators has no distance
+    assert np.isnan(
+        codes.CSSCode([[1, 1]], [[1, 1]]).get_distance_exact(method="connected_support")
+    )
 
 
 def test_css_joint_distance_cache() -> None:
@@ -842,11 +853,13 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: T
             return self.automorphisms
 
     def get_css_distance(
-        automorphisms: npt.NDArray[np.int_], pauli: PauliXZ | None = None
+        automorphisms: npt.NDArray[np.int_],
+        pauli: PauliXZ | None = None,
+        method: DistanceMethod = "brouwer_zimmermann",
     ) -> int | float:
         code = CSSCodeWithAutomorphisms(bb_code.matrix_x, bb_code.matrix_z)
         code.automorphisms = automorphisms
-        return code.get_distance_exact(pauli)
+        return code.get_distance_exact(pauli, method=method)
 
     def get_qudit_distance(
         matrix: npt.NDArray[np.int_], automorphisms: npt.NDArray[np.int_], **options: Any
@@ -857,7 +870,7 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: T
 
     # use the automorphisms of the code's family before the first layer of these quick searches
     monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
-    tune(automorphism_minimum_layer_work=0)
+    tune(automorphism_minimum_layer_work=0, automorphism_minimum_states=0)
     x, y = sympy.abc.x, sympy.abc.y
     bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
     translations = bb_code._get_qudit_automorphisms()
@@ -866,6 +879,12 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: T
     cases: list[tuple[Callable[[npt.NDArray[np.int_]], int | float], npt.NDArray[np.int_], int]] = [
         (get_css_distance, translations, 6),
         (functools.partial(get_css_distance, pauli=Pauli.X), translations, 6),
+        (functools.partial(get_css_distance, method="connected_support"), translations, 6),
+        (
+            functools.partial(get_css_distance, pauli=Pauli.X, method="connected_support"),
+            translations,
+            6,
+        ),
         (
             functools.partial(get_qudit_distance, bb_code.conjugated(range(36, 72)).matrix),
             translations,

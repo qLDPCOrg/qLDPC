@@ -4,34 +4,34 @@
 """Time the exact distance searches of qLDPC on pair-partition codes.
 
 The benchmark compares the connected-support method with Brouwer-Zimmermann (BZ), as
-src/qldpc/codes/distance/connected_support.md describes.
-Each code is a ``qldpc.codes.PairPartitionCode``, a high-rate quasi-cyclic CSS code with sparse
-parity checks (arXiv:2607.14091 and arXiv:2609.30069).
-The embedded instances come from https://github.com/ultra-high-rate-qec/design-principles-data
-(``codes/css/cpm_pp/instances``), and the ``276`` instance is ``qc_276_98_14`` of
-https://github.com/kasaikenta/pair-partition-cpm-css-codes.
+src/qldpc/codes/distance/connected_support.md describes.  The embedded instances are
+``qldpc.codes.PairPartitionCode`` codes, quasi-cyclic CSS codes with sparse parity checks, mostly of
+high rate (arXiv:2607.14091 and arXiv:2609.30069).  They come from
+https://github.com/ultra-high-rate-qec/design-principles-data (``codes/css/cpm_pp/instances``), and
+the ``276`` instance is ``qc_276_98_14`` of https://github.com/kasaikenta/pair-partition-cpm-css-codes.
 They are in the ``.cpm`` format, a whitespace-separated token stream: ``CPM_CSS_V1``, a name, the
 lift size ``P``, the block length ``L``, the numbers ``J_X`` and ``J_Z`` of block rows, and then the
-X-type exponents and the Z-type exponents in row-major order.
-A path to another such file also names a code.
+X-type exponents and the Z-type exponents in row-major order.  A path to another such file also
+names a code.
 
-The script also builds a few codes for the contrast of the two methods: ``gross`` (the [[144, 12,
+The script also builds a few other codes to contrast the two methods: ``gross`` (the [[144, 12,
 12]] bivariate bicycle code), and ``surface:D`` and ``toric:D`` (rotated, with distance ``D``).
 
-It calls ``get_distance_exact`` once for each code, method, and sector, and prints the distance, and
-the wall and CPU time.
-The distance of an embedded instance is checked against its published value.
-The searches run on one core, but numba compiles on first use, and the compiled code is cached on
-disk, so run the script twice for the times of a warm cache.
+It calls ``get_distance_exact`` once for each code, method, and sector, and prints the distance,
+and the wall and CPU time.  It notes a distance of an embedded instance that differs from the
+published one.  The searches run on one core, but numba compiles on first use, and the compiled
+code is cached on disk, so run the script twice for the times of a warm cache.  The script prints
+its results, and saves nothing.
 
-Examples (run them under a guard, such as a hard deadline, as the searches can run for hours):
+Examples (run them under a guard, such as a hard deadline, as some searches run for hours):
 
     python experiments/connected_support_distance/benchmark.py 110 232 276
     python experiments/connected_support_distance/benchmark.py 232 --methods brouwer_zimmermann
     python experiments/connected_support_distance/benchmark.py gross surface:11 surface:15
 
-Certifying the distance of the ``372``, ``518``, and ``944`` instances takes hours with the
-connected-support method, and BZ is infeasible for them.
+With the connected-support method, certifying the distance of the ``518`` instance takes minutes,
+that of the ``372`` instance about ten minutes per sector, and that of the ``944`` instance hours.
+BZ is infeasible for all three.
 """
 
 from __future__ import annotations
@@ -47,6 +47,9 @@ import numpy as np
 from qldpc import codes
 from qldpc.codes.distance import DistanceMethod
 from qldpc.objects import Pauli
+
+####################################################################################################
+# embedded instances
 
 # The parameters [[n, k, d]] and the ``.cpm`` text of each embedded instance.
 INSTANCES: dict[str, tuple[tuple[int, int, int], str]] = {
@@ -113,6 +116,10 @@ INSTANCES: dict[str, tuple[tuple[int, int, int], str]] = {
 }
 
 
+####################################################################################################
+# codes
+
+
 def parse_cpm(text: str) -> codes.PairPartitionCode:
     """Build the pair-partition code of a ``.cpm`` token stream."""
     magic, _name, *numbers = text.split()
@@ -141,6 +148,10 @@ def get_code(name: str) -> tuple[codes.CSSCode, tuple[int, int, int] | None]:
     if pathlib.Path(name).is_file():
         return parse_cpm(pathlib.Path(name).read_text(encoding="utf-8")), None
     raise ValueError(f"Unknown code {name!r}")
+
+
+####################################################################################################
+# timing
 
 
 def time_distance(

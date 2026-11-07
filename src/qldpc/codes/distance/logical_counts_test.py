@@ -620,8 +620,9 @@ def test_invalid_inputs() -> None:
         counter.count_logical_ops(method=invalid_method)
 
     # The connected-support distance method does not count logical operators of every weight.
+    distance_method: Any = "connected_support"
     with pytest.raises(ValueError, match="Unknown logical-count method"):
-        counter.count_logical_ops(method="connected_support")  # type: ignore[arg-type]
+        counter.count_logical_ops(method=distance_method)
     for method in ("brouwer_zimmermann", "macwilliams", "brute_force"):
         assert lc._validate_logical_count_method(method) == method
     assert lc._validate_logical_count_method("information_sets") == "brouwer_zimmermann"

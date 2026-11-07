@@ -6,9 +6,11 @@ Exact distances and logical-operator counts choose between several routes: exhau
 Brouwer-Zimmermann (BZ) searches of disjoint or overlapping information sets, families found by
 matroid partitioning, a certificate from linear programming, and families of the images of an
 information set under automorphisms of a code.  Each choice weighs the setup cost of a route against
-the work that it saves, by cost models with thresholds.  :class:`SearchTuning` collects those
-thresholds, and the batch sizes of the scans of counts, in one record.  Section 4.4 of
-``brouwer_zimmermann.md`` describes the heuristics that use the thresholds.  The batch size of a
+the work that it saves, by cost models with thresholds.  The connected-support search has one
+threshold too, for when it asks for automorphisms.  :class:`SearchTuning` collects those thresholds,
+and the batch sizes of the scans of counts, in one record.  Section 4.4 of
+``brouwer_zimmermann.md`` describes the heuristics that use the BZ thresholds, and Section 3.5 of
+``connected_support.md`` the threshold of the connected-support search.  The batch size of a
 distance search is not a field: it is the ``block_size`` argument of
 :func:`~qldpc.codes.distance.get_distance_classical` and
 :func:`~qldpc.codes.distance.get_distance_quantum`, which the methods of codes and counts fix at
@@ -161,12 +163,15 @@ class SearchTuning:
             :func:`~qldpc.codes.distance.get_distance_classical`,
             :func:`~qldpc.codes.distance.get_distance_quantum`, and counts of logical operators do
             not.  Defaults to 100,000,000.
-        automorphism_minimum_states: A connected-support search (``method="connected_support"``)
-            finds automorphisms of its code before the first weight limit at which it expects to
-            have visited this many states, from the growth of its last two limits, and then searches
-            from one variable of each orbit of the automorphisms, rather than from every variable
-            (Section 3.5 of ``connected_support.md``).  Finding automorphisms can take
-            milliseconds, as long as a search of this many states takes.  Defaults to 100,000.
+        automorphism_minimum_states: The number of visited states, counted over all weight
+            limits, from which a connected-support search (``method="connected_support"``) uses
+            automorphisms of its code.  It asks for them before the first weight limit at which it
+            expects to reach this number, from the growth in states between its last two limits,
+            and then searches from one variable of each orbit of the automorphisms, rather than
+            from every variable (Section 3.5 of ``connected_support.md``).  Finding automorphisms
+            can take milliseconds, as long as a search of this many states takes.  Zero asks for
+            them before the first search, and ``MAX_VALUE`` in effect never does.  Defaults to
+            100,000.
         scan_chunk_size: The most supports, which are choices of rows of an information set, that
             one compiled call of the scan of a count with the BZ or brute-force method visits.  A
             scan proceeds in steps, each of which is one coefficient layer of one information set,

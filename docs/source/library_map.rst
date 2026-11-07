@@ -208,15 +208,15 @@ Support and limitations
 
 The following table summarizes support by field; the subsystem column applies to subsystem codes over any field.
 
-===============  ===========================  ==============================  ===================================  ========================================
-Capability       :math:`GF(2)`                Prime field :math:`GF(p)`       Extension field :math:`GF(p^m)`      Subsystem codes
-===============  ===========================  ==============================  ===================================  ========================================
-Codes            Yes                          Yes                             Yes                                  Yes, inferred from non-commuting checks
-Exact distance   Brouwer--Zimmermann          Exhaustive enumeration          Exhaustive enumeration               Yes
-Distance bounds  Decoder, GAP, or ``sqetch``  Decoder or GAP                  Decoder or GAP                       CSS codes only
-Decoders         All built-in decoders        GUF (default), ILP, and lookup  GUF (default) and lookup             Yes, in code-capacity estimates
-Circuits         Yes                          No                              No                                   No memory experiments
-===============  ===========================  ==============================  ===================================  ========================================
+===============  ===============================================  ==============================  ===================================  ========================================
+Capability       :math:`GF(2)`                                    Prime field :math:`GF(p)`       Extension field :math:`GF(p^m)`      Subsystem codes
+===============  ===============================================  ==============================  ===================================  ========================================
+Codes            Yes                                              Yes                             Yes                                  Yes, inferred from non-commuting checks
+Exact distance   Brouwer--Zimmermann, or connected support (CSS)  Exhaustive enumeration          Exhaustive enumeration               Yes
+Distance bounds  Decoder, GAP, or ``sqetch``                      Decoder or GAP                  Decoder or GAP                       CSS codes only
+Decoders         All built-in decoders                            GUF (default), ILP, and lookup  GUF (default) and lookup             Yes, in code-capacity estimates
+Circuits         Yes                                              No                              No                                   No memory experiments
+===============  ===============================================  ==============================  ===================================  ========================================
 
 Other limitations:
 

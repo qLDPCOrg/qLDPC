@@ -82,7 +82,6 @@ def test_css_brouwer_zimmermann_special_inputs() -> None:
         core._get_distance_css_brouwer_zimmermann([], cutoff=0)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_css_connected_support_inputs() -> None:
     """The connected-support helper takes the checks and excluded rows of each sector.
 
@@ -121,7 +120,6 @@ def test_connected_support_is_for_css_codes() -> None:
     # Searches of classical codes for a CSS code use the default method instead.
     assert core._get_classical_distance_method("connected_support") == "brouwer_zimmermann"
     assert core._get_classical_distance_method("brute_force") == "brute_force"
-    assert core._get_classical_distance_method("information_sets") == "brouwer_zimmermann"
 
 
 def test_brouwer_zimmermann_special_inputs() -> None:

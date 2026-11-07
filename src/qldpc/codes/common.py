@@ -3436,7 +3436,7 @@ class CSSCode(QuditCode):
                 ``"brute_force"`` enumerates every nontrivial logical operator;
                 ``"connected_support"`` searches supports that are connected in the Tanner graph of
                 the parity checks (see help(CSSCode.get_distance_exact)).  Nonbinary calculations
-                always use exhaustive enumeration.
+                use exhaustive enumeration, and reject ``"connected_support"``.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
@@ -3478,13 +3478,16 @@ class CSSCode(QuditCode):
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
                 alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
                 operator.  ``"connected_support"`` searches supports that are connected in the
-                Tanner graph of the parity checks, and is fast for sparse parity checks with a high
-                rate, where the cost of Brouwer-Zimmermann grows quickly with the distance.  It is
-                slow for codes with many stabilizers that weigh much less than the distance, such
-                as surface codes, and for a subsystem code, whose stabilizers need not be sparse.
-                See ``connected_support.md`` in ``qldpc/codes/distance/``.  Nonbinary calculations
-                always use exhaustive enumeration, except that ``"connected_support"`` raises an
-                error for them.
+                Tanner graph of the parity checks.  It is fast for sparse parity checks, especially
+                at a high rate, where the cost of Brouwer-Zimmermann grows quickly with the
+                distance, and slower than Brouwer-Zimmermann for dense parity checks.  Its cost
+                grows exponentially with the distance of codes with many stabilizers that weigh
+                much less than the distance, such as surface codes, and a subsystem code searches
+                its stabilizers, which need not be sparse.  Closed forms that search classical
+                codes, such as those of hypergraph product codes, search them with
+                Brouwer-Zimmermann instead.  See ``connected_support.md`` in
+                ``qldpc/codes/distance/``.  Nonbinary calculations use exhaustive enumeration, and
+                reject ``"connected_support"``.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
@@ -3495,7 +3498,7 @@ class CSSCode(QuditCode):
         """
         method = _validate_distance_method(method)
         if method == "connected_support" and self.field is not galois.GF2:
-            _reject_connected_support(method)
+            raise ValueError("The 'connected_support' distance method is only for binary CSS codes")
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
         if (known_distance := self.get_distance_if_known(pauli)) is not None:
             return known_distance
@@ -3516,7 +3519,7 @@ class CSSCode(QuditCode):
             if self._equal_distance_xz:
                 return self.get_distance_exact(Pauli.X, cutoff=cutoff, method=method)
 
-            sectors: list[tuple[npt.ArrayLike, npt.ArrayLike]] = []
+            paulis: list[PauliXZ] = []
             upper_bound: int | None = None
             for sector_pauli in PAULIS_XZ:
                 known_distance = self.get_distance_if_known(sector_pauli)
@@ -3527,10 +3530,10 @@ class CSSCode(QuditCode):
                         sector_bound if upper_bound is None else min(upper_bound, sector_bound)
                     )
                     continue
-                sectors.append(self._get_distance_sector(sector_pauli, method))
+                paulis.append(sector_pauli)
 
             distance = self._get_distance_of_sectors(
-                sectors, method, cutoff=cutoff, upper_bound=upper_bound
+                paulis, method, cutoff=cutoff, upper_bound=upper_bound
             )
             if cutoff <= 1:
                 # The joint search proves only the minimum, not either individual sector distance.
@@ -3545,12 +3548,10 @@ class CSSCode(QuditCode):
 
         # we do not know the exact distance, so compute it
         if self.field is galois.GF2 and method in ("brouwer_zimmermann", "connected_support"):
-            distance = self._get_distance_of_sectors(
-                [self._get_distance_sector(pauli, method)], method, cutoff=cutoff
-            )
+            distance = self._get_distance_of_sectors([pauli], method, cutoff=cutoff)
 
         elif self.field is galois.GF2:
-            logical_ops, stabilizers = self._get_distance_sector(pauli, method)
+            logical_ops, stabilizers = self._get_logical_sector(pauli)
             distance = get_distance_quantum(
                 logical_ops,
                 stabilizers,
@@ -3565,7 +3566,7 @@ class CSSCode(QuditCode):
                 stacklevel=get_external_caller_stacklevel(),
             )
             distance = len(self)
-            logical_ops, stabilizers = self._get_distance_sector(pauli, method)
+            logical_ops, stabilizers = self._get_logical_sector(pauli)
             code_logical_ops = ClassicalCode.from_generator(logical_ops)
             code_stabilizers = ClassicalCode.from_generator(stabilizers)
             for word_l, word_s in itertools.product(
@@ -4232,53 +4233,56 @@ class CSSCode(QuditCode):
             min_error_weight,
         )
 
-    def _get_distance_sector(
-        self, pauli: PauliXZ, method: DistanceMethod
-    ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """The matrices that describe the logical operators of one type to a binary exact method.
+    def _get_logical_sector(self, pauli: PauliXZ) -> tuple[galois.FieldArray, galois.FieldArray]:
+        """A basis of the logical operators of one type, and the operators that act trivially.
 
-        The result for ``"connected_support"`` is the parity checks whose kernel holds the operators
-        of type ``pauli``, and the matrix whose row space has the trivial ones.  These are the
-        stabilizers of the opposite type, and the gauge generators and stabilizers of type
-        ``pauli``.  For other methods, the result is a basis of the logical operators, and the
-        gauge operators and stabilizers that act trivially (so that the operators are dressed).
+        The trivial operators are the stabilizers of type ``pauli``, and the gauge operators of that
+        type of a subsystem code, so that the logical operators are dressed.
         """
-        if method == "connected_support":
-            opposite: PauliXZ = Pauli.Z if pauli is Pauli.X else Pauli.X
-            checks = (
-                self.get_stabilizer_ops(opposite)
-                if self.is_subsystem_code
-                else self.get_matrix(opposite)
-            )
-            return checks, self.get_matrix(pauli)
         logical_ops = self.get_logical_ops(pauli)
         stabilizers = self.get_stabilizer_ops(pauli, canonicalized=True)
         if self.is_subsystem_code:
             stabilizers = np.vstack([stabilizers, self.get_gauge_ops(pauli)]).view(self.field)
         return logical_ops, stabilizers
 
+    def _get_parity_check_sector(
+        self, pauli: PauliXZ
+    ) -> tuple[galois.FieldArray, galois.FieldArray]:
+        """The parity checks whose kernel holds the operators of one type, and the trivial ones.
+
+        The checks are the stabilizers of the opposite type, and the operators of type ``pauli``
+        that act trivially are spanned by its gauge generators, which include its stabilizers.
+        """
+        opposite: PauliXZ = Pauli.Z if pauli is Pauli.X else Pauli.X
+        checks = (
+            self.get_stabilizer_ops(opposite)
+            if self.is_subsystem_code
+            else self.get_matrix(opposite)
+        )
+        return checks, self.get_matrix(pauli)
+
     def _get_distance_of_sectors(
         self,
-        sectors: list[tuple[npt.ArrayLike, npt.ArrayLike]],
+        paulis: Sequence[PauliXZ],
         method: DistanceMethod,
         *,
         cutoff: int,
         upper_bound: int | None = None,
     ) -> int:
-        """The exact distance of a binary code from sectors that ``_get_distance_sector`` returns.
+        """The minimum distance of the logical operators of the given types, by a binary search.
 
-        The search uses the automorphisms of this code.  Its method is Brouwer-Zimmermann, unless
-        ``method`` is ``"connected_support"``.
+        The search uses the automorphisms of this code.  It searches connected supports if
+        ``method`` is ``"connected_support"``, and is Brouwer-Zimmermann otherwise.  A result at or
+        below ``cutoff`` can be an upper bound.
         """
         if method == "connected_support":
-            return _get_distance_css_connected_support(
-                sectors,
-                cutoff=cutoff,
-                upper_bound=upper_bound,
-                get_automorphisms=lambda: self._found_qudit_automorphisms,
-            )
-        return _get_distance_css_brouwer_zimmermann(
-            sectors,
+            search = _get_distance_css_connected_support
+            get_sector = self._get_parity_check_sector
+        else:
+            search = _get_distance_css_brouwer_zimmermann
+            get_sector = self._get_logical_sector
+        return search(
+            [get_sector(pauli) for pauli in paulis],
             cutoff=cutoff,
             upper_bound=upper_bound,
             get_automorphisms=lambda: self._found_qudit_automorphisms,
