@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable
-from typing import cast
+from typing import cast, get_args
 from unittest import mock
 
 import numpy as np
@@ -333,3 +333,7 @@ def test_distance_backend_validation() -> None:
     assert core._validate_distance_method("information_sets") == "brouwer_zimmermann"
     with pytest.raises(ValueError, match="Unknown distance method"):
         core._validate_distance_method("other")  # type: ignore[arg-type]
+
+    # The types of method names agree with the table that validates them.
+    assert set(get_args(core.DistanceMethod)) == set(core._DISTANCE_METHODS)
+    assert set(get_args(core._CanonicalDistanceMethod)) == set(core._DISTANCE_METHODS.values())
