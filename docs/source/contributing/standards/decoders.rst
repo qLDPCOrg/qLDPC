@@ -36,7 +36,7 @@ Specification helpers
   An observable-only backend uses :func:`~qldpc.decoders.construction.specs.observable_decoder_spec`.
 * These helpers take their option signature from the typed builder.
   If that builder forwards ``**kwargs``, pass ``signature_source=DecoderClass``.
-* Provide a written ``doc=`` string with the helper's options and return contract.
+* Provide a written ``doc=`` string with the helper's options, return contract, and limitations.
 * Give the builder a one-line docstring that names this helper, rather than repeating its options.
 
 Exports, documentation, and tests
@@ -45,7 +45,8 @@ Exports, documentation, and tests
 * Export the backend class at its qualified ``custom`` or ``external`` package path.
 * If you add a public specification helper, export it from ``qldpc.decoders`` and add it to ``__all__``.
 * Add its ``.. autofunction:: qldpc.decoders.<name>`` entry to the :doc:`decoder reference </decoders/reference>`: AutoAPI hides generated helpers because it cannot inspect their signatures statically.
-  An existing test checks the signature, written documentation, and guide entry of every generated helper that ``qldpc.decoders`` exports.
+  An existing test checks the signature, written documentation, and reference entry of every generated helper that ``qldpc.decoders`` exports.
+* Add :ref:`backend notes <backend-notes>` to the decoder reference only for what a docstring cannot carry, such as installation outside PyPI or behavior across workflows.
 * Add co-located ``*_test.py`` tests that independently check ``H @ inferred_error == syndrome``, observable predictions against DEM targets, unsupported inputs, erasure width, and batch shapes as applicable.
 * Test pickling if the decoder is used by Sinter.
 
