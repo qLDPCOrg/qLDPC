@@ -319,7 +319,7 @@ def test_excess_failure_matches_brute_force() -> None:
 
 
 def test_two_call_workflow() -> None:
-    """Two calls calibrate the Steane-swap consumer and score a preparation like direct simulation.
+    """The two-call workflow scores a preparation in agreement with direct simulation.
 
     The preparation applies a Z error with probability 0.01 to each qubit of logical |0> of the
     Steane code.  The calibrated score agrees with a direct simulation of the consumer on the errors
@@ -347,11 +347,12 @@ def test_steane_swap_consumer(basis: PauliXZ) -> None:
 
     Stim raises an error when building the detector error model of a circuit with a
     nondeterministic detector or observable.  The default decoder predicts the observable flips of
-    every error mechanism, each of which is a single fault.  The distance-3 surface code, unlike the
-    Steane code, has X-type and Z-type operators with different supports, so it exposes X and Z
-    exchanged by mistake.  A logical error on the block under test (logical X on |0>, or logical Z
-    on |+>) fires no detector.  It flips the logical observables of the other type, so that a
-    noiseless consumer fails in every shot.
+    every error mechanism, each of which is a fault of weight one.  The distance-3 surface code,
+    unlike the Steane code, has X-type and Z-type operators with different supports, so it catches
+    X and Z exchanged by mistake.  A logical error on the block under test (logical X on |0>, or
+    logical Z on |+>) fires no detector.  It flips the logical Z observables for a |0> block, and
+    the logical X observables for a |+> block, so that the default decoder, which sees no detector,
+    mispredicts them.
     """
     model = circuits.DepolarizingNoiseModel(1e-3)
     for code in (_CODE, codes.SurfaceCode(3)):
@@ -368,15 +369,31 @@ def test_steane_swap_consumer(basis: PauliXZ) -> None:
     # the observables are the logical X operators, then the logical Z operators
     assert not np.any(detectors)
     assert observables.tolist() == ([0, 1] if basis is Pauli.Z else [1, 0])
-    value, _ = noiseless.estimate_excess_failure_probability(
-        noiseless.block_preparation + error, 10, output_qubits=noiseless.block_qubits, seed=0
-    )
-    assert value == 1
+
+
+@pytest.mark.parametrize("basis", [Pauli.Z, Pauli.X])
+def test_steane_swap_decoder_specifications(basis: PauliXZ) -> None:
+    """Decoder specifications see the code's own checks, so matching decodes every single fault.
+
+    The detectors of the window measure checks of the code, which keep their weight and locality.
+    A matching decoder built from the detector error model of the distance-3 surface-code window
+    therefore predicts the observable flips of every error mechanism.  The distance-5 surface code
+    has checks of weight at most four, so every error mechanism of its window flips few enough
+    detectors for Stim to decompose the detector error model that decoder specifications use.
+    """
+    model = circuits.DepolarizingNoiseModel(1e-3)
+    spec = decoders.mwpm(decompose_errors=True)
+    consumer = get_steane_swap_consumer(codes.SurfaceCode(3), model, basis=basis, decoder=spec)
+    model_of_window = consumers._get_decoding_model(consumer.block_preparation + consumer.circuit)
+    _assert_decodes_single_faults(consumer, spec.build_observable_decoder(model_of_window))
+
+    consumer = get_steane_swap_consumer(codes.SurfaceCode(5), model, basis=basis, decoder=spec)
+    consumers._get_decoding_model(consumer.block_preparation + consumer.circuit)
 
 
 @pytest.mark.parametrize("basis", [Pauli.Z, Pauli.X])
 def test_steane_swap_window(basis: PauliXZ) -> None:
-    """The steps of the window that detect an error on the block under test.
+    """Errors on the block under test are detected only by the entry step and the next two steps.
 
     A fresh |0> block enters by the third step, a Z-correction step.  Its CNOT copies a Z error on
     the block onto the block that the step measures, and leaves the error in place.  The next CNOT
@@ -412,21 +429,19 @@ def test_steane_swap_window_length(basis: PauliXZ) -> None:
     """
     model = circuits.DepolarizingNoiseModel(1e-3)
     reference = get_steane_swap_consumer(_CODE, model, basis=basis)
-    excesses = [_get_exact_excesses(reference, pauli)[:, 1] for pauli in (Pauli.X, Pauli.Z)]
+    first_order_terms = [_get_excess_terms(reference, pauli)[:, 1] for pauli in (Pauli.X, Pauli.Z)]
     for num_before, num_after, same in [(3, 2, True), (2, 3, True), (1, 2, False), (2, 1, False)]:
         preparation, circuit, qubits, bases = consumers._get_window(
             _CODE, model, basis, num_before, num_after
         )
         decoder = consumers._SteaneSwapDecoder(_CODE, bases)
         variant = Consumer(preparation, circuit, decoder, block_qubits=qubits)
-        variant_excesses = [
-            _get_exact_excesses(variant, pauli)[:, 1] for pauli in (Pauli.X, Pauli.Z)
-        ]
-        assert np.allclose(excesses, variant_excesses, rtol=1e-9, atol=0) == same
+        variant_terms = [_get_excess_terms(variant, pauli)[:, 1] for pauli in (Pauli.X, Pauli.Z)]
+        assert np.allclose(first_order_terms, variant_terms, rtol=1e-9, atol=0) == same
 
 
 def test_steane_swap_symmetry() -> None:
-    """Transversal Hadamard gates relate the consumers of a fresh |0> and |+> block of a CSS code.
+    """Transversal Hadamard gates relate the Steane-code consumers of a fresh |0> and |+> block.
 
     The Steane code is self-dual, and transversal Hadamard gates leave depolarizing noise unchanged.
     They map the window of a fresh |0> block to that of a fresh |+> block, exchange X and Z, and
@@ -446,23 +461,41 @@ def test_steane_swap_symmetry() -> None:
     ]
     assert np.allclose(probabilities[0], probabilities[1], rtol=1e-12, atol=0)
     for pauli in (Pauli.X, Pauli.Z):
-        excesses = _get_exact_excesses(zero, pauli)
-        assert np.any(excesses)
-        assert np.allclose(excesses, _get_exact_excesses(plus, pauli.swap_xz()), rtol=1e-9, atol=0)
+        terms = _get_excess_terms(zero, pauli)
+        assert np.any(terms)
+        assert np.allclose(terms, _get_excess_terms(plus, pauli.swap_xz()), rtol=1e-9, atol=0)
 
 
 def test_redundant_checks() -> None:
-    """A code with redundant checks gives a deterministic window that corrects every single fault.
+    """Redundant checks add no detectors, and the window still corrects every single fault.
 
     Repeating a check of each type of the Steane code adds a dependent check without changing the
-    code.
+    code.  The window measures only independent checks, so it has the 21 detectors of the Steane
+    code: three for each of its five steps, and six for the final readout.  The tables of the
+    default decoder therefore still have one entry for each syndrome that an error can have.
     """
     matrix_x = np.vstack([_CODE.matrix_x, _CODE.matrix_x[:1]]).view(np.ndarray)
     matrix_z = np.vstack([_CODE.matrix_z, _CODE.matrix_z[:1]]).view(np.ndarray)
     code = codes.CSSCode(matrix_x, matrix_z)
-    _assert_decodes_single_faults(
-        get_steane_swap_consumer(code, circuits.DepolarizingNoiseModel(1e-3))
-    )
+    consumer = get_steane_swap_consumer(code, circuits.DepolarizingNoiseModel(1e-3))
+    assert consumer.circuit.num_detectors == 21
+    _assert_decodes_single_faults(consumer)
+
+
+def test_steane_swap_one_sided_code() -> None:
+    """The default decoder handles a code without checks of one type.
+
+    The three-qubit repetition code, as a CSS code with only Z-type checks, has one logical qubit
+    and distance one.  The window measures no X-type checks, and the table of the default decoder
+    for Z-type errors has only the empty syndrome.
+    """
+    code = codes.CSSCode(np.zeros((0, 3), dtype=int), [[1, 1, 0], [0, 1, 1]])
+    for basis in (Pauli.Z, Pauli.X):
+        consumer = get_steane_swap_consumer(
+            code, circuits.DepolarizingNoiseModel(1e-3), basis=basis
+        )
+        assert consumer.correctable_weight == 0
+        consumer.calibrate(num_samples=10, seed=0)
 
 
 def test_steane_swap_correctable_weight() -> None:
@@ -479,12 +512,16 @@ def test_steane_swap_decoders() -> None:
     """A Steane-swap consumer keeps a decoder specification, and rejects other decoders.
 
     The consumer builds the circuit that its decoder decodes, so a decoder built for another circuit
-    is rejected, such as the default decoder of the other slot.
+    is rejected, such as the default decoder of the other slot.  The descriptions of consumers name
+    their decoders and slots.
     """
     model = circuits.DepolarizingNoiseModel(0)
     spec = decoders.lookup(max_weight=1)
     assert get_steane_swap_consumer(_CODE, model, decoder=spec).decoder is spec
-    prebuilt: Any = get_steane_swap_consumer(_CODE, model).decoder
+    default = get_steane_swap_consumer(_CODE, model)
+    assert get_steane_swap_consumer(_CODE, model, decoder=spec).description != default.description
+    assert get_steane_swap_consumer(_CODE, model, basis="X").description != default.description
+    prebuilt: Any = default.decoder
     with pytest.raises(ValueError, match="prebuilt decoder"):
         get_steane_swap_consumer(_CODE, model, basis="X", decoder=prebuilt)
     not_a_decoder: Any = "mwpm"
@@ -513,9 +550,11 @@ def test_min_weight_table(monkeypatch: pytest.MonkeyPatch) -> None:
 
     The checks of a four-bit code need errors of weight two to cover every syndrome.  The errors on
     qubits 0 and 1 and on qubit 2 have the same syndrome but different logical flips.  Each table
-    entry has the logical flips of some lightest error with its syndrome.  Tables are refused before
-    they are built if they, or the errors of a weight that they need, would have too many entries.
-    The size of a table grows with the number of logical operators.
+    entry has the logical flips of some lightest error with its syndrome.  With two independent
+    checks of one qubit each, the syndrome of both checks needs an error of weight two, as many as
+    there are checks.  Without checks, the table has only the empty syndrome.  Tables are refused
+    before they are built if they, or the errors of a weight that they need, would have too many
+    entries.  The size of a table grows with the number of logical operators.
     """
     checks = np.array([[1, 1, 0, 0], [0, 1, 1, 0], [0, 0, 0, 1]])
     logicals = np.array([[1, 0, 0, 0], [0, 0, 1, 1]])
@@ -526,19 +565,25 @@ def test_min_weight_table(monkeypatch: pytest.MonkeyPatch) -> None:
         candidates = vectors[syndromes == syndrome]
         lightest = candidates[candidates.sum(axis=1) == candidates.sum(axis=1).min()]
         assert any(np.array_equal(flip, logicals @ error % 2) for error in lightest)
+    two_checks = consumers._get_min_weight_flips(np.eye(2, dtype=int), np.array([[1, 0]]))
+    assert two_checks.tolist() == [[0], [1], [0], [1]]
+    no_checks = consumers._get_min_weight_flips(np.zeros((0, 3), dtype=int), np.ones((1, 3), int))
+    assert no_checks.tolist() == [[0]]
 
     # with one logical operator, the table has 8 entries, and the 6 errors of weight 2 have 12
     # entries; with two logical operators, the table has 16 entries
     monkeypatch.setattr(consumers, "_MAX_TABLE_ENTRIES", 15)
-    assert np.array_equal(consumers._get_min_weight_flips(checks, logicals[:1]), flips[:, :1])
     with pytest.raises(ValueError, match="syndromes"):
         consumers._get_min_weight_flips(checks, logicals)
     monkeypatch.setattr(consumers, "_MAX_TABLE_ENTRIES", 12)
     assert np.array_equal(consumers._get_min_weight_flips(checks, logicals[:1]), flips[:, :1])
-    monkeypatch.setattr(consumers, "_MAX_TABLE_ENTRIES", 8)
+    monkeypatch.setattr(consumers, "_MAX_TABLE_ENTRIES", 11)
     with pytest.raises(ValueError, match="errors of weight 2"):
         consumers._get_min_weight_flips(checks, logicals[:1])
-    # the Steane code needs tables of 8 entries
+    # the Steane code needs tables of 8 entries, and only its errors of weight 1, which cover every
+    # syndrome; its 21 errors of weight 2 would have 42 entries
+    monkeypatch.setattr(consumers, "_MAX_TABLE_ENTRIES", 8)
+    get_steane_swap_consumer(_CODE, circuits.DepolarizingNoiseModel(0))
     monkeypatch.setattr(consumers, "_MAX_TABLE_ENTRIES", 7)
     with pytest.raises(ValueError, match="too large"):
         get_steane_swap_consumer(_CODE, circuits.DepolarizingNoiseModel(0))
@@ -1038,12 +1083,15 @@ _VECTORS = np.array(list(itertools.product([0, 1], repeat=_NUM_QUBITS)), dtype=i
 _VECTORS_INDEX = np.arange(len(_VECTORS))
 
 
-def _assert_decodes_single_faults(consumer: Consumer) -> None:
-    """The decoder of a consumer predicts the observable flips of every single error mechanism."""
+def _assert_decodes_single_faults(consumer: Consumer, decoder: object = None) -> None:
+    """A decoder predicts the observable flips of every single error mechanism of a consumer.
+
+    The decoder defaults to that of the consumer.
+    """
     dem = decoders.DetectorErrorModelArrays(consumer.block_preparation + consumer.circuit)
     detectors = dem.detector_flip_matrix.T.toarray()
     observables = dem.observable_flip_matrix.T.toarray()
-    decoder = consumer.decoder
+    decoder = consumer.decoder if decoder is None else decoder
     assert isinstance(decoder, decoders.BatchObservableDecoder)
     assert np.array_equal(decoder.decode_observables_batch(detectors), observables)
     # also decode one shot, of a mechanism that flips an observable
@@ -1051,8 +1099,8 @@ def _assert_decodes_single_faults(consumer: Consumer) -> None:
     assert np.array_equal(decoder.decode_observables(detectors[row]), observables[row])
 
 
-def _get_exact_excesses(consumer: Consumer, pauli: PauliXZ) -> np.ndarray:
-    """Exact excesses of a consumer for type-``pauli`` block errors of physical weight 1 and 2.
+def _get_excess_terms(consumer: Consumer, pauli: PauliXZ) -> np.ndarray:
+    """Exact terms of the excesses of a consumer for type-``pauli`` block errors of weight 1 and 2.
 
     Row ``w - 1`` is for the block errors of physical weight ``w``.  Its first entry is the mean
     change in failure that such an error causes without faults of the consumer.  Its second entry is

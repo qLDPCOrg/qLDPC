@@ -5,8 +5,9 @@
 A ``Consumer`` simulates a noisy circuit that uses a code block, and ``Consumer.calibrate``
 estimates a ``ConsumerCalibration`` for it.  A ``ConsumerCalibration`` combines X-type and Z-type
 excess-failure tables with residual-weight histograms.  The tables are either estimated or supplied
-by the caller.  ``get_steane_swap_consumer`` builds a window of swap-type Steane QEC as a consumer.
-With it, two calls score a noisy state-preparation circuit::
+by the caller.  ``get_steane_swap_consumer`` builds a consumer from a short run of steps of
+swap-type Steane quantum error correction (QEC).  With it, two calls score a noisy state-preparation
+circuit::
 
     calibration = get_steane_swap_consumer(code, noise_model).calibrate()
     phi, standard_error = calibration.estimate_excess_failure_probability(circuit)
@@ -31,7 +32,7 @@ import stim
 
 from qldpc import circuits, codes, decoders
 from qldpc import math as qldpc_math
-from qldpc._binary import pack_bits, unpack_bits
+from qldpc._binary import pack_bits, row_reduce_binary, unpack_bits
 from qldpc.circuits.certification.fault_propagation import _get_unmeasured_qubits
 from qldpc.decoders._resolution import reject_prebuilt_decoder
 from qldpc.objects import Pauli, PauliXZ, PauliXZLike
@@ -78,8 +79,9 @@ class Consumer:
     A shot of the consumer runs the noiseless ``block_preparation``, which prepares the block in its
     ideal stabilizer state, and then the noisy ``circuit``.  The decoder predicts the flips of every
     observable of the shot from its detectors.  The consumer fails if it mispredicts any of them.
-    The observables need not be logical operators.  As Stim requires, each is a parity of
-    measurements whose value is deterministic without noise.  The consumer does not post-select.
+    The observables need not be logical operators.  As Stim requires, each is deterministic without
+    noise.  It is a parity of measurements, possibly times Pauli operators on qubits, as in the
+    consumer of ``get_steane_swap_consumer``.  The consumer does not post-select.
     Every operation must be a Clifford operation or Pauli noise, so that a Pauli error on the block
     flips a fixed set of detectors and observables.  See ``consumer_calibration.md`` for how
     consumers are used.
@@ -778,38 +780,41 @@ def get_steane_swap_consumer(
     decoder: decoders.DecoderSpec[Any] | None = None,
     correctable_weight: int | None = None,
 ) -> Consumer:
-    """A consumer that runs swap-type Steane QEC steps around the entry of a fresh code block.
+    """A consumer that runs steps of Steane error correction around the entry of a fresh code block.
 
-    Swap-type Steane QEC, as in Figure 4d of `arXiv:2603.04584 <https://arxiv.org/abs/2603.04584>`_,
-    teleports the logical qubits of a CSS code from block to block, in steps of two kinds.  A
-    Z-correction step applies a transversal CNOT from the current block to a fresh ``|0>`` block,
-    and measures the current block in the X basis.  An X-correction step applies a transversal CNOT
-    from a fresh ``|+>`` block to the current block, and measures the current block in the Z basis.
-    The stabilizers that a step measures define detectors.  The steps do not apply the logical
-    corrections of teleportation; instead, each observable includes the logical outcomes that the
-    steps measure.
+    Swap-type Steane quantum error correction (QEC), as in Figure 4d of `arXiv:2603.04584
+    <https://arxiv.org/abs/2603.04584>`_, teleports the logical qubits of a CSS code from block to
+    block.  The current block holds the logical qubits, and each step teleports them onto a fresh
+    block, which becomes the current block of the next step.  A Z-correction step applies a
+    transversal CNOT from the current block to a fresh ``|0>`` block, and measures the current block
+    in the X basis.  An X-correction step applies a transversal CNOT from a fresh ``|+>`` block to
+    the current block, and measures the current block in the Z basis.  The stabilizers that a step
+    measures define detectors.  The steps do not apply the logical corrections of teleportation;
+    instead, each observable includes the logical outcomes that the steps measure.
 
-    The consumer's window runs five noisy steps of alternating kind, starting from an ideal data
+    The consumer runs a window of five noisy steps of alternating kind, starting from an ideal data
     block in logical ``|0>``.  The block under test is the fresh block of the third step.  For
     ``basis="Z"``, the default, it is a ``|0>`` block that enters by a Z-correction step.  For
     ``basis="X"``, it is a ``|+>`` block that enters by an X-correction step.  Every block starts in
-    its ideal state, prepared noiselessly by ``circuits.get_encoding_circuit``, and a calibration
+    its ideal state, prepared without noise by ``circuits.get_encoding_circuit``, and a calibration
     adds errors only to the block under test.  The noise model applies to the CNOTs and
     measurements of each step, including any idle noise that it specifies for the two blocks of the
-    step.  Finally, the stabilizers of the last block are measured noiselessly.  See
+    step.  Finally, the stabilizers of the last block are measured without noise.  See
     ``consumer_calibration.md`` for why the window has this form, and for the approximations of
     its calibrations.
 
-    The detectors are those of the independent stabilizer generators that each step measures, step
-    by step, followed by those of the X-type and then the Z-type generators of the last block.  The
-    observables compare the logical X operators, and then the logical Z operators, of the data block
-    with those of the last block.
+    Each step, and the final readout, measures a maximal independent subset of the code's own
+    checks of each type, in their order in the code.  The detectors are those of the checks that
+    each step measures, step by step, followed by those of the X-type and then the Z-type checks of
+    the last block.  The observables compare the logical X operators, and then the logical Z
+    operators, of the data block with those of the last block.
 
     The default decoder decodes the syndrome of each step, and the final syndrome, separately.  It
     looks up the logical flips of a lightest error with each syndrome in a table.  It refuses to
     build a table whose number of syndromes times the number of logical qubits exceeds ``2**24``.
     It also refuses to enumerate the errors of one weight if their number times their weight
-    exceeds ``2**24``.  These limits keep the memory that it needs below about 500 MiB.
+    exceeds ``2**24``.  These limits keep the memory that building its tables needs below about
+    500 MiB.  Decoding a batch of shots needs about 10 bytes for each shot and observable.
 
     Args:
         code: A CSS stabilizer code on qubits, with at least one logical qubit.
@@ -820,26 +825,30 @@ def get_steane_swap_consumer(
             block, or ``Pauli.X`` (or ``"X"``) for a fresh ``|+>`` block.
         decoder: A decoder specification, such as ``decoders.mwpm(decompose_errors=True)``, which
             builds the decoder from the detector error model of the window, as for ``Consumer``.
-            Default: None, for the default decoder described above.  The length of the window
-            suits a decoder that decodes each step on its own, as the default decoder does.  With
-            a decoder of the whole window, the calibration depends on the length of the window.
+            Default: None, for the default decoder described above.  The window suits a decoder
+            that decodes each step on its own and corrects every fault of weight one; see
+            ``consumer_calibration.md``.  For a code of distance less than 3, the default decoder
+            does not correct every such fault, and the calibration depends on the length of the
+            window.
         correctable_weight: The largest weight ``t`` of errors that the code corrects.  It sets
             the default largest residual weight ``t + 1`` of ``calibrate``.  Default:
-            ``(d - 1) // 2`` for the distance ``d`` of the code, which is computed if the code does
-            not know it, in a time that grows exponentially with the size of the code.
+            ``(d - 1) // 2`` for the distance ``d`` of the code.  If the code does not know its
+            distance, it is computed, in a time that grows exponentially with the size of the code.
 
     Returns:
-        A ``Consumer`` whose block is the block under test, with the correctable weight and a
-        description of the code, the slot, the window, the decoder, and the noise model.
+        A ``Consumer`` whose block is the block under test, with the correctable weight and a short
+        description that names the number of steps, the state of the block under test, the code,
+        the decoder, and the type of the noise model.
 
     Raises:
         TypeError: If ``decoder`` is neither None nor a decoder specification, or
             ``correctable_weight`` is not an integer or None.
         ValueError: If the code is not a CSS stabilizer code on qubits with at least one logical
             qubit, ``basis`` is not a Pauli type, ``decoder`` is a prebuilt decoder,
-            ``correctable_weight`` is negative, or ``decoder`` is None and the lookup tables of the
-            default decoder would be too large.
+            ``correctable_weight`` is negative, or ``decoder`` is None and the default decoder
+            would exceed the limits described above.
     """
+    # check the arguments
     basis = Pauli.coerce_xz(basis)
     if (
         not isinstance(code, codes.CSSCode)
@@ -854,9 +863,11 @@ def get_steane_swap_consumer(
     reject_prebuilt_decoder(decoder, "get_steane_swap_consumer builds the circuit to decode")
     if decoder is not None and not isinstance(decoder, decoders.DecoderSpec):
         raise TypeError(
-            f"The decoder of a Steane-swap consumer must be a decoder specification or None, not"
-            f" {decoder!r}"
+            "get_steane_swap_consumer needs a decoder specification, such as"
+            f" decoders.mwpm(decompose_errors=True), or None, not {decoder!r}"
         )
+
+    # build the window
     block_preparation, circuit, block_qubits, measured_bases = _get_window(
         code, noise_model, basis, _NUM_STEPS_BEFORE_ENTRY, _NUM_STEPS_AFTER_ENTRY
     )
@@ -873,6 +884,7 @@ def get_steane_swap_consumer(
     if correctable_weight is None:
         correctable_weight = (int(code.get_distance()) - 1) // 2
 
+    # describe the consumer
     state = "|0>" if basis is Pauli.Z else "|+>"
     num_steps = len(measured_bases)
     return Consumer(
@@ -893,9 +905,9 @@ class _SteaneSwapDecoder:
     """Observable decoder of the Steane-swap consumer, which decodes each syndrome on its own.
 
     The detectors and observables are in the order that ``get_steane_swap_consumer`` documents.
-    The decoder looks up each syndrome of Z-type stabilizers in a table of lightest X-type errors,
-    and predicts the flips of the logical Z operators by the error with that syndrome.  It decodes
-    syndromes of X-type stabilizers likewise, with Z-type errors and logical X operators.
+    The decoder looks up each syndrome of Z-type checks in a table of lightest X-type errors, and
+    predicts the flips of the logical Z operators from the lightest error with that syndrome.  It
+    decodes syndromes of X-type checks likewise, with Z-type errors and logical X operators.
     """
 
     def __init__(self, code: codes.CSSCode, measured_bases: Sequence[PauliXZ]) -> None:
@@ -903,12 +915,12 @@ class _SteaneSwapDecoder:
         self._dimension = code.dimension
         # the detectors split into one syndrome for each step, and two for the final readout
         self._syndrome_types = [*measured_bases, Pauli.X, Pauli.Z]
-        stabilizers = {pauli: _get_stabilizers(code, pauli) for pauli in (Pauli.X, Pauli.Z)}
-        self._syndrome_sizes = [len(stabilizers[pauli]) for pauli in self._syndrome_types]
-        # a syndrome of type-s stabilizers flags errors that flip the logical operators of type s
+        checks = {pauli: _get_stabilizers(code, pauli) for pauli in (Pauli.X, Pauli.Z)}
+        self._syndrome_sizes = [len(checks[pauli]) for pauli in self._syndrome_types]
+        # a syndrome of type-s checks flags errors that flip the logical operators of type s
         self._tables = {
             pauli: _get_min_weight_flips(
-                stabilizers[pauli], code.get_logical_ops(pauli).view(np.ndarray).astype(int)
+                checks[pauli], code.get_logical_ops(pauli).view(np.ndarray).astype(int)
             )
             for pauli in (Pauli.X, Pauli.Z)
         }
@@ -919,16 +931,15 @@ class _SteaneSwapDecoder:
 
     def decode_observables_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode the detectors of a batch of shots, and return predicted observable flips."""
-        syndromes = np.asarray(syndromes, dtype=int)
+        syndromes = np.asarray(syndromes, dtype=np.uint8)
         flips = {
-            pauli: np.zeros((len(syndromes), self._dimension), dtype=int)
+            pauli: np.zeros((len(syndromes), self._dimension), dtype=np.uint8)
             for pauli in (Pauli.X, Pauli.Z)
         }
         parts = np.split(syndromes, np.cumsum(self._syndrome_sizes)[:-1], axis=1)
         for pauli, part in zip(self._syndrome_types, parts):
-            # row s of a table is for the syndrome s, with bit j for stabilizer j
-            flips[pauli] ^= self._tables[pauli][part @ (1 << np.arange(part.shape[1]))]
-        return np.concatenate([flips[Pauli.X], flips[Pauli.Z]], axis=1)
+            flips[pauli] ^= self._tables[pauli][_get_syndrome_indices(part)]
+        return np.concatenate([flips[Pauli.X], flips[Pauli.Z]], axis=1).astype(int)
 
 
 def _get_window(
@@ -940,13 +951,14 @@ def _get_window(
 ) -> tuple[stim.Circuit, stim.Circuit, list[int], list[PauliXZ]]:
     """The window of ``get_steane_swap_consumer``, with given numbers of steps around the entry.
 
-    The window has ``num_before`` noisy steps before the step by which the block under test enters,
-    and ``num_after`` noisy steps after it.  The block under test therefore enters by the step with
+    ``basis`` is Z for a fresh ``|0>`` block under test, and X for a fresh ``|+>`` block.  The
+    window has ``num_before`` noisy steps before the step by which the block under test enters, and
+    ``num_after`` noisy steps after it.  The block under test therefore enters by the step with
     index ``num_before``, counting from zero.
 
     Returns:
-        A noiseless preparation of the block under test, the rest of the window, the qubits of the
-        block under test, and the basis that each step measures.
+        A preparation of the block under test, the rest of the window, the qubits of the block
+        under test, and the basis that each step measures.
     """
     num_qubits = len(code)
     num_steps = num_before + 1 + num_after
@@ -971,14 +983,12 @@ def _get_window(
     for source, target, measured_basis in zip(blocks, blocks[1:], measured_bases):
         circuit += _get_teleportation_step(code, noise_model, source, target, measured_basis)
 
-    # measure the X-type and then the Z-type stabilizers of the last block noiselessly, as rows of
+    # measure the X-type and then the Z-type checks of the last block without noise, as rows of
     # [X|Z] form, and include its logical operators in the observables
     stabilizers = scipy.linalg.block_diag(
         *(_get_stabilizers(code, pauli) for pauli in (Pauli.X, Pauli.Z))
     )
-    circuit += circuits.as_noiseless_circuit(
-        circuits.get_pauli_product_measurements(stabilizers, blocks[-1])
-    )
+    circuit += circuits.get_pauli_product_measurements(stabilizers, blocks[-1])
     for index in range(-len(stabilizers), 0):
         circuit.append("DETECTOR", [stim.target_rec(index)])
     circuit += circuits.get_observables(code, blocks[-1])
@@ -991,28 +1001,32 @@ def _get_window(
 def _get_teleportation_step(
     code: codes.CSSCode,
     noise_model: circuits.NoiseModel,
-    source: Sequence[int],
-    target: Sequence[int],
+    source_qubits: Sequence[int],
+    target_qubits: Sequence[int],
     measured_basis: PauliXZ,
 ) -> stim.Circuit:
     """A noisy step that teleports the logical qubits of a block to a fresh block.
 
     The step applies a transversal CNOT and then measures the source block in ``measured_basis``.
     If ``measured_basis`` is X, the CNOT runs from the source to the fresh ``|0>`` target block.
-    Otherwise, it runs from the fresh ``|+>`` target block to the source.  The stabilizers of type
+    Otherwise, it runs from the fresh ``|+>`` target block to the source.  The checks of type
     ``measured_basis`` define detectors.  The measured logical operators of that type are included
-    in the observables of that type, which tracks the logical correction of the step.  The noise
-    model sees only the two blocks of the step.
+    in the observables of the logical operators of that type, which tracks the logical correction of
+    the step.  The noise model sees only the two blocks of the step.
     """
-    # build the step on qubits 0, ..., n - 1 (the source) and n, ..., 2 n - 1 (the target)
+    # build the step on the local qubits 0, ..., n - 1 (the source) and n, ..., 2 n - 1 (the target)
     num_qubits = len(code)
-    sources, targets = range(num_qubits), range(num_qubits, 2 * num_qubits)
-    controls, cnot_targets = (sources, targets) if measured_basis is Pauli.X else (targets, sources)
+    local_source, local_target = range(num_qubits), range(num_qubits, 2 * num_qubits)
+    controls, cnot_targets = (
+        (local_source, local_target) if measured_basis is Pauli.X else (local_target, local_source)
+    )
     step = stim.Circuit()
     step.append("CX", [qubit for pair in zip(controls, cnot_targets) for qubit in pair])
     step.append("TICK")
-    step.append("MX" if measured_basis is Pauli.X else "M", sources)
-    circuit = circuits.with_remapped_qubits(noise_model.noisy_circuit(step), [*source, *target])
+    step.append("MX" if measured_basis is Pauli.X else "M", local_source)
+    circuit = circuits.with_remapped_qubits(
+        noise_model.noisy_circuit(step), [*source_qubits, *target_qubits]
+    )
 
     # the last measurements are those of the source block
     records = [stim.target_rec(qubit - num_qubits) for qubit in range(num_qubits)]
@@ -1032,22 +1046,24 @@ def _get_teleportation_step(
 def _get_ideal_preparation(
     code: codes.CSSCode, qubits: Sequence[int], basis: PauliXZ
 ) -> stim.Circuit:
-    """A noiseless circuit that prepares every logical qubit of a code in ``|0>`` or ``|+>``.
+    """A circuit without noise that prepares every logical qubit of a code in ``|0>`` or ``|+>``.
 
     The state is ``|0>`` if ``basis`` is Z, and ``|+>`` if it is X.
     """
     circuit = stim.Circuit()
     if basis is Pauli.X:
+        # the encoding circuit maps qubit j to logical qubit j, for j < k
         circuit.append("H", range(code.dimension))
     circuit += circuits.get_encoding_circuit(code)
-    return circuits.as_noiseless_circuit(circuits.with_remapped_qubits(circuit, qubits))
+    return circuits.with_remapped_qubits(circuit, qubits)
 
 
 # The default decoder uses this table rather than decoders.lookup, which needs a maximum weight up
-# front, decodes the syndromes that it leaves uncovered to no correction, and is much slower here.
-# This table enumerates errors by weight, vectorized, until it covers every syndrome, and decodes a
-# batch of shots by indexing.  Its enumeration resembles that of _get_syndrome_table in
-# residual_weights.py, which instead keeps the least weight of every syndrome up to a fixed weight.
+# front, predicts no correction for syndromes that its maximum weight does not cover, and is much
+# slower here.  This table enumerates errors by weight, vectorized, until it covers every syndrome,
+# and decodes a batch of shots by indexing.  Its enumeration resembles that of _get_syndrome_table
+# in residual_weights.py, which instead keeps the least weight of every syndrome up to a fixed
+# weight.
 def _get_min_weight_flips(
     checks: npt.NDArray[np.int_], logicals: npt.NDArray[np.int_]
 ) -> npt.NDArray[np.uint8]:
@@ -1070,8 +1086,8 @@ def _get_min_weight_flips(
             " decoder"
         )
 
-    # the syndrome and the packed logical flips of an error on each single qubit
-    qubit_syndromes = pack_bits(checks.T.astype(np.uint8))[:, 0]
+    # the syndrome of an error on each single qubit, as a table index, and its packed logical flips
+    qubit_syndromes = _get_syndrome_indices(checks.T)
     qubit_flips = pack_bits(logicals.T.astype(np.uint8))
     flips = np.zeros((2**num_checks, num_logicals), dtype=np.uint8)
     filled = np.zeros(2**num_checks, dtype=bool)
@@ -1102,9 +1118,27 @@ def _get_min_weight_flips(
     return flips
 
 
+def _get_syndrome_indices(syndromes: npt.NDArray[np.integer]) -> npt.NDArray[np.uint64]:
+    """The rows of the tables of ``_get_min_weight_flips`` for syndromes given as rows of bits.
+
+    Bit ``j`` of an index is bit ``j`` of its syndrome.  One word holds every index, because the
+    limits of the tables keep the number of checks below 64.
+    """
+    words = pack_bits(syndromes.astype(np.uint8))
+    return words[:, 0] if words.shape[1] else np.zeros(len(syndromes), dtype=np.uint64)
+
+
 def _get_stabilizers(code: codes.CSSCode, pauli: PauliXZ) -> npt.NDArray[np.int_]:
-    """Independent stabilizer generators of one Pauli type of a CSS code, one per row."""
-    return code.get_stabilizer_ops(pauli, canonicalized=True).view(np.ndarray).astype(int)
+    """A maximal independent subset of the checks of one Pauli type of a CSS code, in order.
+
+    The subset keeps the weights and locality of the code's checks, which decoders built from the
+    detector error model of a window, such as matching decoders, rely on.
+    """
+    matrix = code.matrix_x if pauli is Pauli.X else code.matrix_z
+    checks = matrix.view(np.ndarray).astype(np.uint8)
+    # the pivots of the transposed checks are the first checks that are independent of earlier ones
+    _, _, pivots = row_reduce_binary(checks.T)
+    return checks[np.sort(pivots)].astype(int)
 
 
 ####################################################################################################

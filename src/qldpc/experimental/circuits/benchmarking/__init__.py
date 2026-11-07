@@ -11,8 +11,8 @@ the prepared state respond to each residual weight, and
 merit.  ``estimate_downstream_fault_weight`` estimates the expected fault weight of a consumer from
 the noise of a circuit.  A ``ConsumerCalibration`` scores preparation circuits with excess-failure
 tables for X-type and Z-type errors.  ``Consumer.calibrate`` estimates these tables for a simulated
-``Consumer``, such as the Steane QEC window of ``get_steane_swap_consumer``.  See the
-`consumer-calibration guide
+``Consumer``, such as the consumer of Steane error-correction steps that
+``get_steane_swap_consumer`` builds.  See the `consumer-calibration guide
 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/experimental/circuits/benchmarking/consumer_calibration.md>`_
 for the model and validation guidance.
 """

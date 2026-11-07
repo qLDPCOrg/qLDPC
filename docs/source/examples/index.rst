@@ -75,7 +75,7 @@ Experimental
 
 Examples built on ``qldpc.experimental``, whose public API is unstable and may change without notice.
 The lattice-surgery notebook is an advanced, bounded tutorial with separate scripts for publication-scale data collection.
-The notebook on benchmarking logical state preparation scores noisy preparation circuits by the excess failure that they cause in a calibrated run of Steane error-correction steps.
+The notebook on benchmarking logical state preparation scores noisy preparation circuits by how much they raise the failure probability of a short run of Steane error-correction steps, from one calibration of that run.
 
 .. toctree::
    :maxdepth: 1
