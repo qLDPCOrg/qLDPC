@@ -92,18 +92,21 @@ CI's exact environments and commands are in ``.github/workflows/``.
    * - ``python checks/all_.py``
      - Formatting, lint, mypy, tests with overall 100% coverage, and (on full runs) the docs build
 
-Checks run in two stages:
+Checks come in three tiers by cost.
+The first two tiers are the drafting checks, which run while a change is in progress, including during a :doc:`standard review <reviewing>` and in a draft pull request.
+The third tier is the finishing checks.
 
-* **Drafting checks** run while a change is in progress, including during a :doc:`standard review <reviewing>` and in a draft pull request.
-  They are the tests of the changed modules, as in ``python -m pytest path/to/module_test.py``.
-  They also include the formatting, lint, and type checks on changed files, as in the incremental (``-i``) runs of ``format_.py``, ``lint_.py``, and ``mypy_.py`` described below.
-  Refreshing the outputs of a changed notebook, as the :doc:`writing standard <standards/writing>` requires, is also part of drafting.
-  Coverage gates and the documentation build are not drafting checks, even in incremental runs.
-* **Finishing checks** run once a change is finished, before its pull request is marked ready for review.
-  They are ``format_.py --check``, ``lint_.py``, ``mypy_.py``, ``coverage_.py``, and ``build_docs.py``, each run over the whole repository.
-  ``coverage_.py`` also runs the tests.
-  After fixing a failure, rerun the failed checks.
-  Run another round of standard review after a significant fix.
+* **Anytime:** ``format_.py`` and ``lint_.py`` over the whole repository, and ``mypy_.py`` on changed files, as in ``python checks/mypy_.py -i``.
+  ``format_.py --check`` only reports.
+  Without ``--check``, ``format_.py`` rewrites ``pyproject.toml``, and with ``--fix`` it also rewrites other files, which may lie outside the change.
+* **As needed:** when writing, reviewing, or verifying a change, run targeted tests that cover it, selected by test function or as the test file of a changed module, as in ``python -m pytest path/to/module_test.py::test_name``.
+  Run ``pytest_.py`` only on selected paths, since over the whole repository it repeats the test run of ``coverage_.py``.
+  When targeted tests do not settle a question, such as whether a module's own tests fully cover it, run ``coverage_.py`` on that module, as in ``python checks/coverage_.py src/qldpc/codes/common.py``, or on all changed modules with ``-i``.
+* **Finishing:** ``format_.py --check``, ``lint_.py``, ``mypy_.py``, ``coverage_.py``, and ``build_docs.py``, each over the whole repository.
+  Run them once a change is finished, before its pull request is marked ready for review.
+  After fixing a failure, rerun the failed checks, and run another round of standard review after a significant fix.
+
+Refreshing the saved outputs of a changed notebook, as the :doc:`writing standard <standards/writing>` requires, is part of writing the change, not a check.
 
 CI skips draft pull requests.
 Once a pull request is ready for review, CI runs every check, including the GAP integration tests and the notebook examples that it executes.

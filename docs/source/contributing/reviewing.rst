@@ -30,7 +30,7 @@ The coordinator gives each reviewer:
 * the purpose of the change and its scope;
 * the reviewer's angle and the standard that defines it;
 * the decisions made so far, such as those of earlier rounds, so that reviewers do not reopen them;
-* these instructions: report findings without editing the change, run only the drafting checks of the :ref:`validation commands <validation-commands>`, and check whether the change requires updates elsewhere, such as to callers, to docstrings or guides that repeat a changed limitation, or to the :doc:`library map </library_map>` and examples.
+* these instructions: report findings without editing the change, run only the drafting checks of the :ref:`validation commands <validation-commands>`, with ``format_.py --check`` rather than ``--fix``, and check whether the change requires updates elsewhere, such as to callers, to docstrings or guides that repeat a changed limitation, or to the :doc:`library map </library_map>` and examples.
 
 A finding gives a location, the problem, why it matters, and a suggested fix.
 

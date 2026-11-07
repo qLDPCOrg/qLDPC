@@ -34,14 +34,13 @@ When asked for a pull request description, follow the [pull request standard](do
 
 ## When to run checks
 
-The [validation commands](docs/source/contributing/index.rst#validation-commands) define the drafting and finishing checks.
-On your own, run only the drafting checks.
+The [validation commands](docs/source/contributing/index.rst#validation-commands) define three tiers of checks: anytime, as needed, and finishing.
+Run anytime checks freely, and as-needed checks when writing, reviewing, or verifying a change.
 Run the finishing checks only when a maintainer explicitly asks to finish, finalize, or make a pull request ready to merge or ready for review.
 Examples of such requests are "finish this PR" and "run the finishing checks".
 You may report that a change appears ready for the finishing checks.
-Run the finishing checks individually rather than through `checks/all_.py`, whose test run duplicates the one in `coverage_.py`.
+Run checks individually, never through `checks/all_.py`.
 Leave `pytest_.py --notebook` runs and the GAP integration tests to CI.
-As part of drafting, refresh the saved outputs of a notebook that you change, even though CI executes notebooks.
 
 ## Protected files
 
