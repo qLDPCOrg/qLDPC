@@ -101,7 +101,9 @@ Set `NUMBA_DISABLE_JIT=1` to run all of this code as plain Python while debuggin
 ## Working here
 
 - Tests sit beside their modules, and each module must be fully covered by its own test file.
-  `python checks/pytest_.py src/qldpc/codes/distance` runs the tests, `python checks/coverage_.py src/qldpc/codes/distance/<module>.py` checks one module's coverage, and the `AGENTS.md` at the root of the repository lists the other checks.
+  `python checks/pytest_.py src/qldpc/codes/distance` runs the tests.
+  `python checks/coverage_.py src/qldpc/codes/distance/<module>.py` checks one module's coverage.
+  The validation commands in `docs/source/contributing/index.rst` list the other checks.
 - Coverage cannot see compiled code, so tests also run compiled functions as plain Python.
   `conftest.py` holds the fixtures for this, and the helpers that several test files share, such as a check of counts against brute-force enumeration.
 - `readme_test.py` fails if this page omits a module, or names a file that does not exist.
