@@ -1,17 +1,20 @@
 # Experiments
 
 This directory holds research scripts that use `qldpc`.
-They are not part of the installed `qldpc` package, and the test suite does not cover them.
+They are not part of the installed `qldpc` package, and the default test and coverage runs do not cover them.
+The code-annealing experiment has offline tests that you can run locally, but they do not run in CI.
 
 | Directory | What it does | Entry points |
 | --- | --- | --- |
 | [`bivariate_bicycle/`](bivariate_bicycle/) | Brute-force search for bivariate bicycle codes with toric layouts | `run_search.py`, then `collect_results.py` |
 | [`quantum_tanner/`](quantum_tanner/) | Randomized search for quantum Tanner codes | `run_search.py`, then `collect_results.py` and `verify_codes.py` |
+| [`code_annealing/`](code_annealing/) | Implements and reproduces the code search of [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574): annealing of CSS/SWEL codes scored exactly | `python -m experiments.code_annealing.reproduce_paper`, or `write_jobs`, then `collect_data` and `make_figures` (see its guide) |
 | [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#lattice-surgery)) | `collect_ler.py` |
 
 Each script's module docstring summarizes its method and outputs; run it with `--help` to see its options.
 The quantum Tanner `run_search.py` and `verify_codes.py` require [GAP](https://www.gap-system.org) for their groups (the SmallGroups library) and Cordaro–Wagner base codes (the GUAVA package), whereas `collect_results.py` only reads saved files.
-Both code searches bound distances with the default backend of `get_distance_bound`, which uses `sqetch` if installed, then GAP's QDistRnd package if available, and a decoder-based method otherwise.
+The bivariate bicycle and quantum Tanner searches bound distances with the default backend of `get_distance_bound`, which uses `sqetch` if installed, then GAP's QDistRnd package if available, and a decoder-based method otherwise.
+Code annealing instead enumerates exact binary CSS logical weights without GAP or external services.
 See the [GAP integration instructions](../docs/source/installation.rst#gap-integration) to set up GAP, for example with `pip install 'qldpc[gap]'`.
 Commands below are written relative to the repository root.
 
@@ -19,13 +22,15 @@ Commands below are written relative to the repository root.
 
 Every experiment stores its results in a `results/` directory beside its scripts, which Git ignores.
 Every script accepts `--results-dir` to use another directory instead, such as a scratch directory for a quick trial run; pass the same `--results-dir` to all scripts of an experiment.
-Each results directory holds a CSV summary, together with the resumable intermediate data from which that summary is built:
+In the other experiments, each results directory holds a CSV summary, together with the resumable intermediate data from which that summary is built:
 
 | Experiment | Intermediate data | CSV summary |
 | --- | --- | --- |
 | Bivariate bicycle | `results/cache/`: disk cache of code parameters | `results/codes.csv`: codes with `k d^2 / n > 1` |
 | Quantum Tanner | `results/codes/`: one text file per saved code | `results/codes.csv`: parameters of every saved code with `k > 0` |
 | Lattice surgery | `results/{preset}_{run_id}_progress.csv`: Sinter progress | `results/{preset}.csv`: sample counts, from which logical error rates follow |
+
+Code annealing divides its `results/` directory into `logs/` (one resumable checkpoint for each search), `data/` (the best code of each size, and tables computed from them), `figures/` and `cache/`, and its high-level scripts take `--test` to run at smoke-test scale in `results/test/`; see its guide.
 
 Earlier versions of these scripts saved results beside the scripts instead, where Git no longer ignores them.
 To keep using such results, move them into the new layout:
@@ -100,6 +105,12 @@ Each code requires a randomized distance estimate with `--num-trials` trials, so
 Distances `d` are upper bounds.
 Saved code files record `d` as `nan` for codes with no logical qubits, and `collect_results.py` omits such codes.
 Verification requires `codes.QTCode.random` to sample the same code for the same seed, so codes saved with a different version of `qldpc` may fail verification.
+
+## Quantum codes from classical annealing
+
+[`code_annealing/`](code_annealing/) implements and reproduces the code search of the paper [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574).
+It anneals CSS and SWEL codes, scoring every proposal exactly by its distance and its number of minimum-weight logical operators, which is only practical for moderate block lengths.
+Its [guide](code_annealing/README.md) shows how to rebuild the paper's table and figures from the paper's codes in one command, and how to rerun the searches at any scale.
 
 ## Lattice surgery
 
