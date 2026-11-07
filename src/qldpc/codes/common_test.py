@@ -23,10 +23,9 @@ import sympy.abc
 
 from qldpc import abstract, codes, decoders, external, math
 from qldpc.codes import _code_capacity, common
-from qldpc.codes.distance._search import brouwer_zimmermann
 from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ
 
-from .conftest import assert_valid_subgraphs
+from .conftest import Tune, assert_valid_subgraphs
 
 ####################################################################################################
 # classical code tests
@@ -819,7 +818,7 @@ def test_automorphisms_from_bliss_or_construction(monkeypatch: pytest.MonkeyPatc
     assert found.tolist() == [shift]
 
 
-def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: Tune) -> None:
     """Exact distances use the qudit automorphisms of a code only after verifying them.
 
     The [[72, 12, 6]] bivariate bicycle code is from arXiv:2308.07915.  Hadamards on its second
@@ -858,7 +857,7 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch) -> None
 
     # use the automorphisms of the code's family before the first layer of these quick searches
     monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
-    monkeypatch.setattr(brouwer_zimmermann, "MINIMUM_LAYER_WORK", 0)
+    tune(automorphism_minimum_layer_work=0)
     x, y = sympy.abc.x, sympy.abc.y
     bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
     translations = bb_code._get_qudit_automorphisms()
@@ -886,7 +885,7 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch) -> None
             get_distance(transposition[None])
 
 
-def test_distances_with_bliss(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_distances_with_bliss(monkeypatch: pytest.MonkeyPatch, tune: Tune) -> None:
     """With pybliss, exact distances find and use the symmetries of codes by themselves.
 
     The qudits of the [[72, 12, 6]] bivariate bicycle code of arXiv:2308.07915, and of a version of
@@ -894,7 +893,7 @@ def test_distances_with_bliss(monkeypatch: pytest.MonkeyPatch) -> None:
     matrices alone.
     """
     pytest.importorskip("pybliss")
-    monkeypatch.setattr(brouwer_zimmermann, "MINIMUM_LAYER_WORK", 0)
+    tune(automorphism_minimum_layer_work=0)
     x, y = sympy.abc.x, sympy.abc.y
     bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
     shuffle = np.random.default_rng(0).permutation(len(bb_code))

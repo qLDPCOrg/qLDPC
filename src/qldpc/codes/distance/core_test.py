@@ -15,8 +15,8 @@ from sympy.abc import x
 
 import qldpc
 
+from ..conftest import Tune
 from . import core
-from ._search import brouwer_zimmermann
 from .conftest import get_random_full_rank_matrix, get_span
 
 
@@ -236,13 +236,13 @@ def test_get_distance_quantum_noncss_codes(
 
 
 @pytest.mark.usefixtures("force_information_sets")
-def test_quantum_distances_use_qubit_automorphisms(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_quantum_distances_use_qubit_automorphisms(tune: Tune) -> None:
     """Searches use qubit permutations for homogeneous operators, and lift them for Pauli operators.
 
     Hadamards on the second block of this [[14, 6, 3]] multivariate bicycle code make a code that is
     not CSS, which translations of both blocks still preserve.  A wrong permutation fails loudly.
     """
-    monkeypatch.setattr(brouwer_zimmermann, "MINIMUM_LAYER_WORK", 0)
+    tune(automorphism_minimum_layer_work=0)
     bicycle_code = qldpc.codes.MBCode([7], 1 + x + x**3, 1 + x**2 + x**3 + x**4)
     translations = bicycle_code._get_qudit_automorphisms()
     transposition = np.arange(len(bicycle_code))

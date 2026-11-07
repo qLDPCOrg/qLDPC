@@ -42,6 +42,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
 | The MacWilliams counting method | `_counting/macwilliams.py` |
+| The thresholds that choose between exhaustive enumeration and the kinds of information-set families, and the batch sizes of the counting loops (`SearchTuning`, `use_tuning`) | `_tuning.py` |
 | Binary input checks, nested bases, or packed weights | `_binary.py` |
 | Bit packing, bit counts, or row reduction over GF(2), which other subpackages share | `src/qldpc/_binary.py` |
 | How numba code is compiled or cached | `src/qldpc/_compilation.py` |
@@ -55,13 +56,31 @@ From the top:
 3. `_search/brouwer_zimmermann.py`, `_search/brute_force.py`, `_search/connected_support.py`, and `_search/coset_leader_search.py`, the searches.
 4. `_search/information_sets.py`, the basis families that the searches share, and `_search/automorphism_families.py`, which builds automorphism families from them.
 5. `_search/matroid_partition.py`, which `_search/information_sets.py` uses to build some of those families.
-6. `_binary.py`, the foundation.
+6. `_tuning.py`, the thresholds and batch sizes of the searches and counts.
+7. `_binary.py`, the foundation.
 
 A module imports only modules of its own level or below.
-`layering_test.py` checks this for `logical_counts.py`, `core.py`, and the `_counting`, `_search`, and `_binary` units; the order within `_search/` is a convention.
+`layering_test.py` checks this for `logical_counts.py`, `core.py`, and the `_counting`, `_search`, `_tuning`, and `_binary` units; the order within `_search/` is a convention.
 Modules of every level may also import `src/qldpc/_binary.py`, the bit-packed linear algebra over GF(2) that other subpackages share.
 `src/qldpc/codes/common.py` imports this package, so `logical_counts.py` imports the code classes of `codes.common` and `codes.quantum` inside the functions that use them.
 Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py`, modules in `src/qldpc/circuits/certification/`, and the deprecation registry in `src/qldpc/_deprecations/core.py`, use private names of this package, so grep `src/qldpc` for a private name before you move or rename it.
+
+## Tuning
+
+The thresholds of the heuristics that choose a search route, such as when to build overlapping information sets or to use linear programming, are the fields of `SearchTuning` in `_tuning.py`.
+Its docstrings give the meaning and default of each field, and Section 4.4 of `brouwer_zimmermann.md` says where each threshold of a search route is used.
+
+- A search reads the active tuning once, when it starts, and passes the values that it needs down to the stages and loops that use them.
+  `get_distance_brouwer_zimmermann_many` reads it for a distance search, and `CSSLogicalCounter.count_logical_ops` for a count.
+  Pass these values as arguments, including to compiled code, and do not read the tuning anywhere else, so that one search never mixes two tunings.
+- Put a threshold in `SearchTuning` if a user might measure and change it.
+  Keep the measured constants of cost models, such as `_PARTITION_COST_FACTOR`, in the modules that use them.
+- A tuning changes only how long a search takes and how much memory it uses, never a result that the search guarantees.
+  With an early exit, it can change which witness a search returns (see the module docstring of `_tuning.py`).
+  A new heuristic whose threshold could change a guaranteed result does not belong in `SearchTuning`.
+- To force a route in a test, call the `tune` fixture of `src/qldpc/codes/conftest.py`, as in `tune(overlapping_minimum_work=0)`, rather than patching module attributes.
+- When you add a field, document what it decides and its default in the `Attributes` section of `SearchTuning`.
+  For an integer field, also document its unit, and the effects of its smallest value and of `MAX_VALUE`.
 
 ## Compiled code
 

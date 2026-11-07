@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import collections
 import functools
 import itertools
 import math
@@ -21,6 +22,7 @@ import qldpc
 from qldpc import _compilation, codes
 from qldpc._binary import get_independent_rows
 
+from ..conftest import Tune
 from . import logical_counts as lc
 from ._counting import macwilliams
 from ._search import information_sets
@@ -237,15 +239,61 @@ def test_a_failed_compilation_leaves_the_set_up_code_as_plain_python(
     assert not isinstance(select, numba.core.registry.CPUDispatcher)
 
 
-def test_max_information_sets_must_be_an_integer() -> None:
-    """The limit is an integer, of any integer type, and a float or a bool is rejected."""
+def test_max_information_sets_must_be_a_nonnegative_integer() -> None:
+    """The limit is an integer of any integer type, and a float, a bool, or a negative fails."""
     counter = get_counter(HAND_X, HAND_Z)
     for value in (2.5, True):
         not_an_integer: Any = value
         with pytest.raises(TypeError, match="integer"):
             counter.count_logical_ops(max_information_sets=not_an_integer)
+    with pytest.raises(ValueError, match="max_information_sets must be between 0"):
+        counter.count_logical_ops(max_information_sets=-1)
     expected = counter.count_logical_ops()
     assert counter.count_logical_ops(max_information_sets=np.int32(4)) == expected
+
+
+def test_the_information_set_limit_reaches_every_search_of_a_count(
+    monkeypatch: pytest.MonkeyPatch, tune: Tune
+) -> None:
+    """A count's limit, or else that of the active tuning, bounds every family that it builds.
+
+    A count of the default weight first searches for the distance, and then scans the sectors.  With
+    the default limit, the distance search of this code builds a family of more than three sets, so
+    that a limit of three bounds it only if the limit reaches the distance search.
+    """
+    sizes: list[int] = []
+    original = information_sets.get_overlapping_family
+
+    def record(*args: Any, **kwargs: Any) -> information_sets.BasisFamily:
+        family = original(*args, **kwargs)
+        sizes.append(len(family.ranks))
+        return family
+
+    monkeypatch.setattr(information_sets, "get_overlapping_family", record)
+    # Make the distance search build information sets, and every search try overlapping families.
+    tune(
+        allow_enumeration_by_size=False,
+        allow_enumeration_by_work=False,
+        overlapping_minimum_work=0,
+    )
+    code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
+
+    # A count of the same weight, without the distance search, builds the families of the scans.
+    expected = lc.CSSLogicalCounter(code).count_logical_ops()
+    sizes_with_distance = collections.Counter(sizes)
+    sizes.clear()
+    lc.CSSLogicalCounter(code).count_logical_ops(expected.weight)
+    distance_sizes = sizes_with_distance - collections.Counter(sizes)
+    assert max(distance_sizes) > 3
+
+    sizes.clear()
+    assert lc.CSSLogicalCounter(code).count_logical_ops(max_information_sets=3) == expected
+    assert sizes and max(sizes) <= 3
+
+    sizes.clear()
+    tune(max_information_sets=3)
+    assert lc.CSSLogicalCounter(code).count_logical_ops() == expected
+    assert sizes and max(sizes) <= 3
 
 
 def test_later_counts_reuse_the_first_family_stage() -> None:
