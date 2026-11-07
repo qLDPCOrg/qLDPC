@@ -36,7 +36,7 @@ Some kinds of change have further requirements:
    * - External integration or caching
      - Implementation standard: :ref:`external systems and caching <implementation-external-systems>`
    * - Documentation or example
-     - Writing standard: :ref:`documentation and examples <writing-documentation>` and :ref:`example notebooks <writing-notebooks>`
+     - Writing standard: :ref:`where documentation belongs <writing-documentation>` and :ref:`example notebooks <writing-notebooks>`
    * - Public name, argument, mode, or default
      - :doc:`Deprecation standard <standards/deprecations>`
    * - Pull request description

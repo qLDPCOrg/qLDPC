@@ -36,11 +36,16 @@ Prose style
 
 .. _writing-documentation:
 
-Documentation and examples
---------------------------
+Where documentation belongs
+---------------------------
 
 * Put each rule that a change must satisfy in exactly one :doc:`standard <index>`; each standard covers one topic.
   In guides, which explain how qLDPC works and how to make a change, link to the relevant standard rather than restating its rules.
+* Write the contributor guides and standards for everyone who changes qLDPC.
+  ``AGENTS.md`` holds only how agents behave, such as when they act on their own and which changes need approval.
+  Put anything that people need in a guide or a standard, never only in ``AGENTS.md``.
+* Keep each page focused on one topic or task, and small enough to read whole.
+  When a page grows past that, split it by topic or task.
 * Put explanations that span packages in the :doc:`library map </library_map>`, exact API behavior in docstrings, and executable workflows in ``examples/``.
 * The notebooks under ``docs/source/examples/`` are links to the canonical files under ``examples/``.
   Edit the canonical notebook, not the documentation-tree link.
