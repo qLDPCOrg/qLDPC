@@ -36,7 +36,6 @@ Algebra and code state
   Do not coerce extension-field values with ``% field.order``.
 * Reject incompatible group rings in NumPy operations, including arrays supplied through keyword arguments such as ``out=``.
 * Use ``qldpc.math.symplectic_conjugate`` rather than duplicating sign and half-order conventions.
-* Keep subsystem gauge generators distinct from stabilizers.
 * Do not route nonbinary codes through the binary-only ``codes/distance/`` routines.
 * Preserve stabilizer-based syndrome construction in subsystem decoding, and include a focused subsystem regression test when changing that path.
 * Test both CSS and non-CSS paths, stabilizer and subsystem paths, ``k=0``, and at least one odd characteristic when signs matter.
