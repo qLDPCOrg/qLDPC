@@ -14,10 +14,11 @@ distance search is not a field: it is the ``block_size`` argument of
 :func:`~qldpc.codes.distance.get_distance_quantum`, which the methods of codes and counts fix at
 15.
 
-This module is private.  Its names, fields, and defaults can change in any release without a
-deprecation period.  It is meant for contributors, for benchmarks, and for experienced users of
-very costly searches who have measured that a different tuning helps them.  The defaults suit
-typical searches and need no changes.
+This module is private.  Its names, fields, and defaults can change in any release, without a
+deprecation period or any other warning.  Code that uses this module should therefore pin the exact
+version of qLDPC that it was written for.  The module is meant for contributors, for benchmarks, and
+for experienced users of very costly searches who have measured that a different tuning helps them.
+The defaults suit typical searches and need no changes.
 
 What tuning can and cannot change:
 
@@ -124,10 +125,12 @@ class SearchTuning:
             words as the estimated work of searching that family.  Defaults to True.
         max_information_sets: The most information sets in a family of overlapping sets, or in a
             family found by matroid partitioning.  More sets can skip costly coefficient layers of
-            a hard search, but each set costs setup work, which dominates a cheap search.  The
-            setup work of a search grows roughly with the square of this limit, so a limit far
-            above the default slows every search that builds such families.  Zero disables both
-            kinds of family.  The ``max_information_sets`` argument of
+            a hard search, but each set costs setup work, which dominates a cheap search.  Setup
+            estimates the work of the best conceivable family of each size up to this limit, so its
+            work grows roughly with the square of the limit.  A limit far above the default slows
+            every search that builds such families, and with ``MAX_VALUE``, the setup of such a
+            search would never finish.  Zero disables both kinds of family.  The
+            ``max_information_sets`` argument of
             :meth:`~qldpc.codes.distance.CSSLogicalCounter.count_logical_ops` changes this field for
             one count, including the distance search that finds its default weight.  Defaults to
             16.
@@ -158,20 +161,25 @@ class SearchTuning:
             :func:`~qldpc.codes.distance.get_distance_classical`,
             :func:`~qldpc.codes.distance.get_distance_quantum`, and counts of logical operators do
             not.  Defaults to 100,000,000.
-        scan_chunk_size: The number of supports, which are choices of the rows of an information
-            set, that one compiled call of the scan of a count with the BZ or brute-force method
-            visits.  Compiled code cannot be interrupted, so this bounds the time before a keyboard
-            interrupt takes effect, and ``MAX_VALUE`` lets a scan finish before it returns.
-            Defaults to 65,536.
-        scan_chunks_per_call: The number of chunks of ``scan_chunk_size`` supports that the scan of
-            a count visits before it returns to Python, after
-            :func:`~qldpc.codes.distance.compile_search_setup` compiles the loop over chunks.
-            Otherwise, that loop runs as Python, which returns after every chunk.  Defaults to 64.
+        scan_chunk_size: The most supports, which are choices of rows of an information set, that
+            one compiled call of the scan of a count with the BZ or brute-force method visits.  A
+            scan proceeds in steps, each of which is one coefficient layer of one information set,
+            and each call ends at the end of a step.  So ``MAX_VALUE`` lets each call finish its
+            step, but not the whole scan.  Compiled code cannot be interrupted, so this bounds the
+            time before a keyboard interrupt takes effect.  Defaults to 65,536.
+        scan_chunks_per_call: The most calls of ``scan_chunk_size`` supports that the scan of a
+            count makes before it returns to Python, once
+            :func:`~qldpc.codes.distance.compile_search_setup` has compiled its loop over steps.
+            Each call uses one of them, even if it ends early at the end of a step.  Until then,
+            that loop runs as Python, so a keyboard interrupt takes effect between any two calls.
+            Once that loop is compiled, ``MAX_VALUE`` lets a scan run to its end before it returns.
+            Defaults to 64.
         macwilliams_shared_walk_rank: The smallest rank of the checks at which the MacWilliams
             method tests whether the X and Z checks of a counter span the same space.  If they do,
             one walk over the ``2**rank`` words of that space serves both.  Below this rank, a
             second walk costs less than the test.  Counters already known to be self-dual skip the
-            test.  Zero tests whenever the ranks are equal, and ``MAX_VALUE`` never tests.
+            test, as do counts of full Pauli operators, which only self-dual codes allow.  Zero
+            tests whenever the ranks are equal, and ``MAX_VALUE`` never tests.
             Defaults to 14.
     """
 

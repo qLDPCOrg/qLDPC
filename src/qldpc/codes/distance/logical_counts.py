@@ -283,7 +283,7 @@ class CSSLogicalCounter:
                 weight,
                 count_pauli=count_pauli,
                 reject_lighter=count_pauli or within_distance,
-                tuning=tuning,
+                shared_walk_rank=tuning.macwilliams_shared_walk_rank,
             )
 
         sector_x, sector_z = self._get_sectors()
@@ -544,7 +544,7 @@ class CSSLogicalCounter:
             )
 
     def _count_with_macwilliams(
-        self, weight: int | None, *, count_pauli: bool, reject_lighter: bool, tuning: SearchTuning
+        self, weight: int | None, *, count_pauli: bool, reject_lighter: bool, shared_walk_rank: int
     ) -> CSSLogicalCounts:
         """Count logical operators by the weight enumerators of the checks of a stabilizer code.
 
@@ -562,10 +562,7 @@ class CSSLogicalCounter:
             share = (
                 count_pauli
                 or self._self_dual
-                or (
-                    rank == len(self._gauge_z) >= tuning.macwilliams_shared_walk_rank
-                    and self.is_self_dual
-                )
+                or (rank == len(self._gauge_z) >= shared_walk_rank and self.is_self_dual)
             )
             self._enumerators = macwilliams.CheckEnumerators(
                 self._gauge_x, self._gauge_x if share else self._gauge_z

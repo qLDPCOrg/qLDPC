@@ -23,7 +23,8 @@ searches.  Experienced users of very costly searches can change them within a ``
 ``use_tuning`` of ``qldpc.codes.distance._tuning``.  The docstrings of that module describe each
 threshold and what a tuning can and cannot change.  The API reference omits that private module, so
 read them with ``help(qldpc.codes.distance._tuning)`` or in the source.  Its names, fields, and
-defaults can change in any release without a deprecation period.
+defaults can change in any release, without a deprecation period or any other warning, so code that
+uses it should pin the exact version of qLDPC that it was written for.
 
 Contributors can find a map of the modules in the README.md of this directory.
 """

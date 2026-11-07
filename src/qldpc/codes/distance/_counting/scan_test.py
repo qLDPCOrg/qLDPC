@@ -18,6 +18,7 @@ from ..conftest import (
     HAND_X,
     HAND_Z,
     METHODS,
+    CostlyStages,
     Counts,
     assert_counts_match_enumeration,
     get_counter,
@@ -80,14 +81,21 @@ def test_overlapping_basis_families_count_every_word_once(tune: Tune, max_sets: 
     ] == expected
 
 
-def test_counts_through_the_costly_stages_count_every_word_once(tune: Tune) -> None:
-    """Counts that try partitioned families and the certificate of linear programs are exact."""
+def test_counts_through_the_costly_stages_count_every_word_once(
+    tune: Tune, costly_stages: CostlyStages
+) -> None:
+    """Counts with partitioned families and the certificate of linear programs are exact."""
     tune(overlapping_minimum_work=0, lp_minimum_work=0, partition_work_ratio=0)
     code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
     counter = lc.CSSLogicalCounter(code)
     weights = range(len(code) + 1)
     expected = [counter.count_logical_ops(weight, method="brute_force") for weight in weights]
     assert [counter.count_logical_ops(weight) for weight in weights] == expected
+    assert any(
+        len(family.ranks) and family.max_coverage > 1
+        for family in costly_stages.partitioned_families
+    )
+    assert any(certificate.pivot_blocks for certificate in costly_stages.search_certificates)
 
 
 def test_the_information_set_limit_bounds_the_basis_families_of_a_count(

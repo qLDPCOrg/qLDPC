@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import concurrent.futures
-import contextlib
 import contextvars
 import sys
 from typing import Any
@@ -13,7 +12,12 @@ from typing import Any
 import numpy as np
 import pytest
 
+from qldpc import codes
+from qldpc.objects import Pauli
+
 from . import _tuning
+from . import logical_counts as lc
+from .conftest import CostlyStages, get_random_css_code
 
 
 def test_tuning_changes_apply_within_their_block() -> None:
@@ -72,5 +76,51 @@ def test_tunings_are_validated() -> None:
     for error, message, fields in invalid:
         with pytest.raises(error, match=message):
             _tuning.SearchTuning(**fields)
-    with pytest.raises(TypeError), contextlib.ExitStack() as stack:
-        stack.enter_context(_tuning.use_tuning(no_such_field=1))
+    pytest.raises(TypeError, _tuning.use_tuning(no_such_field=1).__enter__)
+
+
+def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> None:
+    """Exact distances and counts are the same under tunings that take different routes.
+
+    By default, and with every threshold at ``MAX_VALUE``, the distance searches of this code
+    enumerate every word.  With every threshold at zero, the searches take a family found by matroid
+    partitioning instead.
+    """
+    code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
+    eager = {
+        "allow_enumeration_by_size": False,
+        "allow_enumeration_by_work": False,
+        "overlapping_minimum_work": 0,
+        "partition_work_ratio": 0,
+        "lp_minimum_work": 0,
+        "automorphism_minimum_layer_work": 0,
+        "scan_chunk_size": 1,
+        "scan_chunks_per_call": 1,
+        "macwilliams_shared_walk_rank": 0,
+    }
+    reluctant = {
+        name: _tuning.MAX_VALUE
+        for name in eager
+        if name not in ("allow_enumeration_by_size", "allow_enumeration_by_work")
+    }
+    results, partitioned = [], []
+    for changes in ({}, eager, reluctant):
+        costly_stages.partitioned_families.clear()
+        with _tuning.use_tuning(**changes):
+            # New codes and counters, since codes and counters remember their distances.
+            fresh = codes.CSSCode(code.matrix_x, code.matrix_z)
+            distances = (fresh.get_distance_exact(Pauli.X), fresh.get_distance_exact(Pauli.Z))
+            counter_code = codes.CSSCode(code.matrix_x, code.matrix_z)
+            counts = lc.CSSLogicalCounter(counter_code).count_logical_ops(count_pauli=True)
+            macwilliams = lc.CSSLogicalCounter(counter_code).count_logical_ops(
+                counts.weight, method="macwilliams"
+            )
+        results.append((distances, counts, macwilliams))
+        partitioned.append(
+            any(
+                len(family.ranks) and family.max_coverage > 1
+                for family in costly_stages.partitioned_families
+            )
+        )
+    assert results[0] == results[1] == results[2]
+    assert partitioned == [False, True, False]

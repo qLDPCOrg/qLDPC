@@ -22,7 +22,7 @@ from qldpc.objects import PAULIS_XZ, Pauli
 
 from ...conftest import Tune
 from .._tuning import DEFAULT_TUNING, MAX_VALUE, SearchTuning, use_tuning
-from ..conftest import get_random_full_rank_matrix, get_sector_problem
+from ..conftest import CostlyStages, get_random_full_rank_matrix, get_sector_problem
 from . import brouwer_zimmermann as bz
 from . import information_sets
 
@@ -563,7 +563,9 @@ def test_a_search_scans_every_set_that_its_certificate_counts() -> None:
 
 
 @pytest.mark.usefixtures("force_information_sets")
-def test_a_search_through_the_costly_stages_finds_the_distance(tune: Tune) -> None:
+def test_a_search_through_the_costly_stages_finds_the_distance(
+    tune: Tune, costly_stages: CostlyStages
+) -> None:
     """A [21, 8, 6] code, searched with a partitioned family and a certificate of linear programs.
 
     With the thresholds of the costly stages lowered, the search of this code replaces its family by
@@ -584,6 +586,11 @@ def test_a_search_through_the_costly_stages_finds_the_distance(tune: Tune) -> No
     basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
     assert qldpc.codes.get_distance_classical(basis, cutoff=0, method="brute_force") == 6
     assert qldpc.codes.get_distance_classical(basis, cutoff=0) == 6
+    assert any(
+        len(family.ranks) and family.max_coverage > 1
+        for family in costly_stages.partitioned_families
+    )
+    assert any(certificate.pivot_blocks for certificate in costly_stages.search_certificates)
 
 
 @pytest.fixture

@@ -4,7 +4,7 @@
 
 import itertools
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, NamedTuple
 
 import galois
 import numpy as np
@@ -26,6 +26,41 @@ from .core import DistanceMethod
 def force_information_sets(tune: Tune) -> None:
     """Route Brouwer-Zimmermann searches through information sets instead of exhaustive search."""
     tune(allow_enumeration_by_size=False, allow_enumeration_by_work=False)
+
+
+class CostlyStages(NamedTuple):
+    """The results of the costly stages of searches, which the costly_stages fixture records."""
+
+    partitioned_families: list[information_sets.BasisFamily]
+    search_certificates: list[information_sets.Certificate]
+
+
+@pytest.fixture
+def costly_stages(monkeypatch: pytest.MonkeyPatch) -> CostlyStages:
+    """Record the families of matroid partitioning and the certificates that searches choose.
+
+    A family with sets and a maximum coverage above one shows that a search took a partitioned
+    family, and a certificate with pivot blocks shows that a search used linear programming.
+    """
+    stages = CostlyStages([], [])
+    get_partitioned_family = information_sets.get_partitioned_family
+    get_search_certificate = information_sets.BasisFamily.get_search_certificate
+
+    def record_family(*args: Any, **kwargs: Any) -> information_sets.BasisFamily:
+        family = get_partitioned_family(*args, **kwargs)
+        stages.partitioned_families.append(family)
+        return family
+
+    def record_certificate(
+        basis_family: information_sets.BasisFamily, *args: Any, **kwargs: Any
+    ) -> information_sets.Certificate:
+        certificate = get_search_certificate(basis_family, *args, **kwargs)
+        stages.search_certificates.append(certificate)
+        return certificate
+
+    monkeypatch.setattr(information_sets, "get_partitioned_family", record_family)
+    monkeypatch.setattr(information_sets.BasisFamily, "get_search_certificate", record_certificate)
+    return stages
 
 
 @pytest.fixture(params=["python", "compiled"])
