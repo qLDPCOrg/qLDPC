@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Check the module layout rules in AGENTS.md: license headers, section headers, and name order."""
+"""Check the module layout rules of the code standard: license headers, sections, and name order."""
 
 import ast
 import pathlib

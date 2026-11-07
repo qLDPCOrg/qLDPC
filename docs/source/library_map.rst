@@ -7,10 +7,10 @@ Overview and which page to read
 -------------------------------
 
 * Read this page to learn the data model, how the packages connect, and what qLDPC supports.
-* Read :doc:`Choosing a decoder <decoders>` to select, build, and use decoders, including with Sinter.
+* Read the :doc:`decoder guide <decoders/index>` to select, build, and use decoders, including with Sinter.
 * Follow the :doc:`examples <examples/index>` for complete workflows that you can run and adapt.
 * Use the :doc:`API reference <autoapi/index>` for exact signatures, every public name, and construction-specific literature.
-* Read the `agent and contributor guide <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md>`_ before changing qLDPC itself.
+* Read the :doc:`contributing guide <contributing/index>` before changing qLDPC itself.
 
 Most user-facing names are exported from their subpackage, as in ``qldpc.codes.SurfaceCode``.
 Concrete decoder backends live in ``qldpc.decoders.custom`` and ``qldpc.decoders.external``, and tool integrations live in ``qldpc.external.gap`` and ``qldpc.external.sqetch``.
@@ -34,7 +34,7 @@ Packages at a glance
    * - ``qldpc.decoders``
      - Decoder specifications, error and observable decoders, detector-error-model arrays, and Sinter and windowed decoding.
      - Specifications such as ``bp_osd``, ``mwpm``, ``guf``, and ``tesseract``; their ``build`` and ``build_observable_decoder`` methods; ``SinterDecoder``.
-     - :doc:`Choosing a decoder <decoders>` and the :doc:`decoders notebook <examples/decoders>`
+     - The :doc:`decoder guide <decoders/index>` and the :doc:`decoders notebook <examples/decoders>`
    * - ``qldpc.circuits``
      - Qubit-only Stim circuits: memory experiments, noise models, encoders, state-preparation diagnostics, fault-tolerance certificates, and transversal gates.
      - ``get_memory_experiment``, ``DepolarizingNoiseModel``, ``SI1000NoiseModel``, ``get_encoding_circuit``, ``get_fault_distance``, ``certify_bounded_fault_propagation``, and ``get_transversal_ops``.
@@ -143,7 +143,7 @@ From codes to logical error rates
 
 An error decoder infers an error from a syndrome with ``decode_errors``, while an observable decoder predicts observable flips with ``decode_observables``.
 A decoder specification such as ``decoders.mwpm()`` builds an error decoder for a parity-check matrix with ``.build(matrix)``, or an observable decoder for a Stim detector error model with ``.build_observable_decoder(dem)``.
-:doc:`Choosing a decoder <decoders>` explains both kinds, the available specifications, and custom decoders.
+The :doc:`decoder guide <decoders/index>` explains both kinds, the available specifications, and custom decoders.
 
 In the code-capacity model, each qudit fails independently and checks are measured perfectly.
 :meth:`~qldpc.codes.common.CSSCode.get_logical_error_rate_func` returns a function from a physical error rate to an estimated logical error rate and its uncertainty:
