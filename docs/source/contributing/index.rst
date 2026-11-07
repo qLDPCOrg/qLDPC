@@ -98,7 +98,7 @@ The third tier is the finishing checks.
 
 * **Anytime:** ``format_.py --check`` and ``lint_.py`` over the whole repository, and ``mypy_.py`` on changed files, as in ``python checks/mypy_.py -i``.
   To apply formatting, run ``format_.py --fix`` on changed files, as in ``python checks/format_.py --fix -i``.
-  Without ``--check``, ``format_.py`` also rewrites ``pyproject.toml``.
+  Whatever files it is given, ``format_.py`` also checks ``pyproject.toml``, and without ``--check`` it rewrites that file.
 * **As needed:** when writing, reviewing, or verifying a change, run targeted tests that cover it.
   Select tests by function, or run the test file of a changed module, as in ``python -m pytest src/qldpc/codes/common_test.py::test_name``.
   Run ``pytest_.py`` only on selected paths, since over the whole repository it repeats the test run of ``coverage_.py``.
@@ -107,7 +107,7 @@ The third tier is the finishing checks.
 * **Finishing:** ``format_.py --check``, ``lint_.py``, ``mypy_.py``, ``coverage_.py``, and ``build_docs.py``, each over the whole repository.
   Run them once a change is finished, before its pull request is marked ready for review.
   After fixing a failure, rerun the failed checks.
-  If a standard review ran, ask whether to review a significant fix in another round.
+  If a standard review ran, ask the maintainer whether to review a significant fix in another round.
 
 Refreshing the saved outputs of a changed notebook, as the :doc:`writing standard <standards/writing>` requires, is part of writing the change, not a check.
 
