@@ -45,5 +45,7 @@ As part of drafting, refresh the saved outputs of a notebook that you change, ev
 ## Changes to the standards and this file
 
 Do not change this file or any file under [`docs/source/contributing/`](docs/source/contributing/) on your own, including mechanical edits such as updating a renamed path.
-Change these files only as a maintainer requested or approved, and show the maintainer the exact diff before committing it.
+Change these files only as a maintainer requested or approved.
+Propose such a change as a `.patch` file outside the repository, and give the maintainer a link to it.
+Once the maintainer approves it, apply exactly that patch with `git apply`, and commit it.
 When you notice a pattern worth codifying, such as a repeated request or a recurring review finding, propose the wording and where it belongs instead of applying it.
