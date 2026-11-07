@@ -28,7 +28,8 @@ Read the [orientation](docs/source/contributing/index.rst#orientation) before re
 ## Reviews
 
 When asked for a **standard review**, follow [reviewing changes](docs/source/contributing/reviewing.rst).
-Run a standard review before reporting a change as ready for a draft pull request, unless told otherwise.
+Run a standard review only when asked; you may suggest one.
+End every report on a change with its review status: "standard review: not run", or the number of rounds run and the decisions that remain open.
 When asked for a pull request description, follow the [pull request standard](docs/source/contributing/standards/pull_requests.rst).
 
 ## When to run checks
@@ -44,8 +45,17 @@ As part of drafting, refresh the saved outputs of a notebook that you change, ev
 
 ## Changes to the standards and this file
 
-Do not change this file or any file under [`docs/source/contributing/`](docs/source/contributing/) on your own, including mechanical edits such as updating a renamed path.
-Change these files only as a maintainer requested or approved.
-Propose such a change as a `.patch` file outside the repository, and give the maintainer a link to it.
-Once the maintainer approves it, apply exactly that patch with `git apply`, and commit it.
-When you notice a pattern worth codifying, such as a repeated request or a recurring review finding, propose the wording and where it belongs instead of applying it.
+This file and every file under [`docs/source/contributing/`](docs/source/contributing/) change only through a patch that a maintainer approves, including changes that a maintainer requests directly:
+
+1. Write the changes to these files as a `.patch` file in a safe, untracked place outside the repository, such as a session directory, and give the maintainer a link to it.
+   Changes to other files follow the usual workflow.
+2. If the maintainer asks for revisions, write a new patch, which may replace the old one, and link it again.
+3. Once the maintainer approves a patch, apply exactly that patch with `git apply`, and commit it.
+   If it no longer applies, regenerate it and ask for approval again, rather than editing these files by hand.
+
+Apply a change to these files directly only when a maintainer explicitly says to apply it directly.
+Updates that a change elsewhere forces on these files, such as a renamed path that they cite, also go through a patch, which you may present together with that change.
+[`contributor_docs_test.py`](src/qldpc/contributor_docs_test.py) fails when a path or qLDPC name that these files cite no longer exists.
+
+When you notice a pattern worth codifying, such as a repeated request or a recurring review finding, describe it and the rule you would propose.
+Write a patch for it only once the maintainer wants the rule.

@@ -36,6 +36,7 @@ Algebra and code state
   Do not coerce extension-field values with ``% field.order``.
 * Reject incompatible group rings in NumPy operations, including arrays supplied through keyword arguments such as ``out=``.
 * Use ``qldpc.math.symplectic_conjugate`` rather than duplicating sign and half-order conventions.
+* Keep subsystem gauge generators distinct from stabilizers.
 * Do not route nonbinary codes through the binary-only ``codes/distance/`` routines.
 * Preserve stabilizer-based syndrome construction in subsystem decoding, and include a focused subsystem regression test when changing that path.
 * Test both CSS and non-CSS paths, stabilizer and subsystem paths, ``k=0``, and at least one odd characteristic when signs matter.
@@ -51,7 +52,7 @@ Circuits
 * Preserve memory-circuit detector-coordinate semantics; a monotone check index must not be interpreted as time.
 * Noise-model operation immunity and qubit immunity are separate controls; preserve both.
 * Encode T gates and other π/4 rotations in Clifford+T tools as ``RotatedPauliString`` documents, following tsim.
-* State computational and fault-tolerance limitations in the relevant function or class docstring.
+* State computational limitations in the relevant function or class docstring.
 * In a circuit workflow, such as a memory experiment, keep matrix, qubit-role, measurement-record, detector-record, and Stim-circuit bookkeeping in sync.
   Test noiseless detector determinism and observable behavior before adding noise.
   Exercise repeated rounds and seam behavior; a locally valid circuit fragment can still become wrong when initialization, QEC cycles, and readout are joined.

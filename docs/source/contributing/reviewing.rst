@@ -2,8 +2,8 @@ Reviewing changes
 =================
 
 In a standard review, independent reviewers examine a change from several angles, and the change is revised in response.
-Review and revision repeat in rounds while a round leads to significant revisions.
-A revision is significant if it changes behavior, an interface, a test, or what documentation says, rather than only polishing wording.
+Review and revision repeat in rounds while a round finds significant problems.
+A problem is significant if fixing it changes behavior, an interface, a test, or what documentation says, rather than only polishing wording.
 
 To request a standard review, name it, as in "run a standard review of this branch".
 A request can narrow or extend the review, as in "standard review of the tests and prose".
@@ -22,13 +22,15 @@ Coordinator and reviewers
 The person or agent who runs a standard review is its coordinator.
 The coordinator starts the reviewers and revises the change, but does not review it.
 A reviewer is a person or agent who did not write the change and who examines it critically from one angle.
+An agent coordinator runs each reviewer as a separate subagent with its own context.
+If it cannot, it says so in its report rather than reviewing the change itself.
 
 The coordinator gives each reviewer:
 
 * the purpose of the change and its scope;
 * the reviewer's angle and the standard that defines it;
 * the decisions made so far, such as those of earlier rounds, so that reviewers do not reopen them;
-* these instructions: report findings without editing the change, and check whether the change requires updates elsewhere, such as to callers, to docstrings or guides that repeat a changed limitation, or to the :doc:`library map </library_map>` and examples.
+* these instructions: report findings without editing the change, run only the drafting checks of the :ref:`validation commands <validation-commands>`, and check whether the change requires updates elsewhere, such as to callers, to docstrings or guides that repeat a changed limitation, or to the :doc:`library map </library_map>` and examples.
 
 A finding gives a location, the problem, why it matters, and a suggested fix.
 
@@ -51,7 +53,7 @@ A standard review has one reviewer for each of these angles that the change can 
 An angle applies only to changes in its area, even when a request asks for all angles.
 The :doc:`pull request standard <standards/pull_requests>` is not a review angle; it applies when preparing a pull request description.
 
-One reviewer may cover several angles of a small change, such as a change to one module or to prose only.
+One reviewer may cover up to two angles of a small change, such as a change to one module or to prose only.
 
 Rounds
 ------
@@ -67,7 +69,8 @@ The coordinator runs each round as follows:
 3. Leave decisions to the person the coordinator works for.
    Decisions include design changes, public API changes, changes to the standards or to this protocol, and disagreements with a reviewer.
    Record each open decision, continue with the other fixes, and list the open decisions in the report.
-4. Start another round with fresh reviewers if the round led to significant revisions, unless three rounds have run.
+4. Start another round with fresh reviewers if the round found significant problems, unless three rounds have run.
+   If significant problems remain as open decisions, report them and ask how to proceed before starting another round.
 
 After the last round, report what each round found and changed, and list the decisions that remain open.
 A standard review does not run the finishing checks of the :ref:`validation commands <validation-commands>`, which belong to finishing a pull request.
