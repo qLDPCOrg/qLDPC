@@ -161,6 +161,12 @@ class SearchTuning:
             :func:`~qldpc.codes.distance.get_distance_classical`,
             :func:`~qldpc.codes.distance.get_distance_quantum`, and counts of logical operators do
             not.  Defaults to 100,000,000.
+        automorphism_minimum_states: A connected-support search (``method="connected_support"``)
+            finds automorphisms of its code before the first weight limit at which it expects to
+            have visited this many states, from the growth of its last two limits, and then searches
+            from one variable of each orbit of the automorphisms, rather than from every variable
+            (Section 3.5 of ``connected_support.md``).  Finding automorphisms can take
+            milliseconds, as long as a search of this many states takes.  Defaults to 100,000.
         scan_chunk_size: The most supports, which are choices of rows of an information set, that
             one compiled call of the scan of a count with the BZ or brute-force method visits.  A
             scan proceeds in steps, each of which is one coefficient layer of one information set,
@@ -190,6 +196,7 @@ class SearchTuning:
     partition_work_ratio: int = 10
     lp_minimum_work: int = 1_000_000_000
     automorphism_minimum_layer_work: int = 100_000_000
+    automorphism_minimum_states: int = 100_000
     scan_chunk_size: int = dataclasses.field(default=1 << 16, metadata={"minimum": 1})
     scan_chunks_per_call: int = dataclasses.field(default=64, metadata={"minimum": 1})
     macwilliams_shared_walk_rank: int = 14

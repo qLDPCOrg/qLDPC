@@ -17,6 +17,7 @@ for any code.  This module reuses its weight divisors, and its checks of automor
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Sequence
 from typing import NamedTuple
 
@@ -27,12 +28,16 @@ from qldpc._binary import get_kernel, pack_bits, popcount_word, trailing_zeros_w
 from qldpc._compilation import always_compiled
 
 from .._binary import get_nested_code_basis
+from .._tuning import get_tuning
 from . import automorphism_families
 from .information_sets import infer_weight_divisor
 
-# A search asks for automorphisms once it has visited this many states.  Finding automorphisms can
-# take milliseconds, a small fraction of the time of a search that visits so many states.
-MINIMUM_STATES_FOR_AUTOMORPHISMS = 100_000
+# The largest scale of the weights of checks, which keeps their sums far from overflowing 64 bits.
+_MAX_SCALE = 2**40
+
+# Added to the level of a variable while it is blocked (see _search_supports).
+_BLOCKED = 2**40
+
 
 ####################################################################################################
 # search entry points
@@ -129,7 +134,9 @@ class SupportSearch:
     Keyword args:
         get_automorphisms: A function that returns an array of generators of a group of column
             permutations, or None, as in ``get_distance_connected_support``.  The search calls it
-            once, after it has visited ``MINIMUM_STATES_FOR_AUTOMORPHISMS`` states.
+            once, before the first search whose states, together with those visited so far, are
+            expected to reach the ``automorphism_minimum_states`` of the tuning that is active when
+            the search is built (see ``qldpc.codes.distance._tuning``).
 
     Attributes:
         num_variables: The number of columns of ``checks``.
@@ -154,8 +161,10 @@ class SupportSearch:
             raise ValueError("The excluded rows must lie in the kernel of the checks")
         self.num_variables = checks.shape[1]
         self.num_states = 0
+        self._step_states = (0, 0)
         self._excluded = excluded
         self._get_automorphisms = get_automorphisms
+        self._automorphism_minimum_states = get_tuning().automorphism_minimum_states
 
         # Zero and duplicate checks add nothing to a search.
         nonzero_checks = checks[np.any(checks, axis=1)]
@@ -166,7 +175,13 @@ class SupportSearch:
         )
         self._test_columns = pack_bits(np.ascontiguousarray(self._get_tests().T))
         self._roots = np.arange(self.num_variables, dtype=np.int64)
+        self._ranks = np.arange(self.num_variables, dtype=np.int64)
         self.weight_divisor = infer_weight_divisor(get_kernel(self._checks))
+
+        # Weights of checks are multiples of 1 / scale.  The inverse of every column weight is one
+        # if the scale is small enough, and is rounded down otherwise.
+        max_column_weight = int(np.max(np.sum(self._checks, axis=0), initial=1))
+        self._scale = min(math.lcm(*range(1, max_column_weight + 1)), _MAX_SCALE)
 
     @property
     def has_witnesses(self) -> bool:
@@ -188,7 +203,7 @@ class SupportSearch:
         """
         if (
             self._get_automorphisms is not None
-            and self.num_states >= MINIMUM_STATES_FOR_AUTOMORPHISMS
+            and self.num_states + self._predict_states() >= self._automorphism_minimum_states
         ):
             automorphisms, self._get_automorphisms = self._get_automorphisms(), None
             if automorphisms is not None:
@@ -197,10 +212,24 @@ class SupportSearch:
             *self._graph,
             self._test_columns,
             self._roots,
+            self._ranks,
+            self._scale,
             int(min(max_weight, self.num_variables)),
         )
         self.num_states += num_states
+        self._step_states = (self._step_states[1], num_states)
         return np.sort(support) if len(support) else None
+
+    def _predict_states(self) -> int:
+        """The number of states that the next search is expected to visit.
+
+        Each search is expected to grow by the ratio between the last two, or not to grow if there
+        is only one.  Asking for automorphisms before the next search, rather than after it has
+        reached the threshold, keeps a search that prunes well from running a much larger step
+        without them.
+        """
+        previous, last = self._step_states
+        return last * last // previous if previous else last
 
     def _get_tests(self) -> npt.NDArray[np.uint8]:
         """Rows whose products with a word of the kernel vanish only if the word is excluded.
@@ -213,11 +242,19 @@ class SupportSearch:
         return basis[np.any(labels, axis=1)]
 
     def _use_automorphisms(self, automorphisms: npt.NDArray[np.int_]) -> None:
-        """Search only from the least variable of each orbit of the automorphisms."""
+        """Search only from the least variable of each orbit of the automorphisms.
+
+        The variables are ranked orbit by orbit, so that the search from each root excludes every
+        variable of the earlier orbits.
+        """
         basis, labels = get_nested_code_basis(get_kernel(self._checks), self._excluded)
         automorphism_families.verify_automorphisms(basis, labels, automorphisms)
         orbits = automorphism_families._get_orbits(automorphisms, self.num_variables)
         self._roots = np.unique(orbits, return_index=True)[1].astype(np.int64)
+        self._ranks = np.empty(self.num_variables, dtype=np.int64)
+        self._ranks[np.lexsort((np.arange(self.num_variables), orbits))] = np.arange(
+            self.num_variables
+        )
 
 
 ####################################################################################################
@@ -253,6 +290,8 @@ def _search_supports(
     check_masks: npt.NDArray[np.uint64],
     test_columns: npt.NDArray[np.uint64],
     roots: npt.NDArray[np.int64],
+    ranks: npt.NDArray[np.int64],
+    scale: int,
     max_weight: int,
 ) -> tuple[npt.NDArray[np.int64], int]:
     """Search the supports that grow from each root through unsatisfied checks.
@@ -260,20 +299,21 @@ def _search_supports(
     The graph is the Tanner graph of the checks: check ``c`` has the variables
     ``check_variables[check_starts[c] : check_starts[c + 1]]``.  Row ``v`` of ``check_masks`` packs
     the checks of variable ``v`` into bits, and row ``v`` of ``test_columns`` packs the tests that a
-    word with the support ``{v}`` fails.  The search from a root uses only variables above it.
+    word with the support ``{v}`` fails.  The search from a root uses only variables of higher
+    rank.  The weights of checks are integers, in units of ``1 / scale`` (see ``_get_branches``).
 
     It is the depth-first search of Algorithm 2 of https://arxiv.org/abs/2607.14091, with an
     explicit stack.  A state is a support, whose variables are ``support[:depth]``, and its
-    syndrome is the set of its unsatisfied checks.  A state branches on the available variables of
-    one unsatisfied check, and blocks each variable for its later siblings, and for itself.  The
-    state at depth zero is the empty support, which branches on the root.
+    syndrome is the set of its unsatisfied checks.  A state branches on the viable variables of one
+    unsatisfied check, and blocks each variable for its later siblings, and for itself.  It also
+    allows only its viable variables in its subtree, if it rules out any.  The state at depth zero
+    is the empty support, which branches on the root.
 
     Returns:
         The variables of a witness of weight at most ``max_weight``, or none, and the number of
         states that the search visited.
     """
-    num_variables = check_masks.shape[0]
-    num_words = check_masks.shape[1]
+    num_variables, num_words = check_masks.shape
     max_column_weight = 1
     for variable in range(num_variables):
         max_column_weight = max(max_column_weight, _count_bits(check_masks, variable))
@@ -281,33 +321,40 @@ def _search_supports(
     for check in range(len(check_starts) - 1):
         max_row_weight = max(max_row_weight, check_starts[check + 1] - check_starts[check])
 
-    # A variable is blocked if it is in the support, was tried by a sibling of a state in the
-    # stack, or precedes the root.
-    blocked = np.zeros(num_variables, dtype=np.bool_)
+    # The level of a variable counts the states in the stack whose restrictions allow it, plus
+    # _BLOCKED if it is blocked: if it is in the support, was tried by a sibling of a state in the
+    # stack, or has a lower rank than the root.  A variable is available if its level is the number
+    # of active restrictions, which is never as large as _BLOCKED.
+    levels = np.zeros(num_variables, dtype=np.int64)
+    active = np.zeros(1, dtype=np.int64)
 
-    # The state at each depth has its syndrome, and its branch variables.  A cursor marks the next
-    # branch variable to try.  Its other entries are the total weight of its unsatisfied checks, and
-    # how much of that weight each branch variable repairs (see ``_get_branches``).
+    # The state at each depth has its syndrome, its branch variables, and the cursor of the next
+    # branch variable to try.  The variables that it allows are in allowances[starts[depth] :
+    # starts[depth + 1]], if it restricts its subtree.
     syndromes = np.zeros((max_weight + 2, num_words), dtype=np.uint64)
     support = np.empty(max_weight + 1, dtype=np.int64)
     branches = np.empty((max_weight + 1, max_row_weight), dtype=np.int64)
-    repairs = np.empty((max_weight + 1, max_row_weight), dtype=np.float64)
-    totals = np.zeros(max_weight + 1, dtype=np.float64)
     num_branches = np.zeros(max_weight + 1, dtype=np.int64)
     cursors = np.zeros(max_weight + 1, dtype=np.int64)
-    widths = np.zeros(len(check_starts) - 1, dtype=np.int64)
-    inverses = np.ones(max_column_weight + 1, dtype=np.float64)
-    for width in range(1, max_column_weight + 1):
-        inverses[width] = 1.0 / width
+    restricts = np.zeros(max_weight + 1, dtype=np.bool_)
+    starts = np.zeros(max_weight + 2, dtype=np.int64)
+    allowances = np.empty((max_weight + 1) * num_variables, dtype=np.int64)
+    weights = np.zeros(len(check_starts) - 1, dtype=np.int64)
+    inverses = np.zeros(max_column_weight + 1, dtype=np.int64)
+    for overlap in range(1, max_column_weight + 1):
+        inverses[overlap] = scale // overlap
+    keys = np.empty(max_row_weight, dtype=np.int64)
 
     num_states = 0
     for root in roots:
-        blocked[:root] = True
+        for variable in range(num_variables):
+            if ranks[variable] < ranks[root]:
+                levels[variable] += _BLOCKED
         branches[0, 0] = root
-        repairs[0, 0] = 0.0
         num_branches[0] = 1
         cursors[0] = 0
-        totals[0] = 0.0
+        restricts[0] = False
+        starts[1] = starts[0] = 0
         depth = 0
         entering = False
         while depth >= 0:
@@ -316,6 +363,8 @@ def _search_supports(
                 num_states += 1
                 num_branches[depth] = 0
                 cursors[depth] = 0
+                starts[depth + 1] = starts[depth]
+                restricts[depth] = False
                 if _is_empty(syndromes, depth):
                     if _is_outside_excluded(test_columns, support, depth):
                         return support[:depth].copy(), num_states
@@ -324,26 +373,25 @@ def _search_supports(
                         check_starts,
                         check_variables,
                         check_masks,
-                        blocked,
+                        levels,
+                        active,
                         syndromes,
                         branches,
-                        repairs,
-                        totals,
+                        restricts,
+                        starts,
+                        allowances,
                         depth,
                         max_weight - depth,
-                        widths,
+                        scale,
+                        weights,
                         inverses,
+                        keys,
                     )
 
             if cursors[depth] < num_branches[depth]:
-                # A variable that repairs too little of the total weight leaves too much for the
-                # remaining weight limit, and so do the variables after it.
-                if totals[depth] - repairs[depth, cursors[depth]] > max_weight - depth - 1 + 1e-9:
-                    num_branches[depth] = cursors[depth]
-                    continue
                 variable = branches[depth, cursors[depth]]
                 cursors[depth] += 1
-                blocked[variable] = True
+                levels[variable] += _BLOCKED
                 support[depth] = variable
                 num_unsatisfied = _xor_and_count(syndromes, depth, check_masks, variable)
                 # Every variable repairs at most max_column_weight unsatisfied checks.
@@ -353,11 +401,17 @@ def _search_supports(
                     entering = True
             else:
                 # The variables that this state tried are available again to the later siblings of
-                # its parent.
+                # its parent, and so are the variables that it did not allow.
                 for index in range(cursors[depth]):
-                    blocked[branches[depth, index]] = False
+                    levels[branches[depth, index]] -= _BLOCKED
+                if restricts[depth]:
+                    for index in range(starts[depth], starts[depth + 1]):
+                        levels[allowances[index]] -= 1
+                    active[0] -= 1
                 depth -= 1
-        blocked[:root] = False
+        for variable in range(num_variables):
+            if ranks[variable] < ranks[root]:
+                levels[variable] -= _BLOCKED
     return np.empty(0, dtype=np.int64), num_states
 
 
@@ -366,82 +420,149 @@ def _get_branches(
     check_starts: npt.NDArray[np.int64],
     check_variables: npt.NDArray[np.int64],
     check_masks: npt.NDArray[np.uint64],
-    blocked: npt.NDArray[np.bool_],
+    levels: npt.NDArray[np.int64],
+    active: npt.NDArray[np.int64],
     syndromes: npt.NDArray[np.uint64],
     branches: npt.NDArray[np.int64],
-    repairs: npt.NDArray[np.float64],
-    totals: npt.NDArray[np.float64],
+    restricts: npt.NDArray[np.bool_],
+    starts: npt.NDArray[np.int64],
+    allowances: npt.NDArray[np.int64],
     depth: int,
     slack: int,
-    widths: npt.NDArray[np.int64],
-    inverses: npt.NDArray[np.float64],
+    scale: int,
+    weights: npt.NDArray[np.int64],
+    inverses: npt.NDArray[np.int64],
+    keys: npt.NDArray[np.int64],
 ) -> int:
     """Choose the variables that the state at a depth branches on, if its syndrome is not empty.
 
-    A state has no branches if an unsatisfied check has no available variable.  Otherwise it
-    branches on the available variables of the unsatisfied check with the fewest.  The variables are
-    written to ``branches[depth]``, and their number is returned.
+    A support that has ``slack`` variables to spare is completed by a set ``T`` of available
+    variables that every unsatisfied check meets an odd number of times.  The overlap of an
+    available variable is the number of unsatisfied checks that it is in.  Weigh each unsatisfied
+    check by the inverse of the largest overlap of its available variables, in units of ``1 /
+    scale``, rounded down, as ``inverses`` lists.  The weights of the unsatisfied checks of any
+    available variable then total at most one, its repair.  So ``T`` has at least as many variables
+    as the total weight of the unsatisfied checks.  A variable ``v`` of ``T`` repairs its share, and
+    the other variables of ``T`` the rest, so ``|T| >= 1 + total - repair(v)``.
 
-    The state also bounds the number of variables that it still needs.  An available variable is in
-    as many unsatisfied checks as it repairs, which is its overlap.  Weigh each unsatisfied check by
-    the inverse of the largest overlap of its available variables, which ``widths`` records.
-    The weights of the unsatisfied checks of any available variable then total at most one, so the
-    state needs at least as many variables as the total weight of its unsatisfied checks, which is
-    written to ``totals[depth]``.  A state with more weight than its ``slack`` of variables to
-    spare has no branches.  The branches are in order of how much of that weight they repair, which
-    is written to ``repairs[depth]``.
+    A variable for which this exceeds ``slack`` is in no completion, and the state allows only the
+    other variables in its subtree.  It records them in ``allowances``, from ``starts[depth]``, and
+    sets ``restricts[depth]``.  The state has no branches if an unsatisfied check has no viable
+    variable, or if the total weight exceeds ``slack``.  Otherwise it branches on the viable
+    variables of the unsatisfied check with the fewest, most repairing first, which it writes to
+    ``branches[depth]``.  It returns their number.  ``weights`` and ``keys`` are scratch space for
+    the weights of the unsatisfied checks and the repairs of the branch variables.
     """
     num_words = syndromes.shape[1]
+    available = active[0]
+
+    # Weigh each unsatisfied check, and choose the one with the fewest available variables.
+    total = 0
     best = -1
-    best_count = int(check_starts[-1]) + 1
-    total = 0.0
+    best_count = check_starts[-1] + 1
     for word in range(num_words):
         bits = syndromes[depth, word]
         while bits:
             check = 64 * word + int(trailing_zeros_word(bits))
             bits &= bits - np.uint64(1)
-            count = 0
             largest = 0
+            count = 0
             for position in range(check_starts[check], check_starts[check + 1]):
                 variable = check_variables[position]
-                if not blocked[variable]:
+                if levels[variable] == available:
+                    largest = max(
+                        largest, _count_common_bits(syndromes, depth, check_masks, variable)
+                    )
                     count += 1
-                    overlap = 0
-                    for other in range(num_words):
-                        overlap += int(
-                            popcount_word(syndromes[depth, other] & check_masks[variable, other])
-                        )
-                    largest = max(largest, overlap)
             if count == 0:
+                return 0
+            weights[check] = inverses[largest]
+            total += weights[check]
+            # The total only grows, so the state fails as soon as it exceeds the slack.
+            if total > slack * scale:
                 return 0
             if count < best_count:
                 best, best_count = check, count
-            widths[check] = largest
-            total += inverses[largest]
-            if total > slack + 1e-9:
-                return 0
-    totals[depth] = total
 
+    # A variable outside the unsatisfied checks repairs nothing, so it is viable only if every
+    # variable is.  Otherwise allow only the viable variables, and count them in each check.
+    if total > (slack - 1) * scale:
+        restricts[depth] = True
+        active[0] += 1
+        top = starts[depth]
+        best = -1
+        best_count = check_starts[-1] + 1
+        for word in range(num_words):
+            bits = syndromes[depth, word]
+            while bits:
+                check = 64 * word + int(trailing_zeros_word(bits))
+                bits &= bits - np.uint64(1)
+                count = 0
+                for position in range(check_starts[check], check_starts[check + 1]):
+                    variable = check_variables[position]
+                    if levels[variable] == available:
+                        repair = _get_repair(syndromes, depth, check_masks, variable, weights)
+                        if total - repair <= (slack - 1) * scale:
+                            levels[variable] += 1
+                            allowances[top] = variable
+                            top += 1
+                    count += levels[variable] == available + 1
+                if count == 0:
+                    starts[depth + 1] = top
+                    return 0
+                if count < best_count:
+                    best, best_count = check, count
+        starts[depth + 1] = top
+        available += 1
+
+    # Branch on the available variables of the chosen check, most repairing first.
     num_branches = 0
     for position in range(check_starts[best], check_starts[best + 1]):
         variable = check_variables[position]
-        if blocked[variable]:
+        if levels[variable] != available:
             continue
-        repaired = 0.0
-        for word in range(num_words):
-            bits = syndromes[depth, word] & check_masks[variable, word]
-            while bits:
-                repaired += inverses[widths[64 * word + int(trailing_zeros_word(bits))]]
-                bits &= bits - np.uint64(1)
+        repair = _get_repair(syndromes, depth, check_masks, variable, weights)
         index = num_branches
-        while index > 0 and repairs[depth, index - 1] < repaired:
+        while index > 0 and keys[index - 1] < repair:
             branches[depth, index] = branches[depth, index - 1]
-            repairs[depth, index] = repairs[depth, index - 1]
+            keys[index] = keys[index - 1]
             index -= 1
         branches[depth, index] = variable
-        repairs[depth, index] = repaired
+        keys[index] = repair
         num_branches += 1
     return num_branches
+
+
+@always_compiled(inline=True)
+def _count_common_bits(
+    syndromes: npt.NDArray[np.uint64],
+    depth: int,
+    check_masks: npt.NDArray[np.uint64],
+    variable: int,
+) -> int:
+    """The number of unsatisfied checks of a variable, in the syndrome at a depth."""
+    count = 0
+    for word in range(syndromes.shape[1]):
+        count += int(popcount_word(syndromes[depth, word] & check_masks[variable, word]))
+    return count
+
+
+@always_compiled(inline=True)
+def _get_repair(
+    syndromes: npt.NDArray[np.uint64],
+    depth: int,
+    check_masks: npt.NDArray[np.uint64],
+    variable: int,
+    weights: npt.NDArray[np.int64],
+) -> int:
+    """The total weight of the unsatisfied checks of a variable, in the syndrome at a depth."""
+    repair = 0
+    for word in range(syndromes.shape[1]):
+        bits = syndromes[depth, word] & check_masks[variable, word]
+        while bits:
+            repair += weights[64 * word + int(trailing_zeros_word(bits))]
+            bits &= bits - np.uint64(1)
+    return repair
 
 
 @always_compiled(inline=True)

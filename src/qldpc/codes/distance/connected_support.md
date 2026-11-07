@@ -28,22 +28,23 @@ The BZ times of the larger codes are estimates of its work, with the cyclic auto
 
 | Code | BZ | Connected support | Faster |
 | --- | --- | --- | --- |
-| [[110, 8, 12]] | 0.4 s | 1.1 s | BZ |
-| [[232, 62, 12]] | 212 s | 0.9 s | connected support |
-| [[276, 98, 14]] | about 7 days (estimated) | 7 to 9 s | connected support |
-| [[518, 228, 16]] | infeasible | 228 s (281 s of wall time) | connected support |
-| [[372, 130, 18]] | about 1.5 years (estimated) | about 15 minutes per sector (extrapolated) | connected support |
-| [[170, 8, 20]] | about 4 hours (estimated) | about 90 minutes per sector (extrapolated) | comparable |
-| [[944, 478, 20]] | infeasible | about a day per sector (extrapolated) | connected support |
+| [[110, 8, 12]] | 0.5 s | 0.3 s | connected support |
+| [[232, 62, 12]] | 212 s | 0.2 s | connected support |
+| [[276, 98, 14]] | about 7 days (estimated) | 6.4 s | connected support |
+| [[518, 228, 16]] | infeasible | 252 s (272 s of wall time) | connected support |
+| [[372, 130, 18]] | about 1.5 years (estimated) | about 10 minutes per sector (extrapolated) | connected support |
+| [[170, 8, 20]] | about 4 hours (estimated) | about an hour per sector (extrapolated) | comparable |
+| [[944, 478, 20]] | infeasible | about half a day per sector (extrapolated) | connected support |
 
-Choose the connected-support search for sparse, high-rate codes, and BZ for codes with a low rate and moderate row weights, as the first row shows.
-The extrapolations come from timed searches through lower weights, whose costs grow by a factor of 23 to 33 per two units of weight for these codes.
+Choose the connected-support search for sparse codes, and especially for high-rate ones, and BZ for codes with dense checks, as the quantum Reed–Muller code below shows.
+For sparse codes of low rate and high distance, the two can be comparable, as the [[170, 8, 20]] row shows.
+The extrapolations come from timed searches through lower weights, whose costs grow by a factor of 20 to 33 per two units of weight for these codes.
 They assume that this growth continues, and the connected-support times of the [[372, 130, 18]], [[170, 8, 20]], and [[944, 478, 20]] codes are not measured.
 
 The cost of the connected-support search grows quickly if the checks are dense, because every unsatisfied check offers many variables to branch on.
-The [[128, 70, 8]] quantum Reed–Muller code, which has checks of weight 32, takes 6.0 s, and BZ takes 0.24 s.
+The [[128, 70, 8]] quantum Reed–Muller code, which has checks of weight 32, takes 0.9 s, and BZ takes 0.1 s.
 The cost also grows exponentially with the distance of codes with many low-weight stabilizers, such as surface codes.
-Searching rotated surface codes takes 0.02 s for distance 11, 0.6 s for distance 15, 5.7 s for distance 17, and 48 s for distance 19.
+Searching rotated surface codes takes 0.03 s for distance 11, 0.8 s for distance 15, 6.1 s for distance 17, and 47 s for distance 19.
 BZ takes 0.5 s for distance 11, and more than 200 s for distance 15.
 A subsystem code searches the Tanner graph of its stabilizers, which can be dense, and uses its symmetries only if they map the space of its stabilizers to itself.
 
@@ -86,8 +87,9 @@ The proof holds for every witness of minimum weight, which matters for the symme
 
 ### 3.3 The depth-first search
 
+The variables have a **rank**, a total order that [Section 3.5](#35-symmetries) chooses.
 A **state** is a support `S`, with a set `F` of **forbidden** variables.
-The search starts from a **root** `r`, with `S = {r}`, `F` empty, and every variable below `r` forbidden.
+The search starts from a **root** `r`, with `S = {r}`, and every variable of lower rank than `r` forbidden.
 At a state with an empty syndrome, the search stops branching.
 It reports `S` if it is a witness, and otherwise leaves the state.
 At any other state, it chooses an unsatisfied check `c` with the fewest **available** variables, those of `c` that are neither in `S` nor in `F`.
@@ -95,14 +97,14 @@ It visits the states `S ∪ {v}` for each available variable `v` of `c`, in a fi
 Every state grows only through unsatisfied checks, so every support that it visits is connected.
 
 **Completeness.**
-Suppose that `x` is a witness of minimum weight, whose least variable is the root `r`.
+Suppose that `x` is a witness of minimum weight, whose variable of lowest rank is the root `r`.
 By the lemma, no proper nonempty subset of its support has an empty syndrome.
 Take a state with `S ⊊ supp(x)` and `F ∩ supp(x) = ∅`.
 The syndrome of `S` is not empty, and the parity of `supp(x)` at every check is even, so an unsatisfied check `c` has a variable of `supp(x) \ S`.
 That variable is available, since `F` misses `supp(x)`.
 The first variable of `supp(x) \ S` in the order of the children of `c` is visited before it joins `F`, and gives a state of the same kind.
 So the search reaches `supp(x)` itself.
-Every bound of [Section 3.4](#34-pruning) holds for a state of this kind, since `x` is a witness that extends it.
+Every bound of [Section 3.4](#34-pruning) holds for a state of this kind, since `x` is a witness that extends it, and so does every variable that [Section 3.4](#34-pruning) forbids for a subtree.
 
 Forbidding the variables of earlier siblings makes the search visit each support at most once.
 A search through a weight limit `W` has `W - s` variables to spare at a state with `s` variables.
@@ -122,30 +124,56 @@ That solution gives each unsatisfied check `c` a weight `y_c ≥ 0`, so that the
   Since `m_c ≤ Δ`, these weights are at least those of `b1`.
   Adding `b2` changed the number of states by at most 7% in tests on the [[276, 98, 14]] code, so qLDPC does not use it.
 
-A state also ranks its children by how much weight they repair.
-Let `Y` be the total weight of a state, and let `R_v` be the weight of the unsatisfied checks that contain the available variable `v`.
-A child that adds `v` needs at least `Y - R_v` further variables, since the weights of the checks that the child leaves unsatisfied remain feasible for it.
-The search visits the children in order of decreasing `R_v`, and stops at the first one whose bound exceeds its weight limit, since the later children repair no more.
-This costs a few operations per child, and rules out most children before they pay for their own bounds.
-Three simple tests complete the pruning.
-A state is pruned if an unsatisfied check has no available variable.
+The weights are integers in units of `1 / lcm(1, ..., Δ)`, so that every comparison is exact.
+If that scale exceeds `2**40`, the scale is `2**40`, and the weights are rounded down, which keeps them feasible.
+
+**Forbidding variables for a subtree.**
+Let `Y` be the total weight of a state, and let the **repair** `R_v` of an available variable `v` be the weight of the unsatisfied checks that contain it.
+Suppose that a completion `T` of the state contains `v`.
+Every unsatisfied check meets `T`, the variables of `T` other than `v` repair at most one each, and `v` repairs `R_v`.
+So `|T| ≥ 1 + Y - R_v`, and if this exceeds `W - s`, then `v` is in no completion of the state.
+Such a variable is forbidden in the whole subtree of the state, not only for its children.
+This holds for every variable outside the unsatisfied checks, whose repair is zero, as soon as `1 + Y > W - s`, so such a state restricts its subtree to the viable variables of its unsatisfied checks.
+A state is pruned if an unsatisfied check has no viable variable, and otherwise it branches on the check with the fewest.
+Forbidding variables for a subtree raises the weights of its states, since their checks have fewer variables, and on the pair-partition codes it removes about a third of the states.
+
+Two simple tests complete the pruning.
 A child is not visited if its unsatisfied checks outnumber `Δ` times its remaining weight limit, which is `b1`.
 A state has no children at the weight limit, unless its syndrome is empty.
+
+Other bounds that hold, and that qLDPC tested and does not use, added little on the pair-partition codes:
+
+- Raising each weight `y_c` to the room that its available variables leave (dual ascent) removed 8% to 14% of the states, which did not pay for its cost.
+- A girth bound, that a variable with `k` unsatisfied checks of its `Δ` needs `⌈(Δ - k)/λ⌉` further variables, where `λ` is the largest number of checks that two variables share, removed under 1%.
+- Rounding the bound up to the weight divisor prunes nothing, since every weight limit `W` is a multiple of the divisor.
 
 ### 3.5 Symmetries
 
 Let `Γ` be a group of column permutations that map both `ker(H)` and `rowspan(G)` onto themselves.
 It maps every witness to a witness of the same weight, so it maps the set of minimum-weight witnesses to itself.
-Among the minimum-weight witnesses, take one whose least variable `m` is as small as possible.
-Then `m` is the least variable of its orbit under `Γ`, since an element of the orbit below `m` would give an image with a smaller least variable.
-So it suffices to search from the least variable of each orbit of `Γ`, which are the roots.
+Rank the variables so that each orbit of `Γ` has a variable of lowest rank, its root.
+Among the minimum-weight witnesses, take one whose variable `m` of lowest rank is as low as possible.
+Then `m` is the root of its orbit, since a variable of the orbit of lower rank than `m` would give an image with a variable of lower rank.
+So it suffices to search from the roots.
 By the lemma, this witness is connected, so the completeness argument of [Section 3.3](#33-the-depth-first-search) applies to it.
 The lemma holds for every minimum-weight witness, so `Γ` need not map the rows of `H` to each other, and only has to map `ker(H)` and `rowspan(G)` to themselves.
 qLDPC verifies this with `verify_automorphisms` of `_search/automorphism_families.py`, as BZ does.
 
+The search from a root forbids the variables of lower rank, so the ranks decide how much each search is cut.
+qLDPC ranks the variables orbit by orbit, in the order of their least variables, so that the search from each root forbids every earlier orbit.
+A root forbids only variables of orbits whose roots rank lower, so for a given order of the orbits no ranking forbids more.
+On the pair-partition codes, this removes a quarter of the states of the natural order of the variables.
+Without symmetries, every variable is a root, and the ranks are the variables themselves.
+
 The `_found_qudit_automorphisms` of the code provide generators of `Γ`.
-A search asks for them once, after it has visited `MINIMUM_STATES_FOR_AUTOMORPHISMS` states, since finding them can take milliseconds.
-Without symmetries, every variable is a root.
+Finding them can take milliseconds, so a search asks for them once, before the first weight limit at which it expects to reach `automorphism_minimum_states` states, a field of the tuning of `_tuning.py`.
+It expects each search to grow by the ratio between its last two.
+Waiting until it has visited that many states instead would let a search that prunes well run a whole weight limit without them: on the [[276, 98, 14]] code, that limit took nearly half of the time of the search.
+
+Even then, the search from the first root does most of the work, since every witness that meets the first orbit is found through it.
+A witness that meets the first orbit `k` times has `k` images that contain the first root, and the search can visit images of a state more than once.
+In the [[276, 98, 14]] code, two thirds of the states of that search hold two or more variables of the first orbit.
+Rejecting such duplicates soundly for general groups is left open.
 
 ### 3.6 From a search to the distance
 
@@ -179,9 +207,10 @@ The names below are in `_search/connected_support.py`, unless the table says oth
 | Distance of several sectors | `get_distance_connected_support` |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
-| Roots, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` of `_search/automorphism_families.py` |
-| States and branching | `_search_supports` |
-| Pruning, and ranking of children | `_get_branches` |
+| Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` of `_search/automorphism_families.py` |
+| States, branching, and the variables forbidden for a subtree | `_search_supports`, whose `levels` mark the available variables |
+| Weights, pruning, and the variables that a state forbids for its subtree | `_get_branches` |
+| When a search asks for symmetries | `automorphism_minimum_states` of `SearchTuning` in `_tuning.py` |
 | Weight divisor | `infer_weight_divisor` of `_search/information_sets.py` |
 
 `CSSCode.get_distance_exact` in `src/qldpc/codes/common.py` builds the sectors and calls `_get_distance_css_connected_support` of `core.py`, which validates them.
@@ -194,15 +223,17 @@ The names below are in `_search/connected_support.py`, unless the table says oth
 Changes to the search can use other bounds and orders, while keeping these requirements.
 
 - **Every pruning must hold for a witness that extends the state.**
-  A bound may use the available variables, which exclude `S`, `F`, and the variables below the root, since a minimum-weight witness extending the state has no other variables.
+  A bound may use the available variables, which exclude `S`, `F`, the variables of lower rank than the root, and the variables that a state forbade for its subtree, since a minimum-weight witness extending the state has no other variables.
   A bound must be a lower bound on the number of further variables that such a witness needs.
   A bound that is too strong only loses witnesses of the weight that it is tight for, so a test needs a case where it is tight, as the tests of the distances of known codes are.
-- **Block siblings and variables below the root.**
-  A search from a root must use only variables above it, and a variable must be forbidden for its later siblings.
+- **Forbid a variable for a subtree only if no completion of the state contains it.**
+  The variables that a state forbids must become available again when the search leaves the state.
+- **Block siblings and variables of lower rank than the root.**
+  A search from a root must use only variables of higher rank, and a variable must be forbidden for its later siblings.
   This does not change the results, and loses only time, so `num_states` is tested on a hand-counted instance.
-- **Verify the automorphisms.**
+- **Verify the automorphisms, and make each root the lowest-ranked variable of its orbit.**
   Roots from unverified permutations are unsound.
-  The orbits come from all generators, and every orbit has its least variable as a root.
+  The orbits come from all generators.
 - **Preserve the logical test.**
   A state with an empty syndrome is a witness exactly if it fails a test, and a stabilizer must not be reported.
 - **Use a proven weight divisor.**

@@ -4,19 +4,31 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import numpy as np
 import numpy.typing as npt
 import pytest
+from sympy.abc import x, y
 
 from qldpc import codes
 from qldpc._binary import get_independent_rows, get_kernel
 from qldpc.codes.quantum.pair_partition_test import EXPONENTS_X_276, EXPONENTS_Z_276
 from qldpc.objects import PAULIS_XZ, Pauli
 
+from .. import _tuning
 from ..conftest import get_random_css_code, get_span
+from . import automorphism_families
 from . import connected_support as cs
 
 Problem = tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]
+
+
+@pytest.fixture
+def automorphisms_at_once() -> Iterator[None]:
+    """Let searches find automorphisms before their first state."""
+    with _tuning.use_tuning(automorphism_minimum_states=0):
+        yield
 
 
 def get_sectors(code: codes.CSSCode) -> list[Problem]:
@@ -176,10 +188,8 @@ def test_a_search_from_one_root_finds_words_with_that_least_variable() -> None:
     assert roots_with_witnesses
 
 
-@pytest.mark.usefixtures("compilation_mode")
-def test_automorphisms_reduce_the_roots_and_keep_the_distance(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+@pytest.mark.usefixtures("compilation_mode", "automorphisms_at_once")
+def test_automorphisms_reduce_the_roots_and_keep_the_distance() -> None:
     """A cyclic code has a symmetry that leaves one root, and so fewer states.
 
     The Golay code is a cyclic code that contains its dual, so cyclic shifts of its qubits map its
@@ -188,7 +198,6 @@ def test_automorphisms_reduce_the_roots_and_keep_the_distance(
     problem = get_cyclic_problem(23, [0, 1, 5, 6, 7, 9, 11], 12)
     distance = get_brute_force_distance(problem)
     shift = (np.arange(23) + 1) % 23
-    monkeypatch.setattr(cs, "MINIMUM_STATES_FOR_AUTOMORPHISMS", 0)
     plain = cs.SupportSearch(*problem)
     symmetric = cs.SupportSearch(*problem, get_automorphisms=lambda: shift[None])
     for max_weight in range(1, distance + 1):
@@ -200,18 +209,65 @@ def test_automorphisms_reduce_the_roots_and_keep_the_distance(
 
 
 @pytest.mark.usefixtures("compilation_mode")
-def test_automorphisms_may_be_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_each_root_excludes_the_orbits_before_its_own() -> None:
+    """The search from the root of an orbit uses no variable of an earlier orbit.
+
+    The [[72, 12, 6]] bivariate bicycle code has two orbits of qubits under the translations of its
+    group, one for each block.  Its qubits are shuffled here, so that the orbits interleave.  Every
+    lightest witness is the image of one whose least orbit is that of its root, so the search from
+    each root can exclude the earlier orbits entirely.
+    """
+    code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
+    order = np.random.default_rng(0).permutation(len(code))
+    automorphisms = np.argsort(order)[code._get_qudit_automorphisms()[:, order]]
+    problem = (get_sectors(code)[0][0][:, order], get_sectors(code)[0][1][:, order])
+    orbits = automorphism_families._get_orbits(automorphisms, len(code))
+    roots = np.unique(orbits, return_index=True)[1]
+    assert roots[1] < len(code) // 2
+
+    for max_weight in (6, 8):
+        for orbit, root in enumerate(roots):
+            search = cs.SupportSearch(*problem)
+            search._use_automorphisms(automorphisms)
+            search._roots = np.array([root])
+            witness = search.find_witness(max_weight)
+            assert witness is not None and is_witness(problem, witness)
+            assert np.all(orbits[witness] >= orbit)
+
+
+@pytest.mark.usefixtures("compilation_mode", "automorphisms_at_once")
+def test_automorphisms_may_be_missing() -> None:
     """A function that finds no automorphisms leaves the search as it is."""
-    monkeypatch.setattr(cs, "MINIMUM_STATES_FOR_AUTOMORPHISMS", 0)
     assert cs.get_distance_connected_support(
         [PROBLEMS["steane-X"]], cutoff=0, get_automorphisms=lambda: None
     ) == get_brute_force_distance(PROBLEMS["steane-X"])
 
 
 @pytest.mark.usefixtures("compilation_mode")
-def test_pruning_keeps_the_search_of_a_high_rate_code_small(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("minimum_states, found_before", [(10, 2), (30, 3)])
+def test_automorphisms_are_found_before_a_search_that_is_expected_to_reach_the_threshold(
+    minimum_states: int, found_before: int
 ) -> None:
+    """Each search is expected to grow by the ratio between the last two, or not to grow after one.
+
+    The checks of ``test_each_support_is_visited_once_above_its_least_variable`` visit 5 states with
+    a weight limit of 2, and 10 with a limit of 4.  After the first search, the second is expected
+    to visit 5 more states, for 10 in total.  After the second, the third is expected to visit 20,
+    for 35 in total, which reaches a threshold of 30 even though only 15 have been visited.
+    """
+    checks = np.array([[1, 1, 1, 0], [0, 1, 1, 1]], dtype=np.uint8)
+    found = []
+    with _tuning.use_tuning(automorphism_minimum_states=minimum_states):
+        search = cs.SupportSearch(
+            checks, get_kernel(checks), get_automorphisms=lambda: found.append(True)
+        )
+    for num_searches, max_weight in enumerate([2, 4, 4], start=1):
+        search.find_witness(max_weight)
+        assert len(found) == (num_searches >= found_before)
+
+
+@pytest.mark.usefixtures("compilation_mode", "automorphisms_at_once")
+def test_pruning_keeps_the_search_of_a_high_rate_code_small() -> None:
     """The pair-partition code [[276, 98, 14]] has no logical operator of weight 8 or less.
 
     The distance of this code is 14 (https://arxiv.org/abs/2607.14091).  There are more than 10**14
@@ -220,19 +276,18 @@ def test_pruning_keeps_the_search_of_a_high_rate_code_small(
     which leaves 12 roots.
     """
     code = codes.PairPartitionCode(EXPONENTS_X_276, EXPONENTS_Z_276, lift_size=23)
-    monkeypatch.setattr(cs, "MINIMUM_STATES_FOR_AUTOMORPHISMS", 0)
     search = cs.SupportSearch(
         *get_sectors(code)[0], get_automorphisms=code._get_qudit_automorphisms
     )
     assert search.find_witness(8) is None
-    assert search.num_states < 8000
+    assert search.num_states < 5000
 
 
-def test_wrong_automorphisms_are_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.usefixtures("automorphisms_at_once")
+def test_wrong_automorphisms_are_rejected() -> None:
     """A permutation that does not map the kernel of the checks to itself is not used."""
     swap = np.arange(7)[None]
     swap[0, :2] = [1, 0]
-    monkeypatch.setattr(cs, "MINIMUM_STATES_FOR_AUTOMORPHISMS", 0)
     search = cs.SupportSearch(*PROBLEMS["steane-X"], get_automorphisms=lambda: swap)
     with pytest.raises(ValueError, match="automorphism"):
         search.find_witness(3)
