@@ -2,7 +2,8 @@ Decoder standard
 ================
 
 This standard covers decoders that ship with qLDPC and the shared plumbing that builds and resolves decoders.
-:doc:`Adding a decoder </adding_decoders>` explains the workflow contracts that decoders implement, and walks through shipping a decoder.
+:doc:`Using your own decoder </decoders/custom>` explains the workflow contracts that decoders implement.
+:mod:`qldpc.decoders.external.tesseract` is an example of a backend with both output contracts.
 
 * Reuse the existing construction and resolution helpers rather than duplicating capability dispatch.
 * Do not change generic decoder resolution just to add an ordinary backend.
@@ -43,7 +44,8 @@ Exports, documentation, and tests
 
 * Export the backend class at its qualified ``custom`` or ``external`` package path.
 * If you add a public specification helper, export it from ``qldpc.decoders`` and add it to ``__all__``.
-* Add its ``.. autofunction:: qldpc.decoders.<name>`` entry to the :doc:`decoder guide </decoders>`: AutoAPI hides generated helpers because it cannot inspect their signatures statically.
+* Add its ``.. autofunction:: qldpc.decoders.<name>`` entry to the :doc:`decoder reference </decoders/reference>`: AutoAPI hides generated helpers because it cannot inspect their signatures statically.
+  An existing test checks the signature, written documentation, and guide entry of every generated helper that ``qldpc.decoders`` exports.
 * Add co-located ``*_test.py`` tests that independently check ``H @ inferred_error == syndrome``, observable predictions against DEM targets, unsupported inputs, erasure width, and batch shapes as applicable.
 * Test pickling if the decoder is used by Sinter.
 

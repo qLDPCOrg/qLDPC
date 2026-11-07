@@ -67,7 +67,7 @@ Alternatively, install only the extra needed for a specific decoder:
 The `Tesseract <https://github.com/quantumlib/tesseract-decoder>`_ decoder requires CPython 3.12--3.14 on macOS arm64 or Linux x86-64.
 `Frontier <https://github.com/aleverrier/frontier>`_ is not published on PyPI and is not included in an extra.
 Building a Frontier decoder without Frontier installed raises an error that shows how to install the version that qLDPC is tested against.
-See :doc:`Choosing a decoder <decoders>` for backend capabilities.
+See the :doc:`decoder reference <decoders/reference>` for backend capabilities.
 
 .. _installation-gap:
 

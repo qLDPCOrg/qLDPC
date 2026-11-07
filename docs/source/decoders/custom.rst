@@ -1,14 +1,28 @@
-Adding a decoder
-================
+Using your own decoder
+======================
 
-You can use a decoder of your own in qLDPC workflows, or add a decoder to qLDPC itself.
-To **use your own decoder**, implement one decoding method and pass its constructor as ``decoder=``.
-To **ship a decoder with qLDPC**, add an implementation, a public specification helper, and tests.
-No registration, specification helper, or change to qLDPC itself is needed for an experiment.
-To configure an existing backend instead, see :doc:`Choosing a decoder <decoders>`.
+Any ``decoder=`` argument also accepts your own decoder class or factory, with no registration or change to qLDPC.
+The workflow determines what input the factory receives and which method its decoder must provide:
 
-Use your own decoder
---------------------
+.. list-table::
+   :header-rows: 1
+   :widths: 35 30 35
+
+   * - Workflow
+     - Factory input
+     - Decoder method
+   * - Code capacity, ordinary factory
+     - Parity-check matrix
+     - ``decode_errors``
+   * - Binary code capacity, ``decoders.from_dem(factory)``
+     - Detector error model (DEM)
+     - ``decode_observables``
+   * - Ordinary ``SinterDecoder``
+     - DEM
+     - ``decode_errors`` or ``decode_observables``
+   * - Sliding-window decoder
+     - Each window's DEM
+     - ``decode_errors``
 
 An error decoder returns a physical error with ``decode_errors(syndrome)``.
 The result has one entry per matrix column, over the code's field.
@@ -43,36 +57,9 @@ This small decoder works only for an identity parity-check matrix, for which the
 
 The code-capacity estimator calls ``IdentityDecoder(matrix)`` when it builds its decoder.
 For configurable construction, pass a factory such as ``functools.partial`` as ``decoder=``.
-The factory receives the parity-check matrix.
-Wrapping it with ``decoders.from_matrix(factory)`` is optional and makes its matrix-only contract explicit.
+Wrapping a factory with ``decoders.from_matrix(factory)`` is optional, and makes its matrix-only contract explicit; return annotations do not affect which input a factory receives.
 
-Choose the workflow contract
-----------------------------
-
-The workflow determines what input the factory receives and what prediction it must return:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 35 30 35
-
-   * - Workflow
-     - Factory input
-     - Decoder method
-   * - Code capacity, ordinary factory
-     - Parity-check matrix
-     - ``decode_errors``
-   * - Binary code capacity, ``decoders.from_dem(factory)``
-     - Detector error model (DEM)
-     - ``decode_observables``
-   * - Ordinary ``SinterDecoder``
-     - DEM
-     - ``decode_errors`` or ``decode_observables``
-   * - Sliding-window decoder
-     - Each window's DEM
-     - ``decode_errors``
-
-For observable predictions, implement ``decode_observables(syndrome)``.
-It returns one value per observable.
+An observable decoder implements ``decode_observables(syndrome)``, which returns one value per observable.
 An ordinary Sinter decoder supplies a Stim detector error model (DEM) to its constructor:
 
 .. code-block:: python
@@ -98,34 +85,13 @@ An ordinary Sinter decoder supplies a Stim detector error model (DEM) to its con
 
 This toy decoder illustrates the output contract by always predicting no flips.
 For a **binary** code-capacity sector, pass ``decoder=decoders.from_dem(NoFlipDecoder)`` to supply the DEM to this constructor.
-The :doc:`decoder guide <decoders>` and :doc:`example notebook <examples/decoders>` show code-capacity and Sinter usage.
 Do not pass ``from_dem`` observable factories to workflows that require inferred errors.
+Prebuilt decoders are accepted where the caller knows the matrix being decoded, but not where a method decodes a matrix that it constructs internally, or by a ``SinterDecoder``, which builds a decoder for each detector error model.
 
-Optional capabilities
----------------------
-
-Add these only when the experiment or integration needs them:
+Add optional capabilities only when an experiment needs them:
 
 * **Batch decoding:** implement ``decode_errors_batch`` or ``decode_observables_batch`` with one syndrome per row and one prediction per row.
 * **Erasure signaling:** set ``has_erasure_bit = True`` and append one binary flag at the end of each prediction.
   Only advertise this capability when it is implemented; unsupported decoders must reject ``add_erasure_bit=True``.
 * **Nonbinary inputs:** preserve the matrix's concrete field and reject unsupported fields explicitly.
 * **Sinter multiprocessing:** define classes and builders in an importable module so Sinter can pickle them.
-
-Ship a decoder with qLDPC
--------------------------
-
-To ship a decoder with qLDPC, follow the :doc:`decoder standard </contributing/standards/decoders>`.
-Existing integrations such as :mod:`qldpc.decoders.external.tesseract` show a backend with both output contracts.
-A :class:`~qldpc.decoders.construction.specs.DecoderSpec` holds a builder and its options; call ``build`` or ``build_observable_decoder`` to construct a decoder.
-A test discovers the generated specification helpers that ``qldpc.decoders`` exports, and checks their signatures, written documentation, and guide entries automatically.
-
-Run focused co-located tests while developing.
-Replace the GUF test path below with your own test file:
-
-.. code-block:: bash
-
-   python -m pytest src/qldpc/decoders/custom/guf_test.py -q
-
-While drafting, also run the formatting, lint, and type checks of the :ref:`validation commands <validation-commands>` on changed files.
-The finishing checks include the strict documentation build, which checks guide and API references but does not execute the examples.

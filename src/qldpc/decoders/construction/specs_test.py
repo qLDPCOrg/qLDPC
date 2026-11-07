@@ -393,7 +393,7 @@ def test_decoder_spec_helper_docstrings() -> None:
         is decoders.DecoderSpec
     ]
     assert helpers
-    guide = (pathlib.Path(__file__).parents[4] / "docs/source/decoders.rst").read_text(
+    guide = (pathlib.Path(__file__).parents[4] / "docs/source/decoders/reference.rst").read_text(
         encoding="utf-8"
     )
     for name, helper in helpers:

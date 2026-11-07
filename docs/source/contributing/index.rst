@@ -27,7 +27,7 @@ Some kinds of change have further requirements:
    * - Code-core algebra or cached state
      - Implementation standard: :ref:`algebra and code state <implementation-algebra>`
    * - Decoder
-     - :doc:`Decoder standard <standards/decoders>`, and the :doc:`guide to adding a decoder </adding_decoders>`
+     - :doc:`Decoder standard <standards/decoders>`
    * - Circuit or tableau tool
      - Implementation standard: :ref:`circuits <implementation-circuits>`
    * - External integration or caching
