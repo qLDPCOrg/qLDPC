@@ -13,7 +13,6 @@ from sympy.abc import x, y
 
 from qldpc import codes
 from qldpc._binary import get_independent_rows, get_kernel
-from qldpc.codes.quantum.pair_partition_test import EXPONENTS_X_276, EXPONENTS_Z_276
 from qldpc.objects import PAULIS_XZ, Pauli
 
 from .. import _tuning
@@ -22,6 +21,20 @@ from . import automorphism_families
 from . import connected_support as cs
 
 Problem = tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]
+
+# The [[276, 98, 14]] pair-partition code, instance qc_276_98_14 of arXiv:2607.14091.
+EXPONENTS_X_276 = [
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 10, 16, 12, 20, 9, 6, 11, 2, 5, 21, 22],
+    [0, 7, 20, 11, 3, 12, 2, 22, 14, 19, 13, 6],
+    [0, 19, 17, 4, 2, 21, 12, 10, 18, 3, 11, 9],
+]
+EXPONENTS_Z_276 = [
+    [0, 11, 18, 6, 13, 1, 0, 11, 18, 6, 13, 1],
+    [0, 12, 7, 22, 19, 10, 7, 10, 12, 19, 0, 22],
+    [0, 5, 6, 1, 4, 11, 1, 0, 4, 5, 11, 6],
+    [0, 8, 22, 21, 12, 20, 12, 22, 0, 20, 21, 8],
+]
 
 
 @pytest.fixture
