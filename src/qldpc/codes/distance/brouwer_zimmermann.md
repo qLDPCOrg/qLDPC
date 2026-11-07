@@ -531,7 +531,8 @@ These automorphisms are the symmetries of the given parity checks, a subgroup of
 This subgroup suffices, since every group of automorphisms gives a sound certificate.
 
 Without `pybliss`, or if bliss finds none, code classes can supply generators through a `_get_qudit_automorphisms` method.
-`MBCode` supplies the translations of its group, which act on the qubits of each block by a regular permutation.
+`MBCode` and `PairPartitionCode` supply the translations of their groups, which act on the qubits of each block by a regular permutation.
+`GALACode`, `LPCode`, and `SLPCode` supply them when their groups are abelian and lift to permutation matrices.
 A wrong generator would make the certificate unsound.
 So before a search uses the generators, it checks that each maps `V` and `S` onto themselves, and raises an error if one does not.
 Only distance searches use automorphisms: counting the logical operators of a given weight ([Section 5](#5-correctness-requirements)) must visit every word of that weight, not one word per orbit.
