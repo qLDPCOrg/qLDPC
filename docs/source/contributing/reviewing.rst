@@ -38,7 +38,7 @@ Angles
 A standard review has one reviewer for each of these angles that the change can affect:
 
 * **Correctness:** results, edge cases, error handling, and documented contracts, checked against independent oracles where possible.
-  Also check the :doc:`implementation standard <standards/implementation>` and the :doc:`decoder standard <standards/decoders>`, as they apply.
+  Also check the :doc:`implementation standard <standards/implementation>` for a change to the areas it covers, and the :doc:`decoder standard <standards/decoders>` for a change to decoders or decoder plumbing.
   For a refactor, check that behavior is unchanged.
 * **Clarity:** names and commented paragraphs of code, following :ref:`simplicity and clarity <simplicity-and-clarity>` in the code standard.
   Also check that comments and docstrings match what the code does.
@@ -47,6 +47,9 @@ A standard review has one reviewer for each of these angles that the change can 
 * **Testing standard:** the :doc:`testing standard <standards/testing>`.
 * **Writing standard:** the :doc:`writing standard <standards/writing>`, applied to every changed comment, docstring, document, and notebook.
 * **Deprecations:** the :doc:`deprecation standard <standards/deprecations>`, for a change to a public name, argument, mode, or default.
+
+An angle applies only to changes in its area, even when a request asks for all angles.
+The :doc:`pull request standard <standards/pull_requests>` is not a review angle; it applies when preparing a pull request description.
 
 One reviewer may cover several angles of a small change, such as a change to one module or to prose only.
 
@@ -68,4 +71,3 @@ The coordinator runs each round as follows:
 After the last round, report what each round found and changed, and list the decisions that remain open.
 A standard review does not run the finishing checks of the :ref:`validation commands <validation-commands>`, which belong to finishing a pull request.
 If the limit ended the review, ask whether to start another round.
-For a change intended as a pull request, end with a title and summary in a code block, following the :doc:`pull request standard <standards/pull_requests>`.
