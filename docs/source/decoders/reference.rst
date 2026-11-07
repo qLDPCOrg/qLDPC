@@ -1,7 +1,10 @@
 Decoder reference
 =================
 
-The examples on this page reuse ``dem`` and ``events`` from the observable-decoding example in the :doc:`decoder overview <index>`.
+The examples on this page reuse ``dem`` and ``events`` from the observable-decoding example in the :doc:`decoder guide <index>`.
+The generated :doc:`API reference </autoapi/index>` documents concrete backend classes and low-level adapters.
+Import backend classes from ``qldpc.decoders.custom`` or ``qldpc.decoders.external``, as in ``from qldpc.decoders.custom import ErrorLookupDecoder``.
+Import compiled Sinter decoders from ``qldpc.decoders.sinter``.
 
 .. _specification-helpers:
 

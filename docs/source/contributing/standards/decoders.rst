@@ -3,7 +3,6 @@ Decoder standard
 
 This standard covers decoders that ship with qLDPC and the shared plumbing that builds and resolves decoders.
 :doc:`Using your own decoder </decoders/custom>` explains the workflow contracts that decoders implement.
-:mod:`qldpc.decoders.external.tesseract` is an example of a backend with both output contracts.
 
 * Reuse the existing construction and resolution helpers rather than duplicating capability dispatch.
 * Do not change generic decoder resolution just to add an ordinary backend.
@@ -15,6 +14,7 @@ Contracts and inputs
 ~~~~~~~~~~~~~~~~~~~~
 
 * Choose the output contract before implementing: whether the decoder infers errors, predicts observables, or both.
+  For example, :mod:`qldpc.decoders.external.tesseract` does both.
 * Choose separately which inputs it accepts: parity-check matrices, binary DEMs, and nonbinary field arrays.
   Validate the input in the builder and raise a clear error for unsupported inputs.
 * Advertise erasure signaling only when it is implemented; decoders without it must reject ``add_erasure_bit=True``.
@@ -25,7 +25,8 @@ Implementation and builder
 * Put the implementation and its builder together, in :mod:`qldpc.decoders.custom` for a qLDPC-owned algorithm or :mod:`qldpc.decoders.external` for a third-party integration.
 * Implement :class:`~qldpc.decoders.protocols.ErrorDecoder` (``decode_errors``) and/or :class:`~qldpc.decoders.protocols.ObservableDecoder` (``decode_observables``).
 * Keep a module-level builder with a typed signature: its first input is a matrix or DEM, followed by the options for this algorithm.
-  The builder stays private, with a name that starts with an underscore, and the public specification helper is its entry point.
+  Keep the builder private, with a name that starts with an underscore.
+  Callers reach it through the public helper described under `Specification helpers`_.
 * For an optional backend, import its dependency inside the builder and report how to install it.
 * Preserve the backend's own option names rather than introducing a generic translation layer.
 
@@ -37,7 +38,7 @@ Specification helpers
 * These helpers take their option signature from the typed builder.
   If that builder forwards ``**kwargs``, pass ``signature_source=DecoderClass``.
 * Provide a written ``doc=`` string with the helper's options, return contract, and limitations.
-* Give the builder a one-line docstring that names this helper, rather than repeating its options.
+* Give the builder a one-line docstring that names the public specification helper, rather than repeating its options.
 
 Exports, documentation, and tests
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -45,7 +46,7 @@ Exports, documentation, and tests
 * Export the backend class at its qualified ``custom`` or ``external`` package path.
 * If you add a public specification helper, export it from ``qldpc.decoders`` and add it to ``__all__``.
 * Add its ``.. autofunction:: qldpc.decoders.<name>`` entry to the :doc:`decoder reference </decoders/reference>`: AutoAPI hides generated helpers because it cannot inspect their signatures statically.
-  An existing test checks the signature, written documentation, and reference entry of every generated helper that ``qldpc.decoders`` exports.
+  ``src/qldpc/decoders/construction/specs_test.py`` checks the signature, written documentation, and reference entry of every generated helper that ``qldpc.decoders`` exports.
 * Add :ref:`backend notes <backend-notes>` to the decoder reference only for what a docstring cannot carry, such as installation outside PyPI or behavior across workflows.
 * Add co-located ``*_test.py`` tests that independently check ``H @ inferred_error == syndrome``, observable predictions against DEM targets, unsupported inputs, erasure width, and batch shapes as applicable.
 * Test pickling if the decoder is used by Sinter.

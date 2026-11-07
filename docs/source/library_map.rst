@@ -10,7 +10,7 @@ Overview and which page to read
 * Read the :doc:`decoder guide <decoders/index>` to select, build, and use decoders, including with Sinter.
 * Follow the :doc:`examples <examples/index>` for complete workflows that you can run and adapt.
 * Use the :doc:`API reference <autoapi/index>` for exact signatures, every public name, and construction-specific literature.
-* Read the `agent and contributor guide <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md>`_ before changing qLDPC itself.
+* Read the :doc:`contributing guide <contributing/index>` before changing qLDPC itself.
 
 Most user-facing names are exported from their subpackage, as in ``qldpc.codes.SurfaceCode``.
 Concrete decoder backends live in ``qldpc.decoders.custom`` and ``qldpc.decoders.external``, and tool integrations live in ``qldpc.external.gap`` and ``qldpc.external.sqetch``.

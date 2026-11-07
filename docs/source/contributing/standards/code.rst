@@ -36,6 +36,7 @@ Code style and organization
 * Within a class, put public methods first (for decoders, the decode methods) and private helper methods after them.
 * The methods in ``codes/common.py`` share cached and mutable state for standard form, logical and gauge operators, parameters, and code transformations.
   Do not split them into mixins merely to reduce the file length.
+* Do not copy transient project history, machine-specific paths, or local-session instructions into any committed file, including code, tests, configuration, and documentation.
 * Numba code uses ``always_compiled`` or ``compiled_on_request`` from ``qldpc/_compilation.py``, never ``njit(cache=True)``; that module's docstring says which to use, and ``_compilation_test.py`` enforces its rules.
 * ``src/qldpc/code_style_test.py`` checks license headers, section headers, and the order of plain and underscore names.
 * The top-level modules and subpackages of ``qldpc.circuits`` and ``qldpc.decoders`` import each other in layers: each imports only from itself and from lower layers, and never from the root of its package.
@@ -50,6 +51,7 @@ Code style and organization
 Simplicity and clarity
 ----------------------
 
+* Make significant tradeoffs explicit, and keep the supported scope maintainable.
 * Keep code only as complex as its uses require.
   Avoid storing data that can be derived from other stored data, accepting arguments that are unused or derivable from other arguments, and adding options, parameters, or code paths that nothing uses.
   Reuse existing implementations, such as ``qldpc._binary``, rather than duplicating them, and remove dead code and comments that describe removed designs.

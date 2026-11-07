@@ -383,7 +383,7 @@ def test_decoder_spec_helper_annotations() -> None:
 
 
 def test_decoder_spec_helper_docstrings() -> None:
-    """Exported generated helpers must document their options and appear in the guide."""
+    """Exported generated helpers must document their options and appear in the reference."""
     helpers = [
         (name, helper)
         for name in decoders.__all__
@@ -393,9 +393,9 @@ def test_decoder_spec_helper_docstrings() -> None:
         is decoders.DecoderSpec
     ]
     assert helpers
-    guide = (pathlib.Path(__file__).parents[4] / "docs/source/decoders/reference.rst").read_text(
-        encoding="utf-8"
-    )
+    reference = (
+        pathlib.Path(__file__).parents[4] / "docs/source/decoders/reference.rst"
+    ).read_text(encoding="utf-8")
     for name, helper in helpers:
         assert callable(helper) and getattr(helper, "__name__", None) == name
         docstring = inspect.getdoc(helper)
@@ -410,7 +410,7 @@ def test_decoder_spec_helper_docstrings() -> None:
         assert documented_names == set(inspect.signature(helper).parameters) - legacy_options
         assert ".. deprecated::" not in docstring
         assert "A decoder specification." in docstring
-        assert f".. autofunction:: qldpc.decoders.{name}\n" in guide
+        assert f".. autofunction:: qldpc.decoders.{name}\n" in reference
 
 
 def test_helper_docstring_is_written_independently() -> None:

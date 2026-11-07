@@ -43,7 +43,7 @@ Choose tools for the task
    * - Estimate binary CSS code distances with the GPU-based ``sqetch`` backend
      - :ref:`GPU distance estimation <installation-sqetch>`.
    * - Modify qLDPC itself
-     - :ref:`Development installation <development-installation>` and the :doc:`contributing page <contributing/index>`.
+     - :ref:`Development installation <development-installation>` and the :doc:`contributing guide <contributing/index>`.
 
 .. _installation-decoders:
 
@@ -133,4 +133,4 @@ For a Conda-managed environment, install ``cvxpy`` with:
 Working on qLDPC
 ----------------
 
-Follow the :ref:`development installation <development-installation>` instructions on the contributing page for an editable checkout and the project's validation tools.
+Follow the :ref:`development installation <development-installation>` instructions in the contributing guide for an editable checkout and the project's validation tools.

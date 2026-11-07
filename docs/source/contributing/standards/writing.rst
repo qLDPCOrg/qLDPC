@@ -44,7 +44,7 @@ Documentation and examples
 * Put explanations that span packages in the :doc:`library map </library_map>`, exact API behavior in docstrings, and executable workflows in ``examples/``.
 * The notebooks under ``docs/source/examples/`` are links to the canonical files under ``examples/``.
   Edit the canonical notebook, not the documentation-tree link.
-* Before changing a notebook example, refresh its outputs by executing the entire canonical notebook in an offline, editable installation.
+* After changing a notebook example, refresh its saved outputs by executing the entire canonical notebook in an offline, editable installation.
 * Keep README and the library map selective; AutoAPI lists the public symbols.
 * When a public limitation changes, update the relevant function or class docstring and every README or guide that repeats it in the same pull request.
 

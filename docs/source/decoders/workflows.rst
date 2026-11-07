@@ -1,6 +1,8 @@
 Decoding workflows
 ==================
 
+qLDPC uses decoders in code-capacity estimates and in Sinter circuit sampling, which supports sliding-window decoding.
+
 Code-capacity logical error rate estimates
 ------------------------------------------
 
@@ -68,6 +70,3 @@ See the :doc:`quantum-memory notebook </examples/logical_error_rates/2_quantum_m
 
 Note that the ``SlidingWindowDecoder`` must infer and commit physical corrections in each window, so an observable-only decoder such as Frontier will not work.
 Use a built-in error-decoding specification or a custom error-decoder factory that accepts each window's DEM.
-
-The generated :doc:`API reference </autoapi/index>` documents concrete backend classes and low-level adapters.
-Import backend classes from ``qldpc.decoders.custom`` or ``qldpc.decoders.external``, as in ``from qldpc.decoders.custom import ErrorLookupDecoder``, and compiled Sinter decoders from ``qldpc.decoders.sinter``.

@@ -61,13 +61,14 @@ The coordinator runs each round as follows:
 1. Start the reviewers together, so that none sees the findings of another.
    Each round reviews the whole change.
    A later round may skip an angle that no revision since the previous round can affect.
-2. Fix clear problems, and verify each fix with the tests of the changed modules.
+2. Fix clear problems, and verify each fix with the drafting checks.
    If the coordinator did not write the change, as for another contributor's pull request, report fixes as suggestions instead of making them.
    The review then ends after one round.
-3. Leave decisions, such as design changes, public API changes, changes to the standards or to this protocol, and disagreements with a reviewer, to the person the coordinator works for.
+3. Leave decisions to the person the coordinator works for.
+   Decisions include design changes, public API changes, changes to the standards or to this protocol, and disagreements with a reviewer.
    Record each open decision, continue with the other fixes, and list the open decisions in the report.
 4. Start another round with fresh reviewers if the round led to significant revisions, unless three rounds have run.
 
 After the last round, report what each round found and changed, and list the decisions that remain open.
 A standard review does not run the finishing checks of the :ref:`validation commands <validation-commands>`, which belong to finishing a pull request.
-If the limit ended the review, ask whether to start another round.
+If the three-round limit ended the review, ask whether to start another round.

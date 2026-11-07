@@ -2,6 +2,7 @@ Using your own decoder
 ======================
 
 Any ``decoder=`` argument also accepts your own decoder class or factory, with no registration or change to qLDPC.
+To contribute a decoder to qLDPC itself, follow the :doc:`decoder standard </contributing/standards/decoders>`.
 The workflow determines what input the factory receives and which method its decoder must provide:
 
 .. list-table::

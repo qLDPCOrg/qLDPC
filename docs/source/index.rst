@@ -44,7 +44,7 @@ Where to go next
 * :doc:`Decoders <decoders/index>` explains how to choose a decoder, use it in decoding workflows, or use a decoder of your own.
 * :doc:`Examples <examples/index>` walk from code construction through code-capacity and circuit-level simulations to exact fault-tolerance certificates.
 * :doc:`API reference <autoapi/index>` documents every public class and function.
-* Start with the `agent and contributor guide <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md>`_ before changing qLDPC, and use the :doc:`contributing page <contributing/index>` for the development workflow and the standards that a change must satisfy.
+* :doc:`Contributing <contributing/index>` explains the development workflow and the standards that a change must satisfy.
 
 .. toctree::
    :maxdepth: 2
