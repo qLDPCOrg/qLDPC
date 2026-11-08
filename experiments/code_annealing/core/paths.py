@@ -4,9 +4,12 @@
 
 Every file that a script writes goes to a subdirectory of ``results/``, which Git ignores:
 
-- ``logs/`` holds the files of annealing runs (chains, code records, logs) and the file of jobs that
+- ``logs/`` holds the files of annealing runs (chains, code records, logs, and the ``.lock`` files
+  of active runs), the ``random_*.txt`` files of the random baseline, and the file of jobs that
   ``write_jobs.py`` writes.
-- ``data/`` holds the best code of each size, and the tables that are computed from those codes.
+- ``data/`` holds the best code of each size, the dated scrapes of qecdb.org, and what is computed
+  from them: the half-support counts, the tables and listings of the paper, and ``saved_codes.csv``
+  if requested.
 - ``figures/`` holds the PDF files of the plotting scripts.
 - ``cache/`` holds simulations that the plotting scripts reuse.
 
@@ -27,6 +30,7 @@ TEST_DIR_NAME = "test"
 # The codes and the qecdb.org snapshot that the paper reports, which no script writes, and the
 # subdirectory of the results directory in which ``reproduce_paper`` works with copies of them.
 PAPER_DATA_DIR = EXPERIMENT_DIR / "paper_data"
+PAPER_SNAPSHOT_FILE = PAPER_DATA_DIR / "scrape_qecdb_2026-05-21.txt"
 PAPER_DIR_NAME = "paper"
 
 # Names of the text files with the best code of each code size, by code type.

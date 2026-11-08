@@ -32,7 +32,7 @@ CODE_TYPES: tuple[CodeType, ...] = get_args(CodeType)
 _INITIAL_CODE_STREAM = 0x494E4954  # the ASCII bytes of "INIT"
 
 # Random codes to try for a minimum distance before giving up.
-DEFAULT_MAX_ATTEMPTS = 10_000
+_MAX_ATTEMPTS = 10_000
 
 ####################################################################################################
 # initial codes
@@ -45,7 +45,6 @@ def random_initial_code(
     seed: int = 0,
     self_dual: bool = False,
     min_distance: int = 1,
-    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     walk_steps: int | None = None,
     method: LogicalCountMethod = "brouwer_zimmermann",
 ) -> CSSLogicalCounter:
@@ -63,15 +62,14 @@ def random_initial_code(
         self_dual: Draw a self-dual (SWEL) code, by scrambling a code of trivial logical qubits and
             Bell pairs with SWEL gates, instead of a general CSS code.
         min_distance: Reject codes below this exactly computed distance.
-        max_attempts: Number of codes to draw before giving up.
         walk_steps: Number of SWEL gates of the walk, defaulting to 30*num_qubits.
         method: Exact distance method used by the rejection test.
 
     Raises:
-        RuntimeError: If no code reaches ``min_distance`` within ``max_attempts`` draws.
+        RuntimeError: If no code reaches ``min_distance`` within ``_MAX_ATTEMPTS`` draws.
     """
-    if not 1 <= min_distance <= num_qubits or max_attempts < 1:
-        raise ValueError("Invalid distance threshold or number of attempts")
+    if not 1 <= min_distance <= num_qubits:
+        raise ValueError("Invalid distance threshold")
     # random_initial_codes checks the code size and walk length as soon as it is called
     codes = random_initial_codes(
         num_qubits,
@@ -80,12 +78,12 @@ def random_initial_code(
         self_dual=self_dual,
         walk_steps=walk_steps,
     )
-    for _ in range(max_attempts):
+    for _ in range(_MAX_ATTEMPTS):
         counter = next(codes)
         if counter.count_logical_ops(method=method).weight >= min_distance:
             return counter
     raise RuntimeError(
-        f"No initial code reached distance {min_distance} in {max_attempts} attempts"
+        f"No initial code reached distance {min_distance} in {_MAX_ATTEMPTS} attempts"
     )
 
 

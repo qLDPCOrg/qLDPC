@@ -58,6 +58,8 @@ _HEADER = (
     r" & $k_\mathrm{best}^{\mathrm{prior}}$ & $d_\mathrm{best}^{\mathrm{prior}}$"
 )
 _COLUMNS = "c|c|c||c|c||c|c|c||c|c|c"
+# The column of the maximum stabilizer weight in ``_HEADER``, counted from 0, whose numbers are
+# right-aligned in the LaTeX source so that their digits line up.
 _MAX_WEIGHT_COLUMN = 7
 
 # The preamble and the end of a table file.  A comment ends every line that does not end in a
@@ -96,6 +98,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     add_results_dir_argument(parser)
     args = parser.parse_args(argv)
 
+    # Read the codes and their neighbors at qecdb.org, and write a table and listing per code type.
     code_files = find_code_files(args.results_dir)
     data_file = args.data_file or find_data_file(args.results_dir)
     if data_file is None:
@@ -169,8 +172,6 @@ def _format_listing(entries: Sequence[CodeEntry], code_type: CodeType) -> str:
 def _get_cells(entry: CodeEntry, best_known: BestKnown, few_logicals: int) -> list[str]:
     """The cells of the row of a code, unpadded except for the decimal point of the mean weight."""
     nn, kk, dd = entry.params
-    if best_known.params != (nn, kk, dd):
-        raise ValueError(f"The neighbors of {best_known.params} are not those of {(nn, kk, dd)}")
     counts = recount(entry)
     logicals = f"{counts.count_x} / {counts.count_z}"
     if max(counts.count_x, counts.count_z) <= few_logicals:

@@ -11,7 +11,7 @@ Run with ``python -m experiments.code_annealing.figures.plot_error_estimates``. 
 qubit of every code at one physical error rate: the simulated rate, an estimate from the numbers of
 minimum-weight logical operators, and a refined estimate from the numbers of distinct subsets of
 their supports.  The codes are grouped by distance, and sorted by their simulated rates within each
-group.  Their colors identify the code sizes ``(n, k)``, in the order of the other figures.
+group.  Their colors identify the code sizes ``(n, k)``, in order of size.
 
 The counts of operators and subsets come from ``data/half_supports.txt`` of the results directory,
 which ``analysis/half_supports.py`` writes and reads.  Codes without counts are skipped.  The
@@ -64,6 +64,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if not 0 < args.error_rate <= args.max_error_rate <= 1 or args.num_samples < 1:
         parser.error("require 0 < --error-rate <= --max-error-rate <= 1 and --num-samples >= 1")
 
+    # Read the counts, then simulate and estimate the codes of each code type that have counts.
     half_supports = get_half_supports_file(args.results_dir)
     try:
         counts_by_file = read_half_supports(half_supports)
@@ -131,7 +132,8 @@ def _get_error_estimates(
         if code_counts.count_x + code_counts.count_z != entry.count_homogeneous:
             raise ValueError(
                 f"The code {get_label(entry)} has {entry.count_homogeneous} minimum-weight logical"
-                f" operators, but the counts add up to {code_counts.count_x} + {code_counts.count_z}"
+                " operators, but the counts add up to"
+                f" {code_counts.count_x} + {code_counts.count_z}"
             )
         print(get_label(entry), flush=True)
         func = get_error_rate_func(entry, num_samples, max_error_rate, cache_dir=cache_dir)
@@ -143,15 +145,13 @@ def _get_error_estimates(
                 entry.distance,
                 simulated,
                 _estimate_error_rate(code_counts, error_rate),
-                _estimate_error_rate(code_counts, error_rate, refined=True),
+                _refine_error_rate_estimate(code_counts, error_rate),
             )
         )
     return sorted(estimates, key=lambda row: (row.distance, -row.simulated / row.num_logicals))
 
 
-def _estimate_error_rate(
-    counts: HalfSupportCounts, error_rate: float, *, refined: bool = False
-) -> float:
+def _estimate_error_rate(counts: HalfSupportCounts, error_rate: float) -> float:
     """Estimate the logical error rate of a code under depolarizing noise from its counts.
 
     Each qubit has an X-type error with probability ``r = 2 p / 3`` for a physical error rate ``p``,
@@ -162,17 +162,26 @@ def _estimate_error_rate(
     exactly half of a support are discarded, so they add to the discard rate and not to this one.
 
     The estimate multiplies the number of minimum-weight operators by the ``comb(d, w)`` subsets of
-    each support and by ``r**w``, the probability that every qubit in a subset errs.  The refined
-    estimate counts the distinct subsets of all supports, which is fewer if supports overlap, and
-    gives each the probability ``r**w * (1 - r)**(n - w)`` that exactly its qubits err.  The refined
-    estimate combines the sectors as if they were independent, ``1 - (1 - P_x) * (1 - P_z)``, which
-    is an approximation: a Y error is both an X-type and a Z-type error.
+    each support and by ``r**w``, the probability that every qubit in a subset errs.
     """
-    num_qubits, distance = counts.num_qubits, counts.distance
+    distance = counts.distance
     weight = distance // 2 + 1
     rate = 2 * error_rate / 3
-    if not refined:
-        return (counts.count_x + counts.count_z) * math.comb(distance, weight) * rate**weight
+    return (counts.count_x + counts.count_z) * math.comb(distance, weight) * rate**weight
+
+
+def _refine_error_rate_estimate(counts: HalfSupportCounts, error_rate: float) -> float:
+    """Estimate the logical error rate of a code from its numbers of distinct majority supports.
+
+    The noise, the decoder, ``r``, and ``w`` are those of ``_estimate_error_rate``.  This estimate
+    counts the distinct subsets of ``w`` qubits of all supports (the majority supports), which are
+    fewer than ``comb(d, w)`` per operator if supports overlap, and gives each the probability
+    ``r**w * (1 - r)**(n - w)`` that exactly its qubits err.  It combines the sectors as if they
+    were independent, ``1 - (1 - P_x) * (1 - P_z)``, which is an approximation: a Y error is both
+    an X-type and a Z-type error.
+    """
+    num_qubits, weight = counts.num_qubits, counts.distance // 2 + 1
+    rate = 2 * error_rate / 3
     pattern_probability = rate**weight * (1 - rate) ** (num_qubits - weight)
     failure_x = counts.num_majority_supports_x * pattern_probability
     failure_z = counts.num_majority_supports_z * pattern_probability

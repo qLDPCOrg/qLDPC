@@ -8,8 +8,8 @@ runs the scripts of ``analysis/``, in order, on the same results directory:
 1. ``collect_annealed_codes`` saves the best code of each size that the logs hold, with the codes
    that earlier collections found, to ``data/annealed_codes.txt`` (CSS) and
    ``data/annealed_codes_swel.txt`` (SWEL).  Every code is recounted exactly.
-2. ``half_supports`` counts the half-weight subsets of the supports of the minimum-weight logical
-   operators of those codes, and saves the counts to ``data/half_supports.txt``.
+2. ``half_supports`` counts the half and majority supports of those codes (subsets of the supports
+   of their minimum-weight logical operators), and saves the counts to ``data/half_supports.txt``.
 3. With ``--scrape``, ``scrape_qecdb`` asks qecdb.org about the best known codes next to each code,
    which needs network access, and saves the answers to ``data/scrape_qecdb_YYYY-MM-DD.txt``, named
    by the date of the scrape.

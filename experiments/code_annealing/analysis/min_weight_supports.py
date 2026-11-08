@@ -137,6 +137,9 @@ def _get_min_weight_words(
     weight = bound
     words: list[int] = []
     start = 1  # the combination of no basis words is trivial
+
+    # Walk the combinations in chunks.  A walk returns early when the buffer fills, and the next
+    # walk resumes where it stopped; a lighter word than any so far discards the words found.
     while start < total:
         stop = min(start + _CHUNK, total)
         while start < stop:

@@ -4,6 +4,7 @@ This file maps every figure and table of [Quantum codes from classical annealing
 Set up the environment as in [ENVIRONMENT.md](ENVIRONMENT.md), and run every command from the root of the repository.
 The inputs are the files of [`paper_data/`](paper_data/), which its README describes.
 Outputs go to `experiments/code_annealing/results/paper/`, which Git ignores.
+The status is `reproduced` if the output matches the paper, and `runs-but-differs` if the command runs but its output differs, for the reasons in the notes.
 
 ## Map
 

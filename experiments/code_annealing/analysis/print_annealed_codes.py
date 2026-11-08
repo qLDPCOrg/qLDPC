@@ -9,7 +9,7 @@ a chain checkpoint holds), and the exact (distance, number of minimum-weight X-o
 logical operators, mean stabilizer weight).  The mean weight is that of generators lowered by
 ``reduce_weights``.  Every code is rechecked, so this takes as long as counting the logical
 operators of all of them.  Pass explicit checkpoints, which bring their records along, to summarize
-runs saved elsewhere, and ``--csv`` to keep every exact count of every code in
+runs saved elsewhere, and ``--csv`` to keep every exact count of every selected code in
 ``data/saved_codes.csv`` of the results directory.
 """
 

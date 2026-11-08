@@ -29,7 +29,7 @@ from collections.abc import Sequence
 
 from .analysis import half_supports, latex_tables
 from .core.cli import add_results_dir_argument, make_parser, run_step
-from .core.paths import PAPER_DATA_DIR, PAPER_DIR_NAME, get_data_dir
+from .core.paths import PAPER_DATA_DIR, PAPER_DIR_NAME, PAPER_SNAPSHOT_FILE, get_data_dir
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -51,11 +51,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(f"Copied the data of the paper from {PAPER_DATA_DIR} to {data_dir}")
 
     options = ["--results-dir", str(results_dir)]
-    (snapshot,) = PAPER_DATA_DIR.glob("scrape_qecdb_*.txt")
+    snapshot = data_dir / PAPER_SNAPSHOT_FILE.name
     run_step("half_supports", half_supports.main, options)
-    run_step(
-        "latex_tables", latex_tables.main, [*options, "--data-file", str(data_dir / snapshot.name)]
-    )
+    run_step("latex_tables", latex_tables.main, [*options, "--data-file", str(snapshot)])
     if not args.skip_figures:
         figure_options = [*options]
         for name in ("max_qubits", "num_samples"):

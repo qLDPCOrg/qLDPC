@@ -10,7 +10,8 @@ command below is written from the root::
 
 Give ``parallel`` the option ``--joblog FILE`` to record the exit status of every job.  Each job
 runs one chain with one core, and writes its checkpoint, its two code records, and a log to the logs
-of the results directory (see ``run_annealing.py``).  Interrupted runs lose at most one epoch: run
+of the results directory (see ``run_annealing.py``).  An interrupted run loses at most one epoch,
+or all of its work if it had not yet saved its first checkpoint, which follows its pilot: run
 ``write_jobs`` again with the same options, and its new ``jobs.txt`` resumes the unfinished runs and
 skips the finished ones, in the same order, so that rerunning it after any interruption completes
 the campaign.  A resumed run continues exactly as an uninterrupted one would, in the same numerical
@@ -74,7 +75,7 @@ class _SmokeScale:
     init_samples: int
 
 
-SMOKE_SCALE = _SmokeScale(
+_SMOKE_SCALE = _SmokeScale(
     qubits=(20, 22), max_seeds=2, epochs=2, steps_per_epoch=100, init_samples=10
 )
 
@@ -160,14 +161,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument(
         "--steps-per-epoch",
         type=int,
-        help=f"proposals of an epoch (default: {STEPS_PER_EPOCH}, or {SMOKE_SCALE.steps_per_epoch}"
+        help=f"proposals of an epoch (default: {STEPS_PER_EPOCH}, or {_SMOKE_SCALE.steps_per_epoch}"
         " with --test)",
     )
     parser.add_argument(
         "--init-samples",
         type=int,
         help=f"random codes to choose the starting code of a search from (default: {INIT_SAMPLES},"
-        f" or {SMOKE_SCALE.init_samples} with --test)",
+        f" or {_SMOKE_SCALE.init_samples} with --test)",
     )
     parser.add_argument(
         "--tag", default="", help="suffix of the search names and files, to tell campaigns apart"
@@ -180,17 +181,19 @@ def main(argv: Sequence[str] | None = None) -> None:
         if getattr(args, name) is not None and getattr(args, name) < 1:
             parser.error(f"--{name.replace('_', '-')} must be positive")
 
+    # A smoke test runs a small campaign, of which the options can still change any part.
     if args.test:
-        qubits = args.qubits or SMOKE_SCALE.qubits
-        max_seeds = args.max_seeds or SMOKE_SCALE.max_seeds
-        epochs = args.epochs or SMOKE_SCALE.epochs
+        qubits = args.qubits or _SMOKE_SCALE.qubits
+        max_seeds = args.max_seeds or _SMOKE_SCALE.max_seeds
+        epochs = args.epochs or _SMOKE_SCALE.epochs
     else:
         qubits, max_seeds, epochs = args.qubits, args.max_seeds, args.epochs
     settings = _JobSettings(
         epochs=epochs,
         steps_per_epoch=args.steps_per_epoch
-        or (SMOKE_SCALE.steps_per_epoch if args.test else STEPS_PER_EPOCH),
-        init_samples=args.init_samples or (SMOKE_SCALE.init_samples if args.test else INIT_SAMPLES),
+        or (_SMOKE_SCALE.steps_per_epoch if args.test else STEPS_PER_EPOCH),
+        init_samples=args.init_samples
+        or (_SMOKE_SCALE.init_samples if args.test else INIT_SAMPLES),
         python=args.python,
     )
 
@@ -232,6 +235,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(f"Wrote {len(jobs)} jobs to {output}, and skipped {skipped} finished runs")
 
 
+####################################################################################################
+# helper methods
+
+
 @dataclass(frozen=True)
 class _JobSettings:
     """What the jobs share beyond the code size: the scale of a search and the Python command."""
@@ -242,10 +249,6 @@ class _JobSettings:
     steps_per_epoch: int
     init_samples: int
     python: str
-
-
-####################################################################################################
-# helper methods
 
 
 def _get_new_run_arguments(

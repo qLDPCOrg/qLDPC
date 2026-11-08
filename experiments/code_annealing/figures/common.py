@@ -357,7 +357,7 @@ def _get_rate_bands(
     runs from ``rate - error - truncation`` (not below zero) to ``rate + error``, where the
     truncation is how much the errors too heavy for the simulation to have sampled, which count as
     failures, can raise the reported rate.  The band of the discard rate runs from
-    ``rate - error`` to ``rate + error``.
+    ``rate - error`` (not below zero) to ``rate + error``.
     """
     rates_list = np.asarray(error_rates, dtype=float).tolist()
     logical, logical_error = (np.asarray(array, dtype=float) for array in func(rates_list))

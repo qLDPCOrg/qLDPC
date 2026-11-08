@@ -30,7 +30,7 @@ from .analysis.gv_bounds import get_css_gv_distance, get_qgv_distance
 from .analysis.scrape_qecdb import read_best_known
 from .core.cli import make_parser
 from .core.code_files import read_code_file, recount, split_blocks
-from .core.paths import CODE_FILE_NAMES, PAPER_DATA_DIR
+from .core.paths import CODE_FILE_NAMES, PAPER_DATA_DIR, PAPER_SNAPSHOT_FILE
 
 _AUTOMORPHISMS_FILE = PAPER_DATA_DIR / "automorphisms_swel_n20_k06.txt"
 
@@ -54,10 +54,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(f"   {code_type}: stabilizer {qgv}/{len(codes)}, CSS {css}/{len(codes)}")
 
     print("3. Codes that no code at qecdb.org before the paper matches or betters in n, k, and d")
-    snapshot = max(PAPER_DATA_DIR.glob("scrape_qecdb_*.txt"))
-    for code_type, neighbors in read_best_known(code_files, snapshot).items():
+    for code_type, neighbors in read_best_known(code_files, PAPER_SNAPSHOT_FILE).items():
         wins = sum(any(best_known.wins) for best_known in neighbors)
-        print(f"   {code_type}: {wins}/{len(neighbors)} (snapshot {snapshot.name})")
+        print(f"   {code_type}: {wins}/{len(neighbors)} (snapshot {PAPER_SNAPSHOT_FILE.name})")
 
     print(
         "4. Logical Clifford gates of the SWAP-transversal automorphisms of the [[20, 6, 4]] code"

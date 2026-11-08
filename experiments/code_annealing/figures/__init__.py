@@ -1,3 +1,3 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Plotting scripts of the experiment, which save their figures in ``results/figures/``."""
+"""The plotting scripts, which save their figures in ``figures/`` of the results directory."""

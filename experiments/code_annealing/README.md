@@ -5,9 +5,9 @@ It also rebuilds the paper's table and figures from the paper's codes.
 
 The experiment searches for quantum error-correcting codes with high encoding rates and large distances by adaptive simulated annealing.
 It searches two classes of codes: CSS codes, and self-dual CSS codes with equivalent logicals (SWEL codes), which admit transversal logical Hadamard and phase gates.
-Each search fixes the numbers `n` of physical and `k` of logical qubits, and walks over local Clifford conjugations of a code, lowering an energy that stands in for the rate of undetected logical errors of the code.
+Each search fixes the numbers `n` of physical and `k` of logical qubits, and walks over local Clifford conjugations of a code, lowering an energy.
 Every proposed code is scored exactly, by its distance and its number of minimum-weight logical operators, with no sampling.
-The energy computed from that score is a leading-order proxy for the rate of undetected logical errors.
+The energy computed from that score is a leading-order proxy for the rate of undetected logical errors of the code.
 
 ## Where to start
 
@@ -65,7 +65,7 @@ The pipeline has three steps, and each runs as a module with `python -m experime
 | --- | --- | --- |
 | 1 | `write_jobs` | Writes the jobs of a campaign, one search each, for [GNU parallel](https://www.gnu.org/software/parallel/) |
 | | `progress_report` | Shows how many searches of each size have finished, and the best code of each so far |
-| 2 | `collect_data` | Keeps the best code of each size, computes tables from those codes, and writes the table of the paper from the newest scrape of qecdb.org (`--scrape` takes a new one) |
+| 2 | `collect_data` | Keeps the best code of each size, computes tables from those codes, and writes tables in the format of the paper's, with a comparison with the newest scrape of qecdb.org (`--scrape` takes a new one) |
 | 3 | `make_figures` | Simulates the best codes, and plots the figures of the paper and `error_rates.pdf` |
 
 First check the whole pipeline at smoke-test scale, with `--test`, which keeps its files in `results/test/`:
@@ -79,7 +79,7 @@ python -m experiments.code_annealing.make_figures --test
 ```
 
 Then choose a part of the campaign that suits your computer.
-The options `--qubits`, `--code-types`, and `--max-seeds` of `write_jobs` select code sizes, code types, and seeds, and `--epochs` shortens every search.
+The options `--qubits`, `--code-types`, and `--max-seeds` of `write_jobs` select code sizes, code types, and seeds, and `--epochs` sets the number of epochs of every search.
 For example, the smallest code sizes of the paper, with a few short searches each:
 
 ```bash
@@ -92,7 +92,7 @@ python -m experiments.code_annealing.make_figures
 
 `make_figures` takes a while too, because it simulates every best code; pass `--workers N` to simulate the codes in N parallel processes, or a small `--num-samples` or `--max-qubits` for a quick look.
 `collect_data --scrape` compares the codes with those of qecdb.org today, which needs network access.
-It saves the comparison in a file named by the date of the scrape, and writes the table of the paper.
+It saves the comparison in a file named by the date of the scrape, and writes the tables in the format of the paper's.
 Without `--scrape`, it writes the table from the newest earlier scrape, if that scrape covered the same codes.
 qecdb.org may list codes that were published after the paper, including those of the paper itself, so this comparison can differ from that of the paper.
 Without GNU parallel, `bash experiments/code_annealing/results/logs/jobs.txt` runs the jobs one at a time.
@@ -190,14 +190,16 @@ experiments/code_annealing/
 | checkpoint | The file that holds a whole search, so that it can resume exactly |
 | record | The file that keeps one of the two best codes of a search as soon as it is found: the code of the lowest energy, and the code of the greatest distance |
 | best code of a size | The code of the greatest distance that any search of a code type and size found, and then with the fewest minimum-weight logical operators |
-| half supports | The distinct sets of about `d / 2` qubits that lie in the supports of minimum-weight logical operators; the counts of such sets of `d // 2 + 1` qubits refine the estimates of logical error rates |
+| half supports, majority supports | The distinct sets of `(d + 1) // 2` (half) and `d // 2 + 1` (majority) qubits that lie in the supports of minimum-weight logical operators, which are the same sets for odd `d`; the counts of majority supports refine the estimates of logical error rates |
 
 ## Tests
 
 The tests cover the search, whose errors could go unnoticed in its results: the search modules of `core/`.
 The scripts around it have no tests, nor do the modules of `core/` that serve them (`code_files.py`, `saved_runs.py`, `paths.py`, and `cli.py`): when one of them breaks, its output shows it.
-The tests are offline and local-only, and do not run in CI:
+The tests are offline and local-only, and do not run in CI.
+They need the development install of [ENVIRONMENT.md](ENVIRONMENT.md), which provides pytest and its plugins:
 
 ```bash
+python -m pip install -e '.[dev]' matplotlib
 python -m pytest experiments/code_annealing
 ```

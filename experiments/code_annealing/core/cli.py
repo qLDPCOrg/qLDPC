@@ -4,9 +4,10 @@
 
 Every script that reads or writes a results directory accepts ``--results-dir`` to use another
 directory instead of ``results/``.  The scripts ``write_jobs``, ``collect_data``,
-``progress_report``, and ``make_figures`` also accept
-``--test``, which runs them at smoke-test scale in the ``test/`` subdirectory of the results
-directory, so that a trial never mixes with the real results.
+``progress_report``, and ``make_figures`` also accept ``--test``, which makes them use the ``test/``
+subdirectory of the results directory, so that a trial never mixes with the real results.  With
+``--test``, ``write_jobs`` also writes searches at smoke-test scale, and ``make_figures`` samples
+fewer errors.
 """
 
 from __future__ import annotations

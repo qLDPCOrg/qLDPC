@@ -30,9 +30,10 @@ In the other experiments, each results directory holds a CSV summary, together w
 | Quantum Tanner | `results/codes/`: one text file per saved code | `results/codes.csv`: parameters of every saved code with `k > 0` |
 | Lattice surgery | `results/{preset}_{run_id}_progress.csv`: Sinter progress | `results/{preset}.csv`: sample counts, from which logical error rates follow |
 
-Code annealing divides its `results/` directory into `logs/` (one resumable checkpoint for each search), `data/` (the best code of each size, and tables computed from them), `figures/` and `cache/`, and its high-level scripts take `--test` to run at smoke-test scale in `results/test/`; see its guide.
+Code annealing divides its `results/` directory into `logs/`, `data/`, `figures/`, and `cache/`: `logs/` holds one resumable checkpoint for each search, and `data/` the best code of each size and the tables computed from them.
+Its high-level scripts take `--test` to run at smoke-test scale in `results/test/`; see its guide.
 
-Earlier versions of these scripts saved results beside the scripts instead, where Git no longer ignores them.
+Earlier versions of the bivariate bicycle and quantum Tanner scripts saved results beside the scripts instead, where Git no longer ignores them.
 To keep using such results, move them into the new layout:
 
 ```bash

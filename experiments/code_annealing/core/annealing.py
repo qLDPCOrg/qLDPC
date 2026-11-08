@@ -12,8 +12,8 @@ including mixed and Y-only ones.
 Before the first epoch, a pilot scores one epoch's worth of proposals from the initial code to fit
 the first temperature, without moving the chain.  Independently of the chain, the search records the
 lowest-energy code and the greatest-distance code (ties broken by the lowest multiplicity) among
-the proposals of the chain and its pilot, accepted or not, but not the proposals that only time the
-counting methods.
+the initial code and the proposals of the chain and its pilot, accepted or not, but not the
+proposals that only time the counting methods.
 
 Scoring takes most of a step.  The exact methods give identical scores, so the method changes only
 the running time.  Brouwer--Zimmermann counts at a guess of the distance, and verifies it; the
@@ -60,12 +60,14 @@ _GUESS_WINDOW = 16
 # where the library default of 16 sets costs more in setup than it saves.
 _MAX_INFORMATION_SETS = 8
 
-# Bounds on the fitted log-temperature; a search with no uphill proposals uses the upper bound.
+# Bounds on the fitted log-temperature.  The fit to proposals of which none is uphill is the upper
+# bound.
 LOG_TEMPERATURE_BOUNDS = (-10.0, 0.0)
 
 # Choosing a method.  The MacWilliams method walks all words of the check spaces, so it is only
-# timed for check ranks up to _RACE_MAX_RANK.  Each method scores _RACE_PROPOSALS proposals of the
-# current code (fewer in a short epoch).  After at least _RACE_MIN_PROPOSALS timed proposals, the
+# timed for check ranks up to _RACE_MAX_RANK.  Each method scores an untimed warm-up proposal, which
+# may compile kernels, and then _RACE_PROPOSALS timed proposals of the current code (fewer in a
+# short epoch).  After at least _RACE_MIN_PROPOSALS timed proposals, the
 # race stops once either method has spent _RACE_SECONDS in total, or _RACE_DECISIVE_RATIO times as
 # long as the other.  The search keeps its method unless the other one takes less than
 # _RACE_SWITCH_FRACTION of its time.
@@ -77,6 +79,8 @@ _RACE_DECISIVE_RATIO = 3.0
 _RACE_SWITCH_FRACTION = 0.9
 _RACE_STREAM = 0x52414345  # the ASCII bytes of "RACE"
 
+# Processor time of this process, which other jobs of a campaign on the same machine disturb less
+# than wall-clock time.
 _clock = time.process_time
 
 ####################################################################################################
@@ -96,6 +100,7 @@ class SearchConfig:
         code_type: ``css`` searches general CSS codes with CNOT or CSS gates; ``swel`` searches
             SWEL codes with the SWEL gate, which keeps every code self-dual.
         gate_size: Number of qubits that a proposed gate acts on.
+        objective: What the multiplicity of the energy counts (see above).
         epochs: Number of epochs of the chain.  An epoch has one temperature.
         steps_per_epoch: Number of proposals in an epoch, and in the pilot before the first one.
         uphill_acceptance_start: Target mean acceptance probability of the uphill proposals (those
@@ -108,7 +113,6 @@ class SearchConfig:
         temperature_memory: Weight of the previous log-temperature in the log-temperature of the
             next epoch, which is otherwise that of the temperature that gives the target acceptance
             to the proposals of the last epoch.
-        objective: What the multiplicity of the energy counts (see above).
         physical_error_rate: The physical error rate p of the energy.
         method: How proposals are scored (see the module docstring).
     """
@@ -175,8 +179,8 @@ class EpochStatistics:
     """The observables of one completed epoch.
 
     The temperature and rates are those of the epoch, which exclude the pilot; ``lowest_energy`` is
-    the lowest energy of any proposal so far, including the pilot's.  The uphill acceptance rate is
-    1.0 if no proposal of the epoch raised the energy.
+    the lowest energy so far, of the initial code or of any proposal, including the pilot's.  The
+    uphill acceptance rate is 1.0 if no proposal of the epoch raised the energy.
     """
 
     epoch: int
@@ -281,6 +285,7 @@ def start_search(initial: CSSLogicalCounter, config: SearchConfig, *, seed: int 
         log_temperature=0.0,
         energy_jumps=np.empty(config.steps_per_epoch, dtype=float),
     )
+    # Fit the first temperature to the jumps of proposals from the initial code.
     _start_epoch(state)
     initial_energy = energy(start.score, config)
     for step in range(config.steps_per_epoch):
@@ -334,7 +339,7 @@ def run_epochs(
 
 
 ####################################################################################################
-# energy, temperature, and acceptance
+# scores, energies, and ranks
 
 
 def get_library_method(config: SearchConfig) -> LogicalCountMethod:
@@ -375,8 +380,8 @@ def energy(score: Score, config: SearchConfig) -> float:
     An error is undetected and changes the logical state when it is a nontrivial logical operator,
     which at leading order happens with probability m * p**d, where m is the multiplicity that the
     objective counts, d is the distance, and p is the physical error rate.  Return the log of this
-    probability over log(1 / p), which is log(m) / log(1 / p) - d.  A greater distance lowers the
-    energy unless it comes with more than 1 / p times as many minimum-weight logical operators.
+    probability over log(1 / p), which is log(m) / log(1 / p) - d.  A distance greater by D lowers
+    the energy unless it comes with at least p**-D times as many minimum-weight logical operators.
     """
     count = _get_multiplicity(score, config)
     return math.log(count) / -math.log(config.physical_error_rate) - score.distance
@@ -644,7 +649,8 @@ def _select_method(state: SearchState) -> LogicalCountMethod:
     spent = dict.fromkeys(methods, 0.0)
     proposals = min(_RACE_PROPOSALS, max(2, config.steps_per_epoch // 8))
     for index in range(proposals + 1):
-        # The first proposal only compiles kernels.  The order alternates, against drifting clocks.
+        # The first proposal is not timed, since it may compile kernels.  The order alternates,
+        # against drifting clocks.
         for method in methods if index % 2 == 0 else methods[::-1]:
             rng = np.random.default_rng([state.seed, state.completed_epochs, _RACE_STREAM, index])
             candidate = propose(
@@ -704,13 +710,13 @@ def _fit_log_temperature(jumps: npt.ArrayLike, target: float) -> float:
     """Fit log T so that the mean uphill acceptance probability equals ``target``.
 
     The fit is bounded by ``LOG_TEMPERATURE_BOUNDS``.  Jumps that do not raise the energy are
-    ignored.  If there are no uphill jumps, return log T=0.  The jumps of rejected uphill proposals
-    must still be supplied.
+    ignored.  If there are no uphill jumps, return the upper bound.  The jumps of rejected uphill
+    proposals must still be supplied.
     """
     values = np.asarray(jumps, dtype=float)
     uphill = values[values > 0]
     if not len(uphill):
-        return 0.0
+        return LOG_TEMPERATURE_BOUNDS[1]
 
     def cost(log_temperature: float) -> float:
         mean = np.exp(-uphill / math.exp(log_temperature)).mean()

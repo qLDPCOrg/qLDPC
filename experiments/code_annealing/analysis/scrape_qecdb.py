@@ -16,12 +16,13 @@ code file claims, and that of a database code is the one that the database lists
 
 The database grows, and may come to list the annealed codes themselves, so a data file records the
 database on the date of its scrape (in UTC), which its name carries.  ``latex_tables.py`` reads the
-newest data file, and earlier ones are kept, so that a table can be rebuilt from the snapshot behind
-it.  The snapshot behind the paper's table is in ``paper_data/``.
+newest data file, or the one that its ``--data-file`` names, and earlier ones are kept, so that a
+table can be rebuilt from the snapshot behind it.  The snapshot behind the paper's table is in
+``paper_data/``.
 
 Scraping uses only the standard library, makes three paced requests to the database for each
-annealed code, tries a request again if it fails in transit, and writes the data file only after
-every request has succeeded.
+annealed code, tries a request again if it fails in transit or the server is busy or failing, and
+writes the data file only after every request has succeeded.
 """
 
 from __future__ import annotations
@@ -268,15 +269,22 @@ def _query_extreme(field: str, direction: str, code_type: CodeType, **bounds: in
 
 
 def _fetch_json(url: str) -> Any:
-    """Retrieve JSON data from a URL, with another attempt after a failure in transit."""
+    """Retrieve JSON data from a URL, in up to ``_REQUEST_ATTEMPTS`` attempts.
+
+    A request is tried again after a failure in transit, or an answer that the server is busy (HTTP
+    429) or failing (HTTP 5xx), but not after another HTTP error, which a new attempt would repeat.
+    """
     for attempt in range(1, _REQUEST_ATTEMPTS + 1):
         try:
             with urllib.request.urlopen(url, timeout=_REQUEST_TIMEOUT) as response:
                 text = response.read().decode("utf-8")
             break
         except (OSError, http.client.HTTPException) as exception:
-            if attempt == _REQUEST_ATTEMPTS:
-                raise RuntimeError(f"Cannot access {url}") from exception
+            retry = not isinstance(exception, urllib.error.HTTPError) or (
+                exception.code == 429 or exception.code >= 500
+            )
+            if not retry or attempt == _REQUEST_ATTEMPTS:
+                raise RuntimeError(f"Cannot access {url}: {exception}") from exception
             time.sleep(_RETRY_DELAY)
     try:
         return json.loads(text)

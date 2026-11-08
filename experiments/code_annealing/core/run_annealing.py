@@ -16,7 +16,7 @@ of proposals from the starting code, so the lowest-energy code of many makes the
 erratic.
 
 Files.  A run saves its chain checkpoint, such as ``css_n20_k04_s003.json`` for the code type css,
-20 qubits, 4 logical qubits and seed 3, after every completed epoch, and records of its
+20 qubits, 4 logical qubits, and seed 3, after every completed epoch, and records of its
 lowest-energy (``.lowest-energy.json``) and greatest-distance (``.greatest-distance.json``) codes as
 soon as either improves, so they keep discoveries of an unfinished epoch.  They go to
 ``results/logs/``, or to the logs of ``--results-dir``.  ``--tag`` adds a suffix to the names, and
@@ -33,14 +33,16 @@ Resuming and refining.  ``--resume CHECKPOINT`` restores the saved policy, codes
 generator, temperature, and epoch count exactly, so an interrupted and resumed run reproduces an
 uninterrupted one.  It rejects new code or policy options, and writes to the files of its
 checkpoint, so it takes no ``--tag`` or ``--output``.  An interruption loses only the unfinished
-epoch, never a record, and a replayed epoch never replaces a better record with a worse one.
+epoch, never a record, and a replayed epoch never replaces a better record with a worse one.  The
+first checkpoint is saved after the pilot, so a run interrupted before then, while it scores its
+``--init-samples`` codes or its pilot, has no checkpoint and starts over.
 ``--stop-after-epochs N`` stops after N more complete epochs.  Exact restart needs the same
 numerical runtime, operating system, and architecture, and the same version of this code.
 Otherwise, or to try new settings, ``--refine PATH`` starts a new chain from the lowest-energy code
 of a chain checkpoint or from the code of a record, either of which may come from another runtime
 or schema version.
 
-Scoring.  ``--method`` is ``auto`` (the default), ``brouwer_zimmermann``, ``macwilliams`` or
+Scoring.  ``--method`` is ``auto`` (the default), ``brouwer_zimmermann``, ``macwilliams``, or
 ``brute_force``, the methods of ``CSSLogicalCounter.count_logical_ops`` and all exact, and
 ``--objective`` is ``homogeneous`` (X-only and Z-only operators) or ``pauli`` (all Pauli
 representatives; the MacWilliams method needs ``--code-type swel`` for it).  See ``annealing.py``.
@@ -67,7 +69,6 @@ from .annealing import (
     SearchConfig,
     SearchState,
     energy,
-    get_library_method,
     get_lowest_energy_code,
     run_epochs,
     score_code,
@@ -87,7 +88,6 @@ from .paths import get_logs_dir, get_run_name
 from .proposals import (
     CODE_TYPES,
     CodeType,
-    random_initial_code,
     random_initial_codes,
 )
 
@@ -110,9 +110,13 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     # Never overwrite files owned by another chain; resuming owns its own checkpoint and records.
     # Check before a slow initialization if the name is known, and again before claiming it.
-    output = args.output or args.resume or _guess_output(args)
+    output = args.output or args.resume or _get_output_from_arguments(args)
     if output is not None and not args.dry_run:
         _check_output_is_free(parser, args, output)
+
+    # A checkpoint to resume must exist, so that locking it does not leave a stray lock file.
+    if args.resume is not None and not args.resume.is_file():
+        parser.error(f"{args.resume} does not exist")
 
     # Lock the chain before reading it, so that no other process changes it while this one waits.
     with contextlib.ExitStack() as locks:
@@ -246,8 +250,8 @@ def _get_seed(args: argparse.Namespace) -> int:
     return 0 if args.seed is None else args.seed
 
 
-def _guess_output(args: argparse.Namespace) -> Path | None:
-    """The checkpoint of a new search, if the command line gives its code size.
+def _get_output_from_arguments(args: argparse.Namespace) -> Path | None:
+    """The checkpoint of a new search, if the command line gives its code size, or None.
 
     A refined search takes its size from its code, so its checkpoint is named once it has one.
     """
@@ -348,12 +352,8 @@ def _get_random_code(
     seed = _get_seed(args)
     self_dual = config.code_type == "swel" or args.self_dual_start
     if args.init_samples is None:
-        return random_initial_code(
-            args.num_qubits,
-            args.num_logicals,
-            self_dual=self_dual,
-            seed=seed,
-            method=get_library_method(config),
+        return next(
+            random_initial_codes(args.num_qubits, args.num_logicals, self_dual=self_dual, seed=seed)
         )
     if args.init_samples < 1:
         parser.error("--init-samples must be positive")

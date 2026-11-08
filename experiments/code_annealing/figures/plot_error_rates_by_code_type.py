@@ -8,7 +8,7 @@ the logical error rate per logical qubit in the top row and the discard rate per
 the bottom row.  The codes are spread over columns of as many codes as the color cycle has colors,
 so that no color repeats within a column.
 
-The simulations, their cache and the options are those of ``plot_error_rates``.
+The simulations, their cache, and the options are those of ``plot_error_rates``.
 """
 
 from __future__ import annotations

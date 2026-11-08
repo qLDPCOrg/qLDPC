@@ -71,7 +71,7 @@ def _run(args: list[str]) -> None:
 
 def _fail_with_usage_error(args: list[str]) -> None:
     with pytest.raises(SystemExit) as error:
-        main(args)
+        main([*args, "--skip-compile"])
     assert error.value.code == 2
 
 
@@ -190,6 +190,11 @@ def test_a_chain_that_another_holder_has_locked_is_not_continued(
 def test_a_resumed_chain_writes_only_its_own_files(tmp_path: Path, chain: Path) -> None:
     _fail_with_usage_error(["--resume", str(chain), "--output", str(tmp_path / "fork.json")])
     assert not (tmp_path / "fork.json").exists()
+
+
+def test_a_missing_chain_is_not_resumed_and_leaves_no_files(tmp_path: Path) -> None:
+    _fail_with_usage_error(["--resume", str(tmp_path / "missing.json")])
+    assert not any(tmp_path.iterdir())
 
 
 def test_a_dry_run_writes_nothing(tmp_path: Path) -> None:

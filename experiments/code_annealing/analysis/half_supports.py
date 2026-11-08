@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Count the half-weight subsets of the supports of the minimum-weight logical operators.
+"""Count the half and majority supports of the minimum-weight logical operators of codes.
 
 These counts estimate the logical error rates of the annealed codes at low physical error rates
 (see ``figures/plot_error_estimates.py``).  The simulations decode each sector by a lookup table of
 the errors of weight up to ``(d - 1) // 2`` and discard every other syndrome, so the decoder
-completes a minimum-weight logical operator when ``d // 2 + 1`` qubits of its support err.  For odd
-``d``, these subsets are the half supports, of ``(d + 1) // 2`` qubits.  For even ``d``, errors on
-the ``d // 2`` qubits of a half support are discarded instead, so both sizes are counted.
+completes a minimum-weight logical operator when ``d // 2 + 1`` qubits of its support err.  Call
+the subsets of ``(d + 1) // 2`` qubits of a support its half supports, and those of ``d // 2 + 1``
+qubits its majority supports.  For odd ``d``, they are the same.  For even ``d``, errors on the
+``d // 2`` qubits of a half support are discarded instead, so both sizes are counted.
 
 Run with ``python -m experiments.code_annealing.analysis.half_supports [--max-qubits N]``.  For
 every code of the two text files of annealed codes, the script prints one line, and saves the same
@@ -47,6 +48,11 @@ from ..core.code_files import CodeParams, check_header, read_code_file, split_bl
 from ..core.paths import find_code_files, get_half_supports_file
 from .min_weight_supports import MinWeightSupports, count_support_subsets, get_min_weight_supports
 
+# A line of the file: [n, k, d] mx/mz hx/hz, and for even d (majority x/z) after that.
+_CODE_LINE = re.compile(
+    r"\[(\d+),\s*(\d+),\s*(\d+)\]\s+(\d+)/(\d+)\s+(\d+)/(\d+)(?:\s+\((\d+)/(\d+)\))?"
+)
+
 
 def main(argv: Sequence[str] | None = None) -> None:
     """Print the line of every code, and write the same text to a file unless codes are skipped."""
@@ -73,10 +79,6 @@ def main(argv: Sequence[str] | None = None) -> None:
 
 ####################################################################################################
 # reading the file
-
-_CODE_LINE = re.compile(
-    r"\[(\d+),\s*(\d+),\s*(\d+)\]\s+(\d+)/(\d+)\s+(\d+)/(\d+)(?:\s+\((\d+)/(\d+)\))?"
-)
 
 
 @dataclass(frozen=True)

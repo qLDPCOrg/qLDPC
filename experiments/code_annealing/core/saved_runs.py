@@ -92,11 +92,9 @@ class SavedCode:
 class RunProgress:
     """How far a chain has run, read from its checkpoint without rechecking any code."""
 
-    path: Path
     code_type: CodeType
     num_qubits: int
     num_logicals: int
-    seed: int
     completed_epochs: int
     epochs: int
     greatest_distance: Score
@@ -178,11 +176,9 @@ def load_run_progress(path: Path) -> RunProgress | None:
         config = SearchConfig(**data["config"])
         counter = decode_code(data["current"]["code"])
         return RunProgress(
-            path,
             config.code_type,
             counter.num_qubits,
             counter.dimension,
-            read_seed(data),
             int(data["completed_epochs"]),
             config.epochs,
             Score(**data["greatest_distance"]["score"]),

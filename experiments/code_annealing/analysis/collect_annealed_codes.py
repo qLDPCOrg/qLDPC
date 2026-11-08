@@ -3,7 +3,7 @@
 """Save the best code of each size that saved annealing runs found.
 
 Run with ``python -m experiments.code_annealing.analysis.collect_annealed_codes``.  The best code
-of each code type, number of qubits and number of logical qubits has the greatest distance, and
+of each code type, number of qubits, and number of logical qubits has the greatest distance, and
 among those the fewest minimum-weight logical operators.  The codes go to
 ``data/annealed_codes.txt`` (CSS) and ``data/annealed_codes_swel.txt`` (SWEL) of the results
 directory, with generators of low weight.  Codes that are already in those files compete with those
@@ -21,7 +21,13 @@ from qldpc.codes import CSSLogicalCounter
 
 from ..core.annealing import distance_rank
 from ..core.cli import add_results_dir_argument, make_parser
-from ..core.code_files import format_code, read_code_file, reduce_weights, write_code_file
+from ..core.code_files import (
+    format_code,
+    read_code_file,
+    recount,
+    reduce_weights,
+    write_code_file,
+)
 from ..core.paths import get_code_files, get_logs_dir
 from ..core.proposals import CodeType
 from ..core.saved_runs import get_saved_run_paths, load_saved_codes
@@ -40,6 +46,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise SystemExit(f"No saved runs in {logs_dir}: nothing to collect")
     files = get_code_files(args.results_dir)
 
+    # Offer the codes of the files, rechecked, and then those of the runs; the best of a size wins.
     best: dict[tuple[CodeType, int, int], _Candidate] = {}
 
     def offer(code_type: CodeType, counter: CSSLogicalCounter, distance: int, count: int) -> None:
@@ -50,12 +57,12 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     for code_type, path in files.items():
         for entry in read_code_file(path) if path.exists() else []:
-            counter = CSSLogicalCounter(entry.code)
-            counts = counter.count_logical_ops()
-            offer(code_type, counter, counts.weight, counts.count_x + counts.count_z)
+            recount(entry)
+            offer(code_type, CSSLogicalCounter(entry.code), entry.distance, entry.count_homogeneous)
     for code in saved:
         offer(code.code_type, code.counter, code.score.distance, code.score.count_homogeneous)
 
+    # Rewrite each file with the best code of each size, with generators of low weight.
     for code_type, path in files.items():
         blocks = []
         for key in sorted(key for key in best if key[0] == code_type):

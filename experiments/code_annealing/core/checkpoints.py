@@ -314,7 +314,7 @@ def _check_progress(data: dict[str, Any], config: SearchConfig) -> None:
 
 
 def _check_codes(codes: dict[str, ScoredCode], config: SearchConfig) -> None:
-    """Check that the current, lowest-energy and greatest-distance codes are consistent."""
+    """Check that the current, lowest-energy, and greatest-distance codes are consistent."""
     current, lowest, greatest = (codes[role].score for role in _CHAIN_CODE_ROLES)
     first = codes["current"].counter
     if any(code.counter.dimension != first.dimension for code in codes.values()):

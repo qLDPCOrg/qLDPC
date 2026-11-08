@@ -46,11 +46,17 @@ class CodeEntry:
     """The file that holds the code."""
 
     code: CSSCode
-    num_qubits: int
-    num_logicals: int
     distance: int
     count_homogeneous: int
     """Number of minimum-weight X-only plus Z-only logical operators."""
+
+    @property
+    def num_qubits(self) -> int:
+        return self.code.num_qubits
+
+    @property
+    def num_logicals(self) -> int:
+        return self.code.dimension
 
     @property
     def params(self) -> CodeParams:
@@ -125,7 +131,7 @@ def read_code_file(path: str | Path) -> list[CodeEntry]:
                 f"{path}, line {block[0][0]}: a header claims {num_logicals} logical qubits, but"
                 f" its code has {code.dimension}"
             )
-        entries.append(CodeEntry(Path(path), code, num_qubits, num_logicals, distance, count))
+        entries.append(CodeEntry(Path(path), code, distance, count))
     return entries
 
 

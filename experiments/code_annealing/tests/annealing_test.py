@@ -24,7 +24,9 @@ from .search_helpers import canonical_checks, counter_from_checks, steane_counte
 
 
 def test_the_scores_of_the_steane_code_have_the_known_counts() -> None:
-    # The [[7,1,3]] Steane code has 7 X-only and 7 Z-only logicals of weight 3, and 21 Paulis.
+    # The minimum-weight X-only (and Z-only) logicals of the [[7,1,3]] Steane code are the 7 words
+    # of weight 3 of the [7,4,3] Hamming code, which are not in its dual (they are the lines of the
+    # Fano plane).  Each of their supports also carries a Y-only logical, so there are 21 Paulis.
     assert a.score_code(steane_counter(), a.SearchConfig()) == a.Score(3, 7, 7, None)
     pauli = a.SearchConfig(objective="pauli")
     assert a.score_code(steane_counter(), pauli) == a.Score(3, 7, 7, 21)
