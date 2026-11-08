@@ -229,6 +229,7 @@ The optimizations are:
 - [Section 3.4](#34-quotient-labels-for-the-stabilizer-test) tests whether a candidate word lies in `S` by XORing precomputed labels.
 - [Section 3.5](#35-packed-enumeration-with-pivot-column-deletion) packs words into machine words, reuses partial XORs, and avoids storing pivot columns.
 - [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) enumerates every word when that is cheaper than running BZ.
+- [Section 3.9](#39-skipping-completions-that-cannot-lower-u) skips the supports whose last two rows provably cannot complete a word lighter than `U`.
 
 [Section 3.7](#37-images-of-an-information-set-under-automorphisms) is both an extension and an optimization, for problems that a group of coordinate permutations preserves.
 It certifies with the images of one information set under the group, and scans only that set.
@@ -575,6 +576,88 @@ The search stops after layer four.
 The overlapping family needs fewer evaluations because it avoids layers five and six.
 The counts cover only enumeration; building and packing the search bases costs extra.
 
+### 3.9 Skipping completions that cannot lower U
+
+The layers that a search scans last dominate its cost, and most of their words weigh far more than `U`.
+For example, certifying distance eighteen for the X sector of the [[288, 12, 18]] code of [arXiv:2308.07915](https://arxiv.org/abs/2308.07915) with an automorphism family scans layer eight of a basis with `r = 150` rows, about `5 × 10^12` supports.
+A search can skip whole groups of these supports if a cheap lower bound proves that none of their words is lighter than `U`.
+qLDPC can do this when a layer scans one search basis whose block is an information set, which includes every layer of a search of an automorphism family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
+Counting and the coset-leader search ([Section 4.1](#41-module-map-and-layering)) do not skip supports.
+
+#### The bound
+
+Write the search basis as `G = [I_r | P]`, with the pivot columns first.
+A word that sums the rows of a support of size `w` weighs `w` plus the weight of the sum of their **tails**, the rows of `P` ([Section 3.5](#35-packed-enumeration-with-pivot-column-deletion)).
+Consider the supports that share their first `w - 2` rows, whose tails sum to `p`, and whose next row is at least `s`.
+Each is completed by a pair of rows `s ≤ i < j < r`, and its word weighs `w + wt(p + P_i + P_j)`.
+
+Partition the tail columns into disjoint blocks `J_b`.
+On each block, let
+
+$$
+m_b = \min_{s \le i < j < r} \operatorname{wt}\big((p + P_i + P_j)|_{J_b}\big).
+$$
+
+Every completion uses the same pair on every block, and its weight on each block is at least the minimum there, so
+
+$$
+\operatorname{wt}(p + P_i + P_j) \ge B = \sum_b m_b
+$$
+
+for every pair.
+If `w + B ≥ U`, no completion is lighter than `U`, and the search skips them all.
+Different blocks may attain their minima at different pairs, which only weakens `B`.
+The bound ignores eligibility, which only weakens it too.
+
+The bound must minimize over every pair: a minimum over fewer pairs, or over sampled pairs, can exceed the weight of a real completion.
+The blocks must be disjoint: a column in two blocks can be counted twice.
+The pivot ones must number exactly `w`, which holds only for a block that is an information set ([Section 2.4](#24-search-bases-and-rank-deficient-blocks)).
+The bound uses the rows in the order in which the search sums them, since the pairs from row `s` on depend on that order.
+
+#### Tables and lookups
+
+For each block and each `s`, a table stores the distance from every value of `p` on the block to the nearest sum of a pair from row `s` on.
+The tables for `s` are those for `s + 1`, lowered by the pairs of row `s`, and a breadth-first search from those new sums lowers them.
+With blocks of `β` columns, the tables take `(r - 1) Σ_b 2^|J_b|` bytes, and building them costs about `2^β β^2` steps for each block, plus writing each table.
+A bound then costs one table entry per block.
+The search looks up the bound each time it tries a new row `s` as the first of the last pair, and if it skips the completions, it skips the rest of the prefix's subtree.
+A bound for a larger `s` is stronger, so a support is skipped exactly if the bound of its own `s` reaches `U - w`.
+
+#### Certificates and contracts
+
+Skipped supports are not examined, but they weigh at least the value of `U` when they were skipped, and hence at least any later `U`.
+An eligible word lighter than `U` is therefore neither examined nor skipped, so every argument of [Section 2.5](#25-the-stopping-certificate) still holds for it.
+The certificate `L` of a search bounds only such words: no eligible word weighs less than `min(L, U)`.
+`L` alone can exceed the weights of skipped words, just as it can exceed the weights of words whose images an automorphism family has examined ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), so a bound on the distance is `min(L, U)`.
+No skipped word is lighter than `U` at any later time, so a scan with tables finds the same witnesses in the same order as a scan without them, and an early exit at a cutoff returns the same weight.
+A search stops exactly when it would without skipping, because it stops once its certificate reaches `U`.
+Words that weigh exactly `U` can be skipped, so counting the words of a given weight, which must visit them all ([Section 5](#5-correctness-requirements)), does not use these tables.
+
+#### When a search uses the tables
+
+Every layer of two or more rows that scans one information set uses `_scan_one_information_set`, a scan specialized to that case, with or without tables.
+Tables of a basis with `r = 150` rows and 138 tail columns, in blocks of sixteen columns, take 75 MiB, and about a twentieth of a second to build on the machine described below.
+That is worthwhile for a layer of `10^10` supports, but not for an easy search.
+A search considers tables for a layer of at least `completion_bound_minimum_layer_work` supports ([Section 4.4](#44-heuristics-and-cost-models)).
+It then estimates the share of supports that the tables would skip, from the bounds of at most `COMPLETION_SAMPLES` random supports computed directly from the rows, and takes a conservative lower bound on that share.
+It predicts the cost of the layer from this share, the number of lookups, and the cost of building tables that it does not have yet.
+Each lookup costs a few plain support evaluations for each block of the tables, and more for larger tables, which miss the processor's caches more often.
+The search uses tables if the predicted cost is at most `completion_bound_max_cost_percent` percent of the cost without them.
+Tables use blocks of sixteen columns, or of eight columns if the tables would otherwise exceed `completion_bound_max_table_bytes`.
+A search keeps its tables for later layers, and drops them when its basis changes, as when it switches to an automorphism family.
+It frees them when it finishes, but the search of each sector of a joint search keeps its own tables until then, so a joint search can hold twice `completion_bound_max_table_bytes`.
+
+Measurements on one Apple M3 Max processor, single-threaded, illustrate these trade-offs.
+The cost ratio of a layer is its time with tables, including their construction, divided by its time without them, with `completion_bound_max_table_bytes` set to zero.
+The constants of the cost model, in [_tuning.py](_tuning.py), were fitted to nine layers of four codes, which their comments describe.
+On five other layers, they never predicted a cost ratio more than 0.02 below the measured one, nor more than 0.12 above it.
+For the X sector of the [[288, 12, 18]] code above, with `U = 18` and the scanned set and row order that qLDPC chooses, layer six had a cost ratio of 0.22 under the default tuning, and its tables skipped 87% of its supports.
+On nine layers of `5 × 10^8` to `1.5 × 10^10` supports of that code and of three pair-partition codes, `_scan_one_information_set` without tables took 70% to 95% of the time of `_scan_brouwer_zimmermann`, which scans any family of sets.
+With tables forced, by `completion_bound_minimum_layer_work` set to zero and `completion_bound_max_cost_percent` set to `MAX_VALUE`, three of four layers of `2 × 10^7` to `5 × 10^7` supports, of that code and of two pair-partition codes, were slower, with cost ratios up to 1.6, and the cost model predicted ratios above one for all four.
+Such small layers gain little even when tables pay, and estimating the share of skipped supports takes milliseconds, so a search considers tables only for layers of at least `completion_bound_minimum_layer_work` supports.
+The share of skipped supports depends on the code, the scanned set, and the order of its rows, and other codes may gain less, or nothing when a search declines the tables.
+Skipping does not reduce the number of layers that a search must complete, and the number of prefixes still grows like that of supports for a fixed ratio `w/r`.
+
 ## 4. Guide to the source code
 
 **Audience note:** This section is a highly technical summary written to help AI agents navigate the BZ implementation in qLDPC.
@@ -605,6 +688,7 @@ It also passes a function that returns automorphisms of the code.
 `get_distance_exact` of `QuditCode` passes the same function to `_get_distance_quantum`, a private form of `get_distance_quantum` that accepts automorphisms.
 `_get_distance_quantum` lifts them to the coordinates of a general Pauli problem with `_get_lifted_automorphisms`, and passes its problem to `get_distance_brouwer_zimmermann_many`.
 [_search/automorphism_families.py](_search/automorphism_families.py) verifies automorphisms and builds the automorphism families of [Section 3.7](#37-images-of-an-information-set-under-automorphisms), using [_search/information_sets.py](_search/information_sets.py) for their certificates.
+The distance search uses [_search/completion_bounds.py](_search/completion_bounds.py) to choose and build the tables of [Section 3.9](#39-skipping-completions-that-cannot-lower-u).
 
 `CosetLeaderSearch` in [_search/coset_leader_search.py](_search/coset_leader_search.py), which the fault-propagation certifier in `qldpc.circuits.certification` uses, applies the same search to a coset `e + V` instead of `V`.
 There a layer adds `w` rows to an **offset**, a word of the coset that is zero on the pivot columns ([Section 2.3](#23-systematic-bases-and-information-sets)), so layer zero is the offset itself.
@@ -656,7 +740,7 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Concept | Code |
 | --- | --- |
 | Upper bound `U` | `best`, or `upper_bound` as a parameter |
-| Lower certificate `L` | `lower_bound` of a search, computed by `Certificate.lower_bound(completed_weight)` from the certificate's `dimension`, `ranks`, `weight_divisor`, and `max_coverage` |
+| Lower certificate `L` | `lower_bound` of a search, computed by `Certificate.lower_bound(completed_weight)` from the certificate's `dimension`, `ranks`, `weight_divisor`, and `max_coverage`; it bounds the eligible words lighter than `U`, so a bound on the distance is `min(L, U)` |
 | Certificate within a layer `L(t, j)` | `Certificate.step_lower_bound(weight, num_completed)` and the table of `get_step_lower_bounds`; `Certificate.get_num_sets_to_certify` gives the smallest `j` that certifies a bound |
 | Certificate from linear programming | `get_lp_lower_bound`, which a `Certificate` with `pivot_blocks` combines with the coverage-divided certificate; `BasisFamily.get_search_certificate` adds the blocks to costly searches of overlapping families |
 | Family of search bases | `BasisFamily`, which stacks the search bases into arrays and gives their `Certificate`; a search keeps only the certificate |
@@ -671,11 +755,12 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Stored width `N_stored` | `basis.shape[1]` before pivot deletion, including any all-zero columns |
 | Labels `M` | `labels`, which has no columns for a classical problem |
 | Eligible rows | `get_eligible_rows` of [_binary.py](_binary.py): every row of a classical basis; rows with nonzero labels for a quantum problem |
-| Support, prefix XORs | `support` and `prefixes` in `advance` and `_scan_brouwer_zimmermann`, which steps through a layer with `advance_support` of [_search/information_sets.py](_search/information_sets.py) |
+| Support, prefix XORs | `support` and `prefixes` in `advance`, `_scan_brouwer_zimmermann`, and `_scan_one_information_set`, which step through a layer with `advance_support` of [_search/information_sets.py](_search/information_sets.py) |
 | Packed generators | `generators` of `_BrouwerZimmermannSearch`: `uint64` words after deleting pivot columns; `widths` counts the valid words for each search basis |
 | Packed labels | `labels` of `_BrouwerZimmermannSearch`: `uint64` quotient-label words, without pivot-column deletion; `label_widths` counts the valid words |
-| Chunk | `batch_size`, equal to `1 << min(block_size, 15)` supports |
+| Chunk | `batch_size`, equal to `1 << min(block_size, 15)` supports, or supports and lookups together in a scan with completion tables ([Section 4.5](#45-behavior-spanning-files)) |
 | Candidate/set evaluation | The unit counted by `Certificate.work` |
+| Completion tables ([Section 3.9](#39-skipping-completions-that-cannot-lower-u)) | `CompletionTables` of [_search/completion_bounds.py](_search/completion_bounds.py), chosen for each layer by `select_completion_tables` from a `CompletionPolicy` and kept in `completion_tables` of a search; the scan is `_scan_one_information_set`, which returns the numbers of supports that it weighs and skips and of bounds that it looks up |
 
 For the rank-deficient remainder of [Section 2.4](#24-search-bases-and-rank-deficient-blocks), the implementation records only the independent pivot columns, in the first `rank` entries of the set's row of `BasisFamily.pivots`, and pads the rest with -1.
 The remaining columns of that remainder stay in the generator matrix.
@@ -710,6 +795,9 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   The work estimates that choose families use only the coverage-divided certificate.
 - **`get_automorphism_family`** row reduces in natural column order, then exchanges pivots between orbits in the compiled `_balance_orbit_shares`, as [Section 3.7](#37-images-of-an-information-set-under-automorphisms) explains.
   A search asks for automorphisms before the first layer whose scan would cost at least `automorphism_minimum_layer_work`, and switches to the automorphism family if `estimate_automorphism_family_work` is less than the `Certificate.work` of its family.
+- **`select_completion_tables`** decides whether a layer of one information set uses completion tables, as [Section 3.9](#39-skipping-completions-that-cannot-lower-u) explains.
+  It considers layers of at least `completion_bound_minimum_layer_work` supports, uses tables if it predicts that they cost at most `completion_bound_max_cost_percent` percent of the cost without them, and keeps tables within `completion_bound_max_table_bytes`.
+  Random supports only estimate the value of tables; a search skips supports only when `w` plus their computed bound reaches `U`.
 - **`Certificate.work`, `estimate_automorphism_family_work`, `_enumeration_is_cheaper_than_search`, and `enumeration_is_cheaper_than_setup`** are cost models, which Sections [3.6](#36-exhaustive-enumeration-as-a-fallback) and [3.7](#37-images-of-an-information-set-under-automorphisms) explain.
   They are not runtime guarantees.
   `enumeration_is_cheaper_than_setup` compares the setup cost of BZ with packed enumeration of all words, and its rule is in the source.
@@ -745,6 +833,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   The direct shortcut verifies independence itself, so the packed enumerators always receive independent bases.
 - **Resumable layers.**
   The compiled scan returns after at most `batch_size` supports.
+  A scan of one information set with completion tables ([Section 3.9](#39-skipping-completions-that-cannot-lower-u)) returns after at most `batch_size` supports and lookups together, so it stays responsive while it skips most supports.
   Within one `advance` call, successive compiled batches reuse the local `support` and `prefixes` arrays.
   `advance` changes `lower_bound` and `next_weight` only after a layer is complete in every search basis, or when the search switches to an automorphism family, which sets `next_weight` to two and keeps the larger `lower_bound`.
   Aborting `advance`, for example with an exception or a cutoff return, leaves those completed-layer fields unchanged.
@@ -774,15 +863,20 @@ Changes to the BZ algorithm can use different representations, certificates, and
   Candidate weights, certificates, cutoffs, and returned results must use consistent units.
   For the current implementation, this includes restoring the deleted pivot weight ([Section 3.5](#35-packed-enumeration-with-pivot-column-deletion)) and converting between Pauli and Hamming weights ([Section 4.5](#45-behavior-spanning-files)).
 - **Use only justified certificates.**
-  A certificate must hold for every eligible word still unexamined in the search where it is used.
+  A certificate `L` must hold for every eligible word lighter than `U` in the search where it is used, which are all unexamined.
+  It need not hold for heavier words, such as skipped ones, so a bound that a search reports on the distance is `min(L, U)`, not `L`.
   The current formula relies on block ranks, overlap coverage, and completed layers (Sections [2.4](#24-search-bases-and-rank-deficient-blocks), [2.5](#25-the-stopping-certificate), and [3.1](#31-overlapping-search-bases)).
   Coverage may be conservatively overestimated; underestimating it can make the formula unsound.
   Optional rounding requires a divisor valid for every eligible weight ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)).
   A certificate from another CSS sector needs justification for the sector where it is applied, just as any other certificate does.
   The certificate of an automorphism family holds instead for every eligible word whose images under the automorphisms are all unexamined, so it requires automorphisms that map `V` and `S` onto themselves ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), which searches verify before they use them.
+- **Skip only supports that a bound proves cannot lower `U`.**
+  A search may skip supports only if a lower bound on the weight of every one of their words reaches `U` ([Section 3.9](#39-skipping-completions-that-cannot-lower-u)).
+  The completion bounds of qLDPC rely on a minimum over every remaining pair of rows, on disjoint blocks of columns, on exactly `w` pivot ones, which hold only for a block that is an information set, and on the order in which the scan sums the rows.
 - **Keep the strict certificate available to fixed-weight counting.**
   [logical_counts.py](logical_counts.py) builds its basis family with the same stages as the distance search, in `_select_basis_family` and `count_words` of [_counting/scan.py](_counting/scan.py), and stops at the first step after which that basis family's certificate exceeds a target weight `w`, to count every word of weight `w`, which defaults to the distance.
   Distance may stop at `L(t, j) ≥ U`, but counting must also exhaust words of weight exactly `w`, so it stops only at `L(t, j) > w`.
+  For the same reason, counting does not skip supports, which may hold words of the target weight `w`.
   A word of weight `w` belongs to the first step that visits it, and the steps that the scan visits are the first ones in order, so stopping within a layer still counts every such word once.
   Its bound must use the ranks and actual maximum coverage of the family it scans; it passes `upper_bound=w+1` to the family stages only to aim them at that stopping point.
 - **Preserve the return contract.**
@@ -795,6 +889,8 @@ Representative correctness tests check certificate validity against exhaustive w
 `test_automorphism_families_certify_like_the_family_of_all_images` in [_search/automorphism_families_test.py](_search/automorphism_families_test.py) checks the certificate of an automorphism family against every image of the scanned set, and `test_automorphism_family_searches_scan_every_layer_they_certify` in [_search/brouwer_zimmermann_test.py](_search/brouwer_zimmermann_test.py) checks a translated search whose lightest word appears only in its last layer.
 `test_automorphism_family_searches_scan_their_new_set_from_layer_two` checks a distance that a search that switched to an automorphism family would miss if it skipped the early layers of its new set.
 `test_searches_ask_for_automorphisms_only_before_costly_layers` checks that easy searches do not pay to find automorphisms.
+`test_bounds_are_exact_relaxations` in [_search/completion_bounds_test.py](_search/completion_bounds_test.py) checks completion bounds against enumerated completions.
+`test_scan_of_one_information_set` in [_search/brouwer_zimmermann_test.py](_search/brouwer_zimmermann_test.py) checks that the scan finds the lightest word of a layer and weighs or skips each support exactly once, and `test_completion_tables_keep_distances_exact` checks whole searches against brute force.
 In [core_test.py](core_test.py), `test_brouwer_zimmermann_random_cross_checks` forces the BZ route and compares both homogeneous and general Pauli problems with exhaustive results.
 `test_max_weight` checks weight-limited results against enumeration on every route, and `test_max_weight_caps_cutoff` checks a case that a weight limit without the `cutoff` cap would get wrong.
 
@@ -807,5 +903,5 @@ Those tests can evolve with the implementation; they do not make a particular in
 - M. Grassl, "Searching for linear codes with large minimum distance," in *Discovering Mathematics with Magma*, Springer, 2006, pp. 287-313 ([doi:10.1007/978-3-540-37634-7_13](https://doi.org/10.1007/978-3-540-37634-7_13)): Algorithm 2.5 gives the certificate for overlapping information sets, footnote 2 on page 295 the certificate within a layer, page 299 the rounding to a weight divisor, and Algorithm 2.11 the choice between BZ and the weight distribution.
 - P. Lisoněk and L. Trummer, "Algorithms for the minimum weight of linear codes," *Advances in Mathematics of Communications* 10(1), 195-207, 2016 ([doi:10.3934/amc.2016.10.195](https://doi.org/10.3934/amc.2016.10.195)): equation (5) gives the certificate within a layer, Proposition 5 a coverage-divided certificate for any blocks, and Section 5.1 builds families of information sets with bounded coverage by matroid partitioning.
 - [arXiv:2408.10743v2](https://arxiv.org/abs/2408.10743v2): Section 2.4 describes the `Saved_isometry` symplectic-to-Hamming construction.
-- [core.py](core.py), [_search/brouwer_zimmermann.py](_search/brouwer_zimmermann.py), [_search/information_sets.py](_search/information_sets.py), [_search/automorphism_families.py](_search/automorphism_families.py), [_search/matroid_partition.py](_search/matroid_partition.py), [_search/brute_force.py](_search/brute_force.py), [_binary.py](_binary.py), and [qldpc/_binary.py](../../_binary.py): the implementation.
-- [_search/brouwer_zimmermann_test.py](_search/brouwer_zimmermann_test.py), [_search/information_sets_test.py](_search/information_sets_test.py), [_search/automorphism_families_test.py](_search/automorphism_families_test.py), and [core_test.py](core_test.py): executable invariants and independent small-instance oracles.
+- [core.py](core.py), [_search/brouwer_zimmermann.py](_search/brouwer_zimmermann.py), [_search/information_sets.py](_search/information_sets.py), [_search/automorphism_families.py](_search/automorphism_families.py), [_search/completion_bounds.py](_search/completion_bounds.py), [_search/matroid_partition.py](_search/matroid_partition.py), [_search/brute_force.py](_search/brute_force.py), [_binary.py](_binary.py), and [qldpc/_binary.py](../../_binary.py): the implementation.
+- [_search/brouwer_zimmermann_test.py](_search/brouwer_zimmermann_test.py), [_search/information_sets_test.py](_search/information_sets_test.py), [_search/automorphism_families_test.py](_search/automorphism_families_test.py), [_search/completion_bounds_test.py](_search/completion_bounds_test.py), and [core_test.py](core_test.py): executable invariants and independent small-instance oracles.

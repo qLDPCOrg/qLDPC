@@ -82,9 +82,10 @@ def test_tunings_are_validated() -> None:
 def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> None:
     """Exact distances and counts are the same under tunings that take different routes.
 
-    By default, and with every threshold at ``MAX_VALUE``, the distance searches of this code
-    enumerate every word.  With every threshold at zero, the searches take a family found by matroid
-    partitioning instead.
+    By default, and with every threshold below at ``MAX_VALUE``, the distance searches of this code
+    enumerate every word.  With every threshold below at zero, the searches take a family found by
+    matroid partitioning instead.  These searches never scan one information set at a time, so the
+    tests of ``_search/brouwer_zimmermann_test.py`` force completion tables instead.
     """
     code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
     eager = {
