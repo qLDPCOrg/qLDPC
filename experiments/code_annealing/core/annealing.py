@@ -12,14 +12,15 @@ including mixed and Y-only ones.
 Before the first epoch, a pilot scores one epoch's worth of proposals from the initial code to fit
 the first temperature, without moving the chain.  Independently of the chain, the search records the
 lowest-energy code and the greatest-distance code (ties broken by the lowest multiplicity) among
-*all* evaluated proposals, including pilot and rejected ones.
+the proposals of the chain and its pilot, accepted or not, but not the proposals that only time the
+counting methods.
 
-Scoring takes most of a step, and it has two exact methods that give identical scores, so the
-method changes only the running time.  Brouwer-Zimmermann counts at a guess of the distance, and
-verifies it; the MacWilliams method walks every word of the check spaces once.  With the ``auto``
-method, the search races the two at the start of each epoch and keeps the faster, so the choice
-depends on timing, and no result depends on it.  See ``_score_proposal``, ``_score_by_guessing``
-and ``_select_method`` for the details.
+Scoring takes most of a step.  The exact methods give identical scores, so the method changes only
+the running time.  Brouwer--Zimmermann counts at a guess of the distance, and verifies it; the
+MacWilliams method walks every word of the check spaces once.  With the ``auto`` method, the search
+races these two at the start of each epoch and keeps the faster, so the choice depends on timing,
+and no result depends on it.  See ``_score_proposal``, ``_score_by_guessing``, and
+``_select_method`` for the details.
 """
 
 from __future__ import annotations
@@ -44,7 +45,8 @@ from .proposals import CODE_TYPES, CodeType, propose
 SearchMethod = Literal["auto", "brouwer_zimmermann", "macwilliams", "brute_force"]
 METHODS = get_args(SearchMethod)
 
-# The method of the one-off counts that do not belong to a chain, and the independent checks.
+# The library method of counts outside a chain, such as of initial and saved codes, when the search
+# method is ``auto``.
 _DEFAULT_LIBRARY_METHOD: LogicalCountMethod = "brouwer_zimmermann"
 
 # Quantities that the multiplicity of the energy can count.
@@ -63,9 +65,10 @@ LOG_TEMPERATURE_BOUNDS = (-10.0, 0.0)
 
 # Choosing a method.  The MacWilliams method walks all words of the check spaces, so it is only
 # timed for check ranks up to _RACE_MAX_RANK.  Each method scores _RACE_PROPOSALS proposals of the
-# current code (fewer in a short epoch).  The race stops early after _RACE_SECONDS, or once a method
-# has taken _RACE_DECISIVE_RATIO times as long as the other for _RACE_MIN_PROPOSALS proposals.  The
-# search keeps its method unless the other one takes less than _RACE_SWITCH_FRACTION of its time.
+# current code (fewer in a short epoch).  After at least _RACE_MIN_PROPOSALS timed proposals, the
+# race stops once either method has spent _RACE_SECONDS in total, or _RACE_DECISIVE_RATIO times as
+# long as the other.  The search keeps its method unless the other one takes less than
+# _RACE_SWITCH_FRACTION of its time.
 _RACE_MAX_RANK = 26
 _RACE_PROPOSALS = 16
 _RACE_SECONDS = 0.5
@@ -102,9 +105,9 @@ class SearchConfig:
             it was.
         uphill_acceptance_stop: The same target in the last epoch.  The targets in between decrease
             geometrically, which cools the chain.
-        temperature_memory: Weight of the previous temperature in the temperature of the next
-            epoch, which is otherwise the temperature that gives the target acceptance to the
-            proposals of the last epoch.
+        temperature_memory: Weight of the previous log-temperature in the log-temperature of the
+            next epoch, which is otherwise that of the temperature that gives the target acceptance
+            to the proposals of the last epoch.
         objective: What the multiplicity of the energy counts (see above).
         physical_error_rate: The physical error rate p of the energy.
         method: How proposals are scored (see the module docstring).
@@ -169,9 +172,11 @@ class SearchConfig:
 
 @dataclass(frozen=True)
 class EpochStatistics:
-    """Completed-epoch observables, excluding the initial pilot evaluations.
+    """The observables of one completed epoch.
 
-    The uphill acceptance rate is 1.0 if no proposal of the epoch raised the energy.
+    The temperature and rates are those of the epoch, which exclude the pilot; ``lowest_energy`` is
+    the lowest energy of any proposal so far, including the pilot's.  The uphill acceptance rate is
+    1.0 if no proposal of the epoch raised the energy.
     """
 
     epoch: int
@@ -330,7 +335,7 @@ def run_epochs(
 
 
 ####################################################################################################
-# energy, temperature and acceptance
+# energy, temperature, and acceptance
 
 
 def get_library_method(config: SearchConfig) -> LogicalCountMethod:
@@ -389,7 +394,8 @@ def get_lowest_energy_code(
     short by ``itertools.islice``.
 
     Raises:
-        ValueError: If there are no codes.
+        ValueError: If there are no codes, or if a code is not one that the search accepts (see
+            ``SearchConfig.validate_code``).
     """
     lowest, lowest_energy = None, math.inf
     for counter in counters:
@@ -613,8 +619,8 @@ def _select_method(state: SearchState) -> LogicalCountMethod:
     if config.method != "auto":
         return config.method
     counter = state.current.counter
-    # Physical Pauli counts of the MacWilliams method need self-dual codes, which only the SWEL gate
-    # keeps.
+    # MacWilliams is raced only for check ranks up to _RACE_MAX_RANK, and for Pauli counts only on
+    # SWEL searches, whose codes stay self-dual, as such counts require.
     if max(len(counter.checks_x), len(counter.checks_z)) > _RACE_MAX_RANK or (
         config.objective == "pauli" and config.code_type != "swel"
     ):

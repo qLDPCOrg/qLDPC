@@ -93,7 +93,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
 
 ####################################################################################################
-# simulated and estimated logical error rates
+# helper methods
 
 
 @dataclass(frozen=True)
@@ -106,10 +106,6 @@ class _ErrorEstimate:
     simulated: float
     estimate: float
     refined_estimate: float
-
-
-####################################################################################################
-# helper methods
 
 
 def _get_error_estimates(
@@ -128,14 +124,14 @@ def _get_error_estimates(
     """
     estimates = []
     for entry in entries:
-        code_counts = counts.get((entry.num_qubits, entry.num_logicals, entry.distance))
+        code_counts = counts.get(entry.params)
         if code_counts is None:
             print(f"{get_label(entry)} has no counts, so it is skipped")
             continue
         if code_counts.count_x + code_counts.count_z != entry.count_homogeneous:
             raise ValueError(
-                f"The code {get_label(entry)} has {entry.count_homogeneous} minimum-weight logical operators,"
-                f" but the counts add up to {code_counts.count_x} + {code_counts.count_z}"
+                f"The code {get_label(entry)} has {entry.count_homogeneous} minimum-weight logical"
+                f" operators, but the counts add up to {code_counts.count_x} + {code_counts.count_z}"
             )
         print(get_label(entry), flush=True)
         func = get_error_rate_func(entry, num_samples, max_error_rate, cache_dir=cache_dir)

@@ -4,7 +4,8 @@ This file is the source of truth for setting up and running the experiment.
 
 ## Summary
 
-- Tested platform: macOS on Apple silicon (arm64), Python 3.13, October 2026.
+- Tested platforms: macOS on Apple silicon (arm64), Python 3.13, October 2026; and Linux on x86-64, Python 3.11, November 2026.
+- Operating system: Unix, such as Linux or macOS, since the searches lock their files with `fcntl`.
 - Toolchain: Python 3.11 or later, with the `qldpc` package of the same repository, and matplotlib for the figures.
 - Environment required: yes, a Python environment with `qldpc` installed from the clone.
 - External requirements: none for reproducing the paper's table and figures.
@@ -12,7 +13,7 @@ This file is the source of truth for setting up and running the experiment.
 
 ## Dependency files
 
-- `pyproject.toml` at the root of the qLDPC repository lists the dependencies of `qldpc`, which include NumPy, SciPy, numba, galois and Stim.
+- `pyproject.toml` at the root of the qLDPC repository lists the dependencies of `qldpc`, which include NumPy, SciPy, numba, galois, and Stim.
 - matplotlib, which only the figures need, is installed alongside.
 
 ## Setup from the root of the repository
@@ -39,8 +40,8 @@ python -m experiments.code_annealing.NAME [options]
 ```
 
 Each search uses one core: set `NUMBA_NUM_THREADS=1` to keep numba from starting more threads, as the jobs of `write_jobs` do.
-qLDPC caches its compiled kernels in the user's cache directory, and `analysis/min_weight_supports.py` caches its kernel in the repository.
-Set `NUMBA_CACHE_DIR` to a writable directory if either is read-only, or to one that all jobs share.
+qLDPC caches its compiled kernels in the user's cache directory.
+Set `NUMBA_CACHE_DIR` to a writable directory if that is read-only, or to one that all jobs share.
 
 ## Running on a server
 

@@ -14,14 +14,14 @@ The code-annealing experiment has offline tests that you can run locally, but th
 Each script's module docstring summarizes its method and outputs; run it with `--help` to see its options.
 The quantum Tanner `run_search.py` and `verify_codes.py` require [GAP](https://www.gap-system.org) for their groups (the SmallGroups library) and Cordaro–Wagner base codes (the GUAVA package), whereas `collect_results.py` only reads saved files.
 The bivariate bicycle and quantum Tanner searches bound distances with the default backend of `get_distance_bound`, which uses `sqetch` if installed, then GAP's QDistRnd package if available, and a decoder-based method otherwise.
-Code annealing instead enumerates exact binary CSS logical weights without GAP or external services.
+Code annealing instead computes exact distances and counts of minimum-weight logical operators with qLDPC alone, without GAP.
 See the [GAP integration instructions](../docs/source/installation.rst#gap-integration) to set up GAP, for example with `pip install 'qldpc[gap]'`.
 Commands below are written relative to the repository root.
 
 ## Results
 
 Every experiment stores its results in a `results/` directory beside its scripts, which Git ignores.
-Every script accepts `--results-dir` to use another directory instead, such as a scratch directory for a quick trial run; pass the same `--results-dir` to all scripts of an experiment.
+Every script that reads or writes results accepts `--results-dir` to use another directory instead, such as a scratch directory for a quick trial run; pass the same `--results-dir` to all scripts of an experiment.
 In the other experiments, each results directory holds a CSV summary, together with the resumable intermediate data from which that summary is built:
 
 | Experiment | Intermediate data | CSV summary |

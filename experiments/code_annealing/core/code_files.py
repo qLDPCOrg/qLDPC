@@ -52,8 +52,20 @@ class CodeEntry:
     count_homogeneous: int
     """Number of minimum-weight X-only plus Z-only logical operators."""
 
+    @property
+    def params(self) -> CodeParams:
+        """The parameters ``(n, k, d)`` that the header claims."""
+        return self.num_qubits, self.num_logicals, self.distance
 
-def format_code(checks_x: npt.ArrayLike, checks_z: npt.ArrayLike, distance: int, count: int) -> str:
+
+def format_code(
+    checks_x: npt.ArrayLike,
+    checks_z: npt.ArrayLike,
+    distance: int,
+    count: int,
+    *,
+    header: str | None = None,
+) -> str:
     """The text block of a code with the given binary X and Z generators.
 
     Args:
@@ -61,11 +73,15 @@ def format_code(checks_x: npt.ArrayLike, checks_z: npt.ArrayLike, distance: int,
         checks_z: Binary Z-type generators, one row per generator.
         distance: Distance d of the code, for the header.
         count: Number m of minimum-weight X-only plus Z-only logical operators, for the header.
+        header: A first line to write instead of the header of a code file, such as the header of
+            a listing in the paper.
     """
     rows_x, rows_z = (np.asarray(checks, dtype=np.uint8) for checks in (checks_x, checks_z))
     num_qubits = (rows_x if len(rows_x) else rows_z).shape[1]
     num_logicals = num_qubits - len(rows_x) - len(rows_z)
-    lines = [f"# ({num_qubits}, {num_logicals}, {distance}) {count} min-weight logicals"]
+    if header is None:
+        header = f"# ({num_qubits}, {num_logicals}, {distance}) {count} min-weight logicals"
+    lines = [header]
     for pauli, rows in (("X", rows_x), ("Z", rows_z)):
         lines.extend("".join(pauli if bit else "_" for bit in row) for row in rows)
     return "\n".join(lines) + "\n"
@@ -84,29 +100,30 @@ def read_code_file(path: str | Path) -> list[CodeEntry]:
     the claimed distance and count, which only an exact recount can check.
     """
     entries = []
-    for lines in _split_blocks(Path(path).read_text()):
-        match = _HEADER.fullmatch(lines[0])
+    for block in split_blocks(Path(path).read_text()):
+        number, header = block[0]
+        match = _HEADER.fullmatch(header)
         if match is None:
             raise ValueError(
-                f"{path}: a code block must start with a header such as '# (7, 1, 3) 14"
-                f" min-weight logicals', not {lines[0]!r}"
+                f"{path}, line {number}: a code block must start with a header such as"
+                f" '# (7, 1, 3) 14 min-weight logicals', not {header!r}"
             )
         num_qubits, num_logicals, distance, count = map(int, match.groups())
         rows_x: list[list[bool]] = []
         rows_z: list[list[bool]] = []
-        for line in lines[1:]:
+        for number, line in block[1:]:
             paulis = set(line) - {"_"}
             if len(line) != num_qubits or paulis not in ({"X"}, {"Z"}):
                 raise ValueError(
-                    f"{path}: a generator must be X-type or Z-type with {num_qubits} qubits, not"
-                    f" {line!r}"
+                    f"{path}, line {number}: a generator must be X-type or Z-type with"
+                    f" {num_qubits} qubits, not {line!r}"
                 )
             (rows_x if paulis == {"X"} else rows_z).append([char != "_" for char in line])
         code = CSSCode(_as_matrix(rows_x, num_qubits), _as_matrix(rows_z, num_qubits))
         if code.dimension != num_logicals:
             raise ValueError(
-                f"{path}: a header claims {num_logicals} logical qubits, but its code has"
-                f" {code.dimension}"
+                f"{path}, line {block[0][0]}: a header claims {num_logicals} logical qubits, but"
+                f" its code has {code.dimension}"
             )
         entries.append(CodeEntry(Path(path), code, num_qubits, num_logicals, distance, count))
     return entries
@@ -119,11 +136,11 @@ def recount(entry: CodeEntry) -> CSSLogicalCounts:
         ValueError: If the distance or count differs from the claims of the header.
     """
     counts = CSSLogicalCounter(entry.code).count_logical_ops()
-    check_claims(entry, counts.weight, counts.count_x + counts.count_z)
+    check_header(entry, counts.weight, counts.count_x + counts.count_z)
     return counts
 
 
-def check_claims(entry: CodeEntry, distance: int, count: int) -> None:
+def check_header(entry: CodeEntry, distance: int, count: int) -> None:
     """Check a distance and count of a code, found independently, against those of its header.
 
     Raises:
@@ -133,8 +150,23 @@ def check_claims(entry: CodeEntry, distance: int, count: int) -> None:
         raise ValueError(
             f"{entry.path}: the header of the code [[{entry.num_qubits}, {entry.num_logicals}]]"
             f" claims (d, count) = {(entry.distance, entry.count_homogeneous)}, but the code has"
-            f" {(distance, count)}: run collect_data again"
+            f" {(distance, count)}, so the header is wrong"
         )
+
+
+def split_blocks(text: str) -> list[list[tuple[int, str]]]:
+    """The lines of each block of a text, where blank lines, or lines of spaces, separate blocks.
+
+    Returns:
+        For each block, its nonblank lines, stripped, with their line numbers from one.
+    """
+    blocks: list[list[tuple[int, str]]] = [[]]
+    for number, line in enumerate(text.splitlines(), start=1):
+        if line.strip():
+            blocks[-1].append((number, line.strip()))
+        elif blocks[-1]:
+            blocks.append([])
+    return [block for block in blocks if block]
 
 
 def get_reduced_weights(code: CSSCode) -> list[int]:
@@ -169,17 +201,6 @@ def reduce_weights(matrix: npt.ArrayLike) -> npt.NDArray[np.uint8]:
 
 ####################################################################################################
 # helper methods
-
-
-def _split_blocks(text: str) -> list[list[str]]:
-    """The stripped lines of each block of text, where blank lines (or lines of spaces) separate."""
-    blocks: list[list[str]] = [[]]
-    for line in text.splitlines():
-        if line.strip():
-            blocks[-1].append(line.strip())
-        elif blocks[-1]:
-            blocks.append([])
-    return [block for block in blocks if block]
 
 
 def _as_matrix(rows: Sequence[Sequence[bool]], width: int) -> npt.NDArray[np.int_]:

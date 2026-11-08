@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""The annealing runner: its files, exact restart, starting codes and rejected command lines."""
+"""The annealing runner: its files, exact restart, starting codes, and rejected command lines."""
 
 from __future__ import annotations
 
@@ -177,13 +177,21 @@ def test_init_samples_start_from_the_lowest_energy_of_the_random_codes(tmp_path:
     assert energy(score_code(started, config), config) == min(get_energies(seed))
 
 
-def test_a_chain_that_another_holder_has_locked_is_neither_read_nor_written(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_a_chain_that_another_holder_has_locked_is_not_continued(
+    tmp_path: Path, chain: Path
 ) -> None:
-    chain = tmp_path / "run.json"
-    chain.write_text("not a chain")
+    # Without the lock, this resume would continue the chain.
+    files = {path: path.read_bytes() for path in tmp_path.iterdir() if path.is_file()}
     with hold_lock(chain.with_suffix(".lock")):
         _fail_with_usage_error(["--resume", str(chain)])
-    assert "Another process" in capsys.readouterr().err  # and not that the file is not valid JSON
-    assert chain.read_text() == "not a chain"
-    assert sorted(path.name for path in tmp_path.iterdir()) == ["run.json", "run.lock"]
+    assert {path: path.read_bytes() for path in tmp_path.iterdir() if path.is_file()} == files
+
+
+def test_a_resumed_chain_writes_only_its_own_files(tmp_path: Path, chain: Path) -> None:
+    _fail_with_usage_error(["--resume", str(chain), "--output", str(tmp_path / "fork.json")])
+    assert not (tmp_path / "fork.json").exists()
+
+
+def test_a_dry_run_writes_nothing(tmp_path: Path) -> None:
+    _run([*_get_args(), "--dry-run", "--results-dir", str(tmp_path)])
+    assert not any(tmp_path.iterdir())

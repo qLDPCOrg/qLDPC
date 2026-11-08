@@ -8,7 +8,7 @@ files named like ``random_css_n30_k04_d5_s0-99.txt`` with a line ``seed distance
 code.  The figure ``random_counts_css_n30_k04.pdf`` is a histogram of ``count``, the number of
 minimum-weight X-only plus Z-only logical operators, over the random codes of the code type that
 ``--code-type`` selects, with N qubits and K logical qubits.  The bars are stacked by the distance
-of the code.  A code that appears in several files with overlapping seeds is counted once.
+of the code.  A code that appears in several files counts once.
 """
 
 from __future__ import annotations

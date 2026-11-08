@@ -10,11 +10,13 @@ directory, and runs three scripts on that subdirectory, in order:
 1. ``analysis/half_supports`` recounts every code exactly, which checks the distance and the number
    of minimum-weight logical operators that the paper reports, and counts the half supports that
    the figure of error estimates needs.
-2. ``analysis/latex_tables`` writes the table of the codes, compared with qecdb.org before the
-   paper, to ``paper/data/table_css.tex`` and ``paper/data/table_swel.tex``, which a LaTeX
-   document includes with ``\\input``, and the listings of the codes of the paper's appendix to
-   ``paper/data/listing_css.txt`` and ``paper/data/listing_swel.txt``.
-3. ``make_figures`` simulates the codes, and saves the figures to ``paper/figures/``.
+2. ``analysis/latex_tables`` writes the table of the codes, compared with the paper's snapshot of
+   qecdb.org even if the directory holds a newer scrape, to ``paper/data/table_css.tex`` and
+   ``paper/data/table_swel.tex``, which a LaTeX document includes with ``\\input``, and the
+   listings of the codes of the paper's appendix to ``paper/data/listing_css.txt`` and
+   ``paper/data/listing_swel.txt``.
+3. ``make_figures`` simulates the codes, and saves the paper's figures to ``paper/figures/``,
+   together with ``error_rates.pdf``, which shows both code types in one figure.
 
 The simulations take most of the time.  Pass ``--skip-figures`` for the first two steps alone, or a
 small ``--num-samples`` and ``--max-qubits`` for a quick look at the figures.
@@ -49,8 +51,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(f"Copied the data of the paper from {PAPER_DATA_DIR} to {data_dir}")
 
     options = ["--results-dir", str(results_dir)]
+    (snapshot,) = PAPER_DATA_DIR.glob("scrape_qecdb_*.txt")
     run_step("half_supports", half_supports.main, options)
-    run_step("latex_tables", latex_tables.main, options)
+    run_step(
+        "latex_tables", latex_tables.main, [*options, "--data-file", str(data_dir / snapshot.name)]
+    )
     if not args.skip_figures:
         figure_options = [*options]
         for name in ("max_qubits", "num_samples"):

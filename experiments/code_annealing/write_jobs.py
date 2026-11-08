@@ -2,23 +2,23 @@
 
 """Write the annealing jobs of a campaign to ``results/logs/jobs.txt``, one shell command per line.
 
-Run with ``python -m experiments.code_annealing.write_jobs``, then run the jobs, from any
-directory, with GNU parallel::
+Run with ``python -m experiments.code_annealing.write_jobs``, then run the jobs with GNU parallel.
+Each job changes into the root of the repository, so the jobs file can run from any directory; the
+command below is written from the root::
 
     parallel -j 16 < experiments/code_annealing/results/logs/jobs.txt
 
 Give ``parallel`` the option ``--joblog FILE`` to record the exit status of every job.  Each job
-runs one chain with one core, and writes its checkpoint, its two code records and a log to the logs
+runs one chain with one core, and writes its checkpoint, its two code records, and a log to the logs
 of the results directory (see ``run_annealing.py``).  Interrupted runs lose at most one epoch: run
-``write_jobs`` again, and its new ``jobs.txt`` resumes the unfinished runs and skips the finished
-ones, in the same order, so that rerunning it after any interruption completes the campaign.  A
-resumed run continues exactly as an uninterrupted one would, so a campaign can run in sessions of
-any length.  The jobs are ordered by seed, every code size of seed 0 first, then of seed 1, and so
-on, so that a campaign that is stopped early has about as many finished runs for every code size.
-Pass
-``--tag`` to start another campaign beside the files of earlier runs.  Progress is shown by
-``progress_report.py``, and the codes that the runs found are collected by
-``analysis/collect_annealed_codes.py``.
+``write_jobs`` again with the same options, and its new ``jobs.txt`` resumes the unfinished runs and
+skips the finished ones, in the same order, so that rerunning it after any interruption completes
+the campaign.  A resumed run continues exactly as an uninterrupted one would, in the same numerical
+environment (see ``run_annealing.py``), so a campaign can run in sessions of any length.  The jobs
+are ordered by seed, every code size of seed 0 first, then of seed 1, and so on, so that a campaign
+that is stopped early has about as many finished runs for every code size.  Pass ``--tag`` to start
+another campaign beside the files of earlier runs.  Progress is shown by ``progress_report.py``, and
+the codes that the runs found are collected by ``analysis/collect_annealed_codes.py``.
 
 Pass ``--test`` to write a smoke-test campaign instead: the 20- and 22-qubit rows, 2 seeds, 2 epochs
 of 100 proposals, starting from the lowest-energy code of 10 random codes, with the files in the
@@ -30,7 +30,7 @@ searches and its final target acceptance of uphill proposals.  Every code size r
 types, CSS (starting from a self-dual code) and SWEL, with the seeds of ``CampaignRow.num_seeds``,
 and every search starts from the lowest-energy code of ``INIT_SAMPLES`` random codes, drawn with its
 own seed.  Running all of it takes a very long time: choose jobs with ``--qubits``,
-``--max-seeds`` and ``--code-types``.
+``--max-seeds``, and ``--code-types``.
 """
 
 from __future__ import annotations
@@ -305,7 +305,7 @@ def _get_job(python: str, arguments: list[str], log: Path, *, append: bool) -> s
 
 
 def _get_run_status(checkpoint: Path) -> _RunStatus:
-    """Whether a run is ``new``, ``unfinished`` or ``finished``, from its checkpoint file."""
+    """Whether a run is ``new``, ``unfinished``, or ``finished``, from its checkpoint file."""
     if not checkpoint.exists():
         return "new"
     progress = load_run_progress(checkpoint)

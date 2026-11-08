@@ -2,8 +2,9 @@
 
 """Sample random codes, and save their exact distances and numbers of minimum-weight operators.
 
-Run with ``python -m experiments.code_annealing.baseline.run_random N K [MIN_DISTANCE]
---num-seeds 100``.  This is the baseline for annealing: single random codes of the same size that
+Run with
+``python -m experiments.code_annealing.baseline.run_random N K [MIN_DISTANCE] --num-seeds 100``.
+This is the baseline for annealing: single random codes of the same size that
 have at least the minimum distance, a general CSS code for ``--code-type css`` and a self-dual code
 for ``--code-type swel``.  These are not the starting codes of the campaign, whose searches start
 from the lowest-energy code of many random codes, and whose CSS searches start from self-dual codes.
@@ -92,9 +93,10 @@ def read_random_counts(
 ) -> dict[int, list[int]]:
     """The numbers of minimum-weight logical operators of random codes, by code distance.
 
-    The counts come from the files that ``run_random`` saved in the logs directory.  A seed can
-    draw a different code for each minimum distance, so a code is identified by its seed and the
-    minimum distance of its file, and overlapping files count a code once.
+    The counts come from the files that ``run_random`` saved in the logs directory.  A seed draws
+    its codes from one stream, and keeps the first code that reaches the minimum distance of its
+    file, so files with different minimum distances can hold the same code of a seed.  Each code
+    counts once.
 
     Args:
         logs_dir: The logs directory of a results directory.
@@ -129,8 +131,18 @@ def read_random_counts(
                 ) from None
             results[int(min_distance), seed] = distance, count
 
+    # The code of a seed in a file of a smaller minimum distance is also the code of a larger one
+    # that it reaches, since every earlier code of the stream falls short of the smaller one.
+    unique = {
+        (min_distance, seed): value
+        for (min_distance, seed), value in results.items()
+        if not any(
+            other_seed == seed and other_min < min_distance <= other_value[0]
+            for (other_min, other_seed), other_value in results.items()
+        )
+    }
     counts_by_distance: defaultdict[int, list[int]] = defaultdict(list)
-    for distance, count in results.values():
+    for distance, count in unique.values():
         counts_by_distance[distance].append(count)
     return dict(sorted(counts_by_distance.items()))
 

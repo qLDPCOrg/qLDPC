@@ -65,14 +65,11 @@ def _format_cell(runs: Sequence[RunProgress]) -> str:
     """
     if not runs:
         return f"{'-':>8}  {'':<14}"
-    best = max(
-        runs,
-        key=lambda run: distance_rank(
-            run.greatest_distance, run.greatest_distance_count_homogeneous
-        ),
-    )
+    scores = [run.greatest_distance for run in runs]
+    best = max(scores, key=lambda score: distance_rank(score.distance, score.count_homogeneous))
     finished = f"{sum(run.finished for run in runs)}/{len(runs)}"
-    return f"{finished:>8}  {f'({best.greatest_distance}, {best.greatest_distance_count_homogeneous})':<14}"
+    best_text = f"({best.distance}, {best.count_homogeneous})"
+    return f"{finished:>8}  {best_text:<14}"
 
 
 if __name__ == "__main__":

@@ -2,10 +2,10 @@
 
 """Plot the figures of the experiment from the data of ``collect_data.py``.
 
-Run with
-``python -m experiments.code_annealing.make_figures [--max-qubits N] [--num-samples N] [--test]``.
-It runs the plotting scripts of ``figures/``, in order, on the same results directory, and saves
-their PDF files to ``figures/`` of that directory:
+Run with ``python -m experiments.code_annealing.make_figures``, and the options ``--max-qubits N``,
+``--num-samples N``, ``--workers N``, and ``--test`` as needed.  It runs the plotting scripts of
+``figures/``, in order, on the same results directory, and saves their PDF files to ``figures/`` of
+that directory:
 
 1. ``plot_error_rates`` saves ``error_rates.pdf``: the logical error rates and discard rates of the
    annealed codes of both code types.
@@ -21,9 +21,8 @@ The simulations of the first three scripts take most of the running time, and ar
 ``cache/``.  With ``--workers N``, the codes are first simulated in N parallel processes, and the
 plotting scripts then read their simulations from the cache.  Pass a small ``--max-qubits`` and
 ``--num-samples`` for a quick look.  ``--test`` plots the data of the smoke-test campaign of
-``write_jobs.py --test``, with 1000 samples for each code.
-Each plotting script can be run alone, with more options, as
-``python -m experiments.code_annealing.figures.NAME``.
+``write_jobs.py --test``, with 1000 samples for each code.  Each plotting script can be run alone,
+with more options, as ``python -m experiments.code_annealing.figures.NAME``.
 """
 
 from __future__ import annotations
@@ -71,6 +70,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     results_dir = get_results_dir(args)
+    # Stop before any simulation if collect_data has not written the code files.
     find_code_files(results_dir)
     half_supports = get_half_supports_file(results_dir)
     if not half_supports.exists():

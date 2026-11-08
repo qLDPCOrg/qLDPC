@@ -41,7 +41,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     """Collect the best codes of the logs, compute tables from them, and write the LaTeX files."""
     parser = make_parser(__doc__)
     parser.add_argument(
-        "--scrape", action="store_true", help="query qecdb.org and rewrite its data file"
+        "--scrape",
+        action="store_true",
+        help="query qecdb.org and save today's comparison to a dated data file",
     )
     add_results_dir_argument(parser)
     add_test_argument(parser)

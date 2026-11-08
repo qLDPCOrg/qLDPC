@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Search binary CSS/SWEL codes with exact physical logical-weight scores.
+"""Search binary CSS or SWEL codes by annealing, scoring each proposal exactly.
 
 Run with ``python -m experiments.code_annealing.core.run_annealing N K [options]`` to search codes
 with N physical and K logical qubits, or with ``--help`` for the options.  Exact enumeration is
@@ -31,14 +31,15 @@ start or resume and at which each epoch finishes, and the counting method of eac
 ``--method auto``.
 
 Resuming and refining.  ``--resume CHECKPOINT`` restores the saved policy, codes, scores, random
-generator, temperature and epoch count exactly, so an interrupted and resumed run reproduces an
-uninterrupted one, and it rejects new code or policy options.  An interruption loses only the
-unfinished epoch, never a record, and a replayed epoch never replaces a better record with a worse
-one.  ``--stop-after-epochs N`` stops after N more complete epochs.  Exact restart needs the same
-numerical runtime, operating system and architecture, and the same version of this code.  Otherwise,
-or to try new settings, ``--refine PATH`` starts a new chain from the lowest-energy code of a chain
-checkpoint or from the code of a record, either of which may come from another runtime or schema
-version.
+generator, temperature, and epoch count exactly, so an interrupted and resumed run reproduces an
+uninterrupted one.  It rejects new code or policy options, and writes to the files of its
+checkpoint, so it takes no ``--tag`` or ``--output``.  An interruption loses only the unfinished
+epoch, never a record, and a replayed epoch never replaces a better record with a worse one.
+``--stop-after-epochs N`` stops after N more complete epochs.  Exact restart needs the same
+numerical runtime, operating system, and architecture, and the same version of this code.
+Otherwise, or to try new settings, ``--refine PATH`` starts a new chain from the lowest-energy code
+of a chain checkpoint or from the code of a record, either of which may come from another runtime
+or schema version.
 
 Scoring.  ``--method`` is ``auto`` (the default), ``brouwer_zimmermann``, ``macwilliams`` or
 ``brute_force``, the methods of ``CSSLogicalCounter.count_logical_ops`` and all exact, and
@@ -104,8 +105,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error("--stop-after-epochs must be nonnegative")
     if args.seed is not None and args.seed < 0:
         parser.error("--seed must be nonnegative")
-    if args.resume is not None and args.tag:
-        parser.error("--resume continues the files of its checkpoint, so it takes no --tag")
+    if args.resume is not None and (args.tag or args.output is not None):
+        parser.error(
+            "--resume continues the files of its checkpoint, so it takes no --tag or --output"
+        )
 
     # Never overwrite files owned by another chain; resuming owns its own checkpoint and records.
     # Check before a slow initialization if the name is known, and again before claiming it.
@@ -175,7 +178,7 @@ def build_parser() -> argparse.ArgumentParser:
     policy.add_argument(
         "--temperature-memory",
         type=float,
-        help="weight of the previous temperature in the next one"
+        help="weight of the previous log-temperature in the next one"
         f" (default: {defaults.temperature_memory})",
     )
     policy.add_argument(
@@ -277,7 +280,7 @@ def _get_output(args: argparse.Namespace, code_type: CodeType, counter: CSSLogic
 def _name_output(
     args: argparse.Namespace, code_type: CodeType, num_qubits: int, num_logicals: int
 ) -> Path:
-    """The checkpoint of a run in the logs, named by its code type, size and seed."""
+    """The checkpoint of a run in the logs, named by its code type, size, and seed."""
     name = get_run_name(code_type, num_qubits, num_logicals, _get_seed(args), args.tag)
     return get_logs_dir(args.results_dir) / f"{name}.json"
 
@@ -306,7 +309,7 @@ def _lock_chain(parser: argparse.ArgumentParser, locks: contextlib.ExitStack, ou
 
 @contextlib.contextmanager
 def _report_invalid_input(parser: argparse.ArgumentParser) -> Iterator[None]:
-    """Report a rejected option, size or file as a usage error instead of a traceback."""
+    """Report a rejected option, size, or file as a usage error instead of a traceback."""
     try:
         yield
     except (OSError, ValueError, RuntimeError) as error:

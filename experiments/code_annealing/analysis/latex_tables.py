@@ -6,16 +6,16 @@ Run with ``python -m experiments.code_annealing.analysis.latex_tables``.  The ta
 the paper whose code search this experiment implements, arXiv:2607.19574.  Each row is a code of
 the code files, in their order, with:
 
-- ``n``, ``k`` and ``d``;
+- ``n``, ``k``, and ``d``;
 - ``delta_QGV`` and ``delta_CSS``, the excess of ``d`` over the stabilizer and CSS
-  Gilbert-Varshamov bounds of ``(n, k)`` (see ``get_qgv_distance`` and ``get_css_gv_distance``),
-  with a dot for zero;
+  Gilbert-Varshamov bounds of ``(n, k)`` (see ``gv_bounds.py``), with a dot for zero;
 - the numbers of minimum-weight X-only and Z-only logical operators, in bold if neither exceeds
   ``--few-logicals``;
 - the mean and maximum weight of the stabilizer generators, after ``reduce_weights``;
-- the best known neighbors of the code at qecdb.org, from the newest scrape of the database,
-  ``data/scrape_qecdb_YYYY-MM-DD.txt`` (see ``scrape_qecdb.py``).  A parameter in which the code
-  beats the database is highlighted in green, and the database value that it beats in red.
+- the best known neighbors of the code at qecdb.org, from a scrape of the database,
+  ``data/scrape_qecdb_YYYY-MM-DD.txt`` (see ``scrape_qecdb.py``): the newest one, or the one that
+  ``--data-file`` names.  A parameter in which the code beats the database is highlighted in green,
+  and the database value that it beats in red.
 
 Every distance and count is recomputed exactly, and a code whose distance or count differs from the
 claims of its code file is an error.  The data file of qecdb.org must describe the current codes:
@@ -34,8 +34,8 @@ verbatim, for example with ``\\lstinputlisting``.  They are the code files with 
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
+from pathlib import Path
 
 from ..core.atomic import write_text_atomic
 from ..core.cli import add_results_dir_argument, make_parser
@@ -48,6 +48,7 @@ from ..core.code_files import (
 )
 from ..core.paths import find_code_files, get_data_dir, get_listing_file, get_table_file
 from ..core.proposals import CodeType
+from .gv_bounds import get_css_gv_distance, get_qgv_distance
 from .scrape_qecdb import BestKnown, find_data_file, read_best_known
 
 _HEADER = (
@@ -87,11 +88,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="bold the counts of minimum-weight logical operators that are at most this"
         " (default: %(default)s)",
     )
+    parser.add_argument(
+        "--data-file",
+        type=Path,
+        help="the scrape of qecdb.org to compare with (default: the newest in the data directory)",
+    )
     add_results_dir_argument(parser)
     args = parser.parse_args(argv)
 
     code_files = find_code_files(args.results_dir)
-    data_file = find_data_file(args.results_dir)
+    data_file = args.data_file or find_data_file(args.results_dir)
     if data_file is None:
         raise SystemExit(
             f"No scrape of qecdb.org in {get_data_dir(args.results_dir)}: run collect_data --scrape"
@@ -113,54 +119,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         path = get_listing_file(args.results_dir, code_type)
         write_text_atomic(path, _format_listing(entries, code_type))
         print(f"Wrote {path}")
-
-
-def get_qgv_distance(num_qubits: int, num_logicals: int) -> int:
-    """The stabilizer Gilbert-Varshamov bound: the largest guaranteed distance of a code.
-
-    This is the largest ``d`` with ``sum(3**w * comb(n, w) for w < d) <= 2**(n - k)``, so that an
-    ``[[n, k, d]]`` stabilizer code exists.
-
-    Args:
-        num_qubits: The number ``n`` of physical qubits.
-        num_logicals: The number ``k`` of logical qubits.
-
-    Returns:
-        The largest distance ``d`` that the bound guarantees.
-    """
-    distance, errors = 1, 1
-    while distance < num_qubits:
-        errors += 3**distance * math.comb(num_qubits, distance)
-        if errors > 2 ** (num_qubits - num_logicals):
-            break
-        distance += 1
-    return distance
-
-
-def get_css_gv_distance(num_qubits: int, num_logicals: int) -> int:
-    """The CSS Gilbert-Varshamov bound: the largest guaranteed distance of a CSS code.
-
-    This is the largest ``d`` with ``2 * sum(comb(n, w) for 0 < w < d) < (2**n - 1) / D``, where
-    ``D = 2**k_x - 2**(n - k_x) + 2**k_z - 2**(n - k_z)`` and ``k_x`` and ``k_z`` are the floor and
-    ceiling of ``(n + k) / 2``, so that an ``[[n, k, d]]`` CSS code exists.
-
-    Args:
-        num_qubits: The number ``n`` of physical qubits.
-        num_logicals: The number ``k`` of logical qubits.
-
-    Returns:
-        The largest distance ``d`` that the bound guarantees.
-    """
-    nn = num_qubits
-    k_x, k_z = (nn + num_logicals) // 2, (nn + num_logicals + 1) // 2
-    denominator = 2**k_x - 2 ** (nn - k_x) + 2**k_z - 2 ** (nn - k_z)
-    distance, words = 1, 0
-    while distance < nn:
-        words += math.comb(nn, distance)
-        if 2 * words * denominator >= 2**nn - 1:
-            break
-        distance += 1
-    return distance
 
 
 ####################################################################################################
@@ -196,21 +154,21 @@ def _format_table(
 
 def _format_listing(entries: Sequence[CodeEntry], code_type: CodeType) -> str:
     """The blocks of the codes of a code file, each with a header such as ``# CSS (20, 4, 4)``."""
-    blocks = []
-    for entry in entries:
-        block = format_code(
-            entry.code.matrix_x, entry.code.matrix_z, entry.distance, entry.count_homogeneous
+    return "\n".join(
+        format_code(
+            entry.code.matrix_x,
+            entry.code.matrix_z,
+            entry.distance,
+            entry.count_homogeneous,
+            header=f"# {code_type.upper()} {entry.params}",
         )
-        header = (
-            f"# {code_type.upper()} ({entry.num_qubits}, {entry.num_logicals}, {entry.distance})"
-        )
-        blocks.append(header + block[block.index("\n") :])
-    return "\n".join(blocks)
+        for entry in entries
+    )
 
 
 def _get_cells(entry: CodeEntry, best_known: BestKnown, few_logicals: int) -> list[str]:
     """The cells of the row of a code, unpadded except for the decimal point of the mean weight."""
-    nn, kk, dd = entry.num_qubits, entry.num_logicals, entry.distance
+    nn, kk, dd = entry.params
     if best_known.params != (nn, kk, dd):
         raise ValueError(f"The neighbors of {best_known.params} are not those of {(nn, kk, dd)}")
     counts = recount(entry)

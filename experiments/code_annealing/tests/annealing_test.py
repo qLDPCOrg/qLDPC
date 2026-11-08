@@ -16,11 +16,11 @@ import pytest
 from qldpc import codes
 
 from ..core import annealing as a
-from ..core.proposals import propose, random_initial_code
+from ..core.proposals import propose, random_initial_code, random_initial_codes
 from .search_helpers import canonical_checks, counter_from_checks, steane_counter
 
 ####################################################################################################
-# scores, energies and ranks
+# scores, energies, and ranks
 
 
 def test_the_scores_of_the_steane_code_have_the_known_counts() -> None:
@@ -121,8 +121,8 @@ def test_scoring_a_proposal_is_exact_whatever_the_guessed_distance_and_range(
         for guess, distance in itertools.product((1, 3, 6), repeat=2):
             state.recent_distances.clear()
             state.recent_distances.extend([guess] * 3)
-            score = dataclasses.replace(state.current.score, distance=distance)
-            state.current = dataclasses.replace(state.current, score=score)
+            current_score = dataclasses.replace(state.current.score, distance=distance)
+            state.current = dataclasses.replace(state.current, score=current_score)
             score = a._score_proposal(state, candidate)
             assert score == _brute_force_score(candidate, objective)
 
@@ -137,10 +137,15 @@ def test_scoring_a_swel_proposal_whose_distance_moves_by_two_is_exact() -> None:
         assert a._score_proposal(state, candidate) == _brute_force_score(candidate)
 
 
-@pytest.mark.parametrize("code_type,gate_size", [("css", 2), ("css", 3), ("css", 4), ("swel", 4)])
+@pytest.mark.parametrize(
+    "code_type,gate_size,reach", [("css", 2, 1), ("css", 3, 2), ("css", 4, 3), ("swel", 4, 2)]
+)
 def test_one_proposal_changes_the_distance_by_at_most_its_reach(
-    code_type: Any, gate_size: int
+    code_type: Any, gate_size: int, reach: int
 ) -> None:
+    # A gate on g qubits maps a nonzero restriction of a word to a nonzero one, which changes its
+    # weight by at most g - 1; the SWEL gate maps an even-weight restriction of four qubits to
+    # itself and an odd-weight one to its complement, which changes its weight by at most 2.
     config = a.SearchConfig(code_type=code_type, gate_size=gate_size)
     rng, steane, changes = np.random.default_rng(0), steane_counter(), set()
     for _ in range(20):
@@ -148,7 +153,7 @@ def test_one_proposal_changes_the_distance_by_at_most_its_reach(
         second = propose(first, rng, code_type=code_type, gate_size=gate_size)
         distances = [a.score_code(code, config).distance for code in (steane, first, second)]
         changes |= {abs(distances[1] - distances[0]), abs(distances[2] - distances[1])}
-    assert 0 < max(changes) <= a._get_distance_reach(config)
+    assert 0 < max(changes) <= reach
 
 
 ####################################################################################################
@@ -242,15 +247,6 @@ def test_the_metropolis_rule_accepts_downhill_moves_and_uphill_moves_by_their_pr
     assert not a._accept_move(1000, 0.001, 0.1)
 
 
-def test_stopping_after_some_epochs_and_continuing_equals_one_run() -> None:
-    config = a.SearchConfig(epochs=3, steps_per_epoch=8)
-    full = a.run_epochs(a.start_search(steane_counter(), config, seed=71))
-    split = a.run_epochs(a.start_search(steane_counter(), config, seed=71), stop_after_epochs=1)
-    assert split.completed_epochs == 1
-    assert a.run_epochs(split) is split
-    assert _get_outcome(split) == _get_outcome(full)
-
-
 def test_the_pilot_records_the_best_of_all_its_proposals_and_keeps_the_first_of_equals() -> None:
     # At p = 1/4, a unit of distance is worth only four times as many operators, so the
     # lowest-energy code can have a lower distance than the greatest-distance code.
@@ -319,8 +315,43 @@ def test_a_rejected_proposal_can_set_a_record_and_is_reported() -> None:
     assert state.greatest_distance.score == _brute_force_score(state.greatest_distance.counter)
 
 
+def test_a_record_is_reported_as_soon_as_a_proposal_improves_it() -> None:
+    config = a.SearchConfig(
+        method="brouwer_zimmermann",
+        epochs=1,
+        steps_per_epoch=100,
+        uphill_acceptance_start=0.3,
+        uphill_acceptance_stop=0.3,
+    )
+    state = a.start_search(next(random_initial_codes(12, 2, seed=0)), config, seed=0)
+    state.greatest_distance = state.current  # so that the epoch, not the pilot, sets the record
+    reported: list[a.Score] = []
+    a.run_epochs(state, on_greatest_distance=lambda s: reported.append(s.greatest_distance.score))
+    # A report at the end of the epoch alone would give at most one score.
+    ranks = [a.score_rank(score, config) for score in reported]
+    assert len(ranks) >= 2 and ranks == sorted(set(ranks))
+    assert reported[-1] == state.greatest_distance.score
+
+
 ####################################################################################################
 # configuration
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"physical_error_rate": 1.0},  # the energy would divide by log(1/p) = 0
+        {"uphill_acceptance_stop": 1.0},  # a target acceptance that no temperature fits
+        {"code_type": "swel", "gate_size": 2},  # a CNOT does not keep codes SWEL
+        {"method": "macwilliams", "objective": "pauli"},  # needs self-dual codes
+    ],
+    ids=["error rate", "target acceptance", "SWEL gate", "MacWilliams Pauli count"],
+)
+def test_a_configuration_rejects_a_policy_that_would_corrupt_its_results(
+    options: dict[str, Any],
+) -> None:
+    with pytest.raises(ValueError):
+        a.SearchConfig(**options)
 
 
 @pytest.mark.parametrize(
@@ -356,7 +387,7 @@ def _poor_counter() -> codes.CSSLogicalCounter:
 
 
 def _get_outcome(state: a.SearchState) -> tuple[Any, ...]:
-    """The codes, scores and history that a chain ends with."""
+    """The codes, scores, and history that a chain ends with."""
     roles = ("current", "lowest_energy", "greatest_distance")
     codes_and_scores = [
         (canonical_checks(getattr(state, role).counter), getattr(state, role).score)

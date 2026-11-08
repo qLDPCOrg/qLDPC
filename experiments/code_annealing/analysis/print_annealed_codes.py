@@ -3,8 +3,9 @@
 """Print a summary of the codes that saved annealing runs found.
 
 Run with ``python -m experiments.code_annealing.analysis.print_annealed_codes``.  Select codes
-with ``--num-qubits``, ``--num-logicals`` and ``--code-type``.  Each line shows the code size, the
-file that holds the code, and the exact (distance, number of minimum-weight X-only plus Z-only
+with ``--num-qubits``, ``--num-logicals``, and ``--code-type``.  Each line shows the code type, the
+code size, the file that holds the code, the role of the code in its run (a record, or a code that
+a chain checkpoint holds), and the exact (distance, number of minimum-weight X-only plus Z-only
 logical operators, mean stabilizer weight).  The mean weight is that of generators lowered by
 ``reduce_weights``.  Every code is rechecked, so this takes as long as counting the logical
 operators of all of them.  Pass explicit checkpoints, which bring their records along, to summarize
@@ -55,9 +56,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     for code in sorted(
         saved, key=lambda code: (code.code_type, code.num_qubits, code.num_logicals)
     ):
+        values = (
+            f"({code.score.distance}, {code.score.count_homogeneous}, {_get_mean_weight(code)})"
+        )
         print(
             f"{code.code_type} ({code.num_qubits}, {code.num_logicals}) {code.path.name}"
-            f" {code.role} ({code.score.distance}, {code.count_homogeneous}, {_get_mean_weight(code)})"
+            f" {code.role} {values}"
         )
     if args.csv:
         path = get_data_dir(args.results_dir) / "saved_codes.csv"

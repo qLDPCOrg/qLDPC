@@ -43,7 +43,7 @@ from typing import IO, TypeAlias
 
 from ..core.atomic import write_atomic
 from ..core.cli import add_results_dir_argument, make_parser
-from ..core.code_files import CodeParams, check_claims, read_code_file
+from ..core.code_files import CodeParams, check_header, read_code_file, split_blocks
 from ..core.paths import find_code_files, get_half_supports_file
 from .min_weight_supports import MinWeightSupports, count_support_subsets, get_min_weight_supports
 
@@ -123,16 +123,11 @@ def read_half_supports(path: str | Path) -> HalfSupportCountsByFile:
         ValueError: If a code line is malformed, or a code file or code is listed twice.
     """
     counts: HalfSupportCountsByFile = {}
-    block: dict[CodeParams, HalfSupportCounts] | None = None
-    for number, raw_line in enumerate(Path(path).read_text().splitlines(), start=1):
-        line = raw_line.strip()
-        if not line:
-            block = None
-        elif block is None:
-            if line in counts:
-                raise ValueError(f"line {number}: the file {line!r} is listed twice")
-            block = counts[line] = {}
-        else:
+    for (number, name), *lines in split_blocks(Path(path).read_text()):
+        if name in counts:
+            raise ValueError(f"line {number}: the file {name!r} is listed twice")
+        block = counts[name] = {}
+        for number, line in lines:
             code = _parse_code_line(line, number)
             params = (code.num_qubits, code.num_logicals, code.distance)
             if params in block:
@@ -152,10 +147,10 @@ def _get_lines(paths: Iterable[Path], max_qubits: int | None) -> Iterator[str]:
         for entry in read_code_file(path):
             if max_qubits is None or entry.num_qubits <= max_qubits:
                 supports = get_min_weight_supports(entry.code)
-                # collect_annealed_codes wrote these claims from its own exact count, so this
-                # recount checks them independently.
+                # The header claims come from another count, by collect_annealed_codes or the
+                # paper's files, so this enumeration checks them independently.
                 count = len(supports.supports_x) + len(supports.supports_z)
-                check_claims(entry, supports.distance, count)
+                check_header(entry, supports.distance, count)
                 yield _format_line(entry.num_qubits, entry.num_logicals, supports)
         yield ""
 

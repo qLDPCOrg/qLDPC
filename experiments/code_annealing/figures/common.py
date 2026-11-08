@@ -41,6 +41,11 @@ DEFAULT_NUM_SAMPLES = 10**7
 _DEFAULT_MIN_ERROR_RATE = 1e-3
 _DEFAULT_MAX_ERROR_RATE = 1e-1
 _DEFAULT_NUM_ERROR_RATES = 100
+_MIN_LOGICAL_RATE = 1e-12
+
+# The cache of simulations, which are reused across runs and scripts.  Its key identifies a code and
+# the settings of its simulation, but not the version of qLDPC that simulated it, so rename the
+# cache whenever qLDPC changes the rates that it simulates, to keep stale simulations out.
 _SIMULATIONS_CACHE = "error_rate_funcs"
 
 CODE_TYPE_TITLES: dict[CodeType, str] = {"css": "CSS", "swel": "SWEL"}
@@ -130,19 +135,6 @@ def simulate_codes(
 
 
 ####################################################################################################
-# rates of a code and their uncertainties
-
-
-@dataclass(frozen=True)
-class _RateBand:
-    """A rate at each physical error rate, with the range that its uncertainty allows."""
-
-    rates: npt.NDArray[np.float64]
-    lower: npt.NDArray[np.float64]
-    upper: npt.NDArray[np.float64]
-
-
-####################################################################################################
 # plotting
 
 
@@ -199,7 +191,6 @@ def format_error_rate_axes(
     error_rates: npt.NDArray[np.float64],
     *,
     max_rate: float = 1,
-    min_logical_rate: float = 1e-12,
     min_discard_rate: float = 1e-10,
 ) -> None:
     """Format a grid of logical error rate axes (top row) and discard rate axes (bottom row).
@@ -209,8 +200,8 @@ def format_error_rate_axes(
             row.
         error_rates: The physical error rates, whose first and last set the range of the x-axes.
         max_rate: The top of every y-axis.
-        min_logical_rate: The bottom of the y-axes of logical error rates.
-        min_discard_rate: The bottom of the y-axes of discard rates.
+        min_discard_rate: The bottom of the y-axes of discard rates.  The y-axes of logical error
+            rates start at ``_MIN_LOGICAL_RATE``.
     """
     for axis in axes.ravel():
         axis.loglog()
@@ -218,7 +209,7 @@ def format_error_rate_axes(
         axis.set_ylim(top=max_rate)
         axis.yaxis.set_major_locator(ticker.LogLocator(base=100))
     axes[0, 0].set_xlim(left=error_rates[0], right=error_rates[-1])
-    axes[0, 0].set_ylim(bottom=min_logical_rate)
+    axes[0, 0].set_ylim(bottom=_MIN_LOGICAL_RATE)
     axes[1, 0].set_ylim(bottom=min_discard_rate)
     for axis in axes[1, :]:
         axis.set_xlabel("physical error rate")
@@ -346,6 +337,15 @@ def _simulate_error_rate_func(
         min_error_weight=(distance + 1) // 2,
         decoder=decoders.lookup(max_weight=(distance - 1) // 2, add_erasure_bit=True),
     )
+
+
+@dataclass(frozen=True)
+class _RateBand:
+    """A rate at each physical error rate, with the range that its uncertainty allows."""
+
+    rates: npt.NDArray[np.float64]
+    lower: npt.NDArray[np.float64]
+    upper: npt.NDArray[np.float64]
 
 
 def _get_rate_bands(

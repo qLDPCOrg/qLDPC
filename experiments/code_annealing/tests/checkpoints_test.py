@@ -105,7 +105,6 @@ def test_a_failed_save_keeps_the_previous_checkpoint_and_record(
 # Changes to the chain of the fixture, each of which breaks one check of loading.
 CORRUPTIONS = {
     "a tampered score": lambda data: data["current"]["score"].update(count_x=-1),
-    "a tampered code": lambda data: data["current"].update(code=data["lowest_energy"]["code"]),
     "proposals that the epochs did not make": lambda data: data.update(proposed=3),
     "an acceptance rate above one": lambda data: data["history"][0].update(acceptance_rate=1.5),
     "a lowest-energy code that is worse than another": lambda data: data.update(
@@ -145,6 +144,27 @@ def test_a_record_is_replaced_by_a_better_code_but_not_by_a_worse_or_equal_one(
     assert not checkpoints.save_record(worse, chain, kind)  # a replayed epoch is behind
     assert not checkpoints.save_record(better, chain, kind)
     assert path.read_bytes() == before
+
+
+def test_each_record_keeps_the_better_code_by_its_own_order(tmp_path: Path) -> None:
+    # At p = 1/4, a code of distance 2 has a lower energy than the Steane code of distance 3, so the
+    # two records disagree on which of them is better.
+    config = SearchConfig(epochs=1, steps_per_epoch=2, physical_error_rate=0.25)
+    steane, lower = steane_counter(), steane_counter().deformed_cnot(0, 1)
+
+    def holding(code: CSSLogicalCounter) -> SearchState:
+        return _set_codes(start_search(code, config), current=code, best=code)
+
+    kinds: tuple[tuple[checkpoints.RecordKind, CSSLogicalCounter], ...] = (
+        ("greatest-distance", steane),
+        ("lowest-energy", lower),
+    )
+    for kind, kept in kinds:
+        chain = tmp_path / f"{kind}.json"
+        checkpoints.save_record(holding(lower), chain, kind)
+        checkpoints.save_record(holding(steane), chain, kind)
+        record = checkpoints.get_record_path(chain, kind)
+        assert canonical_checks(checkpoints.load_code(record)) == canonical_checks(kept)
 
 
 def test_a_record_does_not_overwrite_a_file_that_is_not_a_verified_record_of_its_size(

@@ -84,11 +84,6 @@ class SavedCode:
         return self.counter.dimension
 
     @property
-    def count_homogeneous(self) -> int:
-        """The number of minimum-weight X-only plus Z-only logical operators, for any objective."""
-        return self.score.count_homogeneous
-
-    @property
     def energy(self) -> float:
         return energy(self.score, self.config)
 
@@ -104,12 +99,8 @@ class RunProgress:
     seed: int
     completed_epochs: int
     epochs: int
-    greatest_distance: int
-    """Greatest distance saved so far, which this module does not recheck."""
-
-    greatest_distance_count_homogeneous: int
-    """Number of minimum-weight X-only plus Z-only logical operators of the greatest-distance
-    code."""
+    greatest_distance: Score
+    """The saved score of the greatest-distance code so far, which this module does not recheck."""
 
     @property
     def finished(self) -> bool:
@@ -186,7 +177,6 @@ def load_run_progress(path: Path) -> RunProgress | None:
     with report_malformed(path):
         config = SearchConfig(**data["config"])
         counter = decode_code(data["current"]["code"])
-        greatest = Score(**data["greatest_distance"]["score"])
         return RunProgress(
             path,
             config.code_type,
@@ -195,8 +185,7 @@ def load_run_progress(path: Path) -> RunProgress | None:
             read_seed(data),
             int(data["completed_epochs"]),
             config.epochs,
-            greatest.distance,
-            greatest.count_homogeneous,
+            Score(**data["greatest_distance"]["score"]),
         )
 
 

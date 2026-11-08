@@ -2,8 +2,9 @@
 
 """Command-line options that the scripts of the experiment share.
 
-Every script accepts ``--results-dir`` to use another directory instead of ``results/``.  The
-scripts ``write_jobs``, ``collect_data``, ``progress_report`` and ``make_figures`` also accept
+Every script that reads or writes a results directory accepts ``--results-dir`` to use another
+directory instead of ``results/``.  The scripts ``write_jobs``, ``collect_data``,
+``progress_report``, and ``make_figures`` also accept
 ``--test``, which runs them at smoke-test scale in the ``test/`` subdirectory of the results
 directory, so that a trial never mixes with the real results.
 """
@@ -36,7 +37,7 @@ def add_results_dir_argument(parser: argparse.ArgumentParser) -> None:
         "--results-dir",
         type=Path,
         default=paths.RESULTS_DIR,
-        help="Directory of results (default: %(default)s)",
+        help="directory of results (default: %(default)s)",
     )
 
 
@@ -45,7 +46,7 @@ def add_test_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--test",
         action="store_true",
-        help="Run at smoke-test scale, with results in the test subdirectory of the results"
+        help="run at smoke-test scale, with results in the test subdirectory of the results"
         " directory",
     )
 

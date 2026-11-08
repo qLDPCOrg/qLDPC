@@ -54,7 +54,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             counts = counter.count_logical_ops()
             offer(code_type, counter, counts.weight, counts.count_x + counts.count_z)
     for code in saved:
-        offer(code.code_type, code.counter, code.score.distance, code.count_homogeneous)
+        offer(code.code_type, code.counter, code.score.distance, code.score.count_homogeneous)
 
     for code_type, path in files.items():
         blocks = []

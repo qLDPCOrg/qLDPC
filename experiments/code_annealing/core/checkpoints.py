@@ -3,8 +3,8 @@
 """Versioned atomic checkpoints and immediate records of the notable codes of a chain.
 
 A chain checkpoint (``kind="chain"``) holds everything needed for an exact restart.  A
-``lowest-energy`` or ``greatest-distance`` record preserves one code each, immediately, without
-pretending to be restartable.  All of them carry the current ``SCHEMA_VERSION`` and store every code
+``lowest-energy`` or ``greatest-distance`` record preserves one code, as soon as it is found, and
+cannot restart a chain.  All of them carry the current ``SCHEMA_VERSION`` and store every code
 as hexadecimal strings, so codes of more than 64 qubits never pass through imprecise JSON numbers.
 """
 
@@ -38,8 +38,8 @@ from .annealing import (
 from .atomic import write_atomic
 
 # Bump the version when a change would make a resumed chain differ from an uninterrupted one, in
-# the proposals, the energy, the temperature fit, the scores or the format, so that old checkpoints
-# are refused.
+# the proposals, the energy, the temperature fit, the scores, or the format, so that old
+# checkpoints are refused.
 SCHEMA_VERSION = 1
 
 # The kinds of record that a chain preserves beside its checkpoint, each in a file of its own.
@@ -54,7 +54,7 @@ SavedKind = Literal["chain", RecordKind]
 _CHAIN_CODE_ROLES = ("current", "lowest_energy", "greatest_distance")
 
 ####################################################################################################
-# code serialization
+# reading saved files, and encoding codes
 
 
 def read_saved_file(
@@ -194,7 +194,7 @@ def save_record(state: SearchState, chain_path: str | Path, kind: RecordKind) ->
         Whether the record file was written.
 
     Raises:
-        ValueError: If an existing record has another kind, policy, schema version or code size, is
+        ValueError: If an existing record has another kind, policy, schema version, or code size, is
             malformed, or has a score that does not match its code.
     """
     by_distance = kind == "greatest-distance"
@@ -213,12 +213,12 @@ def save_record(state: SearchState, chain_path: str | Path, kind: RecordKind) ->
             candidate.counter.dimension,
         ):
             raise ValueError(f"{destination} has different n/k parameters")
-        previous_is_better = (
+        keep_previous = (
             score_rank(saved.score, state.config) >= score_rank(candidate.score, state.config)
             if by_distance
             else energy(saved.score, state.config) <= energy(candidate.score, state.config)
         )
-        if previous_is_better:
+        if keep_previous:
             return False
 
     data = {
@@ -297,7 +297,7 @@ def _dump_json(data: dict[str, Any], stream: IO[str]) -> None:
 
 
 def _check_progress(data: dict[str, Any], config: SearchConfig) -> None:
-    """Check that epoch, proposal and temperature bookkeeping agree with the policy."""
+    """Check that epoch, proposal, and temperature bookkeeping agree with the policy."""
     completed, proposed, accepted = (
         data[key] for key in ("completed_epochs", "proposed", "accepted")
     )
@@ -341,7 +341,9 @@ def _decode_history(records: list[dict[str, Any]]) -> list[EpochStatistics]:
             statistics.epoch != epoch
             or not 0 <= statistics.acceptance_rate <= 1
             or not 0 <= statistics.uphill_acceptance_rate <= 1
-            or not math.exp(LOG_TEMPERATURE_BOUNDS[0]) <= statistics.temperature <= 1
+            or not math.exp(LOG_TEMPERATURE_BOUNDS[0])
+            <= statistics.temperature
+            <= math.exp(LOG_TEMPERATURE_BOUNDS[1])
             or not math.isfinite(statistics.current_energy)
             or not math.isfinite(statistics.lowest_energy)
         ):

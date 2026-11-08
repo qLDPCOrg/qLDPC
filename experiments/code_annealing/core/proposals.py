@@ -170,15 +170,19 @@ def propose(
 def _get_trivial_code(
     num_qubits: int, num_logicals: int, *, self_dual: bool
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
-    """Checks of a code with trivial logicals and Bell pairs on the remaining qubits."""
+    """Checks of a code with trivial logicals on its first qubits.
+
+    The remaining qubits hold Bell pairs for a self-dual code, and single-qubit X and Z checks
+    otherwise.
+    """
     rx = (num_qubits - num_logicals) // 2
     rz = num_qubits - num_logicals - rx
     x = np.zeros((rx, num_qubits), dtype=np.uint8)
-    z = np.zeros((rz, num_qubits), dtype=np.uint8)
     if self_dual:
         for jj in range(rx):
             x[jj, num_logicals + jj] = x[jj, num_logicals + rx + jj] = 1
         return x, x.copy()
+    z = np.zeros((rz, num_qubits), dtype=np.uint8)
     for jj in range(rx):
         x[jj, num_logicals + jj] = 1
     for jj in range(rz):

@@ -41,25 +41,24 @@ from typing import Any
 
 from ..core.atomic import write_text_atomic
 from ..core.cli import add_results_dir_argument, make_parser
-from ..core.code_files import CodeParams, read_code_file
+from ..core.code_files import CodeParams, read_code_file, split_blocks
 from ..core.paths import find_code_files, get_data_dir
 from ..core.proposals import CODE_TYPES, CodeType
 
 _DATA_FILE_PATTERN = "scrape_qecdb_????-??-??.txt"
 _QECDB_API_URL = "https://qecdb.org/api/codes"
 
+# Seconds to wait for the database to answer.
 _REQUEST_TIMEOUT = 30
-"""Seconds to wait for the database to answer."""
 
+# Seconds to wait before every request, to be polite to the database.
 _REQUEST_DELAY = 0.25
-"""Seconds to wait before every request, to be polite to the database."""
 
+# Attempts of a request that fails in transit, which can be transient.
 _REQUEST_ATTEMPTS = 3
-"""Attempts of a request that fails in transit, which can be transient."""
 
+# Seconds to wait before another attempt of a request.
 _RETRY_DELAY = 5
-"""Seconds to wait before another attempt of a request."""
-
 
 _SUMMARY_PATTERN = re.compile(r"\((\d+), (\d+), (\d+)\) (\d+|None) (\d+|None) (\d+|None)")
 
@@ -102,7 +101,7 @@ class BestKnown:
 
     @property
     def wins(self) -> tuple[bool, bool, bool]:
-        """Whether the annealed code has a smaller ``n``, a larger ``k`` and a larger ``d``.
+        """Whether the annealed code has a smaller ``n``, a larger ``k``, and a larger ``d``.
 
         Each compares with its neighbor, and a neighbor that the database lacks is beaten.
         """
@@ -185,10 +184,7 @@ def _sorted_code_types(code_files: Mapping[CodeType, Path]) -> list[CodeType]:
 def _get_expected_params(code_files: Mapping[CodeType, Path]) -> list[list[CodeParams]]:
     """The parameters of the codes of the code files, in the blocks of the data file."""
     return [
-        [
-            (entry.num_qubits, entry.num_logicals, entry.distance)
-            for entry in read_code_file(code_files[code_type])
-        ]
+        [entry.params for entry in read_code_file(code_files[code_type])]
         for code_type in _sorted_code_types(code_files)
     ]
 
@@ -199,17 +195,15 @@ def _read_blocks(data_file: Path) -> list[list[BestKnown]]:
     Raises:
         ValueError: If a line is not a line of the data file, naming the file and the line.
     """
-    blocks: list[list[BestKnown]] = [[]]
-    for number, line in enumerate(data_file.read_text().splitlines(), start=1):
-        if not line.strip():
-            if blocks[-1]:
-                blocks.append([])
-            continue
-        try:
-            blocks[-1].append(BestKnown.parse(line))
-        except ValueError as error:
-            raise ValueError(f"{data_file}, line {number}: {error}") from error
-    return [block for block in blocks if block]
+    blocks: list[list[BestKnown]] = []
+    for lines in split_blocks(data_file.read_text()):
+        blocks.append([])
+        for number, line in lines:
+            try:
+                blocks[-1].append(BestKnown.parse(line))
+            except ValueError as error:
+                raise ValueError(f"{data_file}, line {number}: {error}") from error
+    return blocks
 
 
 def _scrape_data_file(code_files: Mapping[CodeType, Path], data_file: Path) -> None:
@@ -225,8 +219,7 @@ def _scrape_data_file(code_files: Mapping[CodeType, Path], data_file: Path) -> N
             print()
         block = []
         for entry in entries[code_type]:
-            params = (entry.num_qubits, entry.num_logicals, entry.distance)
-            block.append(query_best_known(params, code_type))
+            block.append(query_best_known(entry.params, code_type))
             print(block[-1], flush=True)
         blocks.append(block)
     write_text_atomic(
@@ -238,7 +231,7 @@ def _query_extreme(field: str, direction: str, code_type: CodeType, **bounds: in
     """The first value of a parameter of the codes within bounds, sorted by that parameter.
 
     Args:
-        field: The parameter, ``n``, ``k`` or ``d``, to sort by and return.
+        field: The parameter, ``n``, ``k``, or ``d``, to sort by and return.
         direction: The sort order, ``asc`` or ``desc``.
         code_type: The code type, which selects all CSS codes or only the self-dual ones.
         **bounds: Query parameters of the database, such as ``nMax`` or ``kMin``.

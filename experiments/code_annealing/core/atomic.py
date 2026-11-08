@@ -2,13 +2,13 @@
 
 """Files that parallel jobs share: replaced atomically, and locked against a second writer.
 
-An atomic replacement means that a failure or an interruption never leaves half a file.
+An atomic replacement means that a failure or an interruption never leaves half a file.  Locks use
+``fcntl``, which only Unix systems have.
 """
 
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import os
 import stat
 import tempfile
@@ -17,21 +17,21 @@ from pathlib import Path
 from typing import IO
 
 
-def write_atomic(destination: Path, write: Callable[[IO[str]], None], *, newline: str = "") -> None:
+def write_atomic(destination: Path, write: Callable[[IO[str]], None]) -> None:
     """Replace a file only after ``write`` has produced a complete, flushed file.
 
-    Temporary files are removed on every exit, so a failure leaves the previous file untouched.
+    Temporary files are removed on every exit, so a failure leaves the previous file untouched.  The
+    stream translates no newlines, as the CSV writer of ``saved_runs`` requires.
 
     Args:
         destination: The file to replace, whose directory is created if needed.
         write: Writes the complete contents of the file to the stream that it is given.
-        newline: Newline translation of the stream, as for ``open``.
     """
     destination.parent.mkdir(parents=True, exist_ok=True)
     mode = _get_file_mode(destination)
     with tempfile.NamedTemporaryFile(
         mode="w",
-        newline=newline,
+        newline="",
         dir=destination.parent,
         prefix=f".{destination.name}.",
         delete=False,
@@ -58,6 +58,9 @@ def hold_lock(path: Path) -> Iterator[None]:
     Raises:
         BlockingIOError: If another process holds the lock.
     """
+    # Imported here, so that the scripts that take no locks also run where fcntl is missing.
+    import fcntl
+
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a") as stream:
         fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)

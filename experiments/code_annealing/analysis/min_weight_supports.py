@@ -76,7 +76,8 @@ def get_min_weight_supports(code: CSSCode) -> MinWeightSupports:
     stabilizers_x, logicals_x = _get_normalizer_basis(code, "X")
     stabilizers_z, logicals_z = _get_normalizer_basis(code, "Z")
 
-    # The Z walk starts from the X distance: it reports nothing unless Z is at least as good.
+    # The Z walk starts from the X distance: it reports nothing unless the Z distance is at most the
+    # X distance.
     distance_x, words_x = _get_min_weight_words(stabilizers_x, logicals_x, num_qubits)
     distance, words_z = _get_min_weight_words(stabilizers_z, logicals_z, distance_x)
     if distance < distance_x:
@@ -146,7 +147,7 @@ def _get_min_weight_words(
     return weight, words
 
 
-@njit(cache=True)
+@njit
 def _walk(
     basis: npt.NDArray[np.uint64],
     num_stabilizers: int,
@@ -192,12 +193,11 @@ def _walk(
         gray ^= 1 << bit
 
 
-@njit(cache=True)
+@njit
 def _popcount(word: np.uint64) -> np.int64:
     """The number of set bits of a 64-bit word.
 
-    This repeats ``qldpc._binary.popcount_word``, which is private to qLDPC.  Numba's cache of this
-    module would also miss changes to that function, which lives in another file.
+    This repeats ``qldpc._binary.popcount_word``, which is private to qLDPC.
     """
     one, two, four = np.uint64(1), np.uint64(2), np.uint64(4)
     pairs = word - ((word >> one) & np.uint64(0x5555555555555555))

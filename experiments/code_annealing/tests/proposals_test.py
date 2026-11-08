@@ -80,7 +80,9 @@ def test_a_proposal_is_a_neighbor_with_commuting_checks_and_the_same_dimension(
 
 
 def test_three_qubit_gates_have_six_classes_with_frequencies_2_2_2_1_1_1() -> None:
-    # The gate is drawn by an integer below nine, so a stand-in generator can draw each of them.
+    # The paper proposes only CNOTs for CSS codes, and these frequencies are the specification in
+    # the docstring of ``_sample_three_qubit_gate``.  The gate is drawn by an integer below nine, so
+    # a stand-in generator can draw each of them.
     kinds = [SimpleNamespace(integers=lambda size, kind=kind: kind) for kind in range(9)]
     matrices = [p._sample_three_qubit_gate(cast(np.random.Generator, kind)) for kind in kinds]
     assert sorted(Counter(matrix.tobytes() for matrix in matrices).values()) == [1, 1, 1, 2, 2, 2]
