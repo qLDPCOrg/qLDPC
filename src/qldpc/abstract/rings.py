@@ -86,7 +86,8 @@ class GroupRing:
         return self._transformers[seed]
 
     def __eq__(self, other: object) -> bool:
-        # the entries of a RingArray share a ring, so check identity first
+        # comparing a ring with itself is common, as among the entries of a RingArray, so check
+        # identity first
         if self is other:
             return True
         return (
@@ -263,28 +264,31 @@ class GroupRing:
     def _has_same_lifts(self, other_group: Group) -> bool:
         """Does a group equivalent to this ring's group lift members to the same matrices?
 
-        Lifts with ``right=True``, which Kronecker products use, must also agree.
+        This method also compares lifts with ``right=True``, which Kronecker products use.
         """
         # equal groups share their lift and enumeration functions
         group = self.group
         if group == other_group:
             return True
 
-        # avoid building lifts of different sizes, such as regular lifts of large groups
+        # lifts of different sizes differ, so avoid building them, which can be costly
         if group.lift_dim != other_group.lift_dim:
             return False
 
         # right lifts of a commutative group equal its lifts, and a noncommutative group has right
         # lifts only with its default lift
-        has_right_lifts = not group.is_commutative and group._lift is None
-        if has_right_lifts != (not group.is_commutative and other_group._lift is None):
+        compare_right_lifts = not group.is_commutative and group._lift is None
+        if compare_right_lifts != (not group.is_commutative and other_group._lift is None):
             return False
 
-        # lifts and right lifts are determined by the lifts of generators
+        # the lifts and right lifts of generators determine those of every member
+        sides = [False, True] if compare_right_lifts else [False]
         return all(
-            np.array_equal(group.lift(member, right=right), other_group.lift(member, right=right))
-            for member in group.generators
-            for right in ([False, True] if has_right_lifts else [False])
+            np.array_equal(
+                group.lift(generator, right=right), other_group.lift(generator, right=right)
+            )
+            for generator in group.generators
+            for right in sides
         )
 
 

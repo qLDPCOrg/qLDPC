@@ -94,13 +94,18 @@ def test_ring_equality() -> None:
     assert ring != abstract.GroupRing(group, field=4)  # different field
     assert ring != "not a ring"
 
+    def equal(group_a: abstract.Group, group_b: abstract.Group) -> bool:
+        """Do two groups give equal group algebras, whichever is compared with the other?"""
+        ring_a, ring_b = abstract.GroupRing(group_a), abstract.GroupRing(group_b)
+        assert (ring_a == ring_b) is (ring_b == ring_a)
+        return ring_a == ring_b
+
     # equal group algebras lift group members to the same matrices
     symmetric = abstract.SymmetricGroup(3)
     natural = symmetric.with_natural_lift()
-    assert abstract.GroupRing(symmetric) == abstract.GroupRing(abstract.SymmetricGroup(3))
-    assert abstract.GroupRing(symmetric) != abstract.GroupRing(natural)
-    copied = abstract.Group.from_sympy(symmetric.to_sympy(), lift=lambda gg: natural.lift(gg))
-    assert abstract.GroupRing(natural) == abstract.GroupRing(copied)
+    assert equal(symmetric, abstract.SymmetricGroup(3))
+    assert not equal(symmetric, natural)
+    assert equal(natural, abstract.Group.from_sympy(symmetric.to_sympy(), lift=natural.lift))
 
     # conjugating a lift by the lift of one generator changes the lifts of the others
     def conjugate_by(generator: abstract.GroupMember) -> abstract.Group:
@@ -110,25 +115,40 @@ def test_ring_equality() -> None:
         )
 
     for generator in symmetric.generators:
-        assert abstract.GroupRing(natural) != abstract.GroupRing(conjugate_by(generator))
+        conjugated = conjugate_by(generator)
+        assert np.array_equal(conjugated.lift(generator), natural.lift(generator))
+        assert not equal(natural, conjugated)
 
-    # default lifts of a noncommutative group have right lifts, which depend on the order of members
+    # default lifts of a noncommutative group depend on the order of its members
     members = list(symmetric.generate())
-    same_order = abstract.Group(*symmetric.generators, generate_func=lambda: iter(members))
-    assert abstract.GroupRing(symmetric) == abstract.GroupRing(same_order)
-    first, second = symmetric.generators
-    translated = abstract.Group(
-        *symmetric.generators, generate_func=lambda: iter([gg * second for gg in members])
-    )
-    assert np.array_equal(symmetric.lift(first), translated.lift(first))
-    assert abstract.GroupRing(symmetric) != abstract.GroupRing(translated)
-    custom = abstract.Group.from_sympy(symmetric.to_sympy(), lift=symmetric.lift)
-    assert abstract.GroupRing(symmetric) != abstract.GroupRing(custom)
 
-    # right lifts of a commutative group equal its lifts, so default and custom lifts can agree
+    def reorder(order: list[abstract.GroupMember]) -> abstract.Group:
+        return abstract.Group(*symmetric.generators, generate_func=lambda: iter(order))
+
+    assert equal(symmetric, reorder(members))
+
+    # translating members on the right preserves lifts, and translating them on the left preserves
+    # right lifts, but each translation changes the lifts on the other side
+    second = symmetric.generators[1]
+    for order, right in [
+        ([gg * second for gg in members], False),
+        ([second * gg for gg in members], True),
+    ]:
+        translated = reorder(order)
+        assert all(
+            np.array_equal(symmetric.lift(gg, right=right), translated.lift(gg, right=right))
+            for gg in symmetric.generators
+        )
+        assert not equal(symmetric, translated)
+
+    # a noncommutative group has right lifts only with its default lift
+    custom = abstract.Group.from_sympy(symmetric.to_sympy(), lift=symmetric.lift)
+    assert not equal(symmetric, custom)
+
+    # right lifts of a commutative group equal its lifts, so default and custom lifts can agree;
+    # CyclicGroup has a custom lift, so build a cyclic group with the default lift
     cyclic = abstract.Group(*abstract.CyclicGroup(4).generators)
-    custom = abstract.Group.from_sympy(cyclic.to_sympy(), lift=cyclic.lift)
-    assert abstract.GroupRing(cyclic) == abstract.GroupRing(custom)
+    assert equal(cyclic, abstract.Group.from_sympy(cyclic.to_sympy(), lift=cyclic.lift))
 
 
 def test_printing() -> None:

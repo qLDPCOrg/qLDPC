@@ -289,15 +289,17 @@ def test_lifted_product_with_non_orthogonal_lifts() -> None:
     identity = np.eye(4, dtype=int)
     assert np.array_equal(first.lift() @ first.lift().T, identity)
     assert not np.array_equal(second.lift() @ second.lift().T, identity)
-    with pytest.raises(ValueError, match="not orthogonal"):
+    with pytest.raises(ValueError, match="do not commute"):
         codes.LPCode(abstract.RingArray.build([[ring.one, second]], ring))
 
-    # LPCode accepts commuting checks from lifts that are not orthogonal
+    # LPCode accepts commuting checks from lifts that are not orthogonal, here because the second
+    # generator is its own inverse
+    assert second * second == ring.one
     code = codes.LPCode(abstract.RingArray.build([[second]], ring))
     assert not np.any(code.matrix_x @ code.matrix_z.T)
 
-    # over a field of odd characteristic, the signs of checks can keep them from commuting
-    group = abstract.Group.from_generating_mats(galois.GF(3)([[1, 1], [0, 1]]))
-    ring = abstract.GroupRing(group, field=3)
-    with pytest.raises(ValueError, match="not orthogonal"):
+    # in odd characteristic, the sign in the X checks keeps these checks from commuting
+    group = abstract.Group.from_generating_mats(galois.GF(5)([[1, 1], [4, 1]]))
+    ring = abstract.GroupRing(group, field=5)
+    with pytest.raises(ValueError, match="do not commute"):
         codes.LPCode(abstract.RingArray.build([[ring.generators[0]]], ring))

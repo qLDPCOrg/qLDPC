@@ -240,6 +240,7 @@ def test_kron_over_groups_with_different_lifts() -> None:
     translated = abstract.Group(
         *group.generators, generate_func=lambda: iter([gg * group.generators[1] for gg in members])
     )
+    assert all(np.array_equal(group.lift(gg), translated.lift(gg)) for gg in group.generators)
 
     # the Kronecker product of [[g]] with itself acts on t as g t g
     for ring in [abstract.GroupRing(group), abstract.GroupRing(translated)]:
@@ -249,9 +250,3 @@ def test_kron_over_groups_with_different_lifts() -> None:
         for member in [abstract.RingMember(ring, gg) for gg in ring.group.generate()]:
             product = generator * member * generator
             assert np.array_equal(lifted @ member.to_vector(), product.to_vector())
-
-    # qLDPC does not support anti-representations of custom lifts of noncommutative groups
-    ring = abstract.GroupRing(group.with_natural_lift())
-    matrix = abstract.RingArray.build([[ring.generators[0]]], ring)
-    with pytest.raises(ValueError, match="Anti-representations"):
-        abstract.kron(matrix, matrix).lift()

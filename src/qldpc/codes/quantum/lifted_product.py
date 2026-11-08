@@ -28,8 +28,10 @@ class LPCode(CSSCode):
     parity check matrices are RingArrays, or matrices whose entries are members of a group algebra
     over a finite field ``F_q``.  Each of these entries can be "lifted" to a matrix over ``F_q``, in
     which case the RingArray is interpreted as a block matrix; this is called "lifting" the
-    RingArray.  Orthogonal lifts, such as the default lifts of groups, give X and Z checks that
-    commute.  For other lifts, LPCode raises a ValueError if the checks do not commute.
+    RingArray.  Orthogonal lifts, such as permutation matrices, give X and Z checks that commute.
+    For other lifts, LPCode raises a ValueError if the checks do not commute.  A noncommutative
+    group must use the default lift, its regular representation, since LPCode needs lifts with
+    ``right=True`` (see ``Group.lift``).
 
     As an example, the lift-connected surface code in Eq. (2) of https://arxiv.org/pdf/2401.02911v2
     can be constructed by::
@@ -122,7 +124,8 @@ class LPCode(CSSCode):
             self._is_subsystem_code = False  # known by construction
         elif self.is_subsystem_code:
             raise ValueError(
-                "The X and Z checks of this LPCode, whose lifts are not orthogonal, do not commute"
+                "The X and Z checks of this LPCode do not commute, and its group algebra has lifts"
+                " that are not orthogonal"
             )
 
         if set_logicals:
