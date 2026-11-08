@@ -4,15 +4,22 @@
 
 Exact distances and logical-operator counts choose between several routes: exhaustive enumeration,
 Brouwer-Zimmermann (BZ) searches of disjoint or overlapping information sets, families found by
-matroid partitioning, a certificate from linear programming, and families of the images of an
-information set under automorphisms of a code.  Each choice weighs the setup cost of a route against
-the work that it saves, by cost models with thresholds.  :class:`SearchTuning` collects those
-thresholds, and the batch sizes of the scans of counts, in one record.  Section 4.4 of
-``brouwer_zimmermann.md`` describes the heuristics that use the thresholds.  The batch size of a
-distance search is not a field: it is the ``block_size`` argument of
-:func:`~qldpc.codes.distance.get_distance_classical` and
-:func:`~qldpc.codes.distance.get_distance_quantum`, which the methods of codes and counts fix at
-15.
+matroid partitioning, a certificate from linear programming, families of the images of an
+information set under automorphisms of a code, and tables that let a scan of one information set
+skip hopeless supports.  Each choice weighs the setup cost of a route against the work that it
+saves, by cost models with thresholds.  :class:`SearchTuning` collects those thresholds, and the
+batch sizes of the scans of counts, in one record.  Section 4.4 of ``brouwer_zimmermann.md``
+describes the heuristics that use the thresholds.  The batch size of a distance search is not a
+field: it is the ``block_size`` argument of :func:`~qldpc.codes.distance.get_distance_classical`
+and :func:`~qldpc.codes.distance.get_distance_quantum`, which the methods of codes and counts fix
+at 15.
+
+The module also holds ad-hoc constants of these searches, such as the measured or chosen constants
+of the cost model of completion tables.  Unlike the fields of :class:`SearchTuning`, these
+constants apply to every search in a process, and only contributors and benchmarks should change
+them.  Each constant states what it decides and in what unit, how its value was chosen and on what
+data, and what an error costs, so that it can be retuned.  Like a tuning, none of them changes a
+result that a search guarantees.
 
 This module is private.  Its names, fields, and defaults can change in any release, without a
 deprecation period or any other warning.  Code that uses this module should therefore pin the exact
@@ -107,8 +114,12 @@ class SearchTuning:
     otherwise use.  The threshold ``lp_minimum_work`` decides whether a search of overlapping sets
     uses linear programming.  A threshold of zero makes every search to which a heuristic applies
     consider its family, or use linear programming, and the largest value, ``MAX_VALUE``, makes no
-    search do so.  Every integer field is a Python integer between zero and ``MAX_VALUE``, and the
-    batch sizes are positive.
+    search do so.  The threshold ``completion_bound_minimum_layer_work`` likewise decides which
+    layers consider completion tables.  The fields ``completion_bound_max_cost_percent`` and
+    ``completion_bound_max_table_bytes`` are limits on the predicted cost and the memory of those
+    tables instead, so zero allows no tables, and ``MAX_VALUE`` allows tables whatever they cost.
+    Every integer field is a Python integer between zero and ``MAX_VALUE``, and the batch sizes are
+    positive.
 
     Counts with the BZ method always scan information sets, rather than enumerate every word.  The
     distance searches that find their default weights consult both ``allow_enumeration`` fields.
@@ -161,6 +172,33 @@ class SearchTuning:
             :func:`~qldpc.codes.distance.get_distance_classical`,
             :func:`~qldpc.codes.distance.get_distance_quantum`, and counts of logical operators do
             not.  Defaults to 100,000,000.
+        completion_bound_minimum_layer_work: The number of supports, which are choices of rows of
+            an information set, from which a layer of a distance search that scans one information
+            set considers completion tables.  Completion tables let a scan skip the supports whose
+            last two rows cannot complete a word lighter than its best one (Section 3.9 of
+            ``brouwer_zimmermann.md``).  A search that considers them estimates from a sample of
+            supports whether they would pay for themselves, which takes milliseconds.  Such layers
+            include the layers of a search of an automorphism family.  Zero considers tables for
+            every such layer, and ``MAX_VALUE`` for none.  Defaults to 100,000,000, chosen by hand:
+            such a layer takes about 0.2 seconds to scan on an Apple M3 Max, so sampling, which took
+            1 to 13 milliseconds in measured layers, costs a few percent of it at most.  In measured
+            layers of 2 * 10**7 to 5 * 10**7 supports, forced tables cost more than they saved in
+            three of four.
+        completion_bound_max_cost_percent: A search that considers completion tables for a layer
+            builds or reuses them only if it predicts that scanning the layer with them, including
+            building them, costs at most this percentage of scanning it without them.  Zero never
+            uses tables, and ``MAX_VALUE`` uses them in every layer that considers them, even where
+            they cost more than they save.  Defaults to 90, which leaves a margin for the error of
+            the cost model (see ``COMPLETION_LOOKUP_BLOCK_COST``).
+        completion_bound_max_table_bytes: The most bytes of completion tables that a search may
+            keep.  Tables use blocks of sixteen columns, or blocks of eight columns if those would
+            need more memory than this.  Blocks of eight columns skip fewer supports.  A search uses
+            no tables if neither fits.  Each search of a joint search, such as each sector of a CSS
+            code, may keep its own tables until it finishes, so a joint search of two sectors may
+            hold twice this many bytes.  Zero disables completion tables, and ``MAX_VALUE`` puts no
+            limit on their memory.  Defaults to 268,435,456 (256 MiB), chosen by hand, in which
+            tables of sixteen-column blocks fit for bases of up to about 500 rows with 140 tail
+            columns, such as the 75 MiB tables of the [[288, 12, 18]] bivariate bicycle code.
         scan_chunk_size: The most supports, which are choices of rows of an information set, that
             one compiled call of the scan of a count with the BZ or brute-force method visits.  A
             scan proceeds in steps, each of which is one coefficient layer of one information set,
@@ -190,6 +228,9 @@ class SearchTuning:
     partition_work_ratio: int = 10
     lp_minimum_work: int = 1_000_000_000
     automorphism_minimum_layer_work: int = 100_000_000
+    completion_bound_minimum_layer_work: int = 100_000_000
+    completion_bound_max_cost_percent: int = 90
+    completion_bound_max_table_bytes: int = 256 * 2**20
     scan_chunk_size: int = dataclasses.field(default=1 << 16, metadata={"minimum": 1})
     scan_chunks_per_call: int = dataclasses.field(default=64, metadata={"minimum": 1})
     macwilliams_shared_walk_rank: int = 14
@@ -260,3 +301,115 @@ def use_tuning(**changes: Any) -> Iterator[SearchTuning]:
 _ACTIVE_TUNING: contextvars.ContextVar[SearchTuning] = contextvars.ContextVar(
     "qldpc_search_tuning", default=DEFAULT_TUNING
 )
+
+
+####################################################################################################
+# constants of completion tables
+
+# These constants control completion tables (Section 3.9 of ``brouwer_zimmermann.md``).  They were
+# chosen with single-threaded whole-layer timings on an Apple M3 Max, of layers of one information
+# set from two data sets.  The width data set, measured on a prototype of the scan, holds layers of
+# weights 4 to 6 and 4 * 10**7 to 5 * 10**10 supports, of both sectors of
+# ``BBCode({x: 12, y: 12}, x**3 + y**2 + y**7, y**3 + x + x**2)`` and of
+# ``QTCode.random(CyclicGroup(7), HammingCode(3), seed=1)``, and of two lifted-product codes of
+# 3 x 4 random monomials of ``CyclicGroup(13)``, drawn with NumPy's default generator from seeds 5
+# and 8.  The cost data set, described before ``COMPLETION_LOOKUP_BLOCK_COST``, holds the layers to
+# which the cost model was fitted.  To retune a constant, use either data set or comparable layers,
+# and time each candidate value in paired fresh processes, alternating the order of arms: with
+# tables disabled (``completion_bound_max_table_bytes=0``), forced
+# (``completion_bound_minimum_layer_work=0`` and ``completion_bound_max_cost_percent=MAX_VALUE``),
+# and at the defaults.  Record the time of each layer and of its sampling and table build, peak
+# memory, and the counts of supports weighed, bounds looked up, and supports skipped that the scan
+# returns.  Accept a value if, at the defaults, no layer is slower than the faster of the other two
+# arms by more than the spread of repeated runs, and tables stay within
+# ``completion_bound_max_table_bytes``.  Only speed and memory depend on these constants.
+
+# The number of tail columns in a block of completion tables.  A width must divide 64, so that no
+# block crosses a packed word, and a block's table has ``2**width`` bytes for each row of the
+# basis, so 16 is the widest practical width.  On every layer of the width data set of at least
+# 5 * 10**8 supports, blocks of 16 columns skipped more supports, in less time, than blocks of 8.
+# To retune it, force each width on the width data set and keep the fastest.
+COMPLETION_BLOCK_BITS = 16
+
+# The width of the blocks of completion tables when blocks of ``COMPLETION_BLOCK_BITS`` columns
+# would need more than ``completion_bound_max_table_bytes`` bytes.  A table of 8 columns has 256
+# times fewer entries than one of 16, and twice as many cover a tail, so tables of 8 columns need
+# about 128 times less memory.  On the width data set, they skipped fewer supports than blocks of
+# 16, and still saved time on every layer of at least 10**9 supports.  To retune it, lower
+# ``completion_bound_max_table_bytes`` until the width data set falls back, and compare each
+# narrower width that divides 64.
+COMPLETION_FALLBACK_BLOCK_BITS = 8
+
+# The number of random supports from which a search estimates the share of a layer that completion
+# tables would skip, as long as computing their bounds directly fits the budget
+# ``COMPLETION_SAMPLING_WORK``.  More samples narrow the confidence interval of the share, so the
+# policy accepts more of the layers in which tables pay; fewer save milliseconds per layer.  Chosen
+# by hand: sampling took 1 to 13 milliseconds on the cost data set, a small share of its smallest
+# layer.  To retune it, find the layers of the cost data set that forced tables speed up but the
+# policy declines, and raise it while sampling stays under a tenth of the time of the smallest
+# layer that the policy considers.
+COMPLETION_SAMPLES = 256
+
+# The fewest affordable samples with which a search estimates that share; with fewer, the policy
+# assumes that tables skip nothing, and declines them.  Chosen by a decision rule: when ``n``
+# samples all skip, the lower end of the Wilson interval is ``n / (n + z**2)``, with ``z`` the value
+# of ``COMPLETION_CONFIDENCE_Z``, which is 0.94 for 64 samples.  This leaves the policy room to
+# accept a layer whose tables skip almost every support.  To retune it, choose the fewest samples
+# for which that lower end still lets the policy accept tables on the layers of the cost data set
+# that tables speed up.
+COMPLETION_MIN_SAMPLES = 64
+
+# The most work that a search spends computing the bounds of sampled supports directly.  A sampled
+# support whose last pair starts at row ``s`` of a basis of ``r`` rows costs ``r`` units, to sum
+# its prefix, plus one unit for each pair of rows from ``s`` on and each block.  Chosen by a
+# decision rule: on bases with many rows, sampling should take tens of milliseconds, under a tenth
+# of the time of the smallest layer that the policy considers,
+# ``completion_bound_minimum_layer_work`` supports.  To retune it, time sampling on the largest
+# bases of interest and keep that rule.
+COMPLETION_SAMPLING_WORK = 50_000_000
+
+# The policy uses the lower end of a Wilson score interval for the sampled share of skipped
+# supports, extending this many standard errors on each side: a one-sided bound of about 98%
+# confidence.  Chosen by a decision rule: a conventional confidence level, so that sampling error
+# alone rarely makes the policy choose tables that cost more than they save.  A larger value makes
+# the policy more conservative, so that it declines more layers in which tables would pay.  To
+# retune it, count the layers of the cost data set in which the policy's choice was slower than the
+# other choice, and widen the bound if sampling error, rather than the cost model, caused them.
+COMPLETION_CONFIDENCE_Z = 2.0
+
+# The cost model of completion tables predicts the cost of a layer, in units of the time to scan
+# one support without tables, about 1.8 to 2.0 nanoseconds on the machine above.  Its constants were
+# fitted to the cost data set: nine layers of 4 * 10**7 to 5 * 10**10 supports, of the X sector of
+# the [[288, 12, 18]] bivariate bicycle code above and of the [[232, 62, 12]], [[170, 8, 20]], and
+# [[276, 98, 14]] pair-partition codes, which the library does not construct, with bases of 89 to
+# 187 rows and tables of 28 to 75 MiB.  On five other
+# layers of at least 10**8 supports, the fitted model predicted cost ratios at most 0.12 above, and
+# 0.02 below, the measured ones.  An underestimate of costs makes searches use tables that cost
+# more than they save; an overestimate makes them decline tables that would save time.  Only speed
+# depends on these constants.  To refit them, time layers of one information set with tables
+# disabled (``completion_bound_max_table_bytes=0``) and forced
+# (``completion_bound_minimum_layer_work=0`` and ``completion_bound_max_cost_percent=MAX_VALUE``),
+# with the counts of supports weighed, bounds looked up, and supports skipped that the scan returns.
+
+# A lookup of the bound of one prefix and first row of a last pair, with the updates of prefixes
+# that it entails, costs, for each block of the tables, ``COMPLETION_LOOKUP_BLOCK_COST`` plus
+# ``COMPLETION_LOOKUP_BLOCK_COST_PER_MIB`` for each MiB of tables, since larger tables miss the
+# processor's caches more often.  Measured lookups cost 2 to 8 scanned supports per block, more on
+# larger tables and fewer in deeper layers; for the four codes above, the model gives 3.1 to 5.0.
+COMPLETION_LOOKUP_BLOCK_COST = 2.0
+COMPLETION_LOOKUP_BLOCK_COST_PER_MIB = 0.04
+
+# A scan with tables looks up one bound for each prefix and first row of a last pair that it keeps,
+# and one for each prefix whose remaining completions it skips.  It keeps a smaller share of first
+# rows than of supports, since late first rows, which have few completions each, are skipped most
+# often.  This ratio converts the share of kept supports to the share of kept pairs of a prefix and
+# a first row.  Fitted to the measured counts of lookups, whose ratios ranged from 0.31 to 0.50.
+COMPLETION_KEPT_FIRST_ROW_RATIO = 0.35
+
+# Building tables costs ``COMPLETION_TABLE_BYTE_COST`` for each byte that it writes, and
+# ``COMPLETION_BUILD_STEP_COST`` for each step of the breadth-first searches that fill them, of
+# which a block of ``b`` columns takes at most ``2**b * (b + 1) * b``.  Chosen by hand to be
+# conservative: they predict 0.037 to 0.066 seconds for the tables of the four codes above, which
+# took 0.023 to 0.044 seconds to build, about 1.5 times less.
+COMPLETION_TABLE_BYTE_COST = 0.1
+COMPLETION_BUILD_STEP_COST = 0.2

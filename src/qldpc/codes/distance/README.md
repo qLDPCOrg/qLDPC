@@ -31,6 +31,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | The Brouwer–Zimmermann (BZ) distance search | `_search/brouwer_zimmermann.py` |
 | How basis families and their certificates are built | `_search/information_sets.py` |
 | Automorphism families: the images of one information set under automorphisms of a code, and the check of those automorphisms | `_search/automorphism_families.py` |
+| Tables that let a distance search skip supports whose last two rows cannot complete a word lighter than the best one found, and the choice of whether to build them | `_search/completion_bounds.py` |
 | Information sets with bounded column coverage, by matroid partitioning | `_search/matroid_partition.py` |
 | Exhaustive enumeration, for small codes, fallbacks, and the `brute_force` method | `_search/brute_force.py` |
 | Minimum weights of syndrome classes of Pauli errors (coset-leader weights), with two classical searches for the CSS weight on CSS states, used by `src/qldpc/circuits/certification/` | `_search/coset_leader_search.py` |
@@ -38,7 +39,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
 | The MacWilliams counting method | `_counting/macwilliams.py` |
-| The thresholds that choose between exhaustive enumeration and the kinds of information-set families, and the batch sizes of the counting loops (`SearchTuning`, `use_tuning`) | `_tuning.py` |
+| The thresholds that choose between exhaustive enumeration, the kinds of information-set families, and completion tables, the memory limit of those tables, and the batch sizes of the counting loops (`SearchTuning`, `use_tuning`) | `_tuning.py` |
 | Binary input checks, nested bases, or packed weights | `_binary.py` |
 | Bit packing, bit counts, or row reduction over GF(2), which other subpackages share | `src/qldpc/_binary.py` |
 | How numba code is compiled or cached | `src/qldpc/_compilation.py` |
@@ -50,7 +51,7 @@ From the top:
 1. `logical_counts.py`, the public interface of the counts, and `core.py`, the public interface of the distances.
 2. The `_counting` package, the counting methods.
 3. `_search/brouwer_zimmermann.py`, `_search/brute_force.py`, and `_search/coset_leader_search.py`, the searches.
-4. `_search/information_sets.py`, the basis families that the searches share, and `_search/automorphism_families.py`, which builds automorphism families from them.
+4. `_search/information_sets.py`, the basis families that the searches share, `_search/automorphism_families.py`, which builds automorphism families from them, and `_search/completion_bounds.py`, which bounds the words that complete the first rows of a support with two more rows.
 5. `_search/matroid_partition.py`, which `_search/information_sets.py` uses to build some of those families.
 6. `_tuning.py`, the thresholds and batch sizes of the searches and counts.
 7. `_binary.py`, the foundation.
@@ -70,7 +71,9 @@ Its docstrings give the meaning and default of each field, and Section 4.4 of `b
   `get_distance_brouwer_zimmermann_many` reads it for a distance search, and `CSSLogicalCounter.count_logical_ops` for a count.
   Pass these values as arguments, including to compiled code, and do not read the tuning anywhere else, so that one search never mixes two tunings.
 - Put a threshold in `SearchTuning` if a user might measure and change it.
-  Keep the measured constants of cost models, such as `_PARTITION_COST_FACTOR`, in the modules that use them.
+  Put every other ad-hoc constant, such as a measured or chosen constant of a cost model, a memory limit, a batch size, or a cache size, in a section of constants of `_tuning.py`, and read it there as `_tuning.NAME`.
+  Constants fixed by the algorithm or by native integer widths, such as `_WORK_CAP`, stay in the modules that use them.
+- Document each constant well enough to retune it: what it decides and in what unit, how its value was chosen and on what data, and what an error costs.
 - A tuning changes only how long a search takes and how much memory it uses, never a result that the search guarantees.
   With an early exit, it can change which witness a search returns (see the module docstring of `_tuning.py`).
   A new heuristic whose threshold could change a guaranteed result does not belong in `SearchTuning`.
