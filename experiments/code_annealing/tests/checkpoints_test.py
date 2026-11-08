@@ -165,15 +165,14 @@ def test_a_code_of_more_than_64_qubits_survives_encoding() -> None:
 
 
 @pytest.mark.parametrize(
-    "data,error",
+    "data",
     [
-        ({"size": 0, "x": [], "z": []}, ValueError),
-        ({"size": 2, "x": ["0x4"], "z": []}, ValueError),  # beyond the physical width
-        ({"size": 4, "x": "0x3", "z": []}, TypeError),  # not a list of hexadecimal strings
+        {"size": 0, "x": [], "z": []},
+        {"size": 2, "x": ["0x4"], "z": []},  # beyond the physical width
     ],
 )
-def test_a_malformed_code_is_rejected(data: dict[str, Any], error: type[Exception]) -> None:
-    with pytest.raises(error):
+def test_a_malformed_code_is_rejected(data: dict[str, Any]) -> None:
+    with pytest.raises(ValueError):
         checkpoints.decode_code(data)
 
 

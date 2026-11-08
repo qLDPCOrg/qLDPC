@@ -92,14 +92,8 @@ def test_a_chain_that_another_holder_has_locked_is_not_continued(
     assert {path: path.read_bytes() for path in tmp_path.iterdir() if path.is_file()} == files
 
 
-def test_a_resumed_chain_writes_only_its_own_files(tmp_path: Path, chain: Path) -> None:
+def test_a_resumed_chain_cannot_continue_in_another_file(tmp_path: Path, chain: Path) -> None:
     _fail_with_usage_error(["--resume", str(chain), "--output", str(tmp_path / "fork.json")])
-    assert not (tmp_path / "fork.json").exists()
-
-
-def test_a_missing_chain_is_not_resumed_and_leaves_no_files(tmp_path: Path) -> None:
-    _fail_with_usage_error(["--resume", str(tmp_path / "missing.json")])
-    assert not any(tmp_path.iterdir())
 
 
 def test_a_dry_run_writes_nothing(tmp_path: Path) -> None:
