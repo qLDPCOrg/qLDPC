@@ -279,8 +279,8 @@ def test_lifted_product_translations() -> None:
 
 def test_lifted_product_with_non_orthogonal_lifts() -> None:
     """LPCode verifies that its X and Z checks commute when lifts are not orthogonal."""
-    # LPCode checks the lift of every generator, so it rejects checks that do not commute even when
-    # the first generator lifts to an orthogonal matrix
+    # LPCode tests whether every generator lifts to an orthogonal matrix, so it rejects checks that
+    # do not commute even when the lift of the first generator is orthogonal
     swap = [[0, 1, 0, 0], [1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
     shear = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 1], [0, 0, 0, 1]]
     ring = abstract.GroupRing(
@@ -299,12 +299,12 @@ def test_lifted_product_with_non_orthogonal_lifts() -> None:
     code = codes.LPCode(abstract.RingArray.build([[second]], ring))
     assert not np.any(code.matrix_x @ code.matrix_z.T)
 
-    # this generator lifts to a symmetric matrix that is not orthogonal, and in odd characteristic,
-    # the sign in the Z checks keeps these checks from commuting
+    # this generator lifts to a symmetric matrix, which equals its transpose but is not orthogonal.
+    # In odd characteristic, the sign in the Z checks of this code keeps its checks from commuting.
     group = abstract.Group.from_generating_mats(galois.GF(5)([[1, 1], [1, 4]]))
     ring = abstract.GroupRing(group, field=5)
     (generator,) = ring.generators
     assert np.array_equal(generator.lift(), generator.lift().T)
-    assert not np.array_equal(generator.T.lift(), generator.lift().T)
+    assert not np.array_equal(generator.lift() @ generator.lift().T, np.eye(2, dtype=int))
     with pytest.raises(ValueError, match="do not commute"):
         codes.LPCode(abstract.RingArray.build([[generator]], ring))
