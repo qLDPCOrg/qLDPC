@@ -194,8 +194,9 @@ experiments/code_annealing/
 
 ## Tests
 
-The tests cover the search, whose errors could go unnoticed in its results: the search modules of `core/`.
-The scripts around it have no tests, nor do the modules of `core/` that serve them (`code_files.py`, `saved_runs.py`, `paths.py`, and `cli.py`): when one of them breaks, its output shows it.
+The tests cover what could go wrong unnoticed: the search modules of `core/`, and the numbers that the scripts derive from codes beyond the exact counts, which are the supports of minimum-weight logical operators (`analysis/half_supports.py` and `analysis/min_weight_supports.py`) and the low-weight generators of code files (`reduce_weights`).
+The tests compare with small codes whose answers are derived by hand, or with brute force, rather than repeating the code that they test.
+The other scripts and helpers have no tests: they are plain formulas or file handling, and when one of them breaks, its output shows it.
 The tests are offline and local-only, and do not run in CI.
 They need the development install of [ENVIRONMENT.md](ENVIRONMENT.md), which provides pytest and its plugins:
 
