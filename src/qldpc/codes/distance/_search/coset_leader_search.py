@@ -28,14 +28,11 @@ from qldpc._binary import (
 )
 from qldpc._compilation import always_compiled
 
+from .. import _tuning
 from .._binary import as_binary_matrix, assert_binary, symplectic_to_hamming
+from .._tuning import get_tuning
 from . import information_sets
 from .information_sets import advance_support
-
-# The largest number of pairs of a single-qubit X error and a single-qubit Z error (or the identity)
-# that a search of Pauli errors by their CSS weight tabulates by syndrome, in
-# ``_CosetSearch._css_singles``: about ten megabytes, or 255 qubits.
-_MAX_CSS_SINGLES = 2**16
 
 ####################################################################################################
 # coset-leader minimum-weight bounds
@@ -96,8 +93,9 @@ class CosetLeaderSearch:
       ``z + C_Z``.  The coset of an X part is labeled by its syndrome for the pure-Z stabilizers,
       and that of a Z part by its syndrome for the pure-X stabilizers, and the oracle maps a
       syndrome for the given stabilizers to these two syndromes.  The two searches depend only on
-      the stabilizer group, so they are cached for the eight most recently used groups, and
-      oracles for different generating sets of one state share them.
+      the stabilizer group, so they are cached for the most recently used groups (see
+      ``_tuning.CSS_SEARCH_CACHE_SIZE``), and oracles for different generating sets of one state
+      share them.
 
     Args:
         stabilizers: A binary ``n x 2n`` matrix in ``[X|Z]`` order whose rows are independent
@@ -105,11 +103,15 @@ class CosetLeaderSearch:
         css_weight: True to weigh an error by its CSS weight, or False to weigh it by its physical
             weight.
 
+    The oracle reads the active tuning (see ``_tuning``) when it is built, and uses its fields
+    ``disjoint_random_column_orders`` and ``max_css_single_pairs`` for every query.
+
     Raises:
         ValueError: If the stabilizers are not ``n`` independent commuting stabilizers.
     """
 
     def __init__(self, stabilizers: npt.ArrayLike, *, css_weight: bool = False) -> None:
+        tuning = get_tuning()
         self.css_weight = css_weight
         assert_binary(stabilizers, "stabilizers")
         matrix = as_binary_matrix(stabilizers)
@@ -129,7 +131,13 @@ class CosetLeaderSearch:
         combinations = _get_css_combinations(matrix) if css_weight else None
         if combinations is None:
             self._searches: tuple[_CosetSearch, ...] = (
-                _get_pauli_search(matrix, checks, css_weight),
+                _get_pauli_search(
+                    matrix,
+                    checks,
+                    css_weight,
+                    tuning.disjoint_random_column_orders,
+                    tuning.max_css_single_pairs,
+                ),
             )
             return
 
@@ -145,7 +153,11 @@ class CosetLeaderSearch:
         )
         assert x_transform is not None and z_transform is not None
         self._searches = _get_css_searches(
-            n, len(x_rows), pack_bits(x_rows).tobytes(), pack_bits(z_rows).tobytes()
+            n,
+            len(x_rows),
+            pack_bits(x_rows).tobytes(),
+            pack_bits(z_rows).tobytes(),
+            tuning.disjoint_random_column_orders,
         )
 
         # Row ``j`` of ``z_rows`` is the Z part of a pure-Z stabilizer, the product of the given
@@ -294,6 +306,8 @@ class _CosetSearch:
             bit ``c`` set.
         is_pauli: Whether the words are packed Paulis of ``2 n`` bits, rather than X or Z parts of
             ``n`` bits.
+        max_css_single_pairs: For a search of Pauli errors by CSS weight, the most pairs of distinct
+            syndromes of single-qubit X and Z errors that it tabulates (see ``_css_singles``).
     """
 
     def __init__(
@@ -305,8 +319,10 @@ class _CosetSearch:
         check_columns: tuple[int, ...],
         *,
         is_pauli: bool,
+        max_css_single_pairs: int = 0,
     ) -> None:
         self.tables = tables
+        self._max_css_single_pairs = max_css_single_pairs
         self.css_weight = css_weight
         self._num_qubits = num_qubits
         self._is_pauli = is_pauli
@@ -398,7 +414,7 @@ class _CosetSearch:
     @functools.cached_property
     def _css_singles(self) -> dict[int, int] | None:
         """Errors X_i Z_j (with X_i or Z_j possibly the identity) by syndrome, if not too many."""
-        if len(self._x_singles) * len(self._z_singles) > _MAX_CSS_SINGLES:
+        if len(self._x_singles) * len(self._z_singles) > self._max_css_single_pairs:
             return None
         table: dict[int, int] = {}
         for sx, x in self._x_singles.items():
@@ -408,7 +424,11 @@ class _CosetSearch:
 
 
 def _get_pauli_search(
-    stabilizers: npt.NDArray[np.uint8], checks: npt.NDArray[np.uint8], css_weight: bool
+    stabilizers: npt.NDArray[np.uint8],
+    checks: npt.NDArray[np.uint8],
+    css_weight: bool,
+    random_column_orders: int,
+    max_css_single_pairs: int,
 ) -> _CosetSearch:
     """The Pauli search, of Pauli errors modulo the stabilizers, with these checks."""
     num_qubits = len(stabilizers)
@@ -417,16 +437,24 @@ def _get_pauli_search(
     embedded_inverse = inverse if css_weight else symplectic_to_hamming(inverse)
     # An error weighs at least half of the Hamming weight of its embedded word, by either measure of
     # weight, so the certificate bounds are halved.
-    tables = _get_search_tables(embedded_stabilizers, embedded_inverse, num_qubits, halve=True)
+    tables = _get_search_tables(
+        embedded_stabilizers, embedded_inverse, num_qubits, random_column_orders, halve=True
+    )
     check_columns = _row_ints(np.ascontiguousarray(checks.T))
     return _CosetSearch(
-        tables, css_weight, num_qubits, _row_ints(inverse), check_columns, is_pauli=True
+        tables,
+        css_weight,
+        num_qubits,
+        _row_ints(inverse),
+        check_columns,
+        is_pauli=True,
+        max_css_single_pairs=max_css_single_pairs,
     )
 
 
-@functools.lru_cache(maxsize=8)
+@functools.lru_cache(maxsize=_tuning.CSS_SEARCH_CACHE_SIZE)
 def _get_css_searches(
-    num_qubits: int, num_x_rows: int, x_rows: bytes, z_rows: bytes
+    num_qubits: int, num_x_rows: int, x_rows: bytes, z_rows: bytes, random_column_orders: int
 ) -> tuple[_CosetSearch, _CosetSearch]:
     """The classical searches of the X parts and of the Z parts of the errors on a CSS state.
 
@@ -435,7 +463,8 @@ def _get_css_searches(
     echelon form, which depends only on the stabilizer group, and packed by ``pack_bits`` into
     bytes, which ``lru_cache`` can hash.  The X parts of errors are searched modulo the code of the
     X rows, with the Z rows as checks, and the Z parts the other way around (see
-    ``CosetLeaderSearch``).
+    ``CosetLeaderSearch``).  ``random_column_orders`` is the ``disjoint_random_column_orders`` of
+    the tuning, which keys the cache too.
     """
     num_words = max(1, (num_qubits + 63) // 64)
     x_matrix = unpack_bits(
@@ -445,11 +474,14 @@ def _get_css_searches(
         np.frombuffer(z_rows, dtype=np.uint64).reshape(num_qubits - num_x_rows, num_words),
         num_qubits,
     )
-    return _get_classical_search(x_matrix, z_matrix), _get_classical_search(z_matrix, x_matrix)
+    return (
+        _get_classical_search(x_matrix, z_matrix, random_column_orders),
+        _get_classical_search(z_matrix, x_matrix, random_column_orders),
+    )
 
 
 def _get_classical_search(
-    generators: npt.NDArray[np.uint8], checks: npt.NDArray[np.uint8]
+    generators: npt.NDArray[np.uint8], checks: npt.NDArray[np.uint8], random_column_orders: int
 ) -> _CosetSearch:
     """The classical search of X or Z parts modulo the row space of independent generators.
 
@@ -460,7 +492,7 @@ def _get_classical_search(
     num_qubits = generators.shape[1]
     inverse = _get_inverse(checks)
     # Every column counts as the X part, so the CSS weight of a word is its Hamming weight.
-    tables = _get_search_tables(generators, inverse, num_qubits, halve=False)
+    tables = _get_search_tables(generators, inverse, num_qubits, random_column_orders, halve=False)
     check_columns = _row_ints(np.ascontiguousarray(checks.T))
     return _CosetSearch(tables, True, num_qubits, _row_ints(inverse), check_columns, is_pauli=False)
 
@@ -478,23 +510,27 @@ def _get_search_tables(
     generators: npt.NDArray[np.uint8],
     inverse: npt.NDArray[np.uint8],
     num_x_columns: int,
+    random_column_orders: int,
     halve: bool,
 ) -> _CosetSearchTables:
     """Build the tables of ``_search_coset`` for the cosets of the row space of embedded generators.
 
     ``inverse`` holds embedded words whose syndromes have one bit set, and the first
-    ``num_x_columns`` columns count as the X part of an embedded word.  Entry ``[w, j]`` of the
-    certificate bounds the Hamming weight of every word that adds more than ``w`` rows on each of
-    the first ``j`` information sets and more than ``w - 1`` rows on the others, and its half bounds
-    the weight of an error if ``halve``.  The certificate takes no weight divisor, since the words
-    of a coset need not share the divisibility of the code, and a coverage of one, since the
-    information sets are disjoint.  Without generators, each coset is a single word, which the
-    search visits on layer zero of an empty information set.
+    ``num_x_columns`` columns count as the X part of an embedded word.  ``random_column_orders`` is
+    passed to ``information_sets.get_disjoint_family``.  Entry ``[w, j]`` of the certificate bounds
+    the Hamming weight of every word that adds more than ``w`` rows on each of the first ``j``
+    information sets and more than ``w - 1`` rows on the others, and its half bounds the weight of
+    an error if ``halve``.  The certificate takes no weight divisor, since the words of a coset need
+    not share the divisibility of the code, and a coverage of one, since the information sets are
+    disjoint.  Without generators, each coset is a single word, which the search visits on layer
+    zero of an empty information set.
     """
     num_generators, num_columns = generators.shape
     width = max(1, (num_columns + 63) // 64)
     if num_generators:
-        family = information_sets.get_disjoint_family(generators, None)
+        family = information_sets.get_disjoint_family(
+            generators, None, random_column_orders=random_column_orders
+        )
         num_sets = family.generators.shape[0]
         packed_generators = pack_bits(family.generators.reshape(-1, num_columns)).reshape(
             num_sets, num_generators, -1

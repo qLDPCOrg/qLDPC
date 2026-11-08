@@ -8,6 +8,7 @@ import dataclasses
 import functools
 import itertools
 import math
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -22,6 +23,10 @@ from .._tuning import DEFAULT_TUNING, SearchTuning
 from ..conftest import get_random_full_rank_matrix
 from . import information_sets
 
+# The default numbers of column orders of disjoint families, and denominators of LP dual weights.
+ORDERS = DEFAULT_TUNING.disjoint_random_column_orders
+DENOMINATOR = DEFAULT_TUNING.lp_dual_max_denominator
+
 # Two disjoint full blocks and a rank-two remainder.
 PARTIAL_BASIS = np.hstack(
     [
@@ -35,7 +40,9 @@ EVEN_BASIS = np.array([[1, 1, 0, 0], [0, 1, 1, 0], [1, 0, 0, 1]], dtype=np.uint8
 
 def test_information_set_packing() -> None:
     """Information sets pack full blocks first and retain the residual rank."""
-    get_family = information_sets.get_disjoint_family
+    get_family = functools.partial(
+        information_sets.get_disjoint_family, random_column_orders=ORDERS
+    )
     assert get_family(PARTIAL_BASIS, np.eye(3, dtype=np.uint8)).ranks.tolist() == [3, 3, 2]
     assert not len(get_family(np.zeros((1, 3), dtype=np.uint8), None).ranks)
 
@@ -57,7 +64,9 @@ def test_information_set_packing() -> None:
 def test_a_basis_family_stacks_its_sets() -> None:
     """The sets of a basis family are reduced on their pivots, which are padded for partial sets."""
     labels = np.eye(3, dtype=np.uint8)
-    basis_family = information_sets.get_disjoint_family(PARTIAL_BASIS, labels)
+    basis_family = information_sets.get_disjoint_family(
+        PARTIAL_BASIS, labels, random_column_orders=ORDERS
+    )
     assert basis_family.generators.shape == (3, 3, PARTIAL_BASIS.shape[1])
     assert basis_family.labels.shape == (3, 3, 3)
     assert basis_family.certificate.dimension == 3
@@ -66,7 +75,9 @@ def test_a_basis_family_stacks_its_sets() -> None:
         np.testing.assert_array_equal(generators, set_labels @ PARTIAL_BASIS % 2)
         np.testing.assert_array_equal(generators[:rank, pivots[:rank]], np.eye(rank))
         assert np.all(pivots[rank:] == -1)
-    no_labels = information_sets.get_disjoint_family(PARTIAL_BASIS, None)
+    no_labels = information_sets.get_disjoint_family(
+        PARTIAL_BASIS, None, random_column_orders=ORDERS
+    )
     assert no_labels.labels.shape == (3, 3, 0)
 
 
@@ -75,7 +86,7 @@ def test_a_basis_family_stacks_its_sets() -> None:
 def test_family_certificates(basis: npt.NDArray[np.uint8]) -> None:
     """Rank-deficient blocks and inferred parity give certificates valid for every word."""
     # A target above every weight keeps the rank-deficient block.
-    basis_family = information_sets.get_disjoint_family(basis, None)
+    basis_family = information_sets.get_disjoint_family(basis, None, random_column_orders=ORDERS)
     basis_family = information_sets.prune_family(basis_family, basis.shape[1] + 1)
     _assert_certificate_bounds_unvisited_words(basis, basis_family)
 
@@ -83,7 +94,9 @@ def test_family_certificates(basis: npt.NDArray[np.uint8]) -> None:
 def test_weight_divisor_inference() -> None:
     """Even rows span only even weights, and a divisor proven by the caller is retained."""
     odd = np.array([[1, 0, 0, 0], [0, 1, 1, 0]], dtype=np.uint8)
-    get_family = information_sets.get_disjoint_family
+    get_family = functools.partial(
+        information_sets.get_disjoint_family, random_column_orders=ORDERS
+    )
     assert get_family(EVEN_BASIS, None).certificate.weight_divisor == 2
     assert get_family(odd, None).certificate.weight_divisor == 1
     assert get_family(odd, None, weight_divisor=2).certificate.weight_divisor == 2
@@ -120,7 +133,7 @@ def test_overlapping_family_certificates() -> None:
     basis = np.asarray(qldpc.codes.HammingCode(4).generator, dtype=np.uint8)
     basis = get_independent_rows(basis)
     labels = np.eye(len(basis), dtype=np.uint8)
-    disjoint = information_sets.get_disjoint_family(basis, labels)
+    disjoint = information_sets.get_disjoint_family(basis, labels, random_column_orders=ORDERS)
     # One full set certifies a target of one after its first layer, which no replacement improves.
     assert not len(_get_overlapping_family(basis, labels, disjoint, 1, minimum_work=0).ranks)
     basis_family = _get_overlapping_family(basis, labels, disjoint, 3, minimum_work=0)
@@ -138,7 +151,7 @@ def test_a_cheap_search_keeps_its_disjoint_basis_family() -> None:
     """No overlapping basis family is built if the work of the disjoint one is below the minimum."""
     basis = get_independent_rows(np.asarray(qldpc.codes.HammingCode(4).generator))
     labels = np.eye(len(basis), dtype=np.uint8)
-    disjoint = information_sets.get_disjoint_family(basis, labels)
+    disjoint = information_sets.get_disjoint_family(basis, labels, random_column_orders=ORDERS)
     assert not len(_get_overlapping_family(basis, labels, disjoint, 3).ranks)
     assert len(_get_overlapping_family(basis, labels, disjoint, 3, minimum_work=0).ranks)
     # A limit of zero sets builds no family at all.
@@ -151,15 +164,15 @@ def test_overlapping_family_guards() -> None:
 
     # Complete or nearly complete disjoint coverage leaves no cheaper family within the size budget.
     basis = np.hstack([np.eye(25, dtype=np.uint8)] * 4)
-    complete = information_sets.get_disjoint_family(basis, None)
+    complete = information_sets.get_disjoint_family(basis, None, random_column_orders=ORDERS)
     assert not len(_get_overlapping_family(basis, None, complete, 26).ranks)
     shortened = basis[:, :-1]
-    disjoint = information_sets.get_disjoint_family(shortened, None)
+    disjoint = information_sets.get_disjoint_family(shortened, None, random_column_orders=ORDERS)
     assert not len(_get_overlapping_family(shortened, None, disjoint, 26).ranks)
 
     # A zero basis has no information sets to replace.
     zeros = np.zeros((1, 3), dtype=np.uint8)
-    empty = information_sets.get_disjoint_family(zeros, None)
+    empty = information_sets.get_disjoint_family(zeros, None, random_column_orders=ORDERS)
     assert not len(empty.ranks)
     assert not len(_get_overlapping_family(zeros, None, empty, 2).ranks)
 
@@ -167,7 +180,7 @@ def test_overlapping_family_guards() -> None:
     # first, second, and sixth, so attempts rediscover the few such sets.  The search must terminate
     # without a replacement that beats the disjoint family.
     small = np.array([[1, 0, 0, 0, 0, 1], [0, 1, 0, 0, 0, 1], [0, 0, 1, 1, 1, 0]], dtype=np.uint8)
-    disjoint = information_sets.get_disjoint_family(small, None)
+    disjoint = information_sets.get_disjoint_family(small, None, random_column_orders=ORDERS)
     assert not len(_get_overlapping_family(small, None, disjoint, 3, minimum_work=0).ranks)
 
 
@@ -228,14 +241,21 @@ def test_partitioned_families_replace_costlier_ones() -> None:
     rows = ["10001011100", "01000001100", "00100000110", "00010011001"]
     basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
     labels = np.eye(len(basis), dtype=np.uint8)
-    disjoint = information_sets.get_disjoint_family(basis, labels)
+    disjoint = information_sets.get_disjoint_family(basis, labels, random_column_orders=ORDERS)
     assert disjoint.ranks.tolist() == [4, 4, 2]
-    get_family = functools.partial(
-        information_sets.get_partitioned_family, basis, labels, disjoint, 5
-    )
-    assert not len(get_family(16, 2**62).ranks)
-    assert not len(get_family(0, 0).ranks)
-    family = get_family(16, 0)
+
+    def get_family(**changes: int) -> information_sets.BasisFamily:
+        fields: dict[str, Any] = {"partition_work_ratio": 0, **changes}
+        tuning = dataclasses.replace(DEFAULT_TUNING, **fields)
+        return information_sets.get_partitioned_family(basis, labels, disjoint, 5, tuning)
+
+    # A family needs a set to hold, a coverage of two or more, and partitioning that pays.
+    assert not len(get_family(partition_work_ratio=2**62).ranks)
+    assert not len(get_family(partition_cost_factor=2**40, partition_work_ratio=1).ranks)
+    assert len(get_family(partition_cost_factor=0, partition_work_ratio=1).ranks)
+    assert not len(get_family(max_information_sets=0).ranks)
+    assert not len(get_family(max_partition_coverage=1).ranks)
+    family = get_family()
     assert family.max_coverage > 1
     assert family.certificate.work(5) < disjoint.certificate.work(5)
     for generators, set_labels, pivots in zip(*family[:3], strict=True):
@@ -254,14 +274,25 @@ def test_linear_programming_can_beat_the_coverage_bound() -> None:
     four blocks and one on the fifth both have value ``14/3``, so the linear program certifies five.
     """
     blocks = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3), (4, 5, 6))
-    assert information_sets.get_lp_lower_bound(blocks, [2] * 5) == 5
+    assert information_sets.get_lp_lower_bound(blocks, [2] * 5, DENOMINATOR) == 5
+    # Dual weights of thirds need a denominator of three; coarser ones round part of the bound away.
+    bounds = [information_sets.get_lp_lower_bound(blocks, [2] * 5, d) for d in (1, 2, 3)]
+    assert bounds == [2, 4, 5]
     certificate = information_sets.Certificate(3, (3,) * 5, max_coverage=3)
     assert certificate.lower_bound(1) == 4
-    assert dataclasses.replace(certificate, pivot_blocks=blocks).lower_bound(1) == 5
+    assert (
+        dataclasses.replace(
+            certificate, pivot_blocks=blocks, lp_max_denominator=DENOMINATOR
+        ).lower_bound(1)
+        == 5
+    )
 
     # No word has three ones in a block of two columns, and requirements of zero ask for nothing.
-    assert information_sets.get_lp_lower_bound([(0, 1)], [3]) == information_sets._NO_WORD_BOUND
-    assert information_sets.get_lp_lower_bound([(0, 1)], [0]) == 0
+    assert (
+        information_sets.get_lp_lower_bound([(0, 1)], [3], DENOMINATOR)
+        == information_sets._NO_WORD_BOUND
+    )
+    assert information_sets.get_lp_lower_bound([(0, 1)], [0], DENOMINATOR) == 0
 
 
 def test_a_failed_linear_program_gives_no_bound(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -269,7 +300,7 @@ def test_a_failed_linear_program_gives_no_bound(monkeypatch: pytest.MonkeyPatch)
     failure = scipy.optimize.OptimizeResult(status=4, message="numerical difficulties")
     monkeypatch.setattr(scipy.optimize, "linprog", lambda *args, **kwargs: failure)
     blocks = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3), (4, 5, 6))
-    assert information_sets.get_lp_lower_bound(blocks, [2] * 5) == 0
+    assert information_sets.get_lp_lower_bound(blocks, [2] * 5, DENOMINATOR) == 0
 
 
 def test_linear_programming_certificates_bound_unvisited_words(pytestconfig: pytest.Config) -> None:
@@ -300,12 +331,14 @@ def test_linear_programming_certificates_bound_unvisited_words(pytestconfig: pyt
 def test_searches_of_overlapping_sets_use_linear_programming_when_costly() -> None:
     """Only a costly search of overlapping sets gets the bound of linear programming."""
     basis = np.asarray(qldpc.codes.HammingCode(4).generator, dtype=np.uint8)
-    disjoint = information_sets.get_disjoint_family(basis, None)
+    disjoint = information_sets.get_disjoint_family(basis, None, random_column_orders=ORDERS)
     overlapping = _get_overlapping_family(basis, None, disjoint, 3, minimum_work=0)
     assert overlapping.max_coverage > 1
-    assert not overlapping.get_search_certificate(3, 2**62).pivot_blocks
-    assert len(overlapping.get_search_certificate(3, 0).pivot_blocks) == len(overlapping.ranks)
-    assert not disjoint.get_search_certificate(3, 0).pivot_blocks
+    assert not overlapping.get_search_certificate(3, 2**62, DENOMINATOR).pivot_blocks
+    assert len(overlapping.get_search_certificate(3, 0, DENOMINATOR).pivot_blocks) == len(
+        overlapping.ranks
+    )
+    assert not disjoint.get_search_certificate(3, 0, DENOMINATOR).pivot_blocks
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -329,7 +362,7 @@ def test_the_size_limit_bounds_the_overlapping_basis_family(max_sets: int, num_s
     """A cheaper basis family of overlapping sets needs four sets, so a lower limit finds none."""
     basis = get_independent_rows(np.asarray(qldpc.codes.HammingCode(4).generator))
     labels = np.eye(len(basis), dtype=np.uint8)
-    disjoint = information_sets.get_disjoint_family(basis, labels)
+    disjoint = information_sets.get_disjoint_family(basis, labels, random_column_orders=ORDERS)
     overlapping = _get_overlapping_family(basis, labels, disjoint, 3, max_sets, minimum_work=0)
     assert len(overlapping.ranks) == num_sets
 
@@ -385,7 +418,9 @@ def test_functions_agree_in_plain_python_and_compiled(pytestconfig: pytest.Confi
         for compiled in (False, True):
             _compilation.set_on_request_functions_compiled(compiled)
             try:
-                disjoint = information_sets.get_disjoint_family(basis, labels)
+                disjoint = information_sets.get_disjoint_family(
+                    basis, labels, random_column_orders=ORDERS
+                )
                 pruned = information_sets.prune_family(disjoint, upper_bound)
                 replacement = _get_overlapping_family(
                     basis, labels, pruned, upper_bound, minimum_work=0
@@ -466,7 +501,10 @@ def _assert_certificate_bounds_unvisited_words(
         tuple(int(column) for column in pivots[:rank])
         for pivots, rank in zip(family.pivots, family.ranks, strict=True)
     )
-    certificates = [certificate, dataclasses.replace(certificate, pivot_blocks=pivot_blocks)]
+    certificates = [
+        certificate,
+        dataclasses.replace(certificate, pivot_blocks=pivot_blocks, lp_max_denominator=DENOMINATOR),
+    ]
     # Every search basis spans the same space as the original basis.
     assert all(weights.keys() == words.keys() for weights in coefficient_weights)
     weights = {word: np.count_nonzero(np.frombuffer(word, dtype=np.uint8)) for word in words}
