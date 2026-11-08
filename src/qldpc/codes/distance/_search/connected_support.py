@@ -8,7 +8,7 @@ on the number of variables that a support still needs.  It is a quantum version 
 small stopping sets and low-weight codewords of classical LDPC codes, as Okada and Kasai describe in
 Section V of https://arxiv.org/abs/2607.14091 (see the references of ``connected_support.md``).
 
-``connected_support.md`` beside this module derives the search and states its correctness
+``connected_support.md`` in ``qldpc/codes/distance/`` derives the search and states its correctness
 requirements.  The Brouwer-Zimmermann search in ``brouwer_zimmermann.py`` solves the same problem
 for any binary code.  This module reuses the weight divisors of ``information_sets.py``, and the
 verification and orbits of automorphisms of ``automorphism_families.py``.
@@ -57,11 +57,11 @@ def get_distance_connected_support(
     in the kernel of ``checks``.
 
     The search of each problem raises its weight limit ``W`` through the weights that a witness may
-    have, and each pass through a weight limit either finds a witness of weight at most ``W``,
-    which is the distance if the lower limits found none, or certifies that every witness is
-    heavier.  The first limit is ``cutoff`` if that is larger.  If the search finds a witness of
-    weight at most ``cutoff``, the result is the weight of that witness, which can exceed the
-    distance.
+    have.  Each pass through a weight limit either finds a witness of weight at most ``W``, which is
+    the distance if the lower limits found none, or certifies that every witness is heavier.  The
+    first limit of each problem is the larger of its weight divisor and ``cutoff``.  If the search
+    finds a witness of weight at most ``cutoff``, the result is the weight of that witness, which
+    can exceed the distance.
 
     Args:
         problems: The ``(checks, excluded)`` pairs to search.
@@ -176,10 +176,14 @@ class SupportSearch:
         get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
         automorphism_minimum_states: int = 0,
     ) -> None:
+        # Tests and other direct callers build searches without the checks of core.py, and the
+        # compiled search would read invalid input without an error.
         if checks.ndim != 2 or excluded.ndim != 2 or checks.shape[1] != excluded.shape[1]:
             raise ValueError("Checks and excluded rows must be matrices with equal widths")
         if np.any((checks != 0) & (checks != 1)) or np.any((excluded != 0) & (excluded != 1)):
             raise ValueError("Checks and excluded rows must be binary")
+        checks = np.asarray(checks, dtype=np.uint8)
+        excluded = np.asarray(excluded, dtype=np.uint8)
         if np.any(checks.astype(np.float32) @ excluded.astype(np.float32).T % 2):
             raise ValueError("The excluded rows must lie in the kernel of the checks")
         self.num_variables = checks.shape[1]
@@ -262,9 +266,9 @@ class SupportSearch:
     def _predict_states(self) -> int:
         """The number of states that the next weight limit is expected to visit.
 
-        Each weight limit is expected to grow by the ratio between the last two, or not to grow if
-        the limit before the last visited no states, as before the second limit (see Section 3.5
-        of ``connected_support.md``).
+        The number of states of each weight limit is expected to grow by the ratio between those of
+        the last two limits, or not to grow if the limit before the last visited no states, as
+        before the second limit (see Section 3.5 of ``connected_support.md``).
         """
         previous, last = self._last_two_num_states
         return last * last // previous if previous else last
@@ -353,7 +357,8 @@ def _search_supports(
     # branch variable to try.  If it restricts its subtree, the variables that it allows are
     # allowances[allowance_starts[depth] : allowance_starts[depth + 1]], and restricts[depth] says
     # so, which the range alone would not for a state that allows nothing.  A state allows each
-    # variable at most once, and allowances grows if a state could overflow it.
+    # variable at most once, and allowances grows if a state could overflow it, rather than start
+    # with room for max_weight * num_variables entries, which a large cutoff would make large.
     syndromes = np.zeros((max_weight + 2, num_blocks), dtype=np.uint64)
     support = np.empty(max_weight + 1, dtype=np.int64)
     branches = np.empty((max_weight + 1, max_row_weight), dtype=np.int64)

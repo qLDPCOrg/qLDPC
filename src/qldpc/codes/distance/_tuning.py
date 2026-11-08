@@ -170,10 +170,9 @@ class SearchTuning:
             expects to reach before it asks for automorphisms of its code.  It predicts the states
             of its next weight limit from the growth in states between its last two limits.  With
             automorphisms, it searches from one variable of each of their orbits, rather than from
-            every variable (Section 3.5 of ``connected_support.md``).  Finding automorphisms takes
-            milliseconds for codes of hundreds of qubits, and about half a second with ``pybliss``
-            for a code of thousands of qubits.  Zero asks for them before the first weight limit,
-            and ``MAX_VALUE`` in effect never does.  Defaults to 100,000.
+            every variable.  Section 3.5 of ``connected_support.md`` gives the cost of finding
+            automorphisms, which this threshold weighs.  Zero asks for them before the first
+            weight limit, and ``MAX_VALUE`` in effect never does.  Defaults to 100,000.
         scan_chunk_size: The most supports, which are choices of rows of an information set, that
             one compiled call of the scan of a count with the BZ or brute-force method visits.  A
             scan proceeds in steps, each of which is one coefficient layer of one information set,

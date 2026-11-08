@@ -5,7 +5,7 @@
 The connected-support search computes the exact distance of a binary CSS code, including a subsystem code, from the Tanner graphs of its parity checks.
 It is the method `"connected_support"` of `CSSCode.get_distance_exact`.
 Brouwer–Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) is the default.
-The connected-support search is a quantum version of the searches for small stopping sets and low-weight codewords of classical LDPC codes (Richter, Rosnes and Ytrehus, and Khatami et al. in the [references](#references)), and follows Section V of Okada and Kasai (also in the references).
+The connected-support search is a quantum version of the searches for small stopping sets and low-weight codewords of classical LDPC codes (Richter, Rosnes and Ytrehus, and Khatami et al. in the [references](#references)), and follows Algorithm 2 in Section V of Okada and Kasai (also in the references).
 This guide explains the search, maps it to the code, and states what a change to it must preserve.
 It is organized as follows:
 
@@ -16,7 +16,7 @@ It is organized as follows:
 
 ## 2. When to use which method
 
-BZ examines the words of a basis of the searched space in layers of increasing coefficient weight, and its cost grows like `binom(r, d/m)`.
+BZ examines combinations of the rows of bases of the searched space in layers of increasing coefficient weight, and its cost grows like `binom(r, d/m)`.
 Here `r` is the dimension of the searched space, `d` is the distance, and `m` is the number of disjoint information sets.
 The sectors of CSS codes usually have `r > n/2`, hence `m = 1`, and a high rate pushes `r` towards `n`, so that BZ becomes infeasible at modest distances.
 The connected-support search instead enumerates supports that grow through unsatisfied checks, so its cost depends on the sparsity of the checks and on `d`, and not on `r`.
@@ -27,7 +27,7 @@ The table lists times on one core of an Apple M3 Max laptop, run at low priority
 The codes are the pair-partition codes of Okada and Kasai and of Lee et al., which are quasi-cyclic CSS codes, mostly of high rate, with parity checks of column weight 3 to 5 (see the [references](#references)).
 The instances, and their distances, come from the data of Lee et al., and Okada and Kasai also publish the [[276, 98, 14]] code.
 Times are CPU times, for the whole code unless they say per sector.
-The BZ times of the larger codes are estimated from the work that BZ predicts for them (Sections 3.6 and 3.7 of [brouwer_zimmermann.md](brouwer_zimmermann.md)), with the cyclic automorphisms that qLDPC finds for these codes.
+The BZ times marked "estimated" come from the work that BZ predicts for them (Sections 3.6 and 3.7 of [brouwer_zimmermann.md](brouwer_zimmermann.md)), with the cyclic automorphisms that qLDPC finds for these codes.
 
 | Code | BZ | Connected support | Faster |
 | --- | --- | --- | --- |
@@ -41,8 +41,9 @@ The BZ times of the larger codes are estimated from the work that BZ predicts fo
 
 Choose the connected-support search for sparse codes, and especially for high-rate ones, and BZ for codes with dense checks, as the quantum Reed–Muller code below shows.
 For sparse codes of low rate and high distance, the two can be comparable, as the [[170, 8, 20]] row shows.
-The script measures the other connected-support times of the table, and those of the surface codes below, and the extrapolations come from timed searches through lower weights, whose costs grow by a factor of 20 to 33 per two units of weight for these codes.
-They assume that this growth continues, and the connected-support times of the [[372, 130, 18]], [[170, 8, 20]], and [[944, 478, 20]] codes are not measured.
+The connected-support times of the [[372, 130, 18]], [[170, 8, 20]], and [[944, 478, 20]] codes are not measured.
+They are extrapolated from timed searches through lower weights, whose costs grow by a factor of 20 to 33 per two units of weight for these codes, and assume that this growth continues.
+The script measured the other connected-support times of the table, and those of the surface codes below.
 
 The cost of the connected-support search grows quickly if the checks are dense, because every unsatisfied check offers many variables to branch on.
 The [[128, 70, 8]] quantum Reed–Muller code, which has checks of weight 32, takes 0.9 s, and BZ takes 0.1 s.
@@ -64,7 +65,8 @@ d(H, G) = \min \{ \operatorname{wt}(x) : Hx = 0,\; x \notin \operatorname{rowspa
 $$
 
 A vector `x` in `ker(H)` outside `rowspan(G)` is a **witness**.
-Its **support** is the set of its nonzero coordinates, which are called **variables**, and its **syndrome** is the set of the rows of `H`, the **checks**, that have an odd number of variables in the support.
+Coordinates are called **variables**.
+The **support** of `x` is the set of its nonzero variables, and its **syndrome** is the set of the rows of `H`, the **checks**, that have an odd number of variables in the support.
 A check is **unsatisfied** if it is in the syndrome.
 
 For a CSS code, the distance of the X-type logical operators is `d(H_Z, H_X)`, and the distance of the Z-type logical operators is `d(H_X, H_Z)`.
@@ -98,7 +100,7 @@ At a state with an empty syndrome, the search stops branching.
 It reports `S` if it is a witness, and otherwise leaves the state.
 At any other state, it chooses an unsatisfied check `c` with the fewest **available** variables, those of `c` that are neither in `S` nor in `F`.
 It visits the states `S ∪ {v}` for each available variable `v` of `c`, and adds `v` to `F` for its later siblings once its state is done.
-Its children come in the order of their repairs ([Section 3.4](#34-pruning)), most repairing first, which on the [[276, 98, 14]] code visits a quarter of the states of the order of the variables through the weight limit at which the search finds a witness.
+Its children come in the order of their repairs ([Section 3.4](#34-pruning)), most repairing first, which on the [[276, 98, 14]] code visits a quarter as many states as branching in the order of the variables, up to the weight limit at which the search finds a witness.
 Every state grows only through unsatisfied checks, so every support that it visits is connected.
 
 **Completeness.**
@@ -109,7 +111,7 @@ The syndrome of `S` is not empty, and the parity of `supp(x)` at every check is 
 That variable is available, since `F` misses `supp(x)`.
 The first variable of `supp(x) \ S` in the order of the children of `c` is visited before it joins `F`, and gives a state of the same kind.
 So the search reaches `supp(x)` itself.
-Every bound of [Section 3.4](#34-pruning) holds for a state of this kind, since `x` is a witness that extends it, and so does every variable that [Section 3.4](#34-pruning) forbids for a subtree.
+Every bound of [Section 3.4](#34-pruning) holds for a state of this kind, since `x` is a witness that extends it, and no variable that [Section 3.4](#34-pruning) forbids for a subtree is in `supp(x)`.
 
 Forbidding the variables of earlier siblings makes the search visit each support at most once.
 
@@ -133,7 +135,7 @@ The weights are integers in units of `1 / lcm(1, ..., Δ)`, so that every compar
 If that scale exceeds `2**40`, the scale is `2**40`, and the weights are rounded down, which keeps them feasible.
 
 **Forbidding variables for a subtree.**
-Let `Y` be the total weight of a state, and let the **repair** `R_v` of an available variable `v` be the weight of the unsatisfied checks that contain it.
+Let `Y` be the sum of the weights `y_c` of the unsatisfied checks of a state, and let the **repair** `R_v` of an available variable `v` be the weight of the unsatisfied checks that contain it.
 Suppose that a completion `T` of the state contains `v`.
 Every unsatisfied check meets `T`, the variables of `T` other than `v` repair at most one each, and `v` repairs `R_v`.
 So `|T| ≥ 1 + Y - R_v`, and if this exceeds `W - s`, then `v` is in no completion of the state.
@@ -168,11 +170,13 @@ qLDPC ranks the variables orbit by orbit, in the order of their least variables,
 A root forbids only variables of orbits whose roots rank lower, so for a given order of the orbits no ranking forbids more.
 On the pair-partition codes, this removes a quarter of the states of the natural order of the variables.
 Without symmetries, every variable is a root, and the ranks are the variables themselves.
+Okada and Kasai instead take the roots `(ℓ, 0)` of the cyclic translations of a pair-partition code, with variables `(ℓ, a)` ranked by `ℓP + a`, and their implementation does so only if `P` is prime and `W < P`.
+qLDPC takes the orbits of any group of automorphisms that it verifies.
 
 The `_found_qudit_automorphisms` of the code provide generators of `Γ`.
 Finding them takes milliseconds for codes of hundreds of qubits, but about half a second with `pybliss` for a code of 5,200 qubits, as long as a search of more than a million states on one core.
-So the search of each sector asks for them once, before the first weight limit at which it expects to reach `automorphism_minimum_states` states, a field of the tuning of `_tuning.py`.
-It expects each weight limit to grow by the ratio between its last two.
+So the search of each sector asks for them at most once, before the first weight limit at which it expects to reach `automorphism_minimum_states` states, a field of the tuning of `_tuning.py`.
+It expects the number of states of each weight limit to grow by the ratio between those of the last two.
 Waiting until it has visited that many states instead would let a search that prunes well run a whole weight limit without them: on the [[276, 98, 14]] code, that limit took nearly half of the time of the search.
 
 With symmetries, the search from the first root does most of the work, since every witness that meets the first orbit is found through it.
@@ -185,7 +189,7 @@ Rejecting such duplicates soundly for general groups is left open.
 **Logical test.**
 A vector `x` of `ker(H)` is in `rowspan(G)` exactly if it is orthogonal to `ker(G)`, and it is orthogonal to the rows of `H`, which lie in `ker(G)`.
 So `x` is a witness exactly if it has an odd product with a row of a basis of `ker(G)` modulo `rowspan(H)`.
-The search keeps these rows as packed columns, one word per 64 rows, and tests a state with an empty syndrome by XORing the columns of its variables.
+The search keeps these rows as packed columns, one 64-bit block per 64 rows, and tests a state with an empty syndrome by XORing the columns of its variables.
 
 **Weight divisor.**
 If every vector of `ker(H)` has even weight, as for the pair-partition codes, whose block rows of checks sum to the all-ones vector, weights are multiples of two.
@@ -209,7 +213,7 @@ The names below are in `_search/connected_support.py`, unless the table says oth
 | --- | --- |
 | Pair `(H, G)`, its words and witnesses | `checks` and `excluded` of `SupportSearch` and `get_distance_connected_support` |
 | Sectors of a code | `CSSCode._get_parity_check_sector` in `src/qldpc/codes/common.py` |
-| Distance of several sectors | `get_distance_connected_support` |
+| Distance of several sectors | `get_distance_connected_support`, which `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` reaches through `core.py` |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` of `_search/automorphism_families.py` |
@@ -218,7 +222,7 @@ The names below are in `_search/connected_support.py`, unless the table says oth
 | When a search asks for symmetries | `automorphism_minimum_states` of `SearchTuning` in `_tuning.py` |
 | Weight divisor | `infer_weight_divisor` of `_search/information_sets.py` |
 
-`CSSCode.get_distance_exact` in `src/qldpc/codes/common.py` builds the sectors and calls `_get_distance_css_connected_support` of `core.py`, which validates them.
+`CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` builds the sectors and calls `_get_distance_css_connected_support` of `core.py`, which validates them.
 `logical_counts.py` does not accept the method, since counting needs every word of a weight, and not one witness.
 `get_distance_classical` and `get_distance_quantum` reject it, since their inputs are generators and not parity checks.
 Classical codes reject it too, so the closed forms of hypergraph product codes, which search their classical seed codes, search them with Brouwer–Zimmermann instead.

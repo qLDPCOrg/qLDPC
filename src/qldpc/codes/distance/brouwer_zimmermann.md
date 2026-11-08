@@ -584,7 +584,8 @@ For a high-level explanation, see Sections [2](#2-the-brouwer-zimmermann-algorit
 
 This section is a guide to the source files in this directory.
 It connects the concepts of Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations) to modules, identifiers, and behavior that spans files.
-The thresholds of the heuristics are fields of `SearchTuning` in [_tuning.py](_tuning.py), whose docstrings give their meanings and defaults, and [Section 4.4](#44-heuristics-and-cost-models) says where each threshold of a search route is used.
+The thresholds of the heuristics are fields of `SearchTuning` in [_tuning.py](_tuning.py), whose docstrings give their meanings and defaults, and [Section 4.4](#44-heuristics-and-cost-models) says where each threshold of a Brouwer–Zimmermann search route is used.
+Section 3.5 of [connected_support.md](connected_support.md) describes the threshold of the connected-support search.
 
 ### 4.1 Module map and layering
 
@@ -598,7 +599,7 @@ It runs the stages in `_select_basis_family` and `count_words` of [_counting/sca
 The set-up functions of both searches can be compiled on request, through [_compilation.py](../../_compilation.py).
 The code that only counting uses is in the `_counting` package.
 `get_overlapping_family_policy` in [_search/information_sets.py](_search/information_sets.py) gives every caller of the overlapping stage its thresholds and its fixed-seed generator, so a change to either applies to both consumers.
-[core.py](core.py) calls [_search/brouwer_zimmermann.py](_search/brouwer_zimmermann.py) and [_search/brute_force.py](_search/brute_force.py), and [_search/brouwer_zimmermann.py](_search/brouwer_zimmermann.py) calls [_search/brute_force.py](_search/brute_force.py) for its exhaustive routes.
+[core.py](core.py) calls [_search/brouwer_zimmermann.py](_search/brouwer_zimmermann.py), [_search/brute_force.py](_search/brute_force.py), and [_search/connected_support.py](_search/connected_support.py), which [connected_support.md](connected_support.md) describes, and [_search/brouwer_zimmermann.py](_search/brouwer_zimmermann.py) calls [_search/brute_force.py](_search/brute_force.py) for its exhaustive routes.
 All three modules use [_binary.py](_binary.py), and they and [_search/information_sets.py](_search/information_sets.py) use the bit-packed linear algebra over GF(2) in [qldpc/_binary.py](../../_binary.py).
 Every module with compiled functions uses [_compilation.py](../../_compilation.py).
 `_get_distance_css_brouwer_zimmermann` of [core.py](core.py) builds an adapted basis ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)) for each nontrivial sector, then passes the resulting problems to `get_distance_brouwer_zimmermann_many`.

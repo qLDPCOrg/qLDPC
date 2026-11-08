@@ -82,7 +82,8 @@ def is_witness(problem: Problem, support: npt.NDArray[np.int64]) -> bool:
     )
 
 
-# The odd-weight Steane code, and the toric code, whose lightest logical operators are not unique.
+# The Steane code, whose words include odd weights, and the toric code both have several lightest
+# logical operators.
 # The rotated surface code and the Bacon-Shor code, a subsystem code, have stabilizers or gauge
 # operators that are lighter than their distances.  The Reed-Muller code has only even weights.
 CODES = {
@@ -111,11 +112,12 @@ PROBLEMS["components"] = (
     np.zeros((0, 5), dtype=np.uint8),
 )
 
-# Variables 0 and 1 are in all 30 checks, and each other variable in one, so the distance is 2.  The
-# scale lcm(1, ..., 30) of the weights of checks exceeds 2**40, so the weights are rounded down.
+# Variables 0 and 1 are in all 43 checks, and each other variable in one, so the distance is 2.  The
+# scale lcm(1, ..., 43) of the weights of checks exceeds 2**63, so the search caps it at 2**40 and
+# rounds the weights down.
 PROBLEMS["capped-scale"] = (
-    np.hstack([np.ones((30, 2), dtype=np.uint8), np.eye(30, dtype=np.uint8)]),
-    np.zeros((0, 32), dtype=np.uint8),
+    np.hstack([np.ones((43, 2), dtype=np.uint8), np.eye(43, dtype=np.uint8)]),
+    np.zeros((0, 45), dtype=np.uint8),
 )
 
 # The states of a search of these checks allow more variables in total than there are variables, so
@@ -272,6 +274,30 @@ def test_each_root_excludes_the_orbits_before_its_own() -> None:
 
 
 @pytest.mark.usefixtures("compilation_mode")
+def test_each_root_ranks_lowest_in_its_orbit() -> None:
+    """The ranks keep the order of the variables within each orbit, so each root ranks lowest.
+
+    The checks join the variables of two cycles, of 60 and 30 variables, which interleave.  Each
+    cycle is a word, so the distance is 30, and the shift along both cycles is an automorphism with
+    the cycles as its orbits.  The word of the second cycle needs every variable of its orbit, so
+    the search from its root finds it only if no variable of that orbit ranks below the root.
+    """
+    labels = np.random.default_rng(5).permutation([0] * 59 + [1] * 30)
+    cycles = [np.flatnonzero(np.append(0, labels) == label) for label in (0, 1)]
+    checks = np.zeros((90, 90), dtype=np.uint8)
+    shift = np.arange(90)
+    for cycle in cycles:
+        following = np.roll(cycle, -1)
+        checks[cycle, cycle] = checks[cycle, following] = 1
+        shift[cycle] = following
+    search = cs.SupportSearch(
+        checks, np.zeros((0, 90), dtype=np.uint8), get_automorphisms=lambda: shift[None]
+    )
+    witness = search.find_witness(30)
+    assert witness is not None and list(witness) == list(cycles[1])
+
+
+@pytest.mark.usefixtures("compilation_mode")
 def test_the_tuning_decides_whether_to_find_automorphisms(tune: Tune) -> None:
     """A search asks for automorphisms at once, or never, as its tuning says.
 
@@ -419,13 +445,18 @@ def test_a_problem_without_logical_operators_has_no_distance() -> None:
 
 @pytest.mark.usefixtures("compilation_mode")
 def test_degenerate_checks() -> None:
-    """Checks may be missing, zero, or repeated."""
+    """Checks may be missing, zero, or repeated, and may be arrays over GF(2)."""
     no_checks = np.zeros((0, 3), dtype=np.uint8)
     witness = cs.SupportSearch(no_checks, no_checks).find_witness(1)
     assert witness is not None and list(witness) == [0]
     checks, excluded = PROBLEMS["steane-X"]
     padded = np.vstack([checks, checks[0], np.zeros_like(checks[0])])
     assert cs.get_distance_connected_support([(padded, excluded)], cutoff=0) == 3
+
+    # The matrices of codes are arrays over GF(2).
+    steane_code = codes.SteaneCode()
+    witness = cs.SupportSearch(steane_code.matrix_z, steane_code.matrix_x).find_witness(3)
+    assert witness is not None and is_witness((checks, excluded), witness)
 
 
 def test_the_weight_divisor_is_inferred_from_the_kernel() -> None:
@@ -449,6 +480,8 @@ def test_invalid_problems_are_rejected() -> None:
     for entry in (2, -1, 0.5):
         with pytest.raises(ValueError, match="binary"):
             cs.SupportSearch(np.array([[1, entry, 0]]), np.zeros((0, 3), dtype=np.uint8))
+        with pytest.raises(ValueError, match="binary"):
+            cs.SupportSearch(np.zeros((0, 3), dtype=np.uint8), np.array([[1, entry, 0]]))
     with pytest.raises(ValueError, match="at least one"):
         cs.SupportSearch(*PROBLEMS["steane-X"]).find_witness(0)
     with pytest.raises(ValueError, match="at least one problem or an upper bound"):

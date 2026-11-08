@@ -14,7 +14,7 @@ import operator
 import random
 import warnings
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 import galois
 import numpy as np
@@ -3455,8 +3455,7 @@ class CSSCode(QuditCode):
                 code.
         """
         method = _validate_distance_method(method)
-        if method == "connected_support" and self.field is not galois.GF2:
-            raise ValueError("The 'connected_support' distance method is only for binary CSS codes")
+        self._reject_nonbinary_connected_support(method)
         if not bound:
             if decoder is not None or bound_kwargs:
                 warnings.warn(
@@ -3507,8 +3506,7 @@ class CSSCode(QuditCode):
                 code.
         """
         method = _validate_distance_method(method)
-        if method == "connected_support" and self.field is not galois.GF2:
-            raise ValueError("The 'connected_support' distance method is only for binary CSS codes")
+        self._reject_nonbinary_connected_support(method)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
         if (known_distance := self.get_distance_if_known(pauli)) is not None:
             return known_distance
@@ -4243,6 +4241,11 @@ class CSSCode(QuditCode):
             min_error_weight,
         )
 
+    def _reject_nonbinary_connected_support(self, method: DistanceMethod) -> None:
+        """Raise an error if the method is ``"connected_support"``, and this code is not binary."""
+        if method == "connected_support" and self.field is not galois.GF2:
+            raise ValueError("The 'connected_support' distance method is only for binary CSS codes")
+
     def _get_logical_sector(self, pauli: PauliXZ) -> tuple[galois.FieldArray, galois.FieldArray]:
         """A basis of the logical operators of one type, and the operators that act trivially.
 
@@ -4258,11 +4261,11 @@ class CSSCode(QuditCode):
     def _get_parity_check_sector(
         self, pauli: PauliXZ
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Parity checks whose kernel holds the operators of one type, and their trivial operators.
+        """Parity checks whose kernel holds the operators of one type, and a matrix of trivial ones.
 
-        The checks are the stabilizers of the opposite type.  The second matrix holds the gauge
-        generators of type ``pauli``, which include its stabilizers and span the operators of that
-        type that act trivially.
+        The checks are the stabilizers of the opposite type.  The rows of the second matrix are the
+        gauge generators of type ``pauli``, which include its stabilizers, and their row space holds
+        the operators of that type that act trivially.
         """
         # The rows of the matrix of a stabilizer code can be redundant, which strengthens the
         # search, while the stabilizers of a subsystem code need to be computed.
@@ -4277,7 +4280,7 @@ class CSSCode(QuditCode):
     def _get_distance_of_sectors(
         self,
         paulis: Sequence[PauliXZ],
-        method: DistanceMethod,
+        method: Literal["brouwer_zimmermann", "connected_support"],
         *,
         cutoff: int,
         upper_bound: int | None = None,

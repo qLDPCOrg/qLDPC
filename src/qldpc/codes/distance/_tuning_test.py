@@ -84,7 +84,8 @@ def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> N
 
     By default, and with every threshold at ``MAX_VALUE``, the distance searches of this code
     enumerate every word.  With every threshold at zero, the searches take a family found by matroid
-    partitioning instead.
+    partitioning instead.  This code has no automorphisms, so its connected-support searches take
+    the same route under every tuning, and only agree with Brouwer-Zimmermann.
     """
     code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
     eager = {
@@ -113,6 +114,7 @@ def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> N
             distances = [fresh.get_distance_exact(Pauli.X), fresh.get_distance_exact(Pauli.Z)]
             fresh = codes.CSSCode(code.matrix_x, code.matrix_z)
             distances.append(fresh.get_distance_exact(method="connected_support"))
+            assert distances[2] == min(distances[:2])
             counter_code = codes.CSSCode(code.matrix_x, code.matrix_z)
             counts = lc.CSSLogicalCounter(counter_code).count_logical_ops(count_pauli=True)
             macwilliams = lc.CSSLogicalCounter(counter_code).count_logical_ops(
