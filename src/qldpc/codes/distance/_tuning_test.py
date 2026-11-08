@@ -4,12 +4,15 @@
 
 from __future__ import annotations
 
+import ast
 import collections
 import concurrent.futures
 import contextvars
 import dataclasses
 import inspect
 import math
+import pathlib
+import re
 import sys
 from fractions import Fraction
 from typing import Any
@@ -179,6 +182,72 @@ def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> N
         )
     assert results[0] == results[1] == results[2]
     assert partitioned == [False, True, False]
+
+
+def test_the_tuning_page_documents_every_field_and_constant() -> None:
+    """The tuning page names every field and constant, and renders each constant.
+
+    Each field and constant has its own ``#:`` comment, since Sphinx gives a comment above several
+    names only to the first of them, and renders the docstring of ``int`` or ``float`` for the
+    others.
+    """
+    root = pathlib.Path(__file__).parents[4]
+    page = (root / "docs" / "source" / "exact_search_tuning.rst").read_text()
+    route_map = page.split("Routes and the names that control them")[1].split("\nSettings\n")[0]
+    fields = {field.name for field in dataclasses.fields(_tuning.SearchTuning)}
+    constants = {name for name in vars(_tuning) if re.fullmatch(r"[A-Z][A-Z0-9_]*", name)}
+    constants -= {"DEFAULT_TUNING"}
+
+    assert set(re.findall(r"^\.\. autodata:: (\w+)$", page, flags=re.MULTILINE)) == constants
+    assert set(re.findall(r":attr:`SearchTuning\.(\w+)`", route_map)) == fields
+    assert set(re.findall(r":data:`(\w+)`", route_map)) == constants - {"MAX_VALUE"}
+
+    source = pathlib.Path(_tuning.__file__).read_text()
+    lines = source.splitlines()
+    # The statements of the module, outside functions and classes, including nested ones.
+    tree = ast.parse(source)
+    scoped = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+    inner = {
+        id(node)
+        for scope in ast.walk(tree)
+        if isinstance(scope, scoped)
+        for node in ast.walk(scope)
+    }
+    statements = [
+        node for node in ast.walk(tree) if isinstance(node, ast.stmt) and id(node) not in inner
+    ]
+    lines_of_statements = collections.Counter(node.lineno for node in statements)
+
+    # Each constant has one assignment, a statement of the module itself on a line of its own,
+    # directly below its own comment.
+    documented = []
+    for node in statements:
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            targets = [node.target]
+        else:
+            continue
+        names = [
+            name.id for target in targets for name in ast.walk(target) if isinstance(name, ast.Name)
+        ]
+        if constants.intersection(names):
+            assert node in tree.body and len(names) == 1, names
+            assert lines_of_statements[node.lineno] == 1, names
+            assert lines[node.lineno - 2].startswith("#: "), names
+            documented.append(names[0])
+    assert sorted(documented) == sorted(constants)
+
+    # Each field has one declaration in the record, directly below its own comment.
+    (record,) = [
+        node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "SearchTuning"
+    ]
+    declared = []
+    for node in record.body:
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            assert lines[node.lineno - 2].lstrip().startswith("#: "), node.target.id
+            declared.append(node.target.id)
+    assert sorted(declared) == sorted(fields)
 
 
 def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPatch) -> None:
