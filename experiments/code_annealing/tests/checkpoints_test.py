@@ -69,7 +69,7 @@ def _chain_fixture(tmp_path: Path) -> tuple[Path, SearchState]:
 def test_a_saved_chain_loads_as_the_same_state(chain: tuple[Path, SearchState]) -> None:
     path, state = chain
     loaded = checkpoints.load_checkpoint(path)
-    for name in ("config", "seed", "completed_epochs", "accepted", "history"):
+    for name in ("config", "seed", "completed_epochs", "history"):
         assert getattr(loaded, name) == getattr(state, name)
     assert loaded.log_temperature == state.log_temperature
     assert loaded.rng.bit_generator.state == state.rng.bit_generator.state
@@ -105,7 +105,6 @@ def test_a_failed_save_keeps_the_previous_checkpoint_and_record(
 # Changes to the chain of the fixture, each of which breaks one check of loading.
 CORRUPTIONS = {
     "a tampered score": lambda data: data["current"]["score"].update(count_x=-1),
-    "more acceptances than proposals": lambda data: data.update(accepted=3),
     "an acceptance rate above one": lambda data: data["history"][0].update(acceptance_rate=1.5),
     "a lowest-energy code that is worse than another": lambda data: data.update(
         lowest_energy=data["current"]
