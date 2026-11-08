@@ -70,7 +70,9 @@ def test_coefficient_matmul_group_orderings() -> None:
     """Equal rings may enumerate the members of their groups in different orders."""
     group = abstract.CyclicGroup(5)
     members = list(group.generate())
-    reversed_group = abstract.Group(*group.generators, generate_func=lambda: iter(members[::-1]))
+    reversed_group = abstract.Group(
+        *group.generators, generate_func=lambda: iter(members[::-1]), lift=group.lift
+    )
     ring = abstract.GroupRing(group)
     reversed_ring = abstract.GroupRing(reversed_group)
     assert ring == reversed_ring

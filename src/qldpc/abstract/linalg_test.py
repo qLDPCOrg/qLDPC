@@ -230,3 +230,25 @@ def test_get_howell_dual_edge_cases(ring_alternating4_gf5: abstract.GroupRing) -
         abstract.get_howell_dual(
             generator, transformer=transformer, right=False, skip_validation=True
         )
+
+
+def test_kron_over_groups_with_different_lifts() -> None:
+    """Kronecker products use the lifts of their own group algebras."""
+    default_ring = abstract.GroupRing(abstract.SymmetricGroup(3))
+    custom_ring = abstract.GroupRing(abstract.SymmetricGroup(3).with_natural_lift())
+
+    def get_kron(ring: abstract.GroupRing) -> abstract.RingArray:
+        matrix = abstract.RingArray.build([[ring.generators[0]]], ring)
+        return abstract.kron(matrix, matrix)
+
+    # the product of g and g acts on t as g t g, and a custom lift has no anti-representation;
+    # alternate the rings, so that each is used after the other
+    generator = default_ring.generators[0]
+    for _ in range(2):
+        lifted = get_kron(default_ring).lift()
+        for member in default_ring.group.generate():
+            vector = abstract.RingMember(default_ring, member)
+            product = generator * vector * generator
+            assert np.array_equal(lifted @ vector.to_vector(), product.to_vector())
+        with pytest.raises(ValueError, match="Anti-representations"):
+            get_kron(custom_ring).lift()

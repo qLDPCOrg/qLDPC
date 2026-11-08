@@ -84,15 +84,44 @@ def test_ring() -> None:
 
 
 def test_ring_equality() -> None:
-    """Group algebras compare (and hash) by value, ignoring the group's representation."""
+    """Group algebras compare by their fields, groups, and lifts."""
     group = abstract.CyclicGroup(3)
-    other = abstract.CyclicGroup(3)  # the same group, but a separately built representation
+    other = abstract.CyclicGroup(3)  # the same group and lift, built separately
     ring, other_ring = abstract.GroupRing(group), abstract.GroupRing(other)
     assert ring == other_ring
     assert hash(ring) == hash(other_ring)
     assert ring != abstract.GroupRing(abstract.CyclicGroup(4))  # different group
     assert ring != abstract.GroupRing(group, field=4)  # different field
     assert ring != "not a ring"
+
+    # equal group algebras lift group members to the same matrices
+    symmetric = abstract.SymmetricGroup(3)
+    assert abstract.GroupRing(symmetric) == abstract.GroupRing(abstract.SymmetricGroup(3))
+    assert abstract.GroupRing(symmetric) != abstract.GroupRing(symmetric.with_natural_lift())
+    natural_lift = symmetric.with_natural_lift()
+    assert abstract.GroupRing(natural_lift) == abstract.GroupRing(natural_lift)
+    transposed_lift = abstract.Group.from_sympy(
+        symmetric.to_sympy(), lift=lambda member: natural_lift.lift(member).T
+    )
+    assert abstract.GroupRing(natural_lift) != abstract.GroupRing(transposed_lift)
+
+    # the default lift is the regular representation, which depends on the order of group members
+    members = list(symmetric.generate())
+    reordered = abstract.Group(*symmetric.generators, generate_func=lambda: iter(members[::-1]))
+    assert abstract.GroupRing(symmetric) == abstract.GroupRing(reordered)  # same regular lifts
+    rotated = members[1:] + members[:1]
+    reordered = abstract.Group(*symmetric.generators, generate_func=lambda: iter(rotated))
+    assert abstract.GroupRing(symmetric) != abstract.GroupRing(reordered)
+
+
+def test_ring_equality_with_default_lifts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Group algebras with default lifts and enumeration compare without lifting group members."""
+    calls: list[object] = []
+    monkeypatch.setattr(abstract.Group, "regular_lift", lambda *args, **kwargs: calls.append(args))
+    assert abstract.GroupRing(abstract.SymmetricGroup(3)) == abstract.GroupRing(
+        abstract.SymmetricGroup(3)
+    )
+    assert not calls
 
 
 def test_printing() -> None:

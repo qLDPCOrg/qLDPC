@@ -86,13 +86,14 @@ class GroupRing:
         return self._transformers[seed]
 
     def __eq__(self, other: object) -> bool:
-        # Two group algebras are equal when they share a base field and underlying group; the
-        # group's representation (lift) is irrelevant here, so compare with ``Group.equiv``.  This
-        # keeps equality value-based, and __hash__ (below) is keyed on the same stable data.
+        # groups compare their lift and enumeration functions by identity, so compare lifts by value
+        if self is other:
+            return True
         return (
             isinstance(other, GroupRing)
             and self.field is other.field
             and self.group.equiv(other.group)
+            and self._has_same_lifts(other.group)
         )
 
     def __hash__(self) -> int:
@@ -258,6 +259,25 @@ class GroupRing:
                     f"The value of the integer {value} is ambiguous over GF({self.field.order})"
                 )
         return self.field(value)
+
+    def _has_same_lifts(self, other_group: Group) -> bool:
+        """Does an equivalent group lift its members to the same matrices as this one?"""
+        # a custom lift is a function of group members, and the default lift follows the order in
+        # which a group enumerates its members; SymPy enumerates equivalent groups, which share
+        # generators, in the same order
+        group = self.group
+        if group._lift == other_group._lift and (
+            group._lift is not None or group._generate_func == other_group._generate_func
+        ):
+            return True
+        if group.lift_dim != other_group.lift_dim:
+            return False
+
+        # lifts form representations of the group, so the lifts of its generators determine them
+        return all(
+            np.array_equal(group.lift(member), other_group.lift(member))
+            for member in group.generators
+        )
 
 
 class RingMember:

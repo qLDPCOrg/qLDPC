@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import galois
 import networkx as nx
 import numpy as np
 import pytest
@@ -274,3 +275,17 @@ def test_lifted_product_translations() -> None:
         translations = code._get_qudit_automorphisms()
         assert translations is not None and len(translations) == 2
         assert_valid_translations(code, translations, group_order=6)
+
+
+def test_lifted_product_with_non_orthogonal_lifts() -> None:
+    """LPCode checks that X and Z checks commute if group lifts are not orthogonal."""
+    group = abstract.Group.from_generating_mats(galois.GF2([[1, 1], [0, 1]]))
+    ring = abstract.GroupRing(group)
+    (generator,) = ring.generators
+    assert not np.array_equal(generator.T.lift(), generator.lift().T)
+    matrix = abstract.RingArray.build([[ring.one, generator]], ring)
+    with pytest.raises(ValueError, match="not orthogonal"):
+        codes.LPCode(matrix)
+
+    # LPCode accepts commuting checks from lifts that are not orthogonal
+    assert codes.LPCode(abstract.RingArray.build([[generator]], ring)).num_qudits == 4
