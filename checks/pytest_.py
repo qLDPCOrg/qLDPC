@@ -12,9 +12,7 @@ EXCLUDE = (
     "*/__init__.py",
     "checks/*.py",
     "examples/*.py",
-    # Experiments run their own tests, outside the library's suite.  Unlike "experiments/*.py", this
-    # pattern also matches test IDs such as "experiments/x/y_test.py::test_z".
-    "experiments/*",
+    "experiments/*.py",
     "docs/source/conf.py",
     # The notebooks under docs/source/examples are symlinks to their examples/ originals, so
     # collecting them would run every notebook twice -- and would fail besides, because the modules
