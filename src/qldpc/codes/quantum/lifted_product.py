@@ -28,10 +28,10 @@ class LPCode(CSSCode):
     parity check matrices are RingArrays, or matrices whose entries are members of a group algebra
     over a finite field ``F_q``.  Each of these entries can be "lifted" to a matrix over ``F_q``, in
     which case the RingArray is interpreted as a block matrix; this is called "lifting" the
-    RingArray.  Orthogonal lifts, such as permutation matrices, give X and Z checks that commute.
-    For other lifts, LPCode raises a ValueError if the checks do not commute.  A noncommutative
-    group must use the default lift, its regular representation, since LPCode needs lifts with
-    ``right=True`` (see ``Group.lift``).
+    RingArray.  Lifts to orthogonal matrices, such as permutation matrices, give X and Z checks that
+    commute.  For other lifts, LPCode raises a ValueError if the checks do not commute.  LPCode also
+    needs lifts with ``right=True``, which a noncommutative group has only with the default lift,
+    its regular representation.
 
     As an example, the lift-connected surface code in Eq. (2) of https://arxiv.org/pdf/2401.02911v2
     can be constructed by::
@@ -94,10 +94,10 @@ class LPCode(CSSCode):
 
         If ``set_logicals`` is True, set the canonical logical line operators of the code (see
         ``get_canonical_logical_line_ops``).  These use semisimple Howell normal forms, which need a
-        field characteristic that does not divide the order of the group.  Lifted products of binary
-        codes over groups of even order are common but fail this condition, so ``set_logicals``
-        defaults to False, and if it is True for a group algebra that fails it, a ValueError is
-        raised.
+        field characteristic that does not divide the order of the group, and they need lifts to
+        orthogonal matrices.  Lifted products of binary codes over groups of even order are common
+        but fail the first condition, so ``set_logicals`` defaults to False, and if it is True for a
+        group algebra that fails either condition, a ValueError is raised.
         """
         if matrix_b is None:
             matrix_b = matrix_a
@@ -119,16 +119,23 @@ class LPCode(CSSCode):
         # if Hadamard-transforming qudits, conjugate those in the (1, 1) sector by default
         self.bias_tailoring_qubits = slice(self.sector_size[0, 0], None)
 
+        # lifts to orthogonal matrices give commuting checks; otherwise, verify that checks commute
         super().__init__(matrix_x.lift(), matrix_z.lift(), field)
-        if _has_orthogonal_lifts(ring):
-            self._is_subsystem_code = False  # known by construction
+        has_orthogonal_lifts = _has_orthogonal_lifts(ring)
+        if has_orthogonal_lifts:
+            self._is_subsystem_code = False
         elif self.is_subsystem_code:
             raise ValueError(
-                "The X and Z checks of this LPCode do not commute, and its group algebra has lifts"
-                " that are not orthogonal"
+                "The X and Z checks of this LPCode do not commute, and its group algebra lifts"
+                " members to matrices that are not orthogonal"
             )
 
         if set_logicals:
+            if not has_orthogonal_lifts:
+                raise ValueError(
+                    "Cannot set canonical logical operators for this code, since its group algebra"
+                    " lifts members to matrices that are not orthogonal"
+                )
             try:
                 logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
             except (ValueError, NotImplementedError) as exception:
@@ -332,7 +339,7 @@ def _has_orthogonal_lifts(ring: abstract.GroupRing) -> bool:
     """Does a group algebra lift the members of its group to orthogonal matrices?
 
     A lift L is orthogonal if ``L(g.T) = L(g).T``, where ``g.T = ~g``.  Orthogonal matrices form a
-    group, so it suffices to check the generators of the group.
+    group, so if the generators lift to orthogonal matrices, every member does.
     """
     return all(
         np.array_equal(generator.T.lift(), generator.lift().T) for generator in ring.generators

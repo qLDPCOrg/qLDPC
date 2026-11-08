@@ -86,10 +86,6 @@ class GroupRing:
         return self._transformers[seed]
 
     def __eq__(self, other: object) -> bool:
-        # comparing a ring with itself is common, as among the entries of a RingArray, so check
-        # identity first
-        if self is other:
-            return True
         return (
             isinstance(other, GroupRing)
             and self.field is other.field
@@ -275,13 +271,13 @@ class GroupRing:
         if group.lift_dim != other_group.lift_dim:
             return False
 
-        # right lifts of a commutative group equal its lifts, and a noncommutative group has right
-        # lifts only with its default lift
-        compare_right_lifts = not group.is_commutative and group._lift is None
-        if compare_right_lifts != (not group.is_commutative and other_group._lift is None):
+        # a noncommutative group has right lifts only with its default lift
+        if not group.is_commutative and (group._lift is None) != (other_group._lift is None):
             return False
 
-        # the lifts and right lifts of generators determine those of every member
+        # the lifts and right lifts of generators determine those of every member, and right lifts
+        # of a commutative group equal its lifts
+        compare_right_lifts = not group.is_commutative and group._lift is None
         sides = [False, True] if compare_right_lifts else [False]
         return all(
             np.array_equal(

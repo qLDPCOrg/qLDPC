@@ -94,7 +94,7 @@ def test_ring_equality() -> None:
     assert ring != abstract.GroupRing(group, field=4)  # different field
     assert ring != "not a ring"
 
-    def equal(group_a: abstract.Group, group_b: abstract.Group) -> bool:
+    def algebras_equal(group_a: abstract.Group, group_b: abstract.Group) -> bool:
         """Do two groups give equal group algebras, whichever is compared with the other?"""
         ring_a, ring_b = abstract.GroupRing(group_a), abstract.GroupRing(group_b)
         assert (ring_a == ring_b) is (ring_b == ring_a)
@@ -103,11 +103,14 @@ def test_ring_equality() -> None:
     # equal group algebras lift group members to the same matrices
     symmetric = abstract.SymmetricGroup(3)
     natural = symmetric.with_natural_lift()
-    assert equal(symmetric, abstract.SymmetricGroup(3))
-    assert not equal(symmetric, natural)
-    assert equal(natural, abstract.Group.from_sympy(symmetric.to_sympy(), lift=natural.lift))
+    assert algebras_equal(symmetric, abstract.SymmetricGroup(3))
+    assert not algebras_equal(symmetric, natural)
+    assert algebras_equal(
+        natural, abstract.Group.from_sympy(symmetric.to_sympy(), lift=natural.lift)
+    )
 
-    # conjugating a lift by the lift of one generator changes the lifts of the others
+    # conjugating a lift by the lift of one generator of SymmetricGroup(3) changes the lift of the
+    # other, which does not commute with it
     def conjugate_by(generator: abstract.GroupMember) -> abstract.Group:
         mat = natural.lift(generator)
         return abstract.Group.from_sympy(
@@ -117,18 +120,18 @@ def test_ring_equality() -> None:
     for generator in symmetric.generators:
         conjugated = conjugate_by(generator)
         assert np.array_equal(conjugated.lift(generator), natural.lift(generator))
-        assert not equal(natural, conjugated)
+        assert not algebras_equal(natural, conjugated)
 
-    # default lifts of a noncommutative group depend on the order of its members
+    # groups that list their members in the same order have the same default lifts
     members = list(symmetric.generate())
 
     def reorder(order: list[abstract.GroupMember]) -> abstract.Group:
         return abstract.Group(*symmetric.generators, generate_func=lambda: iter(order))
 
-    assert equal(symmetric, reorder(members))
+    assert algebras_equal(symmetric, reorder(members))
 
-    # translating members on the right preserves lifts, and translating them on the left preserves
-    # right lifts, but each translation changes the lifts on the other side
+    # translating members by a member that is not central changes default lifts: translating them
+    # on the right preserves lifts but changes right lifts, and vice versa on the left
     second = symmetric.generators[1]
     for order, right in [
         ([gg * second for gg in members], False),
@@ -139,16 +142,16 @@ def test_ring_equality() -> None:
             np.array_equal(symmetric.lift(gg, right=right), translated.lift(gg, right=right))
             for gg in symmetric.generators
         )
-        assert not equal(symmetric, translated)
+        assert not algebras_equal(symmetric, translated)
 
     # a noncommutative group has right lifts only with its default lift
     custom = abstract.Group.from_sympy(symmetric.to_sympy(), lift=symmetric.lift)
-    assert not equal(symmetric, custom)
+    assert not algebras_equal(symmetric, custom)
 
     # right lifts of a commutative group equal its lifts, so default and custom lifts can agree;
     # CyclicGroup has a custom lift, so build a cyclic group with the default lift
     cyclic = abstract.Group(*abstract.CyclicGroup(4).generators)
-    assert equal(cyclic, abstract.Group.from_sympy(cyclic.to_sympy(), lift=cyclic.lift))
+    assert algebras_equal(cyclic, abstract.Group.from_sympy(cyclic.to_sympy(), lift=cyclic.lift))
 
 
 def test_printing() -> None:

@@ -241,12 +241,15 @@ def test_kron_over_groups_with_different_lifts() -> None:
         *group.generators, generate_func=lambda: iter([gg * group.generators[1] for gg in members])
     )
     assert all(np.array_equal(group.lift(gg), translated.lift(gg)) for gg in group.generators)
+    first = group.generators[0]
+    assert not np.array_equal(group.lift(first, right=True), translated.lift(first, right=True))
 
-    # the Kronecker product of [[g]] with itself acts on t as g t g
+    # for a generator g, the Kronecker product of [[g]] with itself maps each member t to g·t·g
     for ring in [abstract.GroupRing(group), abstract.GroupRing(translated)]:
         generator = ring.generators[0]
         matrix = abstract.RingArray.build([[generator]], ring)
         lifted = abstract.kron(matrix, matrix).lift()
-        for member in [abstract.RingMember(ring, gg) for gg in ring.group.generate()]:
-            product = generator * member * generator
-            assert np.array_equal(lifted @ member.to_vector(), product.to_vector())
+        for member in ring.group.generate():
+            vector = abstract.RingMember(ring, member)
+            product = generator * vector * generator
+            assert np.array_equal(lifted @ vector.to_vector(), product.to_vector())
