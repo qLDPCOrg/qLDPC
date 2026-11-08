@@ -5,9 +5,10 @@
 Run with ``python -m experiments.code_annealing.core.run_annealing N K [options]`` to search codes
 with N physical and K logical qubits, or with ``--help`` for the options.  Exact enumeration is
 exponential, so use small ``--epochs`` and ``--steps-per-epoch`` for smoke tests, and ``--dry-run``,
-which writes nothing.  Every search but a dry run first compiles the set-up code of the counts,
-which pays off over a long search and changes no result; ``--skip-compile`` skips it for a short
-one.
+which writes nothing.  Every search but a dry run compiles the set-up code of the counts before its
+pilot or, when it resumes, before its next epoch.  This changes no result, and pays off over a long
+search, though not for the ``--init-samples`` codes, which it would slow down slightly, so they are
+scored first.  ``--skip-compile`` skips it for a short search.
 
 Starting code.  A new search starts from the first random code that it draws, or from the
 lowest-energy code of ``--init-samples`` random codes, which are scored exactly.  The energy of a
@@ -122,12 +123,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     with contextlib.ExitStack() as locks:
         if output is not None and not args.dry_run:
             _lock_chain(parser, locks, output)
+        compile_setup = not (args.dry_run or args.skip_compile)
         if args.resume:
             with _report_invalid_input(parser):
                 state = _resume_search(parser, args)
+            if compile_setup:
+                compile_search_setup()
         else:
             with _report_invalid_input(parser):
                 initial, config = _prepare_new_search(parser, args)
+            if compile_setup:
+                compile_search_setup()
             # The pilot scores a whole epoch of proposals, so an error there keeps its traceback.
             state = start_search(initial, config, seed=_get_seed(args))
         if output is None:
@@ -140,7 +146,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             state,
             output,
             dry_run=args.dry_run,
-            compile_setup=not (args.dry_run or args.skip_compile),
             stop_after_epochs=args.stop_after_epochs,
         )
 
@@ -389,14 +394,9 @@ def _run_search(
     output: Path,
     *,
     dry_run: bool,
-    compile_setup: bool,
     stop_after_epochs: int | None,
 ) -> None:
-    """Run the remaining epochs, saving the chain and its two records as they improve.
-
-    A search that writes files is long enough to repay compiling the set-up code of its counts,
-    which ``compile_setup`` does before the first epoch.
-    """
+    """Run the remaining epochs, saving the chain and its two records as they improve."""
 
     def save_and_report_epoch(state: SearchState) -> None:
         if not dry_run:
@@ -435,8 +435,6 @@ def _run_search(
             save_checkpoint(state, output)
         preserve_lowest_energy(state)
         preserve_greatest_distance(state)
-    if compile_setup:
-        compile_search_setup()
     run_epochs(
         state,
         stop_after_epochs=stop_after_epochs,
