@@ -202,8 +202,8 @@ Bounded fault propagation is a yes-or-no criterion.
 To compare preparation circuits, including those that satisfy it, the experimental :func:`qldpc.experimental.circuits.estimate_residual_weight_histogram <qldpc.experimental.circuits.benchmarking.residual_weights.estimate_residual_weight_histogram>` estimates, over the shots that pass post-selection, the probability distribution of the residual weight of the fault that occurs in a shot.
 The residual weight needs no decoder, and it accounts for Pauli errors that a chosen logical readout cannot detect, such as Z errors on a logical :math:`|0\rangle` state.
 How much a residual error costs depends on the circuit that uses the block next, which the experimental benchmarks call its consumer.
-The experimental :func:`qldpc.experimental.circuits.get_steane_swap_consumer <qldpc.experimental.circuits.benchmarking.consumers.get_steane_swap_consumer>` builds one such consumer from steps of swap-type Steane quantum error correction, into which a freshly prepared block enters.
-A calibration of this consumer scores a preparation circuit by :math:`\Phi`, the change in the consumer's failure probability per accepted preparation, relative to an ideal block.
+The experimental :func:`qldpc.experimental.circuits.get_steane_swap_consumer <qldpc.experimental.circuits.benchmarking.consumers.get_steane_swap_consumer>` builds one such consumer: a short run of swap-type Steane quantum error-correction steps, which a freshly prepared block enters.
+A calibration of this consumer scores a preparation circuit by :math:`\Phi`, the change in the consumer's failure probability per preparation that passes post-selection, relative to an ideal block.
 It estimates :math:`\Phi` from residual-weight histograms of the circuit, without simulating the consumer again.
 The `consumer-calibration guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/experimental/circuits/benchmarking/consumer_calibration.md>`_ defines this estimate and its approximations, and the :doc:`benchmarking notebook <examples/experimental/logical_state_preparation>` demonstrates the workflow.
 

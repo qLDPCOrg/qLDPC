@@ -349,12 +349,12 @@ def test_steane_swap_consumer(basis: PauliXZ) -> None:
     nondeterministic detector or observable, so building the model of each window checks that its
     detectors and observables are deterministic.  The default decoder predicts the observable flips
     of every error mechanism, each of which is a fault of weight one.  The distance-3 surface code,
-    unlike the Steane code, has X-type and Z-type operators with different supports, so it catches
-    X and Z exchanged by mistake.  The distance-4 toric code has two logical qubits, so it catches
-    mistakes in the layout of several logical operators.  A logical error on the block under test
-    (logical X on |0>, or logical Z on |+>) fires no detector.  It flips the logical Z observables
-    for a |0> block, and the logical X observables for a |+> block, so that the default decoder,
-    which sees no detector, mispredicts them.
+    unlike the Steane code, has X-type and Z-type checks and logical operators with different
+    supports, so it catches X and Z exchanged by mistake.  The distance-4 toric code has two logical
+    qubits, so it catches mistakes in the layout of several logical operators.  A logical error on
+    the block under test (logical X on |0>, or logical Z on |+>) fires no detector.  It flips the
+    logical Z observables for a |0> block, and the logical X observables for a |+> block, so that
+    the default decoder, which sees no detector, mispredicts them.
     """
     model = circuits.DepolarizingNoiseModel(1e-3)
     for code in (_CODE, codes.SurfaceCode(3), codes.ToricCode(4)):
@@ -408,8 +408,8 @@ def test_steane_swap_window(basis: PauliXZ) -> None:
     """
     consumer = get_steane_swap_consumer(_CODE, circuits.DepolarizingNoiseModel(0), basis=basis)
     assert consumer.block_qubits is not None
-    # every step of the Steane code has three detectors, and the final readout has six; indices
-    # count the steps from zero, and index 5 is the final readout
+    # every step of the Steane-code window has three detectors, and the final readout has six;
+    # indices count the steps from zero, and index 5 is the final readout
     boundaries = [0, 3, 6, 9, 12, 15, 21]
     assert consumer.circuit.num_detectors == boundaries[-1]
     for pauli in (Pauli.X, Pauli.Z):
@@ -422,7 +422,25 @@ def test_steane_swap_window(basis: PauliXZ) -> None:
             steps = np.searchsorted(boundaries, np.flatnonzero(detectors), side="right") - 1
             assert set(steps.tolist()) == expected
             if pauli is basis.swap_xz():
-                assert detectors[9:12].tolist() == checks[:, index].tolist()
+                assert (
+                    detectors[boundaries[3] : boundaries[4]].tolist() == checks[:, index].tolist()
+                )
+
+
+def test_steane_swap_noise() -> None:
+    """The noise model applies to the measurements of the steps, and not to the final readout.
+
+    With only readout errors of probability p, each measurement of each of the five steps of the
+    Steane-code window is an error mechanism of probability p.  The syndromes of the qubits of the
+    Steane code are distinct and nonzero, so these mechanisms are distinct.
+    """
+    probability = 1e-3
+    consumer = get_steane_swap_consumer(_CODE, circuits.NoiseModel(readout_error=probability))
+    dem = decoders.DetectorErrorModelArrays(
+        consumer.block_preparation + consumer.circuit, simplify=False
+    )
+    assert len(dem.error_probs) == 5 * _NUM_QUBITS
+    assert np.allclose(dem.error_probs, probability)
 
 
 @pytest.mark.parametrize("basis", [Pauli.Z, Pauli.X])
@@ -475,7 +493,7 @@ def test_steane_swap_symmetry() -> None:
         assert np.allclose(terms, _get_excess_terms(plus, pauli.swap_xz()), rtol=1e-9, atol=0)
 
 
-def test_redundant_checks() -> None:
+def test_steane_swap_redundant_checks() -> None:
     """Redundant checks add no detectors, and the window still corrects every single fault.
 
     Repeating a check of each type of the Steane code adds a dependent check without changing the
@@ -526,9 +544,10 @@ def test_steane_swap_decoders() -> None:
     """
     model = circuits.DepolarizingNoiseModel(0)
     spec = decoders.lookup(max_weight=1)
-    assert get_steane_swap_consumer(_CODE, model, decoder=spec).decoder is spec
+    with_spec = get_steane_swap_consumer(_CODE, model, decoder=spec)
+    assert with_spec.decoder is spec
     default = get_steane_swap_consumer(_CODE, model)
-    assert get_steane_swap_consumer(_CODE, model, decoder=spec).description != default.description
+    assert with_spec.description != default.description
     assert get_steane_swap_consumer(_CODE, model, basis="X").description != default.description
     prebuilt: Any = default.decoder
     with pytest.raises(ValueError, match="prebuilt decoder"):
@@ -557,13 +576,14 @@ def test_steane_swap_codes(code: Any) -> None:
 def test_min_weight_table(monkeypatch: pytest.MonkeyPatch) -> None:
     """Minimum-weight tables give each syndrome a lightest error, beyond weight one if needed.
 
-    The checks of a four-bit code need errors of weight two to cover every syndrome.  The errors on
-    qubits 0 and 1 and on qubit 2 have the same syndrome but different logical flips.  Each table
-    entry has the logical flips of some lightest error with its syndrome.  With two independent
-    checks of one qubit each, the syndrome of both checks needs an error of weight two, as many as
-    there are checks.  Without checks, the table has only the empty syndrome.  Tables are refused
-    before they are built if they, or the errors of a weight that they need, would have too many
-    entries.  The size of a table grows with the number of logical operators.
+    Three checks on four bits need errors of weight two to cover every syndrome.  The error on bit 2
+    and the heavier error on bits 0 and 1 have the same syndrome but different logical flips, so the
+    test fails if a table keeps a heavier error.  Each table entry has the logical flips of some
+    lightest error with its syndrome.  With two independent checks of one qubit each, the syndrome
+    of both checks needs an error of weight two, as many as there are checks.  Without checks, the
+    table has only the empty syndrome.  A table is refused if it would have too many entries, and so
+    are the errors of a weight that it needs, before they are enumerated.  The size of a table grows
+    with the number of logical operators.
     """
     checks = np.array([[1, 1, 0, 0], [0, 1, 1, 0], [0, 0, 0, 1]])
     logicals = np.array([[1, 0, 0, 0], [0, 0, 1, 1]])
