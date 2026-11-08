@@ -156,6 +156,7 @@ def test_one_proposal_changes_the_distance_by_at_most_its_reach(
         distances = [a.score_code(code, config).distance for code in (steane, first, second)]
         changes |= {abs(distances[1] - distances[0]), abs(distances[2] - distances[1])}
     assert 0 < max(changes) <= reach
+    assert a._get_distance_reach(config) == reach  # what the search assumes
 
 
 ####################################################################################################
