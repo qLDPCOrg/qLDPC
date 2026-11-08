@@ -166,7 +166,6 @@ def save_checkpoint(state: SearchState, path: str | Path) -> None:
         "config": dataclasses.asdict(state.config),
         "seed": state.seed,
         "completed_epochs": state.completed_epochs,
-        "proposed": state.proposed,
         "accepted": state.accepted,
         "log_temperature": state.log_temperature,
         "energy_jumps": state.energy_jumps.tolist(),
@@ -281,7 +280,6 @@ def _restore_chain(data: dict[str, Any]) -> SearchState:
         log_temperature=data["log_temperature"],
         energy_jumps=np.asarray(data["energy_jumps"], dtype=float),
         completed_epochs=data["completed_epochs"],
-        proposed=data["proposed"],
         accepted=data["accepted"],
         history=history,
     )
@@ -297,25 +295,22 @@ def _dump_json(data: dict[str, Any], stream: IO[str]) -> None:
 
 
 def _check_progress(data: dict[str, Any], config: SearchConfig) -> None:
-    """Check that epoch, proposal, and temperature bookkeeping agree with the policy."""
-    completed, proposed, accepted = (
-        data[key] for key in ("completed_epochs", "proposed", "accepted")
-    )
+    """Check that epoch, acceptance, and temperature bookkeeping agree with the policy."""
+    completed, accepted = data["completed_epochs"], data["accepted"]
     jumps = np.asarray(data["energy_jumps"], dtype=float)
     log_temperature = data["log_temperature"]
     if (
         not isinstance(completed, int)
         or not 0 <= completed <= config.epochs
-        or proposed != completed * config.steps_per_epoch
         or not isinstance(accepted, int)
-        or not 0 <= accepted <= proposed
+        or not 0 <= accepted <= completed * config.steps_per_epoch
         or jumps.shape != (config.steps_per_epoch,)
         or not np.all(np.isfinite(jumps))
         or not math.isfinite(log_temperature)
         or not LOG_TEMPERATURE_BOUNDS[0] <= log_temperature <= LOG_TEMPERATURE_BOUNDS[1]
         or len(data["history"]) != completed
     ):
-        raise ValueError("Inconsistent epoch, proposal, or temperature state")
+        raise ValueError("Inconsistent epoch, acceptance, or temperature state")
 
 
 def _check_codes(codes: dict[str, ScoredCode], config: SearchConfig) -> None:

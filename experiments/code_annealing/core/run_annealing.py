@@ -9,12 +9,11 @@ which writes nothing.  Every search but a dry run first compiles the set-up code
 which pays off over a long search and changes no result; ``--skip-compile`` skips it for a short
 one.
 
-Starting code.  A new search starts from the first random code that it draws, which has at least
-``--min-distance``, or from the lowest-energy code of ``--init-samples`` random codes, which are
-scored exactly.  The energy of a random code varies a lot, and so does the first temperature, which
-a pilot fits to one epoch's worth of proposals from the starting code, so the lowest-energy code of
-many makes the first epochs less erratic.  ``--init-samples`` cannot be combined with
-``--min-distance`` or ``--max-attempts``.
+Starting code.  A new search starts from the first random code that it draws, or from the
+lowest-energy code of ``--init-samples`` random codes, which are scored exactly.  The energy of a
+random code varies a lot, and so does the first temperature, which a pilot fits to one epoch's worth
+of proposals from the starting code, so the lowest-energy code of many makes the first epochs less
+erratic.
 
 Files.  A run saves its chain checkpoint, such as ``css_n20_k04_s003.json`` for the code type css,
 20 qubits, 4 logical qubits and seed 3, after every completed epoch, and records of its
@@ -87,7 +86,6 @@ from .cli import add_results_dir_argument, make_parser
 from .paths import get_logs_dir, get_run_name
 from .proposals import (
     CODE_TYPES,
-    DEFAULT_MAX_ATTEMPTS,
     CodeType,
     random_initial_code,
     random_initial_codes,
@@ -209,21 +207,6 @@ def build_parser() -> argparse.ArgumentParser:
         " instead of the first one",
     )
     start.add_argument(
-        "--min-distance",
-        type=int,
-        help="draw random codes until one has this distance (default: 1)",
-    )
-    start.add_argument(
-        "--max-attempts",
-        type=int,
-        help=f"random codes to try for --min-distance (default: {DEFAULT_MAX_ATTEMPTS})",
-    )
-    start.add_argument(
-        "--walk-steps",
-        type=int,
-        help="SWEL gates of the random walk of a self-dual code (default: 30 per qubit)",
-    )
-    start.add_argument(
         "--refine",
         type=Path,
         help="start from the lowest-energy code of this chain checkpoint,"
@@ -325,9 +308,6 @@ def _resume_search(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
         "num_logicals",
         "seed",
         "init_samples",
-        "min_distance",
-        "max_attempts",
-        "walk_steps",
     )
     if args.self_dual_start or any(
         getattr(args, name, None) is not None for name in new_search_options
@@ -352,7 +332,7 @@ def _prepare_new_search(
         options["gate_size"] = 4
     config = SearchConfig(**options)
     if args.refine is not None:
-        initial = _load_refinement_code(parser, args, config)
+        initial = _load_refinement_code(parser, args)
     else:
         if args.num_qubits is None or args.num_logicals is None:
             parser.error("New searches require num_qubits and num_logicals")
@@ -364,35 +344,22 @@ def _prepare_new_search(
 def _get_random_code(
     parser: argparse.ArgumentParser, args: argparse.Namespace, config: SearchConfig
 ) -> CSSLogicalCounter:
-    """A random initial code: the first of the minimum distance, or the lowest-energy of several."""
-    options = {
-        "seed": _get_seed(args),
-        "self_dual": config.code_type == "swel" or args.self_dual_start,
-        "walk_steps": args.walk_steps,
-    }
-    filters = {
-        name: value
-        for name, value in (
-            ("min_distance", args.min_distance),
-            ("max_attempts", args.max_attempts),
-        )
-        if value is not None
-    }
+    """A random initial code: the first one drawn, or the lowest-energy one of several."""
+    seed = _get_seed(args)
+    self_dual = config.code_type == "swel" or args.self_dual_start
     if args.init_samples is None:
         return random_initial_code(
             args.num_qubits,
             args.num_logicals,
+            self_dual=self_dual,
+            seed=seed,
             method=get_library_method(config),
-            **filters,
-            **options,
         )
     if args.init_samples < 1:
         parser.error("--init-samples must be positive")
-    if filters:
-        parser.error(
-            "--init-samples does not filter codes: do not use --min-distance or --max-attempts"
-        )
-    counters = random_initial_codes(args.num_qubits, args.num_logicals, **options)
+    counters = random_initial_codes(
+        args.num_qubits, args.num_logicals, self_dual=self_dual, seed=seed
+    )
     initial = get_lowest_energy_code(itertools.islice(counters, args.init_samples), config)
     score = score_code(initial, config)
     print(
@@ -404,25 +371,16 @@ def _get_random_code(
 
 
 def _load_refinement_code(
-    parser: argparse.ArgumentParser, args: argparse.Namespace, config: SearchConfig
+    parser: argparse.ArgumentParser, args: argparse.Namespace
 ) -> CSSLogicalCounter:
-    """Import the saved code to refine, checking it against any explicit size or distance."""
-    if (
-        args.self_dual_start
-        or args.walk_steps is not None
-        or args.max_attempts is not None
-        or args.init_samples is not None
-    ):
+    """Import the saved code to refine, checking it against any explicit size."""
+    if args.self_dual_start or args.init_samples is not None:
         parser.error("Refinement does not use random initialization options")
     initial = load_code(args.refine)
     if (args.num_qubits is not None and args.num_qubits != initial.num_qubits) or (
         args.num_logicals is not None and args.num_logicals != initial.dimension
     ):
         parser.error("Requested n/k differ from the refinement code")
-    if args.min_distance is not None:
-        minimum = initial.count_logical_ops(method=get_library_method(config)).weight
-        if not 1 <= args.min_distance <= minimum:
-            parser.error("Refinement code does not satisfy --min-distance")
     return initial
 
 

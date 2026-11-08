@@ -46,7 +46,7 @@ Orientation
 -----------
 
 The source tree under ``src/qldpc/`` mirrors the library: each package and module starts with a docstring whose first line summarizes it, and the :doc:`library map </library_map>` explains how the packages relate.
-Canonical executable notebooks live in ``examples/``, Sphinx pages and the library map in ``docs/source/``, local wrappers for CI's quality gates in ``checks/``, and untested research scripts in ``experiments/``.
+Canonical executable notebooks live in ``examples/``, Sphinx pages and the library map in ``docs/source/``, local wrappers for CI's quality gates in ``checks/``, and research scripts outside the library's test suite in ``experiments/``.
 
 .. _development-installation:
 

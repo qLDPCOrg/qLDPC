@@ -239,7 +239,6 @@ class SearchState:
     log_temperature: float
     energy_jumps: npt.NDArray[np.float64]
     completed_epochs: int = 0
-    proposed: int = 0
     accepted: int = 0
     history: list[EpochStatistics] = field(default_factory=list)
 
@@ -473,7 +472,6 @@ def _run_epoch(
 
     # The epoch is complete: advance the counters and log its observables.
     state.completed_epochs += 1
-    state.proposed += config.steps_per_epoch
     state.accepted += accepted
     state.history.append(
         EpochStatistics(
