@@ -399,12 +399,13 @@ def test_steane_swap_decoder_specifications(basis: PauliXZ) -> None:
 def test_steane_swap_window(basis: PauliXZ) -> None:
     """Errors on the block under test are detected only by the entry step and the next two steps.
 
-    A fresh |0> block enters by the third step, a Z-correction step.  Its CNOT copies a Z error on
-    the block onto the block that the step measures, and leaves the error in place.  The next CNOT
-    copies the error onto the next fresh block, which the fifth step measures.  The fourth step
-    detects an X error on the block by measuring the block, with one detector for each Z-type check
-    of the code, in order.  The same holds with X and Z exchanged for a fresh |+> block.  No error
-    on the block under test reaches the first two steps or the final noiseless readout.
+    A fresh |0> block enters by the third step (index 2), a Z-correction step.  Its CNOT copies a Z
+    error on the block onto the block that the step measures, and leaves the error in place.  The
+    next CNOT copies the error onto the next fresh block, which the fifth step (index 4) measures.
+    The fourth step (index 3) detects an X error on the block by measuring the block, with one
+    detector for each Z-type check of the code, in order.  The same holds with X and Z exchanged for
+    a fresh |+> block.  No error on the block under test reaches the first two steps or the final
+    noiseless readout.
     """
     consumer = get_steane_swap_consumer(_CODE, circuits.DepolarizingNoiseModel(0), basis=basis)
     assert consumer.block_qubits is not None
@@ -432,15 +433,28 @@ def test_steane_swap_noise() -> None:
 
     With only readout errors of probability p, each measurement of each of the five steps of the
     Steane-code window is an error mechanism of probability p.  The syndromes of the qubits of the
-    Steane code are distinct and nonzero, so these mechanisms are distinct.
+    Steane code are distinct and nonzero, so these mechanisms are distinct.  The noise model sees
+    each step on local qubits, with the measured block first, so readout errors on qubit 0 alone
+    give one mechanism in each step.
     """
     probability = 1e-3
-    consumer = get_steane_swap_consumer(_CODE, circuits.NoiseModel(readout_error=probability))
-    dem = decoders.DetectorErrorModelArrays(
-        consumer.block_preparation + consumer.circuit, simplify=False
-    )
-    assert len(dem.error_probs) == 5 * _NUM_QUBITS
-    assert np.allclose(dem.error_probs, probability)
+
+    def first_qubit_readout(operation: stim.CircuitInstruction) -> circuits.NoiseRule | None:
+        if operation.name not in ("M", "MX"):
+            return None
+        first_qubit = operation.targets_copy()[0].qubit_value == 0
+        return circuits.NoiseRule(readout_error=probability if first_qubit else 0.0)
+
+    for noise_model, num_mechanisms in [
+        (circuits.NoiseModel(readout_error=probability), 5 * _NUM_QUBITS),
+        (circuits.NoiseModel(rule_func=first_qubit_readout), 5),
+    ]:
+        consumer = get_steane_swap_consumer(_CODE, noise_model)
+        dem = decoders.DetectorErrorModelArrays(
+            consumer.block_preparation + consumer.circuit, simplify=False
+        )
+        assert len(dem.error_probs) == num_mechanisms
+        assert np.allclose(dem.error_probs, probability)
 
 
 @pytest.mark.parametrize("basis", [Pauli.Z, Pauli.X])
@@ -540,7 +554,7 @@ def test_steane_swap_decoders() -> None:
 
     The consumer builds the circuit that its decoder decodes, so a decoder built for another circuit
     is rejected, such as the default decoder of the other slot.  The descriptions of consumers
-    differ by decoder and by slot.
+    differ by code, decoder, type of noise model, and slot.
     """
     model = circuits.DepolarizingNoiseModel(0)
     spec = decoders.lookup(max_weight=1)
@@ -548,6 +562,10 @@ def test_steane_swap_decoders() -> None:
     assert with_spec.decoder is spec
     default = get_steane_swap_consumer(_CODE, model)
     assert with_spec.description != default.description
+    surface = get_steane_swap_consumer(codes.SurfaceCode(3), model)
+    assert surface.description != default.description
+    other_noise = get_steane_swap_consumer(_CODE, circuits.NoiseModel())
+    assert other_noise.description != default.description
     assert get_steane_swap_consumer(_CODE, model, basis="X").description != default.description
     prebuilt: Any = default.decoder
     with pytest.raises(ValueError, match="prebuilt decoder"):

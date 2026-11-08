@@ -82,9 +82,9 @@ class Consumer:
     The observables need not be logical operators.  As Stim requires, each is deterministic without
     noise.  It is a parity of measurement outcomes, and Stim's ``OBSERVABLE_INCLUDE`` also allows it
     to include Pauli operators on qubits, as the observables of ``get_steane_swap_consumer`` do.
-    The consumer does not post-select.  Every operation must be a
-    Clifford operation or Pauli noise, so that a Pauli error on the block flips a fixed set of
-    detectors and observables.  See ``consumer_calibration.md`` for how consumers are used.
+    The consumer does not post-select.  Every operation must be a Clifford operation or Pauli noise,
+    so that a Pauli error on the block flips a fixed set of detectors and observables.  See
+    ``consumer_calibration.md`` for how consumers are used.
 
     Only the first three attributes can be passed by position.
 
@@ -800,9 +800,9 @@ def get_steane_swap_consumer(
     adds errors only to the block under test.  The noise model applies to the CNOTs and measurements
     of each step, including any idle noise that it specifies for the two blocks of the step.  It
     sees each step on its own, with the current block on qubits 0, ..., n - 1 and the fresh block on
-    qubits n, ..., 2 n - 1.  Finally, the checks of the last block are measured without noise.  See
-    ``consumer_calibration.md`` for why the window has this form, and for the approximations of its
-    calibrations.
+    qubits n, ..., 2 n - 1, for a code on n qubits.  Finally, the checks of the last block are
+    measured without noise.  See ``consumer_calibration.md`` for why the window has this form, and
+    for the approximations of its calibrations.
 
     The detectors of each step come from a maximal independent subset of the code's own checks of
     the type that the step measures, in their order in the code.  The final readout uses such
@@ -829,7 +829,7 @@ def get_steane_swap_consumer(
             Default: None, for the default decoder described above.  The window suits a decoder
             that decodes each step on its own and corrects every fault of weight one; see
             ``consumer_calibration.md``.  For a code of distance less than 3, the default decoder
-            does not correct every such fault, and the calibration depends on the length of the
+            does not correct every such fault, and the calibration can depend on the length of the
             window.
         correctable_weight: The largest weight ``t`` of errors that the code corrects.  It sets
             the default largest residual weight ``t + 1`` of ``calibrate``.  Default:
@@ -842,8 +842,8 @@ def get_steane_swap_consumer(
         the decoder, and the type of the noise model.
 
     Raises:
-        TypeError: If ``decoder`` is not None, a decoder specification, or a prebuilt decoder, or
-            ``correctable_weight`` is not an integer or None.
+        TypeError: If ``decoder`` is neither None, a decoder specification, nor a prebuilt
+            decoder, or ``correctable_weight`` is neither an integer nor None.
         ValueError: If the code is not a CSS stabilizer code on qubits with at least one logical
             qubit, ``basis`` is not a Pauli type, ``decoder`` is a prebuilt decoder,
             ``correctable_weight`` is negative, or ``decoder`` is None and the default decoder
