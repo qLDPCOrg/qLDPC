@@ -164,10 +164,15 @@ def propose(
 
 
 def _sample_three_qubit_gate(rng: np.random.Generator) -> npt.NDArray[np.uint8]:
-    """The X matrix of a weighted three-qubit CNOT circuit.
+    """The X matrix of a random three-qubit CSS-preserving gate, up to qubit permutations.
 
-    The first three gate classes appear twice among the nine equally likely circuits, and the
-    other three once, so the six classes have the relative frequencies 2:2:2:1:1:1.
+    The gate is distributed as a uniformly random element of GL(3, 2) that is not a qubit
+    permutation, up to qubit permutations.  Each circuit represents one class of GL(3, 2) under
+    permutations of its qubits before and after the gate, and its weight is the size of that class:
+    the first three circuits each stand for 36 of the 162 matrices that are not permutations, and
+    the other three for 18 each, so they appear twice and once among the nine equally likely
+    circuits.  Permutations before the gate come from the random order of its qubits, and
+    permutations after it only relabel the qubits of the code.
     """
     kind = int(rng.integers(9))
     sequences = (

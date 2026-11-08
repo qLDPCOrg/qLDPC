@@ -53,8 +53,9 @@ def test_a_proposal_is_a_neighbor_with_commuting_checks_and_the_same_dimension(
 
 
 def test_three_qubit_gates_have_six_classes_with_frequencies_2_2_2_1_1_1() -> None:
-    # The paper proposes only CNOTs for CSS codes, and these frequencies are the specification in
-    # the docstring of ``_sample_three_qubit_gate``.  Each class is drawn 1000 or 2000 times in
+    # The paper proposes only CNOTs for CSS codes.  The frequencies are the sizes 36:36:36:18:18:18
+    # of the classes of GL(3, 2), under qubit permutations, that the circuits represent (see the
+    # docstring of ``_sample_three_qubit_gate``).  Each class is drawn 1000 or 2000 times in
     # expectation, with a standard deviation of about 40.
     rng = np.random.default_rng(0)
     draws = Counter(p._sample_three_qubit_gate(rng).tobytes() for _ in range(9000))
