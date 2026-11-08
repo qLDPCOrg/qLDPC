@@ -4,9 +4,9 @@
 
 Every file that a script writes goes to a subdirectory of ``results/``, which Git ignores:
 
-- ``logs/`` holds the files of annealing runs (chains, code records, logs, and the ``.lock`` files
-  of active runs), the ``random_*.txt`` files of the random baseline, and the file of jobs that
-  ``write_jobs.py`` writes.
+- ``logs/`` holds the files of annealing runs (chains, code records, logs, and an empty ``.lock``
+  file for each run, which the run locks while it is active), the ``random_*.txt`` files of the
+  random baseline, and the file of jobs that ``write_jobs.py`` writes.
 - ``data/`` holds the best code of each size, the dated scrapes of qecdb.org, and what is computed
   from them: the half-support counts, the tables and listings of the paper, and ``saved_codes.csv``
   if requested.

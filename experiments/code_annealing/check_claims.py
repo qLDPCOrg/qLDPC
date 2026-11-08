@@ -55,7 +55,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     print("3. Codes that no code at qecdb.org before the paper matches or betters in n, k, and d")
     for code_type, neighbors in read_best_known(code_files, PAPER_SNAPSHOT_FILE).items():
-        wins = sum(any(best_known.wins) for best_known in neighbors)
+        wins = sum(best_known.undominated for best_known in neighbors)
         print(f"   {code_type}: {wins}/{len(neighbors)} (snapshot {PAPER_SNAPSHOT_FILE.name})")
 
     print(

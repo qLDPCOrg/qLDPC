@@ -8,7 +8,7 @@ The code-annealing experiment has offline tests that you can run locally, but th
 | --- | --- | --- |
 | [`bivariate_bicycle/`](bivariate_bicycle/) | Brute-force search for bivariate bicycle codes with toric layouts | `run_search.py`, then `collect_results.py` |
 | [`quantum_tanner/`](quantum_tanner/) | Randomized search for quantum Tanner codes | `run_search.py`, then `collect_results.py` and `verify_codes.py` |
-| [`code_annealing/`](code_annealing/) | Implements and reproduces the code search of [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574): annealing of CSS/SWEL codes scored exactly | `python -m experiments.code_annealing.reproduce_paper`, or `write_jobs`, then `collect_data` and `make_figures` (see its guide) |
+| [`code_annealing/`](code_annealing/) | Implements and reproduces the code search of [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574): annealing of CSS codes and of self-dual CSS codes with equivalent logicals (SWEL), scored exactly | `python -m experiments.code_annealing.reproduce_paper`, or `write_jobs`, then `collect_data` and `make_figures` (see its guide) |
 | [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#lattice-surgery)) | `collect_ler.py` |
 
 Each script's module docstring summarizes its method and outputs; run it with `--help` to see its options.

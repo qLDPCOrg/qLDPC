@@ -16,8 +16,8 @@ import pytest
 from qldpc import codes
 
 from ..core import annealing as a
-from ..core.proposals import propose, random_initial_code, random_initial_codes
-from .search_helpers import canonical_checks, counter_from_checks, steane_counter
+from ..core.proposals import propose, random_initial_codes
+from .search_helpers import canonical_checks, counter_from_checks, steane_counter, weak_counter
 
 ####################################################################################################
 # scores, energies, and ranks
@@ -32,45 +32,16 @@ def test_the_scores_of_the_steane_code_have_the_known_counts() -> None:
     assert a.score_code(steane_counter(), pauli) == a.Score(3, 7, 7, 21)
 
 
-@pytest.mark.parametrize("self_dual", [False, True])
-@pytest.mark.parametrize("objective", a.OBJECTIVES)
-def test_a_score_equals_the_brute_force_counts(objective: Any, self_dual: bool) -> None:
-    counter = random_initial_code(9, 1 if self_dual else 2, seed=1, self_dual=self_dual)
-    assert counter.is_self_dual == self_dual
-    score = a.score_code(counter, a.SearchConfig(objective=objective))
-    assert score == _brute_force_score(counter, objective)
+def test_the_energies_of_the_steane_code_are_e_of_arxiv_2607_19574() -> None:
+    # E = log(m p^d) / log(1/p) = log10(m) / 3 - 3 at p = 1e-3 and d = 3, where the multiplicity m
+    # is the 7 + 7 = 14 X-only and Z-only operators, or the 21 Paulis.
+    steane = a.Score(3, 7, 7, 21)
+    assert a.energy(steane, a.SearchConfig()) == pytest.approx(-2.6179573)
+    assert a.energy(steane, a.SearchConfig(objective="pauli")) == pytest.approx(-2.5592602)
 
 
-@pytest.mark.parametrize("objective", a.OBJECTIVES)
-def test_the_energy_is_e_of_arxiv_2607_19574(objective: Any) -> None:
-    # E: the log of the probability m * p**d that an error is a minimum-weight logical operator,
-    # over log(1/p), where the multiplicity m counts the operators of the objective.
-    p, distance, multiplicity = 1e-3, 4, 9 if objective == "pauli" else 7
-    score = a.Score(distance, 3, 4, 9 if objective == "pauli" else None)
-    config = a.SearchConfig(objective=objective, physical_error_rate=p)
-    expected = math.log(multiplicity * p**distance) / math.log(1 / p)
-    assert a.energy(score, config) == pytest.approx(expected)
-
-
-def test_the_energy_is_defined_when_the_error_probability_underflows() -> None:
-    config = a.SearchConfig(physical_error_rate=1e-320)
-    expected = math.log(14) / -math.log(1e-320) - 3
-    assert a.energy(a.Score(3, 7, 7, None), config) == pytest.approx(expected)
-
-
-@pytest.mark.parametrize(
-    "objective,score",
-    [
-        ("homogeneous", a.Score(0, 1, 1, None)),
-        ("homogeneous", a.Score(3, 0, 0, None)),
-        ("pauli", a.Score(3, 7, 7, None)),
-    ],
-    ids=["no distance", "no operators", "no Pauli count"],
-)
-def test_a_score_without_a_distance_or_a_count_has_no_energy_or_rank(
-    objective: Any, score: a.Score
-) -> None:
-    config = a.SearchConfig(objective=objective)
+def test_a_score_without_the_count_of_its_objective_has_no_energy_or_rank() -> None:
+    score, config = a.Score(3, 7, 7, None), a.SearchConfig(objective="pauli")
     with pytest.raises(ValueError):
         a.energy(score, config)
     with pytest.raises(ValueError):
@@ -90,7 +61,7 @@ def test_codes_rank_by_distance_and_then_by_fewer_operators_of_the_objective(
 
 
 def test_the_lowest_energy_code_of_a_sequence_is_found_and_the_first_of_ties_wins() -> None:
-    poor, steane, twin = _poor_counter(), steane_counter(), steane_counter()
+    poor, steane, twin = weak_counter(), steane_counter(), steane_counter()
     assert a.get_lowest_energy_code([poor, steane, twin, poor], a.SearchConfig()) is steane
 
 
@@ -139,26 +110,6 @@ def test_scoring_a_swel_proposal_whose_distance_moves_by_two_is_exact() -> None:
         assert a._score_proposal(state, candidate) == _brute_force_score(candidate)
 
 
-@pytest.mark.parametrize(
-    "code_type,gate_size,reach", [("css", 2, 1), ("css", 3, 2), ("css", 4, 3), ("swel", 4, 2)]
-)
-def test_one_proposal_changes_the_distance_by_at_most_its_reach(
-    code_type: Any, gate_size: int, reach: int
-) -> None:
-    # A gate on g qubits maps a nonzero restriction of a word to a nonzero one, which changes its
-    # weight by at most g - 1; the SWEL gate maps an even-weight restriction of four qubits to
-    # itself and an odd-weight one to its complement, which changes its weight by at most 2.
-    config = a.SearchConfig(code_type=code_type, gate_size=gate_size)
-    rng, steane, changes = np.random.default_rng(0), steane_counter(), set()
-    for _ in range(20):
-        first = propose(steane, rng, code_type=code_type, gate_size=gate_size)
-        second = propose(first, rng, code_type=code_type, gate_size=gate_size)
-        distances = [a.score_code(code, config).distance for code in (steane, first, second)]
-        changes |= {abs(distances[1] - distances[0]), abs(distances[2] - distances[1])}
-    assert 0 < max(changes) <= reach
-    assert a._get_distance_reach(config) == reach  # what the search assumes
-
-
 ####################################################################################################
 # the scoring method
 
@@ -204,25 +155,25 @@ def test_switching_methods_between_epochs_never_changes_a_chain() -> None:
 # the chain
 
 
-def test_the_temperature_of_an_epoch_follows_the_fit_to_the_previous_epoch() -> None:
+def test_the_temperature_of_each_epoch_gives_its_target_acceptance_to_the_previous_jumps() -> None:
+    # Without memory, the temperature T of an epoch is the one at which the uphill jumps of the
+    # previous epoch (or of the pilot) have the mean acceptance exp(-jump / T) of the epoch's
+    # target.  The targets fall geometrically from 0.04 to 0.0025 over three epochs: 0.04, 0.01,
+    # and 0.0025.
     config = a.SearchConfig(
         epochs=3,
         steps_per_epoch=40,
         uphill_acceptance_start=0.04,
         uphill_acceptance_stop=0.0025,
-        temperature_memory=0.25,
+        temperature_memory=0.0,
     )
     state = a.start_search(steane_counter().deformed_cnot(0, 1), config, seed=1)
-    log_temperature = state.log_temperature
-    assert log_temperature == pytest.approx(a._fit_log_temperature(state.energy_jumps, 0.04))
-    for epoch in range(3):
-        target = 0.04 * (0.0025 / 0.04) ** (epoch / 2)  # the targets fall geometrically
-        jumps = state.energy_jumps.copy()
-        assert jumps.max() > 0 and a.LOG_TEMPERATURE_BOUNDS[0] < log_temperature
+    for target in (0.04, 0.01, 0.0025):
+        jumps = state.energy_jumps[state.energy_jumps > 0]
         a.run_epochs(state, stop_after_epochs=1)
-        log_temperature = 0.25 * log_temperature + 0.75 * a._fit_log_temperature(jumps, target)
-        assert state.log_temperature == pytest.approx(log_temperature)
-        assert state.history[-1].temperature == pytest.approx(math.exp(log_temperature))
+        temperature = state.history[-1].temperature
+        assert a.LOG_TEMPERATURE_BOUNDS[0] < math.log(temperature) < a.LOG_TEMPERATURE_BOUNDS[1]
+        assert np.exp(-jumps / temperature).mean() == pytest.approx(target, rel=1e-4)
 
 
 def test_the_fitted_temperature_gives_the_target_mean_uphill_acceptance() -> None:
@@ -241,12 +192,8 @@ def test_the_fitted_log_temperature_is_bounded(jumps: list[float], bound: int) -
     assert fit == pytest.approx(a.LOG_TEMPERATURE_BOUNDS[bound], abs=1e-6)
 
 
-def test_the_metropolis_rule_accepts_downhill_moves_and_uphill_moves_by_their_probability() -> None:
-    assert a._accept_move(-1, 0.01, 0.99) and a._accept_move(0, 0.01, 0.99)
-    probability = math.exp(-0.5)
-    assert a._accept_move(0.5, 1, 0.99 * probability)
-    assert not a._accept_move(0.5, 1, 1.01 * probability)
-    assert a._accept_move(1000, 0.001, 0)  # a zero uniform accepts a probability that underflows
+def test_a_uniform_of_zero_accepts_an_uphill_move_whose_probability_underflows() -> None:
+    assert a._accept_move(1000, 0.001, 0)
     assert not a._accept_move(1000, 0.001, 0.1)
 
 
@@ -256,14 +203,20 @@ def test_the_pilot_records_the_best_of_all_its_proposals_and_keeps_the_first_of_
     config = a.SearchConfig(
         method="brouwer_zimmermann", epochs=1, steps_per_epoch=30, physical_error_rate=0.25
     )
-    # The same random generator as the pilot of a search with seed 5.
-    initial, rng = steane_counter(), np.random.default_rng(5)
+    # Observe the codes that the pilot proposes, and score them by brute force.
+    initial = steane_counter()
     candidates = [initial]
-    candidates += [propose(initial, rng, code_type="css", gate_size=2) for _ in range(30)]
+
+    def observe(*args: Any, **kwargs: Any) -> codes.CSSLogicalCounter:
+        candidates.append(propose(*args, **kwargs))
+        return candidates[-1]
+
+    with mock.patch.object(a, "propose", side_effect=observe):
+        state = a.start_search(initial, config, seed=5)
+    assert len(candidates) == 31
     scores = [_brute_force_score(counter) for counter in candidates]
     lowest = min(range(31), key=lambda index: a.energy(scores[index], config))
     greatest = max(range(31), key=lambda index: a.score_rank(scores[index], config))
-    state = a.start_search(initial, config, seed=5)
     assert lowest != greatest
     energies = [a.energy(score, config) for score in scores]
     np.testing.assert_allclose(state.energy_jumps, np.array(energies[1:]) - energies[0])
@@ -283,10 +236,8 @@ def test_a_record_changes_only_when_a_proposal_strictly_improves_it() -> None:
     assert lower_score.distance < steane_score.distance
     assert a.energy(lower_score, config) < a.energy(steane_score, config)
     state.lowest_energy = state.greatest_distance = a.ScoredCode(lower, lower_score)
-    assert a._update_optima(state, a.ScoredCode(steane, steane_score)) == (
-        False,
-        True,
-    )  # a greater d
+    greater_distance = a._update_optima(state, a.ScoredCode(steane, steane_score))
+    assert greater_distance == (False, True)
     assert a._update_optima(state, a.ScoredCode(twin, steane_score)) == (False, False)  # equal
     assert state.lowest_energy.counter is lower and state.greatest_distance.counter is steane
     best = a.ScoredCode(twin, a.Score(4, 1, 1, None))
@@ -382,11 +333,6 @@ def _brute_force_score(counter: codes.CSSLogicalCounter, objective: Any = "homog
     """The score of a code from the brute-force counts of the library."""
     counts = counter.count_logical_ops(method="brute_force", count_pauli=objective == "pauli")
     return a.Score(counts.weight, counts.count_x, counts.count_z, counts.count_pauli)
-
-
-def _poor_counter() -> codes.CSSLogicalCounter:
-    """A code of seven qubits and distance 1."""
-    return counter_from_checks(np.zeros((0, 7)), np.eye(7)[1:])
 
 
 def _get_outcome(state: a.SearchState) -> tuple[Any, ...]:

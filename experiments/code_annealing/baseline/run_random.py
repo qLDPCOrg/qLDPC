@@ -25,7 +25,10 @@ from typing import IO, cast
 from ..core.atomic import write_atomic
 from ..core.cli import add_results_dir_argument, make_parser
 from ..core.paths import get_logs_dir
-from ..core.proposals import CODE_TYPES, CodeType, random_initial_code
+from ..core.proposals import CODE_TYPES, CodeType, random_initial_codes
+
+# Random codes of a seed to try for the minimum distance before giving up.
+_MAX_ATTEMPTS = 10_000
 
 # A file of random codes, whose code type is one of CODE_TYPES; other files are not matched.
 _FILE_NAME = re.compile(rf"random_({'|'.join(CODE_TYPES)})_n(\d+)_k(\d+)_d(\d+)_s(\d+)-(\d+)\.txt")
@@ -55,6 +58,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parser.parse_args(argv)
     if args.first_seed < 0 or args.num_seeds < 1:
         parser.error("--first-seed must be nonnegative and --num-seeds positive")
+    if not 1 <= args.min_distance <= args.num_qubits:
+        parser.error("the minimum distance must be between 1 and the number of qubits")
 
     seeds = range(args.first_seed, args.first_seed + args.num_seeds)
     output = get_logs_dir(args.results_dir) / _get_file_name(
@@ -63,14 +68,19 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     def write(stream: IO[str]) -> None:
         for seed in seeds:
-            counter = random_initial_code(
-                args.num_qubits,
-                args.num_logicals,
-                seed=seed,
-                self_dual=args.code_type == "swel",
-                min_distance=args.min_distance,
+            # Keep the first code of the seed's stream that has the minimum distance.
+            codes = random_initial_codes(
+                args.num_qubits, args.num_logicals, seed=seed, self_dual=args.code_type == "swel"
             )
-            counts = counter.count_logical_ops()
+            for _ in range(_MAX_ATTEMPTS):
+                counts = next(codes).count_logical_ops()
+                if counts.weight >= args.min_distance:
+                    break
+            else:
+                raise SystemExit(
+                    f"No code of seed {seed} reached distance {args.min_distance}"
+                    f" in {_MAX_ATTEMPTS} attempts"
+                )
             print(seed, counts.weight, counts.count_x + counts.count_z, file=stream)
 
     write_atomic(output, write)

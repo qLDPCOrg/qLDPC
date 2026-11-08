@@ -5,10 +5,12 @@
 Run with ``python -m experiments.code_annealing.core.run_annealing N K [options]`` to search codes
 with N physical and K logical qubits, or with ``--help`` for the options.  Exact enumeration is
 exponential, so use small ``--epochs`` and ``--steps-per-epoch`` for smoke tests, and ``--dry-run``,
-which writes nothing.  Every search but a dry run compiles the set-up code of the counts before its
-pilot or, when it resumes, before its next epoch.  This changes no result, and pays off over a long
-search, though not for the ``--init-samples`` codes, which it would slow down slightly, so they are
-scored first.  ``--skip-compile`` skips it for a short search.
+which writes nothing.
+
+Every search but a dry run compiles the set-up code of the counts before its pilot, or before its
+next epoch when it resumes.  This changes no result, and pays off over a long search.  It would slow
+down the counts of the ``--init-samples`` codes slightly, so they come first.  ``--skip-compile``
+skips it for a short search.
 
 Starting code.  A new search starts from the first random code that it draws, or from the
 lowest-energy code of ``--init-samples`` random codes, which are scored exactly.  The energy of a
@@ -36,15 +38,15 @@ uninterrupted one.  It rejects new code or policy options, and writes to the fil
 checkpoint, so it takes no ``--tag`` or ``--output``.  An interruption loses only the unfinished
 epoch, never a record, and a replayed epoch never replaces a better record with a worse one.  The
 first checkpoint is saved after the pilot, so a run interrupted before then, while it scores its
-``--init-samples`` codes or its pilot, has no checkpoint and starts over.
-``--stop-after-epochs N`` stops after N more complete epochs.  Exact restart needs the same
-numerical runtime, operating system, and architecture, and the same version of this code.
-Otherwise, or to try new settings, ``--refine PATH`` starts a new chain from the lowest-energy code
-of a chain checkpoint or from the code of a record, either of which may come from another runtime
-or schema version.
+``--init-samples`` codes or its pilot, has no checkpoint and starts over.  ``--stop-after-epochs N``
+stops after N more complete epochs.  Exact restart needs the same numerical runtime, operating
+system, and architecture, and the same version of this code.  Otherwise, or to try new settings,
+``--refine PATH`` starts a new chain from the lowest-energy code of a chain checkpoint or from the
+code of a record, either of which may come from another runtime or schema version.
 
-Scoring.  ``--method`` is ``auto`` (the default), ``brouwer_zimmermann``, ``macwilliams``, or
-``brute_force``, the methods of ``CSSLogicalCounter.count_logical_ops`` and all exact, and
+Scoring.  ``--method`` is ``auto`` (the default), which races the library's exact methods, or one
+of those methods of ``CSSLogicalCounter.count_logical_ops``: ``brouwer_zimmermann``,
+``macwilliams``, or ``brute_force``.
 ``--objective`` is ``homogeneous`` (X-only and Z-only operators) or ``pauli`` (all Pauli
 representatives; the MacWilliams method needs ``--code-type swel`` for it).  See ``annealing.py``.
 """
@@ -81,6 +83,7 @@ from .checkpoints import (
     get_record_path,
     load_checkpoint,
     load_code,
+    read_saved_file,
     save_checkpoint,
     save_record,
 )
@@ -97,7 +100,7 @@ from .proposals import (
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Run or resume an exact CSS/SWEL search, writing explicit per-epoch observables."""
+    """Run or resume an exact CSS/SWEL search, printing one JSON line of scores per epoch."""
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.stop_after_epochs is not None and args.stop_after_epochs < 0:
@@ -110,14 +113,19 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
 
     # Never overwrite files owned by another chain; resuming owns its own checkpoint and records.
-    # Check before a slow initialization if the name is known, and again before claiming it.
+    # Check before a slow initialization if the name is known, and again, once this process holds
+    # the lock, before writing.
     output = args.output or args.resume or _get_output_from_arguments(args)
     if output is not None and not args.dry_run:
         _check_output_is_free(parser, args, output)
 
-    # A checkpoint to resume must exist, so that locking it does not leave a stray lock file.
-    if args.resume is not None and not args.resume.is_file():
-        parser.error(f"{args.resume} does not exist")
+    # Only a chain checkpoint can be resumed, so that a lock file is never left beside another file.
+    if args.resume is not None:
+        if not args.resume.is_file():
+            parser.error(f"{args.resume} is not a file")
+        with _report_invalid_input(parser):
+            if read_saved_file(args.resume, any_schema=True)[0] != "chain":
+                raise ValueError(f"{args.resume} is a record of a code, not a chain; use --refine")
 
     # Lock the chain before reading it, so that no other process changes it while this one waits.
     with contextlib.ExitStack() as locks:
@@ -137,7 +145,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             # The pilot scores a whole epoch of proposals, so an error there keeps its traceback.
             state = start_search(initial, config, seed=_get_seed(args))
         if output is None:
-            output = _get_output(args, state.config.code_type, state.current.counter)
+            counter = state.current.counter
+            output = _name_output(
+                args, state.config.code_type, counter.num_qubits, counter.dimension
+            )
             if not args.dry_run:
                 _lock_chain(parser, locks, output)
         if not args.dry_run:
@@ -265,10 +276,6 @@ def _get_output_from_arguments(args: argparse.Namespace) -> Path | None:
     return _name_output(args, args.code_type or "css", args.num_qubits, args.num_logicals)
 
 
-def _get_output(args: argparse.Namespace, code_type: CodeType, counter: CSSLogicalCounter) -> Path:
-    return _name_output(args, code_type, counter.num_qubits, counter.dimension)
-
-
 def _name_output(
     args: argparse.Namespace, code_type: CodeType, num_qubits: int, num_logicals: int
 ) -> Path:
@@ -354,17 +361,14 @@ def _get_random_code(
     parser: argparse.ArgumentParser, args: argparse.Namespace, config: SearchConfig
 ) -> CSSLogicalCounter:
     """A random initial code: the first one drawn, or the lowest-energy one of several."""
-    seed = _get_seed(args)
     self_dual = config.code_type == "swel" or args.self_dual_start
+    counters = random_initial_codes(
+        args.num_qubits, args.num_logicals, self_dual=self_dual, seed=_get_seed(args)
+    )
     if args.init_samples is None:
-        return next(
-            random_initial_codes(args.num_qubits, args.num_logicals, self_dual=self_dual, seed=seed)
-        )
+        return next(counters)
     if args.init_samples < 1:
         parser.error("--init-samples must be positive")
-    counters = random_initial_codes(
-        args.num_qubits, args.num_logicals, self_dual=self_dual, seed=seed
-    )
     initial = get_lowest_energy_code(itertools.islice(counters, args.init_samples), config)
     score = score_code(initial, config)
     print(

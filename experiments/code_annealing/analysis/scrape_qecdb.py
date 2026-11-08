@@ -9,9 +9,9 @@ neighbors in the database: the smallest ``n`` with at least the same ``k`` and `
 ``k`` with at most the same ``n`` and at least the same ``d``, and the largest ``d`` with at most
 the same ``n`` and at least the same ``k``.  CSS codes are compared with the CSS codes of the
 database, and SWEL codes with its self-dual CSS codes.  The script prints, and saves to the data
-file ``data/scrape_qecdb_YYYY-MM-DD.txt`` of the results directory, one line
-``(n, k, d) n_best k_best d_best`` per annealed code, in one block per code file, with ``None`` for
-a neighbor that the database does not have.  The distance of an annealed code is the one that its
+file ``data/scrape_qecdb_YYYY-MM-DD.txt`` of the results directory, one line per annealed code,
+``(n, k, d) n_best k_best d_best``, in one block per code file, with ``None`` for a neighbor that
+the database does not have.  The distance of an annealed code is the one that its
 code file claims, and that of a database code is the one that the database lists.
 
 The database grows, and may come to list the annealed codes themselves, so a data file records the
@@ -61,7 +61,7 @@ _REQUEST_ATTEMPTS = 3
 # Seconds to wait before another attempt of a request.
 _RETRY_DELAY = 5
 
-_SUMMARY_PATTERN = re.compile(r"\((\d+), (\d+), (\d+)\) (\d+|None) (\d+|None) (\d+|None)")
+_DATA_LINE_PATTERN = re.compile(r"\((\d+), (\d+), (\d+)\) (\d+|None) (\d+|None) (\d+|None)")
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -101,22 +101,20 @@ class BestKnown:
         return f"{self.params} {self.n_best} {self.k_best} {self.d_best}"
 
     @property
-    def wins(self) -> tuple[bool, bool, bool]:
-        """Whether the annealed code has a smaller ``n``, a larger ``k``, and a larger ``d``.
+    def undominated(self) -> bool:
+        """Whether no code of the database is at least as good in all of ``n``, ``k``, and ``d``.
 
-        Each compares with its neighbor, and a neighbor that the database lacks is beaten.
+        Each neighbor decides this alone: the annealed code has a smaller ``n`` than ``n_best``, a
+        larger ``k`` than ``k_best``, and a larger ``d`` than ``d_best``, each if that neighbor
+        exists, exactly when no code of the database has at most its ``n``, at least its ``k``,
+        and at least its ``d``.  So the code beats its three neighbors together or none of them.
         """
-        nn, kk, dd = self.params
-        return (
-            self.n_best is None or nn < self.n_best,
-            self.k_best is None or kk > self.k_best,
-            self.d_best is None or dd > self.d_best,
-        )
+        return self.n_best is None or self.params[0] < self.n_best
 
     @staticmethod
     def parse(line: str) -> BestKnown:
         """Read a line of the data file."""
-        match = _SUMMARY_PATTERN.fullmatch(line.strip())
+        match = _DATA_LINE_PATTERN.fullmatch(line.strip())
         if match is None:
             raise ValueError(f"Not a line of the form '(n, k, d) n_best k_best d_best': {line!r}")
         nn, kk, dd = (int(text) for text in match.groups()[:3])
@@ -277,7 +275,7 @@ def _fetch_json(url: str) -> Any:
     for attempt in range(1, _REQUEST_ATTEMPTS + 1):
         try:
             with urllib.request.urlopen(url, timeout=_REQUEST_TIMEOUT) as response:
-                text = response.read().decode("utf-8")
+                text = response.read()
             break
         except (OSError, http.client.HTTPException) as exception:
             retry = not isinstance(exception, urllib.error.HTTPError) or (
@@ -287,7 +285,7 @@ def _fetch_json(url: str) -> Any:
                 raise RuntimeError(f"Cannot access {url}: {exception}") from exception
             time.sleep(_RETRY_DELAY)
     try:
-        return json.loads(text)
+        return json.loads(text)  # which decodes the bytes, and raises a ValueError if it cannot
     except ValueError as exception:
         raise RuntimeError(
             f"qecdb.org answered {url} with something other than JSON"

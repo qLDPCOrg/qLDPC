@@ -38,8 +38,9 @@ from .annealing import (
 from .atomic import write_atomic
 
 # Bump the version when a change would make a resumed chain differ from an uninterrupted one, in
-# the proposals, the energy, the temperature fit, the scores, or the format, so that old
-# checkpoints are refused.
+# the proposals, the energy, the temperature fit, or the scores, or would stop old checkpoints from
+# loading as the same chain, so that old checkpoints are refused.  Fields that loading ignores, such
+# as those that older checkpoints still have, need no bump.
 SCHEMA_VERSION = 1
 
 # The kinds of record that a chain preserves beside its checkpoint, each in a file of its own.
@@ -175,7 +176,7 @@ def save_checkpoint(state: SearchState, path: str | Path) -> None:
     write_atomic(Path(path), lambda stream: _dump_json(data, stream))
 
 
-def save_record(state: SearchState, chain_path: str | Path, kind: RecordKind) -> bool:
+def save_record(state: SearchState, chain_path: str | Path, kind: RecordKind) -> None:
     """Preserve the lowest-energy or greatest-distance code of a chain immediately, as a record.
 
     The record is not a restartable chain.  A previous unfinished epoch can have saved a better code
@@ -187,9 +188,6 @@ def save_record(state: SearchState, chain_path: str | Path, kind: RecordKind) ->
         state: The chain whose code to preserve.
         chain_path: The checkpoint of the chain, beside which the record is saved.
         kind: Which code of the chain to preserve.
-
-    Returns:
-        Whether the record file was written.
 
     Raises:
         ValueError: If an existing record has another kind, policy, schema version, or code size, is
@@ -217,7 +215,7 @@ def save_record(state: SearchState, chain_path: str | Path, kind: RecordKind) ->
             else energy(saved.score, state.config) <= energy(candidate.score, state.config)
         )
         if keep_previous:
-            return False
+            return
 
     data = {
         "schema_version": SCHEMA_VERSION,
@@ -227,7 +225,6 @@ def save_record(state: SearchState, chain_path: str | Path, kind: RecordKind) ->
         **_encode_scored_code(candidate),
     }
     write_atomic(destination, lambda stream: _dump_json(data, stream))
-    return True
 
 
 def load_checkpoint(path: str | Path) -> SearchState:
@@ -248,10 +245,6 @@ def load_checkpoint(path: str | Path) -> SearchState:
         raise ValueError("Checkpoint numerical runtime differs; use --refine for a new chain")
     with report_malformed(path):
         return _restore_chain(data)
-
-
-####################################################################################################
-# helper methods
 
 
 def _restore_chain(data: dict[str, Any]) -> SearchState:

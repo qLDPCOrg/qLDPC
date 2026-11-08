@@ -4,8 +4,10 @@
 
 A run saves a chain checkpoint (``kind="chain"``), which holds its lowest-energy and
 greatest-distance codes, and one record for each of those codes as soon as it improves
-(``lowest-energy`` and ``greatest-distance``), which survives an interrupted epoch.  Loading
-recomputes the exact score of every code, so a saved score is never trusted.
+(``lowest-energy`` and ``greatest-distance``), which survives an interrupted epoch.
+``load_saved_codes`` recomputes the exact score of every code, so it never trusts a saved score.
+``load_progress`` reads the saved scores without rechecking them, which is fast enough for a report
+of progress.
 """
 
 from __future__ import annotations

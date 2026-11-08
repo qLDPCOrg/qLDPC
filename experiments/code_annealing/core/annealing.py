@@ -16,8 +16,8 @@ the initial code and the proposals of the chain and its pilot, accepted or not, 
 proposals that only time the counting methods.
 
 Scoring takes most of a step.  The exact methods give identical scores, so the method changes only
-the running time.  Brouwer--Zimmermann counts at a guess of the distance, and verifies it; the
-MacWilliams method walks every word of the check spaces once.  With the ``auto`` method, the search
+the running time.  The MacWilliams method walks every word of the check spaces once; the other
+methods count at a guess of the distance, and verify it.  With the ``auto`` method, the search
 races these two at the start of each epoch and keeps the faster, so the choice depends on timing,
 and no result depends on it.  See ``_score_proposal``, ``_score_by_guessing``, and
 ``_select_method`` for the details.
@@ -67,10 +67,9 @@ LOG_TEMPERATURE_BOUNDS = (-10.0, 0.0)
 # Choosing a method.  The MacWilliams method walks all words of the check spaces, so it is only
 # timed for check ranks up to _RACE_MAX_RANK.  Each method scores an untimed warm-up proposal, which
 # may compile kernels, and then _RACE_PROPOSALS timed proposals of the current code (fewer in a
-# short epoch).  After at least _RACE_MIN_PROPOSALS timed proposals, the
-# race stops once either method has spent _RACE_SECONDS in total, or _RACE_DECISIVE_RATIO times as
-# long as the other.  The search keeps its method unless the other one takes less than
-# _RACE_SWITCH_FRACTION of its time.
+# short epoch).  After at least _RACE_MIN_PROPOSALS timed proposals, the race stops once either
+# method has spent _RACE_SECONDS in total, or _RACE_DECISIVE_RATIO times as long as the other.  The
+# search keeps its method unless the other one takes less than _RACE_SWITCH_FRACTION of its time.
 _RACE_MAX_RANK = 26
 _RACE_PROPOSALS = 16
 _RACE_SECONDS = 0.5
@@ -110,9 +109,9 @@ class SearchConfig:
             it was.
         uphill_acceptance_stop: The same target in the last epoch.  The targets in between decrease
             geometrically, which cools the chain.
-        temperature_memory: Weight of the previous log-temperature in the log-temperature of the
-            next epoch, which is otherwise that of the temperature that gives the target acceptance
-            to the proposals of the last epoch.
+        temperature_memory: The weight ``m`` of the previous log-temperature: the log-temperature
+            of the next epoch is ``m * previous + (1 - m) * fit``, where the fit gives the target
+            acceptance to the uphill jumps of the last epoch (or of the pilot).
         physical_error_rate: The physical error rate p of the energy.
         method: How proposals are scored (see the module docstring).
     """
@@ -178,9 +177,10 @@ class SearchConfig:
 class EpochStatistics:
     """The observables of one completed epoch.
 
-    The temperature and rates are those of the epoch, which exclude the pilot; ``lowest_energy`` is
-    the lowest energy so far, of the initial code or of any proposal, including the pilot's.  The
-    uphill acceptance rate is 1.0 if no proposal of the epoch raised the energy.
+    The temperature and rates are those of the epoch, which exclude the pilot.  ``current_energy``
+    is the energy of the chain's code at the end of the epoch, and ``lowest_energy`` is the lowest
+    energy so far, of the initial code or of any proposal, including the pilot's.  The uphill
+    acceptance rate is 1.0 if no proposal of the epoch raised the energy.
     """
 
     epoch: int
@@ -231,7 +231,10 @@ class SearchState:
 
     ``current`` is the code of the chain.  ``lowest_energy`` minimizes the selected energy, and
     ``greatest_distance`` maximizes distance and then minimizes energy at that distance; neither is
-    restricted to accepted proposals.  Checkpoints are taken at completed epoch boundaries.
+    restricted to accepted proposals.  ``rng`` draws the proposals and decides their acceptance.
+    ``log_temperature`` is that of the next epoch, and ``energy_jumps`` holds the energy jumps of
+    the proposals of the last epoch (or of the pilot), to which the next temperature is fit.
+    Checkpoints are taken at completed epoch boundaries.
     """
 
     config: SearchConfig
@@ -335,101 +338,6 @@ def run_epochs(
         if on_epoch is not None:
             on_epoch(state)
     return state
-
-
-####################################################################################################
-# scores, energies, and ranks
-
-
-def get_library_method(config: SearchConfig) -> LogicalCountMethod:
-    """The library method of a count outside a chain, where ``auto`` means the default."""
-    return _DEFAULT_LIBRARY_METHOD if config.method == "auto" else config.method
-
-
-def score_code(
-    counter: CSSLogicalCounter, config: SearchConfig, method: LogicalCountMethod | None = None
-) -> Score:
-    """Exact distance and multiplicity of the minimum-weight logicals for the objective.
-
-    A Brouwer--Zimmermann count leaves state in its counter that the codes deformed from it inherit
-    (see ``_start_epoch``), which helps only if Brouwer--Zimmermann also scores the chain.  The
-    ``auto`` method can choose either method in each epoch, so its default count runs on a copy of
-    the code and leaves the given counter as it is.
-
-    Args:
-        counter: The code to score.
-        config: Search policy, whose objective is scored.
-        method: Library counting method, by default that of ``get_library_method``.
-    """
-    if method is None:
-        method = get_library_method(config)
-        if config.method == "auto":
-            counter = CSSLogicalCounter(counter.code)
-    counts = counter.count_logical_ops(
-        method=method,
-        count_pauli=config.objective == "pauli",
-        max_information_sets=_MAX_INFORMATION_SETS,
-    )
-    return Score.from_counts(counts, config)
-
-
-def energy(score: Score, config: SearchConfig) -> float:
-    """The energy E of arXiv:2607.19574: the normalized log of the undetected logical error rate.
-
-    An error is undetected and changes the logical state when it is a nontrivial logical operator,
-    which at leading order happens with probability m * p**d, where m is the multiplicity that the
-    objective counts, d is the distance, and p is the physical error rate.  Return the log of this
-    probability over log(1 / p), which is log(m) / log(1 / p) - d.  A distance greater by D lowers
-    the energy unless it comes with at least p**-D times as many minimum-weight logical operators.
-    """
-    count = _get_multiplicity(score, config)
-    return math.log(count) / -math.log(config.physical_error_rate) - score.distance
-
-
-def get_lowest_energy_code(
-    counters: Iterable[CSSLogicalCounter], config: SearchConfig
-) -> CSSLogicalCounter:
-    """The code of the lowest energy among codes that are scored exactly, the first if tied.
-
-    Starting a chain from the lowest-energy code of many independent random codes puts it in a good
-    region, much like a first epoch at infinite temperature, which accepts every proposal, but with
-    uncorrelated codes.  The codes are consumed one at a time, so they can be an endless stream cut
-    short by ``itertools.islice``.
-
-    Raises:
-        ValueError: If there are no codes, or if a code is not one that the search accepts (see
-            ``SearchConfig.validate_code``).
-    """
-    lowest, lowest_energy = None, math.inf
-    for counter in counters:
-        config.validate_code(counter)
-        value = energy(score_code(counter, config), config)
-        if lowest is None or value < lowest_energy:
-            lowest, lowest_energy = counter, value
-    if lowest is None:
-        raise ValueError("There are no codes to choose the lowest-energy code from")
-    return lowest
-
-
-def distance_rank(distance: int, count: int) -> tuple[int, int]:
-    """The rank of a code among the codes of its size, which is greater for a better code.
-
-    A greater distance ranks higher, and then fewer minimum-weight logical operators.
-    """
-    return distance, -count
-
-
-def score_rank(score: Score, config: SearchConfig) -> tuple[int, int]:
-    """The ``distance_rank`` of a score, compared as exact integers instead of rounded energies.
-
-    The energy increases strictly with the multiplicity at a fixed distance, so among codes of one
-    distance this rank orders codes as the energy does.
-    """
-    return distance_rank(score.distance, _get_multiplicity(score, config))
-
-
-####################################################################################################
-# helper methods
 
 
 def _run_epoch(
@@ -673,7 +581,12 @@ def _select_method(state: SearchState) -> LogicalCountMethod:
 
 
 def _update_optima(state: SearchState, proposal: ScoredCode) -> tuple[bool, bool]:
-    """Let any evaluated proposal replace the lowest-energy or greatest-distance code."""
+    """Let any evaluated proposal replace the lowest-energy or greatest-distance code.
+
+    Returns:
+        Whether the proposal replaced the lowest-energy code, and whether it replaced the
+        greatest-distance code.
+    """
     config = state.config
     improved_energy = energy(proposal.score, config) < energy(state.lowest_energy.score, config)
     if improved_energy:
@@ -684,24 +597,6 @@ def _update_optima(state: SearchState, proposal: ScoredCode) -> tuple[bool, bool
     if improved_distance:
         state.greatest_distance = proposal
     return improved_energy, improved_distance
-
-
-def _get_multiplicity(score: Score, config: SearchConfig) -> int:
-    """The number of minimum-weight logical operators that the objective counts.
-
-    Raises:
-        ValueError: If the score has no positive distance or no positive count, so that the code
-            has no energy or rank.
-    """
-    if config.objective == "pauli":
-        count = score.count_pauli
-    else:
-        count = score.count_homogeneous
-    if score.distance < 1 or count is None or count <= 0:
-        raise ValueError(
-            "The search requires a positive distance and multiplicity of the objective"
-        )
-    return count
 
 
 def _fit_log_temperature(jumps: npt.ArrayLike, target: float) -> float:
@@ -731,3 +626,112 @@ def _fit_log_temperature(jumps: npt.ArrayLike, target: float) -> float:
 def _accept_move(jump: float, temperature: float, uniform: float) -> bool:
     """Stable Metropolis decision; zero uniforms accept even an underflow-sized probability."""
     return uniform == 0 or math.log(uniform) < min(0, -jump / temperature)
+
+
+####################################################################################################
+# scores, energies, and ranks
+
+
+def score_code(
+    counter: CSSLogicalCounter, config: SearchConfig, method: LogicalCountMethod | None = None
+) -> Score:
+    """Exact distance and multiplicity of the minimum-weight logicals for the objective.
+
+    A Brouwer--Zimmermann count leaves state in its counter that the codes deformed from it inherit
+    (see ``_start_epoch``), which helps only if Brouwer--Zimmermann also scores the chain.  The
+    ``auto`` method can choose either method in each epoch, so its default count runs on a copy of
+    the code and leaves the given counter as it is.
+
+    Args:
+        counter: The code to score.
+        config: Search policy, whose objective is scored.
+        method: Library counting method, by default that of ``_get_library_method``.
+    """
+    if method is None:
+        method = _get_library_method(config)
+        if config.method == "auto":
+            counter = CSSLogicalCounter(counter.code)
+    counts = counter.count_logical_ops(
+        method=method,
+        count_pauli=config.objective == "pauli",
+        max_information_sets=_MAX_INFORMATION_SETS,
+    )
+    return Score.from_counts(counts, config)
+
+
+def energy(score: Score, config: SearchConfig) -> float:
+    """The energy E of arXiv:2607.19574: the normalized log of the undetected logical error rate.
+
+    An error is undetected and changes the logical state when it is a nontrivial logical operator,
+    which at leading order happens with probability m * p**d, where m is the multiplicity that the
+    objective counts, d is the distance, and p is the physical error rate.  Return the log of this
+    probability over log(1 / p), which is log(m) / log(1 / p) - d.  A distance greater by D lowers
+    the energy unless it comes with at least p**-D times as many minimum-weight logical operators.
+    """
+    count = _get_multiplicity(score, config)
+    return math.log(count) / -math.log(config.physical_error_rate) - score.distance
+
+
+def get_lowest_energy_code(
+    counters: Iterable[CSSLogicalCounter], config: SearchConfig
+) -> CSSLogicalCounter:
+    """The code of the lowest energy among codes that are scored exactly, the first if tied.
+
+    Starting a chain from the lowest-energy code of many independent random codes puts it in a good
+    region, much like a first epoch at infinite temperature, which accepts every proposal, but with
+    uncorrelated codes.  The codes are consumed one at a time, so they can be an endless stream cut
+    short by ``itertools.islice``.
+
+    Raises:
+        ValueError: If there are no codes, or if a code is not one that the search accepts (see
+            ``SearchConfig.validate_code``).
+    """
+    lowest, lowest_energy = None, math.inf
+    for counter in counters:
+        config.validate_code(counter)
+        value = energy(score_code(counter, config), config)
+        if lowest is None or value < lowest_energy:
+            lowest, lowest_energy = counter, value
+    if lowest is None:
+        raise ValueError("There are no codes to choose the lowest-energy code from")
+    return lowest
+
+
+def distance_rank(distance: int, count: int) -> tuple[int, int]:
+    """The rank of a code among the codes of its size, which is greater for a better code.
+
+    A greater distance ranks higher, and then fewer minimum-weight logical operators.
+    """
+    return distance, -count
+
+
+def score_rank(score: Score, config: SearchConfig) -> tuple[int, int]:
+    """The ``distance_rank`` of a score, compared as exact integers instead of rounded energies.
+
+    The energy increases strictly with the multiplicity at a fixed distance, so among codes of one
+    distance this rank orders codes as the energy does.
+    """
+    return distance_rank(score.distance, _get_multiplicity(score, config))
+
+
+def _get_library_method(config: SearchConfig) -> LogicalCountMethod:
+    """The library method of a count outside a chain, where ``auto`` means the default."""
+    return _DEFAULT_LIBRARY_METHOD if config.method == "auto" else config.method
+
+
+def _get_multiplicity(score: Score, config: SearchConfig) -> int:
+    """The number of minimum-weight logical operators that the objective counts.
+
+    Raises:
+        ValueError: If the score has no positive distance or no positive count, so that the code
+            has no energy or rank.
+    """
+    if config.objective == "pauli":
+        count = score.count_pauli
+    else:
+        count = score.count_homogeneous
+    if score.distance < 1 or count is None or count <= 0:
+        raise ValueError(
+            "The search requires a positive distance and multiplicity of the objective"
+        )
+    return count

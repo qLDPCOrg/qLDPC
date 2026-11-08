@@ -8,7 +8,9 @@ the errors of weight up to ``(d - 1) // 2`` and discard every other syndrome, so
 completes a minimum-weight logical operator when ``d // 2 + 1`` qubits of its support err.  Call
 the subsets of ``(d + 1) // 2`` qubits of a support its half supports, and those of ``d // 2 + 1``
 qubits its majority supports.  For odd ``d``, they are the same.  For even ``d``, errors on the
-``d // 2`` qubits of a half support are discarded instead, so both sizes are counted.
+``d // 2`` qubits of a half support are discarded instead, so the two sizes count different
+events, and both are counted: the half supports count discarded patterns, and the majority supports
+count logical errors, which the estimates of logical error rates use.
 
 Run with ``python -m experiments.code_annealing.analysis.half_supports [--max-qubits N]``.  For
 every code of the two text files of annealed codes, the script prints one line, and saves the same
@@ -138,6 +140,31 @@ def read_half_supports(path: str | Path) -> HalfSupportCountsByFile:
     return counts
 
 
+def _parse_code_line(line: str, number: int) -> HalfSupportCounts:
+    """Parse a line ``[n, k, d] mx/mz hx/hz`` with ``(hx2/hz2)`` added for even d."""
+    match = _CODE_LINE.fullmatch(line)
+    if match is None:
+        raise ValueError(f"line {number}: expected '[n, k, d] mx/mz hx/hz', not {line!r}")
+    *values, majority_x, majority_z = match.groups()
+    num_qubits, num_logicals, distance, count_x, count_z, half_x, half_z = map(int, values)
+    if (majority_x is None) != (distance % 2 == 1):
+        raise ValueError(
+            f"line {number}: the counts of subsets of size {distance // 2 + 1} in parentheses"
+            f" must follow an even distance, and only an even distance: {line!r}"
+        )
+    return HalfSupportCounts(
+        num_qubits,
+        num_logicals,
+        distance,
+        count_x,
+        count_z,
+        half_x,
+        half_z,
+        half_x if majority_x is None else int(majority_x),
+        half_z if majority_z is None else int(majority_z),
+    )
+
+
 ####################################################################################################
 # helper methods
 
@@ -171,31 +198,6 @@ def _format_line(num_qubits: int, num_logicals: int, supports: MinWeightSupports
         f" {len(supports.supports_x)}/{len(supports.supports_z)} {counts[0]}"
     )
     return line if len(counts) == 1 else f"{line} ({counts[1]})"
-
-
-def _parse_code_line(line: str, number: int) -> HalfSupportCounts:
-    """Parse a line ``[n, k, d] mx/mz hx/hz`` with ``(hx2/hz2)`` added for even d."""
-    match = _CODE_LINE.fullmatch(line)
-    if match is None:
-        raise ValueError(f"line {number}: expected '[n, k, d] mx/mz hx/hz', not {line!r}")
-    *values, majority_x, majority_z = match.groups()
-    num_qubits, num_logicals, distance, count_x, count_z, half_x, half_z = map(int, values)
-    if (majority_x is None) != (distance % 2 == 1):
-        raise ValueError(
-            f"line {number}: the counts of subsets of size {distance // 2 + 1} in parentheses"
-            f" must follow an even distance, and only an even distance: {line!r}"
-        )
-    return HalfSupportCounts(
-        num_qubits,
-        num_logicals,
-        distance,
-        count_x,
-        count_z,
-        half_x,
-        half_z,
-        half_x if majority_x is None else int(majority_x),
-        half_z if majority_z is None else int(majority_z),
-    )
 
 
 if __name__ == "__main__":

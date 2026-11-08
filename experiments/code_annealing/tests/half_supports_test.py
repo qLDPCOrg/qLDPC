@@ -66,15 +66,16 @@ def test_only_the_sector_of_the_lighter_logicals_has_minimum_weight_supports(lig
     )
 
 
-def test_reducing_weights_keeps_the_span_of_the_generators() -> None:
+def test_reduced_generators_span_the_same_space_and_no_sum_of_two_is_lighter() -> None:
     # Adding the rows 1111 and 1110 gives 0001, which is lighter than 1111, and no further sum is
     # lighter than a row.
-    np.testing.assert_array_equal(
-        reduce_weights([[1, 1, 1, 1], [1, 1, 1, 0]]), [[0, 0, 0, 1], [1, 1, 1, 0]]
-    )
+    reduced = reduce_weights([[1, 1, 1, 1], [1, 1, 1, 0]])
+    assert {tuple(row) for row in reduced} == {(0, 0, 0, 1), (1, 1, 1, 0)}
     rng = np.random.default_rng(0)
     for _ in range(20):
         matrix = galois.GF2.Random((5, 12), seed=rng)
-        reduced = galois.GF2(reduce_weights(matrix))
-        assert np.array_equal(reduced.row_reduce(), matrix.row_reduce())
-        assert reduced.view(np.ndarray).sum() <= matrix.view(np.ndarray).sum()
+        rows = reduce_weights(matrix).astype(int)
+        assert np.array_equal(galois.GF2(rows).row_reduce(), matrix.row_reduce())
+        weights = rows.sum(axis=1)
+        sums = (rows[:, None, :] ^ rows[None, :, :]).sum(axis=2)
+        assert all(sums[ii, jj] >= weights[ii] for ii in range(5) for jj in range(5) if ii != jj)

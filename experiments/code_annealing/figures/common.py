@@ -44,8 +44,8 @@ _DEFAULT_NUM_ERROR_RATES = 100
 _MIN_LOGICAL_RATE = 1e-12
 
 # The cache of simulations, which are reused across runs and scripts.  Its key identifies a code and
-# the settings of its simulation, but not the version of qLDPC that simulated it, so rename the
-# cache whenever qLDPC changes the rates that it simulates, to keep stale simulations out.
+# the settings of its simulation, but not the version of qLDPC that simulated it, so delete the
+# ``cache/`` directory after updating qLDPC, to keep stale simulations out.
 _SIMULATIONS_CACHE = "error_rate_funcs"
 
 CODE_TYPE_TITLES: dict[CodeType, str] = {"css": "CSS", "swel": "SWEL"}
@@ -132,6 +132,40 @@ def simulate_codes(
         }
         for job in concurrent.futures.as_completed(jobs):
             simulations[jobs[job]] = job.result()
+
+
+def _get_code_key(code: codes.CSSCode) -> tuple[tuple[tuple[int, ...], ...], ...]:
+    """A hashable identifier of a code that does not depend on the basis of its generators."""
+    return tuple(
+        tuple(tuple(int(bit) for bit in row) for row in sector.canonicalized.matrix)
+        for sector in (code.code_x, code.code_z)
+    )
+
+
+def _get_simulation_key(
+    entry: CodeEntry, num_samples: int, max_error_rate: float
+) -> tuple[Any, ...]:
+    """The key of a simulation in its cache: the code, its distance, and the simulation settings."""
+    return (_get_code_key(entry.code), entry.distance, int(num_samples), float(max_error_rate))
+
+
+def _simulate_error_rate_func(
+    entry: CodeEntry, num_samples: int, max_error_rate: float
+) -> codes.ErrorRateFunc:
+    """Simulate a code with depolarizing noise, and return its logical error and discard rates.
+
+    The decoder is a lookup table of the X and Z errors of weight up to ``(d - 1) // 2``, which
+    flags every other syndrome as a discard.  Such errors are always corrected, so sampling starts
+    at weight ``(d + 1) // 2``.  This relies on the distance that the file header claims, and the
+    result is a function of the physical error rate up to ``max_error_rate``.
+    """
+    distance = entry.distance
+    return entry.code.get_logical_error_rate_func(
+        num_samples,
+        max_error_rate,
+        min_error_weight=(distance + 1) // 2,
+        decoder=decoders.lookup(max_weight=(distance - 1) // 2, add_erasure_bit=True),
+    )
 
 
 ####################################################################################################
@@ -228,6 +262,59 @@ def save_figure(figure: Figure, path: Path) -> None:
     print(f"Saved {path}")
 
 
+@dataclass(frozen=True)
+class _RateBand:
+    """A rate at each physical error rate, with the range that its uncertainty allows."""
+
+    rates: npt.NDArray[np.float64]
+    lower: npt.NDArray[np.float64]
+    upper: npt.NDArray[np.float64]
+
+
+def _get_rate_bands(
+    func: codes.ErrorRateFunc, error_rates: npt.ArrayLike, num_logicals: int
+) -> tuple[_RateBand, _RateBand]:
+    """The logical error rate and the discard rate per logical qubit, with their uncertainties.
+
+    The logical error rate is the failure rate among the shots that the decoder keeps.  Its band
+    runs from ``rate - error - truncation`` (not below zero) to ``rate + error``, where the
+    truncation is how much the errors too heavy for the simulation to have sampled, which count as
+    failures, can raise the reported rate.  The band of the discard rate runs from ``rate - error``
+    (not below zero) to ``rate + error``.
+    """
+    rates_list = np.asarray(error_rates, dtype=float).tolist()
+    logical, logical_error = (np.asarray(array, dtype=float) for array in func(rates_list))
+    discard, discard_error = (
+        np.asarray(array, dtype=float) for array in func(rates_list, discard_rate=True)
+    )
+    truncation = np.asarray(func.truncation_error_bound(rates_list), dtype=float)
+    return (
+        _RateBand(
+            logical / num_logicals,
+            np.maximum(logical - logical_error - truncation, 0) / num_logicals,
+            (logical + logical_error) / num_logicals,
+        ),
+        _RateBand(
+            discard / num_logicals,
+            np.maximum(discard - discard_error, 0) / num_logicals,
+            (discard + discard_error) / num_logicals,
+        ),
+    )
+
+
+def _get_legend_entries_padded(
+    axis: matplotlib.axes.Axes, nrow: int, ncol: int | None
+) -> tuple[list[Artist], list[str]]:
+    """The legend handles and labels of an axis, padded with empty entries to fill all columns."""
+    handles, labels = axis.get_legend_handles_labels()
+    num_columns = max(ncol or 0, math.ceil(len(handles) / nrow))
+    num_empty = nrow * num_columns - len(handles)
+    return (
+        [*handles, *(mpatches.Patch(visible=False) for _ in range(num_empty))],
+        [*labels, *([""] * num_empty)],
+    )
+
+
 ####################################################################################################
 # command-line options that the figure scripts share
 
@@ -299,94 +386,3 @@ def get_error_rates_from_arguments(
     if args.num_error_rates < 2 or args.num_samples < 1:
         parser.error("--num-error-rates must be at least 2 and --num-samples at least 1")
     return np.geomspace(args.min_error_rate, args.max_error_rate, args.num_error_rates)
-
-
-####################################################################################################
-# helper methods
-
-
-def _get_code_key(code: codes.CSSCode) -> tuple[tuple[tuple[int, ...], ...], ...]:
-    """A hashable identifier of a code that does not depend on the basis of its generators."""
-    return tuple(
-        tuple(tuple(int(bit) for bit in row) for row in sector.canonicalized.matrix)
-        for sector in (code.code_x, code.code_z)
-    )
-
-
-def _get_simulation_key(
-    entry: CodeEntry, num_samples: int, max_error_rate: float
-) -> tuple[Any, ...]:
-    """The key of a simulation in its cache: the code, its distance, and the simulation settings."""
-    return (_get_code_key(entry.code), entry.distance, int(num_samples), float(max_error_rate))
-
-
-def _simulate_error_rate_func(
-    entry: CodeEntry, num_samples: int, max_error_rate: float
-) -> codes.ErrorRateFunc:
-    """Simulate a code with depolarizing noise, and return its logical error and discard rates.
-
-    The decoder is a lookup table of the X and Z errors of weight up to ``(d - 1) // 2``, which
-    flags every other syndrome as a discard.  Such errors are always corrected, so sampling starts
-    at weight ``(d + 1) // 2``.  This relies on the distance that the file header claims, and the
-    result is a function of the physical error rate up to ``max_error_rate``.
-    """
-    distance = entry.distance
-    return entry.code.get_logical_error_rate_func(
-        num_samples,
-        max_error_rate,
-        min_error_weight=(distance + 1) // 2,
-        decoder=decoders.lookup(max_weight=(distance - 1) // 2, add_erasure_bit=True),
-    )
-
-
-@dataclass(frozen=True)
-class _RateBand:
-    """A rate at each physical error rate, with the range that its uncertainty allows."""
-
-    rates: npt.NDArray[np.float64]
-    lower: npt.NDArray[np.float64]
-    upper: npt.NDArray[np.float64]
-
-
-def _get_rate_bands(
-    func: codes.ErrorRateFunc, error_rates: npt.ArrayLike, num_logicals: int
-) -> tuple[_RateBand, _RateBand]:
-    """The logical error rate and the discard rate per logical qubit, with their uncertainties.
-
-    The logical error rate is the failure rate among the shots that the decoder keeps.  Its band
-    runs from ``rate - error - truncation`` (not below zero) to ``rate + error``, where the
-    truncation is how much the errors too heavy for the simulation to have sampled, which count as
-    failures, can raise the reported rate.  The band of the discard rate runs from
-    ``rate - error`` (not below zero) to ``rate + error``.
-    """
-    rates_list = np.asarray(error_rates, dtype=float).tolist()
-    logical, logical_error = (np.asarray(array, dtype=float) for array in func(rates_list))
-    discard, discard_error = (
-        np.asarray(array, dtype=float) for array in func(rates_list, discard_rate=True)
-    )
-    truncation = np.asarray(func.truncation_error_bound(rates_list), dtype=float)
-    return (
-        _RateBand(
-            logical / num_logicals,
-            np.maximum(logical - logical_error - truncation, 0) / num_logicals,
-            (logical + logical_error) / num_logicals,
-        ),
-        _RateBand(
-            discard / num_logicals,
-            np.maximum(discard - discard_error, 0) / num_logicals,
-            (discard + discard_error) / num_logicals,
-        ),
-    )
-
-
-def _get_legend_entries_padded(
-    axis: matplotlib.axes.Axes, nrow: int, ncol: int | None = None
-) -> tuple[list[Artist], list[str]]:
-    """The legend handles and labels of an axis, padded with empty entries to fill all columns."""
-    handles, labels = axis.get_legend_handles_labels()
-    num_columns = max(ncol or 0, math.ceil(len(handles) / nrow))
-    num_empty = nrow * num_columns - len(handles)
-    return (
-        [*handles, *(mpatches.Patch(visible=False) for _ in range(num_empty))],
-        [*labels, *([""] * num_empty)],
-    )

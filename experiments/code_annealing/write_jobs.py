@@ -10,16 +10,17 @@ command below is written from the root::
 
 Give ``parallel`` the option ``--joblog FILE`` to record the exit status of every job.  Each job
 runs one chain with one core, and writes its checkpoint, its two code records, and a log to the logs
-of the results directory (see ``run_annealing.py``).  An interrupted run loses at most one epoch,
-or all of its work if it had not yet saved its first checkpoint, which follows its pilot: run
-``write_jobs`` again with the same options, and its new ``jobs.txt`` resumes the unfinished runs and
-skips the finished ones, in the same order, so that rerunning it after any interruption completes
-the campaign.  A resumed run continues exactly as an uninterrupted one would, in the same numerical
-environment (see ``run_annealing.py``), so a campaign can run in sessions of any length.  The jobs
-are ordered by seed, every code size of seed 0 first, then of seed 1, and so on, so that a campaign
-that is stopped early has about as many finished runs for every code size.  Pass ``--tag`` to start
-another campaign beside the files of earlier runs.  Progress is shown by ``progress_report.py``, and
-the codes that the runs found are collected by ``analysis/collect_annealed_codes.py``.
+of the results directory (see ``run_annealing.py``).  An interrupted run loses at most one epoch, or
+all of its work if it had not yet saved its first checkpoint, which follows its pilot.  After an
+interruption, run ``write_jobs`` again with the same options.  Its new ``jobs.txt`` resumes the
+unfinished runs and skips the finished ones, in the same order, so rerunning it after any
+interruption completes the campaign.  A resumed run continues exactly as an uninterrupted one would,
+in the same numerical environment (see ``run_annealing.py``), so a campaign can run in sessions of
+any length.  The jobs are ordered by seed, every code size of seed 0 first, then of seed 1, and so
+on, so that a campaign that is stopped early has about as many finished runs for every code size.
+Pass ``--tag`` to start another campaign beside the files of earlier runs.  Progress is shown by
+``progress_report.py``, and the codes that the runs found are collected by
+``analysis/collect_annealed_codes.py``.
 
 Pass ``--test`` to write a smoke-test campaign instead: the 20- and 22-qubit rows, 2 seeds, 2 epochs
 of 100 proposals, starting from the lowest-energy code of 10 random codes, with the files in the
@@ -30,8 +31,8 @@ The campaign, ``CAMPAIGN`` in this script, lists each code size with the epochs 
 searches and its final target acceptance of uphill proposals.  Every code size runs both code
 types, CSS (starting from a self-dual code) and SWEL, with the seeds of ``CampaignRow.num_seeds``,
 and every search starts from the lowest-energy code of ``INIT_SAMPLES`` random codes, drawn with its
-own seed.  Running all of it takes a very long time: choose jobs with ``--qubits``,
-``--max-seeds``, and ``--code-types``.
+own seed.  Running all of it takes a very long time: choose jobs with ``--qubits``, ``--max-seeds``,
+and ``--code-types``.
 """
 
 from __future__ import annotations
@@ -54,30 +55,14 @@ from .core.proposals import CODE_TYPES, CodeType
 from .core.run_annealing import build_parser as build_command_parser
 from .core.saved_runs import load_run_progress
 
-_REPO_ROOT = EXPERIMENT_DIR.parents[1]
+# Proposals in an epoch of every search of the campaign.
 STEPS_PER_EPOCH = 10_000
+# Seeds of a code size and code type, unless its row of the campaign gives fewer.
 NUM_SEEDS = 100
+# Random codes of which every search starts from the one of lowest energy.
 INIT_SAMPLES = 30_000
+# Target acceptance of uphill proposals in the first epoch of every search.
 UPHILL_ACCEPTANCE_START = 0.01
-
-
-_RunStatus = Literal["new", "unfinished", "finished"]
-
-
-@dataclass(frozen=True)
-class _SmokeScale:
-    """The part of the campaign that ``--test`` runs: enough to exercise every step."""
-
-    qubits: tuple[int, ...]
-    max_seeds: int
-    epochs: int
-    steps_per_epoch: int
-    init_samples: int
-
-
-_SMOKE_SCALE = _SmokeScale(
-    qubits=(20, 22), max_seeds=2, epochs=2, steps_per_epoch=100, init_samples=10
-)
 
 
 @dataclass(frozen=True)
@@ -140,6 +125,17 @@ CAMPAIGN = (
     CampaignRow(56, 14, 1500, 1000, 1e-4),
 )
 
+_REPO_ROOT = EXPERIMENT_DIR.parents[1]
+
+_RunStatus = Literal["new", "unfinished", "finished"]
+
+# The part of the campaign that ``--test`` runs: enough to exercise every step.
+_SMOKE_QUBITS = (20, 22)
+_SMOKE_MAX_SEEDS = 2
+_SMOKE_EPOCHS = 2
+_SMOKE_STEPS_PER_EPOCH = 100
+_SMOKE_INIT_SAMPLES = 10
+
 
 def main(argv: Sequence[str] | None = None) -> None:
     """Write the jobs file of the campaign, ordered by seed and then largest codes first."""
@@ -161,14 +157,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument(
         "--steps-per-epoch",
         type=int,
-        help=f"proposals of an epoch (default: {STEPS_PER_EPOCH}, or {_SMOKE_SCALE.steps_per_epoch}"
+        help=f"proposals of an epoch (default: {STEPS_PER_EPOCH}, or {_SMOKE_STEPS_PER_EPOCH}"
         " with --test)",
     )
     parser.add_argument(
         "--init-samples",
         type=int,
         help=f"random codes to choose the starting code of a search from (default: {INIT_SAMPLES},"
-        f" or {_SMOKE_SCALE.init_samples} with --test)",
+        f" or {_SMOKE_INIT_SAMPLES} with --test)",
     )
     parser.add_argument(
         "--tag", default="", help="suffix of the search names and files, to tell campaigns apart"
@@ -183,17 +179,16 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     # A smoke test runs a small campaign, of which the options can still change any part.
     if args.test:
-        qubits = args.qubits or _SMOKE_SCALE.qubits
-        max_seeds = args.max_seeds or _SMOKE_SCALE.max_seeds
-        epochs = args.epochs or _SMOKE_SCALE.epochs
+        qubits = args.qubits or _SMOKE_QUBITS
+        max_seeds = args.max_seeds or _SMOKE_MAX_SEEDS
+        epochs = args.epochs or _SMOKE_EPOCHS
     else:
         qubits, max_seeds, epochs = args.qubits, args.max_seeds, args.epochs
     settings = _JobSettings(
         epochs=epochs,
         steps_per_epoch=args.steps_per_epoch
-        or (_SMOKE_SCALE.steps_per_epoch if args.test else STEPS_PER_EPOCH),
-        init_samples=args.init_samples
-        or (_SMOKE_SCALE.init_samples if args.test else INIT_SAMPLES),
+        or (_SMOKE_STEPS_PER_EPOCH if args.test else STEPS_PER_EPOCH),
+        init_samples=args.init_samples or (_SMOKE_INIT_SAMPLES if args.test else INIT_SAMPLES),
         python=args.python,
     )
 

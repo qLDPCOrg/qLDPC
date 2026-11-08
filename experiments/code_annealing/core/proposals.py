@@ -21,7 +21,7 @@ import galois
 import numpy as np
 import numpy.typing as npt
 
-from qldpc.codes import CSSCode, CSSLogicalCounter, LogicalCountMethod
+from qldpc.codes import CSSCode, CSSLogicalCounter
 
 # The types of codes that a search covers: general CSS codes, and SWEL codes.
 CodeType = Literal["css", "swel"]
@@ -31,60 +31,8 @@ CODE_TYPES: tuple[CodeType, ...] = get_args(CodeType)
 # the same integer.
 _INITIAL_CODE_STREAM = 0x494E4954  # the ASCII bytes of "INIT"
 
-# Random codes to try for a minimum distance before giving up.
-_MAX_ATTEMPTS = 10_000
-
 ####################################################################################################
 # initial codes
-
-
-def random_initial_code(
-    num_qubits: int,
-    num_logicals: int,
-    *,
-    seed: int = 0,
-    self_dual: bool = False,
-    min_distance: int = 1,
-    walk_steps: int | None = None,
-    method: LogicalCountMethod = "brouwer_zimmermann",
-) -> CSSLogicalCounter:
-    """Sample an initial code with an exact minimum-distance rejection criterion.
-
-    A general CSS code is drawn by a rejection-sampled uniform GL(n,2) matrix.  A self-dual code
-    is drawn by a finite random walk of SWEL gates, which makes no claim of uniform sampling from
-    the orthogonal group.
-
-    Args:
-        num_qubits: Physical block length.
-        num_logicals: Positive number of encoded qubits, at most num_qubits.
-        seed: NumPy initialization seed.  The stream of codes differs from the search's generator,
-            which uses the same integer.
-        self_dual: Draw a self-dual (SWEL) code, by scrambling a code of trivial logical qubits and
-            Bell pairs with SWEL gates, instead of a general CSS code.
-        min_distance: Reject codes below this exactly computed distance.
-        walk_steps: Number of SWEL gates of the walk, defaulting to 30*num_qubits.
-        method: Exact distance method used by the rejection test.
-
-    Raises:
-        RuntimeError: If no code reaches ``min_distance`` within ``_MAX_ATTEMPTS`` draws.
-    """
-    if not 1 <= min_distance <= num_qubits:
-        raise ValueError("Invalid distance threshold")
-    # random_initial_codes checks the code size and walk length as soon as it is called
-    codes = random_initial_codes(
-        num_qubits,
-        num_logicals,
-        seed=seed,
-        self_dual=self_dual,
-        walk_steps=walk_steps,
-    )
-    for _ in range(_MAX_ATTEMPTS):
-        counter = next(codes)
-        if counter.count_logical_ops(method=method).weight >= min_distance:
-            return counter
-    raise RuntimeError(
-        f"No initial code reached distance {min_distance} in {_MAX_ATTEMPTS} attempts"
-    )
 
 
 def random_initial_codes(
@@ -93,13 +41,12 @@ def random_initial_codes(
     *,
     seed: int = 0,
     self_dual: bool = False,
-    walk_steps: int | None = None,
 ) -> Iterator[CSSLogicalCounter]:
     """An endless stream of random initial codes, which are not checked for their distance.
 
     Each code is the trivial code of the given size conjugated by a random Clifford: a uniformly
     random invertible matrix for a general CSS code, or a random walk of SWEL gates for a self-dual
-    code.  ``random_initial_code`` takes the first code of this stream that has a minimum distance.
+    code, of 30 gates per qubit, which makes no claim of uniform sampling from the orthogonal group.
     The stream is determined by the seed.
 
     Args:
@@ -109,10 +56,12 @@ def random_initial_codes(
             which uses the same integer.
         self_dual: Draw self-dual (SWEL) codes, by scrambling a code of trivial logical qubits and
             Bell pairs with SWEL gates, instead of general CSS codes.
-        walk_steps: Number of SWEL gates of the walk, defaulting to 30*num_qubits.
+
+    Raises:
+        ValueError: If the code size is invalid, or a self-dual code cannot have it.
     """
-    if not 0 < num_logicals <= num_qubits or (walk_steps is not None and walk_steps < 0):
-        raise ValueError("Invalid code size or walk length")
+    if not 0 < num_logicals <= num_qubits:
+        raise ValueError("Invalid code size")
     if self_dual and (num_qubits < 4 or (num_qubits - num_logicals) % 2):
         raise ValueError("Self-dual initialization requires n>=4 and even n-k")
     rng = np.random.default_rng([seed, _INITIAL_CODE_STREAM])
@@ -121,48 +70,11 @@ def random_initial_codes(
     def scramble() -> Iterator[CSSLogicalCounter]:
         while True:
             if self_dual:
-                yield _scramble_self_dual(checks_x, checks_z, rng, walk_steps=walk_steps)
+                yield _scramble_self_dual(checks_x, checks_z, rng)
             else:
                 yield _scramble_css(checks_x, checks_z, rng)
 
     return scramble()
-
-
-####################################################################################################
-# local Clifford proposals
-
-
-def propose(
-    counter: CSSLogicalCounter,
-    rng: np.random.Generator,
-    *,
-    code_type: CodeType,
-    gate_size: int,
-) -> CSSLogicalCounter:
-    """Sample a neighbor of a code: the code conjugated by one random gate on random qubits.
-
-    The source counter is not changed.
-
-    Args:
-        counter: The current code.
-        rng: Random generator of the search.
-        code_type: ``css`` for a CNOT or a random CSS gate, or ``swel`` for the SWEL gate on four
-            qubits in random order.
-        gate_size: Number of qubits of the gate: 2 for a CNOT, 3 for a random three-qubit CNOT
-            circuit, or 4 for a uniformly random invertible matrix on X, which acts on Z by its
-            inverse transpose.
-    """
-    targets = list(map(int, rng.choice(counter.num_qubits, gate_size, replace=False)))
-    if code_type == "swel":
-        return counter.deformed_swel(*targets)
-    if gate_size == 2:
-        return counter.deformed_cnot(*targets)
-    matrix_x = _sample_three_qubit_gate(rng) if gate_size == 3 else _sample_four_qubit_gate(rng)
-    return counter.deformed(targets, matrix_x)
-
-
-####################################################################################################
-# helper methods
 
 
 def _get_trivial_code(
@@ -196,13 +108,11 @@ def _scramble_self_dual(
     x: npt.NDArray[np.uint8],
     z: npt.NDArray[np.uint8],
     rng: np.random.Generator,
-    *,
-    walk_steps: int | None,
 ) -> CSSLogicalCounter:
-    """A random walk of SWEL gates, which preserves the self-dual structure."""
+    """A random walk of 30 SWEL gates per qubit, which preserves the self-dual structure."""
     num_qubits = x.shape[1]
     counter = _get_counter(x, z)
-    for _ in range(30 * num_qubits if walk_steps is None else walk_steps):
+    for _ in range(30 * num_qubits):
         targets = list(map(int, rng.choice(num_qubits, 4, replace=False)))
         counter = counter.deformed_swel(*targets)
     return counter
@@ -220,11 +130,44 @@ def _scramble_css(
     return _get_counter((x @ matrix.T) % 2, (z @ inverse) % 2)
 
 
+####################################################################################################
+# local Clifford proposals
+
+
+def propose(
+    counter: CSSLogicalCounter,
+    rng: np.random.Generator,
+    *,
+    code_type: CodeType,
+    gate_size: int,
+) -> CSSLogicalCounter:
+    """Sample a neighbor of a code: the code conjugated by one random gate on random qubits.
+
+    The source counter is not changed.
+
+    Args:
+        counter: The current code.
+        rng: Random generator of the search.
+        code_type: ``css`` for a CNOT or a random CSS gate, or ``swel`` for the SWEL gate on four
+            qubits in random order.
+        gate_size: Number of qubits of the gate.  For a css search, 2 for a CNOT, 3 for a random
+            three-qubit CNOT circuit, or 4 for a uniformly random invertible matrix on X, which acts
+            on Z by its inverse transpose.  A swel search uses 4, for the SWEL gate.
+    """
+    targets = list(map(int, rng.choice(counter.num_qubits, gate_size, replace=False)))
+    if code_type == "swel":
+        return counter.deformed_swel(*targets)
+    if gate_size == 2:
+        return counter.deformed_cnot(*targets)
+    matrix_x = _sample_three_qubit_gate(rng) if gate_size == 3 else _sample_four_qubit_gate(rng)
+    return counter.deformed(targets, matrix_x)
+
+
 def _sample_three_qubit_gate(rng: np.random.Generator) -> npt.NDArray[np.uint8]:
     """The X matrix of a weighted three-qubit CNOT circuit.
 
-    The nine equally likely circuits list each of the first three twice, so the six gate classes
-    have the relative frequencies 2:2:2:1:1:1.
+    The first three gate classes appear twice among the nine equally likely circuits, and the
+    other three once, so the six classes have the relative frequencies 2:2:2:1:1:1.
     """
     kind = int(rng.integers(9))
     sequences = (

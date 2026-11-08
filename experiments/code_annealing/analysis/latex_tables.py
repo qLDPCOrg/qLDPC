@@ -14,8 +14,9 @@ the code files, in their order, with:
 - the mean and maximum weight of the stabilizer generators, after ``reduce_weights``;
 - the best known neighbors of the code at qecdb.org, from a scrape of the database,
   ``data/scrape_qecdb_YYYY-MM-DD.txt`` (see ``scrape_qecdb.py``): the newest one, or the one that
-  ``--data-file`` names.  A parameter in which the code beats the database is highlighted in green,
-  and the database value that it beats in red.
+  ``--data-file`` names.  If no code of the database is at least as good in all of ``n``, ``k``,
+  and ``d``, the code beats its three neighbors: its parameters are highlighted in green, and those
+  of the neighbors in red.
 
 Every distance and count is recomputed exactly, and a code whose distance or count differs from the
 claims of its code file is an error.  The data file of qecdb.org must describe the current codes:
@@ -181,20 +182,20 @@ def _get_cells(entry: CodeEntry, best_known: BestKnown, few_logicals: int) -> li
         "--" if value is None else str(value)
         for value in (best_known.n_best, best_known.k_best, best_known.d_best)
     ]
-    wins = best_known.wins
+    win = best_known.undominated
     return [
-        *(_highlight("hlgreen", str(value), win) for value, win in zip((nn, kk, dd), wins)),
+        *(_highlight("hlgreen", str(value), win) for value in (nn, kk, dd)),
         _format_excess(dd - get_qgv_distance(nn, kk)),
         _format_excess(dd - get_css_gv_distance(nn, kk)),
         logicals,
         _format_mean(sum(weights) / len(weights)),
         str(max(weights)),
-        *(_highlight("hlred", text, win) for text, win in zip(best, wins)),
+        *(_highlight("hlred", text, win) for text in best),
     ]
 
 
 def _highlight(command: str, text: str, win: bool) -> str:
-    """A cell wrapped in a highlighting command if the annealed code wins in its parameter."""
+    """A cell wrapped in a highlighting command if the annealed code beats the database."""
     return rf"\{command}{{{text}}}" if win else text
 
 

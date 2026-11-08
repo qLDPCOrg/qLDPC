@@ -37,7 +37,7 @@ python -m pip install . matplotlib
 
 ### The table and figures, from the paper's codes
 
-[`paper_data/`](paper_data/) keeps the codes of the paper, and the parameters of the best codes that [qecdb.org](https://qecdb.org) listed on the date of its scrape, before the paper.
+[`paper_data/`](paper_data/) keeps the codes of the paper, and the parameters of the best codes that a scrape of [qecdb.org](https://qecdb.org) found on 2026-05-21, before the paper.
 No script writes that directory.
 One command checks every code of the paper, and rebuilds the table and figures of the paper from them:
 
@@ -45,7 +45,9 @@ One command checks every code of the paper, and rebuilds the table and figures o
 python -m experiments.code_annealing.reproduce_paper
 ```
 
-It recounts the distance and the minimum-weight logical operators of every code exactly, writes the table of the paper to `experiments/code_annealing/results/paper/data/table_css.tex` and `table_swel.tex`, and simulates the codes to save the figures of the paper, and a figure `error_rates.pdf` of both code types together, to `experiments/code_annealing/results/paper/figures/`.
+It recounts the distance and the minimum-weight logical operators of every code exactly.
+It writes the table of the paper to `experiments/code_annealing/results/paper/data/table_css.tex` and `table_swel.tex`.
+It simulates the codes to save the figures of the paper to `experiments/code_annealing/results/paper/figures/`, with a figure `error_rates.pdf` of both code types together.
 The table takes moments, whereas the figures take a while: they simulate every code with many sampled errors, and these simulations take most of the time.
 Add `--skip-figures` for the table alone, or a small `--num-samples` and `--max-qubits` for a quick look at the figures.
 
@@ -145,7 +147,7 @@ A search is named `{code_type}_n{n}_k{k}_s{seed}`, with `k` padded to two digits
 | `logs/` | `jobs.txt`, and for each search its checkpoint `{name}.json`, its records `{name}.lowest-energy.json` and `{name}.greatest-distance.json` of its two best codes, its `{name}.log`, and an empty `{name}.lock` file; also the files `random_*.txt` of the random baseline |
 | `data/` | The best codes `annealed_codes.txt` (CSS) and `annealed_codes_swel.txt` (SWEL), `half_supports.txt`, a dated `scrape_qecdb_YYYY-MM-DD.txt` for each scrape, the LaTeX tables `table_css.tex` and `table_swel.tex`, the listings `listing_css.txt` and `listing_swel.txt` of the codes for the paper's appendix, and `saved_codes.csv` if requested |
 | `figures/` | The PDF figures |
-| `cache/` | Simulations that the figure scripts reuse |
+| `cache/` | Simulations that the figure scripts reuse, by code and settings but not by qLDPC version, so delete it after updating qLDPC |
 | `test/` | The same layout, for runs with `--test` |
 | `paper/` | The same layout, for `reproduce_paper` |
 
@@ -194,7 +196,9 @@ experiments/code_annealing/
 
 ## Tests
 
-The tests cover what could go wrong unnoticed: the search modules of `core/`, and the numbers that the scripts derive from codes beyond the exact counts, which are the supports of minimum-weight logical operators (`analysis/half_supports.py` and `analysis/min_weight_supports.py`) and the low-weight generators of code files (`reduce_weights`).
+The tests cover what could go wrong unnoticed.
+That is the search modules of `core/`, and the numbers that the scripts derive from codes beyond the exact counts.
+Those numbers are the supports of minimum-weight logical operators (`analysis/half_supports.py` and `analysis/min_weight_supports.py`), and the low-weight generators of code files (`reduce_weights`).
 The tests compare with small codes whose answers are derived by hand, or with brute force, rather than repeating the code that they test.
 The other scripts and helpers have no tests: they are plain formulas or file handling, and when one of them breaks, its output shows it.
 The tests are offline and local-only, and do not run in CI.
