@@ -94,10 +94,10 @@ class LPCode(CSSCode):
 
         If ``set_logicals`` is True, set the canonical logical line operators of the code (see
         ``get_canonical_logical_line_ops``).  These use semisimple Howell normal forms, which need a
-        field characteristic that does not divide the order of the group, and they need lifts to
-        orthogonal matrices.  Lifted products of binary codes over groups of even order are common
-        but fail the first condition, so ``set_logicals`` defaults to False, and if it is True for a
-        group algebra that fails either condition, a ValueError is raised.
+        field characteristic that does not divide the order of the group.  Lifted products of binary
+        codes over groups of even order are common but fail this condition, so ``set_logicals``
+        defaults to False, and if it is True for a group algebra that fails it, a ValueError is
+        raised.
         """
         if matrix_b is None:
             matrix_b = matrix_a
@@ -121,8 +121,7 @@ class LPCode(CSSCode):
 
         # lifts to orthogonal matrices give commuting checks; otherwise, verify that checks commute
         super().__init__(matrix_x.lift(), matrix_z.lift(), field)
-        has_orthogonal_lifts = _has_orthogonal_lifts(ring)
-        if has_orthogonal_lifts:
+        if _has_orthogonal_lifts(ring):
             self._is_subsystem_code = False
         elif self.is_subsystem_code:
             raise ValueError(
@@ -131,11 +130,6 @@ class LPCode(CSSCode):
             )
 
         if set_logicals:
-            if not has_orthogonal_lifts:
-                raise ValueError(
-                    "Cannot set canonical logical operators for this code, since its group algebra"
-                    " lifts members to matrices that are not orthogonal"
-                )
             try:
                 logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
             except (ValueError, NotImplementedError) as exception:

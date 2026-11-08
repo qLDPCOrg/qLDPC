@@ -250,6 +250,6 @@ def test_kron_over_groups_with_different_lifts() -> None:
         matrix = abstract.RingArray.build([[generator]], ring)
         lifted = abstract.kron(matrix, matrix).lift()
         for member in ring.group.generate():
-            vector = abstract.RingMember(ring, member)
-            product = generator * vector * generator
-            assert np.array_equal(lifted @ vector.to_vector(), product.to_vector())
+            element = abstract.RingMember(ring, member)
+            product = generator * element * generator
+            assert np.array_equal(lifted @ element.to_vector(), product.to_vector())
