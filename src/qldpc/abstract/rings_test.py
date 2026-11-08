@@ -96,32 +96,39 @@ def test_ring_equality() -> None:
 
     # equal group algebras lift group members to the same matrices
     symmetric = abstract.SymmetricGroup(3)
+    natural = symmetric.with_natural_lift()
     assert abstract.GroupRing(symmetric) == abstract.GroupRing(abstract.SymmetricGroup(3))
-    assert abstract.GroupRing(symmetric) != abstract.GroupRing(symmetric.with_natural_lift())
-    natural_lift = symmetric.with_natural_lift()
-    assert abstract.GroupRing(natural_lift) == abstract.GroupRing(natural_lift)
-    transposed_lift = abstract.Group.from_sympy(
-        symmetric.to_sympy(), lift=lambda member: natural_lift.lift(member).T
-    )
-    assert abstract.GroupRing(natural_lift) != abstract.GroupRing(transposed_lift)
+    assert abstract.GroupRing(symmetric) != abstract.GroupRing(natural)
+    copied = abstract.Group.from_sympy(symmetric.to_sympy(), lift=lambda gg: natural.lift(gg))
+    assert abstract.GroupRing(natural) == abstract.GroupRing(copied)
 
-    # the default lift is the regular representation, which depends on the order of group members
+    # conjugating a lift by the lift of one generator changes the lifts of the others
+    def conjugate_by(generator: abstract.GroupMember) -> abstract.Group:
+        mat = natural.lift(generator)
+        return abstract.Group.from_sympy(
+            symmetric.to_sympy(), lift=lambda gg: mat @ natural.lift(gg) @ mat.T
+        )
+
+    for generator in symmetric.generators:
+        assert abstract.GroupRing(natural) != abstract.GroupRing(conjugate_by(generator))
+
+    # default lifts of a noncommutative group have right lifts, which depend on the order of members
     members = list(symmetric.generate())
-    reordered = abstract.Group(*symmetric.generators, generate_func=lambda: iter(members[::-1]))
-    assert abstract.GroupRing(symmetric) == abstract.GroupRing(reordered)  # same regular lifts
-    rotated = members[1:] + members[:1]
-    reordered = abstract.Group(*symmetric.generators, generate_func=lambda: iter(rotated))
-    assert abstract.GroupRing(symmetric) != abstract.GroupRing(reordered)
-
-
-def test_ring_equality_with_default_lifts(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Group algebras with default lifts and enumeration compare without lifting group members."""
-    calls: list[object] = []
-    monkeypatch.setattr(abstract.Group, "regular_lift", lambda *args, **kwargs: calls.append(args))
-    assert abstract.GroupRing(abstract.SymmetricGroup(3)) == abstract.GroupRing(
-        abstract.SymmetricGroup(3)
+    same_order = abstract.Group(*symmetric.generators, generate_func=lambda: iter(members))
+    assert abstract.GroupRing(symmetric) == abstract.GroupRing(same_order)
+    first, second = symmetric.generators
+    translated = abstract.Group(
+        *symmetric.generators, generate_func=lambda: iter([gg * second for gg in members])
     )
-    assert not calls
+    assert np.array_equal(symmetric.lift(first), translated.lift(first))
+    assert abstract.GroupRing(symmetric) != abstract.GroupRing(translated)
+    custom = abstract.Group.from_sympy(symmetric.to_sympy(), lift=symmetric.lift)
+    assert abstract.GroupRing(symmetric) != abstract.GroupRing(custom)
+
+    # right lifts of a commutative group equal its lifts, so default and custom lifts can agree
+    cyclic = abstract.Group(*abstract.CyclicGroup(4).generators)
+    custom = abstract.Group.from_sympy(cyclic.to_sympy(), lift=cyclic.lift)
+    assert abstract.GroupRing(cyclic) == abstract.GroupRing(custom)
 
 
 def test_printing() -> None:

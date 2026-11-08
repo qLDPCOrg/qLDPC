@@ -26,10 +26,10 @@ class LPCode(CSSCode):
 
     A lifted product code is essentially the same as a hypergraph product code, except that the
     parity check matrices are RingArrays, or matrices whose entries are members of a group algebra
-    over a finite field ``F_q``.  Each of these entries can be "lifted" to a representation as
-    orthogonal matrices over ``F_q``, in which case the RingArray is interpreted as a block matrix;
-    this is called "lifting" the RingArray.  LPCode raises a ValueError if lifts that are not
-    orthogonal give X and Z checks that do not commute.
+    over a finite field ``F_q``.  Each of these entries can be "lifted" to a matrix over ``F_q``, in
+    which case the RingArray is interpreted as a block matrix; this is called "lifting" the
+    RingArray.  Orthogonal lifts, such as the default lifts of groups, give X and Z checks that
+    commute.  For other lifts, LPCode raises a ValueError if the checks do not commute.
 
     As an example, the lift-connected surface code in Eq. (2) of https://arxiv.org/pdf/2401.02911v2
     can be constructed by::
@@ -117,15 +117,13 @@ class LPCode(CSSCode):
         # if Hadamard-transforming qudits, conjugate those in the (1, 1) sector by default
         self.bias_tailoring_qubits = slice(self.sector_size[0, 0], None)
 
-        # orthogonal lifts give commuting checks, so multiply the checks only for other lifts
-        lifted_matrix_x, lifted_matrix_z = matrix_x.lift(), matrix_z.lift()
-        if not _has_orthogonal_lifts(ring) and np.any(lifted_matrix_x @ lifted_matrix_z.T):
+        super().__init__(matrix_x.lift(), matrix_z.lift(), field)
+        if _has_orthogonal_lifts(ring):
+            self._is_subsystem_code = False  # known by construction
+        elif self.is_subsystem_code:
             raise ValueError(
-                "The X and Z checks of this lifted product code do not commute, as its group lifts"
-                " are not orthogonal"
+                "The X and Z checks of this LPCode, whose lifts are not orthogonal, do not commute"
             )
-        super().__init__(lifted_matrix_x, lifted_matrix_z, field)
-        self._is_subsystem_code = False  # verified above
 
         if set_logicals:
             try:
@@ -330,9 +328,8 @@ class SLPCode(CSSCode):
 def _has_orthogonal_lifts(ring: abstract.GroupRing) -> bool:
     """Does a group algebra lift the members of its group to orthogonal matrices?
 
-    The lift of an inverse is the inverse of a lift, so a lift is orthogonal if inverting its group
-    member transposes it.  Lifts form a representation of the group, so they are orthogonal if the
-    lifts of its generators are.
+    A lift L is orthogonal if ``L(g.T) = L(g).T``, where ``g.T = ~g``.  Orthogonal matrices form a
+    group, so it suffices to check the generators of the group.
     """
     return all(
         np.array_equal(generator.T.lift(), generator.lift().T) for generator in ring.generators

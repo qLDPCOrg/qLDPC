@@ -234,21 +234,24 @@ def test_get_howell_dual_edge_cases(ring_alternating4_gf5: abstract.GroupRing) -
 
 def test_kron_over_groups_with_different_lifts() -> None:
     """Kronecker products use the lifts of their own group algebras."""
-    default_ring = abstract.GroupRing(abstract.SymmetricGroup(3))
-    custom_ring = abstract.GroupRing(abstract.SymmetricGroup(3).with_natural_lift())
+    # these group algebras differ only in their right lifts
+    group = abstract.SymmetricGroup(3)
+    members = list(group.generate())
+    translated = abstract.Group(
+        *group.generators, generate_func=lambda: iter([gg * group.generators[1] for gg in members])
+    )
 
-    def get_kron(ring: abstract.GroupRing) -> abstract.RingArray:
-        matrix = abstract.RingArray.build([[ring.generators[0]]], ring)
-        return abstract.kron(matrix, matrix)
+    # the Kronecker product of [[g]] with itself acts on t as g t g
+    for ring in [abstract.GroupRing(group), abstract.GroupRing(translated)]:
+        generator = ring.generators[0]
+        matrix = abstract.RingArray.build([[generator]], ring)
+        lifted = abstract.kron(matrix, matrix).lift()
+        for member in [abstract.RingMember(ring, gg) for gg in ring.group.generate()]:
+            product = generator * member * generator
+            assert np.array_equal(lifted @ member.to_vector(), product.to_vector())
 
-    # the product of g and g acts on t as g t g, and a custom lift has no anti-representation;
-    # alternate the rings, so that each is used after the other
-    generator = default_ring.generators[0]
-    for _ in range(2):
-        lifted = get_kron(default_ring).lift()
-        for member in default_ring.group.generate():
-            vector = abstract.RingMember(default_ring, member)
-            product = generator * vector * generator
-            assert np.array_equal(lifted @ vector.to_vector(), product.to_vector())
-        with pytest.raises(ValueError, match="Anti-representations"):
-            get_kron(custom_ring).lift()
+    # qLDPC does not support anti-representations of custom lifts of noncommutative groups
+    ring = abstract.GroupRing(group.with_natural_lift())
+    matrix = abstract.RingArray.build([[ring.generators[0]]], ring)
+    with pytest.raises(ValueError, match="Anti-representations"):
+        abstract.kron(matrix, matrix).lift()
