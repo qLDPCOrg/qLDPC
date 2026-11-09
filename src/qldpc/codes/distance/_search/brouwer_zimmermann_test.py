@@ -314,7 +314,6 @@ def test_brouwer_zimmermann_setup_cutoffs() -> None:
             basis,
             _no_labels(basis),
             cutoff=3,
-            block_size=2,
             weight_divisor=1,
             upper_bound=4,
             tuning=DEFAULT_TUNING,
@@ -326,7 +325,6 @@ def test_brouwer_zimmermann_setup_cutoffs() -> None:
             basis,
             _no_labels(basis),
             cutoff=2,
-            block_size=2,
             weight_divisor=1,
             upper_bound=4,
             tuning=SearchTuning(allow_enumeration_by_size=False),
@@ -340,7 +338,7 @@ def test_an_upper_bound_acts_as_a_known_witness() -> None:
     basis = get_independent_rows(np.asarray(qldpc.codes.HammingCode(3).generator, dtype=np.uint8))
     for upper_bound, expected in ((2, 2), (3, 3), (5, 3)):
         distance = bz.get_distance_brouwer_zimmermann(
-            basis, _no_labels(basis), cutoff=0, block_size=15, upper_bound=upper_bound
+            basis, _no_labels(basis), cutoff=0, upper_bound=upper_bound
         )
         assert distance == expected
 
@@ -373,7 +371,6 @@ def test_brouwer_zimmermann_shared_search() -> None:
     actual = bz.get_distance_brouwer_zimmermann_many(
         [(basis_a, _no_labels(basis_a)), (basis_b, labels_b)],
         cutoff=0,
-        block_size=2,
     )
     assert actual == min(expected_a, expected_b)
 
@@ -387,7 +384,7 @@ def test_a_given_disjoint_basis_family_replaces_the_first_stage() -> None:
     rng = np.random.default_rng(121)
     basis = get_random_full_rank_matrix(rng, 5, 9)
     labels = np.vstack([np.zeros((2, 3), dtype=np.uint8), np.eye(3, dtype=np.uint8)])
-    expected = bz.get_distance_brouwer_zimmermann_many([(basis, labels)], cutoff=0, block_size=2)
+    expected = bz.get_distance_brouwer_zimmermann_many([(basis, labels)], cutoff=0)
     get_basis_family = mock.Mock(
         return_value=information_sets.get_disjoint_family(
             basis, labels, random_column_orders=DEFAULT_TUNING.disjoint_random_column_orders
@@ -396,7 +393,6 @@ def test_a_given_disjoint_basis_family_replaces_the_first_stage() -> None:
     search = functools.partial(
         bz.get_distance_brouwer_zimmermann_many,
         [(basis, labels)],
-        block_size=2,
         get_disjoint_basis_families=[get_basis_family],
     )
     with mock.patch.object(
@@ -455,7 +451,7 @@ def test_brouwer_zimmermann_sector_certificates() -> None:
         mock.patch.object(bz._BrouwerZimmermannSearch, "advance", advance),
     ):
         actual = bz.get_distance_brouwer_zimmermann_many(
-            [(basis_a, _no_labels(basis_a)), (basis_b, _no_labels(basis_b))], cutoff=0, block_size=2
+            [(basis_a, _no_labels(basis_a)), (basis_b, _no_labels(basis_b))], cutoff=0
         )
     assert actual == min(expected)
     assert len(searches) == 2
@@ -720,10 +716,10 @@ def test_automorphism_family_searches_scan_every_layer_they_certify(
     """
     code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
     problem = get_sector_problem(code, Pauli.X)
-    expected = bz.get_distance_brouwer_zimmermann_many([problem], cutoff=0, block_size=15)
+    expected = bz.get_distance_brouwer_zimmermann_many([problem], cutoff=0)
     assert expected == 8
     distance = bz.get_distance_brouwer_zimmermann_many(
-        [problem], cutoff=0, block_size=15, get_automorphisms=code._get_qudit_automorphisms
+        [problem], cutoff=0, get_automorphisms=code._get_qudit_automorphisms
     )
     assert distance == expected
 
@@ -754,11 +750,11 @@ def test_automorphism_family_searches_find_exact_distances() -> None:
         )
         for get_automorphisms in (code._get_qudit_automorphisms, lambda: identity, lambda: None):
             distance = bz.get_distance_brouwer_zimmermann_many(
-                [problem], cutoff=0, block_size=15, get_automorphisms=get_automorphisms
+                [problem], cutoff=0, get_automorphisms=get_automorphisms
             )
             assert distance == expected
     assert bz.get_distance_brouwer_zimmermann_many(
-        problems, cutoff=0, block_size=15, get_automorphisms=code._get_qudit_automorphisms
+        problems, cutoff=0, get_automorphisms=code._get_qudit_automorphisms
     ) == code.get_distance(method="brute_force")
 
 
@@ -794,7 +790,6 @@ def test_automorphism_family_searches_scan_their_new_set_from_layer_two(
     distance = bz.get_distance_brouwer_zimmermann_many(
         [(basis, labels)],
         cutoff=0,
-        block_size=15,
         get_disjoint_basis_families=[lambda: first_family],
         get_automorphisms=lambda: automorphisms,
     )
@@ -820,7 +815,7 @@ def test_searches_ask_for_automorphisms_only_before_costly_layers() -> None:
         get_automorphisms = mock.Mock(wraps=code._get_qudit_automorphisms)
         with use_tuning(automorphism_minimum_layer_work=minimum_layer_work):
             bz.get_distance_brouwer_zimmermann_many(
-                [problem], cutoff=0, block_size=15, get_automorphisms=get_automorphisms
+                [problem], cutoff=0, get_automorphisms=get_automorphisms
             )
         assert get_automorphisms.call_count == expected_calls
 
@@ -836,9 +831,9 @@ def test_rows_of_an_automorphism_family_can_reach_the_cutoff() -> None:
     """
     code = qldpc.codes.BBCode({x: 6, y: 3}, 1 + x + x**3 * y, 1 + y + x)
     problem = get_sector_problem(code, Pauli.Z)
-    assert bz.get_distance_brouwer_zimmermann_many([problem], cutoff=0, block_size=15) == 4
+    assert bz.get_distance_brouwer_zimmermann_many([problem], cutoff=0) == 4
     distance = bz.get_distance_brouwer_zimmermann_many(
-        [problem], cutoff=6, block_size=15, get_automorphisms=code._get_qudit_automorphisms
+        [problem], cutoff=6, get_automorphisms=code._get_qudit_automorphisms
     )
     assert distance == 6
 
@@ -853,7 +848,6 @@ def test_searches_reject_wrong_automorphisms() -> None:
         bz.get_distance_brouwer_zimmermann_many(
             [get_sector_problem(code, Pauli.X)],
             cutoff=0,
-            block_size=15,
             get_automorphisms=lambda: transposition[None],
         )
 
@@ -1005,7 +999,6 @@ def test_completion_tables_keep_distances_exact(
             distance = bz.get_distance_brouwer_zimmermann_many(
                 [get_sector_problem(code, pauli)],
                 cutoff=0,
-                block_size=15,
                 upper_bound=upper_bound,
                 get_automorphisms=code._get_qudit_automorphisms,
             )
@@ -1017,16 +1010,13 @@ def test_completion_tables_keep_distances_exact(
     code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
     basis, labels = get_sector_problem(code, Pauli.X)
     with use_tuning(completion_bound_max_table_bytes=0):
-        expected = bz.get_distance_brouwer_zimmermann_many(
-            [(basis, labels)], cutoff=0, block_size=15
-        )
+        expected = bz.get_distance_brouwer_zimmermann_many([(basis, labels)], cutoff=0)
     columns = rng.permutation(len(code))
     automorphisms = np.asarray(code._get_qudit_automorphisms())
     skipped = completion_tables.skipped
     distance = bz.get_distance_brouwer_zimmermann_many(
         [(basis[:, columns], labels)],
         cutoff=0,
-        block_size=15,
         get_automorphisms=functools.partial(
             np.array, np.argsort(columns)[automorphisms[:, columns]]
         ),
@@ -1107,7 +1097,6 @@ def test_joint_searches_with_completion_tables(
         distance = bz.get_distance_brouwer_zimmermann_many(
             problems,
             cutoff=0,
-            block_size=15,
             upper_bound=upper_bound,
             get_automorphisms=code._get_qudit_automorphisms,
         )
@@ -1153,7 +1142,6 @@ def test_searches_take_completion_limits_from_their_tuning(
             assert bz.get_distance_brouwer_zimmermann_many(
                 problems,
                 cutoff=0,
-                block_size=15,
                 get_automorphisms=code._get_qudit_automorphisms,
             ) == code.get_distance(method="brute_force")
         assert block_bits == expected_block_bits

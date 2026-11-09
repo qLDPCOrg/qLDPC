@@ -39,7 +39,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
 | The MacWilliams counting method | `_counting/macwilliams.py` |
-| The settings that a search reads when it starts, such as the thresholds that choose between exhaustive enumeration, the kinds of information-set families, and completion tables, the coefficients of cost models, memory limits, and batch sizes, and the sizes of caches (`SearchTuning`, `use_tuning`) | `_tuning.py` |
+| The settings that a search reads when it starts, such as the thresholds that choose between exhaustive enumeration, the kinds of information-set families, and completion tables, the coefficients of cost models, memory limits, and batch sizes (`SearchTuning`, `use_tuning`), and the constants that size caches when qLDPC is imported | `_tuning.py` |
 | Binary input checks, nested bases, or packed weights | `_binary.py` |
 | Bit packing, bit counts, or row reduction over GF(2), which other subpackages share | `src/qldpc/_binary.py` |
 | How numba code is compiled or cached | `src/qldpc/_compilation.py` |
@@ -64,11 +64,12 @@ Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py`, modules in `src
 
 ## Tuning
 
-Every value that tunes a search, such as a threshold that chooses a route, a limit, a coefficient of a cost model, an attempt count, or a batch size, is a field of `SearchTuning` in `_tuning.py`, unless it is an argument of the function that starts the search, such as `block_size`.
+Every value that changes only how long a search takes or how much memory it uses, such as a threshold that chooses a route, a limit, a coefficient of a cost model, an attempt count, or a batch size, is a field of `SearchTuning` in `_tuning.py`.
+The arguments of the public functions say what to compute and by which method, such as `cutoff`, `max_weight`, and `method`; do not add arguments that only tune a search.
 Section 4.4 of `brouwer_zimmermann.md` says where each heuristic uses its fields.
 
 - A search reads the active tuning once, when it starts, and passes the values that it needs down to the stages and loops that use them.
-  `get_distance_brouwer_zimmermann_many` reads it for a distance search, `CSSLogicalCounter.count_logical_ops` for a count, and `CosetLeaderSearch` when it is built.
+  The distance functions of `core.py` read it for a distance search, `CSSLogicalCounter.count_logical_ops` for a count, and `CosetLeaderSearch` when it is built; `get_distance_brouwer_zimmermann_many` reads it only if its caller passes none.
   Pass these values as arguments, including to compiled code, and do not read the tuning anywhere else, so that one search never mixes two tunings.
   A value that the code keeps in a cache that outlives a search, such as `disjoint_random_column_orders` in the cached searches of `CosetLeaderSearch`, also keys that cache.
 - Only a value that qLDPC fixes before any search starts, such as the size of a cache, which `functools.lru_cache` fixes at import, is a constant in `_tuning.py`, read as `_tuning.NAME`.

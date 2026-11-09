@@ -4,14 +4,18 @@
 
 from __future__ import annotations
 
+import dataclasses
 import functools
+import operator
 from collections.abc import Callable, Sequence
 from typing import Literal, SupportsIndex, get_args
 
 import numpy as np
 import numpy.typing as npt
 
+from qldpc import _deprecations
 from qldpc._binary import get_independent_rows
+from qldpc._utils import get_external_caller_stacklevel
 
 from ._binary import (
     as_binary_matrix,
@@ -25,6 +29,7 @@ from ._search.brouwer_zimmermann import (
     get_distance_brouwer_zimmermann_many,
 )
 from ._search.brute_force import get_distance_quantum_brute_force, get_nested_distance_brute_force
+from ._tuning import SearchTuning, get_tuning
 
 DistanceBackend = Literal["auto", "decoder", "gap", "sqetch"]
 DistanceMethod = Literal["brouwer_zimmermann", "brute_force", "information_sets"]
@@ -48,7 +53,7 @@ def get_distance_classical(
     generators: npt.ArrayLike,
     *,
     cutoff: int = 1,
-    block_size: int = 15,
+    block_size: int | None = None,  # DEPRECATED: see qldpc._deprecations
     method: DistanceMethod = "brouwer_zimmermann",
     max_weight: SupportsIndex | None = None,
 ) -> int:
@@ -58,10 +63,8 @@ def get_distance_classical(
         generators: The generator matrix of the classical code whose distance we want to compute.
             Both methods reduce redundant rows to a linearly independent basis.
         cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
-        block_size: Batch size exponent.  BZ returns to Python after at most
-            ``2**min(block_size, e)`` supports, where ``e`` is the
-            :attr:`~qldpc.codes.distance._tuning.SearchTuning.max_batch_exponent` of the active
-            tuning; brute force vectorizes ``2**block_size`` values.
+        block_size: Deprecated.  Use ``qldpc.codes.distance._tuning.use_tuning`` to set
+            ``enumeration_batch_exponent`` and ``information_set_batch_exponent`` instead.
         method: Exact-distance method.  ``"brouwer_zimmermann"`` (default) enumerates fixed-weight
             combinations in several information-set bases and stops once its lower and upper bounds
             meet.  ``"brute_force"`` enumerates every nonzero codeword.  ``"information_sets"`` is
@@ -86,6 +89,7 @@ def get_distance_classical(
         ValueError: If ``max_weight`` is negative, if the method is unknown, or if the generators
             are not a binary matrix.
     """
+    tuning = _get_tuning(block_size)
     method = _validate_distance_method(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
     assert_binary(generators, "generators")
@@ -100,8 +104,8 @@ def get_distance_classical(
             basis,
             labels=np.empty((len(basis), 0), dtype=np.uint8),
             cutoff=cutoff,
-            block_size=block_size,
             upper_bound=upper_bound,
+            tuning=tuning,
         )
 
     # The reduced classical basis needs no excluded subspace.
@@ -109,7 +113,7 @@ def get_distance_classical(
         basis,
         np.empty((0, matrix.shape[1]), dtype=np.uint8),
         cutoff=cutoff,
-        block_size=block_size,
+        batch_exponent=tuning.enumeration_batch_exponent,
         homogeneous=True,
     )
     return _apply_upper_bound(distance, upper_bound)
@@ -120,7 +124,7 @@ def get_distance_quantum(
     stabilizers: npt.ArrayLike,
     *,
     cutoff: int = 1,
-    block_size: int = 15,
+    block_size: int | None = None,  # DEPRECATED: see qldpc._deprecations
     homogeneous: bool = False,
     method: DistanceMethod = "brouwer_zimmermann",
     max_weight: SupportsIndex | None = None,
@@ -132,10 +136,8 @@ def get_distance_quantum(
             Both methods remove redundant rows and exclude the stabilizer row space from witnesses.
         stabilizers: A matrix whose rows represent stabilizers of the code.
         cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
-        block_size: Batch size exponent.  BZ returns to Python after at most
-            ``2**min(block_size, e)`` supports, where ``e`` is the
-            :attr:`~qldpc.codes.distance._tuning.SearchTuning.max_batch_exponent` of the active
-            tuning; brute force vectorizes ``2**block_size`` values.
+        block_size: Deprecated.  Use ``qldpc.codes.distance._tuning.use_tuning`` to set
+            ``enumeration_batch_exponent`` and ``information_set_batch_exponent`` instead.
         homogeneous: If True, all Pauli strings (represented by rows of logical_ops and stabilizers)
             are assumed to have the same homogeneous (X or Z) type.  If False, Pauli strings may
             have mixed (X, Y, or Z) support on different qubits.
@@ -185,10 +187,10 @@ def get_distance_quantum(
         logical_ops,
         stabilizers,
         cutoff=cutoff,
-        block_size=block_size,
         homogeneous=homogeneous,
         method=method,
         max_weight=max_weight,
+        tuning=_get_tuning(block_size),
     )
 
 
@@ -197,11 +199,11 @@ def _get_distance_quantum(
     stabilizers: npt.ArrayLike,
     *,
     cutoff: int = 1,
-    block_size: int = 15,
     homogeneous: bool = False,
     method: DistanceMethod = "brouwer_zimmermann",
     max_weight: SupportsIndex | None = None,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
+    tuning: SearchTuning | None = None,
 ) -> int:
     """Compute the distance of ``get_distance_quantum``, letting BZ use qubit automorphisms.
 
@@ -209,13 +211,14 @@ def _get_distance_quantum(
     of qubit permutations, or None.  Row ``i`` of the array maps qubit ``j`` to qubit ``row[j]``.
     Each generator must map the span of the stabilizers, and the span of the stabilizers and logical
     operators, onto themselves.  A BZ search calls the function before a costly layer, and verifies
-    the generators before it uses them.  The other arguments and the result are those of
-    ``get_distance_quantum``.
+    the generators before it uses them.  ``tuning`` defaults to the active tuning.  The other
+    arguments and the result are those of ``get_distance_quantum``.
 
     Raises:
         ValueError: In the cases of ``get_distance_quantum``, or if a generator from
             ``get_automorphisms`` is not an automorphism.
     """
+    tuning = get_tuning() if tuning is None else tuning
     method = _validate_distance_method(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
     logical_matrix, stabilizer_matrix = _as_operator_matrices(logical_ops, stabilizers)
@@ -235,7 +238,11 @@ def _get_distance_quantum(
         return no_distance
     if method == "brute_force":
         distance = get_nested_distance_brute_force(
-            basis, labels, cutoff=cutoff, block_size=block_size, homogeneous=homogeneous
+            basis,
+            labels,
+            cutoff=cutoff,
+            batch_exponent=tuning.enumeration_batch_exponent,
+            homogeneous=homogeneous,
         )
         return _apply_upper_bound(distance, upper_bound)
 
@@ -251,10 +258,10 @@ def _get_distance_quantum(
     distance = get_distance_brouwer_zimmermann_many(
         [(basis, labels)],
         cutoff=cutoff * divisor,
-        block_size=block_size,
         weight_divisor=divisor,
         upper_bound=None if upper_bound is None else upper_bound * divisor,
         get_automorphisms=get_automorphisms,
+        tuning=tuning,
     )
     return distance // divisor
 
@@ -263,7 +270,6 @@ def _get_distance_css_brouwer_zimmermann(
     sectors: Sequence[tuple[npt.ArrayLike, npt.ArrayLike]],
     *,
     cutoff: int,
-    block_size: int = 15,
     upper_bound: int | None = None,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
 ) -> int:
@@ -273,7 +279,6 @@ def _get_distance_css_brouwer_zimmermann(
         sectors: Logical operators and stabilizers for every sector to search.  All operators use
             homogeneous binary support vectors rather than symplectic vectors.
         cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
-        block_size: Batch size exponent, as in get_distance_quantum.
         upper_bound: Weight of a known logical operator from an omitted sector, if any.  The result
             is the minimum of this bound and the distances of the supplied sectors.
         get_automorphisms: A function that returns an array of generators of a group of qubit
@@ -320,7 +325,6 @@ def _get_distance_css_brouwer_zimmermann(
     distance = get_distance_brouwer_zimmermann_many(
         problems,
         cutoff=cutoff,
-        block_size=block_size,
         upper_bound=upper_bound,
         get_automorphisms=get_automorphisms,
     )
@@ -351,6 +355,32 @@ def _get_weight_limit(cutoff: int, max_weight: SupportsIndex | None) -> tuple[in
     if max_weight < 0:
         raise ValueError(f"max_weight must be nonnegative, not {max_weight}")
     return min(cutoff, max_weight), max_weight + 1
+
+
+def _get_tuning(block_size: int | None) -> SearchTuning:  # DEPRECATED: see qldpc._deprecations
+    """The active tuning, with the batch sizes of a deprecated ``block_size`` argument, if given.
+
+    The batches of exhaustive enumeration had ``block_size`` as their exponent, and those of scans
+    of information sets had at most it.  As before, any integer, including a bool, is accepted.  An
+    exponent outside the range of the fields is clamped to it, which changes no batch of exhaustive
+    enumeration.
+    """
+    tuning = get_tuning()
+    if block_size is None:
+        return tuning
+    # DEPRECATED: see qldpc._deprecations
+    _deprecations.warn_deprecated(
+        "The block_size argument of exact distance searches is deprecated and will be removed in a"
+        " future release.  Use qldpc.codes.distance._tuning.use_tuning to set"
+        " enumeration_batch_exponent and information_set_batch_exponent instead",
+        stacklevel=get_external_caller_stacklevel(),
+    )
+    exponent = max(0, min(operator.index(block_size), 62))
+    return dataclasses.replace(
+        tuning,
+        enumeration_batch_exponent=exponent,
+        information_set_batch_exponent=min(exponent, tuning.information_set_batch_exponent),
+    )
 
 
 def _apply_upper_bound(distance: int, upper_bound: int | None) -> int:

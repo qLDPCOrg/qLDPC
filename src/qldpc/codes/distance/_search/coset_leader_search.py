@@ -103,8 +103,10 @@ class CosetLeaderSearch:
         css_weight: True to weigh an error by its CSS weight, or False to weigh it by its physical
             weight.
 
-    The oracle reads the active tuning (see ``_tuning``) when it is built, and uses its fields
-    ``disjoint_random_column_orders`` and ``max_css_single_pairs`` for every query.
+    The oracle reads the active tuning (see ``_tuning``) when it is built.  Its field
+    ``disjoint_random_column_orders`` configures every search of the oracle, and
+    ``max_css_single_pairs`` the searches by CSS weight that are not split into two classical
+    searches.
 
     Raises:
         ValueError: If the stabilizers are not ``n`` independent commuting stabilizers.

@@ -17,17 +17,62 @@ import qldpc
 
 from ..conftest import Tune
 from . import core
+from ._tuning import use_tuning
 from .conftest import get_random_full_rank_matrix, get_span
+
+
+def test_deprecated_block_size_argument() -> None:
+    """The argument warns, and gives the batches that it gave before it was deprecated.
+
+    Exhaustive enumeration took ``block_size`` as its exponent, and scans of information sets took
+    at most it, so the argument sets both fields, clamped to their range.
+    """
+    with use_tuning(information_set_batch_exponent=10) as active:
+        assert core._get_tuning(None) is active
+        for block_size, batches in (
+            (4, (4, 4)),
+            (12, (12, 10)),
+            (100, (62, 10)),
+            (-3, (0, 0)),
+            (True, (1, 1)),
+        ):
+            with pytest.warns(DeprecationWarning, match="use_tuning"):
+                tuning = core._get_tuning(block_size)
+            assert (tuning.enumeration_batch_exponent, tuning.information_set_batch_exponent) == (
+                batches
+            )
+
+    # Both functions, by either method, warn at their caller and still find the distance.
+    generator = np.asarray(qldpc.codes.HammingCode(3).generator)
+    logical_ops, stabilizers = generator[:1], generator[1:]
+    expected = qldpc.codes.get_distance_quantum(
+        logical_ops, stabilizers, homogeneous=True, method="brute_force"
+    )
+    searches: list[Callable[[], int]] = [
+        lambda: qldpc.codes.get_distance_classical(generator, block_size=2),
+        lambda: qldpc.codes.get_distance_classical(generator, block_size=2, method="brute_force"),
+        lambda: qldpc.codes.get_distance_quantum(
+            logical_ops, stabilizers, homogeneous=True, block_size=2
+        ),
+        lambda: qldpc.codes.get_distance_quantum(
+            logical_ops, stabilizers, homogeneous=True, block_size=2, method="brute_force"
+        ),
+    ]
+    for search, distance in zip(searches, (3, 3, expected, expected), strict=True):
+        with pytest.warns(DeprecationWarning) as records:
+            assert search() == distance
+        assert records[0].filename == __file__
 
 
 @pytest.mark.usefixtures("force_information_sets", "compilation_mode")
 def test_brouwer_zimmermann_information_set_search() -> None:
     """Information-set search excludes stabilizers, finds logical products, and honors cutoffs."""
-    # The Hamming-weight-one stabilizer is lighter than every logical operator.  With block_size=0,
-    # some Brouwer-Zimmermann batches contain only that stabilizer.
-    distance = qldpc.codes.get_distance_quantum(
-        [[1, 1, 1, 1]], [[1, 0, 0, 0]], homogeneous=True, cutoff=0, block_size=0
-    )
+    # The Hamming-weight-one stabilizer is lighter than every logical operator.  With batches of one
+    # support, some Brouwer-Zimmermann batches contain only that stabilizer.
+    with use_tuning(information_set_batch_exponent=0):
+        distance = qldpc.codes.get_distance_quantum(
+            [[1, 1, 1, 1]], [[1, 0, 0, 0]], homogeneous=True, cutoff=0
+        )
     assert distance == 3
 
     # The lightest logical operator is the product of both logical generators.

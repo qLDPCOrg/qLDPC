@@ -45,7 +45,6 @@ def get_distance_brouwer_zimmermann_many(
     problems: Sequence[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]],
     *,
     cutoff: int,
-    block_size: int,
     weight_divisor: int = 1,
     upper_bound: int | None = None,
     get_disjoint_basis_families: Sequence[Callable[[], information_sets.BasisFamily]] | None = None,
@@ -88,7 +87,6 @@ def get_distance_brouwer_zimmermann_many(
             basis,
             labels,
             cutoff=cutoff,
-            block_size=block_size,
             weight_divisor=weight_divisor,
             upper_bound=best,
             initial_upper_bound=initial_upper_bound,
@@ -124,9 +122,9 @@ def get_distance_brouwer_zimmermann(
     labels: npt.NDArray[np.uint8],
     *,
     cutoff: int,
-    block_size: int,
     weight_divisor: int = 1,
     upper_bound: int | None = None,
+    tuning: SearchTuning | None = None,
 ) -> int:
     """Compute an exact nested-code distance with the Brouwer-Zimmermann algorithm.
 
@@ -138,14 +136,14 @@ def get_distance_brouwer_zimmermann(
 
     An ``upper_bound`` starts the search as though a witness of that weight were known, so the
     search returns ``min(distance, upper_bound)`` and stops once it certifies that no word is
-    lighter than ``upper_bound``.
+    lighter than ``upper_bound``.  ``tuning`` defaults to the active tuning.
     """
     return get_distance_brouwer_zimmermann_many(
         [(basis, labels)],
         cutoff=cutoff,
-        block_size=block_size,
         weight_divisor=weight_divisor,
         upper_bound=upper_bound,
+        tuning=tuning,
     )
 
 
@@ -412,7 +410,6 @@ def _prepare_brouwer_zimmermann_search(
     labels: npt.NDArray[np.uint8],
     *,
     cutoff: int,
-    block_size: int,
     weight_divisor: int,
     upper_bound: int,
     initial_upper_bound: int | None = None,
@@ -447,7 +444,11 @@ def _prepare_brouwer_zimmermann_search(
         tuning.enumeration_setup_cost_factor,
     ):
         distance = get_nested_distance_brute_force(
-            basis, labels, cutoff=cutoff, block_size=block_size, homogeneous=True
+            basis,
+            labels,
+            cutoff=cutoff,
+            batch_exponent=tuning.enumeration_batch_exponent,
+            homogeneous=True,
         )
         return min(best, distance)
 
@@ -512,7 +513,11 @@ def _prepare_brouwer_zimmermann_search(
         upper_bound=best,
     ):
         distance = get_nested_distance_brute_force(
-            basis, labels, cutoff=cutoff, block_size=block_size, homogeneous=True
+            basis,
+            labels,
+            cutoff=cutoff,
+            batch_exponent=tuning.enumeration_batch_exponent,
+            homogeneous=True,
         )
         return min(best, distance)
 
@@ -522,7 +527,7 @@ def _prepare_brouwer_zimmermann_search(
             best, tuning.lp_minimum_work, tuning.lp_dual_max_denominator
         ),
         cutoff=cutoff,
-        batch_size=1 << min(block_size, tuning.max_batch_exponent),
+        batch_size=1 << tuning.information_set_batch_exponent,
         tuning=tuning,
         best=best,
         lower_bound=lower_bound,

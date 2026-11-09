@@ -5,10 +5,9 @@
 Exact distances and logical-operator counts choose between routes, such as exhaustive enumeration
 and searches of disjoint or overlapping information sets, and bound their batches, memory, and
 caches.  :class:`SearchTuning` collects the values that tune a search, from the thresholds that
-choose a route to the coefficients of cost models, apart from the arguments of the function that
-starts it, such as ``block_size``.  The page :doc:`/exact_search_tuning` of the documentation maps
-routes and symptoms to these values, and Section 4.4 of ``brouwer_zimmermann.md`` says where each
-heuristic uses them.
+choose a route to the coefficients of cost models and the sizes of batches.  The page
+:doc:`/exact_search_tuning` of the documentation maps routes and symptoms to these values, and
+Section 4.4 of ``brouwer_zimmermann.md`` says where each heuristic uses them.
 
 This module is private.  Its names, fields, and defaults can change in any release, without a
 deprecation period or any other warning, so code that uses it should pin the exact version of
@@ -25,10 +24,9 @@ What tuning can and cannot change:
   tuning.  The result is still an upper bound between the distance and ``cutoff``, as documented by
   :func:`~qldpc.codes.distance.get_distance_quantum`.
 - Codes and counters remember their results, and some intermediate results are cached for the whole
-  process (see ``CSS_SEARCH_CACHE_SIZE``, ``KRAWTCHOUK_CACHE_SIZE``, and
+  process (see ``BINOMIAL_CACHE_SIZE``, ``CSS_SEARCH_CACHE_SIZE``, ``KRAWTCHOUK_CACHE_SIZE``, and
   ``LOCAL_CLIFFORD_CACHE_SIZE``), so a later search with another tuning may not search again.  To
-  time a tuning, run each search in a new process, after a first search that loads or compiles
-  code.
+  time a tuning, run each search in a new process, after a first search that loads or compiles code.
 
 To change the tuning, change the fields of the active tuning within a ``with`` block::
 
@@ -59,15 +57,16 @@ runs it, so warm every route that a comparison may select before timing it.
 
 Which values are fields:
 
-Every value that tunes a search, other than an argument of the function that starts it, and that the
+Every value that changes only how long a search takes or how much memory it uses, and that the
 search can read when it starts and pass down to the code that uses it, is a field of
-:class:`SearchTuning`, whether it expresses a trade-off, such as a memory limit, or a
-calibration, such as a coefficient of a cost model.  So a field can differ between two searches in
-one process, and a saved tuning records every field.  The entry points that read the tuning are the
-distance searches, the counts of logical operators, and the oracles of ``CosetLeaderSearch``, each
-when it starts or is built.  Only values that qLDPC fixes before any search starts are constants:
-``MAX_VALUE``, and the sizes of caches, which it fixes when it is imported.  Change those by editing
-this module, and start a new process.
+:class:`SearchTuning`, whether it expresses a trade-off, such as a memory limit, or a calibration,
+such as a coefficient of a cost model.  So a field can differ between two searches in one process,
+and a saved tuning records every field.  The arguments of the public functions that start searches
+say instead what to compute and by which method, such as ``cutoff``, ``max_weight``, and ``method``.
+The entry points that read the tuning are the distance searches, the counts of logical operators,
+and the oracles of ``CosetLeaderSearch``, each when it starts or is built.  Only values that qLDPC
+fixes before any search starts are constants: ``MAX_VALUE``, and the sizes of caches, which it fixes
+when it is imported.  Change those by editing this module, and start a new process.
 
 .. _tuning-retuning:
 
@@ -190,15 +189,22 @@ class SearchTuning:
     #: on long codes near the crossover.
     enumeration_setup_cost_factor: int = 128
 
+    #: The exponent of the batches of exhaustive enumeration, which handles at most
+    #: ``2**enumeration_batch_exponent`` words at a time in a few arrays of at most
+    #: ``2**(enumeration_batch_exponent + 3)`` bytes each, and checks for a keyboard interrupt
+    #: between batches.  Raising it can speed up enumeration, at the cost of memory; lowering it
+    #: saves memory and makes interrupts prompter, but adds overhead.  At most 62.  Defaults to 15,
+    #: chosen by hand.  To retune it, time enumerations of bases of 16 to 24 rows, and keep the
+    #: smallest value beyond which they get no faster.
+    enumeration_batch_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
+
     # Fields of information-set families.
 
     #: The most information sets in a family of overlapping sets, or in a family found by matroid
     #: partitioning.  More sets can skip costly layers of hard searches, but setup grows roughly
     #: with the square of this limit and dominates cheap searches; zero disables both kinds of
-    #: family.  The ``max_information_sets`` argument of
-    #: :meth:`~qldpc.codes.distance.logical_counts.CSSLogicalCounter.count_logical_ops` changes it
-    #: for one count.  Defaults to 16; how it was chosen is not recorded.  To retune it, compare the
-    #: total times of hard searches.
+    #: family.  Defaults to 16; how it was chosen is not recorded.  To retune it, compare the total
+    #: times of hard searches.
     max_information_sets: int = 16
 
     #: How many random column orders, in a fixed sequence, a search tries when the natural order
@@ -391,22 +397,13 @@ class SearchTuning:
 
     # Fields of batches and memory limits.
 
-    #: A scan of information sets by the BZ method visits at most ``2**min(block_size,
-    #: max_batch_exponent)`` supports and lookups of completion tables, counted together, in one
-    #: call of compiled code, which cannot be interrupted.  Lowering it lets a keyboard interrupt
-    #: take effect sooner, but returns to Python more often.  Exhaustive enumeration uses
-    #: ``block_size`` uncapped.  At most 62.  Defaults to 15, chosen by hand.  To retune it, time
-    #: large layers and the delay of an interrupt, and keep the smallest value whose overhead is
-    #: negligible.
-    max_batch_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
-
-    #: The ``block_size`` argument of the distance searches that counts of logical operators run to
-    #: find their default weight: the exponent of their batch sizes, capped by
-    #: ``max_batch_exponent`` for scans of information sets.  Lowering it makes interrupts prompter
-    #: but adds overhead; raising it lets exhaustive enumeration vectorize more words at once, in
-    #: more memory.  At most 62.  Defaults to 15, chosen by hand.  To retune it, time those
-    #: searches, and keep the smallest value beyond which they get no faster.
-    count_distance_batch_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
+    #: A scan of information sets by the BZ method visits at most
+    #: ``2**information_set_batch_exponent`` supports and lookups of completion tables, counted
+    #: together, in one call of compiled code, which cannot be interrupted.  Lowering it lets a
+    #: keyboard interrupt take effect sooner, but returns to Python more often.  At most 62.
+    #: Defaults to 15, chosen by hand.  To retune it, time large layers and the delay of an
+    #: interrupt, and keep the smallest value whose overhead is negligible.
+    information_set_batch_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
 
     #: The most supports that one compiled call of the scan of a count, by the BZ or brute-force
     #: method, visits; a call also ends at the end of each coefficient layer of each information
@@ -535,6 +532,15 @@ _ACTIVE_TUNING: contextvars.ContextVar[SearchTuning] = contextvars.ContextVar(
 
 ####################################################################################################
 # constants of caches
+
+#: The number of arrays of binomial coefficients, one for each number of rows of a basis, that the
+#: estimates of the work of searches of information sets keep.  It takes effect when qLDPC is
+#: imported.  Chosen by hand: each array of a basis of ``k`` rows takes ``8 * (k + 1)`` bytes, and
+#: few workloads search bases of more than a thousand different numbers of rows.  A larger cache
+#: uses more memory, and a smaller one recomputes arrays that a workload reuses.  Only speed and
+#: memory depend on it.  To retune it, record the hit rate of the cache on representative workloads,
+#: and keep the smallest size beyond which it stops growing.
+BINOMIAL_CACHE_SIZE = 1024
 
 #: The number of entries that ``coset_leader_search._get_css_searches`` keeps, one for each CSS
 #: state and value of ``disjoint_random_column_orders``, each a pair of classical searches, of the X

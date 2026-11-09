@@ -34,14 +34,14 @@ from . import scan
 def test_counts_against_enumeration(tune: Tune, pytestconfig: pytest.Config, max_sets: int) -> None:
     """Counts match an independent enumeration, as do those of codes deformed after a count."""
     # Build overlapping basis families even for cheap counts.
-    tune(overlapping_minimum_work=0)
+    tune(overlapping_minimum_work=0, max_information_sets=max_sets)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     counter = lc.CSSLogicalCounter(get_random_css_code(rng, 12, 4, 4))
-    assert_counts_match_enumeration(counter, max_information_sets=max_sets)
+    assert_counts_match_enumeration(counter)
 
     # The counts above prepared basis families, which the deformed counters transport.
     for deformed in (counter.deformed_cnot(0, 5), counter.deformed_cnot(2, 7)):
-        assert_counts_match_enumeration(deformed, max_information_sets=max_sets)
+        assert_counts_match_enumeration(deformed)
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -70,15 +70,13 @@ def test_scans_resume_after_every_chunk(
 @pytest.mark.parametrize("max_sets", [4, 16])
 def test_overlapping_basis_families_count_every_word_once(tune: Tune, max_sets: int) -> None:
     """Large basis families of overlapping sets give the counts of a brute-force scan."""
-    tune(overlapping_minimum_work=0)
+    tune(overlapping_minimum_work=0, max_information_sets=max_sets)
     # This code makes the basis family stages choose basis families of over four overlapping sets.
     code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
     counter = lc.CSSLogicalCounter(code)
     weights = range(len(code) + 1)
     expected = [counter.count_logical_ops(weight, method="brute_force") for weight in weights]
-    assert [
-        counter.count_logical_ops(w, max_information_sets=max_sets) for w in weights
-    ] == expected
+    assert [counter.count_logical_ops(weight) for weight in weights] == expected
 
 
 def test_counts_through_the_costly_stages_count_every_word_once(
@@ -119,8 +117,9 @@ def test_the_information_set_limit_bounds_the_basis_families_of_a_count(
     assert max(sizes) > 4
 
     sizes.clear()
+    tune(max_information_sets=4)
     for weight in weights:
-        lc.count_logical_ops_css(code, weight, max_information_sets=4)
+        lc.count_logical_ops_css(code, weight)
     assert sizes and max(sizes) <= 4
 
 
