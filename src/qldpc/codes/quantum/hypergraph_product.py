@@ -242,7 +242,10 @@ class HGPCode(CSSCode):
     def get_matrix_product(
         matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray
     ) -> tuple[FieldOrRingArray, FieldOrRingArray]:
-        """Hypergraph product of two parity check matrices."""
+        """Hypergraph product of two parity check matrices.
+
+        Matrices over different rings or fields raise a ValueError.
+        """
         _check_same_ring(matrix_a, matrix_b)
         _kron = abstract.kron if isinstance(matrix_a, abstract.RingArray) else np.kron
 
@@ -522,7 +525,10 @@ class SHPCode(CSSCode):
     def get_matrix_product(
         matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray
     ) -> tuple[FieldOrRingArray, FieldOrRingArray]:
-        """Subsystem hypergraph product of two parity check matrices."""
+        """Subsystem hypergraph product of two parity check matrices.
+
+        Matrices over different rings or fields raise a ValueError.
+        """
         _check_same_ring(matrix_a, matrix_b)
         _kron = abstract.kron if isinstance(matrix_a, abstract.RingArray) else np.kron
         matrix_x = _kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int))
@@ -621,12 +627,13 @@ class SHYPSCode(SHPCode):
 
 
 def _check_same_ring(matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray) -> None:
-    """Raise a ValueError if two matrices are over different rings."""
-    if (
-        isinstance(matrix_a, abstract.RingArray)
-        and isinstance(matrix_b, abstract.RingArray)
-        and matrix_a.ring != matrix_b.ring
-    ):
+    """Raise a ValueError if two RingArrays, or two field arrays, are over different rings."""
+    same_ring = True
+    if isinstance(matrix_a, abstract.RingArray) and isinstance(matrix_b, abstract.RingArray):
+        same_ring = matrix_a.ring == matrix_b.ring
+    elif isinstance(matrix_a, galois.FieldArray) and isinstance(matrix_b, galois.FieldArray):
+        same_ring = type(matrix_a) is type(matrix_b)
+    if not same_ring:
         raise ValueError("Cannot take a product of matrices over different rings")
 
 

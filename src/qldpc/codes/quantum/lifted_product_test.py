@@ -190,36 +190,38 @@ def test_subsystem_lifted_product_codes(ring_cyclic3_gf2: abstract.GroupRing) ->
     assert np.sum(line_weights) < np.sum(weights)
 
 
-def test_lifted_products_require_one_ring() -> None:
+def test_lifted_products_require_same_ring() -> None:
     """The two matrices of a lifted product must be over the same ring."""
-    # these group algebras differ, but lift their members to matrices of the same size, and they are
-    # not semisimple, which canonical logical operators would otherwise report
+    # these group algebras differ but lift their members to matrices of the same size, so only the
+    # ring check rejects them.  Neither is semisimple, so canonical logical operators must check
+    # rings before computing Howell normal forms.
     ring_a = abstract.GroupRing(abstract.CyclicGroup(4))
     ring_b = abstract.GroupRing(abstract.AbelianGroup(2, 2))
     assert ring_a != ring_b and ring_a.group.lift_dim == ring_b.group.lift_dim
     matrix_a = abstract.RingArray.build([[1, ring_a.generators[0]]], ring_a)
     matrix_b = abstract.RingArray.build([[1, ring_b.generators[0]]], ring_b)
+
+    # an equal ring that is a separate object
+    ring_c = abstract.GroupRing(abstract.CyclicGroup(4))
+    assert ring_c == ring_a and ring_c is not ring_a
+    matrix_c = abstract.RingArray.build([[1, ring_c.generators[0]]], ring_c)
+
     code_types: list[type[codes.LPCode | codes.SLPCode]] = [codes.LPCode, codes.SLPCode]
     for code_type in code_types:
         with pytest.raises(ValueError, match="different rings"):
             code_type(matrix_a, matrix_b)
         with pytest.raises(ValueError, match="different rings"):
             code_type.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
-
-        # equal rings that are separate objects are accepted
-        ring_c = abstract.GroupRing(abstract.CyclicGroup(4))
-        assert ring_c == ring_a and ring_c is not ring_a
-        matrix_c = abstract.RingArray.build([[1, ring_c.generators[0]]], ring_c)
-        code = code_type(matrix_a, matrix_c)
-        assert code.get_code_params() == code_type(matrix_a).get_code_params()
+        assert np.array_equal(code_type(matrix_a, matrix_c).matrix, code_type(matrix_a).matrix)
 
 
 def test_lifted_products_of_empty_matrices() -> None:
-    """Lifted products accept matrices with no rows."""
+    """Lifted products accept matrices with no rows, which give codes with no checks."""
     ring = abstract.GroupRing(abstract.CyclicGroup(3))
     empty = abstract.RingArray.build(np.zeros((0, 2), dtype=int), ring)
     for code_type in [codes.LPCode, codes.SLPCode]:
-        assert len(code_type(empty)) == 2 * 2 * ring.group.lift_dim
+        code = code_type(empty)
+        assert len(code) == code.dimension == 2 * 2 * ring.group.lift_dim
 
 
 def test_lifted_product_line_logicals_noncommutative(

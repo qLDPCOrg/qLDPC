@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import unittest.mock
 
+import galois
 import networkx as nx
 import numpy as np
 import pytest
@@ -214,15 +215,18 @@ def test_subsystem_hypergraph_product(
     code.set_logical_ops(code.get_logical_ops(), skip_validation=False)
 
 
-def test_products_require_one_ring() -> None:
-    """Hypergraph products of matrices over different rings raise an error."""
+def test_products_require_same_ring() -> None:
+    """Hypergraph products of matrices over different rings or fields raise an error."""
     ring_a = abstract.GroupRing(abstract.CyclicGroup(4))
     ring_b = abstract.GroupRing(abstract.AbelianGroup(2, 2))
-    matrix_a = abstract.RingArray.build([[1, ring_a.generators[0]]], ring_a)
-    matrix_b = abstract.RingArray.build([[1, ring_b.generators[0]]], ring_b)
+    ring_matrix_a = abstract.RingArray.build([[1, ring_a.generators[0]]], ring_a)
+    ring_matrix_b = abstract.RingArray.build([[1, ring_b.generators[0]]], ring_b)
+    field_matrix_a, field_matrix_b = galois.GF(2)([[1, 1]]), galois.GF(3)([[1, 1]])
     for get_matrix_product in [codes.HGPCode.get_matrix_product, codes.SHPCode.get_matrix_product]:
         with pytest.raises(ValueError, match="different rings"):
-            get_matrix_product(matrix_a, matrix_b)
+            get_matrix_product(ring_matrix_a, ring_matrix_b)
+        with pytest.raises(ValueError, match="different rings"):
+            get_matrix_product(field_matrix_a, field_matrix_b)
 
 
 def test_bacon_shor_code() -> None:

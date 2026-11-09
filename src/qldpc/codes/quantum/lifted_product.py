@@ -152,7 +152,8 @@ class LPCode(CSSCode):
     ) -> tuple[abstract.RingArray, abstract.RingArray]:
         """Canonical ring-logical line operators for a lifted product code.
 
-        Generalizes HGPCode.get_canonical_logical_line_ops.
+        Generalizes HGPCode.get_canonical_logical_line_ops.  Matrices over different rings raise a
+        ValueError.
         """
         _check_same_ring(matrix_a, matrix_b)
 
@@ -302,7 +303,8 @@ class SLPCode(CSSCode):
     ) -> tuple[abstract.RingArray, abstract.RingArray]:
         """Canonical ring-logical line operators for a subsystem lifted product code.
 
-        Generalizes SHPCode.get_canonical_logical_line_ops.
+        Generalizes SHPCode.get_canonical_logical_line_ops.  Matrices over different rings raise a
+        ValueError.
         """
         _check_same_ring(matrix_a, matrix_b)
         generator_a = matrix_a.null_space().howell_normal_form_semisimple()
