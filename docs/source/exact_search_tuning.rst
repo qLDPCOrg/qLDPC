@@ -120,9 +120,9 @@ Routes and the names that control them
      - :attr:`SearchTuning.disjoint_random_column_orders`
      - :data:`CSS_SEARCH_CACHE_SIZE`
      -
-   * - Searches of the lightest Pauli errors by CSS weight on another stabilizer state
+   * - Searches of the lightest Pauli errors by physical weight, or by CSS weight on another stabilizer state
      - :attr:`SearchTuning.disjoint_random_column_orders`, :attr:`SearchTuning.max_css_single_pairs`
-     -
+     - :data:`PAULI_SEARCH_CACHE_SIZE`
      -
    * - Counts of deformed codes
      -
@@ -149,6 +149,7 @@ Constants
 .. autodata:: CSS_SEARCH_CACHE_SIZE
 .. autodata:: KRAWTCHOUK_CACHE_SIZE
 .. autodata:: LOCAL_CLIFFORD_CACHE_SIZE
+.. autodata:: PAULI_SEARCH_CACHE_SIZE
 
 The module
 ----------

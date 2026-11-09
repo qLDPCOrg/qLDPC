@@ -18,7 +18,13 @@ from qldpc.objects import Pauli, PauliXZ
 from ..conftest import Tune
 from . import logical_counts as lc
 from ._binary import get_nested_code_basis
-from ._search import automorphism_families, connected_support, coset_leader_search, information_sets
+from ._search import (
+    affine_search,
+    automorphism_families,
+    connected_support,
+    coset_leader_search,
+    information_sets,
+)
 
 
 @pytest.fixture
@@ -69,12 +75,14 @@ def compilation_mode(
     """Run the compiled functions of the distance searches as plain Python, or compiled.
 
     In the plain Python mode, the compiled-on-request functions, and the always-compiled functions
-    that the basis family stages, the automorphism families, the connected-support search, and the
-    coset-leader search define, run as Python, which coverage can trace.  The compiled mode compiles
-    the compiled-on-request functions once per session, and restores plain Python afterwards.
+    that the scans of layers, the basis family stages, the automorphism families, the
+    connected-support search, and the coset-leader search define, run as Python, which coverage can
+    trace.  The compiled mode compiles the compiled-on-request functions once per session, and
+    restores plain Python afterwards.
     """
     if request.param == "python":
         for module in (
+            affine_search,
             automorphism_families,
             connected_support,
             information_sets,

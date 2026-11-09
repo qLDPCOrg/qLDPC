@@ -8,8 +8,9 @@ The overlapping-set certificate and implementation invariants are derived in
 ``brouwer_zimmermann.md`` beside this module.  Information-set families and their certificates are
 built in ``information_sets.py``, which fixed-weight logical counting shares.  Families of
 images of one information set under automorphisms are built in ``automorphism_families.py``, and
-tables that let a scan skip hopeless supports in ``completion_bounds.py``.  This module owns witness
-discovery, early exits, exhaustive dispatch, and the resumable native scans.
+tables that let a scan skip hopeless supports in ``completion_bounds.py``.  The compiled scans of
+layers, which the coset search shares, are in ``affine_search.py``.  This module owns witness
+discovery, early exits, exhaustive dispatch, and the resumable scans of layers in chunks.
 """
 
 from __future__ import annotations
@@ -22,15 +23,12 @@ from dataclasses import dataclass, field
 import numpy as np
 import numpy.typing as npt
 
-from qldpc._binary import pack_bits, popcount_word
-from qldpc._compilation import always_compiled
+from qldpc._binary import pack_bits
 
 from .._binary import get_eligible_rows
 from .._tuning import SearchTuning, get_tuning
-from . import automorphism_families, completion_bounds, information_sets
+from . import affine_search, automorphism_families, completion_bounds, information_sets
 from .brute_force import get_nested_distance_brute_force
-from .completion_bounds import get_completion_bound
-from .information_sets import advance_support
 
 # A function that returns the automorphism family of a problem for a weight divisor, or None.
 _GetAutomorphismFamily = Callable[
@@ -215,8 +213,8 @@ class _BrouwerZimmermannSearch:
     the automorphism family if it predicts less work (see ``_switch_to_automorphism_family``).
 
     A layer of two or more rows that scans one set whose block is an information set uses
-    ``_scan_one_information_set``.  Such a layer may skip the supports whose last two rows cannot
-    complete a word lighter than the best weight, with tables that the completion fields of
+    ``affine_search.scan_information_set``.  Such a layer may skip the supports whose last two rows
+    cannot complete a word lighter than the best weight, with tables that the completion fields of
     ``tuning`` choose (see ``completion_bounds``).  ``completion_tables`` keeps the most recently
     chosen tables for reuse, until the basis changes or the search finishes.
     """
@@ -315,7 +313,7 @@ class _BrouwerZimmermannSearch:
         # Scan in chunks, returning early once the upper bound reaches the cutoff.
         while depth >= 0:
             if one_set:
-                self.best, depth, _, _, _ = _scan_one_information_set(
+                self.best, depth, _, _, _ = affine_search.scan_information_set(
                     self.generators[scanned],
                     self.labels[scanned],
                     self.widths[scanned],
@@ -331,7 +329,7 @@ class _BrouwerZimmermannSearch:
                     scan_tables.block_bits,
                 )
             else:
-                self.best, depth, _ = _scan_brouwer_zimmermann(
+                self.best, depth, _ = affine_search.scan_family(
                     self.generators[scanned],
                     self.labels[scanned],
                     self.ranks[scanned],
@@ -618,197 +616,3 @@ def _get_basis_family_upper_bound(
     for generators, set_labels in zip(basis_family.generators, basis_family.labels, strict=True):
         upper_bound = min(upper_bound, _get_lightest_eligible_row_weight(generators, set_labels))
     return upper_bound
-
-
-####################################################################################################
-# native scan
-
-
-@always_compiled
-def _scan_brouwer_zimmermann(
-    generators: npt.NDArray[np.uint64],
-    labels: npt.NDArray[np.uint64],
-    ranks: npt.NDArray[np.int64],
-    widths: npt.NDArray[np.int64],
-    label_widths: npt.NDArray[np.int64],
-    support: npt.NDArray[np.int64],
-    prefixes: npt.NDArray[np.uint64],
-    depth: int,
-    best: int,
-    cutoff: int,
-    batch_size: int,
-) -> tuple[int, int, int]:
-    """Scan one bounded chunk of coefficient supports for Brouwer-Zimmermann search.
-
-    Args:
-        generators: Packed information-set rows after pivot columns have been deleted.
-        labels: Packed quotient labels whose nonzero XOR marks eligible candidates.
-        ranks: Rank of each information-set block before pivot columns were deleted.
-        widths: Number of packed generator words used by each information-set block.
-        label_widths: Number of packed label words used by each information-set block.
-        support: Mutable row indices for the current coefficient support.
-        prefixes: Mutable prefix XORs for internal support depths and information-set blocks.
-        depth: Current support-tree depth, or ``-1`` when the coefficient layer is complete.
-        best: Current upper bound; only strictly lighter eligible candidates replace it.
-        cutoff: Weight threshold that stops this chunk once ``best <= cutoff``.
-        batch_size: Maximum number of complete supports visited by this chunk.
-
-    Returns:
-        Updated ``best``, updated ``depth``, and number of complete supports visited.
-    """
-    dimension = generators.shape[1]
-    weight = len(support)
-    visited = 0
-    while True:
-        depth = advance_support(generators, widths, support, prefixes, depth)
-        if depth < 0:
-            return best, depth, visited
-
-        # Visit the remaining supports that differ from this one only in their last row, in each
-        # information set, returning at the cutoff or at the end of this chunk.
-        while support[depth] < dimension:
-            row = support[depth]
-            for set_index in range(len(ranks)):
-                # Each selected row whose pivot column was deleted contributes one to the Hamming
-                # weight; packed words hold the remaining columns.
-                if ranks[set_index] == dimension:
-                    candidate_weight = np.int64(weight)
-                else:
-                    candidate_weight = np.int64(0)
-                    for selected in range(weight):
-                        if support[selected] < ranks[set_index]:
-                            candidate_weight += 1
-                for word in range(widths[set_index]):
-                    value = prefixes[depth, set_index, word] ^ generators[set_index, row, word]
-                    candidate_weight += popcount_word(value)
-                    if candidate_weight >= best:
-                        break
-                if candidate_weight >= best:
-                    continue
-
-                if _is_eligible(labels, label_widths, set_index, support):
-                    best = int(candidate_weight)
-
-            visited += 1
-            support[depth] += 1
-            if best <= cutoff or visited >= batch_size:
-                return best, depth, visited
-
-
-@always_compiled
-def _scan_one_information_set(
-    generators: npt.NDArray[np.uint64],
-    labels: npt.NDArray[np.uint64],
-    widths: npt.NDArray[np.int64],
-    label_widths: npt.NDArray[np.int64],
-    support: npt.NDArray[np.int64],
-    prefixes: npt.NDArray[np.uint64],
-    depth: int,
-    best: int,
-    cutoff: int,
-    batch_size: int,
-    tables: npt.NDArray[np.uint8],
-    offsets: npt.NDArray[np.int64],
-    block_bits: int,
-) -> tuple[int, int, int, int, int]:
-    """Scan one bounded chunk of a layer of one information set, skipping hopeless completions.
-
-    The arguments are those of ``_scan_brouwer_zimmermann``, without ``ranks``, for one set whose
-    block is an information set, so every word weighs its coefficient weight plus the weight of its
-    packed tail, and for a layer of at least two rows.  ``tables``, ``offsets``, and ``block_bits``
-    are those of ``completion_bounds.CompletionTables``, such as ``completion_bounds.NO_TABLES``,
-    which skip nothing.  With tables, before the scan tries row ``s`` as the first of the last two
-    rows of a support, it bounds the tail weights of the completions of the first ``weight - 2``
-    rows, the prefix, by two rows from row ``s`` on.  If their words cannot weigh less than
-    ``best``, it skips them all.
-
-    A chunk ends when the layer is complete, at the cutoff, or once the supports that it weighed and
-    the bounds that it looked up reach ``batch_size`` together.
-
-    Returns:
-        Updated ``best``; updated ``depth``, which is ``-1`` once the layer is complete; and the
-        numbers of supports that the chunk weighed, of bounds that it looked up, and of supports
-        that it skipped.
-    """
-    num_rows = generators.shape[1]
-    weight = len(support)
-    width = widths[0]
-    use_tables = len(tables) > 0
-    # The search steps through the supports of the first weight - 1 rows, whose last row is the
-    # first of the last two rows of a support, and visits the last row of each in its own loop.  The
-    # first of the last two rows is never the last row, which no row can follow.
-    head = support[: weight - 1]
-    head_rows = generators[:, : num_rows - 1]
-    pair_depth = weight - 2
-    evaluated, lookups, skipped = 0, 0, 0
-    while True:
-        if depth < weight - 1:
-            depth = advance_support(head_rows, widths, head, prefixes, depth)
-            if depth < 0:
-                return best, depth, evaluated, lookups, skipped
-            first = support[pair_depth]
-
-            # Skip every completion from row first on if none can be lighter than the best word.
-            prefix = prefixes[pair_depth, 0]
-            if use_tables:
-                lookups += 1
-                limit = best - weight
-                if get_completion_bound(tables, offsets, block_bits, first, prefix, limit) >= limit:
-                    remaining = num_rows - first
-                    skipped += remaining * (remaining - 1) // 2
-                    support[pair_depth] = num_rows
-                    if evaluated + lookups >= batch_size:
-                        return best, depth, evaluated, lookups, skipped
-                    continue
-
-            # Otherwise add row first to the prefix, and try every later row as the last row.
-            for word in range(width):
-                prefixes[weight - 1, 0, word] = prefix[word] ^ generators[0, first, word]
-            depth = weight - 1
-            support[depth] = first + 1
-            if evaluated + lookups >= batch_size:
-                return best, depth, evaluated, lookups, skipped
-
-        # Weigh the words that differ only in their last row.
-        while support[depth] < num_rows:
-            row = support[depth]
-            candidate_weight = np.int64(weight)
-            for word in range(width):
-                candidate_weight += popcount_word(
-                    prefixes[depth, 0, word] ^ generators[0, row, word]
-                )
-                if candidate_weight >= best:
-                    break
-            if candidate_weight < best and _is_eligible(labels, label_widths, 0, support):
-                best = int(candidate_weight)
-
-            evaluated += 1
-            support[depth] += 1
-            if best <= cutoff or evaluated + lookups >= batch_size:
-                return best, depth, evaluated, lookups, skipped
-        depth = pair_depth
-        support[depth] += 1
-
-
-@always_compiled(inline=True)
-def _is_eligible(
-    labels: npt.NDArray[np.uint64],
-    label_widths: npt.NDArray[np.int64],
-    set_index: int,
-    support: npt.NDArray[np.int64],
-) -> bool:
-    """Decide whether the word of a support of a search basis lies outside the excluded subcode.
-
-    A word is eligible when no subcode is excluded, so that the set has no label words, or when the
-    XOR of the quotient labels of its rows is nonzero.
-    """
-    weight = len(support)
-    eligible = label_widths[set_index] == 0
-    for word in range(label_widths[set_index]):
-        combined = labels[set_index, support[0], word]
-        for selected in range(1, weight):
-            combined ^= labels[set_index, support[selected], word]
-        if combined:
-            eligible = True
-            break
-    return eligible

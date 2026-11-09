@@ -25,8 +25,9 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 - **Connected-support search** (`SupportSearch`): the depth-first search of the supports that grow through unsatisfied parity checks, for a binary matrix of checks `H` and an excluded matrix `G`, whose words are binary, or symplectic for qubit codes that are not CSS.
   It is another exact method, selected by `method="connected_support"`.
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer.
-  Counting scans in `_counting/scan.py`, and the distance search in `_search/brouwer_zimmermann.py`.
-  Both scans and `_search/coset_leader_search.py` step through a layer with `advance_support` in `_search/information_sets.py`.
+  Counting scans in `_counting/scan.py`.
+  The distance search in `_search/brouwer_zimmermann.py` and the coset search in `_search/coset_leader_search.py` scan with the compiled scans of `_search/affine_search.py`.
+  All of them step through a layer with `advance_support` in `_search/information_sets.py`.
 
 ## Where to look
 
@@ -34,6 +35,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | --- | --- |
 | A distance method, or the validation of method and backend names | `core.py`, and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact`, `get_distance`, and `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` dispatch on the method name |
 | The Brouwer–Zimmermann (BZ) distance search | `_search/brouwer_zimmermann.py` |
+| The compiled scans of layers that the distance search and the coset-leader search share, one body specialized by constant flags | `_search/affine_search.py` |
 | The connected-support distance search | `_search/connected_support.py` |
 | How basis families and their certificates are built | `_search/information_sets.py` |
 | Automorphism families: the images of one information set under automorphisms of a code, and the check of those automorphisms, which the connected-support search uses too | `_search/automorphism_families.py` |
@@ -57,7 +59,7 @@ From the top:
 1. `logical_counts.py`, the public interface of the counts, and `core.py`, the public interface of the distances.
 2. The `_counting` package, the counting methods.
 3. `_search/brouwer_zimmermann.py`, `_search/brute_force.py`, `_search/connected_support.py`, and `_search/coset_leader_search.py`, the searches.
-4. `_search/information_sets.py`, the basis families that the searches share, `_search/automorphism_families.py`, which builds automorphism families from them, and `_search/completion_bounds.py`, which bounds the words that complete the first rows of a support with two more rows.
+4. `_search/affine_search.py`, the compiled scans of layers that the searches share, `_search/information_sets.py`, the basis families that the searches share, `_search/automorphism_families.py`, which builds automorphism families from them, and `_search/completion_bounds.py`, which bounds the words that complete the first rows of a support with two more rows.
 5. `_search/matroid_partition.py`, which `_search/information_sets.py` uses to build some of those families.
 6. `_tuning.py`, the settings of the searches and counts, and the sizes of their caches.
 7. `_binary.py`, the foundation.
