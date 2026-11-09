@@ -183,8 +183,13 @@ class LPCode(CSSCode):
         X and Z operators as the rank of this overlap matrix, and makes their overlap matrix the
         identity.  If operators lifted from different rows have zero overlap, as for canonical
         logical operators with lifts to orthogonal matrices, the overlap matrix of all lifted
-        operators is the identity.
+        operators is the identity.  Arrays with different numbers of rows raise a ValueError.
         """
+        if len(logical_ops_x) != len(logical_ops_z):
+            raise ValueError(
+                f"Cannot lift {len(logical_ops_x)} X and {len(logical_ops_z)} Z logical operators,"
+                " which must come in pairs"
+            )
         ring = logical_ops_x.ring
         num_columns = logical_ops_x.shape[1]
         block_size = ring.group.lift_dim
