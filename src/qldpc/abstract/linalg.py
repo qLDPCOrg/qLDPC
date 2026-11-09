@@ -79,12 +79,12 @@ def kron(
     """Take the Kronecker product of two matrices over a ring.
 
     If the base ring R is commutative, this is the ordinary Kronecker product.  Otherwise, R must be
-    a group algebra F[G], and matrix entries of the Kronecker product live in the bimodule
-    F[G × G] ≅ R ⨂ R, whose basis elements (g, h), for group members g and h, act on elements t of
-    R as (g, h)(t) = g·t·h⁻¹.  If entries of matrix_a and matrix_b are group members a and b, the
-    corresponding entry of the product is (a, b⁻¹), which acts as t -> a·t·b, and other entries
-    extend linearly.  Lifting members of this bimodule needs anti-representations of G, which
-    requires G to use its default lift.  Any other noncommutative ring raises a NotImplementedError.
+    a group algebra F[G], and any other noncommutative ring raises a NotImplementedError.  Entries
+    of the Kronecker product then live in the bimodule F[G × G] ≅ R ⨂ R.  A basis element (g, h) of
+    the bimodule, for group members g and h, acts on t ∈ R as (g, h)(t) = g·t·h⁻¹.  If entries of
+    matrix_a and matrix_b are group members a and b, the corresponding entry of the product is the
+    basis element (a, b⁻¹), which acts as t -> a·t·b, and other entries extend linearly.  Lifting
+    members of this bimodule needs anti-representations of G, so G must use its default lift.
     """
     ring = _get_ring(matrix_a, matrix_b)
 
@@ -120,9 +120,6 @@ def get_howell_dual(
 ) -> RingArray:
     """Build the "dual" of a matrix in Howell normal form.
 
-    Howell duals are implemented only for group algebras, so this function raises a
-    NotImplementedError for any other ring.
-
     The dual matrix provides a pseudoinverse of matrix_hnf in the following sense.  Below, ``@``
     denotes the orientation-aware product ``abstract.matmul(..., right=right)`` (ordinary matrix
     multiplication when ``right=False``).  If
@@ -148,6 +145,9 @@ def get_howell_dual(
         (a) swaps the matrix indices of D (identically to ``D.T``), and
         (b) for each entry of D, transposes its matrix representation within each Wedderburn-Artin
             component of the ring.
+
+    Howell duals are implemented only for group algebras, so this function raises a
+    NotImplementedError for any other ring.
 
     The ``transformer`` must be the one used to build ``matrix_hnf``, since the dual is built in
     that transformer's basis.  By default it is read from ``matrix_hnf`` (the transformer recorded
@@ -240,16 +240,16 @@ def get_howell_dual(
 
 @functools.cache
 def _get_bimodule(ring: GroupRing) -> GroupRing:
-    """Map a group algebra ``F[G]`` to its induced bimodule ``F[G ⨂ G]``.
+    """Map a group algebra ``F[G]`` to its induced bimodule ``F[G × G]``.
 
-    Elements ``r ⨂ s ∈ F[G ⨂ G]`` of the bimodule act on elements of the base ring as::
+    A basis element ``(g, h) ∈ G × G`` of the bimodule acts on elements of the base ring as::
 
-        (r ⨂ s)(t) = r·t·s⁻¹.
+        (g, h)(t) = g·t·h⁻¹.
 
-    (The right sector lifts to an anti-representation of the inverse, hence ``s⁻¹`` rather than
-    ``s``.)
+    (The right sector lifts to an anti-representation of the inverse, hence ``h⁻¹`` rather than
+    ``h``.)
 
-    When lifting a RingArray matrix over a bimodule, the "left" entries of ``G ⨂ G`` get lifted to
+    When lifting a RingArray matrix over a bimodule, the "left" entries of ``G × G`` get lifted to
     an ordinary representation, while the "right" entries get lifted to an anti-representation.
     """
     size = ring.group.identity.size

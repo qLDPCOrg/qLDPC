@@ -234,16 +234,16 @@ def test_get_howell_dual_edge_cases(ring_alternating4_gf5: abstract.GroupRing) -
         )
 
 
-def test_kron_requires_group_algebra() -> None:
-    """The Kronecker product over a noncommutative ring needs a group algebra."""
-    units = [np.array([[0, 1], [0, 0]]), np.array([[0, 0], [1, 0]])]
-    ring = abstract.MatrixRing(*units)
+def test_kron_over_matrix_rings() -> None:
+    """The Kronecker product over a matrix ring needs a commutative ring."""
+    matrix_units = [np.array([[0, 1], [0, 0]]), np.array([[0, 0], [1, 0]])]
+    ring = abstract.MatrixRing(*matrix_units)
     matrix = abstract.RingArray.build([[1, ring.generators[0]]], ring)
     with pytest.raises(NotImplementedError, match="only for group algebras"):
         abstract.kron(matrix, matrix)
 
     # a commutative ring needs no bimodule
-    ring = abstract.MatrixRing(units[0] + units[1])
+    ring = abstract.MatrixRing(matrix_units[0] + matrix_units[1])
     matrix = abstract.RingArray.build([[1, ring.generators[0]]], ring)
     product = abstract.kron(matrix, matrix)
     for index, (aa, bb) in enumerate(itertools.product(matrix[0], repeat=2)):

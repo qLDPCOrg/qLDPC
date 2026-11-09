@@ -190,6 +190,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
 
     def __invert__(self) -> RingArray:
         """Transpose the entries of this RingArray, as in ``RingMember.T``."""
+        # check the ring here, so that an empty array also raises an error
         if not self.ring.has_involution:
             raise ValueError(f"{self.ring} has no involution, so its members cannot be transposed")
         vals = [val.T for val in self.ravel()]
@@ -201,7 +202,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
     def T(self) -> RingArray:
         """Conjugate-transpose of a matrix over a ring.
 
-        In addition to transposing the first two indices of the array, this method "conjugates" or
+        In addition to transposing the first two indices of the array, this property "conjugates" or
         "transposes" each array element with the involution of the ring (see ``RingMember.T``).  For
         a group algebra, this takes group members ``g -> ~g = g**-1``.  This property raises a
         ValueError for an array over a ring without an involution (see ``Ring.has_involution``).
@@ -225,10 +226,10 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
 
         2. A ring (or group, inducing a group algebra over GF(2)).
 
-        Integers and members of the group of a group algebra are cast into members of the ring.
-        Members of a group algebra may be embedded into a different group algebra with the same
-        field if the group of that algebra contains their group members, which are padded with fixed
-        points if they act on fewer points than the group.  Members of any other ring must already
+        Integers and members of the group of a group algebra are cast into members of the ring.  A
+        group member that acts on fewer points than the group is padded with fixed points.  Members
+        of a group algebra may be embedded into a different group algebra with the same field if the
+        group of that algebra contains their group members.  Members of any other ring must already
         belong to the target ring.
         """
         array = np.asanyarray(data)
@@ -279,9 +280,9 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
     def to_field_array(self) -> galois.FieldArray:
         """Convert a RingArray into an array of coefficients (in a finite field) for each entry.
 
-        This method expands every entry of a ``RingArray`` into a vector of length
-        ``ring.dim``.  If ``ring_array`` is two-dimensional, for example, then
-        ``ring_array.to_field_array()[a, b, :]`` is the vector of coefficients for the
+        This method expands every entry of a ``RingArray`` into a vector whose length is the
+        dimension of its ring (``Ring.dim``).  If ``ring_array`` is two-dimensional, for example,
+        then ``ring_array.to_field_array()[a, b, :]`` is the vector of coefficients for the
         ``RingMember`` at ``ring_array[a, b]``.
         """
         return ring_array_to_field_array(self, self.ring)
@@ -339,13 +340,15 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         ``RingArray``, such that ``np.any(self @ self.null_space().T)`` is ``np.False_``.
 
         If ``right is True``, this method constructs a null space over the opposite ring, in which
-        the order of multiplication is reversed (see ``RingArray.kernel`` for the products).
+        the order of multiplication is reversed, such that ``abstract.matmul(self,
+        self.null_space(right=True).T, right=True)`` is zero.
 
         This method returns the conjugate transpose of ``RingArray.kernel``, so it requires a ring
         with an involution (see ``Ring.has_involution``), and raises a ValueError for any other
-        ring.  The rows of the returned matrix are generally an overcomplete basis for the null
-        space.
+        ring.  The rows of the returned matrix span the null space, but are generally linearly
+        dependent.
         """
+        # check the ring here, to point to RingArray.kernel for a ring without an involution
         if not self.ring.has_involution:
             raise ValueError(
                 f"{self.ring} has no involution, so null-space rows cannot be conjugated: use"
@@ -361,14 +364,14 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         which the order of multiplication is reversed, such that ``abstract.matmul(self,
         self.kernel(right=True), right=True)`` is zero.
 
-        Due to the subtleties of defining row reduction for a matrix over a ring, the columns of the
-        matrix returned by this method are generally an overcomplete basis for the null space of
-        this ``RingArray``.
+        The columns of the returned matrix span the null space of this ``RingArray``, but are
+        generally linearly dependent, since this method does not row-reduce them (row reduction
+        over a ring is subtle).
         """
         self._require_ndim(2)
 
-        # field-valued null vectors of self.regular_lift() provide an overcomplete basis for the
-        # space of ring-valued null vectors
+        # field-valued null vectors of self.regular_lift() span the space of ring-valued null
+        # vectors
         null_field_vectors = self.regular_lift(right=right).null_space()
 
         # collect ring-valued null vectors as rows, and transpose them into columns without applying
@@ -391,13 +394,16 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         The RREF of a RingArray over a commutative ring is unique.  For non-commutative rings, the
         RREF is only unique up to a choice of matrix basis for simple components of the ring.
 
-        This method is implemented only for group algebras, since it relies on a ``transformer``
-        for the Wedderburn-Artin decomposition (see ``Ring.get_transformer``).  Without a
-        transformer, it may run GAP, prompt on standard input, and use the system clipboard; see
-        GroupRing.get_transformer.
+        This method is implemented only for group algebras, and raises a NotImplementedError for any
+        other ring.  Without a ``transformer``, it may run GAP, prompt on standard input, and use
+        the system clipboard; see GroupRing.get_transformer.
         """
         self._require_ndim(2)
-        if isinstance(self.ring, GroupRing) and not self.ring.is_semisimple:
+        if not isinstance(self.ring, GroupRing):
+            raise NotImplementedError(
+                f"Row reduction is implemented only for group algebras, not {self.ring}"
+            )
+        if not self.ring.is_semisimple:
             raise ValueError("RingArray.row_reduce only supports semisimple rings")
         transformer = transformer or self.ring.get_transformer()
         matrices = [
@@ -459,10 +465,9 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         The HNF of a ``RingArray`` over a commutative ring is unique.  For non-commutative rings,
         the HNF is only unique up to a choice of matrix basis for simple components of the ring.
 
-        This method is implemented only for group algebras, since it relies on a ``transformer``
-        for the Wedderburn-Artin decomposition (see ``Ring.get_transformer``).  Without a
-        transformer, it may run GAP, prompt on standard input, and use the system clipboard; see
-        GroupRing.get_transformer.
+        This method is implemented only for group algebras, and raises a NotImplementedError for any
+        other ring.  Without a ``transformer``, it may run GAP, prompt on standard input, and use
+        the system clipboard; see GroupRing.get_transformer.
 
         References:
 

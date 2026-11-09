@@ -108,7 +108,7 @@ def test_howell_form_poly_preserves_module() -> None:
             assert np.array_equal(howell, howell.howell_normal_form_poly())
 
 
-def test_howell_forms_require_group_algebra() -> None:
+def test_howell_forms_require_group_algebra(ring_cyclic3_gf2: abstract.GroupRing) -> None:
     """Howell normal forms require a group algebra, and the polynomial form a cyclic group's."""
     ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
     matrix = abstract.RingArray.build([[1, 0], [1, 1]], ring)
@@ -116,3 +116,5 @@ def test_howell_forms_require_group_algebra() -> None:
         matrix.howell_normal_form(poly=True)
     with pytest.raises(NotImplementedError, match="only for group algebras"):
         matrix.howell_normal_form()
+    with pytest.raises(NotImplementedError, match="only for group algebras"):
+        matrix.howell_normal_form_semisimple(ring_cyclic3_gf2.get_transformer())

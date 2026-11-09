@@ -211,8 +211,8 @@ def assert_valid_balanced_product(
 
 def test_chain_complex_over_matrix_ring() -> None:
     """A chain complex over a matrix ring matches that over an isomorphic group algebra."""
-    group_ring = abstract.GroupRing(abstract.CyclicGroup(3))
-    ring = abstract.MatrixRing(group_ring.lift(group_ring.group.generators[0]))
+    group_ring = abstract.GroupRing(abstract.CyclicGroup(3), field=3)
+    ring = abstract.MatrixRing(group_ring.generators[0].lift())
 
     def get_chain(base_ring: abstract.Ring) -> objects.ChainComplex:
         matrix = abstract.RingArray.build([[1, base_ring.generators[0]]], base_ring)

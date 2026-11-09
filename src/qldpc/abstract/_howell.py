@@ -42,7 +42,11 @@ def get_howell_normal_form_semisimple(
     """
     ring_matrix._require_ndim(2)
     ring = ring_matrix.ring
-    if isinstance(ring, GroupRing) and not ring.is_semisimple:
+    if not isinstance(ring, GroupRing):
+        raise NotImplementedError(
+            f"Semisimple Howell normal forms are implemented only for group algebras, not {ring}"
+        )
+    if not ring.is_semisimple:
         raise ValueError("The ordinary Howell normal form requires the base ring to be semisimple")
     transformer = transformer or ring.get_transformer()
     num_components = len(transformer.transformers)
