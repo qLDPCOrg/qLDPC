@@ -297,7 +297,7 @@ def test_lifted_product_over_matrix_rings() -> None:
 
     # the involution of this ring is not the identity, and the field has odd characteristic
     group_ring = abstract.GroupRing(abstract.CyclicGroup(3), field=3)
-    ring = abstract.MatrixRing(group_ring.lift(group_ring.group.generators[0]))
+    ring = abstract.MatrixRing(group_ring.generators[0].lift())
     assert ring.generators[0].T != ring.generators[0]
     for code_type in [codes.LPCode, codes.SLPCode]:
         code = code_type(*get_matrices(ring))
@@ -308,8 +308,9 @@ def test_lifted_product_over_matrix_rings() -> None:
 
 def test_lifted_product_ring_requirements() -> None:
     """Lifted products check the requirements on their rings."""
-    units = [np.array([[0, 1], [0, 0]]), np.array([[0, 0], [1, 0]])]
-    noncommutative_ring = abstract.MatrixRing(np.diag([1, 0]), units[0])  # with no involution
+    # a noncommutative ring must be a group algebra, which is checked before the involution
+    upper, lower = np.array([[0, 1], [0, 0]]), np.array([[0, 0], [1, 0]])
+    noncommutative_ring = abstract.MatrixRing(np.diag([1, 0]), upper)
     assert not noncommutative_ring.is_commutative and not noncommutative_ring.has_involution
     matrix = abstract.RingArray.build([[1, noncommutative_ring.generators[1]]], noncommutative_ring)
     for code_type in [codes.LPCode, codes.SLPCode]:
@@ -323,8 +324,8 @@ def test_lifted_product_ring_requirements() -> None:
         with pytest.raises(ValueError, match="Anti-representations"):
             code_type(matrix)
 
-    # an SLPCode accepts a ring without an involution
-    ring = abstract.MatrixRing(units[1])
+    # an LPCode needs an involution, but an SLPCode does not
+    ring = abstract.MatrixRing(lower)
     assert not ring.has_involution and ring.is_commutative
     matrix = abstract.RingArray.build([[ring.generators[0]]], ring)
     with pytest.raises(ValueError, match="no involution"):
@@ -333,18 +334,23 @@ def test_lifted_product_ring_requirements() -> None:
     assert np.array_equal(subsystem_code.matrix_x, matrix.lift())
     assert np.array_equal(subsystem_code.matrix_z, matrix.lift())
 
-    # lifted products use the size of lifted matrices, here larger than the dimension of the ring
+    # canonical logical operators need the Wedderburn-Artin decomposition of a group algebra
+    ring = abstract.MatrixRing(np.diag([1, 0]))
+    assert ring.is_commutative and ring.has_involution
+    matrix = abstract.RingArray.build([[ring.generators[0]]], ring)
+    for code_type in [codes.LPCode, codes.SLPCode]:
+        with pytest.raises(ValueError, match="Cannot set canonical logical operators") as error:
+            code_type(matrix, set_logicals=True)
+        assert isinstance(error.value.__cause__, NotImplementedError)
+
+
+def test_lifted_product_sector_sizes() -> None:
+    """Lifted products use the size of lifted matrices, which can exceed the dimension of a ring."""
     ring = abstract.MatrixRing(np.diag([1, 0, 0]))
     assert ring.dim == 2 and ring.lift_dim == 3
     matrix = abstract.RingArray.build([[ring.generators[0]]], ring)
     code = codes.LPCode(matrix)
     assert code.num_qudits == code.sector_size[0, 0] + code.sector_size[1, 1] == 6
-
-    # canonical logical operators need the Wedderburn-Artin decomposition of a group algebra
-    for code_type in [codes.LPCode, codes.SLPCode]:
-        with pytest.raises(ValueError, match="Cannot set canonical logical operators") as error:
-            code_type(matrix, set_logicals=True)
-        assert isinstance(error.value.__cause__, NotImplementedError)
 
 
 def test_lifted_product_translations_with_larger_lifts() -> None:
