@@ -15,7 +15,7 @@ It is organized as follows:
 
 - [Section 2](#2-when-to-use-which-method) says when to use this method rather than BZ.
 - [Section 3](#3-the-algorithm) explains the algorithm, and where qLDPC differs from the paper.
-  [Section 3.7](#37-qubit-codes-that-are-not-css) extends the algorithm to qubit codes that are not CSS.
+  [Section 3.7](#37-qubit-codes-that-are-not-css) extends the algorithm to qubit codes that are not CSS, and [Section 3.8](#38-vectors-with-a-given-syndrome) to vectors with a given syndrome.
 - [Section 4](#4-guide-to-the-source-code) maps the algorithm to the source code.
 - [Section 5](#5-correctness-requirements) lists the requirements that every change to the search must keep.
 
@@ -296,6 +296,28 @@ Each argument of Sections 3.2 to 3.6 carries over, with symbols where it uses va
   The test columns of a symbol are those of its word: for `Y`, the sum of those of `X` and `Z`.
   qLDPC infers no weight divisor for these problems, and steps their weight limits by one.
 
+### 3.8 Vectors with a given syndrome
+
+A **syndrome query** asks for a vector `x` with `H x = σ`, for a given nonzero syndrome `σ`, of weight at most `W`.
+The vectors with a syndrome are a coset of the kernel of `H`, so for the stabilizers of a pure stabilizer state, whose kernel is the stabilizer group, a lightest one is a coset leader of the Pauli errors with that syndrome.
+For a code with logical operators, the query ranges over every logical class, and ignores `G`.
+
+The query searches as [Section 3.3](#33-the-depth-first-search) does, but from the empty support with syndrome `σ`, without roots or ranks.
+At a state, the unsatisfied checks are those of `σ + H x_S`, where `x_S` is the vector of the state, and the search reports `S` once that syndrome is empty.
+
+**Completeness.**
+Suppose that `x` is a lightest vector with syndrome `σ`, and take a state with `S ⊊ supp(x)` and `F ∩ supp(x) = ∅`, as the empty state is.
+The syndrome of the state is that of the rest of `x`, which is not empty, since the restriction of `x` to `S` would otherwise be a lighter vector with syndrome `σ`.
+So an unsatisfied check has a variable of `supp(x) \ S`, and the argument of [Section 3.3](#33-the-depth-first-search) carries over.
+The pruning of [Section 3.4](#34-pruning) holds with completions that empty the syndrome of the state, and the values of [Section 3.7](#37-qubit-codes-that-are-not-css) carry over.
+`x` need not be connected: each component of its support flips a check of `σ`, so the empty state reaches it through one of them.
+
+Three parts of a distance search do not carry over:
+
+- A syndrome is not invariant under the symmetries of the code, so the query uses no roots.
+- The weights of the vectors with a syndrome need not share a divisor, so the query has none.
+- Every vector with the syndrome counts, so the query has no logical test.
+
 ## 4. Guide to the source code
 
 The names below are in `_search/connected_support.py`, unless the table says otherwise.
@@ -308,6 +330,7 @@ The names below are in `_search/connected_support.py`, unless the table says oth
 | Symplectic problems, values, and symbols | `homogeneous` of `SupportSearch`, its `_get_symbol_columns`, and `_shift_other_values` |
 | Distance of several sectors | `get_distance_connected_support`, which `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` reaches through `core.py` |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
+| Syndrome query | `SupportSearch.find_vector_with_syndrome`, and the root `-1` of `_search_supports` |
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_search/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |
@@ -348,6 +371,9 @@ Changes to the search can use other bounds and orders, while keeping these requi
   A state with an empty syndrome is a witness exactly if it fails a test, and a stabilizer must not be reported.
 - **Use a proven weight divisor.**
   A divisor that some witness lacks skips its weight.
+- **Start a syndrome query from its syndrome alone.**
+  It must block no variable by rank, and use no symmetry, divisor, or logical test, as [Section 3.8](#38-vectors-with-a-given-syndrome) explains.
+  The syndrome of the given checks must be mapped onto the distinct nonzero checks, and a syndrome that gives a zero check, or two equal checks, different entries has no vector.
 - **Return the exact minimum unless a cutoff permits an early exit.**
   The weights of the limits rise one divisor at a time, so that the first witness is the lightest.
   An early exit returns the weight of a known witness, which is an upper bound.

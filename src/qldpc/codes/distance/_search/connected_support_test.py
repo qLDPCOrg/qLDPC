@@ -720,6 +720,78 @@ def test_degenerate_checks() -> None:
     assert witness is not None and is_witness((checks, excluded), witness)
 
 
+def get_vector(
+    symbols: npt.NDArray[np.int64], width: int, homogeneous: bool
+) -> npt.NDArray[np.uint8]:
+    """The binary or symplectic vector of the symbols of a search."""
+    if not homogeneous:
+        return get_symplectic_vector(symbols, width // 2)
+    vector = np.zeros(width, dtype=np.uint8)
+    vector[symbols] = 1
+    return vector
+
+
+# Problems for syndrome queries.  The checks of nested-restrictions restrict the subtree of the
+# empty state for some syndromes.  The second problem has a zero check and a check before its copy,
+# so a query maps its syndrome onto fewer checks, and some syndromes have no vector.  The third is
+# the stabilizers of a pure state: the five-qubit code, with its logical X.
+SYNDROME_PROBLEMS = {
+    "nested-restrictions": (PROBLEMS["nested-restrictions"][0], True),
+    "copied-and-zero-checks": (
+        np.vstack([np.zeros((1, 7)), PROBLEMS["steane-X"][0][2:], PROBLEMS["steane-X"][0]]),
+        True,
+    ),
+    "five-qubit-state": (
+        np.vstack([QUBIT_PROBLEMS["five-qubit"][0], [[1] * 5 + [0] * 5]]),
+        False,
+    ),
+}
+
+
+@pytest.mark.usefixtures("compilation_mode")
+@pytest.mark.parametrize("name", SYNDROME_PROBLEMS)
+def test_syndrome_queries_match_enumeration(name: str) -> None:
+    """A query finds a vector with a syndrome exactly if the limit reaches the least weight.
+
+    An enumeration of every vector gives the least weight of each syndrome, and a syndrome that no
+    vector has, of any weight, has no vector within any limit.
+    """
+    checks, homogeneous = SYNDROME_PROBLEMS[name]
+    checks = np.asarray(checks, dtype=np.uint8)
+    width = checks.shape[1]
+    num_variables = width if homogeneous else width // 2
+    products = checks if homogeneous else np.roll(checks, num_variables, axis=1)
+    least_weights: dict[tuple[int, ...], int] = {}
+    for entries in itertools.product([0, 1], repeat=width):
+        vector = np.array(entries, dtype=np.uint8)
+        support = vector if homogeneous else vector[:num_variables] | vector[num_variables:]
+        syndrome = tuple(products @ vector % 2)
+        least_weights[syndrome] = min(least_weights.get(syndrome, width), int(np.sum(support)))
+
+    search = get_search(checks, np.zeros((0, width)), homogeneous=homogeneous)
+    for syndrome in itertools.product([0, 1], repeat=len(checks)):
+        least_weight = least_weights.get(syndrome, num_variables + 1)
+        for max_weight in range(num_variables + 1):
+            symbols = search.find_vector_with_syndrome(syndrome, max_weight)
+            assert (symbols is None) == (max_weight < least_weight)
+            if symbols is not None:
+                assert len(symbols) <= max_weight and list(symbols) == sorted(symbols)
+                assert len(set(symbols % num_variables)) == len(symbols)
+                vector = get_vector(symbols, width, homogeneous)
+                assert tuple(products @ vector % 2) == syndrome
+
+
+def test_invalid_syndrome_queries_are_rejected() -> None:
+    """A syndrome needs a binary entry for each check, and a weight limit is at least zero."""
+    search = get_search(*PROBLEMS["steane-X"])
+    with pytest.raises(ValueError, match="one entry for each of 3 checks"):
+        search.find_vector_with_syndrome([1, 0], 1)
+    with pytest.raises(ValueError, match="binary"):
+        search.find_vector_with_syndrome([2, 0, 0], 1)
+    with pytest.raises(ValueError, match="at least zero"):
+        search.find_vector_with_syndrome([1, 0, 0], -1)
+
+
 def test_invalid_problems_are_rejected() -> None:
     """Problems need binary matrices of equal widths, whose excluded rows are in the kernel.
 
