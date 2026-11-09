@@ -733,7 +733,7 @@ def get_lp_lower_bound(
     return max(0, math.ceil(value))
 
 
-@functools.cache
+@functools.lru_cache(maxsize=_tuning.BINOMIAL_CACHE_SIZE)
 def get_capped_binomials(dimension: int) -> npt.NDArray[np.int64]:
     """The binomial coefficients ``C(dimension, weight)`` for every weight, capped to fit.
 

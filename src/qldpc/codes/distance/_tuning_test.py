@@ -24,7 +24,7 @@ from sympy.abc import x, y
 from qldpc import codes
 from qldpc.objects import Pauli
 
-from . import _tuning
+from . import _tuning, core
 from . import logical_counts as lc
 from ._counting import scan
 from ._search import brouwer_zimmermann as bz
@@ -87,7 +87,7 @@ def test_tunings_are_validated() -> None:
         (ValueError, "between 0 and", {"overlapping_minimum_work": -1}),
         (ValueError, "between 0 and", {"lp_minimum_work": _tuning.MAX_VALUE + 1}),
         (ValueError, "between 1 and", {"scan_chunk_size": 0}),
-        (ValueError, "between 0 and 62", {"max_batch_exponent": 63}),
+        (ValueError, "between 0 and 62", {"information_set_batch_exponent": 63}),
         (ValueError, "must be one of", {"completion_bound_block_bits": 12}),
         (TypeError, "must be a real number", {"completion_bound_confidence_z": True}),
         (TypeError, "must be a real number", {"completion_bound_confidence_z": "2"}),
@@ -110,8 +110,8 @@ def test_tunings_are_validated() -> None:
         "completion_bound_samples": {"minimum": 1, "maximum": 2**12},
         "completion_bound_min_samples": {"minimum": 1},
         "completion_bound_confidence_z": {"maximum": 10.0},
-        "max_batch_exponent": {"maximum": 62},
-        "count_distance_batch_exponent": {"maximum": 62},
+        "enumeration_batch_exponent": {"maximum": 62},
+        "information_set_batch_exponent": {"maximum": 62},
         "scan_chunk_size": {"minimum": 1},
         "scan_chunks_per_call": {"minimum": 1},
         "macwilliams_chunk_size": {"minimum": 1},
@@ -261,14 +261,14 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     """
     seen: dict[str, list[Any]] = collections.defaultdict(list)
 
-    def record(owner: Any, name: str, *parameters: str) -> None:
+    def record(owner: Any, name: str, *parameters: str, prefix: str = "") -> None:
         original = getattr(owner, name)
         signature = inspect.signature(original)
 
         def recording(*args: Any, **kwargs: Any) -> Any:
             arguments = signature.bind(*args, **kwargs).arguments
             for parameter in parameters:
-                seen[parameter].append(arguments[parameter])
+                seen[prefix + parameter].append(arguments[parameter])
             return original(*args, **kwargs)
 
         monkeypatch.setattr(owner, name, recording)
@@ -278,8 +278,10 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     record(information_sets, "get_overlapping_family", "attempts_per_set")
     record(information_sets, "get_partitioned_family", "tuning")
     record(information_sets.BasisFamily, "get_search_certificate", "lp_max_denominator")
-    record(lc, "get_distance_brouwer_zimmermann_many", "block_size")
-    record(lc, "get_nested_distance_brute_force", "block_size")
+    record(bz, "get_nested_distance_brute_force", "batch_exponent", prefix="bz ")
+    record(core, "get_distance_quantum_brute_force", "batch_exponent", prefix="classical ")
+    record(core, "get_nested_distance_brute_force", "batch_exponent", prefix="quantum ")
+    record(lc, "get_nested_distance_brute_force", "batch_exponent", prefix="count ")
     record(lc.CSSLogicalCounter, "_count_with_macwilliams", "shared_walk_rank", "chunk_size")
     record(scan, "_scan_coefficient_layers", "chunk_size", "max_chunks")
     original_prepare = bz._prepare_brouwer_zimmermann_search
@@ -305,7 +307,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         partition_cost_factor=7,
         lp_minimum_work=0,
         lp_dual_max_denominator=97,
-        count_distance_batch_exponent=6,
+        enumeration_batch_exponent=6,
         scan_chunk_size=1001,
         scan_chunks_per_call=3,
         macwilliams_chunk_size=1000,
@@ -316,6 +318,10 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         counter.count_logical_ops()
         counter.count_logical_ops(method="brute_force")
         lc.CSSLogicalCounter(code).count_logical_ops(method="macwilliams")
+        # A basis of one row is small enough to enumerate under either method.
+        core.get_distance_classical([[1, 1, 1, 0]])
+        core.get_distance_classical([[1, 1, 1, 0]], method="brute_force")
+        core.get_distance_quantum([[1, 1, 0]], [[0, 1, 1]], homogeneous=True, method="brute_force")
 
     expected = {
         "max_dimension": {3},
@@ -324,7 +330,10 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "attempts_per_set": {3},
         "tuning": {tuning},
         "lp_max_denominator": {97},
-        "block_size": {6},
+        "bz batch_exponent": {6},
+        "classical batch_exponent": {6},
+        "quantum batch_exponent": {6},
+        "count batch_exponent": {6},
         "shared_walk_rank": {5},
         "chunk_size": {1000, 1001},
         "max_chunks": {3},
@@ -332,11 +341,9 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     assert {key: set(values) for key, values in seen.items()} == expected
 
     # A search that scans layers, rather than finish while it prepares, scans with batches of
-    # 2**min(block_size, max_batch_exponent) supports, and passes its tuning to its choices of
-    # completion tables.
+    # 2**information_set_batch_exponent supports, and passes its tuning to its choices of completion
+    # tables.
     bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
-    with _tuning.use_tuning(max_batch_exponent=5) as tuning:
-        bz.get_distance_brouwer_zimmermann_many(
-            [get_sector_problem(bb_code, Pauli.X)], cutoff=0, block_size=15
-        )
+    with _tuning.use_tuning(information_set_batch_exponent=5) as tuning:
+        bz.get_distance_brouwer_zimmermann_many([get_sector_problem(bb_code, Pauli.X)], cutoff=0)
     assert seen["search"] and all(search == (1 << 5, tuning) for search in seen["search"])

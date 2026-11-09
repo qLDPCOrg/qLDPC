@@ -757,7 +757,7 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Support, prefix XORs | `support` and `prefixes` in `advance`, `_scan_brouwer_zimmermann`, and `_scan_one_information_set`, which step through a layer with `advance_support` of [_search/information_sets.py](_search/information_sets.py) |
 | Packed generators | `generators` of `_BrouwerZimmermannSearch`: `uint64` words after deleting pivot columns; `widths` counts the valid words for each search basis |
 | Packed labels | `labels` of `_BrouwerZimmermannSearch`: `uint64` quotient-label words, without pivot-column deletion; `label_widths` counts the valid words |
-| Chunk | `batch_size`, equal to `1 << min(block_size, max_batch_exponent)` supports, or supports and lookups together in a scan with completion tables ([Section 4.5](#45-behavior-spanning-files)) |
+| Chunk | `batch_size`, equal to `1 << information_set_batch_exponent` supports, or supports and lookups together in a scan with completion tables ([Section 4.5](#45-behavior-spanning-files)) |
 | Candidate/set evaluation | The unit counted by `Certificate.work` |
 | Completion tables ([Section 3.9](#39-skipping-completions-that-cannot-lower-u)) | `CompletionTables` of [_search/completion_bounds.py](_search/completion_bounds.py), chosen for each layer by `select_completion_tables` from the completion fields of the search's `SearchTuning` and kept in `completion_tables` of a search; the scan is `_scan_one_information_set`, which returns the numbers of supports that it weighs and skips and of bounds that it looks up |
 
