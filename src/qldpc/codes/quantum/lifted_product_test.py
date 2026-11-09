@@ -310,7 +310,7 @@ def test_lifted_product_with_non_orthogonal_lifts() -> None:
 
 
 def test_canonical_logicals_with_non_orthogonal_lifts() -> None:
-    """Logical operators lift for lifts that are not orthogonal, and only valid ones are set."""
+    """With lifts that are not orthogonal, logical operators lift, and only valid ones are set."""
     # lift the generator of a cyclic group of order 2 to a matrix that is not orthogonal, over a
     # field for which qLDPC knows the primitive central idempotents of this group algebra
     field = galois.GF(3)
@@ -324,12 +324,18 @@ def test_canonical_logicals_with_non_orthogonal_lifts() -> None:
     assert np.array_equal(generator.lift() @ generator.lift(), np.eye(2, dtype=int))
     assert not np.array_equal(generator.lift() @ generator.lift().T, np.eye(2, dtype=int))
 
-    # lifting keeps operators at pivots of their overlap matrix, here the lift of 1 - g or its
-    # transpose, whose leading entry is zero, and whose pivot row and pivot column differ
-    one, element = abstract.RingArray([[ring.one]]), abstract.RingArray([[ring.one - generator]])
-    for ring_ops_x, ring_ops_z in [(element, one), (one, element)]:
+    # the overlap matrices of these lifted operators are the lift of 1 - g and its transpose.  Their
+    # top-left entries are zero, and their pivot rows and pivot columns differ.
+    one = abstract.RingArray.build([[ring.one]], ring)
+    one_minus_g = abstract.RingArray.build([[ring.one - generator]], ring)
+    for ring_ops_x, ring_ops_z in [(one_minus_g, one), (one, one_minus_g)]:
         ops_x, ops_z = codes.LPCode.to_lifted_logical_ops(ring_ops_x, ring_ops_z)
         assert np.array_equal(ops_x @ ops_z.T, np.eye(1, dtype=int))
+
+    # operators whose overlap matrix is zero lift to no operators
+    zero = abstract.RingArray.build([[ring.zero]], ring)
+    ops_x, ops_z = codes.LPCode.to_lifted_logical_ops(zero, one)
+    assert ops_x.shape == ops_z.shape == (0, 2)
 
     code_types: list[type[codes.LPCode | codes.SLPCode]] = [codes.LPCode, codes.SLPCode]
     for code_type in code_types:
@@ -345,6 +351,5 @@ def test_canonical_logicals_with_non_orthogonal_lifts() -> None:
         assert np.array_equal(code.get_logical_ops(Pauli.Z), logical_ops_z)
 
         # the canonical logical operators for 1 - g fail validation
-        matrix = abstract.RingArray.build([[ring.one - generator]], ring)
         with pytest.raises(ValueError, match=r"canonical logical operators.*not orthogonal"):
-            code_type(matrix, set_logicals=True)
+            code_type(one_minus_g, set_logicals=True)

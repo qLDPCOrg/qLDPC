@@ -178,9 +178,12 @@ class LPCode(CSSCode):
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
         """Lift logical operators over a ring to logical operators over the base field.
 
-        Each pair of rows of ``logical_ops_x`` and ``logical_ops_z`` lifts to as many pairs of X and
-        Z operators as the rank of the overlap matrix of their lifts, and the overlap matrix of
-        these pairs is the identity.
+        Each row of ``logical_ops_x`` and the matching row of ``logical_ops_z`` lift to blocks of X
+        and Z operators, whose overlap matrix is ``X @ Z.T``.  Lifting keeps as many pairs of these
+        X and Z operators as the rank of this overlap matrix, and makes their overlap matrix the
+        identity.  If operators lifted from different rows have zero overlap, as for canonical
+        logical operators with lifts to orthogonal matrices, the overlap matrix of all lifted
+        operators is the identity.
         """
         ring = logical_ops_x.ring
         num_columns = logical_ops_x.shape[1]
@@ -189,17 +192,17 @@ class LPCode(CSSCode):
         lifted_ops_x = ring.field.Zeros((0, num_lifted_columns))
         lifted_ops_z = ring.field.Zeros((0, num_lifted_columns))
         for op_x, op_z in zip(logical_ops_x, logical_ops_z):
+            # lift a pair of rows to blocks of X and Z operators, keep the X operators at pivot rows
+            # of their overlap matrix, which are independent and as many as its rank, and combine
+            # the Z operators into a dual basis for the kept X operators
             ops_x = op_x.reshape(1, *op_x.shape).lift()
             ops_z = op_z.reshape(1, *op_z.shape).lift()
-
-            # keep the X operators at pivot rows of the overlap matrix, which are independent and as
-            # many as its rank, and combine Z operators into a dual basis for the kept X operators
             overlap = ops_x @ ops_z.T
-            pivot_rows = qldpc.math.first_nonzero_cols(overlap.T.row_reduce())
-            rows = pivot_rows[pivot_rows < block_size]
-            dual_basis = qldpc.math.get_dual_basis(overlap[rows], validate=False)
+            pivots = qldpc.math.first_nonzero_cols(overlap.T.row_reduce())
+            rows = pivots[pivots < block_size]
+            basis_change = qldpc.math.get_dual_basis(overlap[rows], validate=False)
             lifted_ops_x = np.vstack([lifted_ops_x, ops_x[rows]])
-            lifted_ops_z = np.vstack([lifted_ops_z, dual_basis @ ops_z])
+            lifted_ops_z = np.vstack([lifted_ops_z, basis_change @ ops_z])
 
         return lifted_ops_x, lifted_ops_z
 
@@ -305,7 +308,10 @@ class SLPCode(CSSCode):
     def to_lifted_logical_ops(
         logical_ops_x: abstract.RingArray, logical_ops_z: abstract.RingArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Lift logical operators over a ring to logical operators over the base field."""
+        """Lift logical operators over a ring to logical operators over the base field.
+
+        See :meth:`LPCode.to_lifted_logical_ops`.
+        """
         return LPCode.to_lifted_logical_ops(logical_ops_x, logical_ops_z)
 
     def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
@@ -328,12 +334,15 @@ def _has_orthogonal_lifts(ring: abstract.GroupRing) -> bool:
 def _set_canonical_logical_line_ops(code: LPCode | SLPCode) -> None:
     """Set the canonical logical line operators of a lifted product code."""
     try:
-        logical_ops_xz = code.get_canonical_logical_line_ops(code.matrix_a, code.matrix_b)
+        ring_logical_ops_xz = code.get_canonical_ring_logical_line_ops(code.matrix_a, code.matrix_b)
     except (ValueError, NotImplementedError) as exception:
         raise ValueError(
             "Cannot set canonical logical operators for this code, likely due to a choice of group"
             " algebra for which some features are not yet supported"
         ) from exception
+
+    # lift these operators to the base field
+    logical_ops_xz = code.to_lifted_logical_ops(*ring_logical_ops_xz)
 
     # for lifts to orthogonal matrices, invalid operators are a bug
     if _has_orthogonal_lifts(code.matrix_a.ring):
