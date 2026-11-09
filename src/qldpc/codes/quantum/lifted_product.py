@@ -14,7 +14,7 @@ import qldpc
 from qldpc import abstract
 
 from ..common import CSSCode
-from .hypergraph_product import HGPCode, SHPCode
+from .hypergraph_product import HGPCode, SHPCode, _check_same_ring
 from .two_block import _get_abelian_block_translations
 
 ####################################################################################################
@@ -92,6 +92,8 @@ class LPCode(CSSCode):
     ) -> None:
         """Lifted product of two RingArrays, as in arXiv:2012.04068.
 
+        The two RingArrays must be over the same ring, or else a ValueError is raised.
+
         If ``set_logicals`` is True, set the canonical logical line operators of the code (see
         ``get_canonical_logical_line_ops``).  These use semisimple Howell normal forms, which need a
         field characteristic that does not divide the order of the group.  Lifted products of binary
@@ -155,8 +157,11 @@ class LPCode(CSSCode):
     ) -> tuple[abstract.RingArray, abstract.RingArray]:
         """Canonical ring-logical line operators for a lifted product code.
 
-        Generalizes HGPCode.get_canonical_logical_line_ops.
+        Generalizes HGPCode.get_canonical_logical_line_ops.  Matrices over different rings raise a
+        ValueError.
         """
+        _check_same_ring(matrix_a, matrix_b)
+
         # put each ring kernel in a standard form before choosing paired logical operators
         generator_a = matrix_a.null_space().howell_normal_form_semisimple()
         generator_b = matrix_b.null_space(right=True).howell_normal_form_semisimple(right=True)
@@ -266,6 +271,7 @@ class SLPCode(CSSCode):
     ) -> None:
         """Subsystem lifted product of two RingArrays, as in arXiv:2404.18302.
 
+        The two RingArrays must be over the same ring, or else a ValueError is raised.
         ``set_logicals`` is as for :class:`LPCode`.
         """
         if matrix_b is None:
@@ -307,8 +313,10 @@ class SLPCode(CSSCode):
     ) -> tuple[abstract.RingArray, abstract.RingArray]:
         """Canonical ring-logical line operators for a subsystem lifted product code.
 
-        Generalizes SHPCode.get_canonical_logical_line_ops.
+        Generalizes SHPCode.get_canonical_logical_line_ops.  Matrices over different rings raise a
+        ValueError.
         """
+        _check_same_ring(matrix_a, matrix_b)
         generator_a = matrix_a.null_space().howell_normal_form_semisimple()
         generator_b = matrix_b.null_space(right=True).howell_normal_form_semisimple(right=True)
 
