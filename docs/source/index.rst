@@ -53,6 +53,7 @@ Where to go next
 
    installation
    library_map
+   exact_search_tuning
    decoders/index
 
 .. toctree::

@@ -639,18 +639,17 @@ Every layer of two or more rows that scans one information set uses `_scan_one_i
 Tables of a basis with `r = 150` rows and 138 tail columns, in blocks of sixteen columns, take 75 MiB, and about a twentieth of a second to build on the machine described below.
 That is worthwhile for a layer of `10^10` supports, but not for an easy search.
 A search considers tables for a layer of at least `completion_bound_minimum_layer_work` supports ([Section 4.4](#44-heuristics-and-cost-models)).
-It then estimates the share of supports that the tables would skip, from the bounds of at most `COMPLETION_SAMPLES` random supports computed directly from the rows, and takes a conservative lower bound on that share.
+It then estimates the share of supports that the tables would skip, from the bounds of at most `completion_bound_samples` random supports computed directly from the rows, and takes a conservative lower bound on that share.
 It predicts the cost of the layer from this share, the number of lookups, and the cost of building tables that it does not have yet.
 Each lookup costs a few plain support evaluations for each block of the tables, and more for larger tables, which miss the processor's caches more often.
 The search uses tables if the predicted cost is at most `completion_bound_max_cost_percent` percent of the cost without them.
-Tables use blocks of sixteen columns, or of eight columns if the tables would otherwise exceed `completion_bound_max_table_bytes`.
+By default, tables use blocks of sixteen columns, or of eight columns if the tables would otherwise exceed `completion_bound_max_table_bytes`; the fields `completion_bound_block_bits` and `completion_bound_fallback_block_bits` set these widths.
 A search keeps its tables for later layers, and drops them when its basis changes, as when it switches to an automorphism family.
 It frees them when it finishes, but the search of each sector of a joint search keeps its own tables until then, so a joint search can hold twice `completion_bound_max_table_bytes`.
 
 Measurements on one Apple M3 Max processor, single-threaded, illustrate these trade-offs.
 The cost ratio of a layer is its time with tables, including their construction, divided by its time without them, with `completion_bound_max_table_bytes` set to zero.
-The constants of the cost model, in [_tuning.py](_tuning.py), were fitted to nine layers of four codes, which their comments describe.
-On five other layers, they never predicted a cost ratio more than 0.02 below the measured one, nor more than 0.12 above it.
+The coefficients of the cost model are fields of `SearchTuning` in [_tuning.py](_tuning.py), whose module docstring says on what layers they were fitted and how to refit them.
 For the X sector of the [[288, 12, 18]] code above, with `U = 18` and the scanned set and row order that qLDPC chooses, layer six had a cost ratio of 0.22 under the default tuning, and its tables skipped 87% of its supports.
 On nine layers of `5 × 10^8` to `1.5 × 10^10` supports of that code and of three pair-partition codes, `_scan_one_information_set` without tables took 70% to 95% of the time of `_scan_brouwer_zimmermann`, which scans any family of sets.
 With tables forced, by `completion_bound_minimum_layer_work` set to zero and `completion_bound_max_cost_percent` set to `MAX_VALUE`, three of four layers of `2 × 10^7` to `5 × 10^7` supports, of that code and of two pair-partition codes, were slower, with cost ratios up to 1.6, and the cost model predicted ratios above one for all four.
@@ -665,7 +664,7 @@ For a high-level explanation, see Sections [2](#2-the-brouwer-zimmermann-algorit
 
 This section is a guide to the source files in this directory.
 It connects the concepts of Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations) to modules, identifiers, and behavior that spans files.
-The thresholds of the heuristics are fields of `SearchTuning` in [_tuning.py](_tuning.py), whose docstrings give their meanings and defaults, and [Section 4.4](#44-heuristics-and-cost-models) says where each threshold of a search route is used.
+The thresholds, limits, and coefficients of the heuristics are fields of `SearchTuning` in [_tuning.py](_tuning.py), whose comments give their meanings and defaults and say how each was chosen, and [Section 4.4](#44-heuristics-and-cost-models) says where each is used.
 
 ### 4.1 Module map and layering
 
@@ -758,9 +757,9 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Support, prefix XORs | `support` and `prefixes` in `advance`, `_scan_brouwer_zimmermann`, and `_scan_one_information_set`, which step through a layer with `advance_support` of [_search/information_sets.py](_search/information_sets.py) |
 | Packed generators | `generators` of `_BrouwerZimmermannSearch`: `uint64` words after deleting pivot columns; `widths` counts the valid words for each search basis |
 | Packed labels | `labels` of `_BrouwerZimmermannSearch`: `uint64` quotient-label words, without pivot-column deletion; `label_widths` counts the valid words |
-| Chunk | `batch_size`, equal to `1 << min(block_size, 15)` supports, or supports and lookups together in a scan with completion tables ([Section 4.5](#45-behavior-spanning-files)) |
+| Chunk | `batch_size`, equal to `1 << min(block_size, max_batch_exponent)` supports, or supports and lookups together in a scan with completion tables ([Section 4.5](#45-behavior-spanning-files)) |
 | Candidate/set evaluation | The unit counted by `Certificate.work` |
-| Completion tables ([Section 3.9](#39-skipping-completions-that-cannot-lower-u)) | `CompletionTables` of [_search/completion_bounds.py](_search/completion_bounds.py), chosen for each layer by `select_completion_tables` from a `CompletionPolicy` and kept in `completion_tables` of a search; the scan is `_scan_one_information_set`, which returns the numbers of supports that it weighs and skips and of bounds that it looks up |
+| Completion tables ([Section 3.9](#39-skipping-completions-that-cannot-lower-u)) | `CompletionTables` of [_search/completion_bounds.py](_search/completion_bounds.py), chosen for each layer by `select_completion_tables` from the completion fields of the search's `SearchTuning` and kept in `completion_tables` of a search; the scan is `_scan_one_information_set`, which returns the numbers of supports that it weighs and skips and of bounds that it looks up |
 
 For the rank-deficient remainder of [Section 2.4](#24-search-bases-and-rank-deficient-blocks), the implementation records only the independent pivot columns, in the first `rank` entries of the set's row of `BasisFamily.pivots`, and pads the rest with -1.
 The remaining columns of that remainder stay in the generator matrix.
@@ -776,7 +775,7 @@ With an early-exit cutoff above one, a different search order can find a differe
 The Tuning section of [README.md](README.md) explains how searches read the thresholds of these heuristics.
 
 - **`get_disjoint_family`** builds the disjoint family greedily in natural column order.
-  If that does not reach the maximum number of blocks that are information sets, it tries a small fixed number of fixed-seed random column orders and keeps the family with the lexicographically largest tuple of ranks.
+  If that does not reach the maximum number of blocks that are information sets, it tries `disjoint_random_column_orders` fixed-seed random column orders and keeps the family with the lexicographically largest tuple of ranks.
   Fixed seeds keep results reproducible, and the bounded retries keep setup cheap.
   It also infers the divisor `2` when every basis row has even weight, and combines it with any divisor supplied by the caller.
 - **`prune_family`** is exact, not heuristic.
@@ -786,8 +785,8 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
 - **`get_overlapping_family`** tries to lower the work estimate of the disjoint family, with the thresholds `max_information_sets` and `overlapping_minimum_work`, which it receives as `max_sets` and `minimum_work`.
   It returns a basis family with no sets if the existing work is below `minimum_work`, if the blocks already use every nonzero column, if the family is at `max_sets`, or if even the optimistic coverage `ceil(m*r/N)` cannot reduce the estimate.
   Otherwise it builds search bases by row reducing on column orders that put the least-used columns first, breaking ties with a generator that `get_overlapping_family_policy` seeds afresh for every call, and keeps the cheapest family built.
-  A repeated pivot set is discarded, but it still consumes one of a bounded number of attempts.
-- **`get_partitioned_family`** builds families of information sets in which no column appears more than `b` times, for `b` from two to four.
+  It makes `overlapping_attempts_per_set` attempts for each set that it may add, and a repeated pivot set is discarded but still consumes an attempt.
+- **`get_partitioned_family`** builds families of information sets in which no column appears more than `b` times, for `b` from two to `max_partition_coverage`.
   It uses the matroid partitioning of Section 5.1 of Lisoněk and Trummer (see [References](#references)), in `_search/matroid_partition.py`, so each family has the most information sets, up to `max_information_sets`, that its coverage allows.
   A search uses the family with the least estimated work if it does less work than the family of the earlier stages.
   It tries this only if its estimated work is at least `partition_work_ratio` times an estimate of the work of partitioning, and the optimistic coverage `ceil(m*r/N)` does not rule out an improvement.
@@ -800,7 +799,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   Random supports only estimate the value of tables; a search skips supports only when `w` plus their computed bound reaches `U`.
 - **`Certificate.work`, `estimate_automorphism_family_work`, `_enumeration_is_cheaper_than_search`, and `enumeration_is_cheaper_than_setup`** are cost models, which Sections [3.6](#36-exhaustive-enumeration-as-a-fallback) and [3.7](#37-images-of-an-information-set-under-automorphisms) explain.
   They are not runtime guarantees.
-  `enumeration_is_cheaper_than_setup` compares the setup cost of BZ with packed enumeration of all words, and its rule is in the source.
+  `enumeration_is_cheaper_than_setup` compares the setup cost of BZ with packed enumeration of all words, with the fields `enumeration_max_dimension` and `enumeration_setup_cost_factor`.
 
 ### 4.5 Behavior spanning files
 

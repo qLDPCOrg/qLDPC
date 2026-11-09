@@ -39,7 +39,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
 | The MacWilliams counting method | `_counting/macwilliams.py` |
-| The thresholds that choose between exhaustive enumeration, the kinds of information-set families, and completion tables, the memory limit of those tables, and the batch sizes of the counting loops (`SearchTuning`, `use_tuning`) | `_tuning.py` |
+| The settings that a search reads when it starts, such as the thresholds that choose between exhaustive enumeration, the kinds of information-set families, and completion tables, the coefficients of cost models, memory limits, and batch sizes, and the sizes of caches (`SearchTuning`, `use_tuning`) | `_tuning.py` |
 | Binary input checks, nested bases, or packed weights | `_binary.py` |
 | Bit packing, bit counts, or row reduction over GF(2), which other subpackages share | `src/qldpc/_binary.py` |
 | How numba code is compiled or cached | `src/qldpc/_compilation.py` |
@@ -53,7 +53,7 @@ From the top:
 3. `_search/brouwer_zimmermann.py`, `_search/brute_force.py`, and `_search/coset_leader_search.py`, the searches.
 4. `_search/information_sets.py`, the basis families that the searches share, `_search/automorphism_families.py`, which builds automorphism families from them, and `_search/completion_bounds.py`, which bounds the words that complete the first rows of a support with two more rows.
 5. `_search/matroid_partition.py`, which `_search/information_sets.py` uses to build some of those families.
-6. `_tuning.py`, the thresholds and batch sizes of the searches and counts.
+6. `_tuning.py`, the settings of the searches and counts, and the sizes of their caches.
 7. `_binary.py`, the foundation.
 
 A module imports only modules of its own level or below.
@@ -64,22 +64,28 @@ Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py`, modules in `src
 
 ## Tuning
 
-The thresholds of the heuristics that choose a search route, such as when to build overlapping information sets or to use linear programming, are the fields of `SearchTuning` in `_tuning.py`.
-Its docstrings give the meaning and default of each field, and Section 4.4 of `brouwer_zimmermann.md` says where each threshold of a search route is used.
+Every value that tunes a search, such as a threshold that chooses a route, a limit, a coefficient of a cost model, an attempt count, or a batch size, is a field of `SearchTuning` in `_tuning.py`, unless it is an argument of the function that starts the search, such as `block_size`.
+Section 4.4 of `brouwer_zimmermann.md` says where each heuristic uses its fields.
 
 - A search reads the active tuning once, when it starts, and passes the values that it needs down to the stages and loops that use them.
-  `get_distance_brouwer_zimmermann_many` reads it for a distance search, and `CSSLogicalCounter.count_logical_ops` for a count.
+  `get_distance_brouwer_zimmermann_many` reads it for a distance search, `CSSLogicalCounter.count_logical_ops` for a count, and `CosetLeaderSearch` when it is built.
   Pass these values as arguments, including to compiled code, and do not read the tuning anywhere else, so that one search never mixes two tunings.
-- Put a threshold in `SearchTuning` if a user might measure and change it.
-  Put every other ad-hoc constant, such as a measured or chosen constant of a cost model, a memory limit, a batch size, or a cache size, in a section of constants of `_tuning.py`, and read it there as `_tuning.NAME`.
-  Constants fixed by the algorithm or by native integer widths, such as `_WORK_CAP`, stay in the modules that use them.
-- Document each constant well enough to retune it: what it decides and in what unit, how its value was chosen and on what data, and what an error costs.
+  A value that the code keeps in a cache that outlives a search, such as `disjoint_random_column_orders` in the cached searches of `CosetLeaderSearch`, also keys that cache.
+- Only a value that qLDPC fixes before any search starts, such as the size of a cache, which `functools.lru_cache` fixes at import, is a constant in `_tuning.py`, read as `_tuning.NAME`.
+  Constants fixed by the algorithm or by native integer widths, such as `_WORK_CAP`, and the fixed seeds of random generators, which make results reproducible rather than tune anything, stay in the modules that use them.
+- Document each field and constant in its own `#:` comment directly above it, so that Sphinx renders it.
+  Say, in this order, what it decides and in what unit; how a smaller or larger value changes a search, including the effects of its smallest and largest values; how its default was chosen and on what data, or that this is not recorded, in one clause; and what to measure to retune it.
+  Keep each comment readable without knowing the method that uses the value, and within a hundred words.
+  State each fact in one place: link to a formula that the code computes, such as a cost model, rather than restating it, and put procedures that several values share, such as fitting a cost model, in the "Retuning" section of the module docstring.
+  Do not put a colon on the first line of a comment, since Sphinx then reads the text before it as a type.
+- [Exact-search performance and tuning](../../../../docs/source/exact_search_tuning.rst) renders the fields and constants from their comments, after hand-written tables that lead from symptoms and routes to their names.
+  When you add, rename, or remove a field or constant, update that map, and for a constant the list of constants on the page.
+  `_tuning_test.py` checks that the map names every field and every constant except `MAX_VALUE`, that the page lists every constant, and that each field and constant has its own `#:` comment, and the documentation build fails on a broken reference into `_tuning`.
 - A tuning changes only how long a search takes and how much memory it uses, never a result that the search guarantees.
-  With an early exit, it can change which witness a search returns (see the module docstring of `_tuning.py`).
-  A new heuristic whose threshold could change a guaranteed result does not belong in `SearchTuning`.
-- To force a route in a test, call the `tune` fixture of `src/qldpc/codes/conftest.py`, as in `tune(overlapping_minimum_work=0)`, rather than patching module attributes.
-- When you add a field, document what it decides and its default in the `Attributes` section of `SearchTuning`.
-  For an integer field, also document its unit, and the effects of its smallest value and of `MAX_VALUE`.
+  With an early exit, it can change which word a search finds first, and so the upper bound that it returns (see the module docstring of `_tuning.py`).
+  A new heuristic whose value could change a guaranteed result does not belong in `SearchTuning`.
+- To force a route or exercise a value in a test, call the `tune` fixture of `src/qldpc/codes/conftest.py`, as in `tune(overlapping_minimum_work=0)`, rather than patching module attributes.
+- For a field whose full range the implementation cannot safely support, narrow its range in its metadata rather than adding code for unsupported values.
 
 ## Compiled code
 

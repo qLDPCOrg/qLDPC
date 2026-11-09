@@ -153,14 +153,20 @@ def get_distance_brouwer_zimmermann(
 # cost models
 
 
-def enumeration_is_cheaper_than_setup(dimension: int, length: int) -> bool:
+def enumeration_is_cheaper_than_setup(
+    dimension: int, length: int, max_dimension: int, setup_cost_factor: int
+) -> bool:
     """Estimate whether enumerating every codeword is cheaper than building information sets.
 
-    Setup costs dominate the Brouwer-Zimmermann search for dimensions up to 20.  For long,
-    low-dimensional codes, byte-wise elimination for each information set can cost more than packed
-    ``uint64`` enumeration of all ``2**dimension`` codewords.
+    Setup costs dominate the Brouwer-Zimmermann search for small dimensions, up to
+    ``max_dimension``.  For long, low-dimensional codes, byte-wise elimination for each information
+    set can cost more than packed ``uint64`` enumeration of all ``2**dimension`` codewords, which
+    ``setup_cost_factor`` times the dimension and the length estimates.  Below 63 rows, the count of
+    codewords fits a native integer.
     """
-    return dimension <= 20 or (dimension < 63 and 1 << dimension <= 128 * dimension * length)
+    return dimension <= max_dimension or (
+        dimension < 63 and 1 << dimension <= setup_cost_factor * dimension * length
+    )
 
 
 def _enumeration_is_cheaper_than_search(
@@ -207,14 +213,14 @@ class _BrouwerZimmermannSearch:
 
     ``get_automorphism_family``, if given, returns an automorphism family of the problem, or None.
     The search calls it once, before the first layer whose scan would cost at least
-    ``automorphism_minimum_layer_work`` candidate/set evaluations.  The search switches to the
-    automorphism family if it predicts less work (see ``_switch_to_automorphism_family``).
+    ``tuning.automorphism_minimum_layer_work`` candidate/set evaluations.  The search switches to
+    the automorphism family if it predicts less work (see ``_switch_to_automorphism_family``).
 
     A layer of two or more rows that scans one set whose block is an information set uses
     ``_scan_one_information_set``.  Such a layer may skip the supports whose last two rows cannot
-    complete a word lighter than the best weight, with tables that ``completion_policy`` chooses
-    (see ``completion_bounds``).  ``completion_tables`` keeps the most recently chosen tables for
-    reuse, until the basis changes or the search finishes.
+    complete a word lighter than the best weight, with tables that the completion fields of
+    ``tuning`` choose (see ``completion_bounds``).  ``completion_tables`` keeps the most recently
+    chosen tables for reuse, until the basis changes or the search finishes.
     """
 
     generators: npt.NDArray[np.uint64]
@@ -224,8 +230,7 @@ class _BrouwerZimmermannSearch:
     certificate: information_sets.Certificate
     cutoff: int
     batch_size: int
-    automorphism_minimum_layer_work: int
-    completion_policy: completion_bounds.CompletionPolicy
+    tuning: SearchTuning
     best: int
     lower_bound: int
     next_weight: int = 1
@@ -291,7 +296,7 @@ class _BrouwerZimmermannSearch:
         )
         if (
             self.get_automorphism_family is not None
-            and layer_work >= self.automorphism_minimum_layer_work
+            and layer_work >= self.tuning.automorphism_minimum_layer_work
         ):
             self._switch_to_automorphism_family()
             return self.advance()
@@ -364,7 +369,7 @@ class _BrouwerZimmermannSearch:
             weight,
             self.best,
             current=self.completion_tables,
-            policy=self.completion_policy,
+            tuning=self.tuning,
         )
         if tables is not None:
             self.completion_tables = tables
@@ -436,7 +441,10 @@ def _prepare_brouwer_zimmermann_search(
         return best
 
     if tuning.allow_enumeration_by_size and enumeration_is_cheaper_than_setup(
-        dimension, basis.shape[1]
+        dimension,
+        basis.shape[1],
+        tuning.enumeration_max_dimension,
+        tuning.enumeration_setup_cost_factor,
     ):
         distance = get_nested_distance_brute_force(
             basis, labels, cutoff=cutoff, block_size=block_size, homogeneous=True
@@ -445,7 +453,12 @@ def _prepare_brouwer_zimmermann_search(
 
     # The disjoint basis family's certificate also uses any inferred even ambient parity.
     basis_family = (
-        information_sets.get_disjoint_family(basis, labels, weight_divisor=weight_divisor)
+        information_sets.get_disjoint_family(
+            basis,
+            labels,
+            random_column_orders=tuning.disjoint_random_column_orders,
+            weight_divisor=weight_divisor,
+        )
         if get_disjoint_basis_family is None
         else get_disjoint_basis_family()
     )
@@ -475,8 +488,7 @@ def _prepare_brouwer_zimmermann_search(
             labels,
             family,
             best,
-            tuning.max_information_sets,
-            tuning.partition_work_ratio,
+            tuning,
         ),
     ):
         replacement = get_replacement(basis_family, best)
@@ -506,15 +518,12 @@ def _prepare_brouwer_zimmermann_search(
 
     return _BrouwerZimmermannSearch(
         *_pack_basis_family(basis_family),
-        certificate=basis_family.get_search_certificate(best, tuning.lp_minimum_work),
-        cutoff=cutoff,
-        batch_size=1 << min(block_size, 15),
-        automorphism_minimum_layer_work=tuning.automorphism_minimum_layer_work,
-        completion_policy=completion_bounds.CompletionPolicy(
-            tuning.completion_bound_minimum_layer_work,
-            tuning.completion_bound_max_cost_percent,
-            tuning.completion_bound_max_table_bytes,
+        certificate=basis_family.get_search_certificate(
+            best, tuning.lp_minimum_work, tuning.lp_dual_max_denominator
         ),
+        cutoff=cutoff,
+        batch_size=1 << min(block_size, tuning.max_batch_exponent),
+        tuning=tuning,
         best=best,
         lower_bound=lower_bound,
         next_weight=completed_weight + 1,

@@ -17,6 +17,8 @@ import numpy.typing as npt
 from qldpc._binary import get_inverse, pack_bits, popcount_word
 from qldpc._compilation import always_compiled
 
+from .. import _tuning
+
 ####################################################################################################
 # local Cliffords
 
@@ -44,7 +46,7 @@ def get_local_matrices(
     return _get_cached_local_matrices(size, order, local.shape, local.dtype.str, local.tobytes())
 
 
-@functools.lru_cache(maxsize=1024)
+@functools.lru_cache(maxsize=_tuning.LOCAL_CLIFFORD_CACHE_SIZE)
 def _get_cached_local_matrices(
     size: int, order: int | None, shape: tuple[int, ...], dtype: str, data: bytes
 ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.uint64]]:

@@ -84,8 +84,7 @@ def count_words(
             labels,
             basis_family,
             weight + 1,
-            tuning.max_information_sets,
-            tuning.partition_work_ratio,
+            tuning,
         )
         if len(partitioned.ranks):
             basis_family = partitioned
@@ -93,7 +92,10 @@ def count_words(
             basis_family, basis.shape[1], labels.shape[1]
         )
         last_layer, last_num_completed = _get_last_step(
-            basis_family.get_search_certificate(weight + 1, tuning.lp_minimum_work), weight
+            basis_family.get_search_certificate(
+                weight + 1, tuning.lp_minimum_work, tuning.lp_dual_max_denominator
+            ),
+            weight,
         )
 
     # Scan in bounded calls, since compiled code cannot be interrupted within a call.
@@ -165,6 +167,7 @@ def _select_basis_family(
     basis_family: information_sets.BasisFamily,
     max_sets: int,
     minimum_work: int,
+    attempts_per_set: int,
     binomials: npt.NDArray[np.int64],
     rng: np.random.Generator,
 ) -> information_sets.BasisFamily:
@@ -176,7 +179,7 @@ def _select_basis_family(
     upper_bound = weight + 1
     pruned = information_sets.prune_family(basis_family, upper_bound)
     replacement = information_sets.get_overlapping_family(
-        basis, labels, pruned, upper_bound, max_sets, minimum_work, binomials, rng
+        basis, labels, pruned, upper_bound, max_sets, minimum_work, attempts_per_set, binomials, rng
     )
     return replacement if len(replacement.ranks) > 0 else pruned
 

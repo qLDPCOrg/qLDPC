@@ -27,8 +27,13 @@ from ..conftest import CostlyStages, get_random_full_rank_matrix, get_sector_pro
 from . import brouwer_zimmermann as bz
 from . import completion_bounds, information_sets
 
-# A policy that never uses completion tables, for searches built directly.
-TABLES_DISABLED = completion_bounds.CompletionPolicy(MAX_VALUE, 0, 0)
+# A tuning that never uses completion tables, for searches built directly.
+TABLES_DISABLED = dataclasses.replace(
+    DEFAULT_TUNING,
+    completion_bound_minimum_layer_work=MAX_VALUE,
+    completion_bound_max_cost_percent=0,
+    completion_bound_max_table_bytes=0,
+)
 
 
 @pytest.mark.parametrize("interpreted", [False, True])
@@ -121,8 +126,7 @@ def test_brouwer_zimmermann_search_state() -> None:
         information_sets.Certificate(2, (0,)),
         cutoff=1,
         batch_size=1,
-        automorphism_minimum_layer_work=DEFAULT_TUNING.automorphism_minimum_layer_work,
-        completion_policy=TABLES_DISABLED,
+        tuning=TABLES_DISABLED,
         best=3,
         lower_bound=0,
     )
@@ -171,8 +175,9 @@ def test_the_largest_layer_threshold_never_asks_for_automorphisms() -> None:
             information_sets.Certificate(dimension, (dimension,)),
             cutoff=0,
             batch_size=1,
-            automorphism_minimum_layer_work=minimum_layer_work,
-            completion_policy=TABLES_DISABLED,
+            tuning=dataclasses.replace(
+                TABLES_DISABLED, automorphism_minimum_layer_work=minimum_layer_work
+            ),
             best=dimension,
             lower_bound=0,
             next_weight=weight,
@@ -276,6 +281,31 @@ def test_brouwer_zimmermann_setup_exits(
     assert expected <= distance <= max(cutoff, expected)
 
 
+def test_enumeration_by_work_can_be_forbidden(monkeypatch: pytest.MonkeyPatch, tune: Tune) -> None:
+    """The "brute-force" case enumerates its quotient after setup only if the tuning allows it."""
+    case = next(case for case in SETUP_EXIT_CASES if case.id == "brute-force")
+    values: Sequence[Any] = case.values
+    logicals, stabilizers = values[:2]
+    expected = qldpc.codes.get_distance_quantum(
+        logicals, stabilizers, homogeneous=True, method="brute_force"
+    )
+    enumerations = []
+    original = bz.get_nested_distance_brute_force
+
+    def enumerate_words(*args: Any, **kwargs: Any) -> int:
+        enumerations.append(args)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(bz, "get_nested_distance_brute_force", enumerate_words)
+    tune(allow_enumeration_by_size=False)
+    for allowed in (True, False):
+        enumerations.clear()
+        with use_tuning(allow_enumeration_by_work=allowed):
+            distance = qldpc.codes.get_distance_quantum(logicals, stabilizers, homogeneous=True)
+        assert distance == expected
+        assert bool(enumerations) == allowed
+
+
 def test_brouwer_zimmermann_setup_cutoffs() -> None:
     """Preparation can reach the cutoff from initial rows or a newly systematic row."""
     basis = np.array([[1, 0, 1, 1], [0, 1, 1, 1]], dtype=np.uint8)
@@ -358,7 +388,11 @@ def test_a_given_disjoint_basis_family_replaces_the_first_stage() -> None:
     basis = get_random_full_rank_matrix(rng, 5, 9)
     labels = np.vstack([np.zeros((2, 3), dtype=np.uint8), np.eye(3, dtype=np.uint8)])
     expected = bz.get_distance_brouwer_zimmermann_many([(basis, labels)], cutoff=0, block_size=2)
-    get_basis_family = mock.Mock(return_value=information_sets.get_disjoint_family(basis, labels))
+    get_basis_family = mock.Mock(
+        return_value=information_sets.get_disjoint_family(
+            basis, labels, random_column_orders=DEFAULT_TUNING.disjoint_random_column_orders
+        )
+    )
     search = functools.partial(
         bz.get_distance_brouwer_zimmermann_many,
         [(basis, labels)],
@@ -1025,8 +1059,13 @@ def test_sets_that_are_not_information_sets_use_the_general_scan() -> None:
         information_sets.Certificate(2, (0,)),
         cutoff=-1,
         batch_size=1,
-        automorphism_minimum_layer_work=MAX_VALUE,
-        completion_policy=completion_bounds.CompletionPolicy(0, MAX_VALUE, MAX_VALUE),
+        tuning=dataclasses.replace(
+            DEFAULT_TUNING,
+            automorphism_minimum_layer_work=MAX_VALUE,
+            completion_bound_minimum_layer_work=0,
+            completion_bound_max_cost_percent=MAX_VALUE,
+            completion_bound_max_table_bytes=MAX_VALUE,
+        ),
         best=10,
         lower_bound=0,
     )

@@ -140,10 +140,39 @@ def _resolve_package_reexports(
     )
 
 
+def _warn_on_missing_tuning_reference(
+    app: typing.Any, env: typing.Any, node: typing.Any, contnode: typing.Any
+) -> None:
+    """Warn on a reference into the private tuning module that no documented object resolves.
+
+    exact_search_tuning.rst documents qldpc.codes.distance._tuning, and refers to its fields and
+    constants by name.  Sphinx resolves Python references only leniently unless nitpicky mode is on,
+    which would report thousands of unrelated references, so this handler makes a renamed or removed
+    name of that module fail the strict build.  It runs after every handler that could resolve the
+    reference.
+    """
+    if node.get("refdomain") != "py":
+        return
+    module = "qldpc.codes.distance._tuning"
+    target = node.get("reftarget", "")
+    # Within the module, a reference to a name of the module is the record, a field of it, a
+    # function, or an upper-case constant; other names, such as int, belong to other modules.
+    local = node.get("py:module") == module and (
+        target.partition(".")[0] in ("SearchTuning", "get_tuning", "use_tuning") or target.isupper()
+    )
+    if target.startswith(f"{module}.") or local:
+        from sphinx.util import logging
+
+        logging.getLogger(__name__).warning(
+            f"unresolved reference to {target!r} in {module}", location=node
+        )
+
+
 def setup(app: typing.Any) -> None:
     """Register Sphinx event handlers."""
     app.connect("autoapi-skip-member", _skip_decoder_specification_helpers)
     app.connect("missing-reference", _resolve_package_reexports)
+    app.connect("missing-reference", _warn_on_missing_tuning_reference, priority=900)
 
 
 # -- Options for HTML output -------------------------------------------------
