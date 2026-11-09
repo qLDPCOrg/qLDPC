@@ -311,9 +311,17 @@ def test_lifted_product_with_non_orthogonal_lifts() -> None:
 
 def test_canonical_logicals_with_non_orthogonal_lifts() -> None:
     """Lifted products with lifts that are not orthogonal set only valid canonical logicals."""
-    group = abstract.Group.from_generating_mats(galois.GF(5)([[1, 2], [0, 4]]))
-    ring = abstract.GroupRing(group, field=5)
+    # lift the generator of a cyclic group of order 2 to a matrix that is not orthogonal, over a
+    # field for which qLDPC knows the primitive central idempotents of this group algebra
+    field = galois.GF(3)
+    lift = field([[1, 0], [1, 2]])
+    group = abstract.Group.from_sympy(
+        abstract.CyclicGroup(2).to_sympy(),
+        lift=lambda member: field.Identity(2) if member.is_Identity else lift,
+    )
+    ring = abstract.GroupRing(group, field=3)
     (generator,) = ring.generators
+    assert np.array_equal(generator.lift() @ generator.lift(), np.eye(2, dtype=int))
     assert not np.array_equal(generator.lift() @ generator.lift().T, np.eye(2, dtype=int))
     code_types: list[type[codes.LPCode | codes.SLPCode]] = [codes.LPCode, codes.SLPCode]
     for code_type in code_types:

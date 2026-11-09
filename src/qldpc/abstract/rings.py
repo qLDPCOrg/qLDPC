@@ -398,7 +398,7 @@ class RingMember:
         return NotImplemented  # pragma: no cover
 
     def __sub__(self, other: int | galois.FieldArray | GroupMember | RingMember) -> RingMember:
-        # SymPy multiplies a permutation by -1 without negating it, so negate a ring member instead
+        # a group member has no negative, so negate it as a ring member
         if isinstance(other, GroupMember):
             other = self.ring.one * other
         return self + -other
@@ -599,15 +599,17 @@ class RingMember:
         A permutation can act on fewer points than the group, such as ``GroupMember(0, 1)`` in a
         group of degree 4.  This method pads such a permutation with fixed points, and raises a
         ValueError if the result is not in the group.  Every identity permutation, of any size,
-        becomes the identity of the group, since SymPy does not identify the identity as a member of
-        a group of degree zero.
+        becomes the identity of the group, since SymPy rejects permutations with more points than
+        the group, and does not identify the identity as a member of a trivial group.
         """
         if member.is_Identity:
             return self.group.identity
         if member.size < self.group.degree:
             member = GroupMember(member, size=self.group.degree)
         if member not in self.group:
-            raise ValueError(f"{member} is not a member of the group of {self.ring}")
+            raise ValueError(
+                f"{member} is not a member of {self.group} (degree {self.group.degree})"
+            )
         return member
 
     def _check_same_ring(self, other: RingMember) -> None:
