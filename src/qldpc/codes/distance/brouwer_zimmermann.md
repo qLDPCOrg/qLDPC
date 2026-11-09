@@ -582,7 +582,7 @@ The layers that a search scans last dominate its cost, and most of their words w
 For example, certifying distance eighteen for the X sector of the [[288, 12, 18]] code of [arXiv:2308.07915](https://arxiv.org/abs/2308.07915) with an automorphism family scans layer eight of a basis with `r = 150` rows, about `5 × 10^12` supports.
 A search can skip whole groups of these supports if a cheap lower bound proves that none of their words is lighter than `U`.
 qLDPC can do this when a layer scans one search basis whose block is an information set, which includes every layer of a search of an automorphism family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
-Counting and the coset-leader search ([Section 4.1](#41-module-map-and-layering)) do not skip supports.
+Counting skips only supports whose words all weigh more than its target weight (see "Certificates and contracts" below), and the coset-leader search ([Section 4.1](#41-module-map-and-layering)) does not skip supports.
 
 #### The bound
 
@@ -631,7 +631,9 @@ The certificate `L` of a search bounds only such words: no eligible word weighs 
 `L` alone can exceed the weights of skipped words, just as it can exceed the weights of words whose images an automorphism family has examined ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), so a bound on the distance is `min(L, U)`.
 No skipped word is lighter than `U` at any later time, so a scan with tables finds the same witnesses in the same order as a scan without them, and an early exit at a cutoff returns the same weight.
 A search stops exactly when it would without skipping, because it stops once its certificate reaches `U`.
-Words that weigh exactly `U` can be skipped, so counting the words of a given weight, which must visit them all ([Section 5](#5-correctness-requirements)), does not use these tables.
+Words that weigh exactly `U` can be skipped, but counting the words of a given weight `w` must visit them all ([Section 5](#5-correctness-requirements)).
+So a count skips the completions of a prefix only if all of them weigh more than `w`, that is, with the limit of a best weight of `w + 1`.
+Its skipped words are then neither counted nor lighter than `w`, and the certificate of its last step still bounds every word of weight `w` that it neither visits nor skips.
 
 #### When a search uses the tables
 
@@ -646,6 +648,8 @@ The search uses tables if the predicted cost is at most `completion_bound_max_co
 By default, tables use blocks of sixteen columns, or of eight columns if the tables would otherwise exceed `completion_bound_max_table_bytes`; the fields `completion_bound_block_bits` and `completion_bound_fallback_block_bits` set these widths.
 A search keeps its tables for later layers, and drops them when its basis changes, as when it switches to an automorphism family.
 It frees them when it finishes, but the search of each sector of a joint search keeps its own tables until then, so a joint search can hold twice `completion_bound_max_table_bytes`.
+A count chooses tables in the same way for each step of two or more rows of an information set, which scans one layer of one set, in `_StepTables` of [_counting/scan.py](_counting/scan.py), and keeps the tables of the sets that it has used, within `completion_bound_max_table_bytes` in all.
+Its steps scan the sets of a layer in turn, so with large tables it rebuilds each set's tables in each layer, which the prediction counts.
 
 Measurements on one Apple M3 Max processor, single-threaded, illustrate these trade-offs.
 The cost ratio of a layer is its time with tables, including their construction, divided by its time without them, with `completion_bound_max_table_bytes` set to zero.
@@ -794,9 +798,10 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   The work estimates that choose families use only the coverage-divided certificate.
 - **`get_automorphism_family`** row reduces in natural column order, then exchanges pivots between orbits in the compiled `_balance_orbit_shares`, as [Section 3.7](#37-images-of-an-information-set-under-automorphisms) explains.
   A search asks for automorphisms before the first layer whose scan would cost at least `automorphism_minimum_layer_work`, and switches to the automorphism family if `estimate_automorphism_family_work` is less than the `Certificate.work` of its family.
-- **`select_completion_tables`** decides whether a layer of one information set uses completion tables, as [Section 3.9](#39-skipping-completions-that-cannot-lower-u) explains.
+- **`select_completion_tables`** decides whether a layer of one information set uses completion tables, as [Section 3.9](#39-skipping-completions-that-cannot-lower-u) explains, and so does each step of a count, with the target weight plus one in place of `U`.
   It considers layers of at least `completion_bound_minimum_layer_work` supports, uses tables if it predicts that they cost at most `completion_bound_max_cost_percent` percent of the cost without them, and keeps tables within `completion_bound_max_table_bytes`.
-  Random supports only estimate the value of tables; a search skips supports only when `w` plus their computed bound reaches `U`.
+  Random supports only estimate the value of tables; a search skips supports only when `w` plus their computed bound reaches `U`, and a count only when it exceeds the target weight.
+  Its cost model was fitted to the scan of a distance search; counting weighs full rows and labels, so its scans cost more for each support, and the model then predicts conservatively.
 - **`Certificate.work`, `estimate_automorphism_family_work`, `_enumeration_is_cheaper_than_search`, and `enumeration_is_cheaper_than_setup`** are cost models, which Sections [3.6](#36-exhaustive-enumeration-as-a-fallback) and [3.7](#37-images-of-an-information-set-under-automorphisms) explain.
   They are not runtime guarantees.
   `enumeration_is_cheaper_than_setup` compares the setup cost of BZ with packed enumeration of all words, with the fields `enumeration_max_dimension` and `enumeration_setup_cost_factor`.
@@ -875,7 +880,7 @@ Changes to the BZ algorithm can use different representations, certificates, and
 - **Keep the strict certificate available to fixed-weight counting.**
   [logical_counts.py](logical_counts.py) builds its basis family with the same stages as the distance search, in `_select_basis_family` and `count_words` of [_counting/scan.py](_counting/scan.py), and stops at the first step after which that basis family's certificate exceeds a target weight `w`, to count every word of weight `w`, which defaults to the distance.
   Distance may stop at `L(t, j) ≥ U`, but counting must also exhaust words of weight exactly `w`, so it stops only at `L(t, j) > w`.
-  For the same reason, counting does not skip supports, which may hold words of the target weight `w`.
+  For the same reason, counting skips only supports whose words all weigh more than `w` ([Section 3.9](#39-skipping-completions-that-cannot-lower-u)), never at equality.
   A word of weight `w` belongs to the first step that visits it, and the steps that the scan visits are the first ones in order, so stopping within a layer still counts every such word once.
   Its bound must use the ranks and actual maximum coverage of the family it scans; it passes `upper_bound=w+1` to the family stages only to aim them at that stopping point.
 - **Preserve the return contract.**
@@ -884,7 +889,7 @@ Changes to the BZ algorithm can use different representations, certificates, and
   Under a weight limit, return the smaller of the distance and `max_weight+1`; an early exit must still return a witness within the limit.
 
 Representative correctness tests check certificate validity against exhaustive words, including rank-deficient blocks, inferred parity, and overlapping coverage (`test_family_certificates` and `test_overlapping_family_certificates` in [_search/information_sets_test.py](_search/information_sets_test.py)), and joint-search results with distinct sector certificates (`test_brouwer_zimmermann_sector_certificates` in [_search/brouwer_zimmermann_test.py](_search/brouwer_zimmermann_test.py)).
-`test_counting_continues_at_an_equal_lower_bound` in [logical_counts_test.py](logical_counts_test.py) checks the strict counting stop with a count that a stop at `L(t) = w` would miss.
+`test_counting_continues_at_an_equal_lower_bound` in [logical_counts_test.py](logical_counts_test.py) checks the strict counting stop with a count that a stop at `L(t) = w` would miss, and `test_counts_with_completion_tables_match_enumeration` in [_counting/scan_test.py](_counting/scan_test.py) checks counts with completion tables forced against enumeration, which counts that skipped at equality would miss.
 `test_automorphism_families_certify_like_the_family_of_all_images` in [_search/automorphism_families_test.py](_search/automorphism_families_test.py) checks the certificate of an automorphism family against every image of the scanned set, and `test_automorphism_family_searches_scan_every_layer_they_certify` in [_search/brouwer_zimmermann_test.py](_search/brouwer_zimmermann_test.py) checks a translated search whose lightest word appears only in its last layer.
 `test_automorphism_family_searches_scan_their_new_set_from_layer_two` checks a distance that a search that switched to an automorphism family would miss if it skipped the early layers of its new set.
 `test_searches_ask_for_automorphisms_only_before_costly_layers` checks that easy searches do not pay to find automorphisms.

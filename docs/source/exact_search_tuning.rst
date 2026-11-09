@@ -32,7 +32,7 @@ Start from a symptom
    * - A cheap search spends its time building families of information sets
      - Raise :attr:`~SearchTuning.overlapping_minimum_work` or :attr:`~SearchTuning.partition_work_ratio`, or lower :attr:`~SearchTuning.max_information_sets`.
    * - A search or count uses too much memory
-     - For distance searches, lower :attr:`~SearchTuning.completion_bound_max_table_bytes`, which applies to each problem of a joint search, such as each sector of a CSS code.
+     - For distance searches and counts, lower :attr:`~SearchTuning.completion_bound_max_table_bytes`, which applies to each problem of a joint search, such as each sector of a CSS code, and to the scan of each sector of a count.
        For exhaustive enumeration, lower :attr:`~SearchTuning.enumeration_batch_exponent`.
        For ``CosetLeaderSearch``, lower :attr:`~SearchTuning.max_css_single_pairs`; for the caches, edit their constants.
        No value limits the memory of a whole process.
@@ -80,7 +80,7 @@ Routes and the names that control them
      - :attr:`SearchTuning.automorphism_minimum_layer_work`
      -
      - `Section 3.7 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms>`__
-   * - Whether a layer of one information set uses completion tables to skip hopeless supports
+   * - Whether a layer of one information set, or a step of a count, uses completion tables to skip hopeless supports
      - :attr:`SearchTuning.completion_bound_minimum_layer_work`, :attr:`SearchTuning.completion_bound_max_cost_percent`
      -
      - `Section 3.9 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#39-skipping-completions-that-cannot-lower-u>`__

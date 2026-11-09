@@ -31,7 +31,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | The Brouwer–Zimmermann (BZ) distance search | `_search/brouwer_zimmermann.py` |
 | How basis families and their certificates are built | `_search/information_sets.py` |
 | Automorphism families: the images of one information set under automorphisms of a code, and the check of those automorphisms | `_search/automorphism_families.py` |
-| Tables that let a distance search skip supports whose last two rows cannot complete a word lighter than the best one found, and the choice of whether to build them | `_search/completion_bounds.py` |
+| Tables that let a distance search skip supports whose last two rows cannot complete a word lighter than the best one found, and a count those that cannot complete a word of its weight, and the choice of whether to build them | `_search/completion_bounds.py` |
 | Information sets with bounded column coverage, by matroid partitioning | `_search/matroid_partition.py` |
 | Exhaustive enumeration, for small codes, fallbacks, and the `brute_force` method | `_search/brute_force.py` |
 | Minimum weights of syndrome classes of Pauli errors (coset-leader weights), with two classical searches for the CSS weight on CSS states, used by `src/qldpc/circuits/certification/` | `_search/coset_leader_search.py` |

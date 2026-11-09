@@ -281,8 +281,9 @@ class SearchTuning:
     # Fields of completion tables.
 
     #: The number of supports, choices of rows of an information set, from which a layer that scans
-    #: one information set considers completion tables, which skip supports that cannot complete a
-    #: word lighter than its best one (Section 3.9 of ``brouwer_zimmermann.md``).  Considering them
+    #: one information set, or a step of a count, considers completion tables, which skip supports
+    #: that cannot complete a word lighter than its best one, or as light as the counted weight
+    #: (Section 3.9 of ``brouwer_zimmermann.md``).  Considering them
     #: takes milliseconds of sampling.  Lowering it considers smaller layers; zero every layer, and
     #: ``MAX_VALUE`` none.  Defaults to 10**8, about 0.2 seconds of scanning on the calibration
     #: machine, so that sampling costs a few percent at most.  To retune it, time layers near the
@@ -297,13 +298,13 @@ class SearchTuning:
     #: set.
     completion_bound_max_cost_percent: int = 90
 
-    #: The most bytes of completion tables that each problem of a distance search keeps, the main
-    #: memory limit of distance searches; so a joint search of both sectors of a CSS code can keep
-    #: this much for each sector.  Tables use blocks of ``completion_bound_block_bits`` columns, or
-    #: of ``completion_bound_fallback_block_bits`` if those do not fit, or none.  Zero disables
-    #: tables, and ``MAX_VALUE`` removes the limit.  Defaults to 256 MiB, which fits blocks of 16
-    #: columns for bases of up to about 500 rows and 140 tail columns.  To retune it, choose the
-    #: memory that the tables of one problem may use.
+    #: The most bytes of completion tables that each problem of a distance search, or the scan of
+    #: each sector of a count, keeps, the main memory limit of these searches; so a joint search of
+    #: both sectors of a CSS code can keep this much for each sector.  Tables use blocks of
+    #: ``completion_bound_block_bits`` columns, or of ``completion_bound_fallback_block_bits`` if
+    #: those do not fit, or none.  Zero disables tables, and ``MAX_VALUE`` removes the limit.
+    #: Defaults to 256 MiB, which fits blocks of 16 columns for bases of up to about 500 rows and
+    #: 140 tail columns.  To retune it, choose the memory that the tables of one problem may use.
     completion_bound_max_table_bytes: int = 256 * 2**20
 
     #: The number of tail columns in a block of completion tables, a power of two up to 16.  Wider
