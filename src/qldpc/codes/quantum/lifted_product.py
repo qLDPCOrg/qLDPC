@@ -35,8 +35,8 @@ class LPCode(CSSCode):
     1. The ring is commutative or a group algebra, since ``abstract.kron`` implements the Kronecker
        product over a noncommutative ring only for group algebras.
     2. The group of a noncommutative group algebra uses the default lift, its regular
-       representation, since lifting a Kronecker product over a noncommutative group algebra needs
-       lifts with ``right=True``.
+       representation.  Lifting a Kronecker product over a noncommutative group algebra needs lifts
+       with ``right=True``, which a noncommutative group has only with its default lift.
     3. The ring has an involution (see ``Ring.has_involution``).
 
     LPCode raises a NotImplementedError if requirement 1 fails, and otherwise a ValueError if
@@ -104,11 +104,12 @@ class LPCode(CSSCode):
     ) -> None:
         """Lifted product of two RingArrays, as in arXiv:2012.04068.
 
-        If ``set_logicals`` is True, set the canonical logical line operators of the code.  See
-        ``get_canonical_logical_line_ops`` for the rings that these operators need, and the side
-        effects of computing them.  Lifted products of binary codes over groups of even order are
-        common but do not meet these needs, so ``set_logicals`` defaults to False.  If it is True
-        for a ring that does not meet them, a ValueError is raised.  A ValueError is also raised if
+        If ``set_logicals`` is True, set the canonical logical line operators of the code.  These
+        operators need a group algebra whose group order is not divisible by the field
+        characteristic (see ``get_canonical_logical_line_ops``, which also describes the side
+        effects of computing them).  Lifted products of binary codes over groups of even order are
+        common but fail this condition, so ``set_logicals`` defaults to False.  If it is True for a
+        ring that fails this condition, a ValueError is raised.  A ValueError is also raised if
         these operators cannot be lifted or are invalid, which can happen if the involution of the
         ring does not transpose lifts.
         """
@@ -152,13 +153,13 @@ class LPCode(CSSCode):
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
         """Canonical logical line operators for a lifted product code.
 
-        These operators use semisimple Howell normal forms, which need a group algebra whose group
-        order is not divisible by the field characteristic.  This method raises a
-        NotImplementedError for any other ring, and a ValueError for a group algebra that fails this
-        condition.  Unless the primitive central idempotents of the group algebra are known, this
-        method may run GAP, prompt on standard input, and use the system clipboard; see
-        GroupRing.get_transformer.  These operators also assume that the involution of the ring
-        transposes lifts.
+        These operators use semisimple Howell normal forms, which are implemented only for group
+        algebras, and need a field characteristic that does not divide the group order.  This method
+        raises a NotImplementedError for a ring that is not a group algebra, and a ValueError for a
+        group algebra that fails this condition.  Unless the primitive central idempotents of the
+        group algebra are known, this method may run GAP, prompt on standard input, and use the
+        system clipboard; see GroupRing.get_transformer.  These operators also assume that the
+        involution of the ring transposes lifts.
         """
         logical_ops_xz = LPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
         return LPCode.to_lifted_logical_ops(*logical_ops_xz)
@@ -173,7 +174,8 @@ class LPCode(CSSCode):
         ``LPCode.get_canonical_logical_line_ops`` for the rings that this method needs, and its side
         effects.
         """
-        _require_group_algebra(matrix_a)
+        _require_group_algebras(matrix_a, matrix_b)
+
         # put each ring null space in a standard form before choosing paired logical operators
         generator_a = matrix_a.null_space().howell_normal_form_semisimple()
         generator_b = matrix_b.null_space(right=True).howell_normal_form_semisimple(right=True)
@@ -320,7 +322,8 @@ class SLPCode(CSSCode):
         ``LPCode.get_canonical_logical_line_ops`` for the rings that this method needs, and its side
         effects.
         """
-        _require_group_algebra(matrix_a)
+        _require_group_algebras(matrix_a, matrix_b)
+
         generator_a = matrix_a.null_space().howell_normal_form_semisimple()
         generator_b = matrix_b.null_space(right=True).howell_normal_form_semisimple(right=True)
 
@@ -370,17 +373,19 @@ def _involution_transposes_lifts(ring: abstract.Ring) -> bool:
     )
 
 
-def _require_group_algebra(matrix: abstract.RingArray) -> None:
-    """Raise a NotImplementedError unless a matrix is over a group algebra.
+def _require_group_algebras(*matrices: abstract.RingArray) -> None:
+    """Raise a NotImplementedError unless all matrices are over group algebras.
 
     Canonical logical operators of lifted products use semisimple Howell normal forms, which are
-    implemented only for group algebras.
+    implemented only for group algebras.  This check comes before computing null spaces, which raise
+    a ValueError for a ring without an involution.
     """
-    if not isinstance(matrix.ring, abstract.GroupRing):
-        raise NotImplementedError(
-            "Canonical logical operators of lifted products are implemented only for group"
-            f" algebras, not {matrix.ring}"
-        )
+    for matrix in matrices:
+        if not isinstance(matrix.ring, abstract.GroupRing):
+            raise NotImplementedError(
+                "Canonical logical operators of lifted products are implemented only for group"
+                f" algebras, not {matrix.ring}"
+            )
 
 
 def _set_canonical_logical_line_ops(code: LPCode | SLPCode) -> None:

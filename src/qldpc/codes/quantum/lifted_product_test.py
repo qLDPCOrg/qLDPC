@@ -309,8 +309,8 @@ def test_lifted_product_over_matrix_rings() -> None:
 
 def test_lifted_product_ring_requirements() -> None:
     """Lifted products check the requirements on their rings."""
-    # a noncommutative ring must be a group algebra, which is checked before an involution is
-    # needed, and this ring has none
+    # a noncommutative ring must be a group algebra.  This ring also has no involution, so these
+    # errors show that the ring is checked before an involution is needed.
     upper, lower = np.array([[0, 1], [0, 0]]), np.array([[0, 0], [1, 0]])
     noncommutative_ring = abstract.MatrixRing(np.diag([1, 0]), upper)
     assert not noncommutative_ring.is_commutative and not noncommutative_ring.has_involution
@@ -327,9 +327,11 @@ def test_lifted_product_ring_requirements() -> None:
             code_type(matrix)
 
     # an LPCode needs an involution, but an SLPCode does not
-    ring = abstract.MatrixRing(lower)
-    assert not ring.has_involution and ring.is_commutative
-    matrix = abstract.RingArray.build([[ring.generators[0]]], ring)
+    ring_without_involution = abstract.MatrixRing(lower)
+    assert not ring_without_involution.has_involution and ring_without_involution.is_commutative
+    matrix = abstract.RingArray.build(
+        [[ring_without_involution.generators[0]]], ring_without_involution
+    )
     with pytest.raises(ValueError, match="no involution"):
         codes.LPCode(matrix)
     subsystem_code = codes.SLPCode(matrix)
@@ -343,11 +345,14 @@ def test_lifted_product_ring_requirements() -> None:
         codes.LPCode.get_canonical_logical_line_ops,
         codes.SLPCode.get_canonical_logical_line_ops,
     ]
-    for ring in [ring_with_involution, abstract.MatrixRing(lower)]:
+    group_ring = abstract.GroupRing(abstract.CyclicGroup(2))
+    group_matrix = abstract.RingArray.build([[1]], group_ring)
+    for ring in [ring_with_involution, ring_without_involution]:
         matrix = abstract.RingArray.build([[ring.generators[0]]], ring)
         for get_canonical_logical_line_ops in get_ops:
-            with pytest.raises(NotImplementedError, match="only for group algebras"):
-                get_canonical_logical_line_ops(matrix, matrix)
+            for matrices in [(matrix, matrix), (group_matrix, matrix), (matrix, group_matrix)]:
+                with pytest.raises(NotImplementedError, match="only for group algebras"):
+                    get_canonical_logical_line_ops(*matrices)
     matrix = abstract.RingArray.build([[ring_with_involution.generators[0]]], ring_with_involution)
     for code_type in [codes.LPCode, codes.SLPCode]:
         with pytest.raises(ValueError, match="Cannot set canonical logical operators"):
