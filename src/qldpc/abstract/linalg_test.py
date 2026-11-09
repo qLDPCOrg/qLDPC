@@ -242,7 +242,7 @@ def test_kron_over_matrix_rings() -> None:
     with pytest.raises(NotImplementedError, match="only for group algebras"):
         abstract.kron(matrix, matrix)
 
-    # a commutative ring needs no bimodule
+    # over a commutative matrix ring, kron is the ordinary Kronecker product
     ring = abstract.MatrixRing(matrix_units[0] + matrix_units[1])
     matrix = abstract.RingArray.build([[1, ring.generators[0]]], ring)
     product = abstract.kron(matrix, matrix)

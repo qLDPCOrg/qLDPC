@@ -302,7 +302,11 @@ class ChainComplex:
 
     @property
     def T(self) -> ChainComplex:
-        """Transpose and reverse the order of the boundary operators in this chain complex."""
+        """Transpose and reverse the order of the boundary operators in this chain complex.
+
+        Boundary operators over a ring are conjugate-transposed with ``RingArray.T``, which raises a
+        ValueError if the ring has no involution.
+        """
         dual_ops = [op.T for op in self.ops[::-1]]
         return ChainComplex(dual_ops, skip_validation=True)
 

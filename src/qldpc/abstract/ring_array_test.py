@@ -213,6 +213,19 @@ def test_deprecated_argument_order() -> None:
         ring_array = abstract.RingArray.from_field_array(ring, matrix)  # type:ignore[arg-type]
     assert np.array_equal(ring_array.to_field_array(), matrix)
 
+    # the deprecated argument order also works for other rings
+    matrix_ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
+    matrix = matrix_ring.field([[[1, 0], [1, 1]]])
+    with pytest.warns(DeprecationWarning, match="DEPRECATED"):
+        # the deprecated argument order does not match the typed signature
+        ring_array = abstract.RingArray.from_field_array(matrix_ring, matrix)  # type:ignore[arg-type]
+    assert np.array_equal(ring_array.to_field_array(), matrix)
+    vector = matrix.ravel()
+    with pytest.warns(DeprecationWarning, match="DEPRECATED"):
+        # the deprecated argument order does not match the typed signature
+        ring_array = abstract.RingArray.from_field_vector(matrix_ring, vector)  # type:ignore[arg-type]
+    assert np.array_equal(ring_array.to_field_vector(), vector)
+
 
 def test_deprecated_attribute_lookup() -> None:
     """The module-level lookup of deprecated names rejects other names."""
@@ -245,7 +258,9 @@ def test_ring_array_over_matrix_ring() -> None:
         abstract.RingArray.build([[a]], group_ring)
     with pytest.raises(ValueError, match="different ring"):
         abstract.RingArray.build([[group_ring.one]], ring)
-    with pytest.raises(TypeError, match="Group members cannot be cast"):
+    with pytest.raises(
+        TypeError, match="Group members combine only with members of group algebras"
+    ):
         abstract.RingArray.build([[group.generators[0]]], ring)
 
 
@@ -282,15 +297,18 @@ def test_kernel_over_matrix_rings() -> None:
     ring_without_involution = abstract.MatrixRing(upper.T)
     assert ring_with_involution.has_involution and not ring_without_involution.has_involution
     for ring in [ring_with_involution, ring_without_involution]:
+        # the first two columns of this array form an invertible matrix, so the array maps R^3 onto
+        # R^2 in either order of multiplication, and its null space is a free module of rank one
         array = abstract.RingArray.build([[1, ring.generators[-1], 0], [0, 1, 1]], ring)
         for right in [False, True]:
             kernel = array.kernel(right=right)
             assert kernel.shape[0] == array.shape[1]
             assert not np.any(abstract.matmul(array, kernel, right=right))
-            lift = array.regular_lift(right=right)
-            nullity = array.shape[1] * ring.dim - np.linalg.matrix_rank(lift)
             vectors = kernel.transpose().to_field_array().reshape(-1, array.shape[1] * ring.dim)
-            assert nullity > 0 and np.linalg.matrix_rank(vectors) == nullity
+            assert np.linalg.matrix_rank(vectors) == ring.dim
+
+        # the kernel of an invertible matrix has no columns
+        assert abstract.RingArray.build([[1]], ring).kernel().shape == (1, 0)
 
     # with an involution, null-space rows are the conjugate transposes of kernel columns
     array = abstract.RingArray.build(
@@ -309,16 +327,12 @@ def test_ring_array_without_involution() -> None:
     ring = abstract.MatrixRing(np.array([[0, 0], [1, 0]]))
     (nilpotent,) = ring.generators
     array = abstract.RingArray.build([[1, nilpotent]], ring)
-    with pytest.raises(ValueError, match="no involution"):
+    with pytest.raises(ValueError, match=r"use RingArray\.kernel"):
         array.null_space()
     with pytest.raises(ValueError, match="no involution"):
         _ = array.T
 
-    # ``null_space`` raises even if the null space is empty, and ``.T`` even if the array is empty
-    invertible = abstract.RingArray.build([[1]], ring)
-    assert invertible.kernel().shape == (1, 0)
-    with pytest.raises(ValueError, match="no involution"):
-        invertible.null_space()
+    # transposes raise even for an empty array
     with pytest.raises(ValueError, match="no involution"):
         _ = abstract.RingArray.build(np.zeros((0, 2), dtype=int), ring).T
 

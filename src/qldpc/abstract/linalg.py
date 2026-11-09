@@ -83,8 +83,9 @@ def kron(
     of the Kronecker product then live in the bimodule F[G × G] ≅ R ⨂ R.  A basis element (g, h) of
     the bimodule, for group members g and h, acts on t ∈ R as (g, h)(t) = g·t·h⁻¹.  If entries of
     matrix_a and matrix_b are group members a and b, the corresponding entry of the product is the
-    basis element (a, b⁻¹), which acts as t -> a·t·b, and other entries extend linearly.  Lifting
-    members of this bimodule needs anti-representations of G, so G must use its default lift.
+    basis element (a, b⁻¹), which acts as t -> a·t·b.  The product extends bilinearly to other
+    entries.  Lifting the product needs anti-representations of G, which a noncommutative group has
+    only with its default lift.
     """
     ring = _get_ring(matrix_a, matrix_b)
 
@@ -246,11 +247,9 @@ def _get_bimodule(ring: GroupRing) -> GroupRing:
 
         (g, h)(t) = g·t·h⁻¹.
 
-    (The right sector lifts to an anti-representation of the inverse, hence ``h⁻¹`` rather than
-    ``h``.)
-
-    When lifting a RingArray matrix over a bimodule, the "left" entries of ``G × G`` get lifted to
-    an ordinary representation, while the "right" entries get lifted to an anti-representation.
+    When lifting a RingArray over the bimodule, the left factor of each member of ``G × G`` lifts to
+    a representation, and the right factor lifts to the anti-representation of its inverse, hence
+    ``h⁻¹``.
     """
     size = ring.group.identity.size
 

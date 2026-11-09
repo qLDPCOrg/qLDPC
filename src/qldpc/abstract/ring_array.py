@@ -265,9 +265,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
                 # re-home a member of a group algebra into the target group algebra
                 return RingMember(ring, *[(coeff, member) for coeff, member in value if coeff])
             if isinstance(value, GroupMember):
-                if not isinstance(ring, GroupRing):
-                    raise TypeError(f"Group members cannot be cast into members of {ring}")
-                return RingMember(ring, value)
+                return one * value
 
             # an integer is a multiple of the identity
             return one * ring.field(value)
@@ -345,8 +343,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
 
         This method returns the conjugate transpose of ``RingArray.kernel``, so it requires a ring
         with an involution (see ``Ring.has_involution``), and raises a ValueError for any other
-        ring.  The rows of the returned matrix span the null space, but are generally linearly
-        dependent.
+        ring.
         """
         # check the ring here, to point to RingArray.kernel for a ring without an involution
         if not self.ring.has_involution:
@@ -364,14 +361,13 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         which the order of multiplication is reversed, such that ``abstract.matmul(self,
         self.kernel(right=True), right=True)`` is zero.
 
-        The columns of the returned matrix span the null space of this ``RingArray``, but are
-        generally linearly dependent, since this method does not row-reduce them (row reduction
-        over a ring is subtle).
+        The columns of the returned matrix span the null space of this ``RingArray`` over the ring,
+        and their coefficients are linearly independent over the base field.  As generators over the
+        ring, the columns are generally redundant.
         """
         self._require_ndim(2)
 
-        # field-valued null vectors of self.regular_lift() span the space of ring-valued null
-        # vectors
+        # field-valued null vectors of the regular lift span the space of ring-valued null vectors
         null_field_vectors = self.regular_lift(right=right).null_space()
 
         # collect ring-valued null vectors as rows, and transpose them into columns without applying

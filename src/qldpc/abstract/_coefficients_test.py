@@ -107,7 +107,7 @@ def test_coefficient_matmul_fallbacks(monkeypatch: pytest.MonkeyPatch) -> None:
     assert kernel(matrix, matrix) is None
 
 
-def test_coefficient_matmul_requires_group_algebra(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_coefficient_matmul_falls_back_for_other_rings(monkeypatch: pytest.MonkeyPatch) -> None:
     """Rings other than group algebras multiply matrices with RingMember arithmetic."""
     monkeypatch.setattr(_coefficients, "_MIN_MATMUL_COEFFICIENT_WORK", 0)
     ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
