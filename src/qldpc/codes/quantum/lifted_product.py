@@ -97,7 +97,8 @@ class LPCode(CSSCode):
         field characteristic that does not divide the order of the group.  Lifted products of binary
         codes over groups of even order are common but fail this condition, so ``set_logicals``
         defaults to False, and if it is True for a group algebra that fails it, a ValueError is
-        raised.
+        raised.  The canonical logical operators assume lifts to orthogonal matrices, and for other
+        lifts, a ValueError is raised if they are not valid logical operators.
         """
         if matrix_b is None:
             matrix_b = matrix_a
@@ -130,16 +131,7 @@ class LPCode(CSSCode):
             )
 
         if set_logicals:
-            try:
-                logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
-            except (ValueError, NotImplementedError) as exception:
-                raise ValueError(
-                    "Cannot set canonical logical operators for this code, likely due to a"
-                    " choice of group algebra for which some features are not yet supported"
-                ) from exception
-            # this call sits outside the try above because a validation failure here is a real bug
-            # in the computed operators, not the "unsupported group algebra" the try/except reports
-            self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
+            _set_canonical_logical_ops(self)
 
     @staticmethod
     def get_canonical_logical_line_ops(
@@ -279,16 +271,7 @@ class SLPCode(CSSCode):
         # TODO: set self._stabilizer_ops
 
         if set_logicals:
-            try:
-                logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
-            except (ValueError, NotImplementedError) as exception:
-                raise ValueError(
-                    "Cannot set canonical logical operators for this code, likely due to a"
-                    " choice of group algebra for which some features are not yet supported"
-                ) from exception
-            # this call sits outside the try above because a validation failure here is a real bug
-            # in the computed operators, not the "unsupported group algebra" the try/except reports
-            self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
+            _set_canonical_logical_ops(self)
 
     @staticmethod
     def get_canonical_logical_line_ops(
@@ -338,3 +321,27 @@ def _has_orthogonal_lifts(ring: abstract.GroupRing) -> bool:
     return all(
         np.array_equal(generator.T.lift(), generator.lift().T) for generator in ring.generators
     )
+
+
+def _set_canonical_logical_ops(code: LPCode | SLPCode) -> None:
+    """Set the canonical logical line operators of a lifted product code."""
+    try:
+        logical_ops_xz = code.get_canonical_logical_line_ops(code.matrix_a, code.matrix_b)
+    except (ValueError, NotImplementedError) as exception:
+        raise ValueError(
+            "Cannot set canonical logical operators for this code, likely due to a choice of group"
+            " algebra for which some features are not yet supported"
+        ) from exception
+
+    # the canonical operators assume lifts to orthogonal matrices, so they can be invalid for other
+    # lifts; for orthogonal lifts, a validation failure is a real bug in the operators
+    if _has_orthogonal_lifts(code.matrix_a.ring):
+        code.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
+    else:
+        try:
+            code.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
+        except ValueError as exception:
+            raise ValueError(
+                "Cannot set canonical logical operators for this code, whose group algebra lifts"
+                " members to matrices that are not orthogonal"
+            ) from exception

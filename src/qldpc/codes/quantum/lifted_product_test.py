@@ -308,3 +308,18 @@ def test_lifted_product_with_non_orthogonal_lifts() -> None:
     assert not np.array_equal(generator.lift() @ generator.lift().T, np.eye(2, dtype=int))
     with pytest.raises(ValueError, match="do not commute"):
         codes.LPCode(abstract.RingArray.build([[generator]], ring))
+
+
+def test_canonical_logicals_with_non_orthogonal_lifts() -> None:
+    """Lifted products set canonical logical operators for other lifts only if they are valid."""
+    group = abstract.Group.from_generating_mats(galois.GF(5)([[1, 1], [0, 4]]))
+    ring = abstract.GroupRing(group, field=5)
+    (generator,) = ring.generators
+    assert not np.array_equal(generator.lift() @ generator.lift().T, np.eye(2, dtype=int))
+    for code_type in [codes.LPCode, codes.SLPCode]:
+        code = code_type(
+            abstract.RingArray.build([[generator, generator]], ring), set_logicals=True
+        )
+        assert len(code.get_logical_ops()) == 2 * code.dimension > 0
+        with pytest.raises(ValueError, match="not orthogonal"):
+            code_type(abstract.RingArray.build([[ring.one + generator]], ring), set_logicals=True)

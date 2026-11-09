@@ -237,6 +237,12 @@ class Group:
 
     def generate(self) -> Iterator[GroupMember]:
         """Iterate over all group members."""
+        # once members are indexed, follow their indices, since SymPy can change the order in which
+        # it generates members, for example after Group.to_sympy().coset_transversal
+        if "_members" in vars(self):
+            yield from self._members
+            return
+
         # Keep iteration lazy.  ``index`` still materializes the lookup table when random access is
         # requested, but callers that stop early should not pay the memory cost of the full group.
         generate = self._generate_func or self._group.generate

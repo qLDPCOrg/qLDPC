@@ -72,6 +72,10 @@ def test_ring() -> None:
     bb = abstract.RingMember.from_vector(ring.field.Random(group.order), ring)
     assert aa * bb == bb * aa
 
+    # a vector of coefficients has one entry for each group member
+    with pytest.raises(ValueError, match="has 8 coefficients"):
+        abstract.RingMember.from_vector(ring.field.Zeros(group.order + 1), ring)
+
     wrong_symbols = {x_i: r_i, x_j: r_j}
     with pytest.raises(ValueError, match="must be GroupMember-valued"):
         ring.eval(1, wrong_symbols)  # type:ignore[arg-type]
@@ -171,6 +175,48 @@ def test_printing() -> None:
     x, y = ring.generators
     assert str(one + y * x**2 * y) == "1 + y x^2 y"
     assert str(x + y) == "x + y"
+
+    # every member of a noncommutative group prints as a word that evaluates to that member, even if
+    # the SymPy group has more generators than the group
+    assert len(abstract.QuaternionGroup().to_sympy().generators) > 2
+    symbols = sympy.symbols("x y", commutative=False)
+    local_dict = {str(symbol): symbol for symbol in symbols}
+    for noncommutative_group in [abstract.DihedralGroup(4), abstract.QuaternionGroup()]:
+        ring = abstract.GroupRing(noncommutative_group, 3)
+        values = dict(zip(symbols, noncommutative_group.generators))
+        for member in noncommutative_group.generate():
+            ring_member = abstract.RingMember(ring, member)
+            text = str(ring_member).replace("^", "**").replace(" ", "*")
+            word = sympy.parse_expr(text, local_dict=local_dict)
+            assert ring.eval(word, values) == ring_member
+
+
+def test_field_scalars() -> None:
+    """Field scalars add to, subtract from, and multiply ring members."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=3)
+    x = ring.generators[0]
+    scalar = ring.field(2)
+    one = ring.one.to_vector()
+    assert np.array_equal((x + scalar).to_vector(), x.to_vector() + scalar * one)
+    assert np.array_equal((x - scalar).to_vector(), x.to_vector() - scalar * one)
+    assert np.array_equal((x * scalar).to_vector(), scalar * x.to_vector())
+
+
+def test_arithmetic_across_rings() -> None:
+    """Members of a group algebra combine only with members of equal group algebras."""
+    ring = abstract.GroupRing(abstract.SymmetricGroup(3))
+    other_ring = abstract.GroupRing(abstract.SymmetricGroup(3))
+    assert ring.one + other_ring.one == ring.zero
+    assert ring.one * other_ring.one == ring.one
+    for other_ring in [
+        abstract.GroupRing(abstract.CyclicGroup(3)),
+        abstract.GroupRing(abstract.SymmetricGroup(3), field=3),
+        abstract.GroupRing(abstract.SymmetricGroup(3).with_natural_lift()),
+    ]:
+        with pytest.raises(ValueError, match="different group algebras"):
+            ring.one + other_ring.one
+        with pytest.raises(ValueError, match="different group algebras"):
+            ring.one * other_ring.one
 
 
 def test_primitive_central_idempotents(ring_cyclic3_gf2: abstract.GroupRing) -> None:

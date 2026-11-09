@@ -18,6 +18,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 import sympy
+import sympy.combinatorics
 import sympy.core.random
 
 from qldpc import abstract
@@ -135,6 +136,19 @@ def test_generate_is_lazy() -> None:
     group = abstract.SymmetricGroup(8)
     next(group.generate())
     assert "_members" not in group.__dict__
+
+
+def test_generate_after_sympy_changes_order() -> None:
+    """Indexed members keep their order when SymPy changes the order in which it generates them."""
+    group = abstract.SymmetricGroup(4)
+    members = list(group.generate())
+    group.index(members[0])
+    subgroup = sympy.combinatorics.PermutationGroup(sympy.combinatorics.Permutation([0, 1, 3, 2]))
+    group.to_sympy().coset_transversal(subgroup)
+    assert list(map(abstract.GroupMember.from_sympy, group.to_sympy().generate())) != members
+    assert list(group.generate()) == members
+    aa, bb = group.generators
+    assert np.array_equal(group.lift(aa * bb), group.lift(aa) @ group.lift(bb))
 
 
 def test_regular_lift_returns_independent_arrays() -> None:

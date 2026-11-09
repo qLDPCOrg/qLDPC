@@ -21,6 +21,7 @@ import galois
 import numpy as np
 import numpy.typing as npt
 import sympy.abc
+import sympy.combinatorics
 import sympy.core
 
 from qldpc import _deprecations
@@ -337,8 +338,9 @@ class RingMember:
             ]
 
         else:
-            # general-purpose fallback
-            sympy_group = self.group.to_sympy()
+            # general-purpose fallback, which writes members as products of the generators of the
+            # group, which may differ from those of its SymPy group
+            sympy_group = sympy.combinatorics.PermutationGroup(self.group.generators)
             gen_to_symbol = {gen: symbol for gen, symbol in zip(sympy_group.generators, symbols)}
             gen_to_symbol |= {
                 ~gen: 1 / symbol
@@ -348,7 +350,7 @@ class RingMember:
 
             terms = []
             for x_g, gg in self:
-                gens = sympy_group.generator_product(gg, original=True)
+                gens = sympy_group.generator_product(gg, original=True)[::-1]
                 factors = [gen_to_symbol[gen] for gen in gens]
                 monomial = functools.reduce(operator.mul, factors, 1)
                 terms.append(int(x_g) * monomial)
@@ -372,7 +374,7 @@ class RingMember:
 
     def __add__(self, other: int | galois.FieldArray | GroupMember | RingMember) -> RingMember:
         if isinstance(other, (int, self.field)):
-            return self + other * self.ring.one
+            return self + self.ring.one * other
 
         if isinstance(other, GroupMember):
             new_element = self.copy()
@@ -380,6 +382,7 @@ class RingMember:
             return new_element
 
         if isinstance(other, RingMember):
+            self._check_same_ring(other)
             new_element = self.copy()
             for val, member in other:
                 new_element._vec[member] += val
@@ -413,6 +416,7 @@ class RingMember:
 
         if isinstance(other, RingMember):
             # collect and multiply pairs of terms from 'self' and 'other'
+            self._check_same_ring(other)
             new_element = self.ring.zero
             for (x_a, aa), (y_b, bb) in itertools.product(self, other):
                 new_element._vec[aa * bb] += x_a * y_b
@@ -546,6 +550,11 @@ class RingMember:
             )
             vector, ring = ring, vector
         group = ring.group if isinstance(ring, GroupRing) else ring
+        if np.shape(vector) != (group.order,):
+            raise ValueError(
+                f"A member of the algebra of a group of order {group.order} has {group.order}"
+                f" coefficients, but the vector has shape {np.shape(vector)}"
+            )
         terms = [(int(x_g), gg) for x_g, gg in zip(vector, group.generate()) if x_g]
         return RingMember(ring, *terms)
 
@@ -555,6 +564,12 @@ class RingMember:
         for val, member in self:
             vector[self.group.index(member)] = val
         return vector
+
+    def _check_same_ring(self, other: RingMember) -> None:
+        """Raise a ValueError unless another ring member belongs to an equal group algebra."""
+        # skip comparing a ring with itself, which is common
+        if self.ring is not other.ring and self.ring != other.ring:
+            raise ValueError("Cannot combine members of different group algebras")
 
 
 if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations
