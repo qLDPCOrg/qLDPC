@@ -2,7 +2,7 @@ Reviewing changes
 =================
 
 In a standard review, independent reviewers examine a change from several angles, and the change is revised in response.
-Review and revision repeat in rounds while a round finds significant problems, as the reviewer instructions below define them.
+Review and revision repeat in rounds, as :ref:`review-rounds` describes.
 
 To request a standard review, name it, as in "run a standard review of this branch".
 A request can narrow or extend the review, as in "standard review of the tests and prose".
@@ -33,7 +33,18 @@ The coordinator gives each reviewer:
 
   * Report findings without editing the change.
   * Give each finding a location, the problem, why it matters, and a suggested fix.
-  * Mark each finding significant if fixing it changes behavior, an interface, a test, or what documentation says, and minor if it only polishes wording.
+  * Mark a finding significant only if the change has or causes one of these problems:
+
+    * a wrong result;
+    * a broken contract;
+    * an unhandled edge case;
+    * an interface or design problem;
+    * claimed behavior that no test verifies;
+    * documentation that states something false.
+
+    Mark every other finding about the change minor.
+  * Report problems that existed before the change separately, as pre-existing problems.
+    A problem that the change causes in unchanged code, such as a broken caller, is a finding about the change.
   * Run only the drafting checks of the :ref:`validation commands <validation-commands>`, and run ``format_.py`` only with ``--check``.
   * Check whether the change requires updates elsewhere, such as to callers, to docstrings or guides that repeat a changed limitation, or to the :doc:`library map </library_map>` and examples.
 
@@ -58,6 +69,8 @@ The :doc:`pull request standard <standards/pull_requests>` is not a review angle
 
 One reviewer may cover up to two angles of a small change, such as a change to one module or to prose only.
 
+.. _review-rounds:
+
 Rounds
 ------
 
@@ -66,13 +79,18 @@ The coordinator runs each round as follows:
 1. Start the reviewers together, so that none sees the findings of another.
    Each round reviews the whole change.
    A later round may skip an angle that no revision since the previous round can affect.
-2. Fix clear problems, and verify each fix with the drafting checks.
+2. Fix clear findings about the change, and verify each fix with the drafting checks.
    If the coordinator did not write the change, as for another contributor's pull request, report fixes as suggestions instead of making them.
    The review then ends after one round.
 3. Leave decisions to the person the coordinator works for.
    Decisions include design changes, public API changes, changes to the standards or to this protocol, and disagreements with a reviewer.
+   What to do about each pre-existing problem is also a decision.
+   Recommend fixing it in the change, in a follow-up pull request, or in a small pull request that precedes the change.
    Record each open decision, continue with the other fixes, and list the open decisions in the report.
-4. Start another round with fresh reviewers if the round found significant problems, unless three rounds have run.
+4. Start another round with fresh reviewers if fixing a significant finding took more than a local, evidently correct edit, unless three rounds have run.
+   Edits that change logic, an interface, or how parts of the code interact are not local.
+   The coordinator judges each fix.
+   Minor findings and pre-existing problems do not start another round.
    If significant problems remain as open decisions, report them and ask how to proceed before starting another round.
 
 After the last round, report what each round found and changed, and list the decisions that remain open.
