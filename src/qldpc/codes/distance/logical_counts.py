@@ -34,9 +34,10 @@ from typing import TYPE_CHECKING, Literal, SupportsIndex
 import numpy as np
 import numpy.typing as npt
 
+from qldpc import _deprecations
 from qldpc._binary import get_independent_rows, get_kernel, pack_bits
 from qldpc._compilation import set_on_request_functions_compiled
-from qldpc._utils import format_docstring
+from qldpc._utils import get_external_caller_stacklevel
 
 from ._binary import as_integer, get_nested_code_basis
 from ._counting import local_cliffords, macwilliams, scan
@@ -201,7 +202,6 @@ class CSSLogicalCounter:
         """Whether the X and Z checks span the same row space."""
         return self._self_dual or np.array_equal(*self._get_canonical_checks())
 
-    @format_docstring(MAX_SETS=DEFAULT_TUNING.max_information_sets)
     def count_logical_ops(
         self,
         weight: SupportsIndex | None = None,
@@ -209,7 +209,7 @@ class CSSLogicalCounter:
         method: LogicalCountMethod = "brouwer_zimmermann",
         count_pauli: bool = False,
         within_distance: bool = False,
-        max_information_sets: SupportsIndex | None = None,
+        max_information_sets: SupportsIndex | None = None,  # DEPRECATED: see qldpc._deprecations
     ) -> CSSLogicalCounts:
         """Count the nontrivial logical operators of a given weight.
 
@@ -233,25 +233,19 @@ class CSSLogicalCounter:
             within_distance: If True, raise an error when the weight is above the distance, that
                 is, when some nontrivial X-only or Z-only logical operator is lighter than the
                 weight.  Full Pauli counts always do this.  Defaults to False.
-            max_information_sets: Limit on the number of information sets that a Brouwer-Zimmermann
-                count may use when it replaces its first, disjoint sets by overlapping ones.  More
-                sets can skip costly layers of a hard count, but each set costs setup work, which
-                dominates a cheap count.  A small limit suits many cheap counts on a large code.
-                The limit also applies to the distance search that finds the default weight.  This
-                never changes the counts, and the other methods do not use it.  If None (the
-                default), the limit is that of the active search tuning, which is {MAX_SETS} unless
-                changed (see :mod:`qldpc.codes.distance`).
+            max_information_sets: Deprecated.  Use
+                ``qldpc.codes.distance._tuning.use_tuning(max_information_sets=...)`` instead.
 
         Returns:
             The counted weight and the counts.  If no weight is given and the code encodes no
             qubits, the returned weight is the number of qubits and every count is zero.
 
         Raises:
-            TypeError: If the weight or ``max_information_sets`` is not an integer, or is a bool.
-            ValueError: If the weight is not between zero and the number of qubits, if
-                ``max_information_sets`` is negative or above 2**62, if the method is unknown, if
-                the weight is above the distance and ``count_pauli`` or ``within_distance`` is set,
-                or if the MacWilliams method does not support the code or the request.
+            TypeError: If the weight is not an integer, or is a bool.
+            ValueError: If the weight is not between zero and the number of qubits, if the method
+                is unknown, if the weight is above the distance and ``count_pauli`` or
+                ``within_distance`` is set, or if the MacWilliams method does not support the code
+                or the request.
         """
         # Validate the inputs, resolving method aliases.
         method = _validate_logical_count_method(method)
@@ -263,9 +257,15 @@ class CSSLogicalCounter:
                 )
         if method == "macwilliams":
             self._validate_macwilliams_request(count_pauli)
-        # Every search of this count uses one tuning, which validates the limit.
+        # Every search of this count uses one tuning.
         tuning = get_tuning()
-        if max_information_sets is not None:
+        if max_information_sets is not None:  # DEPRECATED: see qldpc._deprecations
+            _deprecations.warn_deprecated(
+                "The max_information_sets argument of logical-operator counts is deprecated and"
+                " will be removed in a future release.  Use"
+                " qldpc.codes.distance._tuning.use_tuning(max_information_sets=...) instead",
+                stacklevel=get_external_caller_stacklevel(),
+            )
             max_sets = as_integer(max_information_sets, "max_information_sets")
             tuning = dataclasses.replace(tuning, max_information_sets=max_sets)
 
@@ -647,7 +647,7 @@ def count_logical_ops_css(
     method: LogicalCountMethod = "brouwer_zimmermann",
     count_pauli: bool = False,
     within_distance: bool = False,
-    max_information_sets: SupportsIndex | None = None,
+    max_information_sets: SupportsIndex | None = None,  # DEPRECATED: see qldpc._deprecations
 ) -> CSSLogicalCounts:
     """Count the nontrivial logical operators of a given weight in a binary CSS code.
 
@@ -659,8 +659,8 @@ def count_logical_ops_css(
         The counted weight and the counts.
 
     Raises:
-        TypeError: If the code is not a :class:`~qldpc.codes.CSSCode`, or if the weight or
-            ``max_information_sets`` is not an integer, or is a bool.
+        TypeError: If the code is not a :class:`~qldpc.codes.CSSCode`, or if the weight is not an
+            integer, or is a bool.
         ValueError: If the code is not binary, or for invalid arguments as described in
             :meth:`CSSLogicalCounter.count_logical_ops`.
     """
@@ -730,7 +730,9 @@ def _warm_up_compiled_functions() -> None:
     counter.deformed_cnot(0, 1).count_logical_ops(method="brouwer_zimmermann")
 
     # The distance search of so small a code is exhaustive, so call the stages that it uses here.
-    # Any upper bound compiles them; this one exceeds the distance of the code, 3.
+    # Any upper bound compiles them; this one exceeds the distance of the code, 3.  The default
+    # tuning makes these calls build families whatever the active tuning, since compilation, not a
+    # search, is their purpose.
     basis, labels = counter._get_sectors()[0]
     upper_bound = 4
     basis_family = information_sets.prune_family(
@@ -769,7 +771,7 @@ def _get_distance(
                 basis,
                 labels,
                 cutoff=0,
-                block_size=tuning.count_distance_batch_exponent,
+                batch_exponent=tuning.enumeration_batch_exponent,
                 homogeneous=True,
             )
             for basis, labels in sectors
@@ -777,7 +779,6 @@ def _get_distance(
     return get_distance_brouwer_zimmermann_many(
         sectors,
         cutoff=0,
-        block_size=tuning.count_distance_batch_exponent,
         get_disjoint_basis_families=get_disjoint_basis_families[: len(sectors)],
         tuning=tuning,
     )
