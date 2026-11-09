@@ -201,6 +201,13 @@ def test_subsystem_lifted_product_requires_one_ring() -> None:
     with pytest.raises(ValueError, match="same ring"):
         codes.SLPCode(matrix_a, matrix_b)
 
+    # equal rings that are separate objects are accepted
+    ring_c = abstract.GroupRing(abstract.CyclicGroup(4))
+    assert ring_c == ring_a and ring_c is not ring_a
+    matrix_c = abstract.RingArray.build([[1, ring_c.generators[0]]], ring_c)
+    code = codes.SLPCode(matrix_a, matrix_c)
+    assert code.get_code_params() == codes.SLPCode(matrix_a).get_code_params()
+
 
 def test_lifted_product_line_logicals_noncommutative(
     ring_dihedral3_gf5: abstract.GroupRing,

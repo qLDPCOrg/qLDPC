@@ -261,6 +261,7 @@ class SLPCode(CSSCode):
     ) -> None:
         """Subsystem lifted product of two RingArrays, as in arXiv:2404.18302.
 
+        The two RingArrays must be over the same ring, or else a ValueError is raised.
         ``set_logicals`` is as for :class:`LPCode`.
         """
         if matrix_b is None:
