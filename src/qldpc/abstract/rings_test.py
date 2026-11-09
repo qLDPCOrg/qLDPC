@@ -330,7 +330,7 @@ def test_ring_interface() -> None:
 
     ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]), field=3)
     one, swap = ring.basis
-    assert ring.is_commutative and str(2 * swap + one) == "e_0 + 2 e_1" and str(ring.zero) == "0"
+    assert ring.is_commutative and str(2 * swap + one) == "e_0 + 2 e_1" and str(swap - swap) == "0"
     shift = abstract.MatrixRing(np.roll(np.eye(3, dtype=int), 1, axis=0)).generators[0]
     assert shift.inverse() == shift**2
     with pytest.raises(NotImplementedError, match="only for group algebras"):

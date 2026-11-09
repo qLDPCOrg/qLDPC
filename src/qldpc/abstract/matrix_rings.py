@@ -138,7 +138,8 @@ class MatrixRing(Ring):
         )
 
     def __hash__(self) -> int:
-        return hash((self.field.order, self._basis_lifts.tobytes()))
+        # equal rings have equal bases, which have the same dimensions and pivot columns
+        return hash((self.field.order, self.dim, self.lift_dim, tuple(self._pivot_columns)))
 
     @functools.cached_property
     def is_commutative(self) -> bool:

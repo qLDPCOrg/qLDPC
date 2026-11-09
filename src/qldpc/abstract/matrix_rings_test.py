@@ -26,8 +26,9 @@ def test_construction() -> None:
         assert np.array_equal(member.lift(), np.linalg.matrix_power(shift, power))
     assert generator**3 == ring.one
 
-    # rings are equal if they have the same field and basis
-    assert ring == abstract.MatrixRing(shift) and hash(ring) == hash(abstract.MatrixRing(shift))
+    # rings are equal if they have the same field and basis, even if they have other generators
+    for other in [abstract.MatrixRing(shift), abstract.MatrixRing(shift, shift @ shift)]:
+        assert ring == other and hash(ring) == hash(other)
     assert ring != abstract.MatrixRing(shift, field=4)
     larger_ring = abstract.MatrixRing(shift, shift[::-1])
     assert larger_ring.dim > ring.dim and ring != larger_ring
@@ -42,6 +43,11 @@ def test_construction() -> None:
     # a field is inferred from generators that are field arrays
     field = galois.GF(4)
     assert abstract.MatrixRing(field(shift)).field is field
+
+    # equal rings have equal hashes, even over a field whose elements are Python objects
+    field = galois.GF(2**100)
+    matrix = field([[0, 2**90 + 1], [1, 0]])
+    assert hash(abstract.MatrixRing(matrix)) == hash(abstract.MatrixRing(matrix.copy()))
 
 
 def test_invalid_construction() -> None:

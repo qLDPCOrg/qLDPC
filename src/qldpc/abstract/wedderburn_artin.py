@@ -192,8 +192,9 @@ class WedderburnArtinComponentTransformer:
     _validate_primitive_central_idempotent.
 
     Args:
-        pci: A primitive central idempotent of a semisimple group algebra.  Any other ring raises a
-            NotImplementedError.
+        pci: A primitive central idempotent of a semisimple group algebra.  A member of a ring other
+            than a group algebra raises a NotImplementedError, and a member of a group algebra that
+            is not semisimple raises a ValueError.
         seed: Random number generator seed.
         galois_compile: The ufunc calculation mode for the galois field extension ``GF(q^d)``.
             Default: 'python-calculate', which is empirically faster for small field arrays.

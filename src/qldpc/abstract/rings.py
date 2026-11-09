@@ -60,6 +60,9 @@ class Ring(abc.ABC):
     with ``right=True``, which are anti-representations:
 
         ``(a * b).lift(right=True) = b.lift(right=True) @ a.lift(right=True)``.
+
+    The algebra of a noncommutative group has these anti-representations only if the group uses its
+    default lift.  Otherwise, lifts with ``right=True`` raise a ValueError (see ``GroupRing.lift``).
     """
 
     _field: type[galois.FieldArray]
@@ -703,6 +706,9 @@ class RingMember:
         If ``right=True``, lift to an anti-representation, for which
 
             ``(a * b).lift(right=True) = b.lift(right=True) @ a.lift(right=True)``.
+
+        For the algebra of a noncommutative group with a custom lift, ``right=True`` raises a
+        ValueError (see ``GroupRing.lift``).
         """
         return sum(
             (val * self.ring.lift(label, right=right) for val, label in self if val),
