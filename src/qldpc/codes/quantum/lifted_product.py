@@ -106,10 +106,10 @@ class LPCode(CSSCode):
         self.matrix_b = abstract.RingArray(matrix_b)
 
         ring = self.matrix_a.ring
-        for matrix_ring in [ring, self.matrix_b.ring]:
-            if not isinstance(matrix_ring, abstract.GroupRing):
+        for operand_ring in [ring, self.matrix_b.ring]:
+            if not isinstance(operand_ring, abstract.GroupRing):
                 raise NotImplementedError(
-                    f"Lifted products are implemented only for group algebras, not {matrix_ring}"
+                    f"Lifted products are implemented only for group algebras, not {operand_ring}"
                 )
         field = ring.field
 
@@ -270,10 +270,10 @@ class SLPCode(CSSCode):
         self.matrix_b = abstract.RingArray(matrix_b)
 
         ring = self.matrix_a.ring
-        for matrix_ring in [ring, self.matrix_b.ring]:
-            if not isinstance(matrix_ring, abstract.GroupRing):
+        for operand_ring in [ring, self.matrix_b.ring]:
+            if not isinstance(operand_ring, abstract.GroupRing):
                 raise NotImplementedError(
-                    f"Lifted products are implemented only for group algebras, not {matrix_ring}"
+                    f"Lifted products are implemented only for group algebras, not {operand_ring}"
                 )
         field = ring.field
 

@@ -160,6 +160,9 @@ def test_matmul_fallbacks() -> None:
     with pytest.raises(ValueError, match="no base ring"):
         unknown_ring.ring  # noqa: B018
 
+    # a RingArray without a base ring transposes its entries in their own rings
+    assert np.array_equal(np.asarray(unknown_ring.T), np.asarray(matrix.T))
+
 
 def test_ring_row_reduction(pytestconfig: pytest.Config) -> None:
     """RingArrays can be row reduced in various ways."""
@@ -214,16 +217,16 @@ def test_deprecated_argument_order() -> None:
     assert np.array_equal(ring_array.to_field_array(), matrix)
 
     # the deprecated argument order also works for other rings
-    matrix_ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
-    matrix = matrix_ring.field([[[1, 0], [1, 1]]])
+    other = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
+    matrix = other.field([[[1, 0], [1, 1]]])
     with pytest.warns(DeprecationWarning, match="DEPRECATED"):
         # the deprecated argument order does not match the typed signature
-        ring_array = abstract.RingArray.from_field_array(matrix_ring, matrix)  # type:ignore[arg-type]
+        ring_array = abstract.RingArray.from_field_array(other, matrix)  # type:ignore[arg-type]
     assert np.array_equal(ring_array.to_field_array(), matrix)
     vector = matrix.ravel()
     with pytest.warns(DeprecationWarning, match="DEPRECATED"):
         # the deprecated argument order does not match the typed signature
-        ring_array = abstract.RingArray.from_field_vector(matrix_ring, vector)  # type:ignore[arg-type]
+        ring_array = abstract.RingArray.from_field_vector(other, vector)  # type:ignore[arg-type]
     assert np.array_equal(ring_array.to_field_vector(), vector)
 
 
@@ -263,16 +266,19 @@ def test_ring_array_over_matrix_ring() -> None:
     ):
         abstract.RingArray.build([[group.generators[0]]], ring)
 
+    # integers are multiples of the identity, in the field of the ring
+    ternary_ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]), field=3)
+    integer_array = abstract.RingArray.build([[2]], ternary_ring)
+    assert np.array_equal(integer_array.lift(), ternary_ring.field([[2, 0], [0, 2]]))
+
 
 def test_ring_array_dimensions(pytestconfig: pytest.Config) -> None:
-    """Regular lifts and coefficient vectors have size ``dim``, and lifts have size ``lift_dim``."""
+    """Lifts have blocks of size ``lift_dim``, and regular lifts and coefficients have ``dim``."""
     upper = np.array([[0, 1], [0, 0]])
     ring = abstract.MatrixRing(upper, upper.T)
     assert ring.dim == 4 and ring.lift_dim == 2
     upper_member, lower_member = ring.generators
     array = abstract.RingArray.build([[1, upper_member, 0], [lower_member, 0, 1]], ring)
-
-    # lifts have blocks of size ``lift_dim``, and regular lifts have blocks of size ``dim``
     assert array.lift().shape == (2 * ring.lift_dim, 3 * ring.lift_dim)
     assert array.regular_lift().shape == (2 * ring.dim, 3 * ring.dim)
     empty = abstract.RingArray.build(np.zeros((0, 2), dtype=int), ring)
@@ -305,7 +311,7 @@ def test_kernel_over_matrix_rings() -> None:
             assert kernel.shape[0] == array.shape[1]
             assert not np.any(abstract.matmul(array, kernel, right=right))
             vectors = kernel.transpose().to_field_array().reshape(-1, array.shape[1] * ring.dim)
-            assert np.linalg.matrix_rank(vectors) == ring.dim
+            assert np.linalg.matrix_rank(vectors) == len(vectors) == ring.dim
 
         # the kernel of an invertible matrix has no columns
         assert abstract.RingArray.build([[1]], ring).kernel().shape == (1, 0)

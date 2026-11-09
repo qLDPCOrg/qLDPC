@@ -78,14 +78,14 @@ def kron(
 ) -> RingArray:
     """Take the Kronecker product of two matrices over a ring.
 
-    If the base ring R is commutative, this is the ordinary Kronecker product.  Otherwise, R must be
-    a group algebra F[G], and any other noncommutative ring raises a NotImplementedError.  Entries
-    of the Kronecker product then live in the bimodule F[G × G] ≅ R ⨂ R.  A basis element (g, h) of
-    the bimodule, for group members g and h, acts on t ∈ R as (g, h)(t) = g·t·h⁻¹.  If entries of
-    matrix_a and matrix_b are group members a and b, the corresponding entry of the product is the
-    basis element (a, b⁻¹), which acts as t -> a·t·b.  The product extends bilinearly to other
-    entries.  Lifting the product needs anti-representations of G, which a noncommutative group has
-    only with its default lift.
+    If the base ring R is commutative, this is the ordinary Kronecker product.  Otherwise, this
+    function is implemented only for a group algebra R = F[G], and raises a NotImplementedError for
+    any other noncommutative ring.  Entries of the product then live in the bimodule
+    F[G × G] ≅ R ⨂ R.  A basis element (g, h) of the bimodule, for group members g and h, acts on
+    t ∈ R as (g, h)(t) = g·t·h⁻¹.  If entries of matrix_a and matrix_b are group members a and b,
+    the corresponding entry of the product is the basis element (a, b⁻¹), which acts as t -> a·t·b.
+    The product extends bilinearly to other entries.  Lifting the product needs anti-representations
+    of G, which a noncommutative group has only with its default lift.
     """
     ring = _get_ring(matrix_a, matrix_b)
 

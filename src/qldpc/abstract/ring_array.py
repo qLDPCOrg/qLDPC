@@ -190,9 +190,10 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
 
     def __invert__(self) -> RingArray:
         """Transpose the entries of this RingArray, as in ``RingMember.T``."""
-        # check the ring here, so that an empty array also raises an error
-        if not self.ring.has_involution:
-            raise ValueError(f"{self.ring} has no involution, so its members cannot be transposed")
+        # check the ring here, so that an empty array also raises an error; an array without a base
+        # ring transposes its entries in their own rings
+        if self._ring is not None and not self._ring.has_involution:
+            raise ValueError(f"{self._ring} has no involution, so its members cannot be transposed")
         vals = [val.T for val in self.ravel()]
         array = np.array(vals, dtype=object).reshape(self.shape).view(RingArray)
         array._ring = self._ring
@@ -256,14 +257,17 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
                         f"Cannot embed a ring member over GF({value.field.order}) into a ring over"
                         f" GF({ring.field.order}): incompatible coefficient fields"
                     )
-                # unless both rings are group algebras, a member must belong to the target ring
-                if not (isinstance(ring, GroupRing) and isinstance(value.ring, GroupRing)):
-                    if value.ring != ring:
-                        raise ValueError("Cannot embed a ring member into a different ring")
-                    return value
 
                 # re-home a member of a group algebra into the target group algebra
-                return RingMember(ring, *[(coeff, member) for coeff, member in value if coeff])
+                if isinstance(ring, GroupRing) and isinstance(value.ring, GroupRing):
+                    return RingMember(ring, *[(coeff, member) for coeff, member in value if coeff])
+
+                # a member of any other ring must belong to the target ring
+                ring._check_same_ring(value.ring)
+                return value
+
+            # ring arithmetic pads and validates a group member, and raises an error for rings other
+            # than group algebras
             if isinstance(value, GroupMember):
                 return one * value
 
@@ -338,7 +342,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         ``RingArray``, such that ``np.any(self @ self.null_space().T)`` is ``np.False_``.
 
         If ``right is True``, this method constructs a null space over the opposite ring, in which
-        the order of multiplication is reversed, such that ``abstract.matmul(self,
+        the order of multiplication is reversed.  Then ``abstract.matmul(self,
         self.null_space(right=True).T, right=True)`` is zero.
 
         This method returns the conjugate transpose of ``RingArray.kernel``, so it requires a ring
@@ -358,12 +362,12 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
 
         This ``RingArray`` annihilates the null-space matrix, such that ``self @ self.kernel()`` is
         zero.  If ``right is True``, this method constructs a null space over the opposite ring, in
-        which the order of multiplication is reversed, such that ``abstract.matmul(self,
+        which the order of multiplication is reversed.  Then ``abstract.matmul(self,
         self.kernel(right=True), right=True)`` is zero.
 
-        The columns of the returned matrix span the null space of this ``RingArray`` over the ring,
-        and their coefficients are linearly independent over the base field.  As generators over the
-        ring, the columns are generally redundant.
+        The columns of the returned matrix form a basis of the null space of this ``RingArray`` over
+        the base field, so they span it over the ring.  As generators over the ring, they are
+        generally redundant.
         """
         self._require_ndim(2)
 
