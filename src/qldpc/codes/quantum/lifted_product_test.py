@@ -190,6 +190,18 @@ def test_subsystem_lifted_product_codes(ring_cyclic3_gf2: abstract.GroupRing) ->
     assert np.sum(line_weights) < np.sum(weights)
 
 
+def test_subsystem_lifted_product_requires_one_ring() -> None:
+    """The two matrices of a subsystem lifted product must be over the same ring."""
+    # these group algebras differ, but lift their members to matrices of the same size
+    ring_a = abstract.GroupRing(abstract.CyclicGroup(4))
+    ring_b = abstract.GroupRing(abstract.AbelianGroup(2, 2))
+    assert ring_a != ring_b and ring_a.group.lift_dim == ring_b.group.lift_dim
+    matrix_a = abstract.RingArray.build([[1, ring_a.generators[0]]], ring_a)
+    matrix_b = abstract.RingArray.build([[1, ring_b.generators[0]]], ring_b)
+    with pytest.raises(ValueError, match="same ring"):
+        codes.SLPCode(matrix_a, matrix_b)
+
+
 def test_lifted_product_line_logicals_noncommutative(
     ring_dihedral3_gf5: abstract.GroupRing,
 ) -> None:

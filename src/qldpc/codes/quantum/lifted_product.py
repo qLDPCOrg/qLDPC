@@ -269,6 +269,8 @@ class SLPCode(CSSCode):
         self.matrix_b = abstract.RingArray(matrix_b)
 
         ring = self.matrix_a.ring
+        if self.matrix_b.ring != ring:
+            raise ValueError("The two matrices of an SLPCode must be over the same ring")
         field = ring.field
 
         # identify X-sector and Z-sector parity checks
