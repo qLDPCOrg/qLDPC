@@ -60,9 +60,6 @@ class Ring(abc.ABC):
     with ``right=True``, which are anti-representations:
 
         ``(a * b).lift(right=True) = b.lift(right=True) @ a.lift(right=True)``.
-
-    A noncommutative group algebra whose group has a custom lift raises a ValueError for lifts with
-    ``right=True`` (see ``Group.lift``).
     """
 
     _field: type[galois.FieldArray]
@@ -120,10 +117,8 @@ class Ring(abc.ABC):
     def has_involution(self) -> bool:
         """Does ``RingMember.T`` apply an involution of this ring?
 
-        An involution is an anti-automorphism of the ring that is its own inverse.  For a group
-        algebra, ``RingMember.T`` inverts group members, which transposes the lifted matrices if the
-        lifts are orthogonal.  For a ``MatrixRing``, it is the matrix transpose.  If this property
-        is False, ``RingMember.T`` and the methods that use it raise a ValueError.
+        An involution is an anti-automorphism of the ring that is its own inverse (see
+        ``RingMember.T``).  If this property is False, ``RingMember.T`` raises a ValueError.
         """
 
     @property
@@ -170,9 +165,9 @@ class Ring(abc.ABC):
         The decomposition is implemented only for group algebras, so this method raises a
         NotImplementedError for any other ring.
         """
-        raise NotImplementedError(
-            f"The Wedderburn-Artin decomposition is implemented only for group algebras, not {self}"
-        )
+        from .wedderburn_artin import WedderburnArtinTransformer  # avoid circular import
+
+        return WedderburnArtinTransformer(self, seed=seed, skip_validation=skip_validation)
 
     @property
     @abc.abstractmethod
@@ -180,7 +175,7 @@ class Ring(abc.ABC):
         """Labels of the basis of this ring, in the order of the coefficient vectors."""
 
     @abc.abstractmethod
-    def _index(self, label: Hashable) -> int:
+    def _index(self, label: Any) -> int:
         """Position of a basis label in the coefficient vector of a ring member."""
 
     @abc.abstractmethod
@@ -345,6 +340,9 @@ class GroupRing(Ring):
         If ``right=True``, lift to an anti-representation, for which
 
             ``self.lift(g·h) = self.lift(h) @ self.lift(g)``.
+
+        A noncommutative group with a custom lift raises a ValueError for ``right=True`` (see
+        ``Group.lift``).
         """
         return self.group.lift(member, right=right).view(self.field)
 
@@ -445,10 +443,10 @@ class GroupRing(Ring):
         return product
 
     def _apply_involution(self, member: RingMember) -> RingMember:
-        involuted = self.zero
+        transpose = self.zero
         for val, label in member:
-            involuted._vec[~label] = val
-        return involuted
+            transpose._vec[~label] = val
+        return transpose
 
     def _as_label(self, label: Any) -> GroupMember:
         """A member of the group of this ring, at the degree of the group.
@@ -552,7 +550,7 @@ class GroupRing(Ring):
 
 
 class RingMember:
-    """An element of a finite ring ``R``, which is an algebra over a finite field ``F_q``.
+    """An element of a finite ring, which is an algebra over a finite field ``F_q``.
 
     Each RingMember x is a sum of basis elements of the ring with coefficients in the field:
     ``x = sum_b x_b b``, with each ``x_b in F_q``.  The basis of a group algebra ``F_q[G]`` is the
@@ -564,10 +562,10 @@ class RingMember:
 
     A RingMember combines on either side with integers and members of an equal ring, and with field
     scalars on its right.  A member of a group algebra also combines on either side with members of
-    its group.  Combining a RingMember with a member of a different ring, or a member of a group
-    algebra with a group member outside its group, raises a ValueError, as does constructing a
-    RingMember from a label that does not denote a basis element of its ring.  Combining a member of
-    any other ring with a group member raises a TypeError.
+    its group.  Combining a RingMember with a member of a different ring raises a ValueError.  So
+    does combining a member of a group algebra with a group member outside its group, or
+    constructing a RingMember from a label that does not denote a basis element of its ring.
+    Combining a member of any other ring with a group member raises a TypeError.
     """
 
     _ring: Ring

@@ -66,14 +66,7 @@ class WedderburnArtinTransformer:
         seed: np.random.Generator | int | None = None,
         skip_validation: bool = False,
     ) -> None:
-        if not isinstance(ring, GroupRing):
-            raise NotImplementedError(
-                "The Wedderburn-Artin decomposition is implemented only for group algebras, not"
-                f" {ring}"
-            )
-        if not ring.is_semisimple:
-            raise ValueError("The Wedderburn-Artin decomposition only exists for semisimple rings")
-        self.ring = ring
+        self.ring = _check_semisimple_group_algebra(ring)
         self.random_number_generator = (
             seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
         )
@@ -245,16 +238,9 @@ class WedderburnArtinComponentTransformer:
         skip_validation: bool = False,
     ) -> None:
         """Initialize from a primitive central idempotent (PCI) of a ring."""
-        if not isinstance(pci.ring, GroupRing):
-            raise NotImplementedError(
-                "The Wedderburn-Artin decomposition is implemented only for group algebras, not"
-                f" {pci.ring}"
-            )
-        if not pci.ring.is_semisimple:
-            raise ValueError("The Wedderburn-Artin decomposition only exists for semisimple rings")
+        self.ring = _check_semisimple_group_algebra(pci.ring)
         seed = seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
 
-        self.ring = pci.ring
         self.field = self.ring.field
 
         self.pci = pci
@@ -952,3 +938,18 @@ class WedderburnArtinComponentTransformer:
                 for ii in range(self.degree)
             ]
         ).T.view(self.field)
+
+
+def _check_semisimple_group_algebra(ring: Ring) -> GroupRing:
+    """Return a ring that has a Wedderburn-Artin decomposition, or raise an error.
+
+    The decomposition is implemented only for group algebras, so any other ring raises a
+    NotImplementedError, and a group algebra that is not semisimple raises a ValueError.
+    """
+    if not isinstance(ring, GroupRing):
+        raise NotImplementedError(
+            f"The Wedderburn-Artin decomposition is implemented only for group algebras, not {ring}"
+        )
+    if not ring.is_semisimple:
+        raise ValueError("The Wedderburn-Artin decomposition only exists for semisimple rings")
+    return ring

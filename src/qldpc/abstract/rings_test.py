@@ -252,11 +252,9 @@ def test_group_members_of_ring_members() -> None:
     assert ring.zero + short == abstract.RingMember(ring, full)
 
     # a SymPy permutation becomes a group member, and a label that is not a permutation is rejected
-    for permutation in [
-        sympy.combinatorics.Permutation(0, 1),
-        sympy.combinatorics.Permutation(full),
-    ]:
-        assert abstract.RingMember(ring, (1, permutation)) == abstract.RingMember(ring, full)
+    permutation = sympy.combinatorics.Permutation([1, 0, 2, 3])
+    assert not isinstance(permutation, abstract.GroupMember)
+    assert abstract.RingMember(ring, (1, permutation)) == abstract.RingMember(ring, full)
     with pytest.raises(ValueError, match="not a member"):
         abstract.RingMember(ring, (1, 0))
 
@@ -289,10 +287,11 @@ def test_get_transformer_reuse() -> None:
 
 
 def test_transpose() -> None:
-    """Transpose ring members."""
+    """Transpose ring members, which inverts group members."""
     group = abstract.CyclicGroup(4)
     for member in group.generate():
         element = abstract.RingMember(group, member)
+        assert element.T == abstract.RingMember(group, ~member)
         assert element.T.T == element
 
 
