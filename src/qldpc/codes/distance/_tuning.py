@@ -6,8 +6,9 @@ Exact distances and logical-operator counts choose between routes, such as exhau
 and searches of disjoint or overlapping information sets, and bound their batches, memory, and
 caches.  :class:`SearchTuning` collects the values that tune a search, from the thresholds that
 choose a route to the coefficients of cost models and the sizes of batches.  The page
-:doc:`/exact_search_tuning` of the documentation maps routes and symptoms to these values, and
-Section 4.4 of ``brouwer_zimmermann.md`` says where each heuristic uses them.
+:doc:`/exact_search_tuning` of the documentation maps routes and symptoms to these values.  Section
+4.4 of ``brouwer_zimmermann.md`` says where each heuristic of a Brouwer-Zimmermann search uses them,
+and Section 3.5 of ``connected_support.md`` where the connected-support search uses its field.
 
 This module is private.  Its names, fields, and defaults can change in any release, without a
 deprecation period or any other warning, so code that uses it should pin the exact version of
@@ -24,9 +25,10 @@ What tuning can and cannot change:
   tuning.  The result is still an upper bound between the distance and ``cutoff``, as documented by
   :func:`~qldpc.codes.distance.get_distance_quantum`.
 - Codes and counters remember their results, and some intermediate results are cached for the whole
-  process (see ``BINOMIAL_CACHE_SIZE``, ``CSS_SEARCH_CACHE_SIZE``, ``KRAWTCHOUK_CACHE_SIZE``, and
-  ``LOCAL_CLIFFORD_CACHE_SIZE``), so a later search with another tuning may not search again.  To
-  time a tuning, run each search in a new process, after a first search that loads or compiles code.
+  process (see ``BINOMIAL_CACHE_SIZE``, ``CSS_SEARCH_CACHE_SIZE``, ``KRAWTCHOUK_CACHE_SIZE``,
+  ``LOCAL_CLIFFORD_CACHE_SIZE``, and ``PAULI_SEARCH_CACHE_SIZE``), so a later search with another
+  tuning may not search again.  To time a tuning, run each search in a new process, after a first
+  search that loads or compiles code.
 
 To change the tuning, change the fields of the active tuning within a ``with`` block::
 
@@ -98,8 +100,8 @@ To refit the cost model of completion tables, which ``select_completion_tables``
    (``completion_bound_max_table_bytes=0``), forced (``completion_bound_minimum_layer_work=0`` and
    ``completion_bound_max_cost_percent=MAX_VALUE``), and at the defaults.  For each layer, record
    the share of its supports that tables skipped and its number of lookups, which
-   ``_scan_one_information_set`` in ``_search/brouwer_zimmermann.py`` returns for each call, and
-   time ``CompletionTables.build`` separately.
+   ``scan_information_set`` in ``_search/affine_search.py`` returns for each call, and time
+   ``CompletionTables.build`` separately.
 2. Express times in scanned supports, the time per support of the arm without tables.
 3. Fit the coefficients that the cost model reads, ``completion_bound_lookup_block_cost``,
    ``completion_bound_lookup_block_cost_per_mib``, ``completion_bound_kept_first_row_ratio``,
@@ -277,6 +279,18 @@ class SearchTuning:
     #: 10**8; how it was chosen is not recorded.  To retune it, time searches with and without
     #: automorphisms.
     automorphism_minimum_layer_work: int = 100_000_000
+
+    # Fields of connected-support searches.
+
+    #: A connected-support search of a quantum code asks for its automorphisms before the first
+    #: weight limit at which it expects to have visited this many states, which are supports, over
+    #: all limits of one problem (Section 3.5 of ``connected_support.md``).  It also asks before a
+    #: first limit that a cutoff raises, unless this is ``MAX_VALUE``.  Lowering it pays the cost
+    #: of finding them on cheaper searches; raising it searches more limits from every variable.
+    #: Zero asks before the first limit, and ``MAX_VALUE`` never.  Defaults to 100,000, chosen by
+    #: hand as about 0.05 s of searching at the rate of that section.  To retune it, time searches
+    #: with and without automorphisms.
+    automorphism_minimum_states: int = 100_000
 
     # Fields of completion tables.
 
@@ -568,3 +582,12 @@ KRAWTCHOUK_CACHE_SIZE = 1024
 #: hit rate of the cache and the time to recompute a missed pair on counts of many deformed codes,
 #: and keep the smallest size beyond which the hit rate stops growing.
 LOCAL_CLIFFORD_CACHE_SIZE = 1024
+
+#: The number of searches of Pauli errors that ``coset_leader_search._get_pauli_search`` keeps,
+#: one for each stabilizer matrix, measure of weight, and tuning of their setup.  It takes effect
+#: when qLDPC is imported.  A larger cache uses more memory, a smaller one repeats setups that a
+#: workload reuses, and zero disables the cache.  Only speed and memory depend on it.  Chosen by
+#: hand, as for ``CSS_SEARCH_CACHE_SIZE``.  To retune it, record the hit rate, the setup time of a
+#: missed search, and the memory per search on workloads such as certification, and keep the
+#: smallest size beyond which the hit rate stops growing.
+PAULI_SEARCH_CACHE_SIZE = 8

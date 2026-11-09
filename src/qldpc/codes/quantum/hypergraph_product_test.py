@@ -12,6 +12,7 @@ import pytest
 from sympy.abc import x, y
 
 from qldpc import codes
+from qldpc.codes.distance import DistanceMethod
 from qldpc.math import resolve_field
 from qldpc.objects import ChainComplex, Pauli, PauliXZ
 
@@ -98,9 +99,20 @@ def test_hypergraph_product_distance_by_sector(
         assert code.get_distance(Pauli.Z) == plain.get_distance(Pauli.Z)
 
 
-@pytest.mark.parametrize("pauli", [None, Pauli.X, Pauli.Z])
-def test_closed_forms_search_seed_codes_with_the_given_method(pauli: PauliXZ | None) -> None:
-    """The closed-form distances of product codes search their seed codes with the given method."""
+@pytest.mark.parametrize(
+    "pauli, method",
+    [(None, "brute_force"), (Pauli.X, "brute_force"), (Pauli.Z, "brute_force")]
+    + [(None, "connected_support")],
+)
+def test_closed_forms_search_seed_codes_with_the_given_method(
+    pauli: PauliXZ | None, method: DistanceMethod
+) -> None:
+    """The closed-form distances of product codes search their seed codes with the given method.
+
+    Both products of the ring code of length 4 have distance 4 in every sector.  The joint distance
+    of a CSS code searches its sectors together with the connected-support method, unless a subclass
+    has a closed form, which this case guards.
+    """
     for product in (codes.HGPCode, codes.SHPCode):
         # A generic copy of a ring code records no distance, and its dependent checks give its
         # transpose code words, so the closed form of HGPCode searches both.
@@ -112,9 +124,10 @@ def test_closed_forms_search_seed_codes_with_the_given_method(pauli: PauliXZ | N
             autospec=True,
             side_effect=codes.ClassicalCode.get_distance,
         ) as get_distance:
-            code.get_distance_exact(pauli, method="brute_force")
+            distance = code.get_distance_exact(pauli, method=method)
+        assert distance == 4
         assert get_distance.call_args_list
-        assert all(call.kwargs["method"] == "brute_force" for call in get_distance.call_args_list)
+        assert all(call.kwargs["method"] == method for call in get_distance.call_args_list)
 
 
 def test_hypergraph_product_syndrome_subgraphs() -> None:
