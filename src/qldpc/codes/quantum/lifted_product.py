@@ -14,7 +14,7 @@ import qldpc
 from qldpc import abstract
 
 from ..common import CSSCode
-from .hypergraph_product import HGPCode, SHPCode
+from .hypergraph_product import HGPCode, SHPCode, _check_same_ring
 from .two_block import _get_abelian_block_translations
 
 ####################################################################################################
@@ -104,6 +104,8 @@ class LPCode(CSSCode):
     ) -> None:
         """Lifted product of two RingArrays, as in arXiv:2012.04068.
 
+        The two RingArrays must be over the same ring, or else a ValueError is raised.
+
         If ``set_logicals`` is True, set the canonical logical line operators of the code.  These
         operators need a group algebra whose group order is not divisible by the field
         characteristic (see ``get_canonical_logical_line_ops``, which also describes the side
@@ -156,10 +158,10 @@ class LPCode(CSSCode):
         These operators use semisimple Howell normal forms, which are implemented only for group
         algebras, and need a field characteristic that does not divide the group order.  This method
         raises a NotImplementedError for a ring that is not a group algebra, and a ValueError for a
-        group algebra that fails this condition.  Unless the primitive central idempotents of the
-        group algebra are known, this method may run GAP, prompt on standard input, and use the
-        system clipboard; see GroupRing.get_transformer.  These operators also assume that the
-        involution of the ring transposes lifts.
+        group algebra that fails this condition or for matrices over different rings.  Unless the
+        primitive central idempotents of the group algebra are known, this method may run GAP,
+        prompt on standard input, and use the system clipboard; see GroupRing.get_transformer.
+        These operators also assume that the involution of the ring transposes lifts.
         """
         logical_ops_xz = LPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
         return LPCode.to_lifted_logical_ops(*logical_ops_xz)
@@ -172,9 +174,10 @@ class LPCode(CSSCode):
 
         Generalizes HGPCode.get_canonical_logical_line_ops.  See
         ``LPCode.get_canonical_logical_line_ops`` for the rings that this method needs, and its side
-        effects.
+        effects.  Matrices over different rings raise a ValueError.
         """
         _require_group_algebras(matrix_a, matrix_b)
+        _check_same_ring(matrix_a, matrix_b)
 
         # put each ring null space in a standard form before choosing paired logical operators
         generator_a = matrix_a.null_space().howell_normal_form_semisimple()
@@ -285,6 +288,7 @@ class SLPCode(CSSCode):
     ) -> None:
         """Subsystem lifted product of two RingArrays, as in arXiv:2404.18302.
 
+        The two RingArrays must be over the same ring, or else a ValueError is raised.
         ``set_logicals`` is as for :class:`LPCode`.
         """
         if matrix_b is None:
@@ -324,10 +328,10 @@ class SLPCode(CSSCode):
 
         Generalizes SHPCode.get_canonical_logical_line_ops.  See
         ``LPCode.get_canonical_logical_line_ops`` for the rings that this method needs, and its side
-        effects.
+        effects.  Matrices over different rings raise a ValueError.
         """
         _require_group_algebras(matrix_a, matrix_b)
-
+        _check_same_ring(matrix_a, matrix_b)
         generator_a = matrix_a.null_space().howell_normal_form_semisimple()
         generator_b = matrix_b.null_space(right=True).howell_normal_form_semisimple(right=True)
 

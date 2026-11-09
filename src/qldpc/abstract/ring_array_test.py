@@ -100,6 +100,15 @@ def test_ring_array_explicit_ring_compatibility() -> None:
         abstract.RingArray.build([[incompatible_group.group.generators[0]]], cyclic_ring)
 
 
+def test_empty_ring_arrays() -> None:
+    """Empty RingArrays keep their ring unless given another."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
+    empty = abstract.RingArray.build(np.zeros((0, 2), dtype=int), ring)
+    assert abstract.RingArray(empty).ring == abstract.RingArray.build(empty).ring == ring
+    other_ring = abstract.GroupRing(abstract.CyclicGroup(4), field=2)
+    assert abstract.RingArray(empty, other_ring).ring == other_ring
+
+
 def test_transpose() -> None:
     """Transpose a RingArray."""
     group = abstract.CyclicGroup(4)
