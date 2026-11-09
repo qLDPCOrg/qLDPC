@@ -5,10 +5,12 @@ on:
     branches: [ main ]
     paths:
       - 'pyproject.toml'
+      - '.github/workflows/build-changes.yaml'
   pull_request:
     branches: [ main ]
     paths:
       - 'pyproject.toml'
+      - '.github/workflows/build-changes.yaml'
     types: [ opened, synchronize, reopened, ready_for_review ]  # defaults plus ready_for_review
   workflow_dispatch:
   workflow_call:
@@ -33,7 +35,7 @@ jobs:
         with:
           python-version: "3.11"
           activate-environment: true
-          # setup-uv's cache key hashes pyproject.toml, which every run of this workflow changes
+          # setup-uv's cache key hashes pyproject.toml, so runs that change that file cannot reuse it
           enable-cache: false
       # Install the lowest versions that pyproject.toml allows for the direct dependencies of the
       # package and its decoders extra, which tests the declared minimum versions.
@@ -54,8 +56,8 @@ jobs:
         with:
           python-version: 3.14
           # The steps below manage the uv cache, because relay-bp has no Windows wheels, so an
-          # uncached install spends minutes compiling it.  setup-uv's own cache would never be
-          # reused here: its key hashes pyproject.toml, which every run of this workflow changes.
+          # uncached install spends minutes compiling it.  setup-uv's own cache would miss
+          # whenever pyproject.toml changes, because its key hashes that file.
           enable-cache: false
           cache-local-path: ${{ runner.temp }}/uv-cache
       - name: Restore uv cache
