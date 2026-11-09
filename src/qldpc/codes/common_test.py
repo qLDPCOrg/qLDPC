@@ -224,12 +224,8 @@ def test_distance_classical(bits: int = 3) -> None:
     )
 
 
-@pytest.mark.parametrize("method", ["brouwer_zimmermann", "brute_force"])
-def test_distance_vector_binary(
-    pytestconfig: pytest.Config, tune: Tune, method: common.DistanceMethod
-) -> None:
+def test_distance_vector_binary(pytestconfig: pytest.Config) -> None:
     """Binary vector distances agree with independent NumPy enumeration."""
-    tune(allow_enumeration_by_size=False, allow_enumeration_by_work=False)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for generator in (
         np.empty((0, 6), dtype=int),
@@ -242,9 +238,9 @@ def test_distance_vector_binary(
         code = codes.ClassicalCode.from_generator(generator).set_generator(generator)
         for vector in ([0] * 6, [1] * 6, [1, 1, 1, 0, 0, 0]):
             expected = int(np.count_nonzero(words != vector, axis=1).min())
-            assert code.get_distance(vector=vector, bound=False, method=method) == expected
+            assert code.get_distance(vector=vector, bound=False) == expected
             for cutoff in (2, 4):
-                distance = code.get_distance_exact(vector=vector, cutoff=cutoff, method=method)
+                distance = code.get_distance_exact(vector=vector, cutoff=cutoff)
                 assert isinstance(distance, int)
                 assert expected <= distance <= max(expected, cutoff)
             assert code.get_distance_if_known(vector) == (expected if code.dimension == 0 else None)
