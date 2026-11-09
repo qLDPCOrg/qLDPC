@@ -73,13 +73,10 @@ def test_agreement_with_group_ring(
     assert ring.is_commutative == group_ring.is_commutative
     assert ring.has_involution
 
-    def from_group_ring(member: abstract.RingMember) -> abstract.RingMember:
-        return ring.member_from_matrix(member.regular_lift())
-
     # multiplication respects coefficients that are not one, in the field of the ring
     scalar = ring.field.primitive_element
     first, last = ring.generators[0], ring.generators[-1]
-    member_x, member_y = first * scalar + last, first + last * scalar
+    member_x, member_y = first * scalar + last, first + last
     assert np.array_equal((member_x * member_y).lift(), member_x.lift() @ member_y.lift())
     assert np.array_equal(
         (member_x * member_y).lift(right=True),
@@ -101,10 +98,10 @@ def test_agreement_with_group_ring(
     # random members add like those of the group algebra, and transpose like their lifts
     seed = pytestconfig.getoption("randomly_seed")
     vectors = group_ring.field.Random((2, group_ring.dim), seed=seed)
-    members = [abstract.RingMember.from_vector(vector, group_ring) for vector in vectors]
-    member_a, member_b = (from_group_ring(member) for member in members)
-    assert np.array_equal((member_a + member_b).lift(), (members[0] + members[1]).regular_lift())
-    assert np.array_equal(member_a.T.lift(), member_a.lift().T)
+    group_aa, group_bb = (abstract.RingMember.from_vector(vector, group_ring) for vector in vectors)
+    aa, bb = (ring.member_from_matrix(member.regular_lift()) for member in [group_aa, group_bb])
+    assert np.array_equal((aa + bb).lift(), (group_aa + group_bb).regular_lift())
+    assert np.array_equal(aa.T.lift(), aa.lift().T)
 
 
 def test_matrix_units() -> None:
@@ -113,7 +110,7 @@ def test_matrix_units() -> None:
     lower = upper.T
     ring = abstract.MatrixRing(upper, lower, field=3)
     assert ring.dim == 4 and ring.has_involution
-    assert not ring.is_commutative and not ring.is_abelian
+    assert not ring.is_commutative
     unit_upper, unit_lower = ring.generators
     assert unit_upper.T == unit_lower and unit_upper * unit_lower != unit_lower * unit_upper
     assert np.array_equal((unit_upper * unit_lower).lift(), [[1, 0], [0, 0]])

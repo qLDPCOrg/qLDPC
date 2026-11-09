@@ -104,15 +104,6 @@ class Ring(abc.ABC):
         """Is this ring commutative?"""
 
     @property
-    def is_abelian(self) -> bool:
-        """Is this ring abelian?
-
-        All rings are abelian with respect to addition, so this question concerns multiplication.
-        ``Ring.is_abelian`` is therefore an alias for ``Ring.is_commutative``.
-        """
-        return self.is_commutative
-
-    @property
     @abc.abstractmethod
     def has_involution(self) -> bool:
         """Does ``RingMember.T`` apply an involution of this ring?
@@ -138,7 +129,10 @@ class Ring(abc.ABC):
 
     @property
     def basis(self) -> list[RingMember]:
-        """Basis of this ring as a vector space over its field, ordered like ``to_vector``."""
+        """Basis of this ring as a vector space over its field.
+
+        The basis is ordered like the coefficients of ``RingMember.to_vector``.
+        """
         return [RingMember._from_trusted_terms(self, [(1, label)]) for label in self._labels]
 
     @abc.abstractmethod
@@ -167,6 +161,7 @@ class Ring(abc.ABC):
         """
         from .wedderburn_artin import WedderburnArtinTransformer  # avoid circular import
 
+        # the transformer raises a NotImplementedError for rings other than group algebras
         return WedderburnArtinTransformer(self, seed=seed, skip_validation=skip_validation)
 
     @property
@@ -341,8 +336,7 @@ class GroupRing(Ring):
 
             ``self.lift(g·h) = self.lift(h) @ self.lift(g)``.
 
-        A noncommutative group with a custom lift raises a ValueError for ``right=True`` (see
-        ``Group.lift``).
+        For a noncommutative group with a custom lift, ``right=True`` raises a ValueError.
         """
         return self.group.lift(member, right=right).view(self.field)
 
@@ -430,7 +424,7 @@ class GroupRing(Ring):
 
     @functools.cached_property
     def _labels(self) -> list[Hashable]:
-        # cached, because coefficient vectors are converted into many ring members at a time
+        # cached, because many coefficient vectors are converted into ring members at a time
         return list(self.group._members)
 
     def _index(self, label: Any) -> int:
@@ -777,7 +771,7 @@ class RingMember:
 
         In a group algebra, the coefficients are indexed by group members, ``(x_g : g in G)``.
         """
-        if isinstance(vector, (GroupRing, Group)):  # DEPRECATED: see qldpc._deprecations
+        if isinstance(vector, (Ring, Group)):  # DEPRECATED: see qldpc._deprecations
             _deprecations.warn_deprecated(
                 "Check argument order: it should be RingMember.from_vector(vector, ring)."
                 "  The order (ring, vector) is DEPRECATED and will throw an error in the future!",
@@ -803,12 +797,16 @@ class RingMember:
             vector[self.ring._index(label)] = val
         return vector
 
-    def _translate(self, member: GroupMember, *, on_left: bool) -> RingMember:
+    def _translate(self, group_member: GroupMember, *, on_left: bool) -> RingMember:
         """Multiply this member of a group algebra by a group member from the left or right."""
-        member = self._require_group_algebra()._as_label(member)
+        if not isinstance(self.ring, GroupRing):
+            raise TypeError(
+                f"Group members combine only with members of group algebras, not {self.ring}"
+            )
+        group_member = self.ring._as_label(group_member)
         new_element = self.ring.zero
         for val, label in self:
-            new_element._vec[member * label if on_left else label * member] = val
+            new_element._vec[group_member * label if on_left else label * group_member] = val
         return new_element
 
     @classmethod
@@ -823,14 +821,6 @@ class RingMember:
         for value, label in terms:
             ring_member._vec[label] += ring_member.field(value)
         return ring_member
-
-    def _require_group_algebra(self) -> GroupRing:
-        """The group algebra of this ring member, or raise a TypeError if it has none."""
-        if not isinstance(self.ring, GroupRing):
-            raise TypeError(
-                f"Group members combine only with members of group algebras, not {self.ring}"
-            )
-        return self.ring
 
 
 if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations

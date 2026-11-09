@@ -88,9 +88,9 @@ class GALACode(CSSCode):
     The first J block rows of each parent matrix are the active rows that define the parity checks
     of the code.  The remaining rows are latent rows and do not define stabilizers.
 
-    Each generator is a RingMember and may therefore be either a monomial, representing one group
-    element, or a polynomial sum of group elements.  GALA codes are currently supported only over
-    GF(2).
+    Each generator is a member of the group algebra, so it may be either a monomial, representing
+    one group element, or a polynomial sum of group elements.  GALA codes are currently supported
+    only over GF(2).
 
     The compact self-dual [[132, 30, 12]] code from arXiv:2608.07431 can be constructed by::
 

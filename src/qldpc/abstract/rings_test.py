@@ -31,7 +31,6 @@ def test_ring() -> None:
     assert np.array_equal(one.lift(), np.array(1, ndmin=2))
     assert "GF(3)" in str(ring)
     assert ring.is_commutative
-    assert ring.is_abelian
     assert ring.is_semisimple
 
     with pytest.raises(ValueError, match="integer power >= 0"):
@@ -305,6 +304,13 @@ def test_deprecated_argument_order() -> None:
         ring_member = abstract.RingMember.from_vector(ring, vector)  # type:ignore[arg-type]
     assert np.array_equal(ring_member.to_vector(), vector)
 
+    # the deprecated argument order also works for other rings
+    matrix_ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
+    vector = matrix_ring.field([1, 1])
+    with pytest.warns(DeprecationWarning, match="DEPRECATED"):
+        ring_member = abstract.RingMember.from_vector(matrix_ring, vector)  # type:ignore[arg-type]
+    assert ring_member == abstract.RingMember.from_vector(vector, matrix_ring)
+
 
 def test_deprecated_attribute_lookup() -> None:
     """The module-level lookup of deprecated names rejects other names."""
@@ -324,8 +330,9 @@ def test_ring_interface() -> None:
 
     ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]), field=3)
     one, swap = ring.basis
-    assert ring.is_abelian and str(2 * swap + one) == "e_0 + 2 e_1" and str(ring.zero) == "0"
-    assert swap.inverse() == swap
+    assert ring.is_commutative and str(2 * swap + one) == "e_0 + 2 e_1" and str(ring.zero) == "0"
+    shift = abstract.MatrixRing(np.roll(np.eye(3, dtype=int), 1, axis=0)).generators[0]
+    assert shift.inverse() == shift**2
     with pytest.raises(NotImplementedError, match="only for group algebras"):
         ring.get_transformer()
     with pytest.raises(AttributeError, match="no base group"):
@@ -333,7 +340,7 @@ def test_ring_interface() -> None:
 
 
 def test_combining_members_of_different_rings() -> None:
-    """Members of a matrix ring combine only with members of equal rings, not with group members."""
+    """Members of a matrix ring do not combine with members of other rings, or group members."""
     ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
     other_ring = abstract.MatrixRing(np.array([[0, 1], [1, 1]]))
     assert ring.field is other_ring.field and ring.dim == other_ring.dim

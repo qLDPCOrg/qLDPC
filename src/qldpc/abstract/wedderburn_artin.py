@@ -941,7 +941,7 @@ class WedderburnArtinComponentTransformer:
 
 
 def _check_semisimple_group_algebra(ring: Ring) -> GroupRing:
-    """Return a ring that has a Wedderburn-Artin decomposition, or raise an error.
+    """Return a given ring if it is a semisimple group algebra, or raise an error.
 
     The decomposition is implemented only for group algebras, so any other ring raises a
     NotImplementedError, and a group algebra that is not semisimple raises a ValueError.
