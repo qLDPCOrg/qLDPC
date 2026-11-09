@@ -14,13 +14,14 @@ import copy
 import functools
 import itertools
 import operator
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from typing import TYPE_CHECKING
 
 import galois
 import numpy as np
 import numpy.typing as npt
 import sympy.abc
+import sympy.combinatorics
 import sympy.core
 
 from qldpc import _deprecations
@@ -86,13 +87,11 @@ class GroupRing:
         return self._transformers[seed]
 
     def __eq__(self, other: object) -> bool:
-        # Two group algebras are equal when they share a base field and underlying group; the
-        # group's representation (lift) is irrelevant here, so compare with ``Group.equiv``.  This
-        # keeps equality value-based, and __hash__ (below) is keyed on the same stable data.
         return (
             isinstance(other, GroupRing)
             and self.field is other.field
             and self.group.equiv(other.group)
+            and self._has_same_lifts(other.group)
         )
 
     def __hash__(self) -> int:
@@ -134,7 +133,7 @@ class GroupRing:
     @property
     def generators(self) -> list[RingMember]:
         """Generators of this ring's base group."""
-        return [RingMember(self, gen) for gen in self.group.generators]
+        return [RingMember._from_trusted_terms(self, [(1, gen)]) for gen in self.group.generators]
 
     def regular_lift(self, member: GroupMember, *, right: bool = False) -> galois.FieldArray:
         """Lift a group member to its regular representation.
@@ -164,7 +163,7 @@ class GroupRing:
     @property
     def one(self) -> RingMember:
         """One (multiplicative identity) element."""
-        return RingMember(self, self.group.identity)
+        return RingMember._from_trusted_terms(self, [(1, self.group.identity)])
 
     def get_primitive_central_idempotents(self) -> tuple[RingMember, ...]:
         """Get the primitive central idempotents of this ring.
@@ -209,7 +208,7 @@ class GroupRing:
                     )
                     for coefficient, cycles in idempotent
                 ]
-                idempotents.append(RingMember(self, *terms))
+                idempotents.append(RingMember._from_trusted_terms(self, terms))
             self._idempotents = tuple(idempotents)
         return self._idempotents
 
@@ -259,12 +258,46 @@ class GroupRing:
                 )
         return self.field(value)
 
+    def _has_same_lifts(self, other_group: Group) -> bool:
+        """Does a group equivalent to this ring's group lift members to the same matrices?
+
+        This method also compares lifts with ``right=True``, which Kronecker products use.
+        """
+        # equal groups share their lift and enumeration functions
+        group = self.group
+        if group == other_group:
+            return True
+
+        # lifts of different sizes differ, so avoid building them, which can be costly
+        if group.lift_dim != other_group.lift_dim:
+            return False
+
+        # a noncommutative group has right lifts only with its default lift
+        if not group.is_commutative and (group._lift is None) != (other_group._lift is None):
+            return False
+
+        # the lifts and right lifts of generators determine those of every member, and right lifts
+        # of a commutative group equal its lifts
+        compare_right_lifts = not group.is_commutative and group._lift is None
+        sides = [False, True] if compare_right_lifts else [False]
+        return all(
+            np.array_equal(
+                group.lift(generator, right=right), other_group.lift(generator, right=right)
+            )
+            for generator in group.generators
+            for right in sides
+        )
+
 
 class RingMember:
     """An element of the algebra of a group G over a finite field ``F_q``.
 
     Each RingMember x is a sum of group members with coefficients in the field:
-    ``x = sum_{g in G} x_g g``, with each ``x_g in F_q``.
+    ``x = sum_{g in G} x_g g``, with each ``x_g in F_q``.  A RingMember combines on either side with
+    integers, members of G, and members of an equal group algebra, and with field scalars on its
+    right.  Combining a RingMember with a member of another group algebra or with a group member
+    outside G raises a ValueError, as does constructing a RingMember from such a group member.  A
+    group member that acts on fewer points than G is padded with fixed points.
     """
 
     _ring: GroupRing
@@ -279,7 +312,7 @@ class RingMember:
         self._vec = collections.defaultdict(lambda: self.field(0))
         for term in terms:
             value, member = (1, term) if isinstance(term, GroupMember) else term
-            self._vec[member] += self.field(value)
+            self._vec[self._as_group_member(member)] += self.field(value)
 
     def __str__(self) -> str:
         """Write this RingMember as a polynomial."""
@@ -309,8 +342,9 @@ class RingMember:
             ]
 
         else:
-            # general-purpose fallback
-            sympy_group = self.group.to_sympy()
+            # general-purpose fallback: write members as words in Group.generators, which can differ
+            # from the generators of the SymPy group
+            sympy_group = sympy.combinatorics.PermutationGroup(self.group.generators)
             gen_to_symbol = {gen: symbol for gen, symbol in zip(sympy_group.generators, symbols)}
             gen_to_symbol |= {
                 ~gen: 1 / symbol
@@ -320,7 +354,8 @@ class RingMember:
 
             terms = []
             for x_g, gg in self:
-                gens = sympy_group.generator_product(gg, original=True)
+                # SymPy's factors [s_1, ..., s_n] give g = s_n * ... * s_1
+                gens = sympy_group.generator_product(gg, original=True)[::-1]
                 factors = [gen_to_symbol[gen] for gen in gens]
                 monomial = functools.reduce(operator.mul, factors, 1)
                 terms.append(int(x_g) * monomial)
@@ -344,14 +379,17 @@ class RingMember:
 
     def __add__(self, other: int | galois.FieldArray | GroupMember | RingMember) -> RingMember:
         if isinstance(other, (int, self.field)):
-            return self + other * self.ring.one
+            # multiply on the right, since galois raises an error for a field scalar on the left
+            return self + self.ring.one * other
 
         if isinstance(other, GroupMember):
+            other = self._as_group_member(other)
             new_element = self.copy()
             new_element._vec[other] += self.field(1)
             return new_element
 
         if isinstance(other, RingMember):
+            self._check_same_ring(other)
             new_element = self.copy()
             for val, member in other:
                 new_element._vec[member] += val
@@ -360,10 +398,16 @@ class RingMember:
         return NotImplemented  # pragma: no cover
 
     def __sub__(self, other: int | galois.FieldArray | GroupMember | RingMember) -> RingMember:
-        return self + (-1) * other
+        # a group member has no negative, so negate it as a ring member
+        if isinstance(other, GroupMember):
+            other = self.ring.one * other
+        return self + -other
 
-    def __radd__(self, other: GroupMember) -> RingMember:
+    def __radd__(self, other: int | GroupMember) -> RingMember:
         return self + other
+
+    def __rsub__(self, other: int | GroupMember) -> RingMember:
+        return -self + other
 
     def __mul__(self, other: int | galois.FieldArray | GroupMember | RingMember) -> RingMember:
         if isinstance(other, int):
@@ -378,6 +422,7 @@ class RingMember:
 
         if isinstance(other, GroupMember):
             # multiply group members by 'other'
+            other = self._as_group_member(other)
             new_element = self.ring.zero
             for val, member in self:
                 new_element._vec[member * other] = val
@@ -385,6 +430,7 @@ class RingMember:
 
         if isinstance(other, RingMember):
             # collect and multiply pairs of terms from 'self' and 'other'
+            self._check_same_ring(other)
             new_element = self.ring.zero
             for (x_a, aa), (y_b, bb) in itertools.product(self, other):
                 new_element._vec[aa * bb] += x_a * y_b
@@ -397,6 +443,7 @@ class RingMember:
             return self * other
 
         if isinstance(other, GroupMember):
+            other = self._as_group_member(other)
             new_element = self.ring.zero
             for val, member in self:
                 new_element._vec[other * member] = val
@@ -497,7 +544,7 @@ class RingMember:
             return None
         if len(self_vec) == 1:
             gg, x_g = next(iter(self_vec.items()))
-            return RingMember(self.ring, (x_g**-1, gg**-1))
+            return RingMember._from_trusted_terms(self.ring, [(x_g**-1, gg**-1)])
         try:
             matrix = self.regular_lift()
             matrix_inv = np.linalg.inv(matrix).view(self.field)
@@ -518,8 +565,13 @@ class RingMember:
             )
             vector, ring = ring, vector
         group = ring.group if isinstance(ring, GroupRing) else ring
+        if np.shape(vector) != (group.order,):
+            raise ValueError(
+                f"A member of the algebra of a group of order {group.order} has {group.order}"
+                f" coefficients, but the vector has shape {np.shape(vector)}"
+            )
         terms = [(int(x_g), gg) for x_g, gg in zip(vector, group.generate()) if x_g]
-        return RingMember(ring, *terms)
+        return RingMember._from_trusted_terms(ring, terms)
 
     def to_vector(self) -> galois.FieldArray:
         """Convert this group algebra element into a vector of coefficients, ``(x_g : g in G)``."""
@@ -527,6 +579,43 @@ class RingMember:
         for val, member in self:
             vector[self.group.index(member)] = val
         return vector
+
+    @classmethod
+    def _from_trusted_terms(
+        cls, ring: GroupRing | Group, terms: Iterable[tuple[int | galois.FieldArray, GroupMember]]
+    ) -> RingMember:
+        """Construct a ring member from terms that the caller has checked.
+
+        The group members of the terms must belong to the group of the ring and have its degree.
+        """
+        ring_member = cls(ring)
+        for value, member in terms:
+            ring_member._vec[member] += ring_member.field(value)
+        return ring_member
+
+    def _as_group_member(self, member: GroupMember) -> GroupMember:
+        """A member of the group of this ring member, at the degree of the group.
+
+        A permutation can act on fewer points than the group, such as ``GroupMember(0, 1)`` in a
+        group of degree 4.  This method pads such a permutation with fixed points, and raises a
+        ValueError if the result is not in the group.  Every identity permutation, of any size,
+        becomes the identity of the group, since SymPy rejects permutations with more points than
+        the group, and does not identify the identity as a member of a trivial group.
+        """
+        if member.is_Identity:
+            return self.group.identity
+        if member.size < self.group.degree:
+            member = GroupMember(member, size=self.group.degree)
+        if member not in self.group:
+            raise ValueError(
+                f"{member} is not a member of {self.group} (degree {self.group.degree})"
+            )
+        return member
+
+    def _check_same_ring(self, other: RingMember) -> None:
+        """Raise a ValueError unless another ring member belongs to an equal group algebra."""
+        if self.ring != other.ring:
+            raise ValueError("Cannot combine members of different group algebras")
 
 
 if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations
