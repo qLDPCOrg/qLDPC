@@ -824,6 +824,23 @@ def test_connected_support_batches_find_each_class_above_max_weight(
         assert found == np.flatnonzero(minima > max_weight).tolist()
 
 
+def test_sparser_rows_span_the_same_space() -> None:
+    """Adding rows to each other makes them sparser, and the transform says how.
+
+    In the binary rows, adding the first row to the second leaves two ones.  The symplectic rows are
+    XX and XY on two qubits, whose sum IZ weighs one, so the first row becomes IZ, and the second
+    stays, since XY plus IZ is XX, which weighs as much as XY.
+    """
+    for entries, homogeneous, expected in [
+        ([[1, 1, 0, 0], [1, 1, 1, 1]], True, [[1, 1, 0, 0], [0, 0, 1, 1]]),
+        ([[1, 1, 0, 0], [1, 1, 0, 1]], False, [[0, 0, 0, 1], [1, 1, 0, 1]]),
+    ]:
+        matrix = np.array(entries, dtype=np.uint8)
+        rows, transform = coset_leader_search._sparsify(matrix, homogeneous)
+        assert rows.tolist() == expected
+        assert np.array_equal(transform @ matrix % 2, rows)
+
+
 def test_connected_support_rejects_what_it_cannot_search() -> None:
     """The engine weighs errors by CSS weight only on CSS states, and other methods are unknown."""
     with pytest.raises(ValueError, match="only on CSS states"):

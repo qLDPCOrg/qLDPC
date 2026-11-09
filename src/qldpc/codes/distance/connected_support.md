@@ -320,8 +320,11 @@ Three parts of a distance search do not carry over:
 
 `CosetLeaderSearch` in `_search/coset_leader_search.py` answers queries of the fault-propagation certifier in `qldpc.circuits.certification` with these queries when its `method` is `"connected_support"`.
 It searches the Pauli errors of a state by their physical weight, or, for the CSS weight `max(|x|, |z|)` on a CSS state, the X and Z parts separately, since the CSS weight is not a sum over qubits.
-The stabilizers of a state include its logical operators, which are dense next to the checks of its code, so on the states of the codes of [Section 2](#2-when-to-use-which-method) the BZ search of cosets has been faster.
-Its bounds are also weaker than those of BZ: a query that fails gives `W + 1`.
+The search is fast only if the stabilizers are sparse, but the stabilizers that certification passes are row-reduced, and so dense.
+So `CosetLeaderSearch` first adds stabilizers to each other while that makes them lighter, and maps the syndrome of each query to the result.
+On the state `|0⟩` of the [[144, 12, 12]] bivariate bicycle code, it lowers the mean weight of the stabilizers from 26 to 11, near the weight 6 of the checks.
+On the [[232, 62, 12]] pair-partition code, it lowers it from 54 to 33, far from the weight 8 of the checks, so a sparser choice of generators remains to be found.
+The bounds of these queries are also weaker than those of BZ: a query that fails gives `W + 1`.
 
 ## 4. Guide to the source code
 

@@ -102,8 +102,9 @@ class CosetLeaderSearch:
     With ``method="connected_support"``, each coset search is instead the search of
     ``connected_support.SupportSearch`` from the syndrome of a query, through the unsatisfied
     stabilizers, or the unsatisfied pure-X or pure-Z stabilizers of the X or Z parts (Section 3.8 of
-    ``connected_support.md``).  It is fast if the stabilizers are sparse, which those of states
-    with logical operators among them often are not.  It needs no tables or caches.  The CSS weight
+    ``connected_support.md``).  It is fast if the stabilizers are sparse.  Given stabilizers, such
+    as row-reduced ones, can be dense, so it first makes them sparser by adding them to each other,
+    which can fall short of the sparsest generators.  It needs no tables or caches.  The CSS weight
     is not a sum over qubits, so it weighs errors by CSS weight only on CSS states, whose X and Z
     parts it searches separately.  Its bounds are weaker: a query within ``max_weight`` gives a
     lower bound of one, or zero for an empty syndrome, and a query that is not gives
@@ -167,9 +168,7 @@ class CosetLeaderSearch:
                 raise ValueError(
                     "The connected-support method weighs errors by CSS weight only on CSS states"
                 )
-            self._support_searches = (
-                _ConnectedSupportCosetSearch(matrix, checks, homogeneous=False),
-            )
+            self._support_searches = (_ConnectedSupportCosetSearch(matrix, homogeneous=False),)
             return
         if combinations is None:
             self._searches = (
@@ -197,8 +196,8 @@ class CosetLeaderSearch:
             # The X parts satisfy the Z parts of the pure-Z stabilizers, and the Z parts the X parts
             # of the pure-X stabilizers.
             self._support_searches = (
-                _ConnectedSupportCosetSearch(z_rows, z_rows, homogeneous=True),
-                _ConnectedSupportCosetSearch(x_rows, x_rows, homogeneous=True),
+                _ConnectedSupportCosetSearch(z_rows, homogeneous=True),
+                _ConnectedSupportCosetSearch(x_rows, homogeneous=True),
             )
         else:
             self._searches = _get_css_searches(
@@ -510,32 +509,40 @@ class _ConnectedSupportCosetSearch:
     query within ``max_weight`` gives a lower bound of one, or zero for an empty syndrome, and a
     query that is not gives ``max_weight + 1``.
 
+    The search is fast only if its checks are sparse, but the given rows, such as row-reduced
+    stabilizers, can be dense.  So it searches the sparser rows of ``_sparsify``, which span the
+    same space, and maps the syndrome of a query to them.
+
     Args:
-        matrix: The checks, as ``SupportSearch`` takes them: the stabilizers, in ``[X|Z]`` order,
-            for Paulis, or the rows of a binary matrix for X or Z parts.
-        checks: The rows whose products with a word are its syndrome bits: ``matrix`` with its
-            halves swapped for Paulis, and ``matrix`` itself for X or Z parts.
+        matrix: The rows whose span is the code: the stabilizers, in ``[X|Z]`` order, for Paulis,
+            or the rows of a binary matrix for X or Z parts.  Bit ``j`` of the syndrome of a word
+            is its symplectic product with row ``j`` for Paulis, and its dot product for parts.
         homogeneous: False for Paulis, and True for X or Z parts.
     """
 
-    def __init__(
-        self, matrix: npt.NDArray[np.uint8], checks: npt.NDArray[np.uint8], *, homogeneous: bool
-    ) -> None:
-        self._num_checks = len(matrix)
-        self._num_variables = matrix.shape[1] if homogeneous else matrix.shape[1] // 2
+    def __init__(self, matrix: npt.NDArray[np.uint8], *, homogeneous: bool) -> None:
+        rows, transform = _sparsify(matrix, homogeneous)
+        self._num_checks = len(rows)
+        self._num_variables = rows.shape[1] if homogeneous else rows.shape[1] // 2
         self._homogeneous = homogeneous
+        # Row ``i`` of the sparse rows sums the given rows of row ``i`` of the transform, so bit
+        # ``i`` of a syndrome for them is the parity of those bits of the given syndrome.  Entry
+        # ``j`` of the columns is column ``j`` of the transform.
+        self._syndrome_columns = _row_ints(np.ascontiguousarray(transform.T))
         self._search = connected_support.SupportSearch(
-            matrix,
+            rows,
             np.zeros((0, matrix.shape[1]), dtype=np.uint8),
             homogeneous=homogeneous,
             automorphism_minimum_states=0,
         )
         # Row ``j`` of the inverse is a word whose syndrome has only bit ``j`` set, so the words of
         # the set bits of a syndrome sum to a representative of its coset.
+        checks = rows if homogeneous else np.roll(rows, self._num_variables, axis=1)
         self._inverse_rows = _row_ints(_get_inverse(checks))
 
     def get_min_weight_bound(self, syndrome: int, max_weight: int) -> MinWeightBound:
         """Decide whether the coset of this syndrome has a word of weight at most ``max_weight``."""
+        syndrome = _xor_selected(self._syndrome_columns, syndrome)
         bits = np.unpackbits(
             np.frombuffer(syndrome.to_bytes((self._num_checks + 7) // 8, "little"), dtype=np.uint8),
             bitorder="little",
@@ -645,6 +652,48 @@ def _get_inverse(checks: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
     inverse = np.zeros(checks.shape, dtype=np.uint8)
     inverse[:, pivots] = labels.T
     return inverse
+
+
+def _sparsify(
+    matrix: npt.NDArray[np.uint8], homogeneous: bool
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
+    """Rows with the span of independent rows, made sparser by adding rows to each other.
+
+    The weight of a row is its number of nonzero entries, or, if it is not homogeneous, the number
+    of qubits on which its X part ``[:n]`` or its Z part ``[n:]`` is nonzero.  While adding another
+    row to a row lowers its weight, the row takes the sum that is lightest.  Every addition lowers
+    the total weight, so this ends.
+
+    Returns:
+        The rows, and the invertible transform ``T``, so that the rows are ``T @ matrix % 2``.
+    """
+    num_rows, width = matrix.shape
+    num_variables = width if homogeneous else width // 2
+    part_x = pack_bits(np.ascontiguousarray(matrix[:, :num_variables]))
+    part_z = (
+        np.zeros_like(part_x)
+        if homogeneous
+        else pack_bits(np.ascontiguousarray(matrix[:, num_variables:]))
+    )
+    transform = np.eye(num_rows, dtype=np.uint8)
+    weights = np.bitwise_count(part_x | part_z).sum(axis=1, dtype=np.int64)
+    improved = True
+    while improved:
+        improved = False
+        for row in range(num_rows):
+            sums_x, sums_z = part_x ^ part_x[row], part_z ^ part_z[row]
+            sum_weights = np.bitwise_count(sums_x | sums_z).sum(axis=1, dtype=np.int64)
+            sum_weights[row] = weights[row]
+            other = int(np.argmin(sum_weights))
+            if sum_weights[other] < weights[row]:
+                part_x[row], part_z[row] = sums_x[other], sums_z[other]
+                transform[row] ^= transform[other]
+                weights[row] = sum_weights[other]
+                improved = True
+    parts = [unpack_bits(part_x, num_variables)]
+    if not homogeneous:
+        parts.append(unpack_bits(part_z, num_variables))
+    return np.hstack(parts), transform
 
 
 def _get_search_tables(
