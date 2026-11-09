@@ -26,6 +26,7 @@ from ..conftest import Tune
 from . import logical_counts as lc
 from ._counting import macwilliams
 from ._search import information_sets
+from ._tuning import use_tuning
 from .conftest import (
     HAND_X,
     HAND_Z,
@@ -332,12 +333,15 @@ def test_counters_remember_the_distance_of_each_method() -> None:
 
 
 def test_deformed_counter_reuses_the_first_family_stage() -> None:
-    """A deformed counter, which moves the kept basis families through its gate, counts correctly.
+    """A deformed counter moves the kept basis families through its gate, and counts correctly.
 
-    Like any counter, it keeps the first stage for its later counts.
+    The counter keeps a family for each number of column orders that its counts used, and the
+    deformed counter receives each of them, so its counts under either tuning build none.
     """
     counter = get_counter(HAND_X, HAND_Z)
     counter.count_logical_ops()
+    with use_tuning(disjoint_random_column_orders=3):
+        counter.count_logical_ops(1)
     deformed = counter.deformed_cnot(0, 2)
     weights = [None, *range(counter.num_qubits + 1)]
     fresh = get_counter(deformed.checks_x, deformed.checks_z)
@@ -345,11 +349,11 @@ def test_deformed_counter_reuses_the_first_family_stage() -> None:
     with mock.patch.object(
         information_sets, "get_disjoint_family", wraps=information_sets.get_disjoint_family
     ) as first_stage:
-        counts = [deformed.count_logical_ops(weights[0])]
-        num_first_stages = first_stage.call_count
-        counts += [deformed.count_logical_ops(weight) for weight in weights[1:]]
+        counts = [deformed.count_logical_ops(weight) for weight in weights]
+        with use_tuning(disjoint_random_column_orders=3):
+            deformed.count_logical_ops(1)
     assert counts == expected
-    assert first_stage.call_count == num_first_stages
+    assert not first_stage.call_count
 
 
 def test_dense_eighty_qubits_against_physical_enumeration() -> None:

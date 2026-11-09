@@ -59,7 +59,9 @@ def get_distance_classical(
             Both methods reduce redundant rows to a linearly independent basis.
         cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
         block_size: Batch size exponent.  BZ returns to Python after at most
-            ``2**min(block_size, 15)`` supports; brute force vectorizes ``2**block_size`` values.
+            ``2**min(block_size, e)`` supports, where ``e`` is the
+            :attr:`~qldpc.codes.distance._tuning.SearchTuning.max_batch_exponent` of the active
+            tuning; brute force vectorizes ``2**block_size`` values.
         method: Exact-distance method.  ``"brouwer_zimmermann"`` (default) enumerates fixed-weight
             combinations in several information-set bases and stops once its lower and upper bounds
             meet.  ``"brute_force"`` enumerates every nonzero codeword.  ``"information_sets"`` is
@@ -131,7 +133,9 @@ def get_distance_quantum(
         stabilizers: A matrix whose rows represent stabilizers of the code.
         cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
         block_size: Batch size exponent.  BZ returns to Python after at most
-            ``2**min(block_size, 15)`` supports; brute force vectorizes ``2**block_size`` values.
+            ``2**min(block_size, e)`` supports, where ``e`` is the
+            :attr:`~qldpc.codes.distance._tuning.SearchTuning.max_batch_exponent` of the active
+            tuning; brute force vectorizes ``2**block_size`` values.
         homogeneous: If True, all Pauli strings (represented by rows of logical_ops and stabilizers)
             are assumed to have the same homogeneous (X or Z) type.  If False, Pauli strings may
             have mixed (X, Y, or Z) support on different qubits.
