@@ -139,7 +139,7 @@ def test_generate_is_lazy() -> None:
 
 
 def test_generate_after_sympy_changes_order() -> None:
-    """Groups keep the order of their members when SymPy changes the order of its group."""
+    """Groups keep the order of their members when SymPy reorders the members of its groups."""
     members = list(abstract.SymmetricGroup(4).generate())
     subgroup = sympy.combinatorics.PermutationGroup(sympy.combinatorics.Permutation([0, 1, 3, 2]))
 

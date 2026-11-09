@@ -169,7 +169,7 @@ def test_printing() -> None:
     ring = abstract.GroupRing(abstract.AbelianGroup(2, 2, 2, 2))
     assert [str(gg) for gg in ring.generators] == ["w", "x", "y", "z"]
 
-    # generators of noncommutative groups are written in order
+    # generators print as x, y in the order of Group.generators
     x, y = abstract.GroupRing(abstract.DihedralGroup(6), 3).generators
     assert str(x + y) == "x + y"
 
@@ -220,30 +220,42 @@ def test_arithmetic_across_rings() -> None:
             ring.one * different_ring.one
 
 
-def test_group_members_outside_the_group() -> None:
-    """Ring members reject group members that are not in their group, and pad those that are."""
+def test_group_members_of_ring_members() -> None:
+    """Ring members accept members of their group, padded to its degree, and reject others."""
     group = abstract.CyclicGroup(3)
-    ring = abstract.GroupRing(group)
+    ring = abstract.GroupRing(group, field=3)
     transposition = abstract.GroupMember([1, 0, 2])
     assert transposition not in group
     for operation in [
         lambda: abstract.RingMember(ring, transposition),
-        lambda: abstract.RingArray.build([[transposition]], ring),
         lambda: ring.one + transposition,
+        lambda: ring.one - transposition,
         lambda: ring.one * transposition,
         lambda: transposition * ring.one,
     ]:
         with pytest.raises(ValueError, match="not a member"):
             operation()
 
-    # a group member that SymPy stores up to its largest moved point is padded with fixed points
+    # subtracting a group member negates its coefficient
+    generator = group.generators[0]
+    expected = ring.one.to_vector() - abstract.RingMember(ring, generator).to_vector()
+    assert np.array_equal((ring.one - generator).to_vector(), expected)
+    assert np.array_equal((1 - abstract.RingMember(ring, generator)).to_vector(), expected)
+
+    # a permutation that acts on fewer points than the group is padded with fixed points
     ring = abstract.GroupRing(abstract.SymmetricGroup(4))
     short, full = abstract.GroupMember(0, 1), abstract.GroupMember([1, 0, 2, 3])
     assert short.size < full.size
     assert abstract.RingMember(ring, short) == abstract.RingMember(ring, full)
-    assert np.array_equal(
-        (ring.one * short).to_vector(), abstract.RingMember(ring, full).to_vector()
-    )
+    assert ring.zero + short == abstract.RingMember(ring, full)
+
+    # every identity permutation is the identity of the group, even in a trivial group of degree 0,
+    # which SymPy does not identify as a member of that group
+    assert abstract.RingMember(ring, abstract.GroupMember()) == ring.one
+    trivial = abstract.TrivialGroup()
+    assert trivial.identity not in trivial.to_sympy()
+    trivial_ring = abstract.GroupRing(trivial)
+    assert abstract.RingMember(trivial_ring, trivial.identity) == trivial_ring.one
 
 
 def test_primitive_central_idempotents(ring_cyclic3_gf2: abstract.GroupRing) -> None:

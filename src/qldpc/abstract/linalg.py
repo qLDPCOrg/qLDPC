@@ -87,12 +87,8 @@ def kron(
     if not ring.is_commutative:
         # keep left and right multiplication in separate halves of the bimodule representation
         bimodule = _get_bimodule(ring)
-        sector_size = ring.group.identity.size
-        swap_sectors = GroupMember(
-            list(range(sector_size, 2 * sector_size)) + list(range(sector_size))
-        )
         matrix_a = RingArray.build(matrix_a, bimodule)
-        matrix_b = _swap_sectors(~RingArray.build(matrix_b, bimodule), swap_sectors)
+        matrix_b = _swap_sectors(~RingArray.build(matrix_b, bimodule))
 
     return np.kron(matrix_a, matrix_b).view(RingArray)
 
@@ -250,17 +246,20 @@ def _get_bimodule(ring: GroupRing) -> GroupRing:
     return GroupRing(bimodule_group, ring.field)
 
 
-def _swap_sectors(matrix: RingArray, swap: GroupMember) -> RingArray:
-    """Conjugate the group members of a matrix over a bimodule by a swap of its two sectors.
+def _swap_sectors(matrix: RingArray) -> RingArray:
+    """Swap the left and right group members in the terms of a matrix over a bimodule.
 
-    The swap is a symmetry of the bimodule group rather than one of its members, so this function
-    builds ring members from the conjugated group members directly.
+    The bimodule group acts on two sectors of points, one for each copy of the base group.  The
+    permutation that swaps these sectors is a symmetry of the bimodule group rather than one of its
+    members, so this function conjugates the group member of each term by that permutation.
     """
+    size = matrix.ring.group.degree // 2
+    swap = GroupMember(list(range(size, 2 * size)) + list(range(size)))
     swapped = np.empty(matrix.shape, dtype=object)
     for index, entry in np.ndenumerate(matrix):
         terms = [(value, swap * member * swap) for value, member in entry]
         swapped[index] = RingMember._from_trusted_terms(matrix.ring, terms)
-    return RingArray.build(swapped, matrix.ring)
+    return RingArray(swapped, matrix.ring)
 
 
 def _validate_howell_dual(

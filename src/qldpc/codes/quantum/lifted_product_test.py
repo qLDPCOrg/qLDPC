@@ -328,8 +328,13 @@ def test_canonical_logicals_with_non_orthogonal_lifts() -> None:
         assert np.array_equal(code.get_logical_ops(Pauli.X), logical_ops_x)
         assert np.array_equal(code.get_logical_ops(Pauli.Z), logical_ops_z)
 
-        # these canonical logical operators fail validation, and these fail to lift
-        for value in [ring.one - generator, ring.one + generator]:
-            matrix = abstract.RingArray.build([[value]], ring)
+        # the canonical logical operators for 1 - g lift but fail validation, and those for 1 + g
+        # fail to lift
+        invalid_matrix = abstract.RingArray.build([[ring.one - generator]], ring)
+        code_type.get_canonical_logical_line_ops(invalid_matrix, invalid_matrix)
+        unliftable_matrix = abstract.RingArray.build([[ring.one + generator]], ring)
+        with pytest.raises(np.linalg.LinAlgError):
+            code_type.get_canonical_logical_line_ops(unliftable_matrix, unliftable_matrix)
+        for matrix in [invalid_matrix, unliftable_matrix]:
             with pytest.raises(ValueError, match=r"canonical logical operators.*not orthogonal"):
                 code_type(matrix, set_logicals=True)

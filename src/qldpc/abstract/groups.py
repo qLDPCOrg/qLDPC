@@ -619,16 +619,15 @@ class Group:
 
     @functools.cached_property
     def _members(self) -> dict[GroupMember, int]:
-        generate = self._generate_func or self._sympy_generate
-        members = map(GroupMember.from_sympy, generate())
-        return {member: idx for idx, member in enumerate(members)}
+        return {member: idx for idx, member in enumerate(self.generate())}
 
     @functools.cached_property
     def _sympy_generate(self) -> GenerateFunc:
-        """Generate members in an order that depends only on the generators of this group.
+        """A function that generates members in an order set by the generators of the SymPy group.
 
         SymPy orders members according to the base of its group, which methods such as
-        ``coset_transversal`` can change, so generate members with a copy of that group.
+        ``coset_transversal`` can change, so this function uses a new SymPy group with the same
+        generators.
         """
         return comb.PermutationGroup(self._group.generators).generate
 

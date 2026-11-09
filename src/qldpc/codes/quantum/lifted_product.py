@@ -98,7 +98,7 @@ class LPCode(CSSCode):
         codes over groups of even order are common but fail this condition, so ``set_logicals``
         defaults to False, and if it is True for a group algebra that fails it, a ValueError is
         raised.  The canonical logical operators assume lifts to orthogonal matrices.  For other
-        lifts, a ValueError is raised if these operators are invalid.
+        lifts, a ValueError is raised if these operators cannot be lifted or are invalid.
         """
         if matrix_b is None:
             matrix_b = matrix_a
@@ -339,7 +339,7 @@ def _set_canonical_logical_line_ops(code: LPCode | SLPCode) -> None:
             " algebra for which some features are not yet supported"
         ) from exception
 
-    # for lifts to orthogonal matrices, failing to lift or validate these operators is a real bug
+    # for lifts to orthogonal matrices, a failure to lift or validate these operators is a bug
     if _has_orthogonal_lifts(code.matrix_a.ring):
         code.set_logical_ops_xz(*code.to_lifted_logical_ops(*logical_ops_xz), skip_validation=False)
         return

@@ -400,8 +400,7 @@ class WedderburnArtinComponentTransformer:
                 "The provided RingMember is not a primitive central idempotent: it is not idempotent"
                 " (e * e != e)"
             )
-        for generator in self.ring.group.generators:
-            generator_member = RingMember._from_trusted_terms(self.ring, [(1, generator)])
+        for generator_member in self.ring.generators:
             if self.pci * generator_member != generator_member * self.pci:
                 raise ValueError(
                     "The provided RingMember is not a primitive central idempotent: it is not central"

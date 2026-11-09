@@ -293,8 +293,10 @@ class RingMember:
     """An element of the algebra of a group G over a finite field ``F_q``.
 
     Each RingMember x is a sum of group members with coefficients in the field:
-    ``x = sum_{g in G} x_g g``, with each ``x_g in F_q``.  Members of a group algebra combine only
-    with members of an equal group algebra and with members of its group.
+    ``x = sum_{g in G} x_g g``, with each ``x_g in F_q``.  RingMembers combine with integers, field
+    scalars, members of G, and members of an equal group algebra.  Combining one with a member of
+    another group algebra or with a group member outside G raises a ValueError, as does
+    constructing one from such a group member.
     """
 
     _ring: GroupRing
@@ -395,10 +397,13 @@ class RingMember:
         return NotImplemented  # pragma: no cover
 
     def __sub__(self, other: int | galois.FieldArray | GroupMember | RingMember) -> RingMember:
-        return self + (-1) * other
+        return self + (-self.ring.one) * other
 
-    def __radd__(self, other: GroupMember) -> RingMember:
+    def __radd__(self, other: int | GroupMember) -> RingMember:
         return self + other
+
+    def __rsub__(self, other: int | GroupMember) -> RingMember:
+        return -self + other
 
     def __mul__(self, other: int | galois.FieldArray | GroupMember | RingMember) -> RingMember:
         if isinstance(other, int):
@@ -575,7 +580,7 @@ class RingMember:
     def _from_trusted_terms(
         cls, ring: GroupRing | Group, terms: Iterable[tuple[int | galois.FieldArray, GroupMember]]
     ) -> RingMember:
-        """Construct a ring member from terms whose group members are known to be in its group."""
+        """Construct a ring member from terms with members of its group, padded to its degree."""
         ring_member = cls(ring)
         for value, member in terms:
             ring_member._vec[member] += ring_member.field(value)
@@ -584,10 +589,11 @@ class RingMember:
     def _as_group_member(self, member: GroupMember) -> GroupMember:
         """A member of the group of this ring member, padded to the degree of the group.
 
-        SymPy stores a permutation only up to its largest moved point, so this method pads the
-        permutation with fixed points before checking that it belongs to the group, and raises a
-        ValueError if it does not.  The identity is that of the group, which SymPy does not identify
-        as a member of a trivial group of degree zero.
+        A permutation can act on fewer points than the group, such as ``GroupMember(0, 1)`` in a
+        group of degree 4, so this method pads it with fixed points before checking that it belongs
+        to the group, and raises a ValueError if it does not.  Every identity permutation becomes
+        the identity of the group, since SymPy's trivial group of degree zero contains no
+        permutation.
         """
         if member.is_Identity:
             return self.group.identity
