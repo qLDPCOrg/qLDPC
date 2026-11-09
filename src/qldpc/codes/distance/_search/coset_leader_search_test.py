@@ -415,33 +415,6 @@ def test_css_weight_minimizes_both_sectors_jointly() -> None:
     assert oracle.get_min_weight_bound(15, 2).within_max_weight
 
 
-@pytest.mark.usefixtures("compilation_mode")
-def test_layers_reach_their_last_support() -> None:
-    """A layer visits every support, including the last one.
-
-    The rows are unit words and the offset is the sum of the last ``layer`` rows, so that only the
-    last support of the layer gives the zero word.
-    """
-    for num_rows in range(1, 7):
-        rows = (np.uint64(1) << np.arange(num_rows, dtype=np.uint64)).reshape(1, num_rows, 1)
-        for layer in range(1, num_rows + 1):
-            offset = np.bitwise_xor.reduce(rows[0, num_rows - layer :])
-            best = np.empty(1, dtype=np.uint64)
-            weight = coset_leader_search._visit_layer(
-                offset,
-                rows,
-                np.ones(1, dtype=np.int64),
-                np.empty(layer, dtype=np.int64),
-                np.empty((layer, 1, 1), dtype=np.uint64),
-                0,
-                best,
-                np.int64(num_rows),
-                np.zeros(1, dtype=np.uint64),
-                False,
-            )
-            assert weight == 0 and best[0] == 0
-
-
 def test_rank_deficient_information_sets_certify_less() -> None:
     """Qubit 6 is isolated, so an information set is rank-deficient and certifies a weaker bound.
 
@@ -592,6 +565,7 @@ def test_oracles_use_the_tuning_with_which_they_are_built(
     eye, zeros = np.eye(3, dtype=np.uint8), np.zeros((3, 3), dtype=np.uint8)
     zero_plus = np.block([[zeros, eye, zeros, zeros], [zeros, zeros, eye, zeros]])
     coset_leader_search._get_css_searches.cache_clear()
+    coset_leader_search._get_pauli_search.cache_clear()
     CosetLeaderSearch(zero_plus, css_weight=True)
     tune(disjoint_random_column_orders=3)
     CosetLeaderSearch(zero_plus, css_weight=True)
@@ -602,6 +576,36 @@ def test_oracles_use_the_tuning_with_which_they_are_built(
     CosetLeaderSearch(_graph_state(2, [(0, 1)], phase=True), css_weight=True)
     default = DEFAULT_TUNING.disjoint_random_column_orders
     assert orders == [default, default, 3, 3, 3]
+
+
+def test_pauli_searches_are_cached_by_stabilizers_weight_and_tuning(
+    tune: Tune, pytestconfig: pytest.Config
+) -> None:
+    """Oracles share a search of Pauli errors only for the same stabilizers, weight, and tuning.
+
+    A two-qubit graph state with phases on both qubits is not CSS, so the oracle searches Pauli
+    errors by either weight.  Another generating set of the same state gives other syndromes to the
+    same errors, so its oracle builds its own search, and answers for its own syndromes.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    matrix = _graph_state(2, [(0, 1)], phase=True)
+    scrambled = _scramble(matrix, rng)
+    while np.array_equal(scrambled, matrix):
+        scrambled = _scramble(matrix, rng)
+    coset_leader_search._get_pauli_search.cache_clear()
+    for css_weight in (False, True):
+        CosetLeaderSearch(matrix, css_weight=css_weight)
+        CosetLeaderSearch(matrix, css_weight=css_weight)
+    tune(max_css_single_pairs=0)
+    CosetLeaderSearch(matrix, css_weight=True)
+    tune(disjoint_random_column_orders=3)
+    CosetLeaderSearch(matrix, css_weight=True)
+    oracle = CosetLeaderSearch(scrambled, css_weight=True)
+    info = coset_leader_search._get_pauli_search.cache_info()
+    assert (info.misses, info.hits) == (5, 2)
+    for syndrome in range(1 << 2):
+        bound = oracle.get_min_weight_bound(syndrome, 2)
+        assert _get_syndrome(scrambled, bound.representative) == syndrome
 
 
 def test_invalid_arguments_are_rejected() -> None:

@@ -24,9 +24,10 @@ What tuning can and cannot change:
   tuning.  The result is still an upper bound between the distance and ``cutoff``, as documented by
   :func:`~qldpc.codes.distance.get_distance_quantum`.
 - Codes and counters remember their results, and some intermediate results are cached for the whole
-  process (see ``BINOMIAL_CACHE_SIZE``, ``CSS_SEARCH_CACHE_SIZE``, ``KRAWTCHOUK_CACHE_SIZE``, and
-  ``LOCAL_CLIFFORD_CACHE_SIZE``), so a later search with another tuning may not search again.  To
-  time a tuning, run each search in a new process, after a first search that loads or compiles code.
+  process (see ``BINOMIAL_CACHE_SIZE``, ``CSS_SEARCH_CACHE_SIZE``, ``KRAWTCHOUK_CACHE_SIZE``,
+  ``LOCAL_CLIFFORD_CACHE_SIZE``, and ``PAULI_SEARCH_CACHE_SIZE``), so a later search with another
+  tuning may not search again.  To time a tuning, run each search in a new process, after a first
+  search that loads or compiles code.
 
 To change the tuning, change the fields of the active tuning within a ``with`` block::
 
@@ -98,8 +99,8 @@ To refit the cost model of completion tables, which ``select_completion_tables``
    (``completion_bound_max_table_bytes=0``), forced (``completion_bound_minimum_layer_work=0`` and
    ``completion_bound_max_cost_percent=MAX_VALUE``), and at the defaults.  For each layer, record
    the share of its supports that tables skipped and its number of lookups, which
-   ``_scan_one_information_set`` in ``_search/brouwer_zimmermann.py`` returns for each call, and
-   time ``CompletionTables.build`` separately.
+   ``scan_information_set`` in ``_search/affine_search.py`` returns for each call, and time
+   ``CompletionTables.build`` separately.
 2. Express times in scanned supports, the time per support of the arm without tables.
 3. Fit the coefficients that the cost model reads, ``completion_bound_lookup_block_cost``,
    ``completion_bound_lookup_block_cost_per_mib``, ``completion_bound_kept_first_row_ratio``,
@@ -568,3 +569,13 @@ KRAWTCHOUK_CACHE_SIZE = 1024
 #: hit rate of the cache and the time to recompute a missed pair on counts of many deformed codes,
 #: and keep the smallest size beyond which the hit rate stops growing.
 LOCAL_CLIFFORD_CACHE_SIZE = 1024
+
+#: The number of entries that ``coset_leader_search._get_pauli_search`` keeps, one for each
+#: stabilizer matrix, measure of weight, and values of ``disjoint_random_column_orders`` and
+#: ``max_css_single_pairs``, each a search of Pauli errors.  It takes effect when qLDPC is imported.
+#: Chosen by hand, as the size of the cache of searches of CSS states.  A larger cache uses more
+#: memory, and a smaller one repeats the setup of searches that a workload reuses.  Only speed and
+#: memory depend on it.  To retune it, record the hit rate of the cache, the time to set up a missed
+#: search, and the memory of each search on representative workloads, such as the certification of
+#: fault propagation, and keep the smallest size beyond which the hit rate stops growing.
+PAULI_SEARCH_CACHE_SIZE = 8
