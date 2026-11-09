@@ -10,7 +10,8 @@ That module is an unsupported escape hatch for contributors, benchmarks, and mea
 Its names, fields, defaults, and constants can change in any release, without a deprecation period or any other warning, so code that uses it should pin the exact version of qLDPC that it was written for.
 No value changes an exact result; the defaults suit typical searches.
 
-Every value that tunes a search, apart from the arguments of the function that starts it, such as ``block_size``, is a field of :class:`SearchTuning`, which :func:`use_tuning` changes for the searches that start within a ``with`` block.
+Every value that changes only how long a search takes or how much memory it uses is a field of :class:`SearchTuning`, which :func:`use_tuning` changes for the searches that start within a ``with`` block.
+The arguments of the public search functions say instead what to compute and by which method, such as ``cutoff``, ``max_weight``, and ``method``.
 Each field says what it decides, what raising or lowering it does, and how to retune it.
 The constants, :data:`MAX_VALUE` and the sizes of caches, are fixed when qLDPC is imported.
 The `Brouwer--Zimmermann guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_ explains the methods.
@@ -32,11 +33,11 @@ Start from a symptom
      - Raise :attr:`~SearchTuning.overlapping_minimum_work` or :attr:`~SearchTuning.partition_work_ratio`, or lower :attr:`~SearchTuning.max_information_sets`.
    * - A search or count uses too much memory
      - For distance searches, lower :attr:`~SearchTuning.completion_bound_max_table_bytes`, which applies to each problem of a joint search, such as each sector of a CSS code.
-       For exhaustive enumeration, lower the ``block_size`` argument of :func:`~qldpc.codes.distance.get_distance_classical` and :func:`~qldpc.codes.distance.get_distance_quantum`, or :attr:`~SearchTuning.count_distance_batch_exponent` for counts.
+       For exhaustive enumeration, lower :attr:`~SearchTuning.enumeration_batch_exponent`.
        For ``CosetLeaderSearch``, lower :attr:`~SearchTuning.max_css_single_pairs`; for the caches, edit their constants.
        No value limits the memory of a whole process.
    * - A keyboard interrupt takes long to take effect
-     - Lower :attr:`~SearchTuning.max_batch_exponent`, :attr:`~SearchTuning.scan_chunk_size`, :attr:`~SearchTuning.scan_chunks_per_call`, or :attr:`~SearchTuning.macwilliams_chunk_size`.
+     - Lower :attr:`~SearchTuning.enumeration_batch_exponent`, :attr:`~SearchTuning.information_set_batch_exponent`, :attr:`~SearchTuning.scan_chunk_size`, :attr:`~SearchTuning.scan_chunks_per_call`, or :attr:`~SearchTuning.macwilliams_chunk_size`.
    * - Completion tables are used, or declined, against measured savings
      - Refit the fields of their cost model, as :ref:`Retuning <tuning-retuning>` describes.
 
@@ -52,8 +53,12 @@ Routes and the names that control them
      - Constants
      - Guide
    * - Exhaustive enumeration of small problems, instead of building information sets
-     - :attr:`SearchTuning.allow_enumeration_by_size`, :attr:`SearchTuning.allow_enumeration_by_work`, :attr:`SearchTuning.enumeration_max_dimension`, :attr:`SearchTuning.enumeration_setup_cost_factor`, and the ``block_size`` argument of :func:`~qldpc.codes.distance.get_distance_classical` and :func:`~qldpc.codes.distance.get_distance_quantum`, the exponent of its batch sizes
+     - :attr:`SearchTuning.allow_enumeration_by_size`, :attr:`SearchTuning.allow_enumeration_by_work`, :attr:`SearchTuning.enumeration_max_dimension`, :attr:`SearchTuning.enumeration_setup_cost_factor`, :attr:`SearchTuning.enumeration_batch_exponent`
      -
+     - `Section 3.6 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#36-exhaustive-enumeration-as-a-fallback>`__
+   * - Estimating the work of searches of information sets, which chooses between their routes
+     -
+     - :data:`BINOMIAL_CACHE_SIZE`
      - `Section 3.6 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#36-exhaustive-enumeration-as-a-fallback>`__
    * - Packing the columns into disjoint information sets
      - :attr:`SearchTuning.disjoint_random_column_orders`
@@ -92,13 +97,9 @@ Routes and the names that control them
      -
      -
    * - Scans of information sets by the Brouwer--Zimmermann method: time before a keyboard interrupt takes effect, and the overhead of returning to Python
-     - :attr:`SearchTuning.max_batch_exponent`, and the ``block_size`` argument of :func:`~qldpc.codes.distance.get_distance_classical` and :func:`~qldpc.codes.distance.get_distance_quantum`
+     - :attr:`SearchTuning.information_set_batch_exponent`
      -
      - `Section 4.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#45-behavior-spanning-files>`__
-   * - The distance searches that counts of logical operators run to find their default weight
-     - :attr:`SearchTuning.count_distance_batch_exponent`
-     -
-     -
    * - Counts by the Brouwer--Zimmermann or brute-force method: time before a keyboard interrupt takes effect
      - :attr:`SearchTuning.scan_chunk_size`, :attr:`SearchTuning.scan_chunks_per_call`
      -
@@ -136,6 +137,7 @@ Constants
 ---------
 
 .. autodata:: MAX_VALUE
+.. autodata:: BINOMIAL_CACHE_SIZE
 .. autodata:: CSS_SEARCH_CACHE_SIZE
 .. autodata:: KRAWTCHOUK_CACHE_SIZE
 .. autodata:: LOCAL_CLIFFORD_CACHE_SIZE
