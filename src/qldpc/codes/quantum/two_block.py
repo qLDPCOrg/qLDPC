@@ -88,9 +88,9 @@ class GALACode(CSSCode):
     The first J block rows of each parent matrix are the active rows that define the parity checks
     of the code.  The remaining rows are latent rows and do not define stabilizers.
 
-    Each generator is a RingMember and may therefore be either a monomial, representing one group
-    element, or a polynomial sum of group elements.  GALA codes are currently supported only over
-    GF(2).
+    Each generator is a member of the group algebra, so it may be either a monomial, representing
+    one group element, or a polynomial sum of group elements.  GALA codes are currently supported
+    only over GF(2).
 
     The compact self-dual [[132, 30, 12]] code from arXiv:2608.07431 can be constructed by::
 
@@ -203,8 +203,10 @@ class GALACode(CSSCode):
         if not all(isinstance(generator, abstract.RingMember) for generator in generators):
             raise ValueError("GALA generators must be RingMember objects")
         ring = generators[0].ring
-        if any(generator.ring != ring for generator in generators[1:]):
-            raise ValueError("All GALA generators must belong to the same group ring")
+        if not isinstance(ring, abstract.GroupRing) or any(
+            generator.ring != ring for generator in generators[1:]
+        ):
+            raise ValueError("GALA generators must all be members of the same group algebra")
         if ring.field.order != 2:
             raise ValueError("GALA codes are currently supported only over GF(2)")
 

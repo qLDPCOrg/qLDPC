@@ -25,7 +25,7 @@ from ._coefficients import (
 )
 from ._howell import get_howell_normal_form_poly, get_howell_normal_form_semisimple
 from .groups import Group, GroupMember, NestedSequence, TrivialGroup
-from .rings import GroupRing, RingMember
+from .rings import GroupRing, Ring, RingMember
 
 if TYPE_CHECKING:
     from .wedderburn_artin import WedderburnArtinTransformer
@@ -53,12 +53,16 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
     def __new__(
         cls,
         data: npt.NDArray[np.object_] | NestedSequence,
-        ring: GroupRing | Group | None = None,
+        ring: Ring | Group | None = None,
     ) -> Self:
         array = np.asarray(data, dtype=object).view(cls)
-        ring = GroupRing(ring) if isinstance(ring, Group) else ring
+        base_ring = GroupRing(ring) if isinstance(ring, Group) else ring
 
-        # identify the base group for this RingArray
+        # a RingArray given as data keeps its ring, which its entries cannot identify if it has none
+        if base_ring is None and isinstance(data, RingArray):
+            base_ring = data._ring
+
+        # identify the base ring for this RingArray
         for value in array.ravel():
             if not isinstance(value, RingMember):
                 raise TypeError(
@@ -66,13 +70,13 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
                     "\nTry building an array with RingArray.build(...)"
                 )
             else:
-                if not (ring is None or ring == value.ring):
+                if not (base_ring is None or base_ring == value.ring):
                     raise ValueError("Inconsistent rings provided for a RingArray")
-                ring = value.ring
+                base_ring = value.ring
 
-        if ring is None:
+        if base_ring is None:
             raise ValueError("Cannot determine the underlying ring for a RingArray")
-        array._ring = ring
+        array._ring = _as_group_algebra(base_ring)
 
         return array
 
@@ -202,7 +206,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
     @staticmethod
     def build(
         data: npt.NDArray[np.int_] | npt.NDArray[np.object_] | NestedSequence,
-        ring: GroupRing | Group | None = None,
+        ring: Ring | Group | None = None,
     ) -> RingArray:
         """Construct a RingArray.
 
@@ -230,16 +234,19 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
                 raise ValueError("Inconsistent rings provided to RingArray.build")
             if rings:
                 ring = next(iter(rings))
+            elif isinstance(array, RingArray) and array._ring is not None:
+                ring = array._ring  # a RingArray with no entries keeps its ring
             else:
                 field = type(array).order if isinstance(array, galois.FieldArray) else None
                 ring = GroupRing(TrivialGroup(), field)
-        ring = ring if isinstance(ring, GroupRing) else GroupRing(ring)
+        ring = _as_group_algebra(ring)
         one = ring.group.identity
 
         def as_ring_member(value: RingMember | GroupMember | int) -> RingMember:
             """Elevate a value to an element of the ring."""
             # validate and re-home explicit ring members
             if isinstance(value, RingMember):
+                _as_group_algebra(value.ring)
                 if value.field is not ring.field:
                     raise ValueError(
                         f"Cannot embed a ring member over GF({value.field.order}) into a ring over"
@@ -266,19 +273,19 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         return ring_array_to_field_array(self, self.ring)
 
     @classmethod
-    def from_field_array(cls, array: npt.NDArray[np.int_], ring: GroupRing | Group) -> RingArray:
+    def from_field_array(cls, array: npt.NDArray[np.int_], ring: Ring | Group) -> RingArray:
         """Construct a RingArray from an array of coefficients (in a finite field) for each entry.
 
         This method is the inverse of ``RingArray.to_field_array``.
         """
-        if isinstance(array, (GroupRing, Group)):  # DEPRECATED: see qldpc._deprecations
+        if isinstance(array, (Ring, Group)):  # DEPRECATED: see qldpc._deprecations
             _deprecations.warn_deprecated(
                 "Check argument order: it should be RingArray.from_field_array(array, ring)."
                 "  The order (ring, array) is DEPRECATED and will throw an error in the future!",
                 stacklevel=2,
             )
             array, ring = ring, array
-        ring = ring if isinstance(ring, GroupRing) else GroupRing(ring)
+        ring = _as_group_algebra(ring)
 
         # read values as integers first (like RingMember.from_vector) to accept any integer-valued
         # array, such as a boolean or floating-point array
@@ -295,12 +302,12 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         return self.to_field_array().ravel().view(self.field)
 
     @classmethod
-    def from_field_vector(cls, vector: npt.NDArray[np.int_], ring: GroupRing | Group) -> RingArray:
+    def from_field_vector(cls, vector: npt.NDArray[np.int_], ring: Ring | Group) -> RingArray:
         """Construct a 1-D RingArray from a vector of coefficients.
 
         This method is the inverse of ``RingArray.to_field_vector``.
         """
-        if isinstance(vector, (GroupRing, Group)):  # DEPRECATED: see qldpc._deprecations
+        if isinstance(vector, (Ring, Group)):  # DEPRECATED: see qldpc._deprecations
             _deprecations.warn_deprecated(
                 "Check argument order: it should be RingArray.from_field_vector(vector, ring)."
                 "  The order (ring, vector) is DEPRECATED and will throw an error in the future!",
@@ -308,7 +315,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             )
             vector, ring = ring, vector
         vector = np.asanyarray(vector)
-        group = ring.group if isinstance(ring, GroupRing) else ring
+        group = _as_group_algebra(ring).group
         entries_as_vecs = vector.reshape(vector.size // group.order, group.order)
         return RingArray.from_field_array(entries_as_vecs, ring)
 
@@ -460,6 +467,18 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         self._hnf_transformer = transformer
         self._hnf_right = right
         return self
+
+
+def _as_group_algebra(ring: Ring | Group) -> GroupRing:
+    """The algebra of a group over GF(2), or a given ring if it is a group algebra.
+
+    RingArrays are implemented only for group algebras, so any other ring raises a
+    NotImplementedError.
+    """
+    ring = ring if isinstance(ring, Ring) else GroupRing(ring)
+    if not isinstance(ring, GroupRing):
+        raise NotImplementedError(f"RingArrays are implemented only for group algebras, not {ring}")
+    return ring
 
 
 def _iter_ring_arrays(obj: object) -> Iterator[RingArray]:

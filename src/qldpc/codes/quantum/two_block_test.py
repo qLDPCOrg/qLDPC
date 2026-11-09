@@ -141,7 +141,7 @@ def test_gala_code_errors() -> None:
         codes.GALACode([one], [1], num_active_rows=1)  # type: ignore[list-item]
 
     other_ring = abstract.GroupRing(abstract.CyclicGroup(2))
-    with pytest.raises(ValueError, match="same group ring"):
+    with pytest.raises(ValueError, match="same group algebra"):
         codes.GALACode([one], [other_ring.one], num_active_rows=1)
 
     qutrit_ring = abstract.GroupRing(abstract.CyclicGroup(3), field=3)
@@ -465,3 +465,11 @@ def test_multivariate_bicycle_syndrome_subgraphs_by_term_count(num_terms: int) -
     assert len(code.poly_b.terms()) == num_terms
     assert len(code.get_syndrome_subgraphs()) == 4 * num_terms
     assert_valid_subgraphs(code)
+
+
+def test_gala_requires_group_algebra() -> None:
+    """GALA codes are built from members of a group algebra."""
+    ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
+    generators = (ring.one + ring.generators[0],)
+    with pytest.raises(ValueError, match="same group algebra"):
+        codes.GALACode(generators, generators, num_active_rows=1)

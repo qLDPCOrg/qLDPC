@@ -372,7 +372,7 @@ def get_distance_bound(
 
 def install_deprecated_methods() -> None:
     """Attach deprecated methods to their classes."""
-    from qldpc.abstract import SmallGroup, TrivialGroup
+    from qldpc.abstract import GroupRing, SmallGroup, TrivialGroup
     from qldpc.codes import AbstractCode, BBCode, ClassicalCode, CSSCode, QuditCode
     from qldpc.decoders.custom import DirectDecoder, GUFDecoder
     from qldpc.decoders.dems import DetectorErrorModelArrays
@@ -492,6 +492,15 @@ def install_deprecated_methods() -> None:
             stacklevel=get_external_caller_stacklevel(),
         )
         return DetectorErrorModelArrays.get_merged_error_mechanisms(errors)
+
+    @_deprecated_method(GroupRing, attribute=True)
+    def is_abelian(self: GroupRing) -> bool:
+        """Deprecated alias for GroupRing.is_commutative."""
+        warn_deprecated(
+            "GroupRing.is_abelian is DEPRECATED; use GroupRing.is_commutative instead",
+            stacklevel=get_external_caller_stacklevel(),
+        )
+        return self.is_commutative
 
     @_deprecated_method(GUFDecoder, attribute=True)
     def code(self: GUFDecoder) -> AbstractCode:

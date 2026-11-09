@@ -171,6 +171,16 @@ def test_deprecated_guf_decoder_code() -> None:
         assert caught[0].filename == __file__
 
 
+def test_deprecated_group_ring_is_abelian() -> None:
+    """The deprecated is_abelian of a group algebra warns, and says if the ring is commutative."""
+    for group, expected in [(abstract.CyclicGroup(3), True), (abstract.SymmetricGroup(3), False)]:
+        ring = abstract.GroupRing(group)
+        with pytest.warns(DeprecationWarning, match="GroupRing.is_abelian is DEPRECATED") as caught:
+            assert ring.is_abelian is expected  # type: ignore[attr-defined]
+        assert caught[0].filename == __file__
+    assert not hasattr(abstract.MatrixRing(np.eye(2, dtype=int)), "is_abelian")
+
+
 def test_deprecated_get_distance_bound() -> None:
     """The deprecated QDistRnd distance bound sends GAP the same commands as the code methods."""
     stabilizer_code, css_code = codes.FiveQubitCode(), codes.SurfaceCode(2)
