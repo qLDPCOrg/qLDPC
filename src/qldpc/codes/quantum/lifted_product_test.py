@@ -206,13 +206,11 @@ def test_lifted_product_line_logicals_noncommutative(
 
 
 def test_lifted_product_valid_over_group_algebras() -> None:
-    """Canonical-logical LP/SLP construction yields valid codes over several group algebras.
+    """LPCode and SLPCode set valid canonical logicals over commutative group algebras.
 
-    Setting canonical logicals is the only path that exercises the Howell dual of the code's ring
-    generator, and rich (multi-term) ring entries are the case a wrong pivot dual mishandles --
-    misreporting the construction as unsupported.  These cases span two group orders and two fields
-    (C3 over GF(4), C4 over GF(5)), whose polynomial moduli x^3 - 1 and x^4 - 1 factor differently;
-    each coefficient vector has length equal to the group order.
+    Setting canonical logicals computes Howell duals, here of matrices whose entries have several
+    terms.  The group algebras C3 over GF(4) and C4 over GF(5) have polynomial moduli, x^3 - 1 and
+    x^4 - 1, that factor differently.
     """
     cases = [
         (
@@ -413,7 +411,7 @@ def test_lifted_product_with_non_orthogonal_lifts() -> None:
 
 
 def test_canonical_logicals_with_non_orthogonal_lifts() -> None:
-    """Lifted products with lifts that are not orthogonal set only valid canonical logicals."""
+    """With lifts that are not orthogonal, logical operators lift, and only valid ones are set."""
     # lift the generator of a cyclic group of order 2 to a matrix that is not orthogonal, over a
     # field for which qLDPC knows the primitive central idempotents of this group algebra
     field = galois.GF(3)
@@ -426,6 +424,24 @@ def test_canonical_logicals_with_non_orthogonal_lifts() -> None:
     (generator,) = ring.generators
     assert np.array_equal(generator.lift() @ generator.lift(), np.eye(2, dtype=int))
     assert not np.array_equal(generator.lift() @ generator.lift().T, np.eye(2, dtype=int))
+
+    # the overlap matrices of these lifted operators are the lift of 1 - g and its transpose.  Their
+    # top-left entries are zero, and their pivot rows and pivot columns differ.
+    one = abstract.RingArray.build([[ring.one]], ring)
+    one_minus_g = abstract.RingArray.build([[ring.one - generator]], ring)
+    for ring_ops_x, ring_ops_z in [(one_minus_g, one), (one, one_minus_g)]:
+        ops_x, ops_z = codes.LPCode.to_lifted_logical_ops(ring_ops_x, ring_ops_z)
+        assert np.array_equal(ops_x @ ops_z.T, np.eye(1, dtype=int))
+
+    # operators whose overlap matrix is zero lift to no operators
+    zero = abstract.RingArray.build([[ring.zero]], ring)
+    ops_x, ops_z = codes.LPCode.to_lifted_logical_ops(zero, one)
+    assert ops_x.shape == ops_z.shape == (0, 2)
+
+    # logical operators come in pairs
+    with pytest.raises(ValueError, match="must come in pairs"):
+        codes.LPCode.to_lifted_logical_ops(abstract.RingArray.build([[1], [1]], ring), one)
+
     code_types: list[type[codes.LPCode | codes.SLPCode]] = [codes.LPCode, codes.SLPCode]
     for code_type in code_types:
         # these canonical logical operators are valid
@@ -439,21 +455,6 @@ def test_canonical_logicals_with_non_orthogonal_lifts() -> None:
         assert np.array_equal(code.get_logical_ops(Pauli.X), logical_ops_x)
         assert np.array_equal(code.get_logical_ops(Pauli.Z), logical_ops_z)
 
-        # the canonical logical operators for 1 - g lift but fail validation, and those for 1 + g
-        # fail to lift
-        matrix_with_invalid_ops = abstract.RingArray.build([[ring.one - generator]], ring)
-        ring_ops = code_type.get_canonical_ring_logical_line_ops(
-            matrix_with_invalid_ops, matrix_with_invalid_ops
-        )
-        code_type.to_lifted_logical_ops(*ring_ops)
-        matrix_with_unliftable_ops = abstract.RingArray.build([[ring.one + generator]], ring)
-        ring_ops = code_type.get_canonical_ring_logical_line_ops(
-            matrix_with_unliftable_ops, matrix_with_unliftable_ops
-        )
-        with pytest.raises(ValueError):
-            code_type.to_lifted_logical_ops(*ring_ops)
-        for matrix in [matrix_with_invalid_ops, matrix_with_unliftable_ops]:
-            with pytest.raises(
-                ValueError, match=r"canonical logical operators.*does not transpose"
-            ):
-                code_type(matrix, set_logicals=True)
+        # the canonical logical operators for 1 - g fail validation
+        with pytest.raises(ValueError, match=r"canonical logical operators.*does not transpose"):
+            code_type(one_minus_g, set_logicals=True)

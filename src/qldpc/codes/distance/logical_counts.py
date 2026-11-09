@@ -45,7 +45,6 @@ from ._search import information_sets
 from ._search.brouwer_zimmermann import get_distance_brouwer_zimmermann_many
 from ._search.brute_force import get_nested_distance_brute_force
 from ._tuning import DEFAULT_TUNING, SearchTuning, get_tuning
-from .core import _DISTANCE_METHODS, DistanceMethod
 
 # codes.common imports this package, and codes.quantum imports codes.common, so code classes are
 # imported only where they are used.
@@ -62,9 +61,14 @@ LogicalCountMethod = Literal[
 
 _CanonicalLogicalCountMethod = Literal["brouwer_zimmermann", "macwilliams", "brute_force"]
 
+# The distance searches that a count runs to find its default weight.
+_CountDistanceMethod = Literal["brouwer_zimmermann", "brute_force"]
+
 # The canonical name of every accepted logical-count method name, including aliases.
 _LOGICAL_COUNT_METHODS: dict[str, _CanonicalLogicalCountMethod] = {
-    **_DISTANCE_METHODS,
+    "brouwer_zimmermann": "brouwer_zimmermann",
+    "brute_force": "brute_force",
+    "information_sets": "brouwer_zimmermann",
     "macwilliams": "macwilliams",
     "weight_enumerator": "macwilliams",
 }
@@ -528,7 +532,7 @@ class CSSLogicalCounter:
 
     def _forget_kept_work(self) -> None:
         """Drop the work that is done on demand and kept for later counts."""
-        self._distances: dict[DistanceMethod, int] = {}
+        self._distances: dict[_CountDistanceMethod, int] = {}
         self._sectors: tuple[_Sector, _Sector] | None = None
         # Disjoint basis families, by sector and number of column orders.
         self._disjoint_basis_families: dict[tuple[int, int], information_sets.BasisFamily] = {}
@@ -680,8 +684,8 @@ def compile_search_setup() -> None:
     first time that they are used.  The code that sets those loops up runs as ordinary Python.  It
     selects and bounds the information sets of a code, packs them for the scan of its words, and
     moves them through local gates.  This function compiles that code instead, for the rest of this
-    process.  It does not change any result, and it does not affect the MacWilliams method, which
-    does not use that code.
+    process.  It does not change any result, and it does not affect the MacWilliams method or the
+    connected-support distance method, which do not use that code.
 
     Call it once, at the start of a program that makes very many counts of similar codes, such as a
     search over many deformed codes.  Every process that calls it compiles the code again, so it
@@ -756,7 +760,7 @@ def _warm_up_compiled_functions() -> None:
 
 def _get_distance(
     sectors: Sequence[_Sector],
-    method: DistanceMethod,
+    method: _CountDistanceMethod,
     get_disjoint_basis_families: Sequence[Callable[[], information_sets.BasisFamily]],
     tuning: SearchTuning,
 ) -> int:

@@ -127,6 +127,33 @@ def test_css_brouwer_zimmermann_special_inputs() -> None:
         core._get_distance_css_brouwer_zimmermann([], cutoff=0)
 
 
+def test_connected_support_problems_are_searched_with_the_active_tuning(tune: Tune) -> None:
+    """The connected-support helper searches lists of checks and excluded rows, with the tuning.
+
+    The words of the checks [[1, 1, 0], [0, 1, 1]] are 000 and 111, so the distance of a problem
+    that excludes nothing is 3.  With ``automorphism_minimum_states=0``, the search asks for
+    automorphisms before its first weight limit.
+    """
+    tune(automorphism_minimum_states=0)
+    get_automorphisms = mock.Mock(return_value=None)
+    problem = ([[1, 1, 0], [0, 1, 1]], [[0, 0, 0]])
+    assert (
+        core._get_distance_connected_support(
+            [problem], cutoff=0, get_automorphisms=get_automorphisms
+        )
+        == 3
+    )
+    get_automorphisms.assert_called_once()
+
+
+def test_connected_support_needs_parity_checks() -> None:
+    """Generator matrices do not describe Tanner graphs, so these functions reject the method."""
+    with pytest.raises(ValueError, match="get_distance_exact method of a code"):
+        qldpc.codes.get_distance_classical([[1, 1, 0]], method="connected_support")
+    with pytest.raises(ValueError, match="get_distance_exact method of a code"):
+        qldpc.codes.get_distance_quantum([[1, 0]], [[1, 1]], method="connected_support")
+
+
 def test_brouwer_zimmermann_special_inputs() -> None:
     """Brouwer-Zimmermann validates matrix shapes and preserves quotient edge cases.
 
@@ -373,7 +400,7 @@ def test_distance_backend_validation() -> None:
     with pytest.raises(ValueError, match="Unknown distance backend"):
         core._validate_distance_backend("other")  # type: ignore[arg-type]
 
-    for method in ["brouwer_zimmermann", "brute_force"]:
+    for method in ["brouwer_zimmermann", "brute_force", "connected_support"]:
         assert core._validate_distance_method(method) == method  # type: ignore[arg-type]
     assert core._validate_distance_method("information_sets") == "brouwer_zimmermann"
     with pytest.raises(ValueError, match="Unknown distance method"):

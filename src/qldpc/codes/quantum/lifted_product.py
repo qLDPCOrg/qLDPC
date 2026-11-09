@@ -110,8 +110,8 @@ class LPCode(CSSCode):
         effects of computing them).  Lifted products of binary codes over groups of even order are
         common but fail this condition, so ``set_logicals`` defaults to False.  If it is True for a
         ring that fails this condition, a ValueError is raised.  A ValueError is also raised if
-        these operators cannot be lifted or are invalid, which can happen if the involution of the
-        ring does not transpose lifts.
+        these operators are invalid, which can happen if the involution of the ring does not
+        transpose lifts.
         """
         if matrix_b is None:
             matrix_b = matrix_a
@@ -200,34 +200,38 @@ class LPCode(CSSCode):
     def to_lifted_logical_ops(
         logical_ops_x: abstract.RingArray, logical_ops_z: abstract.RingArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Lift logical operators over a ring to logical operators over the base field."""
+        """Lift logical operators over a ring to logical operators over the base field.
+
+        Each row of ``logical_ops_x`` and the matching row of ``logical_ops_z`` lift to blocks of X
+        and Z operators, whose overlap matrix is ``X @ Z.T``.  Lifting keeps as many pairs of these
+        X and Z operators as the rank of this overlap matrix, and makes their overlap matrix the
+        identity.  If operators lifted from different rows have zero overlap, as for canonical
+        logical operators with lifts to orthogonal matrices, the overlap matrix of all lifted
+        operators is the identity.  Arrays with different numbers of rows raise a ValueError.
+        """
+        if len(logical_ops_x) != len(logical_ops_z):
+            raise ValueError(
+                f"Cannot lift {len(logical_ops_x)} X and {len(logical_ops_z)} Z logical operators,"
+                " which must come in pairs"
+            )
         ring = logical_ops_x.ring
         num_columns = logical_ops_x.shape[1]
         block_size = ring.lift_dim
         num_lifted_columns = num_columns * block_size
-        identity = np.eye(block_size, dtype=int)
         lifted_ops_x = ring.field.Zeros((0, num_lifted_columns))
         lifted_ops_z = ring.field.Zeros((0, num_lifted_columns))
         for op_x, op_z in zip(logical_ops_x, logical_ops_z):
+            # lift a pair of rows to blocks of X and Z operators, keep the X operators at pivot rows
+            # of their overlap matrix, which are independent and as many as its rank, and combine
+            # the Z operators into a dual basis for the kept X operators
             ops_x = op_x.reshape(1, *op_x.shape).lift()
             ops_z = op_z.reshape(1, *op_z.shape).lift()
-            # choose independent lifted operators and make their overlap matrix the identity
-            inner_product = ops_x @ ops_z.T
-            if not np.array_equal(inner_product, identity):
-                sector_rank = np.linalg.matrix_rank(inner_product)
-                if ring.is_commutative:
-                    basis_change = np.linalg.inv(inner_product[:sector_rank, :sector_rank]).T
-                    ops_x = ops_x[:sector_rank]
-                    ops_z = basis_change @ ops_z[:sector_rank]
-                else:
-                    pivot_rows = qldpc.math.first_nonzero_cols(inner_product.T.row_reduce())
-                    rows = pivot_rows[pivot_rows < block_size]
-                    cols = qldpc.math.first_nonzero_cols(inner_product[rows].row_reduce())
-                    basis_change = np.linalg.inv(inner_product[np.ix_(rows, cols)]).T
-                    ops_x = ops_x[rows]
-                    ops_z = basis_change @ ops_z[cols]
-            lifted_ops_x = np.vstack([lifted_ops_x, ops_x])
-            lifted_ops_z = np.vstack([lifted_ops_z, ops_z])
+            overlap = ops_x @ ops_z.T
+            pivots = qldpc.math.first_nonzero_cols(overlap.T.row_reduce())
+            rows = pivots[pivots < block_size]
+            basis_change = qldpc.math.get_dual_basis(overlap[rows], validate=False)
+            lifted_ops_x = np.vstack([lifted_ops_x, ops_x[rows]])
+            lifted_ops_z = np.vstack([lifted_ops_z, basis_change @ ops_z])
 
         return lifted_ops_x, lifted_ops_z
 
@@ -338,7 +342,10 @@ class SLPCode(CSSCode):
     def to_lifted_logical_ops(
         logical_ops_x: abstract.RingArray, logical_ops_z: abstract.RingArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Lift logical operators over a ring to logical operators over the base field."""
+        """Lift logical operators over a ring to logical operators over the base field.
+
+        See :meth:`LPCode.to_lifted_logical_ops`.
+        """
         return LPCode.to_lifted_logical_ops(logical_ops_x, logical_ops_z)
 
     def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
@@ -391,23 +398,24 @@ def _require_group_algebras(*matrices: abstract.RingArray) -> None:
 def _set_canonical_logical_line_ops(code: LPCode | SLPCode) -> None:
     """Set the canonical logical line operators of a lifted product code."""
     try:
-        logical_ops_xz = code.get_canonical_ring_logical_line_ops(code.matrix_a, code.matrix_b)
+        ring_logical_ops_xz = code.get_canonical_ring_logical_line_ops(code.matrix_a, code.matrix_b)
     except (ValueError, NotImplementedError) as exception:
         raise ValueError(
             "Cannot set canonical logical operators for this code, likely due to a choice of ring"
             " for which some features are not yet supported"
         ) from exception
 
-    # if the involution of the ring transposes lifts, a failure to lift or validate these operators
-    # is a bug
+    # lift these operators to the base field
+    logical_ops_xz = code.to_lifted_logical_ops(*ring_logical_ops_xz)
+
+    # if the involution of the ring transposes lifts, invalid operators are a bug
     if _involution_transposes_lifts(code.matrix_a.ring):
-        code.set_logical_ops_xz(*code.to_lifted_logical_ops(*logical_ops_xz), skip_validation=False)
+        code.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
         return
 
-    # these operators assume that the involution transposes lifts, so otherwise they can fail to
-    # lift or be invalid
+    # these operators assume that the involution transposes lifts, so otherwise they can be invalid
     try:
-        code.set_logical_ops_xz(*code.to_lifted_logical_ops(*logical_ops_xz), skip_validation=False)
+        code.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
     except ValueError as exception:
         raise ValueError(
             "Cannot set canonical logical operators for this code, since the involution of its ring"
