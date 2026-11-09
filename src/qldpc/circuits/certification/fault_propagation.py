@@ -35,7 +35,9 @@ def certify_bounded_fault_propagation(
     css_weight: bool | None = None,
     output_qubits: Sequence[int] | None = None,
     memory_limit: int = 2**30,  # 1 GiB
-    method: Literal["brouwer_zimmermann", "connected_support"] = "brouwer_zimmermann",
+    method: Literal["brouwer_zimmermann", "information_sets", "connected_support"] = (
+        "brouwer_zimmermann"
+    ),
 ) -> BoundedFaultPropagationCertificate:
     """Certify bounded fault propagation in a noisy Clifford state-preparation circuit.
 
@@ -100,11 +102,11 @@ def certify_bounded_fault_propagation(
         memory_limit: The approximate number of bytes that the search may use for its lookup tables,
             a positive integer.  A smaller limit can make the search slower, but never changes the
             result.  Default: ``2**30`` (1 GiB).
-        method: The exact search of the residual weights: ``"brouwer_zimmermann"`` searches
-            cosets of the stabilizer group by information sets, and ``"connected_support"`` grows
-            errors from their syndromes through generators of the stabilizer group.  It first makes
-            the generators sparser by adding them to each other, and can be faster if the result
-            is sparse (see the `connected-support guide
+        method: The exact search of the residual weights: ``"brouwer_zimmermann"``, with alias
+            ``"information_sets"``, searches cosets of the stabilizer group by information sets,
+            and ``"connected_support"`` grows errors from their syndromes through generators of
+            the stabilizer group.  It first makes the generators sparser by adding them to each
+            other, and can be faster if the result is sparse (see the `connected-support guide
             <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_).
             Both certify the same circuits, and find the same smallest violating fault, but the
             ``output_pauli`` of a counterexample may be another equivalent error, and with
@@ -126,10 +128,14 @@ def certify_bounded_fault_propagation(
             ``"connected_support"`` and errors on a state that is not CSS are weighed by their CSS
             weight.
     """
-    if method not in ("brouwer_zimmermann", "connected_support"):
+    if method not in ("brouwer_zimmermann", "information_sets", "connected_support"):
         raise ValueError(
-            f"method must be 'brouwer_zimmermann' or 'connected_support', not {method!r}"
+            "method must be 'brouwer_zimmermann', 'information_sets', or 'connected_support', not"
+            f" {method!r}"
         )
+    engine: Literal["brouwer_zimmermann", "connected_support"] = (
+        "connected_support" if method == "connected_support" else "brouwer_zimmermann"
+    )
     if max_weight is not None:
         if not is_integer(max_weight):
             raise TypeError("max_weight must be an integer or None")
@@ -164,7 +170,7 @@ def certify_bounded_fault_propagation(
         circuit, stabilizers, qubits, selected
     )
     violation = find_smallest_violation(
-        flags, syndromes, matrix, max_weight, css_weight, int(memory_limit), method
+        flags, syndromes, matrix, max_weight, css_weight, int(memory_limit), engine
     )
     return BoundedFaultPropagationCertificate(
         output_qubits=qubits,

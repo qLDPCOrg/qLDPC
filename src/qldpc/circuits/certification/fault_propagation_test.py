@@ -575,7 +575,8 @@ def test_the_connected_support_method_finds_the_same_fault() -> None:
     violating fault has two error mechanisms, which the search over combinations of primitive faults
     finds with the representatives of the coset search.  The bound of this counterexample is one
     more than its fault weight by either method, and the rejection of the CSS weight on a non-CSS
-    state below shows that the method reaches the coset searches.
+    state below shows that the method reaches the coset searches.  The alias ``"information_sets"``
+    runs the default search.
     """
     circuit = stim.Circuit("""
         I 0 1 2 3 4
@@ -584,12 +585,13 @@ def test_the_connected_support_method_finds_the_same_fault() -> None:
         M 4
         DETECTOR rec[-1]
     """)
-    default, result = (
+    default, alias, result = (
         circuits.certify_bounded_fault_propagation(
             circuit, output_qubits=[0, 1, 2, 3], post_select=[0], css_weight=False, method=method
         )
-        for method in ("brouwer_zimmermann", "connected_support")
+        for method in ("brouwer_zimmermann", "information_sets", "connected_support")
     )
+    assert alias == default
     _assert_valid_counterexample(result, circuit)
     assert default.counterexample is not None and result.counterexample is not None
     assert result.counterexample.fault_indices == default.counterexample.fault_indices == (0, 1)
@@ -603,11 +605,15 @@ def test_the_connected_support_method_finds_the_same_fault() -> None:
         circuits.certify_bounded_fault_propagation(stim.Circuit("M 0"), method=method)
 
     # The +1 eigenstate of Y is not CSS, so the connected-support search cannot weigh its errors by
-    # CSS weight.
+    # CSS weight, but the default search, also under its alias, can.
+    y_state = stim.Circuit("H 0\nS 0")
     with pytest.raises(ValueError, match="only on CSS states"):
         circuits.certify_bounded_fault_propagation(
-            stim.Circuit("H 0\nS 0"), css_weight=True, method="connected_support"
+            y_state, css_weight=True, method="connected_support"
         )
+    assert circuits.certify_bounded_fault_propagation(
+        y_state, css_weight=True, method="information_sets"
+    ).certified
 
 
 def test_added_flags_match_explicit_flag_detectors() -> None:
