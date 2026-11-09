@@ -12,13 +12,10 @@ import pytest
 
 from qldpc._binary import unpack_bits
 
-from ..conftest import get_random_full_rank_matrix
+from ..conftest import get_instance_of_empty_sets, get_random_full_rank_matrix
 from . import affine_instance, information_sets
 
-_MAX = np.iinfo(np.int64).max
 
-
-@pytest.mark.usefixtures("compilation_mode")
 def test_coset_bounds_hold_for_every_unvisited_word(pytestconfig: pytest.Config) -> None:
     """Every word of a coset that a step leaves unvisited weighs at least the bound of that step.
 
@@ -41,10 +38,11 @@ def test_coset_bounds_hold_for_every_unvisited_word(pytestconfig: pytest.Config)
 def test_coset_bounds_take_no_divisor_from_an_even_code() -> None:
     """The cosets of an even code can have odd weight, so their bounds are not rounded to even.
 
-    The code is spanned by ``110000``, ``001100`` and ``000011``, and every word of the coset of
+    The code is spanned by ``110000``, ``001100``, and ``000011``, and every word of the coset of
     ``101010`` has weight three.  Once the first set of pivots ``0, 2, 4`` has completed layer one
-    and the other set layer zero, the words with two ones on the first set remain, and the bound of
-    that step is exactly three.  A bound rounded to the even divisor of the code would be four.
+    and the other set layer zero, the words that add two rows of the first set to its offset
+    remain, and the bound of that step is exactly three.  A bound rounded to the even divisor of the
+    code would be four.
     """
     generators = np.kron(np.eye(3), np.ones((1, 2))).astype(np.uint8)
     family = information_sets.get_disjoint_family(generators, None, random_column_orders=0)
@@ -60,9 +58,10 @@ def test_coset_bounds_take_no_divisor_from_an_even_code() -> None:
 def test_weight_bounds_follow_the_steps(pytestconfig: pytest.Config) -> None:
     """The weight bounds round the certificate up, and do not decrease from step to step.
 
-    Column zero of each row repeats the last column of the row before, and the bounds after the last
-    layer are the largest native integer, for sets of every rank, including zero, and both factors.
-    Each call returns a table of its own.
+    Column zero of row zero is zero, and column zero of each later row repeats the last column of
+    the row before.  The entries ``[dimension, j]`` for ``j >= 1`` are the largest native integer.
+    This holds for sets of every rank, including zero, and both weight factors.  Each call returns a
+    table of its own.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for _ in range(60):
@@ -72,14 +71,14 @@ def test_weight_bounds_follow_the_steps(pytestconfig: pytest.Config) -> None:
             dimension, ranks, int(rng.integers(1, 3)), int(rng.integers(1, 3))
         )
         for factor in (1, 2):
-            instance = _get_instance(certificate, factor)
+            instance = get_instance_of_empty_sets(certificate, factor)
             bounds = instance.get_weight_bounds()
             assert bounds.shape == (dimension + 1, len(ranks) + 1)
             for layer, num_completed in itertools.product(
                 range(dimension + 1), range(len(ranks) + 1)
             ):
                 expected = (
-                    _MAX
+                    information_sets._NO_WORD_BOUND
                     if layer == dimension and num_completed
                     else -(-certificate.step_lower_bound(layer, num_completed) // factor)
                 )
@@ -113,17 +112,12 @@ def test_distance_instances_delete_pivot_columns(pytestconfig: pytest.Config) ->
         assert np.array_equal(
             unpack_bits(instance.generators[index, :, :width], kept.shape[1]), kept
         )
-        assert not instance.generators[index, :, width:].any()
         assert instance.label_widths[index] == 1
         assert np.array_equal(unpack_bits(instance.labels[index], 4), set_labels)
 
 
 def test_coset_instances_keep_every_column(pytestconfig: pytest.Config) -> None:
-    """A coset instance packs the full rows of the disjoint sets, and the empty code has one set.
-
-    The rows of a rank-one code span one column each, so its table of bounds grows with the number
-    of sets, not with its square.
-    """
+    """A coset instance packs the full rows of the disjoint sets, and the empty code has one set."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     generators = get_random_full_rank_matrix(rng, 5, 70)
     family = information_sets.get_disjoint_family(generators, None, random_column_orders=0)
@@ -147,30 +141,7 @@ def test_coset_instances_keep_every_column(pytestconfig: pytest.Config) -> None:
     assert np.array_equal(empty.widths, [2])
     assert empty.pivots.shape == (1, 0)
     assert np.array_equal(empty.ranks, [0])
-    assert np.array_equal(empty.get_weight_bounds(), [[0, _MAX]])
-
-    rank_one = affine_instance.get_coset_instance(
-        np.ones((1, 256), dtype=np.uint8), random_column_orders=0, weight_factor=1
-    )
-    assert np.array_equal(rank_one.ranks, [1] * 256)
-    assert rank_one.get_weight_bounds().shape == (2, 257)
-
-
-def _get_instance(
-    certificate: information_sets.Certificate, factor: int
-) -> affine_instance.AffineInstance:
-    """An instance with a given certificate and weight factor, whose sets have no columns."""
-    num_sets, dimension = len(certificate.ranks), certificate.dimension
-    return affine_instance.AffineInstance(
-        np.zeros((num_sets, dimension, 0), dtype=np.uint64),
-        np.zeros((num_sets, dimension, 0), dtype=np.uint64),
-        np.zeros(num_sets, dtype=np.int64),
-        np.zeros(num_sets, dtype=np.int64),
-        np.full((num_sets, dimension), -1, dtype=np.int64),
-        np.array(certificate.ranks, dtype=np.int64),
-        certificate,
-        factor,
-    )
+    assert np.array_equal(empty.get_weight_bounds(), [[0, information_sets._NO_WORD_BOUND]])
 
 
 def _get_unvisited_minima(

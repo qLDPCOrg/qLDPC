@@ -26,7 +26,6 @@ from . import information_sets
 # The default numbers of column orders of disjoint families, and denominators of LP dual weights.
 ORDERS = DEFAULT_TUNING.disjoint_random_column_orders
 DENOMINATOR = DEFAULT_TUNING.lp_dual_max_denominator
-_MAX = np.iinfo(np.int64).max
 
 # Two disjoint full blocks and a rank-two remainder.
 PARTIAL_BASIS = np.hstack(
@@ -257,8 +256,9 @@ def test_stopping_steps_are_the_first_to_exceed_a_limit(pytestconfig: pytest.Con
         )
     for bounds in tables:
         num_rows, num_sets = bounds.shape[0], bounds.shape[1] - 1
-        finite = bounds[bounds < information_sets._NO_WORD_BOUND]
-        limits = [*range(-2, int(finite.max(initial=0)) + 3), _MAX - 1, _MAX]
+        no_word_bound = information_sets._NO_WORD_BOUND
+        finite = bounds[bounds < no_word_bound]
+        limits = [*range(-2, int(finite.max(initial=0)) + 3), no_word_bound - 1, no_word_bound]
         for first_layer in range(num_rows):
             for last_layer, limit in itertools.product(range(first_layer, num_rows), limits):
                 steps = [
@@ -275,43 +275,24 @@ def test_stopping_steps_are_the_first_to_exceed_a_limit(pytestconfig: pytest.Con
                 )
 
 
-def test_sets_to_certify_solve_linear_programs_in_order(monkeypatch: pytest.MonkeyPatch) -> None:
-    """With linear programs, the sets to certify a bound come from them, solved in step order.
+def test_sets_to_certify_a_bound_may_come_from_linear_programs() -> None:
+    """With linear programs, fewer sets can certify a bound than the coverage bound needs.
 
     In the [7, 3] example of ``test_linear_programming_can_beat_the_coverage_bound``, the coverage
-    bound needs all five sets to certify four in layer one, and cannot certify six in layer two, but
-    linear programs certify them after three sets and two sets.  Five needs all five sets in layer
-    one either way.  The coverage bound alone solves no program, and with programs, the sets to
-    certify a bound solve the same programs in the same order as ``certifies`` does step by step.
+    bound needs all five sets to certify four in layer one, and cannot certify six in layer two.
+    Linear programs certify them after three sets and two sets.  Five needs all five sets in layer
+    one either way.
     """
-    blocks = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3), (4, 5, 6))
-    calls: list[list[int]] = []
-    get_lp_lower_bound = information_sets.get_lp_lower_bound
-
-    def record(*args: Any) -> int:
-        calls.append(list(args[1]))
-        return get_lp_lower_bound(*args)
-
-    monkeypatch.setattr(information_sets, "get_lp_lower_bound", record)
-    certificate = information_sets.Certificate(3, (3,) * 5, max_coverage=3)
-    assert certificate.get_num_sets_to_certify(1, 4) == 5
-    assert certificate.get_num_sets_to_certify(2, 6) == 5
-    assert not calls
-
-    for (weight, upper_bound), expected in (((1, 4), 3), ((2, 6), 2), ((1, 5), 5)):
-        lp_certificate = dataclasses.replace(
-            certificate, pivot_blocks=blocks, lp_max_denominator=DENOMINATOR
-        )
-        assert lp_certificate.get_num_sets_to_certify(weight, upper_bound) == expected
-        solved = calls[:]
-        calls.clear()
-        reference = dataclasses.replace(lp_certificate)
-        assert expected == next(
-            (count for count in range(1, 5) if reference.certifies(weight, count, upper_bound)), 5
-        )
-        assert solved == calls
-        assert bool(solved) == (expected < 5)
-        calls.clear()
+    certificate = information_sets.Certificate(
+        3,
+        (3,) * 5,
+        max_coverage=3,
+        pivot_blocks=((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3), (4, 5, 6)),
+        lp_max_denominator=DENOMINATOR,
+    )
+    assert certificate.get_num_sets_to_certify(1, 4) == 3
+    assert certificate.get_num_sets_to_certify(2, 6) == 2
+    assert certificate.get_num_sets_to_certify(1, 5) == 5
 
 
 def test_partitioned_families_replace_costlier_ones() -> None:

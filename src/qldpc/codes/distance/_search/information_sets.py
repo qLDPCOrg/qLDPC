@@ -11,9 +11,10 @@ which search a space, and is a fixed word of the searched coset in the coset-lea
 ``coset_leader_search.py``).  This module owns how those basis families are built, pruned, and
 replaced by overlapping ones, and the certificate that bounds the Hamming weight of eligible words
 that a basis family has not yet visited.  The coset-leader oracle uses the disjoint information sets
-for its own layered search.  All three enumerate a layer with :func:`advance_support`, and the
-distance and coset searches find the step at which a certificate reaches their bound with
-:func:`find_stopping_step`.
+for its own layered search.  All three enumerate a layer with :func:`advance_support`.  The coset
+search finds its stopping step, the first step whose bound exceeds its maximum weight, with
+:func:`find_stopping_step`.  When its certificate has no linear programs, the distance search uses
+it too, to find the first step of a layer whose bound reaches its upper bound ``U``.
 
 A :class:`BasisFamily` stacks its information sets into arrays, so that one set of functions serves
 every caller, in the subset of Python that numba compiles, and some of them are compiled (see
@@ -121,9 +122,7 @@ class Certificate:
         others have completed layer ``weight - 1``.
         """
         bound = int(self._step_lower_bounds[weight, num_completed])
-        if not self.pivot_blocks or self.max_coverage == 1:
-            # For disjoint blocks, the linear program separates by block, and its optimum is the
-            # coverage bound.
+        if not self._solves_linear_programs:
             return bound
         step = (weight, num_completed)
         if step not in self._lp_lower_bounds:
@@ -145,7 +144,7 @@ class Certificate:
         """
         if self._step_lower_bounds[weight, num_completed] >= upper_bound:
             return True
-        if not self.pivot_blocks or self.max_coverage == 1:
+        if not self._solves_linear_programs:
             return False
         # No requirement exceeds its block, since a set that has completed the last layer makes the
         # coverage bound certify any upper bound.
@@ -169,9 +168,10 @@ class Certificate:
         fewer sets suffice, in which case the bound may need later layers too.
         """
         num_sets = len(self.ranks)
-        if not self.pivot_blocks or self.max_coverage == 1:
-            # Without linear programs, the first step of the layer whose bound reaches the upper
-            # bound is the answer.
+        if not self._solves_linear_programs:
+            # The answer is the first step of the layer whose bound reaches the upper bound, that
+            # is, exceeds ``upper_bound - 1``.  ``find_stopping_step`` finds it, so that the
+            # distance and coset searches find their stopping steps by one shared rule.
             _, num_completed = find_stopping_step(
                 self._step_lower_bounds, upper_bound - 1, weight, weight
             )
@@ -194,6 +194,15 @@ class Certificate:
                 self.dimension, *arguments, upper_bound, get_capped_binomials(self.dimension)
             )
         )
+
+    @property
+    def _solves_linear_programs(self) -> bool:
+        """Whether the certificate also bounds unvisited words by linear programs.
+
+        It does so only with pivot blocks that overlap.  For disjoint blocks, the linear program
+        separates by block, and its optimum is the coverage bound.
+        """
+        return bool(self.pivot_blocks) and self.max_coverage != 1
 
     def _as_array_arguments(self) -> tuple[npt.NDArray[np.int64], int, int]:
         """The ranks, weight divisor and maximum coverage that the array functions take."""
@@ -812,7 +821,8 @@ def find_stopping_step(
 ) -> tuple[int, int]:
     """Find the first step of layers ``first_layer`` to ``last_layer`` whose bound exceeds a limit.
 
-    The steps of a layer ``w`` are ``(w, 1)`` to ``(w, num_sets)``, taken in that order and layer by
+    The number of sets ``num_sets`` is one less than the number of columns of ``step_bounds``.  The
+    steps of a layer ``w`` are ``(w, 1)`` to ``(w, num_sets)``, taken in that order and layer by
     layer, and the bound of step ``(w, j)`` is ``step_bounds[w, j]``, as in the table of
     ``get_step_lower_bounds``.  The bounds of these steps must not decrease in this order, which
     holds for that table and for any nondecreasing function of it, so the first step whose bound

@@ -37,7 +37,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | The Brouwer–Zimmermann (BZ) distance search | `_search/brouwer_zimmermann.py` |
 | The compiled scans of layers that the distance search and the coset-leader search share, one body specialized by constant flags | `_search/affine_search.py` |
 | The connected-support distance search | `_search/connected_support.py` |
-| What a BZ distance search or a coset-leader search builds once for its problem: the packed rows of its information sets and the certificate of its steps | `_search/affine_instance.py` |
+| What a BZ distance search or a coset-leader search builds for its problem before it scans, and a distance search again when it switches to an automorphism family: the packed rows of its information sets and the certificate of its steps | `_search/affine_instance.py` |
 | How basis families and their certificates are built | `_search/information_sets.py` |
 | Automorphism families: the images of one information set under automorphisms of a code, and the check of those automorphisms, which the connected-support search uses too | `_search/automorphism_families.py` |
 | Tables that let a distance search skip supports whose last two rows cannot complete a word lighter than the best one found, and the choice of whether to build them | `_search/completion_bounds.py` |

@@ -44,13 +44,12 @@ def test_brouwer_zimmermann_search_state() -> None:
     # Hamming weights 2 and 1, both outside the excluded subcode.
     search = bz._BrouwerZimmermannSearch(
         affine_instance.AffineInstance(
-            np.array([[[3], [2]]], dtype=np.uint64),
-            np.ones((1, 2, 1), dtype=np.uint64),
-            np.array([1], dtype=np.int64),
-            np.array([1], dtype=np.int64),
-            np.full((1, 2), -1, dtype=np.int64),
-            np.array([0], dtype=np.int64),
-            information_sets.Certificate(2, (0,)),
+            generators=np.array([[[3], [2]]], dtype=np.uint64),
+            labels=np.ones((1, 2, 1), dtype=np.uint64),
+            widths=np.array([1], dtype=np.int64),
+            label_widths=np.array([1], dtype=np.int64),
+            pivots=np.full((1, 2), -1, dtype=np.int64),
+            certificate=information_sets.Certificate(2, (0,)),
         ),
         cutoff=1,
         batch_size=1,
@@ -94,13 +93,12 @@ def test_the_largest_layer_threshold_never_asks_for_automorphisms() -> None:
         get_automorphism_family = mock.Mock(return_value=None)
         search = bz._BrouwerZimmermannSearch(
             affine_instance.AffineInstance(
-                np.zeros((1, dimension, 2), dtype=np.uint64),
-                np.zeros((1, dimension, 1), dtype=np.uint64),
-                np.array([2], dtype=np.int64),
-                np.array([1], dtype=np.int64),
-                np.arange(dimension, dtype=np.int64)[None],
-                np.array([dimension], dtype=np.int64),
-                information_sets.Certificate(dimension, (dimension,)),
+                generators=np.zeros((1, dimension, 2), dtype=np.uint64),
+                labels=np.zeros((1, dimension, 1), dtype=np.uint64),
+                widths=np.array([2], dtype=np.int64),
+                label_widths=np.array([1], dtype=np.int64),
+                pivots=np.arange(dimension, dtype=np.int64)[None],
+                certificate=information_sets.Certificate(dimension, (dimension,)),
             ),
             cutoff=0,
             batch_size=1,
@@ -863,13 +861,12 @@ def test_sets_that_are_not_information_sets_use_the_general_scan() -> None:
     """
     search = bz._BrouwerZimmermannSearch(
         affine_instance.AffineInstance(
-            np.array([[[7], [6]]], dtype=np.uint64),
-            np.array([[[1], [2]]], dtype=np.uint64),
-            np.array([1], dtype=np.int64),
-            np.array([1], dtype=np.int64),
-            np.full((1, 2), -1, dtype=np.int64),
-            np.array([0], dtype=np.int64),
-            information_sets.Certificate(2, (0,)),
+            generators=np.array([[[7], [6]]], dtype=np.uint64),
+            labels=np.array([[[1], [2]]], dtype=np.uint64),
+            widths=np.array([1], dtype=np.int64),
+            label_widths=np.array([1], dtype=np.int64),
+            pivots=np.full((1, 2), -1, dtype=np.int64),
+            certificate=information_sets.Certificate(2, (0,)),
         ),
         cutoff=-1,
         batch_size=1,
