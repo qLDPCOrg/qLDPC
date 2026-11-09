@@ -286,7 +286,7 @@ def test_get_transformer_reuse() -> None:
 
 
 def test_transpose() -> None:
-    """Transpose ring members, which inverts group members."""
+    """Transposing a member of a group algebra inverts its group members."""
     group = abstract.CyclicGroup(4)
     for member in group.generate():
         element = abstract.RingMember(group, member)

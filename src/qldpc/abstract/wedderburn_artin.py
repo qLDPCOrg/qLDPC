@@ -192,7 +192,8 @@ class WedderburnArtinComponentTransformer:
     _validate_primitive_central_idempotent.
 
     Args:
-        pci: A primitive central idempotent of a ring.
+        pci: A primitive central idempotent of a semisimple group algebra.  Any other ring raises a
+            NotImplementedError.
         seed: Random number generator seed.
         galois_compile: The ufunc calculation mode for the galois field extension ``GF(q^d)``.
             Default: 'python-calculate', which is empirically faster for small field arrays.
@@ -943,8 +944,8 @@ class WedderburnArtinComponentTransformer:
 def _check_semisimple_group_algebra(ring: Ring) -> GroupRing:
     """Return a given ring if it is a semisimple group algebra, or raise an error.
 
-    The decomposition is implemented only for group algebras, so any other ring raises a
-    NotImplementedError, and a group algebra that is not semisimple raises a ValueError.
+    The Wedderburn-Artin decomposition is implemented only for group algebras, so any other ring
+    raises a NotImplementedError, and a group algebra that is not semisimple raises a ValueError.
     """
     if not isinstance(ring, GroupRing):
         raise NotImplementedError(

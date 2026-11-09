@@ -64,7 +64,7 @@ class Ring(abc.ABC):
 
     _field: type[galois.FieldArray]
 
-    def __init__(self, field: int | type[galois.FieldArray] | None = None) -> None:
+    def __init__(self, field: int | type[galois.FieldArray] | None) -> None:
         self._field = resolve_field(field)
 
     @property
@@ -108,8 +108,8 @@ class Ring(abc.ABC):
     def has_involution(self) -> bool:
         """Does ``RingMember.T`` apply an involution of this ring?
 
-        An involution is an anti-automorphism of the ring that is its own inverse (see
-        ``RingMember.T``).  If this property is False, ``RingMember.T`` raises a ValueError.
+        An involution is an anti-automorphism of the ring that is its own inverse.  If this property
+        is False, ``RingMember.T`` raises a ValueError.
         """
 
     @property
@@ -601,7 +601,8 @@ class RingMember:
 
     def __add__(self, other: int | galois.FieldArray | GroupMember | RingMember) -> RingMember:
         if isinstance(other, (int, self.field, GroupMember)):
-            # multiply on the right, since galois raises an error for a field scalar on the left
+            # convert a scalar or group member into a ring member, with the scalar or group member
+            # on the right, since galois raises an error for a field scalar on the left
             return self + self.ring.one * other
 
         if isinstance(other, RingMember):

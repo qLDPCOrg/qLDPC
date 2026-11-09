@@ -240,6 +240,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             """Elevate a value to an element of the ring."""
             # validate and re-home explicit ring members
             if isinstance(value, RingMember):
+                _as_group_algebra(value.ring)
                 if value.field is not ring.field:
                     raise ValueError(
                         f"Cannot embed a ring member over GF({value.field.order}) into a ring over"
