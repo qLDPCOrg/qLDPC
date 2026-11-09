@@ -224,8 +224,40 @@ def test_deprecated_argument_order() -> None:
         ring_array = abstract.RingArray.from_field_array(ring, matrix)  # type:ignore[arg-type]
     assert np.array_equal(ring_array.to_field_array(), matrix)
 
+    # the deprecated argument order also detects other rings, which RingArrays do not yet support
+    other = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
+    vector, matrix = other.field.Zeros(2), other.field.Zeros((1, 2))
+    for construct, data in [
+        (abstract.RingArray.from_field_vector, vector),
+        (abstract.RingArray.from_field_array, matrix),
+    ]:
+        with (
+            pytest.warns(DeprecationWarning, match="DEPRECATED"),
+            pytest.raises(NotImplementedError, match="only for group algebras"),
+        ):
+            construct(other, data)  # type:ignore[arg-type]
+
 
 def test_deprecated_attribute_lookup() -> None:
     """The module-level lookup of deprecated names rejects other names."""
     with pytest.raises(AttributeError, match="has no attribute 'not_a_real_export'"):
         ring_array_module.not_a_real_export  # type: ignore[attr-defined]  # noqa: B018
+
+
+def test_ring_arrays_require_group_algebras() -> None:
+    """RingArrays are implemented only for group algebras."""
+    ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
+    constructors = [
+        lambda: abstract.RingArray([[ring.one]]),
+        lambda: abstract.RingArray(np.empty((0, 1), dtype=object), ring),
+        lambda: abstract.RingArray.build([[ring.one]]),
+        lambda: abstract.RingArray.build([[1]], ring),
+        lambda: abstract.RingArray.build(
+            [[ring.zero]], abstract.GroupRing(abstract.CyclicGroup(2))
+        ),
+        lambda: abstract.RingArray.from_field_array(ring.field.Zeros((1, ring.dim)), ring),
+        lambda: abstract.RingArray.from_field_vector(ring.field.Zeros(ring.dim), ring),
+    ]
+    for constructor in constructors:
+        with pytest.raises(NotImplementedError, match="only for group algebras"):
+            constructor()
