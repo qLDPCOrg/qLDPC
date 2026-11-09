@@ -91,6 +91,13 @@ def kron(
 
     if not ring.is_commutative:
         if not isinstance(ring, GroupRing):
+            # An entry a ⨂ b of the product acts on t ∈ R as a·t·b, so lifting it needs commuting
+            # left and right actions of R, such as its left and right regular representations, which
+            # a group algebra provides with its default lift.  Supporting another noncommutative
+            # ring would need such actions, since a lift of a MatrixRing and a lift with right=True
+            # need not commute.  For the checks of a lifted product to commute, its involution would
+            # also need to transpose these lifts, which regular representations in the basis of a
+            # MatrixRing need not do.
             raise NotImplementedError(
                 "The Kronecker product over a noncommutative ring is implemented only for group"
                 f" algebras, not {ring}"

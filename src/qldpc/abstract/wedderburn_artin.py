@@ -948,6 +948,15 @@ def _check_semisimple_group_algebra(ring: Ring) -> GroupRing:
     The Wedderburn-Artin decomposition is implemented only for group algebras, so any other ring
     raises a NotImplementedError, and a group algebra that is not semisimple raises a ValueError.
     """
+    # Supporting any semisimple ring would replace each use of the group of a group algebra in this
+    # module.  Primitive central idempotents come from GAP or a table of known ones, and could
+    # instead come from splitting the center into fields by factoring minimal polynomials of central
+    # members.  The center comes from adjoint lifts of group members, and could instead consist of
+    # the members that commute with the generators of the ring.  Coefficients in simple components
+    # come from a trace over the group, which a linear solve in the basis of each component could
+    # replace, since a trace form on M_n(F) vanishes on the identity if the characteristic divides
+    # n.  Semisimplicity follows from Maschke's theorem, and would instead need the Jacobson
+    # radical.
     if not isinstance(ring, GroupRing):
         raise NotImplementedError(
             f"The Wedderburn-Artin decomposition is implemented only for group algebras, not {ring}"
