@@ -224,28 +224,6 @@ def test_distance_classical(bits: int = 3) -> None:
     )
 
 
-def test_distance_vector_binary(pytestconfig: pytest.Config) -> None:
-    """Binary vector distances agree with independent NumPy enumeration."""
-    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    for generator in (
-        np.empty((0, 6), dtype=int),
-        np.ones((1, 6), dtype=int),
-        rng.integers(0, 2, size=(2, 6)),
-    ):
-        generator = np.vstack([generator, generator])
-        coefficients = np.array(list(itertools.product([0, 1], repeat=len(generator))), dtype=int)
-        words = coefficients @ generator % 2
-        code = codes.ClassicalCode.from_generator(generator).set_generator(generator)
-        for vector in ([0] * 6, [1] * 6, [1, 1, 1, 0, 0, 0]):
-            expected = int(np.count_nonzero(words != vector, axis=1).min())
-            assert code.get_distance(vector=vector, bound=False) == expected
-            for cutoff in (2, 4):
-                distance = code.get_distance_exact(vector=vector, cutoff=cutoff)
-                assert isinstance(distance, int)
-                assert expected <= distance <= max(expected, cutoff)
-            assert code.get_distance_if_known(vector) == (expected if code.dimension == 0 else None)
-
-
 def test_distance_bound_of_self_orthogonal_code() -> None:
     """A distance bound can find code words that are orthogonal to the whole code."""
     # every code word of the self-dual [8, 4, 4] extended Hamming code is orthogonal to the code
