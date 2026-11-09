@@ -295,8 +295,8 @@ def test_lifted_product_over_matrix_rings() -> None:
             abstract.RingArray.build([[x], [ring.one - x]], ring),
         )
 
-    # the involution of this ring is not the identity, and the field has odd characteristic, so
-    # these codes depend on the involution and on the signs in their checks
+    # the involution of this ring is not the identity, and the field has odd characteristic, so the
+    # checks of an LPCode depend on the involution and on signs
     group_ring = abstract.GroupRing(abstract.CyclicGroup(3), field=3)
     ring = abstract.MatrixRing(group_ring.generators[0].lift())
     assert ring.generators[0].T != ring.generators[0]
