@@ -218,6 +218,11 @@ def test_distance_classical(bits: int = 3) -> None:
     rep_code = codes.RepetitionCode(bits, field=3)
     rep_code.forget_distance()
     assert rep_code.get_distance_exact(cutoff=bits) == rep_code.get_distance_exact() == bits
+    trinary_vector = np.array([1] * (bits - 1) + [2])
+    assert (
+        rep_code.get_distance_exact(vector=trinary_vector)
+        == bits - np.bincount(trinary_vector).max()
+    )
 
 
 def test_distance_bound_of_self_orthogonal_code() -> None:
@@ -735,8 +740,15 @@ def test_connected_support_distances_of_classical_codes(pytestconfig: pytest.Con
     assert code.get_distance(method="connected_support") == 3
     assert code.get_distance_if_known() == 3
 
-    # the distance of a vector from the code words is enumerated as for every method
-    assert code.get_distance_exact(vector=[1] + [0] * 6, method="connected_support") == 1
+    # the distance of a vector from the code words is that of the lightest word of its coset, up to
+    # a distance of 2 for this code, and the weight of the vector for a code without code words
+    code = codes.ClassicalCode([[1, 1, 0, 0, 0], [0, 1, 1, 0, 0], [0, 0, 0, 1, 1]])
+    words = [word.view(np.ndarray) for word in code.iter_words()]
+    for vector in itertools.product([0, 1], repeat=5):
+        expected = min(int(np.count_nonzero(np.array(vector) ^ word)) for word in words)
+        assert code.get_distance_exact(vector=vector, method="connected_support") == expected
+    code = codes.ClassicalCode(np.eye(4, dtype=int))
+    assert code.get_distance_exact(vector=[1, 1, 0, 1], method="connected_support") == 3
 
 
 def test_connected_support_distances_of_qubit_codes(pytestconfig: pytest.Config) -> None:

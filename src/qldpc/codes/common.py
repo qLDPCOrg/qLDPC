@@ -477,13 +477,13 @@ class ClassicalCode(AbstractCode):
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
             decoder: Decoder input used to bound distance; see help(get_distance_bound).
-            method: Binary exact-distance method, unused when bounding the distance.
+            method: Binary exact-distance method, including vector distances, unused when bounding
+                the distance.
                 ``"brouwer_zimmermann"`` is the default, with alias ``"information_sets"``;
-                ``"brute_force"`` enumerates every nonzero code word; ``"connected_support"``
-                searches supports that are connected in the Tanner graph of the parity checks (see
-                help(ClassicalCode.get_distance_exact)).  Vector-distance calculations always use
-                exhaustive enumeration.  Nonbinary calculations use exhaustive enumeration, and
-                reject ``"connected_support"``.
+                ``"brute_force"`` enumerates code words; ``"connected_support"`` searches supports
+                that are connected in the Tanner graph of the parity checks (see
+                help(ClassicalCode.get_distance_exact)).  Nonbinary calculations use exhaustive
+                enumeration, and reject ``"connected_support"``.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
@@ -517,6 +517,7 @@ class ClassicalCode(AbstractCode):
 
         The cost of this computation generally grows exponentially with the size of the code.  The
         computed code distance is remembered for later calls unless cutoff is greater than 1.
+        Vector distances are never remembered.
 
         Args:
             vector: If not None, rather than computing the code distance, compute the minimum
@@ -524,13 +525,13 @@ class ClassicalCode(AbstractCode):
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
                 With a cutoff greater than 1, a result at or below the cutoff may therefore be only
                 an upper bound on distance, and no result is remembered.
-            method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
-                alias ``"information_sets"``; ``"brute_force"`` enumerates every nonzero code word.
-                ``"connected_support"`` searches supports that are connected in the Tanner graph of
-                the parity checks, which is fast for sparse parity checks.  Its guide,
-                ``connected_support.md`` in ``src/qldpc/codes/distance/`` of the qLDPC repository,
-                says when to use it.  Vector-distance calculations always use exhaustive
-                enumeration.  Nonbinary calculations use exhaustive enumeration, and reject
+            method: Binary exact-distance method, including vector distances.
+                ``"brouwer_zimmermann"`` is the default, with alias ``"information_sets"``;
+                ``"brute_force"`` enumerates code words.  ``"connected_support"`` searches supports
+                that are connected in the Tanner graph of the parity checks, which is fast for
+                sparse parity checks.  Its guide, ``connected_support.md`` in
+                ``src/qldpc/codes/distance/`` of the qLDPC repository, says when to use it.
+                Nonbinary calculations use exhaustive enumeration, and reject
                 ``"connected_support"``.
 
         Returns:
@@ -575,6 +576,27 @@ class ClassicalCode(AbstractCode):
             vector = np.asanyarray(vector).view(self.field)
             if not np.any(self.matrix @ vector):
                 return 0
+            if self.field is galois.GF2 and method == "connected_support":
+                # With one more bit b and the checks [H | Hv], the words with b = 1 are those of the
+                # coset of the vector, with b appended, and the words with b = 0 are the code words.
+                matrix = self.matrix.view(np.ndarray)
+                checks = np.hstack([matrix, (matrix @ vector.view(np.ndarray))[:, None] % 2])
+                code_words = np.hstack(
+                    [self.generator.view(np.ndarray), np.zeros((len(self.generator), 1), int)]
+                )
+                weight = _get_distance_connected_support(
+                    [(checks, code_words)],
+                    cutoff=cutoff + 1,
+                    upper_bound=int(np.count_nonzero(vector)) + 1,
+                )
+                return weight - 1
+            if self.field is galois.GF2:
+                # The vector is one logical operator modulo the code, so search its coset.
+                return int(
+                    get_distance_quantum(
+                        [vector], self.generator, homogeneous=True, cutoff=cutoff, method=method
+                    )
+                )
             distance = int(np.count_nonzero(vector))
             for word in self.iter_words(skip_zero=True):
                 distance = min(distance, int(np.count_nonzero(word - vector)))

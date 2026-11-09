@@ -97,6 +97,7 @@ The distance of the code is the smaller of the two.
 For a subsystem code, `H` holds the stabilizers of the opposite type, so that its kernel holds the X-type or Z-type operators that commute with every stabilizer, and `G` holds the gauge generators of the same type.
 A witness is then a dressed logical operator, as in BZ.
 For a classical code, `H` is its parity-check matrix, and `G` is empty.
+The distance of a vector `v` from a classical code is one less than `d([H | Hv], [G | 0])`, where `G` generates the code: the words of the kernel of `[H | Hv]` whose last bit is 1 are those of the coset `v + C`, each with that bit appended.
 [Section 3.7](#37-qubit-codes-that-are-not-css) treats qubit codes that are not CSS.
 
 ### 3.2 Light words are connected
