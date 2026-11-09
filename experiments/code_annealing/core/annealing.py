@@ -29,13 +29,14 @@ import time
 from collections import Counter, deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
-from typing import Literal, get_args
+from typing import Any, Literal, get_args
 
 import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize_scalar
 
 from qldpc.codes import CSSLogicalCounter, CSSLogicalCounts, LogicalCountMethod
+from qldpc.codes.distance import _tuning
 
 from .proposals import CODE_TYPES, CodeType, propose
 
@@ -53,7 +54,8 @@ _DEFAULT_LIBRARY_METHOD: LogicalCountMethod = "brouwer_zimmermann"
 _GUESS_WINDOW = 16
 
 # Limit on the information sets of a count.  Scoring a proposal is a short count on a large code,
-# where the library default of 16 sets costs more in setup than it saves.
+# where the library default of 16 sets costs more in setup than it saves.  The limit is a field of
+# the library's private tuning, which only this version of qLDPC is known to have.
 _MAX_INFORMATION_SETS = 8
 
 # Bounds on the fitted log-temperature.  The fit to proposals of which none is uphill is the upper
@@ -464,12 +466,7 @@ def _score_at_guess(
     "above" that it is higher.
     """
     try:  # the library raises a ValueError for a weight above the distance
-        counts = counter.count_logical_ops(
-            guess,
-            method=method,
-            within_distance=True,
-            max_information_sets=_MAX_INFORMATION_SETS,
-        )
+        counts = _count_logical_ops(counter, guess, method=method, within_distance=True)
     except ValueError:
         return "below"
     return Score.from_counts(counts) if counts.count_x or counts.count_z else "above"
@@ -488,11 +485,7 @@ def _start_epoch(state: SearchState) -> None:
     method = _select_method(state)
     if state.config.method == "auto":
         if method == "brouwer_zimmermann":
-            state.current.counter.count_logical_ops(
-                state.current.score.distance,
-                method=method,
-                max_information_sets=_MAX_INFORMATION_SETS,
-            )
+            _count_logical_ops(state.current.counter, state.current.score.distance, method=method)
         elif previous == "brouwer_zimmermann":
             fresh = CSSLogicalCounter(state.current.counter.code)
             state.current = replace(state.current, counter=fresh)
@@ -522,11 +515,7 @@ def _select_method(state: SearchState) -> LogicalCountMethod:
     # during an epoch that uses it, so the chain itself is left as it is.  Each method scores with
     # its own copy of the chain state, whose recent distances its scores update.
     prepared = CSSLogicalCounter(counter.code)
-    prepared.count_logical_ops(
-        state.current.score.distance,
-        method="brouwer_zimmermann",
-        max_information_sets=_MAX_INFORMATION_SETS,
-    )
+    _count_logical_ops(prepared, state.current.score.distance, method="brouwer_zimmermann")
     trial_states = {
         method: replace(
             state,
@@ -633,7 +622,7 @@ def score_code(
         method = _get_library_method(config)
         if config.method == "auto":
             counter = CSSLogicalCounter(counter.code)
-    counts = counter.count_logical_ops(method=method, max_information_sets=_MAX_INFORMATION_SETS)
+    counts = _count_logical_ops(counter, method=method)
     return Score.from_counts(counts)
 
 
@@ -709,3 +698,13 @@ def _get_multiplicity(score: Score) -> int:
     if score.distance < 1 or score.multiplicity <= 0:
         raise ValueError("The search requires a positive distance and number of logical operators")
     return score.multiplicity
+
+
+####################################################################################################
+# helper methods
+
+
+def _count_logical_ops(counter: CSSLogicalCounter, *args: Any, **kwargs: Any) -> CSSLogicalCounts:
+    """``CSSLogicalCounter.count_logical_ops``, with the search's limit on information sets."""
+    with _tuning.use_tuning(max_information_sets=_MAX_INFORMATION_SETS):
+        return counter.count_logical_ops(*args, **kwargs)
