@@ -295,7 +295,11 @@ def test_lifted_product_valid_over_group_algebras() -> None:
 
 
 def test_unsupported_line_logicals(rows: int = 2, cols: int = 3) -> None:
-    """We do not support line operators in lifted product codes with non-semisimple rings."""
+    """We do not support line operators for these seeds over a non-semisimple ring.
+
+    Every trailing 2×2 block of these seeds has determinant 0 or 1 + x, which is not a unit, so the
+    seeds do not split at trailing pivot blocks.
+    """
     ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
     values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
     matrix = abstract.RingArray.build(values, ring)
@@ -303,6 +307,137 @@ def test_unsupported_line_logicals(rows: int = 2, cols: int = 3) -> None:
         codes.LPCode(matrix, set_logicals=True)
     with pytest.raises(ValueError, match="not yet supported"):
         codes.SLPCode(matrix, set_logicals=True)
+
+
+def test_split_line_logicals() -> None:
+    """Seeds that split at trailing pivot blocks have paired line operators over any ring.
+
+    The split route follows Appendix B of arXiv:2607.28795.  These rings are not semisimple group
+    algebras, so their seeds avoid the semisimple route.
+    """
+    # dual numbers, as in the invertible-pivot example of arXiv:2607.28795
+    ring_c2 = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
+    eps = ring_c2.one + ring_c2.generators[0]
+    seed_c2 = abstract.RingArray.build([[eps, 1]], ring_c2)
+
+    # a noncommutative ring, with a pivot block that is invertible in the left action that A uses,
+    # but not in the right action that B uses.  Its transpose is invertible only in the right
+    # action.
+    ring_s3 = abstract.GroupRing(abstract.DihedralGroup(3), field=2)
+    rot, ref = ring_s3.generators
+    pivot = [[ring_s3.one, rot], [rot * ref, ring_s3.one + ref]]
+    seed_a_s3 = abstract.RingArray.build([[rot, *pivot[0]], [ref, *pivot[1]]], ring_s3)
+    seed_b_s3 = abstract.RingArray.build(
+        [[ref, pivot[0][0], pivot[1][0]], [rot, pivot[0][1], pivot[1][1]]], ring_s3
+    )
+
+    # an extension field of odd characteristic, with coefficients outside its prime subfield
+    ring_gf9 = abstract.GroupRing(abstract.CyclicGroup(3), field=9)
+    alpha = int(ring_gf9.field.primitive_element)
+    seed_gf9 = abstract.RingArray.build(
+        [
+            [
+                abstract.RingMember.from_vector(ring_gf9.field([1, alpha, 0]), ring_gf9),
+                abstract.RingMember.from_vector(ring_gf9.field([alpha, 0, 0]), ring_gf9),
+            ]
+        ],
+        ring_gf9,
+    )
+
+    # a commutative matrix ring whose members lift to matrices larger than its dimension
+    ring_matrix = abstract.MatrixRing(galois.GF2([[0, 1, 0], [1, 0, 0], [0, 0, 1]]))
+    assert ring_matrix.dim == 2 and ring_matrix.lift_dim == 3
+    seed_matrix = abstract.RingArray.build(
+        [[ring_matrix.one + ring_matrix.generators[0], 1]], ring_matrix
+    )
+
+    code_types: list[type[codes.LPCode | codes.SLPCode]] = [codes.LPCode, codes.SLPCode]
+    for seed_a, seed_b in [
+        (seed_c2, seed_c2),
+        (seed_a_s3, seed_b_s3),
+        (seed_gf9, seed_gf9),
+        (seed_matrix, seed_matrix),
+    ]:
+        (num_checks_a, num_bits_a), (num_checks_b, num_bits_b) = seed_a.shape, seed_b.shape
+        block_size = seed_a.ring.lift_dim
+        dimension = (num_bits_a - num_checks_a) * (num_bits_b - num_checks_b) * block_size
+        for code_type in code_types:
+            code = code_type(seed_a, seed_b, set_logicals=True)
+            assert_split_line_logicals(code, dimension)
+
+    # the dual-number seed has these line operators, as lifts of ring-valued operators
+    code = codes.LPCode(seed_c2, set_logicals=True)
+    assert len(code) == 10
+    expected_ops_x = abstract.RingArray.build([[1, eps, 0, 0, 0]], ring_c2).lift()
+    expected_ops_z = abstract.RingArray.build([[1, 0, eps, 0, 0]], ring_c2).lift()
+    assert np.array_equal(code.get_logical_ops(Pauli.X), expected_ops_x)
+    assert np.array_equal(code.get_logical_ops(Pauli.Z), expected_ops_z)
+
+    # the split route checks the action of each pivot block
+    for code_type in code_types:
+        with pytest.raises(ValueError, match="not yet supported"):
+            code_type(seed_b_s3, seed_a_s3, set_logicals=True)
+
+
+def test_split_line_logicals_require_split_seeds() -> None:
+    """The split route needs invertible trailing pivot blocks and an involution of the ring."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
+    eps = ring.one + ring.generators[0]
+    code_types: list[type[codes.LPCode | codes.SLPCode]] = [codes.LPCode, codes.SLPCode]
+
+    # square seeds with an invertible pivot block give codes with no logical qudits
+    for code_type in code_types:
+        code = code_type(abstract.RingArray.build([[1]], ring), set_logicals=True)
+        assert_split_line_logicals(code, 0)
+
+    # pivot blocks that are not invertible, or not trailing
+    for values in ([[eps, eps]], [[1, eps]]):
+        for code_type in code_types:
+            with pytest.raises(ValueError, match="not yet supported"):
+                code_type(abstract.RingArray.build(values, ring), set_logicals=True)
+
+    # without an involution, a subsystem code from these seeds encodes more qudits than the split
+    # route would give it
+    field = galois.GF(3)
+    ring_without_involution = abstract.MatrixRing(field([[0, 1], [0, 0]]))
+    assert not ring_without_involution.has_involution
+    seed = abstract.RingArray.build(
+        [[ring_without_involution.generators[0], 1]], ring_without_involution
+    )
+    assert codes.SLPCode(seed).dimension == 4
+    with pytest.raises(NotImplementedError, match="trailing pivot blocks"):
+        codes.SLPCode.get_canonical_logical_line_ops(seed, seed)
+    with pytest.raises(ValueError, match="not yet supported"):
+        codes.SLPCode(seed, set_logicals=True)
+
+
+def assert_split_line_logicals(code: codes.LPCode | codes.SLPCode, dimension: int) -> None:
+    """Assert that a code has valid logical line operators on the first block of its qudits."""
+    # the code encodes the expected number of logical qudits, by ranks of its checks
+    rank_x = np.linalg.matrix_rank(code.matrix_x)
+    rank_z = np.linalg.matrix_rank(code.matrix_z)
+    num_gauge_pairs = np.linalg.matrix_rank(code.matrix_x @ code.matrix_z.T)
+    assert len(code) - rank_x - rank_z + num_gauge_pairs == dimension
+
+    # the logical operators commute with the checks and pair as the identity
+    logical_ops_x = code.get_logical_ops(Pauli.X)
+    logical_ops_z = code.get_logical_ops(Pauli.Z)
+    assert np.array_equal(logical_ops_x @ logical_ops_z.T, np.eye(dimension, dtype=int))
+    assert not np.any(code.matrix_z @ logical_ops_x.T)
+    assert not np.any(code.matrix_x @ logical_ops_z.T)
+    canonical_ops_x, canonical_ops_z = code.get_canonical_logical_line_ops(
+        code.matrix_a, code.matrix_b
+    )
+    assert np.array_equal(canonical_ops_x, logical_ops_x)
+    assert np.array_equal(canonical_ops_z, logical_ops_z)
+
+    # X operators are supported on one row, and Z operators on one column, of the first block
+    shape = (code.matrix_a.shape[1], code.matrix_b.shape[1], code.matrix_a.ring.lift_dim)
+    size = int(np.prod(shape))
+    assert not np.any(logical_ops_x[:, size:]) and not np.any(logical_ops_z[:, size:])
+    for op_x, op_z in zip(logical_ops_x, logical_ops_z):
+        assert np.count_nonzero(np.any(op_x[:size].reshape(shape), axis=(1, 2))) == 1
+        assert np.count_nonzero(np.any(op_z[:size].reshape(shape), axis=(0, 2))) == 1
 
 
 def test_lifted_product_translations() -> None:
