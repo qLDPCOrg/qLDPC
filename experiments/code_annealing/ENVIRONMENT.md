@@ -54,4 +54,4 @@ nohup parallel -j "$(nproc)" --joblog experiments/code_annealing/results/logs/jo
 ```
 
 Here `--joblog` is an option of `parallel` that records the exit status of every job.
-Copy `results/logs/` back to a local copy of the repository to collect the data and plot the figures there.
+Copy `experiments/code_annealing/results/logs/` back to a local copy of the repository to collect the data and plot the figures there.

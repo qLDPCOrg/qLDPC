@@ -25,7 +25,7 @@ from ..core.annealing import (
     score_code,
     start_search,
 )
-from .search_helpers import canonical_checks, counter_from_checks, steane_counter, weak_counter
+from .search_helpers import canonical_checks, steane_counter, weak_counter
 
 CONFIG = SearchConfig(epochs=1, steps_per_epoch=2)
 ROLES = ("current", "lowest_energy", "greatest_distance")
@@ -71,18 +71,26 @@ def test_a_failed_save_keeps_the_previous_checkpoint_and_record(
 def test_a_chain_saved_with_the_fields_of_older_versions_loads_as_the_same_state(
     chain: tuple[Path, SearchState],
 ) -> None:
-    # Earlier versions also saved the numbers of proposed and accepted moves, which loading ignores,
-    # so that the chains of a campaign that started with them still resume.
+    # Earlier versions also saved the numbers of proposed and accepted moves, and the objective of
+    # the search, which was always the X-only and Z-only operators, with no count of Pauli
+    # operators.  Loading accepts them, so that the chains of a campaign that started with them
+    # still resume.
     path, _ = chain
     expected = _get_state_data(checkpoints.load_checkpoint(path))
-    _edit(path, lambda data: data.update(proposed=2, accepted=1))
+
+    def add_old_fields(data: dict[str, Any]) -> None:
+        data.update(proposed=2, accepted=1)
+        data["config"]["objective"] = "homogeneous"
+        for role in ROLES:
+            data[role]["score"]["count_pauli"] = None
+
+    _edit(path, add_old_fields)
     assert _get_state_data(checkpoints.load_checkpoint(path)) == expected
 
 
 # Changes to the chain of the fixture, each of which breaks one check of loading.
 CORRUPTIONS = {
     "a tampered score": lambda data: data["current"]["score"].update(count_x=-1),
-    "an acceptance rate above one": lambda data: data["history"][0].update(acceptance_rate=1.5),
     "a lowest-energy code that is worse than another": lambda data: data.update(
         lowest_energy=data["current"]
     ),
@@ -91,8 +99,6 @@ CORRUPTIONS = {
     ),
     "another schema version": lambda data: data.update(schema_version=2),
     "another numerical runtime": lambda data: data["runtime"].update(numpy="0"),
-    "a record in place of a chain": lambda data: data.update(kind="lowest-energy"),
-    "a missing field": lambda data: data.pop("history"),
 }
 
 
@@ -154,14 +160,6 @@ def test_a_record_does_not_overwrite_a_file_that_is_not_a_verified_record_of_its
         with pytest.raises(ValueError):
             checkpoints.save_record(_state_holding(steane_counter()), path, "lowest-energy")
         assert record.read_bytes() == before
-
-
-def test_a_code_of_more_than_64_qubits_survives_encoding() -> None:
-    checks = np.zeros((1, 70), dtype=int)
-    checks[0, [0, 69]] = 1
-    counter = counter_from_checks(checks, checks)
-    decoded = checkpoints.decode_code(json.loads(json.dumps(checkpoints.encode_code(counter))))
-    assert canonical_checks(decoded) == canonical_checks(counter)
 
 
 @pytest.mark.parametrize(

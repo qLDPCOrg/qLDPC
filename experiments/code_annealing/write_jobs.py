@@ -28,11 +28,11 @@ of 100 proposals, starting from the lowest-energy code of 10 random codes, with 
 scripts to follow that campaign.
 
 The campaign, ``CAMPAIGN`` in this script, lists each code size with the epochs of its CSS and SWEL
-searches and its final target acceptance of uphill proposals.  Every code size runs both code
-types, CSS (starting from a self-dual code) and SWEL, with the seeds of ``CampaignRow.num_seeds``,
-and every search starts from the lowest-energy code of ``INIT_SAMPLES`` random codes, drawn with its
-own seed.  Running all of it takes a very long time: choose jobs with ``--qubits``, ``--max-seeds``,
-and ``--code-types``.
+searches and its final target acceptance of uphill proposals.  Every code size runs both code types,
+CSS and SWEL, with the seeds of ``CampaignRow.num_seeds``.  A CSS search starts from a self-dual
+code.  Every search starts from the lowest-energy code of ``INIT_SAMPLES`` random codes, drawn with
+its own seed.  Running all of it takes a very long time: choose jobs with ``--qubits``,
+``--max-seeds``, and ``--code-types``.
 """
 
 from __future__ import annotations
@@ -54,6 +54,18 @@ from .core.paths import EXPERIMENT_DIR, get_logs_dir, get_run_name
 from .core.proposals import CODE_TYPES, CodeType
 from .core.run_annealing import build_parser as build_command_parser
 from .core.saved_runs import load_run_progress
+
+_REPO_ROOT = EXPERIMENT_DIR.parents[1]
+
+_RunStatus = Literal["new", "unfinished", "finished"]
+
+# The part of the campaign that ``--test`` runs: enough to exercise every step.
+_SMOKE_QUBITS = (20, 22)
+_SMOKE_MAX_SEEDS = 2
+_SMOKE_EPOCHS = 2
+_SMOKE_STEPS_PER_EPOCH = 100
+_SMOKE_INIT_SAMPLES = 10
+
 
 # Proposals in an epoch of every search of the campaign.
 STEPS_PER_EPOCH = 10_000
@@ -124,17 +136,6 @@ CAMPAIGN = (
     CampaignRow(56, 12, 1500, 1000, 1e-4),
     CampaignRow(56, 14, 1500, 1000, 1e-4),
 )
-
-_REPO_ROOT = EXPERIMENT_DIR.parents[1]
-
-_RunStatus = Literal["new", "unfinished", "finished"]
-
-# The part of the campaign that ``--test`` runs: enough to exercise every step.
-_SMOKE_QUBITS = (20, 22)
-_SMOKE_MAX_SEEDS = 2
-_SMOKE_EPOCHS = 2
-_SMOKE_STEPS_PER_EPOCH = 100
-_SMOKE_INIT_SAMPLES = 10
 
 
 def main(argv: Sequence[str] | None = None) -> None:

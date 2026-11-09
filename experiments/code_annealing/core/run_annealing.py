@@ -7,10 +7,10 @@ with N physical and K logical qubits, or with ``--help`` for the options.  Exact
 exponential, so use small ``--epochs`` and ``--steps-per-epoch`` for smoke tests, and ``--dry-run``,
 which writes nothing.
 
-Every search but a dry run compiles the set-up code of the counts before its pilot, or before its
-next epoch when it resumes.  This changes no result, and pays off over a long search.  It would slow
-down the counts of the ``--init-samples`` codes slightly, so they come first.  ``--skip-compile``
-skips it for a short search.
+Every search but a dry run compiles the Python set-up of its exact counts before its pilot, or
+before its next epoch when it resumes.  This changes no result, and pays off over a long search.  It
+would slow down the counts of the ``--init-samples`` codes slightly, so they come first.
+``--skip-compile`` skips it for a short search.
 
 Starting code.  A new search starts from the first random code that it draws, or from the
 lowest-energy code of ``--init-samples`` random codes, which are scored exactly.  The energy of a
@@ -44,11 +44,12 @@ system, and architecture, and the same version of this code.  Otherwise, or to t
 ``--refine PATH`` starts a new chain from the lowest-energy code of a chain checkpoint or from the
 code of a record, either of which may come from another runtime or schema version.
 
-Scoring.  ``--method`` is ``auto`` (the default), which races the library's exact methods, or one
-of those methods of ``CSSLogicalCounter.count_logical_ops``: ``brouwer_zimmermann``,
-``macwilliams``, or ``brute_force``.
-``--objective`` is ``homogeneous`` (X-only and Z-only operators) or ``pauli`` (all Pauli
-representatives; the MacWilliams method needs ``--code-type swel`` for it).  See ``annealing.py``.
+Scoring.  Every proposal is scored by its distance and its numbers of minimum-weight X-only and
+Z-only logical operators.  ``--method`` is ``auto`` (the default), or one of the exact methods of
+``CSSLogicalCounter.count_logical_ops``: ``brouwer_zimmermann``, ``macwilliams``, or
+``brute_force``.  At the start of each epoch, ``auto`` races Brouwer--Zimmermann against MacWilliams
+and keeps the faster, or uses Brouwer--Zimmermann alone above a check rank of 26.  See
+``annealing.py``.
 """
 
 from __future__ import annotations
@@ -68,13 +69,11 @@ from qldpc.codes.distance import compile_search_setup
 
 from .annealing import (
     METHODS,
-    OBJECTIVES,
     SearchConfig,
     SearchState,
     energy,
     get_lowest_energy_code,
     run_epochs,
-    score_code,
     start_search,
 )
 from .atomic import hold_lock
@@ -116,8 +115,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     # Check before a slow initialization if the name is known, and again, once this process holds
     # the lock, before writing.
     output = args.output or args.resume or _get_output_from_arguments(args)
-    if output is not None and not args.dry_run:
-        _check_output_is_free(parser, args, output)
+    new_files = args.resume is None and not args.dry_run
+    if output is not None and new_files:
+        _check_output_is_free(parser, output)
 
     # Only a chain checkpoint can be resumed, so that a lock file is never left beside another file.
     if args.resume is not None:
@@ -127,7 +127,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             if read_saved_file(args.resume, any_schema=True)[0] != "chain":
                 raise ValueError(f"{args.resume} is a record of a code, not a chain; use --refine")
 
-    # Lock the chain before reading it, so that no other process changes it while this one waits.
+    # Lock the chain before reading it, so that no other process changes it while this one reads and
+    # initializes it.
     with contextlib.ExitStack() as locks:
         if output is not None and not args.dry_run:
             _lock_chain(parser, locks, output)
@@ -151,8 +152,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
             if not args.dry_run:
                 _lock_chain(parser, locks, output)
-        if not args.dry_run:
-            _check_output_is_free(parser, args, output)
+        if new_files:
+            _check_output_is_free(parser, output)
         _run_search(
             state,
             output,
@@ -204,7 +205,6 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         help=f"the physical error rate p of the energy (default: {defaults.physical_error_rate})",
     )
-    policy.add_argument("--objective", choices=OBJECTIVES, help=f"(default: {defaults.objective})")
     policy.add_argument(
         "--method",
         choices=METHODS,
@@ -248,7 +248,7 @@ def build_parser() -> argparse.ArgumentParser:
     files.add_argument(
         "--skip-compile",
         action="store_true",
-        help="do not compile the set-up code of the counts, which only pays off in a long search",
+        help="do not compile the Python set-up of the exact counts, which only pays off in a long search",
     )
     files.add_argument(
         "--stop-after-epochs",
@@ -273,7 +273,8 @@ def _get_output_from_arguments(args: argparse.Namespace) -> Path | None:
     """
     if args.num_qubits is None or args.num_logicals is None or args.refine is not None:
         return None
-    return _name_output(args, args.code_type or "css", args.num_qubits, args.num_logicals)
+    code_type = args.code_type or SearchConfig().code_type
+    return _name_output(args, code_type, args.num_qubits, args.num_logicals)
 
 
 def _name_output(
@@ -284,14 +285,9 @@ def _name_output(
     return get_logs_dir(args.results_dir) / f"{name}.json"
 
 
-def _check_output_is_free(
-    parser: argparse.ArgumentParser, args: argparse.Namespace, output: Path
-) -> None:
-    existing = output.exists() or any(
-        get_record_path(output, kind).exists() for kind in RECORD_KINDS
-    )
-    own_resume = args.resume is not None and output.resolve() == args.resume.resolve()
-    if existing and not own_resume:
+def _check_output_is_free(parser: argparse.ArgumentParser, output: Path) -> None:
+    """Report a usage error if a new chain would overwrite the checkpoint or records of another."""
+    if output.exists() or any(get_record_path(output, kind).exists() for kind in RECORD_KINDS):
         parser.error(
             f"{output} or its records already exist: use --resume to continue that run,"
             " or --tag or --output to start another"
@@ -325,9 +321,7 @@ def _resume_search(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
         "seed",
         "init_samples",
     )
-    if args.self_dual_start or any(
-        getattr(args, name, None) is not None for name in new_search_options
-    ):
+    if args.self_dual_start or any(getattr(args, name) is not None for name in new_search_options):
         parser.error("--resume restores its saved policy; do not supply new code/policy options")
     return load_checkpoint(args.resume)
 
@@ -342,7 +336,7 @@ def _prepare_new_search(
     options = {
         field.name: getattr(args, field.name)
         for field in dataclasses.fields(SearchConfig)
-        if getattr(args, field.name, None) is not None
+        if getattr(args, field.name) is not None
     }
     if args.code_type == "swel" and args.gate_size is None:
         options["gate_size"] = 4
@@ -370,13 +364,12 @@ def _get_random_code(
     if args.init_samples < 1:
         parser.error("--init-samples must be positive")
     initial = get_lowest_energy_code(itertools.islice(counters, args.init_samples), config)
-    score = score_code(initial, config)
     print(
         f"Started from the lowest-energy code of {args.init_samples} random codes:"
-        f" distance {score.distance}, energy {energy(score, config):.4f}",
+        f" distance {initial.score.distance}, energy {energy(initial.score, config):.4f}",
         file=sys.stderr,
     )
-    return initial
+    return initial.counter
 
 
 def _load_refinement_code(
@@ -409,7 +402,6 @@ def _run_search(
             json.dumps(
                 {
                     "epoch": state.completed_epochs,
-                    "objective": state.config.objective,
                     "current_score": dataclasses.asdict(state.current.score),
                     "lowest_energy_score": dataclasses.asdict(state.lowest_energy.score),
                     "greatest_distance_score": dataclasses.asdict(state.greatest_distance.score),

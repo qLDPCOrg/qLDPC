@@ -47,8 +47,10 @@ class CodeEntry:
 
     code: CSSCode
     distance: int
+    """The distance that the header claims."""
+
     count_homogeneous: int
-    """Number of minimum-weight X-only plus Z-only logical operators."""
+    """The number of minimum-weight X-only plus Z-only logical operators that the header claims."""
 
     @property
     def num_qubits(self) -> int:

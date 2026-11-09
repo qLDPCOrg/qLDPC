@@ -4,10 +4,8 @@
 
 A Markov chain of codes minimizes the energy E of arXiv:2607.19574, the normalized log of the rate
 of undetected logical errors, over local Clifford conjugations of a binary CSS stabilizer code.
-Every proposal is scored exactly by its distance and its number of minimum-weight logical
-operators, so there are no approximate or cached scores.  By default the operators are the X-only
-and Z-only ones; the ``pauli`` objective instead counts every physical Pauli representative,
-including mixed and Y-only ones.
+Every proposal is scored exactly by its distance and its number of minimum-weight X-only and Z-only
+logical operators, so there are no approximate or cached scores.
 
 Before the first epoch, a pilot scores one epoch's worth of proposals from the initial code to fit
 the first temperature, without moving the chain.  Independently of the chain, the search records the
@@ -17,8 +15,9 @@ proposals that only time the counting methods.
 
 Scoring takes most of a step.  The exact methods give identical scores, so the method changes only
 the running time.  The MacWilliams method walks every word of the check spaces once; the other
-methods count at a guess of the distance, and verify it.  With the ``auto`` method, the search
-races these two at the start of each epoch and keeps the faster, so the choice depends on timing,
+methods count at a guess of the distance, and verify it.  With the ``auto`` method, the search races
+Brouwer--Zimmermann against MacWilliams at the start of each epoch and keeps the faster, or uses
+Brouwer--Zimmermann alone above a check rank of ``_RACE_MAX_RANK``.  The choice depends on timing,
 and no result depends on it.  See ``_score_proposal``, ``_score_by_guessing``, and
 ``_select_method`` for the details.
 """
@@ -40,18 +39,14 @@ from qldpc.codes import CSSLogicalCounter, CSSLogicalCounts, LogicalCountMethod
 
 from .proposals import CODE_TYPES, CodeType, propose
 
-# Exact counting methods of the library, and ``auto``, which times the two exact methods on a few
-# proposals at the start of each epoch and keeps the faster.
+# Exact counting methods of the library, and ``auto``, which times Brouwer--Zimmermann and
+# MacWilliams on a few proposals at the start of each epoch and keeps the faster.
 SearchMethod = Literal["auto", "brouwer_zimmermann", "macwilliams", "brute_force"]
 METHODS = get_args(SearchMethod)
 
 # The library method of counts outside a chain, such as of initial and saved codes, when the search
 # method is ``auto``.
 _DEFAULT_LIBRARY_METHOD: LogicalCountMethod = "brouwer_zimmermann"
-
-# Quantities that the multiplicity of the energy can count.
-Objective = Literal["homogeneous", "pauli"]
-OBJECTIVES = get_args(Objective)
 
 # Number of recent proposals whose distances vote on the distance of the next one.
 _GUESS_WINDOW = 16
@@ -90,16 +85,10 @@ _clock = time.process_time
 class SearchConfig:
     """Search policy; the seed and codes of a chain live in ``SearchState`` and its checkpoint.
 
-    The homogeneous objective counts the minimum-weight X-only and Z-only logical operators, and the
-    pauli objective counts every minimum physical Pauli representative.  Neither counts logical
-    equivalence classes modulo stabilizers.  The objective is recorded in every checkpoint so that
-    saved results state exactly what was optimized.
-
     Attributes:
         code_type: ``css`` searches general CSS codes with CNOT or CSS gates; ``swel`` searches
             SWEL codes with the SWEL gate, which keeps every code self-dual.
         gate_size: Number of qubits that a proposed gate acts on.
-        objective: What the multiplicity of the energy counts (see above).
         epochs: Number of epochs of the chain.  An epoch has one temperature.
         steps_per_epoch: Number of proposals in an epoch, and in the pilot before the first one.
         uphill_acceptance_start: Target mean acceptance probability of the uphill proposals (those
@@ -108,7 +97,7 @@ class SearchConfig:
             acceptance of an epoch only approaches its target; ``EpochStatistics`` records what
             it was.
         uphill_acceptance_stop: The same target in the last epoch.  The targets in between decrease
-            geometrically, which cools the chain.
+            geometrically, which cools the chain.  A search of one epoch uses only the start target.
         temperature_memory: The weight ``m`` of the previous log-temperature: the log-temperature
             of the next epoch is ``m * previous + (1 - m) * fit``, where the fit gives the target
             acceptance to the uphill jumps of the last epoch (or of the pilot).
@@ -118,7 +107,6 @@ class SearchConfig:
 
     code_type: CodeType = "css"
     gate_size: int = 2
-    objective: Objective = "homogeneous"
     epochs: int = 100
     steps_per_epoch: int = 10_000
     uphill_acceptance_start: float = 0.01
@@ -133,8 +121,8 @@ class SearchConfig:
             for value in (self.gate_size, self.epochs, self.steps_per_epoch)
         ):
             raise ValueError("Gate size, epochs, and steps_per_epoch must be integers")
-        if self.code_type not in CODE_TYPES or self.objective not in OBJECTIVES:
-            raise ValueError("Unrecognized code type or objective")
+        if self.code_type not in CODE_TYPES:
+            raise ValueError("Unrecognized code type")
         if self.gate_size not in (2, 3, 4) or (self.code_type == "swel" and self.gate_size != 4):
             raise ValueError("CSS gates have size 2/3/4; SWEL searches require size 4")
         if self.epochs < 1 or self.steps_per_epoch < 1:
@@ -155,8 +143,6 @@ class SearchConfig:
             raise ValueError("temperature_memory must be in [0,1) and physical_error_rate in (0,1)")
         if self.method not in METHODS:
             raise ValueError(f"Unknown counting method {self.method!r}; choose from {METHODS}")
-        if self.method == "macwilliams" and self.objective == "pauli" and self.code_type == "css":
-            raise ValueError("The MacWilliams method counts Paulis only of self-dual codes")
 
     def validate_code(self, counter: CSSLogicalCounter) -> None:
         """Check code-dependent policy invariants at initialization and checkpoint import."""
@@ -193,17 +179,15 @@ class EpochStatistics:
 
 @dataclass(frozen=True)
 class Score:
-    """Exact distance and number of minimum-weight logical operators of a code.
+    """Exact distance and numbers of minimum-weight X-only and Z-only logical operators of a code.
 
-    The counts are those of nontrivial logical operators whose weight is the distance: X-only,
-    Z-only, and, for the pauli objective only, physical Pauli operators including mixed and Y-only
-    ones.  Without that objective the Pauli count is None.
+    The counts are those of nontrivial logical operators whose weight is the distance.  They count
+    operators, not their equivalence classes modulo stabilizers.
     """
 
     distance: int
     count_x: int
     count_z: int
-    count_pauli: int | None
 
     @property
     def count_homogeneous(self) -> int:
@@ -211,10 +195,9 @@ class Score:
         return self.count_x + self.count_z
 
     @classmethod
-    def from_counts(cls, counts: CSSLogicalCounts, config: SearchConfig) -> Score:
-        """The score of a code for an objective, from library counts at its distance."""
-        count_pauli = counts.count_pauli if config.objective == "pauli" else None
-        return cls(counts.weight, counts.count_x, counts.count_z, count_pauli)
+    def from_counts(cls, counts: CSSLogicalCounts) -> Score:
+        """The score of a code, from library counts at its distance."""
+        return cls(counts.weight, counts.count_x, counts.count_z)
 
 
 @dataclass(frozen=True)
@@ -227,14 +210,16 @@ class ScoredCode:
 
 @dataclass
 class SearchState:
-    """Owned chain state, with separate energy and distance optima.
+    """The state of a chain, with separate energy and distance optima.
 
     ``current`` is the code of the chain.  ``lowest_energy`` minimizes the selected energy, and
     ``greatest_distance`` maximizes distance and then minimizes energy at that distance; neither is
     restricted to accepted proposals.  ``rng`` draws the proposals and decides their acceptance.
-    ``log_temperature`` is that of the next epoch, and ``energy_jumps`` holds the energy jumps of
-    the proposals of the last epoch (or of the pilot), to which the next temperature is fit.
-    Checkpoints are taken at completed epoch boundaries.
+    ``log_temperature`` is the log-temperature of the last epoch (or, before the first epoch, the
+    fit to the pilot), and ``energy_jumps`` holds the energy jumps of the proposals of the last
+    epoch (or of the pilot).  The next epoch smooths the log-temperature toward the fit to those
+    jumps (see ``SearchConfig.temperature_memory``).  The chain takes over the counters of its
+    codes, and may change their cached state.  Checkpoints are taken at completed epoch boundaries.
     """
 
     config: SearchConfig
@@ -271,7 +256,7 @@ def start_search(initial: CSSLogicalCounter, config: SearchConfig, *, seed: int 
     proposals can set the optimum records.
 
     Args:
-        initial: Owned code counter, with at least one logical qubit.
+        initial: Code counter, with at least one logical qubit, which the chain takes over.
         config: Exact scoring and proposal policy.
         seed: NumPy search seed.
     """
@@ -287,7 +272,8 @@ def start_search(initial: CSSLogicalCounter, config: SearchConfig, *, seed: int 
         log_temperature=0.0,
         energy_jumps=np.empty(config.steps_per_epoch, dtype=float),
     )
-    # Fit the first temperature to the jumps of proposals from the initial code.
+    # Choose the scoring method, then fit the first temperature to the jumps of proposals from the
+    # initial code.
     _start_epoch(state)
     initial_energy = energy(start.score, config)
     for step in range(config.steps_per_epoch):
@@ -481,13 +467,12 @@ def _score_at_guess(
         counts = counter.count_logical_ops(
             guess,
             method=method,
-            count_pauli=config.objective == "pauli",
             within_distance=True,
             max_information_sets=_MAX_INFORMATION_SETS,
         )
     except ValueError:
         return "below"
-    return Score.from_counts(counts, config) if counts.count_x or counts.count_z else "above"
+    return Score.from_counts(counts) if counts.count_x or counts.count_z else "above"
 
 
 def _start_epoch(state: SearchState) -> None:
@@ -517,34 +502,32 @@ def _start_epoch(state: SearchState) -> None:
 def _select_method(state: SearchState) -> LogicalCountMethod:
     """The method that scores the proposals of the next epoch.
 
-    A configured method is used as it is.  For ``auto``, the two exact methods score the same
-    proposals of the current code, and the faster one wins.  The MacWilliams method costs the
-    same for every proposal of a chain, because a local gate keeps the check ranks, while the cost
-    of Brouwer--Zimmermann changes with the distance, so the race is repeated at every epoch.  The
-    proposals come from their own random generator, so that the race never moves the chain, and
+    A configured method is used as it is.  For ``auto``, Brouwer--Zimmermann and MacWilliams score
+    the same proposals of the current code, and the faster one wins.  The MacWilliams method costs
+    the same for every proposal of a chain, because a local gate keeps the check ranks, while the
+    cost of Brouwer--Zimmermann changes with the distance, so the race is repeated at every epoch.
+    The proposals come from their own random generator, so that the race never moves the chain, and
     each method scores its own copy of every proposal.
     """
     config = state.config
     if config.method != "auto":
         return config.method
     counter = state.current.counter
-    # MacWilliams is raced only for check ranks up to _RACE_MAX_RANK, and for Pauli counts only on
-    # SWEL searches, whose codes stay self-dual, as such counts require.
-    if max(len(counter.checks_x), len(counter.checks_z)) > _RACE_MAX_RANK or (
-        config.objective == "pauli" and config.code_type != "swel"
-    ):
+    # MacWilliams is raced only for check ranks up to _RACE_MAX_RANK.
+    if max(len(counter.checks_x), len(counter.checks_z)) > _RACE_MAX_RANK:
         return "brouwer_zimmermann"
     methods: tuple[LogicalCountMethod, ...] = ("brouwer_zimmermann", "macwilliams")
 
     # Both methods score children of a copy that Brouwer--Zimmermann has prepared, as they would be
-    # during an epoch that uses it, so the chain itself is left as it is.
-    counter = CSSLogicalCounter(counter.code)
-    counter.count_logical_ops(
+    # during an epoch that uses it, so the chain itself is left as it is.  Each method scores with
+    # its own copy of the chain state, whose recent distances its scores update.
+    prepared = CSSLogicalCounter(counter.code)
+    prepared.count_logical_ops(
         state.current.score.distance,
         method="brouwer_zimmermann",
         max_information_sets=_MAX_INFORMATION_SETS,
     )
-    shadows = {
+    trial_states = {
         method: replace(
             state,
             epoch_method=method,
@@ -553,17 +536,17 @@ def _select_method(state: SearchState) -> LogicalCountMethod:
         for method in methods
     }
     spent = dict.fromkeys(methods, 0.0)
-    proposals = min(_RACE_PROPOSALS, max(2, config.steps_per_epoch // 8))
-    for index in range(proposals + 1):
+    num_proposals = min(_RACE_PROPOSALS, max(2, config.steps_per_epoch // 8))
+    for index in range(num_proposals + 1):
         # The first proposal is not timed, since it may compile kernels.  The order alternates,
         # against drifting clocks.
         for method in methods if index % 2 == 0 else methods[::-1]:
             rng = np.random.default_rng([state.seed, state.completed_epochs, _RACE_STREAM, index])
             candidate = propose(
-                counter, rng, code_type=config.code_type, gate_size=config.gate_size
+                prepared, rng, code_type=config.code_type, gate_size=config.gate_size
             )
             start = _clock()
-            _score_proposal(shadows[method], candidate)
+            _score_proposal(trial_states[method], candidate)
             if index:
                 spent[method] += _clock() - start
         if index >= _RACE_MIN_PROPOSALS and (
@@ -591,9 +574,7 @@ def _update_optima(state: SearchState, proposal: ScoredCode) -> tuple[bool, bool
     improved_energy = energy(proposal.score, config) < energy(state.lowest_energy.score, config)
     if improved_energy:
         state.lowest_energy = proposal
-    improved_distance = score_rank(proposal.score, config) > score_rank(
-        state.greatest_distance.score, config
-    )
+    improved_distance = score_rank(proposal.score) > score_rank(state.greatest_distance.score)
     if improved_distance:
         state.greatest_distance = proposal
     return improved_energy, improved_distance
@@ -635,7 +616,7 @@ def _accept_move(jump: float, temperature: float, uniform: float) -> bool:
 def score_code(
     counter: CSSLogicalCounter, config: SearchConfig, method: LogicalCountMethod | None = None
 ) -> Score:
-    """Exact distance and multiplicity of the minimum-weight logicals for the objective.
+    """Exact distance and numbers of minimum-weight X-only and Z-only logical operators.
 
     A Brouwer--Zimmermann count leaves state in its counter that the codes deformed from it inherit
     (see ``_start_epoch``), which helps only if Brouwer--Zimmermann also scores the chain.  The
@@ -644,37 +625,35 @@ def score_code(
 
     Args:
         counter: The code to score.
-        config: Search policy, whose objective is scored.
-        method: Library counting method, by default that of ``_get_library_method``.
+        config: Search policy.
+        method: Library counting method: by default ``config.method``, or ``brouwer_zimmermann``
+            if that is ``auto``.
     """
     if method is None:
         method = _get_library_method(config)
         if config.method == "auto":
             counter = CSSLogicalCounter(counter.code)
-    counts = counter.count_logical_ops(
-        method=method,
-        count_pauli=config.objective == "pauli",
-        max_information_sets=_MAX_INFORMATION_SETS,
-    )
-    return Score.from_counts(counts, config)
+    counts = counter.count_logical_ops(method=method, max_information_sets=_MAX_INFORMATION_SETS)
+    return Score.from_counts(counts)
 
 
 def energy(score: Score, config: SearchConfig) -> float:
     """The energy E of arXiv:2607.19574: the normalized log of the undetected logical error rate.
 
     An error is undetected and changes the logical state when it is a nontrivial logical operator,
-    which at leading order happens with probability m * p**d, where m is the multiplicity that the
-    objective counts, d is the distance, and p is the physical error rate.  Return the log of this
-    probability over log(1 / p), which is log(m) / log(1 / p) - d.  A distance greater by D lowers
-    the energy unless it comes with at least p**-D times as many minimum-weight logical operators.
+    which at leading order happens with probability m * p**d, where m is the number of
+    minimum-weight X-only and Z-only logical operators, d is the distance, and p is the physical
+    error rate.  Return the log of this probability over log(1 / p), which is
+    log(m) / log(1 / p) - d.  A distance greater by D lowers the energy unless it comes with at
+    least p**-D times as many minimum-weight logical operators.
     """
-    count = _get_multiplicity(score, config)
+    count = _get_multiplicity(score)
     return math.log(count) / -math.log(config.physical_error_rate) - score.distance
 
 
 def get_lowest_energy_code(
     counters: Iterable[CSSLogicalCounter], config: SearchConfig
-) -> CSSLogicalCounter:
+) -> ScoredCode:
     """The code of the lowest energy among codes that are scored exactly, the first if tied.
 
     Starting a chain from the lowest-energy code of many independent random codes puts it in a good
@@ -689,9 +668,10 @@ def get_lowest_energy_code(
     lowest, lowest_energy = None, math.inf
     for counter in counters:
         config.validate_code(counter)
-        value = energy(score_code(counter, config), config)
+        scored = ScoredCode(counter, score_code(counter, config))
+        value = energy(scored.score, config)
         if lowest is None or value < lowest_energy:
-            lowest, lowest_energy = counter, value
+            lowest, lowest_energy = scored, value
     if lowest is None:
         raise ValueError("There are no codes to choose the lowest-energy code from")
     return lowest
@@ -705,13 +685,13 @@ def distance_rank(distance: int, count: int) -> tuple[int, int]:
     return distance, -count
 
 
-def score_rank(score: Score, config: SearchConfig) -> tuple[int, int]:
+def score_rank(score: Score) -> tuple[int, int]:
     """The ``distance_rank`` of a score, compared as exact integers instead of rounded energies.
 
     The energy increases strictly with the multiplicity at a fixed distance, so among codes of one
     distance this rank orders codes as the energy does.
     """
-    return distance_rank(score.distance, _get_multiplicity(score, config))
+    return distance_rank(score.distance, _get_multiplicity(score))
 
 
 def _get_library_method(config: SearchConfig) -> LogicalCountMethod:
@@ -719,19 +699,13 @@ def _get_library_method(config: SearchConfig) -> LogicalCountMethod:
     return _DEFAULT_LIBRARY_METHOD if config.method == "auto" else config.method
 
 
-def _get_multiplicity(score: Score, config: SearchConfig) -> int:
-    """The number of minimum-weight logical operators that the objective counts.
+def _get_multiplicity(score: Score) -> int:
+    """The number of minimum-weight X-only and Z-only logical operators of a score.
 
     Raises:
         ValueError: If the score has no positive distance or no positive count, so that the code
             has no energy or rank.
     """
-    if config.objective == "pauli":
-        count = score.count_pauli
-    else:
-        count = score.count_homogeneous
-    if score.distance < 1 or count is None or count <= 0:
-        raise ValueError(
-            "The search requires a positive distance and multiplicity of the objective"
-        )
-    return count
+    if score.distance < 1 or score.count_homogeneous <= 0:
+        raise ValueError("The search requires a positive distance and number of logical operators")
+    return score.count_homogeneous

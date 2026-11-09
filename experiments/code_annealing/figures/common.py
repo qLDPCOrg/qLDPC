@@ -119,7 +119,7 @@ def simulate_codes(
     fail to lock for concurrent writers on a network file system.
     """
     simulations = cache.get_disk_cache(_SIMULATIONS_CACHE, cache_dir=cache_dir)
-    keys = {
+    entries_by_key = {
         _get_simulation_key(entry, num_samples, _DEFAULT_MAX_ERROR_RATE): entry for entry in entries
     }
     with concurrent.futures.ProcessPoolExecutor(workers) as executor:
@@ -127,7 +127,7 @@ def simulate_codes(
             executor.submit(
                 _simulate_error_rate_func, entry, num_samples, _DEFAULT_MAX_ERROR_RATE
             ): key
-            for key, entry in keys.items()
+            for key, entry in entries_by_key.items()
             if key not in simulations
         }
         for job in concurrent.futures.as_completed(jobs):
@@ -155,7 +155,7 @@ def _simulate_error_rate_func(
     """Simulate a code with depolarizing noise, and return its logical error and discard rates.
 
     The decoder is a lookup table of the X and Z errors of weight up to ``(d - 1) // 2``, which
-    flags every other syndrome as a discard.  Such errors are always corrected, so sampling starts
+    flags all other syndromes as discards.  Such errors are always corrected, so sampling starts
     at weight ``(d + 1) // 2``.  This relies on the distance that the file header claims, and the
     result is a function of the physical error rate up to ``max_error_rate``.
     """

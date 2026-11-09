@@ -99,7 +99,7 @@ def find_code_files(results_dir: Path) -> dict[CodeType, Path]:
 
 
 def get_run_name(
-    code_type: CodeType, num_qubits: int, num_logicals: int, seed: int, tag: str = ""
+    code_type: CodeType, num_qubits: int, num_logicals: int, seed: int, tag: str
 ) -> str:
     """The file stem of a run, such as ``css_n20_k04_s003`` or ``swel_n20_k04_s003_batch2``."""
     name = f"{code_type}_n{num_qubits}_k{num_logicals:02d}_s{seed:03d}"

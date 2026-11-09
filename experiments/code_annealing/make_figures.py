@@ -72,9 +72,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     results_dir = get_results_dir(args)
     # Stop before any simulation if collect_data has not written the code files.
     find_code_files(results_dir)
-    half_supports = get_half_supports_file(results_dir)
-    if not half_supports.exists():
-        parser.error(f"{half_supports} does not exist: run collect_data first")
+    half_supports_file = get_half_supports_file(results_dir)
+    if not half_supports_file.exists():
+        parser.error(f"{half_supports_file} does not exist: run collect_data first")
     if args.workers < 1:
         parser.error("--workers must be at least 1")
 

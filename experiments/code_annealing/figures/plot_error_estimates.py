@@ -10,8 +10,8 @@ Run with ``python -m experiments.code_annealing.figures.plot_error_estimates``. 
 ``error_estimates.pdf`` has a panel for each code type, with the logical error rate per logical
 qubit of every code at one physical error rate: the simulated rate, an estimate from the numbers of
 minimum-weight logical operators, and a refined estimate from the numbers of distinct subsets of
-their supports.  The codes are grouped by distance, and sorted by their simulated rates within each
-group.  Their colors identify the code sizes ``(n, k)``, in order of size.
+their supports.  The codes are grouped by distance, and sorted by decreasing simulated rate per
+logical qubit within each group.  Their colors identify the code sizes ``(n, k)``, in order of size.
 
 The counts of operators and subsets come from ``data/half_supports.txt`` of the results directory,
 which ``analysis/half_supports.py`` writes and reads.  Codes without counts are skipped.  The
@@ -65,11 +65,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error("require 0 < --error-rate <= --max-error-rate <= 1 and --num-samples >= 1")
 
     # Read the counts, then simulate and estimate the codes of each code type that have counts.
-    half_supports = get_half_supports_file(args.results_dir)
+    half_supports_file = get_half_supports_file(args.results_dir)
     try:
-        counts_by_file = read_half_supports(half_supports)
+        counts_by_file = read_half_supports(half_supports_file)
     except (OSError, ValueError) as error:
-        parser.error(f"cannot read {half_supports} (run collect_data first): {error}")
+        parser.error(f"cannot read {half_supports_file} (run collect_data first): {error}")
     estimates_by_code_type: dict[CodeType, list[_ErrorEstimate]] = {}
     for code_type, entries in load_annealed_codes(
         args.results_dir, args.code_types, max_qubits=args.max_qubits
@@ -86,7 +86,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         if estimates:
             estimates_by_code_type[code_type] = estimates
     if not estimates_by_code_type:
-        parser.error(f"{half_supports} has no counts for the selected codes")
+        parser.error(f"{half_supports_file} has no counts for the selected codes")
     save_figure(
         _make_error_estimates_figure(estimates_by_code_type),
         get_figures_dir(args.results_dir) / "error_estimates.pdf",
@@ -156,7 +156,7 @@ def _estimate_error_rate(counts: HalfSupportCounts, error_rate: float) -> float:
 
     Each qubit has an X-type error with probability ``r = 2 p / 3`` for a physical error rate ``p``,
     and the X and Z sectors are decoded separately, as in the simulations: by a lookup table of the
-    errors of weight up to ``(d - 1) // 2``, which discards every other syndrome.  This decoder
+    errors of weight up to ``(d - 1) // 2``, which discards all other syndromes.  This decoder
     applies a minimum-weight logical operator of weight ``d`` when ``w = d // 2 + 1`` qubits of its
     support err, because the rest of the support is then in the table.  For even ``d``, errors on
     exactly half of a support are discarded, so they add to the discard rate and not to this one.

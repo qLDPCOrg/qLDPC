@@ -28,7 +28,9 @@ from .checkpoints import (
     decode_code,
     decode_scored_code,
     get_record_path,
+    read_config,
     read_saved_file,
+    read_score,
     read_seed,
     report_malformed,
 )
@@ -47,8 +49,6 @@ CSV_FIELDS = (
     "d",
     "count_x",
     "count_z",
-    "count_pauli",
-    "objective",
     "energy",
     "method",
     "epochs",
@@ -143,17 +143,17 @@ def load_saved_codes(paths: Iterable[Path]) -> list[SavedCode]:
     for path in sorted(set(paths)):
         kind, data = read_saved_file(path)
         with report_malformed(path):
-            config = SearchConfig(**data["config"])
-            scored_codes: list[tuple[SavedRole, dict[str, Any]]]
+            config = read_config(data)
+            encoded_codes: list[tuple[SavedRole, dict[str, Any]]]
             if kind == "chain":
-                scored_codes = [
+                encoded_codes = [
                     ("chain-lowest-energy", data["lowest_energy"]),
                     ("chain-greatest-distance", data["greatest_distance"]),
                 ]
             else:
-                scored_codes = [(kind, data)]
-            for role, scored_code in scored_codes:
-                code = decode_scored_code(scored_code, config, label=f"Saved {role}")
+                encoded_codes = [(kind, data)]
+            for role, encoded in encoded_codes:
+                scored = decode_scored_code(encoded, config, label=f"Saved {role}")
                 completed_epochs = data.get("completed_epochs")
                 saved.append(
                     SavedCode(
@@ -161,8 +161,8 @@ def load_saved_codes(paths: Iterable[Path]) -> list[SavedCode]:
                         role,
                         config,
                         read_seed(data),
-                        code.counter,
-                        code.score,
+                        scored.counter,
+                        scored.score,
                         completed_epochs,
                     )
                 )
@@ -175,7 +175,7 @@ def load_run_progress(path: Path) -> RunProgress | None:
     if kind != "chain":
         return None
     with report_malformed(path):
-        config = SearchConfig(**data["config"])
+        config = read_config(data)
         counter = decode_code(data["current"]["code"])
         return RunProgress(
             config.code_type,
@@ -183,7 +183,7 @@ def load_run_progress(path: Path) -> RunProgress | None:
             counter.dimension,
             int(data["completed_epochs"]),
             config.epochs,
-            Score(**data["greatest_distance"]["score"]),
+            read_score(data["greatest_distance"]["score"]),
         )
 
 
@@ -215,8 +215,6 @@ def write_csv(saved: Sequence[SavedCode], destination: Path) -> None:
                     code.score.distance,
                     code.score.count_x,
                     code.score.count_z,
-                    code.score.count_pauli,
-                    code.config.objective,
                     code.energy,
                     code.config.method,
                     code.config.epochs,

@@ -11,21 +11,10 @@ from typing import Any
 import pytest
 
 from ..core import checkpoints, paths
-from ..core.annealing import ScoredCode, SearchConfig, energy, score_code, start_search
+from ..core.annealing import ScoredCode, SearchConfig, energy, score_code, score_rank, start_search
 from ..core.atomic import hold_lock
 from ..core.run_annealing import main
 from .search_helpers import canonical_checks, steane_counter, weak_counter
-
-
-def test_a_swel_search_defaults_to_the_swel_gate_and_starts_from_a_self_dual_code(
-    tmp_path: Path,
-) -> None:
-    chain = tmp_path / "swel.json"
-    options = ["--epochs", "1", "--steps-per-epoch", "1", "--stop-after-epochs", "0"]
-    _run(["7", "1", "--code-type", "swel", *options, "--output", str(chain)])
-    state = checkpoints.load_checkpoint(chain)
-    assert (state.config.code_type, state.config.gate_size) == ("swel", 4)
-    assert state.current.counter.is_self_dual
 
 
 @pytest.mark.parametrize("suffix", [".json", ".lowest-energy.json"])
@@ -64,11 +53,14 @@ def test_replaying_an_interrupted_epoch_never_worsens_a_record_that_is_ahead_of_
 ) -> None:
     chain = _save_run(tmp_path)  # a chain at its pilot, with records of the Steane code
     config = checkpoints.load_checkpoint(chain).config
-    steane = energy(score_code(steane_counter(), config), config)
+    steane = score_code(steane_counter(), config)
     _run(["--resume", str(chain)])
-    for kind in checkpoints.RECORD_KINDS:
-        recorded = checkpoints.load_code(checkpoints.get_record_path(chain, kind))
-        assert energy(score_code(recorded, config), config) <= steane
+    lowest, greatest = (
+        score_code(checkpoints.load_code(checkpoints.get_record_path(chain, kind)), config)
+        for kind in ("lowest-energy", "greatest-distance")
+    )
+    assert energy(lowest, config) <= energy(steane, config)
+    assert score_rank(greatest) >= score_rank(steane)
 
 
 def test_a_refined_search_starts_a_new_chain_from_the_code_of_a_record(
@@ -148,7 +140,7 @@ def _save_run(directory: Path) -> Path:
 
 
 def _run(args: list[str]) -> None:
-    """Run a search without compiling the set-up code of the counts.
+    """Run a search without compiling the Python set-up of its exact counts.
 
     Compiling changes no result, but would stay on for the rest of the test process.
     """

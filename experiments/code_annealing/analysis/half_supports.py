@@ -4,13 +4,13 @@
 
 These counts estimate the logical error rates of the annealed codes at low physical error rates
 (see ``figures/plot_error_estimates.py``).  The simulations decode each sector by a lookup table of
-the errors of weight up to ``(d - 1) // 2`` and discard every other syndrome, so the decoder
+the errors of weight up to ``(d - 1) // 2`` and discard all other syndromes, so the decoder
 completes a minimum-weight logical operator when ``d // 2 + 1`` qubits of its support err.  Call
 the subsets of ``(d + 1) // 2`` qubits of a support its half supports, and those of ``d // 2 + 1``
-qubits its majority supports.  For odd ``d``, they are the same.  For even ``d``, errors on the
-``d // 2`` qubits of a half support are discarded instead, so the two sizes count different
-events, and both are counted: the half supports count discarded patterns, and the majority supports
-count logical errors, which the estimates of logical error rates use.
+qubits its majority supports.  For odd ``d``, they are the same.  For even ``d``, they count
+different events, so both are counted.  Errors on the ``d // 2`` qubits of a half support are
+discarded.  Errors on a majority support are logical errors, which the estimates of logical error
+rates use.
 
 Run with ``python -m experiments.code_annealing.analysis.half_supports [--max-qubits N]``.  For
 every code of the two text files of annealed codes, the script prints one line, and saves the same
@@ -21,12 +21,12 @@ only some of the codes, it only prints)::
 
 where ``d`` is the distance, and ``mx`` and ``mz`` are the numbers of minimum-weight X-only and
 Z-only logical operators, which are the numbers of their distinct supports.  The numbers ``hx`` and
-``hz`` are those of the distinct subsets of ``(d + 1) // 2`` qubits that lie in the supports of the
-X-only and Z-only operators, respectively.  For even ``d``, the subsets have ``d // 2`` qubits, and
-the numbers for ``d // 2 + 1`` qubits follow in parentheses.  Everything is recomputed exactly, and
-a code whose distance or number of minimum-weight logical operators differs from the claims of its
-code file is an error.  The text has one block for each code file: a line with the file name, a
-line for each code, and a blank line.  For example::
+``hz`` are those of the half supports, the distinct subsets of ``(d + 1) // 2`` qubits (``d // 2``
+for even ``d``) that lie in the supports of the X-only and Z-only operators, respectively.  For even
+``d``, the numbers of majority supports, of ``d // 2 + 1`` qubits, follow in parentheses.
+Everything is recomputed exactly, and a code whose distance or number of minimum-weight logical
+operators differs from the claims of its code file is an error.  The text has one block for each
+code file: a line with the file name, a line for each code, and a blank line.  For example::
 
     annealed_codes.txt
     [7, 1, 3] 7/7 21/21
@@ -77,6 +77,37 @@ def main(argv: Sequence[str] | None = None) -> None:
     else:
         print_lines(None)
         print(f"Wrote nothing to {output}, because --max-qubits skips codes", file=sys.stderr)
+
+
+def _get_lines(paths: Iterable[Path], max_qubits: int | None) -> Iterator[str]:
+    """The lines to print: a file name, a line for each code of the file, and a blank line."""
+    for path in paths:
+        yield path.name
+        for entry in read_code_file(path):
+            if max_qubits is None or entry.num_qubits <= max_qubits:
+                supports = get_min_weight_supports(entry.code)
+                # The header claims come from another count, by collect_annealed_codes or the
+                # paper's files, so this enumeration checks them independently.
+                count = len(supports.supports_x) + len(supports.supports_z)
+                check_header(entry, supports.distance, count)
+                yield _format_line(entry.num_qubits, entry.num_logicals, supports)
+        yield ""
+
+
+def _format_line(num_qubits: int, num_logicals: int, supports: MinWeightSupports) -> str:
+    """The line of a code with the given supports of its minimum-weight logical operators."""
+    distance = supports.distance
+    sizes = [(distance + 1) // 2] if distance % 2 else [distance // 2, distance // 2 + 1]
+    counts = [
+        f"{count_support_subsets(supports.supports_x, size)}"
+        f"/{count_support_subsets(supports.supports_z, size)}"
+        for size in sizes
+    ]
+    line = (
+        f"[{num_qubits}, {num_logicals}, {distance}]"
+        f" {len(supports.supports_x)}/{len(supports.supports_z)} {counts[0]}"
+    )
+    return line if len(counts) == 1 else f"{line} ({counts[1]})"
 
 
 ####################################################################################################
@@ -163,41 +194,6 @@ def _parse_code_line(line: str, number: int) -> HalfSupportCounts:
         half_x if majority_x is None else int(majority_x),
         half_z if majority_z is None else int(majority_z),
     )
-
-
-####################################################################################################
-# helper methods
-
-
-def _get_lines(paths: Iterable[Path], max_qubits: int | None) -> Iterator[str]:
-    """The lines to print: a file name, a line for each code of the file, and a blank line."""
-    for path in paths:
-        yield path.name
-        for entry in read_code_file(path):
-            if max_qubits is None or entry.num_qubits <= max_qubits:
-                supports = get_min_weight_supports(entry.code)
-                # The header claims come from another count, by collect_annealed_codes or the
-                # paper's files, so this enumeration checks them independently.
-                count = len(supports.supports_x) + len(supports.supports_z)
-                check_header(entry, supports.distance, count)
-                yield _format_line(entry.num_qubits, entry.num_logicals, supports)
-        yield ""
-
-
-def _format_line(num_qubits: int, num_logicals: int, supports: MinWeightSupports) -> str:
-    """The line of a code with the given supports of its minimum-weight logical operators."""
-    distance = supports.distance
-    sizes = [(distance + 1) // 2] if distance % 2 else [distance // 2, distance // 2 + 1]
-    counts = [
-        f"{count_support_subsets(supports.supports_x, size)}"
-        f"/{count_support_subsets(supports.supports_z, size)}"
-        for size in sizes
-    ]
-    line = (
-        f"[{num_qubits}, {num_logicals}, {distance}]"
-        f" {len(supports.supports_x)}/{len(supports.supports_z)} {counts[0]}"
-    )
-    return line if len(counts) == 1 else f"{line} ({counts[1]})"
 
 
 if __name__ == "__main__":

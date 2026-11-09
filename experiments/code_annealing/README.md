@@ -70,7 +70,8 @@ The pipeline has three steps, and each runs as a module with `python -m experime
 | 2 | `collect_data` | Keeps the best code of each size, computes tables from those codes, and writes tables in the format of the paper's, with a comparison with the newest scrape of qecdb.org (`--scrape` takes a new one) |
 | 3 | `make_figures` | Simulates the best codes, and plots the figures of the paper and `error_rates.pdf` |
 
-First check the whole pipeline at smoke-test scale, with `--test`, which keeps its files in `results/test/`:
+First check the pipeline at smoke-test scale, with `--test`, which keeps its files in `results/test/`.
+Without network access for `collect_data --test --scrape`, this skips the LaTeX tables, which need a scrape of qecdb.org:
 
 ```bash
 python -m experiments.code_annealing.write_jobs --test
@@ -177,7 +178,7 @@ experiments/code_annealing/
 ├── analysis/             what collect_data.py runs, and other tools for saved runs
 ├── figures/              what make_figures.py runs
 ├── baseline/             the random-code baseline
-├── tests/                offline tests of the search
+├── tests/                offline tests of the search and of the numbers derived from codes
 └── results/              everything that the scripts write (Git-ignored)
 ```
 

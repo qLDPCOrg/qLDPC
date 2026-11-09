@@ -182,21 +182,21 @@ def _get_cells(entry: CodeEntry, best_known: BestKnown, few_logicals: int) -> li
         "--" if value is None else str(value)
         for value in (best_known.n_best, best_known.k_best, best_known.d_best)
     ]
-    win = best_known.undominated
+    undominated = best_known.undominated
     return [
-        *(_highlight("hlgreen", str(value), win) for value in (nn, kk, dd)),
+        *(_highlight("hlgreen", str(value), undominated) for value in (nn, kk, dd)),
         _format_excess(dd - get_qgv_distance(nn, kk)),
         _format_excess(dd - get_css_gv_distance(nn, kk)),
         logicals,
         _format_mean(sum(weights) / len(weights)),
         str(max(weights)),
-        *(_highlight("hlred", text, win) for text in best),
+        *(_highlight("hlred", text, undominated) for text in best),
     ]
 
 
-def _highlight(command: str, text: str, win: bool) -> str:
+def _highlight(command: str, text: str, undominated: bool) -> str:
     """A cell wrapped in a highlighting command if the annealed code beats the database."""
-    return rf"\{command}{{{text}}}" if win else text
+    return rf"\{command}{{{text}}}" if undominated else text
 
 
 def _format_excess(excess: int) -> str:

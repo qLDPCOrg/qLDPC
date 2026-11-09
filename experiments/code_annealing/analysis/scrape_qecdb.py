@@ -104,10 +104,10 @@ class BestKnown:
     def undominated(self) -> bool:
         """Whether no code of the database is at least as good in all of ``n``, ``k``, and ``d``.
 
-        Each neighbor decides this alone: the annealed code has a smaller ``n`` than ``n_best``, a
-        larger ``k`` than ``k_best``, and a larger ``d`` than ``d_best``, each if that neighbor
-        exists, exactly when no code of the database has at most its ``n``, at least its ``k``,
-        and at least its ``d``.  So the code beats its three neighbors together or none of them.
+        Each neighbor decides this alone.  For example, the annealed code has a smaller ``n`` than
+        ``n_best`` (or there is no ``n_best``) exactly when no code of the database has at most its
+        ``n``, at least its ``k``, and at least its ``d``.  The same holds for ``k_best`` and
+        ``d_best``, so the code beats its three neighbors together or none of them.
         """
         return self.n_best is None or self.params[0] < self.n_best
 
@@ -176,7 +176,11 @@ def query_best_known(params: CodeParams, code_type: CodeType) -> BestKnown:
 
 
 def _sorted_code_types(code_files: Mapping[CodeType, Path]) -> list[CodeType]:
-    """The code types of the code files, in the order of the blocks of the data file."""
+    """The code types of the code files, in the order of the blocks of the data file.
+
+    Every caller now passes the files in this order already; sorting keeps the public functions of
+    this module correct for a mapping in any order.
+    """
     return sorted(code_files, key=CODE_TYPES.index)
 
 
@@ -249,13 +253,13 @@ def _query_extreme(field: str, direction: str, code_type: CodeType, **bounds: in
     data = _fetch_json(
         f"{_QECDB_API_URL}?{urllib.parse.urlencode({**query, 'page': 0, 'pageSize': 1})}"
     )
-    try:
-        items = data["items"]
-        value = items[0].get(field) if items else None
-    except (AttributeError, KeyError, TypeError) as exception:
-        raise RuntimeError("qecdb.org answered in an unexpected format") from exception
+    # Only an empty list of codes means that none matches; any other shape is a malformed answer.
+    items = data.get("items") if isinstance(data, dict) else None
+    if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
+        raise RuntimeError(f"qecdb.org answered in an unexpected format: {data!r}")
     if not items:
         return None
+    value = items[0].get(field)
     # an integer, or the decimal text of one; anything else, even a float, is a malformed answer
     if isinstance(value, int) and not isinstance(value, bool):
         return value
@@ -275,7 +279,7 @@ def _fetch_json(url: str) -> Any:
     for attempt in range(1, _REQUEST_ATTEMPTS + 1):
         try:
             with urllib.request.urlopen(url, timeout=_REQUEST_TIMEOUT) as response:
-                text = response.read()
+                body = response.read()
             break
         except (OSError, http.client.HTTPException) as exception:
             retry = not isinstance(exception, urllib.error.HTTPError) or (
@@ -285,7 +289,7 @@ def _fetch_json(url: str) -> Any:
                 raise RuntimeError(f"Cannot access {url}: {exception}") from exception
             time.sleep(_RETRY_DELAY)
     try:
-        return json.loads(text)  # which decodes the bytes, and raises a ValueError if it cannot
+        return json.loads(body)  # which decodes the bytes, and raises a ValueError if it cannot
     except ValueError as exception:
         raise RuntimeError(
             f"qecdb.org answered {url} with something other than JSON"
