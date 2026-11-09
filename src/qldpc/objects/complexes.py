@@ -223,9 +223,9 @@ class ChainComplex:
     ``d_{j-1} d_j = 0``.
 
     In practice, we represent a chain complex by the boundary operators (d_1, d_2, ..., d_n), which
-    are in turn represented by matrices over (i) a finite field, or (ii) a group algebra.  The
-    boundary operators d_0 and d_{n+1} are formally treated as ``0 × dim(A_0)`` and ``dim(A_n) × 0``
-    matrices.
+    are in turn represented by matrices over (i) a finite field, or (ii) a ring, such as a group
+    algebra.  The boundary operators d_0 and d_{n+1} are formally treated as ``0 × dim(A_0)`` and
+    ``dim(A_n) × 0`` matrices.
 
     References:
 
@@ -237,8 +237,8 @@ class ChainComplex:
     _field: type[galois.FieldArray]
     _ops: tuple[npt.NDArray[np.int_] | abstract.RingArray, ...]
 
-    # if boundary operators are defined over a group algebra, keep track of the base ring
-    _ring: abstract.GroupRing | None
+    # if boundary operators are defined over a ring, keep track of the base ring
+    _ring: abstract.Ring | None
 
     def __init__(
         self,
@@ -249,7 +249,7 @@ class ChainComplex:
     ) -> None:
         from qldpc import abstract
 
-        # check that either all or none of the operators are defined over a group algebra
+        # check that either all or none of the operators are defined over a ring
         if not (
             all(isinstance(op, abstract.RingArray) for op in ops)
             or not any(isinstance(op, abstract.RingArray) for op in ops)
@@ -282,7 +282,7 @@ class ChainComplex:
         return self._field
 
     @property
-    def ring(self) -> abstract.GroupRing | None:
+    def ring(self) -> abstract.Ring | None:
         """The base ring of this chain complex."""
         return self._ring
 
@@ -446,8 +446,8 @@ class ChainComplex:
         ``a ⨂ b`` in the tensor product (see :meth:`tensor_product`), with each term replaced by its
         orbit.  Coefficients of terms in the same orbit add up, and can cancel.  The result does not
         depend on the choice of ``a ⨂ b`` within its orbit, because symmetries commute with boundary
-        operators.  Unlike tensor products, balanced products require chain complexes over a finite
-        field, rather than a group ring.
+        operators.  Unlike tensor products, balanced products require chain complexes whose boundary
+        operators are matrices over a finite field, not ``RingArray`` instances.
 
         Section IV of https://arxiv.org/abs/2012.09271 instead identifies ``a h ⨂ b`` with
         ``a ⨂ h b``, for a group that acts on the first chain complex from the right and on the

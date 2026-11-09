@@ -35,7 +35,7 @@ def test_howell_form_standardization_and_errors(ring_dihedral3_gf5: abstract.Gro
         abstract.RingArray.build([[1, 0], [1, 1]], ring).howell_normal_form()
 
     # the "polynomial" Howell normal form requires an underlying cyclic group
-    with pytest.raises(TypeError, match="requires an underlying CyclicGroup"):
+    with pytest.raises(TypeError, match="group algebra of a CyclicGroup"):
         abstract.RingArray.build([[1, 0], [1, 1]], ring).howell_normal_form(poly=True)
 
 
@@ -106,3 +106,13 @@ def test_howell_form_poly_preserves_module() -> None:
             howell = array.howell_normal_form_poly()
             assert spans_same_module(array, howell)
             assert np.array_equal(howell, howell.howell_normal_form_poly())
+
+
+def test_howell_forms_require_group_algebra() -> None:
+    """Howell normal forms require a group algebra, and the polynomial form a cyclic group's."""
+    ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
+    matrix = abstract.RingArray.build([[1, 0], [1, 1]], ring)
+    with pytest.raises(TypeError, match="group algebra of a CyclicGroup"):
+        matrix.howell_normal_form(poly=True)
+    with pytest.raises(NotImplementedError, match="only for group algebras"):
+        matrix.howell_normal_form()

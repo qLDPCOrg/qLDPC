@@ -352,3 +352,14 @@ def test_canonical_logicals_with_non_orthogonal_lifts() -> None:
         for matrix in [matrix_with_invalid_ops, matrix_with_unliftable_ops]:
             with pytest.raises(ValueError, match=r"canonical logical operators.*not orthogonal"):
                 code_type(matrix, set_logicals=True)
+
+
+def test_lifted_products_require_group_algebras() -> None:
+    """Lifted products are implemented only for group algebras."""
+    ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
+    group_ring = abstract.GroupRing(abstract.CyclicGroup(2))
+    matrix, group_matrix = abstract.RingArray([[ring.one]]), abstract.RingArray([[group_ring.one]])
+    for code_type in [codes.LPCode, codes.SLPCode]:
+        for matrices in [(matrix, matrix), (group_matrix, matrix)]:
+            with pytest.raises(NotImplementedError, match="only for group algebras"):
+                code_type(*matrices)

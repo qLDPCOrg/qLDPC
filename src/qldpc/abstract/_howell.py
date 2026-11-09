@@ -19,6 +19,7 @@ import numpy as np
 from qldpc.math import first_nonzero_cols
 
 from .groups import CyclicGroup
+from .rings import GroupRing
 
 if TYPE_CHECKING:
     from .ring_array import RingArray
@@ -40,9 +41,10 @@ def get_howell_normal_form_semisimple(
     See RingArray.howell_normal_form_semisimple.
     """
     ring_matrix._require_ndim(2)
-    if not ring_matrix.ring.is_semisimple:
+    ring = ring_matrix.ring
+    if isinstance(ring, GroupRing) and not ring.is_semisimple:
         raise ValueError("The ordinary Howell normal form requires the base ring to be semisimple")
-    transformer = transformer or ring_matrix.ring.get_transformer()
+    transformer = transformer or ring.get_transformer()
     num_components = len(transformer.transformers)
 
     # identify and row-reduce the components of this RingArray
@@ -114,10 +116,11 @@ def get_howell_normal_form_poly(ring_matrix: RingArray) -> RingArray:
     See RingArray.howell_normal_form_poly.
     """
     ring_matrix._require_ndim(2)
-    if not isinstance(ring_matrix.group, CyclicGroup):
+    ring = ring_matrix.ring
+    if not (isinstance(ring, GroupRing) and isinstance(ring.group, CyclicGroup)):
         raise TypeError(
-            "The Howell normal form induced by polynomial division requires an underlying"
-            f" CyclicGroup, not {ring_matrix.group}"
+            "The Howell normal form induced by polynomial division requires the group algebra of a"
+            f" CyclicGroup, not {ring}"
         )
 
     # convert into 3-D, where the third dimension stores coefficients for group members

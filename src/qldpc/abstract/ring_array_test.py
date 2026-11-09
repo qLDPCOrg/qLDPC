@@ -100,14 +100,6 @@ def test_ring_array_explicit_ring_compatibility() -> None:
         abstract.RingArray.build([[incompatible_group.group.generators[0]]], cyclic_ring)
 
 
-def test_empty_lift() -> None:
-    """Lifting 0-sized RingArrays still yields arrays of the correct shape."""
-    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
-    empty = abstract.RingArray.build(np.zeros((0, 2), dtype=int), ring)
-    assert empty.regular_lift().shape == (0, 2 * ring.group.order)
-    assert empty.lift().shape == (0, 2 * ring.group.lift_dim)
-
-
 def test_transpose() -> None:
     """Transpose a RingArray."""
     group = abstract.CyclicGroup(4)
@@ -221,19 +213,6 @@ def test_deprecated_argument_order() -> None:
         ring_array = abstract.RingArray.from_field_array(ring, matrix)  # type:ignore[arg-type]
     assert np.array_equal(ring_array.to_field_array(), matrix)
 
-    # the deprecated argument order also detects other rings, which RingArrays do not yet support
-    other = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
-    vector, matrix = other.field.Zeros(2), other.field.Zeros((1, 2))
-    for construct, data in [
-        (abstract.RingArray.from_field_vector, vector),
-        (abstract.RingArray.from_field_array, matrix),
-    ]:
-        with (
-            pytest.warns(DeprecationWarning, match="DEPRECATED"),
-            pytest.raises(NotImplementedError, match="only for group algebras"),
-        ):
-            construct(other, data)  # type:ignore[arg-type]
-
 
 def test_deprecated_attribute_lookup() -> None:
     """The module-level lookup of deprecated names rejects other names."""
@@ -241,20 +220,96 @@ def test_deprecated_attribute_lookup() -> None:
         ring_array_module.not_a_real_export  # type: ignore[attr-defined]  # noqa: B018
 
 
-def test_ring_arrays_require_group_algebras() -> None:
-    """RingArrays are implemented only for group algebras."""
+def test_ring_array_over_matrix_ring() -> None:
+    """RingArrays over a matrix ring lift to block matrices of the matrices of their entries."""
+    group = abstract.DihedralGroup(3)
+    group_ring = abstract.GroupRing(group)
+    mat_a, mat_b = [group_ring.regular_lift(member) for member in group.generators]
+    ring = abstract.MatrixRing(mat_a, mat_b)
+    a, b = ring.generators
+    array = abstract.RingArray.build([[1, a + 1, 0], [b, 0, a * b]], ring)
+    assert array.ring == ring and array.field is ring.field
+    with pytest.raises(AttributeError, match="no base group"):
+        _ = array.group
+
+    # an array lifts to the block matrix of the matrices of its entries
+    eye, zero = ring.field.Identity(6), ring.field.Zeros((6, 6))
+    expected = np.block([[eye, mat_a + eye, zero], [mat_b, zero, mat_a @ mat_b]])
+    assert np.array_equal(array.lift(), expected)
+
+    # entries must be members of the ring of the array, or of an equal ring
+    assert abstract.RingArray.build([[a]], abstract.MatrixRing(mat_a, mat_b))[0, 0] == a
+    with pytest.raises(ValueError, match="different ring"):
+        abstract.RingArray.build([[a]], abstract.MatrixRing(np.array([[0, 1], [1, 0]])))
+    with pytest.raises(ValueError, match="different ring"):
+        abstract.RingArray.build([[a]], group_ring)
+    with pytest.raises(ValueError, match="different ring"):
+        abstract.RingArray.build([[group_ring.one]], ring)
+    with pytest.raises(TypeError, match="Group members cannot be cast"):
+        abstract.RingArray.build([[group.generators[0]]], ring)
+
+
+def test_ring_array_dimensions(pytestconfig: pytest.Config) -> None:
+    """Regular lifts and coefficient vectors have size ``dim``, and lifts have size ``lift_dim``."""
+    upper = np.array([[0, 1], [0, 0]])
+    ring = abstract.MatrixRing(upper, upper.T)
+    assert ring.dim == 4 and ring.lift_dim == 2
+    unit_upper, unit_lower = ring.generators
+    array = abstract.RingArray.build([[1, unit_upper, 0], [unit_lower, 0, 1]], ring)
+
+    # lifts have blocks of size ``lift_dim``, and regular lifts have blocks of size ``dim``
+    assert array.lift().shape == (2 * ring.lift_dim, 3 * ring.lift_dim)
+    assert array.regular_lift().shape == (2 * ring.dim, 3 * ring.dim)
+    empty = abstract.RingArray.build(np.zeros((0, 2), dtype=int), ring)
+    assert empty.lift().shape == (0, 2 * ring.lift_dim)
+    assert empty.regular_lift().shape == (0, 2 * ring.dim)
+
+    # arrays are in correspondence with arrays of coefficients, one for each basis element
+    seed = pytestconfig.getoption("randomly_seed")
+    coefficients = ring.field.Random((2, 3, ring.dim), seed=seed)
+    from_array = abstract.RingArray.from_field_array(coefficients, ring)
+    assert np.array_equal(from_array.to_field_array(), coefficients)
+    from_vector = abstract.RingArray.from_field_vector(coefficients.ravel(), ring)
+    assert np.array_equal(from_vector.to_field_vector(), coefficients.ravel())
+    with pytest.raises(ValueError, match="must have length 4"):
+        abstract.RingArray.from_field_array(coefficients[..., :2], ring)
+
+    # the columns of a kernel are annihilated by the array, and span its null space
+    for right in [False, True]:
+        kernel = array.kernel(right=right)
+        assert kernel.shape[0] == array.shape[1]
+        assert not np.any(abstract.matmul(array, kernel, right=right))
+        nullity = array.shape[1] * ring.dim - np.linalg.matrix_rank(array.regular_lift(right=right))
+        kernel_vectors = kernel.transpose().to_field_array().reshape(-1, array.shape[1] * ring.dim)
+        assert np.linalg.matrix_rank(kernel_vectors) == nullity
+        assert np.array_equal(array.null_space(right=right), kernel.T)
+
+
+def test_ring_array_without_involution() -> None:
+    """``kernel`` works, but ``null_space`` raises, for a ring without an involution."""
+    ring = abstract.MatrixRing(np.array([[0, 0], [1, 0]]))
+    (nilpotent,) = ring.generators
+    array = abstract.RingArray.build([[1, nilpotent]], ring)
+    with pytest.raises(ValueError, match="no involution"):
+        array.null_space()
+    with pytest.raises(ValueError, match="no involution"):
+        _ = array.T
+
+    # ``null_space`` raises even if the null space is empty, and ``.T`` even if the array is empty
+    invertible = abstract.RingArray.build([[1]], ring)
+    assert invertible.kernel().shape == (1, 0)
+    with pytest.raises(ValueError, match="no involution"):
+        invertible.null_space()
+    with pytest.raises(ValueError, match="no involution"):
+        _ = abstract.RingArray.build(np.zeros((0, 2), dtype=int), ring).T
+
+    # kernels are defined only for matrices
+    with pytest.raises(ValueError, match="2-dimensional"):
+        abstract.RingArray.build([1, 0], ring).kernel()
+
+
+def test_row_reduce_requires_group_algebra() -> None:
+    """Row reduction is implemented only for group algebras."""
     ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
-    constructors = [
-        lambda: abstract.RingArray([[ring.one]]),
-        lambda: abstract.RingArray(np.empty((0, 1), dtype=object), ring),
-        lambda: abstract.RingArray.build([[ring.one]]),
-        lambda: abstract.RingArray.build([[1]], ring),
-        lambda: abstract.RingArray.build(
-            [[ring.zero]], abstract.GroupRing(abstract.CyclicGroup(2))
-        ),
-        lambda: abstract.RingArray.from_field_array(ring.field.Zeros((1, ring.dim)), ring),
-        lambda: abstract.RingArray.from_field_vector(ring.field.Zeros(ring.dim), ring),
-    ]
-    for constructor in constructors:
-        with pytest.raises(NotImplementedError, match="only for group algebras"):
-            constructor()
+    with pytest.raises(NotImplementedError, match="only for group algebras"):
+        abstract.RingArray.build([[1]], ring).row_reduce()

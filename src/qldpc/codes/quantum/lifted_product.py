@@ -106,6 +106,11 @@ class LPCode(CSSCode):
         self.matrix_b = abstract.RingArray(matrix_b)
 
         ring = self.matrix_a.ring
+        for matrix_ring in [ring, self.matrix_b.ring]:
+            if not isinstance(matrix_ring, abstract.GroupRing):
+                raise NotImplementedError(
+                    f"Lifted products are implemented only for group algebras, not {matrix_ring}"
+                )
         field = ring.field
 
         # identify X-sector and Z-sector parity checks
@@ -179,7 +184,7 @@ class LPCode(CSSCode):
         """Lift logical operators over a ring to logical operators over the base field."""
         ring = logical_ops_x.ring
         num_columns = logical_ops_x.shape[1]
-        block_size = ring.group.lift_dim
+        block_size = ring.lift_dim
         num_lifted_columns = num_columns * block_size
         identity = np.eye(block_size, dtype=int)
         lifted_ops_x = ring.field.Zeros((0, num_lifted_columns))
@@ -265,6 +270,11 @@ class SLPCode(CSSCode):
         self.matrix_b = abstract.RingArray(matrix_b)
 
         ring = self.matrix_a.ring
+        for matrix_ring in [ring, self.matrix_b.ring]:
+            if not isinstance(matrix_ring, abstract.GroupRing):
+                raise NotImplementedError(
+                    f"Lifted products are implemented only for group algebras, not {matrix_ring}"
+                )
         field = ring.field
 
         # identify X-sector and Z-sector parity checks
@@ -318,7 +328,7 @@ class SLPCode(CSSCode):
         return _get_abelian_block_translations(group, len(self) // group.lift_dim)
 
 
-def _has_orthogonal_lifts(ring: abstract.GroupRing) -> bool:
+def _has_orthogonal_lifts(ring: abstract.Ring) -> bool:
     """Does a group algebra lift the members of its group to orthogonal matrices?
 
     A lift L is orthogonal if ``L(g.T) = L(g).T``, where ``g.T = ~g``.  Orthogonal matrices form a

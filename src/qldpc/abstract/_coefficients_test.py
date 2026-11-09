@@ -105,3 +105,13 @@ def test_coefficient_matmul_fallbacks(monkeypatch: pytest.MonkeyPatch) -> None:
     assert kernel(matrix, matrix) is not None
     monkeypatch.setattr(_coefficients, "_MAX_MATMUL_COEFFICIENT_BYTES", 0)
     assert kernel(matrix, matrix) is None
+
+
+def test_coefficient_matmul_requires_group_algebra(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Rings other than group algebras multiply matrices with RingMember arithmetic."""
+    monkeypatch.setattr(_coefficients, "_MIN_MATMUL_COEFFICIENT_WORK", 0)
+    ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
+    (swap,) = ring.generators
+    matrix = abstract.RingArray.build([[1, swap], [swap, 0]], ring)
+    assert _coefficients.coefficient_matmul(matrix, matrix, ring=ring) is None
+    assert np.array_equal((matrix @ matrix).lift(), matrix.lift() @ matrix.lift())

@@ -22,7 +22,7 @@ from qldpc import math
 from ._coefficients import coefficient_matmul
 from .groups import Group, GroupMember
 from .ring_array import RingArray
-from .rings import GroupRing, RingMember
+from .rings import GroupRing, Ring, RingMember
 
 if TYPE_CHECKING:
     from .wedderburn_artin import WedderburnArtinComponentTransformer, WedderburnArtinTransformer
@@ -78,13 +78,22 @@ def kron(
 ) -> RingArray:
     """Take the Kronecker product of two matrices over a ring.
 
-    If the base ring R is commutative, this is the ordinary Kronecker product.  Otherwise, matrix
-    entries of the Kronecker product live in the bimodule R ⨂ R of R, whose elements r ⨂ s act on
-    elements t of R as (r ⨂ s)(t) = r·t·s⁻¹.
+    If the base ring R is commutative, this is the ordinary Kronecker product.  Otherwise, R must be
+    a group algebra F[G], and matrix entries of the Kronecker product live in the bimodule
+    F[G × G] ≅ R ⨂ R, whose basis elements (g, h), for group members g and h, act on elements t of
+    R as (g, h)(t) = g·t·h⁻¹.  If entries of matrix_a and matrix_b are group members a and b, the
+    corresponding entry of the product is (a, b⁻¹), which acts as t -> a·t·b, and other entries
+    extend linearly.  Lifting members of this bimodule needs anti-representations of G, which
+    requires G to use its default lift.  Any other noncommutative ring raises a NotImplementedError.
     """
     ring = _get_ring(matrix_a, matrix_b)
 
     if not ring.is_commutative:
+        if not isinstance(ring, GroupRing):
+            raise NotImplementedError(
+                "The Kronecker product over a noncommutative ring is implemented only for group"
+                f" algebras, not {ring}"
+            )
         # keep left and right multiplication in separate halves of the bimodule representation
         bimodule = _get_bimodule(ring)
         matrix_a = RingArray.build(matrix_a, bimodule)
@@ -110,6 +119,9 @@ def get_howell_dual(
     skip_validation: bool | None = None,
 ) -> RingArray:
     """Build the "dual" of a matrix in Howell normal form.
+
+    Howell duals are implemented only for group algebras, so this function raises a
+    NotImplementedError for any other ring.
 
     The dual matrix provides a pseudoinverse of matrix_hnf in the following sense.  Below, ``@``
     denotes the orientation-aware product ``abstract.matmul(..., right=right)`` (ordinary matrix
@@ -167,6 +179,11 @@ def get_howell_dual(
         also silently return a wrong dual.
     """
     ring = matrix_hnf.ring
+    if not isinstance(ring, GroupRing):
+        raise NotImplementedError(
+            f"Howell duals are implemented only for group algebras, not {ring}"
+        )
+
     # prefer the transformer matrix_hnf was built with, so we build (and validate) in the same basis
     transformer = transformer or matrix_hnf._hnf_transformer or ring.get_transformer()
 
@@ -253,7 +270,7 @@ def _swap_sectors(matrix: RingArray) -> RingArray:
     permutation that swaps these sectors is a symmetry of the bimodule group rather than one of its
     members, so ring arithmetic rejects it, and this function conjugates group members by it.
     """
-    sector_size = matrix.ring.group.degree // 2
+    sector_size = matrix.group.degree // 2
     swap = GroupMember(list(range(sector_size, 2 * sector_size)) + list(range(sector_size)))
     swapped = np.empty(matrix.shape, dtype=object)
     for index, entry in np.ndenumerate(matrix):
@@ -322,7 +339,7 @@ def _get_fixing_projector(
 
 def _get_ring(
     matrix_a: RingArray | npt.NDArray[np.int_], matrix_b: RingArray | npt.NDArray[np.int_]
-) -> GroupRing:
+) -> Ring:
     """Identify the ring that at least one of the matrices is over."""
     ring_a = matrix_a._ring if isinstance(matrix_a, RingArray) else None
     ring_b = matrix_b._ring if isinstance(matrix_b, RingArray) else None
