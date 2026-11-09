@@ -58,6 +58,10 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         array = np.asarray(data, dtype=object).view(cls)
         ring = GroupRing(ring) if isinstance(ring, Group) else ring
 
+        # an array over a ring keeps that ring, which matters for an array with no entries
+        if ring is None and isinstance(data, RingArray):
+            ring = data._ring
+
         # identify the base group for this RingArray
         for value in array.ravel():
             if not isinstance(value, RingMember):

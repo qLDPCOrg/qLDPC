@@ -101,9 +101,10 @@ def test_ring_array_explicit_ring_compatibility() -> None:
 
 
 def test_empty_lift() -> None:
-    """Lifting 0-sized RingArrays still yields arrays of the correct shape."""
+    """0-sized RingArrays keep their ring, and lift to arrays of the correct shape."""
     ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
     empty = abstract.RingArray.build(np.zeros((0, 2), dtype=int), ring)
+    assert abstract.RingArray(empty).ring == ring
     assert empty.regular_lift().shape == (0, 2 * ring.group.order)
     assert empty.lift().shape == (0, 2 * ring.group.lift_dim)
 

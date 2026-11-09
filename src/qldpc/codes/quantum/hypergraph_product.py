@@ -243,6 +243,7 @@ class HGPCode(CSSCode):
         matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray
     ) -> tuple[FieldOrRingArray, FieldOrRingArray]:
         """Hypergraph product of two parity check matrices."""
+        _check_same_ring(matrix_a, matrix_b)
         _kron = abstract.kron if isinstance(matrix_a, abstract.RingArray) else np.kron
 
         # construct the nontrivial blocks of the final parity check matrices
@@ -522,6 +523,7 @@ class SHPCode(CSSCode):
         matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray
     ) -> tuple[FieldOrRingArray, FieldOrRingArray]:
         """Subsystem hypergraph product of two parity check matrices."""
+        _check_same_ring(matrix_a, matrix_b)
         _kron = abstract.kron if isinstance(matrix_a, abstract.RingArray) else np.kron
         matrix_x = _kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int))
         matrix_z = _kron(np.eye(matrix_a.shape[1], dtype=int), matrix_b)
@@ -616,6 +618,16 @@ class SHYPSCode(SHPCode):
         super().__init__(code_x, code_z, set_logicals=set_logicals)
 
         self._dimension = dim_x * dim_z
+
+
+def _check_same_ring(matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray) -> None:
+    """Raise a ValueError if two matrices are over different rings."""
+    if (
+        isinstance(matrix_a, abstract.RingArray)
+        and isinstance(matrix_b, abstract.RingArray)
+        and matrix_a.ring != matrix_b.ring
+    ):
+        raise ValueError("Cannot take a product of matrices over different rings")
 
 
 ####################################################################################################
