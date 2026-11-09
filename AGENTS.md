@@ -32,6 +32,7 @@ Run a standard review only when asked; you may suggest one.
 As a reviewer within a standard review, follow the coordinator's instructions, and end your report without a review status.
 Otherwise, end every report on a change with its review status, as in "standard review: not run" or "standard review: 2 rounds; open decisions: none".
 When asked for a pull request description, follow the [pull request standard](docs/source/contributing/standards/pull_requests.rst).
+Use judgment to point out when a change would be easier to review as a sequence of smaller pull requests, such as when it mixes concerns that could merge separately or its review stops converging.
 
 ## When to run checks
 
@@ -41,7 +42,7 @@ Run the finishing checks only when a maintainer explicitly asks to finish, final
 Examples of such requests are "finish this PR" and "run the finishing checks".
 You may report that a change appears ready for the finishing checks.
 Run checks individually, never through `checks/all_.py`.
-Leave `pytest_.py --notebook` runs and the GAP integration tests to CI.
+Leave repository-wide test runs, notebook runs, and the GAP integration tests to CI.
 
 ## Protected files
 
