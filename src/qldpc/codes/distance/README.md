@@ -35,9 +35,9 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | --- | --- |
 | A distance method, or the validation of method and backend names | `core.py`, and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact`, `get_distance`, and `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` dispatch on the method name |
 | The Brouwer–Zimmermann (BZ) distance search | `_search/brouwer_zimmermann.py` |
-| The compiled scans of layers that the BZ distance search and the coset-leader search share, one body specialized by constant flags | `_search/affine_search.py` |
+| The compiled scans of layers that the BZ distance search and the BZ coset-leader search share, one body specialized by constant flags | `_search/affine_search.py` |
 | The connected-support search, of distances and of vectors with a given syndrome | `_search/connected_support.py` |
-| The packed information sets of a BZ distance search or a coset-leader search, and the certificate of their steps | `_search/affine_instance.py` |
+| The packed information sets of a BZ distance search or a BZ coset-leader search, and the certificate of their steps | `_search/affine_instance.py` |
 | How basis families and their certificates are built | `_search/information_sets.py` |
 | Automorphism families: the images of one information set under automorphisms of a code, and the check of those automorphisms, which the connected-support search uses too | `_search/automorphism_families.py` |
 | Tables that let a BZ distance search skip supports whose last two rows cannot complete a word lighter than the best one found, and the choice of whether to build them | `_search/completion_bounds.py` |
@@ -61,8 +61,8 @@ From the top:
 2. The `_counting` package, the counting methods.
 3. `_search/brouwer_zimmermann.py`, `_search/brute_force.py`, `_search/connected_support.py`, and `_search/coset_leader_search.py`, the searches.
 4. The modules that the searches build on.
-   `_search/affine_instance.py` packs the information sets of a BZ distance or coset-leader search, with the certificate of their steps.
-   `_search/affine_search.py` holds the compiled scans of layers that the BZ distance and coset-leader searches share.
+   `_search/affine_instance.py` packs the information sets of a BZ distance or BZ coset-leader search, with the certificate of their steps.
+   `_search/affine_search.py` holds the compiled scans of layers that the BZ distance and BZ coset-leader searches share.
    `_search/information_sets.py` builds the basis families of those two searches and of the counting scans.
    `_search/automorphism_families.py` builds automorphism families from them.
    `_search/completion_bounds.py` bounds the words that complete the first rows of a support with two more rows.

@@ -568,34 +568,24 @@ def test_steane_preparation_meets_css_weight_but_not_physical_weight() -> None:
         assert syndrome != failure.output_syndrome
 
 
-def test_the_connected_support_method_certifies_with_its_own_bound() -> None:
-    """The connected-support search certifies Steane preparation by physical weight exactly.
+def test_the_connected_support_method_finds_the_same_fault() -> None:
+    """The connected-support search finds the violating fault of a GHZ fan-out on four qubits.
 
-    Its counterexample has the bound one more than its fault weight.  The rejections below show that
-    the method reaches the coset searches.
+    It finds the fault that the default search finds, with the bound one more than its fault weight.
+    The rejection of the CSS weight on a non-CSS state below shows that the method reaches the coset
+    searches.
     """
-    circuit = circuits.DepolarizingNoiseModel(1e-3).noisy_circuit(
-        stim.Circuit("""
-            H 0 2 4
-            CX 0 3 2 1 4 5
-            CX 0 1 2 6 4 3
-            CX 2 5 3 6
-            H 7
-            CZ 7 1 7 3 7 5
-            MX 7
-            DETECTOR rec[-1]
-        """)
+    circuit = stim.Circuit("H 0")
+    for target in range(1, 4):
+        circuit.append("CX", [0, target])
+        circuit.append("DEPOLARIZE2", [0, target], 0.01)
+    default, result = (
+        circuits.certify_bounded_fault_propagation(circuit, css_weight=False, method=method)
+        for method in ("brouwer_zimmermann", "connected_support")
     )
-    result = circuits.certify_bounded_fault_propagation(
-        circuit,
-        output_qubits=range(7),
-        post_select=[0],
-        css_weight=False,
-        method="connected_support",
-    )
-    _assert_matches_brute_force(result)
     _assert_valid_counterexample(result, circuit)
-    assert result.counterexample is not None
+    assert default.counterexample is not None and result.counterexample is not None
+    assert result.counterexample.fault_indices == default.counterexample.fault_indices
     assert (
         result.counterexample.residual_weight_lower_bound == result.counterexample.fault_weight + 1
     )

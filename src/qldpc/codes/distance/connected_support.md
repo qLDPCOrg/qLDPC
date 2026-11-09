@@ -5,8 +5,8 @@
 The connected-support search computes the exact distance of a binary code from the Tanner graph of its parity checks.
 The code can be classical, CSS, or a qubit stabilizer code that is not CSS, and the quantum codes can be subsystem codes.
 It is the method `"connected_support"` of the `get_distance_exact` methods of `ClassicalCode`, `QuditCode`, and `CSSCode`.
-The same search also finds light vectors with a given syndrome, such as the coset leaders of Pauli errors that `CosetLeaderSearch` and the certifier of bounded fault propagation can use.
 Brouwer–Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) is the default.
+The same search also finds light vectors with a given syndrome, such as light Pauli errors with a given syndrome, which `CosetLeaderSearch` and the certifier of bounded fault propagation can use.
 It follows Algorithm 2 in Section V of Okada and Kasai (see the [references](#references)), which searches CSS codes by excluding the row space of their stabilizers.
 The idea is older: Richter, Rosnes and Ytrehus, and Khatami et al. search the Tanner graphs of classical LDPC codes for small stopping sets and low-weight codewords.
 Dumer, Kovalev, and Pryadko use the sparsity of the checks in the same way, with irreducible clusters, to verify the distances of classical and quantum LDPC codes, and the program `dist-m4ri` implements a connected-cluster search for exact distances.
@@ -300,7 +300,8 @@ Each argument of Sections 3.2 to 3.6 carries over, with symbols where it uses va
 ### 3.8 Vectors with a given syndrome
 
 A **syndrome query** asks for a vector `x` with `H x = σ`, for a given nonzero syndrome `σ`, of weight at most `W`.
-The vectors with a syndrome are a coset of the kernel of `H`, so for the stabilizers of a pure stabilizer state, whose kernel is the stabilizer group, a lightest one is a coset leader of the Pauli errors with that syndrome.
+The vectors with a syndrome are a coset of the kernel of `H`.
+For the stabilizers of a pure stabilizer state, that kernel is the stabilizer group, so a lightest vector is a coset leader of the Pauli errors with that syndrome.
 For a code with logical operators, the query ranges over every logical class, and ignores `G`.
 
 The query searches as [Section 3.3](#33-the-depth-first-search) does, but from the empty support with syndrome `σ`, without roots or ranks.
@@ -320,15 +321,17 @@ Four parts of a distance search do not carry over:
 - The weights of the vectors with a syndrome need not share a divisor, so the query has none.
 - Every vector with the syndrome counts, so the query has no logical test.
 
-When its `method` is `"connected_support"`, `CosetLeaderSearch` in `_search/coset_leader_search.py`, which the fault-propagation certifier in `qldpc.circuits.certification` uses, answers each of its queries with such a query.
+The fault-propagation certifier in `qldpc.circuits.certification` uses `CosetLeaderSearch` in `_search/coset_leader_search.py`.
+When its `method` is `"connected_support"`, `CosetLeaderSearch` answers each of its queries with one or two such queries.
 It searches the Pauli errors of a state by their physical weight.
 The CSS weight `max(|x|, |z|)` is not a sum over qubits, so for it, on a CSS state, it searches the X and Z parts separately, and on any other state it raises an error.
 
-The search is fast only if its checks are sparse, but the stabilizers that certification passes are row-reduced, and the X and Z parts that `CosetLeaderSearch` searches for the CSS weight are row-reduced too.
+The search is fast only if its checks are sparse.
+But the stabilizers that certification passes are row-reduced, and so are the X and Z parts that `CosetLeaderSearch` searches for the CSS weight.
 So a search first adds its checks to each other while that makes them lighter, and maps the syndrome of each query to the result.
 For the physical weight on the state `|0⟩` of the [[144, 12, 12]] bivariate bicycle code, it lowers the mean weight of the stabilizers from 26 to 11, while the checks of the code weigh 6.
 On the [[232, 62, 12]] pair-partition code, it lowers it from 54 to 33, while the checks weigh 8, so a sparser choice of generators remains to be found.
-The bounds of these queries are weaker than those of BZ: a query with no vector within `W` gives the lower bound `W + 1`.
+The bounds of these queries are weaker than those of BZ: a query with no vector within a nonnegative `W` gives the lower bound `W + 1`.
 
 ## 4. Guide to the source code
 

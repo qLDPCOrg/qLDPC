@@ -244,14 +244,14 @@ class SupportSearch:
         # check that equals it, or to -1 for a zero check.  The unique rows are sorted, and
         # ``rank_of_unique`` inverts the order that sorts their first copies.
         nonzero_rows = np.flatnonzero(np.any(checks, axis=1))
-        _, first_rows, copies = np.unique(
+        _, first_rows, unique_index_of_row = np.unique(
             checks[nonzero_rows], axis=0, return_index=True, return_inverse=True
         )
         order = np.argsort(first_rows)
         rank_of_unique = np.argsort(order)
         self._checks = checks[nonzero_rows[first_rows[order]]]
-        self._kept_check_indices = np.full(len(checks), -1, dtype=np.int64)
-        self._kept_check_indices[nonzero_rows] = rank_of_unique[copies.ravel()]
+        self._kept_index_of_check = np.full(len(checks), -1, dtype=np.int64)
+        self._kept_index_of_check[nonzero_rows] = rank_of_unique[unique_index_of_row.ravel()]
 
         # The checks that each symbol flips, and the tests that it fails, are the columns of the
         # matrices of the checks and of the tests for its value.
@@ -362,15 +362,15 @@ class SupportSearch:
         """
         assert_binary(syndrome, "syndrome")
         syndrome = np.asarray(syndrome, dtype=np.uint8)
-        if syndrome.shape != self._kept_check_indices.shape:
+        if syndrome.shape != self._kept_index_of_check.shape:
             raise ValueError(
-                f"The syndrome must have one entry for each of {len(self._kept_check_indices)} checks"
+                f"The syndrome must have one entry for each of {len(self._kept_index_of_check)} checks"
             )
         if max_weight < 0:
             raise ValueError(f"The weight limit must be at least zero, not {max_weight}")
 
         # Equal checks have equal entries, and a zero check has entry zero, for every vector.
-        indices = self._kept_check_indices
+        indices = self._kept_index_of_check
         kept = indices >= 0
         kept_syndrome = np.zeros(len(self._checks), dtype=np.uint8)
         kept_syndrome[indices[kept]] = syndrome[kept]

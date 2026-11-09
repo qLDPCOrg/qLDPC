@@ -34,11 +34,11 @@ Start from a symptom
    * - A search or count uses too much memory
      - For distance searches, lower :attr:`~SearchTuning.completion_bound_max_table_bytes`, which applies to each problem of a joint search, such as each sector of a CSS code.
        For exhaustive enumeration, lower :attr:`~SearchTuning.enumeration_batch_exponent`.
-       For ``CosetLeaderSearch``, lower :attr:`~SearchTuning.max_css_single_pairs`; for the caches, edit their constants.
+       For the BZ engine of ``CosetLeaderSearch``, lower :attr:`~SearchTuning.max_css_single_pairs`; for the caches, edit their constants.
        No value limits the memory of a whole process.
    * - A keyboard interrupt takes long to take effect
      - Lower :attr:`~SearchTuning.enumeration_batch_exponent`, :attr:`~SearchTuning.information_set_batch_exponent`, :attr:`~SearchTuning.scan_chunk_size`, :attr:`~SearchTuning.scan_chunks_per_call`, or :attr:`~SearchTuning.macwilliams_chunk_size`.
-       A connected-support search takes an interrupt only between its weight limits, and no value changes that.
+       A connected-support search takes an interrupt only between its weight limits, or between coset queries, and no value changes that.
    * - A cheap connected-support search spends its time finding automorphisms
      - Raise :attr:`~SearchTuning.automorphism_minimum_states`.
        A search whose first weight limit a cutoff raises asks for them unless the field is ``MAX_VALUE``.

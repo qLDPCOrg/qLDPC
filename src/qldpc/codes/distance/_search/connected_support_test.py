@@ -731,10 +731,11 @@ def get_vector(
     return vector
 
 
-# Problems for syndrome queries.  The checks of nested-restrictions restrict the subtree of the
-# empty state for some syndromes.  The second problem has a zero check and a check before its copy,
-# so a query maps its syndrome onto fewer checks, and some syndromes have no vector.  The third is
-# the stabilizers of a pure state: the five-qubit code, with its logical X.
+# Problems for syndrome queries.  The checks of nested-restrictions restrict subtrees.  The second
+# problem has a zero check and a check before its copy, so a query maps its syndrome onto fewer
+# checks, and some syndromes have no vector.  The third is the stabilizers of a pure state: the
+# five-qubit code, with its logical X.  The fourth has only zero checks, and the syndrome 11 of the
+# last needs every variable.
 SYNDROME_PROBLEMS = {
     "nested-restrictions": (PROBLEMS["nested-restrictions"][0], True),
     "copied-and-zero-checks": (
@@ -746,6 +747,7 @@ SYNDROME_PROBLEMS = {
         False,
     ),
     "zero-checks": (np.zeros((2, 3)), True),
+    "identity": (np.eye(2), True),
 }
 
 
@@ -781,60 +783,51 @@ def test_syndrome_queries_match_enumeration(name: str) -> None:
                 vector = get_vector(symbols, width, homogeneous)
                 assert tuple(products @ vector % 2) == syndrome
 
+    # Syndrome queries are not states of witness searches.
+    assert search.num_states == 0
+
 
 @pytest.mark.usefixtures("compilation_mode")
-@pytest.mark.parametrize(
-    "checks, max_weight",
-    [
-        (PROBLEMS["nested-restrictions"][0], 4),
-        (
-            np.array(
-                [
-                    [1, 1, 1, 1, 1, 1],
-                    [0, 0, 1, 0, 0, 0],
-                    [1, 1, 0, 1, 0, 0],
-                    [1, 0, 0, 0, 1, 0],
-                    [1, 0, 0, 0, 0, 0],
-                ],
-                dtype=np.uint8,
-            ),
-            2,
-        ),
-    ],
-    ids=["nested-restrictions", "restricted-start"],
-)
-def test_a_syndrome_query_leaves_no_state_for_later_roots(
-    checks: npt.NDArray[np.uint8], max_weight: int
-) -> None:
+def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
     """A search from a root of -1 that finds nothing leaves the searches from variables unchanged.
 
-    The searches from the variables after it must start from the empty syndrome, and without the
-    restriction of the empty state of the syndrome query, which the second checks have for the
-    syndrome 01001.  They then find the witness that they find alone.
+    They must start from the empty syndrome, and without the restriction of the empty state of the
+    syndrome query, which these checks have for the syndrome 01001.  The variables of lower rank are
+    blocked only for a variable, and unblocked when its search ends.
     """
+    checks = np.array(
+        [
+            [1, 1, 1, 1, 1, 1],
+            [0, 0, 1, 0, 0, 0],
+            [1, 1, 0, 1, 0, 0],
+            [1, 0, 0, 0, 1, 0],
+            [1, 0, 0, 0, 0, 0],
+        ],
+        dtype=np.uint8,
+    )
     search = get_search(checks, np.zeros((0, checks.shape[1])))
 
-    def search_from(roots: npt.NDArray[np.int64], start: npt.NDArray[np.uint64]) -> list[int]:
+    def search_from(roots: list[int], syndrome: tuple[int, ...]) -> list[int]:
         support, _ = cs._search_supports(
             search._check_starts,
             search._check_symbols,
             search._symbol_masks,
             search._test_columns,
-            roots,
+            np.array(roots, dtype=np.int64),
             search._ranks,
             search._inverse_overlaps,
-            max_weight,
-            start,
+            2,
+            cs.pack_bits(np.array([syndrome], dtype=np.uint8))[0],
         )
         return sorted(support.tolist())
 
-    roots = search._roots
-    expected = search_from(roots, np.zeros(1, dtype=np.uint64))
-    assert expected
+    no_syndrome = (0,) * len(checks)
+    roots = list(range(checks.shape[1]))
     for syndrome in itertools.product([0, 1], repeat=len(checks)):
-        if any(syndrome) and search.find_vector_with_syndrome(syndrome, max_weight) is None:
-            start = cs.pack_bits(np.array([syndrome], dtype=np.uint8))[0]
-            assert search_from(np.concatenate([[-1], roots]), start) == expected
+        if any(syndrome) and search.find_vector_with_syndrome(syndrome, 2) is None:
+            assert search_from([-1, *roots], syndrome) == search_from(roots, no_syndrome)
+            for root in roots:
+                assert search_from([-1, root], syndrome) == search_from([root], no_syndrome)
 
 
 def test_invalid_syndrome_queries_are_rejected() -> None:
