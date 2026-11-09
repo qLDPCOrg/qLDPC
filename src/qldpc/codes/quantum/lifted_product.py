@@ -157,11 +157,12 @@ class LPCode(CSSCode):
 
         These operators use semisimple Howell normal forms, which are implemented only for group
         algebras, and need a field characteristic that does not divide the group order.  This method
-        raises a NotImplementedError for a ring that is not a group algebra, and a ValueError for a
-        group algebra that fails this condition or for matrices over different rings.  Unless the
-        primitive central idempotents of the group algebra are known, this method may run GAP,
-        prompt on standard input, and use the system clipboard; see GroupRing.get_transformer.
-        These operators also assume that the involution of the ring transposes lifts.
+        raises a NotImplementedError if either ring is not a group algebra, and otherwise a
+        ValueError for matrices over different rings or for a group algebra that fails this
+        condition.  Unless the primitive central idempotents of the group algebra are known, this
+        method may run GAP, prompt on standard input, and use the system clipboard; see
+        GroupRing.get_transformer.  These operators also assume that the involution of the ring
+        transposes lifts.
         """
         logical_ops_xz = LPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
         return LPCode.to_lifted_logical_ops(*logical_ops_xz)
@@ -174,7 +175,7 @@ class LPCode(CSSCode):
 
         Generalizes HGPCode.get_canonical_logical_line_ops.  See
         ``LPCode.get_canonical_logical_line_ops`` for the rings that this method needs, and its side
-        effects.  Matrices over different rings raise a ValueError.
+        effects.  Matrices over different group algebras raise a ValueError.
         """
         _require_group_algebras(matrix_a, matrix_b)
         _check_same_ring(matrix_a, matrix_b)
@@ -328,7 +329,7 @@ class SLPCode(CSSCode):
 
         Generalizes SHPCode.get_canonical_logical_line_ops.  See
         ``LPCode.get_canonical_logical_line_ops`` for the rings that this method needs, and its side
-        effects.  Matrices over different rings raise a ValueError.
+        effects.  Matrices over different group algebras raise a ValueError.
         """
         _require_group_algebras(matrix_a, matrix_b)
         _check_same_ring(matrix_a, matrix_b)
