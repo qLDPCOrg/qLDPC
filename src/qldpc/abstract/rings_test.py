@@ -4,9 +4,12 @@
 
 from __future__ import annotations
 
+import operator
+
 import numpy as np
 import pytest
 import sympy
+import sympy.combinatorics
 
 from qldpc import abstract
 from qldpc.abstract import rings
@@ -210,9 +213,9 @@ def test_arithmetic_across_rings() -> None:
         abstract.GroupRing(abstract.SymmetricGroup(3), field=3),
         abstract.GroupRing(abstract.SymmetricGroup(3).with_natural_lift()),
     ]:
-        with pytest.raises(ValueError, match="different group algebras"):
+        with pytest.raises(ValueError, match="different rings"):
             ring.one + different_ring.one
-        with pytest.raises(ValueError, match="different group algebras"):
+        with pytest.raises(ValueError, match="different rings"):
             ring.one * different_ring.one
 
 
@@ -247,6 +250,15 @@ def test_group_members_of_ring_members() -> None:
     assert short.size < full.size
     assert abstract.RingMember(ring, short) == abstract.RingMember(ring, full)
     assert ring.zero + short == abstract.RingMember(ring, full)
+
+    # a SymPy permutation becomes a group member, and a label that is not a permutation is rejected
+    for permutation in [
+        sympy.combinatorics.Permutation(0, 1),
+        sympy.combinatorics.Permutation(full),
+    ]:
+        assert abstract.RingMember(ring, (1, permutation)) == abstract.RingMember(ring, full)
+    with pytest.raises(ValueError, match="not a member"):
+        abstract.RingMember(ring, (1, 0))
 
     # every identity permutation, of any size, is the identity of the group, even in a trivial
     # group, whose identity SymPy does not identify as a member of that group
@@ -299,3 +311,64 @@ def test_deprecated_attribute_lookup() -> None:
     """The module-level lookup of deprecated names rejects other names."""
     with pytest.raises(AttributeError, match="has no attribute 'not_a_real_export'"):
         rings.not_a_real_export  # type: ignore[attr-defined]  # noqa: B018
+
+
+def test_ring_interface() -> None:
+    """Group algebras and matrix rings implement the ``Ring`` interface."""
+    group = abstract.SymmetricGroup(3).with_natural_lift()
+    group_ring = abstract.GroupRing(group)
+    assert group_ring.dim == group.order == 6 and group_ring.lift_dim == group.lift_dim == 3
+    assert group_ring.has_involution
+    assert group_ring.basis == [
+        abstract.RingMember(group_ring, member) for member in group.generate()
+    ]
+
+    ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]), field=3)
+    one, swap = ring.basis
+    assert ring.is_abelian and str(2 * swap + one) == "e_0 + 2 e_1" and str(ring.zero) == "0"
+    assert swap.inverse() == swap
+    with pytest.raises(NotImplementedError, match="only for group algebras"):
+        ring.get_transformer()
+    with pytest.raises(AttributeError, match="no base group"):
+        _ = ring.one.group
+
+
+def test_combining_members_of_different_rings() -> None:
+    """Members of a matrix ring combine only with members of equal rings, not with group members."""
+    ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
+    other_ring = abstract.MatrixRing(np.array([[0, 1], [1, 1]]))
+    assert ring.field is other_ring.field and ring.dim == other_ring.dim
+    with pytest.raises(ValueError, match="different rings"):
+        ring.one + other_ring.one
+    with pytest.raises(ValueError, match="different rings"):
+        ring.one * other_ring.one
+
+    # group members combine only with members of group algebras
+    group_member = abstract.CyclicGroup(3).generators[0]
+    with pytest.raises(TypeError):
+        ring.one + group_member
+    with pytest.raises(TypeError, match="only with members of group algebras"):
+        ring.one * group_member
+    with pytest.raises(TypeError):
+        group_member * ring.one
+
+    # operands that are not ring members are rejected
+    for operation, operands in [
+        (operator.add, (ring.one, "x")),
+        (operator.mul, (ring.one, "x")),
+        (operator.mul, ("x", ring.one)),
+    ]:
+        with pytest.raises(TypeError):
+            operation(*operands)
+
+
+def test_group_member_arithmetic() -> None:
+    """Group members multiply members of a group algebra from the side on which they appear."""
+    ring = abstract.GroupRing(abstract.SymmetricGroup(3), field=3)
+    group_member = ring.group.generators[0]
+    as_ring_member = abstract.RingMember(ring, group_member)
+    member = ring.one + 2 * ring.generators[1]
+    assert member * group_member != group_member * member
+    assert group_member * member == as_ring_member * member
+    assert member * group_member == member * as_ring_member
+    assert member + group_member == group_member + member == member + as_ring_member

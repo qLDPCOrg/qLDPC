@@ -40,8 +40,8 @@ Packages at a glance
      - ``get_memory_experiment``, ``DepolarizingNoiseModel``, ``SI1000NoiseModel``, ``get_encoding_circuit``, ``get_fault_distance``, ``certify_bounded_fault_propagation``, and ``get_transversal_ops``.
      - :doc:`Noise models <examples/noise_models>`, :doc:`fault-tolerance certificates <examples/logical_error_rates/5_fault_tolerance_certificates>`, and :doc:`transversal gates <examples/transversal_gates>`
    * - ``qldpc.abstract``
-     - Finite groups, group rings, matrices over group algebras, and semisimple-ring linear algebra.
-     - ``Group``, ``GroupRing``, and ``RingArray``.
+     - Finite groups, group algebras, matrix rings, matrices over group algebras, and Wedderburn-Artin linear algebra over group algebras.
+     - ``Group``, ``GroupRing``, ``MatrixRing``, and ``RingArray``.
      - :doc:`abstract API <autoapi/qldpc/abstract/index>`
    * - ``qldpc.objects`` and ``qldpc.math``
      - Pauli labels, Tanner-graph nodes, Cayley and chain complexes, and symplectic and finite-field array helpers.

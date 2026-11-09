@@ -17,7 +17,7 @@ import numpy as np
 import qldpc
 
 from .ring_array import RingArray
-from .rings import GroupRing, RingMember
+from .rings import GroupRing, Ring, RingMember
 
 
 class WedderburnArtinTransformer:
@@ -51,7 +51,8 @@ class WedderburnArtinTransformer:
 
     Unless the ring's primitive central idempotents are already known, construction may run GAP,
     prompt on standard input, and use the system clipboard; see
-    GroupRing.get_primitive_central_idempotents.
+    GroupRing.get_primitive_central_idempotents.  The decomposition is implemented only for group
+    algebras, so construction raises a NotImplementedError for any other ring.
     """
 
     ring: GroupRing
@@ -60,11 +61,16 @@ class WedderburnArtinTransformer:
 
     def __init__(
         self,
-        ring: GroupRing,
+        ring: Ring,
         *,
         seed: np.random.Generator | int | None = None,
         skip_validation: bool = False,
     ) -> None:
+        if not isinstance(ring, GroupRing):
+            raise NotImplementedError(
+                "The Wedderburn-Artin decomposition is implemented only for group algebras, not"
+                f" {ring}"
+            )
         if not ring.is_semisimple:
             raise ValueError("The Wedderburn-Artin decomposition only exists for semisimple rings")
         self.ring = ring
@@ -239,6 +245,11 @@ class WedderburnArtinComponentTransformer:
         skip_validation: bool = False,
     ) -> None:
         """Initialize from a primitive central idempotent (PCI) of a ring."""
+        if not isinstance(pci.ring, GroupRing):
+            raise NotImplementedError(
+                "The Wedderburn-Artin decomposition is implemented only for group algebras, not"
+                f" {pci.ring}"
+            )
         if not pci.ring.is_semisimple:
             raise ValueError("The Wedderburn-Artin decomposition only exists for semisimple rings")
         seed = seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
