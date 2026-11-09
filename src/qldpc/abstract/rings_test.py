@@ -170,8 +170,8 @@ def test_printing() -> None:
     assert [str(gg) for gg in ring.generators] == ["w", "x", "y", "z"]
 
     # generators print as x, y in the order of Group.generators
-    x, y = abstract.GroupRing(abstract.DihedralGroup(6), 3).generators
-    assert str(x + y) == "x + y"
+    ring = abstract.GroupRing(abstract.DihedralGroup(6), 3)
+    assert [str(gg) for gg in ring.generators] == ["x", "y"]
 
     # every member of a noncommutative group prints as a word that evaluates to that member, even
     # though the SymPy group of QuaternionGroup has more generators than the group
@@ -231,16 +231,19 @@ def test_group_members_of_ring_members() -> None:
         lambda: ring.one + transposition,
         lambda: ring.one - transposition,
         lambda: ring.one * transposition,
+        lambda: transposition + ring.one,
+        lambda: transposition - ring.one,
         lambda: transposition * ring.one,
     ]:
         with pytest.raises(ValueError, match="not a member"):
             operation()
 
-    # subtracting a group member negates its coefficient
+    # in odd characteristic, subtracting a group member or ring member subtracts coefficients
     generator = group.generators[0]
     expected = ring.one.to_vector() - abstract.RingMember(ring, generator).to_vector()
     assert np.array_equal((ring.one - generator).to_vector(), expected)
     assert np.array_equal((1 - abstract.RingMember(ring, generator)).to_vector(), expected)
+    assert np.array_equal((generator - ring.one).to_vector(), -expected)
 
     # a permutation that acts on fewer points than the group is padded with fixed points
     ring = abstract.GroupRing(abstract.SymmetricGroup(4))
@@ -249,13 +252,16 @@ def test_group_members_of_ring_members() -> None:
     assert abstract.RingMember(ring, short) == abstract.RingMember(ring, full)
     assert ring.zero + short == abstract.RingMember(ring, full)
 
-    # every identity permutation is the identity of the group, even in a trivial group of degree 0,
-    # which SymPy does not identify as a member of that group
-    assert abstract.RingMember(ring, abstract.GroupMember()) == ring.one
+    # every identity permutation, of any size, is the identity of the group, even in a trivial group
+    # of degree 0, whose identity SymPy does not identify as a member of that group
+    for size in [0, 5]:
+        assert abstract.RingMember(ring, abstract.GroupMember(list(range(size)))) == ring.one
     trivial = abstract.TrivialGroup()
     assert trivial.identity not in trivial.to_sympy()
     trivial_ring = abstract.GroupRing(trivial)
-    assert abstract.RingMember(trivial_ring, trivial.identity) == trivial_ring.one
+    for size in [0, 1]:
+        identity = abstract.GroupMember(list(range(size)))
+        assert abstract.RingMember(trivial_ring, identity) == trivial_ring.one
 
 
 def test_primitive_central_idempotents(ring_cyclic3_gf2: abstract.GroupRing) -> None:

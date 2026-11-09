@@ -84,6 +84,9 @@ def test_ring_array_explicit_ring_compatibility() -> None:
     assert matrix.ring == bimodule_ring
     assert all(member in bimodule_ring.group for _, member in matrix[0, 0])
 
+    # the identity of a larger group is the identity of the target group
+    assert abstract.RingArray.build([[bimodule_ring.one]], source_ring)[0, 0] == source_ring.one
+
     different_field = abstract.GroupRing(source_ring.group, field=3)
     with pytest.raises(ValueError, match="incompatible coefficient fields"):
         abstract.RingArray.build([[source_ring.one]], different_field)

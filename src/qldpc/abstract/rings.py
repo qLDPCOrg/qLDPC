@@ -293,10 +293,11 @@ class RingMember:
     """An element of the algebra of a group G over a finite field ``F_q``.
 
     Each RingMember x is a sum of group members with coefficients in the field:
-    ``x = sum_{g in G} x_g g``, with each ``x_g in F_q``.  RingMembers combine with integers, field
-    scalars, members of G, and members of an equal group algebra.  Combining one with a member of
-    another group algebra or with a group member outside G raises a ValueError, as does
-    constructing one from such a group member.
+    ``x = sum_{g in G} x_g g``, with each ``x_g in F_q``.  A RingMember combines on either side with
+    integers, members of G, and members of an equal group algebra, and with field scalars on its
+    right.  Combining a RingMember with a member of another group algebra or with a group member
+    outside G raises a ValueError, as does constructing a RingMember from such a group member.  A
+    group member that acts on fewer points than G is padded with fixed points.
     """
 
     _ring: GroupRing
@@ -397,7 +398,10 @@ class RingMember:
         return NotImplemented  # pragma: no cover
 
     def __sub__(self, other: int | galois.FieldArray | GroupMember | RingMember) -> RingMember:
-        return self + (-self.ring.one) * other
+        # SymPy multiplies a permutation by -1 without negating it, so negate a ring member instead
+        if isinstance(other, GroupMember):
+            other = self.ring.one * other
+        return self + -other
 
     def __radd__(self, other: int | GroupMember) -> RingMember:
         return self + other
@@ -580,27 +584,30 @@ class RingMember:
     def _from_trusted_terms(
         cls, ring: GroupRing | Group, terms: Iterable[tuple[int | galois.FieldArray, GroupMember]]
     ) -> RingMember:
-        """Construct a ring member from terms with members of its group, padded to its degree."""
+        """Construct a ring member from terms that the caller has checked.
+
+        The group members of the terms must belong to the group of the ring and have its degree.
+        """
         ring_member = cls(ring)
         for value, member in terms:
             ring_member._vec[member] += ring_member.field(value)
         return ring_member
 
     def _as_group_member(self, member: GroupMember) -> GroupMember:
-        """A member of the group of this ring member, padded to the degree of the group.
+        """A member of the group of this ring member, at the degree of the group.
 
         A permutation can act on fewer points than the group, such as ``GroupMember(0, 1)`` in a
-        group of degree 4, so this method pads it with fixed points before checking that it belongs
-        to the group, and raises a ValueError if it does not.  Every identity permutation becomes
-        the identity of the group, since SymPy's trivial group of degree zero contains no
-        permutation.
+        group of degree 4.  This method pads such a permutation with fixed points, and raises a
+        ValueError if the result is not in the group.  Every identity permutation, of any size,
+        becomes the identity of the group, since SymPy does not identify the identity as a member of
+        a group of degree zero.
         """
         if member.is_Identity:
             return self.group.identity
         if member.size < self.group.degree:
             member = GroupMember(member, size=self.group.degree)
         if member not in self.group:
-            raise ValueError(f"{member} is not a member of {self.group}")
+            raise ValueError(f"{member} is not a member of the group of {self.ring}")
         return member
 
     def _check_same_ring(self, other: RingMember) -> None:

@@ -247,14 +247,14 @@ def _get_bimodule(ring: GroupRing) -> GroupRing:
 
 
 def _swap_sectors(matrix: RingArray) -> RingArray:
-    """Swap the left and right group members in the terms of a matrix over a bimodule.
+    """Swap the left and right parts of the group member in each term of a matrix over a bimodule.
 
     The bimodule group acts on two sectors of points, one for each copy of the base group.  The
     permutation that swaps these sectors is a symmetry of the bimodule group rather than one of its
-    members, so this function conjugates the group member of each term by that permutation.
+    members, so ring arithmetic rejects it, and this function conjugates group members by it.
     """
-    size = matrix.ring.group.degree // 2
-    swap = GroupMember(list(range(size, 2 * size)) + list(range(size)))
+    sector_size = matrix.ring.group.degree // 2
+    swap = GroupMember(list(range(sector_size, 2 * sector_size)) + list(range(sector_size)))
     swapped = np.empty(matrix.shape, dtype=object)
     for index, entry in np.ndenumerate(matrix):
         terms = [(value, swap * member * swap) for value, member in entry]

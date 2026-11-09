@@ -216,8 +216,8 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
 
         2. A ring (or group, inducing a group algebra over GF(2)).
 
-        Integers, and group members that belong to the group of the ring, are cast into members of
-        the ring.  Ring members may be embedded into a different ring with the same field if the
+        Integers and members of the group of the ring are cast into members of the ring.  Ring
+        members may be embedded into a different ring with the same field if the
         group of that ring contains their group members.  A group member that acts on fewer points
         than the group is padded with fixed points.
         """
@@ -248,7 +248,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
                 return RingMember(ring, *[(coeff, member) for coeff, member in value if coeff])
             if isinstance(value, GroupMember):
                 return RingMember(ring, value)
-            return RingMember._from_trusted_terms(ring, [(value, one)])
+            return RingMember(ring, (value, one))
 
         vals = [as_ring_member(value) for value in array.ravel()]
         result = np.array(vals, dtype=object).reshape(array.shape).view(RingArray)
