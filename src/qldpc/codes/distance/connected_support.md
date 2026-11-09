@@ -6,9 +6,10 @@ The connected-support search computes the exact distance of a binary code from t
 The code can be classical, CSS, or a qubit stabilizer code that is not CSS, and the quantum codes can be subsystem codes.
 It is the method `"connected_support"` of the `get_distance_exact` methods of `ClassicalCode`, `QuditCode`, and `CSSCode`.
 Brouwer–Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) is the default.
-It follows Algorithm 2 in Section V of Okada and Kasai (see the [references](#references)).
-That algorithm extends the searches for small stopping sets and low-weight codewords of classical LDPC codes to CSS codes, by excluding the row space of their stabilizers.
-The classical searches are those of Richter, Rosnes and Ytrehus, and Khatami et al., also in the references.
+It follows Algorithm 2 in Section V of Okada and Kasai (see the [references](#references)), which searches CSS codes by excluding the row space of their stabilizers.
+The idea is older: Richter, Rosnes and Ytrehus, and Khatami et al. search the Tanner graphs of classical LDPC codes for small stopping sets and low-weight codewords.
+Dumer, Kovalev, and Pryadko use the sparsity of the checks in the same way, with irreducible clusters, to verify the distances of classical and quantum LDPC codes, and the program `dist-m4ri` implements a connected-cluster search for exact distances.
+The method is named after what it searches, as `"brute_force"` is, rather than after one of these works.
 This guide explains the search, maps it to the code, and states what a change to it must preserve.
 It is organized as follows:
 
@@ -358,3 +359,5 @@ Changes to the search can use other bounds and orders, while keeping these requi
 - G. Richter, "Finding small stopping sets in the Tanner graphs of LDPC codes", 4th International Symposium on Turbo Codes and Related Topics and 6th International ITG-Conference on Source and Channel Coding, 2006, pp. 1–5.
 - E. Rosnes and Ø. Ytrehus, "An efficient algorithm to find all small-size stopping sets of low-density parity-check matrices", IEEE Transactions on Information Theory 55, 4167 (2009).
 - S. M. Khatami, L. Danjean, D. V. Nguyen, and B. Vasić, "An efficient exhaustive low-weight codeword search for structured LDPC codes", Information Theory and Applications Workshop, 2013, pp. 401–410.
+- I. Dumer, A. A. Kovalev, and L. P. Pryadko, "Distance verification for classical and quantum LDPC codes", IEEE Transactions on Information Theory 63, 4675 (2017), [arXiv:1611.07164](https://arxiv.org/abs/1611.07164): the irreducible-cluster technique.
+- [QEC-pages/dist-m4ri](https://github.com/QEC-pages/dist-m4ri): a program whose connected-cluster method computes exact distances of classical codes and of quantum CSS codes.
