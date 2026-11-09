@@ -2,12 +2,13 @@
 
 """Exact distances by a depth-first search of the supports connected in a Tanner graph.
 
-The search finds a nonzero vector ``x`` with ``H x = 0`` outside the row space of ``G``, for sparse
-parity checks ``H``, by growing a support only through unsatisfied checks, and pruning with bounds
-on the number of variables that a support still needs.  The vectors are binary, or the symplectic
-vectors of Pauli operators, whose weights count qubits.  It is a quantum version of the searches for
-small stopping sets and low-weight codewords of classical LDPC codes, as Okada and Kasai describe in
-Section V of https://arxiv.org/abs/2607.14091 (see the references of ``connected_support.md``).
+The search finds a nonzero vector ``x`` that satisfies sparse parity checks ``H`` and is outside the
+row space of ``G``, by growing a support only through unsatisfied checks, and pruning with bounds on
+the number of variables that a support still needs.  The vectors are binary, or the symplectic
+vectors of Pauli operators, whose weights count qubits.  It follows Algorithm 2 in Section V of
+Okada and Kasai, https://arxiv.org/abs/2607.14091, which extends the searches for small stopping
+sets and low-weight codewords of classical LDPC codes to CSS codes (see the references of
+``connected_support.md``).
 
 ``connected_support.md`` in ``qldpc/codes/distance/`` derives the search and states its correctness
 requirements.  The Brouwer-Zimmermann search in ``brouwer_zimmermann.py`` solves the same problem
@@ -44,7 +45,7 @@ _BLOCKED = 2**40
 
 
 def get_distance_connected_support(
-    problems: Sequence[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]],
+    problems: Sequence[tuple[npt.ArrayLike, npt.ArrayLike]],
     *,
     cutoff: int,
     upper_bound: int | None = None,
@@ -75,8 +76,8 @@ def get_distance_connected_support(
         homogeneous: Whether the problems have binary words, rather than the symplectic words of
             Pauli operators (see ``SupportSearch``).  Default: True.
         get_automorphisms: A function that returns an array of generators of a group of
-            permutations of the variables, or None.  Row ``i`` of the array maps variable ``j`` to
-            variable ``row[j]``.  Each generator must map the words of every problem, and the row
+            permutations of the variables, or None.  Each row ``p`` of the array maps variable ``j``
+            to variable ``p[j]``.  Each generator must map the words of every problem, and the row
             space of its excluded rows, onto themselves.  The search of each problem calls the
             function at most once, before the first weight limit at which it expects to have
             visited ``automorphism_minimum_states`` states (a field of ``tuning``), and verifies
@@ -97,8 +98,8 @@ def get_distance_connected_support(
     if not problems and upper_bound is None:
         raise ValueError("Require at least one problem or an upper bound")
 
-    # A problem without witnesses only bounds the result.  A known bound within the cutoff ends the
-    # search before it starts.
+    # A problem without witnesses only bounds the result, and a known bound within the cutoff ends
+    # the search before it starts, as for get_distance_brouwer_zimmermann_many.
     tuning = get_tuning() if tuning is None else tuning
     automorphism_minimum_states = tuning.automorphism_minimum_states
     best_weight = upper_bound
@@ -138,7 +139,7 @@ def get_distance_connected_support(
 
 
 class SupportSearch:
-    """Search for light words of the kernel of ``checks`` outside the row space of ``excluded``.
+    """Search for light words that satisfy ``checks`` and are outside the row space of ``excluded``.
 
     A word is a vector ``x`` that satisfies every check, and its support is the set of variables on
     which it is nonzero.  Its weight is the size of its support.  The row space of ``excluded`` must
@@ -163,16 +164,16 @@ class SupportSearch:
             permutations of the variables, or None, as in ``get_distance_connected_support``.  The
             search calls it at most once, before the first weight limit whose states, together with
             those visited so far, are expected to reach ``automorphism_minimum_states``.
-        automorphism_minimum_states: The number of visited states, over all weight limits, that
-            the search expects to reach before it asks for automorphisms.  Zero, the default, asks
-            for them before the first weight limit.
+        automorphism_minimum_states: The search asks for automorphisms before the first weight
+            limit at which it expects its visited states, over all weight limits, to reach this
+            number.  Zero, the default, asks for them before the first weight limit.
 
     Attributes:
         num_variables: The number of variables: the number of columns of ``checks`` if the problem
             is homogeneous, and half of it otherwise.
         weight_divisor: A divisor of the weight of every word.
         num_states: The number of states that the search has visited so far, over all of its weight
-            limits.
+            limits.  The empty support at the start of the search from each root is not counted.
 
     Raises:
         ValueError: If the matrices are not binary matrices of equal width, if a symplectic matrix
@@ -185,15 +186,16 @@ class SupportSearch:
 
     def __init__(
         self,
-        checks: npt.NDArray[np.uint8],
-        excluded: npt.NDArray[np.uint8],
+        checks: npt.ArrayLike,
+        excluded: npt.ArrayLike,
         *,
         homogeneous: bool = True,
         get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
         automorphism_minimum_states: int = 0,
     ) -> None:
-        # Tests and other direct callers build searches without the checks of core.py, and the
-        # compiled search would read invalid input without an error.
+        # The compiled search would read invalid input without an error, so the search validates its
+        # input, which callers need not check.
+        checks, excluded = np.asarray(checks), np.asarray(excluded)
         if checks.ndim != 2 or excluded.ndim != 2 or checks.shape[1] != excluded.shape[1]:
             raise ValueError("Checks and excluded rows must be matrices with equal widths")
         if np.any((checks != 0) & (checks != 1)) or np.any((excluded != 0) & (excluded != 1)):
@@ -236,9 +238,9 @@ class SupportSearch:
         # of checks of a symbol.  Every overlap divides the scale if the scale is small enough, and
         # the inverse of an overlap is rounded down otherwise.
         max_column_weight = int(np.max(np.sum(flips, axis=0), initial=1))
-        self._scale = min(math.lcm(*range(1, max_column_weight + 1)), _MAX_SCALE)
+        scale = min(math.lcm(*range(1, max_column_weight + 1)), _MAX_SCALE)
         self._inverse_overlaps = np.zeros(max_column_weight + 1, dtype=np.int64)
-        self._inverse_overlaps[1:] = self._scale // np.arange(1, max_column_weight + 1)
+        self._inverse_overlaps[1:] = scale // np.arange(1, max_column_weight + 1)
 
     @property
     def has_witnesses(self) -> bool:
@@ -284,7 +286,6 @@ class SupportSearch:
             self._test_columns,
             self._roots,
             self._ranks,
-            self._scale,
             self._inverse_overlaps,
             int(min(max_weight, self.num_variables)),
         )
@@ -361,7 +362,6 @@ def _search_supports(
     test_columns: npt.NDArray[np.uint64],
     roots: npt.NDArray[np.int64],
     ranks: npt.NDArray[np.int64],
-    scale: int,
     inverse_overlaps: npt.NDArray[np.int64],
     max_weight: int,
 ) -> tuple[npt.NDArray[np.int64], int]:
@@ -375,8 +375,8 @@ def _search_supports(
     into the bits of 64-bit blocks, and row ``s`` of ``test_columns`` packs the tests that the word
     of symbol ``s`` alone fails.  The search from a root uses only variables of higher rank.  The
     weights of checks are integers, in units of ``1 / scale``, and entry ``k`` of
-    ``inverse_overlaps`` is ``scale // k``, up to the largest number of checks of a symbol (see
-    ``_get_branches``).
+    ``inverse_overlaps`` is ``scale // k``, up to the largest number of checks of a symbol, so its
+    entry 1 is the scale (see ``_get_branches``).
 
     It is the depth-first search of Algorithm 2 of https://arxiv.org/abs/2607.14091, with an
     explicit stack, and with values.  A state is a support, whose symbols are ``support[:depth]``,
@@ -385,7 +385,7 @@ def _search_supports(
     until the search leaves the state, so that its later branches do not use it again, and the other
     values of its variable are blocked while its branch is in the stack.  A state also allows only
     its viable symbols in its subtree, if it rules out any.  The state at depth zero is the empty
-    support, which branches on the values of the root.
+    support, which branches on the values of the root, and which the count of states omits.
 
     Returns:
         The symbols of a witness of weight at most ``max_weight``, or an empty array, and the
@@ -401,10 +401,10 @@ def _search_supports(
         max_branches = max(max_branches, check_starts[check + 1] - check_starts[check])
 
     # The level of a symbol counts the states in the stack whose restrictions allow it, plus
-    # _BLOCKED for each reason that blocks it: it is in the support, or another value of its
-    # variable is, or a state in the stack already tried it as a branch, or its variable has a lower
-    # rank than the root.  A symbol is available if its level is the number of active
-    # restrictions, which is never as large as _BLOCKED.
+    # _BLOCKED for each reason that blocks it: a state in the stack has tried it as a branch, which
+    # includes every symbol of the support; another value of its variable is the current branch of a
+    # state in the stack; or its variable ranks below the root.  A symbol is available if its level
+    # is the number of active restrictions, which is never as large as _BLOCKED.
     levels = np.zeros(num_symbols, dtype=np.int64)
     num_restrictions = 0
 
@@ -414,7 +414,7 @@ def _search_supports(
     # so, which the range alone would not for a state that allows nothing.  A state allows each
     # symbol at most once, and allowances grows if a state could overflow it, rather than start
     # with room for max_weight * num_symbols entries, which a large cutoff would make large.
-    syndromes = np.zeros((max_weight + 2, num_blocks), dtype=np.uint64)
+    syndromes = np.zeros((max_weight + 1, num_blocks), dtype=np.uint64)
     support = np.empty(max_weight + 1, dtype=np.int64)
     branches = np.empty((max_weight + 1, max_branches), dtype=np.int64)
     num_branches = np.zeros(max_weight + 1, dtype=np.int64)
@@ -429,6 +429,7 @@ def _search_supports(
 
     num_states = 0
     for root in roots:
+        # Block the variables of lower rank than the root, and branch on the values of the root.
         for variable in range(num_variables):
             if ranks[variable] < ranks[root]:
                 for value in range(num_values):
@@ -439,13 +440,16 @@ def _search_supports(
         cursors[0] = 0
         depth = 0
         while depth >= 0:
+            # The search is back at a state after the branch that it tried last, so the other values
+            # of the variable of that branch are available again.
+            if cursors[depth]:
+                _shift_other_values(
+                    levels, branches[depth, cursors[depth] - 1], num_variables, -_BLOCKED
+                )
+
             # Leave the state once it has tried every branch.  The symbols that it tried are
             # available again to its later siblings, and so are the symbols that it did not allow.
             if cursors[depth] == num_branches[depth]:
-                if cursors[depth]:
-                    _block_other_values(
-                        levels, branches[depth, cursors[depth] - 1], num_variables, -_BLOCKED
-                    )
                 for index in range(cursors[depth]):
                     levels[branches[depth, index]] -= _BLOCKED
                 if restricts[depth]:
@@ -456,16 +460,11 @@ def _search_supports(
                 continue
 
             # Take the next branch, and skip its state unless it can still meet the weight limit.
-            # The other values of the variable of the previous branch are available again.  Every
-            # symbol is in at most max_column_weight unsatisfied checks.
-            if cursors[depth]:
-                _block_other_values(
-                    levels, branches[depth, cursors[depth] - 1], num_variables, -_BLOCKED
-                )
+            # Every symbol is in at most max_column_weight unsatisfied checks.
             symbol = branches[depth, cursors[depth]]
             cursors[depth] += 1
             levels[symbol] += _BLOCKED
-            _block_other_values(levels, symbol, num_variables, _BLOCKED)
+            _shift_other_values(levels, symbol, num_variables, _BLOCKED)
             support[depth] = symbol
             num_unsatisfied = _xor_and_count(syndromes, depth, symbol_masks, symbol)
             needed = (num_unsatisfied + max_column_weight - 1) // max_column_weight
@@ -500,7 +499,6 @@ def _search_supports(
                 allowances,
                 depth,
                 max_weight - depth,
-                scale,
                 inverse_overlaps,
                 check_weights,
                 branch_repairs,
@@ -529,7 +527,6 @@ def _get_branches(
     allowances: npt.NDArray[np.int64],
     depth: int,
     slack: int,
-    scale: int,
     inverse_overlaps: npt.NDArray[np.int64],
     check_weights: npt.NDArray[np.int64],
     branch_repairs: npt.NDArray[np.int64],
@@ -541,10 +538,10 @@ def _get_branches(
     flips every unsatisfied check an odd number of times.  The overlap of an available symbol is the
     number of unsatisfied checks that it flips.  Weigh each unsatisfied check by the inverse of the
     largest overlap of its available symbols, in units of ``1 / scale``, rounded down, as
-    ``inverse_overlaps`` lists.  The weights of the unsatisfied checks of any available symbol then
-    total at most one, and their total is its repair.  So ``T`` has at least as many symbols as the
-    total weight of the unsatisfied checks.  A symbol ``s`` of ``T`` repairs its share, and the
-    other symbols of ``T`` the rest, so ``|T| >= 1 + total - repair(s)``.
+    ``inverse_overlaps`` lists, whose entry 1 is the scale.  The weights of the unsatisfied checks
+    of any available symbol then total at most one, and their total is its repair.  So ``T`` has at
+    least as many symbols as the total weight of the unsatisfied checks.  A symbol ``s`` of ``T``
+    repairs its share, and the other symbols of ``T`` the rest, so ``|T| >= 1 + total - repair(s)``.
 
     A symbol for which this exceeds ``slack`` is in no completion, and the state allows only the
     other symbols in its subtree.  It records them in ``allowances``, from
@@ -556,8 +553,10 @@ def _get_branches(
     of the branch symbols.
     """
     num_blocks = syndromes.shape[1]
+    scale = inverse_overlaps[1]
 
-    # Weigh each unsatisfied check, and choose the one with the fewest available symbols.
+    # Weigh each unsatisfied check, and choose the one with the fewest available symbols, which are
+    # fewer than the symbols of all checks together.
     total_weight = 0
     branch_check = -1
     fewest = check_starts[-1] + 1
@@ -585,8 +584,8 @@ def _get_branches(
                 branch_check, fewest = check, count
 
     # A symbol that flips no unsatisfied check repairs nothing, so it is viable exactly when every
-    # symbol is.  When it is not, allow only the viable symbols of the unsatisfied checks, and count
-    # them in each check.
+    # symbol is.  When the total weight leaves such symbols no room, allow only the viable symbols
+    # of the unsatisfied checks, and count them in each check.
     if total_weight > (slack - 1) * scale:
         restricts[depth] = True
         allowance_end = allowance_starts[depth]
@@ -635,7 +634,7 @@ def _get_branches(
 
 
 @always_compiled(inline=True)
-def _block_other_values(
+def _shift_other_values(
     levels: npt.NDArray[np.int64], symbol: int, num_variables: int, change: int
 ) -> None:
     """Add ``change`` to the levels of the symbols that give the variable of a symbol other values.

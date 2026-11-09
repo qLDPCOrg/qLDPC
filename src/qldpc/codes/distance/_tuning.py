@@ -281,15 +281,13 @@ class SearchTuning:
 
     # Fields of connected-support searches.
 
-    #: The number of visited states, over all weight limits of the search of one problem, such as a
-    #: sector of a CSS code, that a connected-support search (``method="connected_support"``)
-    #: expects to reach before it asks for automorphisms of its code.  It predicts the states of its
-    #: next weight limit from the growth between its last two, and with automorphisms it searches
-    #: from one variable of each of their orbits (Section 3.5 of ``connected_support.md``).  Finding
-    #: them takes milliseconds for codes of hundreds of qubits, and about half a second with
-    #: ``pybliss`` for a code of thousands.  Lowering it asks on cheaper searches; zero before the
-    #: first weight limit, and ``MAX_VALUE`` never.  Defaults to 100,000 states, a few hundredths of
-    #: a second of searching.  To retune it, time searches with and without automorphisms.
+    #: A connected-support search (``method="connected_support"``) asks for automorphisms of its
+    #: code before the first weight limit at which it expects its visited states, over all limits of
+    #: one problem such as a sector of a CSS code, to reach this number (Section 3.5 of
+    #: ``connected_support.md``).  Lowering it pays the cost of finding them on cheaper searches;
+    #: zero asks before the first limit, and ``MAX_VALUE`` never.  Defaults to 100,000, chosen by
+    #: hand as a few hundredths of a second of searching.  To retune it, time searches with and
+    #: without automorphisms.
     automorphism_minimum_states: int = 100_000
 
     # Fields of completion tables.

@@ -6,7 +6,7 @@ The connected-support search computes the exact distance of a binary code from t
 The code can be classical, CSS, or a qubit stabilizer code that is not CSS, and the quantum codes can be subsystem codes.
 It is the method `"connected_support"` of the `get_distance_exact` methods of `ClassicalCode`, `QuditCode`, and `CSSCode`.
 Brouwer–Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) is the default.
-The connected-support search is a quantum version of the searches for small stopping sets and low-weight codewords of classical LDPC codes (Richter, Rosnes and Ytrehus, and Khatami et al. in the [references](#references)), and follows Algorithm 2 in Section V of Okada and Kasai (also in the references).
+It follows Algorithm 2 in Section V of Okada and Kasai (see the [references](#references)), which extends the searches for small stopping sets and low-weight codewords of classical LDPC codes (Richter, Rosnes and Ytrehus, and Khatami et al., also in the references) to CSS codes, by excluding the row space of their stabilizers.
 This guide explains the search, maps it to the code, and states what a change to it must preserve.
 It is organized as follows:
 
@@ -17,18 +17,20 @@ It is organized as follows:
 
 ## 2. When to use which method
 
+A **sector** of a CSS code is its X-type or its Z-type logical operators, which a search treats as separate problems ([Section 3.1](#31-the-problem)).
 BZ examines combinations of the rows of bases of the searched space in layers of increasing coefficient weight, and its cost grows like `binom(r, d/m)`.
 Here `r` is the dimension of the searched space, `d` is the distance, and `m` is the number of disjoint information sets.
 The sectors of CSS codes usually have `r > n/2`, hence `m = 1`, and a high rate pushes `r` towards `n`, so that BZ becomes infeasible at modest distances.
 The connected-support search instead enumerates supports that grow through unsatisfied checks, so its cost depends on the sparsity of the checks and on `d`, and not on `r`.
 Its cost grows by a roughly constant factor for each additional unit of weight, which is about 5 for the pair-partition codes below, with row weight 8 to 16, and about 3 for surface codes.
 
-A **sector** of a CSS code is its X-type or its Z-type logical operators, which a search treats as separate problems ([Section 3.1](#31-the-problem)).
 The table lists times on one core of an Apple M3 Max laptop, run at low priority, with the benchmark script [experiments/connected_support_distance/benchmark.py](../../../../experiments/connected_support_distance/benchmark.py).
 The codes are the pair-partition codes of Okada and Kasai and of Lee et al., which are quasi-cyclic CSS codes, mostly of high rate, with parity checks of column weight 3 to 5 (see the [references](#references)).
 The instances, and their distances, come from the data of Lee et al., and Okada and Kasai also publish the [[276, 98, 14]] code.
+The [[372, 130, 18]] code is the instance `qc_372_130_18` of that data, which is not the [[372, 130, 16]] code of the table of Okada and Kasai.
 Times are CPU times, for the whole code unless they say per sector.
 The BZ times marked "estimated" come from the work that BZ predicts for them (Sections 3.6 and 3.7 of [brouwer_zimmermann.md](brouwer_zimmermann.md)), with the cyclic automorphisms that qLDPC finds for these codes.
+"Infeasible" marks codes longer than the [[372, 130, 18]] code, and of higher dimension, for which qLDPC did not estimate the work of BZ.
 
 | Code | BZ | Connected support | Faster |
 | --- | --- | --- | --- |
@@ -56,9 +58,9 @@ A subsystem code searches the Tanner graph of its stabilizers, which can be dens
 
 A classical code is searched like a sector with nothing excluded.
 A qubit code that is not CSS has no sectors, and its search branches on the Paulis `X`, `Z`, and `Y` of each qubit ([Section 3.7](#37-qubit-codes-that-are-not-css)).
-This search is slower than that of the sectors of a CSS code: a `Y` can repair checks of both types at once, which weakens the bounds of [Section 3.4](#34-pruning).
-The table times the codes above, and others, with Hadamards on the second half of their qubits, which leaves codes that are not CSS, with the same distances, and that qLDPC searches as `QuditCode` objects (the option `--hadamards` of the script).
-They use the automorphisms that `pybliss` finds.
+This search is slower than that of the sectors of a CSS code: a `Y` can flip checks that act as `X` and checks that act as `Z` on its qubit at once, which weakens the bounds of [Section 3.4](#34-pruning).
+The table times the codes above, and others, with Hadamards on the second half of their qubits.
+These codes are not CSS, have the same distances, and are searched as `QuditCode` objects (the option `--hadamards` of the script), with the automorphisms that `pybliss` finds.
 
 | Code, with Hadamards | BZ | Connected support |
 | --- | --- | --- |
@@ -195,9 +197,10 @@ Without symmetries, every variable is a root, and the ranks are the variables th
 Okada and Kasai instead take the roots `(ℓ, 0)` of the cyclic translations of a pair-partition code, with variables `(ℓ, a)` ranked by `ℓP + a`, and their implementation does so only if `P` is prime and `W < P`.
 qLDPC takes the orbits of any group of automorphisms that it verifies.
 
-The `_found_qudit_automorphisms` of the code provide generators of `Γ`.
+The `_found_qudit_automorphisms` of a quantum code provide generators of `Γ`.
+Classical codes are searched without symmetries, from every variable.
 Finding them takes milliseconds for codes of hundreds of qubits, but about half a second with `pybliss` for a code of 5,200 qubits, as long as a search of more than a million states on one core.
-So the search of each sector asks for them at most once, before the first weight limit at which it expects to reach `automorphism_minimum_states` states, a field of the tuning of `_tuning.py`.
+So the search of each problem, such as a sector of a CSS code, asks for them at most once, before the first weight limit at which it expects to reach `automorphism_minimum_states` states, a field of the tuning of `_tuning.py`.
 It expects the number of states of each weight limit to grow by the ratio between those of the last two.
 Waiting until it has visited that many states instead would let a search that prunes well run a whole weight limit without them: on the [[276, 98, 14]] code, that limit took nearly half of the time of the search.
 
@@ -219,20 +222,25 @@ If every vector of `ker(H)` has even weight, as for the pair-partition codes, wh
 
 **Exact distance.**
 Let `L` be the smallest weight that an unexamined witness can have, which is the divisor at first.
-`get_distance_connected_support` searches the sector with the lowest `L` through the weight limit `W = L`.
+`get_distance_connected_support` searches the problem with the lowest `L`, such as one of the sectors of a CSS code, through the weight limit `W = L`.
 A witness is then a lightest one if the earlier limits found none, since weights are multiples of the divisor.
 Otherwise every witness is heavier than `W`, and `L` rises to the next multiple of the divisor.
 This ends when `L` is at least the weight of the best known witness, the distance.
-A search never needs a good upper bound, and a search of one sector shares the bound of the other, as in BZ.
+A search never needs a good upper bound, and the searches of the sectors of a CSS code share their bounds, as in BZ.
 If `cutoff` is above `L`, the first limit is `cutoff`, and a witness of weight at most `cutoff` is returned at once.
 An upper bound from a known sector distance acts as a witness of that weight.
+
+**Interrupts.**
+Each weight limit of a problem runs in one compiled call, which a keyboard interrupt cannot stop, so an interrupt takes effect only once that weight limit ends.
+Python then reports it as a `SystemError` that wraps the interrupt.
+The last weight limits of the largest searches of [Section 2](#2-when-to-use-which-method) can take hours.
 
 ### 3.7 Qubit codes that are not CSS
 
 A Pauli operator on `n` qubits, up to a phase, is a symplectic vector `x = (a | b)` of `2n` bits, which has `X` on qubit `j` if `a_j = 1` and `b_j = 0`, `Z` if `a_j = 0` and `b_j = 1`, and `Y` if both are 1.
 Two operators commute if their symplectic product vanishes.
-Its weight is the number of qubits on which it is not the identity.
-For a qubit stabilizer code, `H` holds the stabilizers, and the words are the operators that commute with them; `G` holds the gauge generators, which are the stabilizers if the code is not a subsystem code.
+The weight of an operator is the number of qubits on which it is not the identity.
+For a qubit code, `H` holds the stabilizers, and the words are the operators that commute with them; `G` holds the gauge generators, which are the stabilizers if the code is not a subsystem code.
 The distance is the least weight of a word outside `rowspan(G)`, as in [Section 3.1](#31-the-problem), but with weight counting qubits.
 
 The search makes each qubit a variable, whose nonzero **values** are `X`, `Z`, and `Y`.
@@ -262,7 +270,8 @@ Each argument of Sections 3.2 to 3.6 carries over, with symbols where it uses va
 - **Pruning.**
   A completion `T` has one symbol on each new variable, so its size is the number of variables that it adds.
   The dual weights `y_c` must make the weights of the unsatisfied checks that each available symbol flips total at most one, and the overlap and repair of [Section 3.4](#34-pruning) are those of symbols.
-  A `Y` flips the checks that its `X` and its `Z` each flip alone, but not those that act as `Y` on its qubit, and so has a larger overlap, which lowers the weights.
+  A `Y` flips the checks that act on its qubit as `X` or as `Z`, while an `X` flips those that act as `Z` or `Y`, and a `Z` those that act as `X` or `Y`.
+  So a `Y` can flip more checks than either: in a CSS code with Hadamards, no check acts as `Y`, and a `Y` flips every check on its qubit, which raises overlaps and lowers the weights.
 - **Symmetries.**
   A permutation of the qubits moves both halves of each word, and qLDPC verifies it on the `2n` columns.
   The roots and ranks are those of variables, and the search from a root blocks every value of the variables of lower rank.
@@ -279,11 +288,11 @@ The names below are in `_search/connected_support.py`, unless the table says oth
 | Pair `(H, G)`, its words and witnesses | `checks` and `excluded` of `SupportSearch` and `get_distance_connected_support` |
 | Sectors of a CSS code | `CSSCode._get_parity_check_sector` in `src/qldpc/codes/common.py` |
 | Classical codes, and qubit codes that are not CSS | `ClassicalCode.get_distance_exact` and `QuditCode.get_distance_exact` in `src/qldpc/codes/common.py` |
-| Symplectic problems, values, and symbols | `homogeneous` of `SupportSearch`, its `_get_symbol_columns`, and `_block_other_values` |
+| Symplectic problems, values, and symbols | `homogeneous` of `SupportSearch`, its `_get_symbol_columns`, and `_shift_other_values` |
 | Distance of several sectors | `get_distance_connected_support`, which `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` reaches through `core.py` |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
-| Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` of `_search/automorphism_families.py` |
+| Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_search/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |
 | Weights, pruning, and the symbols that a state forbids for its subtree | `_get_branches` |
 | When a search asks for symmetries | `automorphism_minimum_states` of `SearchTuning` in `_tuning.py` |
@@ -328,6 +337,6 @@ Changes to the search can use other bounds and orders, while keeping these requi
 
 - K. Okada and K. Kasai, "Pair-partition constructions for CPM-based quantum LDPC codes", Section V, [arXiv:2607.14091](https://arxiv.org/abs/2607.14091): the connected-support search for the pair-partition codes, with the implementation in [kasaikenta/pair-partition-cpm-css-codes](https://github.com/kasaikenta/pair-partition-cpm-css-codes).
 - J. Y. Lee, K. Okada, N. Maskara, K. Kasai, and H. Zhou, "Design principles for ultra-high-rate quantum codes", [arXiv:2609.30069](https://arxiv.org/abs/2609.30069): the pair-partition codes, with the instances of [ultra-high-rate-qec/design-principles-data](https://github.com/ultra-high-rate-qec/design-principles-data).
-- G. Richter, "Finding small stopping sets in the Tanner graphs of LDPC codes", 4th International Symposium on Turbo Codes and Related Topics, 2006.
+- G. Richter, "Finding small stopping sets in the Tanner graphs of LDPC codes", 4th International Symposium on Turbo Codes and Related Topics and 6th International ITG-Conference on Source and Channel Coding, 2006, pp. 1–5.
 - E. Rosnes and Ø. Ytrehus, "An efficient algorithm to find all small-size stopping sets of low-density parity-check matrices", IEEE Transactions on Information Theory 55, 4167 (2009).
 - S. M. Khatami, L. Danjean, D. V. Nguyen, and B. Vasić, "An efficient exhaustive low-weight codeword search for structured LDPC codes", Information Theory and Applications Workshop, 2013, pp. 401–410.

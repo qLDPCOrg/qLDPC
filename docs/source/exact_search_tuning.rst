@@ -38,6 +38,9 @@ Start from a symptom
        No value limits the memory of a whole process.
    * - A keyboard interrupt takes long to take effect
      - Lower :attr:`~SearchTuning.enumeration_batch_exponent`, :attr:`~SearchTuning.information_set_batch_exponent`, :attr:`~SearchTuning.scan_chunk_size`, :attr:`~SearchTuning.scan_chunks_per_call`, or :attr:`~SearchTuning.macwilliams_chunk_size`.
+       A connected-support search takes an interrupt only between its weight limits, and no value changes that.
+   * - A cheap connected-support search spends its time finding automorphisms
+     - Raise :attr:`~SearchTuning.automorphism_minimum_states`.
    * - Completion tables are used, or declined, against measured savings
      - Refit the fields of their cost model, as :ref:`Retuning <tuning-retuning>` describes.
 

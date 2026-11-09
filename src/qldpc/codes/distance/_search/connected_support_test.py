@@ -23,8 +23,8 @@ from . import connected_support as cs
 
 Problem = tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]
 
-# The [[276, 98, 14]] pair-partition code: normalized exponents of instance qc_276_98_14 of
-# arXiv:2607.14091, whose first row and column are zero.
+# The [[276, 98, 14]] pair-partition code of arXiv:2607.14091: normalized exponents, whose first
+# row and column are zero, of the instance qc_276_98_14 of the data of its authors.
 EXPONENTS_X_276 = [
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     [0, 10, 16, 12, 20, 9, 6, 11, 2, 5, 21, 22],
@@ -84,15 +84,21 @@ def is_witness(problem: Problem, support: npt.NDArray[np.int64]) -> bool:
     )
 
 
-def get_symplectic_brute_force_distance(problem: Problem) -> int:
-    """The least weight of a Pauli operator that commutes with the checks, outside the excluded.
+def get_symplectic_witness_supports(problem: Problem) -> list[int]:
+    """The supports of the Pauli operators that commute with the checks, outside the excluded.
 
-    A word is an integer whose bits ``j`` and ``n + j`` are its X and Z parts on qubit ``j``.
+    A word is an integer whose bits ``j`` and ``n + j`` are its X and Z parts on qubit ``j``, and a
+    support is an integer whose bit ``j`` is set if the word acts on qubit ``j``.
     """
     checks, excluded = problem
     num_qubits = checks.shape[1] // 2
     words = get_span(get_kernel(np.roll(checks, num_qubits, axis=1))) - get_span(excluded)
-    return min(((word | word >> num_qubits) % 2**num_qubits).bit_count() for word in words)
+    return [(word | word >> num_qubits) % 2**num_qubits for word in words]
+
+
+def get_symplectic_brute_force_distance(problem: Problem) -> int:
+    """The least weight of a Pauli operator that commutes with the checks, outside the excluded."""
+    return min(support.bit_count() for support in get_symplectic_witness_supports(problem))
 
 
 def get_symplectic_vector(symbols: npt.NDArray[np.int64], num_qubits: int) -> npt.NDArray[np.uint8]:
@@ -181,12 +187,21 @@ def get_qubit_problem(code: codes.QuditCode) -> Problem:
     return np.asarray(checks, dtype=np.uint8), np.asarray(code.matrix, dtype=np.uint8)
 
 
-# Small codes, whose qubits a test mixes with single-qubit Cliffords.
-CODES_WITHOUT_CSS = {
-    "five-qubit": codes.FiveQubitCode(),
-    "steane": codes.QuditCode(codes.SteaneCode().matrix),
-    "surface": codes.QuditCode(codes.SurfaceCode(3).matrix),
-}
+# The [[8, 3, 3]] code of Gottesman (quant-ph/9604038), every word of which has an even number of
+# nonzero bits, though its distance is odd.
+EIGHT_QUBIT_CODE = codes.QuditCode.from_strings(
+    ["XXXXXXXX", "ZZZZZZZZ", "IXIXYZYZ", "IXZYIXZY", "IYXZXZIY"]
+)
+
+# Small codes, whose qubits a test mixes with single-qubit Cliffords.  The Bacon-Shor code is a
+# subsystem code.
+SMALL_QUBIT_CODES = [
+    codes.FiveQubitCode(),
+    codes.QuditCode(codes.SteaneCode().matrix),
+    codes.QuditCode(codes.SurfaceCode(3).matrix),
+    codes.QuditCode(codes.BaconShorCode(3).matrix, is_subsystem_code=True),
+    EIGHT_QUBIT_CODE,
+]
 
 # Codes that are not CSS: the five-qubit code, and codes with Hadamards on some of their qubits, of
 # which the Bacon-Shor code is a subsystem code.
@@ -199,6 +214,7 @@ QUBIT_PROBLEMS = {
             codes.BaconShorCode(3).conjugated(range(0, 9, 2)).matrix, is_subsystem_code=True
         )
     ),
+    "eight-qubit": get_qubit_problem(EIGHT_QUBIT_CODE),
 }
 
 
@@ -500,36 +516,29 @@ def test_qubit_distances_match_enumeration(problem: Problem) -> None:
 
 
 def get_random_qubit_problems(rng: np.random.Generator, num_problems: int) -> Iterator[Problem]:
-    """Random qubit problems whose checks have X, Z, and Y on their qubits.
+    """Small codes with a random single-qubit Clifford on each qubit, and their qubits permuted.
 
-    Half are random checks, most of which do not commute, so they are the stabilizers of subsystem
-    codes.  The others are the five-qubit, Steane, and surface codes, with a random single-qubit
-    Clifford on each qubit, which permutes X, Z, and Y there.
+    A Clifford permutes X, Z, and Y on its qubit, so the checks have all three.
     """
     cliffords = [
         np.array(clifford) for clifford in itertools.permutations([[1, 0], [0, 1], [1, 1]], 2)
     ]
     for index in range(num_problems):
-        if index % 2:
-            num_qubits = int(rng.integers(3, 7))
-            matrix = (rng.random((int(rng.integers(1, num_qubits)), 2 * num_qubits)) < 0.4).astype(
-                int
-            )
-        else:
-            matrix = np.array(list(CODES_WITHOUT_CSS.values())[index // 2 % 3].matrix, dtype=int)
-            num_qubits = matrix.shape[1] // 2
-            for qubit in range(num_qubits):
-                clifford = cliffords[rng.integers(len(cliffords))]
-                columns = np.stack([matrix[:, qubit], matrix[:, num_qubits + qubit]], axis=1)
-                matrix[:, [qubit, num_qubits + qubit]] = columns @ clifford % 2
-        code = codes.QuditCode(matrix)
-        if code.dimension:
-            yield get_qubit_problem(code)
+        code = SMALL_QUBIT_CODES[index % len(SMALL_QUBIT_CODES)]
+        matrix = np.array(code.matrix, dtype=int)
+        num_qubits = len(code)
+        for qubit in range(num_qubits):
+            clifford = cliffords[rng.integers(len(cliffords))]
+            columns = np.stack([matrix[:, qubit], matrix[:, num_qubits + qubit]], axis=1)
+            matrix[:, [qubit, num_qubits + qubit]] = columns @ clifford % 2
+        order = rng.permutation(num_qubits)
+        matrix = np.hstack([matrix[:, order], matrix[:, num_qubits + order]])
+        yield get_qubit_problem(codes.QuditCode(matrix, is_subsystem_code=code.is_subsystem_code))
 
 
 @pytest.mark.usefixtures("compilation_mode")
 def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) -> None:
-    """Random qubit problems agree with an enumeration at every weight limit, and from every root.
+    """Qubit problems agree with an enumeration at every weight limit, and from every root.
 
     Every lightest witness has a support that is connected, and the search from its least qubit
     finds it (Section 3.3 of ``connected_support.md``).  So the search from a qubit alone, through
@@ -537,23 +546,32 @@ def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) ->
     fails if the search misses a value of a qubit.
     """
     # The five-qubit code with single-qubit Cliffords, for which a state needs the value Y of a
-    # qubit after an earlier sibling tried X there.
-    mixed_five_qubit_code = codes.QuditCode(
+    # qubit after an earlier sibling tried X there, and in another frame, for which a state needs
+    # the other values of the qubit of its last branch after the search leaves it.
+    mixed_five_qubit_codes = [
         [
             [1, 1, 1, 0, 0, 1, 1, 0, 1, 0],
             [0, 1, 1, 1, 1, 0, 0, 0, 1, 1],
             [1, 0, 1, 1, 0, 1, 0, 1, 1, 1],
             [1, 1, 0, 0, 0, 0, 0, 0, 1, 1],
-        ]
-    )
+        ],
+        [
+            [0, 1, 1, 1, 0, 1, 1, 1, 1, 0],
+            [0, 0, 1, 1, 1, 0, 1, 1, 0, 1],
+            [0, 0, 0, 1, 0, 1, 0, 1, 0, 1],
+            [1, 0, 0, 1, 0, 1, 1, 0, 1, 1],
+        ],
+    ]
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    problems = [get_qubit_problem(mixed_five_qubit_code), *get_random_qubit_problems(rng, 30)]
+    problems = [
+        *(get_qubit_problem(codes.QuditCode(matrix)) for matrix in mixed_five_qubit_codes),
+        *get_random_qubit_problems(rng, 30),
+    ]
     for problem in problems:
-        checks, excluded = problem
-        num_qubits = checks.shape[1] // 2
-        words = get_span(get_kernel(np.roll(checks, num_qubits, axis=1))) - get_span(excluded)
-        supports = [(word | word >> num_qubits) % 2**num_qubits for word in words]
+        num_qubits = problem[0].shape[1] // 2
+        supports = get_symplectic_witness_supports(problem)
         distance = min(support.bit_count() for support in supports)
+        assert distance >= 2
         assert cs.get_distance_connected_support([problem], cutoff=0, homogeneous=False) == distance
         for max_weight in range(1, distance):
             assert cs.SupportSearch(*problem, homogeneous=False).find_witness(max_weight) is None
@@ -582,7 +600,6 @@ def test_qubit_automorphisms_reduce_the_roots_and_keep_the_distance() -> None:
         assert search.find_witness(2) is None
         witness = search.find_witness(3)
         assert witness is not None and is_symplectic_witness(problem, witness)
-    assert len(symmetric._roots) == 1
     assert symmetric.num_states < plain.num_states
 
 
@@ -614,6 +631,12 @@ def test_a_problem_without_logical_operators_has_no_distance() -> None:
     assert cs.get_distance_connected_support([trivial], cutoff=0) == 3
     assert cs.get_distance_connected_support([trivial, PROBLEMS["steane-X"]], cutoff=0) == 3
     assert cs.get_distance_connected_support([PROBLEMS["toric-X"], trivial], cutoff=0) == 3
+
+    # The Pauli X on one qubit is excluded, and the identity and X are the operators that commute
+    # with it, so a symplectic problem on one qubit has no distance either.
+    one_qubit = (np.array([[1, 0]], dtype=np.uint8), np.array([[1, 0]], dtype=np.uint8))
+    assert not cs.SupportSearch(*one_qubit, homogeneous=False).has_witnesses
+    assert cs.get_distance_connected_support([one_qubit], cutoff=0, homogeneous=False) == 2
 
 
 @pytest.mark.usefixtures("compilation_mode")

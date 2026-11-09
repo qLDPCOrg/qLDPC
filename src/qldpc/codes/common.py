@@ -547,9 +547,8 @@ class ClassicalCode(AbstractCode):
 
         # we do not know the exact distance, so compute it
         if self.field is galois.GF2 and vector is None and method == "connected_support":
-            checks = np.asarray(self.matrix, dtype=np.uint8)
             distance = _get_distance_connected_support(
-                [(checks, np.zeros((0, len(self)), dtype=np.uint8))], cutoff=cutoff
+                [(self.matrix, np.zeros((0, len(self)), dtype=np.uint8))], cutoff=cutoff
             )
             if cutoff <= 1:
                 self._distance = int(distance)
@@ -1965,11 +1964,11 @@ class QuditCode(AbstractCode):
             return known_distance
 
         # A dressed logical operator commutes with the stabilizers, and is trivial if it is in the
-        # gauge group, which the checks of this code generate.
+        # gauge group, which the rows of self.matrix generate.
         if self.field is galois.GF2 and method == "connected_support":
             checks = self.get_stabilizer_ops() if self.is_subsystem_code else self.matrix
             distance = _get_distance_connected_support(
-                [(np.asarray(checks, dtype=np.uint8), np.asarray(self.matrix, dtype=np.uint8))],
+                [(checks, self.matrix)],
                 cutoff=cutoff,
                 homogeneous=False,
                 get_automorphisms=lambda: self._found_qudit_automorphisms,
@@ -3532,12 +3531,12 @@ class CSSCode(QuditCode):
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
                 alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
                 operator.  ``"connected_support"`` searches supports that are connected in the
-                Tanner graph of the parity checks, which is fast for sparse parity checks, and
+                Tanner graph of the stabilizers, which is fast for sparse stabilizers, and
                 especially at a high rate.  Its guide, ``connected_support.md`` in
                 ``src/qldpc/codes/distance/`` of the qLDPC repository, says when to use it.
                 Closed forms that search classical codes, such as those of hypergraph product
-                codes, search them with Brouwer-Zimmermann instead.  Nonbinary calculations use
-                exhaustive enumeration, and reject ``"connected_support"``.
+                codes, search them with the same method.  Nonbinary calculations use exhaustive
+                enumeration, and reject ``"connected_support"``.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.

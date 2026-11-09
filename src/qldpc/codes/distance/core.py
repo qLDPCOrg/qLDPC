@@ -231,7 +231,7 @@ def _get_distance_quantum(
     method = _validate_distance_method(method)
     _reject_connected_support(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
-    logical_matrix, stabilizer_matrix = _as_binary_matrices(logical_ops, stabilizers)
+    logical_matrix, stabilizer_matrix = _as_operator_matrices(logical_ops, stabilizers)
     num_bits = logical_matrix.shape[1]
     physical_size = num_bits if homogeneous else num_bits // 2
     if not homogeneous and num_bits % 2:
@@ -314,7 +314,7 @@ def _get_distance_css_brouwer_zimmermann(
     problems: list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]] = []
     no_distance_bound: int | None = None
     for logical_ops, stabilizers in sectors:
-        logical_matrix, stabilizer_matrix = _as_binary_matrices(logical_ops, stabilizers)
+        logical_matrix, stabilizer_matrix = _as_operator_matrices(logical_ops, stabilizers)
         basis, labels = get_nested_code_basis(logical_matrix, stabilizer_matrix)
         if labels.shape[1]:
             problems.append((basis, labels))
@@ -354,19 +354,12 @@ def _get_distance_connected_support(
     Each problem is a pair ``(checks, excluded)`` of binary matrices with equal widths, such as a
     sector of a CSS code, the parity checks of a classical code with nothing excluded, or the
     symplectic stabilizers and gauge generators of a qubit code (``homogeneous=False``).  This
-    function converts the problems to binary matrices, and checks them.  Its other arguments, its
-    result, and its errors are those of ``get_distance_connected_support`` in
-    ``_search/connected_support.py``, which it calls.
-
-    Raises:
-        ValueError: If the matrices of a problem are not binary matrices of equal width.
+    function searches them with the active tuning.  Its other arguments, its result, and its errors
+    are those of ``get_distance_connected_support`` in ``_search/connected_support.py``, which
+    validates the problems.
     """
-    binary_problems = [
-        _as_binary_matrices(checks, excluded, names=("checks", "excluded"))
-        for checks, excluded in problems
-    ]
     return get_distance_connected_support(
-        binary_problems,
+        problems,
         cutoff=cutoff,
         upper_bound=upper_bound,
         homogeneous=homogeneous,
@@ -375,21 +368,17 @@ def _get_distance_connected_support(
     )
 
 
-def _as_binary_matrices(
-    first: npt.ArrayLike,
-    second: npt.ArrayLike,
-    *,
-    names: tuple[str, str] = ("logical_ops", "stabilizers"),
+def _as_operator_matrices(
+    logical_ops: npt.ArrayLike, stabilizers: npt.ArrayLike
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
-    """Check that two arrays are binary, and return them as matrices with the same width.
+    """Check that logical operators and stabilizers are binary, and return them as matrices.
 
-    The second array must have as many columns as the first.  An error for an array that is not
-    binary names it as in ``names``.
+    The stabilizers must have as many columns as the logical operators.
     """
-    assert_binary(first, names[0])
-    assert_binary(second, names[1])
-    first_matrix = as_binary_matrix(first)
-    return first_matrix, as_binary_matrix(second, num_cols=first_matrix.shape[1])
+    assert_binary(logical_ops, "logical_ops")
+    assert_binary(stabilizers, "stabilizers")
+    logical_matrix = as_binary_matrix(logical_ops)
+    return logical_matrix, as_binary_matrix(stabilizers, num_cols=logical_matrix.shape[1])
 
 
 def _get_weight_limit(cutoff: int, max_weight: SupportsIndex | None) -> tuple[int, int | None]:

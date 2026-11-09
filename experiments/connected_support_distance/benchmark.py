@@ -34,6 +34,7 @@ Examples (run them under a guard, such as a hard deadline, as some searches run 
     python experiments/connected_support_distance/benchmark.py 110 232 276
     python experiments/connected_support_distance/benchmark.py 232 --methods brouwer_zimmermann
     python experiments/connected_support_distance/benchmark.py gross surface:11 surface:15
+    python experiments/connected_support_distance/benchmark.py 110 232 --hadamards
 
 Section 2 of the guide lists the times of the instances with both methods, some of which take hours
 or more.

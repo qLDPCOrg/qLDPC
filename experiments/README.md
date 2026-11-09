@@ -118,7 +118,8 @@ python experiments/connected_support_distance/benchmark.py 110 232 --hadamards
 The option `--hadamards` applies Hadamards to the second half of the qubits of each code, and times the resulting code, which is not CSS.
 
 Numba compiles the searches on first use, so run the script twice for the times of a warm cache.
-Some searches run for hours or more, so run it under a deadline; Section 2 of the guide lists the times of the instances.
+Some searches run for hours or more, so run it under a deadline.
+Section 2 of the guide lists the times of the instances.
 
 ## Lattice surgery
 

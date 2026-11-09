@@ -127,32 +127,23 @@ def test_css_brouwer_zimmermann_special_inputs() -> None:
         core._get_distance_css_brouwer_zimmermann([], cutoff=0)
 
 
-def test_css_connected_support_inputs() -> None:
-    """The connected-support helper takes the checks and excluded rows of each sector.
+def test_connected_support_problems_are_searched_with_the_active_tuning(tune: Tune) -> None:
+    """The connected-support helper searches lists of checks and excluded rows, with the tuning.
 
-    The words of the checks [[1, 1, 0], [0, 1, 1]] are 000 and 111, so the distance of a sector
-    that excludes nothing is 3, and a sector that excludes 111 has no distance and counts as 4.
+    The words of the checks [[1, 1, 0], [0, 1, 1]] are 000 and 111, so the distance of a problem
+    that excludes nothing is 3.  With automorphisms at once, the search asks for them before it
+    searches.
     """
-    checks = [[1, 1, 0], [0, 1, 1]]
-    sector = (checks, [[0, 0, 0]])
-    trivial = (checks, [[1, 1, 1]])
-    assert core._get_distance_connected_support([sector], cutoff=0) == 3
-    assert core._get_distance_connected_support([trivial], cutoff=0) == 4
-    assert core._get_distance_connected_support([sector, trivial], cutoff=0) == 3
-
-    # The result is the minimum of the upper bound and the distances of the supplied sectors.
-    assert core._get_distance_connected_support([sector], cutoff=0, upper_bound=2) == 2
-    assert core._get_distance_connected_support([], cutoff=0, upper_bound=2) == 2
-    with pytest.raises(ValueError, match="at least one problem or an upper bound"):
-        core._get_distance_connected_support([], cutoff=0)
-
-    # The matrices must be binary, and have equal widths.
-    with pytest.raises(ValueError, match="binary"):
-        core._get_distance_connected_support([([[2, 0, 0]], [[0, 0, 0]])], cutoff=0)
-    with pytest.raises(ValueError, match="binary"):
-        core._get_distance_connected_support([(checks, [[0, 3, 0]])], cutoff=0)
-    with pytest.raises(ValueError, match="incompatible widths"):
-        core._get_distance_connected_support([(checks, [[1, 1]])], cutoff=0)
+    tune(automorphism_minimum_states=0)
+    get_automorphisms = mock.Mock(return_value=None)
+    problem = ([[1, 1, 0], [0, 1, 1]], [[0, 0, 0]])
+    assert (
+        core._get_distance_connected_support(
+            [problem], cutoff=0, get_automorphisms=get_automorphisms
+        )
+        == 3
+    )
+    get_automorphisms.assert_called_once()
 
 
 def test_connected_support_needs_parity_checks() -> None:

@@ -32,7 +32,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 
 | To change… | Look in (this directory) |
 | --- | --- |
-| A distance method, or the validation of method and backend names | `core.py`, and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact`, `get_distance`, and `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py`, and the closed forms in `src/qldpc/codes/quantum/hypergraph_product.py` dispatch on the method name, the last through `_get_classical_distance_method` of `core.py` |
+| A distance method, or the validation of method and backend names | `core.py`, and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact`, `get_distance`, and `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` dispatch on the method name |
 | The Brouwer–Zimmermann (BZ) distance search | `_search/brouwer_zimmermann.py` |
 | The connected-support distance search | `_search/connected_support.py` |
 | How basis families and their certificates are built | `_search/information_sets.py` |
