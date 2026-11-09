@@ -277,6 +277,88 @@ def test_lifted_product_translations() -> None:
         assert_valid_translations(code, translations, group_order=6)
 
 
+def test_lifted_product_translations_require_group_algebra() -> None:
+    """Block translations are known only for lifted products over group algebras."""
+    ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
+    matrix = abstract.RingArray([[ring.one + ring.generators[0]]])
+    for code in (codes.LPCode(matrix), codes.SLPCode(matrix)):
+        assert code._get_qudit_automorphisms() is None
+
+
+def test_lifted_product_over_matrix_rings() -> None:
+    """Lifted products over matrix rings match those over isomorphic group algebras."""
+
+    def get_matrices(ring: abstract.Ring) -> tuple[abstract.RingArray, abstract.RingArray]:
+        x = ring.generators[0]
+        return (
+            abstract.RingArray.build([[ring.one - x, x]], ring),
+            abstract.RingArray.build([[x], [ring.one - x]], ring),
+        )
+
+    # the involution of this ring is not the identity, and the field has odd characteristic
+    group_ring = abstract.GroupRing(abstract.CyclicGroup(3), field=3)
+    ring = abstract.MatrixRing(group_ring.lift(group_ring.group.generators[0]))
+    assert ring.generators[0].T != ring.generators[0]
+    for code_type in [codes.LPCode, codes.SLPCode]:
+        code = code_type(*get_matrices(ring))
+        expected_code = code_type(*get_matrices(group_ring))
+        assert np.array_equal(code.matrix_x, expected_code.matrix_x)
+        assert np.array_equal(code.matrix_z, expected_code.matrix_z)
+
+
+def test_lifted_product_ring_requirements() -> None:
+    """Lifted products check the requirements on their rings."""
+    units = [np.array([[0, 1], [0, 0]]), np.array([[0, 0], [1, 0]])]
+    noncommutative_ring = abstract.MatrixRing(np.diag([1, 0]), units[0])  # with no involution
+    assert not noncommutative_ring.is_commutative and not noncommutative_ring.has_involution
+    matrix = abstract.RingArray.build([[1, noncommutative_ring.generators[1]]], noncommutative_ring)
+    for code_type in [codes.LPCode, codes.SLPCode]:
+        with pytest.raises(NotImplementedError, match="only for group algebras"):
+            code_type(matrix)
+
+    # a noncommutative group algebra must use the default lift
+    group_ring = abstract.GroupRing(abstract.SymmetricGroup(3).with_natural_lift())
+    matrix = abstract.RingArray.build([[1, group_ring.generators[0]]], group_ring)
+    for code_type in [codes.LPCode, codes.SLPCode]:
+        with pytest.raises(ValueError, match="Anti-representations"):
+            code_type(matrix)
+
+    # an SLPCode accepts a ring without an involution
+    ring = abstract.MatrixRing(units[1])
+    assert not ring.has_involution and ring.is_commutative
+    matrix = abstract.RingArray.build([[ring.generators[0]]], ring)
+    with pytest.raises(ValueError, match="no involution"):
+        codes.LPCode(matrix)
+    subsystem_code = codes.SLPCode(matrix)
+    assert np.array_equal(subsystem_code.matrix_x, matrix.lift())
+    assert np.array_equal(subsystem_code.matrix_z, matrix.lift())
+
+    # lifted products use the size of lifted matrices, here larger than the dimension of the ring
+    ring = abstract.MatrixRing(np.diag([1, 0, 0]))
+    assert ring.dim == 2 and ring.lift_dim == 3
+    matrix = abstract.RingArray.build([[ring.generators[0]]], ring)
+    code = codes.LPCode(matrix)
+    assert code.num_qudits == code.sector_size[0, 0] + code.sector_size[1, 1] == 6
+
+    # canonical logical operators need the Wedderburn-Artin decomposition of a group algebra
+    for code_type in [codes.LPCode, codes.SLPCode]:
+        with pytest.raises(ValueError, match="Cannot set canonical logical operators") as error:
+            code_type(matrix, set_logicals=True)
+        assert isinstance(error.value.__cause__, NotImplementedError)
+
+
+def test_lifted_product_translations_with_larger_lifts() -> None:
+    """Translations of lifted products act on blocks of the size of lifted matrices."""
+    group = abstract.Group.from_generating_mats(np.kron(np.eye(2, dtype=int), [[0, 1], [1, 0]]))
+    assert group.order == 2 and group.lift_dim == 4
+    ring = abstract.GroupRing(group)
+    matrix = abstract.RingArray.build([[ring.one + ring.generators[0]]], ring)
+    for code in (codes.LPCode(matrix), codes.SLPCode(matrix)):
+        translations = code._get_qudit_automorphisms()
+        assert translations is not None
+        assert_valid_translations(code, translations, group_order=group.order)
+
+
 def test_lifted_product_with_non_orthogonal_lifts() -> None:
     """LPCode verifies that its X and Z checks commute when lifts are not orthogonal."""
     # the first generator of this group lifts to an orthogonal matrix, and the second does not
@@ -350,16 +432,7 @@ def test_canonical_logicals_with_non_orthogonal_lifts() -> None:
         with pytest.raises(ValueError):
             code_type.to_lifted_logical_ops(*ring_ops)
         for matrix in [matrix_with_invalid_ops, matrix_with_unliftable_ops]:
-            with pytest.raises(ValueError, match=r"canonical logical operators.*not orthogonal"):
+            with pytest.raises(
+                ValueError, match=r"canonical logical operators.*does not transpose"
+            ):
                 code_type(matrix, set_logicals=True)
-
-
-def test_lifted_products_require_group_algebras() -> None:
-    """Lifted products are implemented only for group algebras."""
-    ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
-    group_ring = abstract.GroupRing(abstract.CyclicGroup(2))
-    matrix, group_matrix = abstract.RingArray([[ring.one]]), abstract.RingArray([[group_ring.one]])
-    for code_type in [codes.LPCode, codes.SLPCode]:
-        for matrices in [(matrix, group_matrix), (group_matrix, matrix)]:
-            with pytest.raises(NotImplementedError, match="only for group algebras"):
-                code_type(*matrices)
