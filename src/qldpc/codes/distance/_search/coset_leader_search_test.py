@@ -17,9 +17,9 @@ from qldpc import math
 from qldpc._binary import get_kernel, row_reduce_binary
 
 from ...conftest import Tune
-from .._tuning import DEFAULT_TUNING
+from .._tuning import DEFAULT_TUNING, use_tuning
 from . import coset_leader_search, information_sets
-from .coset_leader_search import CosetLeaderSearch
+from .coset_leader_search import CosetLeaderSearch, MinWeightBound
 
 
 def _stabilizer_matrix(generators: Sequence[stim.PauliString]) -> npt.NDArray[np.uint8]:
@@ -153,13 +153,17 @@ def _scramble(matrix: npt.NDArray[np.uint8], rng: np.random.Generator) -> npt.ND
     return (upper[rng.permutation(size)] @ matrix) % 2
 
 
-def _css_minima(matrix: npt.NDArray[np.uint8]) -> npt.NDArray[np.int_]:
-    """The smallest CSS weight of an error with each packed syndrome, from all ``4**n`` Paulis."""
+def _css_minima(matrix: npt.NDArray[np.uint8], css_weight: bool = True) -> npt.NDArray[np.int_]:
+    """The smallest CSS (or physical) weight of an error with each packed syndrome.
+
+    The minima come from all ``4**n`` Paulis.
+    """
     n = len(matrix)
     errors = (np.arange(1 << (2 * n))[:, None] >> np.arange(2 * n)) & 1
     checks = math.symplectic_conjugate(matrix.astype(int))
     syndromes = (errors @ checks.T % 2) @ (1 << np.arange(n))
-    weights = np.maximum(errors[:, :n].sum(axis=1), errors[:, n:].sum(axis=1))
+    x, z = errors[:, :n], errors[:, n:]
+    weights = np.maximum(x.sum(axis=1), z.sum(axis=1)) if css_weight else (x | z).sum(axis=1)
     minima = np.full(1 << n, 2 * n + 1)
     np.minimum.at(minima, syndromes, weights)
     return minima
@@ -416,33 +420,6 @@ def test_css_weight_minimizes_both_sectors_jointly() -> None:
 
 
 @pytest.mark.usefixtures("compilation_mode")
-def test_layers_reach_their_last_support() -> None:
-    """A layer visits every support, including the last one.
-
-    The rows are unit words and the offset is the sum of the last ``layer`` rows, so that only the
-    last support of the layer gives the zero word.
-    """
-    for num_rows in range(1, 7):
-        rows = (np.uint64(1) << np.arange(num_rows, dtype=np.uint64)).reshape(1, num_rows, 1)
-        for layer in range(1, num_rows + 1):
-            offset = np.bitwise_xor.reduce(rows[0, num_rows - layer :])
-            best = np.empty(1, dtype=np.uint64)
-            weight = coset_leader_search._visit_layer(
-                offset,
-                rows,
-                np.ones(1, dtype=np.int64),
-                np.empty(layer, dtype=np.int64),
-                np.empty((layer, 1, 1), dtype=np.uint64),
-                0,
-                best,
-                np.int64(num_rows),
-                np.zeros(1, dtype=np.uint64),
-                False,
-            )
-            assert weight == 0 and best[0] == 0
-
-
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize(("syndrome", "minimum"), [(44, 2), (108, 3)])
 def test_rank_deficient_information_sets_give_valid_bounds(syndrome: int, minimum: int) -> None:
     """Rank-deficient sets give valid bounds whether a weight-two error exists or not.
@@ -529,6 +506,67 @@ def test_bounds_match_per_block_minima(
                 assert bound.lower_bound > max_weight
 
 
+# Queries on three four-qubit blocks: the block, the weight (True for the CSS weight), the syndrome,
+# the maximum weight, and the answer.  The representatives and bounds are those of the documented
+# search order: layer zero (the word of the syndrome, then the offset of each information set),
+# then each later layer set by set, keeping only strictly lighter words, until a word is light
+# enough or the certificate stops the search.  In several cases an offset of layer zero weighs as
+# much as the word of the syndrome, and the bound comes from the certificate, below the weight of
+# the representative.  Block minima (see ``_block_minimum``) independently check each answer.
+_ORDERED_QUERIES = [
+    (_GHZ_BLOCK, False, 742, 2, MinWeightBound(False, 338, 3)),
+    (_GHZ_BLOCK, False, 742, 3, MinWeightBound(False, 338, 4)),
+    (_GHZ_BLOCK, False, 350, 4, MinWeightBound(False, 1114165, 5)),
+    (_GHZ_BLOCK, False, 734, 2, MinWeightBound(False, 282949, 3)),
+    (_GHZ_BLOCK, False, 734, 4, MinWeightBound(True, 282949, 2)),
+    (_PHASED_GHZ_BLOCK, True, 2635, 2, MinWeightBound(False, 1737, 3)),
+    (_PHASED_GHZ_BLOCK, True, 2635, 4, MinWeightBound(False, 1737, 5)),
+    (_PHASED_GHZ_BLOCK, True, 110, 2, MinWeightBound(False, 42, 3)),
+    (_PHASED_GHZ_BLOCK, True, 1967, 5, MinWeightBound(True, 8421994, 2)),
+    (_GHZ_BLOCK, True, 2635, 2, MinWeightBound(False, 5686, 3)),
+    (_GHZ_BLOCK, True, 2635, 3, MinWeightBound(False, 5686, 4)),
+    (_GHZ_BLOCK, True, 350, 3, MinWeightBound(False, 1114165, 4)),
+]
+
+
+@pytest.mark.usefixtures("compilation_mode")
+def test_queries_return_the_word_and_bound_of_the_search_order() -> None:
+    """Single and batch queries return the representatives and bounds of the search order.
+
+    A batch of two syndromes of single-qubit errors, which every query accepts, and then the
+    syndrome of the case, stops at the case if its answer is no, with the same bound.
+    """
+    for block, css_weight, syndrome, max_weight, expected in _ORDERED_QUERIES:
+        num_qubits = 3 * len(block)
+        matrix = _stabilizer_matrix(_block_generators(block, 3))
+        oracle = CosetLeaderSearch(matrix, css_weight=css_weight)
+        bound = oracle.get_min_weight_bound(syndrome, max_weight)
+        assert bound == expected
+
+        # The answer is sound for the block minima.
+        local = [
+            [(syndrome >> (len(block) * index + jj)) & 1 for jj in range(len(block))]
+            for index in range(3)
+        ]
+        minimum = _block_minimum(block, local, css_weight)
+        assert _get_syndrome(matrix, bound.representative) == syndrome
+        assert bound.within_max_weight == (minimum <= max_weight)
+        assert (
+            bound.lower_bound
+            <= minimum
+            <= _pauli_weight(bound.representative, num_qubits, css_weight)
+        )
+
+        words = _syndrome_words(
+            [_get_syndrome(matrix, 1), _get_syndrome(matrix, 1 << num_qubits), syndrome], num_qubits
+        )
+        index, batch_bound = oracle.find_first_not_within_max_weight(words, max_weight)
+        if expected.within_max_weight:
+            assert (index, batch_bound) == (3, None)
+        else:
+            assert (index, batch_bound) == (2, expected)
+
+
 @pytest.mark.usefixtures("compilation_mode")
 def test_css_bounds_match_exhaustive_minima(pytestconfig: pytest.Config) -> None:
     """On random CSS states, both queries for the CSS weight agree with exhaustive minima.
@@ -590,8 +628,9 @@ def test_oracles_use_the_tuning_with_which_they_are_built(
 ) -> None:
     """An oracle packs its information sets with the column orders of the tuning that built it.
 
-    The cached searches of a CSS state are keyed by those orders too, so an oracle built under other
-    orders builds its own, and one built under the same orders reuses them.
+    The cached searches of a CSS state, and the cached search of Pauli errors of a state that is
+    not CSS, as with phases on two qubits, are keyed by those orders too.  So an oracle built under
+    other orders builds its own searches, and one built under the same orders reuses them.
     """
     orders: list[int] = []
     get_disjoint_sets = information_sets._get_disjoint_sets
@@ -603,17 +642,120 @@ def test_oracles_use_the_tuning_with_which_they_are_built(
     monkeypatch.setattr(information_sets, "_get_disjoint_sets", record)
     eye, zeros = np.eye(3, dtype=np.uint8), np.zeros((3, 3), dtype=np.uint8)
     zero_plus = np.block([[zeros, eye, zeros, zeros], [zeros, zeros, eye, zeros]])
+    phased = _graph_state(2, [(0, 1)], phase=True)
     coset_leader_search._get_css_searches.cache_clear()
+    coset_leader_search._get_pauli_search.cache_clear()
     CosetLeaderSearch(zero_plus, css_weight=True)
+    CosetLeaderSearch(phased, css_weight=True)
     tune(disjoint_random_column_orders=3)
     CosetLeaderSearch(zero_plus, css_weight=True)
     CosetLeaderSearch(zero_plus, css_weight=True)
     info = coset_leader_search._get_css_searches.cache_info()
     assert (info.misses, info.hits) == (2, 1)
-    # A state that is not CSS, as with phases on two qubits, gets a search of Pauli errors.
-    CosetLeaderSearch(_graph_state(2, [(0, 1)], phase=True), css_weight=True)
+    CosetLeaderSearch(phased, css_weight=True)
+    CosetLeaderSearch(phased, css_weight=True)
     default = DEFAULT_TUNING.disjoint_random_column_orders
-    assert orders == [default, default, 3, 3, 3]
+    assert orders == [default, default, default, 3, 3, 3]
+
+
+def test_cached_pauli_searches_answer_for_their_own_stabilizers_and_weight() -> None:
+    """Oracles built in turn answer exactly for their own stabilizers and weight.
+
+    The product states with stabilizers ``Y__``, ``_Z_``, ``__X`` and ``X__``, ``_Y_``, ``__Z`` are
+    not CSS, so their oracles search Pauli errors by either weight, and both have three qubits.  The
+    generators ``Y__``, ``YZ_``, ``__X`` of the first state give other syndromes to the same errors.
+    In the first state, ``Z0 X1`` has the syndrome ``0b011`` and CSS weight one, but no error with
+    that syndrome has physical weight below two.  Oracles are built for every state and weight under
+    three tunings of the setup of their searches, and queried only once all are built, so that each
+    answers after every search is cached.
+    """
+    states = [
+        _product_state(generators)
+        for generators in (("Y__", "_Z_", "__X"), ("Y__", "YZ_", "__X"), ("X__", "_Y_", "__Z"))
+    ]
+    coset_leader_search._get_pauli_search.cache_clear()
+    oracles = []
+    for changes in ({}, {"max_css_single_pairs": 0}, {"disjoint_random_column_orders": 3}):
+        with use_tuning(**changes):
+            for matrix, css_weight in itertools.product(states, (False, True)):
+                oracles.append(
+                    (matrix, css_weight, CosetLeaderSearch(matrix, css_weight=css_weight))
+                )
+    physical_bound = oracles[0][2].get_min_weight_bound(0b011, 1)
+    assert not physical_bound.within_max_weight and physical_bound.lower_bound == 2
+    css_bound = oracles[1][2].get_min_weight_bound(0b011, 1)
+    assert css_bound.within_max_weight and css_bound.representative == 0b001010
+    for matrix, css_weight, oracle in oracles:
+        _assert_exact_answers(oracle, matrix, css_weight)
+
+
+def test_cached_pauli_searches_ignore_later_changes_to_the_stabilizer_array() -> None:
+    """Oracles answer for the stabilizers that they were built from, when an array changes later.
+
+    Oracles of the state ``Y__``, ``_Z_``, ``__X`` are built from an array, which is then
+    overwritten with the state ``X__``, ``_Y_``, ``__Z``, from which further oracles are built from
+    the same array.  Oracles of the first state built again from a copy of it, and the oracles built
+    before the change, still answer for the first state.
+    """
+    first, second = _product_state(("Y__", "_Z_", "__X")), _product_state(("X__", "_Y_", "__Z"))
+    coset_leader_search._get_pauli_search.cache_clear()
+    array = first.copy()
+    oracles = [
+        (first, css_weight, CosetLeaderSearch(array, css_weight=css_weight))
+        for css_weight in (False, True)
+    ]
+    array[:] = second
+    oracles += [
+        (second, css_weight, CosetLeaderSearch(array, css_weight=css_weight))
+        for css_weight in (False, True)
+    ]
+    oracles += [
+        (first, css_weight, CosetLeaderSearch(first.copy(), css_weight=css_weight))
+        for css_weight in (False, True)
+    ]
+    for matrix, css_weight, oracle in oracles:
+        _assert_exact_answers(oracle, matrix, css_weight)
+
+
+def test_tables_of_pairs_of_single_qubit_errors_respect_their_limit() -> None:
+    """A table of products of X and Z errors keeps the first product of each syndrome.
+
+    Three X errors (with the identity) and two Z errors make six pairs, which fit a limit of six but
+    not of five.
+    """
+    x_singles = {0: 0, 0b01: 0b0001, 0b11: 0b0010}
+    z_singles = {0: 0, 0b10: 0b0100}
+    table = coset_leader_search._tabulate_css_singles(x_singles, z_singles, 6)
+    assert table == {0: 0, 0b10: 0b0100, 0b01: 0b0001, 0b11: 0b0101}
+    assert coset_leader_search._tabulate_css_singles(x_singles, z_singles, 5) is None
+
+
+def test_oracles_tabulate_pairs_within_the_limit_of_their_tuning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An oracle tabulates pairs of single-qubit errors only within the limit of its own tuning.
+
+    Oracles of a state that is not CSS, built under the default tuning and then with no room for
+    pairs, each answer a query that needs the table, so each tabulates within its own limit.
+    """
+    limits: list[tuple[int, bool]] = []
+    tabulate = coset_leader_search._tabulate_css_singles
+
+    def record(*args: Any) -> Any:
+        table = tabulate(*args)
+        limits.append((args[2], table is None))
+        return table
+
+    monkeypatch.setattr(coset_leader_search, "_tabulate_css_singles", record)
+    matrix = _product_state(("Y__", "_Z_", "__X"))
+    coset_leader_search._get_pauli_search.cache_clear()
+    assert (
+        CosetLeaderSearch(matrix, css_weight=True).get_min_weight_bound(0b011, 1).within_max_weight
+    )
+    with use_tuning(max_css_single_pairs=0):
+        oracle = CosetLeaderSearch(matrix, css_weight=True)
+    assert oracle.get_min_weight_bound(0b011, 1).within_max_weight
+    assert limits == [(DEFAULT_TUNING.max_css_single_pairs, False), (0, True)]
 
 
 def test_invalid_arguments_are_rejected() -> None:
@@ -625,3 +767,23 @@ def test_invalid_arguments_are_rejected() -> None:
                 CosetLeaderSearch(stabilizers, css_weight=css_weight)
         with pytest.raises(ValueError):
             CosetLeaderSearch([[1, 0]], css_weight=css_weight).get_min_weight_bound(2, 1)
+
+
+def _product_state(generators: Sequence[str]) -> npt.NDArray[np.uint8]:
+    """Stabilizer matrix [X|Z] of the given Pauli strings."""
+    return _stabilizer_matrix([stim.PauliString(pauli) for pauli in generators])
+
+
+def _assert_exact_answers(
+    oracle: CosetLeaderSearch, matrix: npt.NDArray[np.uint8], css_weight: bool
+) -> None:
+    """Check every query of an oracle against exhaustive minima of the state of ``matrix``."""
+    num_qubits = len(matrix)
+    minima = _css_minima(matrix, css_weight)
+    for syndrome, max_weight in itertools.product(range(1 << num_qubits), range(num_qubits + 1)):
+        bound = oracle.get_min_weight_bound(syndrome, max_weight)
+        weight = _pauli_weight(bound.representative, num_qubits, css_weight)
+        assert bound.within_max_weight == (minima[syndrome] <= max_weight)
+        assert _get_syndrome(matrix, bound.representative) == syndrome
+        assert bound.lower_bound <= minima[syndrome] <= weight
+        assert weight <= max_weight if bound.within_max_weight else bound.lower_bound > max_weight
