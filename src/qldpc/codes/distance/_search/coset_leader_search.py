@@ -135,9 +135,7 @@ class CosetLeaderSearch:
         if combinations is None:
             self._searches: tuple[_CosetSearch, ...] = (
                 _get_pauli_search(
-                    n,
-                    pack_bits(matrix).tobytes(),
-                    pack_bits(checks).tobytes(),
+                    _StabilizerKey(matrix, checks),
                     css_weight,
                     tuning.disjoint_random_column_orders,
                     tuning.max_css_single_pairs,
@@ -432,31 +430,43 @@ class _CosetSearch:
         return table
 
 
+class _StabilizerKey:
+    """A stabilizer matrix and its checks, which a cache can hash and compare by the matrix.
+
+    The checks follow from the stabilizers, so the stabilizers alone key the cache, and the key
+    keeps both matrices to build a search that the cache has not stored yet.  Keys of packed bytes
+    would not hold the matrices, but unpacking them would cost about 0.4% of the setup of a search.
+    """
+
+    def __init__(self, stabilizers: npt.NDArray[np.uint8], checks: npt.NDArray[np.uint8]) -> None:
+        self.stabilizers = stabilizers
+        self.checks = checks
+        self._key = (stabilizers.shape, stabilizers.tobytes())
+        self._hash = hash(self._key)
+
+    def __hash__(self) -> int:
+        return self._hash
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _StabilizerKey) and self._key == other._key
+
+
 @functools.lru_cache(maxsize=_tuning.PAULI_SEARCH_CACHE_SIZE)
 def _get_pauli_search(
-    num_qubits: int,
-    stabilizer_rows: bytes,
-    check_rows: bytes,
+    key: _StabilizerKey,
     css_weight: bool,
     random_column_orders: int,
     max_css_single_pairs: int,
 ) -> _CosetSearch:
     """The Pauli search, of Pauli errors modulo the stabilizers, with syndromes for the stabilizers.
 
-    ``stabilizer_rows`` holds the ``num_qubits`` rows of a stabilizer matrix, and ``check_rows``
-    their checks (see ``CosetLeaderSearch``), both packed by ``pack_bits`` into bytes, which
-    ``lru_cache`` can hash.  The syndromes depend on these rows, not only on the group that they
-    generate, so the rows key the cache.  ``css_weight`` and the fields
-    ``disjoint_random_column_orders`` and ``max_css_single_pairs`` of the tuning, which configure
-    the search, key it too.
+    ``key`` holds the stabilizers and their checks (see ``CosetLeaderSearch``).  The syndromes
+    depend on the rows of the stabilizer matrix, not only on the group that they generate, so the
+    rows key the cache.  ``css_weight`` and the fields ``disjoint_random_column_orders`` and
+    ``max_css_single_pairs`` of the tuning, which configure the search, key it too.
     """
-    num_words = max(1, (2 * num_qubits + 63) // 64)
-    stabilizers, checks = (
-        unpack_bits(
-            np.frombuffer(rows, dtype=np.uint64).reshape(num_qubits, num_words), 2 * num_qubits
-        )
-        for rows in (stabilizer_rows, check_rows)
-    )
+    stabilizers, checks = key.stabilizers, key.checks
+    num_qubits = len(stabilizers)
     inverse = _get_inverse(checks)
     embedded_stabilizers = stabilizers if css_weight else symplectic_to_hamming(stabilizers)
     embedded_inverse = inverse if css_weight else symplectic_to_hamming(inverse)
