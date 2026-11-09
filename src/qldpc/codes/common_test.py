@@ -217,6 +217,11 @@ def test_distance_classical(bits: int = 3) -> None:
     rep_code = codes.RepetitionCode(bits, field=3)
     rep_code.forget_distance()
     assert rep_code.get_distance_exact(cutoff=bits) == rep_code.get_distance_exact() == bits
+    trinary_vector = np.array([1] * (bits - 1) + [2])
+    assert (
+        rep_code.get_distance_exact(vector=trinary_vector)
+        == bits - np.bincount(trinary_vector).max()
+    )
 
 
 def test_distance_bound_of_self_orthogonal_code() -> None:
