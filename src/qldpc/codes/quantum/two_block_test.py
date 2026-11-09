@@ -449,7 +449,7 @@ def test_block_translations() -> None:
         assert np.array_equal(translation[blocks] - blocks[:, :1], [translation[:block_size]] * 3)
     for first, second in itertools.combinations(translations, 2):
         assert np.array_equal(first[second], second[first])
-    orbits = automorphism_families._get_orbits(translations, num_blocks * block_size)
+    orbits = automorphism_families.get_orbits(translations, num_blocks * block_size)
     assert [len(set(orbits[block])) for block in blocks] == [1] * num_blocks
     assert len(set(orbits)) == num_blocks
 

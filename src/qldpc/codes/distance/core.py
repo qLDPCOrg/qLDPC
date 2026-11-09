@@ -29,19 +29,22 @@ from ._search.brouwer_zimmermann import (
     get_distance_brouwer_zimmermann_many,
 )
 from ._search.brute_force import get_distance_quantum_brute_force, get_nested_distance_brute_force
+from ._search.connected_support import get_distance_connected_support
 from ._tuning import SearchTuning, get_tuning
 
 DistanceBackend = Literal["auto", "decoder", "gap", "sqetch"]
-DistanceMethod = Literal["brouwer_zimmermann", "brute_force", "information_sets"]
+DistanceMethod = Literal[
+    "brouwer_zimmermann", "brute_force", "information_sets", "connected_support"
+]
 
-_CanonicalDistanceMethod = Literal["brouwer_zimmermann", "brute_force"]
+_CanonicalDistanceMethod = Literal["brouwer_zimmermann", "brute_force", "connected_support"]
 
-# The canonical name of every accepted exact-distance method name, including aliases.  Logical
-# counts accept the same names.
+# The canonical name of every accepted exact-distance method name, including aliases.
 _DISTANCE_METHODS: dict[str, _CanonicalDistanceMethod] = {
     "brouwer_zimmermann": "brouwer_zimmermann",
     "brute_force": "brute_force",
     "information_sets": "brouwer_zimmermann",
+    "connected_support": "connected_support",
 }
 
 
@@ -68,7 +71,9 @@ def get_distance_classical(
         method: Exact-distance method.  ``"brouwer_zimmermann"`` (default) enumerates fixed-weight
             combinations in several information-set bases and stops once its lower and upper bounds
             meet.  ``"brute_force"`` enumerates every nonzero codeword.  ``"information_sets"`` is
-            an alias for ``"brouwer_zimmermann"``.
+            an alias for ``"brouwer_zimmermann"``.  The ``"connected_support"`` method needs parity
+            checks, and is not available for a generator matrix: use the ``get_distance_exact``
+            method of a code instead.
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
             then the smaller of the distance and ``max_weight + 1``.  The search stops as soon as it
             proves that every nontrivial code word is heavier than ``max_weight``, which can be much
@@ -86,11 +91,12 @@ def get_distance_classical(
 
     Raises:
         TypeError: If ``max_weight`` is not an integer, or is a bool.
-        ValueError: If ``max_weight`` is negative, if the method is unknown, or if the generators
-            are not a binary matrix.
+        ValueError: If ``max_weight`` is negative, if the method is unknown or is
+            ``"connected_support"``, or if the generators are not a binary matrix.
     """
     tuning = _get_tuning(block_size)
     method = _validate_distance_method(method)
+    _reject_connected_support(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
     assert_binary(generators, "generators")
     matrix = as_binary_matrix(generators)
@@ -144,7 +150,9 @@ def get_distance_quantum(
         method: Exact-distance method.  ``"brouwer_zimmermann"`` (default) uses an exclusion-aware
             search over the logical space modulo stabilizers.  ``"brute_force"`` enumerates eligible
             words using independent bases constructed internally.  ``"information_sets"`` is an
-            alias for ``"brouwer_zimmermann"``.
+            alias for ``"brouwer_zimmermann"``.  The ``"connected_support"`` method needs parity
+            checks, and is not available for logical operators and stabilizers: use the
+            ``get_distance_exact`` method of a code instead.
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
             then the smaller of the distance and ``max_weight + 1``.  The search stops as soon as it
             proves that every nontrivial logical operator is heavier than ``max_weight``, which can
@@ -168,8 +176,9 @@ def get_distance_quantum(
 
     Raises:
         TypeError: If ``max_weight`` is not an integer, or is a bool.
-        ValueError: If ``max_weight`` is negative, if the method is unknown, or if the operators
-            are not binary matrices of equal width, with an even width if ``homogeneous`` is False.
+        ValueError: If ``max_weight`` is negative, if the method is unknown or is
+            ``"connected_support"``, or if the operators are not binary matrices of equal width,
+            with an even width if ``homogeneous`` is False.
 
     More specifically, if homogeneous is True, then::
 
@@ -220,6 +229,7 @@ def _get_distance_quantum(
     """
     tuning = get_tuning() if tuning is None else tuning
     method = _validate_distance_method(method)
+    _reject_connected_support(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
     logical_matrix, stabilizer_matrix = _as_operator_matrices(logical_ops, stabilizers)
     num_bits = logical_matrix.shape[1]
@@ -331,6 +341,33 @@ def _get_distance_css_brouwer_zimmermann(
     return min([distance, *bounds])
 
 
+def _get_distance_connected_support(
+    problems: Sequence[tuple[npt.ArrayLike, npt.ArrayLike]],
+    *,
+    cutoff: int,
+    upper_bound: int | None = None,
+    homogeneous: bool = True,
+    get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
+) -> int:
+    """Compute the minimum distance across problems by searching connected supports.
+
+    Each problem is a pair ``(checks, excluded)`` of binary matrices with equal widths, such as a
+    sector of a CSS code, the parity checks of a classical code with nothing excluded, or the
+    symplectic stabilizers and gauge generators of a qubit code (``homogeneous=False``).  This
+    function searches them with the active tuning.  Its other arguments, its result, and its errors
+    are those of ``get_distance_connected_support`` in ``_search/connected_support.py``, which
+    validates the problems.
+    """
+    return get_distance_connected_support(
+        problems,
+        cutoff=cutoff,
+        upper_bound=upper_bound,
+        homogeneous=homogeneous,
+        get_automorphisms=get_automorphisms,
+        tuning=get_tuning(),
+    )
+
+
 def _as_operator_matrices(
     logical_ops: npt.ArrayLike, stabilizers: npt.ArrayLike
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
@@ -427,7 +464,17 @@ def _validate_distance_method(
     """
     if method not in _DISTANCE_METHODS:
         raise ValueError(
-            f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann' or "
-            "'brute_force'."
+            f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann', 'brute_force',"
+            " or 'connected_support'."
         )
     return _DISTANCE_METHODS[method]
+
+
+def _reject_connected_support(method: _CanonicalDistanceMethod) -> None:
+    """Raise an error if the method is ``"connected_support"``, which needs parity checks."""
+    if method == "connected_support":
+        raise ValueError(
+            "The 'connected_support' distance method searches the Tanner graph of the parity"
+            " checks of a code, rather than its generators: use the get_distance_exact method of"
+            " a code"
+        )

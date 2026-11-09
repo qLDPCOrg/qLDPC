@@ -3,7 +3,8 @@
 This directory is the package `qldpc.codes.distance`.
 It computes exact distances of binary codes, and counts the logical operators of a given weight in binary CSS codes.
 Users reach it through the `get_distance_exact` method of binary codes in `src/qldpc/codes/common.py`, and through `CSSLogicalCounter`.
-`brouwer_zimmermann.md` explains the algorithm, maps its concepts to names in the code, describes its heuristics for choosing basis families, and lists the correctness requirements that every change to a search must keep.
+`brouwer_zimmermann.md` explains the Brouwer–Zimmermann algorithm, maps its concepts to names in the code, describes its heuristics for choosing basis families, and lists the correctness requirements that every change to a search must keep.
+`connected_support.md` explains the search of sparse binary codes over supports that are connected in a Tanner graph, maps it to the code, says when to choose it over Brouwer–Zimmermann, and lists its correctness requirements.
 
 ## Public names
 
@@ -14,11 +15,15 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 
 ## Terms
 
-- **Sector:** a basis of the words that a search examines, with labels that tell nontrivial words from trivial ones, such as the logical operators of one type of a CSS code from its stabilizers.
+- **Sector:** the words of one type that a search examines, such as the logical operators of one type of a CSS code.
+  A Brouwer–Zimmermann search takes a basis of them, with labels that tell nontrivial words from trivial ones, such as logical operators from stabilizers.
+  A connected-support search takes the parity checks whose kernel holds them, and a matrix whose row space has the trivial ones.
 - **Information set:** in the code, the basis of a sector, row reduced so that a block of its columns forms an identity matrix.
   `brouwer_zimmermann.md` calls this basis a search basis, and uses "information set" for the block of columns itself.
 - **Basis family** (`BasisFamily`): the information sets that one search uses together, stacked into arrays.
 - **Certificate** (`Certificate`): a lower bound on the weight of the words that a search has not yet visited, which tells the search when it can stop.
+- **Connected-support search** (`SupportSearch`): the depth-first search of the supports that grow through unsatisfied parity checks, for a binary matrix of checks `H` and an excluded matrix `G`, whose words are binary, or symplectic for qubit codes that are not CSS.
+  It is another exact method, selected by `method="connected_support"`.
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer.
   Counting scans in `_counting/scan.py`.
   The distance search in `_search/brouwer_zimmermann.py` and the coset search in `_search/coset_leader_search.py` scan with the compiled scans of `_search/affine_search.py`.
@@ -28,11 +33,12 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 
 | To change… | Look in (this directory) |
 | --- | --- |
-| A distance method, or the validation of method and backend names | `core.py`, and where `logical_counts.py`, `_counting/scan.py`, and `get_distance_exact` in `src/qldpc/codes/common.py` dispatch on the method name |
+| A distance method, or the validation of method and backend names | `core.py`, and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact`, `get_distance`, and `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` dispatch on the method name |
 | The Brouwer–Zimmermann (BZ) distance search | `_search/brouwer_zimmermann.py` |
 | The compiled scans of layers that the distance search and the coset-leader search share, one body specialized by constant flags | `_search/affine_search.py` |
+| The connected-support distance search | `_search/connected_support.py` |
 | How basis families and their certificates are built | `_search/information_sets.py` |
-| Automorphism families: the images of one information set under automorphisms of a code, and the check of those automorphisms | `_search/automorphism_families.py` |
+| Automorphism families: the images of one information set under automorphisms of a code, and the check of those automorphisms, which the connected-support search uses too | `_search/automorphism_families.py` |
 | Tables that let a distance search skip supports whose last two rows cannot complete a word lighter than the best one found, and the choice of whether to build them | `_search/completion_bounds.py` |
 | Information sets with bounded column coverage, by matroid partitioning | `_search/matroid_partition.py` |
 | Exhaustive enumeration, for small codes, fallbacks, and the `brute_force` method | `_search/brute_force.py` |
@@ -41,7 +47,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
 | The MacWilliams counting method | `_counting/macwilliams.py` |
-| The settings that a search reads when it starts, such as the thresholds that choose between exhaustive enumeration, the kinds of information-set families, and completion tables, the coefficients of cost models, memory limits, and batch sizes (`SearchTuning`, `use_tuning`), and the constants that size caches when qLDPC is imported | `_tuning.py` |
+| The settings that a search reads when it starts, such as the thresholds that choose between exhaustive enumeration, the kinds of information-set families, and completion tables, the threshold of states before which a connected-support search asks for automorphisms, the coefficients of cost models, memory limits, and batch sizes (`SearchTuning`, `use_tuning`), and the constants that size caches when qLDPC is imported | `_tuning.py` |
 | Binary input checks, nested bases, or packed weights | `_binary.py` |
 | Bit packing, bit counts, or row reduction over GF(2), which other subpackages share | `src/qldpc/_binary.py` |
 | How numba code is compiled or cached | `src/qldpc/_compilation.py` |
@@ -52,7 +58,7 @@ From the top:
 
 1. `logical_counts.py`, the public interface of the counts, and `core.py`, the public interface of the distances.
 2. The `_counting` package, the counting methods.
-3. `_search/brouwer_zimmermann.py`, `_search/brute_force.py`, and `_search/coset_leader_search.py`, the searches.
+3. `_search/brouwer_zimmermann.py`, `_search/brute_force.py`, `_search/connected_support.py`, and `_search/coset_leader_search.py`, the searches.
 4. `_search/affine_search.py`, the compiled scans of layers that the searches share, `_search/information_sets.py`, the basis families that the searches share, `_search/automorphism_families.py`, which builds automorphism families from them, and `_search/completion_bounds.py`, which bounds the words that complete the first rows of a support with two more rows.
 5. `_search/matroid_partition.py`, which `_search/information_sets.py` uses to build some of those families.
 6. `_tuning.py`, the settings of the searches and counts, and the sizes of their caches.
@@ -68,10 +74,10 @@ Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py`, modules in `src
 
 Every value that changes only how long a search takes or how much memory it uses, such as a threshold that chooses a route, a limit, a coefficient of a cost model, an attempt count, or a batch size, is a field of `SearchTuning` in `_tuning.py`.
 The arguments of the public functions say what to compute and by which method, such as `cutoff`, `max_weight`, and `method`; do not add arguments that only tune a search.
-Section 4.4 of `brouwer_zimmermann.md` says where each heuristic uses its fields.
+Section 4.4 of `brouwer_zimmermann.md` says where each heuristic of a Brouwer–Zimmermann search uses its fields, and Section 3.5 of `connected_support.md` where the connected-support search uses its field.
 
 - A search reads the active tuning once, when it starts, and passes the values that it needs down to the stages and loops that use them.
-  The distance functions of `core.py` read it for a distance search, `CSSLogicalCounter.count_logical_ops` for a count, and `CosetLeaderSearch` when it is built; `get_distance_brouwer_zimmermann_many` reads it only if its caller passes none.
+  The distance functions of `core.py` read it for a distance search, `CSSLogicalCounter.count_logical_ops` for a count, and `CosetLeaderSearch` when it is built; `get_distance_brouwer_zimmermann_many` and `get_distance_connected_support` read it only if their callers pass none.
   Pass these values as arguments, including to compiled code, and do not read the tuning anywhere else, so that one search never mixes two tunings.
   A value that the code keeps in a cache that outlives a search, such as `disjoint_random_column_orders` in the cached searches of `CosetLeaderSearch`, also keys that cache.
 - Only a value that qLDPC fixes before any search starts, such as the size of a cache, which `functools.lru_cache` fixes at import, is a constant in `_tuning.py`, read as `_tuning.NAME`.

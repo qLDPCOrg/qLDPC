@@ -7,6 +7,7 @@ They are not part of the installed `qldpc` package, and the test suite does not 
 | --- | --- | --- |
 | [`bivariate_bicycle/`](bivariate_bicycle/) | Brute-force search for bivariate bicycle codes with toric layouts | `run_search.py`, then `collect_results.py` |
 | [`quantum_tanner/`](quantum_tanner/) | Randomized search for quantum Tanner codes | `run_search.py`, then `collect_results.py` and `verify_codes.py` |
+| [`connected_support_distance/`](connected_support_distance/) | Timings of the connected-support and Brouwer–Zimmermann exact distance searches on pair-partition and other codes | `benchmark.py` |
 | [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#lattice-surgery)) | `collect_ler.py` |
 
 Each script's module docstring summarizes its method and outputs; run it with `--help` to see its options.
@@ -17,8 +18,8 @@ Commands below are written relative to the repository root.
 
 ## Results
 
-Every experiment stores its results in a `results/` directory beside its scripts, which Git ignores.
-Every script accepts `--results-dir` to use another directory instead, such as a scratch directory for a quick trial run; pass the same `--results-dir` to all scripts of an experiment.
+Every experiment that saves results stores them in a `results/` directory beside its scripts, which Git ignores.
+Its scripts accept `--results-dir` to use another directory instead, such as a scratch directory for a quick trial run; pass the same `--results-dir` to all scripts of an experiment.
 Each results directory holds a CSV summary, together with the resumable intermediate data from which that summary is built:
 
 | Experiment | Intermediate data | CSV summary |
@@ -100,6 +101,25 @@ Each code requires a randomized distance estimate with `--num-trials` trials, so
 Distances `d` are upper bounds.
 Saved code files record `d` as `nan` for codes with no logical qubits, and `collect_results.py` omits such codes.
 Verification requires `codes.QTCode.random` to sample the same code for the same seed, so codes saved with a different version of `qldpc` may fail verification.
+
+## Connected-support distance
+
+[`connected_support_distance/benchmark.py`](connected_support_distance/benchmark.py) times the exact distance searches of `qldpc` on the pair-partition codes that [the connected-support guide](../src/qldpc/codes/distance/connected_support.md) uses, and on a few other codes.
+It prints its results and saves nothing, so it takes no `--results-dir`.
+For example:
+
+```bash
+python experiments/connected_support_distance/benchmark.py 110 232 276
+python experiments/connected_support_distance/benchmark.py 232 --methods brouwer_zimmermann
+python experiments/connected_support_distance/benchmark.py gross surface:11 surface:15
+python experiments/connected_support_distance/benchmark.py 110 232 --hadamards
+```
+
+The option `--hadamards` applies Hadamards to the second half of the qubits of each code, and times the resulting code, which is not CSS.
+
+Numba compiles the searches on first use, so run the script twice for the times of a warm cache.
+Some searches run for hours or more, so run it under a deadline.
+Section 2 of the guide lists the times of the instances.
 
 ## Lattice surgery
 

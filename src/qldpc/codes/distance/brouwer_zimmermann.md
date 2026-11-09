@@ -12,6 +12,8 @@ It is organized as follows:
 - [Section 4](#4-guide-to-the-source-code) is a guide to the source code: how the modules are organized, how a computation flows through them, which code names correspond to the concepts of [Section 2](#2-the-brouwer-zimmermann-algorithm) and [Section 3](#3-extensions-and-optimizations), and which behavior spans several files.
 - [Section 5](#5-correctness-requirements) summarizes the correctness requirements that apply when changing the implementation.
 
+For codes with sparse checks, especially high-rate CSS codes, [connected_support.md](connected_support.md) describes a search that is often much faster, and says when to use which.
+
 Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations) are intended to help readers understand the BZ algorithm and its implementation in qLDPC at a high level.
 Sections [4](#4-guide-to-the-source-code) and [5](#5-correctness-requirements) are highly technical summaries written to help AI agents navigate the BZ implementation in qLDPC.
 
@@ -666,6 +668,7 @@ For a high-level explanation, see Sections [2](#2-the-brouwer-zimmermann-algorit
 This section is a guide to the source files in this directory.
 It connects the concepts of Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations) to modules, identifiers, and behavior that spans files.
 The thresholds, limits, and coefficients of the heuristics are fields of `SearchTuning` in [_tuning.py](_tuning.py), whose comments give their meanings and defaults and say how each was chosen, and [Section 4.4](#44-heuristics-and-cost-models) says where each is used.
+Section 3.5 of [connected_support.md](connected_support.md) describes the field of the connected-support search.
 
 ### 4.1 Module map and layering
 
@@ -679,8 +682,8 @@ It runs the stages in `_select_basis_family` and `count_words` of [_counting/sca
 The set-up functions of both searches can be compiled on request, through [_compilation.py](../../_compilation.py).
 The code that only counting uses is in the `_counting` package.
 `get_overlapping_family_policy` in [_search/information_sets.py](_search/information_sets.py) gives every caller of the overlapping stage its thresholds and its fixed-seed generator, so a change to either applies to both consumers.
-[core.py](core.py) calls [_search/brouwer_zimmermann.py](_search/brouwer_zimmermann.py) and [_search/brute_force.py](_search/brute_force.py), and [_search/brouwer_zimmermann.py](_search/brouwer_zimmermann.py) calls [_search/brute_force.py](_search/brute_force.py) for its exhaustive routes.
-All three modules use [_binary.py](_binary.py), and they and [_search/information_sets.py](_search/information_sets.py) use the bit-packed linear algebra over GF(2) in [qldpc/_binary.py](../../_binary.py).
+[core.py](core.py) calls [_search/brouwer_zimmermann.py](_search/brouwer_zimmermann.py), [_search/brute_force.py](_search/brute_force.py), and [_search/connected_support.py](_search/connected_support.py), which [connected_support.md](connected_support.md) describes, and [_search/brouwer_zimmermann.py](_search/brouwer_zimmermann.py) calls [_search/brute_force.py](_search/brute_force.py) for its exhaustive routes.
+All four modules use [_binary.py](_binary.py), and they and [_search/information_sets.py](_search/information_sets.py) use the bit-packed linear algebra over GF(2) in [qldpc/_binary.py](../../_binary.py).
 Every module with compiled functions uses [_compilation.py](../../_compilation.py).
 `_get_distance_css_brouwer_zimmermann` of [core.py](core.py) builds an adapted basis ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)) for each nontrivial sector, then passes the resulting problems to `get_distance_brouwer_zimmermann_many`.
 It also passes a function that returns automorphisms of the code.

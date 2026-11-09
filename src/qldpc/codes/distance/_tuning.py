@@ -6,8 +6,9 @@ Exact distances and logical-operator counts choose between routes, such as exhau
 and searches of disjoint or overlapping information sets, and bound their batches, memory, and
 caches.  :class:`SearchTuning` collects the values that tune a search, from the thresholds that
 choose a route to the coefficients of cost models and the sizes of batches.  The page
-:doc:`/exact_search_tuning` of the documentation maps routes and symptoms to these values, and
-Section 4.4 of ``brouwer_zimmermann.md`` says where each heuristic uses them.
+:doc:`/exact_search_tuning` of the documentation maps routes and symptoms to these values.  Section
+4.4 of ``brouwer_zimmermann.md`` says where each heuristic of a Brouwer-Zimmermann search uses them,
+and Section 3.5 of ``connected_support.md`` where the connected-support search uses its field.
 
 This module is private.  Its names, fields, and defaults can change in any release, without a
 deprecation period or any other warning, so code that uses it should pin the exact version of
@@ -278,6 +279,18 @@ class SearchTuning:
     #: 10**8; how it was chosen is not recorded.  To retune it, time searches with and without
     #: automorphisms.
     automorphism_minimum_layer_work: int = 100_000_000
+
+    # Fields of connected-support searches.
+
+    #: A connected-support search of a quantum code asks for its automorphisms before the first
+    #: weight limit at which it expects to have visited this many states, which are supports, over
+    #: all limits of one problem (Section 3.5 of ``connected_support.md``).  It also asks before a
+    #: first limit that a cutoff raises, unless this is ``MAX_VALUE``.  Lowering it pays the cost
+    #: of finding them on cheaper searches; raising it searches more limits from every variable.
+    #: Zero asks before the first limit, and ``MAX_VALUE`` never.  Defaults to 100,000, chosen by
+    #: hand as about 0.05 s of searching at the rate of that section.  To retune it, time searches
+    #: with and without automorphisms.
+    automorphism_minimum_states: int = 100_000
 
     # Fields of completion tables.
 

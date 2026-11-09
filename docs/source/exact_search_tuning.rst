@@ -14,7 +14,7 @@ Every value that changes only how long a search takes or how much memory it uses
 The arguments of the public search functions say instead what to compute and by which method, such as ``cutoff``, ``max_weight``, and ``method``.
 Each field says what it decides, what raising or lowering it does, and how to retune it.
 The constants, :data:`MAX_VALUE` and the sizes of caches, are fixed when qLDPC is imported.
-The `Brouwer--Zimmermann guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_ explains the methods.
+The `Brouwer--Zimmermann guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_ and the `connected-support guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_ explain the methods.
 
 Start from a symptom
 --------------------
@@ -38,6 +38,10 @@ Start from a symptom
        No value limits the memory of a whole process.
    * - A keyboard interrupt takes long to take effect
      - Lower :attr:`~SearchTuning.enumeration_batch_exponent`, :attr:`~SearchTuning.information_set_batch_exponent`, :attr:`~SearchTuning.scan_chunk_size`, :attr:`~SearchTuning.scan_chunks_per_call`, or :attr:`~SearchTuning.macwilliams_chunk_size`.
+       A connected-support search takes an interrupt only between its weight limits, and no value changes that.
+   * - A cheap connected-support search spends its time finding automorphisms
+     - Raise :attr:`~SearchTuning.automorphism_minimum_states`.
+       A search whose first weight limit a cutoff raises asks for them unless the field is ``MAX_VALUE``.
    * - Completion tables are used, or declined, against measured savings
      - Refit the fields of their cost model, as :ref:`Retuning <tuning-retuning>` describes.
 
@@ -80,6 +84,10 @@ Routes and the names that control them
      - :attr:`SearchTuning.automorphism_minimum_layer_work`
      -
      - `Section 3.7 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms>`__
+   * - Searching from one root for each orbit of the automorphisms of a code, in connected-support searches
+     - :attr:`SearchTuning.automorphism_minimum_states`
+     -
+     - `Section 3.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md#35-symmetries>`__
    * - Whether a layer of one information set uses completion tables to skip hopeless supports
      - :attr:`SearchTuning.completion_bound_minimum_layer_work`, :attr:`SearchTuning.completion_bound_max_cost_percent`
      -

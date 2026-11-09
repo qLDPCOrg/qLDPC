@@ -18,8 +18,13 @@ from qldpc.objects import Pauli, PauliXZ
 from ..conftest import Tune
 from . import logical_counts as lc
 from ._binary import get_nested_code_basis
-from ._search import affine_search, automorphism_families, coset_leader_search, information_sets
-from .core import DistanceMethod
+from ._search import (
+    affine_search,
+    automorphism_families,
+    connected_support,
+    coset_leader_search,
+    information_sets,
+)
 
 
 @pytest.fixture
@@ -70,12 +75,19 @@ def compilation_mode(
     """Run the compiled functions of the distance searches as plain Python, or compiled.
 
     In the plain Python mode, the compiled-on-request functions, and the always-compiled functions
-    that the scans of layers, the basis family stages, the automorphism families, and the
-    coset-leader search define, run as Python, which coverage can trace.  The compiled mode compiles
-    the compiled-on-request functions once per session, and restores plain Python afterwards.
+    that the scans of layers, the basis family stages, the automorphism families, the
+    connected-support search, and the coset-leader search define, run as Python, which coverage can
+    trace.  The compiled mode compiles the compiled-on-request functions once per session, and
+    restores plain Python afterwards.
     """
     if request.param == "python":
-        for module in (affine_search, automorphism_families, information_sets, coset_leader_search):
+        for module in (
+            affine_search,
+            automorphism_families,
+            connected_support,
+            information_sets,
+            coset_leader_search,
+        ):
             for name, function in list(vars(module).items()):
                 if hasattr(function, "py_func") and function.py_func.__module__ == module.__name__:
                     monkeypatch.setattr(module, name, function.py_func)
@@ -114,7 +126,7 @@ def count_set_bits(val: npt.ArrayLike) -> npt.NDArray[np.uint64]:
 # helpers for the tests of logical-operator counts
 
 Counts = lc.CSSLogicalCounts
-METHODS: tuple[DistanceMethod, ...] = ("brouwer_zimmermann", "brute_force")
+METHODS: tuple[lc.LogicalCountMethod, ...] = ("brouwer_zimmermann", "brute_force")
 
 
 def get_counter(checks_x: npt.ArrayLike, checks_z: npt.ArrayLike) -> lc.CSSLogicalCounter:
