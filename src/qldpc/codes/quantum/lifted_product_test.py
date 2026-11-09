@@ -360,6 +360,6 @@ def test_lifted_products_require_group_algebras() -> None:
     group_ring = abstract.GroupRing(abstract.CyclicGroup(2))
     matrix, group_matrix = abstract.RingArray([[ring.one]]), abstract.RingArray([[group_ring.one]])
     for code_type in [codes.LPCode, codes.SLPCode]:
-        for matrices in [(matrix, matrix), (group_matrix, matrix)]:
+        for matrices in [(matrix, group_matrix), (group_matrix, matrix)]:
             with pytest.raises(NotImplementedError, match="only for group algebras"):
                 code_type(*matrices)

@@ -150,7 +150,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
     def group(self) -> Group:
         """Base group of this RingArray.
 
-        Raise an AttributeError unless this RingArray is over a group algebra.
+        Raise an AttributeError if this RingArray is over a ring other than a group algebra.
         """
         if isinstance(self.ring, GroupRing):
             return self.ring.group

@@ -107,6 +107,12 @@ def test_transpose() -> None:
     matrix = abstract.RingArray.build([[x0, 0, x1], [x2, 0, abstract.RingMember(group, x3)]])
     assert np.array_equal(matrix.T.T, matrix)
 
+    # a RingArray without a base ring transposes its entries in their own rings
+    ring = matrix.ring
+    plain = np.asarray(abstract.RingArray.build([[x1, 1], [0, x1]], ring)).view(abstract.RingArray)
+    expected = abstract.RingArray.build([[x3, 0], [1, x3]], ring)
+    assert np.array_equal(np.asarray(plain.T), np.asarray(expected))
+
 
 @pytest.mark.parametrize(
     "ring",
@@ -159,9 +165,6 @@ def test_matmul_fallbacks() -> None:
     # a RingArray without a base ring says so, rather than returning None
     with pytest.raises(ValueError, match="no base ring"):
         unknown_ring.ring  # noqa: B018
-
-    # a RingArray without a base ring transposes its entries in their own rings
-    assert np.array_equal(np.asarray(unknown_ring.T), np.asarray(matrix.T))
 
 
 def test_ring_row_reduction(pytestconfig: pytest.Config) -> None:
@@ -245,6 +248,8 @@ def test_ring_array_over_matrix_ring() -> None:
     a, b = ring.generators
     array = abstract.RingArray.build([[1, a + 1, 0], [b, 0, a * b]], ring)
     assert array.ring == ring and array.field is ring.field
+    assert np.array_equal(abstract.RingArray([[a, b]]), abstract.RingArray.build([[a, b]], ring))
+    assert abstract.RingArray(np.empty((0, 1), dtype=object), ring).ring == ring
     with pytest.raises(AttributeError, match="no base group"):
         _ = array.group
 
