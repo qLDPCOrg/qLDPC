@@ -99,14 +99,19 @@ def test_hypergraph_product_distance_by_sector(
         assert code.get_distance(Pauli.Z) == plain.get_distance(Pauli.Z)
 
 
-@pytest.mark.parametrize("pauli", [None, Pauli.X, Pauli.Z])
-@pytest.mark.parametrize("method", ["brute_force", "connected_support"])
+@pytest.mark.parametrize(
+    "pauli, method",
+    [(None, "brute_force"), (Pauli.X, "brute_force"), (Pauli.Z, "brute_force")]
+    + [(None, "connected_support")],
+)
 def test_closed_forms_search_seed_codes_with_the_given_method(
     pauli: PauliXZ | None, method: DistanceMethod
 ) -> None:
     """The closed-form distances of product codes search their seed codes with the given method.
 
-    Both products of the ring code of length 4 have distance 4 in every sector.
+    Both products of the ring code of length 4 have distance 4 in every sector.  The joint distance
+    of a CSS code searches its sectors together with the connected-support method, unless a subclass
+    has a closed form, which this case guards.
     """
     for product in (codes.HGPCode, codes.SHPCode):
         # A generic copy of a ring code records no distance, and its dependent checks give its

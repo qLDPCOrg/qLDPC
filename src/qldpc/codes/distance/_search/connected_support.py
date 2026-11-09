@@ -63,10 +63,10 @@ def get_distance_connected_support(
 
     The search of each problem raises its weight limit ``W`` through the weights that a witness may
     have, one weight divisor at a time.  Each pass either finds a witness of weight at most ``W`` or
-    certifies that every witness is heavier, so the first witness is a lightest one.  The first
-    limit of each problem is the larger of its weight divisor and the largest multiple of it that is
-    at most ``cutoff``.  If the search finds a witness of weight at most ``cutoff``, the result is
-    the weight of that witness, which can exceed the distance.
+    certifies that every witness is heavier, so a witness within a limit that follows such passes
+    is a lightest one.  The first limit of each problem is the larger of its weight divisor and
+    the largest multiple of it that is at most ``cutoff``.  If the search finds a witness of weight
+    at most ``cutoff``, the result is the weight of that witness, which can exceed the distance.
 
     Args:
         problems: The ``(checks, excluded)`` pairs to search.
@@ -81,8 +81,9 @@ def get_distance_connected_support(
             to variable ``p[j]``.  Each generator must map the words of every problem, and the row
             space of its excluded rows, onto themselves.  The search of each problem calls the
             function at most once, before the first weight limit at which it expects to have
-            visited ``automorphism_minimum_states`` states (a field of ``tuning``) or before a first
-            limit that ``cutoff`` raises, and verifies the generators before it uses them.
+            visited ``automorphism_minimum_states`` states (a field of ``tuning``), and verifies the
+            generators before it uses them.  A first limit that ``cutoff`` raises has no estimate
+            of its states, so the search asks before it, unless that field is ``MAX_VALUE``.
         tuning: The tuning of the search (see ``_tuning``), which defaults to the active tuning.
 
     Returns:
@@ -125,16 +126,17 @@ def get_distance_connected_support(
 
     # No witness of a problem has a weight below its lower bound, which is a multiple of the weight
     # divisor.  Search the problem with the lowest bound, until the best known witness is as light.
-    # A limit without a witness is a multiple of the divisor below the weight of every witness, and
-    # a witness ends the search, so a correct search takes at most this many limits, and a broken
-    # one fails instead of looping.
+    # A limit without a witness is a multiple of the divisor below the weight of every witness.  So
+    # is the weight of a lightest witness, which is therefore at most d * (n // d) for n variables
+    # and divisor d.  A witness ends the search, so a correct search takes at most this many
+    # limits, and a broken one fails instead of looping.
     lower_bounds = [search.weight_divisor for search in searches]
     max_num_limits = sum(search.num_variables // search.weight_divisor for search in searches)
     num_limits = 0
     while best_weight is None or best_weight > min(lower_bounds):
         if num_limits == max_num_limits:
             raise RuntimeError(
-                f"The connected-support search took more than {max_num_limits} weight limits,"
+                f"The connected-support search needed more than {max_num_limits} weight limits,"
                 " which only a bug can cause"
             )
         num_limits += 1
@@ -320,10 +322,10 @@ class SupportSearch:
         """The number of states that the next weight limit, ``max_weight``, is expected to visit.
 
         The number of states of each weight limit is expected to grow by the ratio between those of
-        the last two limits, or not to grow if the limit before the last visited no states, as
-        before the second limit (see Section 3.5 of ``connected_support.md``).  A first limit above
-        the weight divisor, which a cutoff can raise, has no estimate, and is expected to reach any
-        threshold short of ``MAX_VALUE``, since it skips the cheap limits below it.
+        the last two limits.  It is expected not to grow if the limit before the last visited no
+        states, as before the second limit (see Section 3.5 of ``connected_support.md``).  A first
+        limit above the weight divisor, which a cutoff can raise, skips the cheap limits below it,
+        so it has no estimate.  It is expected to reach any threshold short of ``MAX_VALUE``.
         """
         if self._last_two_num_states is None:
             return MAX_VALUE - 1 if max_weight > self.weight_divisor else 0

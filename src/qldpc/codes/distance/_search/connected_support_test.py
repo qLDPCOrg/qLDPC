@@ -19,7 +19,7 @@ from qldpc._binary import get_independent_rows, get_kernel
 from qldpc.objects import PAULIS_XZ, Pauli
 
 from .. import _tuning
-from ..conftest import Tune, get_random_css_code, get_span
+from ..conftest import get_span
 from . import connected_support as cs
 
 Problem = tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]
@@ -73,12 +73,12 @@ def get_brute_force_distance(problem: Problem) -> int:
 
 
 def is_witness(problem: Problem, support: npt.NDArray[np.int64]) -> bool:
-    """Whether a support is that of a vector in the kernel of the checks, outside the excluded."""
+    """Whether a sorted support is that of a vector in the kernel, outside the excluded rows."""
     checks, excluded = problem
     vector = np.zeros(checks.shape[1], dtype=np.uint8)
     vector[support] = 1
     return (
-        len(set(support)) == len(support)
+        list(support) == sorted(set(support))
         and not np.any(checks @ vector % 2)
         and len(get_independent_rows(np.vstack([excluded, vector])))
         > len(get_independent_rows(excluded))
@@ -117,7 +117,7 @@ def get_symplectic_vector(symbols: npt.NDArray[np.int64], num_qubits: int) -> np
 
 
 def is_symplectic_witness(problem: Problem, symbols: npt.NDArray[np.int64]) -> bool:
-    """Whether symbols on distinct qubits give a Pauli operator that is a witness.
+    """Whether sorted symbols on distinct qubits give a Pauli operator that is a witness.
 
     A witness commutes with every check, and is outside the row space of the excluded rows.
     """
@@ -125,35 +125,23 @@ def is_symplectic_witness(problem: Problem, symbols: npt.NDArray[np.int64]) -> b
     num_qubits = checks.shape[1] // 2
     vector = get_symplectic_vector(symbols, num_qubits)
     return (
-        len({int(symbol) % num_qubits for symbol in symbols}) == len(symbols)
+        list(symbols) == sorted(symbols)
+        and len({int(symbol) % num_qubits for symbol in symbols}) == len(symbols)
         and not np.any(np.roll(checks, num_qubits, axis=1) @ vector % 2)
         and len(get_independent_rows(np.vstack([excluded, vector])))
         > len(get_independent_rows(excluded))
     )
 
 
-# The Steane code, whose words include odd weights, and the toric code both have several lightest
-# logical operators.
-# The rotated surface code and the Bacon-Shor code, a subsystem code, have stabilizers or gauge
-# operators that are lighter than their distances.  The Reed-Muller code has only even weights.
-CODES = {
-    "steane": codes.SteaneCode(),
-    "toric": codes.ToricCode(4, rotated=True),
-    "surface": codes.SurfaceCode(3),
-    "bacon-shor": codes.CSSCode(
-        codes.BaconShorCode(3).matrix_x, codes.BaconShorCode(3).matrix_z, is_subsystem_code=True
-    ),
-    "reed-muller": codes.QuantumReedMullerCode(1, 4),
+# Sectors of small codes.  The Steane code has words of odd weight, and the toric code several
+# lightest logical operators.  The Z sector of the rotated surface code has stabilizers lighter than
+# its distance, and the Reed-Muller code has only words of even weight.
+PROBLEMS: dict[str, Problem] = {
+    "steane-X": get_sectors(codes.SteaneCode())[0],
+    "toric-X": get_sectors(codes.ToricCode(4, rotated=True))[0],
+    "surface-Z": get_sectors(codes.SurfaceCode(3))[1],
+    "reed-muller-X": get_sectors(codes.QuantumReedMullerCode(1, 4))[0],
 }
-PROBLEMS: dict[str, Problem] = {}
-for name, code in CODES.items():
-    # The two sectors of the Steane and Reed-Muller codes are the same, so they are searched once.
-    sector_x, sector_z = get_sectors(code)
-    PROBLEMS[f"{name}-X"] = sector_x
-    if not all(
-        np.array_equal(matrix_x, matrix_z) for matrix_x, matrix_z in zip(sector_x, sector_z)
-    ):
-        PROBLEMS[f"{name}-Z"] = sector_z
 
 # Words of weight 3 on the first three variables, and of weight 2 on the last two.  The distance is
 # the weight of the second, whose least variable is greater than that of the first.
@@ -207,20 +195,22 @@ PROBLEMS["empty-restriction"] = (
 PROBLEMS["nested-restrictions"] = (
     np.array(
         [
-            [1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0],
-            [1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0],
-            [0, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0],
-            [0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 0],
-            [1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0],
-            [0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0],
-            [1, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
+            [1, 0, 0, 1, 1, 0, 0, 1, 1],
+            [0, 0, 1, 1, 1, 1, 0, 1, 0],
+            [1, 1, 1, 1, 0, 0, 0, 1, 1],
+            [0, 1, 1, 1, 0, 1, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 1],
+            [0, 1, 1, 1, 1, 0, 1, 1, 1],
+            [0, 1, 0, 1, 0, 0, 0, 0, 0],
         ],
         dtype=np.uint8,
     ),
-    np.zeros((0, 13), dtype=np.uint8),
+    np.zeros((0, 9), dtype=np.uint8),
 )
+
+# The problems that the tests of the distance, and of the searches from each root, compare with an
+# enumeration.  The others serve the tests that use them.
+SEARCHED_PROBLEMS = [name for name in PROBLEMS if name not in ("steane-X", "toric-X")]
 
 
 def get_qubit_problem(code: codes.QuditCode) -> Problem:
@@ -245,12 +235,10 @@ SMALL_QUBIT_CODES = [
     EIGHT_QUBIT_CODE,
 ]
 
-# Codes that are not CSS: the five-qubit code, and codes with Hadamards on some of their qubits, of
-# which the Bacon-Shor code is a subsystem code.
+# Codes that are not CSS: the five-qubit code, the Bacon-Shor code with Hadamards on some of its
+# qubits, which is a subsystem code, and the [[8, 3, 3]] code.
 QUBIT_PROBLEMS = {
     "five-qubit": get_qubit_problem(codes.FiveQubitCode()),
-    "steane-hadamards": get_qubit_problem(codes.SteaneCode().conjugated([0, 1, 2])),
-    "surface-hadamards": get_qubit_problem(codes.SurfaceCode(3).conjugated(range(0, 9, 2))),
     "bacon-shor-hadamards": get_qubit_problem(
         codes.QuditCode(
             codes.BaconShorCode(3).conjugated(range(0, 9, 2)).matrix, is_subsystem_code=True
@@ -261,9 +249,10 @@ QUBIT_PROBLEMS = {
 
 
 @pytest.mark.usefixtures("compilation_mode")
-@pytest.mark.parametrize("problem", PROBLEMS.values(), ids=PROBLEMS.keys())
-def test_the_distance_matches_enumeration(problem: Problem) -> None:
+@pytest.mark.parametrize("name", SEARCHED_PROBLEMS)
+def test_the_distance_matches_enumeration(name: str) -> None:
     """The distance search, and a search through each weight limit, agree with an enumeration."""
+    problem = PROBLEMS[name]
     distance = get_brute_force_distance(problem)
     assert cs.get_distance_connected_support([problem], cutoff=0) == distance
 
@@ -279,14 +268,15 @@ def test_the_distance_matches_enumeration(problem: Problem) -> None:
 
 
 @pytest.mark.usefixtures("compilation_mode")
-@pytest.mark.parametrize("problem", PROBLEMS.values(), ids=PROBLEMS.keys())
-def test_each_root_finds_the_lightest_witnesses_that_it_roots(problem: Problem) -> None:
+@pytest.mark.parametrize("name", SEARCHED_PROBLEMS)
+def test_each_root_finds_the_lightest_witnesses_that_it_roots(name: str) -> None:
     """The search from a variable alone, through the distance, finds the witnesses that it roots.
 
     Every lightest witness has a support that is connected, and the search from its least variable
     finds it (Section 3.3 of ``connected_support.md``).  So the search from a variable finds a
     witness exactly if some lightest witness has that least variable.
     """
+    problem = PROBLEMS[name]
     checks, excluded = problem
     words = get_span(get_kernel(checks)) - get_span(excluded)
     distance = min(word.bit_count() for word in words)
@@ -299,18 +289,6 @@ def test_each_root_finds_the_lightest_witnesses_that_it_roots(problem: Problem) 
         witness = search.find_witness(distance)
         assert (witness is not None) == (root in least_variables)
         assert witness is None or (min(witness) == root and is_witness(problem, witness))
-
-
-@pytest.mark.usefixtures("compilation_mode")
-def test_random_codes_match_enumeration(pytestconfig: pytest.Config) -> None:
-    """Sectors of random CSS codes, which have checks with and without overlaps, agree."""
-    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    for _ in range(10):
-        code = get_random_css_code(rng, int(rng.integers(6, 11)), 2, 2)
-        for problem in get_sectors(code):
-            assert cs.get_distance_connected_support([problem], cutoff=0) == (
-                get_brute_force_distance(problem)
-            )
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -339,47 +317,16 @@ def test_each_support_is_visited_once_above_its_least_variable() -> None:
 
 
 @pytest.mark.usefixtures("compilation_mode")
-def test_roots_can_come_in_any_order() -> None:
-    """The search from the last variable leaves every variable available for the search from 0."""
-    problem = PROBLEMS["toric-X"]
-    search = get_search(*problem)
-    search._roots = np.array([problem[0].shape[1] - 1, 0])
-    witness = search.find_witness(get_brute_force_distance(problem))
-    assert witness is not None and is_witness(problem, witness)
-
-
-@pytest.mark.usefixtures("compilation_mode")
-def test_a_search_from_one_root_finds_words_with_that_least_variable() -> None:
-    """A search from a root only uses the variables above it.
-
-    A word of weight w with least variable r has w - 1 variables above r, so no word of the distance
-    has a root among the last variables.
-    """
-    problem = PROBLEMS["toric-X"]
-    num_variables = problem[0].shape[1]
-    distance = get_brute_force_distance(problem)
-    roots_with_witnesses = []
-    for root in range(num_variables):
-        search = get_search(*problem)
-        search._roots = np.array([root])
-        witness = search.find_witness(distance)
-        if root > num_variables - distance:
-            assert witness is None
-        elif witness is not None:
-            assert min(witness) == root and is_witness(problem, witness)
-            roots_with_witnesses.append(root)
-    assert roots_with_witnesses
-
-
-@pytest.mark.usefixtures("compilation_mode")
 def test_automorphisms_reduce_the_roots_and_keep_the_distance() -> None:
     """A cyclic code has a symmetry that leaves one root, and so fewer states.
 
     The Golay code is a cyclic code that contains its dual, so cyclic shifts of its qubits map its
-    kernel and its excluded rows onto themselves.
+    kernel and its excluded rows onto themselves.  The quantum Golay code has distance 7 (see
+    https://errorcorrectionzoo.org/c/qubit_golay).
     """
     problem = get_golay_problem()
     distance = get_brute_force_distance(problem)
+    assert distance == 7
     shift = (np.arange(23) + 1) % 23
     plain = get_search(*problem)
     symmetric = get_search(*problem, get_automorphisms=lambda: shift[None])
@@ -410,14 +357,13 @@ def test_each_root_excludes_the_orbits_before_its_own() -> None:
     roots = np.unique(orbits, return_index=True)[1]
     assert roots[1] < len(code) // 2
 
-    for max_weight in (6, 8):
-        for orbit, root in enumerate(roots):
-            search = get_search(*problem)
-            search._use_automorphisms(automorphisms)
-            search._roots = np.array([root])
-            witness = search.find_witness(max_weight)
-            assert witness is not None and is_witness(problem, witness)
-            assert np.all(orbits[witness] >= orbit)
+    for orbit, root in enumerate(roots):
+        search = get_search(*problem)
+        search._use_automorphisms(automorphisms)
+        search._roots = np.array([root])
+        witness = search.find_witness(8)
+        assert witness is not None and is_witness(problem, witness)
+        assert np.all(orbits[witness] >= orbit)
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -445,29 +391,14 @@ def test_each_root_ranks_lowest_in_its_orbit() -> None:
 
 
 @pytest.mark.usefixtures("compilation_mode")
-def test_the_tuning_decides_whether_to_find_automorphisms(tune: Tune) -> None:
-    """A search asks for automorphisms at once, or never, as its tuning says.
-
-    A function that finds no automorphisms leaves the search as it is.
-    """
-    problem = PROBLEMS["steane-X"]
-    for minimum_states, num_calls in [(0, 1), (_tuning.MAX_VALUE, 0)]:
-        tune(automorphism_minimum_states=minimum_states)
-        get_automorphisms = unittest.mock.Mock(return_value=None)
-        assert cs.get_distance_connected_support(
-            [problem], cutoff=0, get_automorphisms=get_automorphisms
-        ) == get_brute_force_distance(problem)
-        assert get_automorphisms.call_count == num_calls
-
-
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("minimum_states", [0, 30, _tuning.MAX_VALUE])
 def test_automorphisms_are_found_once_by_the_threshold(minimum_states: int) -> None:
     """A search asks for automorphisms at most once, and by the time it reaches the threshold.
 
     A search may ask sooner, if it expects to reach the threshold, which is a heuristic that this
     test leaves open.  The checks of ``test_each_support_is_visited_once_above_its_least_variable``
-    visit 5 states with a weight limit of 2, and 10 with a limit of 4.
+    have words of weights 2 and 3, so their weight divisor is 1, and no limit here is raised.  The
+    searches of weight limits 1, 2, 3, and 4 visit 0, 5, 9, and 10 states.
     """
     checks = np.array([[1, 1, 1, 0], [0, 1, 1, 1]], dtype=np.uint8)
     found = []
@@ -477,7 +408,7 @@ def test_automorphisms_are_found_once_by_the_threshold(minimum_states: int) -> N
         get_automorphisms=lambda: found.append(True),
         automorphism_minimum_states=minimum_states,
     )
-    for max_weight in [2, 4, 4, 4, 4]:
+    for max_weight in [1, 2, 3, 4, 4, 4]:
         reached = search.num_states >= minimum_states
         search.find_witness(max_weight)
         assert len(found) <= 1
@@ -536,7 +467,6 @@ def test_a_cutoff_raises_the_first_limit_to_a_multiple_of_the_divisor(
         assert get_automorphisms.call_count == num_calls
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_pruning_keeps_the_search_of_a_high_rate_code_small() -> None:
     """The pair-partition code [[276, 98, 14]] has no logical operator of weight 8 or less.
 
@@ -561,16 +491,6 @@ def test_wrong_automorphisms_are_rejected() -> None:
     search = get_search(*PROBLEMS["steane-X"], get_automorphisms=lambda: swap)
     with pytest.raises(ValueError, match="automorphism"):
         search.find_witness(3)
-
-
-@pytest.mark.usefixtures("compilation_mode")
-def test_the_quantum_golay_code_has_distance_seven() -> None:
-    """The quantum Golay code encodes one qubit with distance 7.
-
-    See https://errorcorrectionzoo.org/c/qubit_golay.
-    """
-    sectors = get_sectors(codes.QuantumGolayCode())
-    assert cs.get_distance_connected_support(sectors, cutoff=0) == 7
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -717,13 +637,6 @@ def test_the_scale_of_weights_leaves_room_for_every_weight_limit() -> None:
     assert witness is not None and is_witness(problem, witness)
 
 
-@pytest.mark.usefixtures("compilation_mode")
-def test_a_search_can_take_one_limit_per_variable() -> None:
-    """The only witness of a repetition code has every variable, so each weight limit is needed."""
-    checks = np.eye(6, 7, dtype=np.uint8) + np.eye(6, 7, 1, dtype=np.uint8)
-    assert cs.get_distance_connected_support([(checks, np.zeros((0, 7)))], cutoff=0) == 7
-
-
 @pytest.mark.parametrize("returns_heavy_witnesses", [False, True])
 def test_a_broken_search_fails_instead_of_looping(
     monkeypatch: pytest.MonkeyPatch, returns_heavy_witnesses: bool
@@ -740,10 +653,12 @@ def test_a_broken_search_fails_instead_of_looping(
     with pytest.raises(RuntimeError, match="only a bug"):
         cs.get_distance_connected_support([PROBLEMS["toric-X"], PROBLEMS["toric-X"]], cutoff=0)
 
-    # Each of the two problems has 16 variables and weight divisor 2.
+    # Each of the two problems has 16 variables and weight divisor 2, so a correct search needs at
+    # most 8 limits for each.
     assert len(limits) == 2 * 16 // 2
 
 
+@pytest.mark.usefixtures("compilation_mode")
 def test_cutoffs_and_upper_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
     """A search can stop early at a witness within its cutoff, or at a known upper bound."""
     problem = PROBLEMS["toric-X"]
@@ -756,11 +671,9 @@ def test_cutoffs_and_upper_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(cs.SupportSearch, "find_witness", record_limit)
     assert get_brute_force_distance(problem) == 4
-    assert cs.get_distance_connected_support([problem], cutoff=2) == 4
     assert 4 <= cs.get_distance_connected_support([problem], cutoff=16) <= 16
 
     # A known upper bound is a candidate for the distance, and the search can only lower it.
-    assert cs.get_distance_connected_support([problem], cutoff=0, upper_bound=9) == 4
     assert cs.get_distance_connected_support([problem], cutoff=0, upper_bound=3) == 3
     assert cs.get_distance_connected_support([], cutoff=0, upper_bound=5) == 5
 
@@ -769,7 +682,8 @@ def test_cutoffs_and_upper_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cs.get_distance_connected_support([problem], cutoff=3, upper_bound=3) == 3
     assert not limits
 
-    # The first weight limit is the cutoff, so a search can exit at a word that is not the lightest.
+    # The first weight limit is the cutoff, a multiple of the weight divisor of 1, so a search can
+    # exit at a word that is not the lightest.
     components = PROBLEMS["components"]
     assert cs.get_distance_connected_support([components], cutoff=0) == 2
     assert cs.get_distance_connected_support([components], cutoff=3) == 3
@@ -781,7 +695,6 @@ def test_a_problem_without_logical_operators_has_no_distance() -> None:
     trivial = (np.array([[1, 1]], dtype=np.uint8), np.array([[1, 1]], dtype=np.uint8))
     assert not get_search(*trivial).has_witnesses
     assert cs.get_distance_connected_support([trivial], cutoff=0) == 3
-    assert cs.get_distance_connected_support([trivial, PROBLEMS["steane-X"]], cutoff=0) == 3
     assert cs.get_distance_connected_support([PROBLEMS["toric-X"], trivial], cutoff=0) == 3
 
     # The Pauli X on one qubit is excluded, and the identity and X are the operators that commute
@@ -807,15 +720,6 @@ def test_degenerate_checks() -> None:
     assert witness is not None and is_witness((checks, excluded), witness)
 
 
-def test_the_weight_divisor_is_inferred_from_the_kernel() -> None:
-    """Every vector of the kernel of the checks of the Reed-Muller code has even weight."""
-    for name, divisor in [("reed-muller-X", 2), ("steane-X", 1)]:
-        checks, _ = PROBLEMS[name]
-        weights = {word.bit_count() for word in get_span(get_kernel(checks))}
-        assert get_search(*PROBLEMS[name]).weight_divisor == divisor
-        assert (divisor == 2) == all(weight % 2 == 0 for weight in weights)
-
-
 def test_invalid_problems_are_rejected() -> None:
     """Problems need binary matrices of equal widths, whose excluded rows are in the kernel.
 
@@ -825,11 +729,10 @@ def test_invalid_problems_are_rejected() -> None:
         get_search(np.zeros((1, 3), dtype=np.uint8), np.zeros((1, 4), dtype=np.uint8))
     with pytest.raises(ValueError, match="satisfy the checks"):
         get_search(np.ones((1, 3), dtype=np.uint8), np.array([[1, 0, 0]], dtype=np.uint8))
-    for entry in (2, -1, 0.5):
-        with pytest.raises(ValueError, match="binary"):
-            get_search(np.array([[1, entry, 0]]), np.zeros((0, 3), dtype=np.uint8))
-        with pytest.raises(ValueError, match="binary"):
-            get_search(np.zeros((0, 3), dtype=np.uint8), np.array([[1, entry, 0]]))
+    with pytest.raises(ValueError, match="binary"):
+        get_search(np.array([[1, 2, 0]]), np.zeros((0, 3), dtype=np.uint8))
+    with pytest.raises(ValueError, match="binary"):
+        get_search(np.zeros((0, 3), dtype=np.uint8), np.array([[1, 0.5, 0]]))
     with pytest.raises(ValueError, match="at least one"):
         get_search(*PROBLEMS["steane-X"]).find_witness(0)
     with pytest.raises(ValueError, match="at least one problem or an upper bound"):

@@ -41,6 +41,7 @@ Start from a symptom
        A connected-support search takes an interrupt only between its weight limits, and no value changes that.
    * - A cheap connected-support search spends its time finding automorphisms
      - Raise :attr:`~SearchTuning.automorphism_minimum_states`.
+       A search whose first weight limit a cutoff raises asks for them unless the field is ``MAX_VALUE``.
    * - Completion tables are used, or declined, against measured savings
      - Refit the fields of their cost model, as :ref:`Retuning <tuning-retuning>` describes.
 

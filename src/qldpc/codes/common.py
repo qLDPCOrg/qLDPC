@@ -578,7 +578,9 @@ class ClassicalCode(AbstractCode):
                 return 0
             if self.field is galois.GF2 and method == "connected_support":
                 # With one more bit b and the checks [H | Hv], the words with b = 1 are those of the
-                # coset of the vector, with b appended, and the words with b = 0 are the code words.
+                # coset of the vector, with b appended, and the words with b = 0 are the code
+                # words, which the search excludes.  So the coset weighs one less than the search
+                # finds, and the cutoff and the upper bound from the vector itself are one more.
                 matrix = self.matrix.view(np.ndarray)
                 checks = np.hstack([matrix, (matrix @ vector.view(np.ndarray))[:, None] % 2])
                 code_words = np.hstack(
@@ -2563,7 +2565,8 @@ class QuditCode(AbstractCode):
         """The logical operators, and the operators that act trivially on the logical qudits.
 
         The trivial operators are the stabilizers, and the gauge operators of a subsystem code, so
-        that the logical operators are dressed.  A CSS code can restrict them to one type.
+        that the logical operators are dressed.  Pass ``pauli`` only for a CSS code, to restrict
+        both to operators of that type.
         """
         logical_ops = self.get_logical_ops(pauli)
         stabilizers = self.get_stabilizer_ops(pauli, canonicalized=True)

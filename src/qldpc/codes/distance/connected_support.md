@@ -59,7 +59,7 @@ Searching rotated surface codes takes 0.03 s for distance 11, 0.8 s for distance
 BZ takes 0.5 s for distance 11, and more than 200 s for distance 15.
 A subsystem code searches the Tanner graph of its stabilizers, which can be dense.
 
-A classical code is searched like a sector with nothing excluded.
+A classical code is searched like a sector with nothing excluded, and a vector distance like a sector that excludes the code words ([Section 3.1](#31-the-problem)).
 A qubit code that is not CSS has no sectors, and its search branches on the Paulis `X`, `Z`, and `Y` of each qubit ([Section 3.7](#37-qubit-codes-that-are-not-css)).
 This search is slower than that of the sectors of a CSS code: a `Y` can flip checks that act as `X` and checks that act as `Z` on its qubit at once, which weakens the bounds of [Section 3.4](#34-pruning).
 The table times the codes above, and others, with Hadamards on the second half of their qubits.
@@ -97,7 +97,9 @@ The distance of the code is the smaller of the two.
 For a subsystem code, `H` holds the stabilizers of the opposite type, so that its kernel holds the X-type or Z-type operators that commute with every stabilizer, and `G` holds the gauge generators of the same type.
 A witness is then a dressed logical operator, as in BZ.
 For a classical code, `H` is its parity-check matrix, and `G` is empty.
-The distance of a vector `v` from a classical code is one less than `d([H | Hv], [G | 0])`, where `G` generates the code: the words of the kernel of `[H | Hv]` whose last bit is 1 are those of the coset `v + C`, each with that bit appended.
+The distance of a vector `v` from a classical code `C` with generator matrix `G_C` is one less than `d([H | Hv], [G_C | 0])`.
+The words of the kernel of `[H | Hv]` whose last bit is 0 are the words of `C` with a 0 appended, which `[G_C | 0]` excludes.
+The others are the words of the coset `v + C`, each with a 1 appended.
 [Section 3.7](#37-qubit-codes-that-are-not-css) treats qubit codes that are not CSS.
 
 ### 3.2 Light words are connected
@@ -208,7 +210,7 @@ Classical codes are searched without symmetries, from every variable.
 Finding them takes milliseconds for codes of hundreds of qubits, but about half a second with `pybliss` for a code of 5,200 qubits, as long as a search of more than a million states on one core.
 So the search of each problem, such as a sector of a CSS code, asks for them at most once, before the first weight limit at which it expects to reach `automorphism_minimum_states` states, a field of the tuning of `_tuning.py`.
 It expects the number of states of each weight limit to grow by the ratio between those of the last two.
-A first limit above the divisor, which `cutoff` can set, has no such estimate, so the search asks for them before it.
+A first limit above the divisor, which `cutoff` can set, has no such estimate, so the search asks for them before it, unless `automorphism_minimum_states` is `MAX_VALUE`.
 Waiting until it has visited that many states instead would let a search that prunes well run a whole weight limit without them: on the [[276, 98, 14]] code, that limit took nearly half of the time of the search.
 
 With symmetries, the search from the first root does most of the work, since every witness that meets the first orbit is found through it.
@@ -239,12 +241,14 @@ An upper bound from a known sector distance acts as a witness of that weight.
 
 **Termination.**
 Each weight limit ends, since the search from a root is a tree of depth at most `W` with finitely many branches at each state.
-A limit without a witness is a multiple of the divisor `d` below the weight of every witness, which is at most the number of variables `n`, and a witness ends the search.
-A correct search therefore takes at most the sum of `n // d` over its problems, so one that takes more has a bug, and raises a `RuntimeError` rather than loop forever.
+A limit without a witness is a multiple of the divisor `d` below the weight of every witness.
+So is the weight of a lightest witness, which is therefore at most `d · (n // d)` for a problem with `n` variables.
+A witness ends the search, so a correct search takes at most the sum of `n // d` weight limits over its problems.
+A search that needs more has a bug, and raises a `RuntimeError` rather than looping forever.
 
 **Interrupts.**
 Each weight limit of a problem runs in one compiled call, which a keyboard interrupt cannot stop, so an interrupt takes effect only once that weight limit ends.
-Python then raises a `KeyboardInterrupt`, or a `SystemError` that it caused.
+Python then raises a `KeyboardInterrupt`, or a `SystemError` that the interrupt caused.
 The last weight limits of the largest searches of [Section 2](#2-when-to-use-which-method) can take hours.
 
 ### 3.7 Qubit codes that are not CSS
@@ -273,7 +277,7 @@ Each argument of Sections 3.2 to 3.6 carries over, with symbols where it uses va
   The children of an unsatisfied check `c` are its available symbols: those that flip `c`, are not in `F`, and whose variable is not in `S`.
   While a child is in the stack, the other values of its variable are blocked, since a word has one value on each qubit, and they are available again once the search leaves that child.
   A child joins `F` for its later siblings, but the other values of its variable do not, since a later sibling can lead to a witness that has another value there.
-  A search starts from the empty state, whose children are the three symbols of the root.
+  The search from a root starts from the empty state, whose children are the three symbols of the root.
 - **Completeness.**
   The argument of [Section 3.3](#33-the-depth-first-search) holds with `S` a set of symbols of `x`, and with `F` missing every symbol of `x`.
   An unsatisfied check `c` anticommutes with the restriction of `x` to `S`, and commutes with `x`, so it is flipped by a symbol of `x` on a variable outside `S`.
