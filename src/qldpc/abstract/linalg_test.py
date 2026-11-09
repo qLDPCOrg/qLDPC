@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import itertools
+
 import numpy as np
 import pytest
 
@@ -229,6 +231,32 @@ def test_get_howell_dual_edge_cases(ring_alternating4_gf5: abstract.GroupRing) -
     with pytest.raises(ValueError, match="Cannot build a Howell dual"):
         abstract.get_howell_dual(
             generator, transformer=transformer, right=False, skip_validation=True
+        )
+
+
+def test_kron_over_matrix_rings() -> None:
+    """The Kronecker product over a matrix ring needs a commutative ring."""
+    matrix_units = [np.array([[0, 1], [0, 0]]), np.array([[0, 0], [1, 0]])]
+    ring = abstract.MatrixRing(*matrix_units)
+    matrix = abstract.RingArray.build([[1, ring.generators[0]]], ring)
+    with pytest.raises(NotImplementedError, match="only for group algebras"):
+        abstract.kron(matrix, matrix)
+
+    # over a commutative matrix ring, kron is the ordinary Kronecker product
+    ring = abstract.MatrixRing(matrix_units[0] + matrix_units[1])
+    matrix = abstract.RingArray.build([[1, ring.generators[0]]], ring)
+    product = abstract.kron(matrix, matrix)
+    for index, (aa, bb) in enumerate(itertools.product(matrix[0], repeat=2)):
+        assert product[0, index] == aa * bb
+
+
+def test_howell_dual_requires_group_algebra(ring_cyclic3_gf2: abstract.GroupRing) -> None:
+    """Howell duals are implemented only for group algebras, even given a transformer."""
+    ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
+    transformer = ring_cyclic3_gf2.get_transformer()
+    with pytest.raises(NotImplementedError, match="only for group algebras"):
+        abstract.get_howell_dual(
+            abstract.RingArray.build([[1]], ring), transformer=transformer, skip_validation=True
         )
 
 

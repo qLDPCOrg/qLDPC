@@ -389,3 +389,14 @@ def test_canonical_logicals_with_non_orthogonal_lifts() -> None:
         # the canonical logical operators for 1 - g fail validation
         with pytest.raises(ValueError, match=r"canonical logical operators.*not orthogonal"):
             code_type(one_minus_g, set_logicals=True)
+
+
+def test_lifted_products_require_group_algebras() -> None:
+    """Lifted products are implemented only for group algebras."""
+    ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
+    group_ring = abstract.GroupRing(abstract.CyclicGroup(2))
+    matrix, group_matrix = abstract.RingArray([[ring.one]]), abstract.RingArray([[group_ring.one]])
+    for code_type in [codes.LPCode, codes.SLPCode]:
+        for matrices in [(matrix, group_matrix), (group_matrix, matrix)]:
+            with pytest.raises(NotImplementedError, match="only for group algebras"):
+                code_type(*matrices)
