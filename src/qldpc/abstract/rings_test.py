@@ -220,6 +220,32 @@ def test_arithmetic_across_rings() -> None:
             ring.one * different_ring.one
 
 
+def test_group_members_outside_the_group() -> None:
+    """Ring members reject group members that are not in their group, and pad those that are."""
+    group = abstract.CyclicGroup(3)
+    ring = abstract.GroupRing(group)
+    transposition = abstract.GroupMember([1, 0, 2])
+    assert transposition not in group
+    for operation in [
+        lambda: abstract.RingMember(ring, transposition),
+        lambda: abstract.RingArray.build([[transposition]], ring),
+        lambda: ring.one + transposition,
+        lambda: ring.one * transposition,
+        lambda: transposition * ring.one,
+    ]:
+        with pytest.raises(ValueError, match="not a member"):
+            operation()
+
+    # a group member that SymPy stores up to its largest moved point is padded with fixed points
+    ring = abstract.GroupRing(abstract.SymmetricGroup(4))
+    short, full = abstract.GroupMember(0, 1), abstract.GroupMember([1, 0, 2, 3])
+    assert short.size < full.size
+    assert abstract.RingMember(ring, short) == abstract.RingMember(ring, full)
+    assert np.array_equal(
+        (ring.one * short).to_vector(), abstract.RingMember(ring, full).to_vector()
+    )
+
+
 def test_primitive_central_idempotents(ring_cyclic3_gf2: abstract.GroupRing) -> None:
     """Convert external primitive central idempotents into RingMembers."""
     ring = ring_cyclic3_gf2

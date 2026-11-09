@@ -244,18 +244,19 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
                         f"Cannot embed a ring member over GF({value.field.order}) into a ring over"
                         f" GF({ring.field.order}): incompatible coefficient fields"
                     )
+                # pad group members to the degree of the group of the array
                 terms = [
-                    (coefficient, member) for coefficient, member in value * one if coefficient
+                    (coefficient, member * one) for coefficient, member in value if coefficient
                 ]
                 if any(member != one and member not in ring.group for _, member in terms):
                     raise ValueError(
                         "Cannot embed a ring member whose group support is not contained in the"
                         " target group"
                     )
-                return RingMember(ring, *terms)
+                return RingMember._from_trusted_terms(ring, terms)
             if isinstance(value, GroupMember):
                 return RingMember(ring, value * one)
-            return RingMember(ring, (value, one))
+            return RingMember._from_trusted_terms(ring, [(value, one)])
 
         vals = [as_ring_member(value) for value in array.ravel()]
         result = np.array(vals, dtype=object).reshape(array.shape).view(RingArray)

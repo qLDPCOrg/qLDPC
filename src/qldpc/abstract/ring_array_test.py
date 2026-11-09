@@ -93,9 +93,8 @@ def test_ring_array_explicit_ring_compatibility() -> None:
         abstract.RingArray.build([[source_ring.generators[0]]], incompatible_group)
 
     cyclic_ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
-    malformed_member = abstract.RingMember(cyclic_ring, incompatible_group.group.generators[0])
-    with pytest.raises(ValueError, match="group support is not contained"):
-        abstract.RingArray.build([[malformed_member]], cyclic_ring)
+    with pytest.raises(ValueError, match="not a member"):
+        abstract.RingMember(cyclic_ring, incompatible_group.group.generators[0])
 
 
 def test_empty_lift() -> None:

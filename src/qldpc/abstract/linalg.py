@@ -22,7 +22,7 @@ from qldpc import math
 from ._coefficients import coefficient_matmul
 from .groups import Group, GroupMember
 from .ring_array import RingArray
-from .rings import GroupRing
+from .rings import GroupRing, RingMember
 
 if TYPE_CHECKING:
     from .wedderburn_artin import WedderburnArtinComponentTransformer, WedderburnArtinTransformer
@@ -92,7 +92,7 @@ def kron(
             list(range(sector_size, 2 * sector_size)) + list(range(sector_size))
         )
         matrix_a = RingArray.build(matrix_a, bimodule)
-        matrix_b = swap_sectors * ~RingArray.build(matrix_b, bimodule) * swap_sectors
+        matrix_b = _swap_sectors(~RingArray.build(matrix_b, bimodule), swap_sectors)
 
     return np.kron(matrix_a, matrix_b).view(RingArray)
 
@@ -248,6 +248,19 @@ def _get_bimodule(ring: GroupRing) -> GroupRing:
 
     bimodule_group = Group(ring.group.to_sympy() * ring.group.to_sympy(), lift=lift)
     return GroupRing(bimodule_group, ring.field)
+
+
+def _swap_sectors(matrix: RingArray, swap: GroupMember) -> RingArray:
+    """Conjugate the group members of a matrix over a bimodule by a swap of its two sectors.
+
+    The swap is a symmetry of the bimodule group rather than one of its members, so this function
+    builds ring members from the conjugated group members directly.
+    """
+    swapped = np.empty(matrix.shape, dtype=object)
+    for index, entry in np.ndenumerate(matrix):
+        terms = [(value, swap * member * swap) for value, member in entry]
+        swapped[index] = RingMember._from_trusted_terms(matrix.ring, terms)
+    return RingArray.build(swapped, matrix.ring)
 
 
 def _validate_howell_dual(
