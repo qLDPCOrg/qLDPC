@@ -471,10 +471,11 @@ class ClassicalCode(AbstractCode):
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
             decoder: Decoder input used to bound distance; see help(get_distance_bound).
-            method: Binary exact-distance method, unused when bounding the distance.
+            method: Binary exact-distance method, including vector distances, unused when bounding
+                the distance.
                 ``"brouwer_zimmermann"`` is the default, with alias ``"information_sets"``;
-                ``"brute_force"`` enumerates every nonzero code word.  Nonbinary and vector-distance
-                calculations always use exhaustive enumeration.
+                ``"brute_force"`` enumerates code words.  Nonbinary calculations always use
+                exhaustive enumeration.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
@@ -503,6 +504,7 @@ class ClassicalCode(AbstractCode):
 
         The cost of this computation generally grows exponentially with the size of the code.  The
         computed code distance is remembered for later calls unless cutoff is greater than 1.
+        Vector distances are never remembered.
 
         Args:
             vector: If not None, rather than computing the code distance, compute the minimum
@@ -510,9 +512,10 @@ class ClassicalCode(AbstractCode):
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
                 With a cutoff greater than 1, a result at or below the cutoff may therefore be only
                 an upper bound on distance, and no result is remembered.
-            method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
-                alias ``"information_sets"``; ``"brute_force"`` enumerates every nonzero code word.
-                Nonbinary and vector-distance calculations always use exhaustive enumeration.
+            method: Binary exact-distance method, including vector distances.
+                ``"brouwer_zimmermann"`` is the default, with alias ``"information_sets"``;
+                ``"brute_force"`` enumerates code words.  Nonbinary calculations always use
+                exhaustive enumeration.
 
         Returns:
             An integer distance if it is defined, or np.nan otherwise.
@@ -544,6 +547,13 @@ class ClassicalCode(AbstractCode):
             vector = np.asanyarray(vector).view(self.field)
             if not np.any(self.matrix @ vector):
                 return 0
+            if self.field is galois.GF2:
+                # The vector is one logical operator modulo the code, so search its coset.
+                return int(
+                    get_distance_quantum(
+                        [vector], self.generator, homogeneous=True, cutoff=cutoff, method=method
+                    )
+                )
             distance = int(np.count_nonzero(vector))
             for word in self.iter_words(skip_zero=True):
                 distance = min(distance, int(np.count_nonzero(word - vector)))

@@ -219,6 +219,98 @@ def test_distance_classical(bits: int = 3) -> None:
     assert rep_code.get_distance_exact(cutoff=bits) == rep_code.get_distance_exact() == bits
 
 
+@pytest.mark.parametrize("method", ["brouwer_zimmermann", "brute_force"])
+def test_distance_vector_binary(method: common.DistanceMethod) -> None:
+    """Binary vector distances handle code words, null codes, and independent distance caches."""
+    for generator in (np.ones((1, 6), dtype=int), np.empty((0, 6), dtype=int)):
+        coefficients = np.array(list(itertools.product([0, 1], repeat=len(generator))), dtype=int)
+        words = coefficients @ generator % 2
+        code = codes.ClassicalCode.from_generator(generator)
+        for vector in (
+            [0, 0, 0, 0, 0, 0],
+            [1, 1, 1, 1, 1, 1],
+            [1, 0, 0, 0, 0, 0],
+            [1, 1, 1, 0, 0, 0],
+        ):
+            expected = int(np.count_nonzero(words != vector, axis=1).min())
+            distance = code.get_distance_exact(vector=vector, method=method)
+            assert isinstance(distance, int)
+            assert distance == expected
+            assert code.get_distance(vector=vector, bound=False, method=method) == expected
+            if len(generator):
+                assert code.get_distance_if_known() is None
+            else:
+                assert code.get_distance_if_known(vector) == expected
+
+        if len(generator):
+            assert code.get_distance_exact(method=method) == 6
+            assert code.get_distance_exact(vector=[1, 1, 1, 0, 0, 0], method=method) == 3
+            assert code.get_distance_if_known() == 6
+
+
+@pytest.mark.parametrize("method", ["brouwer_zimmermann", "brute_force"])
+def test_distance_vector_binary_random(
+    pytestconfig: pytest.Config, tune: Tune, method: common.DistanceMethod
+) -> None:
+    """Both binary methods match NumPy enumeration with redundant generator rows."""
+    tune(allow_enumeration_by_size=False, allow_enumeration_by_work=False)
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for _ in range(60):
+        num_bits = int(rng.integers(3, 10))
+        num_rows = int(rng.integers(1, min(num_bits, 4) + 1))
+        generator = rng.integers(0, 2, size=(num_rows, num_bits))
+        generator = np.vstack(
+            [generator, generator[0], generator.sum(axis=0) % 2, np.zeros(num_bits, dtype=int)]
+        )
+        coefficients = np.array(list(itertools.product([0, 1], repeat=len(generator))), dtype=int)
+        words = coefficients @ generator % 2
+        vector = rng.integers(0, 2, size=num_bits)
+        expected = int(np.count_nonzero(words != vector, axis=1).min())
+        code = codes.ClassicalCode.from_generator(generator).set_generator(generator)
+        assert code.get_distance_exact(vector=vector, method=method) == expected
+
+
+@pytest.mark.parametrize("method", ["brouwer_zimmermann", "brute_force"])
+def test_distance_vector_cutoff(method: common.DistanceMethod) -> None:
+    """Early-exit vector distances stay between the exact distance and the cutoff."""
+    generator = np.ones((1, 6), dtype=int)
+    coefficients = np.array(list(itertools.product([0, 1], repeat=len(generator))), dtype=int)
+    words = coefficients @ generator % 2
+    code = codes.ClassicalCode.from_generator(generator)
+    cutoff = 4
+    for vector in ([1, 1, 0, 0, 0, 0], [1, 1, 1, 0, 0, 0]):
+        expected = int(np.count_nonzero(words != vector, axis=1).min())
+        distance = code.get_distance_exact(vector=vector, cutoff=cutoff, method=method)
+        assert isinstance(distance, int)
+        assert expected <= distance <= cutoff
+        assert code.get_distance_if_known() is None
+
+
+@pytest.mark.parametrize("order", [3, 4])
+@pytest.mark.parametrize("method", ["brouwer_zimmermann", "brute_force"])
+def test_distance_vector_nonbinary(order: int, method: common.DistanceMethod) -> None:
+    """Nonbinary vector distances enumerate code words over their concrete finite field."""
+    field = galois.GF(order)
+    generator = field([[1, 2, 1, 2]])
+    words = field.elements[:, None] * generator[0]
+    code = codes.ClassicalCode.from_generator(generator)
+    for vector in ([0, 0, 0, 0], [1, 2, 1, 2], [1, 1, 0, 0], [order - 1, 1, 0, 0]):
+        expected = int(np.count_nonzero(words != vector, axis=1).min())
+        distance = code.get_distance_exact(vector=vector, method=method)
+        assert isinstance(distance, int)
+        assert distance == expected
+        assert expected <= code.get_distance_exact(vector=vector, cutoff=4, method=method) <= 4
+        assert code.get_distance_if_known() is None
+
+
+@pytest.mark.parametrize("getter", ["get_distance", "get_distance_exact"])
+def test_distance_vector_invalid_method(getter: str) -> None:
+    """Vector-distance methods reject unknown methods even when the distance is already known."""
+    for code in (codes.RepetitionCode(3), codes.ClassicalCode(np.eye(3, dtype=int))):
+        with pytest.raises(ValueError, match="Unknown distance method"):
+            getattr(code, getter)(vector=[0, 0, 0], method="unknown")
+
+
 def test_distance_bound_of_self_orthogonal_code() -> None:
     """A distance bound can find code words that are orthogonal to the whole code."""
     # every code word of the self-dual [8, 4, 4] extended Hamming code is orthogonal to the code
