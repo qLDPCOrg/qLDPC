@@ -206,13 +206,11 @@ def test_lifted_product_line_logicals_noncommutative(
 
 
 def test_lifted_product_valid_over_group_algebras() -> None:
-    """Canonical-logical LP/SLP construction yields valid codes over several group algebras.
+    """LPCode and SLPCode set valid canonical logicals over commutative group algebras.
 
-    Setting canonical logicals is the only path that exercises the Howell dual of the code's ring
-    generator, and rich (multi-term) ring entries are the case a wrong pivot dual mishandles --
-    misreporting the construction as unsupported.  These cases span two group orders and two fields
-    (C3 over GF(4), C4 over GF(5)), whose polynomial moduli x^3 - 1 and x^4 - 1 factor differently;
-    each coefficient vector has length equal to the group order.
+    Setting canonical logicals computes Howell duals, here of matrices whose entries have several
+    terms.  The group algebras C3 over GF(4) and C4 over GF(5) have polynomial moduli, x^3 - 1 and
+    x^4 - 1, that factor differently.
     """
     cases = [
         (
@@ -336,6 +334,10 @@ def test_canonical_logicals_with_non_orthogonal_lifts() -> None:
     zero = abstract.RingArray.build([[ring.zero]], ring)
     ops_x, ops_z = codes.LPCode.to_lifted_logical_ops(zero, one)
     assert ops_x.shape == ops_z.shape == (0, 2)
+
+    # logical operators come in pairs
+    with pytest.raises(ValueError, match="must come in pairs"):
+        codes.LPCode.to_lifted_logical_ops(abstract.RingArray.build([[1], [1]], ring), one)
 
     code_types: list[type[codes.LPCode | codes.SLPCode]] = [codes.LPCode, codes.SLPCode]
     for code_type in code_types:

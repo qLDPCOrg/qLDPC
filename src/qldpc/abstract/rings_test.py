@@ -276,6 +276,14 @@ def test_get_transformer_reuse() -> None:
     assert ring.get_transformer() is transformer
 
 
+def test_get_transformer_is_reproducible() -> None:
+    """Without a seed, separately built rings have the same Wedderburn-Artin decomposition."""
+    rings = [abstract.GroupRing(abstract.DihedralGroup(3), field=5) for _ in range(2)]
+    transformer_a, transformer_b = [ring.get_transformer() for ring in rings]
+    for component_a, component_b in zip(transformer_a.transformers, transformer_b.transformers):
+        assert np.array_equal(component_a.matrix_basis, component_b.matrix_basis)
+
+
 def test_transpose() -> None:
     """Transpose ring members."""
     group = abstract.CyclicGroup(4)
