@@ -26,6 +26,7 @@ from . import information_sets
 # The default numbers of column orders of disjoint families, and denominators of LP dual weights.
 ORDERS = DEFAULT_TUNING.disjoint_random_column_orders
 DENOMINATOR = DEFAULT_TUNING.lp_dual_max_denominator
+_MAX = np.iinfo(np.int64).max
 
 # Two disjoint full blocks and a rank-two remainder.
 PARTIAL_BASIS = np.hstack(
@@ -222,14 +223,95 @@ def test_certificate_follows_its_definition(pytestconfig: pytest.Config) -> None
                 if step_oracle[weight, count] >= upper_bound:
                     break
             assert certificate.work(upper_bound) == candidates
-            num_sets = next(
-                (count for count in range(1, len(ranks)) if step_oracle[1, count] >= upper_bound),
-                len(ranks),
-            )
-            assert certificate.get_num_sets_to_certify(1, upper_bound) == num_sets
+            for weight in range(1, dimension + 1):
+                num_sets = next(
+                    (
+                        count
+                        for count in range(1, len(ranks))
+                        if step_oracle[weight, count] >= upper_bound
+                    ),
+                    len(ranks),
+                )
+                assert certificate.get_num_sets_to_certify(weight, upper_bound) == num_sets
 
     # A family without sets, which the overlapping stage returns for no replacement, does no work.
     assert information_sets.Certificate(3, ()).work(2) == 0
+
+
+@pytest.mark.usefixtures("compilation_mode")
+def test_stopping_steps_are_the_first_to_exceed_a_limit(pytestconfig: pytest.Config) -> None:
+    """The stopping step is the first of the given layers whose bound exceeds the limit.
+
+    The bounds are certificate tables of sets of every rank, including zero, and a table without
+    sets.  The limits run past both ends of each table, to the largest native integer.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    tables = [np.zeros((3, 1), dtype=np.int64)]
+    for _ in range(30):
+        dimension = int(rng.integers(0, 7))
+        ranks = rng.integers(0, dimension + 1, rng.integers(1, 5))
+        tables.append(
+            information_sets.get_step_lower_bounds(
+                dimension, ranks, int(rng.integers(1, 3)), int(rng.integers(1, 3))
+            )
+        )
+    for bounds in tables:
+        num_rows, num_sets = bounds.shape[0], bounds.shape[1] - 1
+        finite = bounds[bounds < information_sets._NO_WORD_BOUND]
+        limits = [*range(-2, int(finite.max(initial=0)) + 3), _MAX - 1, _MAX]
+        for first_layer in range(num_rows):
+            for last_layer, limit in itertools.product(range(first_layer, num_rows), limits):
+                steps = [
+                    (layer, count)
+                    for layer in range(first_layer, last_layer + 1)
+                    for count in range(1, num_sets + 1)
+                ]
+                expected = next(
+                    (step for step in steps if bounds[step] > limit), (last_layer, num_sets)
+                )
+                assert (
+                    information_sets.find_stopping_step(bounds, limit, first_layer, last_layer)
+                    == expected
+                )
+
+
+def test_sets_to_certify_solve_linear_programs_in_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With linear programs, the sets to certify a bound come from them, solved in step order.
+
+    In the [7, 3] example of ``test_linear_programming_can_beat_the_coverage_bound``, the coverage
+    bound needs all five sets to certify four in layer one, and cannot certify six in layer two, but
+    linear programs certify them after three sets and two sets.  Five needs all five sets in layer
+    one either way.  The coverage bound alone solves no program, and with programs, the sets to
+    certify a bound solve the same programs in the same order as ``certifies`` does step by step.
+    """
+    blocks = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3), (4, 5, 6))
+    calls: list[list[int]] = []
+    get_lp_lower_bound = information_sets.get_lp_lower_bound
+
+    def record(*args: Any) -> int:
+        calls.append(list(args[1]))
+        return get_lp_lower_bound(*args)
+
+    monkeypatch.setattr(information_sets, "get_lp_lower_bound", record)
+    certificate = information_sets.Certificate(3, (3,) * 5, max_coverage=3)
+    assert certificate.get_num_sets_to_certify(1, 4) == 5
+    assert certificate.get_num_sets_to_certify(2, 6) == 5
+    assert not calls
+
+    for (weight, upper_bound), expected in (((1, 4), 3), ((2, 6), 2), ((1, 5), 5)):
+        lp_certificate = dataclasses.replace(
+            certificate, pivot_blocks=blocks, lp_max_denominator=DENOMINATOR
+        )
+        assert lp_certificate.get_num_sets_to_certify(weight, upper_bound) == expected
+        solved = calls[:]
+        calls.clear()
+        reference = dataclasses.replace(lp_certificate)
+        assert expected == next(
+            (count for count in range(1, 5) if reference.certifies(weight, count, upper_bound)), 5
+        )
+        assert solved == calls
+        assert bool(solved) == (expected < 5)
+        calls.clear()
 
 
 def test_partitioned_families_replace_costlier_ones() -> None:

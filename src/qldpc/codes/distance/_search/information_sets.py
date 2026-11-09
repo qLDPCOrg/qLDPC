@@ -11,7 +11,9 @@ which search a space, and is a fixed word of the searched coset in the coset-lea
 ``coset_leader_search.py``).  This module owns how those basis families are built, pruned, and
 replaced by overlapping ones, and the certificate that bounds the Hamming weight of eligible words
 that a basis family has not yet visited.  The coset-leader oracle uses the disjoint information sets
-for its own layered search.  All three enumerate a layer with :func:`advance_support`.
+for its own layered search.  All three enumerate a layer with :func:`advance_support`, and the
+distance and coset searches find the step at which a certificate reaches their bound with
+:func:`find_stopping_step`.
 
 A :class:`BasisFamily` stacks its information sets into arrays, so that one set of functions serves
 every caller, in the subset of Python that numba compiles, and some of them are compiled (see
@@ -167,6 +169,13 @@ class Certificate:
         fewer sets suffice, in which case the bound may need later layers too.
         """
         num_sets = len(self.ranks)
+        if not self.pivot_blocks or self.max_coverage == 1:
+            # Without linear programs, the first step of the layer whose bound reaches the upper
+            # bound is the answer.
+            _, num_completed = find_stopping_step(
+                self._step_lower_bounds, upper_bound - 1, weight, weight
+            )
+            return num_completed
         for num_completed in range(1, num_sets):
             if self.certifies(weight, num_completed, upper_bound):
                 return num_completed
@@ -795,6 +804,36 @@ def get_step_lower_bounds(
             )
     bounds[dimension, 1:] = _NO_WORD_BOUND
     return bounds
+
+
+@always_compiled
+def find_stopping_step(
+    step_bounds: npt.NDArray[np.int64], limit: int, first_layer: int, last_layer: int
+) -> tuple[int, int]:
+    """Find the first step of layers ``first_layer`` to ``last_layer`` whose bound exceeds a limit.
+
+    The steps of a layer ``w`` are ``(w, 1)`` to ``(w, num_sets)``, taken in that order and layer by
+    layer, and the bound of step ``(w, j)`` is ``step_bounds[w, j]``, as in the table of
+    ``get_step_lower_bounds``.  The bounds of these steps must not decrease in this order, which
+    holds for that table and for any nondecreasing function of it, so the first step whose bound
+    exceeds ``limit`` is found by binary search.  Column zero is not a step, and no other rows are
+    read.
+
+    Returns:
+        The step ``(layer, num_completed)``, or ``(last_layer, num_sets)`` if no step's bound
+        exceeds ``limit``.
+    """
+    num_sets = step_bounds.shape[1] - 1
+    low, high = 0, (last_layer - first_layer + 1) * num_sets
+    while low < high:
+        middle = (low + high) // 2
+        if step_bounds[first_layer + middle // num_sets, 1 + middle % num_sets] > limit:
+            high = middle
+        else:
+            low = middle + 1
+    if low == (last_layer - first_layer + 1) * num_sets:
+        return last_layer, num_sets
+    return first_layer + low // num_sets, 1 + low % num_sets
 
 
 @always_compiled
