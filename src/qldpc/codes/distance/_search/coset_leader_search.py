@@ -32,7 +32,11 @@ from qldpc._compilation import always_compiled
 from .. import _tuning
 from .._binary import as_binary_matrix, assert_binary, symplectic_to_hamming
 from .._tuning import get_tuning
-from . import affine_search, connected_support, information_sets
+from . import affine_instance, affine_search, connected_support, information_sets
+
+# The planning buffer of a coset search: the bounds of its steps, and one more row that caches a
+# stopping step (see ``_get_planning``).
+_PlanningBuffer = npt.NDArray[np.int64]
 
 ####################################################################################################
 # coset-leader minimum-weight bounds
@@ -328,9 +332,11 @@ class _CosetSearchTables(NamedTuple):
         generators: The packed rows of each disjoint information set of the embedded generators of
             the code.
         pivots: The pivot columns of each information set, padded with -1.
-        unvisited_bounds: Entry ``[w, j]`` is a lower bound on the weight of every word that the
-            search has not visited once the first ``j`` information sets have completed layer ``w``
-            and the others have completed layer ``w - 1`` (see ``get_step_lower_bounds``).
+        planning: The planning buffer of the search (see ``_get_planning``): the bounds of its
+            steps, and one more row that caches a stopping step.  For a nonnegative maximum weight,
+            ``_get_stopping_step`` reuses the cached step exactly while it stays the first step
+            whose bound exceeds that weight, and replaces it otherwise.  Queries write only this row
+            of the tables, and oracles that share a cached search share it.
         x_mask: Selects the bits of a packed embedded word that count as its X part, with one
             machine word for each machine word of the embedded words.  Only searches of Pauli
             errors by CSS weight use the X part, and their layers scan with it, but every search
@@ -340,7 +346,7 @@ class _CosetSearchTables(NamedTuple):
     inverse: npt.NDArray[np.uint64]
     generators: npt.NDArray[np.uint64]
     pivots: npt.NDArray[np.int64]
-    unvisited_bounds: npt.NDArray[np.int64]
+    planning: _PlanningBuffer
     x_mask: npt.NDArray[np.uint64]
 
 
@@ -384,7 +390,11 @@ class _CosetSearch:
         self.css_weight = css_weight
         # The compiled search weighs embedded words by their CSS weight only in a search of Pauli
         # errors by CSS weight, and otherwise by their Hamming weight, which is twice the physical
-        # weight of an error, and the weight of an X or Z part (see ``_search_coset``).
+        # weight of an error, and the weight of an X or Z part (see ``_search_coset``).  The scale
+        # chooses which of these weights a scan computes.  The weight factor of the coset instance
+        # is separate: it is two for every search of Pauli errors, including those by CSS weight,
+        # whose scale is zero, since an error weighs at least half the Hamming weight of its
+        # embedded word (see ``_get_pauli_search``).
         self.scale = 0 if css_weight and is_pauli else 1 if css_weight else 2
         self._num_qubits = num_qubits
         self._is_pauli = is_pauli
@@ -585,9 +595,10 @@ def _get_pauli_search(
     embedded_inverse = inverse if css_weight else symplectic_to_hamming(inverse)
     # An error weighs at least half of the Hamming weight of its embedded word, by either measure of
     # weight, so the certificate bounds are halved.
-    tables = _get_search_tables(
-        embedded_stabilizers, embedded_inverse, num_qubits, random_column_orders, halve=True
+    instance = affine_instance.get_coset_instance(
+        embedded_stabilizers, random_column_orders=random_column_orders, weight_factor=2
     )
+    tables = _get_search_tables(instance, embedded_inverse, num_qubits)
     check_columns = _row_ints(np.ascontiguousarray(checks.T))
     return _CosetSearch(
         tables,
@@ -639,8 +650,11 @@ def _get_classical_search(
     """
     num_qubits = generators.shape[1]
     inverse = _get_inverse(checks)
+    instance = affine_instance.get_coset_instance(
+        generators, random_column_orders=random_column_orders, weight_factor=1
+    )
     # Every column counts as the X part, so the CSS weight of a word is its Hamming weight.
-    tables = _get_search_tables(generators, inverse, num_qubits, random_column_orders, halve=False)
+    tables = _get_search_tables(instance, inverse, num_qubits)
     check_columns = _row_ints(np.ascontiguousarray(checks.T))
     return _CosetSearch(tables, True, num_qubits, _row_ints(inverse), check_columns, is_pauli=False)
 
@@ -697,52 +711,45 @@ def _sparsify(
 
 
 def _get_search_tables(
-    generators: npt.NDArray[np.uint8],
-    inverse: npt.NDArray[np.uint8],
-    num_x_columns: int,
-    random_column_orders: int,
-    halve: bool,
+    instance: affine_instance.AffineInstance, inverse: npt.NDArray[np.uint8], num_x_columns: int
 ) -> _CosetSearchTables:
-    """Build the tables of ``_search_coset`` for the cosets of the row space of embedded generators.
+    """Build the tables of ``_search_coset`` for the cosets of the code of a coset instance.
 
     ``inverse`` holds embedded words whose syndromes have one bit set, and the first
-    ``num_x_columns`` columns count as the X part of an embedded word.  ``random_column_orders`` is
-    passed to ``information_sets.get_disjoint_family``.  Entry ``[w, j]`` of the certificate bounds
-    the Hamming weight of every word that adds more than ``w`` rows on each of the first ``j``
-    information sets and more than ``w - 1`` rows on the others, and its half bounds the weight of
-    an error if ``halve``.  The certificate takes no weight divisor, since the words of a coset need
-    not share the divisibility of the code, and a coverage of one, since the information sets are
-    disjoint.  Without generators, each coset is a single word, which the search visits on layer
-    zero of an empty information set.
+    ``num_x_columns`` columns count as the X part of an embedded word.
     """
-    num_generators, num_columns = generators.shape
-    width = max(1, (num_columns + 63) // 64)
-    if num_generators:
-        family = information_sets.get_disjoint_family(
-            generators, None, random_column_orders=random_column_orders
-        )
-        num_sets = family.generators.shape[0]
-        packed_generators = pack_bits(family.generators.reshape(-1, num_columns)).reshape(
-            num_sets, num_generators, -1
-        )
-        set_pivots = family.pivots
-        certificate_bounds = information_sets.get_step_lower_bounds(
-            num_generators, family.ranks, 1, 1
-        )
-        # Round half of each bound up, without overflowing the bounds after the last layer.
-        unvisited_bounds = (
-            certificate_bounds - certificate_bounds // 2 if halve else certificate_bounds
-        ).astype(np.int64)
-        unvisited_bounds[num_generators, 1:] = np.iinfo(np.int64).max
-    else:
-        packed_generators = np.zeros((1, 0, width), dtype=np.uint64)
-        set_pivots = np.full((1, 0), -1, dtype=np.int64)
-        # The one empty set visits the only word of each coset on layer zero.
-        unvisited_bounds = np.array([[0, np.iinfo(np.int64).max]], dtype=np.int64)
+    width = instance.generators.shape[2]
     x_mask = _int_to_words((1 << num_x_columns) - 1, width)
     return _CosetSearchTables(
-        pack_bits(inverse), packed_generators, set_pivots, unvisited_bounds, x_mask
+        pack_bits(inverse),
+        instance.generators,
+        instance.pivots,
+        _get_planning(instance.get_weight_bounds()),
+        x_mask,
     )
+
+
+def _get_planning(bounds: npt.NDArray[np.int64]) -> _PlanningBuffer:
+    """Build the planning buffer of a coset search from the bounds of its steps.
+
+    The compiled search takes the bounds and its cached stopping step in this one array, since each
+    argument of a compiled call adds to the time of every query.  The buffer has one more row than
+    the bounds:
+
+    - Every row but the last holds the bounds of ``AffineInstance.get_weight_bounds``: entry
+      ``[w, j]`` bounds the weight of every word that the search has not visited once the first
+      ``j`` sets have completed layer ``w`` and the others layer ``w - 1``.  So column zero of each
+      row holds the bound before the first step of that row.  These rows never change, and code
+      reads them as the view ``planning[:-1]``.
+    - The last row holds no bounds.  Its first two entries are the layer and the number of
+      completed sets of the stopping step that ``_get_stopping_step`` returned last, or of the first
+      step, ``(0, 1)``, before its first call, and its other entries are zero.  Only
+      ``_get_stopping_step`` reads and writes this row.
+    """
+    planning = np.zeros((len(bounds) + 1, bounds.shape[1]), dtype=np.int64)
+    planning[:-1] = bounds
+    planning[-1, 1] = 1
+    return planning
 
 
 def _get_css_combinations(
@@ -828,47 +835,27 @@ def _find_first_not_within_max_weight(
     inverse: npt.NDArray[np.uint64],
     generators: npt.NDArray[np.uint64],
     pivots: npt.NDArray[np.int64],
-    unvisited_bounds: npt.NDArray[np.int64],
+    planning: _PlanningBuffer,
     x_mask: npt.NDArray[np.uint64],
     scale: int,
 ) -> tuple[int, int]:
-    """Search the coset of each syndrome in turn, as ``_search_coset`` does.
+    """Search the coset of each syndrome in turn with ``_search_coset``.
 
-    Return the index of the first syndrome whose coset has no word of weight at most ``max_weight``,
-    and the lower bound that ``_search_coset`` returns for it, with its lightest word left in
-    ``best``.  If there is no such syndrome, return the number of syndromes and zero.  The step at
-    which the searches stop depends only on ``max_weight``, so it is found once for the whole
-    batch, when the first syndrome needs a search.
+    The tables, from ``inverse`` to ``x_mask``, are those of ``_search_coset``.  Return the index of
+    the first syndrome whose coset has no word of weight at most ``max_weight``, and the lower bound
+    that ``_search_coset`` returns for it, with its lightest word left in ``best``.  If there is no
+    such syndrome, return the number of syndromes and zero.
     """
-    stop_layer, stop_num_completed = 0, 0
-    skipped = np.empty(0, dtype=np.bool_)
     for index in range(len(syndromes)):
-        best_weight = _get_syndrome_word(syndromes[index], best, inverse, x_mask, scale)
-        if best_weight <= max_weight:
-            continue
-        if not len(skipped):
-            stop_layer, stop_num_completed, skipped = _get_stopping_step(
-                pivots, unvisited_bounds, max_weight
-            )
-        lower_bound, _ = _search_from_syndrome_word(
-            max_weight,
-            stop_layer,
-            stop_num_completed,
-            skipped,
-            best,
-            best_weight,
-            generators,
-            pivots,
-            unvisited_bounds,
-            x_mask,
-            scale,
+        lower_bound = _search_coset(
+            syndromes[index], max_weight, best, inverse, generators, pivots, planning, x_mask, scale
         )
         if lower_bound > max_weight:
             return index, lower_bound
     return len(syndromes), 0
 
 
-@always_compiled
+@always_compiled(inline=True)
 def _search_coset(
     syndrome: npt.NDArray[np.uint64],
     max_weight: int,
@@ -876,7 +863,7 @@ def _search_coset(
     inverse: npt.NDArray[np.uint64],
     generators: npt.NDArray[np.uint64],
     pivots: npt.NDArray[np.int64],
-    unvisited_bounds: npt.NDArray[np.int64],
+    planning: _PlanningBuffer,
     x_mask: npt.NDArray[np.uint64],
     scale: int,
 ) -> int:
@@ -891,9 +878,10 @@ def _search_coset(
     weight.  The weight of an embedded word is that of its word: its CSS weight if ``scale`` is
     zero, with its X part selected by ``x_mask``, and otherwise its Hamming weight divided by
     ``scale``, which is two for the physical weight and one for X or Z parts.  The tables are those
-    of ``_CosetSearchTables``: row ``j`` of ``inverse`` is the embedded word of a word whose
-    syndrome has only bit ``j`` set, and ``generators`` and ``pivots`` are the disjoint information
-    sets of the embedded generators of the code, with pivots padded with -1.
+    of ``_CosetSearchTables``.  Row ``j`` of ``inverse`` is the embedded word of a word whose
+    syndrome has only bit ``j`` set.  ``generators`` and ``pivots`` are the disjoint information
+    sets of the embedded generators of the code, with pivots padded with -1.  ``planning`` is the
+    planning buffer of the search, whose cached stopping step a query may update.
 
     The embedded words of the coset form a coset of the embedded code.  The search starts from the
     sum of the rows of ``inverse`` for the set bits of the syndrome, a word with that syndrome.  The
@@ -903,11 +891,13 @@ def _search_coset(
     certificate applies to the coset as it does to a space.  Layer ``w`` of a set is its offset plus
     each sum of ``w`` of its rows, so layer zero is the offset itself.
 
-    The search visits layer zero on every information set in order, then layer one, and so on.  It
+    The search visits layer zero of the information sets in order, then layer one, and so on.  It
     keeps the lightest word visited in ``best``, and stops at the first word of weight at most
     ``max_weight``.  Once the first ``j`` sets have completed layer ``w``, every unvisited word
-    weighs at least ``unvisited_bounds[w, j]``, so the search also stops at the first such step
-    whose bound exceeds ``max_weight`` (see ``_get_stopping_step``).
+    weighs at least the bound of step ``(w, j)`` in ``planning``.  So the search also stops at its
+    stopping step, the first step whose bound exceeds ``max_weight``, which ``_get_stopping_step``
+    finds.  It skips each set that adds nothing to the bound of that step (see
+    ``_search_from_syndrome_word``).
 
     Returns:
         A lower bound on the weight of every word in the coset: zero, which is at most
@@ -917,19 +907,16 @@ def _search_coset(
     best_weight = _get_syndrome_word(syndrome, best, inverse, x_mask, scale)
     if best_weight <= max_weight:
         return 0
-    stop_layer, stop_num_completed, skipped = _get_stopping_step(
-        pivots, unvisited_bounds, max_weight
-    )
+    stop_layer, stop_num_completed, stop_bound = _get_stopping_step(planning, max_weight)
     lower_bound, _ = _search_from_syndrome_word(
         max_weight,
         stop_layer,
         stop_num_completed,
-        skipped,
+        stop_bound,
         best,
         best_weight,
         generators,
         pivots,
-        unvisited_bounds,
         x_mask,
         scale,
     )
@@ -937,42 +924,43 @@ def _search_coset(
 
 
 @always_compiled
-def _get_stopping_step(
-    pivots: npt.NDArray[np.int64],
-    unvisited_bounds: npt.NDArray[np.int64],
-    max_weight: int,
-) -> tuple[int, int, npt.NDArray[np.bool_]]:
-    """Find the step at which a coset search stops, and the sets that it skips.
+def _get_stopping_step(planning: _PlanningBuffer, max_weight: int) -> tuple[int, int, int]:
+    """Find the step at which a coset search stops, and cache it in the planning buffer.
 
-    The step is the first whose bound exceeds the maximum weight: ``stop_num_completed`` sets
-    complete layer ``stop_layer``.  A search stops there, unless it finds a light enough word
-    sooner.  A set of rank deficiency ``s`` adds to the bound of a step only once it has completed
-    layer ``s``, so a set that would not have completed it by the stopping step adds nothing, and
-    the search skips it.
+    The stopping step is the first step whose bound exceeds the maximum weight: the step at which
+    ``stop_num_completed`` sets complete layer ``stop_layer``.  A search stops there, unless it
+    finds a light enough word sooner.  The bounds of the steps do not decrease in their order.
+    Column zero of each row of bounds holds the bound before the first step of the row, which is
+    zero in row zero.  So the bound of the step before step ``(w, j)`` is entry ``[w, j - 1]``, and
+    for a nonnegative maximum weight, step ``(w, j)`` is the stopping step exactly if its bound
+    exceeds the maximum weight and entry ``[w, j - 1]`` does not.  The step cached in the planning
+    buffer (see ``_get_planning``) is reused if it passes this check.  Otherwise, the stopping step
+    is found by binary search and cached in its place.  A negative maximum weight fails the check,
+    and the binary search returns the first step.  If no bound exceeds the maximum weight, which
+    happens only when the maximum weight reaches the largest native integer, the binary search
+    returns the last step.
+
+    Oracles that share a cached search share its planning buffer.  Compiled calls hold the global
+    interpreter lock, since numba compiles them without ``nogil``, so calls interleave only when
+    these functions run as plain Python in several threads, or in free-threaded Python.  The layer
+    and the number of completed sets of a step are written as two entries, so a read may pair the
+    layer of one step with the number of completed sets of another.  Any such pair indexes the
+    bounds, which never change, and it is checked against them before it is used.
 
     Returns:
-        ``stop_layer``, ``stop_num_completed``, and whether the search skips each set.
+        ``stop_layer``, ``stop_num_completed``, and the bound of that step.
     """
-    num_sets, num_rows = pivots.shape
-    stop_layer, stop_num_completed = num_rows, num_sets
-    found = False
-    for layer in range(num_rows + 1):
-        for num_completed in range(1, num_sets + 1):
-            if unvisited_bounds[layer, num_completed] > max_weight:
-                stop_layer, stop_num_completed, found = layer, num_completed, True
-                break
-        if found:
-            break
-
-    # Skip the sets whose rank deficiency exceeds the last layer that they would complete.
-    skipped = np.zeros(num_sets, dtype=np.bool_)
-    for set_index in range(num_sets):
-        rank = 0
-        while rank < num_rows and pivots[set_index, rank] >= 0:
-            rank += 1
-        last_layer = stop_layer if set_index < stop_num_completed else stop_layer - 1
-        skipped[set_index] = last_layer + 1 <= num_rows - rank
-    return stop_layer, stop_num_completed, skipped
+    bounds = planning[:-1]
+    layer, num_completed = planning[-1, 0], planning[-1, 1]
+    is_stopping_step = (
+        max_weight < bounds[layer, num_completed] and bounds[layer, num_completed - 1] <= max_weight
+    )
+    if not is_stopping_step:
+        layer, num_completed = information_sets.find_stopping_step(
+            bounds, max_weight, 0, len(bounds) - 1
+        )
+        planning[-1, 0], planning[-1, 1] = layer, num_completed
+    return layer, num_completed, int(bounds[layer, num_completed])
 
 
 @always_compiled
@@ -980,23 +968,24 @@ def _search_from_syndrome_word(
     max_weight: int,
     stop_layer: int,
     stop_num_completed: int,
-    skipped: npt.NDArray[np.bool_],
+    stop_bound: int,
     best: npt.NDArray[np.uint64],
     best_weight: int,
     generators: npt.NDArray[np.uint64],
     pivots: npt.NDArray[np.int64],
-    unvisited_bounds: npt.NDArray[np.int64],
     x_mask: npt.NDArray[np.uint64],
     scale: int,
 ) -> tuple[int, int]:
     """Search a coset, as ``_search_coset`` does, from the word of its syndrome.
 
     ``best`` holds that word, of weight ``best_weight`` above ``max_weight``.  The stopping step and
-    the skipped sets are those of ``_get_stopping_step``.
+    its bound are those of ``_get_stopping_step``.  A set of rank deficiency ``s`` adds to the bound
+    of a step only once it has completed layer ``s``, so a set that would not have completed it by
+    the stopping step adds nothing, and the search skips it.
 
     Returns:
         The lower bound of ``_search_coset``, and the number of words weighed after the word of the
-        syndrome, which benchmarks of the work of a search read.
+        syndrome.  Only tests read the number, to check which sets a search skips.
     """
     num_sets, num_rows, width = generators.shape
 
@@ -1021,7 +1010,15 @@ def _search_from_syndrome_word(
     prefixes = np.empty((num_rows, 1, width), dtype=np.uint64)
     for layer in range(stop_layer + 1):
         for set_index in range(num_sets if layer < stop_layer else stop_num_completed):
-            if skipped[set_index]:
+            # Skip a set that adds nothing to the bound of the stopping step, since its rank
+            # deficiency exceeds the last layer that it completes by then.  This holds exactly if
+            # its rank is at most ``position = num_rows - last_layer - 1``, that is, if its pivot
+            # at ``position`` is padding.  The last layer is at least zero for every set visited
+            # here, so ``position`` is below ``num_rows``.  It is negative only if the last layer
+            # is ``num_rows``, where no set is skipped.
+            last_layer = stop_layer if set_index < stop_num_completed else stop_layer - 1
+            position = num_rows - last_layer - 1
+            if position >= 0 and pivots[set_index, position] < 0:
                 continue
             if layer == 0:
                 best_weight = _keep_lighter(offsets[set_index], best, best_weight, x_mask, scale)
@@ -1054,7 +1051,7 @@ def _search_from_syndrome_word(
                 weighed += count
             if best_weight <= max_weight:
                 return 0, weighed
-    return min(best_weight, int(unvisited_bounds[stop_layer, stop_num_completed])), weighed
+    return min(best_weight, stop_bound), weighed
 
 
 @always_compiled(inline=True)

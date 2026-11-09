@@ -23,7 +23,7 @@ from qldpc.objects import PAULIS_XZ, Pauli
 from ...conftest import Tune
 from .._tuning import DEFAULT_TUNING, MAX_VALUE, SearchTuning, use_tuning
 from ..conftest import CostlyStages, get_random_full_rank_matrix, get_sector_problem
-from . import affine_search, completion_bounds, information_sets
+from . import affine_instance, affine_search, completion_bounds, information_sets
 from . import brouwer_zimmermann as bz
 
 # A tuning that never uses completion tables, for searches built directly.
@@ -43,11 +43,13 @@ def test_brouwer_zimmermann_search_state() -> None:
     # The input is one rank-zero information set with two basis rows.  The two basis rows have
     # Hamming weights 2 and 1, both outside the excluded subcode.
     search = bz._BrouwerZimmermannSearch(
-        np.array([[[3], [2]]], dtype=np.uint64),
-        np.ones((1, 2, 1), dtype=np.uint64),
-        np.array([1], dtype=np.int64),
-        np.array([1], dtype=np.int64),
-        information_sets.Certificate(2, (0,)),
+        affine_instance.AffineInstance(
+            generators=np.array([[[3], [2]]], dtype=np.uint64),
+            labels=np.ones((1, 2, 1), dtype=np.uint64),
+            widths=np.array([1], dtype=np.int64),
+            pivots=np.full((1, 2), -1, dtype=np.int64),
+            certificate=information_sets.Certificate(2, (0,)),
+        ),
         cutoff=1,
         batch_size=1,
         tuning=TABLES_DISABLED,
@@ -89,11 +91,13 @@ def test_the_largest_layer_threshold_never_asks_for_automorphisms() -> None:
     for minimum_layer_work, expected_calls in ((MAX_VALUE, 0), (2**61, 1)):
         get_automorphism_family = mock.Mock(return_value=None)
         search = bz._BrouwerZimmermannSearch(
-            np.zeros((1, dimension, 2), dtype=np.uint64),
-            np.zeros((1, dimension, 1), dtype=np.uint64),
-            np.array([2], dtype=np.int64),
-            np.array([1], dtype=np.int64),
-            information_sets.Certificate(dimension, (dimension,)),
+            affine_instance.AffineInstance(
+                generators=np.zeros((1, dimension, 2), dtype=np.uint64),
+                labels=np.zeros((1, dimension, 1), dtype=np.uint64),
+                widths=np.array([2], dtype=np.int64),
+                pivots=np.arange(dimension, dtype=np.int64)[None],
+                certificate=information_sets.Certificate(dimension, (dimension,)),
+            ),
             cutoff=0,
             batch_size=1,
             tuning=dataclasses.replace(
@@ -854,11 +858,13 @@ def test_sets_that_are_not_information_sets_use_the_general_scan() -> None:
     with completion tables in every layer.
     """
     search = bz._BrouwerZimmermannSearch(
-        np.array([[[7], [6]]], dtype=np.uint64),
-        np.array([[[1], [2]]], dtype=np.uint64),
-        np.array([1], dtype=np.int64),
-        np.array([1], dtype=np.int64),
-        information_sets.Certificate(2, (0,)),
+        affine_instance.AffineInstance(
+            generators=np.array([[[7], [6]]], dtype=np.uint64),
+            labels=np.array([[[1], [2]]], dtype=np.uint64),
+            widths=np.array([1], dtype=np.int64),
+            pivots=np.full((1, 2), -1, dtype=np.int64),
+            certificate=information_sets.Certificate(2, (0,)),
+        ),
         cutoff=-1,
         batch_size=1,
         tuning=dataclasses.replace(

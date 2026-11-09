@@ -186,10 +186,11 @@ def test_overlapping_family_guards() -> None:
 
 @pytest.mark.usefixtures("compilation_mode")
 def test_certificate_follows_its_definition(pytestconfig: pytest.Config) -> None:
-    """The lower bounds and work estimate equal their definitions, evaluated directly.
+    """The bounds, work estimate, and number of sets that certify a bound equal their definitions.
 
     A search visits the sets of a layer in family order and stops after the first set whose
-    completion of the layer certifies the upper bound, so the work counts the sets visited.
+    completion of the layer certifies the upper bound, so the work counts the sets visited, and
+    ``get_num_sets_to_certify`` gives the number of sets visited in each layer.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for _ in range(30):
@@ -222,14 +223,110 @@ def test_certificate_follows_its_definition(pytestconfig: pytest.Config) -> None
                 if step_oracle[weight, count] >= upper_bound:
                     break
             assert certificate.work(upper_bound) == candidates
-            num_sets = next(
-                (count for count in range(1, len(ranks)) if step_oracle[1, count] >= upper_bound),
-                len(ranks),
-            )
-            assert certificate.get_num_sets_to_certify(1, upper_bound) == num_sets
+            for weight in range(1, dimension + 1):
+                num_sets = next(
+                    (
+                        count
+                        for count in range(1, len(ranks))
+                        if step_oracle[weight, count] >= upper_bound
+                    ),
+                    len(ranks),
+                )
+                assert certificate.get_num_sets_to_certify(weight, upper_bound) == num_sets
 
     # A family without sets, which the overlapping stage returns for no replacement, does no work.
     assert information_sets.Certificate(3, ()).work(2) == 0
+
+
+def test_weight_bounds_divide_the_step_bounds(pytestconfig: pytest.Config) -> None:
+    """The weight bounds divide the certificate's bounds by the weight factor, rounding up.
+
+    The certificate's bounds come from their definition, and the entries ``[dimension, j]`` for
+    ``j >= 1`` are ``NO_WORD_BOUND``.  This holds for sets of random ranks, including zero, and both
+    weight factors.  Each call returns a table of its own.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for _ in range(60):
+        dimension = int(rng.integers(0, 7))
+        ranks = tuple(int(rank) for rank in rng.integers(0, dimension + 1, rng.integers(1, 5)))
+        divisor, coverage = int(rng.integers(1, 3)), int(rng.integers(1, 3))
+        certificate = information_sets.Certificate(dimension, ranks, divisor, coverage)
+        for factor in (1, 2):
+            bounds = certificate.get_weight_bounds(factor)
+            assert bounds.shape == (dimension + 1, len(ranks) + 1)
+            for layer, num_completed in itertools.product(
+                range(dimension + 1), range(len(ranks) + 1)
+            ):
+                bound = _get_lower_bound_from_definition(
+                    dimension, ranks, divisor, coverage, layer, num_completed
+                )
+                expected = (
+                    information_sets.NO_WORD_BOUND
+                    if layer == dimension and num_completed
+                    else -(-bound // factor)
+                )
+                assert bounds[layer, num_completed] == expected
+            expected_bounds = bounds.copy()
+            bounds[:] = -1
+            assert np.array_equal(certificate.get_weight_bounds(factor), expected_bounds)
+
+
+@pytest.mark.usefixtures("compilation_mode")
+def test_stopping_steps_are_the_first_to_exceed_a_limit(pytestconfig: pytest.Config) -> None:
+    """The stopping step is the first step of the given layers whose bound exceeds the limit.
+
+    The bounds are certificate tables of sets of every rank, including zero, and a table without
+    sets.  The limits run past both ends of each table, to the largest native integer.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    tables = [np.zeros((3, 1), dtype=np.int64)]
+    for _ in range(30):
+        dimension = int(rng.integers(0, 7))
+        ranks = rng.integers(0, dimension + 1, rng.integers(1, 5))
+        tables.append(
+            information_sets.get_step_lower_bounds(
+                dimension, ranks, int(rng.integers(1, 3)), int(rng.integers(1, 3))
+            )
+        )
+    for bounds in tables:
+        num_rows, num_sets = bounds.shape[0], bounds.shape[1] - 1
+        no_word_bound = information_sets.NO_WORD_BOUND
+        finite = bounds[bounds < no_word_bound]
+        limits = [*range(-2, int(finite.max(initial=0)) + 3), no_word_bound - 1, no_word_bound]
+        for first_layer in range(num_rows):
+            for last_layer, limit in itertools.product(range(first_layer, num_rows), limits):
+                steps = [
+                    (layer, count)
+                    for layer in range(first_layer, last_layer + 1)
+                    for count in range(1, num_sets + 1)
+                ]
+                expected = next(
+                    (step for step in steps if bounds[step] > limit), (last_layer, num_sets)
+                )
+                assert (
+                    information_sets.find_stopping_step(bounds, limit, first_layer, last_layer)
+                    == expected
+                )
+
+
+def test_sets_to_certify_a_bound_may_come_from_linear_programs() -> None:
+    """With linear programs, fewer sets can certify a bound than the coverage bound needs.
+
+    In the [7, 3] example of ``test_linear_programming_can_beat_the_coverage_bound``, the coverage
+    bound needs all five sets to certify four in layer one, and cannot certify six in layer two.
+    Linear programs certify them after three sets and two sets.  Five needs all five sets in layer
+    one either way.
+    """
+    certificate = information_sets.Certificate(
+        3,
+        (3,) * 5,
+        max_coverage=3,
+        pivot_blocks=((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3), (4, 5, 6)),
+        lp_max_denominator=DENOMINATOR,
+    )
+    assert certificate.get_num_sets_to_certify(1, 4) == 3
+    assert certificate.get_num_sets_to_certify(2, 6) == 2
+    assert certificate.get_num_sets_to_certify(1, 5) == 5
 
 
 def test_partitioned_families_replace_costlier_ones() -> None:
@@ -290,7 +387,7 @@ def test_linear_programming_can_beat_the_coverage_bound() -> None:
     # No word has three ones in a block of two columns, and requirements of zero ask for nothing.
     assert (
         information_sets.get_lp_lower_bound([(0, 1)], [3], DENOMINATOR)
-        == information_sets._NO_WORD_BOUND
+        == information_sets.NO_WORD_BOUND
     )
     assert information_sets.get_lp_lower_bound([(0, 1)], [0], DENOMINATOR) == 0
 
@@ -450,7 +547,7 @@ def _get_lower_bound_from_definition(
     num_completed = len(ranks) if num_completed is None else num_completed
     if weight == dimension and num_completed:
         # A set that has completed the last layer has visited every word.
-        return information_sets._NO_WORD_BOUND
+        return information_sets.NO_WORD_BOUND
     completed = [weight if index < num_completed else weight - 1 for index in range(len(ranks))]
     occupancy = sum(max(0, layer + 1 - (dimension - rank)) for layer, rank in zip(completed, ranks))
     bound = -(-occupancy // max_coverage)
