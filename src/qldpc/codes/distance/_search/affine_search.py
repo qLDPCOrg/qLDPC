@@ -178,9 +178,11 @@ def scan_coset_layer(
 
     The words are packed and full width, with no columns deleted, and weigh their Hamming weight.
     ``rows`` has shape ``(1, num_rows, num_words)``, a stack of one search basis, and ``widths`` is
-    ``[num_words]``.  ``support`` and ``prefixes``, of at least ``len(support)`` rows, are work
-    space.  The scan keeps each word lighter than ``best`` in ``representative``, and returns at the
-    first word of weight at most ``cutoff``, or once the layer is complete.
+    ``[num_words]``.  The layer must have ``1 <= len(support) <= num_rows`` rows; the coset driver
+    weighs the offset itself, layer zero, without a scan.  ``support`` and ``prefixes``, of at least
+    ``len(support)`` rows, are work space.  The scan keeps each word lighter than ``best`` in
+    ``representative``, and returns at the first word of weight at most ``cutoff``, or once the
+    layer is complete.
 
     Returns:
         The weight of the lightest word found, or ``best`` if none is lighter, and the number of
@@ -232,7 +234,8 @@ def scan_coset_layer_by_css_weight(
     """Scan a layer as ``scan_coset_layer`` does, but weigh each word by its CSS weight.
 
     The CSS weight of a word is the larger of the Hamming weights of the bits that ``x_mask``
-    selects, its X part, and of the other bits, its Z part.
+    selects, its X part, and of the other bits, its Z part.  The layer must have
+    ``1 <= len(support) <= num_rows`` rows, as for ``scan_coset_layer``.
     """
     prefixes[0, 0] = offset
     support[0] = 0

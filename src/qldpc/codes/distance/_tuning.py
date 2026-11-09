@@ -570,12 +570,11 @@ KRAWTCHOUK_CACHE_SIZE = 1024
 #: and keep the smallest size beyond which the hit rate stops growing.
 LOCAL_CLIFFORD_CACHE_SIZE = 1024
 
-#: The number of entries that ``coset_leader_search._get_pauli_search`` keeps, one for each
-#: stabilizer matrix, measure of weight, and values of ``disjoint_random_column_orders`` and
-#: ``max_css_single_pairs``, each a search of Pauli errors.  It takes effect when qLDPC is imported.
-#: Chosen by hand, as the size of the cache of searches of CSS states.  A larger cache uses more
-#: memory, and a smaller one repeats the setup of searches that a workload reuses.  Only speed and
-#: memory depend on it.  To retune it, record the hit rate of the cache, the time to set up a missed
-#: search, and the memory of each search on representative workloads, such as the certification of
-#: fault propagation, and keep the smallest size beyond which the hit rate stops growing.
+#: The number of searches of Pauli errors that ``coset_leader_search._get_pauli_search`` keeps,
+#: one for each stabilizer matrix, measure of weight, and tuning of their setup.  It takes effect
+#: when qLDPC is imported.  A larger cache uses more memory, a smaller one repeats setups that a
+#: workload reuses, and zero disables the cache.  Only speed and memory depend on it.  Chosen by
+#: hand, as for ``CSS_SEARCH_CACHE_SIZE``.  To retune it, record the hit rate, the setup time of a
+#: missed search, and the memory per search on workloads such as certification, and keep the
+#: smallest size beyond which the hit rate stops growing.
 PAULI_SEARCH_CACHE_SIZE = 8

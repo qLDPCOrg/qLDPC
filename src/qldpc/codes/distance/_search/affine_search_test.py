@@ -86,23 +86,29 @@ def test_family_scan() -> None:
             assert (best, depth, visited) == (expected, -1, 0)
 
 
-def _get_completion_bound(
-    tails: npt.NDArray[np.uint8], support: Sequence[int], block_bits: int
-) -> int:
-    """The block bound on the completions of a support from its first row of its last pair on.
+@pytest.mark.usefixtures("compilation_mode")
+def test_family_scans_weigh_every_set_of_the_support_that_reaches_the_cutoff() -> None:
+    """A scan returns at the cutoff only after it weighs the support in every set.
 
-    Add, over blocks of columns, the least weight on the block of the first rows of the support plus
-    any pair of rows from the first row of its last pair on.
+    Two information sets of two rows each scan layer one.  At the first support, the word of the
+    first set weighs one plus two, which reaches the cutoff three, and the word of the second set
+    weighs one plus zero, so the scan returns one after one support.
     """
-    prefix = np.bitwise_xor.reduce(tails[list(support[:-2])], axis=0, initial=0)
-    pairs = list(itertools.combinations(range(support[-2], len(tails)), 2))
-    return sum(
-        min(
-            int(np.sum((prefix ^ tails[i] ^ tails[j])[start : start + block_bits]))
-            for i, j in pairs
-        )
-        for start in range(0, tails.shape[1], block_bits)
+    generators = np.array([[[0b11], [0b111]], [[0], [0b1]]], dtype=np.uint64)
+    best, _, visited = affine_search.scan_family(
+        generators,
+        np.zeros((2, 2, 0), dtype=np.uint64),
+        np.full(2, 2, dtype=np.int64),
+        np.ones(2, dtype=np.int64),
+        np.zeros(2, dtype=np.int64),
+        np.zeros(1, dtype=np.int64),
+        np.zeros((2, 2, 1), dtype=np.uint64),
+        0,
+        10,
+        3,
+        100,
     )
+    assert (best, visited) == (1, 1)
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -260,6 +266,34 @@ def test_coset_layer_scans_keep_the_first_lightest_word(
 
 
 @pytest.mark.usefixtures("compilation_mode")
+@pytest.mark.parametrize("css_weight", [False, True])
+def test_coset_layer_scans_keep_the_first_of_equally_light_words(css_weight: bool) -> None:
+    """A scan keeps the first of the equally light words ``001``, ``010``, and ``100`` of layer one.
+
+    The X mask selects every bit, so the CSS weight of each word is its Hamming weight.
+    """
+    rows = np.array([[[0b001], [0b010], [0b100]]], dtype=np.uint64)
+    arguments = (
+        np.zeros(1, dtype=np.uint64),
+        rows,
+        np.ones(1, dtype=np.int64),
+        np.empty(1, dtype=np.int64),
+        np.empty((1, 1, 1), dtype=np.uint64),
+        5,
+        -1,
+    )
+    representative = np.zeros(1, dtype=np.uint64)
+    if css_weight:
+        result = affine_search.scan_coset_layer_by_css_weight(
+            *arguments, np.full(1, 0b111, dtype=np.uint64), representative
+        )
+    else:
+        result = affine_search.scan_coset_layer(*arguments, representative)
+    assert result == (1, 3)
+    assert representative[0] == 0b001
+
+
+@pytest.mark.usefixtures("compilation_mode")
 def test_coset_layer_scans_reach_their_last_support() -> None:
     """A layer visits every support, including the last one.
 
@@ -283,3 +317,22 @@ def test_coset_layer_scans_reach_their_last_support() -> None:
             )
             assert (best, weighed) == (0, math.comb(num_rows, layer))
             assert representative[0] == 0
+
+
+def _get_completion_bound(
+    tails: npt.NDArray[np.uint8], support: Sequence[int], block_bits: int
+) -> int:
+    """The block bound on the completions of a support from its first row of its last pair on.
+
+    Add, over blocks of columns, the least weight on the block of the first rows of the support plus
+    any pair of rows from the first row of its last pair on.
+    """
+    prefix = np.bitwise_xor.reduce(tails[list(support[:-2])], axis=0, initial=0)
+    pairs = list(itertools.combinations(range(support[-2], len(tails)), 2))
+    return sum(
+        min(
+            int(np.sum((prefix ^ tails[i] ^ tails[j])[start : start + block_bits]))
+            for i, j in pairs
+        )
+        for start in range(0, tails.shape[1], block_bits)
+    )

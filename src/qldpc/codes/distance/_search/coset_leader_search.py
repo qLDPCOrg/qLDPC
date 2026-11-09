@@ -278,8 +278,10 @@ class _CosetSearchTables(NamedTuple):
         unvisited_bounds: Entry ``[w, j]`` is a lower bound on the weight of every word that the
             search has not visited once the first ``j`` information sets have completed layer ``w``
             and the others have completed layer ``w - 1`` (see ``get_step_lower_bounds``).
-        x_mask: Selects the bits of a packed embedded word that count as its X part, which only a
-            search of Pauli errors by CSS weight reads.
+        x_mask: Selects the bits of a packed embedded word that count as its X part, with one
+            machine word for each machine word of the embedded words.  Only searches of Pauli
+            errors by CSS weight use the X part, and their layers scan with it, but every search
+            reads the mask when it weighs the word of a syndrome and the offsets of layer zero.
     """
 
     inverse: npt.NDArray[np.uint64]
