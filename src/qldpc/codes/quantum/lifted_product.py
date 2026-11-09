@@ -206,8 +206,8 @@ class LPCode(CSSCode):
         and Z operators, whose overlap matrix is ``X @ Z.T``.  Lifting keeps as many pairs of these
         X and Z operators as the rank of this overlap matrix, and makes their overlap matrix the
         identity.  If operators lifted from different rows have zero overlap, as for canonical
-        logical operators with lifts to orthogonal matrices, the overlap matrix of all lifted
-        operators is the identity.  Arrays with different numbers of rows raise a ValueError.
+        logical operators if the involution of the ring transposes lifts, the overlap matrix of all
+        lifted operators is the identity.  Arrays with different numbers of rows raise a ValueError.
         """
         if len(logical_ops_x) != len(logical_ops_z):
             raise ValueError(
