@@ -58,6 +58,10 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         array = np.asarray(data, dtype=object).view(cls)
         base_ring = GroupRing(ring) if isinstance(ring, Group) else ring
 
+        # a RingArray given as data keeps its ring, which its entries cannot identify if it has none
+        if base_ring is None and isinstance(data, RingArray):
+            base_ring = data._ring
+
         # identify the base ring for this RingArray
         for value in array.ravel():
             if not isinstance(value, RingMember):
@@ -230,6 +234,8 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
                 raise ValueError("Inconsistent rings provided to RingArray.build")
             if rings:
                 ring = next(iter(rings))
+            elif isinstance(array, RingArray) and array._ring is not None:
+                ring = array._ring  # a RingArray with no entries keeps its ring
             else:
                 field = type(array).order if isinstance(array, galois.FieldArray) else None
                 ring = GroupRing(TrivialGroup(), field)

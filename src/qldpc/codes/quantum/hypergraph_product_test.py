@@ -6,12 +6,13 @@ from __future__ import annotations
 
 import unittest.mock
 
+import galois
 import networkx as nx
 import numpy as np
 import pytest
 from sympy.abc import x, y
 
-from qldpc import codes
+from qldpc import abstract, codes
 from qldpc.codes.distance import DistanceMethod
 from qldpc.math import resolve_field
 from qldpc.objects import ChainComplex, Pauli, PauliXZ
@@ -212,6 +213,20 @@ def test_subsystem_hypergraph_product(
 
     # verify that the canonical logicals are valid
     code.set_logical_ops(code.get_logical_ops(), skip_validation=False)
+
+
+def test_products_require_same_ring() -> None:
+    """Hypergraph products of matrices over different rings or fields raise an error."""
+    ring_a = abstract.GroupRing(abstract.CyclicGroup(4))
+    ring_b = abstract.GroupRing(abstract.AbelianGroup(2, 2))
+    ring_matrix_a = abstract.RingArray.build([[1, ring_a.generators[0]]], ring_a)
+    ring_matrix_b = abstract.RingArray.build([[1, ring_b.generators[0]]], ring_b)
+    field_matrix_a, field_matrix_b = galois.GF(2)([[1, 1]]), galois.GF(3)([[1, 1]])
+    for get_matrix_product in [codes.HGPCode.get_matrix_product, codes.SHPCode.get_matrix_product]:
+        with pytest.raises(ValueError, match="different rings"):
+            get_matrix_product(ring_matrix_a, ring_matrix_b)
+        with pytest.raises(ValueError, match="different rings"):
+            get_matrix_product(field_matrix_a, field_matrix_b)
 
 
 def test_bacon_shor_code() -> None:

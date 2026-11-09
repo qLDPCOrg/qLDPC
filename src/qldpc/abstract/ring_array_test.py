@@ -100,10 +100,13 @@ def test_ring_array_explicit_ring_compatibility() -> None:
         abstract.RingArray.build([[incompatible_group.group.generators[0]]], cyclic_ring)
 
 
-def test_empty_lift() -> None:
-    """Lifting 0-sized RingArrays still yields arrays of the correct shape."""
+def test_empty_ring_arrays() -> None:
+    """Empty RingArrays keep their ring unless given another, and lift to arrays with no rows."""
     ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
     empty = abstract.RingArray.build(np.zeros((0, 2), dtype=int), ring)
+    assert abstract.RingArray(empty).ring == abstract.RingArray.build(empty).ring == ring
+    other_ring = abstract.GroupRing(abstract.CyclicGroup(4), field=2)
+    assert abstract.RingArray(empty, other_ring).ring == other_ring
     assert empty.regular_lift().shape == (0, 2 * ring.group.order)
     assert empty.lift().shape == (0, 2 * ring.group.lift_dim)
 
