@@ -235,8 +235,8 @@ class CosetLeaderSearch:
         if len(self._searches) == 1:
             (search,) = self._searches
             best = np.empty(search.tables.inverse.shape[1], dtype=np.uint64)
-            index, lower_bound, _ = _find_first_not_within_max_weight(
-                syndromes, max_weight, best, *search.tables, *search.weighing
+            index, lower_bound = _find_first_not_within_max_weight(
+                syndromes, max_weight, best, *search.tables, search.scale
             )
             if index == len(syndromes):
                 return index, None
@@ -251,8 +251,8 @@ class CosetLeaderSearch:
         for search, map_columns in zip(self._searches, self._map_columns):
             part_syndromes = _map_syndromes(syndromes[:index], map_columns)
             best = np.empty(search.tables.inverse.shape[1], dtype=np.uint64)
-            index, _, _ = _find_first_not_within_max_weight(
-                part_syndromes, max_weight, best, *search.tables, *search.weighing
+            index, _ = _find_first_not_within_max_weight(
+                part_syndromes, max_weight, best, *search.tables, search.scale
             )
         if index == len(syndromes):
             return index, None
@@ -330,7 +330,7 @@ class _CosetSearch:
         # The compiled search weighs embedded words by their CSS weight only in a search of Pauli
         # errors by CSS weight, and otherwise by their Hamming weight, which is twice the physical
         # weight of an error, and the weight of an X or Z part (see ``_search_coset``).
-        self.weighing = (css_weight and is_pauli, 1 if css_weight else 2)
+        self.scale = 0 if css_weight and is_pauli else 1 if css_weight else 2
         self._num_qubits = num_qubits
         self._is_pauli = is_pauli
         self._inverse_rows = inverse_rows
@@ -373,9 +373,7 @@ class _CosetSearch:
         # Search the coset, and keep the lightest word that the search visits in ``best``.
         best = np.empty(self.tables.inverse.shape[1], dtype=np.uint64)
         syndrome_words = _int_to_words(syndrome, max(1, (self._num_syndrome_bits + 63) // 64))
-        lower_bound, _ = _search_coset(
-            syndrome_words, max_weight, best, *self.tables, *self.weighing
-        )
+        lower_bound = _search_coset(syndrome_words, max_weight, best, *self.tables, self.scale)
         return MinWeightBound(lower_bound <= max_weight, self.unembed(best), max(2, lower_bound))
 
     def unembed(self, embedded_word: npt.NDArray[np.uint64]) -> int:
@@ -652,27 +650,27 @@ def _find_first_not_within_max_weight(
     pivots: npt.NDArray[np.int64],
     unvisited_bounds: npt.NDArray[np.int64],
     x_mask: npt.NDArray[np.uint64],
-    css_weight: bool,
     scale: int,
-) -> tuple[int, int, int]:
+) -> tuple[int, int]:
     """Search the coset of each syndrome in turn, as ``_search_coset`` does.
 
     Return the index of the first syndrome whose coset has no word of weight at most ``max_weight``,
     and the lower bound that ``_search_coset`` returns for it, with its lightest word left in
-    ``best``.  If there is no such syndrome, return the number of syndromes and zero.  Also return
-    the number of words that the searches weighed.  The step at which the searches stop depends
-    only on ``max_weight``, so it is found once for the whole batch.
+    ``best``.  If there is no such syndrome, return the number of syndromes and zero.  The step at
+    which the searches stop depends only on ``max_weight``, so it is found once for the whole
+    batch, when the first syndrome needs a search.
     """
-    stop_layer, stop_num_completed, skipped = _get_stopping_step(
-        pivots, unvisited_bounds, max_weight
-    )
-    weighed = 0
+    stop_layer, stop_num_completed = 0, 0
+    skipped = np.empty(0, dtype=np.bool_)
     for index in range(len(syndromes)):
-        best_weight = _get_syndrome_word(syndromes[index], best, inverse, x_mask, css_weight, scale)
-        weighed += 1
+        best_weight = _get_syndrome_word(syndromes[index], best, inverse, x_mask, scale)
         if best_weight <= max_weight:
             continue
-        lower_bound, count = _search_from_syndrome_word(
+        if not len(skipped):
+            stop_layer, stop_num_completed, skipped = _get_stopping_step(
+                pivots, unvisited_bounds, max_weight
+            )
+        lower_bound, _ = _search_from_syndrome_word(
             max_weight,
             stop_layer,
             stop_num_completed,
@@ -683,13 +681,11 @@ def _find_first_not_within_max_weight(
             pivots,
             unvisited_bounds,
             x_mask,
-            css_weight,
             scale,
         )
-        weighed += count
         if lower_bound > max_weight:
-            return index, lower_bound, weighed
-    return len(syndromes), 0, weighed
+            return index, lower_bound
+    return len(syndromes), 0
 
 
 @always_compiled
@@ -702,9 +698,8 @@ def _search_coset(
     pivots: npt.NDArray[np.int64],
     unvisited_bounds: npt.NDArray[np.int64],
     x_mask: npt.NDArray[np.uint64],
-    css_weight: bool,
     scale: int,
-) -> tuple[int, int]:
+) -> int:
     """Search the coset of a syndrome for a word of weight at most ``max_weight``.
 
     The syndrome is split into 64-bit machine words, with machine word ``j`` holding bits ``64 j``
@@ -713,12 +708,12 @@ def _search_coset(
     its packed Pauli followed by ``x xor z`` when they are weighed by physical weight, so that its
     Hamming weight is twice the physical weight (see ``symplectic_to_hamming``).  In a classical
     search, the words are X or Z parts, each is its own embedded word, and its weight is its Hamming
-    weight.  The weight of an embedded word is that of its word: its CSS weight if ``css_weight``,
-    with its X part selected by ``x_mask``, and otherwise its Hamming weight divided by ``scale``,
-    which is two for the physical weight and one for X or Z parts.  The tables are those of
-    ``_CosetSearchTables``: row ``j`` of ``inverse`` is the embedded word of a word whose syndrome
-    has only bit ``j`` set, and ``generators`` and ``pivots`` are the disjoint information sets of
-    the embedded generators of the code, with pivots padded with -1.
+    weight.  The weight of an embedded word is that of its word: its CSS weight if ``scale`` is
+    zero, with its X part selected by ``x_mask``, and otherwise its Hamming weight divided by
+    ``scale``, which is two for the physical weight and one for X or Z parts.  The tables are those
+    of ``_CosetSearchTables``: row ``j`` of ``inverse`` is the embedded word of a word whose
+    syndrome has only bit ``j`` set, and ``generators`` and ``pivots`` are the disjoint information
+    sets of the embedded generators of the code, with pivots padded with -1.
 
     The embedded words of the coset form a coset of the embedded code.  The search starts from the
     sum of the rows of ``inverse`` for the set bits of the syndrome, a word with that syndrome.  The
@@ -737,15 +732,15 @@ def _search_coset(
     Returns:
         A lower bound on the weight of every word in the coset: zero, which is at most
         ``max_weight``, if ``best`` has weight at most ``max_weight``, and otherwise a bound that
-        exceeds ``max_weight``.  Also the number of words that the search weighed.
+        exceeds ``max_weight``.
     """
-    best_weight = _get_syndrome_word(syndrome, best, inverse, x_mask, css_weight, scale)
+    best_weight = _get_syndrome_word(syndrome, best, inverse, x_mask, scale)
     if best_weight <= max_weight:
-        return 0, 1
+        return 0
     stop_layer, stop_num_completed, skipped = _get_stopping_step(
         pivots, unvisited_bounds, max_weight
     )
-    lower_bound, weighed = _search_from_syndrome_word(
+    lower_bound, _ = _search_from_syndrome_word(
         max_weight,
         stop_layer,
         stop_num_completed,
@@ -756,10 +751,9 @@ def _search_coset(
         pivots,
         unvisited_bounds,
         x_mask,
-        css_weight,
         scale,
     )
-    return lower_bound, weighed + 1
+    return lower_bound
 
 
 @always_compiled
@@ -813,7 +807,6 @@ def _search_from_syndrome_word(
     pivots: npt.NDArray[np.int64],
     unvisited_bounds: npt.NDArray[np.int64],
     x_mask: npt.NDArray[np.uint64],
-    css_weight: bool,
     scale: int,
 ) -> tuple[int, int]:
     """Search a coset, as ``_search_coset`` does, from the word of its syndrome.
@@ -823,7 +816,7 @@ def _search_from_syndrome_word(
 
     Returns:
         The lower bound of ``_search_coset``, and the number of words weighed after the word of the
-        syndrome.
+        syndrome, which benchmarks of the work of a search read.
     """
     num_sets, num_rows, width = generators.shape
 
@@ -841,7 +834,7 @@ def _search_from_syndrome_word(
 
     # Visit each layer one information set at a time, up to the stopping step.  The scans of layers
     # take work space for one set, and weigh Hamming weights, which are ``scale`` times the weights,
-    # unless they weigh CSS weights.
+    # or CSS weights if ``scale`` is zero.
     weighed = 0
     widths = np.full(1, width, dtype=np.int64)
     support = np.empty(num_rows, dtype=np.int64)
@@ -851,11 +844,9 @@ def _search_from_syndrome_word(
             if skipped[set_index]:
                 continue
             if layer == 0:
-                best_weight = _keep_lighter(
-                    offsets[set_index], best, best_weight, x_mask, css_weight, scale
-                )
+                best_weight = _keep_lighter(offsets[set_index], best, best_weight, x_mask, scale)
                 weighed += 1
-            elif css_weight:
+            elif scale == 0:
                 best_weight, count = affine_search.scan_coset_layer_by_css_weight(
                     offsets[set_index],
                     generators[set_index : set_index + 1],
@@ -892,7 +883,6 @@ def _get_syndrome_word(
     word: npt.NDArray[np.uint64],
     inverse: npt.NDArray[np.uint64],
     x_mask: npt.NDArray[np.uint64],
-    css_weight: bool,
     scale: int,
 ) -> int:
     """Write the sum of the rows of ``inverse`` for the set bits of a syndrome into ``word``.
@@ -907,7 +897,7 @@ def _get_syndrome_word(
             for index in range(len(word)):
                 word[index] ^= inverse[bit, index]
             bits &= bits - np.uint64(1)
-    return _get_weight(word, x_mask, css_weight, scale)
+    return _get_weight(word, x_mask, scale)
 
 
 @always_compiled
@@ -916,11 +906,10 @@ def _keep_lighter(
     best: npt.NDArray[np.uint64],
     best_weight: int,
     x_mask: npt.NDArray[np.uint64],
-    css_weight: bool,
     scale: int,
 ) -> int:
     """Keep ``word`` in ``best`` if it is lighter, and return the weight of ``best``."""
-    weight = _get_weight(word, x_mask, css_weight, scale)
+    weight = _get_weight(word, x_mask, scale)
     if weight >= best_weight:
         return best_weight
     best[:] = word
@@ -928,15 +917,13 @@ def _keep_lighter(
 
 
 @always_compiled
-def _get_weight(
-    word: npt.NDArray[np.uint64], x_mask: npt.NDArray[np.uint64], css_weight: bool, scale: int
-) -> int:
+def _get_weight(word: npt.NDArray[np.uint64], x_mask: npt.NDArray[np.uint64], scale: int) -> int:
     """The weight of the error with an embedded word (see ``_search_coset``)."""
     ones = x_ones = np.int64(0)
     for index in range(len(word)):
         ones += popcount_word(word[index])
         x_ones += popcount_word(word[index] & x_mask[index])
-    return int(max(x_ones, ones - x_ones) if css_weight else ones // scale)
+    return int(max(x_ones, ones - x_ones) if scale == 0 else ones // scale)
 
 
 @always_compiled
