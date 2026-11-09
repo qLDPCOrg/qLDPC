@@ -20,7 +20,7 @@ def get_distance_quantum_brute_force(
     stabilizers: npt.ArrayLike,
     *,
     cutoff: int,
-    block_size: int,
+    batch_exponent: int,
     homogeneous: bool,
 ) -> int:
     """Find the minimum weight of a nontrivial logical operator by exhaustive enumeration.
@@ -33,7 +33,7 @@ def get_distance_quantum_brute_force(
         logical_ops: Binary rows that, together with the stabilizers, generate the logical space.
         stabilizers: Binary rows that generate the excluded (stabilizer) space.
         cutoff: Return early once the lightest operator seen has weight at most this cutoff.
-        block_size: Batch size exponent: calculations are vectorized over ``2**block_size`` values.
+        batch_exponent: Calculations are vectorized over at most ``2**batch_exponent`` words.
         homogeneous: If True, rows are weighed by Hamming weight.  If False, rows are symplectic
             vectors, with X support in their first half and Z support in their second half, and
             are weighed by symplectic weight.
@@ -54,12 +54,12 @@ def get_distance_quantum_brute_force(
     num_stabilizers = len(int_stabilizers)
 
     # Choose how many generators to vectorize over, so that most calculations act on at most
-    # ``2**block_size`` values.  Rows of more packed words allow fewer generators, and never fewer
-    # than zero.
+    # ``2**batch_exponent`` words.  Rows of more packed words allow fewer generators, and never
+    # fewer than zero.
     num_vectorized_ops = max(
         0,
         min(
-            block_size + 1 - int_logical_ops.shape[-1],
+            batch_exponent + 1 - int_logical_ops.shape[-1],
             len(int_logical_ops) + len(int_stabilizers),
         ),
     )
@@ -121,7 +121,7 @@ def get_nested_distance_brute_force(
     labels: npt.NDArray[np.uint8],
     *,
     cutoff: int,
-    block_size: int,
+    batch_exponent: int,
     homogeneous: bool,
 ) -> int:
     """Find the minimum weight of an eligible word of a nested-code basis by exhaustive enumeration.
@@ -136,6 +136,6 @@ def get_nested_distance_brute_force(
         basis[eligible],
         basis[~eligible],
         cutoff=cutoff,
-        block_size=block_size,
+        batch_exponent=batch_exponent,
         homogeneous=homogeneous,
     )

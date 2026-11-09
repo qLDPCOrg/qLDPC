@@ -72,6 +72,11 @@ def test_ring() -> None:
     bb = abstract.RingMember.from_vector(ring.field.Random(group.order), ring)
     assert aa * bb == bb * aa
 
+    # a vector of coefficients has one entry for each group member
+    for size in [group.order - 1, group.order + 1]:
+        with pytest.raises(ValueError, match="has 8 coefficients"):
+            abstract.RingMember.from_vector(ring.field.Zeros(size), ring)
+
     wrong_symbols = {x_i: r_i, x_j: r_j}
     with pytest.raises(ValueError, match="must be GroupMember-valued"):
         ring.eval(1, wrong_symbols)  # type:ignore[arg-type]
@@ -84,15 +89,74 @@ def test_ring() -> None:
 
 
 def test_ring_equality() -> None:
-    """Group algebras compare (and hash) by value, ignoring the group's representation."""
+    """Group algebras compare by their fields, groups, and lifts."""
     group = abstract.CyclicGroup(3)
-    other = abstract.CyclicGroup(3)  # the same group, but a separately built representation
+    other = abstract.CyclicGroup(3)  # the same group and lift, built separately
     ring, other_ring = abstract.GroupRing(group), abstract.GroupRing(other)
     assert ring == other_ring
     assert hash(ring) == hash(other_ring)
     assert ring != abstract.GroupRing(abstract.CyclicGroup(4))  # different group
     assert ring != abstract.GroupRing(group, field=4)  # different field
     assert ring != "not a ring"
+
+    def algebras_equal(group_a: abstract.Group, group_b: abstract.Group) -> bool:
+        """Do two groups give equal group algebras, whichever is compared with the other?"""
+        ring_a, ring_b = abstract.GroupRing(group_a), abstract.GroupRing(group_b)
+        assert (ring_a == ring_b) is (ring_b == ring_a)
+        return ring_a == ring_b
+
+    # equal group algebras lift group members to the same matrices
+    symmetric = abstract.SymmetricGroup(3)
+    natural = symmetric.with_natural_lift()
+    assert algebras_equal(symmetric, abstract.SymmetricGroup(3))
+    assert not algebras_equal(symmetric, natural)
+    assert algebras_equal(
+        natural, abstract.Group.from_sympy(symmetric.to_sympy(), lift=natural.lift)
+    )
+
+    # conjugating a lift by the lift of one generator of SymmetricGroup(3) changes the lift of the
+    # other, which does not commute with it
+    def conjugate_by(generator: abstract.GroupMember) -> abstract.Group:
+        mat = natural.lift(generator)
+        return abstract.Group.from_sympy(
+            symmetric.to_sympy(), lift=lambda gg: mat @ natural.lift(gg) @ mat.T
+        )
+
+    for generator in symmetric.generators:
+        conjugated = conjugate_by(generator)
+        assert np.array_equal(conjugated.lift(generator), natural.lift(generator))
+        assert not algebras_equal(natural, conjugated)
+
+    # groups that list their members in the same order have the same default lifts
+    members = list(symmetric.generate())
+
+    def reorder(order: list[abstract.GroupMember]) -> abstract.Group:
+        return abstract.Group(*symmetric.generators, generate_func=lambda: iter(order))
+
+    assert algebras_equal(symmetric, reorder(members))
+
+    # translating members by a member that is not central changes default lifts: translating them on
+    # the right preserves lifts but changes right lifts, and vice versa on the left
+    second = symmetric.generators[1]
+    for order, right in [
+        ([gg * second for gg in members], False),
+        ([second * gg for gg in members], True),
+    ]:
+        translated = reorder(order)
+        assert all(
+            np.array_equal(symmetric.lift(gg, right=right), translated.lift(gg, right=right))
+            for gg in symmetric.generators
+        )
+        assert not algebras_equal(symmetric, translated)
+
+    # a noncommutative group has right lifts only with its default lift
+    custom = abstract.Group.from_sympy(symmetric.to_sympy(), lift=symmetric.lift)
+    assert not algebras_equal(symmetric, custom)
+
+    # right lifts of a commutative group equal its lifts, so default and custom lifts can agree;
+    # CyclicGroup has a custom lift, so build a cyclic group with the default lift
+    cyclic = abstract.Group(*abstract.CyclicGroup(4).generators)
+    assert algebras_equal(cyclic, abstract.Group.from_sympy(cyclic.to_sympy(), lift=cyclic.lift))
 
 
 def test_printing() -> None:
@@ -105,13 +169,92 @@ def test_printing() -> None:
     ring = abstract.GroupRing(abstract.AbelianGroup(2, 2, 2, 2))
     assert [str(gg) for gg in ring.generators] == ["w", "x", "y", "z"]
 
-    # the order of generators for non-abelian groups is preserved
-    group = abstract.DihedralGroup(6)
+    # every member of a noncommutative group prints as a word that evaluates to that member, even
+    # though the SymPy group of QuaternionGroup has more generators than the group
+    group = abstract.QuaternionGroup()
+    assert len(group.to_sympy().generators) > len(group.generators)
     ring = abstract.GroupRing(group, 3)
-    one = ring.one
-    x, y = ring.generators
-    assert str(one + y * x**2 * y) == "1 + y x^2 y"
-    assert str(x + y) == "x + y"
+    symbols = sympy.symbols("x y", commutative=False)
+    local_dict = {str(symbol): symbol for symbol in symbols}
+    values = dict(zip(symbols, group.generators))
+    for member in group.generate():
+        ring_member = abstract.RingMember(ring, member)
+        text = str(ring_member).replace("^", "**").replace(" ", "*")
+        word = sympy.parse_expr(text, local_dict=local_dict)
+        assert ring.eval(word, values) == ring_member
+
+
+def test_field_scalars() -> None:
+    """Field scalars add to, subtract from, and multiply ring members."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=3)
+    x = ring.generators[0]
+    scalar = ring.field(2)
+    one = ring.one.to_vector()
+    assert np.array_equal((x + scalar).to_vector(), x.to_vector() + scalar * one)
+    assert np.array_equal((x - scalar).to_vector(), x.to_vector() - scalar * one)
+    assert np.array_equal((x * scalar).to_vector(), scalar * x.to_vector())
+
+
+def test_arithmetic_across_rings() -> None:
+    """Members of a group algebra combine only with members of equal group algebras."""
+    ring = abstract.GroupRing(abstract.SymmetricGroup(3))
+
+    # members of a separately built, equal group algebra combine
+    equal_ring = abstract.GroupRing(abstract.SymmetricGroup(3))
+    assert ring.one + equal_ring.one == ring.zero
+    assert ring.one * equal_ring.one == ring.one
+
+    # members of group algebras with another group, field, or lift do not
+    for different_ring in [
+        abstract.GroupRing(abstract.CyclicGroup(3)),
+        abstract.GroupRing(abstract.SymmetricGroup(3), field=3),
+        abstract.GroupRing(abstract.SymmetricGroup(3).with_natural_lift()),
+    ]:
+        with pytest.raises(ValueError, match="different group algebras"):
+            ring.one + different_ring.one
+        with pytest.raises(ValueError, match="different group algebras"):
+            ring.one * different_ring.one
+
+
+def test_group_members_of_ring_members() -> None:
+    """Ring members accept members of their group, padded to its degree, and reject others."""
+    group = abstract.CyclicGroup(3)
+    ring = abstract.GroupRing(group, field=3)
+    transposition = abstract.GroupMember([1, 0, 2])
+    assert transposition not in group
+    for operation in [
+        lambda: abstract.RingMember(ring, transposition),
+        lambda: ring.one + transposition,
+        lambda: ring.one - transposition,
+        lambda: ring.one * transposition,
+        lambda: transposition + ring.one,
+        lambda: transposition - ring.one,
+        lambda: transposition * ring.one,
+    ]:
+        with pytest.raises(ValueError, match="not a member"):
+            operation()
+
+    # in odd characteristic, subtracting a group member or ring member subtracts coefficients
+    generator = group.generators[0]
+    expected = ring.one.to_vector() - abstract.RingMember(ring, generator).to_vector()
+    assert np.array_equal((ring.one - generator).to_vector(), expected)
+    assert np.array_equal((1 - abstract.RingMember(ring, generator)).to_vector(), expected)
+    assert np.array_equal((generator - ring.one).to_vector(), -expected)
+
+    # a permutation that acts on fewer points than the group is padded with fixed points
+    ring = abstract.GroupRing(abstract.SymmetricGroup(4))
+    short, full = abstract.GroupMember(0, 1), abstract.GroupMember([1, 0, 2, 3])
+    assert short.size < full.size
+    assert abstract.RingMember(ring, short) == abstract.RingMember(ring, full)
+    assert ring.zero + short == abstract.RingMember(ring, full)
+
+    # every identity permutation, of any size, is the identity of the group, even in a trivial
+    # group, whose identity SymPy does not identify as a member of that group
+    assert abstract.RingMember(ring, abstract.GroupMember(list(range(5)))) == ring.one
+    trivial = abstract.TrivialGroup()
+    assert trivial.identity not in trivial.to_sympy()
+    trivial_ring = abstract.GroupRing(trivial)
+    assert abstract.RingMember(trivial_ring, trivial.identity) == trivial_ring.one
 
 
 def test_primitive_central_idempotents(ring_cyclic3_gf2: abstract.GroupRing) -> None:

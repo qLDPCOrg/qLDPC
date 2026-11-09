@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -15,7 +16,9 @@ import stim
 from qldpc import math
 from qldpc._binary import get_kernel, row_reduce_binary
 
-from . import coset_leader_search
+from ...conftest import Tune
+from .._tuning import DEFAULT_TUNING
+from . import coset_leader_search, information_sets
 from .coset_leader_search import CosetLeaderSearch
 
 
@@ -220,7 +223,7 @@ def test_bounds_match_exhaustive_minima(
     css_weight: bool,
     css_singles_table: bool,
     pytestconfig: pytest.Config,
-    monkeypatch: pytest.MonkeyPatch,
+    tune: Tune,
 ) -> None:
     """Bounds agree with exhaustive minima.
 
@@ -228,8 +231,9 @@ def test_bounds_match_exhaustive_minima(
     errors of CSS weight one.
     """
     if not css_singles_table:
-        monkeypatch.setattr(coset_leader_search, "_MAX_CSS_SINGLES", 0)
+        tune(max_css_single_pairs=0)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    tables_checked = 0
     for num_qubits in range(1, 7):
         edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
         matrix = _graph_state(num_qubits, edges, phase=num_qubits % 2 == 0)
@@ -245,6 +249,15 @@ def test_bounds_match_exhaustive_minima(
                     assert _pauli_weight(bound.representative, num_qubits, css_weight) <= max_weight
                 else:
                     assert bound.lower_bound > max_weight
+        # Queries of a search of Pauli errors by CSS weight build the table only within the patched
+        # limit.  Reading the instance dictionary, rather than the cached property, keeps this check
+        # from building the table itself.
+        for search in oracle._searches:
+            if search._is_pauli and css_weight and "_css_singles" in vars(search):
+                assert (vars(search)["_css_singles"] is not None) == css_singles_table
+                tables_checked += 1
+    # States with phases on an even number of qubits are not CSS, so some queries need the table.
+    assert tables_checked or not css_weight
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -429,15 +442,27 @@ def test_layers_reach_their_last_support() -> None:
             assert weight == 0 and best[0] == 0
 
 
-def test_rank_deficient_information_sets_certify_less() -> None:
-    """Qubit 6 is isolated, so an information set is rank-deficient and certifies a weaker bound.
+@pytest.mark.usefixtures("compilation_mode")
+@pytest.mark.parametrize(("syndrome", "minimum"), [(44, 2), (108, 3)])
+def test_rank_deficient_information_sets_give_valid_bounds(syndrome: int, minimum: int) -> None:
+    """Rank-deficient sets give valid bounds whether a weight-two error exists or not.
 
-    Treating that set as full rank would overstate the bound and miss the weight-two error.
+    Qubit 6 is isolated, so the last information set has rank five rather than eight.  Syndrome 44
+    has minimum weight two; treating the set as full rank would miss that error.  Syndrome 108 also
+    flips the isolated qubit's stabilizer, so its minimum is three.  Certifying it at maximum weight
+    two skips the deficient set, whose first two layers contribute nothing to the certificate.
     """
     edges = [(0, 1), (0, 2), (0, 7), (1, 3), (1, 5), (2, 4), (3, 5), (4, 7), (5, 7)]
     matrix = _graph_state(8, edges)
-    assert _class_weights(matrix, 44, False).min() == 2
-    assert CosetLeaderSearch(matrix).get_min_weight_bound(44, 2).within_max_weight
+    assert _class_weights(matrix, syndrome, False).min() == minimum
+    bound = CosetLeaderSearch(matrix).get_min_weight_bound(syndrome, 2)
+    assert bound.within_max_weight == (minimum <= 2)
+    assert bound.lower_bound <= minimum
+    assert _get_syndrome(matrix, bound.representative) == syndrome
+    if bound.within_max_weight:
+        assert _pauli_weight(bound.representative, len(matrix), False) <= 2
+    else:
+        assert bound.lower_bound > 2
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -558,6 +583,37 @@ def test_cached_searches_answer_only_for_their_stabilizer_group(
             bound = oracle.get_min_weight_bound(syndrome, max_weight)
             assert bound.within_max_weight == (minima[syndrome] <= max_weight)
             assert _get_syndrome(matrix, bound.representative) == syndrome
+
+
+def test_oracles_use_the_tuning_with_which_they_are_built(
+    tune: Tune, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An oracle packs its information sets with the column orders of the tuning that built it.
+
+    The cached searches of a CSS state are keyed by those orders too, so an oracle built under other
+    orders builds its own, and one built under the same orders reuses them.
+    """
+    orders: list[int] = []
+    get_disjoint_sets = information_sets._get_disjoint_sets
+
+    def record(*args: Any) -> Any:
+        orders.append(args[2])
+        return get_disjoint_sets(*args)
+
+    monkeypatch.setattr(information_sets, "_get_disjoint_sets", record)
+    eye, zeros = np.eye(3, dtype=np.uint8), np.zeros((3, 3), dtype=np.uint8)
+    zero_plus = np.block([[zeros, eye, zeros, zeros], [zeros, zeros, eye, zeros]])
+    coset_leader_search._get_css_searches.cache_clear()
+    CosetLeaderSearch(zero_plus, css_weight=True)
+    tune(disjoint_random_column_orders=3)
+    CosetLeaderSearch(zero_plus, css_weight=True)
+    CosetLeaderSearch(zero_plus, css_weight=True)
+    info = coset_leader_search._get_css_searches.cache_info()
+    assert (info.misses, info.hits) == (2, 1)
+    # A state that is not CSS, as with phases on two qubits, gets a search of Pauli errors.
+    CosetLeaderSearch(_graph_state(2, [(0, 1)], phase=True), css_weight=True)
+    default = DEFAULT_TUNING.disjoint_random_column_orders
+    assert orders == [default, default, 3, 3, 3]
 
 
 def test_invalid_arguments_are_rejected() -> None:

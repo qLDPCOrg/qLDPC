@@ -7,8 +7,9 @@ the symplectic reduction follows the `quantum-code adaptation <https://arxiv.org
 The overlapping-set certificate and implementation invariants are derived in
 ``brouwer_zimmermann.md`` beside this module.  Information-set families and their certificates are
 built in ``information_sets.py``, which fixed-weight logical counting shares.  Families of
-images of one information set under automorphisms are built in ``automorphism_families.py``.  This
-module owns witness discovery, early exits, exhaustive dispatch, and the resumable native scan.
+images of one information set under automorphisms are built in ``automorphism_families.py``, and
+tables that let a scan skip hopeless supports in ``completion_bounds.py``.  This module owns witness
+discovery, early exits, exhaustive dispatch, and the resumable native scans.
 """
 
 from __future__ import annotations
@@ -26,8 +27,9 @@ from qldpc._compilation import always_compiled
 
 from .._binary import get_eligible_rows
 from .._tuning import SearchTuning, get_tuning
-from . import automorphism_families, information_sets
+from . import automorphism_families, completion_bounds, information_sets
 from .brute_force import get_nested_distance_brute_force
+from .completion_bounds import get_completion_bound
 from .information_sets import advance_support
 
 # A function that returns the automorphism family of a problem for a weight divisor, or None.
@@ -43,7 +45,6 @@ def get_distance_brouwer_zimmermann_many(
     problems: Sequence[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]],
     *,
     cutoff: int,
-    block_size: int,
     weight_divisor: int = 1,
     upper_bound: int | None = None,
     get_disjoint_basis_families: Sequence[Callable[[], information_sets.BasisFamily]] | None = None,
@@ -86,7 +87,6 @@ def get_distance_brouwer_zimmermann_many(
             basis,
             labels,
             cutoff=cutoff,
-            block_size=block_size,
             weight_divisor=weight_divisor,
             upper_bound=best,
             initial_upper_bound=initial_upper_bound,
@@ -122,9 +122,9 @@ def get_distance_brouwer_zimmermann(
     labels: npt.NDArray[np.uint8],
     *,
     cutoff: int,
-    block_size: int,
     weight_divisor: int = 1,
     upper_bound: int | None = None,
+    tuning: SearchTuning | None = None,
 ) -> int:
     """Compute an exact nested-code distance with the Brouwer-Zimmermann algorithm.
 
@@ -136,14 +136,14 @@ def get_distance_brouwer_zimmermann(
 
     An ``upper_bound`` starts the search as though a witness of that weight were known, so the
     search returns ``min(distance, upper_bound)`` and stops once it certifies that no word is
-    lighter than ``upper_bound``.
+    lighter than ``upper_bound``.  ``tuning`` defaults to the active tuning.
     """
     return get_distance_brouwer_zimmermann_many(
         [(basis, labels)],
         cutoff=cutoff,
-        block_size=block_size,
         weight_divisor=weight_divisor,
         upper_bound=upper_bound,
+        tuning=tuning,
     )
 
 
@@ -151,14 +151,20 @@ def get_distance_brouwer_zimmermann(
 # cost models
 
 
-def enumeration_is_cheaper_than_setup(dimension: int, length: int) -> bool:
+def enumeration_is_cheaper_than_setup(
+    dimension: int, length: int, max_dimension: int, setup_cost_factor: int
+) -> bool:
     """Estimate whether enumerating every codeword is cheaper than building information sets.
 
-    Setup costs dominate the Brouwer-Zimmermann search for dimensions up to 20.  For long,
-    low-dimensional codes, byte-wise elimination for each information set can cost more than packed
-    ``uint64`` enumeration of all ``2**dimension`` codewords.
+    Setup costs dominate the Brouwer-Zimmermann search for small dimensions, up to
+    ``max_dimension``.  For long, low-dimensional codes, byte-wise elimination for each information
+    set can cost more than packed ``uint64`` enumeration of all ``2**dimension`` codewords, which
+    ``setup_cost_factor`` times the dimension and the length estimates.  Below 63 rows, the count of
+    codewords fits a native integer.
     """
-    return dimension <= 20 or (dimension < 63 and 1 << dimension <= 128 * dimension * length)
+    return dimension <= max_dimension or (
+        dimension < 63 and 1 << dimension <= setup_cost_factor * dimension * length
+    )
 
 
 def _enumeration_is_cheaper_than_search(
@@ -196,10 +202,23 @@ class _BrouwerZimmermannSearch:
     does (see ``automorphism_families``).  ``ranks`` is the native copy of the ranks of the packed
     sets for the compiled scan.
 
+    ``lower_bound`` bounds the weights of the eligible words lighter than ``best``: the search
+    certifies that no eligible word weighs less than ``min(lower_bound, best)``, and it has finished
+    once ``lower_bound`` reaches ``best``.  An eligible word lighter than ``best`` cannot have been
+    examined or skipped, so the bounds of every family that the search has scanned hold for it.
+    ``lower_bound`` alone can exceed the weight of heavier words, such as the words of supports that
+    the search skipped, so a bound on the distance is ``min(lower_bound, best)``.
+
     ``get_automorphism_family``, if given, returns an automorphism family of the problem, or None.
     The search calls it once, before the first layer whose scan would cost at least
-    ``minimum_layer_work`` candidate/set evaluations.  The search switches to the automorphism
-    family if it predicts less work (see ``_switch_to_automorphism_family``).
+    ``tuning.automorphism_minimum_layer_work`` candidate/set evaluations.  The search switches to
+    the automorphism family if it predicts less work (see ``_switch_to_automorphism_family``).
+
+    A layer of two or more rows that scans one set whose block is an information set uses
+    ``_scan_one_information_set``.  Such a layer may skip the supports whose last two rows cannot
+    complete a word lighter than the best weight, with tables that the completion fields of
+    ``tuning`` choose (see ``completion_bounds``).  ``completion_tables`` keeps the most recently
+    chosen tables for reuse, until the basis changes or the search finishes.
     """
 
     generators: npt.NDArray[np.uint64]
@@ -209,13 +228,16 @@ class _BrouwerZimmermannSearch:
     certificate: information_sets.Certificate
     cutoff: int
     batch_size: int
-    minimum_layer_work: int
+    tuning: SearchTuning
     best: int
     lower_bound: int
     next_weight: int = 1
     get_automorphism_family: _GetAutomorphismFamily | None = field(default=None, repr=False)
     uses_automorphism_family: bool = field(default=False, init=False)
     ranks: npt.NDArray[np.int64] = field(init=False, repr=False)
+    completion_tables: completion_bounds.CompletionTables | None = field(
+        default=None, init=False, repr=False
+    )
 
     def __post_init__(self) -> None:
         self.ranks = np.array(self.certificate.ranks, dtype=np.int64)
@@ -237,8 +259,10 @@ class _BrouwerZimmermannSearch:
         )
 
     def update_upper_bound(self, upper_bound: int) -> None:
-        """Import a witness found by another search."""
+        """Import a witness found by another search, and free the tables of a finished search."""
         self.best = min(self.best, upper_bound)
+        if self.finished:
+            self.completion_tables = None
 
     def advance(self) -> int:
         """Search the next coefficient layer, and return the best shared upper bound.
@@ -268,7 +292,10 @@ class _BrouwerZimmermannSearch:
         layer_work = min(
             num_scanned * math.comb(self.dimension, weight), information_sets._WORK_CAP
         )
-        if self.get_automorphism_family is not None and layer_work >= self.minimum_layer_work:
+        if (
+            self.get_automorphism_family is not None
+            and layer_work >= self.tuning.automorphism_minimum_layer_work
+        ):
             self._switch_to_automorphism_family()
             return self.advance()
 
@@ -280,32 +307,71 @@ class _BrouwerZimmermannSearch:
         # Any negative Python cutoff disables early exit; keep its native value in int64 range.
         cutoff = max(-1, self.cutoff)
 
+        # A layer of one information set uses its own scan, with completion tables if they pay.
+        one_set = num_scanned == 1 and self.ranks[0] == self.dimension and weight >= 2
+        tables = self._select_completion_tables(weight) if one_set else None
+        scan_tables = completion_bounds.NO_TABLES if tables is None else tables
+
         # Scan in chunks, returning early once the upper bound reaches the cutoff.
         while depth >= 0:
-            self.best, depth, _ = _scan_brouwer_zimmermann(
-                self.generators[scanned],
-                self.labels[scanned],
-                self.ranks[scanned],
-                self.widths[scanned],
-                self.label_widths[scanned],
-                support,
-                prefixes,
-                depth,
-                self.best,
-                cutoff,
-                self.batch_size,
-            )
+            if one_set:
+                self.best, depth, _, _, _ = _scan_one_information_set(
+                    self.generators[scanned],
+                    self.labels[scanned],
+                    self.widths[scanned],
+                    self.label_widths[scanned],
+                    support,
+                    prefixes,
+                    depth,
+                    self.best,
+                    cutoff,
+                    self.batch_size,
+                    scan_tables.tables,
+                    scan_tables.offsets,
+                    scan_tables.block_bits,
+                )
+            else:
+                self.best, depth, _ = _scan_brouwer_zimmermann(
+                    self.generators[scanned],
+                    self.labels[scanned],
+                    self.ranks[scanned],
+                    self.widths[scanned],
+                    self.label_widths[scanned],
+                    support,
+                    prefixes,
+                    depth,
+                    self.best,
+                    cutoff,
+                    self.batch_size,
+                )
             if self.best <= self.cutoff:
                 return self.best
 
         # The scanned sets have completed the layer, so the family certificate may advance.  The
-        # bound of a family scanned before a switch to an automorphism family still holds.
+        # bound of a family scanned before a switch to an automorphism family still holds for the
+        # eligible words lighter than the best weight, which no layer has examined or skipped.
         self.lower_bound = max(
             self.lower_bound, self.certificate.step_lower_bound(weight, num_completed)
         )
         if num_completed == num_sets:
             self.next_weight += 1
         return self.best
+
+    def _select_completion_tables(self, weight: int) -> completion_bounds.CompletionTables | None:
+        """Choose the completion tables of a layer of one information set, or None.
+
+        The search reuses its tables while it scans the same set, and keeps the chosen tables.
+        """
+        tables = completion_bounds.select_completion_tables(
+            self.generators[0, :, : self.widths[0]],
+            weight,
+            self.best,
+            current=self.completion_tables,
+            tuning=self.tuning,
+        )
+        if tables is not None:
+            self.completion_tables = tables
+        return tables
 
     def _switch_to_automorphism_family(self) -> None:
         """Scan one set and certify with its images from now on, if that predicts less work.
@@ -335,6 +401,8 @@ class _BrouwerZimmermannSearch:
         self.lower_bound = max(self.lower_bound, certificate.lower_bound(1))
         self.next_weight = 2
         self.uses_automorphism_family = True
+        # Tables of the old set bound nothing in the new one.
+        self.completion_tables = None
 
 
 def _prepare_brouwer_zimmermann_search(
@@ -342,7 +410,6 @@ def _prepare_brouwer_zimmermann_search(
     labels: npt.NDArray[np.uint8],
     *,
     cutoff: int,
-    block_size: int,
     weight_divisor: int,
     upper_bound: int,
     initial_upper_bound: int | None = None,
@@ -371,16 +438,28 @@ def _prepare_brouwer_zimmermann_search(
         return best
 
     if tuning.allow_enumeration_by_size and enumeration_is_cheaper_than_setup(
-        dimension, basis.shape[1]
+        dimension,
+        basis.shape[1],
+        tuning.enumeration_max_dimension,
+        tuning.enumeration_setup_cost_factor,
     ):
         distance = get_nested_distance_brute_force(
-            basis, labels, cutoff=cutoff, block_size=block_size, homogeneous=True
+            basis,
+            labels,
+            cutoff=cutoff,
+            batch_exponent=tuning.enumeration_batch_exponent,
+            homogeneous=True,
         )
         return min(best, distance)
 
     # The disjoint basis family's certificate also uses any inferred even ambient parity.
     basis_family = (
-        information_sets.get_disjoint_family(basis, labels, weight_divisor=weight_divisor)
+        information_sets.get_disjoint_family(
+            basis,
+            labels,
+            random_column_orders=tuning.disjoint_random_column_orders,
+            weight_divisor=weight_divisor,
+        )
         if get_disjoint_basis_family is None
         else get_disjoint_basis_family()
     )
@@ -410,8 +489,7 @@ def _prepare_brouwer_zimmermann_search(
             labels,
             family,
             best,
-            tuning.max_information_sets,
-            tuning.partition_work_ratio,
+            tuning,
         ),
     ):
         replacement = get_replacement(basis_family, best)
@@ -435,20 +513,26 @@ def _prepare_brouwer_zimmermann_search(
         upper_bound=best,
     ):
         distance = get_nested_distance_brute_force(
-            basis, labels, cutoff=cutoff, block_size=block_size, homogeneous=True
+            basis,
+            labels,
+            cutoff=cutoff,
+            batch_exponent=tuning.enumeration_batch_exponent,
+            homogeneous=True,
         )
         return min(best, distance)
 
     return _BrouwerZimmermannSearch(
         *_pack_basis_family(basis_family),
-        basis_family.get_search_certificate(best, tuning.lp_minimum_work),
-        cutoff,
-        1 << min(block_size, 15),
-        tuning.automorphism_minimum_layer_work,
-        best,
-        lower_bound,
-        completed_weight + 1,
-        None
+        certificate=basis_family.get_search_certificate(
+            best, tuning.lp_minimum_work, tuning.lp_dual_max_denominator
+        ),
+        cutoff=cutoff,
+        batch_size=1 << tuning.information_set_batch_exponent,
+        tuning=tuning,
+        best=best,
+        lower_bound=lower_bound,
+        next_weight=completed_weight + 1,
+        get_automorphism_family=None
         if get_automorphisms is None
         else functools.partial(_get_automorphism_family, basis, labels, get_automorphisms),
     )
@@ -602,20 +686,129 @@ def _scan_brouwer_zimmermann(
                 if candidate_weight >= best:
                     continue
 
-                # A candidate is eligible when no subcode is excluded or its quotient label is
-                # nonzero.
-                eligible = label_widths[set_index] == 0
-                for word in range(label_widths[set_index]):
-                    combined = labels[set_index, support[0], word]
-                    for selected in range(1, weight):
-                        combined ^= labels[set_index, support[selected], word]
-                    if combined:
-                        eligible = True
-                        break
-                if eligible:
+                if _is_eligible(labels, label_widths, set_index, support):
                     best = int(candidate_weight)
 
             visited += 1
             support[depth] += 1
             if best <= cutoff or visited >= batch_size:
                 return best, depth, visited
+
+
+@always_compiled
+def _scan_one_information_set(
+    generators: npt.NDArray[np.uint64],
+    labels: npt.NDArray[np.uint64],
+    widths: npt.NDArray[np.int64],
+    label_widths: npt.NDArray[np.int64],
+    support: npt.NDArray[np.int64],
+    prefixes: npt.NDArray[np.uint64],
+    depth: int,
+    best: int,
+    cutoff: int,
+    batch_size: int,
+    tables: npt.NDArray[np.uint8],
+    offsets: npt.NDArray[np.int64],
+    block_bits: int,
+) -> tuple[int, int, int, int, int]:
+    """Scan one bounded chunk of a layer of one information set, skipping hopeless completions.
+
+    The arguments are those of ``_scan_brouwer_zimmermann``, without ``ranks``, for one set whose
+    block is an information set, so every word weighs its coefficient weight plus the weight of its
+    packed tail, and for a layer of at least two rows.  ``tables``, ``offsets``, and ``block_bits``
+    are those of ``completion_bounds.CompletionTables``, such as ``completion_bounds.NO_TABLES``,
+    which skip nothing.  With tables, before the scan tries row ``s`` as the first of the last two
+    rows of a support, it bounds the tail weights of the completions of the first ``weight - 2``
+    rows, the prefix, by two rows from row ``s`` on.  If their words cannot weigh less than
+    ``best``, it skips them all.
+
+    A chunk ends when the layer is complete, at the cutoff, or once the supports that it weighed and
+    the bounds that it looked up reach ``batch_size`` together.
+
+    Returns:
+        Updated ``best``; updated ``depth``, which is ``-1`` once the layer is complete; and the
+        numbers of supports that the chunk weighed, of bounds that it looked up, and of supports
+        that it skipped.
+    """
+    num_rows = generators.shape[1]
+    weight = len(support)
+    width = widths[0]
+    use_tables = len(tables) > 0
+    # The search steps through the supports of the first weight - 1 rows, whose last row is the
+    # first of the last two rows of a support, and visits the last row of each in its own loop.  The
+    # first of the last two rows is never the last row, which no row can follow.
+    head = support[: weight - 1]
+    head_rows = generators[:, : num_rows - 1]
+    pair_depth = weight - 2
+    evaluated, lookups, skipped = 0, 0, 0
+    while True:
+        if depth < weight - 1:
+            depth = advance_support(head_rows, widths, head, prefixes, depth)
+            if depth < 0:
+                return best, depth, evaluated, lookups, skipped
+            first = support[pair_depth]
+
+            # Skip every completion from row first on if none can be lighter than the best word.
+            prefix = prefixes[pair_depth, 0]
+            if use_tables:
+                lookups += 1
+                limit = best - weight
+                if get_completion_bound(tables, offsets, block_bits, first, prefix, limit) >= limit:
+                    remaining = num_rows - first
+                    skipped += remaining * (remaining - 1) // 2
+                    support[pair_depth] = num_rows
+                    if evaluated + lookups >= batch_size:
+                        return best, depth, evaluated, lookups, skipped
+                    continue
+
+            # Otherwise add row first to the prefix, and try every later row as the last row.
+            for word in range(width):
+                prefixes[weight - 1, 0, word] = prefix[word] ^ generators[0, first, word]
+            depth = weight - 1
+            support[depth] = first + 1
+            if evaluated + lookups >= batch_size:
+                return best, depth, evaluated, lookups, skipped
+
+        # Weigh the words that differ only in their last row.
+        while support[depth] < num_rows:
+            row = support[depth]
+            candidate_weight = np.int64(weight)
+            for word in range(width):
+                candidate_weight += popcount_word(
+                    prefixes[depth, 0, word] ^ generators[0, row, word]
+                )
+                if candidate_weight >= best:
+                    break
+            if candidate_weight < best and _is_eligible(labels, label_widths, 0, support):
+                best = int(candidate_weight)
+
+            evaluated += 1
+            support[depth] += 1
+            if best <= cutoff or evaluated + lookups >= batch_size:
+                return best, depth, evaluated, lookups, skipped
+        depth = pair_depth
+        support[depth] += 1
+
+
+@always_compiled(inline=True)
+def _is_eligible(
+    labels: npt.NDArray[np.uint64],
+    label_widths: npt.NDArray[np.int64],
+    set_index: int,
+    support: npt.NDArray[np.int64],
+) -> bool:
+    """Decide whether the word of a support of a search basis lies outside the excluded subcode.
+
+    A word is eligible when no subcode is excluded, so that the set has no label words, or when the
+    XOR of the quotient labels of its rows is nonzero.
+    """
+    weight = len(support)
+    eligible = label_widths[set_index] == 0
+    for word in range(label_widths[set_index]):
+        combined = labels[set_index, support[0], word]
+        for selected in range(1, weight):
+            combined ^= labels[set_index, support[selected], word]
+        if combined:
+            eligible = True
+            break
+    return eligible

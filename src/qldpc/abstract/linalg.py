@@ -22,7 +22,7 @@ from qldpc import math
 from ._coefficients import coefficient_matmul
 from .groups import Group, GroupMember
 from .ring_array import RingArray
-from .rings import GroupRing
+from .rings import GroupRing, RingMember
 
 if TYPE_CHECKING:
     from .wedderburn_artin import WedderburnArtinComponentTransformer, WedderburnArtinTransformer
@@ -87,12 +87,8 @@ def kron(
     if not ring.is_commutative:
         # keep left and right multiplication in separate halves of the bimodule representation
         bimodule = _get_bimodule(ring)
-        sector_size = ring.group.identity.size
-        swap_sectors = GroupMember(
-            list(range(sector_size, 2 * sector_size)) + list(range(sector_size))
-        )
         matrix_a = RingArray.build(matrix_a, bimodule)
-        matrix_b = swap_sectors * ~RingArray.build(matrix_b, bimodule) * swap_sectors
+        matrix_b = _swap_sectors(~RingArray.build(matrix_b, bimodule))
 
     return np.kron(matrix_a, matrix_b).view(RingArray)
 
@@ -248,6 +244,22 @@ def _get_bimodule(ring: GroupRing) -> GroupRing:
 
     bimodule_group = Group(ring.group.to_sympy() * ring.group.to_sympy(), lift=lift)
     return GroupRing(bimodule_group, ring.field)
+
+
+def _swap_sectors(matrix: RingArray) -> RingArray:
+    """Swap the left and right parts of the group member in each term of a matrix over a bimodule.
+
+    The bimodule group acts on two sectors of points, one for each copy of the base group.  The
+    permutation that swaps these sectors is a symmetry of the bimodule group rather than one of its
+    members, so ring arithmetic rejects it, and this function conjugates group members by it.
+    """
+    sector_size = matrix.ring.group.degree // 2
+    swap = GroupMember(list(range(sector_size, 2 * sector_size)) + list(range(sector_size)))
+    swapped = np.empty(matrix.shape, dtype=object)
+    for index, entry in np.ndenumerate(matrix):
+        terms = [(value, swap * member * swap) for value, member in entry]
+        swapped[index] = RingMember._from_trusted_terms(matrix.ring, terms)
+    return RingArray(swapped, matrix.ring)
 
 
 def _validate_howell_dual(

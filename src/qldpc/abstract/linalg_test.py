@@ -230,3 +230,26 @@ def test_get_howell_dual_edge_cases(ring_alternating4_gf5: abstract.GroupRing) -
         abstract.get_howell_dual(
             generator, transformer=transformer, right=False, skip_validation=True
         )
+
+
+def test_kron_over_groups_with_different_lifts() -> None:
+    """Kronecker products use the lifts of their own group algebras."""
+    # these group algebras differ only in their right lifts
+    group = abstract.SymmetricGroup(3)
+    members = list(group.generate())
+    translated = abstract.Group(
+        *group.generators, generate_func=lambda: iter([gg * group.generators[1] for gg in members])
+    )
+    assert all(np.array_equal(group.lift(gg), translated.lift(gg)) for gg in group.generators)
+    first = group.generators[0]
+    assert not np.array_equal(group.lift(first, right=True), translated.lift(first, right=True))
+
+    # for a generator g, the Kronecker product of [[g]] with itself maps each member t to g·t·g
+    for ring in [abstract.GroupRing(group), abstract.GroupRing(translated)]:
+        generator = ring.generators[0]
+        matrix = abstract.RingArray.build([[generator]], ring)
+        lifted = abstract.kron(matrix, matrix).lift()
+        for member in ring.group.generate():
+            element = abstract.RingMember(ring, member)
+            product = generator * element * generator
+            assert np.array_equal(lifted @ element.to_vector(), product.to_vector())

@@ -26,9 +26,12 @@ class LPCode(CSSCode):
 
     A lifted product code is essentially the same as a hypergraph product code, except that the
     parity check matrices are RingArrays, or matrices whose entries are members of a group algebra
-    over a finite field ``F_q``.  Each of these entries can be "lifted" to a representation as
-    orthogonal matrices over ``F_q``, in which case the RingArray is interpreted as a block matrix;
-    this is called "lifting" the RingArray.
+    over a finite field ``F_q``.  Each of these entries can be "lifted" to a matrix over ``F_q``, in
+    which case the RingArray is interpreted as a block matrix; this is called "lifting" the
+    RingArray.  Lifts to orthogonal matrices, such as permutation matrices, give X and Z checks that
+    commute.  For other lifts, LPCode raises a ValueError if the checks do not commute.  LPCode also
+    needs lifts with ``right=True``, which a noncommutative group has only with the default lift,
+    its regular representation.
 
     As an example, the lift-connected surface code in Eq. (2) of https://arxiv.org/pdf/2401.02911v2
     can be constructed by::
@@ -94,7 +97,8 @@ class LPCode(CSSCode):
         field characteristic that does not divide the order of the group.  Lifted products of binary
         codes over groups of even order are common but fail this condition, so ``set_logicals``
         defaults to False, and if it is True for a group algebra that fails it, a ValueError is
-        raised.
+        raised.  The canonical logical operators assume lifts to orthogonal matrices.  For other
+        lifts, a ValueError is raised if these operators cannot be lifted or are invalid.
         """
         if matrix_b is None:
             matrix_b = matrix_a
@@ -116,26 +120,27 @@ class LPCode(CSSCode):
         # if Hadamard-transforming qudits, conjugate those in the (1, 1) sector by default
         self.bias_tailoring_qubits = slice(self.sector_size[0, 0], None)
 
+        # lifts to orthogonal matrices give commuting checks; otherwise, verify that checks commute
         super().__init__(matrix_x.lift(), matrix_z.lift(), field)
-        self._is_subsystem_code = False  # known by construction
+        if _has_orthogonal_lifts(ring):
+            self._is_subsystem_code = False
+        elif self.is_subsystem_code:
+            raise ValueError(
+                "The X and Z checks of this LPCode do not commute, and its group algebra lifts"
+                " members to matrices that are not orthogonal"
+            )
 
         if set_logicals:
-            try:
-                logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
-            except (ValueError, NotImplementedError) as exception:
-                raise ValueError(
-                    "Cannot set canonical logical operators for this code, likely due to a"
-                    " choice of group algebra for which some features are not yet supported"
-                ) from exception
-            # this call sits outside the try above because a validation failure here is a real bug
-            # in the computed operators, not the "unsupported group algebra" the try/except reports
-            self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
+            _set_canonical_logical_line_ops(self)
 
     @staticmethod
     def get_canonical_logical_line_ops(
         matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Canonical logical line operators for a lifted product code."""
+        """Canonical logical line operators for a lifted product code.
+
+        These operators assume lifts to orthogonal matrices.
+        """
         logical_ops_xz = LPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
         return LPCode.to_lifted_logical_ops(*logical_ops_xz)
 
@@ -269,22 +274,16 @@ class SLPCode(CSSCode):
         # TODO: set self._stabilizer_ops
 
         if set_logicals:
-            try:
-                logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
-            except (ValueError, NotImplementedError) as exception:
-                raise ValueError(
-                    "Cannot set canonical logical operators for this code, likely due to a"
-                    " choice of group algebra for which some features are not yet supported"
-                ) from exception
-            # this call sits outside the try above because a validation failure here is a real bug
-            # in the computed operators, not the "unsupported group algebra" the try/except reports
-            self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
+            _set_canonical_logical_line_ops(self)
 
     @staticmethod
     def get_canonical_logical_line_ops(
         matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Canonical logical line operators for a subsystem lifted product code."""
+        """Canonical logical line operators for a subsystem lifted product code.
+
+        These operators assume lifts to orthogonal matrices.
+        """
         logical_ops_xz = SLPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
         return SLPCode.to_lifted_logical_ops(*logical_ops_xz)
 
@@ -317,3 +316,39 @@ class SLPCode(CSSCode):
         """Translations of every block of qudits, or None (see _get_abelian_block_translations)."""
         group = self.matrix_a.group
         return _get_abelian_block_translations(group, len(self) // group.lift_dim)
+
+
+def _has_orthogonal_lifts(ring: abstract.GroupRing) -> bool:
+    """Does a group algebra lift the members of its group to orthogonal matrices?
+
+    A lift L is orthogonal if ``L(g.T) = L(g).T``, where ``g.T = ~g``.  Orthogonal matrices form a
+    group, so if the generators lift to orthogonal matrices, every member does.
+    """
+    return all(
+        np.array_equal(generator.T.lift(), generator.lift().T) for generator in ring.generators
+    )
+
+
+def _set_canonical_logical_line_ops(code: LPCode | SLPCode) -> None:
+    """Set the canonical logical line operators of a lifted product code."""
+    try:
+        logical_ops_xz = code.get_canonical_ring_logical_line_ops(code.matrix_a, code.matrix_b)
+    except (ValueError, NotImplementedError) as exception:
+        raise ValueError(
+            "Cannot set canonical logical operators for this code, likely due to a choice of group"
+            " algebra for which some features are not yet supported"
+        ) from exception
+
+    # for lifts to orthogonal matrices, a failure to lift or validate these operators is a bug
+    if _has_orthogonal_lifts(code.matrix_a.ring):
+        code.set_logical_ops_xz(*code.to_lifted_logical_ops(*logical_ops_xz), skip_validation=False)
+        return
+
+    # these operators assume lifts to orthogonal matrices, so they can fail to lift or be invalid
+    try:
+        code.set_logical_ops_xz(*code.to_lifted_logical_ops(*logical_ops_xz), skip_validation=False)
+    except ValueError as exception:
+        raise ValueError(
+            "Cannot set canonical logical operators for this code, whose group algebra lifts"
+            " members to matrices that are not orthogonal"
+        ) from exception

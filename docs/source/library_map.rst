@@ -115,7 +115,7 @@ Algebraic inputs of lifted and geometric families
 
 Lifted-product families such as :class:`~qldpc.codes.quantum.lifted_product.LPCode` take :class:`~qldpc.abstract.ring_array.RingArray` matrices, whose entries belong to a :class:`~qldpc.abstract.rings.GroupRing` over a finite field.
 Each entry lifts to a block matrix over that field, and ``RingArray.lift()`` returns the resulting ``galois.FieldArray``.
-Every ``RingArray`` has one base ring, and arithmetic between arrays over different rings raises an error.
+Every ``RingArray`` has one base ring, and arithmetic between arrays or ring members over different rings raises an error.
 :class:`~qldpc.codes.quantum.pair_partition.PairPartitionCode` instead takes integer arrays of exponents and a lift size :math:`P`, and builds its ``RingArray`` matrices over the group algebra :math:`\mathbb{F}_2[\mathbb{Z}_P]` as ``code.ring_array_x`` and ``code.ring_array_z``.
 :class:`~qldpc.codes.quantum.quantum_tanner.QTCode` builds a :class:`~qldpc.objects.complexes.CayleyComplex` from two subsets of a group, and families such as :class:`~qldpc.codes.quantum.surface.T4Code` (built from a 4×4 integer lattice matrix) build a :class:`~qldpc.objects.complexes.ChainComplex` internally and expose it as ``code.chain``.
 :class:`~qldpc.codes.quantum.balanced_product.BPCode` takes symmetries of two classical codes, as permutations or as members of :meth:`ClassicalCode.get_matrix_automorphism_group <qldpc.codes.common.ClassicalCode.get_matrix_automorphism_group>`, and builds its chain complex with :meth:`ChainComplex.balanced_product <qldpc.objects.complexes.ChainComplex.balanced_product>`.
@@ -128,6 +128,7 @@ Distances across packages
 Exact distances of binary codes use an optimized `Brouwer--Zimmermann search <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_, and nonbinary codes use exhaustive enumeration; both can take exponential time.
 ``get_distance_exact(cutoff=c)`` stops once it finds a nontrivial word of weight at most ``c``.
 A result of at most ``c`` is therefore only an upper bound, while a larger result, or any result with ``cutoff <= 1`` (the default is 1), is exact.
+Exact searches choose their routes by cost models whose settings and constants :doc:`exact_search_tuning` maps and documents.
 Distance-bound backends depend on the class: ``ClassicalCode`` uses a decoder, a non-CSS ``QuditCode`` uses GAP's QDistRnd, and ``CSSCode`` supports ``sqetch`` (binary only), GAP, and a decoder.
 For ``CSSCode``, the default ``backend="auto"`` tries those three in order and uses GAP only if a GAP binding or executable can be called, so it never falls back to the manual copy-and-paste workflow.
 It can still ask on standard input before installing a missing GUAVA or QDistRnd package.

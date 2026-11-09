@@ -36,8 +36,7 @@ import numpy.typing as npt
 from qldpc._binary import pack_bits, popcount_word, trailing_zeros_word
 from qldpc._compilation import always_compiled
 
-# Gray-code steps visited per native call, which bounds the time between interruptions.
-_CHUNK_SIZE = 1 << 16
+from .. import _tuning
 
 # The walk indexes its steps, and counts the words of each weight, with unsigned 64-bit integers.
 _MAX_RANK = 63
@@ -54,12 +53,16 @@ class CheckEnumerators:
         checks_x: Independent X checks.
         checks_z: Independent Z checks that commute with the X checks.  If they are the same array
             as ``checks_x``, one distribution serves both spaces.
+        chunk_size: The most steps of the walk of a check space in one native call (see
+            ``get_span_weights``).
 
     Raises:
         ValueError: If a check space has more than ``2**63`` words.
     """
 
-    def __init__(self, checks_x: npt.NDArray[np.uint8], checks_z: npt.NDArray[np.uint8]) -> None:
+    def __init__(
+        self, checks_x: npt.NDArray[np.uint8], checks_z: npt.NDArray[np.uint8], chunk_size: int
+    ) -> None:
         for checks in (checks_x, checks_z):
             if len(checks) > _MAX_RANK:
                 raise ValueError(
@@ -68,9 +71,11 @@ class CheckEnumerators:
                 )
         self.num_bits = checks_x.shape[1]
         self.rank_x, self.rank_z = len(checks_x), len(checks_z)
-        self.weights_x = get_span_weights(checks_x)
+        self.weights_x = get_span_weights(checks_x, chunk_size)
         self.self_dual = checks_z is checks_x
-        self.weights_z = self.weights_x if self.self_dual else get_span_weights(checks_z)
+        self.weights_z = (
+            self.weights_x if self.self_dual else get_span_weights(checks_z, chunk_size)
+        )
         # Counts of the light words of ker(H_Z) and ker(H_X), from one 64-bit transform each.
         self.light_counts_x = _count_light_dual_words(self.weights_z, self.rank_z, self.num_bits)
         self.light_counts_z = (
@@ -112,16 +117,20 @@ class CheckEnumerators:
 # weight distributions and transforms
 
 
-def get_span_weights(generators: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint64]:
-    """The number of words of each weight in the span of independent binary rows, as uint64s."""
+def get_span_weights(generators: npt.NDArray[np.uint8], chunk_size: int) -> npt.NDArray[np.uint64]:
+    """The number of words of each weight in the span of independent binary rows, as uint64s.
+
+    The Gray-code walk of the span visits at most ``chunk_size`` steps in each native call, which
+    cannot be interrupted.
+    """
     rank, num_bits = generators.shape
     weights = np.zeros(num_bits + 1, dtype=np.uint64)
     weights[0] = 1
     packed = pack_bits(generators)
     word = np.zeros(packed.shape[1], dtype=np.uint64)
     stop = 1 << rank
-    for start in range(1, stop, _CHUNK_SIZE):
-        chunk_stop = min(start + _CHUNK_SIZE, stop)
+    for start in range(1, stop, chunk_size):
+        chunk_stop = min(start + chunk_size, stop)
         _add_span_weights(packed, word, np.uint64(start), np.uint64(chunk_stop), weights)
     return weights
 
@@ -156,7 +165,7 @@ def _count_light_dual_words(
     return counts.tolist()
 
 
-@functools.lru_cache(maxsize=1024)
+@functools.lru_cache(maxsize=_tuning.KRAWTCHOUK_CACHE_SIZE)
 def _get_krawtchouk_row(num_bits: int, weight: int) -> tuple[int, ...]:
     """Binary Krawtchouk polynomial ``K_w(j)`` at every ``j``, for words of length ``n``.
 
@@ -177,7 +186,7 @@ def _get_krawtchouk_row(num_bits: int, weight: int) -> tuple[int, ...]:
     return tuple(row)
 
 
-@functools.lru_cache(maxsize=1024)
+@functools.lru_cache(maxsize=_tuning.KRAWTCHOUK_CACHE_SIZE)
 def _get_light_krawtchouk_rows(num_bits: int, rank: int) -> npt.NDArray[np.int64]:
     """Krawtchouk rows ``K_0, K_1, ...`` for a 64-bit transform of a span of the given rank.
 

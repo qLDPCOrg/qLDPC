@@ -4,10 +4,11 @@
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import itertools
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Sequence
 from typing import Any
 from unittest import mock
 
@@ -17,18 +18,26 @@ import pytest
 from sympy.abc import x, y, z
 
 import qldpc
-from qldpc._binary import get_independent_rows
+from qldpc._binary import get_independent_rows, pack_bits
 from qldpc.objects import PAULIS_XZ, Pauli
 
 from ...conftest import Tune
 from .._tuning import DEFAULT_TUNING, MAX_VALUE, SearchTuning, use_tuning
 from ..conftest import CostlyStages, get_random_full_rank_matrix, get_sector_problem
 from . import brouwer_zimmermann as bz
-from . import information_sets
+from . import completion_bounds, information_sets
+
+# A tuning that never uses completion tables, for searches built directly.
+TABLES_DISABLED = dataclasses.replace(
+    DEFAULT_TUNING,
+    completion_bound_minimum_layer_work=MAX_VALUE,
+    completion_bound_max_cost_percent=0,
+    completion_bound_max_table_bytes=0,
+)
 
 
 @pytest.mark.parametrize("interpreted", [False, True])
-def test_brouwer_zimmermann_scan(interpreted: bool) -> None:
+def test_brouwer_zimmermann_scan(interpreted: bool, monkeypatch: pytest.MonkeyPatch) -> None:
     """Chunked kernel calls enumerate each combination of basis rows once.
 
     The chunked kernel calls preserve resumption state and multiword labels.
@@ -36,6 +45,9 @@ def test_brouwer_zimmermann_scan(interpreted: bool) -> None:
     scan = bz._scan_brouwer_zimmermann
     if interpreted:
         scan = getattr(scan, "py_func", scan)
+        monkeypatch.setattr(
+            bz, "_is_eligible", getattr(bz._is_eligible, "py_func", bz._is_eligible)
+        )
     rng = np.random.default_rng(120)
 
     # The scan input uses full-rank, partial-rank, and rank-zero information sets.  The last two
@@ -114,7 +126,7 @@ def test_brouwer_zimmermann_search_state() -> None:
         information_sets.Certificate(2, (0,)),
         cutoff=1,
         batch_size=1,
-        minimum_layer_work=DEFAULT_TUNING.automorphism_minimum_layer_work,
+        tuning=TABLES_DISABLED,
         best=3,
         lower_bound=0,
     )
@@ -163,14 +175,21 @@ def test_the_largest_layer_threshold_never_asks_for_automorphisms() -> None:
             information_sets.Certificate(dimension, (dimension,)),
             cutoff=0,
             batch_size=1,
-            minimum_layer_work=minimum_layer_work,
+            tuning=dataclasses.replace(
+                TABLES_DISABLED, automorphism_minimum_layer_work=minimum_layer_work
+            ),
             best=dimension,
             lower_bound=0,
             next_weight=weight,
             get_automorphism_family=get_automorphism_family,
         )
         # Skip the scan of the layer itself, which no search could finish.
-        with mock.patch.object(bz, "_scan_brouwer_zimmermann", return_value=(dimension, -1, 0)):
+        with (
+            mock.patch.object(bz, "_scan_brouwer_zimmermann", return_value=(dimension, -1, 0)),
+            mock.patch.object(
+                bz, "_scan_one_information_set", return_value=(dimension, -1, 0, 0, 0)
+            ),
+        ):
             search.advance()
         assert get_automorphism_family.call_count == expected_calls
 
@@ -262,6 +281,31 @@ def test_brouwer_zimmermann_setup_exits(
     assert expected <= distance <= max(cutoff, expected)
 
 
+def test_enumeration_by_work_can_be_forbidden(monkeypatch: pytest.MonkeyPatch, tune: Tune) -> None:
+    """The "brute-force" case enumerates its quotient after setup only if the tuning allows it."""
+    case = next(case for case in SETUP_EXIT_CASES if case.id == "brute-force")
+    values: Sequence[Any] = case.values
+    logicals, stabilizers = values[:2]
+    expected = qldpc.codes.get_distance_quantum(
+        logicals, stabilizers, homogeneous=True, method="brute_force"
+    )
+    enumerations = []
+    original = bz.get_nested_distance_brute_force
+
+    def enumerate_words(*args: Any, **kwargs: Any) -> int:
+        enumerations.append(args)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(bz, "get_nested_distance_brute_force", enumerate_words)
+    tune(allow_enumeration_by_size=False)
+    for allowed in (True, False):
+        enumerations.clear()
+        with use_tuning(allow_enumeration_by_work=allowed):
+            distance = qldpc.codes.get_distance_quantum(logicals, stabilizers, homogeneous=True)
+        assert distance == expected
+        assert bool(enumerations) == allowed
+
+
 def test_brouwer_zimmermann_setup_cutoffs() -> None:
     """Preparation can reach the cutoff from initial rows or a newly systematic row."""
     basis = np.array([[1, 0, 1, 1], [0, 1, 1, 1]], dtype=np.uint8)
@@ -270,7 +314,6 @@ def test_brouwer_zimmermann_setup_cutoffs() -> None:
             basis,
             _no_labels(basis),
             cutoff=3,
-            block_size=2,
             weight_divisor=1,
             upper_bound=4,
             tuning=DEFAULT_TUNING,
@@ -282,7 +325,6 @@ def test_brouwer_zimmermann_setup_cutoffs() -> None:
             basis,
             _no_labels(basis),
             cutoff=2,
-            block_size=2,
             weight_divisor=1,
             upper_bound=4,
             tuning=SearchTuning(allow_enumeration_by_size=False),
@@ -296,7 +338,7 @@ def test_an_upper_bound_acts_as_a_known_witness() -> None:
     basis = get_independent_rows(np.asarray(qldpc.codes.HammingCode(3).generator, dtype=np.uint8))
     for upper_bound, expected in ((2, 2), (3, 3), (5, 3)):
         distance = bz.get_distance_brouwer_zimmermann(
-            basis, _no_labels(basis), cutoff=0, block_size=15, upper_bound=upper_bound
+            basis, _no_labels(basis), cutoff=0, upper_bound=upper_bound
         )
         assert distance == expected
 
@@ -329,7 +371,6 @@ def test_brouwer_zimmermann_shared_search() -> None:
     actual = bz.get_distance_brouwer_zimmermann_many(
         [(basis_a, _no_labels(basis_a)), (basis_b, labels_b)],
         cutoff=0,
-        block_size=2,
     )
     assert actual == min(expected_a, expected_b)
 
@@ -343,12 +384,15 @@ def test_a_given_disjoint_basis_family_replaces_the_first_stage() -> None:
     rng = np.random.default_rng(121)
     basis = get_random_full_rank_matrix(rng, 5, 9)
     labels = np.vstack([np.zeros((2, 3), dtype=np.uint8), np.eye(3, dtype=np.uint8)])
-    expected = bz.get_distance_brouwer_zimmermann_many([(basis, labels)], cutoff=0, block_size=2)
-    get_basis_family = mock.Mock(return_value=information_sets.get_disjoint_family(basis, labels))
+    expected = bz.get_distance_brouwer_zimmermann_many([(basis, labels)], cutoff=0)
+    get_basis_family = mock.Mock(
+        return_value=information_sets.get_disjoint_family(
+            basis, labels, random_column_orders=DEFAULT_TUNING.disjoint_random_column_orders
+        )
+    )
     search = functools.partial(
         bz.get_distance_brouwer_zimmermann_many,
         [(basis, labels)],
-        block_size=2,
         get_disjoint_basis_families=[get_basis_family],
     )
     with mock.patch.object(
@@ -407,7 +451,7 @@ def test_brouwer_zimmermann_sector_certificates() -> None:
         mock.patch.object(bz._BrouwerZimmermannSearch, "advance", advance),
     ):
         actual = bz.get_distance_brouwer_zimmermann_many(
-            [(basis_a, _no_labels(basis_a)), (basis_b, _no_labels(basis_b))], cutoff=0, block_size=2
+            [(basis_a, _no_labels(basis_a)), (basis_b, _no_labels(basis_b))], cutoff=0
         )
     assert actual == min(expected)
     assert len(searches) == 2
@@ -515,15 +559,26 @@ def test_brouwer_zimmermann_overlap_improves_quotient_witness(tune: Tune) -> Non
 
 @pytest.fixture
 def get_candidate_count(monkeypatch: pytest.MonkeyPatch) -> Callable[[], int]:
-    """Count row-weight evaluations and scanned supports across BZ and exhaustive routes."""
+    """Count row-weight evaluations, scanned supports, and lookups across BZ and exhaustive routes.
+
+    A scan of one information set counts each support that it weighs and each bound that it looks
+    up, but not the supports that it skips.
+    """
     num_candidates = 0
     original_scan = bz._scan_brouwer_zimmermann
+    original_one_set_scan = bz._scan_one_information_set
 
     def counting_scan(*args: Any) -> tuple[int, int, int]:
         nonlocal num_candidates
         best, depth, visited = original_scan(*args)
         num_candidates += visited * len(args[2])
         return best, depth, visited
+
+    def counting_one_set_scan(*args: Any) -> tuple[int, int, int, int, int]:
+        nonlocal num_candidates
+        result = original_one_set_scan(*args)
+        num_candidates += result[2] + result[3]
+        return result
 
     bitwise_count = np.bitwise_count
 
@@ -537,6 +592,7 @@ def get_candidate_count(monkeypatch: pytest.MonkeyPatch) -> Callable[[], int]:
     # Row weights and exhaustive enumeration count every packed word with np.bitwise_count.
     monkeypatch.setattr(np, "bitwise_count", counting_bitwise_count)
     monkeypatch.setattr(bz, "_scan_brouwer_zimmermann", counting_scan)
+    monkeypatch.setattr(bz, "_scan_one_information_set", counting_one_set_scan)
     return lambda: num_candidates
 
 
@@ -599,8 +655,57 @@ def switch_before_any_layer(tune: Tune) -> None:
     tune(automorphism_minimum_layer_work=0)
 
 
+@dataclasses.dataclass
+class CompletionRecord:
+    """Whether searches had to use completion tables, the tables that they chose, and their work.
+
+    Each entry of ``choices`` holds the tables that a search held before a layer and the tables that
+    it chose for the layer, or None.
+    """
+
+    forced: bool
+    choices: list[tuple[completion_bounds.CompletionTables | None, ...]]
+    lookups: int = 0
+    skipped: int = 0
+
+
+@pytest.fixture(params=["default", "forced"])
+def completion_tables(
+    request: pytest.FixtureRequest, tune: Tune, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[CompletionRecord]:
+    """Run a test with the default choice of completion tables, or with tables in every layer.
+
+    Record the tables that searches choose and the bounds that their scans look up, and check that a
+    forced search used tables.
+    """
+    record = CompletionRecord(request.param == "forced", [])
+    if record.forced:
+        tune(completion_bound_minimum_layer_work=0, completion_bound_max_cost_percent=MAX_VALUE)
+    select = completion_bounds.select_completion_tables
+    scan = bz._scan_one_information_set
+
+    def recording_select(*args: Any, **kwargs: Any) -> completion_bounds.CompletionTables | None:
+        tables = select(*args, **kwargs)
+        record.choices.append((kwargs["current"], tables))
+        return tables
+
+    def counting_scan(*args: Any) -> tuple[int, int, int, int, int]:
+        result = scan(*args)
+        record.lookups += result[3]
+        record.skipped += result[4]
+        return result
+
+    monkeypatch.setattr(completion_bounds, "select_completion_tables", recording_select)
+    monkeypatch.setattr(bz, "_scan_one_information_set", counting_scan)
+    yield record
+    if record.forced:
+        assert record.lookups
+
+
 @pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
-def test_automorphism_family_searches_scan_every_layer_they_certify() -> None:
+def test_automorphism_family_searches_scan_every_layer_they_certify(
+    completion_tables: CompletionRecord,
+) -> None:
     """A search with an automorphism family that reaches the distance only in layer four, its last.
 
     This [[72, 4, 8]] bivariate bicycle code comes from a search for codes like those of
@@ -611,15 +716,21 @@ def test_automorphism_family_searches_scan_every_layer_they_certify() -> None:
     """
     code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
     problem = get_sector_problem(code, Pauli.X)
-    expected = bz.get_distance_brouwer_zimmermann_many([problem], cutoff=0, block_size=15)
+    expected = bz.get_distance_brouwer_zimmermann_many([problem], cutoff=0)
     assert expected == 8
     distance = bz.get_distance_brouwer_zimmermann_many(
-        [problem], cutoff=0, block_size=15, get_automorphisms=code._get_qudit_automorphisms
+        [problem], cutoff=0, get_automorphisms=code._get_qudit_automorphisms
     )
     assert distance == expected
 
+    # With tables in every layer, layers after the first that uses them reuse the same tables.
+    if completion_tables.forced:
+        assert any(
+            held is not None and tables is held for held, tables in completion_tables.choices
+        )
 
-@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
+
+@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer", "completion_tables")
 def test_automorphism_family_searches_find_exact_distances() -> None:
     """Searches given automorphisms agree with brute force, alone or sharing witnesses.
 
@@ -639,16 +750,18 @@ def test_automorphism_family_searches_find_exact_distances() -> None:
         )
         for get_automorphisms in (code._get_qudit_automorphisms, lambda: identity, lambda: None):
             distance = bz.get_distance_brouwer_zimmermann_many(
-                [problem], cutoff=0, block_size=15, get_automorphisms=get_automorphisms
+                [problem], cutoff=0, get_automorphisms=get_automorphisms
             )
             assert distance == expected
     assert bz.get_distance_brouwer_zimmermann_many(
-        problems, cutoff=0, block_size=15, get_automorphisms=code._get_qudit_automorphisms
+        problems, cutoff=0, get_automorphisms=code._get_qudit_automorphisms
     ) == code.get_distance(method="brute_force")
 
 
 @pytest.mark.usefixtures("force_information_sets")
-def test_automorphism_family_searches_scan_their_new_set_from_layer_two(tune: Tune) -> None:
+def test_automorphism_family_searches_scan_their_new_set_from_layer_two(
+    tune: Tune, completion_tables: CompletionRecord
+) -> None:
     """A search that switches to an automorphism family before layer three rescans from layer two.
 
     This [16, 8, 4] quasi-cyclic code has the generator matrix ``[I | circ(1 + x + x^3 + x^4)]``,
@@ -677,11 +790,16 @@ def test_automorphism_family_searches_scan_their_new_set_from_layer_two(tune: Tu
     distance = bz.get_distance_brouwer_zimmermann_many(
         [(basis, labels)],
         cutoff=0,
-        block_size=15,
         get_disjoint_basis_families=[lambda: first_family],
         get_automorphisms=lambda: automorphisms,
     )
     assert distance == qldpc.codes.get_distance_classical(basis, method="brute_force") == 4
+
+    # With tables in every layer, the search builds tables for its first set, and again for the
+    # set of its automorphism family, after it drops the tables of the first set.
+    if completion_tables.forced:
+        built = [(held, tables) for held, tables in completion_tables.choices if tables is not held]
+        assert len(built) == 2 and built[1][0] is None
 
 
 @pytest.mark.usefixtures("force_information_sets")
@@ -697,7 +815,7 @@ def test_searches_ask_for_automorphisms_only_before_costly_layers() -> None:
         get_automorphisms = mock.Mock(wraps=code._get_qudit_automorphisms)
         with use_tuning(automorphism_minimum_layer_work=minimum_layer_work):
             bz.get_distance_brouwer_zimmermann_many(
-                [problem], cutoff=0, block_size=15, get_automorphisms=get_automorphisms
+                [problem], cutoff=0, get_automorphisms=get_automorphisms
             )
         assert get_automorphisms.call_count == expected_calls
 
@@ -713,9 +831,9 @@ def test_rows_of_an_automorphism_family_can_reach_the_cutoff() -> None:
     """
     code = qldpc.codes.BBCode({x: 6, y: 3}, 1 + x + x**3 * y, 1 + y + x)
     problem = get_sector_problem(code, Pauli.Z)
-    assert bz.get_distance_brouwer_zimmermann_many([problem], cutoff=0, block_size=15) == 4
+    assert bz.get_distance_brouwer_zimmermann_many([problem], cutoff=0) == 4
     distance = bz.get_distance_brouwer_zimmermann_many(
-        [problem], cutoff=6, block_size=15, get_automorphisms=code._get_qudit_automorphisms
+        [problem], cutoff=6, get_automorphisms=code._get_qudit_automorphisms
     )
     assert distance == 6
 
@@ -730,11 +848,300 @@ def test_searches_reject_wrong_automorphisms() -> None:
         bz.get_distance_brouwer_zimmermann_many(
             [get_sector_problem(code, Pauli.X)],
             cutoff=0,
-            block_size=15,
             get_automorphisms=lambda: transposition[None],
         )
+
+
+def _get_completion_bound(
+    tails: npt.NDArray[np.uint8], support: Sequence[int], block_bits: int
+) -> int:
+    """The block bound on the completions of a support from its first row of its last pair on.
+
+    Add, over blocks of columns, the least weight on the block of the first rows of the support plus
+    any pair of rows from the first row of its last pair on.
+    """
+    prefix = np.bitwise_xor.reduce(tails[list(support[:-2])], axis=0, initial=0)
+    pairs = list(itertools.combinations(range(support[-2], len(tails)), 2))
+    return sum(
+        min(
+            int(np.sum((prefix ^ tails[i] ^ tails[j])[start : start + block_bits]))
+            for i, j in pairs
+        )
+        for start in range(0, tails.shape[1], block_bits)
+    )
 
 
 def _no_labels(basis: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
     """Quotient labels with no columns, which exclude no subcode."""
     return np.empty((len(basis), 0), dtype=np.uint8)
+
+
+@pytest.mark.parametrize("interpreted", [False, True])
+def test_scan_of_one_information_set(
+    interpreted: bool, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A scan of one information set finds the lightest eligible word of a layer, in chunks.
+
+    With or without tables, a layer that runs to completion weighs or skips every support exactly
+    once, and each chunk weighs supports and looks up bounds at most ``batch_size`` times together.
+    While the best weight stays the same, a scan with tables skips exactly the supports whose block
+    bound reaches its limit.  A scan returns at the first support, in order, that brings the best
+    weight to the cutoff.  The sets have multiword labels or no labels, which make every word
+    eligible.
+    """
+    scan = bz._scan_one_information_set
+    if interpreted:
+        scan = getattr(scan, "py_func", scan)
+        monkeypatch.setattr(
+            bz, "_is_eligible", getattr(bz._is_eligible, "py_func", bz._is_eligible)
+        )
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    no_tables = completion_bounds.NO_TABLES
+    for dimension, num_label_words in itertools.product(range(2, 7), (0, 2)):
+        tails = (rng.random((dimension, 70)) < 0.3).astype(np.uint8)
+        generators = pack_bits(tails)[None]
+        labels = np.zeros((1, dimension, num_label_words), dtype=np.uint64)
+        if num_label_words:
+            labels[0, :, 1] = rng.integers(0, 4, dimension, dtype=np.uint64)
+        widths = np.array([generators.shape[2]], dtype=np.int64)
+        label_widths = np.array([num_label_words], dtype=np.int64)
+        all_tables = [no_tables] + [
+            completion_bounds.CompletionTables.build(generators[0], bits) for bits in (8, 16)
+        ]
+        for weight in range(2, dimension + 1):
+            # The weight of each support in order, or None if its word is ineligible.
+            weights = [
+                weight + int(np.sum(np.bitwise_xor.reduce(tails[list(rows)], axis=0)))
+                if not num_label_words or np.any(np.bitwise_xor.reduce(labels[0, list(rows)]))
+                else None
+                for rows in itertools.combinations(range(dimension), weight)
+            ]
+            eligible = [value for value in weights if value is not None]
+            for initial_best, tables, batch_size in itertools.product(
+                (weight + 1, min(eligible, default=1000) + 1, 1000), all_tables, (1, 5, 10**6)
+            ):
+                expected = min([initial_best, *eligible])
+                for cutoff in (-1, expected):
+                    support = np.zeros(weight, dtype=np.int64)
+                    prefixes = np.zeros((weight + 1, 1, widths[0]), dtype=np.uint64)
+                    depth, best, evaluated, skipped = 0, initial_best, 0, 0
+                    while depth >= 0 and best > cutoff:
+                        best, depth, num_evaluated, num_lookups, num_skipped = scan(
+                            generators,
+                            labels,
+                            widths,
+                            label_widths,
+                            support,
+                            prefixes,
+                            depth,
+                            best,
+                            cutoff,
+                            batch_size,
+                            tables.tables,
+                            tables.offsets,
+                            tables.block_bits,
+                        )
+                        assert num_evaluated + num_lookups <= batch_size
+                        evaluated += num_evaluated
+                        skipped += num_skipped
+                    assert best == expected
+                    if cutoff < 0:
+                        assert evaluated + skipped == math.comb(dimension, weight)
+                        if tables is not no_tables and initial_best == expected:
+                            limit = initial_best - weight
+                            assert skipped == sum(
+                                _get_completion_bound(tails, rows, tables.block_bits) >= limit
+                                for rows in itertools.combinations(range(dimension), weight)
+                            )
+                    elif tables is no_tables and initial_best > expected:
+                        # Without tables, the scan weighs every support up to the first that
+                        # reaches the cutoff, and no more.
+                        running = itertools.accumulate(
+                            (value if value is not None else initial_best for value in weights),
+                            min,
+                            initial=initial_best,
+                        )
+                        assert evaluated == next(
+                            index for index, value in enumerate(running) if value <= cutoff
+                        )
+
+
+@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
+@pytest.mark.parametrize("completion_tables", ["forced"], indirect=True)
+def test_completion_tables_keep_distances_exact(
+    pytestconfig: pytest.Config, completion_tables: CompletionRecord
+) -> None:
+    """Searches that skip hopeless completions agree with independent oracles.
+
+    Every layer uses tables, and every search below skips supports.  In each sector of this
+    [[36, 4, 4]] bivariate bicycle code, the rows of the scanned set weigh at least six, so a scan
+    must find a word of weight four, with or without an upper bound above it.  In the X sector of a
+    [[72, 4, 8]] code, with its coordinates relabelled at random and its automorphisms relabelled
+    alike, the search must scan to layer four.  A general Pauli problem checks that searched words
+    weigh twice their number of nontrivial qubits.
+    """
+
+    def assert_skips(distance: int) -> int:
+        assert completion_tables.skipped > skipped
+        return distance
+
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    code = qldpc.codes.BBCode({x: 6, y: 3}, 1 + x + x**3 * y, 1 + y + x)
+    for pauli in PAULIS_XZ:
+        expected = qldpc.codes.get_distance_quantum(
+            code.get_logical_ops(pauli),
+            code.get_stabilizer_ops(pauli),
+            homogeneous=True,
+            method="brute_force",
+        )
+        for upper_bound in (None, expected + 1):
+            skipped = completion_tables.skipped
+            distance = bz.get_distance_brouwer_zimmermann_many(
+                [get_sector_problem(code, pauli)],
+                cutoff=0,
+                upper_bound=upper_bound,
+                get_automorphisms=code._get_qudit_automorphisms,
+            )
+            assert assert_skips(distance) == expected
+
+    # Column j of the relabelled problem is column columns[j] of the given one, so an automorphism
+    # that maps column c to g[c] maps column j to inverse[g[columns[j]]].  The search of the given
+    # problem without automorphisms, which uses no tables, is the oracle.
+    code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
+    basis, labels = get_sector_problem(code, Pauli.X)
+    with use_tuning(completion_bound_max_table_bytes=0):
+        expected = bz.get_distance_brouwer_zimmermann_many([(basis, labels)], cutoff=0)
+    columns = rng.permutation(len(code))
+    automorphisms = np.asarray(code._get_qudit_automorphisms())
+    skipped = completion_tables.skipped
+    distance = bz.get_distance_brouwer_zimmermann_many(
+        [(basis[:, columns], labels)],
+        cutoff=0,
+        get_automorphisms=functools.partial(
+            np.array, np.argsort(columns)[automorphisms[:, columns]]
+        ),
+    )
+    assert assert_skips(distance) == expected == 8
+
+    five_qubit_code = qldpc.codes.FiveQubitCode()
+    logicals, stabilizers = five_qubit_code.get_logical_ops(), five_qubit_code.get_stabilizer_ops()
+    skipped = completion_tables.skipped
+    distance = qldpc.codes.get_distance_quantum(
+        logicals, stabilizers, homogeneous=False, cutoff=0, method="brouwer_zimmermann"
+    )
+    assert assert_skips(distance) == qldpc.codes.get_distance_quantum(
+        logicals, stabilizers, homogeneous=False, method="brute_force"
+    )
+
+
+def test_sets_that_are_not_information_sets_use_the_general_scan() -> None:
+    """A set of rank zero has no pivot ones, so its words weigh only their packed rows.
+
+    Its two rows weigh three and two, and their sum weighs one.  A scan that counted a pivot one for
+    each row, as the scan of one information set does, would find no word lighter than two, even
+    with completion tables in every layer.
+    """
+    search = bz._BrouwerZimmermannSearch(
+        np.array([[[7], [6]]], dtype=np.uint64),
+        np.array([[[1], [2]]], dtype=np.uint64),
+        np.array([1], dtype=np.int64),
+        np.array([1], dtype=np.int64),
+        information_sets.Certificate(2, (0,)),
+        cutoff=-1,
+        batch_size=1,
+        tuning=dataclasses.replace(
+            DEFAULT_TUNING,
+            automorphism_minimum_layer_work=MAX_VALUE,
+            completion_bound_minimum_layer_work=0,
+            completion_bound_max_cost_percent=MAX_VALUE,
+            completion_bound_max_table_bytes=MAX_VALUE,
+        ),
+        best=10,
+        lower_bound=0,
+    )
+    assert search.advance() == 2
+    assert search.advance() == 1
+
+
+@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
+@pytest.mark.parametrize("completion_tables", ["forced"], indirect=True)
+def test_joint_searches_with_completion_tables(
+    completion_tables: CompletionRecord, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Joint searches that skip supports in every layer agree with brute force, and free tables.
+
+    The searches of both sectors of this [[30, 2, 6]] code share their best weight, with or without
+    an upper bound of five, and each skips supports.  The tables of a search bound the memory that
+    it keeps, so each search frees them once it has finished.
+    """
+    searches: list[bz._BrouwerZimmermannSearch] = []
+    skipped: list[int] = []
+    advance = bz._BrouwerZimmermannSearch.advance
+
+    def counting_advance(search: bz._BrouwerZimmermannSearch) -> int:
+        if not any(known is search for known in searches):
+            searches.append(search)
+            skipped.append(0)
+        skipped_before = completion_tables.skipped
+        best = advance(search)
+        index = [id(known) for known in searches].index(id(search))
+        skipped[index] += completion_tables.skipped - skipped_before
+        return best
+
+    monkeypatch.setattr(bz._BrouwerZimmermannSearch, "advance", counting_advance)
+    code = qldpc.codes.MBCode({x: 15}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
+    problems = [get_sector_problem(code, pauli) for pauli in PAULIS_XZ]
+    for upper_bound, expected in ((None, code.get_distance(method="brute_force")), (5, 5)):
+        searches.clear()
+        skipped.clear()
+        distance = bz.get_distance_brouwer_zimmermann_many(
+            problems,
+            cutoff=0,
+            upper_bound=upper_bound,
+            get_automorphisms=code._get_qudit_automorphisms,
+        )
+        assert distance == expected
+        assert len(searches) == 2 and all(skipped)
+        assert all(search.completion_tables is None for search in searches)
+
+
+@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
+def test_searches_take_completion_limits_from_their_tuning(
+    tune: Tune, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Searches use completion tables within the limits of their tuning.
+
+    The scanned sets of both sectors of this [[36, 4, 4]] code have 20 rows and 16 tail columns, so
+    tables of one sixteen-column block take 19 * 2**16 bytes, and tables of two eight-column blocks
+    take 19 * 2 * 2**8 bytes.  A tuning that forces tables uses sixteen-column blocks, a smaller
+    memory limit eight-column blocks, and a limit of zero bytes or of zero cost, or the largest
+    threshold of layer work, no tables.
+    """
+    block_bits: set[int] = set()
+    select = completion_bounds.select_completion_tables
+
+    def recording_select(*args: Any, **kwargs: Any) -> completion_bounds.CompletionTables | None:
+        tables = select(*args, **kwargs)
+        if tables is not None:
+            block_bits.add(tables.block_bits)
+        return tables
+
+    monkeypatch.setattr(completion_bounds, "select_completion_tables", recording_select)
+    code = qldpc.codes.BBCode({x: 6, y: 3}, 1 + x + x**3 * y, 1 + y + x)
+    problems = [get_sector_problem(code, pauli) for pauli in PAULIS_XZ]
+    tune(completion_bound_minimum_layer_work=0, completion_bound_max_cost_percent=MAX_VALUE)
+    for limits, expected_block_bits in (
+        ({}, {16}),
+        ({"completion_bound_max_table_bytes": 19 * 2 * 2**8}, {8}),
+        ({"completion_bound_max_table_bytes": 0}, set()),
+        ({"completion_bound_max_cost_percent": 0}, set()),
+        ({"completion_bound_minimum_layer_work": MAX_VALUE}, set()),
+    ):
+        block_bits.clear()
+        with use_tuning(**limits):
+            assert bz.get_distance_brouwer_zimmermann_many(
+                problems,
+                cutoff=0,
+                get_automorphisms=code._get_qudit_automorphisms,
+            ) == code.get_distance(method="brute_force")
+        assert block_bits == expected_block_bits

@@ -16,7 +16,10 @@ This standard covers what tests should guard and the conditions under which they
 * A test should guard behavior that matters: results, invariants, documented errors, and contracts between modules.
   Do not pin implementation choices such as internal call order, cache layouts, or incidental error-message wording.
   A test may call a private helper of the module that it tests to check the helper's contract or reach coverage, and may set private state of objects to construct a case, but should not assert on private state.
-* Keep each test minimal: use the smallest code, field, or circuit that exercises the behavior, do not parametrize over cases that take the same path, and delete tests implied by others.
+* Keep tests minimal, both individually and in total.
+  Use the smallest code, field, or circuit that exercises the behavior.
+  Keep a test, parameter value, or looped input to the code under test only if it could catch a bug that no other case would.
+  A change that reuses tested code needs at most a small test of the new integration, and none if existing tests already cover it.
 * Prefer independent oracles (rank, commutation, row-space identities, or brute force on small instances) over values that the code under test computed or cached.
   Checking a stored value against an independent expected value, such as one from the literature, is not tautological; deriving the expected value from the code under test is.
 * Keep tests that reproduce results from the literature, and cite the source in the test.
