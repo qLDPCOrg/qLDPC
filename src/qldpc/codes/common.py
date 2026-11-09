@@ -546,7 +546,7 @@ class ClassicalCode(AbstractCode):
             return known_distance
 
         # we do not know the exact distance, so compute it
-        if self.field is galois.GF2 and vector is None and method == "connected_support":
+        if vector is None and method == "connected_support":
             distance = _get_distance_connected_support(
                 [(self.matrix, np.zeros((0, len(self)), dtype=np.uint8))], cutoff=cutoff
             )
@@ -1963,9 +1963,10 @@ class QuditCode(AbstractCode):
         if (known_distance := self.get_distance_if_known()) is not None:
             return known_distance
 
-        # A dressed logical operator commutes with the stabilizers, and is trivial if it is in the
-        # gauge group, which the rows of self.matrix generate.
-        if self.field is galois.GF2 and method == "connected_support":
+        # we do not know the exact distance, so compute it
+        if method == "connected_support":
+            # A dressed logical operator commutes with the stabilizers, and is trivial if it is in
+            # the gauge group, which the rows of self.matrix generate.
             checks = self.get_stabilizer_ops() if self.is_subsystem_code else self.matrix
             distance = _get_distance_connected_support(
                 [(checks, self.matrix)],
@@ -1973,17 +1974,9 @@ class QuditCode(AbstractCode):
                 homogeneous=False,
                 get_automorphisms=lambda: self._found_qudit_automorphisms,
             )
-            if cutoff <= 1:
-                self._distance = int(distance)
-            return distance
 
-        # we do not know the exact distance, so compute it
-        logical_ops = self.get_logical_ops()
-        stabilizers = self.get_stabilizer_ops(canonicalized=True)
-        if self.is_subsystem_code:
-            stabilizers = np.vstack([stabilizers, self.get_gauge_ops()]).view(self.field)
-
-        if self.field is galois.GF2:
+        elif self.field is galois.GF2:
+            logical_ops, stabilizers = self._get_logical_ops_and_trivial_ops()
             distance = _get_distance_quantum(
                 logical_ops,
                 stabilizers,
@@ -1998,6 +1991,7 @@ class QuditCode(AbstractCode):
                 "Computing the exact distance of a non-binary code may take a (very) long time",
                 stacklevel=get_external_caller_stacklevel(),
             )
+            logical_ops, stabilizers = self._get_logical_ops_and_trivial_ops()
             distance = len(self)
             code_logical_ops = ClassicalCode.from_generator(logical_ops)
             code_stabilizers = ClassicalCode.from_generator(stabilizers)
@@ -2540,6 +2534,18 @@ class QuditCode(AbstractCode):
             (rows_sx, rows_gx, rows_sz, rows_gz),
             (cols_sx, cols_gx, cols_lx, cols_sz, cols_gz, cols_lz),
         )
+
+    def _get_logical_ops_and_trivial_ops(self) -> tuple[galois.FieldArray, galois.FieldArray]:
+        """The logical operators, and the operators that act trivially on the logical qudits.
+
+        The trivial operators are the stabilizers, and the gauge operators of a subsystem code, so
+        that the logical operators are dressed.
+        """
+        logical_ops = self.get_logical_ops()
+        stabilizers = self.get_stabilizer_ops(canonicalized=True)
+        if self.is_subsystem_code:
+            stabilizers = np.vstack([stabilizers, self.get_gauge_ops()]).view(self.field)
+        return logical_ops, stabilizers
 
     def _validate_logical_ops_shape(self, logical_ops: galois.FieldArray) -> None:
         """Require a 2D matrix with one row per logical qudit."""
@@ -3483,7 +3489,7 @@ class CSSCode(QuditCode):
                 ``"brouwer_zimmermann"`` is the default, with alias ``"information_sets"``;
                 ``"brute_force"`` enumerates every nontrivial logical operator;
                 ``"connected_support"`` searches supports that are connected in the Tanner graph of
-                the parity checks (see help(CSSCode.get_distance_exact)).  Nonbinary calculations
+                the stabilizers (see help(CSSCode.get_distance_exact)).  Nonbinary calculations
                 use exhaustive enumeration, and reject ``"connected_support"``.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 

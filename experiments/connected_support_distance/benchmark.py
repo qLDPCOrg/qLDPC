@@ -8,7 +8,8 @@ connected-support guide, src/qldpc/codes/distance/connected_support.md, describe
 instances are ``qldpc.codes.PairPartitionCode`` codes, quasi-cyclic CSS codes with sparse parity
 checks, mostly of high rate (arXiv:2607.14091 and arXiv:2609.30069).  They come from
 https://github.com/ultra-high-rate-qec/design-principles-data (``codes/css/cpm_pp/instances``), and
-https://github.com/kasaikenta/pair-partition-cpm-css-codes also publishes the ``276`` instance.
+https://github.com/kasaikenta/pair-partition-cpm-css-codes also publishes the ``276``, ``518``, and
+``944`` instances.
 They are in the ``.cpm`` format, a whitespace-separated token stream: ``CPM_CSS_V1``, a name, the
 lift size ``P``, the number ``L`` of block columns, the numbers ``J_X`` and ``J_Z`` of block rows,
 and then the X-type exponents and the Z-type exponents in row-major order.  A path to another such
@@ -29,7 +30,9 @@ lower.  The searches run on one core, but numba compiles on first use, and the c
 cached on disk, so run the script twice for the times of a warm cache.  The script prints its
 results, and saves nothing.
 
-Examples (run them under a guard, such as a hard deadline, as some searches run for hours):
+Some searches run for hours, so run them under a guard, such as a hard deadline.
+
+Examples:
 
     python experiments/connected_support_distance/benchmark.py 110 232 276
     python experiments/connected_support_distance/benchmark.py 232 --methods brouwer_zimmermann

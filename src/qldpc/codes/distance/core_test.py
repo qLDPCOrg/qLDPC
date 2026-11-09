@@ -131,8 +131,8 @@ def test_connected_support_problems_are_searched_with_the_active_tuning(tune: Tu
     """The connected-support helper searches lists of checks and excluded rows, with the tuning.
 
     The words of the checks [[1, 1, 0], [0, 1, 1]] are 000 and 111, so the distance of a problem
-    that excludes nothing is 3.  With automorphisms at once, the search asks for them before it
-    searches.
+    that excludes nothing is 3.  With ``automorphism_minimum_states=0``, the search asks for
+    automorphisms before its first weight limit.
     """
     tune(automorphism_minimum_states=0)
     get_automorphisms = mock.Mock(return_value=None)

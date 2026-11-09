@@ -7,6 +7,7 @@ from __future__ import annotations
 import itertools
 import unittest.mock
 from collections.abc import Iterator
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -82,6 +83,15 @@ def is_witness(problem: Problem, support: npt.NDArray[np.int64]) -> bool:
         and len(get_independent_rows(np.vstack([excluded, vector])))
         > len(get_independent_rows(excluded))
     )
+
+
+def get_search(*problem: npt.ArrayLike, **options: Any) -> cs.SupportSearch:
+    """A search of a problem, which asks for any automorphisms before its first weight limit.
+
+    A test can pass another ``automorphism_minimum_states``, and the other options of the search.
+    """
+    options.setdefault("automorphism_minimum_states", 0)
+    return cs.SupportSearch(*problem, **options)
 
 
 def get_symplectic_witness_supports(problem: Problem) -> list[int]:
@@ -227,7 +237,7 @@ def test_the_distance_matches_enumeration(problem: Problem) -> None:
 
     # A search finds a witness exactly if its weight limit reaches the distance.
     for max_weight in range(1, distance + 1):
-        witness = cs.SupportSearch(*problem).find_witness(max_weight)
+        witness = get_search(*problem).find_witness(max_weight)
         if max_weight < distance:
             assert witness is None
         else:
@@ -267,7 +277,7 @@ def test_each_support_is_visited_once_above_its_least_variable() -> None:
     checks = np.array([[1, 1, 1, 0], [0, 1, 1, 1]], dtype=np.uint8)
     num_states = {}
     for max_weight in (2, 4):
-        search = cs.SupportSearch(checks, get_kernel(checks))
+        search = get_search(checks, get_kernel(checks))
         assert search.find_witness(max_weight) is None
         num_states[max_weight] = search.num_states
     assert num_states == {2: 5, 4: 6 + 2 + 1 + 1}
@@ -277,7 +287,7 @@ def test_each_support_is_visited_once_above_its_least_variable() -> None:
 def test_roots_can_come_in_any_order() -> None:
     """The search from the last variable leaves every variable available for the search from 0."""
     problem = PROBLEMS["toric-X"]
-    search = cs.SupportSearch(*problem)
+    search = get_search(*problem)
     search._roots = np.array([problem[0].shape[1] - 1, 0])
     witness = search.find_witness(get_brute_force_distance(problem))
     assert witness is not None and is_witness(problem, witness)
@@ -295,7 +305,7 @@ def test_a_search_from_one_root_finds_words_with_that_least_variable() -> None:
     distance = get_brute_force_distance(problem)
     roots_with_witnesses = []
     for root in range(num_variables):
-        search = cs.SupportSearch(*problem)
+        search = get_search(*problem)
         search._roots = np.array([root])
         witness = search.find_witness(distance)
         if root > num_variables - distance:
@@ -316,8 +326,8 @@ def test_automorphisms_reduce_the_roots_and_keep_the_distance() -> None:
     problem = get_golay_problem()
     distance = get_brute_force_distance(problem)
     shift = (np.arange(23) + 1) % 23
-    plain = cs.SupportSearch(*problem)
-    symmetric = cs.SupportSearch(*problem, get_automorphisms=lambda: shift[None])
+    plain = get_search(*problem)
+    symmetric = get_search(*problem, get_automorphisms=lambda: shift[None])
     for max_weight in range(1, distance + 1):
         assert (plain.find_witness(max_weight) is None) == (max_weight < distance)
         witness = symmetric.find_witness(max_weight)
@@ -347,7 +357,7 @@ def test_each_root_excludes_the_orbits_before_its_own() -> None:
 
     for max_weight in (6, 8):
         for orbit, root in enumerate(roots):
-            search = cs.SupportSearch(*problem)
+            search = get_search(*problem)
             search._use_automorphisms(automorphisms)
             search._roots = np.array([root])
             witness = search.find_witness(max_weight)
@@ -372,7 +382,7 @@ def test_each_root_ranks_lowest_in_its_orbit() -> None:
         following = np.roll(cycle, -1)
         checks[cycle, cycle] = checks[cycle, following] = 1
         shift[cycle] = following
-    search = cs.SupportSearch(
+    search = get_search(
         checks, np.zeros((0, 90), dtype=np.uint8), get_automorphisms=lambda: shift[None]
     )
     witness = search.find_witness(30)
@@ -398,7 +408,7 @@ def test_the_tuning_decides_whether_to_find_automorphisms(tune: Tune) -> None:
 @pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("minimum_states", [0, 10, 30, _tuning.MAX_VALUE])
 def test_automorphisms_are_found_once_by_the_threshold(minimum_states: int) -> None:
-    """A search asks for automorphisms at most once, and before it searches past the threshold.
+    """A search asks for automorphisms at most once, and by the time it reaches the threshold.
 
     A search may ask sooner, if it expects to reach the threshold, which is a heuristic that this
     test leaves open.  The checks of ``test_each_support_is_visited_once_above_its_least_variable``
@@ -406,7 +416,7 @@ def test_automorphisms_are_found_once_by_the_threshold(minimum_states: int) -> N
     """
     checks = np.array([[1, 1, 1, 0], [0, 1, 1, 1]], dtype=np.uint8)
     found = []
-    search = cs.SupportSearch(
+    search = get_search(
         checks,
         get_kernel(checks),
         get_automorphisms=lambda: found.append(True),
@@ -433,9 +443,7 @@ def test_pruning_keeps_the_search_of_a_high_rate_code_small() -> None:
     moves the count across the limit needs a new limit, with its reasons.
     """
     code = codes.PairPartitionCode(EXPONENTS_X_276, EXPONENTS_Z_276, lift_size=23)
-    search = cs.SupportSearch(
-        *get_sectors(code)[0], get_automorphisms=code._get_qudit_automorphisms
-    )
+    search = get_search(*get_sectors(code)[0], get_automorphisms=code._get_qudit_automorphisms)
     assert search.find_witness(8) is None
     assert search.num_states < 5000
 
@@ -444,7 +452,7 @@ def test_wrong_automorphisms_are_rejected() -> None:
     """A permutation that does not map the kernel of the checks to itself raises an error."""
     swap = np.arange(7)[None]
     swap[0, :2] = [1, 0]
-    search = cs.SupportSearch(*PROBLEMS["steane-X"], get_automorphisms=lambda: swap)
+    search = get_search(*PROBLEMS["steane-X"], get_automorphisms=lambda: swap)
     with pytest.raises(ValueError, match="automorphism"):
         search.find_witness(3)
 
@@ -488,7 +496,7 @@ def test_the_logical_test_reads_every_block() -> None:
     Prepending a block of zeros to the tests of the Steane code moves every test it has there.
     """
     problem = PROBLEMS["steane-X"]
-    search = cs.SupportSearch(*problem)
+    search = get_search(*problem)
     zeros = np.zeros((search.num_variables, 1), dtype=np.uint64)
     search._test_columns = np.hstack([zeros, search._test_columns])
     witness = search.find_witness(3)
@@ -501,12 +509,13 @@ def test_qubit_distances_match_enumeration(problem: Problem) -> None:
     """Searches of Pauli operators agree with an enumeration, and their witnesses are valid.
 
     A witness gives each qubit of its support one of X, Z, and Y, so its weight is its number of
-    symbols.
+    symbols.  The search of every weight limit, up to the number of qubits, returns such witnesses,
+    which fails if a qubit can take two values.
     """
     distance = get_symplectic_brute_force_distance(problem)
     assert cs.get_distance_connected_support([problem], cutoff=0, homogeneous=False) == distance
-    for max_weight in range(1, distance + 1):
-        search = cs.SupportSearch(*problem, homogeneous=False)
+    for max_weight in range(1, problem[0].shape[1] // 2 + 1):
+        search = get_search(*problem, homogeneous=False)
         witness = search.find_witness(max_weight)
         if max_weight < distance:
             assert witness is None
@@ -573,8 +582,12 @@ def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) ->
         distance = min(support.bit_count() for support in supports)
         assert distance >= 2
         assert cs.get_distance_connected_support([problem], cutoff=0, homogeneous=False) == distance
-        for max_weight in range(1, distance):
-            assert cs.SupportSearch(*problem, homogeneous=False).find_witness(max_weight) is None
+        for max_weight in range(1, num_qubits + 1):
+            witness = get_search(*problem, homogeneous=False).find_witness(max_weight)
+            assert (witness is None) == (max_weight < distance)
+            assert witness is None or (
+                len(witness) <= max_weight and is_symplectic_witness(problem, witness)
+            )
 
         least_qubits = {
             (support & -support).bit_length() - 1
@@ -582,7 +595,7 @@ def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) ->
             if support.bit_count() == distance
         }
         for root in range(num_qubits):
-            search = cs.SupportSearch(*problem, homogeneous=False)
+            search = get_search(*problem, homogeneous=False)
             search._roots = np.array([root])
             witness = search.find_witness(distance)
             assert (witness is not None) == (root in least_qubits)
@@ -594,13 +607,24 @@ def test_qubit_automorphisms_reduce_the_roots_and_keep_the_distance() -> None:
     """The cyclic shift of the five-qubit code leaves one root, and so fewer states."""
     problem = QUBIT_PROBLEMS["five-qubit"]
     shift = (np.arange(5) + 1) % 5
-    plain = cs.SupportSearch(*problem, homogeneous=False)
-    symmetric = cs.SupportSearch(*problem, homogeneous=False, get_automorphisms=lambda: shift[None])
+    plain = get_search(*problem, homogeneous=False)
+    symmetric = get_search(*problem, homogeneous=False, get_automorphisms=lambda: shift[None])
     for search in (plain, symmetric):
         assert search.find_witness(2) is None
         witness = search.find_witness(3)
         assert witness is not None and is_symplectic_witness(problem, witness)
     assert symmetric.num_states < plain.num_states
+
+
+@pytest.mark.usefixtures("compilation_mode")
+def test_the_scale_of_weights_leaves_room_for_every_weight_limit() -> None:
+    """Weights in units of the capped scale, times a weight limit as large as the width, fit.
+
+    A larger cap would overflow the products of a weight limit of 45 with the scale.
+    """
+    problem = PROBLEMS["capped-scale"]
+    witness = get_search(*problem).find_witness(45)
+    assert witness is not None and is_witness(problem, witness)
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -627,7 +651,7 @@ def test_cutoffs_and_upper_bounds() -> None:
 def test_a_problem_without_logical_operators_has_no_distance() -> None:
     """Without a vector outside the excluded rows, the distance is one more than the width."""
     trivial = (np.array([[1, 1]], dtype=np.uint8), np.array([[1, 1]], dtype=np.uint8))
-    assert not cs.SupportSearch(*trivial).has_witnesses
+    assert not get_search(*trivial).has_witnesses
     assert cs.get_distance_connected_support([trivial], cutoff=0) == 3
     assert cs.get_distance_connected_support([trivial, PROBLEMS["steane-X"]], cutoff=0) == 3
     assert cs.get_distance_connected_support([PROBLEMS["toric-X"], trivial], cutoff=0) == 3
@@ -635,7 +659,7 @@ def test_a_problem_without_logical_operators_has_no_distance() -> None:
     # The Pauli X on one qubit is excluded, and the identity and X are the operators that commute
     # with it, so a symplectic problem on one qubit has no distance either.
     one_qubit = (np.array([[1, 0]], dtype=np.uint8), np.array([[1, 0]], dtype=np.uint8))
-    assert not cs.SupportSearch(*one_qubit, homogeneous=False).has_witnesses
+    assert not get_search(*one_qubit, homogeneous=False).has_witnesses
     assert cs.get_distance_connected_support([one_qubit], cutoff=0, homogeneous=False) == 2
 
 
@@ -643,7 +667,7 @@ def test_a_problem_without_logical_operators_has_no_distance() -> None:
 def test_degenerate_checks() -> None:
     """Checks may be missing, zero, or repeated, and may be arrays over GF(2)."""
     no_checks = np.zeros((0, 3), dtype=np.uint8)
-    witness = cs.SupportSearch(no_checks, no_checks).find_witness(1)
+    witness = get_search(no_checks, no_checks).find_witness(1)
     assert witness is not None and list(witness) == [0]
     checks, excluded = PROBLEMS["steane-X"]
     padded = np.vstack([checks, checks[0], np.zeros_like(checks[0])])
@@ -651,7 +675,7 @@ def test_degenerate_checks() -> None:
 
     # The matrices of codes are arrays over GF(2).
     steane_code = codes.SteaneCode()
-    witness = cs.SupportSearch(steane_code.matrix_z, steane_code.matrix_x).find_witness(3)
+    witness = get_search(steane_code.matrix_z, steane_code.matrix_x).find_witness(3)
     assert witness is not None and is_witness((checks, excluded), witness)
 
 
@@ -660,7 +684,7 @@ def test_the_weight_divisor_is_inferred_from_the_kernel() -> None:
     for name, divisor in [("reed-muller-X", 2), ("steane-X", 1)]:
         checks, _ = PROBLEMS[name]
         weights = {word.bit_count() for word in get_span(get_kernel(checks))}
-        assert cs.SupportSearch(*PROBLEMS[name]).weight_divisor == divisor
+        assert get_search(*PROBLEMS[name]).weight_divisor == divisor
         assert (divisor == 2) == all(weight % 2 == 0 for weight in weights)
 
 
@@ -670,19 +694,19 @@ def test_invalid_problems_are_rejected() -> None:
     A distance search also needs a problem or an upper bound.
     """
     with pytest.raises(ValueError, match="equal widths"):
-        cs.SupportSearch(np.zeros((1, 3), dtype=np.uint8), np.zeros((1, 4), dtype=np.uint8))
+        get_search(np.zeros((1, 3), dtype=np.uint8), np.zeros((1, 4), dtype=np.uint8))
     with pytest.raises(ValueError, match="satisfy the checks"):
-        cs.SupportSearch(np.ones((1, 3), dtype=np.uint8), np.array([[1, 0, 0]], dtype=np.uint8))
+        get_search(np.ones((1, 3), dtype=np.uint8), np.array([[1, 0, 0]], dtype=np.uint8))
     for entry in (2, -1, 0.5):
         with pytest.raises(ValueError, match="binary"):
-            cs.SupportSearch(np.array([[1, entry, 0]]), np.zeros((0, 3), dtype=np.uint8))
+            get_search(np.array([[1, entry, 0]]), np.zeros((0, 3), dtype=np.uint8))
         with pytest.raises(ValueError, match="binary"):
-            cs.SupportSearch(np.zeros((0, 3), dtype=np.uint8), np.array([[1, entry, 0]]))
+            get_search(np.zeros((0, 3), dtype=np.uint8), np.array([[1, entry, 0]]))
     with pytest.raises(ValueError, match="at least one"):
-        cs.SupportSearch(*PROBLEMS["steane-X"]).find_witness(0)
+        get_search(*PROBLEMS["steane-X"]).find_witness(0)
     with pytest.raises(ValueError, match="at least one problem or an upper bound"):
         cs.get_distance_connected_support([], cutoff=0)
     with pytest.raises(ValueError, match="even number of columns"):
-        cs.SupportSearch(
+        get_search(
             np.ones((1, 3), dtype=np.uint8), np.ones((0, 3), dtype=np.uint8), homogeneous=False
         )

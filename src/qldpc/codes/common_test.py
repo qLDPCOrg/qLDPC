@@ -713,15 +713,13 @@ def test_connected_support_method_is_only_for_binary_codes() -> None:
 def test_connected_support_distances_of_classical_codes(pytestconfig: pytest.Config) -> None:
     """Classical codes search their parity checks, and agree with enumeration of their words."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    distances = []
     for _ in range(10):
+        # Every column has a nonzero entry, so that no code has a word of weight one.
         matrix = (rng.random((int(rng.integers(4, 8)), 12)) < 0.5).astype(int)
-        code = codes.ClassicalCode(matrix)
+        matrix[rng.integers(len(matrix), size=12), range(12)] = 1
         expected = codes.ClassicalCode(matrix).get_distance_exact(method="brute_force")
-        distance = code.get_distance_exact(method="connected_support")
-        assert distance == expected or (np.isnan(distance) and np.isnan(expected))
-        distances.append(distance)
-    assert sum(distance >= 2 for distance in distances) >= 3
+        distance = codes.ClassicalCode(matrix).get_distance_exact(method="connected_support")
+        assert distance == expected >= 2
 
     # a code without code words has no distance
     assert np.isnan(
@@ -744,18 +742,13 @@ def test_connected_support_distances_of_qubit_codes(pytestconfig: pytest.Config)
 
     The codes have a random single-qubit Clifford on each qubit, which mixes X, Z, and Y in their
     checks.  The Bacon-Shor code is a subsystem code, whose logical operators are dressed by its
-    gauge operators.
+    gauge operators.  The tests of the search itself compare many more codes with enumeration.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     cliffords = [
         np.array(clifford) for clifford in itertools.permutations([[1, 0], [0, 1], [1, 1]], 2)
     ]
-    for code in (
-        codes.FiveQubitCode(),
-        codes.SteaneCode(),
-        codes.SurfaceCode(3),
-        codes.BaconShorCode(3),
-    ):
+    for code in (codes.FiveQubitCode(), codes.BaconShorCode(3)):
         matrix = np.array(code.matrix, dtype=int)
         num_qubits = len(code)
         for qubit in range(num_qubits):
@@ -794,7 +787,8 @@ def test_connected_support_distances_of_css_codes() -> None:
             assert steane_code.get_distance_if_known(pauli) == 3
     assert search.call_count == 3
 
-    # the sectors of this code have distances 3 and 2, and a known sector joins the other search
+    # the sectors of this code have distances 3 and 2, and a known sector distance bounds the search
+    # of the other sector
     checks_x = [[1, 1, 1, 1, 1, 1, 1], [1, 0, 1, 1, 1, 0, 0]]
     checks_z = [[1, 1, 0, 1, 0, 0, 1], [1, 1, 1, 0, 0, 1, 0], [1, 0, 1, 1, 1, 0, 0]]
     code = codes.CSSCode(checks_x, checks_z)
@@ -807,7 +801,15 @@ def test_connected_support_distances_of_css_codes() -> None:
     # is the known distance
     code = codes.CSSCode(checks_x, checks_z)
     assert code.get_distance_exact(Pauli.Z, method="connected_support") == 2
-    assert code.get_distance_exact(cutoff=0, method="connected_support") == 2
+    with unittest.mock.patch.object(
+        common,
+        "_get_distance_connected_support",
+        autospec=True,
+        side_effect=common._get_distance_connected_support,
+    ) as search:
+        assert code.get_distance_exact(cutoff=0, method="connected_support") == 2
+    ((problems,), options) = search.call_args
+    assert len(problems) == 1 and options["upper_bound"] == 2
 
     # an exit at a cutoff returns an upper bound, which is not remembered
     code = codes.CSSCode(checks_x, checks_z)

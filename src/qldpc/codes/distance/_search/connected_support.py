@@ -28,7 +28,7 @@ import scipy.sparse
 from qldpc._binary import get_kernel, pack_bits, popcount_word, trailing_zeros_word
 from qldpc._compilation import always_compiled
 
-from .._binary import get_nested_code_basis
+from .._binary import assert_binary, get_nested_code_basis
 from .._tuning import SearchTuning, get_tuning
 from . import automorphism_families
 from .information_sets import infer_weight_divisor
@@ -62,7 +62,8 @@ def get_distance_connected_support(
 
     The search of each problem raises its weight limit ``W`` through the weights that a witness may
     have.  Each pass through a weight limit either finds a witness of weight at most ``W``, which is
-    the distance if the lower limits found none, or certifies that every witness is heavier.  The
+    the distance if lower limits, each one divisor below the next, found none, or certifies that
+    every witness is heavier.  The
     first limit of each problem is the larger of its weight divisor and ``cutoff``.  If the search
     finds a witness of weight at most ``cutoff``, the result is the weight of that witness, which
     can exceed the distance.
@@ -166,7 +167,8 @@ class SupportSearch:
             those visited so far, are expected to reach ``automorphism_minimum_states``.
         automorphism_minimum_states: The search asks for automorphisms before the first weight
             limit at which it expects its visited states, over all weight limits, to reach this
-            number.  Zero, the default, asks for them before the first weight limit.
+            number, as the field of ``SearchTuning`` says.  Zero asks for them before the first
+            weight limit.
 
     Attributes:
         num_variables: The number of variables: the number of columns of ``checks`` if the problem
@@ -191,31 +193,34 @@ class SupportSearch:
         *,
         homogeneous: bool = True,
         get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
-        automorphism_minimum_states: int = 0,
+        automorphism_minimum_states: int,
     ) -> None:
         # The compiled search would read invalid input without an error, so the search validates its
         # input, which callers need not check.
-        checks, excluded = np.asarray(checks), np.asarray(excluded)
+        assert_binary(checks, "checks")
+        assert_binary(excluded, "excluded")
+        checks = np.asarray(checks, dtype=np.uint8)
+        excluded = np.asarray(excluded, dtype=np.uint8)
         if checks.ndim != 2 or excluded.ndim != 2 or checks.shape[1] != excluded.shape[1]:
             raise ValueError("Checks and excluded rows must be matrices with equal widths")
-        if np.any((checks != 0) & (checks != 1)) or np.any((excluded != 0) & (excluded != 1)):
-            raise ValueError("Checks and excluded rows must be binary")
         if not homogeneous and checks.shape[1] % 2:
             raise ValueError("Symplectic matrices must have an even number of columns")
+
         self.num_variables = checks.shape[1] if homogeneous else checks.shape[1] // 2
         self.num_states = 0
         self._homogeneous = homogeneous
         self._last_two_num_states = (0, 0)
-        self._excluded = np.asarray(excluded, dtype=np.uint8)
+        self._excluded = excluded
         self._get_automorphisms = get_automorphisms
         self._automorphism_minimum_states = automorphism_minimum_states
 
         # A symplectic check is satisfied if its dot product with a word vanishes once its halves
-        # are swapped.  Zero and duplicate checks add nothing to a search.
-        checks = np.asarray(checks, dtype=np.uint8)
+        # are swapped, and the excluded rows must satisfy every check.  The product of small
+        # integer matrices in float32 is exact, and faster than in integers.  Zero and duplicate
+        # checks add nothing to a search.
         if not homogeneous:
             checks = np.roll(checks, self.num_variables, axis=1)
-        if np.any(checks.astype(np.float32) @ self._excluded.astype(np.float32).T % 2):
+        if np.any(checks.astype(np.float32) @ excluded.astype(np.float32).T % 2):
             raise ValueError("The excluded rows must satisfy the checks")
         nonzero_checks = checks[np.any(checks, axis=1)]
         _, first_rows = np.unique(nonzero_checks, axis=0, return_index=True)
@@ -245,6 +250,7 @@ class SupportSearch:
     @property
     def has_witnesses(self) -> bool:
         """Whether any word is outside the row space of ``excluded``."""
+        # Without tests, the packed test columns have no blocks.
         return self._test_columns.shape[1] > 0
 
     def find_witness(self, max_weight: int) -> npt.NDArray[np.int64] | None:
@@ -391,7 +397,8 @@ def _search_supports(
         The symbols of a witness of weight at most ``max_weight``, or an empty array, and the
         number of states that the search visited.
     """
-    # The sizes of the stack, and of the branches of a state.
+    # The sizes of the stack, and of the branches of a state, which are at least the values of the
+    # root that the empty state branches on.
     num_symbols, num_blocks = symbol_masks.shape
     num_variables = len(ranks)
     num_values = num_symbols // num_variables
@@ -533,15 +540,16 @@ def _get_branches(
 ) -> int:
     """Choose the symbols that the state at a depth branches on, if its syndrome is not empty.
 
-    A symbol is available if its level is ``available_level``.  A support that has ``slack``
-    variables to spare is completed by a set ``T`` of available symbols, on distinct variables, that
-    flips every unsatisfied check an odd number of times.  The overlap of an available symbol is the
-    number of unsatisfied checks that it flips.  Weigh each unsatisfied check by the inverse of the
-    largest overlap of its available symbols, in units of ``1 / scale``, rounded down, as
-    ``inverse_overlaps`` lists, whose entry 1 is the scale.  The weights of the unsatisfied checks
-    of any available symbol then total at most one, and their total is its repair.  So ``T`` has at
-    least as many symbols as the total weight of the unsatisfied checks.  A symbol ``s`` of ``T``
-    repairs its share, and the other symbols of ``T`` the rest, so ``|T| >= 1 + total - repair(s)``.
+    A symbol is available if its level is ``available_level``.  A completion of a support that has
+    ``slack`` variables to spare is a set ``T`` of available symbols, on distinct variables, that
+    makes the support a witness, so ``T`` flips every unsatisfied check an odd number of times.  The
+    overlap of an available symbol is the number of unsatisfied checks that it flips.  Weigh each
+    unsatisfied check by the inverse of the largest overlap of its available symbols, in units of
+    ``1 / scale``, rounded down, as ``inverse_overlaps`` lists, whose entry 1 is the scale.  The
+    weights of the unsatisfied checks of any available symbol then total at most one, and their
+    total is its repair.  So ``T`` has at least as many symbols as the total weight of the
+    unsatisfied checks.  A symbol ``s`` of ``T`` repairs its share, and the other symbols of ``T``
+    the rest, so ``|T| >= 1 + total - repair(s)``.
 
     A symbol for which this exceeds ``slack`` is in no completion, and the state allows only the
     other symbols in its subtree.  It records them in ``allowances``, from
@@ -612,6 +620,7 @@ def _get_branches(
                 if count < fewest:
                     branch_check, fewest = check, count
         allowance_starts[depth + 1] = allowance_end
+        # The allowed symbols are now the available ones.
         available_level += 1
 
     # Branch on the available symbols of the chosen check, most repairing first, which Section 3.3

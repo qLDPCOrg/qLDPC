@@ -6,12 +6,15 @@ The connected-support search computes the exact distance of a binary code from t
 The code can be classical, CSS, or a qubit stabilizer code that is not CSS, and the quantum codes can be subsystem codes.
 It is the method `"connected_support"` of the `get_distance_exact` methods of `ClassicalCode`, `QuditCode`, and `CSSCode`.
 Brouwer–Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) is the default.
-It follows Algorithm 2 in Section V of Okada and Kasai (see the [references](#references)), which extends the searches for small stopping sets and low-weight codewords of classical LDPC codes (Richter, Rosnes and Ytrehus, and Khatami et al., also in the references) to CSS codes, by excluding the row space of their stabilizers.
+It follows Algorithm 2 in Section V of Okada and Kasai (see the [references](#references)).
+That algorithm extends the searches for small stopping sets and low-weight codewords of classical LDPC codes to CSS codes, by excluding the row space of their stabilizers.
+The classical searches are those of Richter, Rosnes and Ytrehus, and Khatami et al., also in the references.
 This guide explains the search, maps it to the code, and states what a change to it must preserve.
 It is organized as follows:
 
 - [Section 2](#2-when-to-use-which-method) says when to use this method rather than BZ.
-- [Section 3](#3-the-algorithm) explains the algorithm, and where qLDPC differs from the paper, which [Section 3.7](#37-qubit-codes-that-are-not-css) extends to qubit codes that are not CSS.
+- [Section 3](#3-the-algorithm) explains the algorithm, and where qLDPC differs from the paper.
+  [Section 3.7](#37-qubit-codes-that-are-not-css) extends the algorithm to qubit codes that are not CSS.
 - [Section 4](#4-guide-to-the-source-code) maps the algorithm to the source code.
 - [Section 5](#5-correctness-requirements) lists the requirements that every change to the search must keep.
 
@@ -26,24 +29,24 @@ Its cost grows by a roughly constant factor for each additional unit of weight, 
 
 The table lists times on one core of an Apple M3 Max laptop, run at low priority, with the benchmark script [experiments/connected_support_distance/benchmark.py](../../../../experiments/connected_support_distance/benchmark.py).
 The codes are the pair-partition codes of Okada and Kasai and of Lee et al., which are quasi-cyclic CSS codes, mostly of high rate, with parity checks of column weight 3 to 5 (see the [references](#references)).
-The instances, and their distances, come from the data of Lee et al., and Okada and Kasai also publish the [[276, 98, 14]] code.
+The instances, and their distances, come from the data of Lee et al., and Okada and Kasai also publish the [[276, 98, 14]], [[518, 228, 16]], and [[944, 478, 20]] codes.
 The [[372, 130, 18]] code is the instance `qc_372_130_18` of that data, which is not the [[372, 130, 16]] code of the table of Okada and Kasai.
 Times are CPU times, for the whole code unless they say per sector.
-The BZ times marked "estimated" come from the work that BZ predicts for them (Sections 3.6 and 3.7 of [brouwer_zimmermann.md](brouwer_zimmermann.md)), with the cyclic automorphisms that qLDPC finds for these codes.
-"Infeasible" marks codes longer than the [[372, 130, 18]] code, and of higher dimension, for which qLDPC did not estimate the work of BZ.
+The BZ times marked "estimated" scale the measured time of the [[232, 62, 12]] code by the ratio of the work that BZ predicts for each code, with the cyclic automorphisms that qLDPC finds for these codes (Sections 3.6 and 3.7 of [brouwer_zimmermann.md](brouwer_zimmermann.md)).
+That prediction ignores the completion tables of Section 3.9 of that guide, whose savings differ between codes, so these estimates are rough.
 
 | Code | BZ | Connected support | Faster |
 | --- | --- | --- | --- |
-| [[110, 8, 12]] | 0.5 s | 0.3 s | connected support |
-| [[232, 62, 12]] | 212 s | 0.2 s | connected support |
-| [[276, 98, 14]] | about 7 days (estimated) | 6.4 s | connected support |
-| [[518, 228, 16]] | infeasible | 252 s | connected support |
-| [[372, 130, 18]] | about 1.5 years (estimated) | about 10 minutes per sector (extrapolated) | connected support |
-| [[170, 8, 20]] | about 4 hours (estimated) | about an hour per sector (extrapolated) | comparable |
-| [[944, 478, 20]] | infeasible | about half a day per sector (extrapolated) | connected support |
+| [[110, 8, 12]] | 0.4 s | 0.3 s | connected support |
+| [[232, 62, 12]] | 49 s | 0.2 s | connected support |
+| [[276, 98, 14]] | about a day and a half (estimated) | 6.4 s | connected support |
+| [[518, 228, 16]] | about 5 months (estimated) | 252 s | connected support |
+| [[372, 130, 18]] | about 4 months (estimated) | about 10 minutes per sector (extrapolated) | connected support |
+| [[170, 8, 20]] | about 45 minutes (estimated) | about an hour per sector (extrapolated) | BZ |
+| [[944, 478, 20]] | about a year (estimated) | about half a day per sector (extrapolated) | connected support |
 
 Choose the connected-support search for sparse codes, and especially for high-rate ones, and BZ for codes with dense checks, as the quantum Reed–Muller code below shows.
-For sparse codes of low rate and high distance, the two can be comparable, as the [[170, 8, 20]] row shows.
+For sparse codes of low rate and high distance, BZ can be faster, as the [[170, 8, 20]] row shows.
 The connected-support times of the [[372, 130, 18]], [[170, 8, 20]], and [[944, 478, 20]] codes are not measured.
 They are extrapolated from timed searches through lower weights, whose costs grow by a factor of 20 to 33 per two units of weight for these codes, and assume that this growth continues.
 The script measured the other connected-support times of the table, and those of the surface codes below.
@@ -124,7 +127,8 @@ At a state with an empty syndrome, the search stops branching.
 It reports `S` if it is a witness, and otherwise leaves the state.
 At any other state, it chooses an unsatisfied check `c` with the fewest **available** variables, those of `c` that are neither in `S` nor in `F`.
 It visits the states `S ∪ {v}` for each available variable `v` of `c`, and adds `v` to `F` for its later siblings once its state is done.
-Its children come in the order of their repairs ([Section 3.4](#34-pruning)), most repairing first, which on the [[276, 98, 14]] code visits a quarter as many states as branching in the order of the variables, up to the weight limit at which the search finds a witness.
+Its children come in the order of their repairs ([Section 3.4](#34-pruning)), most repairing first.
+On the [[276, 98, 14]] code, this order visits a quarter as many states as the order of the variables, up to the weight limit at which the search finds a witness.
 Every state grows only through unsatisfied checks, so every support that it visits is connected.
 
 **Completeness.**
@@ -142,6 +146,7 @@ Forbidding the variables of earlier siblings makes the search visit each support
 ### 3.4 Pruning
 
 A search through a weight limit `W` has `W - s` variables to spare at a state with `s` variables.
+A **completion** of the state is a set `T` of further variables whose union with `S` is a witness of weight at most `W`.
 A state prunes itself if its unsatisfied checks need more than `W - s` further variables.
 Every unsatisfied check needs a variable of its available set, since a witness that extends the state has no variable of `F`.
 So the number of further variables is at least the value of any feasible solution of the dual of this hitting-set problem.
@@ -298,7 +303,8 @@ The names below are in `_search/connected_support.py`, unless the table says oth
 | When a search asks for symmetries | `automorphism_minimum_states` of `SearchTuning` in `_tuning.py` |
 | Weight divisor | `infer_weight_divisor` of `_search/information_sets.py` |
 
-`CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` builds the sectors and calls `_get_distance_connected_support` of `core.py`, which validates them, as do `ClassicalCode.get_distance_exact` and `QuditCode.get_distance_exact` for their problems.
+`CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` builds the sectors and calls `_get_distance_connected_support` of `core.py`, which passes the active tuning to the search.
+`ClassicalCode.get_distance_exact` and `QuditCode.get_distance_exact` call it with their problems, and `SupportSearch` validates every problem.
 Nonbinary codes reject the method.
 `logical_counts.py` does not accept the method, since counting needs every word of a weight, and not one witness.
 `get_distance_classical` and `get_distance_quantum` reject it, since their inputs are generators and not parity checks.
@@ -311,7 +317,7 @@ Changes to the search can use other bounds and orders, while keeping these requi
 
 - **Every pruning must hold for a witness that extends the state.**
   A bound may use the available variables, which exclude `S` and `F`, since a minimum-weight witness extending the state has no other variables.
-  `F` includes the variables of lower rank than the root, and the variables that a state forbade for its subtree.
+  `F` includes the earlier siblings of the states in the stack, the variables of lower rank than the root, and the variables that a state forbade for its subtree.
   A bound must be a lower bound on the number of further variables that such a witness needs.
   A bound that is too strong can still find the distance, unless it prunes a lightest witness, so a test needs a case where the bound is tight at the distance, as the tests of the distances of known codes are.
 - **Forbid a variable for a subtree only if no completion of the state contains it.**
@@ -319,6 +325,7 @@ Changes to the search can use other bounds and orders, while keeping these requi
 - **Give each variable at most one value.**
   While a symbol is in the support, the other values of its variable must be blocked, and they must be available again once the search leaves its branch.
   A sibling forbids only its own symbol, not the other values of its variable.
+  Omitting the blocking would not change distances, but would return witnesses with two symbols on a variable, whose number overstates their weight, so the tests check witnesses at every weight limit.
 - **Block siblings and variables of lower rank than the root.**
   A search from a root must use only variables of higher rank, with any of their values, and a symbol must be forbidden for its later siblings.
   Omitting this blocking would not change the results, and would only lose time, so `num_states` is tested on a hand-counted instance.
