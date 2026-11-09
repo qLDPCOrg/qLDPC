@@ -98,7 +98,7 @@ class LPCode(CSSCode):
         codes over groups of even order are common but fail this condition, so ``set_logicals``
         defaults to False, and if it is True for a group algebra that fails it, a ValueError is
         raised.  The canonical logical operators assume lifts to orthogonal matrices.  For other
-        lifts, a ValueError is raised if these operators cannot be lifted or are invalid.
+        lifts, a ValueError is raised if these operators are invalid.
         """
         if matrix_b is None:
             matrix_b = matrix_a
@@ -187,21 +187,16 @@ class LPCode(CSSCode):
         for op_x, op_z in zip(logical_ops_x, logical_ops_z):
             ops_x = op_x.reshape(1, *op_x.shape).lift()
             ops_z = op_z.reshape(1, *op_z.shape).lift()
-            # choose independent lifted operators and make their overlap matrix the identity
+            # choose independent lifted operators and make their overlap matrix the identity, using
+            # pivots to find rows and columns of the overlap matrix that index an invertible block
             inner_product = ops_x @ ops_z.T
             if not np.array_equal(inner_product, identity):
-                sector_rank = np.linalg.matrix_rank(inner_product)
-                if ring.is_commutative:
-                    basis_change = np.linalg.inv(inner_product[:sector_rank, :sector_rank]).T
-                    ops_x = ops_x[:sector_rank]
-                    ops_z = basis_change @ ops_z[:sector_rank]
-                else:
-                    pivot_rows = qldpc.math.first_nonzero_cols(inner_product.T.row_reduce())
-                    rows = pivot_rows[pivot_rows < block_size]
-                    cols = qldpc.math.first_nonzero_cols(inner_product[rows].row_reduce())
-                    basis_change = np.linalg.inv(inner_product[np.ix_(rows, cols)]).T
-                    ops_x = ops_x[rows]
-                    ops_z = basis_change @ ops_z[cols]
+                pivot_rows = qldpc.math.first_nonzero_cols(inner_product.T.row_reduce())
+                rows = pivot_rows[pivot_rows < block_size]
+                cols = qldpc.math.first_nonzero_cols(inner_product[rows].row_reduce())
+                basis_change = np.linalg.inv(inner_product[np.ix_(rows, cols)]).T
+                ops_x = ops_x[rows]
+                ops_z = basis_change @ ops_z[cols]
             lifted_ops_x = np.vstack([lifted_ops_x, ops_x])
             lifted_ops_z = np.vstack([lifted_ops_z, ops_z])
 
@@ -339,14 +334,15 @@ def _set_canonical_logical_line_ops(code: LPCode | SLPCode) -> None:
             " algebra for which some features are not yet supported"
         ) from exception
 
-    # for lifts to orthogonal matrices, a failure to lift or validate these operators is a bug
+    # for lifts to orthogonal matrices, invalid operators are a bug
+    lifted_logical_ops_xz = code.to_lifted_logical_ops(*logical_ops_xz)
     if _has_orthogonal_lifts(code.matrix_a.ring):
-        code.set_logical_ops_xz(*code.to_lifted_logical_ops(*logical_ops_xz), skip_validation=False)
+        code.set_logical_ops_xz(*lifted_logical_ops_xz, skip_validation=False)
         return
 
-    # these operators assume lifts to orthogonal matrices, so they can fail to lift or be invalid
+    # these operators assume lifts to orthogonal matrices, so for other lifts they can be invalid
     try:
-        code.set_logical_ops_xz(*code.to_lifted_logical_ops(*logical_ops_xz), skip_validation=False)
+        code.set_logical_ops_xz(*lifted_logical_ops_xz, skip_validation=False)
     except ValueError as exception:
         raise ValueError(
             "Cannot set canonical logical operators for this code, whose group algebra lifts"

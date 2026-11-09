@@ -309,6 +309,22 @@ def test_lifted_product_with_non_orthogonal_lifts() -> None:
         codes.LPCode(abstract.RingArray.build([[generator]], ring))
 
 
+def test_lifted_logical_ops_choose_independent_operators() -> None:
+    """Lifted logical operators come from independent rows and columns of their overlap matrix."""
+    # the sum of a subgroup of order 3 lifts to a matrix of rank 2 with a singular leading block
+    ring = abstract.GroupRing(abstract.AbelianGroup(2, 3), field=5)
+    subgroup = [member for member in ring.group.generate() if member**3 == ring.group.identity]
+    element = sum((abstract.RingMember(ring, member) for member in subgroup), start=ring.zero)
+    overlap = element.lift()
+    rank = np.linalg.matrix_rank(overlap)
+    assert rank == 2 and np.linalg.matrix_rank(overlap[:rank, :rank]) < rank
+
+    ops_x, ops_z = codes.LPCode.to_lifted_logical_ops(
+        abstract.RingArray([[element]]), abstract.RingArray([[ring.one]])
+    )
+    assert np.array_equal(ops_x @ ops_z.T, np.eye(rank, dtype=int))
+
+
 def test_canonical_logicals_with_non_orthogonal_lifts() -> None:
     """Lifted products with lifts that are not orthogonal set only valid canonical logicals."""
     # lift the generator of a cyclic group of order 2 to a matrix that is not orthogonal, over a
@@ -336,19 +352,11 @@ def test_canonical_logicals_with_non_orthogonal_lifts() -> None:
         assert np.array_equal(code.get_logical_ops(Pauli.X), logical_ops_x)
         assert np.array_equal(code.get_logical_ops(Pauli.Z), logical_ops_z)
 
-        # the canonical logical operators for 1 - g lift but fail validation, and those for 1 + g
-        # fail to lift
-        matrix_with_invalid_ops = abstract.RingArray.build([[ring.one - generator]], ring)
-        ring_ops = code_type.get_canonical_ring_logical_line_ops(
-            matrix_with_invalid_ops, matrix_with_invalid_ops
-        )
-        code_type.to_lifted_logical_ops(*ring_ops)
-        matrix_with_unliftable_ops = abstract.RingArray.build([[ring.one + generator]], ring)
-        ring_ops = code_type.get_canonical_ring_logical_line_ops(
-            matrix_with_unliftable_ops, matrix_with_unliftable_ops
-        )
-        with pytest.raises(ValueError):
+        # the canonical logical operators for 1 - g and 1 + g lift, although the overlap matrix for
+        # 1 + g has a singular leading block, but they fail validation
+        for element in [ring.one - generator, ring.one + generator]:
+            matrix = abstract.RingArray.build([[element]], ring)
+            ring_ops = code_type.get_canonical_ring_logical_line_ops(matrix, matrix)
             code_type.to_lifted_logical_ops(*ring_ops)
-        for matrix in [matrix_with_invalid_ops, matrix_with_unliftable_ops]:
             with pytest.raises(ValueError, match=r"canonical logical operators.*not orthogonal"):
                 code_type(matrix, set_logicals=True)
