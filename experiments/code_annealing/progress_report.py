@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Sequence
 
-from .core.annealing import distance_rank
+from .core.annealing import score_rank
 from .core.cli import add_results_dir_argument, add_test_argument, get_results_dir, make_parser
 from .core.paths import get_logs_dir
 from .core.proposals import CODE_TYPES, CodeType
@@ -66,9 +66,9 @@ def _format_cell(runs: Sequence[RunProgress]) -> str:
     if not runs:
         return f"{'-':>8}  {'':<14}"
     scores = [run.greatest_distance for run in runs]
-    best = max(scores, key=lambda score: distance_rank(score.distance, score.count_homogeneous))
+    best = max(scores, key=score_rank)
     finished = f"{sum(run.finished for run in runs)}/{len(runs)}"
-    best_text = f"({best.distance}, {best.count_homogeneous})"
+    best_text = f"({best.distance}, {best.multiplicity})"
     return f"{finished:>8}  {best_text:<14}"
 
 

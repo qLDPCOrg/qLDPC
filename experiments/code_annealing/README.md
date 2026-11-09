@@ -6,7 +6,7 @@ It also rebuilds the paper's table and figures from the paper's codes.
 The experiment searches for quantum error-correcting codes with high encoding rates and large distances by adaptive simulated annealing.
 It searches two classes of codes: CSS codes, and self-dual CSS codes with equivalent logicals (SWEL codes), which admit transversal logical Hadamard and phase gates.
 Each search fixes the numbers `n` of physical and `k` of logical qubits, and walks over local Clifford conjugations of a code, lowering an energy.
-Every proposed code is scored exactly, by its distance and its number of minimum-weight logical operators, with no sampling.
+Every proposed code is scored exactly, by its distance and its number of minimum-weight X-only and Z-only logical operators, with no sampling.
 The energy computed from that score is a leading-order proxy for the rate of undetected logical errors of the code.
 
 ## Where to start
@@ -71,7 +71,7 @@ The pipeline has three steps, and each runs as a module with `python -m experime
 | 3 | `make_figures` | Simulates the best codes, and plots the figures of the paper and `error_rates.pdf` |
 
 First check the pipeline at smoke-test scale, with `--test`, which keeps its files in `results/test/`.
-Without network access for `collect_data --test --scrape`, this skips the LaTeX tables, which need a scrape of qecdb.org:
+Here `collect_data --test` skips the LaTeX tables, which need a scrape of qecdb.org; add `--scrape`, which needs network access, to write them:
 
 ```bash
 python -m experiments.code_annealing.write_jobs --test
@@ -186,6 +186,7 @@ experiments/code_annealing/
 
 | Term | Meaning |
 | --- | --- |
+| count, multiplicity | The number of minimum-weight X-only and Z-only logical operators of a code, which the score and the energy use, and the tables list |
 | code type | The kind of search: `css` searches CSS codes with CNOT gates by default, or larger random CSS gates with `--gate-size`, and `swel` searches SWEL codes with the elementary SWEL-preserving gate |
 | search, run | One simulated-annealing chain: a code type, a size `(n, k)`, and a seed |
 | job | The shell command that performs one search |

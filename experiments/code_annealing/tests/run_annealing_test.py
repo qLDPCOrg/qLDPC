@@ -98,8 +98,8 @@ def test_a_dry_run_writes_nothing(tmp_path: Path) -> None:
 
 
 def _get_args(seed: int = 7) -> list[str]:
-    """A search of the Steane code size with two epochs of two proposals."""
-    return ["7", "1", "--epochs", "2", "--steps-per-epoch", "2", "--seed", str(seed)]
+    """A search of the Steane code size with two epochs of eight proposals, which reject some."""
+    return ["7", "1", "--epochs", "2", "--steps-per-epoch", "8", "--seed", str(seed)]
 
 
 def _get_improving_seed(directory: Path) -> int:
@@ -154,15 +154,13 @@ def _fail_with_usage_error(args: list[str]) -> None:
 
 
 def _read(path: Path) -> Any:
-    """The data of a chain, re-saved so that it does not depend on the order of generators."""
-    resaved = path.with_name("resaved_" + path.name)
-    checkpoints.save_checkpoint(checkpoints.load_checkpoint(path), resaved)
-    return json.loads(resaved.read_text())
+    """The data of a saved chain."""
+    return json.loads(path.read_text())
 
 
 @pytest.fixture(name="chain")
 def _chain_fixture(tmp_path: Path) -> Path:
-    """A chain of two epochs of two proposals, which stopped after its first epoch."""
+    """A chain of two epochs of eight proposals, which stopped after its first epoch."""
     path = tmp_path / "chain.json"
     _run([*_get_args(), "--stop-after-epochs", "1", "--output", str(path)])
     return path

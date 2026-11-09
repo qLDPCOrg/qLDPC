@@ -275,7 +275,7 @@ def _get_new_run_arguments(
         "--output",
         str(checkpoint),
     ]
-    return arguments + ["--self-dual-start"] if code_type == "css" else arguments
+    return [*arguments, "--self-dual-start"] if code_type == "css" else arguments
 
 
 def _get_job(python: str, arguments: list[str], log: Path, *, append: bool) -> str:

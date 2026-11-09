@@ -16,10 +16,10 @@ proposals that only time the counting methods.
 Scoring takes most of a step.  The exact methods give identical scores, so the method changes only
 the running time.  The MacWilliams method walks every word of the check spaces once; the other
 methods count at a guess of the distance, and verify it.  With the ``auto`` method, the search races
-Brouwer--Zimmermann against MacWilliams at the start of each epoch and keeps the faster, or uses
-Brouwer--Zimmermann alone above a check rank of ``_RACE_MAX_RANK``.  The choice depends on timing,
-and no result depends on it.  See ``_score_proposal``, ``_score_by_guessing``, and
-``_select_method`` for the details.
+Brouwer--Zimmermann against MacWilliams before the pilot and at the start of each epoch, and keeps
+the faster, or uses Brouwer--Zimmermann alone above a check rank of ``_RACE_MAX_RANK``.  The choice
+depends on timing, and no result depends on it.  See ``_score_proposal``, ``_score_by_guessing``,
+and ``_select_method`` for the details.
 """
 
 from __future__ import annotations
@@ -40,7 +40,8 @@ from qldpc.codes import CSSLogicalCounter, CSSLogicalCounts, LogicalCountMethod
 from .proposals import CODE_TYPES, CodeType, propose
 
 # Exact counting methods of the library, and ``auto``, which times Brouwer--Zimmermann and
-# MacWilliams on a few proposals at the start of each epoch and keeps the faster.
+# MacWilliams on a few proposals before the pilot and at the start of each epoch, and keeps the
+# faster.
 SearchMethod = Literal["auto", "brouwer_zimmermann", "macwilliams", "brute_force"]
 METHODS = get_args(SearchMethod)
 
@@ -190,7 +191,7 @@ class Score:
     count_z: int
 
     @property
-    def count_homogeneous(self) -> int:
+    def multiplicity(self) -> int:
         """The number of minimum-weight X-only plus Z-only logical operators."""
         return self.count_x + self.count_z
 
@@ -212,7 +213,7 @@ class ScoredCode:
 class SearchState:
     """The state of a chain, with separate energy and distance optima.
 
-    ``current`` is the code of the chain.  ``lowest_energy`` minimizes the selected energy, and
+    ``current`` is the code of the chain.  ``lowest_energy`` minimizes the energy, and
     ``greatest_distance`` maximizes distance and then minimizes energy at that distance; neither is
     restricted to accepted proposals.  ``rng`` draws the proposals and decides their acceptance.
     ``log_temperature`` is the log-temperature of the last epoch (or, before the first epoch, the
@@ -239,8 +240,8 @@ class SearchState:
         default_factory=lambda: deque(maxlen=_GUESS_WINDOW), repr=False, compare=False
     )
 
-    # The library method that scores the proposals of the current epoch, which is set when the
-    # epoch starts and is not saved.
+    # The library method that scores the proposals of the current epoch (or of the pilot), which is
+    # set when the epoch starts and is not saved.
     epoch_method: LogicalCountMethod | None = field(default=None, repr=False, compare=False)
 
 
@@ -418,7 +419,7 @@ def _score_by_guessing(
     # Each failed guess removes itself and everything on the wrong side from the possible range.
     score = None
     while score is None and lowest <= highest:
-        outcome = _score_at_guess(candidate, guess, state.config, method)
+        outcome = _score_at_guess(candidate, guess, method)
         if isinstance(outcome, Score):
             score = outcome
         elif outcome == "below":
@@ -453,7 +454,6 @@ def _guess_distance(state: SearchState) -> int:
 def _score_at_guess(
     counter: CSSLogicalCounter,
     guess: int,
-    config: SearchConfig,
     method: LogicalCountMethod,
 ) -> Score | Literal["below", "above"]:
     """The score of a code if its distance is the guess, else which side of the guess it is on.
@@ -700,12 +700,12 @@ def _get_library_method(config: SearchConfig) -> LogicalCountMethod:
 
 
 def _get_multiplicity(score: Score) -> int:
-    """The number of minimum-weight X-only and Z-only logical operators of a score.
+    """The multiplicity of a score, checked to be that of a code with an energy and a rank.
 
     Raises:
         ValueError: If the score has no positive distance or no positive count, so that the code
             has no energy or rank.
     """
-    if score.distance < 1 or score.count_homogeneous <= 0:
+    if score.distance < 1 or score.multiplicity <= 0:
         raise ValueError("The search requires a positive distance and number of logical operators")
-    return score.count_homogeneous
+    return score.multiplicity

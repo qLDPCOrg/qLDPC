@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -68,26 +67,6 @@ def test_a_failed_save_keeps_the_previous_checkpoint_and_record(
     assert sorted(path.name for path in tmp_path.iterdir()) == sorted([chain.name, record.name])
 
 
-def test_a_chain_saved_with_the_fields_of_older_versions_loads_as_the_same_state(
-    chain: tuple[Path, SearchState],
-) -> None:
-    # Earlier versions also saved the numbers of proposed and accepted moves, and the objective of
-    # the search, which was always the X-only and Z-only operators, with no count of Pauli
-    # operators.  Loading accepts them, so that the chains of a campaign that started with them
-    # still resume.
-    path, _ = chain
-    expected = _get_state_data(checkpoints.load_checkpoint(path))
-
-    def add_old_fields(data: dict[str, Any]) -> None:
-        data.update(proposed=2, accepted=1)
-        data["config"]["objective"] = "homogeneous"
-        for role in ROLES:
-            data[role]["score"]["count_pauli"] = None
-
-    _edit(path, add_old_fields)
-    assert _get_state_data(checkpoints.load_checkpoint(path)) == expected
-
-
 # Changes to the chain of the fixture, each of which breaks one check of loading.
 CORRUPTIONS = {
     "a tampered score": lambda data: data["current"]["score"].update(count_x=-1),
@@ -113,7 +92,7 @@ def test_a_corrupted_chain_is_rejected(
 
 
 @pytest.mark.parametrize("kind", checkpoints.RECORD_KINDS)
-def test_a_record_is_replaced_by_a_better_code_but_not_by_a_worse_or_equal_one(
+def test_a_record_is_replaced_by_a_better_code_but_not_by_a_worse_one(
     tmp_path: Path, kind: checkpoints.RecordKind
 ) -> None:
     better, worse = _state_holding(steane_counter()), _state_holding(weak_counter())
@@ -207,13 +186,3 @@ def _chain_fixture(tmp_path: Path) -> tuple[Path, SearchState]:
     path = tmp_path / "chain.json"
     checkpoints.save_checkpoint(state, path)
     return path, state
-
-
-def _get_state_data(state: SearchState) -> dict[str, Any]:
-    """The data of a chain's checkpoint, without the versions of its numerical runtime."""
-    with tempfile.TemporaryDirectory() as directory:
-        path = Path(directory) / "chain.json"
-        checkpoints.save_checkpoint(state, path)
-        data = json.loads(path.read_text())
-    data.pop("runtime")
-    return data

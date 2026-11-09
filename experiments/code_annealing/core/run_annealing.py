@@ -47,9 +47,9 @@ code of a record, either of which may come from another runtime or schema versio
 Scoring.  Every proposal is scored by its distance and its numbers of minimum-weight X-only and
 Z-only logical operators.  ``--method`` is ``auto`` (the default), or one of the exact methods of
 ``CSSLogicalCounter.count_logical_ops``: ``brouwer_zimmermann``, ``macwilliams``, or
-``brute_force``.  At the start of each epoch, ``auto`` races Brouwer--Zimmermann against MacWilliams
-and keeps the faster, or uses Brouwer--Zimmermann alone above a check rank of 26.  See
-``annealing.py``.
+``brute_force``.  Before the pilot and at the start of each epoch, ``auto`` races
+Brouwer--Zimmermann against MacWilliams and keeps the faster, or uses Brouwer--Zimmermann alone for
+codes of large check rank (see ``annealing.py``).
 """
 
 from __future__ import annotations
@@ -248,7 +248,8 @@ def build_parser() -> argparse.ArgumentParser:
     files.add_argument(
         "--skip-compile",
         action="store_true",
-        help="do not compile the Python set-up of the exact counts, which only pays off in a long search",
+        help="do not compile the Python set-up of the exact counts,"
+        " which only pays off in a long search",
     )
     files.add_argument(
         "--stop-after-epochs",
@@ -307,7 +308,7 @@ def _report_invalid_input(parser: argparse.ArgumentParser) -> Iterator[None]:
     """Report a rejected option, size, or file as a usage error instead of a traceback."""
     try:
         yield
-    except (OSError, ValueError, RuntimeError) as error:
+    except (OSError, ValueError) as error:
         parser.error(str(error))
 
 

@@ -58,9 +58,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     for code_type, path in files.items():
         for entry in read_code_file(path) if path.exists() else []:
             recount(entry)
-            offer(code_type, CSSLogicalCounter(entry.code), entry.distance, entry.count_homogeneous)
+            offer(code_type, CSSLogicalCounter(entry.code), entry.distance, entry.multiplicity)
     for code in saved:
-        offer(code.code_type, code.counter, code.score.distance, code.score.count_homogeneous)
+        offer(code.code_type, code.counter, code.score.distance, code.score.multiplicity)
 
     # Rewrite each file with the best code of each size, with generators of low weight.
     for code_type, path in files.items():
@@ -72,12 +72,12 @@ def main(argv: Sequence[str] | None = None) -> None:
                     reduce_weights(candidate.counter.checks_x),
                     reduce_weights(candidate.counter.checks_z),
                     candidate.distance,
-                    candidate.count_homogeneous,
+                    candidate.multiplicity,
                 )
             )
             print(
                 f"{code_type} ({key[1]}, {key[2]}) -> distance {candidate.distance},"
-                f" {candidate.count_homogeneous} minimum-weight logical operators"
+                f" {candidate.multiplicity} minimum-weight logical operators"
             )
         if blocks:  # a code type without codes gets no file
             write_code_file(path, blocks)
@@ -94,11 +94,11 @@ class _Candidate:
 
     counter: CSSLogicalCounter
     distance: int
-    count_homogeneous: int
+    multiplicity: int
 
     @property
     def rank(self) -> tuple[int, int]:
-        return distance_rank(self.distance, self.count_homogeneous)
+        return distance_rank(self.distance, self.multiplicity)
 
 
 if __name__ == "__main__":

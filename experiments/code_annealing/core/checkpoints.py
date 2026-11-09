@@ -28,7 +28,6 @@ from qldpc.codes import CSSCode, CSSLogicalCounter
 from .annealing import (
     LOG_TEMPERATURE_BOUNDS,
     EpochStatistics,
-    Score,
     ScoredCode,
     SearchConfig,
     SearchState,
@@ -39,9 +38,8 @@ from .annealing import (
 from .atomic import write_atomic
 
 # Bump the version when a change would make a resumed chain differ from an uninterrupted one, in
-# the proposals, the energy, the temperature fit, or the scores, or would stop old checkpoints from
-# loading as the same chain, so that old checkpoints are refused.  Fields that loading ignores, such
-# as those that older checkpoints still have, need no bump.
+# the proposals, the energy, the temperature fit, or the scores, so that checkpoints of the earlier
+# behavior are refused.
 SCHEMA_VERSION = 1
 
 # The kinds of record that a chain preserves beside its checkpoint, each in a file of its own.
@@ -95,29 +93,12 @@ def read_seed(data: dict[str, Any]) -> int:
     return seed
 
 
-def read_config(data: dict[str, Any]) -> SearchConfig:
-    """The search policy of the data of a saved chain or record.
-
-    Earlier versions also saved an objective, which the campaign always set to ``homogeneous``, the
-    X-only and Z-only operators that the search counts.  Another objective is refused.
-    """
-    config = dict(data["config"])
-    if config.pop("objective", "homogeneous") != "homogeneous":
-        raise ValueError("The search no longer counts Pauli operators, as this file does")
-    return SearchConfig(**config)
-
-
-def read_score(data: dict[str, Any]) -> Score:
-    """A saved score, which earlier versions saved with an empty count of Pauli operators."""
-    score = dict(data)
-    if score.pop("count_pauli", None) is not None:
-        raise ValueError("The search no longer counts Pauli operators, as this file does")
-    return Score(**score)
-
-
 @contextlib.contextmanager
 def report_malformed(path: str | Path) -> Iterator[None]:
-    """Report any error in the data of a saved file as a ValueError that names the file."""
+    """Report a KeyError, TypeError, or ValueError in the data of a saved file as a ValueError.
+
+    The reported error names the file.
+    """
     try:
         yield
     except (KeyError, TypeError) as error:
@@ -170,7 +151,7 @@ def decode_scored_code(data: dict[str, Any], config: SearchConfig, *, label: str
     counter = decode_code(data["code"])
     config.validate_code(counter)
     score = score_code(counter, config)
-    if read_score(data["score"]) != score:
+    if dataclasses.asdict(score) != data["score"]:
         raise ValueError(f"{label} score does not match its code")
     return ScoredCode(counter, score)
 
@@ -222,7 +203,7 @@ def save_record(state: SearchState, chain_path: str | Path, kind: RecordKind) ->
     if destination.exists():
         previous_kind, previous = read_saved_file(destination)
         with report_malformed(destination):
-            if previous_kind != kind or read_config(previous) != state.config:
+            if previous_kind != kind or SearchConfig(**previous["config"]) != state.config:
                 raise ValueError("the record has an incompatible kind or policy")
             saved = decode_scored_code(previous, state.config, label="The record")
         if (saved.counter.num_qubits, saved.counter.dimension) != (
@@ -251,8 +232,8 @@ def save_record(state: SearchState, chain_path: str | Path, kind: RecordKind) ->
 def load_checkpoint(path: str | Path) -> SearchState:
     """Restore a chain from its checkpoint, recomputing every score and checking its state.
 
-    Stabilizer generators may be put in a canonical form on import; the codes and decisions of the
-    chain are preserved, not the order of its generators.
+    Checkpoints store the checks of codes in reduced row echelon form, so a restored chain has the
+    same generators as the saved one.
 
     Raises:
         ValueError: If the file is a record, was written by another numerical runtime or schema
@@ -270,7 +251,7 @@ def load_checkpoint(path: str | Path) -> SearchState:
 
 def _restore_chain(data: dict[str, Any]) -> SearchState:
     """Rebuild and check the chain of the data of a checkpoint."""
-    config = read_config(data)
+    config = SearchConfig(**data["config"])
 
     # Re-score the three saved codes, then check that the chain state is self-consistent.
     codes = {

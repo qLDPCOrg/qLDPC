@@ -78,6 +78,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.workers < 1:
         parser.error("--workers must be at least 1")
 
+    # The options of the plotting scripts that simulate the codes.
     options = ["--results-dir", str(results_dir)]
     simulation_options = [*options]
     if args.max_qubits is not None:
@@ -87,6 +88,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         num_samples = _TEST_NUM_SAMPLES
     if num_samples is not None:
         simulation_options += ["--num-samples", str(num_samples)]
+    # Simulate in parallel first, if asked, so that the plotting scripts find every simulation.
     if args.workers > 1:
         entries_by_code_type = load_annealed_codes(results_dir, max_qubits=args.max_qubits)
         simulate_codes(
@@ -95,6 +97,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             cache_dir=get_cache_dir(results_dir),
             workers=args.workers,
         )
+    # Plot the figures of the annealed codes, and a histogram for each size of random codes.
     run_step("plot_error_rates", plot_error_rates.main, simulation_options)
     run_step(
         "plot_error_rates_by_code_type", plot_error_rates_by_code_type.main, simulation_options

@@ -56,9 +56,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     for code in sorted(
         saved, key=lambda code: (code.code_type, code.num_qubits, code.num_logicals)
     ):
-        values = (
-            f"({code.score.distance}, {code.score.count_homogeneous}, {_get_mean_weight(code)})"
-        )
+        values = f"({code.score.distance}, {code.score.multiplicity}, {_get_mean_weight(code)})"
         print(
             f"{code.code_type} ({code.num_qubits}, {code.num_logicals}) {code.path.name}"
             f" {code.role} {values}"

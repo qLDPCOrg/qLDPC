@@ -43,12 +43,12 @@ def add_results_dir_argument(parser: argparse.ArgumentParser) -> None:
 
 
 def add_test_argument(parser: argparse.ArgumentParser) -> None:
-    """Add the option that runs a high-level script at smoke-test scale, in its own directory."""
+    """Add the option that selects the ``test/`` subdirectory, for the campaign of ``--test``."""
     parser.add_argument(
         "--test",
         action="store_true",
-        help="run at smoke-test scale, with results in the test subdirectory of the results"
-        " directory",
+        help="use the test subdirectory of the results directory, for the smoke-test campaign of"
+        " write_jobs --test",
     )
 
 

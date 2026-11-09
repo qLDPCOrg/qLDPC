@@ -129,9 +129,9 @@ def _get_error_estimates(
         if code_counts is None:
             print(f"{get_label(entry)} has no counts, so it is skipped")
             continue
-        if code_counts.count_x + code_counts.count_z != entry.count_homogeneous:
+        if code_counts.count_x + code_counts.count_z != entry.multiplicity:
             raise ValueError(
-                f"The code {get_label(entry)} has {entry.count_homogeneous} minimum-weight logical"
+                f"The code {get_label(entry)} has {entry.multiplicity} minimum-weight logical"
                 " operators, but the counts add up to"
                 f" {code_counts.count_x} + {code_counts.count_z}"
             )
@@ -206,6 +206,7 @@ def _make_error_estimates_figure(
         axes = figure.subplots(1, len(estimates_by_code_type), sharey=True, squeeze=False)[0]
 
         for axis, (code_type, rows) in zip(axes, estimates_by_code_type.items()):
+            # A column of markers for each code, colored by its size, with lines between distances.
             for index, row in enumerate(rows):
                 color = size_colors[(row.num_qubits, row.num_logicals)]
                 for rate, marker in [
@@ -218,6 +219,7 @@ def _make_error_estimates_figure(
                 if rows[index].distance != rows[index - 1].distance:
                     axis.axvline(index, color="k", linewidth=0.8, linestyle="--")
 
+            # Label each column by its code, between the major ticks that bound the columns.
             axis.set_xticks(np.arange(len(rows) + 1))
             axis.set_xticklabels([])
             axis.set_xticks(np.arange(len(rows)) + 0.9, minor=True)
@@ -233,6 +235,7 @@ def _make_error_estimates_figure(
             axis.grid(axis="y", which="both")
             axis.set_title(CODE_TYPE_TITLES[code_type])
 
+        # One legend for the markers, which mean the same in every panel.
         axes[0].legend(
             handles=[
                 lines.Line2D([0], [0], marker=marker, color="k", linestyle="none", label=label)

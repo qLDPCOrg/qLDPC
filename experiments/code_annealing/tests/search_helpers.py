@@ -32,6 +32,5 @@ def weak_counter(num_qubits: int = 7) -> codes.CSSLogicalCounter:
 
 
 def canonical_checks(counter: codes.CSSLogicalCounter) -> tuple[bytes, bytes]:
-    """The checks of a code in standard form, which do not depend on the generators' order."""
-    normalized = counter_from_checks(counter.checks_x, counter.checks_z)
-    return normalized.checks_x.tobytes(), normalized.checks_z.tobytes()
+    """The checks of a code in reduced row echelon form, which identify its stabilizer group."""
+    return counter.checks_x.tobytes(), counter.checks_z.tobytes()

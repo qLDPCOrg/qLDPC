@@ -42,7 +42,7 @@ from ..core.atomic import write_text_atomic
 from ..core.cli import add_results_dir_argument, make_parser
 from ..core.code_files import (
     CodeEntry,
-    format_code,
+    format_generators,
     get_reduced_weights,
     read_code_file,
     recount,
@@ -159,13 +159,8 @@ def _format_table(
 def _format_listing(entries: Sequence[CodeEntry], code_type: CodeType) -> str:
     """The blocks of the codes of a code file, each with a header such as ``# CSS (20, 4, 4)``."""
     return "\n".join(
-        format_code(
-            entry.code.matrix_x,
-            entry.code.matrix_z,
-            entry.distance,
-            entry.count_homogeneous,
-            header=f"# {code_type.upper()} {entry.params}",
-        )
+        f"# {code_type.upper()} {entry.params}\n"
+        + format_generators(entry.code.matrix_x, entry.code.matrix_z)
         for entry in entries
     )
 

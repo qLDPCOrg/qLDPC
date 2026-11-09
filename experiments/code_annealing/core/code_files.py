@@ -49,7 +49,7 @@ class CodeEntry:
     distance: int
     """The distance that the header claims."""
 
-    count_homogeneous: int
+    multiplicity: int
     """The number of minimum-weight X-only plus Z-only logical operators that the header claims."""
 
     @property
@@ -66,31 +66,27 @@ class CodeEntry:
         return self.num_qubits, self.num_logicals, self.distance
 
 
-def format_code(
-    checks_x: npt.ArrayLike,
-    checks_z: npt.ArrayLike,
-    distance: int,
-    count: int,
-    *,
-    header: str | None = None,
-) -> str:
-    """The text block of a code with the given binary X and Z generators.
+def format_code(checks_x: npt.ArrayLike, checks_z: npt.ArrayLike, distance: int, count: int) -> str:
+    """The text block of a code with the given binary X and Z generators, under its header.
 
     Args:
         checks_x: Binary X-type generators, one row per generator.
         checks_z: Binary Z-type generators, one row per generator.
         distance: Distance d of the code, for the header.
         count: Number m of minimum-weight X-only plus Z-only logical operators, for the header.
-        header: A first line to write instead of the header of a code file, such as the header of
-            a listing in the paper.
     """
     rows_x, rows_z = (np.asarray(checks, dtype=np.uint8) for checks in (checks_x, checks_z))
     num_qubits = (rows_x if len(rows_x) else rows_z).shape[1]
     num_logicals = num_qubits - len(rows_x) - len(rows_z)
-    if header is None:
-        header = f"# ({num_qubits}, {num_logicals}, {distance}) {count} min-weight logicals"
-    lines = [header]
-    for pauli, rows in (("X", rows_x), ("Z", rows_z)):
+    header = f"# ({num_qubits}, {num_logicals}, {distance}) {count} min-weight logicals"
+    return header + "\n" + format_generators(rows_x, rows_z)
+
+
+def format_generators(checks_x: npt.ArrayLike, checks_z: npt.ArrayLike) -> str:
+    """The lines of binary X and Z generators, such as ``XX_X`` and ``_ZZ_``, one per generator."""
+    lines: list[str] = []
+    for pauli, checks in (("X", checks_x), ("Z", checks_z)):
+        rows = np.asarray(checks, dtype=np.uint8)
         lines.extend("".join(pauli if bit else "_" for bit in row) for row in rows)
     return "\n".join(lines) + "\n"
 
@@ -109,6 +105,7 @@ def read_code_file(path: str | Path) -> list[CodeEntry]:
     """
     entries = []
     for block in split_blocks(Path(path).read_text()):
+        # The header, which claims the parameters of the code.
         number, header = block[0]
         match = _HEADER.fullmatch(header)
         if match is None:
@@ -117,6 +114,8 @@ def read_code_file(path: str | Path) -> list[CodeEntry]:
                 f" '# (7, 1, 3) 14 min-weight logicals', not {header!r}"
             )
         num_qubits, num_logicals, distance, count = map(int, match.groups())
+
+        # The generators, each of one Pauli type on the claimed number of qubits.
         rows_x: list[list[bool]] = []
         rows_z: list[list[bool]] = []
         for number, line in block[1:]:
@@ -127,6 +126,8 @@ def read_code_file(path: str | Path) -> list[CodeEntry]:
                     f" {num_qubits} qubits, not {line!r}"
                 )
             (rows_x if paulis == {"X"} else rows_z).append([char != "_" for char in line])
+
+        # The code, which must encode the claimed number of logical qubits.
         code = CSSCode(_as_matrix(rows_x, num_qubits), _as_matrix(rows_z, num_qubits))
         if code.dimension != num_logicals:
             raise ValueError(
@@ -154,10 +155,10 @@ def check_header(entry: CodeEntry, distance: int, count: int) -> None:
     Raises:
         ValueError: If either differs from the claims of the header.
     """
-    if (distance, count) != (entry.distance, entry.count_homogeneous):
+    if (distance, count) != (entry.distance, entry.multiplicity):
         raise ValueError(
             f"{entry.path}: the header of the code [[{entry.num_qubits}, {entry.num_logicals}]]"
-            f" claims (d, count) = {(entry.distance, entry.count_homogeneous)}, but the code has"
+            f" claims (d, count) = {(entry.distance, entry.multiplicity)}, but the code has"
             f" {(distance, count)}, so the header is wrong"
         )
 

@@ -2,15 +2,14 @@
 
 """Count the half and majority supports of the minimum-weight logical operators of codes.
 
-These counts estimate the logical error rates of the annealed codes at low physical error rates
-(see ``figures/plot_error_estimates.py``).  The simulations decode each sector by a lookup table of
-the errors of weight up to ``(d - 1) // 2`` and discard all other syndromes, so the decoder
-completes a minimum-weight logical operator when ``d // 2 + 1`` qubits of its support err.  Call
-the subsets of ``(d + 1) // 2`` qubits of a support its half supports, and those of ``d // 2 + 1``
-qubits its majority supports.  For odd ``d``, they are the same.  For even ``d``, they count
-different events, so both are counted.  Errors on the ``d // 2`` qubits of a half support are
-discarded.  Errors on a majority support are logical errors, which the estimates of logical error
-rates use.
+These counts estimate the logical error rates of the annealed codes at low physical error rates (see
+``figures/plot_error_estimates.py``).  The simulations decode each sector by a lookup table of the
+errors of weight up to ``(d - 1) // 2`` and discard all other syndromes, so the decoder completes a
+minimum-weight logical operator when ``d // 2 + 1`` qubits of its support err.  Call the subsets of
+``(d + 1) // 2`` qubits of a support its half supports, and those of ``d // 2 + 1`` qubits its
+majority supports.  For odd ``d``, they are the same.  For even ``d``, they count different events,
+so both are counted: errors on all qubits of a half support are discarded.  Errors on a majority
+support are logical errors, which the estimates of logical error rates use.
 
 Run with ``python -m experiments.code_annealing.analysis.half_supports [--max-qubits N]``.  For
 every code of the two text files of annealed codes, the script prints one line, and saves the same
@@ -21,9 +20,9 @@ only some of the codes, it only prints)::
 
 where ``d`` is the distance, and ``mx`` and ``mz`` are the numbers of minimum-weight X-only and
 Z-only logical operators, which are the numbers of their distinct supports.  The numbers ``hx`` and
-``hz`` are those of the half supports, the distinct subsets of ``(d + 1) // 2`` qubits (``d // 2``
-for even ``d``) that lie in the supports of the X-only and Z-only operators, respectively.  For even
-``d``, the numbers of majority supports, of ``d // 2 + 1`` qubits, follow in parentheses.
+``hz`` are those of the half supports, the distinct subsets of ``(d + 1) // 2`` qubits that lie in
+the supports of the X-only and Z-only operators, respectively.  For even ``d``, the numbers ``gx``
+and ``gz`` of majority supports, of ``d // 2 + 1`` qubits, follow in parentheses.
 Everything is recomputed exactly, and a code whose distance or number of minimum-weight logical
 operators differs from the claims of its code file is an error.  The text has one block for each
 code file: a line with the file name, a line for each code, and a blank line.  For example::
@@ -50,7 +49,7 @@ from ..core.code_files import CodeParams, check_header, read_code_file, split_bl
 from ..core.paths import find_code_files, get_half_supports_file
 from .min_weight_supports import MinWeightSupports, count_support_subsets, get_min_weight_supports
 
-# A line of the file: [n, k, d] mx/mz hx/hz, and for even d (majority x/z) after that.
+# A line of the file: [n, k, d] mx/mz hx/hz, and for even d (gx/gz) after that.
 _CODE_LINE = re.compile(
     r"\[(\d+),\s*(\d+),\s*(\d+)\]\s+(\d+)/(\d+)\s+(\d+)/(\d+)(?:\s+\((\d+)/(\d+)\))?"
 )
@@ -144,7 +143,7 @@ def read_half_supports(path: str | Path) -> HalfSupportCountsByFile:
     """Read the counts of a text file that this script writes.
 
     A line with a file name starts a block, each following line is a code, and a blank line ends
-    the block.  A code line is ``[n, k, d] mx/mz hx/hz``, followed by ``(hx2/hz2)`` if and only if
+    the block.  A code line is ``[n, k, d] mx/mz hx/hz``, followed by ``(gx/gz)`` if and only if
     d is even.  See the module docstring for the meaning of these numbers.
 
     Args:
@@ -172,7 +171,7 @@ def read_half_supports(path: str | Path) -> HalfSupportCountsByFile:
 
 
 def _parse_code_line(line: str, number: int) -> HalfSupportCounts:
-    """Parse a line ``[n, k, d] mx/mz hx/hz`` with ``(hx2/hz2)`` added for even d."""
+    """Parse a line ``[n, k, d] mx/mz hx/hz`` with ``(gx/gz)`` added for even d."""
     match = _CODE_LINE.fullmatch(line)
     if match is None:
         raise ValueError(f"line {number}: expected '[n, k, d] mx/mz hx/hz', not {line!r}")

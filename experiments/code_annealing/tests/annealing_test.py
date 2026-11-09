@@ -41,11 +41,11 @@ def test_the_energy_of_the_steane_code_is_e_of_arxiv_2607_19574() -> None:
 
 
 def test_counting_at_a_guess_gives_the_score_or_the_side_of_the_distance() -> None:
-    steane, config = steane_counter(), a.SearchConfig()
+    steane = steane_counter()
     method: codes.LogicalCountMethod = "brouwer_zimmermann"
-    assert a._score_at_guess(steane, 2, config, method) == "above"
-    assert a._score_at_guess(steane, 3, config, method) == _brute_force_score(steane)
-    assert a._score_at_guess(steane, 4, config, method) == "below"
+    assert a._score_at_guess(steane, 2, method) == "above"
+    assert a._score_at_guess(steane, 3, method) == _brute_force_score(steane)
+    assert a._score_at_guess(steane, 4, method) == "below"
 
 
 def test_scoring_a_proposal_is_exact_whatever_the_guessed_distance_and_range() -> None:
@@ -105,6 +105,16 @@ def test_switching_methods_between_epochs_never_changes_a_chain() -> None:
     assert _get_outcome(switched) == _get_outcome(unswitched)
 
 
+def _get_outcome(state: a.SearchState) -> tuple[Any, ...]:
+    """The codes, scores, and history that a chain ends with."""
+    roles = ("current", "lowest_energy", "greatest_distance")
+    codes_and_scores = [
+        (canonical_checks(getattr(state, role).counter), getattr(state, role).score)
+        for role in roles
+    ]
+    return codes_and_scores, state.history
+
+
 ####################################################################################################
 # the chain
 
@@ -130,8 +140,21 @@ def test_the_temperature_of_each_epoch_gives_its_target_acceptance_to_the_previo
         assert np.exp(-jumps / temperature).mean() == pytest.approx(target, rel=1e-4)
 
 
-def test_the_fit_to_jumps_of_which_none_is_uphill_is_the_upper_bound() -> None:
-    assert a._fit_log_temperature([-1, 0], 0.5) == a.LOG_TEMPERATURE_BOUNDS[1]
+def test_uphill_proposals_are_accepted_with_the_probability_of_the_metropolis_rule() -> None:
+    # An uphill proposal of jump j is accepted with probability exp(-j / T), so the acceptance rate
+    # of an epoch's uphill proposals is their mean probability, up to its binomial deviation.
+    config = a.SearchConfig(
+        method="brouwer_zimmermann",
+        epochs=1,
+        steps_per_epoch=200,
+        uphill_acceptance_start=0.3,
+        uphill_acceptance_stop=0.3,
+    )
+    state = a.run_epochs(a.start_search(next(random_initial_codes(12, 2, seed=0)), config))
+    temperature, rate = state.history[-1].temperature, state.history[-1].uphill_acceptance_rate
+    probabilities = np.exp(-state.energy_jumps[state.energy_jumps > 0] / temperature)
+    deviation = np.sqrt(np.sum(probabilities * (1 - probabilities))) / len(probabilities)
+    assert abs(rate - probabilities.mean()) < 4 * deviation
 
 
 def test_the_pilot_records_the_best_of_all_its_proposals_and_keeps_the_first_of_equals() -> None:
@@ -153,7 +176,7 @@ def test_the_pilot_records_the_best_of_all_its_proposals_and_keeps_the_first_of_
     assert len(candidates) == 31
     scores = [_brute_force_score(counter) for counter in candidates]
     lowest = min(range(31), key=lambda index: a.energy(scores[index], config))
-    greatest = max(range(31), key=lambda index: a.score_rank(scores[index]))
+    greatest = max(range(31), key=lambda index: _rank(scores[index]))
     assert lowest != greatest
     energies = [a.energy(score, config) for score in scores]
     np.testing.assert_allclose(state.energy_jumps, np.array(energies[1:]) - energies[0])
@@ -162,23 +185,6 @@ def test_the_pilot_records_the_best_of_all_its_proposals_and_keeps_the_first_of_
             canonical_checks(candidates[index]),
             scores[index],
         )
-
-
-def test_a_record_changes_only_when_a_proposal_strictly_improves_it() -> None:
-    # At p = 1/4, a code of distance 2 can have a lower energy than the Steane code.
-    config = a.SearchConfig(steps_per_epoch=1, physical_error_rate=0.25)
-    steane, twin, lower = steane_counter(), steane_counter(), steane_counter().deformed_cnot(0, 1)
-    state = a.start_search(steane, config)
-    steane_score, lower_score = a.score_code(steane, config), a.score_code(lower, config)
-    assert lower_score.distance < steane_score.distance
-    assert a.energy(lower_score, config) < a.energy(steane_score, config)
-    state.lowest_energy = state.greatest_distance = a.ScoredCode(lower, lower_score)
-    assert a._update_optima(state, a.ScoredCode(steane, steane_score)) == (False, True)
-    assert a._update_optima(state, a.ScoredCode(twin, steane_score)) == (False, False)  # equal
-    assert state.lowest_energy.counter is lower and state.greatest_distance.counter is steane
-    best = a.ScoredCode(twin, a.Score(4, 1, 1))
-    assert a._update_optima(state, best) == (True, True)
-    assert state.lowest_energy is state.greatest_distance is best
 
 
 def test_a_rejected_proposal_can_set_a_record_and_is_reported() -> None:
@@ -218,7 +224,7 @@ def test_a_record_is_reported_as_soon_as_a_proposal_improves_it() -> None:
     reported: list[a.Score] = []
     a.run_epochs(state, on_greatest_distance=lambda s: reported.append(s.greatest_distance.score))
     # A report at the end of the epoch alone would give at most one score.
-    ranks = [a.score_rank(score) for score in reported]
+    ranks = [_rank(score) for score in reported]
     assert len(ranks) >= 2 and ranks == sorted(set(ranks))
     assert reported[-1] == state.greatest_distance.score
 
@@ -270,11 +276,6 @@ def _brute_force_score(counter: codes.CSSLogicalCounter) -> a.Score:
     return a.Score(counts.weight, counts.count_x, counts.count_z)
 
 
-def _get_outcome(state: a.SearchState) -> tuple[Any, ...]:
-    """The codes, scores, and history that a chain ends with."""
-    roles = ("current", "lowest_energy", "greatest_distance")
-    codes_and_scores = [
-        (canonical_checks(getattr(state, role).counter), getattr(state, role).score)
-        for role in roles
-    ]
-    return codes_and_scores, state.history
+def _rank(score: a.Score) -> tuple[int, int]:
+    """The order of the greatest-distance record: a greater distance, then fewer operators."""
+    return score.distance, -(score.count_x + score.count_z)

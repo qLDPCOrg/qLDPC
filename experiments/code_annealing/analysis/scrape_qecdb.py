@@ -11,8 +11,8 @@ the same ``n`` and at least the same ``k``.  CSS codes are compared with the CSS
 database, and SWEL codes with its self-dual CSS codes.  The script prints, and saves to the data
 file ``data/scrape_qecdb_YYYY-MM-DD.txt`` of the results directory, one line per annealed code,
 ``(n, k, d) n_best k_best d_best``, in one block per code file, with ``None`` for a neighbor that
-the database does not have.  The distance of an annealed code is the one that its
-code file claims, and that of a database code is the one that the database lists.
+the database does not have.  The distance of an annealed code is the one that its code file
+claims, and that of a database code is the one that the database lists.
 
 The database grows, and may come to list the annealed codes themselves, so a data file records the
 database on the date of its scrape (in UTC), which its name carries.  ``latex_tables.py`` reads the
@@ -178,8 +178,8 @@ def query_best_known(params: CodeParams, code_type: CodeType) -> BestKnown:
 def _sorted_code_types(code_files: Mapping[CodeType, Path]) -> list[CodeType]:
     """The code types of the code files, in the order of the blocks of the data file.
 
-    Every caller now passes the files in this order already; sorting keeps the public functions of
-    this module correct for a mapping in any order.
+    Callers pass the files in this order; sorting keeps the public functions of this module correct
+    for a mapping in any order.
     """
     return sorted(code_files, key=CODE_TYPES.index)
 
@@ -263,7 +263,7 @@ def _query_extreme(field: str, direction: str, code_type: CodeType, **bounds: in
     # an integer, or the decimal text of one; anything else, even a float, is a malformed answer
     if isinstance(value, int) and not isinstance(value, bool):
         return value
-    if isinstance(value, str) and value.strip().isdigit():
+    if isinstance(value, str) and value.strip().isdecimal() and value.strip().isascii():
         return int(value)
     raise RuntimeError(
         f"Could not read the {field} of the first code that qecdb.org lists: {value!r}"

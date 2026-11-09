@@ -28,9 +28,7 @@ from .checkpoints import (
     decode_code,
     decode_scored_code,
     get_record_path,
-    read_config,
     read_saved_file,
-    read_score,
     read_seed,
     report_malformed,
 )
@@ -143,7 +141,7 @@ def load_saved_codes(paths: Iterable[Path]) -> list[SavedCode]:
     for path in sorted(set(paths)):
         kind, data = read_saved_file(path)
         with report_malformed(path):
-            config = read_config(data)
+            config = SearchConfig(**data["config"])
             encoded_codes: list[tuple[SavedRole, dict[str, Any]]]
             if kind == "chain":
                 encoded_codes = [
@@ -175,7 +173,7 @@ def load_run_progress(path: Path) -> RunProgress | None:
     if kind != "chain":
         return None
     with report_malformed(path):
-        config = read_config(data)
+        config = SearchConfig(**data["config"])
         counter = decode_code(data["current"]["code"])
         return RunProgress(
             config.code_type,
@@ -183,7 +181,7 @@ def load_run_progress(path: Path) -> RunProgress | None:
             counter.dimension,
             int(data["completed_epochs"]),
             config.epochs,
-            read_score(data["greatest_distance"]["score"]),
+            Score(**data["greatest_distance"]["score"]),
         )
 
 

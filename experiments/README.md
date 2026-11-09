@@ -110,7 +110,7 @@ Verification requires `codes.QTCode.random` to sample the same code for the same
 ## Quantum codes from classical annealing
 
 [`code_annealing/`](code_annealing/) implements and reproduces the code search of the paper [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574).
-It anneals CSS and SWEL codes, scoring every proposal exactly by its distance and its number of minimum-weight logical operators, which is only practical for moderate block lengths.
+It anneals CSS and SWEL codes, scoring every proposal exactly by its distance and its number of minimum-weight X-only and Z-only logical operators, which is only practical for moderate block lengths.
 Its [guide](code_annealing/README.md) shows how to rebuild the paper's table and figures from the paper's codes in one command, and how to rerun the searches at any scale.
 
 ## Lattice surgery
