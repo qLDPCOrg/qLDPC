@@ -9,6 +9,9 @@ image ``g(I)`` is the image of a word with the same weight and eligibility and a
 on ``I``.  So a BZ search can scan ``I`` alone, and certify with the automorphism family of the
 images of ``I`` under all of ``G``, which completes each coefficient layer when ``I`` does.
 Section 3.7 of ``brouwer_zimmermann.md`` derives the certificate of this family.
+
+The connected-support search of ``connected_support.py`` also uses ``verify_automorphisms``, and the
+orbits of ``get_orbits``, whose order fixes its ranks of variables.
 """
 
 from __future__ import annotations

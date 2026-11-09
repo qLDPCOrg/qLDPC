@@ -726,10 +726,12 @@ def test_connected_support_distances_of_classical_codes(pytestconfig: pytest.Con
         codes.ClassicalCode(np.eye(4, dtype=int)).get_distance_exact(method="connected_support")
     )
 
-    # a cutoff can return an upper bound, which is not remembered, and an exact distance is
-    code = codes.ClassicalCode(codes.HammingCode(3).matrix)
-    assert 3 <= code.get_distance_exact(cutoff=7, method="connected_support") <= 7
+    # a cutoff can return an upper bound, which is not remembered, and an exact distance is: this
+    # code has words of weights 2 and 3, and the search through the cutoff finds the second first
+    code = codes.ClassicalCode([[1, 1, 0, 0, 0], [0, 1, 1, 0, 0], [0, 0, 0, 1, 1]])
+    assert code.get_distance_exact(cutoff=3, method="connected_support") == 3
     assert code.get_distance_if_known() is None
+    code = codes.ClassicalCode(codes.HammingCode(3).matrix)
     assert code.get_distance(method="connected_support") == 3
     assert code.get_distance_if_known() == 3
 
@@ -766,7 +768,14 @@ def test_connected_support_distances_of_qubit_codes(pytestconfig: pytest.Config)
 
     # the five-qubit code has distance 3, which a cutoff can bound without remembering it
     five_qubit_code = codes.QuditCode(codes.FiveQubitCode().matrix)
-    assert 3 <= five_qubit_code.get_distance_exact(cutoff=5, method="connected_support") <= 5
+    with unittest.mock.patch.object(
+        common,
+        "_get_distance_connected_support",
+        autospec=True,
+        side_effect=common._get_distance_connected_support,
+    ) as search:
+        assert 3 <= five_qubit_code.get_distance_exact(cutoff=5, method="connected_support") <= 5
+    assert search.call_args.kwargs["cutoff"] == 5
     assert five_qubit_code.get_distance_if_known() is None
     assert five_qubit_code.get_distance(method="connected_support") == 3
     assert five_qubit_code.get_distance_if_known() == 3
@@ -813,7 +822,14 @@ def test_connected_support_distances_of_css_codes() -> None:
 
     # an exit at a cutoff returns an upper bound, which is not remembered
     code = codes.CSSCode(checks_x, checks_z)
-    assert 2 <= code.get_distance_exact(cutoff=7, method="connected_support") <= 7
+    with unittest.mock.patch.object(
+        common,
+        "_get_distance_connected_support",
+        autospec=True,
+        side_effect=common._get_distance_connected_support,
+    ) as search:
+        assert 2 <= code.get_distance_exact(cutoff=7, method="connected_support") <= 7
+    assert search.call_args.kwargs["cutoff"] == 7
     assert code.get_distance_if_known() is None
 
     # a subsystem code has dressed logical operators: here every even-weight X string is a gauge

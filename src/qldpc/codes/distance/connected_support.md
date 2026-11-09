@@ -29,7 +29,7 @@ Its cost grows by a roughly constant factor for each additional unit of weight, 
 
 The table lists times on one core of an Apple M3 Max laptop, run at low priority, with the benchmark script [experiments/connected_support_distance/benchmark.py](../../../../experiments/connected_support_distance/benchmark.py).
 The codes are the pair-partition codes of Okada and Kasai and of Lee et al., which are quasi-cyclic CSS codes, mostly of high rate, with parity checks of column weight 3 to 5 (see the [references](#references)).
-The instances, and their distances, come from the data of Lee et al., and Okada and Kasai also publish the [[276, 98, 14]], [[518, 228, 16]], and [[944, 478, 20]] codes.
+The instances, and their distances, come from the data of Lee et al., and the repository of Okada and Kasai also publishes the [[276, 98, 14]], [[518, 228, 16]], and [[944, 478, 20]] codes.
 The [[372, 130, 18]] code is the instance `qc_372_130_18` of that data, which is not the [[372, 130, 16]] code of the table of Okada and Kasai.
 Times are CPU times, for the whole code unless they say per sector.
 The BZ times marked "estimated" scale the measured time of the [[232, 62, 12]] code by the ratio of the work that BZ predicts for each code, with the cyclic automorphisms that qLDPC finds for these codes (Sections 3.6 and 3.7 of [brouwer_zimmermann.md](brouwer_zimmermann.md)).
@@ -180,7 +180,7 @@ Other bounds that hold, and that qLDPC tested and does not use, added little on 
 
 - Raising each weight `y_c` to the room that its available variables leave (dual ascent) removed 8% to 14% of the states, which did not pay for its cost.
 - A girth bound, that a variable with `k` unsatisfied checks of its `Δ` needs `⌈(Δ - k)/λ⌉` further variables, where `λ` is the largest number of checks that two variables share, removed under 1%.
-- Rounding the bound up to the weight divisor prunes nothing, since every weight limit `W` is a multiple of the divisor, except a first limit that `cutoff` sets.
+- Rounding the bound up to the weight divisor prunes nothing, since every weight limit `W` is a multiple of the divisor.
 
 ### 3.5 Symmetries
 
@@ -207,6 +207,7 @@ Classical codes are searched without symmetries, from every variable.
 Finding them takes milliseconds for codes of hundreds of qubits, but about half a second with `pybliss` for a code of 5,200 qubits, as long as a search of more than a million states on one core.
 So the search of each problem, such as a sector of a CSS code, asks for them at most once, before the first weight limit at which it expects to reach `automorphism_minimum_states` states, a field of the tuning of `_tuning.py`.
 It expects the number of states of each weight limit to grow by the ratio between those of the last two.
+A first limit above the divisor, which `cutoff` can set, has no such estimate, so the search asks for them before it.
 Waiting until it has visited that many states instead would let a search that prunes well run a whole weight limit without them: on the [[276, 98, 14]] code, that limit took nearly half of the time of the search.
 
 With symmetries, the search from the first root does most of the work, since every witness that meets the first orbit is found through it.
@@ -232,12 +233,12 @@ A witness is then a lightest one if the earlier limits found none, since weights
 Otherwise every witness is heavier than `W`, and `L` rises to the next multiple of the divisor.
 This ends when `L` is at least the weight of the best known witness, the distance.
 A search never needs a good upper bound, and the searches of the sectors of a CSS code share their bounds, as in BZ.
-If `cutoff` is above `L`, the first limit is `cutoff`, and a witness of weight at most `cutoff` is returned at once.
+If `cutoff` is above `L`, the first limit is the largest multiple of the divisor at most `cutoff`, and a witness within that limit is returned at once.
 An upper bound from a known sector distance acts as a witness of that weight.
 
 **Interrupts.**
 Each weight limit of a problem runs in one compiled call, which a keyboard interrupt cannot stop, so an interrupt takes effect only once that weight limit ends.
-Python then reports it as a `SystemError` that wraps the interrupt.
+Python then raises a `KeyboardInterrupt`, or a `SystemError` that it caused.
 The last weight limits of the largest searches of [Section 2](#2-when-to-use-which-method) can take hours.
 
 ### 3.7 Qubit codes that are not CSS
@@ -266,7 +267,7 @@ Each argument of Sections 3.2 to 3.6 carries over, with symbols where it uses va
   The children of an unsatisfied check `c` are its available symbols: those that flip `c`, are not in `F`, and whose variable is not in `S`.
   While a child is in the stack, the other values of its variable are blocked, since a word has one value on each qubit, and they are available again once the search leaves that child.
   A child joins `F` for its later siblings, but the other values of its variable do not, since a later sibling can lead to a witness that has another value there.
-  The root is a variable, so the children of the empty state are its three symbols.
+  A search starts from the empty state, whose children are the three symbols of the root.
 - **Completeness.**
   The argument of [Section 3.3](#33-the-depth-first-search) holds with `S` a set of symbols of `x`, and with `F` missing every symbol of `x`.
   An unsatisfied check `c` anticommutes with the restriction of `x` to `S`, and commutes with `x`, so it is flipped by a symbol of `x` on a variable outside `S`.

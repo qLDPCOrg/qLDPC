@@ -10,10 +10,11 @@ Okada and Kasai, https://arxiv.org/abs/2607.14091, which extends the searches fo
 sets and low-weight codewords of classical LDPC codes to CSS codes (see the references of
 ``connected_support.md``).
 
-``connected_support.md`` in ``qldpc/codes/distance/`` derives the search and states its correctness
-requirements.  The Brouwer-Zimmermann search in ``brouwer_zimmermann.py`` solves the same problem
-for any binary code.  This module reuses the weight divisors of ``information_sets.py``, and the
-verification and orbits of automorphisms of ``automorphism_families.py``.
+``connected_support.md`` in ``src/qldpc/codes/distance/`` derives the search and states its
+correctness requirements.  The Brouwer-Zimmermann search in ``brouwer_zimmermann.py`` solves the
+same problem for any binary code.  This module reuses the weight divisors of
+``information_sets.py``, and the verification and orbits of automorphisms of
+``automorphism_families.py``.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from qldpc._binary import get_kernel, pack_bits, popcount_word, trailing_zeros_w
 from qldpc._compilation import always_compiled
 
 from .._binary import assert_binary, get_nested_code_basis
-from .._tuning import SearchTuning, get_tuning
+from .._tuning import MAX_VALUE, SearchTuning, get_tuning
 from . import automorphism_families
 from .information_sets import infer_weight_divisor
 
@@ -61,12 +62,11 @@ def get_distance_connected_support(
     every check.
 
     The search of each problem raises its weight limit ``W`` through the weights that a witness may
-    have.  Each pass through a weight limit either finds a witness of weight at most ``W``, which is
-    the distance if lower limits, each one divisor below the next, found none, or certifies that
-    every witness is heavier.  The
-    first limit of each problem is the larger of its weight divisor and ``cutoff``.  If the search
-    finds a witness of weight at most ``cutoff``, the result is the weight of that witness, which
-    can exceed the distance.
+    have, one weight divisor at a time.  Each pass either finds a witness of weight at most ``W`` or
+    certifies that every witness is heavier, so the first witness is a lightest one.  The first
+    limit of each problem is the larger of its weight divisor and the largest multiple of it that is
+    at most ``cutoff``.  If the search finds a witness of weight at most ``cutoff``, the result is
+    the weight of that witness, which can exceed the distance.
 
     Args:
         problems: The ``(checks, excluded)`` pairs to search.
@@ -81,8 +81,8 @@ def get_distance_connected_support(
             to variable ``p[j]``.  Each generator must map the words of every problem, and the row
             space of its excluded rows, onto themselves.  The search of each problem calls the
             function at most once, before the first weight limit at which it expects to have
-            visited ``automorphism_minimum_states`` states (a field of ``tuning``), and verifies
-            the generators before it uses them.
+            visited ``automorphism_minimum_states`` states (a field of ``tuning``) or before a first
+            limit that ``cutoff`` raises, and verifies the generators before it uses them.
         tuning: The tuning of the search (see ``_tuning``), which defaults to the active tuning.
 
     Returns:
@@ -127,10 +127,10 @@ def get_distance_connected_support(
     while best_weight is None or best_weight > min(lower_bounds):
         index = lower_bounds.index(min(lower_bounds))
         search = searches[index]
-        max_weight = max(lower_bounds[index], cutoff)
+        divisor = search.weight_divisor
+        max_weight = max(lower_bounds[index], cutoff - cutoff % divisor)
         witness = search.find_witness(max_weight)
         if witness is None:
-            divisor = search.weight_divisor
             lower_bounds[index] = (max_weight // divisor + 1) * divisor
             continue
         best_weight = len(witness) if best_weight is None else min(best_weight, len(witness))
@@ -162,13 +162,11 @@ class SupportSearch:
     Keyword args:
         homogeneous: Whether the problem is homogeneous, rather than symplectic.  Default: True.
         get_automorphisms: A function that returns an array of generators of a group of
-            permutations of the variables, or None, as in ``get_distance_connected_support``.  The
-            search calls it at most once, before the first weight limit whose states, together with
-            those visited so far, are expected to reach ``automorphism_minimum_states``.
-        automorphism_minimum_states: The search asks for automorphisms before the first weight
-            limit at which it expects its visited states, over all weight limits, to reach this
-            number, as the field of ``SearchTuning`` says.  Zero asks for them before the first
-            weight limit.
+            permutations of the variables, or None, as in ``get_distance_connected_support``.
+        automorphism_minimum_states: The search calls ``get_automorphisms`` at most once, before
+            the first weight limit at which it expects its visited states, over all weight limits,
+            to reach this number, as the field of ``SearchTuning`` says.  Zero asks for them before
+            the first weight limit.
 
     Attributes:
         num_variables: The number of variables: the number of columns of ``checks`` if the problem
@@ -209,7 +207,7 @@ class SupportSearch:
         self.num_variables = checks.shape[1] if homogeneous else checks.shape[1] // 2
         self.num_states = 0
         self._homogeneous = homogeneous
-        self._last_two_num_states = (0, 0)
+        self._last_two_num_states: tuple[int, int] | None = None
         self._excluded = excluded
         self._get_automorphisms = get_automorphisms
         self._automorphism_minimum_states = automorphism_minimum_states
@@ -235,13 +233,17 @@ class SupportSearch:
         self._symbol_masks = pack_bits(np.ascontiguousarray(flips.T))
         tests = self._get_symbol_columns(self._get_tests())
         self._test_columns = pack_bits(np.ascontiguousarray(tests.T))
+
+        # Without symmetries, every variable is a root.  Words of Pauli operators get no divisor,
+        # since their weights count qubits rather than bits.
         self._roots = np.arange(self.num_variables, dtype=np.int64)
         self._ranks = np.arange(self.num_variables, dtype=np.int64)
         self.weight_divisor = infer_weight_divisor(get_kernel(self._checks)) if homogeneous else 1
 
         # Weights of checks are multiples of 1 / scale, and an overlap is at most the largest number
-        # of checks of a symbol.  Every overlap divides the scale if the scale is small enough, and
-        # the inverse of an overlap is rounded down otherwise.
+        # of checks of a symbol, which is taken to be at least one, so that the scale exists even
+        # without checks.  Every overlap divides the scale if the scale is small enough, and the
+        # inverse of an overlap is rounded down otherwise.
         max_column_weight = int(np.max(np.sum(flips, axis=0), initial=1))
         scale = min(math.lcm(*range(1, max_column_weight + 1)), _MAX_SCALE)
         self._inverse_overlaps = np.zeros(max_column_weight + 1, dtype=np.int64)
@@ -276,11 +278,12 @@ class SupportSearch:
         """
         if max_weight < 1:
             raise ValueError(f"The weight limit must be at least one, not {max_weight}")
-        # Ask for automorphisms once, before the first weight limit that is expected to reach the
-        # threshold.
+        # Ask for automorphisms once, before the first weight limit whose states, with those visited
+        # so far, are expected to reach the threshold.
         if (
             self._get_automorphisms is not None
-            and self.num_states + self._predict_states() >= self._automorphism_minimum_states
+            and self.num_states + self._predict_states(max_weight)
+            >= self._automorphism_minimum_states
         ):
             automorphisms, self._get_automorphisms = self._get_automorphisms(), None
             if automorphisms is not None:
@@ -296,16 +299,21 @@ class SupportSearch:
             int(min(max_weight, self.num_variables)),
         )
         self.num_states += num_states
-        self._last_two_num_states = (self._last_two_num_states[1], num_states)
+        last = self._last_two_num_states[1] if self._last_two_num_states else 0
+        self._last_two_num_states = (last, num_states)
         return np.sort(support) if len(support) else None
 
-    def _predict_states(self) -> int:
-        """The number of states that the next weight limit is expected to visit.
+    def _predict_states(self, max_weight: int) -> int:
+        """The number of states that the next weight limit, ``max_weight``, is expected to visit.
 
         The number of states of each weight limit is expected to grow by the ratio between those of
         the last two limits, or not to grow if the limit before the last visited no states, as
-        before the second limit (see Section 3.5 of ``connected_support.md``).
+        before the second limit (see Section 3.5 of ``connected_support.md``).  A first limit above
+        the weight divisor, which a cutoff can raise, has no estimate, and is expected to reach any
+        threshold short of ``MAX_VALUE``, since it skips the cheap limits below it.
         """
+        if self._last_two_num_states is None:
+            return MAX_VALUE - 1 if max_weight > self.weight_divisor else 0
         previous, last = self._last_two_num_states
         return last * last // previous if previous else last
 
@@ -489,6 +497,8 @@ def _search_supports(
                 if _is_outside_excluded(test_columns, support, depth):
                     return support[:depth].copy(), num_states
                 continue
+
+            # Make room for the symbols that this state may allow, and choose its branches.
             if allowance_starts[depth] + num_symbols > len(allowances):
                 grown = np.empty(2 * len(allowances) + num_symbols, dtype=np.int64)
                 grown[: allowance_starts[depth]] = allowances[: allowance_starts[depth]]
@@ -563,8 +573,8 @@ def _get_branches(
     num_blocks = syndromes.shape[1]
     scale = inverse_overlaps[1]
 
-    # Weigh each unsatisfied check, and choose the one with the fewest available symbols, which are
-    # fewer than the symbols of all checks together.
+    # Weigh each unsatisfied check, and choose the one with the fewest available symbols.  The
+    # count starts above any possible count.
     total_weight = 0
     branch_check = -1
     fewest = check_starts[-1] + 1

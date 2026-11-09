@@ -282,12 +282,13 @@ class SearchTuning:
     # Fields of connected-support searches.
 
     #: A connected-support search of a quantum code asks for its automorphisms before the first
-    #: weight limit at which it expects its visited states, over all limits of one problem, to
-    #: reach this number (Section 3.5 of ``connected_support.md``).
-    #: Lowering it pays the cost of finding them on cheaper searches; raising it searches more
-    #: limits from every variable.  Zero asks before the first limit, and ``MAX_VALUE`` never.
-    #: Defaults to 100,000, chosen by hand as a few hundredths of a second of searching; how it was
-    #: measured is not recorded.  To retune it, time searches with and without automorphisms.
+    #: weight limit at which it expects the states, or supports, that it visits over all limits of
+    #: one problem to reach this number, or before a first limit that a cutoff raises (Section 3.5
+    #: of ``connected_support.md``).  Lowering it pays the cost of finding them on cheaper
+    #: searches; raising it searches more limits from every variable.  Zero asks before the first
+    #: limit, and ``MAX_VALUE`` never.  Defaults to 100,000, chosen by hand as about 0.05 s of
+    #: searching at the rate of that section.  To retune it, time searches with and without
+    #: automorphisms.
     automorphism_minimum_states: int = 100_000
 
     # Fields of completion tables.

@@ -106,11 +106,6 @@ def get_symplectic_witness_supports(problem: Problem) -> list[int]:
     return [(word | word >> num_qubits) % 2**num_qubits for word in words]
 
 
-def get_symplectic_brute_force_distance(problem: Problem) -> int:
-    """The least weight of a Pauli operator that commutes with the checks, outside the excluded."""
-    return min(support.bit_count() for support in get_symplectic_witness_supports(problem))
-
-
 def get_symplectic_vector(symbols: npt.NDArray[np.int64], num_qubits: int) -> npt.NDArray[np.uint8]:
     """The symplectic vector of the symbols of a witness, which give each qubit X, Z, or Y."""
     vector = np.zeros(2 * num_qubits, dtype=np.uint8)
@@ -175,8 +170,8 @@ PROBLEMS["capped-scale"] = (
     np.zeros((0, 45), dtype=np.uint8),
 )
 
-# The states of a search of these checks allow more variables in total than there are variables, so
-# the search needs more room for them than it starts with.
+# Nested states of a search of these checks restrict their subtrees, and could allow more variables
+# in total than there are variables, so the search makes more room for them than it starts with.
 PROBLEMS["many-allowances"] = (
     np.array(
         [
@@ -188,6 +183,43 @@ PROBLEMS["many-allowances"] = (
         dtype=np.uint8,
     ),
     np.zeros((0, 9), dtype=np.uint8),
+)
+
+
+# Searches of these checks need the variables that a state allows to be recorded, and released, with
+# the state: the first has states that restrict their subtrees to no variable, and the second has
+# nested restrictions.
+PROBLEMS["empty-restriction"] = (
+    np.array(
+        [
+            [0, 1, 0, 1, 1, 0, 1, 0, 1, 1],
+            [1, 0, 0, 1, 1, 1, 0, 0, 0, 0],
+            [1, 0, 0, 0, 0, 0, 1, 0, 1, 0],
+            [0, 0, 0, 0, 0, 0, 1, 1, 0, 0],
+            [1, 1, 0, 0, 0, 0, 0, 1, 0, 1],
+            [1, 0, 1, 0, 0, 0, 1, 0, 1, 1],
+            [1, 1, 1, 0, 1, 0, 0, 0, 1, 0],
+        ],
+        dtype=np.uint8,
+    ),
+    np.zeros((0, 10), dtype=np.uint8),
+)
+PROBLEMS["nested-restrictions"] = (
+    np.array(
+        [
+            [1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0],
+            [1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0],
+            [0, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0],
+            [0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 0],
+            [1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0],
+            [0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0],
+            [1, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
+        ],
+        dtype=np.uint8,
+    ),
+    np.zeros((0, 13), dtype=np.uint8),
 )
 
 
@@ -244,6 +276,29 @@ def test_the_distance_matches_enumeration(problem: Problem) -> None:
             assert (
                 witness is not None and len(witness) <= max_weight and is_witness(problem, witness)
             )
+
+
+@pytest.mark.usefixtures("compilation_mode")
+@pytest.mark.parametrize("problem", PROBLEMS.values(), ids=PROBLEMS.keys())
+def test_each_root_finds_the_lightest_witnesses_that_it_roots(problem: Problem) -> None:
+    """The search from a variable alone, through the distance, finds the witnesses that it roots.
+
+    Every lightest witness has a support that is connected, and the search from its least variable
+    finds it (Section 3.3 of ``connected_support.md``).  So the search from a variable finds a
+    witness exactly if some lightest witness has that least variable.
+    """
+    checks, excluded = problem
+    words = get_span(get_kernel(checks)) - get_span(excluded)
+    distance = min(word.bit_count() for word in words)
+    least_variables = {
+        (word & -word).bit_length() - 1 for word in words if word.bit_count() == distance
+    }
+    for root in range(checks.shape[1]):
+        search = get_search(*problem)
+        search._roots = np.array([root])
+        witness = search.find_witness(distance)
+        assert (witness is not None) == (root in least_variables)
+        assert witness is None or (min(witness) == root and is_witness(problem, witness))
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -406,7 +461,7 @@ def test_the_tuning_decides_whether_to_find_automorphisms(tune: Tune) -> None:
 
 
 @pytest.mark.usefixtures("compilation_mode")
-@pytest.mark.parametrize("minimum_states", [0, 10, 30, _tuning.MAX_VALUE])
+@pytest.mark.parametrize("minimum_states", [0, 30, _tuning.MAX_VALUE])
 def test_automorphisms_are_found_once_by_the_threshold(minimum_states: int) -> None:
     """A search asks for automorphisms at most once, and by the time it reaches the threshold.
 
@@ -428,6 +483,57 @@ def test_automorphisms_are_found_once_by_the_threshold(minimum_states: int) -> N
         assert len(found) <= 1
         assert found or not reached
     assert bool(found) == (minimum_states < _tuning.MAX_VALUE)
+
+
+@pytest.mark.usefixtures("compilation_mode")
+def test_a_limit_without_states_does_not_ask_for_automorphisms() -> None:
+    """A search without an estimate of its states asks for automorphisms only before a raised limit.
+
+    The first limit of a symplectic search of the five-qubit code, a weight of one, visits no
+    states, which makes a growth of zero the estimate for the next limit, and not a missing one.
+    """
+    found = []
+    search = get_search(
+        *QUBIT_PROBLEMS["five-qubit"],
+        homogeneous=False,
+        get_automorphisms=lambda: found.append(True),
+        automorphism_minimum_states=10**6,
+    )
+    search.find_witness(1)
+    assert search.num_states == 0
+    search.find_witness(2)
+    assert not found
+
+
+@pytest.mark.usefixtures("compilation_mode")
+def test_a_cutoff_raises_the_first_limit_to_a_multiple_of_the_divisor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cutoff above the weight divisor sets the first limit, rounded down to a multiple of it.
+
+    Such a first limit skips the cheap limits below it, so it has no estimate of its states, and
+    the search asks for automorphisms before it.  Every word of the Reed-Muller code has even
+    weight, and its distance is 4.
+    """
+    problem = PROBLEMS["reed-muller-X"]
+    limits = []
+    find_witness = cs.SupportSearch.find_witness
+
+    def record_limit(search: cs.SupportSearch, max_weight: int) -> npt.NDArray[np.int64] | None:
+        limits.append(max_weight)
+        return find_witness(search, max_weight)
+
+    monkeypatch.setattr(cs.SupportSearch, "find_witness", record_limit)
+    for cutoff, first_limit, num_calls in [(0, 2, 0), (7, 6, 1), (8, 8, 1)]:
+        limits.clear()
+        get_automorphisms = unittest.mock.Mock(return_value=None)
+        with _tuning.use_tuning(automorphism_minimum_states=10**5):
+            distance = cs.get_distance_connected_support(
+                [problem], cutoff=cutoff, get_automorphisms=get_automorphisms
+            )
+        assert 4 <= distance <= max(4, cutoff)
+        assert limits[0] == first_limit
+        assert get_automorphisms.call_count == num_calls
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -503,27 +609,6 @@ def test_the_logical_test_reads_every_block() -> None:
     assert witness is not None and is_witness(problem, witness)
 
 
-@pytest.mark.usefixtures("compilation_mode")
-@pytest.mark.parametrize("problem", QUBIT_PROBLEMS.values(), ids=QUBIT_PROBLEMS.keys())
-def test_qubit_distances_match_enumeration(problem: Problem) -> None:
-    """Searches of Pauli operators agree with an enumeration, and their witnesses are valid.
-
-    A witness gives each qubit of its support one of X, Z, and Y, so its weight is its number of
-    symbols.  The search of every weight limit, up to the number of qubits, returns such witnesses,
-    which fails if a qubit can take two values.
-    """
-    distance = get_symplectic_brute_force_distance(problem)
-    assert cs.get_distance_connected_support([problem], cutoff=0, homogeneous=False) == distance
-    for max_weight in range(1, problem[0].shape[1] // 2 + 1):
-        search = get_search(*problem, homogeneous=False)
-        witness = search.find_witness(max_weight)
-        if max_weight < distance:
-            assert witness is None
-        else:
-            assert witness is not None and len(witness) <= max_weight
-            assert is_symplectic_witness(problem, witness)
-
-
 def get_random_qubit_problems(rng: np.random.Generator, num_problems: int) -> Iterator[Problem]:
     """Small codes with a random single-qubit Clifford on each qubit, and their qubits permuted.
 
@@ -549,6 +634,10 @@ def get_random_qubit_problems(rng: np.random.Generator, num_problems: int) -> It
 def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) -> None:
     """Qubit problems agree with an enumeration at every weight limit, and from every root.
 
+    A witness gives each qubit of its support one of X, Z, and Y, so its weight is its number of
+    symbols.  The search of every weight limit, up to the number of qubits, returns such witnesses,
+    which fails if a qubit can take two values.
+
     Every lightest witness has a support that is connected, and the search from its least qubit
     finds it (Section 3.3 of ``connected_support.md``).  So the search from a qubit alone, through
     the distance, finds a witness exactly if some lightest witness has that least qubit, which
@@ -573,6 +662,7 @@ def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) ->
     ]
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     problems = [
+        *QUBIT_PROBLEMS.values(),
         *(get_qubit_problem(codes.QuditCode(matrix)) for matrix in mixed_five_qubit_codes),
         *get_random_qubit_problems(rng, 30),
     ]
@@ -620,7 +710,7 @@ def test_qubit_automorphisms_reduce_the_roots_and_keep_the_distance() -> None:
 def test_the_scale_of_weights_leaves_room_for_every_weight_limit() -> None:
     """Weights in units of the capped scale, times a weight limit as large as the width, fit.
 
-    A larger cap would overflow the products of a weight limit of 45 with the scale.
+    A cap near ``2**63`` would overflow the products of a weight limit of 45 with the scale.
     """
     problem = PROBLEMS["capped-scale"]
     witness = get_search(*problem).find_witness(45)
@@ -628,9 +718,17 @@ def test_the_scale_of_weights_leaves_room_for_every_weight_limit() -> None:
 
 
 @pytest.mark.usefixtures("compilation_mode")
-def test_cutoffs_and_upper_bounds() -> None:
+def test_cutoffs_and_upper_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
     """A search can stop early at a witness within its cutoff, or at a known upper bound."""
     problem = PROBLEMS["toric-X"]
+    limits = []
+    find_witness = cs.SupportSearch.find_witness
+
+    def record_limit(search: cs.SupportSearch, max_weight: int) -> npt.NDArray[np.int64] | None:
+        limits.append(max_weight)
+        return find_witness(search, max_weight)
+
+    monkeypatch.setattr(cs.SupportSearch, "find_witness", record_limit)
     assert get_brute_force_distance(problem) == 4
     assert cs.get_distance_connected_support([problem], cutoff=2) == 4
     assert 4 <= cs.get_distance_connected_support([problem], cutoff=16) <= 16
@@ -638,8 +736,12 @@ def test_cutoffs_and_upper_bounds() -> None:
     # A known upper bound is a candidate for the distance, and the search can only lower it.
     assert cs.get_distance_connected_support([problem], cutoff=0, upper_bound=9) == 4
     assert cs.get_distance_connected_support([problem], cutoff=0, upper_bound=3) == 3
-    assert cs.get_distance_connected_support([problem], cutoff=3, upper_bound=3) == 3
     assert cs.get_distance_connected_support([], cutoff=0, upper_bound=5) == 5
+
+    # A known upper bound within the cutoff ends the search before it starts.
+    limits.clear()
+    assert cs.get_distance_connected_support([problem], cutoff=3, upper_bound=3) == 3
+    assert not limits
 
     # The first weight limit is the cutoff, so a search can exit at a word that is not the lightest.
     components = PROBLEMS["components"]

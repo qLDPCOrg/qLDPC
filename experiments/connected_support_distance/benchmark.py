@@ -9,11 +9,10 @@ instances are ``qldpc.codes.PairPartitionCode`` codes, quasi-cyclic CSS codes wi
 checks, mostly of high rate (arXiv:2607.14091 and arXiv:2609.30069).  They come from
 https://github.com/ultra-high-rate-qec/design-principles-data (``codes/css/cpm_pp/instances``), and
 https://github.com/kasaikenta/pair-partition-cpm-css-codes also publishes the ``276``, ``518``, and
-``944`` instances.
-They are in the ``.cpm`` format, a whitespace-separated token stream: ``CPM_CSS_V1``, a name, the
-lift size ``P``, the number ``L`` of block columns, the numbers ``J_X`` and ``J_Z`` of block rows,
-and then the X-type exponents and the Z-type exponents in row-major order.  A path to another such
-file also names a code.
+``944`` instances.  They are in the ``.cpm`` format, a whitespace-separated token stream:
+``CPM_CSS_V1``, a name, the lift size ``P``, the number ``L`` of block columns, the numbers ``J_X``
+and ``J_Z`` of block rows, and then the X-type exponents and the Z-type exponents in row-major
+order.  A path to another such file also names a code.
 
 With ``--hadamards``, the script applies Hadamards to the second half of the qubits of each code,
 which leaves a code with the same distance that is not CSS, and times it as a
@@ -26,8 +25,8 @@ even for a toric code).
 It calls ``get_distance_exact`` once for each code, method, and sector, and prints the distance, and
 the wall and CPU time.  It flags a distance of an embedded instance that contradicts its published
 distance: a distance of both sectors that differs from it, or a distance of one sector that is
-lower.  The searches run on one core, but numba compiles on first use, and the compiled code is
-cached on disk, so run the script twice for the times of a warm cache.  The script prints its
+lower.  The searches run on one core.  Numba compiles on first use and caches the compiled code on
+disk, so run the script twice for the times of a warm cache.  The script prints its
 results, and saves nothing.
 
 Some searches run for hours, so run them under a guard, such as a hard deadline.

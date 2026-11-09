@@ -2535,16 +2535,18 @@ class QuditCode(AbstractCode):
             (cols_sx, cols_gx, cols_lx, cols_sz, cols_gz, cols_lz),
         )
 
-    def _get_logical_ops_and_trivial_ops(self) -> tuple[galois.FieldArray, galois.FieldArray]:
+    def _get_logical_ops_and_trivial_ops(
+        self, pauli: PauliXZ | None = None
+    ) -> tuple[galois.FieldArray, galois.FieldArray]:
         """The logical operators, and the operators that act trivially on the logical qudits.
 
         The trivial operators are the stabilizers, and the gauge operators of a subsystem code, so
-        that the logical operators are dressed.
+        that the logical operators are dressed.  A CSS code can restrict them to one type.
         """
-        logical_ops = self.get_logical_ops()
-        stabilizers = self.get_stabilizer_ops(canonicalized=True)
+        logical_ops = self.get_logical_ops(pauli)
+        stabilizers = self.get_stabilizer_ops(pauli, canonicalized=True)
         if self.is_subsystem_code:
-            stabilizers = np.vstack([stabilizers, self.get_gauge_ops()]).view(self.field)
+            stabilizers = np.vstack([stabilizers, self.get_gauge_ops(pauli)]).view(self.field)
         return logical_ops, stabilizers
 
     def _validate_logical_ops_shape(self, logical_ops: galois.FieldArray) -> None:
@@ -3605,7 +3607,7 @@ class CSSCode(QuditCode):
             distance = self._get_distance_of_sectors([pauli], method, cutoff=cutoff)
 
         elif self.field is galois.GF2:
-            logical_ops, stabilizers = self._get_logical_sector(pauli)
+            logical_ops, stabilizers = self._get_logical_ops_and_trivial_ops(pauli)
             distance = get_distance_quantum(
                 logical_ops,
                 stabilizers,
@@ -3620,7 +3622,7 @@ class CSSCode(QuditCode):
                 stacklevel=get_external_caller_stacklevel(),
             )
             distance = len(self)
-            logical_ops, stabilizers = self._get_logical_sector(pauli)
+            logical_ops, stabilizers = self._get_logical_ops_and_trivial_ops(pauli)
             code_logical_ops = ClassicalCode.from_generator(logical_ops)
             code_stabilizers = ClassicalCode.from_generator(stabilizers)
             for word_l, word_s in itertools.product(
@@ -4287,18 +4289,6 @@ class CSSCode(QuditCode):
             min_error_weight,
         )
 
-    def _get_logical_sector(self, pauli: PauliXZ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """A basis of the logical operators of one type, and the operators that act trivially.
-
-        The trivial operators are the stabilizers of type ``pauli``, and the gauge operators of that
-        type of a subsystem code, so that the logical operators are dressed.
-        """
-        logical_ops = self.get_logical_ops(pauli)
-        stabilizers = self.get_stabilizer_ops(pauli, canonicalized=True)
-        if self.is_subsystem_code:
-            stabilizers = np.vstack([stabilizers, self.get_gauge_ops(pauli)]).view(self.field)
-        return logical_ops, stabilizers
-
     def _get_parity_check_sector(
         self, pauli: PauliXZ
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
@@ -4340,7 +4330,7 @@ class CSSCode(QuditCode):
                 get_automorphisms=lambda: self._found_qudit_automorphisms,
             )
         return _get_distance_css_brouwer_zimmermann(
-            [self._get_logical_sector(pauli) for pauli in paulis],
+            [self._get_logical_ops_and_trivial_ops(pauli) for pauli in paulis],
             cutoff=cutoff,
             upper_bound=upper_bound,
             get_automorphisms=lambda: self._found_qudit_automorphisms,
