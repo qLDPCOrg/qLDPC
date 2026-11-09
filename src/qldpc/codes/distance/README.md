@@ -23,10 +23,10 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 - **Basis family** (`BasisFamily`): the information sets that one Brouwer–Zimmermann search or count uses together, stacked into arrays.
 - **Certificate** (`Certificate`): a lower bound on the weight of the words that a Brouwer–Zimmermann search has not yet visited, which tells the search when it can stop.
 - **Connected-support search** (`SupportSearch`): the depth-first search of the supports that grow through unsatisfied parity checks, for a binary matrix of checks `H` and an excluded matrix `G`, whose words are binary, or symplectic for qubit codes that are not CSS.
-  It is another exact method, selected by `method="connected_support"`.
+  It is another exact method, selected by `method="connected_support"`, and it also finds light vectors with a given syndrome.
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer.
   Counting scans in `_counting/scan.py`.
-  The Brouwer–Zimmermann distance search in `_search/brouwer_zimmermann.py` and the coset search in `_search/coset_leader_search.py` scan with the compiled scans of `_search/affine_search.py`.
+  The Brouwer–Zimmermann distance search in `_search/brouwer_zimmermann.py` and the Brouwer–Zimmermann coset search in `_search/coset_leader_search.py` scan with the compiled scans of `_search/affine_search.py`.
   All of them step through a layer with `advance_support` in `_search/information_sets.py`.
 
 ## Where to look
@@ -36,7 +36,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | A distance method, or the validation of method and backend names | `core.py`, and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact`, `get_distance`, and `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` dispatch on the method name |
 | The Brouwer–Zimmermann (BZ) distance search | `_search/brouwer_zimmermann.py` |
 | The compiled scans of layers that the BZ distance search and the coset-leader search share, one body specialized by constant flags | `_search/affine_search.py` |
-| The connected-support distance search | `_search/connected_support.py` |
+| The connected-support search, of distances and of vectors with a given syndrome | `_search/connected_support.py` |
 | The packed information sets of a BZ distance search or a coset-leader search, and the certificate of their steps | `_search/affine_instance.py` |
 | How basis families and their certificates are built | `_search/information_sets.py` |
 | Automorphism families: the images of one information set under automorphisms of a code, and the check of those automorphisms, which the connected-support search uses too | `_search/automorphism_families.py` |

@@ -5,6 +5,7 @@
 The connected-support search computes the exact distance of a binary code from the Tanner graph of its parity checks.
 The code can be classical, CSS, or a qubit stabilizer code that is not CSS, and the quantum codes can be subsystem codes.
 It is the method `"connected_support"` of the `get_distance_exact` methods of `ClassicalCode`, `QuditCode`, and `CSSCode`.
+The same search also finds light vectors with a given syndrome, such as the coset leaders of Pauli errors that `CosetLeaderSearch` and the certifier of bounded fault propagation can use.
 Brouwer–Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) is the default.
 It follows Algorithm 2 in Section V of Okada and Kasai (see the [references](#references)), which searches CSS codes by excluding the row space of their stabilizers.
 The idea is older: Richter, Rosnes and Ytrehus, and Khatami et al. search the Tanner graphs of classical LDPC codes for small stopping sets and low-weight codewords.
@@ -312,19 +313,22 @@ So an unsatisfied check has a variable of `supp(x) \ S`, and the argument of [Se
 The pruning of [Section 3.4](#34-pruning) holds with completions that empty the syndrome of the state, and the values of [Section 3.7](#37-qubit-codes-that-are-not-css) carry over.
 `x` need not be connected: each component of its support flips a check of `σ`, so the empty state reaches it through one of them.
 
-Three parts of a distance search do not carry over:
+Four parts of a distance search do not carry over:
 
-- A syndrome is not invariant under the symmetries of the code, so the query uses no roots.
+- The nonzero syndrome gives the empty state an unsatisfied check to branch on, so the query needs no roots or ranks.
+- A syndrome is not invariant under the symmetries of the code, so the query uses none.
 - The weights of the vectors with a syndrome need not share a divisor, so the query has none.
 - Every vector with the syndrome counts, so the query has no logical test.
 
-`CosetLeaderSearch` in `_search/coset_leader_search.py` answers queries of the fault-propagation certifier in `qldpc.circuits.certification` with these queries when its `method` is `"connected_support"`.
-It searches the Pauli errors of a state by their physical weight, or, for the CSS weight `max(|x|, |z|)` on a CSS state, the X and Z parts separately, since the CSS weight is not a sum over qubits.
-The search is fast only if the stabilizers are sparse, but the stabilizers that certification passes are row-reduced, and so dense.
-So `CosetLeaderSearch` first adds stabilizers to each other while that makes them lighter, and maps the syndrome of each query to the result.
-On the state `|0⟩` of the [[144, 12, 12]] bivariate bicycle code, it lowers the mean weight of the stabilizers from 26 to 11, near the weight 6 of the checks.
-On the [[232, 62, 12]] pair-partition code, it lowers it from 54 to 33, far from the weight 8 of the checks, so a sparser choice of generators remains to be found.
-The bounds of these queries are also weaker than those of BZ: a query that fails gives `W + 1`.
+When its `method` is `"connected_support"`, `CosetLeaderSearch` in `_search/coset_leader_search.py`, which the fault-propagation certifier in `qldpc.circuits.certification` uses, answers each of its queries with such a query.
+It searches the Pauli errors of a state by their physical weight.
+The CSS weight `max(|x|, |z|)` is not a sum over qubits, so for it, on a CSS state, it searches the X and Z parts separately, and on any other state it raises an error.
+
+The search is fast only if its checks are sparse, but the stabilizers that certification passes are row-reduced, and the X and Z parts that `CosetLeaderSearch` searches for the CSS weight are row-reduced too.
+So a search first adds its checks to each other while that makes them lighter, and maps the syndrome of each query to the result.
+For the physical weight on the state `|0⟩` of the [[144, 12, 12]] bivariate bicycle code, it lowers the mean weight of the stabilizers from 26 to 11, while the checks of the code weigh 6.
+On the [[232, 62, 12]] pair-partition code, it lowers it from 54 to 33, while the checks weigh 8, so a sparser choice of generators remains to be found.
+The bounds of these queries are weaker than those of BZ: a query with no vector within `W` gives the lower bound `W + 1`.
 
 ## 4. Guide to the source code
 
@@ -339,7 +343,7 @@ The names below are in `_search/connected_support.py`, unless the table says oth
 | Distance of several sectors | `get_distance_connected_support`, which `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` reaches through `core.py` |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Syndrome query | `SupportSearch.find_vector_with_syndrome`, and the root `-1` of `_search_supports` |
-| Coset leaders of Pauli errors | `_ConnectedSupportCosetSearch` and `CosetLeaderSearch` in `_search/coset_leader_search.py` |
+| Coset leaders of Pauli errors, and the sparser checks that their searches use | `_ConnectedSupportCosetSearch`, `_sparsify`, and `CosetLeaderSearch` in `_search/coset_leader_search.py` |
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_search/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |
@@ -382,7 +386,8 @@ Changes to the search can use other bounds and orders, while keeping these requi
   A divisor that some witness lacks skips its weight.
 - **Start a syndrome query from its syndrome alone.**
   It must block no variable by rank, and use no symmetry, divisor, or logical test, as [Section 3.8](#38-vectors-with-a-given-syndrome) explains.
-  The syndrome of the given checks must be mapped onto the distinct nonzero checks, and a syndrome that gives a zero check, or two equal checks, different entries has no vector.
+  The syndrome of the given checks must be mapped onto the distinct nonzero checks.
+  A syndrome with a nonzero entry for a zero check, or with different entries for two equal checks, has no vector.
 - **Return the exact minimum unless a cutoff permits an early exit.**
   The weights of the limits rise one divisor at a time, so that the first witness is the lightest.
   An early exit returns the weight of a known witness, which is an upper bound.

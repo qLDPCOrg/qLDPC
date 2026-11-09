@@ -976,52 +976,86 @@ def _assert_exact_answers(
 def test_connected_support_answers_match_exhaustive_minima(pytestconfig: pytest.Config) -> None:
     """The connected-support engine answers every query exactly, by either measure of weight.
 
-    Graph states with phases are not CSS, and are weighed by physical weight.  Random CSS states,
-    some without pure-X stabilizers, are weighed by both, and the CSS weight splits their searches.
+    Graph states with phases are not CSS, and are weighed by physical weight.  CSS states with
+    no pure-X stabilizer, with only pure-X stabilizers, and with both are weighed by both measures,
+    and the CSS weight splits their searches.  The engine's bounds are 1 within ``max_weight``, or 0
+    for an empty syndrome, and ``max_weight + 1`` otherwise, and a negative ``max_weight`` admits no
+    error.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 6):
         edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
-        matrix = _graph_state(num_qubits, edges, phase=True)
-        oracle = CosetLeaderSearch(matrix, method="connected_support")
-        _assert_exact_answers(oracle, matrix, css_weight=False)
-        matrix = _random_css_state(num_qubits, int(rng.integers(num_qubits + 1)), rng)
-        for css_weight in (False, True):
+        graph_state = _graph_state(num_qubits, edges, phase=True)
+        num_x_stabilizers = [0, num_qubits, num_qubits // 2][num_qubits % 3]
+        css_state = _random_css_state(num_qubits, num_x_stabilizers, rng)
+        for matrix, css_weight in [(graph_state, False), (css_state, False), (css_state, True)]:
             oracle = CosetLeaderSearch(matrix, css_weight=css_weight, method="connected_support")
             _assert_exact_answers(oracle, matrix, css_weight)
+            for syndrome, max_weight in itertools.product(
+                range(1 << num_qubits), range(-1, num_qubits + 1)
+            ):
+                bound = oracle.get_min_weight_bound(syndrome, max_weight)
+                if bound.within_max_weight or max_weight < 0:
+                    assert bound.lower_bound == int(syndrome != 0)
+                else:
+                    assert bound.lower_bound == max_weight + 1
+                assert _get_syndrome(matrix, bound.representative) == syndrome
 
 
-@pytest.mark.parametrize("css_weight", [False, True])
-def test_connected_support_batches_find_each_class_above_max_weight(
-    css_weight: bool, pytestconfig: pytest.Config
+def test_connected_support_batches_read_syndromes_of_several_words(
+    pytestconfig: pytest.Config,
 ) -> None:
-    """Batches of the connected-support engine find the classes above ``max_weight`` in turn."""
-    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    matrix = _random_css_state(4, 2, rng)
-    oracle = CosetLeaderSearch(matrix, css_weight=css_weight, method="connected_support")
-    syndromes = rng.permutation(16).tolist()
-    minima = _css_minima(matrix, css_weight)[syndromes]
-    for max_weight in range(5):
-        words = _syndrome_words(syndromes, 4)
-        found = _find_each_not_within_max_weight(oracle, matrix, words, max_weight)
-        assert found == np.flatnonzero(minima > max_weight).tolist()
+    """On 17 phased GHZ blocks, batches of the connected-support engine agree with block minima.
 
-
-def test_sparser_rows_span_the_same_space() -> None:
-    """Adding rows to each other makes them sparser, and the transform says how.
-
-    In the binary rows, adding the first row to the second leaves two ones.  The symplectic rows are
-    XX and XY on two qubits, whose sum IZ weighs one, so the first row becomes IZ, and the second
-    stays, since XY plus IZ is XX, which weighs as much as XY.
+    The 68 syndrome bits span two words, and the state is not CSS, so one search covers the Pauli
+    errors.  Each error acts on at most three random qubits, and blocks that it does not touch add
+    nothing to its minimum weight.
     """
-    for entries, homogeneous, expected in [
-        ([[1, 1, 0, 0], [1, 1, 1, 1]], True, [[1, 1, 0, 0], [0, 0, 1, 1]]),
-        ([[1, 1, 0, 0], [1, 1, 0, 1]], False, [[0, 0, 0, 1], [1, 1, 0, 1]]),
-    ]:
-        matrix = np.array(entries, dtype=np.uint8)
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    num_blocks = 17
+    generators = _block_generators(_PHASED_GHZ_BLOCK, num_blocks)
+    matrix = _stabilizer_matrix(generators)
+    oracle = CosetLeaderSearch(matrix, method="connected_support")
+    syndromes, minima = [], []
+    for _ in range(30):
+        error = stim.PauliString(4 * num_blocks)
+        for qubit in rng.choice(4 * num_blocks, size=rng.integers(1, 4), replace=False):
+            error[int(qubit)] = int(rng.integers(1, 4))
+        syndromes.append(sum((not error.commutes(gg)) << jj for jj, gg in enumerate(generators)))
+        bits = [(syndromes[-1] >> jj) & 1 for jj in range(4 * num_blocks)]
+        local = [bits[4 * index : 4 * index + 4] for index in range(num_blocks)]
+        minima.append(_block_minimum(_PHASED_GHZ_BLOCK, [ss for ss in local if any(ss)], False))
+    for max_weight in range(4):
+        words = _syndrome_words(syndromes, 68)
+        found = _find_each_not_within_max_weight(oracle, matrix, words, max_weight)
+        assert found == np.flatnonzero(np.array(minima) > max_weight).tolist()
+
+
+def test_sparser_rows_span_the_same_space(pytestconfig: pytest.Config) -> None:
+    """Adding rows to each other leaves rows of the same span, which no such addition makes lighter.
+
+    The weight of a symplectic row counts the qubits on which it acts, whether by X, Y, or Z.
+    """
+
+    def get_weights(rows: npt.NDArray[np.uint8], homogeneous: bool) -> npt.NDArray[np.int_]:
+        if homogeneous:
+            return rows.sum(axis=1)
+        half = rows.shape[1] // 2
+        return (rows[:, :half] | rows[:, half:]).sum(axis=1)
+
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    cases = []
+    for homogeneous in (True, False):
+        for _ in range(10):
+            matrix = rng.integers(2, size=(6, 8), dtype=np.uint8)
+            cases.append((matrix[row_reduce_binary(matrix.T.copy())[2]], homogeneous))
+    for matrix, homogeneous in cases:
         rows, transform = coset_leader_search._sparsify(matrix, homogeneous)
-        assert rows.tolist() == expected
         assert np.array_equal(transform @ matrix % 2, rows)
+        assert len(row_reduce_binary(transform)[2]) == len(matrix)
+        weights = get_weights(rows, homogeneous)
+        for row, other in itertools.permutations(range(len(rows)), 2):
+            assert get_weights((rows[row] ^ rows[other])[None], homogeneous)[0] >= weights[row]
 
 
 def test_connected_support_rejects_what_it_cannot_search() -> None:
