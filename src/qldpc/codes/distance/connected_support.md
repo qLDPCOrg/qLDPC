@@ -318,6 +318,11 @@ Three parts of a distance search do not carry over:
 - The weights of the vectors with a syndrome need not share a divisor, so the query has none.
 - Every vector with the syndrome counts, so the query has no logical test.
 
+`CosetLeaderSearch` in `_search/coset_leader_search.py` answers queries of the fault-propagation certifier in `qldpc.circuits.certification` with these queries when its `method` is `"connected_support"`.
+It searches the Pauli errors of a state by their physical weight, or, for the CSS weight `max(|x|, |z|)` on a CSS state, the X and Z parts separately, since the CSS weight is not a sum over qubits.
+The stabilizers of a state include its logical operators, which are dense next to the checks of its code, so on the states of the codes of [Section 2](#2-when-to-use-which-method) the BZ search of cosets has been faster.
+Its bounds are also weaker than those of BZ: a query that fails gives `W + 1`.
+
 ## 4. Guide to the source code
 
 The names below are in `_search/connected_support.py`, unless the table says otherwise.
@@ -331,6 +336,7 @@ The names below are in `_search/connected_support.py`, unless the table says oth
 | Distance of several sectors | `get_distance_connected_support`, which `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` reaches through `core.py` |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Syndrome query | `SupportSearch.find_vector_with_syndrome`, and the root `-1` of `_search_supports` |
+| Coset leaders of Pauli errors | `_ConnectedSupportCosetSearch` and `CosetLeaderSearch` in `_search/coset_leader_search.py` |
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_search/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |

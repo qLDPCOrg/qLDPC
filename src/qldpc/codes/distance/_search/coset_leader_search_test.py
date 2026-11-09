@@ -787,3 +787,49 @@ def _assert_exact_answers(
         assert _get_syndrome(matrix, bound.representative) == syndrome
         assert bound.lower_bound <= minima[syndrome] <= weight
         assert weight <= max_weight if bound.within_max_weight else bound.lower_bound > max_weight
+
+
+@pytest.mark.usefixtures("compilation_mode")
+def test_connected_support_answers_match_exhaustive_minima(pytestconfig: pytest.Config) -> None:
+    """The connected-support engine answers every query exactly, by either measure of weight.
+
+    Graph states with phases are not CSS, and are weighed by physical weight.  Random CSS states,
+    some without pure-X stabilizers, are weighed by both, and the CSS weight splits their searches.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for num_qubits in range(1, 6):
+        edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
+        matrix = _graph_state(num_qubits, edges, phase=True)
+        oracle = CosetLeaderSearch(matrix, method="connected_support")
+        _assert_exact_answers(oracle, matrix, css_weight=False)
+        matrix = _random_css_state(num_qubits, int(rng.integers(num_qubits + 1)), rng)
+        for css_weight in (False, True):
+            oracle = CosetLeaderSearch(matrix, css_weight=css_weight, method="connected_support")
+            _assert_exact_answers(oracle, matrix, css_weight)
+
+
+@pytest.mark.parametrize("css_weight", [False, True])
+def test_connected_support_batches_find_each_class_above_max_weight(
+    css_weight: bool, pytestconfig: pytest.Config
+) -> None:
+    """Batches of the connected-support engine find the classes above ``max_weight`` in turn."""
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    matrix = _random_css_state(4, 2, rng)
+    oracle = CosetLeaderSearch(matrix, css_weight=css_weight, method="connected_support")
+    syndromes = rng.permutation(16).tolist()
+    minima = _css_minima(matrix, css_weight)[syndromes]
+    for max_weight in range(5):
+        words = _syndrome_words(syndromes, 4)
+        found = _find_each_not_within_max_weight(oracle, matrix, words, max_weight)
+        assert found == np.flatnonzero(minima > max_weight).tolist()
+
+
+def test_connected_support_rejects_what_it_cannot_search() -> None:
+    """The engine weighs errors by CSS weight only on CSS states, and other methods are unknown."""
+    with pytest.raises(ValueError, match="only on CSS states"):
+        CosetLeaderSearch(
+            _graph_state(2, [(0, 1)], phase=True), css_weight=True, method="connected_support"
+        )
+    method: Any = "brute_force"
+    with pytest.raises(ValueError, match="Unknown method"):
+        CosetLeaderSearch([[1, 0]], method=method)

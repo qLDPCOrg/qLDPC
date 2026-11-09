@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -34,6 +35,7 @@ def certify_bounded_fault_propagation(
     css_weight: bool | None = None,
     output_qubits: Sequence[int] | None = None,
     memory_limit: int = 2**30,  # 1 GiB
+    method: Literal["brouwer_zimmermann", "connected_support"] = "brouwer_zimmermann",
 ) -> BoundedFaultPropagationCertificate:
     """Certify bounded fault propagation in a noisy Clifford state-preparation circuit.
 
@@ -97,6 +99,13 @@ def certify_bounded_fault_propagation(
         memory_limit: The approximate number of bytes that the search may use for its lookup tables,
             a positive integer.  A smaller limit can make the search slower, but never changes the
             result.  Default: ``2**30`` (1 GiB).
+        method: The exact search of the residual weights: ``"brouwer_zimmermann"`` searches
+            cosets of the stabilizer group by information sets, and ``"connected_support"`` grows
+            errors from their syndromes through the stabilizers, which can be faster if they are
+            sparse (see ``connected_support.md`` in ``src/qldpc/codes/distance/``).  Both certify
+            alike, but a counterexample from ``"connected_support"`` has a weaker bound (see
+            ``BoundedFaultPropagationCounterexample``).  ``"connected_support"`` weighs errors by
+            CSS weight only on CSS states.  Default: ``"brouwer_zimmermann"``.
 
     Returns:
         A certificate of bounded fault propagation, which includes a counterexample if applicable.
@@ -107,8 +116,10 @@ def certify_bounded_fault_propagation(
             ``post_select`` has an invalid type, such as a string or a non-integer index.
         ValueError: If ``max_weight`` or ``memory_limit`` is not positive, if ``output_qubits`` is
             empty, repeats a qubit, or has an index out of range, if ``post_select`` has an index
-            out of range, if the output qubits do not end in one definite stabilizer state, or if
-            Stim cannot convert the circuit to a DEM.
+            out of range, if the output qubits do not end in one definite stabilizer state, if
+            Stim cannot convert the circuit to a DEM, if the method is unknown, or if the method is
+            ``"connected_support"`` and errors on a state that is not CSS are weighed by their CSS
+            weight.
     """
     if max_weight is not None:
         if not is_integer(max_weight):
@@ -144,7 +155,7 @@ def certify_bounded_fault_propagation(
         circuit, stabilizers, qubits, selected
     )
     violation = find_smallest_violation(
-        flags, syndromes, matrix, max_weight, css_weight, int(memory_limit)
+        flags, syndromes, matrix, max_weight, css_weight, int(memory_limit), method
     )
     return BoundedFaultPropagationCertificate(
         output_qubits=qubits,
@@ -261,7 +272,7 @@ class BoundedFaultPropagationCounterexample:
             is 1 if the error anticommutes with the certificate's ``state_stabilizers[j]``.
         residual_weight_lower_bound: A lower bound on the fault's residual weight, which is the
             smallest Pauli weight of an error equivalent to ``output_pauli``; it exceeds
-            ``fault_weight``.
+            ``fault_weight``.  The method ``"connected_support"`` gives ``fault_weight + 1``.
     """
 
     fault_indices: tuple[int, ...]

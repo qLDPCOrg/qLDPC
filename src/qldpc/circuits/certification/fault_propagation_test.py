@@ -8,7 +8,7 @@ import functools
 import itertools
 import operator
 from collections.abc import Collection, Sequence
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -566,6 +566,54 @@ def test_steane_preparation_meets_css_weight_but_not_physical_weight() -> None:
         candidate[qubit] = pauli
         syndrome = tuple(int(not candidate.commutes(ss)) for ss in stabilizers)
         assert syndrome != failure.output_syndrome
+
+
+def test_the_connected_support_method_certifies_alike() -> None:
+    """The connected-support search certifies Steane preparation as the default search does.
+
+    By physical weight, its counterexample is the same fault, whose bound is one more than its
+    fault weight.  The prepared state is CSS, so it can be weighed by its CSS weight too.
+    """
+    circuit = circuits.DepolarizingNoiseModel(1e-3).noisy_circuit(
+        stim.Circuit("""
+            H 0 2 4
+            CX 0 3 2 1 4 5
+            CX 0 1 2 6 4 3
+            CX 2 5 3 6
+            H 7
+            CZ 7 1 7 3 7 5
+            MX 7
+            DETECTOR rec[-1]
+        """)
+    )
+    for css_weight in (True, False):
+        default, connected = (
+            circuits.certify_bounded_fault_propagation(
+                circuit,
+                output_qubits=range(7),
+                post_select=[0],
+                css_weight=css_weight,
+                method=method,
+            )
+            for method in ("brouwer_zimmermann", "connected_support")
+        )
+        assert connected.certified == default.certified == css_weight
+        if not css_weight:
+            _assert_valid_counterexample(connected, circuit)
+            assert default.counterexample is not None and connected.counterexample is not None
+            assert connected.counterexample.fault_indices == default.counterexample.fault_indices
+            bound = connected.counterexample.residual_weight_lower_bound
+            assert bound == connected.counterexample.fault_weight + 1
+
+    # The state of Y on one qubit is not CSS, so the connected-support search cannot weigh it by CSS
+    # weight.
+    method: Any = "brute_force"
+    with pytest.raises(ValueError, match="Unknown method"):
+        circuits.certify_bounded_fault_propagation(circuit, method=method)
+    with pytest.raises(ValueError, match="only on CSS states"):
+        circuits.certify_bounded_fault_propagation(
+            stim.Circuit("H 0\nS 0"), css_weight=True, method="connected_support"
+        )
 
 
 def test_added_flags_match_explicit_flag_detectors() -> None:
