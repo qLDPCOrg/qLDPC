@@ -111,9 +111,9 @@ The third tier is the finishing checks.
 
 Refreshing the saved outputs of a changed notebook, as the :doc:`writing standard <standards/writing>` requires, is part of writing the change, not a check.
 
-CI skips draft pull requests.
-Once a pull request is ready for review, CI runs every check, including the GAP integration tests and the notebook examples that it executes.
-The notebook and GAP integration tests need not run locally.
+CI runs on pull requests that are ready for review, not on drafts.
+It runs the checks that need extra dependencies or platforms, such as the notebook and GAP integration tests, so these need not run locally.
+
 ``all_.py`` runs most checks in one command.
 It skips the per-module coverage gate and ``pyproject.toml`` formatting.
 Running it alongside ``coverage_.py`` runs the tests twice.
