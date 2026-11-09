@@ -242,8 +242,10 @@ def test_weight_bounds_divide_the_step_bounds(pytestconfig: pytest.Config) -> No
     """The weight bounds divide the certificate's bounds by the weight factor, rounding up.
 
     The certificate's bounds come from their definition, and the entries ``[dimension, j]`` for
-    ``j >= 1`` are ``NO_WORD_BOUND``.  This holds for sets of random ranks, including zero, and both
-    weight factors.  Each call returns a table of its own.
+    ``j >= 1`` are ``NO_WORD_BOUND``.  With a parity, each other entry is first rounded up to the
+    least integer of that parity that is at least the entry, except the zero before the first step.
+    This holds for sets of random ranks, including zero, both weight factors, and every parity.
+    Each call returns a table of its own.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for _ in range(60):
@@ -251,8 +253,8 @@ def test_weight_bounds_divide_the_step_bounds(pytestconfig: pytest.Config) -> No
         ranks = tuple(int(rank) for rank in rng.integers(0, dimension + 1, rng.integers(1, 5)))
         divisor, coverage = int(rng.integers(1, 3)), int(rng.integers(1, 3))
         certificate = information_sets.Certificate(dimension, ranks, divisor, coverage)
-        for factor in (1, 2):
-            bounds = certificate.get_weight_bounds(factor)
+        for factor, parity in itertools.product((1, 2), (None, 0, 1)):
+            bounds = certificate.get_weight_bounds(factor, parity)
             assert bounds.shape == (dimension + 1, len(ranks) + 1)
             for layer, num_completed in itertools.product(
                 range(dimension + 1), range(len(ranks) + 1)
@@ -260,6 +262,8 @@ def test_weight_bounds_divide_the_step_bounds(pytestconfig: pytest.Config) -> No
                 bound = _get_lower_bound_from_definition(
                     dimension, ranks, divisor, coverage, layer, num_completed
                 )
+                if parity is not None and (layer, num_completed) != (0, 0):
+                    bound += (bound - parity) % 2
                 expected = (
                     information_sets.NO_WORD_BOUND
                     if layer == dimension and num_completed
@@ -268,7 +272,7 @@ def test_weight_bounds_divide_the_step_bounds(pytestconfig: pytest.Config) -> No
                 assert bounds[layer, num_completed] == expected
             expected_bounds = bounds.copy()
             bounds[:] = -1
-            assert np.array_equal(certificate.get_weight_bounds(factor), expected_bounds)
+            assert np.array_equal(certificate.get_weight_bounds(factor, parity), expected_bounds)
 
 
 @pytest.mark.usefixtures("compilation_mode")

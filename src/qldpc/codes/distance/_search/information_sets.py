@@ -197,19 +197,30 @@ class Certificate:
             )
         )
 
-    def get_weight_bounds(self, weight_factor: int) -> npt.NDArray[np.int64]:
+    def get_weight_bounds(
+        self, weight_factor: int, parity: int | None = None
+    ) -> npt.NDArray[np.int64]:
         """Coverage bounds on the weight of unvisited eligible words after each step.
 
         Every word must weigh at least its Hamming weight divided by ``weight_factor``.  Entry
         ``[w, j]`` is the entry of the table of ``get_step_lower_bounds`` for this certificate,
         divided by ``weight_factor`` and rounded up, except that the entries ``[dimension, j]`` for
-        ``j >= 1`` stay ``NO_WORD_BOUND``, since no word remains unvisited.  The bounds do not
-        decrease in the order of the steps.  Column zero of row zero is zero, and column zero of
-        each later row repeats the last column of the row before.  Each call returns a new table.
+        ``j >= 1`` stay ``NO_WORD_BOUND``, since no word remains unvisited.  If every eligible word
+        has a Hamming weight of parity ``parity``, zero or one, the entries of that table are
+        rounded up to that parity before the division: each becomes the smallest integer of that
+        parity that is at least the entry.  The bounds do not decrease in the order of the steps.
+        Column zero of row zero, which precedes every step, stays zero, and column zero of each
+        later row repeats the last column of the row before.  Each call returns a new table.
         """
+        bounds = self._step_lower_bounds
+        if parity is not None:
+            # Round each finite entry up to the parity, and keep the zero before every step.
+            bounds = bounds + (bounds - parity) % 2 * (bounds < NO_WORD_BOUND)
+            bounds[0, 0] = 0
+
         # Round up by negated floor division, which cannot overflow.  Division shrinks the entries
         # that mean that no word remains, so they are reset.
-        bounds = -(-self._step_lower_bounds // weight_factor)
+        bounds = -(-bounds // weight_factor)
         bounds[self.dimension, 1:] = NO_WORD_BOUND
         return bounds
 

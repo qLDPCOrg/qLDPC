@@ -17,7 +17,9 @@ A distance instance packs the rows of each set with its pivot columns deleted, s
 space restores their weight arithmetically.  Its certificate is the one that the distance search
 selects, with the proven divisor of eligible weights.  A coset instance packs the full rows, which
 the coset search weighs whole.  Its certificate takes no divisor, since the words of a coset need
-not share the divisibility of the code.
+not share the divisibility of the code.  If every word of the code has even Hamming weight, the
+Hamming weights of the words of each coset all have one parity instead, and a coset instance may
+round its bounds up to the parity of each coset.
 """
 
 from __future__ import annotations
@@ -60,6 +62,11 @@ class AffineInstance:
         weight_factor: The factor ``η`` such that every word weighs at least its Hamming weight
             divided by ``η``, so that a bound ``L`` on Hamming weights bounds weights below by
             ``ceil(L / η)``.
+        parity_rounding: Whether the bounds of a coset are rounded up to the parity of the Hamming
+            weights of its words before they are divided by the weight factor.  Only a coset
+            instance does this, if every word of its code has even Hamming weight, so that the words
+            of each coset share a parity, and if some coset has words of odd Hamming weight (see
+            ``get_coset_instance``).
     """
 
     generators: npt.NDArray[np.uint64]
@@ -70,6 +77,7 @@ class AffineInstance:
     ranks: npt.NDArray[np.int64] = field(init=False)
     certificate: information_sets.Certificate
     weight_factor: int = 1
+    parity_rounding: bool = False
 
     def __post_init__(self) -> None:
         assert len(self.generators) == len(self.labels) == len(self.pivots)
@@ -79,13 +87,15 @@ class AffineInstance:
         object.__setattr__(self, "label_widths", label_widths)
         object.__setattr__(self, "ranks", ranks)
 
-    def get_weight_bounds(self) -> npt.NDArray[np.int64]:
+    def get_weight_bounds(self, parity: int | None = None) -> npt.NDArray[np.int64]:
         """Bounds on the weight of the unvisited words after each step of the certificate.
 
-        The table of ``Certificate.get_weight_bounds`` for the weight factor of the instance.  Each
-        call returns a new table.
+        The table of ``Certificate.get_weight_bounds`` for the weight factor of the instance.  With
+        parity rounding, ``parity`` is the parity of the Hamming weights of the words of a coset,
+        zero or one, and the table is that of this parity.  Each call returns a new table.
         """
-        return self.certificate.get_weight_bounds(self.weight_factor)
+        assert parity is None or self.parity_rounding
+        return self.certificate.get_weight_bounds(self.weight_factor, parity)
 
 
 def get_distance_instance(
@@ -125,7 +135,11 @@ def get_distance_instance(
 
 
 def get_coset_instance(
-    generators: npt.NDArray[np.uint8], *, random_column_orders: int, weight_factor: int
+    generators: npt.NDArray[np.uint8],
+    *,
+    random_column_orders: int,
+    weight_factor: int,
+    odd_cosets: bool,
 ) -> AffineInstance:
     """Pack the disjoint information sets of independent generators for the coset search.
 
@@ -137,7 +151,16 @@ def get_coset_instance(
     Hamming weight of the binary word that represents it in the search (see
     ``coset_leader_search.py``).  It is one for a search of X or Z parts.  Without generators, each
     coset is a single word, which the search visits on layer zero of one empty set.
+
+    ``odd_cosets`` says whether some coset has words of odd Hamming weight.  If every generator has
+    even Hamming weight, so does every word ``v`` of the code, and every word ``u + v`` of a coset
+    has the parity of ``|u|``, since ``|u + v| = |u| + |v| - 2 |u ∩ v|``.  The instance then rounds
+    the bounds of each coset up to its parity, if some coset is odd.  The cosets of the embedding of
+    Pauli errors for the physical weight are all even, and rounding up to an even number does not
+    change the bounds of that search, which are halved and rounded up.
     """
+    # Round the bounds to the parity of each coset if the code is even and some coset is odd.
+    parity_rounding = odd_cosets and information_sets.infer_weight_divisor(generators) == 2
     num_generators, num_columns = generators.shape
     if not num_generators:
         width = max(1, (num_columns + 63) // 64)
@@ -148,6 +171,7 @@ def get_coset_instance(
             pivots=np.full((1, 0), -1, dtype=np.int64),
             certificate=information_sets.Certificate(0, (0,)),
             weight_factor=weight_factor,
+            parity_rounding=parity_rounding,
         )
     family = information_sets.get_disjoint_family(
         generators, None, random_column_orders=random_column_orders
@@ -165,4 +189,5 @@ def get_coset_instance(
             num_generators, tuple(int(rank) for rank in family.ranks)
         ),
         weight_factor=weight_factor,
+        parity_rounding=parity_rounding,
     )
