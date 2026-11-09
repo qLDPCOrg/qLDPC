@@ -295,7 +295,8 @@ def test_lifted_product_over_matrix_rings() -> None:
             abstract.RingArray.build([[x], [ring.one - x]], ring),
         )
 
-    # the involution of this ring is not the identity, and the field has odd characteristic
+    # the involution of this ring is not the identity, and the field has odd characteristic, so
+    # these codes depend on the involution and on the signs in their checks
     group_ring = abstract.GroupRing(abstract.CyclicGroup(3), field=3)
     ring = abstract.MatrixRing(group_ring.generators[0].lift())
     assert ring.generators[0].T != ring.generators[0]
@@ -308,7 +309,8 @@ def test_lifted_product_over_matrix_rings() -> None:
 
 def test_lifted_product_ring_requirements() -> None:
     """Lifted products check the requirements on their rings."""
-    # a noncommutative ring must be a group algebra, which is checked before the involution
+    # a noncommutative ring must be a group algebra, which is checked before an involution is
+    # needed, and this ring has none
     upper, lower = np.array([[0, 1], [0, 0]]), np.array([[0, 0], [1, 0]])
     noncommutative_ring = abstract.MatrixRing(np.diag([1, 0]), upper)
     assert not noncommutative_ring.is_commutative and not noncommutative_ring.has_involution
@@ -334,14 +336,22 @@ def test_lifted_product_ring_requirements() -> None:
     assert np.array_equal(subsystem_code.matrix_x, matrix.lift())
     assert np.array_equal(subsystem_code.matrix_z, matrix.lift())
 
-    # canonical logical operators need the Wedderburn-Artin decomposition of a group algebra
-    ring = abstract.MatrixRing(np.diag([1, 0]))
-    assert ring.is_commutative and ring.has_involution
-    matrix = abstract.RingArray.build([[ring.generators[0]]], ring)
+    # canonical logical operators need a group algebra, whether or not the ring has an involution
+    ring_with_involution = abstract.MatrixRing(np.diag([1, 0]))
+    assert ring_with_involution.is_commutative and ring_with_involution.has_involution
+    get_ops = [
+        codes.LPCode.get_canonical_logical_line_ops,
+        codes.SLPCode.get_canonical_logical_line_ops,
+    ]
+    for ring in [ring_with_involution, abstract.MatrixRing(lower)]:
+        matrix = abstract.RingArray.build([[ring.generators[0]]], ring)
+        for get_canonical_logical_line_ops in get_ops:
+            with pytest.raises(NotImplementedError, match="only for group algebras"):
+                get_canonical_logical_line_ops(matrix, matrix)
+    matrix = abstract.RingArray.build([[ring_with_involution.generators[0]]], ring_with_involution)
     for code_type in [codes.LPCode, codes.SLPCode]:
-        with pytest.raises(ValueError, match="Cannot set canonical logical operators") as error:
+        with pytest.raises(ValueError, match="Cannot set canonical logical operators"):
             code_type(matrix, set_logicals=True)
-        assert isinstance(error.value.__cause__, NotImplementedError)
 
 
 def test_lifted_product_sector_sizes() -> None:
