@@ -6,7 +6,7 @@ The connected-support search computes the exact distance of a binary code from t
 The code can be classical, CSS, or a qubit stabilizer code that is not CSS, and the quantum codes can be subsystem codes.
 It is the method `"connected_support"` of the `get_distance_exact` methods of `ClassicalCode`, `QuditCode`, and `CSSCode`.
 Brouwer–Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) is the default.
-The same search also finds light vectors with a given syndrome, such as light Pauli errors with a given syndrome, which `CosetLeaderSearch` and the certifier of bounded fault propagation can use.
+The same search also finds light vectors with a given syndrome, such as Pauli errors, which `CosetLeaderSearch` and the certifier of bounded fault propagation can use.
 It follows Algorithm 2 in Section V of Okada and Kasai (see the [references](#references)), which searches CSS codes by excluding the row space of their stabilizers.
 The idea is older: Richter, Rosnes and Ytrehus, and Khatami et al. search the Tanner graphs of classical LDPC codes for small stopping sets and low-weight codewords.
 Dumer, Kovalev, and Pryadko use the sparsity of the checks in the same way, with irreducible clusters, to verify the distances of classical and quantum LDPC codes, and the program `dist-m4ri` implements a connected-cluster search for exact distances.
@@ -322,7 +322,7 @@ Four parts of a distance search do not carry over:
 - Every vector with the syndrome counts, so the query has no logical test.
 
 The fault-propagation certifier in `qldpc.circuits.certification` uses `CosetLeaderSearch` in `_search/coset_leader_search.py`.
-When its `method` is `"connected_support"`, `CosetLeaderSearch` answers each of its queries with one or two such queries.
+When it is built with `method="connected_support"`, `CosetLeaderSearch` answers each of its queries with at most two such queries.
 It searches the Pauli errors of a state by their physical weight.
 The CSS weight `max(|x|, |z|)` is not a sum over qubits, so for it, on a CSS state, it searches the X and Z parts separately, and on any other state it raises an error.
 

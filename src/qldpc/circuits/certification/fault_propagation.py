@@ -102,9 +102,9 @@ def certify_bounded_fault_propagation(
             result.  Default: ``2**30`` (1 GiB).
         method: The exact search of the residual weights: ``"brouwer_zimmermann"`` searches
             cosets of the stabilizer group by information sets, and ``"connected_support"`` grows
-            errors from their syndromes through generators of the stabilizer group that it first
-            makes sparser, which can be faster when that makes them sparse (see the
-            `connected-support guide
+            errors from their syndromes through generators of the stabilizer group.  It first makes
+            the generators sparser by adding them to each other, and can be faster if the result
+            is sparse (see the `connected-support guide
             <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_).
             Both certify the same circuits, and find the same smallest violating fault, but the
             ``output_pauli`` of a counterexample may be another equivalent error, and with

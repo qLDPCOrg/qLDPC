@@ -569,23 +569,30 @@ def test_steane_preparation_meets_css_weight_but_not_physical_weight() -> None:
 
 
 def test_the_connected_support_method_finds_the_same_fault() -> None:
-    """The connected-support search finds the violating fault of a GHZ fan-out on four qubits.
+    """The connected-support search finds the fault that the default search finds.
 
-    It finds the fault that the default search finds, with the bound one more than its fault weight.
-    The rejection of the CSS weight on a non-CSS state below shows that the method reaches the coset
-    searches.
+    Two primitive faults that each fire the detector pass post-selection together, so the smallest
+    violating fault has two error mechanisms, which the search over combinations of primitive faults
+    finds with the representatives of the coset search.  The bound of this counterexample is one
+    more than its fault weight by either method, and the rejection of the CSS weight on a non-CSS
+    state below shows that the method reaches the coset searches.
     """
-    circuit = stim.Circuit("H 0")
-    for target in range(1, 4):
-        circuit.append("CX", [0, target])
-        circuit.append("DEPOLARIZE2", [0, target], 0.01)
+    circuit = stim.Circuit("""
+        I 0 1 2 3 4
+        CORRELATED_ERROR(0.01) X0 X1 X4
+        CORRELATED_ERROR(0.01) X2 X3 X4
+        M 4
+        DETECTOR rec[-1]
+    """)
     default, result = (
-        circuits.certify_bounded_fault_propagation(circuit, css_weight=False, method=method)
+        circuits.certify_bounded_fault_propagation(
+            circuit, output_qubits=[0, 1, 2, 3], post_select=[0], css_weight=False, method=method
+        )
         for method in ("brouwer_zimmermann", "connected_support")
     )
     _assert_valid_counterexample(result, circuit)
     assert default.counterexample is not None and result.counterexample is not None
-    assert result.counterexample.fault_indices == default.counterexample.fault_indices
+    assert result.counterexample.fault_indices == default.counterexample.fault_indices == (0, 1)
     assert (
         result.counterexample.residual_weight_lower_bound == result.counterexample.fault_weight + 1
     )

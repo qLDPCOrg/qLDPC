@@ -978,9 +978,10 @@ def test_connected_support_answers_match_exhaustive_minima(pytestconfig: pytest.
 
     Graph states with phases are not CSS, and are weighed by physical weight.  CSS states with
     no pure-X stabilizer, with only pure-X stabilizers, and with both are weighed by both measures,
-    and the CSS weight splits their searches.  The engine's bounds are 1 within ``max_weight``, or 0
-    for an empty syndrome, and ``max_weight + 1`` otherwise, and a negative ``max_weight`` admits no
-    error.  Exact bounds within and above the minima imply every bound that the minima allow.
+    and the CSS weight splits their searches.  Within ``max_weight``, the engine's bound is 1, or 0
+    for an empty syndrome.  Otherwise it is ``max(max_weight + 1, int(syndrome != 0))``, since a
+    negative ``max_weight`` admits no error.  These exact bounds imply the inequalities that
+    ``_assert_exact_answers`` checks.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 6):
@@ -1061,7 +1062,10 @@ def test_sparser_rows_span_the_same_space(pytestconfig: pytest.Config) -> None:
 
 
 def test_connected_support_rejects_what_it_cannot_search() -> None:
-    """The engine weighs errors by CSS weight only on CSS states, and other methods are unknown."""
+    """The engine rejects the CSS weight on a non-CSS state, and its batches reject large syndromes.
+
+    Other methods are unknown.
+    """
     with pytest.raises(ValueError, match="only on CSS states"):
         CosetLeaderSearch(
             _graph_state(2, [(0, 1)], phase=True), css_weight=True, method="connected_support"

@@ -731,11 +731,11 @@ def get_vector(
     return vector
 
 
-# Problems for syndrome queries.  The checks of nested-restrictions restrict subtrees.  The second
-# problem has a zero check and a check before its copy, so a query maps its syndrome onto fewer
-# checks, and some syndromes have no vector.  The third is the stabilizers of a pure state: the
-# five-qubit code, with its logical X.  The fourth has only zero checks, and the syndrome 11 of the
-# last needs every variable.
+# Problems for syndrome queries.  The states of nested-restrictions restrict their subtrees.
+# copied-and-zero-checks has a zero check and a check before its copy, so a query maps its syndrome
+# onto fewer checks, and some syndromes have no vector.  five-qubit-state is the stabilizers of a
+# pure state: the five-qubit code, with its logical X.  zero-checks has only zero checks, and the
+# syndrome 11 of identity needs every variable, so a query reaches the limit of their number.
 SYNDROME_PROBLEMS = {
     "nested-restrictions": (PROBLEMS["nested-restrictions"][0], True),
     "copied-and-zero-checks": (
@@ -792,8 +792,8 @@ def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
     """A search from a root of -1 that finds nothing leaves the searches from variables unchanged.
 
     They must start from the empty syndrome, and without the restriction of the empty state of the
-    syndrome query, which these checks have for the syndrome 01001.  The variables of lower rank are
-    blocked only for a variable, and unblocked when its search ends.
+    syndrome query, which these checks have for the syndrome 01001.  Only a root that is a variable
+    blocks the variables of lower rank than it.
     """
     checks = np.array(
         [
@@ -821,13 +821,16 @@ def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
         )
         return sorted(support.tolist())
 
+    # The syndrome query of 01001 restricts its empty state, and finds nothing within the limit.
+    syndrome = (0, 1, 0, 0, 1)
+    assert search.find_vector_with_syndrome(syndrome, 2) is None
     no_syndrome = (0,) * len(checks)
     roots = list(range(checks.shape[1]))
-    for syndrome in itertools.product([0, 1], repeat=len(checks)):
-        if any(syndrome) and search.find_vector_with_syndrome(syndrome, 2) is None:
-            assert search_from([-1, *roots], syndrome) == search_from(roots, no_syndrome)
-            for root in roots:
-                assert search_from([-1, root], syndrome) == search_from([root], no_syndrome)
+    expected = search_from(roots, no_syndrome)
+    assert expected
+    assert search_from([-1, *roots], syndrome) == expected
+    for root in roots:
+        assert search_from([-1, root], syndrome) == search_from([root], no_syndrome)
 
 
 def test_invalid_syndrome_queries_are_rejected() -> None:
