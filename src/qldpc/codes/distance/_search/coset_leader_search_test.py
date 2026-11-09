@@ -442,15 +442,27 @@ def test_layers_reach_their_last_support() -> None:
             assert weight == 0 and best[0] == 0
 
 
-def test_rank_deficient_information_sets_certify_less() -> None:
-    """Qubit 6 is isolated, so an information set is rank-deficient and certifies a weaker bound.
+@pytest.mark.usefixtures("compilation_mode")
+@pytest.mark.parametrize(("syndrome", "minimum"), [(44, 2), (108, 3)])
+def test_rank_deficient_information_sets_give_valid_bounds(syndrome: int, minimum: int) -> None:
+    """Rank-deficient sets give valid bounds whether a weight-two error exists or not.
 
-    Treating that set as full rank would overstate the bound and miss the weight-two error.
+    Qubit 6 is isolated, so the last information set has rank five rather than eight.  Syndrome 44
+    has minimum weight two; treating the set as full rank would miss that error.  Syndrome 108 also
+    flips the isolated qubit's stabilizer, so its minimum is three.  Certifying it at maximum weight
+    two skips the deficient set, whose first two layers contribute nothing to the certificate.
     """
     edges = [(0, 1), (0, 2), (0, 7), (1, 3), (1, 5), (2, 4), (3, 5), (4, 7), (5, 7)]
     matrix = _graph_state(8, edges)
-    assert _class_weights(matrix, 44, False).min() == 2
-    assert CosetLeaderSearch(matrix).get_min_weight_bound(44, 2).within_max_weight
+    assert _class_weights(matrix, syndrome, False).min() == minimum
+    bound = CosetLeaderSearch(matrix).get_min_weight_bound(syndrome, 2)
+    assert bound.within_max_weight == (minimum <= 2)
+    assert bound.lower_bound <= minimum
+    assert _get_syndrome(matrix, bound.representative) == syndrome
+    if bound.within_max_weight:
+        assert _pauli_weight(bound.representative, len(matrix), False) <= 2
+    else:
+        assert bound.lower_bound > 2
 
 
 @pytest.mark.usefixtures("compilation_mode")
