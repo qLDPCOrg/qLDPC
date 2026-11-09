@@ -686,22 +686,19 @@ def _find_first_not_within_max_weight(
     # The stopping step, which a negative layer marks as not found yet.
     stop_layer, stop_num_completed, stop_bound = -1, 0, 0
     for index in range(len(syndromes)):
-        best_weight = _get_syndrome_word(syndromes[index], best, inverse, x_mask, scale)
-        if best_weight <= max_weight:
-            continue
-        if stop_layer < 0:
-            stop_layer, stop_num_completed, stop_bound = _get_stopping_step(planning, max_weight)
-        lower_bound, _ = _search_from_syndrome_word(
+        lower_bound, stop_layer, stop_num_completed, stop_bound = _search_syndrome(
+            syndromes[index],
             max_weight,
+            best,
+            inverse,
+            generators,
+            pivots,
+            planning,
+            x_mask,
+            scale,
             stop_layer,
             stop_num_completed,
             stop_bound,
-            best,
-            best_weight,
-            generators,
-            pivots,
-            x_mask,
-            scale,
         )
         if lower_bound > max_weight:
             return index, lower_bound
@@ -755,23 +752,57 @@ def _search_coset(
         ``max_weight``, if ``best`` has weight at most ``max_weight``, and otherwise a bound that
         exceeds ``max_weight``.
     """
-    best_weight = _get_syndrome_word(syndrome, best, inverse, x_mask, scale)
-    if best_weight <= max_weight:
-        return 0
-    stop_layer, stop_num_completed, stop_bound = _get_stopping_step(planning, max_weight)
-    lower_bound, _ = _search_from_syndrome_word(
-        max_weight,
-        stop_layer,
-        stop_num_completed,
-        stop_bound,
-        best,
-        best_weight,
-        generators,
-        pivots,
-        x_mask,
-        scale,
+    lower_bound, _, _, _ = _search_syndrome(
+        syndrome, max_weight, best, inverse, generators, pivots, planning, x_mask, scale, -1, 0, 0
     )
     return lower_bound
+
+
+@always_compiled(inline=True)
+def _search_syndrome(
+    syndrome: npt.NDArray[np.uint64],
+    max_weight: int,
+    best: npt.NDArray[np.uint64],
+    inverse: npt.NDArray[np.uint64],
+    generators: npt.NDArray[np.uint64],
+    pivots: npt.NDArray[np.int64],
+    planning: _PlanningBuffer,
+    x_mask: npt.NDArray[np.uint64],
+    scale: int,
+    stop_layer: int,
+    stop_num_completed: int,
+    stop_bound: int,
+) -> tuple[int, int, int, int]:
+    """Search the coset of one syndrome, as ``_search_coset`` does, given its stopping step.
+
+    The stopping step and its bound are those of ``_get_stopping_step``, unless ``stop_layer`` is
+    negative, which marks them as not found yet.  They are then found only if the word of the
+    syndrome weighs more than ``max_weight``, so that a batch finds them once, for its first
+    syndrome that needs a search.
+
+    Returns:
+        The lower bound of ``_search_coset``, and the stopping step and its bound.  These are still
+        not found if they were not given and the word of the syndrome weighs at most
+        ``max_weight``.
+    """
+    best_weight = _get_syndrome_word(syndrome, best, inverse, x_mask, scale)
+    lower_bound = 0
+    if best_weight > max_weight:
+        if stop_layer < 0:
+            stop_layer, stop_num_completed, stop_bound = _get_stopping_step(planning, max_weight)
+        lower_bound, _ = _search_from_syndrome_word(
+            max_weight,
+            stop_layer,
+            stop_num_completed,
+            stop_bound,
+            best,
+            best_weight,
+            generators,
+            pivots,
+            x_mask,
+            scale,
+        )
+    return lower_bound, stop_layer, stop_num_completed, stop_bound
 
 
 @always_compiled
@@ -836,7 +867,9 @@ def _search_from_syndrome_word(
 
     Returns:
         The lower bound of ``_search_coset``, and the number of words weighed after the word of the
-        syndrome, which benchmarks of the work of a search read.
+        syndrome.  The searches do not use the number, but
+        ``test_searches_visit_only_the_sets_that_add_to_their_bounds`` reads it to check which sets
+        a search skips.
     """
     num_sets, num_rows, width = generators.shape
 

@@ -136,7 +136,6 @@ def get_instance_of_empty_sets(
         generators=np.zeros((num_sets, dimension, 0), dtype=np.uint64),
         labels=np.zeros((num_sets, dimension, 0), dtype=np.uint64),
         widths=np.zeros(num_sets, dtype=np.int64),
-        label_widths=np.zeros(num_sets, dtype=np.int64),
         pivots=np.full((num_sets, dimension), -1, dtype=np.int64),
         certificate=certificate,
         weight_factor=weight_factor,

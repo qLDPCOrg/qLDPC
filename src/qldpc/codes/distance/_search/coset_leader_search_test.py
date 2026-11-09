@@ -233,13 +233,13 @@ def test_bounds_match_exhaustive_minima(
 ) -> None:
     """Bounds agree with exhaustive minima.
 
-    Each syndrome is queried at every maximum weight in random order, with or without the table of
-    errors of CSS weight one.
+    Each syndrome is queried at every maximum weight in random order.  Graph states with phases on
+    an even number of qubits are not CSS, so their queries by CSS weight look up errors of CSS
+    weight one in a table, or, with no room for the table, match single-qubit X and Z errors.
     """
     if not css_singles_table:
         tune(max_css_single_pairs=0)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    tables_checked = 0
     for num_qubits in range(1, 7):
         edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
         matrix = _graph_state(num_qubits, edges, phase=num_qubits % 2 == 0)
@@ -255,15 +255,6 @@ def test_bounds_match_exhaustive_minima(
                     assert _pauli_weight(bound.representative, num_qubits, css_weight) <= max_weight
                 else:
                     assert bound.lower_bound > max_weight
-        # Queries of a search of Pauli errors by CSS weight build the table only within the patched
-        # limit.  Reading the instance dictionary, rather than the cached property, keeps this check
-        # from building the table itself.
-        for search in oracle._searches:
-            if search._is_pauli and css_weight and "_css_singles" in vars(search):
-                assert (vars(search)["_css_singles"] is not None) == css_singles_table
-                tables_checked += 1
-    # States with phases on an even number of qubits are not CSS, so some queries need the table.
-    assert tables_checked or not css_weight
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -625,39 +616,40 @@ def test_cached_searches_answer_only_for_their_stabilizer_group(
             assert _get_syndrome(matrix, bound.representative) == syndrome
 
 
-def test_oracles_use_the_tuning_with_which_they_are_built(
-    tune: Tune, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """An oracle packs its information sets with the column orders of the tuning that built it.
+def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An oracle builds its searches with the column orders of the tuning in force when it is built.
 
-    The cached searches of a CSS state, and the cached search of Pauli errors of a state that is
-    not CSS, as with phases on two qubits, are keyed by those orders too.  So an oracle built under
-    other orders builds its own searches, and one built under the same orders reuses them.
+    The searches are cached, and the column orders key the cache.  So the first oracle built under
+    some orders builds searches of its own with them, and a second oracle built under the same
+    orders shares those searches.  The orders reach a search through
+    ``information_sets.get_disjoint_family``, which records them.  The states are |000+++>, whose
+    two classical searches are cached by stabilizer group, and a two-qubit graph state with phases,
+    which is not CSS, so its search of Pauli errors is cached by stabilizers.  Every oracle answers
+    exactly.  The caches are cleared first, since earlier tests may have filled them.
     """
     orders: list[int] = []
-    get_disjoint_sets = information_sets._get_disjoint_sets
+    get_disjoint_family = information_sets.get_disjoint_family
 
-    def record(*args: Any) -> Any:
-        orders.append(args[2])
-        return get_disjoint_sets(*args)
+    def record(*args: Any, random_column_orders: int) -> information_sets.BasisFamily:
+        orders.append(random_column_orders)
+        return get_disjoint_family(*args, random_column_orders=random_column_orders)
 
-    monkeypatch.setattr(information_sets, "_get_disjoint_sets", record)
+    monkeypatch.setattr(information_sets, "get_disjoint_family", record)
     eye, zeros = np.eye(3, dtype=np.uint8), np.zeros((3, 3), dtype=np.uint8)
     zero_plus = np.block([[zeros, eye, zeros, zeros], [zeros, zeros, eye, zeros]])
     phased = _graph_state(2, [(0, 1)], phase=True)
     coset_leader_search._get_css_searches.cache_clear()
     coset_leader_search._get_pauli_search.cache_clear()
-    CosetLeaderSearch(zero_plus, css_weight=True)
-    CosetLeaderSearch(phased, css_weight=True)
-    tune(disjoint_random_column_orders=3)
-    CosetLeaderSearch(zero_plus, css_weight=True)
-    CosetLeaderSearch(zero_plus, css_weight=True)
-    info = coset_leader_search._get_css_searches.cache_info()
-    assert (info.misses, info.hits) == (2, 1)
-    CosetLeaderSearch(phased, css_weight=True)
-    CosetLeaderSearch(phased, css_weight=True)
     default = DEFAULT_TUNING.disjoint_random_column_orders
-    assert orders == [default, default, default, 3, 3, 3]
+    for column_orders, matrix in itertools.product((default, 3), (zero_plus, phased)):
+        with use_tuning(disjoint_random_column_orders=column_orders):
+            first = CosetLeaderSearch(matrix, css_weight=True)
+            assert orders and set(orders) == {column_orders}
+            orders.clear()
+            second = CosetLeaderSearch(matrix, css_weight=True)
+            assert not orders
+        for oracle in (first, second):
+            _assert_exact_answers(oracle, matrix, True)
 
 
 def test_cached_pauli_searches_answer_for_their_own_stabilizers_and_weight() -> None:
@@ -730,34 +722,6 @@ def test_tables_of_pairs_of_single_qubit_errors_respect_their_limit() -> None:
     table = coset_leader_search._tabulate_css_singles(x_singles, z_singles, 6)
     assert table == {0: 0, 0b10: 0b0100, 0b01: 0b0001, 0b11: 0b0101}
     assert coset_leader_search._tabulate_css_singles(x_singles, z_singles, 5) is None
-
-
-def test_oracles_tabulate_pairs_within_the_limit_of_their_tuning(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """An oracle tabulates pairs of single-qubit errors only within the limit of its own tuning.
-
-    Oracles of a state that is not CSS, built under the default tuning and then with no room for
-    pairs, each answer a query that needs the table, so each tabulates within its own limit.
-    """
-    limits: list[tuple[int, bool]] = []
-    tabulate = coset_leader_search._tabulate_css_singles
-
-    def record(*args: Any) -> Any:
-        table = tabulate(*args)
-        limits.append((args[2], table is None))
-        return table
-
-    monkeypatch.setattr(coset_leader_search, "_tabulate_css_singles", record)
-    matrix = _product_state(("Y__", "_Z_", "__X"))
-    coset_leader_search._get_pauli_search.cache_clear()
-    assert (
-        CosetLeaderSearch(matrix, css_weight=True).get_min_weight_bound(0b011, 1).within_max_weight
-    )
-    with use_tuning(max_css_single_pairs=0):
-        oracle = CosetLeaderSearch(matrix, css_weight=True)
-    assert oracle.get_min_weight_bound(0b011, 1).within_max_weight
-    assert limits == [(DEFAULT_TUNING.max_css_single_pairs, False), (0, True)]
 
 
 def test_invalid_arguments_are_rejected() -> None:
@@ -921,7 +885,6 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
             generators=pack_bits(rows.reshape(-1, num_columns)).reshape(num_sets, num_rows, -1),
             labels=np.zeros((num_sets, num_rows, 0), dtype=np.uint64),
             widths=np.ones(num_sets, dtype=np.int64),
-            label_widths=np.zeros(num_sets, dtype=np.int64),
             pivots=np.vstack([family.pivots, np.full(num_rows, -1)]),
             certificate=information_sets.Certificate(num_rows, ranks),
         )

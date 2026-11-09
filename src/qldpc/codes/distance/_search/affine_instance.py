@@ -46,7 +46,9 @@ class AffineInstance:
         labels: The packed quotient labels of the rows of each scanned set, with the same first two
             axes, and no words for a problem without labels.
         widths: The number of words of ``generators`` that each scanned set uses.
-        label_widths: The number of words of ``labels`` that each scanned set uses.
+        label_widths: The number of words of ``labels`` that each scanned set uses.  Every set
+            uses all of them, and the array holds a number for each set because the compiled scans
+            take one.
         pivots: The pivot columns of each scanned set, padded with -1, with shape ``(num_sets,
             dimension)``.  They are columns of the full rows, which index ``generators`` only in a
             coset instance.
@@ -63,16 +65,18 @@ class AffineInstance:
     generators: npt.NDArray[np.uint64]
     labels: npt.NDArray[np.uint64]
     widths: npt.NDArray[np.int64]
-    label_widths: npt.NDArray[np.int64]
+    label_widths: npt.NDArray[np.int64] = field(init=False)
     pivots: npt.NDArray[np.int64]
     ranks: npt.NDArray[np.int64] = field(init=False)
     certificate: information_sets.Certificate
     weight_factor: int = 1
 
     def __post_init__(self) -> None:
-        assert len(self.generators) == len(self.pivots)
+        assert len(self.generators) == len(self.labels) == len(self.pivots)
         assert self.certificate.dimension == self.generators.shape[1]
+        label_widths = np.full(len(self.labels), self.labels.shape[2], dtype=np.int64)
         ranks = np.count_nonzero(self.pivots >= 0, axis=1).astype(np.int64)
+        object.__setattr__(self, "label_widths", label_widths)
         object.__setattr__(self, "ranks", ranks)
 
     def get_weight_bounds(self) -> npt.NDArray[np.int64]:
@@ -124,7 +128,6 @@ def get_distance_instance(
         generators=packed_generators,
         labels=packed_labels,
         widths=widths,
-        label_widths=np.full(len(packed_labels), packed_labels.shape[2], dtype=np.int64),
         pivots=basis_family.pivots,
         certificate=certificate,
     )
@@ -151,7 +154,6 @@ def get_coset_instance(
             generators=np.zeros((1, 0, width), dtype=np.uint64),
             labels=np.zeros((1, 0, 0), dtype=np.uint64),
             widths=np.full(1, width, dtype=np.int64),
-            label_widths=np.zeros(1, dtype=np.int64),
             pivots=np.full((1, 0), -1, dtype=np.int64),
             certificate=information_sets.Certificate(0, (0,)),
             weight_factor=weight_factor,
@@ -167,7 +169,6 @@ def get_coset_instance(
         generators=packed_generators,
         labels=np.zeros((num_sets, num_generators, 0), dtype=np.uint64),
         widths=np.full(num_sets, packed_generators.shape[2], dtype=np.int64),
-        label_widths=np.zeros(num_sets, dtype=np.int64),
         pivots=family.pivots,
         certificate=information_sets.Certificate(
             num_generators, tuple(int(rank) for rank in family.ranks)
