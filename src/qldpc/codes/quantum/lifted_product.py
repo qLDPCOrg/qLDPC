@@ -97,8 +97,8 @@ class LPCode(CSSCode):
         field characteristic that does not divide the order of the group.  Lifted products of binary
         codes over groups of even order are common but fail this condition, so ``set_logicals``
         defaults to False, and if it is True for a group algebra that fails it, a ValueError is
-        raised.  The canonical logical operators assume lifts to orthogonal matrices, and for other
-        lifts, a ValueError is raised if they are not valid logical operators.
+        raised.  The canonical logical operators assume lifts to orthogonal matrices.  For other
+        lifts, a ValueError is raised if these operators are invalid.
         """
         if matrix_b is None:
             matrix_b = matrix_a
@@ -131,13 +131,16 @@ class LPCode(CSSCode):
             )
 
         if set_logicals:
-            _set_canonical_logical_ops(self)
+            _set_canonical_logical_line_ops(self)
 
     @staticmethod
     def get_canonical_logical_line_ops(
         matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Canonical logical line operators for a lifted product code."""
+        """Canonical logical line operators for a lifted product code.
+
+        These operators assume lifts to orthogonal matrices.
+        """
         logical_ops_xz = LPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
         return LPCode.to_lifted_logical_ops(*logical_ops_xz)
 
@@ -271,13 +274,16 @@ class SLPCode(CSSCode):
         # TODO: set self._stabilizer_ops
 
         if set_logicals:
-            _set_canonical_logical_ops(self)
+            _set_canonical_logical_line_ops(self)
 
     @staticmethod
     def get_canonical_logical_line_ops(
         matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Canonical logical line operators for a subsystem lifted product code."""
+        """Canonical logical line operators for a subsystem lifted product code.
+
+        These operators assume lifts to orthogonal matrices.
+        """
         logical_ops_xz = SLPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
         return SLPCode.to_lifted_logical_ops(*logical_ops_xz)
 
@@ -323,25 +329,26 @@ def _has_orthogonal_lifts(ring: abstract.GroupRing) -> bool:
     )
 
 
-def _set_canonical_logical_ops(code: LPCode | SLPCode) -> None:
+def _set_canonical_logical_line_ops(code: LPCode | SLPCode) -> None:
     """Set the canonical logical line operators of a lifted product code."""
     try:
-        logical_ops_xz = code.get_canonical_logical_line_ops(code.matrix_a, code.matrix_b)
+        logical_ops_xz = code.get_canonical_ring_logical_line_ops(code.matrix_a, code.matrix_b)
     except (ValueError, NotImplementedError) as exception:
         raise ValueError(
             "Cannot set canonical logical operators for this code, likely due to a choice of group"
             " algebra for which some features are not yet supported"
         ) from exception
 
-    # the canonical operators assume lifts to orthogonal matrices, so they can be invalid for other
-    # lifts; for orthogonal lifts, a validation failure is a real bug in the operators
+    # for lifts to orthogonal matrices, failing to lift or validate these operators is a real bug
     if _has_orthogonal_lifts(code.matrix_a.ring):
-        code.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
-    else:
-        try:
-            code.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
-        except ValueError as exception:
-            raise ValueError(
-                "Cannot set canonical logical operators for this code, whose group algebra lifts"
-                " members to matrices that are not orthogonal"
-            ) from exception
+        code.set_logical_ops_xz(*code.to_lifted_logical_ops(*logical_ops_xz), skip_validation=False)
+        return
+
+    # these operators assume lifts to orthogonal matrices, so they can fail to lift or be invalid
+    try:
+        code.set_logical_ops_xz(*code.to_lifted_logical_ops(*logical_ops_xz), skip_validation=False)
+    except ValueError as exception:
+        raise ValueError(
+            "Cannot set canonical logical operators for this code, whose group algebra lifts"
+            " members to matrices that are not orthogonal"
+        ) from exception

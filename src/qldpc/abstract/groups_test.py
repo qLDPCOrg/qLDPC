@@ -139,16 +139,23 @@ def test_generate_is_lazy() -> None:
 
 
 def test_generate_after_sympy_changes_order() -> None:
-    """Indexed members keep their order when SymPy changes the order in which it generates them."""
-    group = abstract.SymmetricGroup(4)
-    members = list(group.generate())
-    group.index(members[0])
+    """Groups keep the order of their members when SymPy changes the order of its group."""
+    members = list(abstract.SymmetricGroup(4).generate())
     subgroup = sympy.combinatorics.PermutationGroup(sympy.combinatorics.Permutation([0, 1, 3, 2]))
-    group.to_sympy().coset_transversal(subgroup)
-    assert list(map(abstract.GroupMember.from_sympy, group.to_sympy().generate())) != members
-    assert list(group.generate()) == members
-    aa, bb = group.generators
-    assert np.array_equal(group.lift(aa * bb), group.lift(aa) @ group.lift(bb))
+
+    # change the order of members in SymPy, before or after indexing the members of a group
+    for index_first in [False, True]:
+        group = abstract.SymmetricGroup(4)
+        if index_first:
+            group.index(members[0])
+        group.to_sympy().coset_transversal(subgroup)
+        assert list(map(abstract.GroupMember.from_sympy, group.to_sympy().generate())) != members
+
+        # the group keeps its order of members, so regular lifts remain representations
+        assert list(group.generate()) == members
+        assert [group.index(member) for member in members] == list(range(len(members)))
+        aa, bb = group.generators
+        assert np.array_equal(group.lift(aa * bb), group.lift(aa) @ group.lift(bb))
 
 
 def test_regular_lift_returns_independent_arrays() -> None:

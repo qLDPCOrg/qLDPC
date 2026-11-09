@@ -293,7 +293,8 @@ class RingMember:
     """An element of the algebra of a group G over a finite field ``F_q``.
 
     Each RingMember x is a sum of group members with coefficients in the field:
-    ``x = sum_{g in G} x_g g``, with each ``x_g in F_q``.
+    ``x = sum_{g in G} x_g g``, with each ``x_g in F_q``.  Members of a group algebra combine only
+    with members of an equal group algebra.
     """
 
     _ring: GroupRing
@@ -338,8 +339,8 @@ class RingMember:
             ]
 
         else:
-            # general-purpose fallback, which writes members as products of the generators of the
-            # group, which may differ from those of its SymPy group
+            # general-purpose fallback: write members as words in Group.generators, which can differ
+            # from the generators of the SymPy group
             sympy_group = sympy.combinatorics.PermutationGroup(self.group.generators)
             gen_to_symbol = {gen: symbol for gen, symbol in zip(sympy_group.generators, symbols)}
             gen_to_symbol |= {
@@ -350,6 +351,7 @@ class RingMember:
 
             terms = []
             for x_g, gg in self:
+                # SymPy's factors [s_1, ..., s_n] give g = s_n * ... * s_1
                 gens = sympy_group.generator_product(gg, original=True)[::-1]
                 factors = [gen_to_symbol[gen] for gen in gens]
                 monomial = functools.reduce(operator.mul, factors, 1)
@@ -374,6 +376,7 @@ class RingMember:
 
     def __add__(self, other: int | galois.FieldArray | GroupMember | RingMember) -> RingMember:
         if isinstance(other, (int, self.field)):
+            # multiply on the right, since galois raises an error for a field scalar on the left
             return self + self.ring.one * other
 
         if isinstance(other, GroupMember):
@@ -567,8 +570,7 @@ class RingMember:
 
     def _check_same_ring(self, other: RingMember) -> None:
         """Raise a ValueError unless another ring member belongs to an equal group algebra."""
-        # skip comparing a ring with itself, which is common
-        if self.ring is not other.ring and self.ring != other.ring:
+        if self.ring != other.ring:
             raise ValueError("Cannot combine members of different group algebras")
 
 

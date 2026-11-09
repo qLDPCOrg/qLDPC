@@ -279,8 +279,7 @@ def test_lifted_product_translations() -> None:
 
 def test_lifted_product_with_non_orthogonal_lifts() -> None:
     """LPCode verifies that its X and Z checks commute when lifts are not orthogonal."""
-    # LPCode tests whether every generator lifts to an orthogonal matrix, so it rejects checks that
-    # do not commute even when the lift of the first generator is orthogonal
+    # the first generator of this group lifts to an orthogonal matrix, and the second does not
     swap = [[0, 1, 0, 0], [1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
     shear = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 1], [0, 0, 0, 1]]
     ring = abstract.GroupRing(
@@ -299,8 +298,8 @@ def test_lifted_product_with_non_orthogonal_lifts() -> None:
     code = codes.LPCode(abstract.RingArray.build([[second]], ring))
     assert not np.any(code.matrix_x @ code.matrix_z.T)
 
-    # this generator lifts to a symmetric matrix, which equals its transpose but is not orthogonal.
-    # In odd characteristic, the sign in the Z checks of this code keeps its checks from commuting.
+    # this generator lifts to a symmetric matrix that is not orthogonal, and in odd characteristic,
+    # the minus sign in the Z checks of lifted products keeps the checks of [[g]] from commuting
     group = abstract.Group.from_generating_mats(galois.GF(5)([[1, 1], [1, 4]]))
     ring = abstract.GroupRing(group, field=5)
     (generator,) = ring.generators
@@ -311,15 +310,26 @@ def test_lifted_product_with_non_orthogonal_lifts() -> None:
 
 
 def test_canonical_logicals_with_non_orthogonal_lifts() -> None:
-    """Lifted products set canonical logical operators for other lifts only if they are valid."""
-    group = abstract.Group.from_generating_mats(galois.GF(5)([[1, 1], [0, 4]]))
+    """Lifted products with lifts that are not orthogonal set only valid canonical logicals."""
+    group = abstract.Group.from_generating_mats(galois.GF(5)([[1, 2], [0, 4]]))
     ring = abstract.GroupRing(group, field=5)
     (generator,) = ring.generators
     assert not np.array_equal(generator.lift() @ generator.lift().T, np.eye(2, dtype=int))
-    for code_type in [codes.LPCode, codes.SLPCode]:
+    code_types: list[type[codes.LPCode | codes.SLPCode]] = [codes.LPCode, codes.SLPCode]
+    for code_type in code_types:
+        # these canonical logical operators are valid
         code = code_type(
             abstract.RingArray.build([[generator, generator]], ring), set_logicals=True
         )
-        assert len(code.get_logical_ops()) == 2 * code.dimension > 0
-        with pytest.raises(ValueError, match="not orthogonal"):
-            code_type(abstract.RingArray.build([[ring.one + generator]], ring), set_logicals=True)
+        logical_ops_x, logical_ops_z = code.get_canonical_logical_line_ops(
+            code.matrix_a, code.matrix_b
+        )
+        assert code.dimension > 0
+        assert np.array_equal(code.get_logical_ops(Pauli.X), logical_ops_x)
+        assert np.array_equal(code.get_logical_ops(Pauli.Z), logical_ops_z)
+
+        # these canonical logical operators fail validation, and these fail to lift
+        for value in [ring.one - generator, ring.one + generator]:
+            matrix = abstract.RingArray.build([[value]], ring)
+            with pytest.raises(ValueError, match=r"canonical logical operators.*not orthogonal"):
+                code_type(matrix, set_logicals=True)

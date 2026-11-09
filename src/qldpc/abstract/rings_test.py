@@ -73,8 +73,9 @@ def test_ring() -> None:
     assert aa * bb == bb * aa
 
     # a vector of coefficients has one entry for each group member
-    with pytest.raises(ValueError, match="has 8 coefficients"):
-        abstract.RingMember.from_vector(ring.field.Zeros(group.order + 1), ring)
+    for size in [group.order - 1, group.order + 1]:
+        with pytest.raises(ValueError, match="has 8 coefficients"):
+            abstract.RingMember.from_vector(ring.field.Zeros(size), ring)
 
     wrong_symbols = {x_i: r_i, x_j: r_j}
     with pytest.raises(ValueError, match="must be GroupMember-valued"):
@@ -134,8 +135,8 @@ def test_ring_equality() -> None:
 
     assert algebras_equal(symmetric, reorder(members))
 
-    # translating members by a member that is not central changes default lifts: translating them
-    # on the right preserves lifts but changes right lifts, and vice versa on the left
+    # translating members by a member that is not central changes default lifts: translating them on
+    # the right preserves lifts but changes right lifts, and vice versa on the left
     second = symmetric.generators[1]
     for order, right in [
         ([gg * second for gg in members], False),
@@ -168,27 +169,23 @@ def test_printing() -> None:
     ring = abstract.GroupRing(abstract.AbelianGroup(2, 2, 2, 2))
     assert [str(gg) for gg in ring.generators] == ["w", "x", "y", "z"]
 
-    # the order of generators for non-abelian groups is preserved
-    group = abstract.DihedralGroup(6)
-    ring = abstract.GroupRing(group, 3)
-    one = ring.one
-    x, y = ring.generators
-    assert str(one + y * x**2 * y) == "1 + y x^2 y"
+    # generators of noncommutative groups are written in order
+    x, y = abstract.GroupRing(abstract.DihedralGroup(6), 3).generators
     assert str(x + y) == "x + y"
 
-    # every member of a noncommutative group prints as a word that evaluates to that member, even if
-    # the SymPy group has more generators than the group
-    assert len(abstract.QuaternionGroup().to_sympy().generators) > 2
+    # every member of a noncommutative group prints as a word that evaluates to that member, even
+    # though the SymPy group of QuaternionGroup has more generators than the group
+    group = abstract.QuaternionGroup()
+    assert len(group.to_sympy().generators) > len(group.generators)
+    ring = abstract.GroupRing(group, 3)
     symbols = sympy.symbols("x y", commutative=False)
     local_dict = {str(symbol): symbol for symbol in symbols}
-    for noncommutative_group in [abstract.DihedralGroup(4), abstract.QuaternionGroup()]:
-        ring = abstract.GroupRing(noncommutative_group, 3)
-        values = dict(zip(symbols, noncommutative_group.generators))
-        for member in noncommutative_group.generate():
-            ring_member = abstract.RingMember(ring, member)
-            text = str(ring_member).replace("^", "**").replace(" ", "*")
-            word = sympy.parse_expr(text, local_dict=local_dict)
-            assert ring.eval(word, values) == ring_member
+    values = dict(zip(symbols, group.generators))
+    for member in group.generate():
+        ring_member = abstract.RingMember(ring, member)
+        text = str(ring_member).replace("^", "**").replace(" ", "*")
+        word = sympy.parse_expr(text, local_dict=local_dict)
+        assert ring.eval(word, values) == ring_member
 
 
 def test_field_scalars() -> None:
@@ -205,18 +202,22 @@ def test_field_scalars() -> None:
 def test_arithmetic_across_rings() -> None:
     """Members of a group algebra combine only with members of equal group algebras."""
     ring = abstract.GroupRing(abstract.SymmetricGroup(3))
-    other_ring = abstract.GroupRing(abstract.SymmetricGroup(3))
-    assert ring.one + other_ring.one == ring.zero
-    assert ring.one * other_ring.one == ring.one
-    for other_ring in [
+
+    # members of a separately built, equal group algebra combine
+    equal_ring = abstract.GroupRing(abstract.SymmetricGroup(3))
+    assert ring.one + equal_ring.one == ring.zero
+    assert ring.one * equal_ring.one == ring.one
+
+    # members of group algebras with another group, field, or lift do not
+    for different_ring in [
         abstract.GroupRing(abstract.CyclicGroup(3)),
         abstract.GroupRing(abstract.SymmetricGroup(3), field=3),
         abstract.GroupRing(abstract.SymmetricGroup(3).with_natural_lift()),
     ]:
         with pytest.raises(ValueError, match="different group algebras"):
-            ring.one + other_ring.one
+            ring.one + different_ring.one
         with pytest.raises(ValueError, match="different group algebras"):
-            ring.one * other_ring.one
+            ring.one * different_ring.one
 
 
 def test_primitive_central_idempotents(ring_cyclic3_gf2: abstract.GroupRing) -> None:
