@@ -714,7 +714,8 @@ A **query** of `CosetLeaderSearch` asks whether the coset of a syndrome has a wo
 `CosetLeaderSearch` answers each query with one or two **coset searches**: a search of Pauli errors, or, for the CSS weight on a CSS state, searches of their X and Z parts, as described at the end of this section.
 Each coset search is built from a **coset instance**, which `get_coset_instance` packs from the full rows of the disjoint sets of its code.
 The certificate of a coset instance applies unchanged, except that it takes no weight divisor, because the words of a coset need not share the divisibility of `V`, even when `get_disjoint_family` infers a divisor for `V`.
-If every word of `V` has even weight, and some coset of the search has odd words, the instance instead rounds its bounds up to the parity of each coset ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)); `AffineInstance.parity_rounding` records this.
+If every word of `V` has even weight, the bounds of each coset may instead be rounded up to its parity ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)), which `AffineInstance.get_weight_bounds` does when it is given the parity.
+`_get_search_tables` rounds them when some coset of the search is odd, which holds exactly when some row of the right inverse of its checks is odd.
 In a search of Pauli errors, an error weighs at least half the Hamming weight of the binary word that represents it.
 So the instance of such a search has a **weight factor** of two: `AffineInstance.get_weight_bounds` divides the bounds of its certificate by two, rounding up, after any rounding to parity.
 A query of a coset search asks the same of a coset of its code, whose words have syndromes for the checks of that code.
@@ -781,7 +782,7 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Automorphisms, generators of `G` | `automorphisms`, whose row `i` maps column `j` to column `automorphisms[i, j]`, as returned by `get_automorphisms`; `_found_qudit_automorphisms` and `_get_qudit_automorphisms` of `QuditCode` |
 | Automorphism family | `get_automorphism_family` of [_search/automorphism_families.py](_search/automorphism_families.py), which returns a `BasisFamily` of the scanned set and the `Certificate` of all of its images; `_switch_to_automorphism_family` adopts them, and sets `uses_automorphism_family` of the search |
 | Last completed layer `t`, next layer | `completed_weight`, `next_weight` |
-| Divisor `D` | `Certificate.weight_divisor`, in Hamming units of the searched basis. Coset searches of even codes round to the parity of each coset instead (`AffineInstance.parity_rounding`). |
+| Divisor `D` | `Certificate.weight_divisor`, in Hamming units of the searched basis. Coset searches of even codes round to the parity of each coset instead (`_get_search_tables`). |
 | Maximum coverage `C` | `Certificate.max_coverage` |
 | Dimension `r`, block rank `r_i` | `dimension`, `ranks` (`BasisFamily.ranks`). `AffineInstance.ranks` holds the ranks of the packed sets of a search, counted from their pivots, as a native array. |
 | Search basis and its block | One set of a `BasisFamily`: its entries of `generators`, `labels`, `pivots`, and `ranks`; the recorded block is the pivot subset, as explained below |

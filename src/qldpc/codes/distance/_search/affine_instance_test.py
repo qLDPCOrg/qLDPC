@@ -22,8 +22,8 @@ def test_coset_bounds_hold_for_every_unvisited_word(pytestconfig: pytest.Config)
     The codes are random, so some of their disjoint information sets are rank deficient, and the
     words of each coset are enumerated through every set (see ``_get_unvisited_minima``).  A word
     weighs at least its Hamming weight divided by the weight factor, which is one or two.  Half of
-    the codes get a last column with the parity of each row, which makes them even, and their
-    bounds are those of the parity of the coset.
+    the codes get a last column with the parity of each row, which makes them even, and the bounds
+    of their cosets are rounded to the parity of the coset.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for _ in range(40):
@@ -33,12 +33,11 @@ def test_coset_bounds_hold_for_every_unvisited_word(pytestconfig: pytest.Config)
             generators = np.hstack([generators, generators.sum(axis=1, keepdims=True) % 2])
         factor = int(rng.integers(1, 3))
         instance = affine_instance.get_coset_instance(
-            generators, random_column_orders=0, weight_factor=factor, odd_cosets=True
+            generators, random_column_orders=0, weight_factor=factor
         )
         offset = np.asarray(rng.integers(2, size=generators.shape[1]), dtype=np.uint8)
-        bounds = instance.get_weight_bounds(
-            int(offset.sum()) % 2 if instance.parity_rounding else None
-        )
+        even = not np.any(generators.sum(axis=1) % 2)
+        bounds = instance.get_weight_bounds(int(offset.sum()) % 2 if even else None)
         for step, minimum in _get_unvisited_minima(instance, generators, offset).items():
             assert -(-minimum // factor) >= bounds[step]
 
@@ -56,7 +55,7 @@ def test_coset_bounds_round_up_to_the_parity_of_each_coset() -> None:
     """
     generators = np.kron(np.eye(3), np.ones((1, 2))).astype(np.uint8)
     instance = affine_instance.get_coset_instance(
-        generators, random_column_orders=0, weight_factor=1, odd_cosets=True
+        generators, random_column_orders=0, weight_factor=1
     )
     for parity, offset in enumerate(([0, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0])):
         bounds = instance.get_weight_bounds(parity)
@@ -96,7 +95,7 @@ def test_coset_instances_keep_every_column(pytestconfig: pytest.Config) -> None:
     generators = get_random_full_rank_matrix(rng, 5, 70)
     family = information_sets.get_disjoint_family(generators, None, random_column_orders=0)
     instance = affine_instance.get_coset_instance(
-        generators, random_column_orders=0, weight_factor=2, odd_cosets=True
+        generators, random_column_orders=0, weight_factor=2
     )
     assert instance.weight_factor == 2
     assert np.array_equal(instance.ranks, family.ranks)
@@ -109,7 +108,7 @@ def test_coset_instances_keep_every_column(pytestconfig: pytest.Config) -> None:
     assert not instance.label_widths.any()
 
     empty = affine_instance.get_coset_instance(
-        np.zeros((0, 70), dtype=np.uint8), random_column_orders=0, weight_factor=2, odd_cosets=True
+        np.zeros((0, 70), dtype=np.uint8), random_column_orders=0, weight_factor=2
     )
     assert empty.generators.shape == (1, 0, 2)
     assert np.array_equal(empty.widths, [2])

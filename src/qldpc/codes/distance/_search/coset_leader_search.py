@@ -409,9 +409,9 @@ class _CosetSearch:
         self._inverse_rows = inverse_rows
         self._num_syndrome_bits = len(inverse_rows)
         # A search of X or Z parts that rounds its bounds to the parity of each coset (see
-        # ``_get_planning``) also rounds the lower bound of a coset without words of weight at most
-        # one from two to three if the coset is odd.  Searches of Pauli errors gain nothing from
-        # this, since their bounds are halved and rounded up.
+        # ``_get_search_tables``) also rounds the lower bound of a coset without words of weight at
+        # most one from two to three if the coset is odd.  Searches of Pauli errors gain nothing
+        # from this, since their bounds are halved and rounded up.
         self._rounds_lookups_to_parity = not is_pauli and len(tables.planning) == 2
 
         # Map each syndrome of a word of weight zero or one to such a word: a single bit, or a
@@ -619,13 +619,9 @@ def _get_pauli_search(
     embedded_stabilizers = stabilizers if css_weight else symplectic_to_hamming(stabilizers)
     embedded_inverse = inverse if css_weight else symplectic_to_hamming(inverse)
     # An error weighs at least half of the Hamming weight of its embedded word, by either measure of
-    # weight, so the certificate bounds are halved.  For the CSS weight, an embedded word is a
-    # packed Pauli, and some cosets are odd.  For the physical weight, every embedded word is even.
+    # weight, so the certificate bounds are halved.
     instance = affine_instance.get_coset_instance(
-        embedded_stabilizers,
-        random_column_orders=random_column_orders,
-        weight_factor=2,
-        odd_cosets=css_weight,
+        embedded_stabilizers, random_column_orders=random_column_orders, weight_factor=2
     )
     tables = _get_search_tables(instance, embedded_inverse, num_qubits)
     check_columns = _row_ints(np.ascontiguousarray(checks.T))
@@ -675,13 +671,12 @@ def _get_classical_search(
 
     The row space of the generators is the null space of the independent checks, so each coset is
     labeled by its syndrome for the checks.  Words are weighed by their Hamming weight, which the BZ
-    certificate bounds directly, so its bounds are not halved.  Every word of ``n`` bits is in a
-    coset, so the cosets of words of odd weight are odd.
+    certificate bounds directly, so its bounds are not halved.
     """
     num_qubits = generators.shape[1]
     inverse = _get_inverse(checks)
     instance = affine_instance.get_coset_instance(
-        generators, random_column_orders=random_column_orders, weight_factor=1, odd_cosets=True
+        generators, random_column_orders=random_column_orders, weight_factor=1
     )
     # Every column counts as the X part, so the CSS weight of a word is its Hamming weight.
     tables = _get_search_tables(instance, inverse, num_qubits)
@@ -755,12 +750,24 @@ def _get_search_tables(
     """Build the tables of ``_search_coset`` for the cosets of the code of a coset instance.
 
     ``inverse`` holds embedded words whose syndromes have one bit set, and the first
-    ``num_x_columns`` columns count as the X part of an embedded word.  With parity rounding, the
-    planning buffer holds the bounds of even cosets and then those of odd cosets.
+    ``num_x_columns`` columns count as the X part of an embedded word.
+
+    The search rounds its bounds to the parity of each coset if every word of the code has even
+    Hamming weight, so that the words of each coset share a parity (see ``get_coset_instance``), and
+    some coset is odd.  The word of a syndrome sums rows of ``inverse``, so some coset is odd
+    exactly when some row is.  The planning buffer then holds the bounds of even cosets and then
+    those of odd cosets, and otherwise one table of bounds for every coset.  If the code and every
+    row of ``inverse`` are even, every coset is even.  This happens only in the search of Pauli
+    errors by physical weight, whose bounds are halved, so that rounding them up to even would
+    change none.
     """
     width = instance.generators.shape[2]
     x_mask = _int_to_words((1 << num_x_columns) - 1, width)
-    parities = (0, 1) if instance.parity_rounding else (None,)
+    # The rows of any one information set span the code.
+    code_rows = unpack_bits(instance.generators[0], inverse.shape[1])
+    even_code = information_sets.infer_weight_divisor(code_rows) == 2
+    odd_cosets = bool(np.any(np.count_nonzero(inverse, axis=1) % 2))
+    parities = (0, 1) if even_code and odd_cosets else (None,)
     return _CosetSearchTables(
         pack_bits(inverse),
         instance.generators,
@@ -775,11 +782,11 @@ def _get_planning(tables: Sequence[npt.NDArray[np.int64]]) -> _PlanningBuffer:
 
     The compiled search takes the bounds and its cached stopping steps in this one array, since each
     argument of a compiled call adds to the time of every query.  The buffer stacks one table for
-    each given table of bounds.  A search with parity rounding (see
-    ``AffineInstance.parity_rounding``) gives two tables: table ``p`` holds the bounds of the cosets
-    whose words have Hamming weights of parity ``p``, and ``_search_coset`` reads the table of the
-    parity of its coset.  Other searches give one table, for every coset.  Each table of the buffer
-    has one more row than the bounds:
+    each given table of bounds.  A search that rounds its bounds to parity (see
+    ``_get_search_tables``) gives two tables: table ``p`` holds the bounds of the cosets whose words
+    have Hamming weights of parity ``p``, and ``_search_coset`` reads the table of the parity of its
+    coset.  Other searches give one table, for every coset.  Each table of the buffer has one more
+    row than the bounds:
 
     - Every row but the last holds the bounds of ``AffineInstance.get_weight_bounds``: entry
       ``[w, j]`` bounds the weight of every word that the search has not visited once the first

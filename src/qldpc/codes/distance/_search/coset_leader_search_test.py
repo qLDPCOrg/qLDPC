@@ -620,15 +620,17 @@ def test_css_bounds_match_exhaustive_minima(pytestconfig: pytest.Config) -> None
 def test_css_weight_searches_of_even_stabilizers_are_exact() -> None:
     """Searches of Pauli errors by CSS weight that round to the parity of each class are exact.
 
-    The state is the graph state of a cycle of eight qubits with S on each qubit, whose stabilizers
-    ``Z Y Z`` on three consecutive qubits have even weight as binary words ``(x|z)``.  It is not
-    CSS, so the oracle searches its Pauli errors.  The errors of a syndrome class share the parity
-    of ``|x| + |z|``, and the search rounds the bounds of each class up to that parity before it
-    halves them.  The classes have both parities, and every query agrees with exhaustive minima.
-    Bounds rounded to odd parity for an even class would stop some searches before they find an
-    error of CSS weight two.
+    The state is the graph state of a triangle on qubits 2, 5, and 6, with qubit 1 joined to qubit
+    2 and qubits 0, 3, and 4 isolated, after S on each qubit of even degree.  Its stabilizers have
+    even weight as binary words ``(x|z)``, and it is not CSS, so the oracle searches its Pauli
+    errors.  The errors of a syndrome class share the parity of ``|x| + |z|``, and the search rounds
+    the bounds of each class up to that parity before it halves them.  Every query agrees with
+    exhaustive minima.  For syndrome 57, whose class has minimum two, the word of the syndrome has
+    Hamming weight four but CSS weight three.  The bounds of odd classes would stop its search at
+    maximum weight two before it finds an error of weight two.
     """
-    matrix = _graph_state(8, [(qubit, (qubit + 1) % 8) for qubit in range(8)], phase=True)
+    generators = ("Y______", "_XZ____", "_ZX__ZZ", "___Y___", "____Y__", "__Z__YZ", "__Z__ZY")
+    matrix = _stabilizer_matrix([stim.PauliString(pauli) for pauli in generators])
     _assert_exact_answers(CosetLeaderSearch(matrix, css_weight=True), matrix, True)
 
 
@@ -917,13 +919,16 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
             range(1 << len(checks)), range(num_columns + 1)
         ):
             best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
-            best_weight, _ = coset_leader_search._get_syndrome_word(
+            best_weight, parity = coset_leader_search._get_syndrome_word(
                 _syndrome_words([syndrome], len(checks))[0], best, tables.inverse, tables.x_mask, 1
             )
             if best_weight <= max_weight:
                 continue
+            # An even code has a table of bounds for each parity of its cosets (see
+            # ``_search_coset``).
+            table = tables.planning[parity] if len(tables.planning) == 2 else tables.planning[0]
             stop_layer, stop_num_completed, stop_bound = coset_leader_search._get_stopping_step(
-                tables.planning[0], max_weight
+                table, max_weight
             )
             lower_bound, weighed = coset_leader_search._search_from_syndrome_word(
                 max_weight,
