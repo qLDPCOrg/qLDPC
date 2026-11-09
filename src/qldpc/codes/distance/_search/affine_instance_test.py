@@ -12,7 +12,7 @@ import pytest
 
 from qldpc._binary import unpack_bits
 
-from ..conftest import get_instance_of_empty_sets, get_random_full_rank_matrix
+from ..conftest import get_random_full_rank_matrix
 from . import affine_instance, information_sets
 
 
@@ -20,19 +20,21 @@ def test_coset_bounds_hold_for_every_unvisited_word(pytestconfig: pytest.Config)
     """Every word of a coset that a step leaves unvisited weighs at least the bound of that step.
 
     The codes are random, so some of their disjoint information sets are rank deficient, and the
-    words of each coset are enumerated through every set (see ``_get_unvisited_minima``).
+    words of each coset are enumerated through every set (see ``_get_unvisited_minima``).  A word
+    weighs at least its Hamming weight divided by the weight factor, which is one or two.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for _ in range(40):
         num_rows = int(rng.integers(1, 6))
         generators = get_random_full_rank_matrix(rng, num_rows, int(rng.integers(num_rows, 11)))
+        factor = int(rng.integers(1, 3))
         instance = affine_instance.get_coset_instance(
-            generators, random_column_orders=0, weight_factor=1
+            generators, random_column_orders=0, weight_factor=factor
         )
         offset = np.asarray(rng.integers(2, size=generators.shape[1]), dtype=np.uint8)
         bounds = instance.get_weight_bounds()
         for step, minimum in _get_unvisited_minima(instance, generators, offset).items():
-            assert minimum >= bounds[step]
+            assert -(-minimum // factor) >= bounds[step]
 
 
 def test_coset_bounds_take_no_divisor_from_an_even_code() -> None:
@@ -53,42 +55,6 @@ def test_coset_bounds_take_no_divisor_from_an_even_code() -> None:
     offset = np.array([1, 0, 1, 0, 1, 0], dtype=np.uint8)
     minima = _get_unvisited_minima(instance, generators, offset)
     assert minima[1, 1] == instance.get_weight_bounds()[1, 1] == 3
-
-
-def test_weight_bounds_follow_the_steps(pytestconfig: pytest.Config) -> None:
-    """The weight bounds round the certificate up, and do not decrease from step to step.
-
-    Column zero of row zero is zero, and column zero of each later row repeats the last column of
-    the row before.  The entries ``[dimension, j]`` for ``j >= 1`` are the largest native integer.
-    This holds for sets of every rank, including zero, and both weight factors.  Each call returns a
-    table of its own.
-    """
-    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    for _ in range(60):
-        dimension = int(rng.integers(0, 7))
-        ranks = tuple(int(rank) for rank in rng.integers(0, dimension + 1, rng.integers(1, 5)))
-        certificate = information_sets.Certificate(
-            dimension, ranks, int(rng.integers(1, 3)), int(rng.integers(1, 3))
-        )
-        for factor in (1, 2):
-            instance = get_instance_of_empty_sets(certificate, factor)
-            bounds = instance.get_weight_bounds()
-            assert bounds.shape == (dimension + 1, len(ranks) + 1)
-            for layer, num_completed in itertools.product(
-                range(dimension + 1), range(len(ranks) + 1)
-            ):
-                expected = (
-                    information_sets._NO_WORD_BOUND
-                    if layer == dimension and num_completed
-                    else -(-certificate.step_lower_bound(layer, num_completed) // factor)
-                )
-                assert bounds[layer, num_completed] == expected
-            steps = bounds[:, 1:].ravel()
-            assert np.all(steps[1:] >= steps[:-1])
-            assert np.array_equal(bounds[1:, 0], bounds[:-1, -1])
-            expected_bounds = bounds.copy()
-            bounds[:] = -1
-            assert np.array_equal(instance.get_weight_bounds(), expected_bounds)
 
 
 def test_distance_instances_delete_pivot_columns(pytestconfig: pytest.Config) -> None:
@@ -141,7 +107,7 @@ def test_coset_instances_keep_every_column(pytestconfig: pytest.Config) -> None:
     assert np.array_equal(empty.widths, [2])
     assert empty.pivots.shape == (1, 0)
     assert np.array_equal(empty.ranks, [0])
-    assert np.array_equal(empty.get_weight_bounds(), [[0, information_sets._NO_WORD_BOUND]])
+    assert np.array_equal(empty.get_weight_bounds(), [[0, information_sets.NO_WORD_BOUND]])
 
 
 def _get_unvisited_minima(

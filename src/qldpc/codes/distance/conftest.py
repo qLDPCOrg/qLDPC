@@ -19,7 +19,6 @@ from ..conftest import Tune
 from . import logical_counts as lc
 from ._binary import get_nested_code_basis
 from ._search import (
-    affine_instance,
     affine_search,
     automorphism_families,
     connected_support,
@@ -121,25 +120,6 @@ def count_set_bits(val: npt.ArrayLike) -> npt.NDArray[np.uint64]:
         out[indices] = sum(ival >> i & 1 for i in range(nbits))
 
     return out
-
-
-def get_instance_of_empty_sets(
-    certificate: information_sets.Certificate, weight_factor: int = 1
-) -> affine_instance.AffineInstance:
-    """An affine BZ instance with a given certificate and weight factor, whose sets have no columns.
-
-    It has a set for each rank of the certificate, and its bounds depend only on the certificate and
-    the weight factor.
-    """
-    num_sets, dimension = len(certificate.ranks), certificate.dimension
-    return affine_instance.AffineInstance(
-        generators=np.zeros((num_sets, dimension, 0), dtype=np.uint64),
-        labels=np.zeros((num_sets, dimension, 0), dtype=np.uint64),
-        widths=np.zeros(num_sets, dtype=np.int64),
-        pivots=np.full((num_sets, dimension), -1, dtype=np.int64),
-        certificate=certificate,
-        weight_factor=weight_factor,
-    )
 
 
 ####################################################################################################

@@ -15,7 +15,7 @@ It is organized as follows:
 For codes with sparse checks, especially high-rate CSS codes, [connected_support.md](connected_support.md) describes a search that is often much faster, and says when to use which.
 
 Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations) are intended to help readers understand the BZ algorithm and its implementation in qLDPC at a high level.
-Sections [4](#4-guide-to-the-source-code) and [5](#5-correctness-requirements) are highly technical summaries written to help AI agents navigate the BZ implementation in qLDPC.
+Sections [4](#4-guide-to-the-source-code) and [5](#5-correctness-requirements) are highly technical summaries for contributors who need to locate identifiers in the BZ implementation of qLDPC, or check a change against its requirements.
 
 ## 2. The Brouwer-Zimmermann algorithm
 
@@ -662,7 +662,7 @@ Skipping does not reduce the number of layers that a search must complete, and t
 
 ## 4. Guide to the source code
 
-**Audience note:** This section is a highly technical summary written to help AI agents navigate the BZ implementation in qLDPC.
+**Audience note:** This section is a highly technical summary for contributors who need to locate identifiers in the BZ implementation of qLDPC.
 For a high-level explanation, see Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations).
 
 This section is a guide to the source files in this directory.
@@ -697,29 +697,27 @@ The distance search and `CosetLeaderSearch` scan their layers with the compiled 
 Numba compiles the body separately for each entry point, so no flag costs a branch for each word.
 Each search builds an `AffineInstance` of [_search/affine_instance.py](_search/affine_instance.py) for its problem before it scans, rather than for each layer or query.
 The instance holds the packed rows, labels, and pivots of the sets that the search scans, the ranks of those sets, and the certificate of their steps.
-The weight divisor of the certificate, which is one for a coset instance, rounds its Hamming bounds up to multiples of a proven divisor of eligible weights.
+The weight divisor of the certificate rounds its Hamming bounds up to multiples of a proven divisor of eligible weights.
 `get_distance_instance` packs a basis family with its pivot columns deleted ([Section 3.5](#35-packed-enumeration-with-pivot-column-deletion)), and takes the certificate that the distance search selects.
-The distance search builds another instance when it switches to an automorphism family, whose certificate counts the images of the one set that it scans.
-`get_coset_instance` packs the full rows of the disjoint sets of a coset search.
-`CosetLeaderSearch` builds a coset instance for each of its coset searches, so two for the CSS weight on a CSS state, as described below.
-A coset search finds the step at which it stops with `find_stopping_step` of [_search/information_sets.py](_search/information_sets.py), a binary search of steps whose bounds never decrease.
-When its certificate has no linear programs, the distance search uses it too, to find the first step of a layer whose bound reaches its upper bound.
-A distance certificate with linear programs instead checks its steps in order with `certifies`, which solves each program only when the coverage bound falls short.
+The distance search builds another instance when it switches to an automorphism family, whose certificate covers every image of the one set that it scans.
 
 `CosetLeaderSearch` in [_search/coset_leader_search.py](_search/coset_leader_search.py), which the fault-propagation certifier in `qldpc.circuits.certification` uses, applies the same search to a coset `e + V` instead of `V`.
 There a layer adds `w` rows to an **offset**, a word of the coset that is zero on the pivot columns ([Section 2.3](#23-systematic-bases-and-information-sets)), so layer zero is the offset itself.
-The certificate applies unchanged, except that it takes no weight divisor ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)), because the words of a coset need not share the divisibility of `V`.
+`CosetLeaderSearch` answers each query with one or two **coset searches**, as described below.
+Each coset search is built from a **coset instance**, which `get_coset_instance` packs from the full rows of the disjoint sets of its code, and oracles share cached searches.
+The certificate of a coset instance applies unchanged, except that it takes no weight divisor ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)), because the words of a coset need not share the divisibility of `V`.
 This holds even when `get_disjoint_family` infers a divisor for `V`.
 In a search of Pauli errors, an error weighs at least half the Hamming weight of the binary word that represents it.
 So the instance of such a search has a **weight factor** of two: `AffineInstance.get_weight_bounds` divides the bounds of its certificate by two, rounding up.
-A query starts from the **word of its syndrome**, a word of the coset that sums the rows of a right inverse of the checks for the set bits of the syndrome.
-The query stops at its **stopping step**, the first step whose bound exceeds its maximum weight, unless it finds a light enough word sooner.
+A query asks whether the coset of a syndrome has a word of weight at most a given maximum weight.
+It starts from the **word of its syndrome**, a word of the coset that sums the rows of a right inverse of the checks for the set bits of the syndrome.
+It stops at its **stopping step**, the first step whose bound exceeds the maximum weight, unless it finds a light enough word sooner.
 It skips each rank-deficient search basis whose deficiency keeps it out of the bound of that step.
-Each coset search keeps the bounds of its steps in a **planning buffer**, with one more row that caches the stopping step that the search last found.
-The search reuses that step for any nonnegative maximum weight for which it is still the first step whose bound exceeds the maximum weight.
-It checks the cached step against the bounds, which never change, so a stale step is never used.
-`_search_coset` looks for the stopping step only if the word of the syndrome weighs more than the maximum weight.
-`_find_first_not_within_max_weight` looks for it once for a batch, at the first syndrome that needs a search.
+`find_stopping_step` of [_search/information_sets.py](_search/information_sets.py) finds the stopping step by a binary search of steps whose bounds never decrease.
+The distance search also uses `find_stopping_step`, through `Certificate.get_num_sets_to_certify`, when its certificate solves no linear programs.
+A distance certificate with linear programs instead checks its steps in order with `certifies`, which solves each program only when the coverage bound falls short.
+Each coset search keeps the bounds of its steps in a **planning buffer**, with one more row that caches a stopping step.
+`_get_stopping_step` reuses the cached step exactly while it stays the stopping step of a query, and replaces it otherwise.
 For the CSS weight `max(|x|, |z|)` on a CSS state, whose stabilizer group is generated by stabilizers with no Z part and stabilizers with no X part, `CosetLeaderSearch` instead runs this search on two classical codes, spanned by the X parts of the first kind and by the Z parts of the second, with words weighed by their Hamming weight.
 
 ### 4.2 Flow and exit points
@@ -767,22 +765,22 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | --- | --- |
 | Upper bound `U` | `best`, or `upper_bound` as a parameter |
 | Lower certificate `L` | `lower_bound` of a search, computed by `Certificate.lower_bound(completed_weight)` from the certificate's `dimension`, `ranks`, `weight_divisor`, and `max_coverage`; it bounds the eligible words lighter than `U`, so a bound on the distance is `min(L, U)` |
-| Certificate within a layer `L(t, j)` | `Certificate.step_lower_bound(weight, num_completed)` and the table of `get_step_lower_bounds`; `Certificate.get_num_sets_to_certify` gives the smallest `j` that certifies a bound, and `find_stopping_step` the first step whose bound exceeds a limit; `AffineInstance.get_weight_bounds` divides the table by the weight factor of a coset search, which keeps the result and its cached stopping step in its planning buffer, `planning` of `_CosetSearchTables` |
+| Certificate within a layer `L(t, j)` | `Certificate.step_lower_bound(weight, num_completed)` and the table of `get_step_lower_bounds`. `Certificate.get_num_sets_to_certify` gives the smallest `j` that certifies a bound. `find_stopping_step` gives the first step whose bound exceeds a limit. `Certificate.get_weight_bounds` divides the table by a weight factor, rounding up. A coset search keeps the result in its planning buffer, `planning` of `_CosetSearchTables`, with a cached stopping step. |
 | Certificate from linear programming | `get_lp_lower_bound`, which a `Certificate` with `pivot_blocks` combines with the coverage-divided certificate; `BasisFamily.get_search_certificate` adds the blocks to costly searches of overlapping families |
-| Family of search bases | `BasisFamily`, which stacks the search bases into arrays and gives their `Certificate`; a search keeps the `AffineInstance` of [_search/affine_instance.py](_search/affine_instance.py) that packs them, with the certificate |
+| Family of search bases | `BasisFamily`, which stacks the search bases into arrays and gives their `Certificate`. A distance search keeps the `AffineInstance` of [_search/affine_instance.py](_search/affine_instance.py) that packs them, with the certificate. A coset search keeps its generators, pivots, and planning buffer in `_CosetSearchTables`. |
 | Automorphisms, generators of `G` | `automorphisms`, whose row `i` maps column `j` to column `automorphisms[i, j]`, as returned by `get_automorphisms`; `_found_qudit_automorphisms` and `_get_qudit_automorphisms` of `QuditCode` |
 | Automorphism family | `get_automorphism_family` of [_search/automorphism_families.py](_search/automorphism_families.py), which returns a `BasisFamily` of the scanned set and the `Certificate` of all of its images; `_switch_to_automorphism_family` adopts them, and sets `uses_automorphism_family` of the search |
 | Last completed layer `t`, next layer | `completed_weight`, `next_weight` |
 | Divisor `D` | `Certificate.weight_divisor`, in Hamming units of the searched basis |
 | Maximum coverage `C` | `Certificate.max_coverage` |
-| Dimension `r`, block rank `r_i` | `dimension`, `ranks` (`BasisFamily.ranks`); `AffineInstance.ranks` is the native copy of the ranks of the packed sets of a search |
+| Dimension `r`, block rank `r_i` | `dimension`, `ranks` (`BasisFamily.ranks`). `AffineInstance.ranks` holds the ranks of the packed sets of a search, counted from their pivots, as a native array. |
 | Search basis and its block | One set of a `BasisFamily`: its entries of `generators`, `labels`, `pivots`, and `ranks`; the recorded block is the pivot subset, as explained below |
 | Number of coordinates `N` | The length of `columns` (or `nonzero_columns`), the array of nonzero columns, in the functions that build families of search bases |
 | Stored width `N_stored` | `basis.shape[1]` before pivot deletion, including any all-zero columns |
 | Labels `M` | `labels`, which has no columns for a classical problem |
 | Eligible rows | `get_eligible_rows` of [_binary.py](_binary.py): every row of a classical basis; rows with nonzero labels for a quantum problem |
 | Support, prefix XORs | `support` and `prefixes` in `advance` and in the scans of [_search/affine_search.py](_search/affine_search.py), which step through a layer with `advance_support` of [_search/information_sets.py](_search/information_sets.py) |
-| Packed generators | `generators` of the `AffineInstance` of a search: `uint64` words, after deleting pivot columns for a distance search; `widths` counts the valid words for each search basis |
+| Packed generators | `generators` of the `AffineInstance` of a distance search: `uint64` words, after deleting pivot columns. `widths` counts the valid words for each search basis. A coset search keeps its generators, pivots, and planning buffer in `_CosetSearchTables`. |
 | Packed labels | `labels` of the `AffineInstance` of a distance search: `uint64` quotient-label words, without pivot-column deletion; `label_widths` counts the valid words |
 | Chunk | `batch_size`, equal to `1 << information_set_batch_exponent` supports, or supports and lookups together in a scan with completion tables ([Section 4.5](#45-behavior-spanning-files)) |
 | Candidate/set evaluation | The unit counted by `Certificate.work` |
@@ -877,7 +875,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
 
 ## 5. Correctness requirements
 
-**Audience note:** This section is a highly technical summary written to help AI agents navigate the BZ implementation in qLDPC.
+**Audience note:** This section is a highly technical summary for contributors who need to check a change to the BZ implementation of qLDPC against its requirements.
 For a high-level explanation, see Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations).
 
 Changes to the BZ algorithm can use different representations, certificates, and search strategies while preserving the following requirements for the nontrivial problems of [Section 2.1](#21-the-problem).

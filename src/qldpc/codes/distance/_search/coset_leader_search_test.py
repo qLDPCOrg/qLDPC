@@ -19,7 +19,7 @@ from qldpc._binary import get_kernel, pack_bits, row_reduce_binary, unpack_bits
 
 from ...conftest import Tune
 from .._tuning import DEFAULT_TUNING, use_tuning
-from ..conftest import get_instance_of_empty_sets, get_random_full_rank_matrix
+from ..conftest import get_random_full_rank_matrix
 from . import affine_instance, coset_leader_search, information_sets
 from .coset_leader_search import CosetLeaderSearch, MinWeightBound
 
@@ -73,6 +73,14 @@ def _get_syndrome(matrix: npt.NDArray[np.uint8], pauli: int) -> int:
     bits = np.array([(pauli >> jj) & 1 for jj in range(matrix.shape[1])])
     products = matrix @ math.symplectic_conjugate(bits) % 2
     return sum(int(bit) << jj for jj, bit in enumerate(products))
+
+
+def _classical_syndrome(checks: npt.NDArray[np.uint8], words: npt.NDArray[np.int_]) -> Any:
+    """The packed syndrome of a binary word for binary checks, or of each row of an array of words.
+
+    Bit ``j`` of a syndrome is the parity of the word with row ``j`` of ``checks``.
+    """
+    return (words @ checks.T % 2) @ (1 << np.arange(len(checks)))
 
 
 def _syndrome_words(syndromes: Sequence[int], num_qubits: int) -> npt.NDArray[np.uint64]:
@@ -168,6 +176,18 @@ def _css_minima(matrix: npt.NDArray[np.uint8], css_weight: bool = True) -> npt.N
     weights = np.maximum(x.sum(axis=1), z.sum(axis=1)) if css_weight else (x | z).sum(axis=1)
     minima = np.full(1 << n, 2 * n + 1)
     np.minimum.at(minima, syndromes, weights)
+    return minima
+
+
+def _classical_minima(checks: npt.NDArray[np.uint8]) -> npt.NDArray[np.int_]:
+    """The least Hamming weight of the words with each packed syndrome for binary checks.
+
+    The minima come from all ``2**n`` words of ``n`` bits.
+    """
+    num_columns = checks.shape[1]
+    words = (np.arange(1 << num_columns)[:, None] >> np.arange(num_columns)) & 1
+    minima = np.full(1 << len(checks), num_columns + 1)
+    np.minimum.at(minima, _classical_syndrome(checks, words), words.sum(axis=1))
     return minima
 
 
@@ -622,7 +642,8 @@ def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.Mo
     The searches are cached, and the column orders key the cache.  So the first oracle built under
     some orders builds searches of its own with them, and a second oracle built under the same
     orders shares those searches.  The orders reach a search through
-    ``information_sets.get_disjoint_family``, which records them.  The states are |000+++>, whose
+    ``information_sets.get_disjoint_family``, which the test wraps to record them.  The states are
+    |000+++>, whose
     two classical searches are cached by stabilizer group, and a two-qubit graph state with phases,
     which is not CSS, so its search of Pauli errors is cached by stabilizers.  Every oracle answers
     exactly.  The caches are cleared first, since earlier tests may have filled them.
@@ -738,23 +759,23 @@ def test_invalid_arguments_are_rejected() -> None:
 def test_cached_stopping_steps_are_reused_exactly_while_they_stay_first(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A planning buffer reuses its cached stopping step exactly while that step stays first.
+    """``_get_stopping_step`` reuses a cached stopping step exactly while that step stays first.
 
     The stopping step of a maximum weight is the first step whose bound exceeds it.
-    ``_get_stopping_step`` reuses the step that its buffer caches if that step is the stopping step.
-    Otherwise, it finds the stopping step by binary search and caches it.  A reuse is observable
-    only as a skipped binary search, so the test records the binary searches.
+    ``_get_stopping_step`` reuses the step that a planning buffer caches if that step is the
+    stopping step.  Otherwise, it finds the stopping step by binary search and caches it.  A reuse
+    is observable only as a skipped binary search, so the test records the binary searches.
 
     Each step of the bounds is planted as the cached step.  A planted step may be stale, or pair the
     layer of one step with the number of completed sets of another, as interleaved queries might
     leave it.  Each maximum weight from zero to past the largest finite bound is then queried twice.
     The first query searches exactly if the planted step is not its stopping step.  The second
-    query does not search, since the first cached its step.  Both answer with the stopping step,
-    which a linear search finds, and its bound, and the bounds never change.  A negative maximum
-    weight always searches, since every bound is at least zero, so it is left out.
+    query does not search, since the first cached its step.  Both queries return the stopping step,
+    which a linear search finds, and its bound.  The bounds in the buffer never change.  A negative
+    maximum weight always searches, since every bound is at least zero, so it is left out.
 
-    The bounds are those of sets of every rank, including zero, of a rank-one code with 64 sets,
-    and of the empty code, for both weight factors.
+    The bounds are those of the empty code, of a rank-one code with 64 sets, and of sets of ranks
+    zero, two, and four in a code of dimension four, for both weight factors.
     """
     searches: list[int] = []
     find_stopping_step = information_sets.find_stopping_step
@@ -771,10 +792,10 @@ def test_cached_stopping_steps_are_reused_exactly_while_they_stay_first(
         information_sets.Certificate(4, (0, 2, 4, 0)),
     ]
     for certificate, factor in itertools.product(certificates, (1, 2)):
-        bounds = get_instance_of_empty_sets(certificate, factor).get_weight_bounds()
+        bounds = certificate.get_weight_bounds(factor)
         num_rows, num_sets = bounds.shape[0] - 1, bounds.shape[1] - 1
         steps = list(itertools.product(range(num_rows + 1), range(1, num_sets + 1)))
-        largest = int(bounds[bounds < information_sets._NO_WORD_BOUND].max())
+        largest = int(bounds[bounds < information_sets.NO_WORD_BOUND].max())
         planning = coset_leader_search._get_planning(bounds)
         for planted, max_weight in itertools.product(steps, range(largest + 2)):
             stopping_step = next(step for step in steps if bounds[step] > max_weight)
@@ -794,11 +815,14 @@ def test_cosets_of_a_rank_deficient_code_match_brute_force() -> None:
     """The coset searches of a rank-deficient code match the minima of all words.
 
     The code has disjoint information sets of ranks five and four, so its searches skip the second
-    set while it adds nothing to their stopping bounds.  Syndrome 19 has a word of weight two that
-    the first set reaches only above layer one.  So a search at maximum weight two finds it only in
-    layer one of the second set, which has then overcome its deficiency of one.  Single queries and
-    batches, at maximum weights from below zero to past the number of columns, agree with the least
-    weight of the words of each syndrome, and with each other.
+    set while it adds nothing to the bounds of their stopping steps.  Syndrome 19 has a word of
+    weight two that the first set reaches only above layer one.  At maximum weight two, the stopping
+    step is the one at which the second set completes layer one, which overcomes its deficiency of
+    one, so the search visits that set.  It finds the word in layer zero of that set, its offset.
+    Single queries and batches, at maximum weights from below zero to past the number of columns,
+    agree with the least weight of the words of each syndrome.  From maximum weight two, they also
+    agree with each other.  Below two, a single query of a coset without a word of weight at most
+    one returns a bound of two without searching.
     """
     generators = np.array(
         [
@@ -813,12 +837,7 @@ def test_cosets_of_a_rank_deficient_code_match_brute_force() -> None:
     num_columns = generators.shape[1]
     checks = get_kernel(generators)
     search = coset_leader_search._get_classical_search(generators, checks, 0)
-
-    # The least weight of the words with each syndrome.
-    words = (np.arange(1 << num_columns)[:, None] >> np.arange(num_columns)) & 1
-    word_syndromes = (words @ checks.T % 2) @ (1 << np.arange(len(checks)))
-    minima = np.full(1 << len(checks), num_columns + 1)
-    np.minimum.at(minima, word_syndromes, words.sum(axis=1))
+    minima = _classical_minima(checks)
 
     syndromes = list(range(1 << len(checks)))
     syndrome_words = _syndrome_words(syndromes, len(checks))
@@ -829,7 +848,7 @@ def test_cosets_of_a_rank_deficient_code_match_brute_force() -> None:
             representative = (bound.representative >> np.arange(num_columns)) & 1
             weight = int(representative.sum())
             assert bound.within_max_weight == (minima[syndrome] <= max_weight)
-            assert (checks @ representative % 2) @ (1 << np.arange(len(checks))) == syndrome
+            assert _classical_syndrome(checks, representative) == syndrome
             assert bound.lower_bound <= minima[syndrome] <= weight
             assert (
                 weight <= max_weight if bound.within_max_weight else bound.lower_bound > max_weight
@@ -848,7 +867,7 @@ def test_cosets_of_a_rank_deficient_code_match_brute_force() -> None:
                 break
             syndrome = syndromes[start + index]
             representative = (search.unembed(best) >> np.arange(num_columns)) & 1
-            assert (checks @ representative % 2) @ (1 << np.arange(len(checks))) == syndrome
+            assert _classical_syndrome(checks, representative) == syndrome
             assert max_weight < lower_bound <= minima[syndrome]
             if max_weight >= 2:
                 assert bounds[syndrome] == MinWeightBound(False, search.unembed(best), lower_bound)
@@ -890,12 +909,7 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
         )
         inverse = coset_leader_search._get_inverse(checks)
         tables = coset_leader_search._get_search_tables(instance, inverse, num_columns)
-
-        # The least weight of the words with each syndrome.
-        words = (np.arange(1 << num_columns)[:, None] >> np.arange(num_columns)) & 1
-        word_syndromes = (words @ checks.T % 2) @ (1 << np.arange(len(checks)))
-        minima = np.full(1 << len(checks), num_columns + 1)
-        np.minimum.at(minima, word_syndromes, words.sum(axis=1))
+        minima = _classical_minima(checks)
 
         for syndrome, max_weight in itertools.product(
             range(1 << len(checks)), range(num_columns + 1)
@@ -922,7 +936,7 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
                 1,
             )
             representative = unpack_bits(best[None], num_columns)[0].astype(int)
-            assert (checks @ representative % 2) @ (1 << np.arange(len(checks))) == syndrome
+            assert _classical_syndrome(checks, representative) == syndrome
             assert (lower_bound <= max_weight) == (minima[syndrome] <= max_weight)
             if lower_bound > max_weight:
                 assert lower_bound <= minima[syndrome]

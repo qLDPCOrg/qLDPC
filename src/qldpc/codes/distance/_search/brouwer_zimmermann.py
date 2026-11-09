@@ -9,10 +9,9 @@ The overlapping-set certificate and implementation invariants are derived in
 built in ``information_sets.py``, which fixed-weight logical counting shares.  Families of
 images of one information set under automorphisms are built in ``automorphism_families.py``, and
 tables that let a scan skip hopeless supports in ``completion_bounds.py``.  The compiled scans of
-layers, which the coset search shares, are in ``affine_search.py``, and the packed sets and
-certificate of a search, which the coset search also builds, in ``affine_instance.py``.  This module
-owns witness discovery, early exits, exhaustive dispatch, and the resumable scans of layers in
-chunks.
+layers, which the coset search shares, are in ``affine_search.py``.  ``affine_instance.py`` packs
+the sets of a search with their certificate, for the coset search too.  This module owns witness
+discovery, early exits, exhaustive dispatch, and the resumable scans of layers in chunks.
 """
 
 from __future__ import annotations
@@ -201,11 +200,12 @@ def _enumeration_is_cheaper_than_search(
 class _BrouwerZimmermannSearch:
     """State for one resumable Brouwer-Zimmermann search.
 
-    ``instance`` holds the packed sets that the search scans and the certificate of the family that
-    certifies it, which records the ranks, maximum coordinate coverage, and proven weight divisor of
-    that family.  This family is the packed family, unless ``uses_automorphism_family`` is True.
-    Such a search packs one set, and its family holds the images of that set under automorphisms of
-    the problem, which complete each layer when the set does (see ``automorphism_families``).
+    ``instance`` holds the packed sets that the search scans, and the certificate of the family that
+    certifies the search.  The certificate records the ranks, maximum coordinate coverage, and
+    proven weight divisor of that family.  This family is the packed family, unless
+    ``uses_automorphism_family`` is True.  Such a search packs one set, and its family holds the
+    images of that set under automorphisms of the problem, which complete each layer when the set
+    does (see ``automorphism_families``).
 
     ``lower_bound`` bounds the weights of the eligible words lighter than ``best``: the search
     certifies that no eligible word weighs less than ``min(lower_bound, best)``, and it has finished

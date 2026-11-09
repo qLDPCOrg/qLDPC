@@ -3,15 +3,15 @@
 """Instances of the affine BZ search: the packed sets of a problem and their certificate.
 
 The distance search (``brouwer_zimmermann.py``) and the coset-leader search
-(``coset_leader_search.py``) run one Brouwer-Zimmermann (BZ) search over the words of an affine
-space (see ``brouwer_zimmermann.md``).  The layers of this search add rows of an information set to
-an offset.  An :class:`AffineInstance` holds what a search builds for its problem before it scans,
-rather than for each layer or query: the packed rows and quotient labels of the sets that it scans,
-their pivot columns and ranks, the certificate that bounds the Hamming weight of the words that it
-has not yet visited, and the factor that converts these bounds into bounds on the weights that the
-search compares.  A distance search builds another instance when it switches to an automorphism
-family.  ``CosetLeaderSearch`` builds one for each of its coset searches, so two for the CSS weight
-on a CSS state.  The offsets and the stopping rule are set per query by the search.
+(``coset_leader_search.py``) run the same Brouwer-Zimmermann (BZ) search over the words of an
+affine space (see ``brouwer_zimmermann.md``).  The layers of this search add rows of an information
+set to an offset.  An :class:`AffineInstance` holds what a search builds for its problem before it
+scans, rather than for each layer or query: the packed rows and quotient labels of the sets that it
+scans, their pivot columns and ranks, the certificate that bounds the Hamming weight of the words
+that it has not yet visited, and the factor that converts these bounds into bounds on the weights
+that the search compares.  A distance search builds another instance when it switches to an
+automorphism family.  Each coset search of ``CosetLeaderSearch`` is built from a coset instance, and
+oracles share cached searches.  A coset search sets its offsets and stopping step for each query.
 
 A distance instance packs the rows of each set with its pivot columns deleted, since a scan of a
 space restores their weight arithmetically.  Its certificate is the one that the distance search
@@ -48,10 +48,10 @@ class AffineInstance:
         widths: The number of words of ``generators`` that each scanned set uses.
         label_widths: The number of words of ``labels`` that each scanned set uses.  Every set
             uses all of them, and the array holds a number for each set because the compiled scans
-            take one.
+            take a width for each set.
         pivots: The pivot columns of each scanned set, padded with -1, with shape ``(num_sets,
-            dimension)``.  They are columns of the full rows, which index ``generators`` only in a
-            coset instance.
+            dimension)``.  They are columns of the full rows, and are bit positions of the rows of
+            ``generators`` only in a coset instance.
         ranks: The rank of each scanned set: the number of its pivots that are not padding.
         certificate: The certificate of the steps of the search, in Hamming units.  Its weight
             divisor, which is one for a coset instance, rounds the Hamming bounds up to multiples of
@@ -83,18 +83,9 @@ class AffineInstance:
         """Bounds on the weight of the unvisited words after each step of the certificate.
 
         Entry ``[w, j]`` is ``ceil(L / η)`` for the entry ``L`` of the coverage bounds of the
-        certificate (see ``information_sets.get_step_lower_bounds``), except that the entries
-        ``[dimension, j]`` for ``j >= 1`` stay at the largest native integer, since no word remains
-        unvisited.  The bounds do not decrease in the order of the steps.  Column zero of row zero
-        is zero, and column zero of each later row repeats the last column of the row before.  Each
-        call returns a new table.
+        certificate, as ``Certificate.get_weight_bounds`` describes.  Each call returns a new table.
         """
-        certificate = self.certificate
-        # Round up without overflowing the entries [dimension, j] for j >= 1, which are then
-        # restored.
-        bounds = -(-certificate._step_lower_bounds // self.weight_factor)
-        bounds[certificate.dimension, 1:] = information_sets._NO_WORD_BOUND
-        return bounds
+        return self.certificate.get_weight_bounds(self.weight_factor)
 
 
 def get_distance_instance(
