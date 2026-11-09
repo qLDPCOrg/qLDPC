@@ -267,6 +267,9 @@ class GroupRing(Ring):
     ) -> WedderburnArtinTransformer:
         """Instrument for the Wedderburn-Artin decomposition of this ring.
 
+        Without a ``seed``, this method reuses a decomposition of this ring that it already built,
+        or else builds one from the seed 0, so that the decomposition is the same in every run.
+
         By default each component's primitive central idempotent is validated; pass
         ``skip_validation=True`` to skip the check (see WedderburnArtinComponentTransformer).
 
@@ -275,10 +278,12 @@ class GroupRing(Ring):
         """
         from .wedderburn_artin import WedderburnArtinTransformer  # avoid circular import
 
-        # for seedless calls, reuse an existing decomposition instead of building another
-        if seed not in self._transformers:
-            if seed is None and self._transformers:
+        # for seedless calls, reuse an existing decomposition, or else build a reproducible one
+        if seed is None:
+            if self._transformers:
                 return next(iter(self._transformers.values()))
+            seed = 0
+        if seed not in self._transformers:
             self._transformers[seed] = WedderburnArtinTransformer(
                 self, seed=seed, skip_validation=skip_validation
             )

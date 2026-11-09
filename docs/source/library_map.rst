@@ -125,7 +125,9 @@ Distances across packages
 -------------------------
 
 ``get_distance()`` computes an exact distance, and ``get_distance_bound`` computes a randomized upper bound; CSS codes also have separate X and Z distances.
-Exact distances of binary codes use an optimized `Brouwer--Zimmermann search <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_, and nonbinary codes use exhaustive enumeration; both can take exponential time.
+Exact distances of binary codes use an optimized `Brouwer--Zimmermann search <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_, and nonbinary codes use exhaustive enumeration.
+Binary codes with sparse parity checks, especially quantum codes at a high rate, can instead use ``method="connected_support"``, a `search over supports that are connected in the Tanner graph <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_, whose guide compares it with Brouwer--Zimmermann.
+All exact methods can take exponential time.
 ``get_distance_exact(cutoff=c)`` stops once it finds a nontrivial word of weight at most ``c``.
 A result of at most ``c`` is therefore only an upper bound, while a larger result, or any result with ``cutoff <= 1`` (the default is 1), is exact.
 Exact searches choose their routes by cost models whose settings and constants :doc:`exact_search_tuning` maps and documents.
@@ -208,15 +210,15 @@ Support and limitations
 
 The following table summarizes support by field; the subsystem column applies to subsystem codes over any field.
 
-===============  ===========================  ==============================  ===================================  ========================================
-Capability       :math:`GF(2)`                Prime field :math:`GF(p)`       Extension field :math:`GF(p^m)`      Subsystem codes
-===============  ===========================  ==============================  ===================================  ========================================
-Codes            Yes                          Yes                             Yes                                  Yes, inferred from non-commuting checks
-Exact distance   Brouwer--Zimmermann          Exhaustive enumeration          Exhaustive enumeration               Yes
-Distance bounds  Decoder, GAP, or ``sqetch``  Decoder or GAP                  Decoder or GAP                       CSS codes only
-Decoders         All built-in decoders        GUF (default), ILP, and lookup  GUF (default) and lookup             Yes, in code-capacity estimates
-Circuits         Yes                          No                              No                                   No memory experiments
-===============  ===========================  ==============================  ===================================  ========================================
+===============  =========================================  ==============================  ===================================  ========================================
+Capability       :math:`GF(2)`                              Prime field :math:`GF(p)`       Extension field :math:`GF(p^m)`      Subsystem codes
+===============  =========================================  ==============================  ===================================  ========================================
+Codes            Yes                                        Yes                             Yes                                  Yes, inferred from non-commuting checks
+Exact distance   Brouwer--Zimmermann, or connected support  Exhaustive enumeration          Exhaustive enumeration               Yes
+Distance bounds  Decoder, GAP, or ``sqetch``                Decoder or GAP                  Decoder or GAP                       CSS codes only
+Decoders         All built-in decoders                      GUF (default), ILP, and lookup  GUF (default) and lookup             Yes, in code-capacity estimates
+Circuits         Yes                                        No                              No                                   No memory experiments
+===============  =========================================  ==============================  ===================================  ========================================
 
 Other limitations:
 
