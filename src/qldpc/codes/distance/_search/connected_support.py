@@ -95,6 +95,8 @@ def get_distance_connected_support(
             are not valid (see ``SupportSearch``), or if a generator from ``get_automorphisms`` does
             not map the words of a searched problem, or the row space of its excluded rows, onto
             themselves.
+        RuntimeError: If the searches take more weight limits than a correct search can, which
+            only a bug can cause.
     """
     if not problems and upper_bound is None:
         raise ValueError("Require at least one problem or an upper bound")
@@ -123,8 +125,19 @@ def get_distance_connected_support(
 
     # No witness of a problem has a weight below its lower bound, which is a multiple of the weight
     # divisor.  Search the problem with the lowest bound, until the best known witness is as light.
+    # A limit without a witness is a multiple of the divisor below the weight of every witness, and
+    # a witness ends the search, so a correct search takes at most this many limits, and a broken
+    # one fails instead of looping.
     lower_bounds = [search.weight_divisor for search in searches]
+    max_num_limits = sum(search.num_variables // search.weight_divisor for search in searches)
+    num_limits = 0
     while best_weight is None or best_weight > min(lower_bounds):
+        if num_limits == max_num_limits:
+            raise RuntimeError(
+                f"The connected-support search took more than {max_num_limits} weight limits,"
+                " which only a bug can cause"
+            )
+        num_limits += 1
         index = lower_bounds.index(min(lower_bounds))
         search = searches[index]
         divisor = search.weight_divisor

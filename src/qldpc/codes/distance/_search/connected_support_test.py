@@ -718,6 +718,32 @@ def test_the_scale_of_weights_leaves_room_for_every_weight_limit() -> None:
 
 
 @pytest.mark.usefixtures("compilation_mode")
+def test_a_search_can_take_one_limit_per_variable() -> None:
+    """The only witness of a repetition code has every variable, so each weight limit is needed."""
+    checks = np.eye(6, 7, dtype=np.uint8) + np.eye(6, 7, 1, dtype=np.uint8)
+    assert cs.get_distance_connected_support([(checks, np.zeros((0, 7)))], cutoff=0) == 7
+
+
+@pytest.mark.parametrize("returns_heavy_witnesses", [False, True])
+def test_a_broken_search_fails_instead_of_looping(
+    monkeypatch: pytest.MonkeyPatch, returns_heavy_witnesses: bool
+) -> None:
+    """A search that finds no witness at any limit, or one above the limit, raises an error."""
+    limits = []
+
+    def find_witness(search: cs.SupportSearch, max_weight: int) -> npt.NDArray[np.int64] | None:
+        limits.append(max_weight)
+        assert len(limits) < 1000, "the search loops"
+        return np.arange(max_weight + 1) if returns_heavy_witnesses else None
+
+    monkeypatch.setattr(cs.SupportSearch, "find_witness", find_witness)
+    with pytest.raises(RuntimeError, match="only a bug"):
+        cs.get_distance_connected_support([PROBLEMS["toric-X"], PROBLEMS["toric-X"]], cutoff=0)
+
+    # Each of the two problems has 16 variables and weight divisor 2.
+    assert len(limits) == 2 * 16 // 2
+
+
 def test_cutoffs_and_upper_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
     """A search can stop early at a witness within its cutoff, or at a known upper bound."""
     problem = PROBLEMS["toric-X"]

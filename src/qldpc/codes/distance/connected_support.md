@@ -236,6 +236,11 @@ A search never needs a good upper bound, and the searches of the sectors of a CS
 If `cutoff` is above `L`, the first limit is the largest multiple of the divisor at most `cutoff`, and a witness within that limit is returned at once.
 An upper bound from a known sector distance acts as a witness of that weight.
 
+**Termination.**
+Each weight limit ends, since the search from a root is a tree of depth at most `W` with finitely many branches at each state.
+A limit without a witness is a multiple of the divisor `d` below the weight of every witness, which is at most the number of variables `n`, and a witness ends the search.
+A correct search therefore takes at most the sum of `n // d` over its problems, so one that takes more has a bug, and raises a `RuntimeError` rather than loop forever.
+
 **Interrupts.**
 Each weight limit of a problem runs in one compiled call, which a keyboard interrupt cannot stop, so an interrupt takes effect only once that weight limit ends.
 Python then raises a `KeyboardInterrupt`, or a `SystemError` that it caused.
