@@ -41,7 +41,7 @@ Run the finishing checks only when a maintainer explicitly asks to finish, final
 Examples of such requests are "finish this PR" and "run the finishing checks".
 You may report that a change appears ready for the finishing checks.
 Run checks individually, never through `checks/all_.py`.
-Leave `pytest_.py --notebook` runs and the GAP integration tests to CI.
+Leave repository-wide test runs, notebook runs, and the GAP integration tests to CI.
 
 ## Protected files
 

@@ -96,7 +96,7 @@ Checks come in three tiers by cost.
 The first two tiers are the drafting checks, which run while a change is in progress, including during a :doc:`standard review <reviewing>` and in a draft pull request.
 The third tier is the finishing checks.
 
-* **Anytime:** ``format_.py --check`` and ``lint_.py`` over the whole repository, and ``mypy_.py`` on changed files, as in ``python checks/mypy_.py -i``.
+* **Anytime:** ``format_.py --check``, ``lint_.py``, and ``mypy_.py`` over the whole repository.
   To apply formatting, run ``format_.py --fix`` on changed files, as in ``python checks/format_.py --fix -i``.
   Whatever files it is given, ``format_.py`` also checks ``pyproject.toml``, and without ``--check`` it rewrites that file.
 * **As needed:** when writing, reviewing, or verifying a change, run targeted tests that cover it.
@@ -104,8 +104,9 @@ The third tier is the finishing checks.
   Run ``pytest_.py`` only on selected paths, since over the whole repository it repeats the test run of ``coverage_.py``.
   When targeted tests do not settle a question, such as whether a module's own tests fully cover it, run ``coverage_.py`` on that module.
   For example, ``python checks/coverage_.py src/qldpc/codes/common.py`` checks one module, and ``python checks/coverage_.py -i`` checks every changed module.
-* **Finishing:** ``format_.py --check``, ``lint_.py``, ``mypy_.py``, ``coverage_.py``, and ``build_docs.py``, each over the whole repository.
-  Run them once a change is finished, before its pull request is marked ready for review.
+* **Finishing:** once a change is finished, before its pull request is marked ready for review, check the change and the code that it could affect.
+  Run the anytime checks, ``coverage_.py -i``, the tests of closely related code, such as callers and subclasses of changed code, and ``build_docs.py`` if the change edits documentation, notebooks, or docstrings.
+  Leave repository-wide test runs to CI.
   After fixing a failure, rerun the failed checks.
   If a standard review ran, ask the maintainer whether to review a significant fix in another round.
 
