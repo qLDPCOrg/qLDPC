@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import galois
 import networkx as nx
 import numpy as np
 import pytest
@@ -274,3 +275,80 @@ def test_lifted_product_translations() -> None:
         translations = code._get_qudit_automorphisms()
         assert translations is not None and len(translations) == 2
         assert_valid_translations(code, translations, group_order=6)
+
+
+def test_lifted_product_with_non_orthogonal_lifts() -> None:
+    """LPCode verifies that its X and Z checks commute when lifts are not orthogonal."""
+    # the first generator of this group lifts to an orthogonal matrix, and the second does not
+    swap = [[0, 1, 0, 0], [1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+    shear = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 1], [0, 0, 0, 1]]
+    ring = abstract.GroupRing(
+        abstract.Group.from_generating_mats(galois.GF2(swap), galois.GF2(shear))
+    )
+    first, second = ring.generators
+    identity = np.eye(4, dtype=int)
+    assert np.array_equal(first.lift() @ first.lift().T, identity)
+    assert not np.array_equal(second.lift() @ second.lift().T, identity)
+    with pytest.raises(ValueError, match="do not commute"):
+        codes.LPCode(abstract.RingArray.build([[ring.one, second]], ring))
+
+    # LPCode accepts commuting checks from lifts that are not orthogonal, here because the second
+    # generator is its own inverse
+    assert second * second == ring.one
+    code = codes.LPCode(abstract.RingArray.build([[second]], ring))
+    assert not np.any(code.matrix_x @ code.matrix_z.T)
+
+    # this generator lifts to a symmetric matrix that is not orthogonal, and in odd characteristic,
+    # the minus sign in the Z checks of lifted products keeps the checks of [[g]] from commuting
+    group = abstract.Group.from_generating_mats(galois.GF(5)([[1, 1], [1, 4]]))
+    ring = abstract.GroupRing(group, field=5)
+    (generator,) = ring.generators
+    assert np.array_equal(generator.lift(), generator.lift().T)
+    assert not np.array_equal(generator.lift() @ generator.lift().T, np.eye(2, dtype=int))
+    with pytest.raises(ValueError, match="do not commute"):
+        codes.LPCode(abstract.RingArray.build([[generator]], ring))
+
+
+def test_canonical_logicals_with_non_orthogonal_lifts() -> None:
+    """Lifted products with lifts that are not orthogonal set only valid canonical logicals."""
+    # lift the generator of a cyclic group of order 2 to a matrix that is not orthogonal, over a
+    # field for which qLDPC knows the primitive central idempotents of this group algebra
+    field = galois.GF(3)
+    lift = field([[1, 0], [1, 2]])
+    group = abstract.Group.from_sympy(
+        abstract.CyclicGroup(2).to_sympy(),
+        lift=lambda member: field.Identity(2) if member.is_Identity else lift,
+    )
+    ring = abstract.GroupRing(group, field=3)
+    (generator,) = ring.generators
+    assert np.array_equal(generator.lift() @ generator.lift(), np.eye(2, dtype=int))
+    assert not np.array_equal(generator.lift() @ generator.lift().T, np.eye(2, dtype=int))
+    code_types: list[type[codes.LPCode | codes.SLPCode]] = [codes.LPCode, codes.SLPCode]
+    for code_type in code_types:
+        # these canonical logical operators are valid
+        code = code_type(
+            abstract.RingArray.build([[generator, generator]], ring), set_logicals=True
+        )
+        logical_ops_x, logical_ops_z = code.get_canonical_logical_line_ops(
+            code.matrix_a, code.matrix_b
+        )
+        assert code.dimension > 0
+        assert np.array_equal(code.get_logical_ops(Pauli.X), logical_ops_x)
+        assert np.array_equal(code.get_logical_ops(Pauli.Z), logical_ops_z)
+
+        # the canonical logical operators for 1 - g lift but fail validation, and those for 1 + g
+        # fail to lift
+        matrix_with_invalid_ops = abstract.RingArray.build([[ring.one - generator]], ring)
+        ring_ops = code_type.get_canonical_ring_logical_line_ops(
+            matrix_with_invalid_ops, matrix_with_invalid_ops
+        )
+        code_type.to_lifted_logical_ops(*ring_ops)
+        matrix_with_unliftable_ops = abstract.RingArray.build([[ring.one + generator]], ring)
+        ring_ops = code_type.get_canonical_ring_logical_line_ops(
+            matrix_with_unliftable_ops, matrix_with_unliftable_ops
+        )
+        with pytest.raises(ValueError):
+            code_type.to_lifted_logical_ops(*ring_ops)
+        for matrix in [matrix_with_invalid_ops, matrix_with_unliftable_ops]:
+            with pytest.raises(ValueError, match=r"canonical logical operators.*not orthogonal"):
+                code_type(matrix, set_logicals=True)

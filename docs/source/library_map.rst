@@ -115,7 +115,7 @@ Algebraic inputs of lifted and geometric families
 
 Lifted-product families such as :class:`~qldpc.codes.quantum.lifted_product.LPCode` take :class:`~qldpc.abstract.ring_array.RingArray` matrices, whose entries belong to a :class:`~qldpc.abstract.rings.GroupRing` over a finite field.
 Each entry lifts to a block matrix over that field, and ``RingArray.lift()`` returns the resulting ``galois.FieldArray``.
-Every ``RingArray`` has one base ring, and arithmetic between arrays over different rings raises an error.
+Every ``RingArray`` has one base ring, and arithmetic between arrays or ring members over different rings raises an error.
 :class:`~qldpc.codes.quantum.pair_partition.PairPartitionCode` instead takes integer arrays of exponents and a lift size :math:`P`, and builds its ``RingArray`` matrices over the group algebra :math:`\mathbb{F}_2[\mathbb{Z}_P]` as ``code.ring_array_x`` and ``code.ring_array_z``.
 :class:`~qldpc.codes.quantum.quantum_tanner.QTCode` builds a :class:`~qldpc.objects.complexes.CayleyComplex` from two subsets of a group, and families such as :class:`~qldpc.codes.quantum.surface.T4Code` (built from a 4×4 integer lattice matrix) build a :class:`~qldpc.objects.complexes.ChainComplex` internally and expose it as ``code.chain``.
 :class:`~qldpc.codes.quantum.balanced_product.BPCode` takes symmetries of two classical codes, as permutations or as members of :meth:`ClassicalCode.get_matrix_automorphism_group <qldpc.codes.common.ClassicalCode.get_matrix_automorphism_group>`, and builds its chain complex with :meth:`ChainComplex.balanced_product <qldpc.objects.complexes.ChainComplex.balanced_product>`.

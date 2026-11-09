@@ -236,10 +236,10 @@ class Group:
         return tuple(tuple(generator) for generator in self.generators)
 
     def generate(self) -> Iterator[GroupMember]:
-        """Iterate over all group members."""
+        """Iterate over all group members, in the order of their indices (see ``Group.index``)."""
         # Keep iteration lazy.  ``index`` still materializes the lookup table when random access is
         # requested, but callers that stop early should not pay the memory cost of the full group.
-        generate = self._generate_func or self._group.generate
+        generate = self._generate_func or self._sympy_generate
         yield from map(GroupMember.from_sympy, generate())
 
     def index(self, member: GroupMember) -> int:
@@ -619,9 +619,17 @@ class Group:
 
     @functools.cached_property
     def _members(self) -> dict[GroupMember, int]:
-        generate = self._generate_func or self._group.generate
-        members = map(GroupMember.from_sympy, generate())
-        return {member: idx for idx, member in enumerate(members)}
+        return {member: idx for idx, member in enumerate(self.generate())}
+
+    @functools.cached_property
+    def _sympy_generate(self) -> GenerateFunc:
+        """A function that generates members in an order set by the generators of the SymPy group.
+
+        SymPy orders members according to the base of its group, which methods such as
+        ``coset_transversal`` can change, so this function uses a new SymPy group with the same
+        generators.
+        """
+        return comb.PermutationGroup(self._group.generators).generate
 
     @functools.cached_property
     def _regular_lift_cache(self) -> dict[tuple[GroupMember, bool], npt.NDArray[np.int_]]:
