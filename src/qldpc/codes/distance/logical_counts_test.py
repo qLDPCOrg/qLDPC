@@ -26,6 +26,7 @@ from ..conftest import Tune
 from . import logical_counts as lc
 from ._counting import macwilliams
 from ._search import information_sets
+from ._tuning import DEFAULT_TUNING, use_tuning
 from .conftest import (
     HAND_X,
     HAND_Z,
@@ -199,10 +200,9 @@ def test_compile_search_setup(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def get_results() -> list[qldpc.codes.CSSLogicalCounts]:
         counter = qldpc.codes.CSSLogicalCounter(code)
-        results = [
-            counter.count_logical_ops(),
-            counter.count_logical_ops(count_pauli=True, max_information_sets=4),
-        ]
+        results = [counter.count_logical_ops()]
+        with use_tuning(max_information_sets=4):
+            results.append(counter.count_logical_ops(count_pauli=True))
         for deformed in (counter.deformed_cnot(0, 1), counter.deformed([0, 1], [[1, 0], [1, 1]])):
             results.append(deformed.count_logical_ops())
             results.append(deformed.count_logical_ops(results[0].weight + 1))
@@ -239,23 +239,72 @@ def test_a_failed_compilation_leaves_the_set_up_code_as_plain_python(
     assert not isinstance(select, numba.core.registry.CPUDispatcher)
 
 
-def test_max_information_sets_must_be_a_nonnegative_integer() -> None:
-    """The limit is an integer of any integer type, and a float, a bool, or a negative fails."""
+def test_deprecated_max_information_sets_argument(
+    monkeypatch: pytest.MonkeyPatch, tune: Tune
+) -> None:
+    """The argument warns, and sets the limit of every search of one count, as the field would.
+
+    It accepts an integer of any integer type, and rejects a float, a bool, or a negative.  At
+    weight three, the scans of this code build families of nine and six sets by default.
+    """
     counter = get_counter(HAND_X, HAND_Z)
     for value in (2.5, True):
         not_an_integer: Any = value
-        with pytest.raises(TypeError, match="integer"):
+        with pytest.warns(DeprecationWarning), pytest.raises(TypeError, match="integer"):
             counter.count_logical_ops(max_information_sets=not_an_integer)
-    with pytest.raises(ValueError, match="max_information_sets must be between 0"):
+    with (
+        pytest.warns(DeprecationWarning),
+        pytest.raises(ValueError, match="max_information_sets must be between 0"),
+    ):
         counter.count_logical_ops(max_information_sets=-1)
-    expected = counter.count_logical_ops()
-    assert counter.count_logical_ops(max_information_sets=np.int32(4)) == expected
+
+    limits: list[int] = []
+    original = lc.get_distance_brouwer_zimmermann_many
+
+    def search(*args: Any, **kwargs: Any) -> int:
+        limits.append(kwargs["tuning"].max_information_sets)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(lc, "get_distance_brouwer_zimmermann_many", search)
+    code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
+
+    def fresh() -> codes.CSSCode:
+        """A new code, which does not remember the distance of an earlier count."""
+        return codes.CSSCode(code.matrix_x, code.matrix_z)
+
+    expected = lc.CSSLogicalCounter(fresh()).count_logical_ops()
+    with pytest.warns(DeprecationWarning, match="use_tuning") as records:
+        counts = [
+            lc.CSSLogicalCounter(fresh()).count_logical_ops(max_information_sets=np.int32(3)),
+            lc.count_logical_ops_css(fresh(), max_information_sets=3),
+        ]
+    assert counts == [expected, expected]
+    # Both warnings point at this test, also through count_logical_ops_css.
+    assert [record.filename for record in records] == [__file__, __file__]
+    assert limits == [DEFAULT_TUNING.max_information_sets, 3, 3]
+
+    # The limit also reaches the scans of a count of a given weight, which searches no distance.
+    sizes: list[int] = []
+    original_family = information_sets.get_overlapping_family
+
+    def family(*args: Any) -> information_sets.BasisFamily:
+        replacement = original_family(*args)
+        sizes.append(len(replacement.ranks))
+        return replacement
+
+    monkeypatch.setattr(information_sets, "get_overlapping_family", family)
+    tune(overlapping_minimum_work=0)
+    code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
+    expected = lc.count_logical_ops_css(code, 3, method="brute_force")
+    with pytest.warns(DeprecationWarning):
+        assert lc.count_logical_ops_css(code, 3, max_information_sets=4) == expected
+    assert sizes and max(sizes) <= 4
 
 
 def test_the_information_set_limit_reaches_every_search_of_a_count(
     monkeypatch: pytest.MonkeyPatch, tune: Tune
 ) -> None:
-    """A count's limit, or else that of the active tuning, bounds every family that it builds.
+    """The limit of the active tuning bounds every family that a count builds.
 
     A count of the default weight first searches for the distance, and then scans the sectors.  With
     the default limit, the distance search of this code builds a family of more than three sets, so
@@ -285,10 +334,6 @@ def test_the_information_set_limit_reaches_every_search_of_a_count(
     lc.CSSLogicalCounter(code).count_logical_ops(expected.weight)
     distance_sizes = sizes_with_distance - collections.Counter(sizes)
     assert max(distance_sizes) > 3
-
-    sizes.clear()
-    assert lc.CSSLogicalCounter(code).count_logical_ops(max_information_sets=3) == expected
-    assert sizes and max(sizes) <= 3
 
     sizes.clear()
     tune(max_information_sets=3)
@@ -331,12 +376,15 @@ def test_counters_remember_the_distance_of_each_method() -> None:
 
 
 def test_deformed_counter_reuses_the_first_family_stage() -> None:
-    """A deformed counter, which moves the kept basis families through its gate, counts correctly.
+    """A deformed counter moves the kept basis families through its gate, and counts correctly.
 
-    Like any counter, it keeps the first stage for its later counts.
+    The counter keeps a family for each number of column orders that its counts used, and the
+    deformed counter receives each of them, so its counts under either tuning build none.
     """
     counter = get_counter(HAND_X, HAND_Z)
     counter.count_logical_ops()
+    with use_tuning(disjoint_random_column_orders=3):
+        counter.count_logical_ops(1)
     deformed = counter.deformed_cnot(0, 2)
     weights = [None, *range(counter.num_qubits + 1)]
     fresh = get_counter(deformed.checks_x, deformed.checks_z)
@@ -344,11 +392,11 @@ def test_deformed_counter_reuses_the_first_family_stage() -> None:
     with mock.patch.object(
         information_sets, "get_disjoint_family", wraps=information_sets.get_disjoint_family
     ) as first_stage:
-        counts = [deformed.count_logical_ops(weights[0])]
-        num_first_stages = first_stage.call_count
-        counts += [deformed.count_logical_ops(weight) for weight in weights[1:]]
+        counts = [deformed.count_logical_ops(weight) for weight in weights]
+        with use_tuning(disjoint_random_column_orders=3):
+            deformed.count_logical_ops(1)
     assert counts == expected
-    assert first_stage.call_count == num_first_stages
+    assert not first_stage.call_count
 
 
 def test_dense_eighty_qubits_against_physical_enumeration() -> None:

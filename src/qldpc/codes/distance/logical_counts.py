@@ -34,9 +34,10 @@ from typing import TYPE_CHECKING, Literal, SupportsIndex
 import numpy as np
 import numpy.typing as npt
 
+from qldpc import _deprecations
 from qldpc._binary import get_independent_rows, get_kernel, pack_bits
 from qldpc._compilation import set_on_request_functions_compiled
-from qldpc._utils import format_docstring
+from qldpc._utils import get_external_caller_stacklevel
 
 from ._binary import as_integer, get_nested_code_basis
 from ._counting import local_cliffords, macwilliams, scan
@@ -49,9 +50,6 @@ from ._tuning import DEFAULT_TUNING, SearchTuning, get_tuning
 # imported only where they are used.
 if TYPE_CHECKING:
     from ..common import CSSCode
-
-# Batch size exponent passed to the distance searches, as in get_distance_quantum.
-_BLOCK_SIZE = 15
 
 
 # The basis of a homogeneous sector, and its quotient labels.
@@ -208,7 +206,6 @@ class CSSLogicalCounter:
         """Whether the X and Z checks span the same row space."""
         return self._self_dual or np.array_equal(*self._get_canonical_checks())
 
-    @format_docstring(MAX_SETS=DEFAULT_TUNING.max_information_sets)
     def count_logical_ops(
         self,
         weight: SupportsIndex | None = None,
@@ -216,7 +213,7 @@ class CSSLogicalCounter:
         method: LogicalCountMethod = "brouwer_zimmermann",
         count_pauli: bool = False,
         within_distance: bool = False,
-        max_information_sets: SupportsIndex | None = None,
+        max_information_sets: SupportsIndex | None = None,  # DEPRECATED: see qldpc._deprecations
     ) -> CSSLogicalCounts:
         """Count the nontrivial logical operators of a given weight.
 
@@ -240,25 +237,19 @@ class CSSLogicalCounter:
             within_distance: If True, raise an error when the weight is above the distance, that
                 is, when some nontrivial X-only or Z-only logical operator is lighter than the
                 weight.  Full Pauli counts always do this.  Defaults to False.
-            max_information_sets: Limit on the number of information sets that a Brouwer-Zimmermann
-                count may use when it replaces its first, disjoint sets by overlapping ones.  More
-                sets can skip costly layers of a hard count, but each set costs setup work, which
-                dominates a cheap count.  A small limit suits many cheap counts on a large code.
-                The limit also applies to the distance search that finds the default weight.  This
-                never changes the counts, and the other methods do not use it.  If None (the
-                default), the limit is that of the active search tuning, which is {MAX_SETS} unless
-                changed (see :mod:`qldpc.codes.distance`).
+            max_information_sets: Deprecated.  Use
+                ``qldpc.codes.distance._tuning.use_tuning(max_information_sets=...)`` instead.
 
         Returns:
             The counted weight and the counts.  If no weight is given and the code encodes no
             qubits, the returned weight is the number of qubits and every count is zero.
 
         Raises:
-            TypeError: If the weight or ``max_information_sets`` is not an integer, or is a bool.
-            ValueError: If the weight is not between zero and the number of qubits, if
-                ``max_information_sets`` is negative or above 2**62, if the method is unknown, if
-                the weight is above the distance and ``count_pauli`` or ``within_distance`` is set,
-                or if the MacWilliams method does not support the code or the request.
+            TypeError: If the weight is not an integer, or is a bool.
+            ValueError: If the weight is not between zero and the number of qubits, if the method
+                is unknown, if the weight is above the distance and ``count_pauli`` or
+                ``within_distance`` is set, or if the MacWilliams method does not support the code
+                or the request.
         """
         # Validate the inputs, resolving method aliases.
         method = _validate_logical_count_method(method)
@@ -270,9 +261,15 @@ class CSSLogicalCounter:
                 )
         if method == "macwilliams":
             self._validate_macwilliams_request(count_pauli)
-        # Every search of this count uses one tuning, which validates the limit.
+        # Every search of this count uses one tuning.
         tuning = get_tuning()
-        if max_information_sets is not None:
+        if max_information_sets is not None:  # DEPRECATED: see qldpc._deprecations
+            _deprecations.warn_deprecated(
+                "The max_information_sets argument of logical-operator counts is deprecated and"
+                " will be removed in a future release.  Use"
+                " qldpc.codes.distance._tuning.use_tuning(max_information_sets=...) instead",
+                stacklevel=get_external_caller_stacklevel(),
+            )
             max_sets = as_integer(max_information_sets, "max_information_sets")
             tuning = dataclasses.replace(tuning, max_information_sets=max_sets)
 
@@ -288,6 +285,7 @@ class CSSLogicalCounter:
                 count_pauli=count_pauli,
                 reject_lighter=count_pauli or within_distance,
                 shared_walk_rank=tuning.macwilliams_shared_walk_rank,
+                chunk_size=tuning.macwilliams_chunk_size,
             )
 
         sector_x, sector_z = self._get_sectors()
@@ -296,7 +294,10 @@ class CSSLogicalCounter:
         # The distance search and the scans start from the disjoint basis families that this counter
         # keeps.
         get_disjoint_basis_families = [
-            functools.partial(self._get_disjoint_basis_family, index) for index in range(2)
+            functools.partial(
+                self._get_disjoint_basis_family, index, tuning.disjoint_random_column_orders
+            )
+            for index in range(2)
         ]
         # Each search method remembers its own distance, so that brute force stays an independent
         # reference for the Brouwer-Zimmermann search.
@@ -512,21 +513,29 @@ class CSSLogicalCounter:
 
             # The kept families follow the gate.  If one cannot, the sector is prepared again when
             # it is next counted.  A self-dual code keeps one family, for both of its sectors.
-            for index, local in ((0, local_x), (1, local_z)):
-                basis_family = self._disjoint_basis_families.get(0 if self._self_dual else index)
-                if basis_family is not None and not (shared and index == 1):
+            for (
+                source,
+                random_column_orders,
+            ), basis_family in self._disjoint_basis_families.items():
+                for index in (0, 1) if self._self_dual else (source,):
+                    if shared and index == 1:
+                        continue
                     moved = scan.transport_basis_family(
-                        basis_family, positions, local, counter._sectors[index][0]
+                        basis_family,
+                        positions,
+                        local_x if index == 0 else local_z,
+                        counter._sectors[index][0],
                     )
                     if moved is not None:
-                        counter._disjoint_basis_families[index] = moved
+                        counter._disjoint_basis_families[index, random_column_orders] = moved
         return counter
 
     def _forget_kept_work(self) -> None:
         """Drop the work that is done on demand and kept for later counts."""
         self._distances: dict[_CountDistanceMethod, int] = {}
         self._sectors: tuple[_Sector, _Sector] | None = None
-        self._disjoint_basis_families: dict[int, information_sets.BasisFamily] = {}
+        # Disjoint basis families, by sector and number of column orders.
+        self._disjoint_basis_families: dict[tuple[int, int], information_sets.BasisFamily] = {}
         self._enumerators: macwilliams.CheckEnumerators | None = None
 
     def _validate_macwilliams_request(self, count_pauli: bool) -> None:
@@ -548,7 +557,13 @@ class CSSLogicalCounter:
             )
 
     def _count_with_macwilliams(
-        self, weight: int | None, *, count_pauli: bool, reject_lighter: bool, shared_walk_rank: int
+        self,
+        weight: int | None,
+        *,
+        count_pauli: bool,
+        reject_lighter: bool,
+        shared_walk_rank: int,
+        chunk_size: int,
     ) -> CSSLogicalCounts:
         """Count logical operators by the weight enumerators of the checks of a stabilizer code.
 
@@ -557,7 +572,8 @@ class CSSLogicalCounter:
         a self-dual code may share one weight distribution, even if a deformation gave them
         different bases.  Equal check spaces have equal distributions, so whether they share one
         changes only the number of walks, never the counts.  The enumerators are kept, so that later
-        counts at any weight, with any options, do not walk again.
+        counts at any weight, with any options, do not walk again.  Each native call of a walk
+        visits at most ``chunk_size`` steps.
         """
         # Walk the check spaces once per counter.
         if self._enumerators is None:
@@ -569,7 +585,7 @@ class CSSLogicalCounter:
                 or (rank == len(self._gauge_z) >= shared_walk_rank and self.is_self_dual)
             )
             self._enumerators = macwilliams.CheckEnumerators(
-                self._gauge_x, self._gauge_x if share else self._gauge_z
+                self._gauge_x, self._gauge_x if share else self._gauge_z, chunk_size
             )
         enumerators = self._enumerators
 
@@ -602,17 +618,21 @@ class CSSLogicalCounter:
             self._sectors = (sector_x, sector_z)
         return self._sectors
 
-    def _get_disjoint_basis_family(self, index: int) -> information_sets.BasisFamily:
+    def _get_disjoint_basis_family(
+        self, index: int, random_column_orders: int
+    ) -> information_sets.BasisFamily:
         """The disjoint basis family of a sector, the first stage of its basis families, kept.
 
         This stage does not depend on the counted weight, so counting at another weight, as when a
-        guessed weight fails, does not repeat it.
+        guessed weight fails, does not repeat it.  It does depend on ``random_column_orders``, the
+        ``disjoint_random_column_orders`` of the tuning of the count.
         """
-        if index not in self._disjoint_basis_families:
-            self._disjoint_basis_families[index] = information_sets.get_disjoint_family(
-                *self._get_sectors()[index]
+        key = (index, random_column_orders)
+        if key not in self._disjoint_basis_families:
+            self._disjoint_basis_families[key] = information_sets.get_disjoint_family(
+                *self._get_sectors()[index], random_column_orders=random_column_orders
             )
-        return self._disjoint_basis_families[index]
+        return self._disjoint_basis_families[key]
 
     def _get_canonical_checks(self) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
         """The checks in reduced row echelon form, which deformation does not preserve."""
@@ -631,7 +651,7 @@ def count_logical_ops_css(
     method: LogicalCountMethod = "brouwer_zimmermann",
     count_pauli: bool = False,
     within_distance: bool = False,
-    max_information_sets: SupportsIndex | None = None,
+    max_information_sets: SupportsIndex | None = None,  # DEPRECATED: see qldpc._deprecations
 ) -> CSSLogicalCounts:
     """Count the nontrivial logical operators of a given weight in a binary CSS code.
 
@@ -643,8 +663,8 @@ def count_logical_ops_css(
         The counted weight and the counts.
 
     Raises:
-        TypeError: If the code is not a :class:`~qldpc.codes.CSSCode`, or if the weight or
-            ``max_information_sets`` is not an integer, or is a bool.
+        TypeError: If the code is not a :class:`~qldpc.codes.CSSCode`, or if the weight is not an
+            integer, or is a bool.
         ValueError: If the code is not binary, or for invalid arguments as described in
             :meth:`CSSLogicalCounter.count_logical_ops`.
     """
@@ -714,15 +734,22 @@ def _warm_up_compiled_functions() -> None:
     counter.deformed_cnot(0, 1).count_logical_ops(method="brouwer_zimmermann")
 
     # The distance search of so small a code is exhaustive, so call the stages that it uses here.
+    # Any upper bound compiles them; this one exceeds the distance of the code, 3.  The default
+    # tuning makes these calls build families whatever the active tuning, since compilation, not a
+    # search, is their purpose.
     basis, labels = counter._get_sectors()[0]
+    upper_bound = 4
     basis_family = information_sets.prune_family(
-        information_sets.get_disjoint_family(basis, labels), 4
+        information_sets.get_disjoint_family(
+            basis, labels, random_column_orders=DEFAULT_TUNING.disjoint_random_column_orders
+        ),
+        upper_bound,
     )
     information_sets.get_overlapping_family(
         basis,
         labels,
         basis_family,
-        4,
+        upper_bound,
         *information_sets.get_overlapping_family_policy(DEFAULT_TUNING, len(basis)),
     )
 
@@ -745,14 +772,17 @@ def _get_distance(
     if method == "brute_force":
         return min(
             get_nested_distance_brute_force(
-                basis, labels, cutoff=0, block_size=_BLOCK_SIZE, homogeneous=True
+                basis,
+                labels,
+                cutoff=0,
+                batch_exponent=tuning.enumeration_batch_exponent,
+                homogeneous=True,
             )
             for basis, labels in sectors
         )
     return get_distance_brouwer_zimmermann_many(
         sectors,
         cutoff=0,
-        block_size=_BLOCK_SIZE,
         get_disjoint_basis_families=get_disjoint_basis_families[: len(sectors)],
         tuning=tuning,
     )

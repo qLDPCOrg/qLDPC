@@ -28,7 +28,7 @@ from qldpc._binary import get_kernel, pack_bits, popcount_word, trailing_zeros_w
 from qldpc._compilation import always_compiled
 
 from .._binary import get_nested_code_basis
-from .._tuning import get_tuning
+from .._tuning import SearchTuning, get_tuning
 from . import automorphism_families
 from .information_sets import infer_weight_divisor
 
@@ -50,6 +50,7 @@ def get_distance_connected_support(
     upper_bound: int | None = None,
     homogeneous: bool = True,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
+    tuning: SearchTuning | None = None,
 ) -> int:
     """Compute the minimum distance across problems by searching connected supports.
 
@@ -78,8 +79,9 @@ def get_distance_connected_support(
             variable ``row[j]``.  Each generator must map the words of every problem, and the row
             space of its excluded rows, onto themselves.  The search of each problem calls the
             function at most once, before the first weight limit at which it expects to have
-            visited ``automorphism_minimum_states`` states (a field of the tuning of
-            ``_tuning.py``), and verifies the generators before it uses them.
+            visited ``automorphism_minimum_states`` states (a field of ``tuning``), and verifies
+            the generators before it uses them.
+        tuning: The tuning of the search (see ``_tuning``), which defaults to the active tuning.
 
     Returns:
         The minimum distance across the problems and the optional upper bound, or an upper bound
@@ -97,7 +99,8 @@ def get_distance_connected_support(
 
     # A problem without witnesses only bounds the result.  A known bound within the cutoff ends the
     # search before it starts.
-    automorphism_minimum_states = get_tuning().automorphism_minimum_states
+    tuning = get_tuning() if tuning is None else tuning
+    automorphism_minimum_states = tuning.automorphism_minimum_states
     best_weight = upper_bound
     no_distance_bounds = []
     searches: list[SupportSearch] = []

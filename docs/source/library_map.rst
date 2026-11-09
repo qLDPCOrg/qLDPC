@@ -129,6 +129,7 @@ Exact distances of binary codes use an optimized `Brouwer--Zimmermann search <ht
 Binary codes with sparse parity checks, especially quantum codes at a high rate, can instead use ``method="connected_support"``, a `search over supports that are connected in the Tanner graph <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_, whose guide compares it with Brouwer--Zimmermann.
 ``get_distance_exact(cutoff=c)`` stops once it finds a nontrivial word of weight at most ``c``.
 A result of at most ``c`` is therefore only an upper bound, while a larger result, or any result with ``cutoff <= 1`` (the default is 1), is exact.
+Exact searches choose their routes by cost models whose settings and constants :doc:`exact_search_tuning` maps and documents.
 Distance-bound backends depend on the class: ``ClassicalCode`` uses a decoder, a non-CSS ``QuditCode`` uses GAP's QDistRnd, and ``CSSCode`` supports ``sqetch`` (binary only), GAP, and a decoder.
 For ``CSSCode``, the default ``backend="auto"`` tries those three in order and uses GAP only if a GAP binding or executable can be called, so it never falls back to the manual copy-and-paste workflow.
 It can still ask on standard input before installing a missing GUAVA or QDistRnd package.

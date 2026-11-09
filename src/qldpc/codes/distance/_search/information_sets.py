@@ -48,16 +48,9 @@ import numpy.typing as npt
 from qldpc._binary import pack_bits, row_reduce_binary, row_reduce_packed, unpack_bits
 from qldpc._compilation import always_compiled, compiled_on_request
 
+from .. import _tuning
 from .._tuning import SearchTuning
 from . import matroid_partition
-
-# The largest coverage of a column for which get_partitioned_family builds a basis family.
-_MAX_PARTITION_COVERAGE = 4
-
-# Partitioning ``b`` copies of the ``n`` columns of a basis of ``k`` rows takes about this many
-# times ``b * k**2 * n`` as long as a candidate/set evaluation of the search (measured on bases of
-# 85 to 156 rows and 127 to 432 columns).
-_PARTITION_COST_FACTOR = 20
 
 # Caps that keep work estimates within a native integer.  A binomial above _BINOMIAL_CAP counts as
 # the cap, and a sum saturates at _WORK_CAP, so an estimate is exact only if it reaches neither cap.
@@ -104,6 +97,8 @@ class Certificate:
             Overestimates are sound; underestimates are not.
         pivot_blocks: The pivot columns of each search basis, in family order, to bound unvisited
             words also by linear programming, or no blocks to use only the coverage bound.
+        lp_max_denominator: The largest denominator of the rational dual weights of the linear
+            program (see ``get_lp_lower_bound``), which ``pivot_blocks`` needs to be positive.
     """
 
     dimension: int
@@ -111,6 +106,7 @@ class Certificate:
     weight_divisor: int = 1
     max_coverage: int = 1
     pivot_blocks: tuple[tuple[int, ...], ...] = ()
+    lp_max_denominator: int = 0
 
     def lower_bound(self, completed_weight: int) -> int:
         """Bound the Hamming weight of unvisited eligible words after the given complete layers."""
@@ -129,7 +125,9 @@ class Certificate:
             return bound
         step = (weight, num_completed)
         if step not in self._lp_lower_bounds:
-            lp_bound = get_lp_lower_bound(self.pivot_blocks, self._get_requirements(*step))
+            lp_bound = get_lp_lower_bound(
+                self.pivot_blocks, self._get_requirements(*step), self.lp_max_denominator
+            )
             if lp_bound < _NO_WORD_BOUND:
                 lp_bound += (-lp_bound) % self.weight_divisor
             self._lp_lower_bounds[step] = lp_bound
@@ -238,11 +236,14 @@ class BasisFamily(NamedTuple):
             self.max_coverage,
         )
 
-    def get_search_certificate(self, upper_bound: int, lp_minimum_work: int) -> Certificate:
+    def get_search_certificate(
+        self, upper_bound: int, lp_minimum_work: int, lp_max_denominator: int
+    ) -> Certificate:
         """The certificate with which to search this basis family for ``upper_bound``.
 
         A search of overlapping sets whose estimated work reaches ``lp_minimum_work`` also bounds
-        unvisited words by linear programming, which can stop it sooner.
+        unvisited words by linear programming, which can stop it sooner, with dual weights whose
+        denominators are at most ``lp_max_denominator``.
         """
         certificate = self.certificate
         if self.max_coverage == 1 or certificate.work(upper_bound) < lp_minimum_work:
@@ -251,7 +252,9 @@ class BasisFamily(NamedTuple):
             tuple(int(column) for column in pivots[:rank])
             for pivots, rank in zip(self.pivots, self.ranks, strict=True)
         )
-        return dataclasses.replace(certificate, pivot_blocks=pivot_blocks)
+        return dataclasses.replace(
+            certificate, pivot_blocks=pivot_blocks, lp_max_denominator=lp_max_denominator
+        )
 
 
 ####################################################################################################
@@ -262,15 +265,18 @@ def get_disjoint_family(
     basis: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8] | None,
     *,
+    random_column_orders: int,
     weight_divisor: int = 1,
 ) -> BasisFamily:
     """Stage one: pack disjoint information sets, and certify them with any inferred parity.
 
-    ``labels`` are the quotient labels of ``basis``, and None stands for labels with no columns.
+    ``labels`` are the quotient labels of ``basis``, and None stands for labels with no columns.  If
+    the natural column order packs too few full sets, up to ``random_column_orders`` random orders
+    are tried (see ``_get_disjoint_sets``).
     """
     dimension = len(basis)
     set_labels = np.empty((dimension, 0), dtype=np.uint8) if labels is None else labels
-    sets = _get_disjoint_sets(basis, set_labels)
+    sets = _get_disjoint_sets(basis, set_labels, random_column_orders)
     generators = np.empty((len(sets), dimension, basis.shape[1]), dtype=np.uint8)
     reduced_labels = np.empty((len(sets), dimension, set_labels.shape[1]), dtype=np.uint8)
     pivots = np.full((len(sets), dimension), -1, dtype=np.int64)
@@ -313,6 +319,7 @@ def get_overlapping_family(
     upper_bound: int,
     max_sets: int,
     minimum_work: int,
+    attempts_per_set: int,
     binomials: npt.NDArray[np.int64],
     rng: np.random.Generator,
 ) -> BasisFamily:
@@ -323,12 +330,13 @@ def get_overlapping_family(
     their labels transformed alongside their rows, and is certified with its maximum coverage of a
     Hamming coordinate.  ``max_sets`` bounds its size and the effort spent building it: more sets
     can avoid costly coefficient layers in hard searches, while fewer reduce set-up work.  No
-    replacement is built if the estimated work of ``basis_family`` is below ``minimum_work``.
+    replacement is built if the estimated work of ``basis_family`` is below ``minimum_work``.  The
+    construction tries ``attempts_per_set`` column orders for each set that it may add.
 
     Returns the replacement, which has no sets if no replacement does less work.  ``binomials`` are
     ``get_capped_binomials(dimension)``, and ``rng`` breaks ties between equally used columns.
-    Searches take ``max_sets``, ``minimum_work``, ``binomials``, and ``rng`` from
-    :func:`get_overlapping_family_policy`.
+    Searches take ``max_sets``, ``minimum_work``, ``attempts_per_set``, ``binomials``, and ``rng``
+    from :func:`get_overlapping_family_policy`.
     """
     dimension = basis.shape[0]
     columns = np.flatnonzero(basis.sum(axis=0))
@@ -375,7 +383,14 @@ def get_overlapping_family(
     best_num_sets = 0
     best_coverage = 1
     packed_basis, packed_labels = pack_bits(basis), pack_bits(labels)
-    for _ in range(2 * (max_sets - num_full)):
+    # Saturate the number of attempts, which compiled code computes with 64-bit integers.
+    num_open = max(max_sets - num_full, 1)
+    num_attempts = (
+        attempts_per_set * num_open
+        if attempts_per_set <= _tuning.MAX_VALUE // num_open
+        else _tuning.MAX_VALUE
+    )
+    for _ in range(num_attempts):
         # Order the columns by load, and then randomly, with two stable sorts, since numba has no
         # lexicographic sort.  Transform the labels along with each candidate.
         by_random = np.argsort(rng.random(num_columns), kind="mergesort")
@@ -429,16 +444,17 @@ def get_overlapping_family(
 
 def get_overlapping_family_policy(
     tuning: SearchTuning, dimension: int
-) -> tuple[int, int, npt.NDArray[np.int64], np.random.Generator]:
-    """The ``max_sets``, ``minimum_work``, ``binomials``, and ``rng`` of stage three for a search.
+) -> tuple[int, int, int, npt.NDArray[np.int64], np.random.Generator]:
+    """The arguments of stage three after ``upper_bound``, from ``max_sets`` on, for a search.
 
-    They are the limit and the minimum work of ``tuning``, the capped binomials of the dimension,
-    and a new generator with a fixed seed, so that every search, distance or count, chooses the same
-    replacement for the same basis family and tuning.
+    They are the limit, the minimum work, and the attempts of ``tuning``, the capped binomials of
+    the dimension, and a new generator with a fixed seed, so that every search, distance or count,
+    chooses the same replacement for the same basis family and tuning.
     """
     return (
         tuning.max_information_sets,
         tuning.overlapping_minimum_work,
+        tuning.overlapping_attempts_per_set,
         get_capped_binomials(dimension),
         np.random.default_rng(0),
     )
@@ -449,25 +465,28 @@ def get_partitioned_family(
     labels: npt.NDArray[np.uint8],
     basis_family: BasisFamily,
     upper_bound: int,
-    max_sets: int,
-    work_ratio: int,
+    tuning: SearchTuning,
 ) -> BasisFamily:
     """Stage four: a basis family of information sets with bounded coverage, if it does less work.
 
     ``basis_family`` is the family that a search would otherwise use for the independent binary
     ``basis``, whose quotient labels ``labels`` have no columns if it has none.  For each maximum
-    coverage from two to ``_MAX_PARTITION_COVERAGE``, matroid partitioning finds the most full
-    information sets, up to ``max_sets``, that contain no column more often than that coverage (see
-    ``matroid_partition``).  This follows Section 5.1 of Lisoněk and Trummer (2016), which shows
-    that such families can do less work than those of the Brouwer-Zimmermann algorithm.
+    coverage from two to ``tuning.max_partition_coverage``, matroid partitioning finds the most full
+    information sets, up to ``tuning.max_information_sets``, that contain no column more often than
+    that coverage (see ``matroid_partition``).  This follows Section 5.1 of Lisoněk and Trummer
+    (2016), which shows that such families can do less work than those of the Brouwer-Zimmermann
+    algorithm.
 
     Returns the family that certifies ``upper_bound`` with the least estimated work, if that is less
     than the work of ``basis_family``, and otherwise a family with no sets.  No family is built if
-    the estimated work of ``basis_family`` is below ``work_ratio`` times the estimated work of
-    partitioning, or if no family of at most ``max_sets`` full sets could do less work: some column
-    of ``m`` such sets is in at least ``ceil(m * k / n)`` of them, for ``k`` rows and ``n`` nonzero
-    columns.
+    the estimated work of ``basis_family`` is below ``tuning.partition_work_ratio`` times the
+    estimated work of partitioning, ``tuning.partition_cost_factor * b * k**2 * n`` for each
+    coverage ``b``, or if no family of at most ``tuning.max_information_sets`` full sets could do
+    less work: some column of ``m`` such sets is in at least ``ceil(m * k / n)`` of them, for ``k``
+    rows and ``n`` nonzero columns.
     """
+    max_sets = tuning.max_information_sets
+    max_coverage = tuning.max_partition_coverage
     best_work = basis_family.certificate.work(upper_bound)
     best = _get_no_replacement(basis_family, basis, labels)
 
@@ -475,9 +494,9 @@ def get_partitioned_family(
     # could do less work, which is certain if no sets are allowed.
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
-    total_coverage = sum(range(2, _MAX_PARTITION_COVERAGE + 1))
-    partition_work = _PARTITION_COST_FACTOR * total_coverage * dimension**2 * num_columns
-    if best_work < work_ratio * partition_work:
+    total_coverage = sum(range(2, max_coverage + 1))
+    partition_work = tuning.partition_cost_factor * total_coverage * dimension**2 * num_columns
+    if best_work < tuning.partition_work_ratio * partition_work:
         return best
     optimistic_work = _estimate_optimistic_work(
         dimension,
@@ -491,7 +510,7 @@ def get_partitioned_family(
         return best
 
     # Build a family for each coverage, and keep the one that does the least work.
-    for coverage in range(2, _MAX_PARTITION_COVERAGE + 1):
+    for coverage in range(2, max_coverage + 1):
         column_sets = matroid_partition.get_information_sets_with_coverage(
             basis, coverage, max_sets
         )
@@ -555,9 +574,13 @@ def _get_no_replacement(
 
 
 def _get_disjoint_sets(
-    basis: npt.NDArray[np.uint8], labels: npt.NDArray[np.uint8]
+    basis: npt.NDArray[np.uint8], labels: npt.NDArray[np.uint8], random_column_orders: int
 ) -> list[_DisjointSet]:
-    """Construct a large deterministic packing of disjoint information sets."""
+    """Construct a large deterministic packing of disjoint information sets.
+
+    The natural column order is tried first, and then up to ``random_column_orders`` random orders,
+    until one reaches the most full sets that the columns could allow.
+    """
     # Only columns that are nonzero in the basis can be pivots.  Pack them in their natural order.
     nonzero_columns = np.flatnonzero(np.any(basis, axis=0))
     best = _get_disjoint_sets_for_columns(
@@ -573,9 +596,9 @@ def _get_disjoint_sets(
     if sum(len(pivots) == len(basis) for *_, pivots in best) == max_full_sets:
         return best
 
-    # Otherwise, try up to 8 random column orders.  The fixed seed makes the result reproducible.
+    # Otherwise, try a few random column orders.  The fixed seed makes the result reproducible.
     rng = np.random.default_rng(0)
-    for _ in range(8):
+    for _ in range(random_column_orders):
         # Keep the packing with the lexicographically larger tuple of ranks: more full sets, or
         # equally many and a larger last set.
         candidate = _get_disjoint_sets_for_columns(
@@ -639,7 +662,9 @@ def _get_disjoint_sets_for_columns(
 # certificates
 
 
-def get_lp_lower_bound(pivot_blocks: Sequence[Sequence[int]], requirements: Sequence[int]) -> int:
+def get_lp_lower_bound(
+    pivot_blocks: Sequence[Sequence[int]], requirements: Sequence[int], max_denominator: int
+) -> int:
     """Bound the weight of binary words with given numbers of ones in blocks, by linear programming.
 
     Let ``B_i = pivot_blocks[i]`` and ``b_i = requirements[i]``.  Every binary word with at least
@@ -691,7 +716,10 @@ def get_lp_lower_bound(pivot_blocks: Sequence[Sequence[int]], requirements: Sequ
     # Evaluate the dual value exactly.  The solver gives the dual of each constraint
     # ``-sum x >= -b`` as a nonpositive marginal.
     weights = [
-        max(Fraction(0), Fraction(-float(marginal)).limit_denominator(1 << 20))
+        max(
+            Fraction(0),
+            Fraction(-float(marginal)).limit_denominator(max_denominator),
+        )
         for marginal in result.ineqlin.marginals
     ]
     value = sum(
@@ -705,7 +733,7 @@ def get_lp_lower_bound(pivot_blocks: Sequence[Sequence[int]], requirements: Sequ
     return max(0, math.ceil(value))
 
 
-@functools.cache
+@functools.lru_cache(maxsize=_tuning.BINOMIAL_CACHE_SIZE)
 def get_capped_binomials(dimension: int) -> npt.NDArray[np.int64]:
     """The binomial coefficients ``C(dimension, weight)`` for every weight, capped to fit.
 
