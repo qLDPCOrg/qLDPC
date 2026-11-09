@@ -2,15 +2,16 @@
 
 ## 1. Purpose and scope
 
-The connected-support search computes the exact distance of a binary CSS code, including a subsystem code, from the Tanner graphs of its parity checks.
-It is the method `"connected_support"` of `CSSCode.get_distance_exact`.
+The connected-support search computes the exact distance of a binary code from the Tanner graph of its parity checks.
+The code can be classical, CSS, or a qubit stabilizer code that is not CSS, and the quantum codes can be subsystem codes.
+It is the method `"connected_support"` of the `get_distance_exact` methods of `ClassicalCode`, `QuditCode`, and `CSSCode`.
 Brouwer–Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) is the default.
 The connected-support search is a quantum version of the searches for small stopping sets and low-weight codewords of classical LDPC codes (Richter, Rosnes and Ytrehus, and Khatami et al. in the [references](#references)), and follows Algorithm 2 in Section V of Okada and Kasai (also in the references).
 This guide explains the search, maps it to the code, and states what a change to it must preserve.
 It is organized as follows:
 
 - [Section 2](#2-when-to-use-which-method) says when to use this method rather than BZ.
-- [Section 3](#3-the-algorithm) explains the algorithm, and where qLDPC differs from the paper.
+- [Section 3](#3-the-algorithm) explains the algorithm, and where qLDPC differs from the paper, which [Section 3.7](#37-qubit-codes-that-are-not-css) extends to qubit codes that are not CSS.
 - [Section 4](#4-guide-to-the-source-code) maps the algorithm to the source code.
 - [Section 5](#5-correctness-requirements) lists the requirements that every change to the search must keep.
 
@@ -53,6 +54,23 @@ Searching rotated surface codes takes 0.03 s for distance 11, 0.8 s for distance
 BZ takes 0.5 s for distance 11, and more than 200 s for distance 15.
 A subsystem code searches the Tanner graph of its stabilizers, which can be dense.
 
+A classical code is searched like a sector with nothing excluded.
+A qubit code that is not CSS has no sectors, and its search branches on the Paulis `X`, `Z`, and `Y` of each qubit ([Section 3.7](#37-qubit-codes-that-are-not-css)).
+This search is slower than that of the sectors of a CSS code: a `Y` can repair checks of both types at once, which weakens the bounds of [Section 3.4](#34-pruning).
+The table times the codes above, and others, with Hadamards on the second half of their qubits, which leaves codes that are not CSS, with the same distances, and that qLDPC searches as `QuditCode` objects (the option `--hadamards` of the script).
+They use the automorphisms that `pybliss` finds.
+
+| Code, with Hadamards | BZ | Connected support |
+| --- | --- | --- |
+| Rotated surface code, distance 9 | 2.7 s | 0.2 s |
+| Rotated surface code, distance 11 | more than 300 s | 0.6 s |
+| [[144, 12, 12]] bivariate bicycle code | more than 300 s | 0.4 s |
+| [[110, 8, 12]] | more than 300 s | 9.1 s |
+| [[232, 62, 12]] | not run | 1.6 s |
+| [[276, 98, 14]] | not run | 389 s |
+
+These searches take 8 to 60 times as long as those of the same codes without Hadamards.
+
 ## 3. The algorithm
 
 ### 3.1 The problem
@@ -73,19 +91,23 @@ For a CSS code, the distance of the X-type logical operators is `d(H_Z, H_X)`, a
 The distance of the code is the smaller of the two.
 For a subsystem code, `H` holds the stabilizers of the opposite type, so that its kernel holds the X-type or Z-type operators that commute with every stabilizer, and `G` holds the gauge generators of the same type.
 A witness is then a dressed logical operator, as in BZ.
+For a classical code, `H` is its parity-check matrix, and `G` is empty.
+[Section 3.7](#37-qubit-codes-that-are-not-css) treats qubit codes that are not CSS.
 
 ### 3.2 Light words are connected
 
 **Lemma** (after Lemma 2 of [Okada and Kasai](#references)).
-Every witness of minimum weight has a support that is connected in the Tanner graph of `H`, and that contains no support of a nonzero vector of `ker(H)` but its own.
+Every witness `x` of minimum weight has a support that is connected in the Tanner graph of `H`.
+No restriction of `x` to a proper nonempty subset of its support, which agrees with `x` there and is zero elsewhere, is in `ker(H)`.
 
 *Proof.*
 Split the support of a minimum-weight witness `x` into its connected components.
 No check is adjacent to variables of two components, so each component has an empty syndrome.
 If every component were in `rowspan(G)`, their sum `x` would be too.
 So one component is a witness, and by minimality it is all of `x`.
-Now let `y` be a nonzero vector of `ker(H)` whose support is a proper subset of that of `x`.
-Then `y` and `x + y` are lighter than `x`, and they cannot both be in `rowspan(G)`, since their sum is `x`.
+Now let `y` be a restriction of `x` to a proper nonempty subset of its support, and suppose that `y` is in `ker(H)`.
+Then `y` and `x + y`, the restriction of `x` to the rest of its support, are in `ker(H)`, and are lighter than `x`.
+They cannot both be in `rowspan(G)`, since their sum is `x`.
 One of them would be a lighter witness, which is a contradiction. ∎
 
 The paper states the lemma for one witness.
@@ -105,7 +127,7 @@ Every state grows only through unsatisfied checks, so every support that it visi
 
 **Completeness.**
 Suppose that `x` is a witness of minimum weight, whose variable of lowest rank is the root `r`.
-By the lemma, no proper nonempty subset of its support has an empty syndrome.
+By the lemma, the restriction of `x` to a proper nonempty subset of its support has a syndrome that is not empty.
 Take a state with `S ⊊ supp(x)` and `F ∩ supp(x) = ∅`.
 The syndrome of `S` is not empty, and the parity of `supp(x)` at every check is even, so an unsatisfied check `c` has a variable of `supp(x) \ S`.
 That variable is available, since `F` misses `supp(x)`.
@@ -205,6 +227,49 @@ A search never needs a good upper bound, and a search of one sector shares the b
 If `cutoff` is above `L`, the first limit is `cutoff`, and a witness of weight at most `cutoff` is returned at once.
 An upper bound from a known sector distance acts as a witness of that weight.
 
+### 3.7 Qubit codes that are not CSS
+
+A Pauli operator on `n` qubits, up to a phase, is a symplectic vector `x = (a | b)` of `2n` bits, which has `X` on qubit `j` if `a_j = 1` and `b_j = 0`, `Z` if `a_j = 0` and `b_j = 1`, and `Y` if both are 1.
+Two operators commute if their symplectic product vanishes.
+Its weight is the number of qubits on which it is not the identity.
+For a qubit stabilizer code, `H` holds the stabilizers, and the words are the operators that commute with them; `G` holds the gauge generators, which are the stabilizers if the code is not a subsystem code.
+The distance is the least weight of a word outside `rowspan(G)`, as in [Section 3.1](#31-the-problem), but with weight counting qubits.
+
+The search makes each qubit a variable, whose nonzero **values** are `X`, `Z`, and `Y`.
+A **symbol** is a variable with one of its values, and the word of a set of symbols on distinct variables has those values there and is the identity elsewhere.
+A symbol **flips** a check if the two anticommute on its qubit, and the syndrome of a word is the set of checks that it anticommutes with.
+The Tanner graph joins each check to the symbols that flip it.
+A homogeneous problem, such as a classical code or a sector of a CSS code, is the case of one value per variable, so its symbols are its variables.
+
+Each argument of Sections 3.2 to 3.6 carries over, with symbols where it uses variables:
+
+- **Lemma.**
+  The components of `supp(x)` are those of the graph that joins each check to the qubits on which it acts.
+  A check acts on qubits of at most one component, so it commutes with the restriction of `x` to every component, as it commutes with `x`.
+  The rest of the proof uses only that the restrictions of `x` to the parts of a partition of its support sum to `x`.
+  A symbol flips a check only if the check acts on its qubit, so the search grows supports that are connected in this graph.
+- **Search.**
+  A state is a set `S` of symbols on distinct variables, with a set `F` of forbidden symbols.
+  The children of an unsatisfied check `c` are its available symbols: those that flip `c`, are not in `F`, and whose variable is not in `S`.
+  While a child is in the stack, the other values of its variable are blocked, since a word has one value on each qubit, and they are available again once the search leaves that child.
+  A child joins `F` for its later siblings, but the other values of its variable do not, since a later sibling can lead to a witness that has another value there.
+  The root is a variable, so the children of the empty state are its three symbols.
+- **Completeness.**
+  The argument of [Section 3.3](#33-the-depth-first-search) holds with `S` a set of symbols of `x`, and with `F` missing every symbol of `x`.
+  An unsatisfied check `c` anticommutes with the restriction of `x` to `S`, and commutes with `x`, so it is flipped by a symbol of `x` on a variable outside `S`.
+  The first such symbol among the children of `c` is visited before it joins `F`.
+  The earlier siblings block the other values of their variables only while their own branches are in the stack.
+- **Pruning.**
+  A completion `T` has one symbol on each new variable, so its size is the number of variables that it adds.
+  The dual weights `y_c` must make the weights of the unsatisfied checks that each available symbol flips total at most one, and the overlap and repair of [Section 3.4](#34-pruning) are those of symbols.
+  A `Y` flips the checks that its `X` and its `Z` each flip alone, but not those that act as `Y` on its qubit, and so has a larger overlap, which lowers the weights.
+- **Symmetries.**
+  A permutation of the qubits moves both halves of each word, and qLDPC verifies it on the `2n` columns.
+  The roots and ranks are those of variables, and the search from a root blocks every value of the variables of lower rank.
+- **Logical test and divisor.**
+  The test columns of a symbol are those of its word: for `Y`, the sum of those of `X` and `Z`.
+  qLDPC infers no weight divisor for these problems, and steps their weight limits by one.
+
 ## 4. Guide to the source code
 
 The names below are in `_search/connected_support.py`, unless the table says otherwise.
@@ -212,20 +277,23 @@ The names below are in `_search/connected_support.py`, unless the table says oth
 | Concept | Code |
 | --- | --- |
 | Pair `(H, G)`, its words and witnesses | `checks` and `excluded` of `SupportSearch` and `get_distance_connected_support` |
-| Sectors of a code | `CSSCode._get_parity_check_sector` in `src/qldpc/codes/common.py` |
+| Sectors of a CSS code | `CSSCode._get_parity_check_sector` in `src/qldpc/codes/common.py` |
+| Classical codes, and qubit codes that are not CSS | `ClassicalCode.get_distance_exact` and `QuditCode.get_distance_exact` in `src/qldpc/codes/common.py` |
+| Symplectic problems, values, and symbols | `homogeneous` of `SupportSearch`, its `_get_symbol_columns`, and `_block_other_values` |
 | Distance of several sectors | `get_distance_connected_support`, which `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` reaches through `core.py` |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` of `_search/automorphism_families.py` |
-| States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available variables |
-| Weights, pruning, and the variables that a state forbids for its subtree | `_get_branches` |
+| States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |
+| Weights, pruning, and the symbols that a state forbids for its subtree | `_get_branches` |
 | When a search asks for symmetries | `automorphism_minimum_states` of `SearchTuning` in `_tuning.py` |
 | Weight divisor | `infer_weight_divisor` of `_search/information_sets.py` |
 
-`CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` builds the sectors and calls `_get_distance_css_connected_support` of `core.py`, which validates them.
+`CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` builds the sectors and calls `_get_distance_connected_support` of `core.py`, which validates them, as do `ClassicalCode.get_distance_exact` and `QuditCode.get_distance_exact` for their problems.
+Nonbinary codes reject the method.
 `logical_counts.py` does not accept the method, since counting needs every word of a weight, and not one witness.
 `get_distance_classical` and `get_distance_quantum` reject it, since their inputs are generators and not parity checks.
-Classical codes reject it too, so the closed forms of hypergraph product codes, which search their classical seed codes, search them with Brouwer–Zimmermann instead.
+The closed forms of hypergraph product codes search their classical seed codes with the method that they are given.
 `_search_supports`, `_get_branches`, and `_is_outside_excluded` are compiled with `always_compiled`, and their small helpers with `always_compiled(inline=True)`, as [README.md](README.md) explains.
 
 ## 5. Correctness requirements
@@ -239,8 +307,11 @@ Changes to the search can use other bounds and orders, while keeping these requi
   A bound that is too strong can still find the distance, unless it prunes a lightest witness, so a test needs a case where the bound is tight at the distance, as the tests of the distances of known codes are.
 - **Forbid a variable for a subtree only if no completion of the state contains it.**
   The variables that a state forbids must become available again when the search leaves the state.
+- **Give each variable at most one value.**
+  While a symbol is in the support, the other values of its variable must be blocked, and they must be available again once the search leaves its branch.
+  A sibling forbids only its own symbol, not the other values of its variable.
 - **Block siblings and variables of lower rank than the root.**
-  A search from a root must use only variables of higher rank, and a variable must be forbidden for its later siblings.
+  A search from a root must use only variables of higher rank, with any of their values, and a symbol must be forbidden for its later siblings.
   Omitting this blocking would not change the results, and would only lose time, so `num_states` is tested on a hand-counted instance.
 - **Verify the automorphisms, and make each root the lowest-ranked variable of its orbit.**
   Roots from unverified permutations are unsound.

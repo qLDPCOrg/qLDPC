@@ -4,7 +4,7 @@ This directory is the package `qldpc.codes.distance`.
 It computes exact distances of binary codes, and counts the logical operators of a given weight in binary CSS codes.
 Users reach it through the `get_distance_exact` method of binary codes in `src/qldpc/codes/common.py`, and through `CSSLogicalCounter`.
 `brouwer_zimmermann.md` explains the Brouwer–Zimmermann algorithm, maps its concepts to names in the code, describes its heuristics for choosing basis families, and lists the correctness requirements that every change to a search must keep.
-`connected_support.md` explains the search of sparse CSS codes over supports that are connected in a Tanner graph, maps it to the code, says when to choose it over Brouwer–Zimmermann, and lists its correctness requirements.
+`connected_support.md` explains the search of sparse binary codes over supports that are connected in a Tanner graph, maps it to the code, says when to choose it over Brouwer–Zimmermann, and lists its correctness requirements.
 
 ## Public names
 
@@ -22,7 +22,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
   `brouwer_zimmermann.md` calls this basis a search basis, and uses "information set" for the block of columns itself.
 - **Basis family** (`BasisFamily`): the information sets that one search uses together, stacked into arrays.
 - **Certificate** (`Certificate`): a lower bound on the weight of the words that a search has not yet visited, which tells the search when it can stop.
-- **Connected-support search** (`SupportSearch`): the depth-first search of the supports that grow through unsatisfied parity checks, for a binary matrix of checks `H` and an excluded matrix `G`.
+- **Connected-support search** (`SupportSearch`): the depth-first search of the supports that grow through unsatisfied parity checks, for a binary matrix of checks `H` and an excluded matrix `G`, whose words are binary, or symplectic for qubit codes that are not CSS.
   It is another exact method, selected by `method="connected_support"`.
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer.
   Counting scans in `_counting/scan.py`, and the distance search in `_search/brouwer_zimmermann.py`.

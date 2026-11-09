@@ -4,7 +4,9 @@
 
 from __future__ import annotations
 
+import itertools
 import unittest.mock
+from collections.abc import Iterator
 
 import numpy as np
 import numpy.typing as npt
@@ -82,6 +84,43 @@ def is_witness(problem: Problem, support: npt.NDArray[np.int64]) -> bool:
     )
 
 
+def get_symplectic_brute_force_distance(problem: Problem) -> int:
+    """The least weight of a Pauli operator that commutes with the checks, outside the excluded.
+
+    A word is an integer whose bits ``j`` and ``n + j`` are its X and Z parts on qubit ``j``.
+    """
+    checks, excluded = problem
+    num_qubits = checks.shape[1] // 2
+    words = get_span(get_kernel(np.roll(checks, num_qubits, axis=1))) - get_span(excluded)
+    return min(((word | word >> num_qubits) % 2**num_qubits).bit_count() for word in words)
+
+
+def get_symplectic_vector(symbols: npt.NDArray[np.int64], num_qubits: int) -> npt.NDArray[np.uint8]:
+    """The symplectic vector of the symbols of a witness, which give each qubit X, Z, or Y."""
+    vector = np.zeros(2 * num_qubits, dtype=np.uint8)
+    for symbol in symbols:
+        value, qubit = divmod(int(symbol), num_qubits)
+        vector[qubit] ^= value in (0, 2)
+        vector[num_qubits + qubit] ^= value in (1, 2)
+    return vector
+
+
+def is_symplectic_witness(problem: Problem, symbols: npt.NDArray[np.int64]) -> bool:
+    """Whether symbols on distinct qubits give a Pauli operator that is a witness.
+
+    A witness commutes with every check, and is outside the row space of the excluded rows.
+    """
+    checks, excluded = problem
+    num_qubits = checks.shape[1] // 2
+    vector = get_symplectic_vector(symbols, num_qubits)
+    return (
+        len({int(symbol) % num_qubits for symbol in symbols}) == len(symbols)
+        and not np.any(np.roll(checks, num_qubits, axis=1) @ vector % 2)
+        and len(get_independent_rows(np.vstack([excluded, vector])))
+        > len(get_independent_rows(excluded))
+    )
+
+
 # The Steane code, whose words include odd weights, and the toric code both have several lightest
 # logical operators.
 # The rotated surface code and the Bacon-Shor code, a subsystem code, have stabilizers or gauge
@@ -134,6 +173,33 @@ PROBLEMS["many-allowances"] = (
     ),
     np.zeros((0, 9), dtype=np.uint8),
 )
+
+
+def get_qubit_problem(code: codes.QuditCode) -> Problem:
+    """The stabilizers and gauge generators of a qubit code, as symplectic matrices."""
+    checks = code.get_stabilizer_ops() if code.is_subsystem_code else code.matrix
+    return np.asarray(checks, dtype=np.uint8), np.asarray(code.matrix, dtype=np.uint8)
+
+
+# Small codes, whose qubits a test mixes with single-qubit Cliffords.
+CODES_WITHOUT_CSS = {
+    "five-qubit": codes.FiveQubitCode(),
+    "steane": codes.QuditCode(codes.SteaneCode().matrix),
+    "surface": codes.QuditCode(codes.SurfaceCode(3).matrix),
+}
+
+# Codes that are not CSS: the five-qubit code, and codes with Hadamards on some of their qubits, of
+# which the Bacon-Shor code is a subsystem code.
+QUBIT_PROBLEMS = {
+    "five-qubit": get_qubit_problem(codes.FiveQubitCode()),
+    "steane-hadamards": get_qubit_problem(codes.SteaneCode().conjugated([0, 1, 2])),
+    "surface-hadamards": get_qubit_problem(codes.SurfaceCode(3).conjugated(range(0, 9, 2))),
+    "bacon-shor-hadamards": get_qubit_problem(
+        codes.QuditCode(
+            codes.BaconShorCode(3).conjugated(range(0, 9, 2)).matrix, is_subsystem_code=True
+        )
+    ),
+}
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -414,6 +480,113 @@ def test_the_logical_test_reads_every_block() -> None:
 
 
 @pytest.mark.usefixtures("compilation_mode")
+@pytest.mark.parametrize("problem", QUBIT_PROBLEMS.values(), ids=QUBIT_PROBLEMS.keys())
+def test_qubit_distances_match_enumeration(problem: Problem) -> None:
+    """Searches of Pauli operators agree with an enumeration, and their witnesses are valid.
+
+    A witness gives each qubit of its support one of X, Z, and Y, so its weight is its number of
+    symbols.
+    """
+    distance = get_symplectic_brute_force_distance(problem)
+    assert cs.get_distance_connected_support([problem], cutoff=0, homogeneous=False) == distance
+    for max_weight in range(1, distance + 1):
+        search = cs.SupportSearch(*problem, homogeneous=False)
+        witness = search.find_witness(max_weight)
+        if max_weight < distance:
+            assert witness is None
+        else:
+            assert witness is not None and len(witness) <= max_weight
+            assert is_symplectic_witness(problem, witness)
+
+
+def get_random_qubit_problems(rng: np.random.Generator, num_problems: int) -> Iterator[Problem]:
+    """Random qubit problems whose checks have X, Z, and Y on their qubits.
+
+    Half are random checks, most of which do not commute, so they are the stabilizers of subsystem
+    codes.  The others are the five-qubit, Steane, and surface codes, with a random single-qubit
+    Clifford on each qubit, which permutes X, Z, and Y there.
+    """
+    cliffords = [
+        np.array(clifford) for clifford in itertools.permutations([[1, 0], [0, 1], [1, 1]], 2)
+    ]
+    for index in range(num_problems):
+        if index % 2:
+            num_qubits = int(rng.integers(3, 7))
+            matrix = (rng.random((int(rng.integers(1, num_qubits)), 2 * num_qubits)) < 0.4).astype(
+                int
+            )
+        else:
+            matrix = np.array(list(CODES_WITHOUT_CSS.values())[index // 2 % 3].matrix, dtype=int)
+            num_qubits = matrix.shape[1] // 2
+            for qubit in range(num_qubits):
+                clifford = cliffords[rng.integers(len(cliffords))]
+                columns = np.stack([matrix[:, qubit], matrix[:, num_qubits + qubit]], axis=1)
+                matrix[:, [qubit, num_qubits + qubit]] = columns @ clifford % 2
+        code = codes.QuditCode(matrix)
+        if code.dimension:
+            yield get_qubit_problem(code)
+
+
+@pytest.mark.usefixtures("compilation_mode")
+def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) -> None:
+    """Random qubit problems agree with an enumeration at every weight limit, and from every root.
+
+    Every lightest witness has a support that is connected, and the search from its least qubit
+    finds it (Section 3.3 of ``connected_support.md``).  So the search from a qubit alone, through
+    the distance, finds a witness exactly if some lightest witness has that least qubit, which
+    fails if the search misses a value of a qubit.
+    """
+    # The five-qubit code with single-qubit Cliffords, for which a state needs the value Y of a
+    # qubit after an earlier sibling tried X there.
+    mixed_five_qubit_code = codes.QuditCode(
+        [
+            [1, 1, 1, 0, 0, 1, 1, 0, 1, 0],
+            [0, 1, 1, 1, 1, 0, 0, 0, 1, 1],
+            [1, 0, 1, 1, 0, 1, 0, 1, 1, 1],
+            [1, 1, 0, 0, 0, 0, 0, 0, 1, 1],
+        ]
+    )
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    problems = [get_qubit_problem(mixed_five_qubit_code), *get_random_qubit_problems(rng, 30)]
+    for problem in problems:
+        checks, excluded = problem
+        num_qubits = checks.shape[1] // 2
+        words = get_span(get_kernel(np.roll(checks, num_qubits, axis=1))) - get_span(excluded)
+        supports = [(word | word >> num_qubits) % 2**num_qubits for word in words]
+        distance = min(support.bit_count() for support in supports)
+        assert cs.get_distance_connected_support([problem], cutoff=0, homogeneous=False) == distance
+        for max_weight in range(1, distance):
+            assert cs.SupportSearch(*problem, homogeneous=False).find_witness(max_weight) is None
+
+        least_qubits = {
+            (support & -support).bit_length() - 1
+            for support in supports
+            if support.bit_count() == distance
+        }
+        for root in range(num_qubits):
+            search = cs.SupportSearch(*problem, homogeneous=False)
+            search._roots = np.array([root])
+            witness = search.find_witness(distance)
+            assert (witness is not None) == (root in least_qubits)
+            assert witness is None or is_symplectic_witness(problem, witness)
+
+
+@pytest.mark.usefixtures("compilation_mode")
+def test_qubit_automorphisms_reduce_the_roots_and_keep_the_distance() -> None:
+    """The cyclic shift of the five-qubit code leaves one root, and so fewer states."""
+    problem = QUBIT_PROBLEMS["five-qubit"]
+    shift = (np.arange(5) + 1) % 5
+    plain = cs.SupportSearch(*problem, homogeneous=False)
+    symmetric = cs.SupportSearch(*problem, homogeneous=False, get_automorphisms=lambda: shift[None])
+    for search in (plain, symmetric):
+        assert search.find_witness(2) is None
+        witness = search.find_witness(3)
+        assert witness is not None and is_symplectic_witness(problem, witness)
+    assert len(symmetric._roots) == 1
+    assert symmetric.num_states < plain.num_states
+
+
+@pytest.mark.usefixtures("compilation_mode")
 def test_cutoffs_and_upper_bounds() -> None:
     """A search can stop early at a witness within its cutoff, or at a known upper bound."""
     problem = PROBLEMS["toric-X"]
@@ -475,7 +648,7 @@ def test_invalid_problems_are_rejected() -> None:
     """
     with pytest.raises(ValueError, match="equal widths"):
         cs.SupportSearch(np.zeros((1, 3), dtype=np.uint8), np.zeros((1, 4), dtype=np.uint8))
-    with pytest.raises(ValueError, match="kernel"):
+    with pytest.raises(ValueError, match="satisfy the checks"):
         cs.SupportSearch(np.ones((1, 3), dtype=np.uint8), np.array([[1, 0, 0]], dtype=np.uint8))
     for entry in (2, -1, 0.5):
         with pytest.raises(ValueError, match="binary"):
@@ -486,3 +659,7 @@ def test_invalid_problems_are_rejected() -> None:
         cs.SupportSearch(*PROBLEMS["steane-X"]).find_witness(0)
     with pytest.raises(ValueError, match="at least one problem or an upper bound"):
         cs.get_distance_connected_support([], cutoff=0)
+    with pytest.raises(ValueError, match="even number of columns"):
+        cs.SupportSearch(
+            np.ones((1, 3), dtype=np.uint8), np.ones((0, 3), dtype=np.uint8), homogeneous=False
+        )

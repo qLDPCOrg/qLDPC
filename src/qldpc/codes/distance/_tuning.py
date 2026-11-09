@@ -166,7 +166,8 @@ class SearchTuning:
             :func:`~qldpc.codes.distance.get_distance_quantum`, and counts of logical operators do
             not.  Defaults to 100,000,000.
         automorphism_minimum_states: The number of visited states, over all weight limits of the
-            search of one sector, that a connected-support search (``method="connected_support"``)
+            search of one problem, such as a sector of a CSS code, that a connected-support search
+            (``method="connected_support"``)
             expects to reach before it asks for automorphisms of its code.  It predicts the states
             of its next weight limit from the growth in states between its last two limits.  With
             automorphisms, it searches from one variable of each of their orbits, rather than from

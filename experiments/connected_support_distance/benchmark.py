@@ -14,6 +14,10 @@ lift size ``P``, the number ``L`` of block columns, the numbers ``J_X`` and ``J_
 and then the X-type exponents and the Z-type exponents in row-major order.  A path to another such
 file also names a code.
 
+With ``--hadamards``, the script applies Hadamards to the second half of the qubits of each code,
+which leaves a code with the same distance that is not CSS, and times it as a
+``qldpc.codes.QuditCode``.
+
 The script also builds a few other codes to contrast the two methods: ``gross`` (the [[144, 12, 12]]
 bivariate bicycle code), and ``surface:D`` and ``toric:D`` (rotated, with distance ``D``, which is
 even for a toric code).
@@ -40,6 +44,7 @@ from __future__ import annotations
 import argparse
 import pathlib
 import time
+from collections.abc import Sequence
 from typing import Literal
 
 import numpy as np
@@ -56,10 +61,16 @@ def main() -> None:
     """Time the requested searches."""
     args = parse_args()
     for name in args.codes:
-        code, parameters = get_code(name)
-        print(f"{name}: n={len(code)}, k={code.dimension}", flush=True)
+        css_code, parameters = get_code(name)
+        print(f"{name}: n={len(css_code)}, k={css_code.dimension}", flush=True)
+        code: codes.QuditCode = css_code
+        if args.hadamards:
+            # Hadamards on half of the qubits make a code that is not CSS, with the same distance.
+            num_qubits = len(css_code)
+            code = codes.QuditCode(css_code.conjugated(range(num_qubits // 2, num_qubits)).matrix)
+        sectors: Sequence[Literal["X", "Z", "both"]] = ["both"] if args.hadamards else args.sectors
         for method in args.methods:
-            for sector in args.sectors:
+            for sector in sectors:
                 distance, wall, cpu = time_distance(code, method, sector)
                 note = ""
                 if parameters is not None and (
@@ -98,6 +109,12 @@ def parse_args() -> argparse.Namespace:
         choices=["X", "Z", "both"],
         help="the logical operators to search: X-type, Z-type, or both, whose joint search finds"
         " the minimum (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--hadamards",
+        action="store_true",
+        help="apply Hadamards to the second half of the qubits, and search the resulting code,"
+        " which is not CSS, as a QuditCode; this searches both sectors, and ignores --sectors",
     )
     return parser.parse_args()
 
@@ -209,13 +226,19 @@ def get_code(name: str) -> tuple[codes.CSSCode, tuple[int, int, int] | None]:
 
 
 def time_distance(
-    code: codes.CSSCode, method: DistanceMethod, sector: Literal["X", "Z", "both"]
+    code: codes.QuditCode, method: DistanceMethod, sector: Literal["X", "Z", "both"]
 ) -> tuple[int | float, float, float]:
-    """The distance of a code, and the wall and CPU seconds that it took."""
-    pauli = None if sector == "both" else Pauli.coerce_xz(sector)
+    """The distance of a code, and the wall and CPU seconds that it took.
+
+    A code that is not CSS has no sectors, and is searched whole.
+    """
     code.forget_distance()
     wall, cpu = time.perf_counter(), time.process_time()
-    distance = code.get_distance_exact(pauli, method=method)
+    if isinstance(code, codes.CSSCode):
+        pauli = None if sector == "both" else Pauli.coerce_xz(sector)
+        distance = code.get_distance_exact(pauli, method=method)
+    else:
+        distance = code.get_distance_exact(method=method)
     return distance, time.perf_counter() - wall, time.process_time() - cpu
 
 

@@ -91,35 +91,31 @@ def test_css_connected_support_inputs() -> None:
     checks = [[1, 1, 0], [0, 1, 1]]
     sector = (checks, [[0, 0, 0]])
     trivial = (checks, [[1, 1, 1]])
-    assert core._get_distance_css_connected_support([sector], cutoff=0) == 3
-    assert core._get_distance_css_connected_support([trivial], cutoff=0) == 4
-    assert core._get_distance_css_connected_support([sector, trivial], cutoff=0) == 3
+    assert core._get_distance_connected_support([sector], cutoff=0) == 3
+    assert core._get_distance_connected_support([trivial], cutoff=0) == 4
+    assert core._get_distance_connected_support([sector, trivial], cutoff=0) == 3
 
     # The result is the minimum of the upper bound and the distances of the supplied sectors.
-    assert core._get_distance_css_connected_support([sector], cutoff=0, upper_bound=2) == 2
-    assert core._get_distance_css_connected_support([], cutoff=0, upper_bound=2) == 2
+    assert core._get_distance_connected_support([sector], cutoff=0, upper_bound=2) == 2
+    assert core._get_distance_connected_support([], cutoff=0, upper_bound=2) == 2
     with pytest.raises(ValueError, match="at least one problem or an upper bound"):
-        core._get_distance_css_connected_support([], cutoff=0)
+        core._get_distance_connected_support([], cutoff=0)
 
     # The matrices must be binary, and have equal widths.
     with pytest.raises(ValueError, match="binary"):
-        core._get_distance_css_connected_support([([[2, 0, 0]], [[0, 0, 0]])], cutoff=0)
+        core._get_distance_connected_support([([[2, 0, 0]], [[0, 0, 0]])], cutoff=0)
     with pytest.raises(ValueError, match="binary"):
-        core._get_distance_css_connected_support([(checks, [[0, 3, 0]])], cutoff=0)
+        core._get_distance_connected_support([(checks, [[0, 3, 0]])], cutoff=0)
     with pytest.raises(ValueError, match="incompatible widths"):
-        core._get_distance_css_connected_support([(checks, [[1, 1]])], cutoff=0)
+        core._get_distance_connected_support([(checks, [[1, 1]])], cutoff=0)
 
 
-def test_connected_support_is_for_css_codes() -> None:
+def test_connected_support_needs_parity_checks() -> None:
     """Generator matrices do not describe Tanner graphs, so these functions reject the method."""
-    with pytest.raises(ValueError, match=r"CSSCode\.get_distance_exact"):
+    with pytest.raises(ValueError, match="get_distance_exact method of a code"):
         qldpc.codes.get_distance_classical([[1, 1, 0]], method="connected_support")
-    with pytest.raises(ValueError, match=r"CSSCode\.get_distance_exact"):
+    with pytest.raises(ValueError, match="get_distance_exact method of a code"):
         qldpc.codes.get_distance_quantum([[1, 0]], [[1, 1]], method="connected_support")
-
-    # Searches of classical codes for a CSS code use the default method instead.
-    assert core._get_classical_distance_method("connected_support") == "brouwer_zimmermann"
-    assert core._get_classical_distance_method("brute_force") == "brute_force"
 
 
 def test_brouwer_zimmermann_special_inputs() -> None:

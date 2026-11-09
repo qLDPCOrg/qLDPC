@@ -100,18 +100,13 @@ def test_hypergraph_product_distance_by_sector(
 
 
 @pytest.mark.parametrize("pauli", [None, Pauli.X, Pauli.Z])
-@pytest.mark.parametrize(
-    "method, seed_method",
-    [("brute_force", "brute_force"), ("connected_support", "brouwer_zimmermann")],
-)
-def test_closed_forms_search_seed_codes_with_a_classical_method(
-    pauli: PauliXZ | None, method: DistanceMethod, seed_method: DistanceMethod
+@pytest.mark.parametrize("method", ["brute_force", "connected_support"])
+def test_closed_forms_search_seed_codes_with_the_given_method(
+    pauli: PauliXZ | None, method: DistanceMethod
 ) -> None:
-    """The closed-form distances of product codes search their seed codes with a classical method.
+    """The closed-form distances of product codes search their seed codes with the given method.
 
-    That is the given method, except that classical codes do not accept the connected-support
-    method, so the seed codes use the default instead.  Both products of the ring code of length 4
-    have distance 4 in every sector.
+    Both products of the ring code of length 4 have distance 4 in every sector.
     """
     for product in (codes.HGPCode, codes.SHPCode):
         # A generic copy of a ring code records no distance, and its dependent checks give its
@@ -127,7 +122,7 @@ def test_closed_forms_search_seed_codes_with_a_classical_method(
             distance = code.get_distance_exact(pauli, method=method)
         assert distance == 4
         assert get_distance.call_args_list
-        assert all(call.kwargs["method"] == seed_method for call in get_distance.call_args_list)
+        assert all(call.kwargs["method"] == method for call in get_distance.call_args_list)
 
 
 def test_hypergraph_product_syndrome_subgraphs() -> None:

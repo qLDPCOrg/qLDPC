@@ -66,8 +66,9 @@ def get_distance_classical(
         method: Exact-distance method.  ``"brouwer_zimmermann"`` (default) enumerates fixed-weight
             combinations in several information-set bases and stops once its lower and upper bounds
             meet.  ``"brute_force"`` enumerates every nonzero codeword.  ``"information_sets"`` is
-            an alias for ``"brouwer_zimmermann"``.  The ``"connected_support"`` method of binary CSS
-            codes is not available for a generator matrix.
+            an alias for ``"brouwer_zimmermann"``.  The ``"connected_support"`` method needs parity
+            checks, and is not available for a generator matrix: use the ``get_distance_exact``
+            method of a code instead.
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
             then the smaller of the distance and ``max_weight + 1``.  The search stops as soon as it
             proves that every nontrivial code word is heavier than ``max_weight``, which can be much
@@ -143,8 +144,9 @@ def get_distance_quantum(
         method: Exact-distance method.  ``"brouwer_zimmermann"`` (default) uses an exclusion-aware
             search over the logical space modulo stabilizers.  ``"brute_force"`` enumerates eligible
             words using independent bases constructed internally.  ``"information_sets"`` is an
-            alias for ``"brouwer_zimmermann"``.  The ``"connected_support"`` method of binary CSS
-            codes is not available for logical operators and stabilizers.
+            alias for ``"brouwer_zimmermann"``.  The ``"connected_support"`` method needs parity
+            checks, and is not available for logical operators and stabilizers: use the
+            ``get_distance_exact`` method of a code instead.
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
             then the smaller of the distance and ``max_weight + 1``.  The search stops as soon as it
             proves that every nontrivial logical operator is heavier than ``max_weight``, which can
@@ -331,30 +333,36 @@ def _get_distance_css_brouwer_zimmermann(
     return min([distance, *bounds])
 
 
-def _get_distance_css_connected_support(
-    sectors: Sequence[tuple[npt.ArrayLike, npt.ArrayLike]],
+def _get_distance_connected_support(
+    problems: Sequence[tuple[npt.ArrayLike, npt.ArrayLike]],
     *,
     cutoff: int,
     upper_bound: int | None = None,
+    homogeneous: bool = True,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
 ) -> int:
-    """Compute the minimum distance across homogeneous binary CSS sectors by connected supports.
+    """Compute the minimum distance across problems by searching connected supports.
 
-    Each sector is a pair ``(checks, excluded)`` of binary matrices with equal widths, whose
-    distance is the least weight of a vector in the kernel of ``checks`` and outside the row space
-    of ``excluded``.  This function converts the sectors to binary matrices, and checks them.  Its
-    other arguments, its result, and its errors are those of ``get_distance_connected_support`` in
+    Each problem is a pair ``(checks, excluded)`` of binary matrices with equal widths, such as a
+    sector of a CSS code, the parity checks of a classical code with nothing excluded, or the
+    symplectic stabilizers and gauge generators of a qubit code (``homogeneous=False``).  This
+    function converts the problems to binary matrices, and checks them.  Its other arguments, its
+    result, and its errors are those of ``get_distance_connected_support`` in
     ``_search/connected_support.py``, which it calls.
 
     Raises:
-        ValueError: If the matrices of a sector are not binary matrices of equal width.
+        ValueError: If the matrices of a problem are not binary matrices of equal width.
     """
-    problems = [
+    binary_problems = [
         _as_binary_matrices(checks, excluded, names=("checks", "excluded"))
-        for checks, excluded in sectors
+        for checks, excluded in problems
     ]
     return get_distance_connected_support(
-        problems, cutoff=cutoff, upper_bound=upper_bound, get_automorphisms=get_automorphisms
+        binary_problems,
+        cutoff=cutoff,
+        upper_bound=upper_bound,
+        homogeneous=homogeneous,
+        get_automorphisms=get_automorphisms,
     )
 
 
@@ -439,18 +447,10 @@ def _validate_distance_method(
 
 
 def _reject_connected_support(method: _CanonicalDistanceMethod) -> None:
-    """Raise an error if the method is ``"connected_support"``, which only binary CSS codes use."""
+    """Raise an error if the method is ``"connected_support"``, which needs parity checks."""
     if method == "connected_support":
         raise ValueError(
-            "The 'connected_support' distance method searches the Tanner graphs of the parity"
-            " checks of a binary CSS code: use CSSCode.get_distance_exact"
+            "The 'connected_support' distance method searches the Tanner graph of the parity"
+            " checks of a code, rather than its generators: use the get_distance_exact method of"
+            " a code"
         )
-
-
-def _get_classical_distance_method(method: DistanceMethod) -> DistanceMethod:
-    """The method of a search of a classical code, in a calculation that asks for ``method``.
-
-    A closed form of the distance of a CSS code can search classical codes, which the
-    ``"connected_support"`` method does not accept, so those searches use the default method.
-    """
-    return "brouwer_zimmermann" if method == "connected_support" else method

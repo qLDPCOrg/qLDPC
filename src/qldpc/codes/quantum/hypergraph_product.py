@@ -36,7 +36,6 @@ from ..classical import (
 )
 from ..common import ClassicalCode, CSSCode
 from ..distance import DistanceMethod
-from ..distance.core import _get_classical_distance_method
 
 ####################################################################################################
 # hypergraph product codes and their variants
@@ -391,7 +390,6 @@ class HGPCode(CSSCode):
         if pauli is None:
             # this case is implicitly covered by the cases of Pauli.X and Pauli.Z below
             return NotImplemented
-        method = _get_classical_distance_method(method)
 
         # a transpose seed code has code words exactly when that seed code has a dependent check
         dependent_a = self.code_a.rank < len(self.code_a.matrix)
@@ -554,7 +552,6 @@ class SHPCode(CSSCode):
 
     def _get_distance_exact(self, pauli: PauliXZ | None, *, method: DistanceMethod) -> int | float:
         """Exact distance calculation for subsystem hypergraph product codes."""
-        method = _get_classical_distance_method(method)
         match pauli:
             case Pauli.X:
                 return self.code_b.get_distance(method=method)
