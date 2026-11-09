@@ -203,8 +203,9 @@ def test_coset_layer_scans_keep_the_first_lightest_word(
     """A scan of a layer of a coset weighs the offset plus each sum of rows of the layer, in order.
 
     It keeps each word lighter than every word before it and than the initial best weight, and
-    returns at the first word of weight at most the cutoff, after weighing exactly the supports up
-    to it.  The words span two machine words, and the X parts of the CSS weight take bits of both.
+    returns after the first word at which the best weight so far is at most the cutoff, having
+    weighed exactly the supports up to it.  The words span two machine words, and the X parts of
+    the CSS weight take bits of both.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_rows, num_bits = 6, 100

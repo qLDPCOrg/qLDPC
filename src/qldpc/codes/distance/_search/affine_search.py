@@ -181,8 +181,8 @@ def scan_coset_layer(
     ``[num_words]``.  The layer must have ``1 <= len(support) <= num_rows`` rows; the coset driver
     weighs the offset itself, layer zero, without a scan.  ``support`` and ``prefixes``, of at least
     ``len(support)`` rows, are work space.  The scan keeps each word lighter than ``best`` in
-    ``representative``, and returns at the first word of weight at most ``cutoff``, or once the
-    layer is complete.
+    ``representative``.  After each word, it returns if the best weight so far, which starts at
+    ``best``, is at most ``cutoff``, and otherwise it returns once the layer is complete.
 
     Returns:
         The weight of the lightest word found, or ``best`` if none is lighter, and the number of

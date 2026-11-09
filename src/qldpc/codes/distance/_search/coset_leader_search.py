@@ -419,13 +419,7 @@ class _CosetSearch:
     @functools.cached_property
     def _css_singles(self) -> dict[int, int] | None:
         """Errors X_i Z_j (with X_i or Z_j possibly the identity) by syndrome, if not too many."""
-        if len(self._x_singles) * len(self._z_singles) > self._max_css_single_pairs:
-            return None
-        table: dict[int, int] = {}
-        for sx, x in self._x_singles.items():
-            for sz, z in self._z_singles.items():
-                table.setdefault(sx ^ sz, x ^ z)
-        return table
+        return _tabulate_css_singles(self._x_singles, self._z_singles, self._max_css_single_pairs)
 
 
 class _StabilizerKey:
@@ -623,6 +617,29 @@ def _packed_row_int(row: npt.NDArray[np.uint64]) -> int:
 def _int_to_words(value: int, width: int) -> npt.NDArray[np.uint64]:
     """Split an integer into ``width`` 64-bit words, with word ``j`` in bits ``64 j`` and up."""
     return np.frombuffer(value.to_bytes(8 * width, "little"), dtype="<u8").astype(np.uint64)
+
+
+def _tabulate_css_singles(
+    x_singles: dict[int, int], z_singles: dict[int, int], max_pairs: int
+) -> dict[int, int] | None:
+    """Tabulate the products of single-qubit X and Z errors by syndrome, if not too many.
+
+    Args:
+        x_singles: Single-qubit X errors, and the identity, by syndrome.
+        z_singles: Single-qubit Z errors, and the identity, by syndrome.
+        max_pairs: The most pairs of an X and a Z error that the table may come from.
+
+    Returns:
+        None if there are more than ``max_pairs`` pairs, and otherwise the first product
+        ``x ^ z`` of each syndrome ``sx ^ sz``, in the order of the two dictionaries.
+    """
+    if len(x_singles) * len(z_singles) > max_pairs:
+        return None
+    table: dict[int, int] = {}
+    for sx, x in x_singles.items():
+        for sz, z in z_singles.items():
+            table.setdefault(sx ^ sz, x ^ z)
+    return table
 
 
 def _xor_selected(rows: Sequence[int], support: int) -> int:

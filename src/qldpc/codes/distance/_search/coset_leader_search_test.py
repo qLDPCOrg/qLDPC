@@ -655,11 +655,10 @@ def test_cached_pauli_searches_answer_for_their_own_stabilizers_and_weight() -> 
     In the first state, ``Z0 X1`` has the syndrome ``0b011`` and CSS weight one, but no error with
     that syndrome has physical weight below two.  Oracles are built for every state and weight under
     three tunings of the setup of their searches, and queried only once all are built, so that each
-    answers after every search is cached.  An oracle built without room for a table of pairs of
-    single-qubit errors builds none, even after an oracle of its state built one.
+    answers after every search is cached.
     """
     states = [
-        _stabilizer_matrix([stim.PauliString(pauli) for pauli in generators])
+        _product_state(generators)
         for generators in (("Y__", "_Z_", "__X"), ("Y__", "YZ_", "__X"), ("X__", "_Y_", "__Z"))
     ]
     coset_leader_search._get_pauli_search.cache_clear()
@@ -675,23 +674,76 @@ def test_cached_pauli_searches_answer_for_their_own_stabilizers_and_weight() -> 
     css_bound = oracles[1][2].get_min_weight_bound(0b011, 1)
     assert css_bound.within_max_weight and css_bound.representative == 0b001010
     for matrix, css_weight, oracle in oracles:
-        minima = _css_minima(matrix, css_weight)
-        for syndrome, max_weight in itertools.product(range(1 << 3), range(4)):
-            bound = oracle.get_min_weight_bound(syndrome, max_weight)
-            weight = _pauli_weight(bound.representative, 3, css_weight)
-            assert bound.within_max_weight == (minima[syndrome] <= max_weight)
-            assert _get_syndrome(matrix, bound.representative) == syndrome
-            assert bound.lower_bound <= minima[syndrome] <= weight
-            assert (
-                weight <= max_weight if bound.within_max_weight else bound.lower_bound > max_weight
-            )
+        _assert_exact_answers(oracle, matrix, css_weight)
 
-    # The oracles of the first state by CSS weight, built under the default tuning and then with no
-    # room for pairs, have queried syndromes that need the table.
-    (search_with_table,) = oracles[1][2]._searches
-    (search_without_table,) = oracles[7][2]._searches
-    assert vars(search_with_table)["_css_singles"] is not None
-    assert vars(search_without_table)["_css_singles"] is None
+
+def test_cached_pauli_searches_ignore_later_changes_to_the_stabilizer_array() -> None:
+    """Oracles answer for the stabilizers that they were built from, when an array changes later.
+
+    Oracles of the state ``Y__``, ``_Z_``, ``__X`` are built from an array, which is then
+    overwritten with the state ``X__``, ``_Y_``, ``__Z``, from which further oracles are built from
+    the same array.  Oracles of the first state built again from a copy of it, and the oracles built
+    before the change, still answer for the first state.
+    """
+    first, second = _product_state(("Y__", "_Z_", "__X")), _product_state(("X__", "_Y_", "__Z"))
+    coset_leader_search._get_pauli_search.cache_clear()
+    array = first.copy()
+    oracles = [
+        (first, css_weight, CosetLeaderSearch(array, css_weight=css_weight))
+        for css_weight in (False, True)
+    ]
+    array[:] = second
+    oracles += [
+        (second, css_weight, CosetLeaderSearch(array, css_weight=css_weight))
+        for css_weight in (False, True)
+    ]
+    oracles += [
+        (first, css_weight, CosetLeaderSearch(first.copy(), css_weight=css_weight))
+        for css_weight in (False, True)
+    ]
+    for matrix, css_weight, oracle in oracles:
+        _assert_exact_answers(oracle, matrix, css_weight)
+
+
+def test_tables_of_pairs_of_single_qubit_errors_respect_their_limit() -> None:
+    """A table of products of X and Z errors keeps the first product of each syndrome.
+
+    Three X errors (with the identity) and two Z errors make six pairs, which fit a limit of six but
+    not of five.
+    """
+    x_singles = {0: 0, 0b01: 0b0001, 0b11: 0b0010}
+    z_singles = {0: 0, 0b10: 0b0100}
+    table = coset_leader_search._tabulate_css_singles(x_singles, z_singles, 6)
+    assert table == {0: 0, 0b10: 0b0100, 0b01: 0b0001, 0b11: 0b0101}
+    assert coset_leader_search._tabulate_css_singles(x_singles, z_singles, 5) is None
+
+
+def test_oracles_tabulate_pairs_within_the_limit_of_their_tuning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An oracle tabulates pairs of single-qubit errors only within the limit of its own tuning.
+
+    Oracles of a state that is not CSS, built under the default tuning and then with no room for
+    pairs, each answer a query that needs the table, so each tabulates within its own limit.
+    """
+    limits: list[tuple[int, bool]] = []
+    tabulate = coset_leader_search._tabulate_css_singles
+
+    def record(*args: Any) -> Any:
+        table = tabulate(*args)
+        limits.append((args[2], table is None))
+        return table
+
+    monkeypatch.setattr(coset_leader_search, "_tabulate_css_singles", record)
+    matrix = _product_state(("Y__", "_Z_", "__X"))
+    coset_leader_search._get_pauli_search.cache_clear()
+    assert (
+        CosetLeaderSearch(matrix, css_weight=True).get_min_weight_bound(0b011, 1).within_max_weight
+    )
+    with use_tuning(max_css_single_pairs=0):
+        oracle = CosetLeaderSearch(matrix, css_weight=True)
+    assert oracle.get_min_weight_bound(0b011, 1).within_max_weight
+    assert limits == [(DEFAULT_TUNING.max_css_single_pairs, False), (0, True)]
 
 
 def test_invalid_arguments_are_rejected() -> None:
@@ -703,3 +755,23 @@ def test_invalid_arguments_are_rejected() -> None:
                 CosetLeaderSearch(stabilizers, css_weight=css_weight)
         with pytest.raises(ValueError):
             CosetLeaderSearch([[1, 0]], css_weight=css_weight).get_min_weight_bound(2, 1)
+
+
+def _product_state(generators: Sequence[str]) -> npt.NDArray[np.uint8]:
+    """Stabilizer matrix [X|Z] of the given Pauli strings."""
+    return _stabilizer_matrix([stim.PauliString(pauli) for pauli in generators])
+
+
+def _assert_exact_answers(
+    oracle: CosetLeaderSearch, matrix: npt.NDArray[np.uint8], css_weight: bool
+) -> None:
+    """Check every query of an oracle against exhaustive minima of the state of ``matrix``."""
+    num_qubits = len(matrix)
+    minima = _css_minima(matrix, css_weight)
+    for syndrome, max_weight in itertools.product(range(1 << num_qubits), range(num_qubits + 1)):
+        bound = oracle.get_min_weight_bound(syndrome, max_weight)
+        weight = _pauli_weight(bound.representative, num_qubits, css_weight)
+        assert bound.within_max_weight == (minima[syndrome] <= max_weight)
+        assert _get_syndrome(matrix, bound.representative) == syndrome
+        assert bound.lower_bound <= minima[syndrome] <= weight
+        assert weight <= max_weight if bound.within_max_weight else bound.lower_bound > max_weight
