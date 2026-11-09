@@ -643,10 +643,10 @@ def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.Mo
     some orders builds searches of its own with them, and a second oracle built under the same
     orders shares those searches.  The orders reach a search through
     ``information_sets.get_disjoint_family``, which the test wraps to record them.  The states are
-    |000+++>, whose
-    two classical searches are cached by stabilizer group, and a two-qubit graph state with phases,
-    which is not CSS, so its search of Pauli errors is cached by stabilizers.  Every oracle answers
-    exactly.  The caches are cleared first, since earlier tests may have filled them.
+    |000+++>, whose two classical searches are cached by stabilizer group, and a two-qubit graph
+    state with phases, which is not CSS, so its search of Pauli errors is cached by stabilizers.
+    Every oracle answers exactly.  The caches are cleared first, since earlier tests may have filled
+    them.
     """
     orders: list[int] = []
     get_disjoint_family = information_sets.get_disjoint_family
@@ -759,7 +759,7 @@ def test_invalid_arguments_are_rejected() -> None:
 def test_cached_stopping_steps_are_reused_exactly_while_they_stay_first(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``_get_stopping_step`` reuses a cached stopping step exactly while that step stays first.
+    """For nonnegative weights, a cached stopping step is reused exactly while it stays first.
 
     The stopping step of a maximum weight is the first step whose bound exceeds it.
     ``_get_stopping_step`` reuses the step that a planning buffer caches if that step is the

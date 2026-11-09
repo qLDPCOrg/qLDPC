@@ -62,9 +62,10 @@ From the top:
 3. `_search/brouwer_zimmermann.py`, `_search/brute_force.py`, `_search/connected_support.py`, and `_search/coset_leader_search.py`, the searches.
 4. The modules that the searches build on.
    `_search/affine_instance.py` packs the information sets of a BZ distance or coset-leader search, with the certificate of their steps.
-   `_search/affine_search.py` holds the compiled scans of layers that both searches share.
-   `_search/information_sets.py` builds the basis families of both searches and of the counting scans.
-   `_search/automorphism_families.py` builds automorphism families from them, and `_search/completion_bounds.py` bounds the words that complete the first rows of a support with two more rows.
+   `_search/affine_search.py` holds the compiled scans of layers that the BZ distance and coset-leader searches share.
+   `_search/information_sets.py` builds the basis families of those two searches and of the counting scans.
+   `_search/automorphism_families.py` builds automorphism families from them.
+   `_search/completion_bounds.py` bounds the words that complete the first rows of a support with two more rows.
 5. `_search/matroid_partition.py`, which `_search/information_sets.py` uses to build some of those families.
 6. `_tuning.py`, the settings of the searches and counts, and the sizes of their caches.
 7. `_binary.py`, the foundation.

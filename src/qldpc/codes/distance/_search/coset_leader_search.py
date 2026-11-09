@@ -278,10 +278,10 @@ class _CosetSearchTables(NamedTuple):
             the code.
         pivots: The pivot columns of each information set, padded with -1.
         planning: The planning buffer of the search (see ``_get_planning``): the bounds of its
-            steps, and one more row that caches a stopping step.  ``_get_stopping_step`` reuses the
-            cached step exactly while it stays the first step whose bound exceeds the maximum weight
-            of a query, and replaces it otherwise.  Queries write only this row of the tables, and
-            oracles that share a cached search share it.
+            steps, and one more row that caches a stopping step.  For a nonnegative maximum weight,
+            ``_get_stopping_step`` reuses the cached step exactly while it stays the first step
+            whose bound exceeds that weight, and replaces it otherwise.  Queries write only this row
+            of the tables, and oracles that share a cached search share it.
         x_mask: Selects the bits of a packed embedded word that count as its X part, with one
             machine word for each machine word of the embedded words.  Only searches of Pauli
             errors by CSS weight use the X part, and their layers scan with it, but every search
@@ -336,9 +336,10 @@ class _CosetSearch:
         # The compiled search weighs embedded words by their CSS weight only in a search of Pauli
         # errors by CSS weight, and otherwise by their Hamming weight, which is twice the physical
         # weight of an error, and the weight of an X or Z part (see ``_search_coset``).  The scale
-        # sets how a scan weighs a word exactly.  The weight factor of the coset instance instead
-        # turns Hamming bounds into weight bounds, so it is two for every search of Pauli errors,
-        # including those by CSS weight, whose scale is zero.
+        # chooses which of these weights a scan computes.  The weight factor of the coset instance
+        # is separate: it is two for every search of Pauli errors, including those by CSS weight,
+        # whose scale is zero, since an error weighs at least half the Hamming weight of its
+        # embedded word (see ``_get_pauli_search``).
         self.scale = 0 if css_weight and is_pauli else 1 if css_weight else 2
         self._num_qubits = num_qubits
         self._is_pauli = is_pauli

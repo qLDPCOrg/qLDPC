@@ -11,10 +11,11 @@ coset searches, whose offset is a fixed word of the searched coset (see ``_searc
 ``coset_leader_search.py``).  This module owns how those basis families are built, pruned, and
 replaced by overlapping ones, and the certificate that bounds the Hamming weight of eligible words
 that a basis family has not yet visited.  The coset searches use the disjoint information sets for
-their own layered search.  All three enumerate a layer with :func:`advance_support`.  A coset search
-finds its stopping step, the first step whose bound exceeds the maximum weight of a query, with
-:func:`find_stopping_step`.  The distance search also uses :func:`find_stopping_step`, through
-``Certificate.get_num_sets_to_certify``, when its certificate solves no linear programs.
+their own layered search.  The distance, counting, and coset scans all enumerate a layer with
+:func:`advance_support`.  A coset search finds its stopping step, the first step whose bound
+exceeds the maximum weight of a query, with :func:`find_stopping_step`.  The distance search also
+uses :func:`find_stopping_step`, through ``Certificate.get_num_sets_to_certify``, when its
+certificate solves no linear programs.
 
 A :class:`BasisFamily` stacks its information sets into arrays, so that one set of functions serves
 every caller, in the subset of Python that numba compiles, and some of them are compiled (see
@@ -838,11 +839,6 @@ def find_stopping_step(
     step_bounds: npt.NDArray[np.int64], limit: int, first_layer: int, last_layer: int
 ) -> tuple[int, int]:
     """Find the first step of layers ``first_layer`` to ``last_layer`` whose bound exceeds a limit.
-
-    This step is the stopping step of a search that may stop once every unvisited word weighs more
-    than the limit.  A coset search passes the maximum weight of a query, and every layer of its
-    table.  The distance search passes ``upper_bound - 1`` and one layer, and uses the number of
-    completed sets of the step that this returns (see ``Certificate.get_num_sets_to_certify``).
 
     The number of sets ``num_sets`` is one less than the number of columns of ``step_bounds``.  The
     steps of a layer ``w`` are ``(w, 1)`` to ``(w, num_sets)``, taken in that order and layer by

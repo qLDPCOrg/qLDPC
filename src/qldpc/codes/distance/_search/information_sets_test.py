@@ -186,7 +186,7 @@ def test_overlapping_family_guards() -> None:
 
 @pytest.mark.usefixtures("compilation_mode")
 def test_certificate_follows_its_definition(pytestconfig: pytest.Config) -> None:
-    """The bounds, work estimate, and sets that certify a bound equal their definitions.
+    """The bounds, work estimate, and number of sets that certify a bound equal their definitions.
 
     A search visits the sets of a layer in family order and stops after the first set whose
     completion of the layer certifies the upper bound, so the work counts the sets visited, and
@@ -241,8 +241,7 @@ def test_certificate_follows_its_definition(pytestconfig: pytest.Config) -> None
 def test_weight_bounds_divide_the_step_bounds(pytestconfig: pytest.Config) -> None:
     """The weight bounds divide the certificate's bounds by the weight factor, rounding up.
 
-    They do not decrease from step to step.  Column zero of row zero is zero, and column zero of
-    each later row repeats the last column of the row before.  The entries ``[dimension, j]`` for
+    The certificate's bounds come from their definition, and the entries ``[dimension, j]`` for
     ``j >= 1`` are ``NO_WORD_BOUND``.  This holds for sets of random ranks, including zero, and both
     weight factors.  Each call returns a table of its own.
     """
@@ -250,24 +249,23 @@ def test_weight_bounds_divide_the_step_bounds(pytestconfig: pytest.Config) -> No
     for _ in range(60):
         dimension = int(rng.integers(0, 7))
         ranks = tuple(int(rank) for rank in rng.integers(0, dimension + 1, rng.integers(1, 5)))
-        certificate = information_sets.Certificate(
-            dimension, ranks, int(rng.integers(1, 3)), int(rng.integers(1, 3))
-        )
+        divisor, coverage = int(rng.integers(1, 3)), int(rng.integers(1, 3))
+        certificate = information_sets.Certificate(dimension, ranks, divisor, coverage)
         for factor in (1, 2):
             bounds = certificate.get_weight_bounds(factor)
             assert bounds.shape == (dimension + 1, len(ranks) + 1)
             for layer, num_completed in itertools.product(
                 range(dimension + 1), range(len(ranks) + 1)
             ):
+                bound = _get_lower_bound_from_definition(
+                    dimension, ranks, divisor, coverage, layer, num_completed
+                )
                 expected = (
                     information_sets.NO_WORD_BOUND
                     if layer == dimension and num_completed
-                    else -(-certificate.step_lower_bound(layer, num_completed) // factor)
+                    else -(-bound // factor)
                 )
                 assert bounds[layer, num_completed] == expected
-            steps = bounds[:, 1:].ravel()
-            assert np.all(steps[1:] >= steps[:-1])
-            assert np.array_equal(bounds[1:, 0], bounds[:-1, -1])
             expected_bounds = bounds.copy()
             bounds[:] = -1
             assert np.array_equal(certificate.get_weight_bounds(factor), expected_bounds)
