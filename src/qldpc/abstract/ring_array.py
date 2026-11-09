@@ -217,9 +217,9 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         2. A ring (or group, inducing a group algebra over GF(2)).
 
         Integers and members of the group of the ring are cast into members of the ring.  Ring
-        members may be embedded into a different ring with the same field if the
-        group of that ring contains their group members.  A group member that acts on fewer points
-        than the group is padded with fixed points.
+        members may be embedded into a different ring with the same field if the group of that ring
+        contains their group members.  A group member that acts on fewer points than the group is
+        padded with fixed points.
         """
         array = np.asanyarray(data)
 
