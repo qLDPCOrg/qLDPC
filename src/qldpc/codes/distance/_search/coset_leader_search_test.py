@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Sequence
+from math import comb
 from typing import Any
 
 import numpy as np
@@ -14,11 +15,12 @@ import pytest
 import stim
 
 from qldpc import math
-from qldpc._binary import get_kernel, row_reduce_binary
+from qldpc._binary import get_kernel, pack_bits, row_reduce_binary, unpack_bits
 
 from ...conftest import Tune
 from .._tuning import DEFAULT_TUNING, use_tuning
-from . import coset_leader_search, information_sets
+from ..conftest import get_random_full_rank_matrix
+from . import affine_instance, coset_leader_search, information_sets
 from .coset_leader_search import CosetLeaderSearch, MinWeightBound
 
 
@@ -71,6 +73,14 @@ def _get_syndrome(matrix: npt.NDArray[np.uint8], pauli: int) -> int:
     bits = np.array([(pauli >> jj) & 1 for jj in range(matrix.shape[1])])
     products = matrix @ math.symplectic_conjugate(bits) % 2
     return sum(int(bit) << jj for jj, bit in enumerate(products))
+
+
+def _classical_syndrome(checks: npt.NDArray[np.uint8], words: npt.NDArray[np.int_]) -> Any:
+    """The packed syndrome of a binary word for binary checks, or of each row of an array of words.
+
+    Bit ``j`` of a syndrome is the parity of the word with row ``j`` of ``checks``.
+    """
+    return (words @ checks.T % 2) @ (1 << np.arange(len(checks)))
 
 
 def _syndrome_words(syndromes: Sequence[int], num_qubits: int) -> npt.NDArray[np.uint64]:
@@ -169,6 +179,18 @@ def _css_minima(matrix: npt.NDArray[np.uint8], css_weight: bool = True) -> npt.N
     return minima
 
 
+def _classical_minima(checks: npt.NDArray[np.uint8]) -> npt.NDArray[np.int_]:
+    """The least Hamming weight of the words with each packed syndrome for binary checks.
+
+    The minima come from all ``2**n`` words of ``n`` bits.
+    """
+    num_columns = checks.shape[1]
+    words = (np.arange(1 << num_columns)[:, None] >> np.arange(num_columns)) & 1
+    minima = np.full(1 << len(checks), num_columns + 1)
+    np.minimum.at(minima, _classical_syndrome(checks, words), words.sum(axis=1))
+    return minima
+
+
 def _block_generators(block: Sequence[str], num_blocks: int) -> list[stim.PauliString]:
     """Generators of independent copies of a block state, given the generators of one block."""
     size = len(block[0])
@@ -231,13 +253,13 @@ def test_bounds_match_exhaustive_minima(
 ) -> None:
     """Bounds agree with exhaustive minima.
 
-    Each syndrome is queried at every maximum weight in random order, with or without the table of
-    errors of CSS weight one.
+    Each syndrome is queried at every maximum weight in random order.  Graph states with phases on
+    an even number of qubits are not CSS, so their queries by CSS weight look up errors of CSS
+    weight one in a table, or, with no room for the table, match single-qubit X and Z errors.
     """
     if not css_singles_table:
         tune(max_css_single_pairs=0)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    tables_checked = 0
     for num_qubits in range(1, 7):
         edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
         matrix = _graph_state(num_qubits, edges, phase=num_qubits % 2 == 0)
@@ -253,15 +275,6 @@ def test_bounds_match_exhaustive_minima(
                     assert _pauli_weight(bound.representative, num_qubits, css_weight) <= max_weight
                 else:
                     assert bound.lower_bound > max_weight
-        # Queries of a search of Pauli errors by CSS weight build the table only within the patched
-        # limit.  Reading the instance dictionary, rather than the cached property, keeps this check
-        # from building the table itself.
-        for search in oracle._searches:
-            if search._is_pauli and css_weight and "_css_singles" in vars(search):
-                assert (vars(search)["_css_singles"] is not None) == css_singles_table
-                tables_checked += 1
-    # States with phases on an even number of qubits are not CSS, so some queries need the table.
-    assert tables_checked or not css_weight
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -623,39 +636,41 @@ def test_cached_searches_answer_only_for_their_stabilizer_group(
             assert _get_syndrome(matrix, bound.representative) == syndrome
 
 
-def test_oracles_use_the_tuning_with_which_they_are_built(
-    tune: Tune, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """An oracle packs its information sets with the column orders of the tuning that built it.
+def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An oracle builds its searches with the column orders of the tuning in force when it is built.
 
-    The cached searches of a CSS state, and the cached search of Pauli errors of a state that is
-    not CSS, as with phases on two qubits, are keyed by those orders too.  So an oracle built under
-    other orders builds its own searches, and one built under the same orders reuses them.
+    The searches are cached, and the column orders key the cache.  So the first oracle built under
+    some orders builds searches of its own with them, and a second oracle built under the same
+    orders shares those searches.  The orders reach a search through
+    ``information_sets.get_disjoint_family``, which the test wraps to record them.  The states are
+    |000+++>, whose two classical searches are cached by stabilizer group, and a two-qubit graph
+    state with phases, which is not CSS, so its search of Pauli errors is cached by stabilizers.
+    Every oracle answers exactly.  The caches are cleared first, since earlier tests may have filled
+    them.
     """
     orders: list[int] = []
-    get_disjoint_sets = information_sets._get_disjoint_sets
+    get_disjoint_family = information_sets.get_disjoint_family
 
-    def record(*args: Any) -> Any:
-        orders.append(args[2])
-        return get_disjoint_sets(*args)
+    def record(*args: Any, random_column_orders: int) -> information_sets.BasisFamily:
+        orders.append(random_column_orders)
+        return get_disjoint_family(*args, random_column_orders=random_column_orders)
 
-    monkeypatch.setattr(information_sets, "_get_disjoint_sets", record)
+    monkeypatch.setattr(information_sets, "get_disjoint_family", record)
     eye, zeros = np.eye(3, dtype=np.uint8), np.zeros((3, 3), dtype=np.uint8)
     zero_plus = np.block([[zeros, eye, zeros, zeros], [zeros, zeros, eye, zeros]])
     phased = _graph_state(2, [(0, 1)], phase=True)
     coset_leader_search._get_css_searches.cache_clear()
     coset_leader_search._get_pauli_search.cache_clear()
-    CosetLeaderSearch(zero_plus, css_weight=True)
-    CosetLeaderSearch(phased, css_weight=True)
-    tune(disjoint_random_column_orders=3)
-    CosetLeaderSearch(zero_plus, css_weight=True)
-    CosetLeaderSearch(zero_plus, css_weight=True)
-    info = coset_leader_search._get_css_searches.cache_info()
-    assert (info.misses, info.hits) == (2, 1)
-    CosetLeaderSearch(phased, css_weight=True)
-    CosetLeaderSearch(phased, css_weight=True)
     default = DEFAULT_TUNING.disjoint_random_column_orders
-    assert orders == [default, default, default, 3, 3, 3]
+    for column_orders, matrix in itertools.product((default, 3), (zero_plus, phased)):
+        with use_tuning(disjoint_random_column_orders=column_orders):
+            first = CosetLeaderSearch(matrix, css_weight=True)
+            assert orders and set(orders) == {column_orders}
+            orders.clear()
+            second = CosetLeaderSearch(matrix, css_weight=True)
+            assert not orders
+        for oracle in (first, second):
+            _assert_exact_answers(oracle, matrix, True)
 
 
 def test_cached_pauli_searches_answer_for_their_own_stabilizers_and_weight() -> None:
@@ -730,34 +745,6 @@ def test_tables_of_pairs_of_single_qubit_errors_respect_their_limit() -> None:
     assert coset_leader_search._tabulate_css_singles(x_singles, z_singles, 5) is None
 
 
-def test_oracles_tabulate_pairs_within_the_limit_of_their_tuning(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """An oracle tabulates pairs of single-qubit errors only within the limit of its own tuning.
-
-    Oracles of a state that is not CSS, built under the default tuning and then with no room for
-    pairs, each answer a query that needs the table, so each tabulates within its own limit.
-    """
-    limits: list[tuple[int, bool]] = []
-    tabulate = coset_leader_search._tabulate_css_singles
-
-    def record(*args: Any) -> Any:
-        table = tabulate(*args)
-        limits.append((args[2], table is None))
-        return table
-
-    monkeypatch.setattr(coset_leader_search, "_tabulate_css_singles", record)
-    matrix = _product_state(("Y__", "_Z_", "__X"))
-    coset_leader_search._get_pauli_search.cache_clear()
-    assert (
-        CosetLeaderSearch(matrix, css_weight=True).get_min_weight_bound(0b011, 1).within_max_weight
-    )
-    with use_tuning(max_css_single_pairs=0):
-        oracle = CosetLeaderSearch(matrix, css_weight=True)
-    assert oracle.get_min_weight_bound(0b011, 1).within_max_weight
-    assert limits == [(DEFAULT_TUNING.max_css_single_pairs, False), (0, True)]
-
-
 def test_invalid_arguments_are_rejected() -> None:
     """Malformed states and queries raise, for either measure of weight."""
     # Not 2n columns, dependent rows, anticommuting rows, and a syndrome out of range.
@@ -767,6 +754,202 @@ def test_invalid_arguments_are_rejected() -> None:
                 CosetLeaderSearch(stabilizers, css_weight=css_weight)
         with pytest.raises(ValueError):
             CosetLeaderSearch([[1, 0]], css_weight=css_weight).get_min_weight_bound(2, 1)
+
+
+def test_cached_stopping_steps_are_reused_exactly_while_they_stay_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """For nonnegative weights, a cached stopping step is reused exactly while it stays first.
+
+    The stopping step of a maximum weight is the first step whose bound exceeds it.
+    ``_get_stopping_step`` reuses the step that a planning buffer caches if that step is the
+    stopping step.  Otherwise, it finds the stopping step by binary search and caches it.  A reuse
+    is observable only as a skipped binary search, so the test records the binary searches.
+
+    Each step of the bounds is planted as the cached step.  A planted step may be stale, or pair the
+    layer of one step with the number of completed sets of another, as interleaved queries might
+    leave it.  Each maximum weight from zero to past the largest finite bound is then queried twice.
+    The first query searches exactly if the planted step is not its stopping step.  The second
+    query does not search, since the first cached its step.  Both queries return the stopping step,
+    which a linear search finds, and its bound.  The bounds in the buffer never change.  A negative
+    maximum weight always searches, since every bound is at least zero, so it is left out.
+
+    The bounds are those of the empty code, of a rank-one code with 64 sets, and of sets of ranks
+    zero, two, and four in a code of dimension four, for both weight factors.
+    """
+    searches: list[int] = []
+    find_stopping_step = information_sets.find_stopping_step
+
+    def record(*args: Any) -> tuple[int, int]:
+        searches.append(args[1])
+        return find_stopping_step(*args)
+
+    monkeypatch.setattr(information_sets, "find_stopping_step", record)
+    get_stopping_step = coset_leader_search._get_stopping_step.py_func
+    certificates = [
+        information_sets.Certificate(0, (0,)),
+        information_sets.Certificate(1, (1,) * 64),
+        information_sets.Certificate(4, (0, 2, 4, 0)),
+    ]
+    for certificate, factor in itertools.product(certificates, (1, 2)):
+        bounds = certificate.get_weight_bounds(factor)
+        num_rows, num_sets = bounds.shape[0] - 1, bounds.shape[1] - 1
+        steps = list(itertools.product(range(num_rows + 1), range(1, num_sets + 1)))
+        largest = int(bounds[bounds < information_sets.NO_WORD_BOUND].max())
+        planning = coset_leader_search._get_planning(bounds)
+        for planted, max_weight in itertools.product(steps, range(largest + 2)):
+            stopping_step = next(step for step in steps if bounds[step] > max_weight)
+            expected = (*stopping_step, int(bounds[stopping_step]))
+            # Plant the cached step in the last row of the buffer (see ``_get_planning``).
+            planning[-1, :2] = planted
+            searches.clear()
+            assert get_stopping_step(planning, max_weight) == expected
+            assert len(searches) == (planted != stopping_step)
+            assert get_stopping_step(planning, max_weight) == expected
+            assert len(searches) == (planted != stopping_step)
+        assert np.array_equal(planning[:-1], bounds)
+
+
+@pytest.mark.usefixtures("compilation_mode")
+def test_cosets_of_a_rank_deficient_code_match_brute_force() -> None:
+    """The coset searches of a rank-deficient code match the minima of all words.
+
+    The code has disjoint information sets of ranks five and four, so its searches skip the second
+    set while it adds nothing to the bounds of their stopping steps.  Syndrome 19 has a word of
+    weight two that the first set reaches only above layer one.  At maximum weight two, the stopping
+    step is the one at which the second set completes layer one, which overcomes its deficiency of
+    one, so the search visits that set.  It finds the word in layer zero of that set, its offset.
+    Single queries and batches, at maximum weights from below zero to past the number of columns,
+    agree with the least weight of the words of each syndrome.  From maximum weight two, they also
+    agree with each other.  Below two, a single query of a coset without a word of weight at most
+    one returns a bound of two without searching.
+    """
+    generators = np.array(
+        [
+            [0, 0, 1, 1, 0, 1, 1, 1, 0, 0],
+            [0, 0, 1, 1, 0, 0, 1, 1, 1, 1],
+            [1, 0, 1, 1, 0, 1, 0, 1, 1, 0],
+            [0, 1, 1, 0, 1, 1, 0, 1, 0, 1],
+            [1, 0, 1, 1, 0, 1, 1, 1, 0, 1],
+        ],
+        dtype=np.uint8,
+    )
+    num_columns = generators.shape[1]
+    checks = get_kernel(generators)
+    search = coset_leader_search._get_classical_search(generators, checks, 0)
+    minima = _classical_minima(checks)
+
+    syndromes = list(range(1 << len(checks)))
+    syndrome_words = _syndrome_words(syndromes, len(checks))
+    for max_weight in range(-1, num_columns + 2):
+        bounds = {}
+        for syndrome in syndromes:
+            bound = search.get_min_weight_bound(syndrome, max_weight)
+            representative = (bound.representative >> np.arange(num_columns)) & 1
+            weight = int(representative.sum())
+            assert bound.within_max_weight == (minima[syndrome] <= max_weight)
+            assert _classical_syndrome(checks, representative) == syndrome
+            assert bound.lower_bound <= minima[syndrome] <= weight
+            assert (
+                weight <= max_weight if bound.within_max_weight else bound.lower_bound > max_weight
+            )
+            bounds[syndrome] = bound
+
+        # Find each syndrome whose minimum exceeds the maximum weight with batches, each of which
+        # starts after the last syndrome found.
+        found, start = [], 0
+        best = np.empty(search.tables.inverse.shape[1], dtype=np.uint64)
+        while True:
+            index, lower_bound = coset_leader_search._find_first_not_within_max_weight(
+                syndrome_words[start:], max_weight, best, *search.tables, search.scale
+            )
+            if start + index == len(syndromes):
+                break
+            syndrome = syndromes[start + index]
+            representative = (search.unembed(best) >> np.arange(num_columns)) & 1
+            assert _classical_syndrome(checks, representative) == syndrome
+            assert max_weight < lower_bound <= minima[syndrome]
+            if max_weight >= 2:
+                assert bounds[syndrome] == MinWeightBound(False, search.unembed(best), lower_bound)
+            found.append(syndrome)
+            start += index + 1
+        assert found == [syndrome for syndrome in syndromes if minima[syndrome] > max_weight]
+
+
+@pytest.mark.usefixtures("compilation_mode")
+def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pytest.Config) -> None:
+    """A search skips exactly the sets that add nothing to the bound of its stopping step.
+
+    A set of rank ``r`` in a code of dimension ``k`` adds to the bound of a step only once it has
+    completed layer ``k - r`` (see ``information_sets.get_step_lower_bounds``).  A search that stops
+    at step ``(w, j)`` completes layer ``w`` on the first ``j`` sets and layer ``w - 1`` on the
+    others, so it visits a set only if that layer is at least ``k - r``.  The sets are the disjoint
+    information sets of random codes, whose last one is often rank deficient, and a set of rank zero
+    with every row of the code.  A search whose answer is no weighs every word of the layers of the
+    sets that it visits, and every answer is exact.  The exact number of words weighed guards the
+    documented rule for skipping sets, so a legitimate future pruning of the coset scan would
+    change it.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for _ in range(12):
+        num_columns = int(rng.integers(2, 9))
+        num_rows = int(rng.integers(1, num_columns))
+        generators = get_random_full_rank_matrix(rng, num_rows, num_columns)
+        checks = get_kernel(generators)
+        family = information_sets.get_disjoint_family(generators, None, random_column_orders=0)
+        ranks = (*family.ranks.tolist(), 0)
+        num_sets = len(ranks)
+        rows = np.concatenate([family.generators, generators[None]])
+        instance = affine_instance.AffineInstance(
+            generators=pack_bits(rows.reshape(-1, num_columns)).reshape(num_sets, num_rows, -1),
+            labels=np.zeros((num_sets, num_rows, 0), dtype=np.uint64),
+            widths=np.ones(num_sets, dtype=np.int64),
+            pivots=np.vstack([family.pivots, np.full(num_rows, -1)]),
+            certificate=information_sets.Certificate(num_rows, ranks),
+        )
+        inverse = coset_leader_search._get_inverse(checks)
+        tables = coset_leader_search._get_search_tables(instance, inverse, num_columns)
+        minima = _classical_minima(checks)
+
+        for syndrome, max_weight in itertools.product(
+            range(1 << len(checks)), range(num_columns + 1)
+        ):
+            best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
+            best_weight = coset_leader_search._get_syndrome_word(
+                _syndrome_words([syndrome], len(checks))[0], best, tables.inverse, tables.x_mask, 1
+            )
+            if best_weight <= max_weight:
+                continue
+            stop_layer, stop_num_completed, stop_bound = coset_leader_search._get_stopping_step(
+                tables.planning, max_weight
+            )
+            lower_bound, weighed = coset_leader_search._search_from_syndrome_word(
+                max_weight,
+                stop_layer,
+                stop_num_completed,
+                stop_bound,
+                best,
+                best_weight,
+                tables.generators,
+                tables.pivots,
+                tables.x_mask,
+                1,
+            )
+            representative = unpack_bits(best[None], num_columns)[0].astype(int)
+            assert _classical_syndrome(checks, representative) == syndrome
+            assert (lower_bound <= max_weight) == (minima[syndrome] <= max_weight)
+            if lower_bound > max_weight:
+                assert lower_bound <= minima[syndrome]
+                last_layers = [
+                    stop_layer if index < stop_num_completed else stop_layer - 1
+                    for index in range(num_sets)
+                ]
+                assert weighed == sum(
+                    comb(num_rows, layer)
+                    for rank, last_layer in zip(ranks, last_layers, strict=True)
+                    if last_layer >= num_rows - rank
+                    for layer in range(last_layer + 1)
+                )
 
 
 def _product_state(generators: Sequence[str]) -> npt.NDArray[np.uint8]:

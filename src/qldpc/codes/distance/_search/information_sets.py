@@ -6,12 +6,16 @@ Exact distance search (``brouwer_zimmermann.py``) and fixed-weight logical count
 (``_counting/scan.py``) enumerate coefficient layers over the same basis families (see
 ``brouwer_zimmermann.md`` for the terminology).  Layer ``w`` of an information set holds the words
 that add ``w`` of its rows to an offset.  The offset is zero in the distance and counting scans,
-which search a space, and is a fixed word of the searched coset in the coset-leader oracle
-(``CosetLeaderSearch``), which searches a coset (see ``_search_coset`` in
+which search a space.  The coset-leader oracle (``CosetLeaderSearch``) answers its queries with
+coset searches, whose offset is a fixed word of the searched coset (see ``_search_coset`` in
 ``coset_leader_search.py``).  This module owns how those basis families are built, pruned, and
 replaced by overlapping ones, and the certificate that bounds the Hamming weight of eligible words
-that a basis family has not yet visited.  The coset-leader oracle uses the disjoint information sets
-for its own layered search.  All three enumerate a layer with :func:`advance_support`.
+that a basis family has not yet visited.  The coset searches use the disjoint information sets for
+their own layered search.  The distance, counting, and coset scans all enumerate a layer with
+:func:`advance_support`.  A coset search finds its stopping step, the first step whose bound
+exceeds the maximum weight of a query, with :func:`find_stopping_step`.  The distance search also
+uses :func:`find_stopping_step`, through ``Certificate.get_num_sets_to_certify``, when its
+certificate solves no linear programs.
 
 A :class:`BasisFamily` stacks its information sets into arrays, so that one set of functions serves
 every caller, in the subset of Python that numba compiles, and some of them are compiled (see
@@ -52,15 +56,15 @@ from .. import _tuning
 from .._tuning import SearchTuning
 from . import matroid_partition
 
+# A bound on the weight of unvisited words when no word can remain unvisited.
+NO_WORD_BOUND = np.iinfo(np.int64).max
+
 # Caps that keep work estimates within a native integer.  A binomial above _BINOMIAL_CAP counts as
 # the cap, and a sum saturates at _WORK_CAP, so an estimate is exact only if it reaches neither cap.
 # Searches that reach a cap are infeasible, so their order, against other basis families or
 # exhaustive enumeration, does not matter.
 _BINOMIAL_CAP = 1 << 50
 _WORK_CAP = 1 << 61
-
-# A bound on the weight of unvisited words when no word can remain unvisited.
-_NO_WORD_BOUND = np.iinfo(np.int64).max
 
 # One disjoint information set: its rows, its labels, and its pivot columns.
 _DisjointSet = tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8], npt.NDArray[np.int_]]
@@ -119,16 +123,14 @@ class Certificate:
         others have completed layer ``weight - 1``.
         """
         bound = int(self._step_lower_bounds[weight, num_completed])
-        if not self.pivot_blocks or self.max_coverage == 1:
-            # For disjoint blocks, the linear program separates by block, and its optimum is the
-            # coverage bound.
+        if not self._solves_linear_programs:
             return bound
         step = (weight, num_completed)
         if step not in self._lp_lower_bounds:
             lp_bound = get_lp_lower_bound(
                 self.pivot_blocks, self._get_requirements(*step), self.lp_max_denominator
             )
-            if lp_bound < _NO_WORD_BOUND:
+            if lp_bound < NO_WORD_BOUND:
                 lp_bound += (-lp_bound) % self.weight_divisor
             self._lp_lower_bounds[step] = lp_bound
         return max(bound, self._lp_lower_bounds[step])
@@ -143,7 +145,7 @@ class Certificate:
         """
         if self._step_lower_bounds[weight, num_completed] >= upper_bound:
             return True
-        if not self.pivot_blocks or self.max_coverage == 1:
+        if not self._solves_linear_programs:
             return False
         # No requirement exceeds its block, since a set that has completed the last layer makes the
         # coverage bound certify any upper bound.
@@ -167,6 +169,15 @@ class Certificate:
         fewer sets suffice, in which case the bound may need later layers too.
         """
         num_sets = len(self.ranks)
+        if not self._solves_linear_programs:
+            # The answer is the number of completed sets of the first step of the layer whose bound
+            # reaches the upper bound, that is, exceeds ``upper_bound - 1``.  ``find_stopping_step``
+            # finds it, so that the distance and coset searches find their stopping steps by one
+            # shared rule.
+            _, num_completed = find_stopping_step(
+                self._step_lower_bounds, upper_bound - 1, weight, weight
+            )
+            return num_completed
         for num_completed in range(1, num_sets):
             if self.certifies(weight, num_completed, upper_bound):
                 return num_completed
@@ -186,8 +197,34 @@ class Certificate:
             )
         )
 
+    def get_weight_bounds(self, weight_factor: int) -> npt.NDArray[np.int64]:
+        """Coverage bounds on the weight of unvisited eligible words after each step.
+
+        Every word must weigh at least its Hamming weight divided by ``weight_factor``.  Entry
+        ``[w, j]`` is the entry of the table of ``get_step_lower_bounds`` for this certificate,
+        divided by ``weight_factor`` and rounded up, except that the entries ``[dimension, j]`` for
+        ``j >= 1`` stay ``NO_WORD_BOUND``, since no word remains unvisited.  The bounds do not
+        decrease in the order of the steps.  Column zero of row zero is zero, and column zero of
+        each later row repeats the last column of the row before.  Each call returns a new table.
+        """
+        # Round up by negated floor division, which cannot overflow.  Division shrinks the entries
+        # that mean that no word remains, so they are reset.
+        bounds = -(-self._step_lower_bounds // weight_factor)
+        bounds[self.dimension, 1:] = NO_WORD_BOUND
+        return bounds
+
+    @property
+    def _solves_linear_programs(self) -> bool:
+        """Whether the certificate also bounds unvisited words by linear programs.
+
+        It does so only with pivot blocks and a maximum coverage above one.  With a coverage of
+        one, the blocks are disjoint, the linear program separates by block, and its optimum is the
+        coverage bound.
+        """
+        return bool(self.pivot_blocks) and self.max_coverage != 1
+
     def _as_array_arguments(self) -> tuple[npt.NDArray[np.int64], int, int]:
-        """The ranks, weight divisor and maximum coverage that the array functions take."""
+        """The ranks, weight divisor, and maximum coverage that the array functions take."""
         return np.array(self.ranks, dtype=np.int64), self.weight_divisor, self.max_coverage
 
     @functools.cached_property
@@ -682,7 +719,7 @@ def get_lp_lower_bound(
     weaken the bound, never invalidate it.  The coverage bound is the dual value of ``y_i = 1/C``
     for the maximum coverage ``C``, so the optimum is at least that bound.
 
-    Returns ``_NO_WORD_BOUND`` if a requirement exceeds the size of its block, since then no word
+    Returns ``NO_WORD_BOUND`` if a requirement exceeds the size of its block, since then no word
     meets the requirements, and zero if no requirement is positive or if the solver fails.
     """
     blocks = [
@@ -692,7 +729,7 @@ def get_lp_lower_bound(
     if not blocks:
         return 0
     if any(requirement > len(block) for block, requirement in zip(blocks, positive)):
-        return _NO_WORD_BOUND
+        return NO_WORD_BOUND
 
     # Import the solver only here, since importing qLDPC does not otherwise load it.
     import scipy.optimize
@@ -775,7 +812,7 @@ def get_step_lower_bounds(
     set with deficiency ``s`` that has completed layer ``c`` adds ``c + 1 - s`` to the occupancy if
     positive, so it adds one more for each layer that it completes once its deficiency no longer
     keeps its contribution at zero.  Entries ``[dimension, j]`` for ``j >= 1`` hold
-    ``_NO_WORD_BOUND``, since a set that has completed layer ``dimension`` has visited every word.
+    ``NO_WORD_BOUND``, since a set that has completed layer ``dimension`` has visited every word.
     """
     num_sets = len(ranks)
     bounds = np.empty((dimension + 1, num_sets + 1), dtype=np.int64)
@@ -793,8 +830,39 @@ def get_step_lower_bounds(
             bounds[weight, index + 1] = lower_bound_from_occupancy(
                 occupancy, weight_divisor, max_coverage
             )
-    bounds[dimension, 1:] = _NO_WORD_BOUND
+    bounds[dimension, 1:] = NO_WORD_BOUND
     return bounds
+
+
+@always_compiled
+def find_stopping_step(
+    step_bounds: npt.NDArray[np.int64], limit: int, first_layer: int, last_layer: int
+) -> tuple[int, int]:
+    """Find the first step of layers ``first_layer`` to ``last_layer`` whose bound exceeds a limit.
+
+    The number of sets ``num_sets`` is one less than the number of columns of ``step_bounds``.  The
+    steps of a layer ``w`` are ``(w, 1)`` to ``(w, num_sets)``, taken in that order and layer by
+    layer, and the bound of step ``(w, j)`` is ``step_bounds[w, j]``, as in the table of
+    ``get_step_lower_bounds``.  The bounds of these steps must not decrease in this order, which
+    holds for that table and for any nondecreasing function of it, so the first step whose bound
+    exceeds ``limit`` is found by binary search.  Column zero is not a step, and no other rows are
+    read.
+
+    Returns:
+        The step ``(layer, num_completed)``, or ``(last_layer, num_sets)`` if no step's bound
+        exceeds ``limit``.
+    """
+    num_sets = step_bounds.shape[1] - 1
+    low, high = 0, (last_layer - first_layer + 1) * num_sets
+    while low < high:
+        middle = (low + high) // 2
+        if step_bounds[first_layer + middle // num_sets, 1 + middle % num_sets] > limit:
+            high = middle
+        else:
+            low = middle + 1
+    if low == (last_layer - first_layer + 1) * num_sets:
+        return last_layer, num_sets
+    return first_layer + low // num_sets, 1 + low % num_sets
 
 
 @always_compiled
