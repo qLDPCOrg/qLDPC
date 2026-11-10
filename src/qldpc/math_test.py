@@ -76,19 +76,32 @@ def test_symplectic_conjugate_identity() -> None:
 
 
 def test_symplectic_shapes() -> None:
-    """Symplectic maps keep the shape of a vector, a stack of vectors, or no vectors."""
+    """Symplectic conjugates keep the shape of their input, and weights drop its last axis.
+
+    This holds for a vector, a stack of vectors, and arrays with no entries.
+    """
+    # a single vector has a 0-dimensional array of weights
     vector = np.array([1, 2, 3, 0], dtype=int)
     conjugate = np.array([3, 0, -1, -2], dtype=int)
     assert np.array_equal(qldpc.math.symplectic_conjugate(vector), conjugate)
     weight = qldpc.math.symplectic_weight(vector)
     assert isinstance(weight, np.ndarray) and weight.shape == () and weight == 2
-    stack = np.stack([[vector], [vector]])
-    assert np.array_equal(qldpc.math.symplectic_conjugate(stack), [[conjugate], [conjugate]])
-    assert np.array_equal(qldpc.math.symplectic_weight(stack), [[2], [2]])
+
+    # a stack of different vectors keeps each result with its vector
+    other_vector = np.array([0, 1, 0, 0], dtype=int)
+    other_conjugate = np.array([0, 0, 0, -1], dtype=int)
+    stack = np.array([[vector], [other_vector]])
+    assert np.array_equal(qldpc.math.symplectic_conjugate(stack), [[conjugate], [other_conjugate]])
+    assert np.array_equal(qldpc.math.symplectic_weight(stack), [[2], [1]])
+
+    # arrays with no entries keep their field, and have zero weights
+    field = galois.GF(3)
     for shape in [(0,), (0, 0), (3, 0), (0, 4)]:
-        vectors = galois.GF(3).Zeros(shape)
-        assert qldpc.math.symplectic_conjugate(vectors).shape == shape
-        assert qldpc.math.symplectic_weight(vectors).shape == shape[:-1]
+        vectors = field.Zeros(shape)
+        conjugates = qldpc.math.symplectic_conjugate(vectors)
+        assert isinstance(conjugates, field) and conjugates.shape == shape
+        weights = qldpc.math.symplectic_weight(vectors)
+        assert weights.shape == shape[:-1] and not np.any(weights)
 
 
 def test_nonzero_cols() -> None:

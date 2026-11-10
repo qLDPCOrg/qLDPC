@@ -103,9 +103,11 @@ def symplectic_weight(vectors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
     Returns one weight per input vector (a 0-dimensional array for a single vector).
     """
     _require_symplectic_length(vectors)
-    vectors_xz = vectors.reshape(*vectors.shape[:-1], 2, vectors.shape[-1] // 2)
+    xz_shape = (*vectors.shape[:-1], 2, vectors.shape[-1] // 2)
+    vectors_xz = vectors.reshape(xz_shape)
     vectors_x = np.asarray(vectors_xz[..., 0, :], dtype=int)
     vectors_z = np.asarray(vectors_xz[..., 1, :], dtype=int)
+    # count_nonzero returns a scalar rather than an array for a single vector
     return np.asarray(np.count_nonzero(vectors_x | vectors_z, axis=-1))
 
 

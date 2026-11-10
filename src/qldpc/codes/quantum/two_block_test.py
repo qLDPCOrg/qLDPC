@@ -416,23 +416,30 @@ def test_abelian_block_translations_of_field_lifts() -> None:
     """Lifts given as arrays over a finite field are read by their integer entries."""
     field = galois.GF(2)
 
-    def get_group(generator_lift: galois.FieldArray) -> abstract.Group:
-        """The cyclic group of order 2, whose generator has the given lift."""
-        identity_lift = field.Identity(len(generator_lift))
-        return abstract.Group.from_sympy(
-            abstract.CyclicGroup(2).to_sympy(),
-            lift=lambda member: identity_lift if member.is_Identity else generator_lift,
-        )
-
-    # a permutation matrix over GF(2) gives the translations of its integer entries
-    group = get_group(field([[0, 1], [1, 0]]))
+    # a cyclic shift over GF(2) gives the translations of the permutation that it represents, as
+    # does the same shift over the integers, and they preserve a lifted product
+    shift = np.roll(np.eye(3, dtype=int), 1, axis=0)
+    group = abstract.Group.from_generating_mats(field(shift))
     translations = _get_abelian_block_translations(group, 2)
-    assert translations is not None and np.array_equal(translations, [[1, 0, 3, 2]])
+    integer_translations = _get_abelian_block_translations(
+        abstract.Group.from_generating_mats(shift), 2
+    )
+    assert translations is not None and integer_translations is not None
+    assert np.array_equal(translations, integer_translations)
+    ring = abstract.GroupRing(group)
+    code = codes.LPCode(abstract.RingArray.build([[ring.one + ring.generators[0], 1]], ring))
+    code_translations = code._get_qudit_automorphisms()
+    assert code_translations is not None
+    assert_valid_translations(code, code_translations, group_order=3)
 
-    # every row and column of J - I sums to 1 over GF(2), but it is not a permutation matrix
-    generator_lift = field(np.ones((4, 4), dtype=int) - np.eye(4, dtype=int))
-    assert np.array_equal(generator_lift @ generator_lift, field.Identity(4))
-    assert _get_abelian_block_translations(get_group(generator_lift), 2) is None
+    # the all-ones matrix J minus the identity squares to the identity over GF(2), so it generates a
+    # group of order 2.  Every row and column of J - I sums to 1 over GF(2), but J - I is not a
+    # permutation matrix.
+    group = abstract.Group.from_generating_mats(
+        field(np.ones((4, 4), dtype=int) - np.eye(4, dtype=int))
+    )
+    assert group.order == 2
+    assert _get_abelian_block_translations(group, 2) is None
 
 
 @pytest.mark.parametrize(

@@ -837,6 +837,7 @@ def _get_block_translations(group: abstract.Group, num_blocks: int) -> npt.NDArr
     offsets = block_size * np.arange(num_blocks)[:, None]
     return np.array(
         [
+            # the argmax of a field array is a field array, which cannot add integer offsets
             (np.argmax(group.lift(generator).view(np.ndarray), axis=0) + offsets).ravel()
             for generator in group.generators
         ],
