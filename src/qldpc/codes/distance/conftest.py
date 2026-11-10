@@ -74,13 +74,15 @@ def compilation_mode(
 ) -> Iterator[None]:
     """Run the compiled functions of the distance searches as plain Python, or compiled.
 
-    In the plain Python mode, the compiled-on-request functions, and the always-compiled functions
-    that the scans of layers, the basis family stages, the automorphism families, the
-    connected-support search, and the coset-leader search define, run as Python, which coverage can
-    trace.  The compiled mode compiles the compiled-on-request functions once per session, and
-    restores plain Python afterwards.
+    In the plain Python mode, the compiled-on-request functions run as Python.  So do the
+    always-compiled functions that the scans of layers, the basis family stages, the automorphism
+    families, the connected-support search, and the coset-leader search define or import from this
+    package, such as ``completion_bounds.get_completion_bound`` in the scans of layers.  Coverage
+    can trace them.  The compiled mode compiles the compiled-on-request functions once per session,
+    and restores plain Python afterwards.
     """
     if request.param == "python":
+        package = __name__.rpartition(".")[0]
         for module in (
             affine_search,
             automorphism_families,
@@ -89,7 +91,9 @@ def compilation_mode(
             coset_leader_search,
         ):
             for name, function in list(vars(module).items()):
-                if hasattr(function, "py_func") and function.py_func.__module__ == module.__name__:
+                if hasattr(function, "py_func") and function.py_func.__module__.startswith(
+                    f"{package}."
+                ):
                     monkeypatch.setattr(module, name, function.py_func)
         yield
     else:

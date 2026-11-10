@@ -130,13 +130,18 @@ def test_the_information_set_limit_bounds_the_basis_families_of_a_count(
 
 
 def test_python_kernels(monkeypatch: pytest.MonkeyPatch, tune: Tune) -> None:
-    """Run the Python versions of the compiled kernels, which coverage can trace."""
+    """Run the Python versions of the compiled kernels, which coverage can trace.
+
+    The compiled helpers that the scan imports by name run as Python too.
+    """
     for name in (
         "_count_chunk",
         "_count_chunk_skipping",
         "_visit_last_rows",
         "_is_owned",
         "_get_masked_rank",
+        "advance_support",
+        "get_completion_bound",
     ):
         monkeypatch.setattr(scan, name, getattr(scan, name).py_func)
     # Tiny chunks make every scan stop and resume repeatedly, and forced completion tables make the
