@@ -85,10 +85,13 @@ The coordinator runs each round as follows:
    The review then ends after one round.
 3. Leave decisions to the person the coordinator works for.
    Decisions include design changes, public API changes, changes to the standards or to this protocol, and disagreements with a reviewer.
-   What to do about each pre-existing problem is also a decision.
-   Recommend fixing it in the change, in a follow-up pull request, or in a small pull request that precedes the change.
    Record each open decision, continue with the other fixes, and list the open decisions in the report.
-4. Start another round with fresh reviewers, unless four rounds have run:
+4. Fix a minor pre-existing problem in the change if its fix is local and needs none of these decisions, such as a misleading message, a missing check, or an untested edge case.
+   Like other fixes, they are revisions that any later round reviews.
+   Report every such fix explicitly, under its own heading, so that the person the coordinator works for sees each change that they did not ask for.
+   What to do about any other pre-existing problem is a decision.
+   Recommend fixing it in the change, in a follow-up pull request, or in a small pull request that precedes the change.
+5. Start another round with fresh reviewers, unless four rounds have run:
 
    * after the first round, if it had a significant finding;
    * after a later round, if fixing a significant finding took more than a local, evidently correct edit.
@@ -100,6 +103,6 @@ The coordinator runs each round as follows:
    If such a problem needs more than a local fix, report it and recommend how to proceed instead of starting another round.
    If significant problems remain as open decisions, report them and ask how to proceed before starting another round.
 
-After the last round, report what each round found and changed, and list the decisions that remain open.
+After the last round, report what each round found and changed, list the pre-existing problems that the review fixed, and list the decisions that remain open.
 A standard review does not run the finishing checks of the :ref:`validation commands <validation-commands>`, which belong to finishing a pull request.
 If the four-round limit ended the review, ask whether to start another round.

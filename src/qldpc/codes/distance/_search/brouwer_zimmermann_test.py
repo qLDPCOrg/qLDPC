@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import dataclasses
 import functools
-import itertools
 import math
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any
@@ -18,14 +17,14 @@ import pytest
 from sympy.abc import x, y, z
 
 import qldpc
-from qldpc._binary import get_independent_rows, pack_bits
+from qldpc._binary import get_independent_rows
 from qldpc.objects import PAULIS_XZ, Pauli
 
 from ...conftest import Tune
 from .._tuning import DEFAULT_TUNING, MAX_VALUE, SearchTuning, use_tuning
 from ..conftest import CostlyStages, get_random_full_rank_matrix, get_sector_problem
+from . import affine_instance, affine_search, completion_bounds, information_sets
 from . import brouwer_zimmermann as bz
-from . import completion_bounds, information_sets
 
 # A tuning that never uses completion tables, for searches built directly.
 TABLES_DISABLED = dataclasses.replace(
@@ -36,81 +35,6 @@ TABLES_DISABLED = dataclasses.replace(
 )
 
 
-@pytest.mark.parametrize("interpreted", [False, True])
-def test_brouwer_zimmermann_scan(interpreted: bool, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Chunked kernel calls enumerate each combination of basis rows once.
-
-    The chunked kernel calls preserve resumption state and multiword labels.
-    """
-    scan = bz._scan_brouwer_zimmermann
-    if interpreted:
-        scan = getattr(scan, "py_func", scan)
-        monkeypatch.setattr(
-            bz, "_is_eligible", getattr(bz._is_eligible, "py_func", bz._is_eligible)
-        )
-    rng = np.random.default_rng(120)
-
-    # The scan input uses full-rank, partial-rank, and rank-zero information sets.  The last two
-    # information sets store labels only in their second packed word.
-    for dimension in range(1, 7):
-        generators = rng.integers(0, 2**64, (3, dimension, 5), dtype=np.uint64)
-        labels = np.zeros((3, dimension, 2), dtype=np.uint64)
-        labels[1:, :, 1] = rng.integers(0, 2, (2, dimension), dtype=np.uint64)
-        ranks = np.array([dimension, dimension // 2, 0], dtype=np.int64)
-        widths = np.array([5, 2, 1], dtype=np.int64)
-        label_widths = np.array([0, 2, 2], dtype=np.int64)
-        for weight in range(1, dimension + 1):
-            support = np.zeros(weight, dtype=np.int64)
-            prefixes = np.zeros((weight + 1, 3, 5), dtype=np.uint64)
-            depth, best, expected = 0, 1000, 1000
-            for indices in itertools.combinations(range(dimension), weight):
-                # Update the expected running minimum from the current combination of basis rows.
-                for index in range(3):
-                    words = np.bitwise_xor.reduce(generators[index, indices, : widths[index]])
-                    eligible = not label_widths[index] or np.any(
-                        np.bitwise_xor.reduce(labels[index, indices], axis=0)
-                    )
-                    candidate = sum(int(word).bit_count() for word in words)
-                    candidate += sum(row < ranks[index] for row in indices)
-                    if eligible:
-                        expected = min(expected, candidate)
-
-                # Scan one basis-row combination and compare the running minimum and kernel state.
-                best, depth, visited = scan(
-                    generators,
-                    labels,
-                    ranks,
-                    widths,
-                    label_widths,
-                    support,
-                    prefixes,
-                    depth,
-                    best,
-                    0,
-                    1,
-                )
-                assert visited == 1 and best == expected
-                # The last selected row index has advanced in preparation for the next chunk.
-                np.testing.assert_array_equal(support[:-1], indices[:-1])
-                assert support[-1] == indices[-1] + 1
-
-            # One more kernel call reports completion after all basis-row combinations are visited.
-            best, depth, visited = scan(
-                generators,
-                labels,
-                ranks,
-                widths,
-                label_widths,
-                support,
-                prefixes,
-                depth,
-                best,
-                0,
-                1,
-            )
-            assert (best, depth, visited) == (expected, -1, 0)
-
-
 def test_brouwer_zimmermann_search_state() -> None:
     """A search state handles partial-rank information sets.
 
@@ -119,11 +43,13 @@ def test_brouwer_zimmermann_search_state() -> None:
     # The input is one rank-zero information set with two basis rows.  The two basis rows have
     # Hamming weights 2 and 1, both outside the excluded subcode.
     search = bz._BrouwerZimmermannSearch(
-        np.array([[[3], [2]]], dtype=np.uint64),
-        np.ones((1, 2, 1), dtype=np.uint64),
-        np.array([1], dtype=np.int64),
-        np.array([1], dtype=np.int64),
-        information_sets.Certificate(2, (0,)),
+        affine_instance.AffineInstance(
+            generators=np.array([[[3], [2]]], dtype=np.uint64),
+            labels=np.ones((1, 2, 1), dtype=np.uint64),
+            widths=np.array([1], dtype=np.int64),
+            pivots=np.full((1, 2), -1, dtype=np.int64),
+            certificate=information_sets.Certificate(2, (0,)),
+        ),
         cutoff=1,
         batch_size=1,
         tuning=TABLES_DISABLED,
@@ -133,10 +59,7 @@ def test_brouwer_zimmermann_search_state() -> None:
 
     # An interrupted coefficient-weight layer leaves the lower-bound certificate unchanged.
     with (
-        mock.patch(
-            "qldpc.codes.distance._search.brouwer_zimmermann._scan_brouwer_zimmermann",
-            side_effect=KeyboardInterrupt,
-        ),
+        mock.patch.object(affine_search, "scan_family", side_effect=KeyboardInterrupt),
         pytest.raises(KeyboardInterrupt),
     ):
         search.advance()
@@ -168,11 +91,13 @@ def test_the_largest_layer_threshold_never_asks_for_automorphisms() -> None:
     for minimum_layer_work, expected_calls in ((MAX_VALUE, 0), (2**61, 1)):
         get_automorphism_family = mock.Mock(return_value=None)
         search = bz._BrouwerZimmermannSearch(
-            np.zeros((1, dimension, 2), dtype=np.uint64),
-            np.zeros((1, dimension, 1), dtype=np.uint64),
-            np.array([2], dtype=np.int64),
-            np.array([1], dtype=np.int64),
-            information_sets.Certificate(dimension, (dimension,)),
+            affine_instance.AffineInstance(
+                generators=np.zeros((1, dimension, 2), dtype=np.uint64),
+                labels=np.zeros((1, dimension, 1), dtype=np.uint64),
+                widths=np.array([2], dtype=np.int64),
+                pivots=np.arange(dimension, dtype=np.int64)[None],
+                certificate=information_sets.Certificate(dimension, (dimension,)),
+            ),
             cutoff=0,
             batch_size=1,
             tuning=dataclasses.replace(
@@ -185,9 +110,9 @@ def test_the_largest_layer_threshold_never_asks_for_automorphisms() -> None:
         )
         # Skip the scan of the layer itself, which no search could finish.
         with (
-            mock.patch.object(bz, "_scan_brouwer_zimmermann", return_value=(dimension, -1, 0)),
+            mock.patch.object(affine_search, "scan_family", return_value=(dimension, -1, 0)),
             mock.patch.object(
-                bz, "_scan_one_information_set", return_value=(dimension, -1, 0, 0, 0)
+                affine_search, "scan_information_set", return_value=(dimension, -1, 0, 0, 0)
             ),
         ):
             search.advance()
@@ -565,8 +490,8 @@ def get_candidate_count(monkeypatch: pytest.MonkeyPatch) -> Callable[[], int]:
     up, but not the supports that it skips.
     """
     num_candidates = 0
-    original_scan = bz._scan_brouwer_zimmermann
-    original_one_set_scan = bz._scan_one_information_set
+    original_scan = affine_search.scan_family
+    original_one_set_scan = affine_search.scan_information_set
 
     def counting_scan(*args: Any) -> tuple[int, int, int]:
         nonlocal num_candidates
@@ -591,8 +516,8 @@ def get_candidate_count(monkeypatch: pytest.MonkeyPatch) -> Callable[[], int]:
 
     # Row weights and exhaustive enumeration count every packed word with np.bitwise_count.
     monkeypatch.setattr(np, "bitwise_count", counting_bitwise_count)
-    monkeypatch.setattr(bz, "_scan_brouwer_zimmermann", counting_scan)
-    monkeypatch.setattr(bz, "_scan_one_information_set", counting_one_set_scan)
+    monkeypatch.setattr(affine_search, "scan_family", counting_scan)
+    monkeypatch.setattr(affine_search, "scan_information_set", counting_one_set_scan)
     return lambda: num_candidates
 
 
@@ -682,7 +607,7 @@ def completion_tables(
     if record.forced:
         tune(completion_bound_minimum_layer_work=0, completion_bound_max_cost_percent=MAX_VALUE)
     select = completion_bounds.select_completion_tables
-    scan = bz._scan_one_information_set
+    scan = affine_search.scan_information_set
 
     def recording_select(*args: Any, **kwargs: Any) -> completion_bounds.CompletionTables | None:
         tables = select(*args, **kwargs)
@@ -696,7 +621,7 @@ def completion_tables(
         return result
 
     monkeypatch.setattr(completion_bounds, "select_completion_tables", recording_select)
-    monkeypatch.setattr(bz, "_scan_one_information_set", counting_scan)
+    monkeypatch.setattr(affine_search, "scan_information_set", counting_scan)
     yield record
     if record.forced:
         assert record.lookups
@@ -852,118 +777,9 @@ def test_searches_reject_wrong_automorphisms() -> None:
         )
 
 
-def _get_completion_bound(
-    tails: npt.NDArray[np.uint8], support: Sequence[int], block_bits: int
-) -> int:
-    """The block bound on the completions of a support from its first row of its last pair on.
-
-    Add, over blocks of columns, the least weight on the block of the first rows of the support plus
-    any pair of rows from the first row of its last pair on.
-    """
-    prefix = np.bitwise_xor.reduce(tails[list(support[:-2])], axis=0, initial=0)
-    pairs = list(itertools.combinations(range(support[-2], len(tails)), 2))
-    return sum(
-        min(
-            int(np.sum((prefix ^ tails[i] ^ tails[j])[start : start + block_bits]))
-            for i, j in pairs
-        )
-        for start in range(0, tails.shape[1], block_bits)
-    )
-
-
 def _no_labels(basis: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
     """Quotient labels with no columns, which exclude no subcode."""
     return np.empty((len(basis), 0), dtype=np.uint8)
-
-
-@pytest.mark.parametrize("interpreted", [False, True])
-def test_scan_of_one_information_set(
-    interpreted: bool, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A scan of one information set finds the lightest eligible word of a layer, in chunks.
-
-    With or without tables, a layer that runs to completion weighs or skips every support exactly
-    once, and each chunk weighs supports and looks up bounds at most ``batch_size`` times together.
-    While the best weight stays the same, a scan with tables skips exactly the supports whose block
-    bound reaches its limit.  A scan returns at the first support, in order, that brings the best
-    weight to the cutoff.  The sets have multiword labels or no labels, which make every word
-    eligible.
-    """
-    scan = bz._scan_one_information_set
-    if interpreted:
-        scan = getattr(scan, "py_func", scan)
-        monkeypatch.setattr(
-            bz, "_is_eligible", getattr(bz._is_eligible, "py_func", bz._is_eligible)
-        )
-    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    no_tables = completion_bounds.NO_TABLES
-    for dimension, num_label_words in itertools.product(range(2, 7), (0, 2)):
-        tails = (rng.random((dimension, 70)) < 0.3).astype(np.uint8)
-        generators = pack_bits(tails)[None]
-        labels = np.zeros((1, dimension, num_label_words), dtype=np.uint64)
-        if num_label_words:
-            labels[0, :, 1] = rng.integers(0, 4, dimension, dtype=np.uint64)
-        widths = np.array([generators.shape[2]], dtype=np.int64)
-        label_widths = np.array([num_label_words], dtype=np.int64)
-        all_tables = [no_tables] + [
-            completion_bounds.CompletionTables.build(generators[0], bits) for bits in (8, 16)
-        ]
-        for weight in range(2, dimension + 1):
-            # The weight of each support in order, or None if its word is ineligible.
-            weights = [
-                weight + int(np.sum(np.bitwise_xor.reduce(tails[list(rows)], axis=0)))
-                if not num_label_words or np.any(np.bitwise_xor.reduce(labels[0, list(rows)]))
-                else None
-                for rows in itertools.combinations(range(dimension), weight)
-            ]
-            eligible = [value for value in weights if value is not None]
-            for initial_best, tables, batch_size in itertools.product(
-                (weight + 1, min(eligible, default=1000) + 1, 1000), all_tables, (1, 5, 10**6)
-            ):
-                expected = min([initial_best, *eligible])
-                for cutoff in (-1, expected):
-                    support = np.zeros(weight, dtype=np.int64)
-                    prefixes = np.zeros((weight + 1, 1, widths[0]), dtype=np.uint64)
-                    depth, best, evaluated, skipped = 0, initial_best, 0, 0
-                    while depth >= 0 and best > cutoff:
-                        best, depth, num_evaluated, num_lookups, num_skipped = scan(
-                            generators,
-                            labels,
-                            widths,
-                            label_widths,
-                            support,
-                            prefixes,
-                            depth,
-                            best,
-                            cutoff,
-                            batch_size,
-                            tables.tables,
-                            tables.offsets,
-                            tables.block_bits,
-                        )
-                        assert num_evaluated + num_lookups <= batch_size
-                        evaluated += num_evaluated
-                        skipped += num_skipped
-                    assert best == expected
-                    if cutoff < 0:
-                        assert evaluated + skipped == math.comb(dimension, weight)
-                        if tables is not no_tables and initial_best == expected:
-                            limit = initial_best - weight
-                            assert skipped == sum(
-                                _get_completion_bound(tails, rows, tables.block_bits) >= limit
-                                for rows in itertools.combinations(range(dimension), weight)
-                            )
-                    elif tables is no_tables and initial_best > expected:
-                        # Without tables, the scan weighs every support up to the first that
-                        # reaches the cutoff, and no more.
-                        running = itertools.accumulate(
-                            (value if value is not None else initial_best for value in weights),
-                            min,
-                            initial=initial_best,
-                        )
-                        assert evaluated == next(
-                            index for index, value in enumerate(running) if value <= cutoff
-                        )
 
 
 @pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
@@ -1042,11 +858,13 @@ def test_sets_that_are_not_information_sets_use_the_general_scan() -> None:
     with completion tables in every layer.
     """
     search = bz._BrouwerZimmermannSearch(
-        np.array([[[7], [6]]], dtype=np.uint64),
-        np.array([[[1], [2]]], dtype=np.uint64),
-        np.array([1], dtype=np.int64),
-        np.array([1], dtype=np.int64),
-        information_sets.Certificate(2, (0,)),
+        affine_instance.AffineInstance(
+            generators=np.array([[[7], [6]]], dtype=np.uint64),
+            labels=np.array([[[1], [2]]], dtype=np.uint64),
+            widths=np.array([1], dtype=np.int64),
+            pivots=np.full((1, 2), -1, dtype=np.int64),
+            certificate=information_sets.Certificate(2, (0,)),
+        ),
         cutoff=-1,
         batch_size=1,
         tuning=dataclasses.replace(

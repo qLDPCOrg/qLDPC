@@ -9,6 +9,7 @@ The code-annealing experiment has offline tests that you can run locally, but th
 | [`bivariate_bicycle/`](bivariate_bicycle/) | Brute-force search for bivariate bicycle codes with toric layouts | `run_search.py`, then `collect_results.py` |
 | [`quantum_tanner/`](quantum_tanner/) | Randomized search for quantum Tanner codes | `run_search.py`, then `collect_results.py` and `verify_codes.py` |
 | [`code_annealing/`](code_annealing/) | Implements and reproduces the code search of [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574): annealing of CSS codes and of self-dual CSS codes with equivalent logicals (SWEL), scored exactly | `python -m experiments.code_annealing.reproduce_paper`, or `write_jobs`, then `collect_data` and `make_figures` (see its guide) |
+| [`connected_support_distance/`](connected_support_distance/) | Timings of the connected-support and Brouwer–Zimmermann exact distance searches on pair-partition and other codes | `benchmark.py` |
 | [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#lattice-surgery)) | `collect_ler.py` |
 
 Each script's module docstring summarizes its method and outputs; run it with `--help` to see its options.
@@ -20,9 +21,9 @@ Commands below are written relative to the repository root.
 
 ## Results
 
-Every experiment stores its results in a `results/` directory beside its scripts, which Git ignores.
-Every script that reads or writes results accepts `--results-dir` to use another directory instead, such as a scratch directory for a quick trial run; pass the same `--results-dir` to all scripts of an experiment.
-In the other experiments, each results directory holds a CSV summary, together with the resumable intermediate data from which that summary is built:
+Every experiment that saves results stores them in a `results/` directory beside its scripts, which Git ignores.
+Its scripts accept `--results-dir` to use another directory instead, such as a scratch directory for a quick trial run; pass the same `--results-dir` to all scripts of an experiment.
+The results directories of the bivariate bicycle, quantum Tanner, and lattice surgery experiments each hold a CSV summary, together with the resumable intermediate data from which that summary is built:
 
 | Experiment | Intermediate data | CSV summary |
 | --- | --- | --- |
@@ -112,6 +113,24 @@ Verification requires `codes.QTCode.random` to sample the same code for the same
 [`code_annealing/`](code_annealing/) implements and reproduces the code search of the paper [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574).
 It anneals CSS and SWEL codes, scoring every proposal exactly by its distance and its number of minimum-weight X-only and Z-only logical operators, which is only practical for moderate block lengths.
 Its [guide](code_annealing/README.md) shows how to rebuild the paper's table and figures from the paper's codes in one command, and how to rerun the searches at any scale.
+
+## Connected-support distance
+
+[`connected_support_distance/benchmark.py`](connected_support_distance/benchmark.py) times the exact distance searches of `qldpc` on pair-partition codes of Okada and Kasai and of Lee et al. (see [the connected-support guide](../src/qldpc/codes/distance/connected_support.md)), and on a few other codes.
+It prints its results and saves nothing, so it takes no `--results-dir`.
+For example:
+
+```bash
+python experiments/connected_support_distance/benchmark.py 110 232 276
+python experiments/connected_support_distance/benchmark.py 232 --methods brouwer_zimmermann
+python experiments/connected_support_distance/benchmark.py gross surface:11 surface:15
+python experiments/connected_support_distance/benchmark.py 110 232 --hadamards
+```
+
+The option `--hadamards` applies Hadamards to the second half of the qubits of each code, and times the resulting code, which is not CSS.
+
+Numba compiles the searches on first use, so run the script twice for the times of a warm cache.
+Some searches run for hours or more, so run it under a deadline.
 
 ## Lattice surgery
 

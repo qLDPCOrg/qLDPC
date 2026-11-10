@@ -16,6 +16,7 @@ import sys
 import types
 from collections.abc import Iterator, Mapping, Sequence
 
+import galois
 import grimp
 import pytest
 
@@ -146,6 +147,19 @@ def ring_dihedral5_gf3(pytestconfig: pytest.Config) -> abstract.GroupRing:
     return ring
 
 
+@pytest.fixture(scope="session")
+def ring_dihedral7_gf9(pytestconfig: pytest.Config) -> abstract.GroupRing:
+    """Construct a ring over a field whose irreducible polynomial is not the default one.
+
+    In GF(9) with the irreducible polynomial x^2 + 1, the element x is not primitive.  This ring has
+    a matrix component over a field extension (size 2, degree 3).
+    """
+    field = galois.GF(9, irreducible_poly="x^2 + 1")
+    ring = abstract.GroupRing(abstract.DihedralGroup(7), field=field)
+    ring.get_transformer(seed=pytestconfig.getoption("randomly_seed"))
+    return ring
+
+
 @pytest.fixture(name="ring", scope="session", params=["cyclic3_gf4", "dihedral3_gf5"])
 def rings_to_test(
     request: pytest.FixtureRequest,
@@ -164,7 +178,14 @@ def rings_to_test(
 @pytest.fixture(
     name="wa_ring",
     scope="session",
-    params=["cyclic3_gf4", "dihedral3_gf5", "cyclic5_gf2", "alternating4_gf5", "dihedral5_gf3"],
+    params=[
+        "cyclic3_gf4",
+        "dihedral3_gf5",
+        "cyclic5_gf2",
+        "alternating4_gf5",
+        "dihedral5_gf3",
+        "dihedral7_gf9",
+    ],
 )
 def wedderburn_artin_rings_to_test(
     request: pytest.FixtureRequest,
@@ -173,13 +194,15 @@ def wedderburn_artin_rings_to_test(
     ring_cyclic5_gf2: abstract.GroupRing,
     ring_alternating4_gf5: abstract.GroupRing,
     ring_dihedral5_gf3: abstract.GroupRing,
+    ring_dihedral7_gf9: abstract.GroupRing,
 ) -> abstract.GroupRing:
     """Retrieve a ring for exercising the Wedderburn-Artin machinery.
 
     These rings jointly cover a commutative field extension (cyclic3_gf4), matrix components of size
     2 and 3 (dihedral3_gf5, alternating4_gf5), a degree-4 field-extension component (cyclic5_gf2),
-    and a matrix component that is itself over a field extension -- size 2 and degree 2, i.e. 2x2
-    matrices over GF(9) (dihedral5_gf3).
+    a matrix component that is itself over a field extension -- size 2 and degree 2, i.e. 2x2
+    matrices over GF(9) (dihedral5_gf3), and a field whose irreducible polynomial is not the default
+    one (dihedral7_gf9).
     """
     match request.param:
         case "cyclic3_gf4":
@@ -192,6 +215,8 @@ def wedderburn_artin_rings_to_test(
             return ring_alternating4_gf5
         case "dihedral5_gf3":
             return ring_dihedral5_gf3
+        case "dihedral7_gf9":
+            return ring_dihedral7_gf9
     raise ValueError(f"Invalid fixture name: {request.param}")  # pragma: no cover
 
 

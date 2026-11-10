@@ -65,8 +65,10 @@ def get_fault_distance(
     Args:
         circuit: A noisy Stim circuit annotated with detectors and logical observables.
         method: The exact-distance method used to compute the Z-distance of the auxiliary code
-            :math:`C`: ``"brouwer_zimmermann"`` (the default, with alias ``"information_sets"``) or
-            ``"brute_force"``.
+            :math:`C`: ``"brouwer_zimmermann"`` (the default, with alias ``"information_sets"``),
+            ``"brute_force"``, or ``"connected_support"``, which searches the sparse detector
+            matrix :math:`D` of :math:`C` for undetected faults that are connected through its
+            detectors (see :meth:`qldpc.codes.CSSCode.get_distance_exact`).
 
     Returns:
         The minimum number of DEM error mechanisms causing an undetected observable flip, or np.nan

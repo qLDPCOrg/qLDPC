@@ -207,3 +207,19 @@ def assert_valid_balanced_product(
         assert np.array_equal(
             balanced.op(degree) @ projections[degree], projections[degree - 1] @ tensor.op(degree)
         )
+
+
+def test_chain_complex_over_matrix_ring() -> None:
+    """A chain complex over a matrix ring matches that over an isomorphic group algebra."""
+    group_ring = abstract.GroupRing(abstract.CyclicGroup(3), field=3)
+    ring = abstract.MatrixRing(group_ring.generators[0].lift())
+
+    def get_chain(base_ring: abstract.Ring) -> objects.ChainComplex:
+        matrix = abstract.RingArray.build([[1, base_ring.generators[0]]], base_ring)
+        return objects.ChainComplex.tensor_product(matrix, matrix)
+
+    chain, group_chain = get_chain(ring), get_chain(group_ring)
+    assert chain.ring == ring
+    for op, group_op in zip(chain.ops, group_chain.ops):
+        assert isinstance(op, abstract.RingArray) and isinstance(group_op, abstract.RingArray)
+        assert np.array_equal(op.lift(), group_op.lift())

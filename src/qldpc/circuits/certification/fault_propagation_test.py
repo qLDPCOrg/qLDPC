@@ -7,8 +7,9 @@ from __future__ import annotations
 import functools
 import itertools
 import operator
+import typing
 from collections.abc import Collection, Sequence
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -16,6 +17,7 @@ import pytest
 import stim
 
 from qldpc import circuits
+from qldpc.codes.distance import DistanceMethod
 from qldpc.codes.distance._search.coset_leader_search import MinWeightBound
 
 from . import fault_propagation
@@ -566,6 +568,70 @@ def test_steane_preparation_meets_css_weight_but_not_physical_weight() -> None:
         candidate[qubit] = pauli
         syndrome = tuple(int(not candidate.commutes(ss)) for ss in stabilizers)
         assert syndrome != failure.output_syndrome
+
+
+def test_the_connected_support_method_finds_the_same_fault() -> None:
+    """The connected-support search finds the fault that the default search finds.
+
+    Two primitive faults that each fire the detector pass post-selection together, so the smallest
+    violating fault has two error mechanisms, which the search over combinations of primitive faults
+    finds with the representatives of the coset search.  The bound of this counterexample is one
+    more than its fault weight by either method, and the rejection of the CSS weight on a non-CSS
+    state below shows that the method reaches the coset searches.  The alias ``"information_sets"``
+    runs the default search.
+    """
+    circuit = stim.Circuit("""
+        I 0 1 2 3 4
+        CORRELATED_ERROR(0.01) X0 X1 X4
+        CORRELATED_ERROR(0.01) X2 X3 X4
+        M 4
+        DETECTOR rec[-1]
+    """)
+    default, alias, result = (
+        circuits.certify_bounded_fault_propagation(
+            circuit, output_qubits=[0, 1, 2, 3], post_select=[0], css_weight=False, method=method
+        )
+        for method in ("brouwer_zimmermann", "information_sets", "connected_support")
+    )
+    assert alias == default
+    _assert_valid_counterexample(result, circuit)
+    assert default.counterexample is not None and result.counterexample is not None
+    assert result.counterexample.fault_indices == default.counterexample.fault_indices == (0, 1)
+    assert (
+        result.counterexample.residual_weight_lower_bound == result.counterexample.fault_weight + 1
+    )
+
+    # The +1 eigenstate of Y is not CSS, so the connected-support search cannot weigh its errors by
+    # CSS weight, but the default search, also under its alias, can.
+    y_state = stim.Circuit("H 0\nS 0")
+    with pytest.raises(ValueError, match="only on CSS states"):
+        circuits.certify_bounded_fault_propagation(
+            y_state, css_weight=True, method="connected_support"
+        )
+    assert circuits.certify_bounded_fault_propagation(
+        y_state, css_weight=True, method="information_sets"
+    ).certified
+
+
+def test_coset_search_method_of_each_distance_method() -> None:
+    """Each exact-distance method except brute force selects a coset-leader search.
+
+    The alias ``"information_sets"`` selects the default search, and unknown methods are rejected.
+    Certification checks its method before it reads the circuit, so the lack of an unmeasured qubit
+    of this circuit raises no error first.
+    """
+    for method in typing.get_args(DistanceMethod):
+        if method == "brute_force":
+            with pytest.raises(ValueError, match="no search of residual weights"):
+                fault_propagation._get_coset_search_method(method)
+        else:
+            expected = "brouwer_zimmermann" if method == "information_sets" else method
+            assert fault_propagation._get_coset_search_method(method) == expected
+    unknown: Any = "gap"
+    with pytest.raises(ValueError, match="Unknown distance method"):
+        fault_propagation._get_coset_search_method(unknown)
+    with pytest.raises(ValueError, match="no search of residual weights"):
+        circuits.certify_bounded_fault_propagation(stim.Circuit("M 0"), method="brute_force")
 
 
 def test_added_flags_match_explicit_flag_detectors() -> None:

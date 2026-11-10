@@ -81,3 +81,60 @@ def test_sets_are_information_sets_with_bounded_coverage(pytestconfig: pytest.Co
             )
             assert loads.max(initial=0) <= max_coverage
             assert len(sets) == _get_max_num_sets(basis, max_coverage, max_sets)
+
+
+def test_partial_sets_are_the_largest_that_information_sets_leave_room_for(
+    pytestconfig: pytest.Config,
+) -> None:
+    """With coverage one, a kept partial set is as large as any that disjoint sets leave room for.
+
+    On random bases, the sets are disjoint, as many information sets as brute force finds come
+    first, and then a partial set of independent columns, unless it would be empty.  Its size is
+    the largest rank of the columns that any choice of that many disjoint information sets leaves.
+    Without a partial set, those columns have rank zero.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for _ in range(25):
+        dimension = int(rng.integers(1, 4))
+        num_columns = int(rng.integers(dimension, 8))
+        basis = get_random_full_rank_matrix(rng, dimension, num_columns)
+        sets = get_information_sets_with_coverage(
+            basis, 1, num_columns // dimension + 1, keep_partial=True
+        )
+        num_full = _get_max_num_sets(basis, 1, num_columns)
+        assert all(_is_information_set(basis, columns) for columns in sets[:num_full])
+        partial = sets[num_full:]
+        assert len(partial) <= 1 and all(partial)
+        columns = [column for columns in sets for column in columns]
+        assert len(columns) == len(set(columns))
+        size = len(partial[0]) if partial else 0
+        assert len(row_reduce_binary(basis[:, columns[num_full * dimension :]], None)[2]) == size
+        assert size == _get_largest_remaining_rank(basis, num_full)
+
+
+def _get_largest_remaining_rank(basis: npt.NDArray[np.uint8], num_sets: int) -> int:
+    """The largest rank of the columns that any ``num_sets`` disjoint information sets leave.
+
+    A search over the disjoint information sets, in a fixed order, which is feasible for bases of a
+    few columns.
+    """
+    information_sets = [
+        set(columns)
+        for columns in itertools.combinations(range(basis.shape[1]), len(basis))
+        if _is_information_set(basis, list(columns))
+    ]
+
+    def search(start: int, used: frozenset[int], count: int) -> int:
+        if count == num_sets:
+            remaining = [column for column in range(basis.shape[1]) if column not in used]
+            return len(row_reduce_binary(basis[:, remaining], None)[2]) if remaining else 0
+        return max(
+            (
+                search(index + 1, used | columns, count + 1)
+                for index, columns in enumerate(information_sets[start:], start)
+                if not used & columns
+            ),
+            default=-1,
+        )
+
+    return search(0, frozenset(), 0)

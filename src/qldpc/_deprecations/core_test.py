@@ -171,6 +171,16 @@ def test_deprecated_guf_decoder_code() -> None:
         assert caught[0].filename == __file__
 
 
+def test_deprecated_group_ring_is_abelian() -> None:
+    """The deprecated is_abelian of a group algebra warns, and says if the ring is commutative."""
+    for group, expected in [(abstract.CyclicGroup(3), True), (abstract.SymmetricGroup(3), False)]:
+        ring = abstract.GroupRing(group)
+        with pytest.warns(DeprecationWarning, match="GroupRing.is_abelian is DEPRECATED") as caught:
+            assert ring.is_abelian is expected  # type: ignore[attr-defined]
+        assert caught[0].filename == __file__
+    assert not hasattr(abstract.MatrixRing(np.eye(2, dtype=int)), "is_abelian")
+
+
 def test_deprecated_get_distance_bound() -> None:
     """The deprecated QDistRnd distance bound sends GAP the same commands as the code methods."""
     stabilizer_code, css_code = codes.FiveQubitCode(), codes.SurfaceCode(2)
@@ -189,6 +199,68 @@ def test_deprecated_get_distance_bound() -> None:
             assert get_output.call_args_list[-2] == get_output.call_args_list[-1]
         with pytest.raises(ValueError, match="non-CSS subsystem codes"):
             _deprecations.core.get_distance_bound(subsystem_code)
+
+
+def test_deprecated_get_primitive_central_idempotents() -> None:
+    """The deprecated function gives the primitive central idempotents of a GAP group."""
+    from qldpc.external import _groups
+
+    get_idempotents = _deprecations.core.get_primitive_central_idempotents
+    group = abstract.DihedralGroup(3)
+    ring = abstract.GroupRing(group, 5)
+    with pytest.warns(DeprecationWarning, match="GroupRing.get_primitive_central_idempotents"):
+        idempotents = get_idempotents(group.to_gap_group(), 5)
+    members = [
+        abstract.RingMember(
+            ring,
+            *(
+                (coefficient, abstract.GroupMember([list(cycle) for cycle in cycles if cycle]))
+                for coefficient, cycles in terms
+            ),
+        )
+        for terms in idempotents
+    ]
+    assert members == list(ring.get_primitive_central_idempotents())
+
+    # groups of permutations are read directly, also with spaces, brackets, and products of cycles
+    klein_group = abstract.Group(
+        abstract.GroupMember([[0, 1], [2, 3]]), abstract.GroupMember([[0, 2], [1, 3]])
+    )
+    klein_ring = abstract.GroupRing(klein_group, 3)
+    klein_vectors = sorted(
+        pci.to_vector().tolist() for pci in klein_ring.get_primitive_central_idempotents()
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        with unittest.mock.patch.object(_groups, "get_generators", side_effect=AssertionError):
+            assert get_idempotents("Group([(1, 2, 3), (1, 3)])", 5) == idempotents
+            assert get_idempotents("Group(())", 3) == [((1, ((),)),)]
+            klein_idempotents = get_idempotents("Group((1,2)(3,4),(1,3)(2,4))", 3)
+
+            # these are the idempotents of GF(2)[C3] that GAP computed before #795
+            gap_idempotents = [
+                ((1, ((),)), (1, ((0, 1, 2),)), (1, ((0, 2, 1),))),
+                ((1, ((0, 1, 2),)), (1, ((0, 2, 1),))),
+            ]
+            assert set(get_idempotents("Group((1,2,3))", 2)) == set(gap_idempotents)
+        members = [
+            abstract.RingMember(
+                klein_ring,
+                *(
+                    (coefficient, abstract.GroupMember([list(cycle) for cycle in cycles if cycle]))
+                    for coefficient, cycles in terms
+                ),
+            )
+            for terms in klein_idempotents
+        ]
+        assert sorted(member.to_vector().tolist() for member in members) == klein_vectors
+
+        # other expressions, including groups without generators, are resolved by name
+        with unittest.mock.patch.object(_groups, "get_generators", return_value=[]):
+            assert get_idempotents("Group([])", 3) == [((1, ((),)),)]
+        generators = [[(0, 1, 2)], [(0, 2)]]
+        with unittest.mock.patch.object(_groups, "get_generators", return_value=generators):
+            assert get_idempotents("DihedralGroup(6)", 5) == idempotents
 
 
 def test_deprecated_small_group_methods() -> None:

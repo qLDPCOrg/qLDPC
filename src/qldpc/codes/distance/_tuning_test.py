@@ -28,7 +28,7 @@ from . import _tuning, core
 from . import logical_counts as lc
 from ._counting import scan
 from ._search import brouwer_zimmermann as bz
-from ._search import information_sets
+from ._search import connected_support, information_sets
 from .conftest import CostlyStages, get_random_css_code, get_sector_problem
 
 
@@ -255,9 +255,14 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
 
     Tuning keeps results, so recording the arguments of each reader is what shows that a value
     arrives.  The tuning takes every route, with values that differ from the defaults.  Fields that
-    this test does not follow are read within one function from the tuning that it receives, and
-    their tests in ``_search/completion_bounds_test.py`` and ``_search/information_sets_test.py``
-    change them there.
+    this test does not follow are read in one of two ways.  Some are read within one function from
+    the tuning that it receives, and their tests in ``_search/completion_bounds_test.py`` and
+    ``_search/information_sets_test.py`` change them there.  Others are read once by
+    ``CosetLeaderSearch``, which passes their values down to its coset searches:
+    ``max_css_single_pairs``, ``max_sparsifying_rounds``, and
+    ``sparsifying_rounds_without_improvement``.  Tests in ``_search/coset_leader_search_test.py``
+    change or record these, and the fields that the oracle passes down to the routes of its BZ
+    searches.
     """
     seen: dict[str, list[Any]] = collections.defaultdict(list)
 
@@ -284,6 +289,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     record(lc, "get_nested_distance_brute_force", "batch_exponent", prefix="count ")
     record(lc.CSSLogicalCounter, "_count_with_macwilliams", "shared_walk_rank", "chunk_size")
     record(scan, "_scan_coefficient_layers", "chunk_size", "max_chunks")
+    record(connected_support.SupportSearch, "__init__", "automorphism_minimum_states")
     original_prepare = bz._prepare_brouwer_zimmermann_search
 
     def prepare(*args: Any, **kwargs: Any) -> Any:
@@ -312,8 +318,10 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         scan_chunks_per_call=3,
         macwilliams_chunk_size=1000,
         macwilliams_shared_walk_rank=5,
+        automorphism_minimum_states=7,
     ) as tuning:
         codes.CSSCode(code.matrix_x, code.matrix_z).get_distance_exact(Pauli.X)
+        codes.CSSCode(code.matrix_x, code.matrix_z).get_distance_exact(method="connected_support")
         counter = lc.CSSLogicalCounter(codes.CSSCode(code.matrix_x, code.matrix_z))
         counter.count_logical_ops()
         counter.count_logical_ops(method="brute_force")
@@ -337,6 +345,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "shared_walk_rank": {5},
         "chunk_size": {1000, 1001},
         "max_chunks": {3},
+        "automorphism_minimum_states": {7},
     }
     assert {key: set(values) for key, values in seen.items()} == expected
 
