@@ -709,17 +709,22 @@ class _ConnectedSupportCosetSearch:
             weight = int(word != 0)
             return MinWeightBound(weight <= max_weight, word, weight)
 
-        # Otherwise every word weighs at least two, so no limit below two is searched, and a single
-        # query searches only at ``max_weight``.  Map the syndrome to the sparse checks, and search
-        # from its bits, which the search packs again.  Each limit within which the search finds no
-        # word raises the lower bound above that limit.
+        # Map the syndrome to the sparse checks.  The map is invertible, and the lookup above
+        # answers the zero syndrome, so the mapped syndrome is not zero.  The sparse checks are
+        # independent, so the search keeps all of them, in order, and the mapped syndrome has one
+        # bit for each check that it keeps.  So the search can start from the packed syndrome,
+        # without the validation of ``find_vector_with_syndrome``, which would cost more than the
+        # search itself in many queries.
         syndrome = _xor_selected(self._syndrome_map_columns, syndrome)
+        packed_syndrome = _int_to_words(syndrome, (self._num_checks + 63) // 64)
+
+        # The lookup leaves only cosets without a word below weight two, so no limit below two is
+        # searched, and a single query searches only at ``max_weight``.  Each limit within which the
+        # search finds no word raises the lower bound above that limit.
         lower_bound = 2
-        num_words = (self._num_checks + 63) // 64
-        bits = unpack_bits(_int_to_words(syndrome, num_words)[None], self._num_checks)[0]
         first_limit = 2 if increasing_limits else max(2, max_weight)
         for limit in range(first_limit, max_weight + 1):
-            symbols = self._search.find_vector_with_syndrome(bits, limit)
+            symbols = self._search._find_vector_with_packed_syndrome(packed_syndrome, limit)
             if symbols is not None:
                 return MinWeightBound(True, self._get_word(symbols), lower_bound)
             lower_bound = limit + 1

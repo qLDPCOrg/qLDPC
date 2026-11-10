@@ -300,9 +300,9 @@ A fixed seed makes the checks reproducible.
 For the physical weight on the state `|0⟩` of the [[144, 12, 12]] bivariate bicycle code, this lowers the mean weight of the 144 generators of its stabilizer group from 26 to 6.5, the least possible.
 No stabilizer of the code weighs less than 6, the weight of its checks, and only 132 of the generators can lie in its stabilizer group.
 The other 12 are logical operators, so they weigh at least the distance, 12.
-On the state `|0⟩` of the [[232, 62, 12]] pair-partition code, this lowers the mean weight from 54 to 9.1, while the checks of the code weigh 8.
+On the state `|0⟩` of the [[232, 62, 12]] pair-partition code, this lowers the mean weight from 54 to 9.5, while the checks of the code weigh 8.
 On longer codes of higher rate, a round rarely makes a light word one of its rows, and the checks stay much heavier than those of the code.
-On the [[944, 478, 20]] pair-partition code, whose checks weigh 16, it lowers the mean weight from 177 only to about 60.
+On the [[944, 478, 20]] pair-partition code, whose checks weigh 16, it lowers the mean weight from 177 only to about 63.
 An exact second stage, which qLDPC does not implement, could lower it further.
 The greedy algorithm for matroids would take, again and again, the lightest word of the span outside the span of the words taken so far.
 The connected-support search finds such a word as a witness, with the words taken so far as its excluded rows ([Section 3.1](#31-the-problem)), and it is fast only if its checks are sparse, as the rounds make them.
@@ -333,7 +333,7 @@ The names below are in `_search/connected_support.py`, unless the table says oth
 | Symplectic problems, values, and symbols | `homogeneous` of `SupportSearch`, its `_get_symbol_columns`, and `_shift_other_values` |
 | Distance of several sectors | `get_distance_connected_support`, which `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` reaches through `core.py` |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
-| Syndrome query | `SupportSearch.find_vector_with_syndrome`, and the root `-1` of `_search_supports` |
+| Syndrome query | `SupportSearch.find_vector_with_syndrome`, which coset searches skip for `SupportSearch._find_vector_with_packed_syndrome`, and the root `-1` of `_search_supports` |
 | Coset leaders of Pauli errors, and the sparser checks that their searches use | `_ConnectedSupportCosetSearch`, `_get_sparser_rows`, `_sparsify`, and `CosetLeaderSearch` in `_search/coset_leader_search.py` |
 | How many rounds make the checks of a coset search sparser | `max_sparsifying_rounds` and `sparsifying_rounds_without_improvement` of `SearchTuning` in `_tuning.py` |
 | Table of light vectors, and increasing limits for batches | `_ConnectedSupportCosetSearch` (its `_singles` and `get_min_weight_bound`), and `CosetLeaderSearch._get_batch_support_bound`, in `_search/coset_leader_search.py` |
