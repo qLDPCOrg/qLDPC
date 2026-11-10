@@ -114,7 +114,7 @@ def get_code_data(results_dir: pathlib.Path) -> list[tuple[int | str, ...]]:
         headers = [saved_codes.read_code_header(path) for path in paths]
         params_and_weights = {(nn, kk, weight) for _, (nn, kk, _), weight in headers}
         if len(params_and_weights) > 1:
-            raise ValueError(f"Copies of a code have different parameters: {paths}")
+            raise ValueError(f"Copies of a code have different parameters or weights: {paths}")
         num_qudits, dimension, weight = params_and_weights.pop()
 
         # this code has no logical qubits, so we can ignore it

@@ -90,10 +90,10 @@ class CodeSpec:
         matrices of the local codes, the choice of complex, and the sample index.  Groups in the
         SmallGroups library enter by their order and index, and the second local code and the choice
         of complex enter only if they differ from the defaults (dual local codes and the
-        quadripartite complex).  These inputs keep the seeds of codes that searches with default
-        choices have saved, so that such searches resume from them.  The bytes of a parity check
-        matrix depend on its rows and data type, so a change to how a local code is constructed
-        changes the seeds of its codes.
+        quadripartite complex).  Seeds of specifications with default choices thereby do not depend
+        on the options for other choices, so that default searches resume from their saved codes.
+        The bytes of a parity check matrix depend on its rows and data type, so a change to how a
+        local code is constructed changes the seeds of its codes.
 
         The seed of a later attempt is a hash of the seed of attempt 0 and the attempt index.  A
         bipartite complex exists only if the subsets drawn for a seed satisfy the Total No Conjugacy

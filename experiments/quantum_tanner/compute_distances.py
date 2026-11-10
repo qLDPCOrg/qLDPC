@@ -185,11 +185,13 @@ def get_codes_to_compute(
 def compute_exact_distance(path: pathlib.Path, time_limit: float) -> tuple[int | None, float]:
     """Compute the exact distance of a saved code in a child process, within a time limit.
 
-    Returns a pair: the exact distance (or None if the computation was stopped at the time limit)
-    and the duration of the computation in seconds.
+    Returns:
+        The exact distance, or None if the computation was stopped at the time limit, and the
+        duration of the computation in seconds.
 
     Raises:
-        RuntimeError: If the child process fails or prints no distance, with its output.
+        RuntimeError: If the child process fails, with its error output, or if it prints no
+            distance, with all of its output.
     """
     start = time.perf_counter()
     command = [sys.executable, __file__, "--code-file", str(path)]

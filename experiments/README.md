@@ -105,14 +105,15 @@ The search differs from that work in four ways:
 - The dimensions of paired local codes need not add up to their block length, whereas they do in arXiv:2508.05095.
 - Random local codes come from `codes.ClassicalCode.random`, which draws parity check matrices without zero rows or columns, possibly of less than full rank.
   In contrast, arXiv:2508.05095 draws codes with generator matrices in systematic form.
-  Small random codes therefore often coincide.
+  Few small matrices have no zero rows or columns, so small random codes often coincide.
   For example, every code `Random-3-1-{i}` is the same, since `[[1, 1, 1]]` is the only parity check matrix with 1 row, 3 columns, and no zero rows or columns.
 
 `abstract.Group.random_symmetric_subset` does not draw subsets uniformly.
 The frequencies of code parameters in the results therefore reflect this sampler, rather than the fractions of all symmetric subsets that give these parameters.
 Small groups have few symmetric subsets of a given size, so different seeds often draw the same subsets, and thereby the same code.
 The generating data of a saved code are its subsets, its local codes, and its complex, and saved codes count as distinct if their generating data differ.
-Different generating data can still give the same code, which then has several rows in the summary below, or codes that are equivalent up to a permutation of qubits.
+Different generating data can still give the same code, which then has several rows in the summary below.
+They can also give codes that are equivalent up to a permutation of qubits.
 With default settings, the search saves 10,913 codes, of which 4,504 are distinct.
 
 1. `run_search.py` samples codes for every group and pair of local codes, and saves each code to a text file in `results/codes/`.
@@ -169,8 +170,8 @@ Saved code files record `d` as `nan` for codes with no logical qubits, and `comp
 
 The cost of an exact distance grows rapidly with the distance and the weights of parity checks, and is hard to predict from the number of qubits.
 Among codes of the default search, with up to 490 qubits, many exact distances take seconds, whereas some take minutes or more.
-Randomized bounds can be far from exact distances.
-For example, the code of sample 0 for `SmallGroup-7-1` and `Mittal-6` in the default search has 252 qubits and distance 16, whereas 100 randomized trials bounded its distance by 26.
+Randomized bounds can be far from exact distances, especially with few trials.
+For example, the code of sample 0 for `SmallGroup-7-1` and `Mittal-6` in the default search has 252 qubits and distance 16, whereas single runs with `--num-trials 100` bounded its distance by values up to 29.
 
 Verification requires `codes.QTCode.random` to sample the same code for the same seed, and local codes to be constructed in the same way, so codes saved with a different version of `qldpc` may fail verification.
 
