@@ -401,8 +401,8 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         RREF is only unique up to a choice of matrix basis for simple components of the ring.
 
         This method is implemented only for group algebras, and raises a NotImplementedError for any
-        other ring.  Without a ``transformer``, it may run GAP, prompt on standard input, and use
-        the system clipboard; see GroupRing.get_transformer.
+        other ring.  Without a ``transformer``, it uses the ring's transformer (see
+        GroupRing.get_transformer).
         """
         self._require_ndim(2)
         if not isinstance(self.ring, GroupRing):
@@ -426,8 +426,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         - ``RingArray.howell_normal_form_semisimple`` (if ``poly is False``, the default), or
         - ``RingArray.howell_normal_form_poly`` (if ``poly is True``).
 
-        See the documentation of those methods for additional information, including the GAP
-        computations, prompts, and clipboard use that ``howell_normal_form_semisimple`` may need.
+        See the documentation of those methods for additional information.
         """
         if poly:
             return self.howell_normal_form_poly()
@@ -472,8 +471,8 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         the HNF is only unique up to a choice of matrix basis for simple components of the ring.
 
         This method is implemented only for group algebras, and raises a NotImplementedError for any
-        other ring.  Without a ``transformer``, it may run GAP, prompt on standard input, and use
-        the system clipboard; see GroupRing.get_transformer.
+        other ring.  Without a ``transformer``, it uses the ring's transformer (see
+        GroupRing.get_transformer).
 
         References:
 
