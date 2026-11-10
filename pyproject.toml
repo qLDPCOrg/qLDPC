@@ -61,7 +61,7 @@ optional-dependencies.dev = [
   "jupyter>=1.1.1",
   "pypandoc-binary>=1.13",        # bundles pandoc for building the notebook docs locally
   "pyproject-fmt>=2",             # pyproject.toml formatting, run by checks/format_.py
-  "pytest>=8",
+  "pytest>=8,!=9.1.*",            # excludes 9.1, whose collection lost conftest fixtures for some orders of paths
   "pytest-randomly>=3.10",        # tests that need reproducibility read its randomly_seed option
   "pytest-socket>=0.7",           # implements the --disable-socket in [tool.pytest] addopts below
   "pytest-xdist>=3",              # parallel test runs, as in checks/coverage_.py
@@ -112,7 +112,7 @@ ci-test = [
   "checks-superstaq>=0.5.67",
   "coverage>=7.10",
   "grimp>=3.14",
-  "pytest>=8",
+  "pytest>=8,!=9.1.*",
   "pytest-randomly>=3.10",
   "pytest-socket>=0.7",
   "pytest-xdist>=3",
