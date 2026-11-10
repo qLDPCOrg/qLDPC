@@ -999,7 +999,7 @@ def test_connected_support_answers_match_exhaustive_minima(pytestconfig: pytest.
             ):
                 minimum = int(minima[syndrome])
                 single = oracle.get_min_weight_bound(syndrome, max_weight)
-                batched = oracle._get_support_bound(syndrome, max_weight)
+                batched = oracle._get_batch_support_bound(syndrome, max_weight)
                 for bound, lightest in [(single, False), (batched, True)]:
                     weight = _pauli_weight(bound.representative, num_qubits, css_weight)
                     assert _get_syndrome(matrix, bound.representative) == syndrome
@@ -1082,7 +1082,7 @@ def test_connected_support_rejects_what_it_cannot_search() -> None:
     with pytest.raises(ValueError, match="Unknown coset-leader search method"):
         CosetLeaderSearch([[1, 0]], method=method)
 
-    # A batch of the engine checks the range of its syndromes, through ``get_min_weight_bound``.
+    # A batch of the engine checks the range of its syndromes, through ``_get_batch_support_bound``.
     oracle = CosetLeaderSearch([[1, 0]], method="connected_support")
     with pytest.raises(ValueError, match="out of range"):
         oracle.find_first_not_within_max_weight(np.array([[2]], dtype=np.uint64), 1)

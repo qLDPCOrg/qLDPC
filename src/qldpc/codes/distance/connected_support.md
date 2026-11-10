@@ -278,7 +278,7 @@ Four parts of a distance search do not carry over:
 - Every vector with the syndrome counts, so the query has no logical test.
 
 The fault-propagation certifier in `qldpc.circuits.certification` uses `CosetLeaderSearch` in `_search/coset_leader_search.py`.
-When it is built with `method="connected_support"`, `CosetLeaderSearch` answers each of its queries with at most two such queries.
+When it is built with `method="connected_support"`, `CosetLeaderSearch` answers each of its queries with such queries, of the Pauli errors or of their X and Z parts, at one or more weight limits.
 It searches the Pauli errors of a state by their physical weight.
 The CSS weight `max(|x|, |z|)` is not a sum over qubits, so for it, on a CSS state, it searches the X and Z parts separately, and on any other state it raises an error.
 
@@ -288,12 +288,14 @@ So a search first adds its checks to each other while that makes them lighter, a
 For the physical weight on the state `|0⟩` of the [[144, 12, 12]] bivariate bicycle code, it lowers the mean weight of the stabilizers from 26 to 11, while the checks of the code weigh 6.
 On the [[232, 62, 12]] pair-partition code, it lowers it from 54 to 33, while the checks weigh 8, so a sparser choice of generators remains to be found.
 
-A search first looks up the syndrome in a table of the vectors of weight at most one, and searches only syndromes that the table lacks, which have no vector of weight below 2.
-A query of such a syndrome with limit `W` thus has the lower bound `max(2, W + 1)` if the search does not meet the limit, and 2 if it does, which is weaker than the bounds of BZ.
+A search first looks up the syndrome in a table of the syndromes of the vectors of weight at most 1, and searches only syndromes that the table lacks, which have no vector of weight below 2.
+A single query of such a syndrome with limit `W` thus has the lower bound `max(2, W + 1)` if the search finds no vector within `W`, and 2 if it finds one.
+These bounds are often weaker than those of BZ.
 A search with limit `W` can wander through many heavy supports before it reaches a much lighter vector.
-So for the batches of certification, where most syndromes have a vector within `W`, a search tries the limits 2, 3, …, `W` in turn, and stops at the first that it meets, so that it finds a lightest vector.
-A syndrome without a vector within `W` repeats the work of the lower limits.
-Single queries search at `W` directly, so that a caller that raises `W` one step at a time repeats no work.
+So for the batches of certification, where most syndromes have a vector within `W`, a search tries the limits 2, 3, …, `W` in turn, and stops at the first limit within which it finds a vector.
+That vector is a lightest one, and its weight is the lower bound.
+The search of a syndrome without a vector within `W` repeats the work of the lower limits.
+Single queries search at `W` directly, so that a caller that raises `W` one step at a time adds no repeated work.
 
 ## 4. Guide to the source code
 
@@ -309,6 +311,7 @@ The names below are in `_search/connected_support.py`, unless the table says oth
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Syndrome query | `SupportSearch.find_vector_with_syndrome`, and the root `-1` of `_search_supports` |
 | Coset leaders of Pauli errors, and the sparser checks that their searches use | `_ConnectedSupportCosetSearch`, `_sparsify`, and `CosetLeaderSearch` in `_search/coset_leader_search.py` |
+| Table of light vectors, and increasing limits for batches | `_ConnectedSupportCosetSearch.get_min_weight_bound`, and `CosetLeaderSearch._get_batch_support_bound` |
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_search/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |
@@ -354,7 +357,7 @@ Changes to the search can use other bounds and orders, while keeping these requi
   The syndrome of the given checks must be mapped onto the distinct nonzero checks.
   A syndrome with a nonzero entry for a zero check, or with different entries for two equal checks, has no vector.
 - **Give coset queries only proven lower bounds.**
-  A lower bound of 2 needs a table of every vector of weight at most one, and a lower bound above a limit needs an exhaustive search at that limit.
+  A lower bound of 2 needs the syndrome to be missing from a table of the syndromes of every vector of weight at most 1, and a lower bound above a limit needs a complete search at that limit ([Section 3.8](#38-vectors-with-a-given-syndrome)).
   A consumer that raises its limit to each bound would silently get wrong weights from a bound above the minimum, so the tests compare the exact bounds with brute force.
 - **Return the exact minimum unless a cutoff permits an early exit.**
   The weights of the limits rise one divisor at a time, so that the first witness is the lightest.
