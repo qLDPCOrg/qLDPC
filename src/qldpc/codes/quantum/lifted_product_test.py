@@ -297,25 +297,28 @@ def test_lifted_product_valid_over_group_algebras() -> None:
 
 
 def test_unsupported_line_logicals(rows: int = 2, cols: int = 3) -> None:
-    """Line operators raise an error for seeds that fit neither route.
+    """Requesting line operators raises an error for seeds that fit neither route.
 
-    The trailing 2×2 block of every such seed has determinant 0 or 1 + x, which is not a unit, so
-    the seeds do not split at trailing pivot blocks.
+    The field characteristic divides the order of the group, so the semisimple route does not
+    apply.  The trailing 2×2 block of every seed drawn here has determinant 0 or 1 + x, neither of
+    which is a unit, so the seeds do not split at trailing pivot blocks.
     """
     ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
     values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
     matrix = abstract.RingArray.build(values, ring)
-    with pytest.raises(ValueError, match="not yet supported"):
-        codes.LPCode(matrix, set_logicals=True)
-    with pytest.raises(ValueError, match="not yet supported"):
-        codes.SLPCode(matrix, set_logicals=True)
+    code_types: list[type[codes.LPCode | codes.SLPCode]] = [codes.LPCode, codes.SLPCode]
+    for code_type in code_types:
+        with pytest.raises(ValueError, match="not yet supported"):
+            code_type(matrix, set_logicals=True)
+        with pytest.raises(ValueError, match="semisimple"):
+            code_type.get_canonical_logical_line_ops(matrix, matrix)
 
 
 def test_split_line_logicals() -> None:
     """Seeds that split at trailing pivot blocks have paired line operators.
 
-    The split route follows Appendix B of arXiv:2607.28795.  These rings are not semisimple group
-    algebras, so their seeds avoid the semisimple route.
+    The split route follows Appendix B of arXiv:2607.28795.  The rings below are not semisimple
+    group algebras, so their seeds avoid the semisimple route.
     """
     # dual numbers, as in the invertible-pivot example of arXiv:2607.28795
     ring_c2 = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
@@ -344,7 +347,7 @@ def test_split_line_logicals() -> None:
     seed_a_gf9 = abstract.RingArray.build([[member_u, member_v, member_w]], ring_gf9)
     seed_b_gf9 = abstract.RingArray.build([[member_v, member_u, member_w]], ring_gf9)
 
-    # a commutative matrix ring whose members lift to matrices larger than its dimension
+    # a commutative matrix ring whose lifts are 3×3, although the ring has dimension 2
     ring_matrix = abstract.MatrixRing(galois.GF2([[0, 1, 0], [1, 0, 0], [0, 0, 1]]))
     assert ring_matrix.dim == 2 and ring_matrix.lift_dim == 3
     seed_matrix = abstract.RingArray.build(
@@ -353,21 +356,17 @@ def test_split_line_logicals() -> None:
 
     code_types: list[type[codes.LPCode | codes.SLPCode]] = [codes.LPCode, codes.SLPCode]
     for seed_a, seed_b in [
-        (seed_c2, seed_c2),
         (seed_a_s3, seed_b_s3),
         (seed_a_gf9, seed_b_gf9),
         (seed_matrix, seed_matrix),
     ]:
-        (num_checks_a, num_bits_a), (num_checks_b, num_bits_b) = seed_a.shape, seed_b.shape
-        block_size = seed_a.ring.lift_dim
-        dimension = (num_bits_a - num_checks_a) * (num_bits_b - num_checks_b) * block_size
         for code_type in code_types:
-            code = code_type(seed_a, seed_b, set_logicals=True)
-            assert_split_line_logicals(code, dimension)
+            assert_split_line_logicals(code_type(seed_a, seed_b, set_logicals=True))
 
     # the dual-number seed has these line operators, as lifts of ring-valued operators
     code = codes.LPCode(seed_c2, set_logicals=True)
     assert len(code) == 10
+    assert_split_line_logicals(code)
     expected_ops_x = abstract.RingArray.build([[1, eps, 0, 0, 0]], ring_c2).lift()
     expected_ops_z = abstract.RingArray.build([[1, 0, eps, 0, 0]], ring_c2).lift()
     assert np.array_equal(code.get_logical_ops(Pauli.X), expected_ops_x)
@@ -380,7 +379,7 @@ def test_split_line_logicals() -> None:
 
 
 def test_split_line_logicals_require_split_seeds() -> None:
-    """The split route needs invertible trailing pivot blocks and an involution of the ring."""
+    """The split route needs invertible trailing pivots and an involution that transposes lifts."""
     ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
     eps = ring.one + ring.generators[0]
     code_types: list[type[codes.LPCode | codes.SLPCode]] = [codes.LPCode, codes.SLPCode]
@@ -388,10 +387,11 @@ def test_split_line_logicals_require_split_seeds() -> None:
     # square seeds with an invertible pivot block give codes with no logical qudits
     for code_type in code_types:
         code = code_type(abstract.RingArray.build([[1]], ring), set_logicals=True)
-        assert_split_line_logicals(code, 0)
+        assert code.dimension == 0
+        assert_split_line_logicals(code)
 
-    # pivot blocks that are not invertible, or not trailing
-    for values in ([[eps, eps]], [[1, eps]]):
+    # pivot blocks that are not invertible, not square, or not trailing
+    for values in ([[eps, eps]], [[1], [1]], [[1, eps]]):
         for code_type in code_types:
             with pytest.raises(ValueError, match="not yet supported"):
                 code_type(abstract.RingArray.build(values, ring), set_logicals=True)
@@ -424,9 +424,14 @@ def test_split_line_logicals_require_split_seeds() -> None:
         codes.SLPCode(seed, set_logicals=True)
 
 
-def assert_split_line_logicals(code: codes.LPCode | codes.SLPCode, dimension: int) -> None:
-    """Assert that a code has valid logical line operators on the first block of its qudits."""
-    # the code encodes the expected number of logical qudits, by ranks of its checks
+def assert_split_line_logicals(code: codes.LPCode | codes.SLPCode) -> None:
+    """Assert that a code has the logical line operators of the split route."""
+    # by ranks of its checks, which are independent of the installed operators, the code encodes
+    # (na - ma) * (nb - mb) * d logical qudits
+    num_checks_a, num_bits_a = code.matrix_a.shape
+    num_checks_b, num_bits_b = code.matrix_b.shape
+    block_size = code.matrix_a.ring.lift_dim
+    dimension = (num_bits_a - num_checks_a) * (num_bits_b - num_checks_b) * block_size
     rank_x = np.linalg.matrix_rank(code.matrix_x)
     rank_z = np.linalg.matrix_rank(code.matrix_z)
     num_gauge_pairs = np.linalg.matrix_rank(code.matrix_x @ code.matrix_z.T)
@@ -445,11 +450,7 @@ def assert_split_line_logicals(code: codes.LPCode | codes.SLPCode, dimension: in
     assert np.array_equal(canonical_ops_z, logical_ops_z)
 
     # X operators are supported on one row, and Z operators on one column, of the first block
-    (num_checks_a, num_bits_a), (num_checks_b, num_bits_b) = (
-        code.matrix_a.shape,
-        code.matrix_b.shape,
-    )
-    shape = (num_bits_a, num_bits_b, code.matrix_a.ring.lift_dim)
+    shape = (num_bits_a, num_bits_b, block_size)
     size = int(np.prod(shape))
     assert not np.any(logical_ops_x[:, size:]) and not np.any(logical_ops_z[:, size:])
     for op_x, op_z in zip(logical_ops_x, logical_ops_z):
