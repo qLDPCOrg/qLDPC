@@ -7,7 +7,8 @@ each pytest-xdist worker.  It starts coverage before any ``conftest.py`` file im
 test, and labels every line that runs with a coverage context:
 
 * the empty context while pytest starts, which loads the ``conftest.py`` files of the directory
-  that contains every selected test file and of its parents,
+  that contains every selected test file and of its parents, and while a module of the repository
+  other than a test file first runs in the process, whenever that happens,
 * ``<collector node ID>|collect`` while a test file or a directory, with its ``conftest.py``, is
   collected,
 * ``<test node ID>|setup``, ``|run``, or ``|teardown`` while a test runs, and
@@ -19,16 +20,23 @@ tears down the session- and package-scoped fixtures of the repository that the f
 the next test file sets them up anew, and it empties every ``functools`` cache of the packages in
 ``CACHED_PACKAGES``.  Other state that a test file leaves in modules is not reset.
 
+A module that first runs while a test file is collected or a test runs, such as one that qLDPC
+imports lazily, would otherwise have the lines that it runs on import labeled with that test file,
+rather than with its own test file, which would import it in a process of its own.
+
 Collection is restricted to the selected test files, so that other test files are not imported.
 Lines that only a subprocess of a test runs are not measured.
 """
 
 from __future__ import annotations
 
+import importlib.abc
+import importlib.machinery
 import os
 import pathlib
 import sys
-from collections.abc import Generator
+import types
+from collections.abc import Generator, Sequence
 
 import coverage
 import pytest
@@ -123,6 +131,65 @@ def pytest_unconfigure(config: pytest.Config) -> None:
 
 
 ####################################################################################################
+# first imports
+
+
+class _FirstImportLoader(importlib.machinery.SourceFileLoader):
+    """A source loader that runs a module in the empty context the first time that it runs.
+
+    A module that runs again, as when it is reloaded, keeps the current context, since that run
+    belongs to whatever ran it, such as a test.
+    """
+
+    def exec_module(self, module: types.ModuleType) -> None:
+        """Run a module, in the empty context if this is its first run in the process."""
+        file = _normalize(os.path.abspath(self.path))
+        if file in _executed_files:
+            super().exec_module(module)
+            return
+        _executed_files.add(file)
+        previous_context = _current_context[0]
+        _switch_context("")
+        try:
+            super().exec_module(module)
+        finally:
+            _switch_context(previous_context)
+
+
+class _FirstImportFinder(importlib.abc.MetaPathFinder):
+    """Load the modules of the repository, other than test files, with ``_FirstImportLoader``.
+
+    Such modules include those that are not measured, such as ``__init__.py`` files, since their
+    imports can run measured lines.
+    """
+
+    def find_spec(
+        self,
+        fullname: str,
+        path: Sequence[str] | None,
+        target: types.ModuleType | None = None,
+    ) -> importlib.machinery.ModuleSpec | None:
+        """Find a module with the finders after this one, and replace its loader if eligible."""
+        finders = sys.meta_path
+        start = finders.index(self) + 1 if self in finders else len(finders)
+        for finder in finders[start:]:
+            find_spec = getattr(finder, "find_spec", None)
+            spec = find_spec(fullname, path, target) if find_spec is not None else None
+            if spec is not None:
+                break
+        else:
+            return None
+        loader = spec.loader
+        if (
+            type(loader) is importlib.machinery.SourceFileLoader
+            and _is_repository_file(_normalize(os.path.abspath(loader.path)))
+            and not _is_test_file(loader.path)
+        ):
+            spec.loader = _FirstImportLoader(loader.name, loader.path)
+        return spec
+
+
+####################################################################################################
 # helper functions and state
 
 
@@ -184,6 +251,18 @@ def _clear_package_caches() -> None:
                     cache_clear()
 
 
+def _is_repository_file(file: str) -> bool:
+    """Whether a normalized path is in the repository and outside ``site-packages``."""
+    parts = set(pathlib.PurePath(file).parts)
+    return file.startswith(_ROOT_DIRECTORY) and not {"site-packages", "dist-packages"} & parts
+
+
+def _is_test_file(file: str) -> bool:
+    """Whether a file is named as a test file or a ``conftest.py`` file."""
+    name = os.path.basename(file)
+    return name == "conftest.py" or name.endswith("_test.py") or name.startswith("test_")
+
+
 def _normalize(path: str) -> str:
     """A path in the form that pytest and the operating system use, to compare it with others."""
     return os.path.normcase(os.path.normpath(path))
@@ -197,9 +276,15 @@ def _get_selected_test_files() -> set[str] | None:
     )
 
 
+# The root directory of the repository, which contains the checks directory of this module.
+_ROOT_DIRECTORY = _normalize(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + os.sep
+
 # This module is imported as a pytest plugin before pytest loads any conftest.py file.
 _coverage = _start_coverage()
 _selected_test_files = _get_selected_test_files()
 _current_context = [""]
 _context_stack: list[str] = []
 _shared_fixtures: dict[int, pytest.FixtureDef[object]] = {}
+_executed_files: set[str] = set()
+if _coverage is not None:
+    sys.meta_path.insert(0, _FirstImportFinder())
