@@ -30,13 +30,67 @@ from .rings import GroupRing, Ring, RingMember, _as_object_array
 if TYPE_CHECKING:
     from .wedderburn_artin import WedderburnArtinTransformer
 
+# numpy functions whose results are ring members, except for empty inputs, for which numpy returns
+# the integer 0 or 1
+_RING_VALUED_FUNCTIONS = {
+    np.sum,
+    np.prod,
+    np.nansum,
+    np.nanprod,
+    np.trace,
+    np.dot,
+    np.inner,
+    np.einsum,
+}
+
+# numpy functions that write values into their first argument, with the name of that argument, and
+# the position and name of the argument for the values
+_IN_PLACE_FUNCTIONS = {
+    np.copyto: ("dst", 1, "src"),
+    np.put: ("a", 2, "v"),
+    np.place: ("arr", 2, "vals"),
+    np.putmask: ("a", 2, "values"),
+    np.put_along_axis: ("arr", 2, "values"),
+    np.fill_diagonal: ("a", 1, "val"),
+}
+
 
 ####################################################################################################
 # RingArray: RingMember-valued array
 
 
 class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
-    """Array whose entries are members of a Ring."""
+    """Array whose entries are members of a Ring.
+
+    Values written into a RingArray, by indexing, ``fill``, numpy functions such as ``np.copyto``,
+    the ``out`` keyword argument of a numpy function, or the ``out`` argument of a ufunc, are read
+    as in ``RingArray.build``.  Unlike in ``RingArray.build``, members of other rings raise a
+    ValueError, as in ring arithmetic, and None, which ``np.empty_like`` gives, stays None.  To
+    embed members of another group algebra, use ``RingArray.build`` explicitly.  A plain array of
+    objects given as ``out`` is read in place, and returned as a RingArray view of it.
+
+    Numpy functions and ufuncs read every field array among their inputs, including field scalars,
+    as ring members, so arguments that serve as indices, masks, counts, or shifts must be plain
+    integer or boolean arrays, such as ``np.asarray(field_array)``.  They also read the entries of
+    the arrays of objects that they return, and read the integers that numpy returns for empty sums
+    and products as ring members.
+
+    Numpy operations with non-object results, such as comparisons, return plain arrays, and ufuncs
+    that give a boolean for a 0-dimensional RingArray, such as ``np.logical_not``, return that
+    boolean rather than a ring member.  Ufuncs from ``np.vectorize`` and ``np.frompyfunc`` return
+    their results as computed, and those from ``np.frompyfunc`` raise a TypeError when given a
+    RingArray as ``out``.  A ufunc or operator with a field array on the left, or a field array
+    given as ``out``, raises an error from galois.  A numpy function whose first array argument is a
+    field array is handled by galois and does not return a RingArray, as in
+    ``np.concatenate([field_array, ring_array])``, so convert the field array with
+    ``RingArray.build`` before the call.  A numpy function or ufunc that raises while writing into
+    ``out``, as in ``ring_array += values``, may leave the values that it wrote, unread.
+
+    Values written through ``flat``, the method ``put``, a plain view such as ``np.asarray(a)``, a
+    positional ``out`` argument of a numpy function, or the method ``at`` of a ufunc are not read.
+    The method ``resize`` fills new entries with the integer 0, ``astype(bool)`` returns a RingArray
+    of booleans, and the method ``dot`` gives integer zeros for an empty inner dimension.
+    """
 
     # None only for a view of a plain array that has not yet been assigned a ring
     _ring: Ring | None
@@ -93,9 +147,8 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         kwargs: Mapping[str, Any],
     ) -> Any:
         """Intercept array operations to ensure RingArray compatibility."""
-        # ``_iter_ring_arrays`` descends into sequence arguments (e.g. the list passed to
-        # np.concatenate/np.stack), so RingArrays nested one or more levels deep are still checked
-        # for a ring mismatch -- a plain scan of the top-level args would miss them.
+        # _iter_ring_arrays also finds RingArrays inside sequence arguments, such as the list passed
+        # to np.concatenate
         rings = [
             self._ring,
             *(arr._ring for arr in _iter_ring_arrays(args)),
@@ -103,40 +156,103 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         ]
         if any(ring != rings[0] for ring in rings[1:]):
             raise ValueError("Cannot perform operations on RingArrays with different base rings")
-        args = tuple(_unwrap_ring_arrays(x) for x in args)
-        result: object = super().__array_function__(func, types, args, kwargs)
-        if isinstance(result, np.ndarray):
-            result = result.view(RingArray)
-            result._ring = rings[0]
-        return result
+        ring = rings[0]
+
+        # read the values that numpy functions write into a RingArray before numpy writes them
+        args = tuple(args)
+        if func in _IN_PLACE_FUNCTIONS:
+            target_name, position, name = _IN_PLACE_FUNCTIONS[func]
+            target = args[0] if args else kwargs[target_name]
+            if isinstance(target, RingArray):
+                if len(args) > position:
+                    value = target._read_value(args[position])
+                    args = (*args[:position], value, *args[position + 1 :])
+                else:
+                    kwargs = {**kwargs, name: target._read_value(kwargs[name])}
+
+        # numpy computes on plain arrays of ring members, and writes into the plain view of a
+        # RingArray out=
+        plain_args = tuple(_read_operand(x, ring) for x in args)
+        plain_kwargs = {
+            key: _read_operand(value, None if key == "out" else ring)
+            for key, value in kwargs.items()
+        }
+        result = super().__array_function__(func, types, plain_args, plain_kwargs)
+        if result is NotImplemented:
+            return result
+
+        # read the values that numpy writes into out=
+        output = kwargs.get("out")
+        if isinstance(output, np.ndarray) and output.dtype == object:
+            return _read_in_place(output, ring)
+
+        # read the integers 0 and 1 that numpy returns for empty sums and products, and wrap arrays,
+        # also inside lists and tuples (as from np.split)
+        if func in _RING_VALUED_FUNCTIONS and isinstance(result, (int, np.integer)):
+            return result if ring is None else ring.one * int(result)
+        if isinstance(result, (list, tuple)):
+            items = [_wrap_result(item, ring) for item in result]
+            result_type: Any = type(result)
+            return result_type(*items) if hasattr(result, "_fields") else result_type(items)
+        return _wrap_result(result, ring)
 
     def __array_ufunc__(
         self,
         ufunc: np.ufunc,
         method: Literal["__call__", "reduce", "reduceat", "accumulate", "outer", "at"],
-        *inputs: npt.NDArray[np.object_],
-        **kwargs: object,
-    ) -> RingArray | RingMember | None:
+        *inputs: Any,
+        **kwargs: Any,
+    ) -> Any:
         """Intercept array operations to ensure RingArray compatibility."""
-        rings = {self._ring} | {x._ring for x in inputs if isinstance(x, RingArray)}
+        outputs = kwargs.get("out", ())
+        rings = {x._ring for x in (self, *inputs, *outputs) if isinstance(x, RingArray)}
         if len(rings) > 1:
             raise ValueError("Cannot perform operations on RingArrays with different base rings")
+        ring = next(iter(rings))
         if (
             ufunc is np.matmul
             and method == "__call__"
             and not kwargs
-            and self._ring is not None
-            and (product := coefficient_matmul(*inputs, ring=self._ring)) is not None
+            and ring is not None
+            and (product := coefficient_matmul(*inputs, ring=ring)) is not None
         ):
             return product
-        inputs = tuple(x.view(np.ndarray) if isinstance(x, RingArray) else x for x in inputs)
-        result: RingArray | RingMember | None = super().__array_ufunc__(
-            ufunc, method, *inputs, **kwargs
-        )
-        if isinstance(result, np.ndarray):
-            result = result.view(RingArray)
-            result._ring = next(iter(rings), None)
-        return result
+
+        # ufuncs from np.vectorize and np.frompyfunc give values of any type, which are returned as
+        # computed; they do not write into RingArrays given as out=
+        user_defined = ufunc.__name__.endswith(" (vectorized)")
+
+        # numpy computes on plain arrays of ring members, and writes into the plain views of
+        # RingArray outputs
+        arrays = tuple(_read_operand(x, ring) for x in inputs)
+        if outputs and not user_defined:
+            kwargs["out"] = tuple(_read_operand(x, None) for x in outputs)
+        result = super().__array_ufunc__(ufunc, method, *arrays, **kwargs)
+        if user_defined or result is NotImplemented:
+            return result
+
+        # read the values that numpy writes into out=
+        if outputs:
+            results = tuple(
+                _read_in_place(output, ring)
+                if isinstance(output, np.ndarray) and output.dtype == object
+                else plain
+                for output, plain in zip(outputs, result if ufunc.nout > 1 else (result,))
+            )
+            return results if ufunc.nout > 1 else results[0]
+
+        # read the integers 0 and 1 that numpy returns for empty sums and products; logical ufuncs
+        # give Python bools, which stay bools
+        if isinstance(result, (int, np.integer)) and not isinstance(result, bool):
+            return result if ring is None else ring.one * int(result)
+        return _wrap_result(result, ring)
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        super().__setitem__(key, self._read_value(value))
+
+    def fill(self, value: Any) -> None:
+        """Set every entry of this RingArray to a value, read as for indexing (see RingArray)."""
+        self[...] = value
 
     def __str__(self) -> str:
         return np.array2string(self, formatter={"object": str}, separator=", ")
@@ -207,10 +323,13 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
 
         In addition to transposing the first two indices of the array, this property "conjugates" or
         "transposes" each array element with the involution of the ring (see ``RingMember.T``).  For
-        a group algebra, this takes group members ``g -> ~g = g**-1``.  This property raises a
-        ValueError for an array over a ring without an involution (see ``Ring.has_involution``).
+        a group algebra, this takes group members ``g -> ~g = g**-1``.  As in numpy, an array with
+        fewer than two dimensions keeps its shape.  This property raises a ValueError for an array
+        over a ring without an involution (see ``Ring.has_involution``).
         """
-        return (~self).transpose(1, 0, *np.arange(2, self.ndim))
+        if self.ndim < 2:
+            return ~self
+        return (~self).transpose(1, 0, *range(2, self.ndim))
 
     @staticmethod
     def build(
@@ -535,21 +654,17 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         """
         return get_howell_normal_form_poly(self)
 
-    def reduced_groebner_basis(self) -> RingArray:
-        """Compute a reduced Groebner basis for this RingArray.
-
-        At least, that's the plan.  This method is not yet implemented.
-        """
-        self._require_ndim(2)
-        raise NotImplementedError(
-            "Computing a reduced Groebner basis is very mathematically involved.  Here be dragons."
-        )
-
     def _require_ndim(self, *ndims: int) -> None:
         """Raise a ValueError unless this RingArray has one of the given numbers of dimensions."""
         if self.ndim not in ndims:
             expected = " or ".join(map(str, ndims))
             raise ValueError(f"This method requires a {expected}-dimensional RingArray")
+
+    def _read_value(self, value: Any) -> Any:
+        """Read a value to set as entries of this RingArray (see _read_entries)."""
+        values = _read_entries(_as_object_array(value), self._ring)
+        # numpy stores a 0-dimensional array as an entry, rather than its member
+        return values[()] if values.ndim == 0 else values
 
     def _mark_as_hnf(self, *, transformer: WedderburnArtinTransformer, right: bool) -> Self:
         """Record that this array is a Howell normal form, as provenance for get_howell_dual."""
@@ -585,13 +700,90 @@ def _iter_ring_arrays(obj: object) -> Iterator[RingArray]:
             yield from _iter_ring_arrays(item)
 
 
-def _unwrap_ring_arrays(obj: object) -> object:
-    """Replace every RingArray in a (possibly nested) argument with its plain-ndarray view."""
+def _read_operand(obj: object, ring: Ring | None) -> object:
+    """Replace RingArrays by plain arrays, and field arrays by plain arrays of ring members.
+
+    Lists and tuples are read item by item.  Without a ring, field arrays stay as they are.
+    """
     if isinstance(obj, RingArray):
         return obj.view(np.ndarray)
+    if ring is not None and isinstance(obj, galois.FieldArray):
+        return RingArray.build(obj, ring).view(np.ndarray)
     if isinstance(obj, (list, tuple)):
-        return type(obj)(_unwrap_ring_arrays(item) for item in obj)
+        return type(obj)(_read_operand(item, ring) for item in obj)
     return obj
+
+
+def _wrap_result(result: object, ring: Ring | None) -> object:
+    """Wrap an array of objects that numpy returns as a RingArray over a ring (see _read_entries).
+
+    Other results are returned as they are.
+    """
+    if not isinstance(result, np.ndarray) or result.dtype != object:
+        return result
+    array = _read_entries(result, ring).view(RingArray)
+    array._ring = ring
+    return array
+
+
+def _read_in_place(array: npt.NDArray[np.object_], ring: Ring | None) -> RingArray:
+    """Read the entries that numpy wrote into an array of objects, in place (see _read_entries).
+
+    Return a RingArray itself, and a plain array as a RingArray view over the ring.
+    """
+    values = array.view(np.ndarray)
+    values[...] = _read_entries(values, ring)
+    if isinstance(array, RingArray):
+        return array
+    result = values.view(RingArray)
+    result._ring = ring
+    return result
+
+
+def _read_entries(values: npt.NDArray[np.object_], ring: Ring | None) -> npt.NDArray[np.object_]:
+    """Read the entries of an array of objects as members of a ring, as in RingArray.build.
+
+    Members of the ring and None stay as they are, and members of other rings raise a ValueError.
+    Return the array itself if no entry needs reading, and otherwise a copy with its entries read,
+    so that arrays that numpy returns as views of other arrays leave those arrays unchanged.
+    """
+    if ring is None:
+        return values
+    # ring equality compares groups, so check each ring only once
+    checked_rings = {id(ring)}
+    unread = np.zeros(values.shape, dtype=bool)
+    for index, value in np.ndenumerate(values):
+        if isinstance(value, RingMember):
+            if id(value.ring) not in checked_rings:
+                _check_entry_ring(ring, value.ring)
+                checked_rings.add(id(value.ring))
+        else:
+            unread[index] = value is not None
+    if not unread.any():
+        return values
+    values = values.copy()
+    values[unread] = RingArray.build(values[unread], ring).view(np.ndarray)
+    return values
+
+
+def _check_entry_ring(ring: Ring, other: Ring) -> None:
+    """Raise a ValueError unless the ring of a value equals the ring of a RingArray.
+
+    If the value is a member of another group algebra over the same field, the error points to
+    RingArray.build.
+    """
+    try:
+        ring._check_same_ring(other)
+    except ValueError as error:
+        if (
+            isinstance(ring, GroupRing)
+            and isinstance(other, GroupRing)
+            and other.field is ring.field
+        ):
+            raise ValueError(
+                f"{error}; embed members of another group algebra explicitly with RingArray.build"
+            ) from None
+        raise
 
 
 if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations

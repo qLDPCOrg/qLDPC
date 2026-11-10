@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import galois
 import numpy as np
 import pytest
@@ -116,6 +118,12 @@ def test_transpose() -> None:
     x0, x1, x2, x3 = group.generate()
     matrix = abstract.RingArray.build([[x0, 0, x1], [x2, 0, abstract.RingMember(group, x3)]])
     assert np.array_equal(matrix.T.T, matrix)
+
+    # as in numpy, an array with fewer than two dimensions keeps its shape
+    vector = abstract.RingArray.build([x1, x2], matrix.ring)
+    assert np.array_equal(vector.T, abstract.RingArray.build([x3, x2], matrix.ring))
+    scalar = abstract.RingArray.build(x1, matrix.ring)
+    assert np.array_equal(scalar.T, abstract.RingArray.build(x3, matrix.ring))
 
     # a RingArray without a base ring transposes its entries in their own rings
     ring = matrix.ring
@@ -244,13 +252,178 @@ def test_matmul_fallbacks() -> None:
     ring = abstract.GroupRing(abstract.CyclicGroup(7), field=4)
     matrix = abstract.RingArray.build(np.eye(4, dtype=int), ring)
     expected = np.asarray(matrix) @ np.asarray(matrix)
-    assert np.array_equal(np.matmul(matrix, matrix, out=np.empty((4, 4), dtype=object)), expected)
+    output = np.empty((4, 4), dtype=object)
+    product = np.matmul(matrix, matrix, out=output)
+    assert type(product) is abstract.RingArray and product.ring is ring
+    assert np.shares_memory(product, output)
+    assert np.array_equal(product, expected)
     unknown_ring = np.asarray(matrix).view(abstract.RingArray)
     assert np.array_equal(unknown_ring @ unknown_ring, expected)
+    unknown_ring[0, 0] = matrix[0, 1]
+    assert unknown_ring[0, 0] is matrix[0, 1]
 
     # a RingArray without a base ring says so, rather than returning None
     with pytest.raises(ValueError, match="no base ring"):
         unknown_ring.ring  # noqa: B018
+
+    # an empty inner dimension gives zeros, which are integers without a base ring
+    empty_ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
+    vector = abstract.RingArray.build(np.zeros(0, dtype=int), empty_ring)
+    assert vector @ vector == empty_ring.zero
+    unknown_vector = np.asarray(vector).view(abstract.RingArray)
+    assert unknown_vector @ unknown_vector == np.sum(unknown_vector) == 0
+
+
+def test_entries_of_ring_arrays() -> None:
+    """Entries set or combined through indexing, fill, and numpy functions are ring members."""
+    ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
+    other_ring = abstract.GroupRing(abstract.DihedralGroup(3), field=3)
+    x = ring.generators[0]
+    matrix = abstract.RingArray.build([[x, 1]], ring)
+
+    # values are read as in RingArray.build, and other rings are rejected
+    matrix[0, 0] = 6
+    matrix[0, 1] = ring.group.generators[0]
+    assert all(type(entry) is abstract.RingMember for entry in matrix.ravel())
+    assert np.array_equal(
+        matrix.to_field_array(), abstract.RingArray.build([[1, x]], ring).to_field_array()
+    )
+    with pytest.raises(ValueError, match="cannot be read in"):
+        matrix[0, 0] = galois.GF(25)(5)
+
+    # the error points to RingArray.build only for members of another group algebra over the same
+    # field
+    trivial_ring = abstract.GroupRing(abstract.TrivialGroup(), field=5)
+    with pytest.raises(ValueError, match=r"RingArray\.build"):
+        matrix[0, 0] = trivial_ring.one
+    matrix_ring = abstract.MatrixRing([[0, 1], [1, 0]])
+    trivial_ring_2 = abstract.GroupRing(abstract.TrivialGroup(), field=2)
+    for target_ring, other_member in [
+        (ring, other_ring.one),
+        (matrix_ring, trivial_ring_2.one),
+        (trivial_ring_2, matrix_ring.one),
+    ]:
+        target = abstract.RingArray.build([0], target_ring)
+        with pytest.raises(ValueError, match=r"different rings$"):
+            target[0] = other_member
+
+    # members of an equal ring, and 0-dimensional arrays of members, are set as members
+    equal_ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
+    matrix[0, 0] = equal_ring.generators[0]
+    assert matrix[0, 0] == x
+    matrix[0, 0] = abstract.RingArray(np.array(ring.one, dtype=object))
+    assert type(matrix[0, 0]) is abstract.RingMember and matrix[0, 0] == ring.one
+
+    # numpy functions and methods that write into a RingArray read values in the same way, before
+    # they write them
+    for write in [
+        lambda array: np.copyto(dst=array, src=np.array([[np.True_, 1]], dtype=object)),
+        lambda array: np.put(a=array, ind=[0, 1], v=[1, 1]),
+        lambda array: np.place(arr=array, mask=np.ones((1, 2), dtype=bool), vals=[1]),
+        lambda array: np.place(array, np.ones((1, 2), dtype=bool), [1]),
+        lambda array: np.putmask(array, [[True, True]], 1),
+        lambda array: np.putmask(array, [[True, True]], values=1),
+        lambda array: np.put_along_axis(array, np.array([[0, 1]]), 1, axis=1),
+        lambda array: array.fill([1]),
+    ]:
+        copy = matrix.copy()
+        write(copy)
+        assert all(type(entry) is abstract.RingMember for entry in copy.ravel())
+        assert np.array_equal(copy, abstract.RingArray.build([[1, 1]], ring))
+    with pytest.raises(ValueError, match="different rings"):
+        np.copyto(copy, np.array([[other_ring.one, 1]], dtype=object))
+    assert np.array_equal(copy, abstract.RingArray.build([[1, 1]], ring))
+    square = abstract.RingArray.build(np.zeros((2, 2), dtype=int), ring)
+    np.fill_diagonal(a=square, val=1)
+    assert np.array_equal(square, abstract.RingArray.build(np.eye(2, dtype=int), ring))
+    square = abstract.RingArray.build(np.zeros((2, 2), dtype=int), ring)
+    np.fill_diagonal(square, 1)
+    assert np.array_equal(square, abstract.RingArray.build(np.eye(2, dtype=int), ring))
+
+    # entries of None, which np.empty_like gives, stay None
+    assert all(entry is None for entry in np.empty_like(square).ravel())
+
+    # values are read into copies only when some entry needs reading, so the arrays that a caller
+    # passes keep their entries, and views of a RingArray stay views
+    plain = np.array([0, 1], dtype=object)
+    assert type(np.broadcast_arrays(matrix, plain)[1][0, 0]) is abstract.RingMember
+    assert all(type(entry) is int for entry in plain)
+    assert np.shares_memory(np.transpose(matrix), matrix)
+
+    # numpy functions write into a plain target in place
+    np.copyto(plain, matrix[0])
+    assert all(type(entry) is abstract.RingMember for entry in plain)
+
+    # numpy functions that join a RingArray with other arrays, including field arrays, also read
+    # their entries
+    with pytest.raises(ValueError, match="different rings"):
+        np.concatenate([matrix, np.array([[other_ring.one, other_ring.one]], dtype=object)])
+    stacked = np.concatenate([matrix, np.array([[0, ring.group.identity]], dtype=object)])
+    assert np.array_equal(stacked, abstract.RingArray.build([[1, x], [0, 1]], ring))
+    for join in [
+        lambda array: np.concatenate([matrix, array]),
+        lambda array: np.append(matrix, values=array, axis=0),
+    ]:
+        with pytest.raises(ValueError, match="cannot be read in"):
+            join(galois.GF(25)([[5, 7]]))
+
+    # field arrays and field scalars combine like integers, and are read as ring members also where
+    # they serve as indices, so indices must be plain arrays
+    field_matrix = ring.field([[1], [2]])
+    assert np.array_equal(matrix @ field_matrix, abstract.RingArray.build([[1 + 2 * x]], ring))
+    assert np.array_equal(matrix * ring.field(2), 2 * matrix)
+    with pytest.raises(ValueError, match="cannot be read in"):
+        np.take(matrix, galois.GF(2)([0, 1]), axis=1)
+
+    # operations with boolean results, such as comparisons, give plain arrays, also when written
+    # into an output, and logical ufuncs give booleans for single members
+    comparison = matrix == matrix.copy()
+    assert type(comparison) is np.ndarray and comparison.all()
+    assert type(np.equal(matrix, matrix, out=np.zeros((1, 2), dtype=bool))) is np.ndarray
+    assert type(np.any(matrix, axis=1, out=np.zeros(1, dtype=bool))) is np.ndarray
+    assert type(np.logical_not(abstract.RingArray(np.array(ring.one, dtype=object)))) is bool
+
+    # ufuncs from np.vectorize and np.frompyfunc return their results as computed, and those from
+    # np.frompyfunc do not write into RingArrays, while numpy's own ufuncs keep RingArrays, also
+    # those that are not attributes of np, such as the one behind .real
+    sevens = np.vectorize(lambda member: 7, otypes=[object])(matrix)
+    assert type(sevens) is np.ndarray and sevens.tolist() == [[7, 7]]
+    before = matrix.copy()
+    with pytest.raises(TypeError):
+        np.frompyfunc(lambda member: 7, 1, 1)(matrix, out=matrix)
+    assert np.array_equal(matrix, before)
+    assert type(matrix.real) is abstract.RingArray and np.array_equal(matrix.real, matrix)
+
+    # empty sums and products are ring members, also when written into an output
+    empty = abstract.RingArray.build(np.zeros((2, 0), dtype=int), ring)
+    zeros = abstract.RingArray.build(np.zeros((2, 2), dtype=int), ring)
+    output = abstract.RingArray.build(np.ones((2, 2), dtype=int), ring)
+    np.matmul(empty, empty.T, out=output)
+    assert np.array_equal(output, zeros)
+    output = abstract.RingArray.build([1, 1], ring)
+    assert np.sum(empty, axis=1, out=output) is output
+    assert np.array_equal(output, abstract.RingArray.build([0, 0], ring))
+    plain = np.ones(2, dtype=object)
+    result = np.sum(empty, axis=1, out=plain)
+    assert type(result) is abstract.RingArray and result.ring is ring
+    assert np.shares_memory(result, plain) and all(entry == ring.zero for entry in plain)
+    # a field array as an output raises an error from galois
+    with pytest.raises(TypeError):
+        np.sum(empty, axis=1, out=ring.field([1, 1]))
+    assert np.sum(empty) == ring.zero
+    assert np.prod(empty) == ring.one
+    assert np.trace(empty[:, :0]) == ring.zero
+    assert np.dot(empty[0], empty[0]) == np.inner(empty[0], empty[0]) == ring.zero
+    assert np.einsum("i,i", empty[0], empty[0]) == np.nansum(empty) == ring.zero
+    assert np.nanprod(empty) == ring.one
+    assert np.sum(empty, dtype=int) == np.add.reduce(empty[0], dtype=int) == ring.zero
+    assert np.count_nonzero(matrix) == 2
+
+    # functions that return several arrays return RingArrays
+    halves = np.split(abstract.RingArray.build([[1, x]], ring), 2, axis=1)
+    assert all(isinstance(half, abstract.RingArray) and half.ring is ring for half in halves)
+    unique = np.unique_counts(abstract.RingArray.build([x], ring))
+    assert isinstance(unique.values, abstract.RingArray) and unique.counts.tolist() == [1]
 
 
 def test_howell_form_provenance(ring_cyclic3_gf2: abstract.GroupRing) -> None:
@@ -272,6 +445,40 @@ def test_howell_form_provenance(ring_cyclic3_gf2: abstract.GroupRing) -> None:
     howell = matrix.howell_normal_form_semisimple(transformer, right=True)
     howell.resize((2, 1), refcheck=False)
     assert howell._get_hnf_provenance() == (transformer, True, False)
+
+
+def test_ufunc_outputs() -> None:
+    """Ufuncs write into RingArrays over the same ring."""
+    ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
+    x, y = ring.generators
+    matrix = abstract.RingArray.build([[x + y, 1 + x]], ring)
+    output = abstract.RingArray.build([[0, 0]], ring)
+    assert np.add(matrix, matrix, out=output) is output
+    assert np.array_equal(output, 2 * matrix)
+
+    # both outputs of a ufunc with two outputs are read
+    quotient, remainder = (abstract.RingArray.build([0, 0], ring) for _ in range(2))
+    results = np.divmod(np.array([7, 8]), 3, out=(quotient, remainder))
+    assert results[0] is quotient and results[1] is remainder
+    assert np.array_equal(quotient, abstract.RingArray.build([2, 2], ring))
+    assert np.array_equal(remainder, abstract.RingArray.build([1, 2], ring))
+
+    other_ring = abstract.GroupRing(abstract.DihedralGroup(3), field=3)
+    with pytest.raises(ValueError, match="different base rings"):
+        np.add(matrix, matrix, out=abstract.RingArray.build([[0, 0]], other_ring))
+
+    # operands that implement numpy's protocols themselves get the call, also with an output
+    class Operand:
+        def __array_ufunc__(self, *args: object, **kwargs: object) -> str:
+            return "ufunc"
+
+        def __array_function__(self, *args: object, **kwargs: object) -> str:
+            return "function"
+
+    operand: Any = Operand()
+    assert np.add(matrix, operand, out=output) == "ufunc"
+    assert np.add(matrix, operand, out=np.zeros((1, 2), dtype=object)) == "ufunc"
+    assert np.dot(matrix, operand, out=np.zeros((1, 1), dtype=object)) == "function"
 
 
 def test_ring_row_reduction() -> None:
@@ -302,11 +509,6 @@ def test_ring_row_reduction() -> None:
     ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
     with pytest.raises(ValueError, match="only supports semisimple rings"):
         abstract.RingArray.build([[1, 0], [1, 1]], ring).row_reduce()
-
-    # computing a reduced Groebner basis is the final boss
-    ring = abstract.GroupRing(abstract.DihedralGroup(2), field=2)
-    with pytest.raises(NotImplementedError, match="Groebner"):
-        abstract.RingArray.build([[1, 0], [1, 1]], ring).reduced_groebner_basis()
 
 
 def test_deprecated_argument_order() -> None:

@@ -600,11 +600,13 @@ def test_reading_coefficients() -> None:
         abstract.RingMember.from_vector(field_9([1, 3]), ring_9)
 
 
-def test_get_transformer_reuse() -> None:
-    """A seedless get_transformer call reuses an already-built decomposition."""
+def test_get_transformer_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Seedless get_transformer calls use the default seed; decompositions are cached by seed."""
+    monkeypatch.setattr(abstract.rings, "_DEFAULT_TRANSFORMER_SEED", 1)
     ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
     transformer = ring.get_transformer(seed=0)
-    assert ring.get_transformer() is transformer
+    assert ring.get_transformer() is ring.get_transformer(seed=1) is not transformer
+    assert ring.get_transformer(seed=0) is transformer
 
 
 def test_get_transformer_is_reproducible() -> None:

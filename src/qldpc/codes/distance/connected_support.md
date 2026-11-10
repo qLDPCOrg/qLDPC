@@ -321,6 +321,12 @@ That vector is a lightest one, and its weight is the lower bound.
 The search of a syndrome without a vector within `W` repeats the work of the lower limits.
 Single queries search at `W` directly, so that the search repeats no work for a caller that already raises `W` one step at a time.
 
+Without reuse, a state computes the overlap and the repair ([Section 3.4](#34-pruning)) of a symbol once for each unsatisfied check that the symbol flips and that the state examines.
+The checks of a syndrome query can stay dense even after the sparsifying rounds above.
+Then a symbol can flip many unsatisfied checks.
+So a syndrome query computes the overlap and the repair of each symbol at most once per state, and reuses them.
+A distance search, whose checks are usually sparse, computes them again each time, since keeping them would cost more than it saves.
+
 ## 4. Guide to the source code
 
 The names below are in `_search/connected_support.py`, unless the table says otherwise.
@@ -334,6 +340,7 @@ The names below are in `_search/connected_support.py`, unless the table says oth
 | Distance of several sectors | `get_distance_connected_support`, which `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` reaches through `core.py` |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Syndrome query | `SupportSearch.find_vector_with_syndrome`, which coset searches skip for `SupportSearch._find_vector_with_packed_syndrome`, and the root `-1` of `_search_supports` |
+| Overlaps and repairs that a syndrome query reuses within a state | `memoize` of `_search_supports`, and `memos` and `stamp` of `_get_branches` |
 | Coset leaders of Pauli errors, and the sparser checks that their searches use | `_ConnectedSupportCosetSearch`, `_get_sparser_rows`, `_sparsify`, and `CosetLeaderSearch` in `_search/coset_leader_search.py` |
 | How many rounds make the checks of a coset search sparser | `max_sparsifying_rounds` and `sparsifying_rounds_without_improvement` of `SearchTuning` in `_tuning.py` |
 | Table of light vectors, and increasing limits for batches | `_ConnectedSupportCosetSearch` (its `_singles` and `get_min_weight_bound`), and `CosetLeaderSearch._get_batch_support_bound`, in `_search/coset_leader_search.py` |
@@ -381,6 +388,9 @@ Changes to the search can use other bounds and orders, while keeping these requi
   It must block no variable by rank, and use no symmetry, divisor, or logical test, as [Section 3.8](#38-vectors-with-a-given-syndrome) explains.
   The syndrome of the given checks must be mapped onto the distinct nonzero checks.
   A syndrome with a nonzero entry for a zero check, or with different entries for two equal checks, has no vector.
+- **Reuse an overlap or a repair only within the state that computed it.**
+  A state can prune unsoundly if it reuses values from another state whose syndrome or check weights differ.
+  A state may compute a repair only once it has weighed all of its unsatisfied checks, since a repair sums their weights.
 - **Give coset queries only proven lower bounds.**
   A lower bound of 2 needs the syndrome to be missing from a table of the syndromes of every vector of weight at most 1, and a lower bound above a limit needs a complete search at that limit ([Section 3.8](#38-vectors-with-a-given-syndrome)).
   A consumer that raises its limit to each bound would silently get wrong weights from a bound above the minimum, so the tests compare the exact bounds with brute force.

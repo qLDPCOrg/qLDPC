@@ -19,6 +19,7 @@ from qldpc import math
 from qldpc._binary import get_kernel, pack_bits, row_reduce_binary, unpack_bits
 
 from ...conftest import Tune
+from .._binary import symplectic_to_hamming
 from .._tuning import DEFAULT_TUNING, MAX_VALUE, get_tuning, use_tuning
 from ..conftest import (
     EVEN_ROUTES_CODE,
@@ -1053,23 +1054,21 @@ def _assert_classical_cosets_match_brute_force(generators: npt.NDArray[np.uint8]
         # Find each syndrome whose minimum exceeds the maximum weight with batches, each of which
         # starts after the last syndrome found.
         found, start = [], 0
-        best = np.empty(search.get_tables(max_weight).inverse.shape[1], dtype=np.uint64)
         while True:
-            index, lower_bound = coset_leader_search._find_first_not_within_max_weight(
-                packed_syndromes[start:],
-                max_weight,
-                best,
-                *search.get_tables(max_weight),
-                search.scale,
+            index, batch_bound = search.find_first_not_within_max_weight(
+                packed_syndromes[start:], max_weight
             )
-            if start + index == len(syndromes):
+            if batch_bound is None:
+                assert start + index == len(syndromes)
                 break
             syndrome = syndromes[start + index]
-            representative = (search.unembed(best) >> np.arange(num_columns)) & 1
+            representative = (batch_bound.representative >> np.arange(num_columns)) & 1
             assert _classical_syndrome(checks, representative) == syndrome
-            assert get_least_bound(syndrome, max_weight) <= lower_bound <= minima[syndrome]
+            assert not batch_bound.within_max_weight
+            assert get_least_bound(syndrome, max_weight) <= batch_bound.lower_bound
+            assert batch_bound.lower_bound <= minima[syndrome]
             if max_weight >= 2:
-                assert bounds[syndrome] == MinWeightBound(False, search.unembed(best), lower_bound)
+                assert bounds[syndrome] == batch_bound
             found.append(syndrome)
             start += index + 1
         assert found == [syndrome for syndrome in syndromes if minima[syndrome] > max_weight]
@@ -1123,7 +1122,8 @@ def test_cosets_match_brute_force_with_other_families(
     a larger partial set, and a family of overlapping information sets.  Single queries and
     batches, at maximum weights from below zero to past the number of columns, and so just below
     and at the least weight of each coset, agree with the least weight of the words of each coset
-    (see ``_assert_classical_cosets_match_brute_force``).
+    (see ``_assert_classical_cosets_match_brute_force``).  At the threshold zero, the queries also
+    run the searches by tails.
     """
     tune(overlapping_minimum_work=0)
     _assert_classical_cosets_match_brute_force(code)
@@ -1146,9 +1146,10 @@ def test_oracles_answer_exactly_with_other_families(
 
     With the threshold of the gate at zero, the searches of Pauli errors of the graph states take
     their maximum disjoint families, which change different answers on the two states by physical
-    weight.  On |0000>, the CSS weight splits the search, and the X parts have the empty code,
-    which no other family improves.  Every single query, and every batch, at every maximum weight,
-    agrees with exhaustive minima.
+    weight.  On |0000>, the CSS weight splits the search, and the X parts have the empty code, which
+    no other family improves.  At the threshold zero, the queries also run the searches by tails,
+    except in the search of Pauli errors by CSS weight, which has none.  Every single query, and
+    every batch, at every maximum weight, agrees with exhaustive minima.
     """
     tune(overlapping_minimum_work=0)
     oracle = CosetLeaderSearch(matrix, css_weight=css_weight)
@@ -1278,6 +1279,194 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
                     table[:-1], max_weight, 0, num_rows, instance.ranks, binomials, True
                 )
                 assert plan == (stop_layer, stop_num_completed, weighed)
+
+
+def _assert_searches_by_tails_match_searches_of_words(
+    generators: npt.NDArray[np.uint8],
+    inverse: npt.NDArray[np.uint8],
+    scale: int,
+    block_sizes: Sequence[int],
+    max_weights: Sequence[int],
+    syndromes: Sequence[int],
+    minima: npt.NDArray[np.int_] | None = None,
+) -> None:
+    """Check that searches by tails answer as searches of whole words, with the same work.
+
+    The family holds a set of the embedded generators reduced on each block of consecutive columns,
+    whose sizes cycle through ``block_sizes``, and a set of rank zero with every generator.  The
+    blocks are disjoint, so the certificate of the ranks of the sets bounds the words of each coset.
+    Every column counts as the X part.  For each syndrome and maximum weight, the two searches from
+    the word of the syndrome give the same lower bound, word, and number of words weighed, and the
+    lower bound agrees with the minimum of the coset in ``minima``, if given.  For each maximum
+    weight, the two batch loops find the same syndromes, in turn, with the same bounds and words.
+    """
+    num_rows, num_columns = generators.shape
+    sets, pivots, start = [], [], 0
+    for size in itertools.cycle(block_sizes):
+        if start >= num_columns:
+            break
+        block = np.arange(start, min(start + size, num_columns))
+        reduced, _, block_pivots = row_reduce_binary(generators, columns=block)
+        sets.append(reduced)
+        pivots.append(np.pad(block_pivots, (0, num_rows - len(block_pivots)), constant_values=-1))
+        start += size
+    sets.append(generators)
+    pivots.append(np.full(num_rows, -1))
+    instance = affine_instance.AffineInstance(
+        generators=np.stack([pack_bits(rows) for rows in sets]),
+        labels=np.zeros((len(sets), num_rows, 0), dtype=np.uint64),
+        widths=np.ones(len(sets), dtype=np.int64),
+        pivots=np.array(pivots, dtype=np.int64),
+        certificate=information_sets.Certificate(
+            num_rows, tuple(int(np.sum(row >= 0)) for row in pivots)
+        ),
+        weight_factor=2 if scale == 2 else 1,
+    )
+    tables = coset_leader_search._get_search_tables(instance, inverse, num_columns)
+    tails = coset_leader_search._get_coset_tails(instance, inverse)
+    packed_syndromes = _pack_syndromes(syndromes, len(inverse))
+    for max_weight in max_weights:
+        for syndrome, packed_syndrome in zip(syndromes, packed_syndromes, strict=True):
+            words = np.empty((2, tables.inverse.shape[1]), dtype=np.uint64)
+            best_weight, parity = coset_leader_search._get_syndrome_word(
+                packed_syndrome, words[0], tables.inverse, tables.x_mask, scale
+            )
+            if best_weight <= max_weight:
+                continue
+            words[1] = words[0]
+            step = coset_leader_search._get_stopping_step(
+                coset_leader_search._get_planning_table(tables.planning, parity), max_weight
+            )
+            answer = coset_leader_search._search_from_syndrome_word(
+                max_weight,
+                *step,
+                words[0],
+                best_weight,
+                tables.generators,
+                tables.pivots,
+                tables.x_mask,
+                scale,
+            )
+            assert answer == coset_leader_search._search_by_tails_from_syndrome_word(
+                packed_syndrome,
+                max_weight,
+                *step,
+                words[1],
+                best_weight,
+                tables.generators,
+                tables.pivots,
+                *tails,
+                scale,
+            )
+            np.testing.assert_array_equal(words[0], words[1])
+            if minima is not None:
+                assert (answer[0] <= max_weight) == (minima[syndrome] <= max_weight)
+                assert answer[0] <= minima[syndrome]
+
+        # Find each syndrome without a light enough word with both batch loops, in turn.
+        start = 0
+        while True:
+            words = np.empty((2, tables.inverse.shape[1]), dtype=np.uint64)
+            found = coset_leader_search._find_first_not_within_max_weight(
+                packed_syndromes[start:], max_weight, words[0], *tables, scale
+            )
+            assert found == coset_leader_search._find_first_not_within_max_weight_by_tails(
+                packed_syndromes[start:], max_weight, words[1], *tables, *tails, scale
+            )
+            if start + found[0] == len(packed_syndromes):
+                break
+            np.testing.assert_array_equal(words[0], words[1])
+            start += found[0] + 1
+
+
+@pytest.mark.usefixtures("compilation_mode")
+def test_searches_by_tails_answer_as_searches_of_whole_words(pytestconfig: pytest.Config) -> None:
+    """Coset searches that weigh words by their tails answer exactly as searches of whole words.
+
+    The searches by tails weigh a word by its rows below the rank of its set and its tail, which
+    holds every column but the pivot columns of the set.  They visit the same words, and keep the
+    same lightest word, as the searches of whole words (see
+    ``_assert_searches_by_tails_match_searches_of_words``).  Blocks of as many columns as the
+    generators have rows alternate with blocks of one column fewer, whose sets are rank deficient,
+    so that the tails of the sets differ in their numbers of columns.  The random codes have a
+    column of zeros, which a coset can still have ones on.  The searches of every syndrome of these
+    codes, at every maximum weight up to past their length, agree with the minima of the cosets.  A
+    wide code begins with an information set, whose tails fit in one machine word, while the tails
+    of its rank-deficient sets take two, and a sample of its syndromes is searched.  The words of
+    the Pauli errors of a graph state that is not CSS are weighed by their physical weight.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for _ in range(3):
+        num_rows, num_columns = int(rng.integers(3, 5)), int(rng.integers(6, 10))
+        generators = get_random_full_rank_matrix(rng, num_rows, num_columns)
+        code = np.insert(generators, int(rng.integers(num_columns + 1)), 0, axis=1)
+        checks = get_kernel(code)
+        _assert_searches_by_tails_match_searches_of_words(
+            code,
+            coset_leader_search._get_inverse(checks),
+            1,
+            (num_rows, num_rows - 1),
+            range(-1, num_columns + 3),
+            range(1 << len(checks)),
+            _classical_minima(checks),
+        )
+
+    wide = np.hstack([np.eye(4, dtype=np.uint8), rng.integers(0, 2, (4, 64), dtype=np.uint8)])
+    checks = get_kernel(wide)
+    syndromes = [int.from_bytes(rng.bytes(9), "little") % (1 << len(checks)) for _ in range(16)]
+    _assert_searches_by_tails_match_searches_of_words(
+        wide, coset_leader_search._get_inverse(checks), 1, (4, 3), range(-1, 40, 4), syndromes
+    )
+
+    matrix = _graph_state(4, [(0, 1), (1, 2)], phase=True)
+    checks = (math.symplectic_conjugate(matrix.astype(int)) % 2).astype(np.uint8)
+    _assert_searches_by_tails_match_searches_of_words(
+        symplectic_to_hamming(matrix),
+        symplectic_to_hamming(coset_leader_search._get_inverse(checks)),
+        2,
+        (4, 3),
+        range(-1, 6),
+        range(16),
+        _css_minima(matrix, css_weight=False),
+    )
+
+
+def test_queries_of_routes_by_tails_weigh_the_tails_of_their_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Single queries and batches of routes by tails weigh words by the tails of their record.
+
+    At the threshold zero, every route of the classical search of the repetition code of length
+    seven is by tails.  A record whose tails are all zero makes every offset weigh nothing, so the
+    queries at maximum weight two find a light enough word in every coset, even in the cosets whose
+    words weigh at least three, which a search of whole words would reject.
+    """
+    get_coset_tails = coset_leader_search._get_coset_tails
+
+    def get_zero_tails(
+        instance: affine_instance.AffineInstance, inverse: npt.NDArray[np.uint8]
+    ) -> coset_leader_search._CosetTails:
+        """The record of the tails of a family, with every tail zero."""
+        return coset_leader_search._CosetTails(
+            *(np.zeros_like(array) for array in get_coset_tails(instance, inverse))
+        )
+
+    monkeypatch.setattr(coset_leader_search, "_get_coset_tails", get_zero_tails)
+    generators = np.ones((1, 7), dtype=np.uint8)
+    checks = get_kernel(generators)
+    tuning = coset_leader_search._CosetTuning.from_tuning(
+        get_tuning(), reads_css_single_pairs=False
+    )
+    search = coset_leader_search._get_classical_search(
+        generators, checks, tuning._replace(overlapping_minimum_work=0)
+    )
+    syndromes = np.flatnonzero(_classical_minima(checks) > 2).tolist()
+    assert syndromes
+    for syndrome in syndromes:
+        bound = search.get_min_weight_bound(syndrome, 2)
+        assert (bound.within_max_weight, bound.lower_bound) == (True, 2)
+    packed_syndromes = _pack_syndromes(syndromes, len(checks))
+    assert search.find_first_not_within_max_weight(packed_syndromes, 2) == (len(syndromes), None)
 
 
 def _product_state(generators: Sequence[str]) -> npt.NDArray[np.uint8]:

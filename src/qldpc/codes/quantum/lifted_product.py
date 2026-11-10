@@ -12,6 +12,7 @@ import numpy.typing as npt
 
 import qldpc
 from qldpc import abstract
+from qldpc.abstract.linalg import get_howell_dual
 
 from ..common import CSSCode
 from .hypergraph_product import HGPCode, SHPCode, _check_same_ring
@@ -228,10 +229,10 @@ class LPCode(CSSCode):
         generator_a_T = matrix_a.T.null_space().howell_normal_form_semisimple()
         generator_b_T = matrix_b.T.null_space(right=True).howell_normal_form_semisimple(right=True)
 
-        dual_a = abstract.get_howell_dual(generator_a)  # generator_a @ dual_a.T is diagonal
-        dual_b = abstract.get_howell_dual(generator_b)
-        dual_a_T = abstract.get_howell_dual(generator_a_T)
-        dual_b_T = abstract.get_howell_dual(generator_b_T)
+        dual_a = get_howell_dual(generator_a)  # generator_a @ dual_a.T is diagonal
+        dual_b = get_howell_dual(generator_b)
+        dual_a_T = get_howell_dual(generator_a_T)
+        dual_b_T = get_howell_dual(generator_b_T)
 
         logical_ops_x_l = abstract.kron(dual_a, generator_b)
         logical_ops_z_l = abstract.kron(generator_a, dual_b)
@@ -387,8 +388,8 @@ class SLPCode(CSSCode):
         generator_a = matrix_a.null_space().howell_normal_form_semisimple()
         generator_b = matrix_b.null_space(right=True).howell_normal_form_semisimple(right=True)
 
-        dual_a = abstract.get_howell_dual(generator_a)  # generator_a @ dual_a.T is diagonal
-        dual_b = abstract.get_howell_dual(generator_b)
+        dual_a = get_howell_dual(generator_a)  # generator_a @ dual_a.T is diagonal
+        dual_b = get_howell_dual(generator_b)
 
         logical_ops_x = abstract.kron(dual_a, generator_b)
         logical_ops_z = abstract.kron(generator_a, dual_b)

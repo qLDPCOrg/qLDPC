@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from qldpc import abstract
+from qldpc.abstract.linalg import get_howell_dual
 
 
 def test_basics(pytestconfig: pytest.Config, rows: int = 2, cols: int = 3) -> None:
@@ -145,7 +146,7 @@ def assert_howell_pseudoinverse(
 
     # find the "dual" of the null-space matrix, which acts like a pseudoinverse.  `right` must match
     # the orientation used to build the Howell form.
-    dual = abstract.get_howell_dual(generator, right=right)
+    dual = get_howell_dual(generator, right=right)
     diag = abstract.matmul(generator, dual.T, right=right)
     assert np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))
     assert np.array_equal(abstract.matmul(diag, generator, right=right), generator)
@@ -218,7 +219,7 @@ def test_howell_dual_requires_matching_right(ring_alternating4_gf5: abstract.Gro
 
     # with the matching orientation, the dual acts as a pseudoinverse: generator @ dual.T is a
     # diagonal that leaves both the generator and the dual unchanged, and is its own transpose
-    dual = abstract.get_howell_dual(generator, transformer=transformer, right=True)
+    dual = get_howell_dual(generator, transformer=transformer, right=True)
     diag = abstract.matmul(generator, dual.T, right=True)
     assert np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))
     assert np.array_equal(abstract.matmul(diag, generator, right=True), generator)
@@ -227,28 +228,28 @@ def test_howell_dual_requires_matching_right(ring_alternating4_gf5: abstract.Gro
 
     # omitting `right` infers it from the orientation the Howell form recorded; a wrong inference
     # would raise, since this generator has no dual for right=False
-    assert np.array_equal(abstract.get_howell_dual(generator, transformer=transformer), dual)
+    assert np.array_equal(get_howell_dual(generator, transformer=transformer), dual)
 
     # a copy has no provenance, so it is validated, with the given orientation
     copy = generator.copy()
-    assert np.array_equal(abstract.get_howell_dual(copy, transformer=transformer, right=True), dual)
+    assert np.array_equal(get_howell_dual(copy, transformer=transformer, right=True), dual)
 
     # skip_validation=False re-checks the constructed dual; it passes for the correct orientation
-    rechecked = abstract.get_howell_dual(
+    rechecked = get_howell_dual(
         generator, transformer=transformer, right=True, skip_validation=False
     )
     assert np.array_equal(rechecked, dual)
 
     # the generator records right=True, so building the dual with right=False is rejected
     with pytest.raises(ValueError, match="does not match the orientation"):
-        abstract.get_howell_dual(generator, transformer=transformer, right=False)
+        get_howell_dual(generator, transformer=transformer, right=False)
 
     # an edited Howell form keeps its recorded orientation as its default, and is validated with any
     # explicit orientation
     generator[0, 0] = generator[0, 0].copy()
-    assert np.array_equal(abstract.get_howell_dual(generator, transformer=transformer), dual)
+    assert np.array_equal(get_howell_dual(generator, transformer=transformer), dual)
     with pytest.raises(ValueError, match="Cannot build a Howell dual"):
-        abstract.get_howell_dual(generator, transformer=transformer, right=False)
+        get_howell_dual(generator, transformer=transformer, right=False)
 
 
 @pytest.mark.parametrize("right", [False, True])
@@ -265,9 +266,9 @@ def test_howell_dual_uses_the_recorded_transformer(right: bool) -> None:
         transformer, right=right
     )
     with pytest.raises(ValueError, match="Cannot build a Howell dual"):
-        abstract.get_howell_dual(generator, transformer=default)
+        get_howell_dual(generator, transformer=default)
 
-    dual = abstract.get_howell_dual(generator)
+    dual = get_howell_dual(generator)
     diag = abstract.matmul(generator, dual.T, right=right)
     assert np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))
     assert np.array_equal(abstract.matmul(diag, generator, right=right), generator)
@@ -276,7 +277,7 @@ def test_howell_dual_uses_the_recorded_transformer(right: bool) -> None:
 
     # an edited Howell form keeps its recorded transformer as its default
     generator[0, 0] = generator[0, 0].copy()
-    assert np.array_equal(abstract.get_howell_dual(generator), dual)
+    assert np.array_equal(get_howell_dual(generator), dual)
 
 
 def test_howell_dual_trusts_unchanged_howell_forms(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -308,7 +309,7 @@ def test_howell_dual_trusts_unchanged_howell_forms(monkeypatch: pytest.MonkeyPat
     ]
     for matrix, given_transformer, validated in cases:
         validate.reset_mock()
-        abstract.get_howell_dual(matrix, transformer=given_transformer)
+        get_howell_dual(matrix, transformer=given_transformer)
         assert validate.called == validated
 
 
@@ -321,32 +322,32 @@ def test_howell_dual_provenance(ring_cyclic3_gf2: abstract.GroupRing) -> None:
         return abstract.RingArray.build([[idempotent_a, idempotent_b]]).howell_normal_form()
 
     howell = get_howell_form()
-    abstract.get_howell_dual(howell)
+    get_howell_dual(howell)
 
     # the orientation of a Howell form over a commutative ring does not matter
-    abstract.get_howell_dual(howell, right=True)
+    get_howell_dual(howell, right=True)
 
     # derived arrays, and arrays edited in place, are validated
     unit = abstract.RingArray.build([[0, 1], [0, 0]], ring)
     with pytest.raises(ValueError, match="could not validate"):
-        abstract.get_howell_dual(howell + unit)
+        get_howell_dual(howell + unit)
     howell = get_howell_form()
     howell[0][1] = ring.one
     with pytest.raises(ValueError, match="could not validate"):
-        abstract.get_howell_dual(howell)
+        get_howell_dual(howell)
 
     # so are polynomial Howell forms, whose pivots need not be idempotent
     x = ring.generators[0]
     howell = abstract.RingArray.build([[1 + x, x]], ring).howell_normal_form_poly()
     with pytest.raises(ValueError, match="could not validate"):
-        abstract.get_howell_dual(howell)
+        get_howell_dual(howell)
 
     # a zero row has no pivot, so the diagonal of its dual product is zero
     with pytest.raises(ValueError, match="could not validate"):
-        abstract.get_howell_dual(abstract.RingArray.build([[idempotent_a], [0]], ring))
+        get_howell_dual(abstract.RingArray.build([[idempotent_a], [0]], ring))
 
     with pytest.raises(ValueError, match="2-dimensional"):
-        abstract.get_howell_dual(abstract.RingArray.build([idempotent_a], ring))
+        get_howell_dual(abstract.RingArray.build([idempotent_a], ring))
 
 
 def test_commutative_howell_dual_needs_no_decomposition() -> None:
@@ -356,7 +357,7 @@ def test_commutative_howell_dual_needs_no_decomposition() -> None:
     """
     ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
     x = ring.generators[0]
-    dual = abstract.get_howell_dual(abstract.RingArray.build([[1, x]], ring))
+    dual = get_howell_dual(abstract.RingArray.build([[1, x]], ring))
     assert np.array_equal(dual, abstract.RingArray.build([[1, 0]], ring))
 
 
@@ -368,15 +369,13 @@ def test_get_howell_dual_edge_cases(ring_alternating4_gf5: abstract.GroupRing) -
     pivot = abstract.RingMember.from_vector(ring.field([1, 1, 0]), ring)
     non_hnf = abstract.RingArray.build([[pivot]], ring)
     with pytest.raises(ValueError, match="could not validate"):
-        abstract.get_howell_dual(non_hnf)
+        get_howell_dual(non_hnf)
 
     # skip_validation bypasses the orientation check, so a mismatched `right` reaches the projector,
     # where a row's projected blocks span a space with no symmetric idempotent projector
     transformer, generator = build_alternating4_gf5_howell_generator(ring_alternating4_gf5)
     with pytest.raises(ValueError, match="Cannot build a Howell dual"):
-        abstract.get_howell_dual(
-            generator, transformer=transformer, right=False, skip_validation=True
-        )
+        get_howell_dual(generator, transformer=transformer, right=False, skip_validation=True)
 
 
 def test_kron_over_matrix_rings() -> None:
@@ -400,7 +399,7 @@ def test_howell_dual_requires_group_algebra(ring_cyclic3_gf2: abstract.GroupRing
     ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
     transformer = ring_cyclic3_gf2.get_transformer()
     with pytest.raises(NotImplementedError, match="only for group algebras"):
-        abstract.get_howell_dual(
+        get_howell_dual(
             abstract.RingArray.build([[1]], ring), transformer=transformer, skip_validation=True
         )
 

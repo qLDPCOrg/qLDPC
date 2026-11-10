@@ -36,6 +36,10 @@ from .monomials import _is_integer, _read_polynomial, iter_monomial_terms
 if TYPE_CHECKING:
     from .wedderburn_artin import WedderburnArtinTransformer
 
+# seed of the Wedderburn-Artin decompositions that GroupRing.get_transformer builds without a seed;
+# tests vary it
+_DEFAULT_TRANSFORMER_SEED = 0
+
 
 ####################################################################################################
 # rings
@@ -331,7 +335,7 @@ class GroupRing(Ring):
     """
 
     _group: Group
-    _transformers: dict[int | None, WedderburnArtinTransformer]
+    _transformers: dict[int, WedderburnArtinTransformer]
     _idempotents: tuple[RingMember, ...] | None = None
 
     def __init__(self, group: Group, field: int | type[galois.FieldArray] | None = None) -> None:
@@ -359,19 +363,17 @@ class GroupRing(Ring):
     ) -> WedderburnArtinTransformer:
         """Instrument for the Wedderburn-Artin decomposition of this ring.
 
-        Without a ``seed``, this method reuses a decomposition of this ring that it already built,
-        or else builds one from the seed 0, so that the decomposition is the same in every run.
+        Decompositions are cached by seed, and a cached one is returned as built, whatever
+        ``skip_validation`` is.  Without a ``seed``, this method uses the seed 0, so that the
+        decomposition is the same in every run.
 
         By default each component's primitive central idempotent is validated; pass
         ``skip_validation=True`` to skip the check (see WedderburnArtinComponentTransformer).
         """
         from .wedderburn_artin import WedderburnArtinTransformer  # avoid circular import
 
-        # for seedless calls, reuse an existing decomposition, or else build a reproducible one
         if seed is None:
-            if self._transformers:
-                return next(iter(self._transformers.values()))
-            seed = 0
+            seed = _DEFAULT_TRANSFORMER_SEED
         if seed not in self._transformers:
             self._transformers[seed] = WedderburnArtinTransformer(
                 self, seed=seed, skip_validation=skip_validation

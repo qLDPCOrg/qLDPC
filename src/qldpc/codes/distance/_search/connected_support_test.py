@@ -818,6 +818,7 @@ def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
             search._inverse_overlaps,
             2,
             cs.pack_bits(np.array([syndrome], dtype=np.uint8))[0],
+            True,
         )
         return sorted(support.tolist())
 
@@ -831,6 +832,42 @@ def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
     assert search_from([-1, *roots], syndrome) == expected
     for root in roots:
         assert search_from([-1, root], syndrome) == search_from([root], no_syndrome)
+
+
+@pytest.mark.usefixtures("compilation_mode")
+@pytest.mark.parametrize("name", ["nested-restrictions", "five-qubit-state"])
+def test_memoizing_changes_no_result_or_count_of_states(name: str) -> None:
+    """A syndrome query that memoizes overlaps and repairs finds what one without it finds.
+
+    Each state uses the same overlaps and repairs either way, so the searches return the same
+    support and visit as many states.  They do so also after a search from root 0, which leaves its
+    own stamps in the memos.  A memo that kept stale values could still find correct vectors, with
+    different pruning, but would likely change the number of states.
+    """
+    checks, homogeneous = SYNDROME_PROBLEMS[name]
+    search = get_search(checks, np.zeros((0, np.shape(checks)[1])), homogeneous=homogeneous)
+    for bits in itertools.product([0, 1], repeat=len(search._checks)):
+        if not any(bits):
+            continue
+        packed = cs.pack_bits(np.array([bits], dtype=np.uint8))[0]
+        for roots, max_weight in itertools.product([[-1], [0, -1]], range(1, 4)):
+            results = [
+                cs._search_supports(
+                    search._check_starts,
+                    search._check_symbols,
+                    search._symbol_masks,
+                    search._test_columns,
+                    np.array(roots, dtype=np.int64),
+                    search._ranks,
+                    search._inverse_overlaps,
+                    max_weight,
+                    packed,
+                    memoize,
+                )
+                for memoize in (False, True)
+            ]
+            assert results[0][0].tolist() == results[1][0].tolist()
+            assert results[0][1] == results[1][1]
 
 
 def test_invalid_syndrome_queries_are_rejected() -> None:

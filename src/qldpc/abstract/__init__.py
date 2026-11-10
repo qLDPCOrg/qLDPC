@@ -31,16 +31,11 @@ from .groups import (
 )
 from .linalg import (
     block_diag,
-    get_howell_dual,
     kron,
     matmul,
 )
 from .matrix_rings import (
     MatrixRing,
-)
-from .monomials import (
-    get_coefficient_and_exponents,
-    iter_monomial_terms,
 )
 from .ring_array import (
     RingArray,
@@ -83,9 +78,6 @@ __all__ = [
     "WedderburnArtinTransformer",
     "WreathProductGroup",
     "block_diag",
-    "get_coefficient_and_exponents",
-    "get_howell_dual",
-    "iter_monomial_terms",
     "kron",
     "matmul",
 ]

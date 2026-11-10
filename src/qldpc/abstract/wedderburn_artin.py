@@ -85,7 +85,8 @@ class WedderburnArtinTransformer:
     ) -> list[galois.FieldArray]:
         """Decompose a RingArray element-wise into Wedderburn-Artin components.
 
-        Each component of N-dimensional RingArray is an (N+2)-dimensional galois.FieldArray.
+        Each component of an N-dimensional RingArray is an (N+2)-dimensional galois.FieldArray, or
+        an N-dimensional one if ``merge_blocks`` is True.
 
         If ``merge_blocks is True``, this method treats each projected element as a block matrix in
         the last two axes of the provided array, such that a projection with shape
@@ -120,13 +121,15 @@ class WedderburnArtinTransformer:
                 f"Provided {len(components)} WedderburnArtinTransformer components for a ring that"
                 f" should have {len(self.transformers)}"
             )
-        if not len({array.shape[:-2] for array in components}) == 1:
-            raise ValueError("Asked to combine arrays of inconsistent shapes")
         terms = [
             trans.embed_array(array, from_blocks=from_blocks)
             for array, trans in zip(components, self.transformers)
         ]
-        return functools.reduce(operator.add, terms)
+        if len({term.shape for term in terms}) != 1:
+            raise ValueError("Asked to combine arrays of inconsistent shapes")
+        # numpy adds 0-dimensional arrays into a scalar, which is wrapped again
+        result = functools.reduce(operator.add, terms)
+        return result if isinstance(result, RingArray) else RingArray.build(result, self.ring)
 
     def transpose(self, element: RingMember) -> RingMember:
         """Transpose the matrices representing the element within each simple component.
@@ -187,18 +190,21 @@ class WedderburnArtinComponentTransformer:
 
     By default the provided RingMember is checked against the necessary conditions of a
     primitive central idempotent (nonzero, idempotent, central, and consistent rank).  These
-    conditions are necessary but not sufficient for primitivity; see
-    _validate_primitive_central_idempotent.
+    conditions are necessary but not sufficient for primitivity.  Construction raises a ValueError
+    for a central idempotent that passes these checks but is not primitive, since the center of R·e
+    is then not a field, and for a component over an extension field ``GF(q^d)`` whose elements
+    galois stores as Python objects, such as ``GF(2^66)`` or ``GF(3^20)``.
 
     Args:
         pci: A primitive central idempotent of a semisimple group algebra.  A member of a ring other
             than a group algebra raises a NotImplementedError, and a member of a group algebra that
             is not semisimple raises a ValueError.
         seed: Random number generator seed.
-        galois_compile: The ufunc calculation mode for the galois field extension ``GF(q^d)``.
-            Default: 'python-calculate', which is empirically faster for small field arrays.
-            See help(galois.GF), and the 'compile' argument in particular.  Not used for components
-            of degree 1, which work in the field of the ring.
+        galois_compile: The ufunc calculation mode for the galois field extension ``GF(q^d)``, as
+            in the 'compile' argument of galois.GF.  Galois sets this mode for its field class
+            ``GF(q^d)`` in the whole process.  By default (None), an existing field class keeps its
+            mode, and galois gives a new one its default mode ('auto').  Not used for components of
+            degree 1, which work in the field of the ring.
         skip_validation: If False (the default), check the necessary conditions above and raise
             a ``ValueError`` when the provided RingMember fails them; pass True to skip the
             check (e.g. when the idempotent comes from a trusted source).
@@ -236,7 +242,7 @@ class WedderburnArtinComponentTransformer:
         *,
         seed: np.random.Generator | int | None = None,
         galois_compile: Literal["auto", "jit-lookup", "jit-calculate", "python-calculate"]
-        | None = "python-calculate",
+        | None = None,
         skip_validation: bool = False,
     ) -> None:
         """Initialize from a primitive central idempotent (PCI) of a ring."""
@@ -264,6 +270,11 @@ class WedderburnArtinComponentTransformer:
             if self.degree == 1
             else galois.GF(self.field.order**self.degree, compile=galois_compile)
         )
+        if np.object_ in self.extended_field.dtypes:
+            raise ValueError(
+                f"Wedderburn-Artin components over {self.extended_field.name} are not supported,"
+                " because galois stores its elements as Python objects"
+            )
         self.embedded_scalars, self.embedded_power_basis = self._get_center_embeddings()
         self.embedded_power_basis_dual = self._get_embedded_power_basis_dual()
 
@@ -294,14 +305,15 @@ class WedderburnArtinComponentTransformer:
     def project_array(self, array: RingArray, *, merge_blocks: bool = False) -> galois.FieldArray:
         """Project a RingArray element-wise into a simple component S ≅ GF(q^d)^{n × n}.
 
-        An N-dimensional RingArray gets projected into an (N+2)-dimensional galois.FieldArray.
+        An N-dimensional RingArray gets projected into an (N+2)-dimensional galois.FieldArray, or an
+        N-dimensional one if ``merge_blocks`` is True.
 
         If ``merge_blocks is True``, this method treats each projected element as a block matrix in
         the last two axes of the provided array, such that a projection with shape
 
             (..., r, c, self.size, self.size)
 
-            is transposed and reshaped into an array with shape
+        is transposed and reshaped into an array with shape
 
             (..., r * self.size, c * self.size).
         """
@@ -310,6 +322,8 @@ class WedderburnArtinComponentTransformer:
                 "A Wedderburn-Artin transformer initialized for one ring was asked to decompose an"
                 " element of a different ring"
             )
+        if merge_blocks and array.ndim < 2:
+            raise ValueError("Merging blocks requires a RingArray with at least two dimensions")
         vectors = array.to_field_array().reshape(array.size, self.ring.group.order)
         coefficients = vectors @ self.decomposition_coefficient_extractor.T
         embedded_coefficients = self.embedded_scalars[coefficients.view(np.ndarray)]
@@ -319,7 +333,6 @@ class WedderburnArtinComponentTransformer:
         )
         matrix_values = matrix_values.reshape(*array.shape, self.size, self.size)
         if merge_blocks:
-            assert array.ndim >= 2
             repeat = array.size // (array.shape[-2] * array.shape[-1]) if array.size else 0
             old_shape = (repeat, array.shape[-2], array.shape[-1], self.size, self.size)
             new_shape = (
@@ -346,9 +359,13 @@ class WedderburnArtinComponentTransformer:
     def embed_array(self, array: galois.FieldArray, *, from_blocks: bool = False) -> RingArray:
         """Invert WedderburnArtinComponentTransformer.project_array."""
         if from_blocks:
-            block_rows, rem_rows = divmod(array.shape[-2], self.size)
-            block_cols, rem_cols = divmod(array.shape[-1], self.size)
-            assert rem_rows == rem_cols == 0
+            if array.ndim < 2 or array.shape[-2] % self.size or array.shape[-1] % self.size:
+                raise ValueError(
+                    "An array of blocks must have at least two dimensions, and its last two must be"
+                    f" multiples of the size {self.size} of the component"
+                )
+            block_rows = array.shape[-2] // self.size
+            block_cols = array.shape[-1] // self.size
             repeat = array.size // (array.shape[-2] * array.shape[-1]) if array.size else 0
             old_shape = (repeat, block_rows, self.size, block_cols, self.size)
             new_shape = (*array.shape[:-2], block_rows, block_cols, self.size, self.size)
@@ -388,8 +405,8 @@ class WedderburnArtinComponentTransformer:
         ring), and that the rank of its regular representation equals ``size**2 · degree`` (as a
         single simple component ``GF(q^d)^{n × n}`` requires).  These conditions are necessary but
         not sufficient for primitivity: a nonzero central idempotent may still decompose into a sum
-        of orthogonal central idempotents (e.g. the ring identity), which this does not detect.  A
-        full primitivity check is expensive; pass ``skip_validation=True`` to bypass this method.
+        of orthogonal central idempotents (e.g. the ring identity), which this method does not
+        detect, but _get_power_basis does.
 
         The nonzero, idempotent, and central checks run before the rank check, so ``self.degree`` is
         guaranteed positive by the time the rank check divides by it.
@@ -474,10 +491,10 @@ class WedderburnArtinComponentTransformer:
 
         To find a suitable power basis B, we...
 
-            1. Pick a random element ``b ∈ Z(S)``.
-            2. Collect powers of b into rows of the matrix ``B = (b^0, b^1, b^2, ..., b^{d-1})``.
-            3. Check whether the elements of B span ``GF(q)``-linear vector space of dimension d.
-                If so, return B.  Otherwise, go back to step 1.
+            1. Pick a random element ``b ∈ Z(S)``, and find its minimal polynomial m(x).
+            2. If m(x) is irreducible with degree d, return the powers of b.
+            3. If m(x) is reducible, then Z(S) is not a field, so e is not primitive.  Raise an
+               error.  Otherwise, go back to step 1.
 
         Returns:
             - A matrix in ``GF(q)^{d × |G|}`` whose j-th row is ``b^j ∈ Z(S)``.
@@ -487,21 +504,19 @@ class WedderburnArtinComponentTransformer:
 
         while True:
             generator_vec = self._random_nonzero_vec(len(self.center), seed) @ self.center
-            generator = RingMember.from_vector(generator_vec, self.ring)
-            generator_mat = generator.regular_lift()
-
-            basis = [self.pci_vec, generator_vec]
-            for _ in range(self.degree - 2):
-                basis.append(generator_mat @ basis[-1])
-
-            basis_in_field = self.field(basis)
-            if np.linalg.matrix_rank(basis_in_field) == self.degree:
-                return basis_in_field
+            minimal_poly, powers = self._get_minimal_polynomial(generator_vec, self.pci_vec)
+            if not minimal_poly.is_irreducible():
+                raise ValueError(
+                    "The provided RingMember is not a primitive central idempotent: the center of"
+                    " its component is not a field"
+                )
+            if minimal_poly.degree == self.degree:
+                return powers
 
     def _random_nonzero_vec(self, length: int, seed: np.random.Generator) -> galois.FieldArray:
         """Return a random nonzero vector over GF(q)."""
-        # a uniform random vector over GF(q) is almost surely nonzero, so the retry below is
-        # effectively never taken and is not reliably reachable in tests
+        # a short random vector over a small field can be zero, so retry; whether a test run takes
+        # the retry depends on its random seed
         while not np.any(vector := self.field.Random(length, seed=seed)):
             pass  # pragma: no cover
         return vector
@@ -592,7 +607,7 @@ class WedderburnArtinComponentTransformer:
             ``Tr_{GF(q^d)/GF(q)}[E[a_i] E[b^j]] = delta_{ij}``,
 
         where ``Tr_{GF(q^d)/GF(q)}`` denotes a field trace from ``GF(q^d)`` to ``GF(q)``; see
-        self.field_trace.
+        self.extended_field_trace.
 
         The dual basis allows us to "pick off" the coefficients of a polynomial in the center
 
@@ -675,9 +690,9 @@ class WedderburnArtinComponentTransformer:
 
         Recall that ``S ≅ GF(q^d)^{n × n}``.  The PCI of S is the identity matrix of
         ``GF(q^d)^{n × n}``.  If ``n = 1`` (or: when R is commutative), then the multiplicative
-        identity in ``GF(q^d)`` is the only element of ``GF(q^d)`` that squares to itself, so the
-        PCI of S is the only idempotent in S.  If ``n > 1``, however, then the PCI can be decomposed
-        into primitive (non-central) idempotents,
+        identity in ``GF(q^d)`` is the only nonzero element of ``GF(q^d)`` that squares to itself,
+        so the PCI of S is the only nonzero idempotent in S.  If ``n > 1``, however, then the PCI
+        can be decomposed into primitive (non-central) idempotents,
 
             ``e = sum_{i=1}^n e_i``,
 
@@ -711,7 +726,8 @@ class WedderburnArtinComponentTransformer:
         # PART 2: e_start is not primitive, so decompose it into a sum of two or more idempotents.
         #   1. Pick a random element α in the sub-algebra stabilized by e_start.
         #   2. Find the minimal polynomial of α, or a minimal-degree polynomial m(x) with m(α) = 0.
-        #   3. Identify the irreducible factors of m(x).  If m(x) is irreducible, return to step 1.
+        #   3. Identify the irreducible factors of m(x).  If m(x) has only one distinct irreducible
+        #      factor, return to step 1.
         #   4. Factor m(x) into irreducible ("prime") polynomials p_j(x) as
         #          m(x) = prod_j p_j(x)^{k_j},
         #      and define
@@ -776,7 +792,7 @@ class WedderburnArtinComponentTransformer:
     def _get_minimal_polynomial(
         self, element: galois.FieldArray, idempotent: galois.FieldArray
     ) -> tuple[galois.Poly, galois.FieldArray]:
-        """Find the minimal polynomial an element within a sub-algebra stabilized by an idempotent.
+        """Find the minimal polynomial of an element in the sub-algebra stabilized by an idempotent.
 
         The minimal polynomial of α is the lowest-degree monic polynomial m(x) with ``m(α) = 0``.
         Here "monic" means that the m(x) has a leading coefficient of one:
@@ -792,7 +808,8 @@ class WedderburnArtinComponentTransformer:
 
         Returns:
             - The minimal polynomial of RingMember(element, self.ring).
-            - A matrix in ``GF(q)^{d × |G|}`` whose j-th row is ``element^j ∈ S``.
+            - A matrix in ``GF(q)^{r × |G|}`` whose j-th row is ``element^j ∈ S``, where r is the
+              degree of the minimal polynomial.
         """
 
         # PART 1: construct a matrix of linearly independent column vectors [α^0, α^1, α^2, ...].
@@ -929,8 +946,8 @@ class WedderburnArtinComponentTransformer:
     def _get_decomposition_coefficient_recombiner(self) -> galois.FieldArray:
         """Build a matrix that embeds ``GF(q)`` coefficients of ``GF(q^d)^{n × n}`` into S.
 
-        The matrix built here is a left pseudo-inverse of that built in
-        _get_decomposition_coefficient_extractor.
+        The matrix built here is a right inverse of that built in
+        _get_decomposition_coefficient_extractor: the extractor times this matrix is the identity.
 
         Returns:
             - A matrix in ``GF(q)^{|G| × n^2·d}`` that maps ``[s_ijk]_ijk`` to

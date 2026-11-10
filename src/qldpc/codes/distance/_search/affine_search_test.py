@@ -320,6 +320,74 @@ def test_coset_layer_scans_reach_their_last_support() -> None:
             assert representative[0] == 0
 
 
+def _get_tail_weights(
+    offset_tail: npt.NDArray[np.uint8], tails: npt.NDArray[np.uint8], rank: int, layer: int
+) -> list[tuple[tuple[int, ...], int]]:
+    """Each support of a layer of a coset basis by tails, in order, with the weight of its word.
+
+    The full rows of the basis have a pivot column for each of the first ``rank`` rows, on which
+    every other row and the offset are zero.  So the word of a support has a one on the pivot of
+    each of its rows below ``rank``, and its tail on the other columns.
+    """
+    return [
+        (
+            rows,
+            sum(row < rank for row in rows)
+            + int(np.sum(offset_tail ^ tails[list(rows)].sum(0) % 2)),
+        )
+        for rows in itertools.combinations(range(len(tails)), layer)
+    ]
+
+
+@pytest.mark.usefixtures("compilation_mode")
+def test_coset_tail_scans_weigh_words_by_their_pivot_rows_and_tails(
+    pytestconfig: pytest.Config,
+) -> None:
+    """A coset scan by tails gives each word its full Hamming weight, and keeps the first lightest.
+
+    The bases have full rank, rank deficiency one, and rank zero, and their tails span two machine
+    words.  Each scan keeps the support of each word lighter than every word before it and than the
+    initial best weight, and returns after the first word at which the best weight so far is at most
+    the cutoff, having weighed exactly the supports up to it.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    num_rows = 5
+    tails = (rng.random((num_rows, 70)) < 0.3).astype(np.uint8)
+    offset_tail = rng.integers(0, 2, 70, dtype=np.uint8)
+    packed_tails, packed_offset = pack_bits(tails)[None], pack_bits(offset_tail[None])[0]
+    widths = np.array([packed_tails.shape[2]], dtype=np.int64)
+    for rank, layer in itertools.product((num_rows, num_rows - 1, 0), range(1, num_rows + 1)):
+        weights = _get_tail_weights(offset_tail, tails, rank, layer)
+        least = min(weight for _, weight in weights)
+        for initial_best, cutoff in itertools.product((least, least + 1, 100), (-1, least)):
+            # The expected best weight, the support of the last word kept, and the words weighed.
+            expected_best, expected_support, expected_weighed = initial_best, None, len(weights)
+            for index, (rows, weight) in enumerate(weights):
+                if weight < expected_best:
+                    expected_best, expected_support = weight, rows
+                if expected_best <= cutoff:
+                    expected_weighed = index + 1
+                    break
+
+            best_support = np.full(layer, -1, dtype=np.int64)
+            best, weighed = affine_search.scan_coset_layer_by_tails(
+                packed_offset,
+                packed_tails,
+                np.array([rank]),
+                widths,
+                np.empty(layer, dtype=np.int64),
+                np.empty((layer, 1, widths[0]), dtype=np.uint64),
+                initial_best,
+                cutoff,
+                best_support,
+            )
+            assert (best, weighed) == (expected_best, expected_weighed)
+            if expected_support is None:
+                assert np.all(best_support == -1)
+            else:
+                assert tuple(best_support) == expected_support
+
+
 def _get_completion_bound(
     tails: npt.NDArray[np.uint8], support: Sequence[int], block_bits: int
 ) -> int:
