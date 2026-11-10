@@ -38,7 +38,7 @@ import sympy.core
 
 from qldpc.math import resolve_field
 
-from .monomials import _is_integer, get_coefficient_and_exponents
+from .monomials import _is_integer
 
 NestedSequence = Sequence[object | Sequence["NestedSequence"]]
 
@@ -615,31 +615,44 @@ class Group:
 
     def eval(
         self,
-        monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul | int | np.int_,
+        monomial: sympy.Expr | int | np.integer,
         symbols: dict[sympy.Symbol, GroupMember],
     ) -> GroupMember:
-        """Convert a SymPy monomial into a member of this group.
+        """Evaluate a word in the given symbols as a member of this group.
 
-        The monomial must be a product of integer powers of the given symbols.
+        A word is built from the given symbols by products and integer powers, as in ``a * b**-1``
+        or ``(a * b)**2``.  This method maps each symbol to its member, a product to the product of
+        the members of its factors in order, a power ``w**n`` to the ``n``-th power of the member of
+        ``w``, and ``1`` to the identity.  Integer-valued floats are read as integers.  Raise a
+        ValueError for other expressions, such as sums and words times coefficients other than 1,
+        and if a symbol in the word stands for a permutation that is not a member of this group.
+        Raise a TypeError if SymPy reads the input as something other than an expression, such as an
+        equation.
+
+        Use noncommutative symbols for members that do not commute.  SymPy sorts commutative symbols
+        into its own order, and cancels them, when it builds an expression: ``x * y * x**-1``
+        becomes ``y``.  Raise a ValueError if a commutative symbol in the expression that this
+        method receives stands for a member that does not commute with the member of another symbol
+        in that expression.
         """
-        coeff, content = sympy.sympify(monomial).as_coeff_Mul()
+        expression = sympy.sympify(monomial)
+        if not isinstance(expression, sympy.Expr):
+            raise TypeError(f"Cannot evaluate {monomial}, because it is not a SymPy expression")
+        coeff, _ = expression.as_coeff_Mul()
         if not (_is_integer(coeff) and int(coeff) == 1):
             raise ValueError(
-                "Only monomials with a coefficient of 1 can be converted into a GroupMember"
-                f" (provided: {monomial})"
+                f"Cannot evaluate {monomial} as a word in the given symbols, because its"
+                " coefficient is not 1"
             )
-        try:
-            _, exponents = get_coefficient_and_exponents(content)
-        except ValueError:
-            exponents = None
-        if exponents is None or any(base not in symbols for base, _ in exponents):
-            raise ValueError(
-                f"Cannot evaluate {monomial} as a product of integer powers of the given symbols"
-            )
-        output = self.identity
-        for base, exponent in exponents:
-            output *= symbols[base] ** exponent
-        return self._at_degree(output)
+        member = self._eval_word(expression, symbols, monomial)
+        for symbol in sorted(expression.free_symbols, key=str):
+            if symbols[symbol] not in self:
+                raise ValueError(
+                    f"The symbol {symbol} stands for {symbols[symbol]}, which is not a member of"
+                    f" {self} (degree {self.degree})"
+                )
+        self._check_commutative_symbols(expression.free_symbols, expression.free_symbols, symbols)
+        return self._at_degree(member)
 
     def _init_from_group(
         self,
@@ -677,6 +690,49 @@ class Group:
         ):
             return GroupMember(image[: self.degree])
         return member if isinstance(member, GroupMember) else GroupMember.from_sympy(member)
+
+    def _eval_word(
+        self, word: sympy.Basic, symbols: dict[sympy.Symbol, GroupMember], original: object
+    ) -> comb.Permutation:
+        """Evaluate a part of a word, as in Group.eval, naming the original input in errors."""
+        if isinstance(word, sympy.Symbol) and word in symbols:
+            return symbols[word]
+        if _is_integer(word) and int(word) == 1:
+            return self.identity
+        if isinstance(word, sympy.Mul):
+            factors = (self._eval_word(factor, symbols, original) for factor in word.args)
+            return functools.reduce(operator.mul, factors, self.identity)
+        if isinstance(word, sympy.Pow):
+            base, exponent = word.as_base_exp()
+            if _is_integer(exponent):
+                return self._eval_word(base, symbols, original) ** int(exponent)
+        raise ValueError(f"Cannot evaluate {original} as a word in the given symbols")
+
+    @staticmethod
+    def _check_commutative_symbols(
+        left: Iterable[sympy.Basic],
+        right: Iterable[sympy.Basic],
+        symbols: dict[sympy.Symbol, GroupMember],
+    ) -> None:
+        """Raise a ValueError if commutative symbols stand for members that do not commute.
+
+        Compare the member of each symbol in ``left`` with the member of each symbol in ``right``,
+        for every pair in which at least one symbol is commutative.  SymPy reorders commutative
+        symbols in a product, which is safe only if those members commute.
+        """
+        pairs = itertools.product(symbols.keys() & left, symbols.keys() & right)
+        # sort the pairs, so that the error names the same symbols in every run
+        for symbol, other in sorted(pairs, key=lambda pair: (str(pair[0]), str(pair[1]))):
+            if not symbol.is_commutative:
+                symbol, other = other, symbol
+            if symbol.is_commutative:
+                member = symbols[symbol]
+                if member * symbols[other] != symbols[other] * member:
+                    raise ValueError(
+                        f"The commutative symbol {symbol} stands for a member that does not"
+                        f" commute with the member of {other}, but SymPy may reorder them; use"
+                        " noncommutative symbols for members that do not commute"
+                    )
 
     def _random_member(self, rng: Random) -> GroupMember:
         """A random element of this group, drawn with the given random number generator."""

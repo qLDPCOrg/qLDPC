@@ -49,5 +49,12 @@ def test_iter_monomial_terms() -> None:
     assert abstract.iter_monomial_terms(5) == (sympy.Integer(5),)
     assert abstract.iter_monomial_terms(0) == (sympy.Integer(0),)
 
+    # integer-valued float exponents are read as integers, and other exponents are left alone
+    assert set(abstract.iter_monomial_terms((1 + x) ** 2.0)) == {sympy.Integer(1), 2 * x, x**2}
+    assert abstract.iter_monomial_terms((1 + x) ** 0.5) == ((1 + x) ** 0.5,)
+
+    with pytest.raises(TypeError, match="not a SymPy expression"):
+        abstract.iter_monomial_terms(sympy.Eq(x, y))
+
     # a sympy.Poly is accepted and treated the same as its expression
     assert set(abstract.iter_monomial_terms(sympy.Poly(x**2 + y, x, y))) == {x**2, y}

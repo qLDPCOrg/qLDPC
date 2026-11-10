@@ -59,14 +59,18 @@ def test_permutation_group(pytestconfig: pytest.Config) -> None:
     assert member == group.eval(monomial, symbols)
     symbol = next(iter(symbols))
     assert group.eval(1.0 * symbol, symbols) == group.eval(symbol, symbols)
-    for expression in [sympy.sin(symbol), sympy.Symbol("z") * symbol]:
-        with pytest.raises(ValueError, match="integer powers of the given symbols"):
+    assert group.eval(symbol**2.0, symbols) == group.eval(symbol**2, symbols)
+    for expression in [
+        sympy.sin(symbol),
+        sympy.Symbol("z") * symbol,
+        symbol + symbol**2,
+        symbol ** sympy.Rational(1, 2),
+    ]:
+        with pytest.raises(ValueError, match="as a word in the given symbols"):
             group.eval(expression, symbols)
-    for expression in [1.5 * symbol, sympy.Rational(3, 2) * symbol]:
-        with pytest.raises(ValueError, match="coefficient of 1"):
+    for expression in [1.5 * symbol, sympy.Rational(3, 2) * symbol, 5 * monomial]:
+        with pytest.raises(ValueError, match="coefficient is not 1"):
             group.eval(expression, symbols)
-    with pytest.raises(ValueError, match="Only monomials with a coefficient of 1"):
-        group.eval(5 * monomial, symbols)
 
     assert abstract.Group.from_generating_mats([[1]]).equiv(abstract.CyclicGroup(1))
 
@@ -90,6 +94,50 @@ def test_permutation_group(pytestconfig: pytest.Config) -> None:
 
     # the identity is written in GAP as "()"
     assert abstract.GroupMember().to_gap_cycles() == "()"
+
+
+def test_eval_words() -> None:
+    """Group.eval maps words in symbols to products and powers of their members."""
+    group = abstract.SymmetricGroup(3)
+    g, h = group.generators
+    a, b = sympy.symbols("a b", commutative=False)
+    symbols = {a: g, b: h}
+    words_and_members = [
+        ((a * b) ** 3, g * h * g * h * g * h),
+        ((a * b) ** -1, h**-1 * g**-1),
+        (((a * b**-1) ** 2 * b) ** -2, ((g * h**-1) ** 2 * h) ** -2),
+        (sympy.Integer(1), group.identity),
+    ]
+    for word, member in words_and_members:
+        assert group.eval(word, symbols) == member
+    with pytest.raises(TypeError, match="not a SymPy expression"):
+        group.eval(True, symbols)
+    with pytest.raises(ValueError, match="as a word in the given symbols"):
+        group.eval(sympy.Mul(a, 2, evaluate=False), symbols)
+
+    # symbols must stand for members of the group
+    with pytest.raises(ValueError, match="not a member of"):
+        group.eval(a * b, {a: g, b: abstract.GroupMember(0, 3)})
+    with pytest.raises(ValueError, match="not a member of"):
+        abstract.CyclicGroup(3).eval(b, symbols)
+    assert abstract.CyclicGroup(3).eval(a, symbols) == g
+
+    # SymPy reorders commutative symbols, so they must stand for members that commute with the
+    # members of the other symbols
+    x, y = sympy.symbols("x y")
+    with pytest.raises(ValueError, match="does not commute"):
+        group.eval(y * x, {x: g, y: h})
+    with pytest.raises(ValueError, match="does not commute"):
+        group.eval(a * x, {a: g, x: h})
+    z = sympy.Symbol("z")
+    with pytest.raises(ValueError, match="does not commute"):
+        group.eval(x * y * z, {x: group.identity, y: g, z: h})
+    assert group.eval(y * x, {x: g, y: g**2}) == group.identity
+    assert group.eval(x, {x: g, y: h}) == g
+
+    # malformed expressions get the word error, before commutation is checked
+    with pytest.raises(ValueError, match="as a word in the given symbols"):
+        group.eval(x * sympy.sin(y), {x: g, y: h})
 
 
 def test_trivial_group() -> None:
