@@ -17,7 +17,9 @@ A distance instance packs the rows of each set with its pivot columns deleted, s
 space restores their weight arithmetically.  Its certificate is the one that the distance search
 selects, with the proven divisor of eligible weights.  A coset instance packs the full rows, which
 the coset search weighs whole.  Its certificate takes no divisor, since the words of a coset need
-not share the divisibility of the code.
+not share the divisibility of the code.  If every word of the code has even Hamming weight, the
+Hamming weights of the words of each coset all have one parity instead, and the bounds of a coset
+may be rounded up to its parity.
 """
 
 from __future__ import annotations
@@ -79,13 +81,16 @@ class AffineInstance:
         object.__setattr__(self, "label_widths", label_widths)
         object.__setattr__(self, "ranks", ranks)
 
-    def get_weight_bounds(self) -> npt.NDArray[np.int64]:
+    def get_weight_bounds(self, parity: int | None = None) -> npt.NDArray[np.int64]:
         """Bounds on the weight of the unvisited words after each step of the certificate.
 
-        The table of ``Certificate.get_weight_bounds`` for the weight factor of the instance.  Each
-        call returns a new table.
+        The table of ``Certificate.get_weight_bounds`` for the weight factor of the instance and
+        ``parity``: the bounds on Hamming weight are rounded up to ``parity``, if it is given,
+        before they are divided by the weight factor.  The Hamming weights of the words of each
+        coset of an even code share a parity, zero or one (see ``get_coset_instance``), so the
+        bounds of such a coset may be rounded up to it.  Each call returns a new table.
         """
-        return self.certificate.get_weight_bounds(self.weight_factor)
+        return self.certificate.get_weight_bounds(self.weight_factor, parity)
 
 
 def get_distance_instance(
@@ -137,6 +142,12 @@ def get_coset_instance(
     Hamming weight of the binary word that represents it in the search (see
     ``coset_leader_search.py``).  It is one for a search of X or Z parts.  Without generators, each
     coset is a single word, which the search visits on layer zero of one empty set.
+
+    If every generator has even Hamming weight, so does every word ``v`` of the code, and every word
+    ``u + v`` of a coset has the parity of ``|u|``, since ``|u + v| = |u| + |v| - 2 |u ∩ v|``.  The
+    bounds of each coset may then be rounded up to its parity (see ``get_weight_bounds``).  The
+    coset search decides whether to, since only it knows whether some coset is odd (see
+    ``_get_search_tables`` in ``coset_leader_search.py``).
     """
     num_generators, num_columns = generators.shape
     if not num_generators:
