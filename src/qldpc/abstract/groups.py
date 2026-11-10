@@ -87,7 +87,16 @@ class GroupMember(comb.Permutation):
         return NotImplemented
 
     def __lt__(self, other: GroupMember) -> bool:
-        return self.rank() < other.rank()
+        """Compare permutations lexicographically, reading both on the same number of points.
+
+        For permutations on the same number of points, this order is that of their SymPy ranks.
+        Unlike ranks, it treats a permutation on fewer points as one with extra fixed points, and
+        it accepts the permutation on no points, which is the identity of the trivial group.
+        """
+        size = max(self.size, other.size)
+        self_form = self.array_form + list(range(self.size, size))
+        other_form = other.array_form + list(range(other.size, size))
+        return self_form < other_form
 
     def __matmul__(self, other: GroupMember) -> GroupMember:
         """Take the "tensor product" of two group members.

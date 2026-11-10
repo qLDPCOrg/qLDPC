@@ -213,10 +213,14 @@ class QTCode(CSSCode):
         return QTCode(subset_a, subset_b, code_a, code_b, bipartite=bipartite)
 
     def save(self, path: str, *headers: str) -> None:
-        """Save the generating data of this code to a file."""
+        """Save the generating data of this code to a file.
+
+        The members of each subset are written in sorted order, so that equal codes give equal
+        files.
+        """
         # convert subsets to arrays
-        subset_a = np.array([gen.array_form for gen in self.complex.subset_a])
-        subset_b = np.array([gen.array_form for gen in self.complex.subset_b])
+        subset_a = np.array([gen.array_form for gen in sorted(self.complex.subset_a)])
+        subset_b = np.array([gen.array_form for gen in sorted(self.complex.subset_b)])
 
         # create save directory if necessary
         save_dir = os.path.dirname(os.path.abspath(path))

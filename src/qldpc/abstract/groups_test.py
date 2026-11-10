@@ -421,6 +421,24 @@ def test_members_on_other_numbers_of_points() -> None:
     assert sympy.combinatorics.Permutation(0, 1) in abstract.SymmetricGroup(3)
 
 
+def test_member_order() -> None:
+    """Group members are ordered lexicographically, read on the same number of points."""
+    # on the same number of points, the order is that of SymPy ranks
+    members = [abstract.GroupMember(list(perm)) for perm in itertools.permutations(range(4))]
+    random.Random(0).shuffle(members)
+    assert sorted(members) == sorted(members, key=lambda member: member.rank())
+
+    # a permutation on fewer points reads as one with extra fixed points
+    swap, padded_swap = abstract.GroupMember([1, 0]), abstract.GroupMember([1, 0, 2])
+    assert not swap < padded_swap and not padded_swap < swap
+    assert abstract.GroupMember([0, 2, 1]) < swap < abstract.GroupMember([1, 2, 0])
+
+    # the identity of the trivial group, on no points, can be compared
+    identity = next(abstract.TrivialGroup().generate())
+    assert identity.size == 0
+    assert not identity < abstract.GroupMember() and identity < swap
+
+
 def test_group_product() -> None:
     """Direct product of groups."""
     cycle = abstract.CyclicGroup(2)

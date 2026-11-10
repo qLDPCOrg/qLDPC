@@ -55,6 +55,18 @@ def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> 
     with pytest.raises(ValueError, match="Path does not exist"):
         codes.QTCode.load(str(tmp_path / "missing.txt"))
 
+    # saved subsets are sorted, so that equal codes give equal files in every Python session
+    lines = path.read_text().splitlines()
+    start_a, start_b, end_b = (
+        lines.index(f"# {name}:") for name in ("subset_a", "subset_b", "code_a.matrix")
+    )
+    for rows, subset in [
+        (lines[start_a + 1 : start_b], code.complex.subset_a),
+        (lines[start_b + 1 : end_b], code.complex.subset_b),
+    ]:
+        members = [abstract.GroupMember(list(map(int, row.split()))) for row in rows]
+        assert members == sorted(subset)
+
 
 def test_quantum_tanner_nonabelian_faces() -> None:
     """QTCode realizes the defining face incidence over a noncommutative group."""
