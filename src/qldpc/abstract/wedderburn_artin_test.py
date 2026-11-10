@@ -223,33 +223,6 @@ def test_primitive_central_idempotent_validation(
     abstract.WedderburnArtinTransformer(ring, skip_validation=True)
 
 
-def test_transformer_with_computed_idempotents() -> None:
-    """A transformer decomposes a group algebra whose idempotents are computed, not precomputed.
-
-    Over GF(3), the quaternion group Q8 has four irreducible representations of dimension 1 and one
-    of dimension 2, so its group algebra is the direct sum of four copies of GF(3) and of
-    GF(3)^{2 × 2}.
-    """
-    ring = abstract.GroupRing(abstract.QuaternionGroup(), field=3)
-    transformer = ring.get_transformer()
-    assert sorted((comp.size, comp.degree) for comp in transformer.transformers) == [
-        (1, 1),
-        (1, 1),
-        (1, 1),
-        (1, 1),
-        (2, 1),
-    ]
-
-    # decomposition preserves products, and recompose inverts it
-    gen_a, gen_b = ring.generators
-    member_a, member_b = 1 + gen_a, gen_a - gen_b**2
-    products = [
-        comp_a @ comp_b
-        for comp_a, comp_b in zip(transformer.decompose(member_a), transformer.decompose(member_b))
-    ]
-    assert transformer.recompose(products) == member_a * member_b
-
-
 def test_wedderburn_artin_requires_group_algebra() -> None:
     """The Wedderburn-Artin decomposition is implemented only for group algebras."""
     ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]), field=3)

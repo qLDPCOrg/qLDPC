@@ -377,36 +377,30 @@ class GroupRing(Ring):
         See `Idempotent (ring theory)
         <https://en.wikipedia.org/wiki/Idempotent_%28ring_theory%29>`_.
 
-        For this ring ``F_q[G]``, this method looks up the idempotents in a table of precomputed
-        ones, or else computes them from sums over the ``F_q``-conjugacy classes of G.  The cost of
-        this computation grows with the orders of the group and the field, and most steeply with the
-        number of simple components.
+        This method looks up the idempotents in a table of precomputed ones, or else computes them.
+        The cost of this computation grows with the order of the group and, most steeply, with the
+        number of simple components.  The idempotents are sorted by their vectors of coefficients
+        (see ``RingMember.to_vector``).
+
+        Raises a ValueError if this ring is not semisimple.
         """
         if not self.is_semisimple:
             raise ValueError("Only semisimple rings have primitive central idempotents")
         if self._idempotents is None:
             from qldpc.external import _groups  # avoid circular import
 
-            known_idempotents = _groups.get_known_primitive_central_idempotents(
-                self.group.to_gap_group(), self.field.order
-            )
-            if known_idempotents is None:
-                self._idempotents = _get_primitive_central_idempotents(self)
+            # look up the idempotents, or else compute them
+            key = (self.group.to_gap_group(), self.field.order)
+            if (known_idempotents := _groups.KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS.get(key)) is None:
+                idempotents = _get_primitive_central_idempotents(self)
             else:
-                idempotents = []
-                for idempotent in known_idempotents:
-                    # collect terms, coercing cycles into elements of self.group
-                    terms = [
-                        (
-                            self.field(coefficient),
-                            GroupMember(cycles) * self.group.identity
-                            if cycles != ((),)  # the empty cycle needs special treatment
-                            else self.group.identity,
-                        )
-                        for coefficient, cycles in idempotent
-                    ]
-                    idempotents.append(RingMember._from_trusted_terms(self, terms))
-                self._idempotents = tuple(idempotents)
+                idempotents = tuple(
+                    RingMember(self, *((coeff, GroupMember(cycles)) for coeff, cycles in terms))
+                    for terms in known_idempotents
+                )
+            self._idempotents = tuple(
+                sorted(idempotents, key=lambda idempotent: idempotent.to_vector().tolist())
+            )
         return self._idempotents
 
     def eval(
@@ -551,11 +545,11 @@ class GroupRing(Ring):
 def _get_primitive_central_idempotents(ring: GroupRing) -> tuple[RingMember, ...]:
     """Compute the primitive central idempotents of a semisimple group algebra ``F_q[G]``.
 
-    Every primitive central idempotent (PCI) of ``F_q[G]`` lies in the subalgebra B of central
-    members z with ``z^q = z``.  By the Witt-Berman theorem, a basis of B consists of the sums over
-    the ``F_q``-conjugacy classes of G, in which g and h are equivalent if ``h = y g^(q^i) y^{-1}``
-    for some ``y ∈ G`` and integer i.  If there are n of these classes, then B is isomorphic to a
-    product of n copies of ``F_q``, and its n PCIs are those of ``F_q[G]``.
+    Members g and h of G are ``F_q``-conjugate if ``h = y·g^(q^i)·y^(-1)`` for some ``y ∈ G`` and
+    integer ``i ≥ 0``.  By the Witt-Berman theorem, the sums over these ``F_q``-conjugacy classes
+    form a basis of the subalgebra B of central members z with ``z^q = z``.  If there are n of these
+    classes, then B is isomorphic to a product of n copies of ``F_q``.  Every primitive central
+    idempotent (PCI) of ``F_q[G]`` lies in B, so the n PCIs of B are those of ``F_q[G]``.
 
     This function splits the identity of B into orthogonal idempotents until there are n of them.
     Each split takes a random member b of B and an idempotent e found so far.  The minimal
@@ -564,11 +558,14 @@ def _get_primitive_central_idempotents(ring: GroupRing) -> tuple[RingMember, ...
 
         ``e_λ = (m(x) / (x - λ)) / m'(λ)``,  evaluated at ``x = b·e``, where ``x^0 = e``.
 
-    The PCIs do not depend on the random choices.  They are sorted by their vectors of coefficients.
+    The PCIs do not depend on the random choices, but their order does.
     """
-    # This function works with arrays of permutations and labels of classes, rather than with
-    # Group.index, Group.table, adjoint lifts, or products of RingMembers, whose time or memory grow
-    # with the square or cube of the order of G.
+    assert ring.is_semisimple
+
+    # This function computes with integer arrays of permutations, rather than with SymPy
+    # permutations, products of RingMembers, or tables with |G| × |G| entries, such as Group.table
+    # and adjoint lifts.  Its largest arrays have |G| × d entries, where d is the number of points
+    # that G acts on, and n × |G| entries.
 
     # index members of G by their permutations, in the order of the coefficients of ring members
     group, field = ring.group, ring.field
@@ -580,18 +577,18 @@ def _get_primitive_central_idempotents(ring: GroupRing) -> tuple[RingMember, ...
         return np.array([member_index[perm.tobytes()] for perm in perms_to_find], dtype=int)
 
     # raise every member g to the power q by repeated squaring, composing members as
-    # (a * b)[i] = b[a[i]]
-    powers = np.broadcast_to(np.arange(group.degree, dtype=int), perms.shape)
+    # (a·b)[i] = b[a[i]]
+    qth_powers = np.broadcast_to(np.arange(group.degree, dtype=int), perms.shape)
     squares, exponent = perms, field.order
     while exponent:
         if exponent % 2:
-            powers = np.take_along_axis(squares, powers, axis=1)
+            qth_powers = np.take_along_axis(squares, qth_powers, axis=1)
         squares = np.take_along_axis(squares, squares, axis=1)
         exponent //= 2
 
     # identify F_q-conjugacy classes as the connected components of a graph that joins each member g
     # to g^q and to its conjugates by the generators of G
-    neighbors = [get_indices(powers)]
+    neighbors = [get_indices(qth_powers)]
     for generator in group.generators:
         generator_array = np.array(generator.array_form, dtype=int)
         conjugates = np.argsort(generator_array)[perms[:, generator_array]]
@@ -607,7 +604,7 @@ def _get_primitive_central_idempotents(ring: GroupRing) -> tuple[RingMember, ...
     representatives = [np.flatnonzero(class_of == label)[0] for label in range(num_classes)]
 
     # Members of B are vectors of coefficients on class sums.  The coefficient of a product x·y on
-    # the class of a member r is the sum over g ∈ G of x(class of r g^{-1}) y(class of g).
+    # the class of a member r is the sum over g ∈ G of x(class of r·g^(-1))·y(class of g).
     product_classes = class_of[
         np.array([get_indices(inverses[:, perms[rep]]) for rep in representatives])
     ]
@@ -626,20 +623,17 @@ def _get_primitive_central_idempotents(ring: GroupRing) -> tuple[RingMember, ...
         for idempotent in idempotents:
             element = multiply(random_member, idempotent)
             minimal_poly, element_powers = _get_minimal_polynomial(element, idempotent, multiply)
-            roots = minimal_poly.roots()
-            # B is a product of copies of F_q, so the roots are distinct and lie in F_q
-            assert len(roots) == minimal_poly.degree
+            # B is a product of copies of F_q, so m(x) is a product of distinct factors x - λ, which
+            # equal-degree factorization finds faster than a search over F_q for roots
             derivative = minimal_poly.derivative()
-            for root in roots:
-                quotient = minimal_poly // galois.Poly([1, -root], field=field)
+            for factor in minimal_poly.equal_degree_factors(1):
+                root = -factor.coeffs[-1]
+                quotient = minimal_poly // factor
                 new_idempotents.append(quotient.coeffs[::-1] / derivative(root) @ element_powers)
         idempotents = new_idempotents
 
-    # expand idempotents into coefficients on members of G, and sort them
-    vectors = sorted(
-        (idempotent[class_of] for idempotent in idempotents), key=lambda vector: vector.tolist()
-    )
-    return tuple(RingMember.from_vector(vector, ring) for vector in vectors)
+    # expand idempotents into coefficients on members of G
+    return tuple(RingMember.from_vector(idempotent[class_of], ring) for idempotent in idempotents)
 
 
 def _get_minimal_polynomial(

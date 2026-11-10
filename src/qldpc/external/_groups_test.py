@@ -332,10 +332,3 @@ def test_get_small_group_structure() -> None:
     ):
         structure = f"SmallGroup({order},{index})"
         assert _groups.get_small_group_structure(order, index) == structure
-
-
-def test_idempotents() -> None:
-    """Look up known primitive central idempotents of a group algebra."""
-    (group, field_order), pcis = next(iter(_groups._KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS.items()))
-    assert _groups.get_known_primitive_central_idempotents(group, field_order) == pcis
-    assert _groups.get_known_primitive_central_idempotents("unknown_group", field_order) is None
