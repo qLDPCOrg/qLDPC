@@ -8,7 +8,8 @@ caches.  :class:`SearchTuning` collects the values that tune a search, from the 
 choose a route to the coefficients of cost models and the sizes of batches.  The page
 :doc:`/exact_search_tuning` of the documentation maps routes and symptoms to these values.  Section
 4.4 of ``brouwer_zimmermann.md`` says where each heuristic of a Brouwer-Zimmermann search uses them,
-and Section 3.5 of ``connected_support.md`` where the connected-support search uses its field.
+and Sections 3.5 and 3.8 of ``connected_support.md`` where the connected-support searches use
+theirs.
 
 This module is private.  Its names, fields, and defaults can change in any release, without a
 deprecation period or any other warning, so code that uses it should pin the exact version of
@@ -24,6 +25,8 @@ What tuning can and cannot change:
   nontrivial word that it finds at or below ``cutoff``, and which word comes first depends on
   tuning.  The result is still an upper bound between the distance and ``cutoff``, as documented by
   :func:`~qldpc.codes.distance.get_distance_quantum`.
+- A query of ``CosetLeaderSearch`` gives the same answer and lower bound under every tuning, but the
+  error that it returns can depend on tuning.
 - Codes and counters remember their results, and some intermediate results are cached for the whole
   process (see ``BINOMIAL_CACHE_SIZE``, ``CSS_SEARCH_CACHE_SIZE``, ``KRAWTCHOUK_CACHE_SIZE``,
   ``LOCAL_CLIFFORD_CACHE_SIZE``, and ``PAULI_SEARCH_CACHE_SIZE``), so a later search with another
@@ -293,18 +296,21 @@ class SearchTuning:
 
     #: A ``CosetLeaderSearch`` with the connected-support method makes its checks sparser in up to
     #: this many rounds, each of which row-reduces them in a random order of the columns and keeps
-    #: the light rows (Section 3.8 of ``connected_support.md``).  Raising it can make the checks
-    #: sparser, and the queries faster, at the cost of building the oracle; zero keeps the rows of
-    #: the greedy pairwise reduction.  Defaults to 1000, chosen by hand: on the state ``|0⟩`` of the
-    #: [[232, 62, 12]] pair-partition code, the mean weight of the checks stops falling near there.
-    #: To retune it, time the queries of a certification against the time to build its oracle.
+    #: the light rows (Section 3.8 of ``connected_support.md``).  Raising it can make the queries
+    #: faster, at the cost of building the oracle; zero only adds checks to each other while that
+    #: makes them lighter, and ``MAX_VALUE`` leaves the rounds to
+    #: ``sparsifying_rounds_without_improvement``.  Defaults to 1000, chosen by hand: the mean
+    #: weight of the checks of the state ``|0⟩`` of the [[232, 62, 12]] pair-partition code stops
+    #: falling near there.  To retune it, time a certification's queries and the building of its
+    #: oracle.
     max_sparsifying_rounds: int = 1000
 
     #: Making checks sparser stops early after this many rounds in a row that leave the total
     #: weight of the checks unchanged (see ``max_sparsifying_rounds``).  Raising it spends more
-    #: rounds on checks that rarely get lighter; zero stops after the first round.  Defaults to 200,
-    #: chosen by hand from the rounds between improvements on the codes of
-    #: ``experiments/connected_support_distance/benchmark.py``.  To retune it, record those rounds.
+    #: rounds on checks that rarely get lighter; zero stops after the first round, and ``MAX_VALUE``
+    #: never stops early.  Defaults to 200, chosen by hand from the rounds between improvements on
+    #: the pair-partition codes of ``experiments/connected_support_distance/benchmark.py``.  To
+    #: retune it, record the rounds between improvements.
     sparsifying_rounds_without_improvement: int = 200
 
     # Fields of completion tables.

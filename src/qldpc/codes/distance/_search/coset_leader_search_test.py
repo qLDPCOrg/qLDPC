@@ -1174,22 +1174,27 @@ def test_sparser_rows_span_the_same_space(pytestconfig: pytest.Config) -> None:
 
 
 def test_rounds_of_random_reductions_make_rows_sparser() -> None:
-    """On rows that adding pairs of rows leaves heavier than their lightest basis, rounds reach it.
+    """Rounds reach the lightest basis of rows that adding rows to each other leaves heavier.
 
-    The lightest basis of the span, by the number of qubits of each row, weighs 6 in total: the
-    greedy algorithm for matroids over all seven nonzero words of the span finds it.
+    The seven nonzero words of the span of these Paulis on five qubits act on 2, 5, 4, 5, 5, 5, and
+    4 qubits, so their lightest basis weighs 2 + 4 + 4 = 10 in total.  No sum of two rows is lighter
+    than a row, so zero rounds keep the given rows, of total weight 11.
     """
     matrix = np.array(
-        [[1, 0, 0, 0, 0, 0, 0, 0], [0, 1, 0, 0, 1, 0, 0, 0], [1, 1, 1, 0, 1, 1, 1, 1]],
+        [
+            [0, 1, 0, 0, 0, 0, 0, 1, 0, 0],
+            [0, 0, 1, 1, 0, 1, 1, 1, 1, 1],
+            [1, 1, 0, 0, 1, 0, 1, 0, 1, 0],
+        ],
         dtype=np.uint8,
     )
-    for max_rounds, total_weight in [(0, 7), (20, 6)]:
+    for max_rounds, total_weight in [(0, 11), (20, 10)]:
         rows, transform = coset_leader_search._get_sparser_rows(
             matrix, homogeneous=False, max_rounds=max_rounds, rounds_without_improvement=20
         )
         assert np.array_equal(transform @ matrix % 2, rows)
         assert len(row_reduce_binary(transform)[2]) == len(matrix)
-        assert coset_leader_search._get_row_weights(rows, False).sum() == total_weight
+        assert (rows[:, :5] | rows[:, 5:]).sum() == total_weight
 
 
 def test_connected_support_rejects_what_it_cannot_search() -> None:

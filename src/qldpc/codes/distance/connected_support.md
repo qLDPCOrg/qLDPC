@@ -285,19 +285,23 @@ The CSS weight `max(|x|, |z|)` is not a sum over qubits, so for it, on a CSS sta
 The search is fast only if its checks are sparse.
 But the stabilizers that certification passes are row-reduced, and so are the X and Z parts that `CosetLeaderSearch` searches for the CSS weight.
 So a search first replaces its checks with sparser ones that span the same space, and maps the syndrome of each query to them.
-The sparsest such checks are a lightest basis, which the greedy algorithm for matroids would find by taking, again and again, the lightest stabilizer outside the span of those taken so far.
-But each step is a search for a light word with the dense checks, whose cost grows quickly with the weight.
-So a search takes its candidates from row reductions instead.
+The sparsest such checks are a lightest basis, which the greedy algorithm for matroids would find by taking, again and again, the lightest word of the span outside the span of those taken so far.
+But each step would be an exact search for a light word of the span, whose cost grows quickly with its weight, so a search takes its candidates from row reductions instead.
 It first adds its checks to each other while that makes them lighter.
-Then each round row-reduces the given checks with pivots in a random order of the columns, which gives rows that vanish on every pivot column but their own.
-A light stabilizer is such a row whenever the order makes its own pivot the only one in its support, and the lightest rows of a round join the checks as candidates.
+Then each round row-reduces the given checks with pivots in a random order of the columns, which gives the words of the span that have exactly one pivot column in their support.
+Those that are lighter than the heaviest check join the checks as candidates.
 After each round, the greedy algorithm for matroids keeps the lightest independent candidates, so the total weight of the checks never rises.
-The rounds stop after `max_sparsifying_rounds`, or once `sparsifying_rounds_without_improvement` rounds in a row have left the total weight unchanged, two fields of `SearchTuning`.
+The rounds stop after `max_sparsifying_rounds`, or once `sparsifying_rounds_without_improvement` rounds in a row have left the total weight unchanged.
+Both limits are fields of `SearchTuning`.
 A last pass adds the checks to each other again where that helps.
-The rounds are random, with a fixed seed: any checks with the same span give the same answers, so only the speed of the queries depends on them.
-For the physical weight on the state `|0⟩` of the [[144, 12, 12]] bivariate bicycle code, this lowers the mean weight of the stabilizers from 26 to 6.5, the least possible, since 132 of them can be checks of the code, of weight 6, and the other 12 lie outside its stabilizer group, and so weigh at least 12.
-On the [[232, 62, 12]] pair-partition code, it lowers it from 54 to 9.1, while the checks of the code weigh 8.
-On longer codes of higher rate, a round rarely makes a light stabilizer one of its rows, and the checks stay much heavier than those of the code: on the [[944, 478, 20]] code, whose checks weigh 16, the mean stays near 60.
+Checks with the same span give the same answers and bounds, though a query can return another error, so the random orders change mostly the speed of the queries.
+A fixed seed makes the checks reproducible.
+For the physical weight on the state `|0⟩` of the [[144, 12, 12]] bivariate bicycle code, this lowers the mean weight of the stabilizers from 26 to 6.5, the least possible.
+No stabilizer of the code weighs less than 6, the weight of its checks, and only 132 of the generators can lie in its stabilizer group.
+The other 12 are logical operators, so they weigh at least the distance, 12.
+On the [[232, 62, 12]] pair-partition code, it lowers the mean weight from 54 to 9.1, while the checks of the code weigh 8.
+On longer codes of higher rate, a round rarely makes a light word one of its rows, and the checks stay much heavier than those of the code.
+On the [[944, 478, 20]] pair-partition code, whose checks weigh 16, it lowers the mean weight from 177 only to about 60.
 
 A search first looks up the syndrome in a table of the syndromes of the vectors of weight at most 1, and searches only syndromes that the table lacks, which have no vector of weight below 2.
 A syndrome in the table gets the weight of its vector as the lower bound.
@@ -372,8 +376,8 @@ Changes to the search can use other bounds and orders, while keeping these requi
   A lower bound of 2 needs the syndrome to be missing from a table of the syndromes of every vector of weight at most 1, and a lower bound above a limit needs a complete search at that limit ([Section 3.8](#38-vectors-with-a-given-syndrome)).
   A consumer that raises its limit to each bound would silently get wrong weights from a bound above the minimum, so the tests compare the exact bounds with brute force.
 - **Keep the span of the checks of a coset query.**
-  Sparser checks must span the same space as the given ones, with an invertible transform that maps each syndrome to them, or the query would search other cosets.
-  How sparse they are changes only the speed of the queries.
+  Sparser checks must span the same space as the given ones, with an invertible transform that maps the syndrome of each query to a syndrome for them, or the query would search other cosets ([Section 3.8](#38-vectors-with-a-given-syndrome)).
+  How sparse they are changes only the speed of the queries, and which errors they return.
 - **Return the exact minimum unless a cutoff permits an early exit.**
   The weights of the limits rise one divisor at a time, so that the first witness is the lightest.
   An early exit returns the weight of a known witness, which is an upper bound.

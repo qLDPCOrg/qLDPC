@@ -682,7 +682,7 @@ For a high-level explanation, see Sections [2](#2-the-brouwer-zimmermann-algorit
 This section is a guide to the source files in this directory.
 It connects the concepts of Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations) to modules, identifiers, and behavior that spans files.
 The thresholds, limits, and coefficients of the heuristics are fields of `SearchTuning` in [_tuning.py](_tuning.py), whose comments give their meanings and defaults and say how each was chosen, and [Section 4.4](#44-heuristics-and-cost-models) says where each is used.
-Section 3.5 of [connected_support.md](connected_support.md) describes the field of the connected-support search.
+Sections 3.5 and 3.8 of [connected_support.md](connected_support.md) describe the fields of the connected-support searches.
 
 ### 4.1 Module map and layering
 
