@@ -190,8 +190,8 @@ def compute_exact_distance(path: pathlib.Path, time_limit: float) -> tuple[int |
         duration of the computation in seconds.
 
     Raises:
-        RuntimeError: If the child process fails, with its error output, or if it prints no
-            distance, with all of its output.
+        RuntimeError: If the child process fails or prints no distance.  The message includes the
+            error output of the child process, or all of its output if it printed no distance.
     """
     start = time.perf_counter()
     command = [sys.executable, __file__, "--code-file", str(path)]

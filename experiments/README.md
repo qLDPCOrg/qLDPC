@@ -105,7 +105,7 @@ The search differs from that work in four ways:
 - The dimensions of paired local codes need not add up to their block length, whereas they do in arXiv:2508.05095.
 - Random local codes come from `codes.ClassicalCode.random`, which draws parity check matrices without zero rows or columns, possibly of less than full rank.
   In contrast, arXiv:2508.05095 draws codes with generator matrices in systematic form.
-  Few small matrices have no zero rows or columns, so small random codes often coincide.
+  Small sizes allow few parity check matrices without zero rows or columns, so small random codes often coincide.
   For example, every code `Random-3-1-{i}` is the same, since `[[1, 1, 1]]` is the only parity check matrix with 1 row, 3 columns, and no zero rows or columns.
 
 For each group, pair of local codes, and complex, the search enumerates all pairs of symmetric subsets of the required sizes if there are at most `--num-samples` of them.
