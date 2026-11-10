@@ -305,7 +305,7 @@ def test_primitive_central_idempotents(ring_cyclic3_gf2: abstract.GroupRing) -> 
 
 
 @pytest.mark.parametrize(
-    "group, field", [(abstract.QuaternionGroup(), 3), (abstract.CyclicGroup(5), 4)]
+    "group, field", [(abstract.DihedralGroup(3), 7), (abstract.CyclicGroup(5), 4)]
 )
 def test_computed_primitive_central_idempotents(group: abstract.Group, field: int) -> None:
     """Computed idempotents are nonzero, central, orthogonal, and sum to one.
