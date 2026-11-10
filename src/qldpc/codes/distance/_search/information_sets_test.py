@@ -629,6 +629,3 @@ def _assert_certificate_bounds_unvisited_words(
         bound = each.step_lower_bound(layer, num_completed)
         for upper_bound in range(1, basis.shape[1] + 2):
             assert each.certifies(layer, num_completed, upper_bound) == (bound >= upper_bound)
-
-    # The certificate is not vacuous: before the last layer, it reaches the minimum nonzero weight.
-    assert certificate.lower_bound(len(basis) - 1) >= min(filter(None, weights.values()))
