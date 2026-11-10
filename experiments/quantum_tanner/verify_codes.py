@@ -3,9 +3,9 @@
 
 """Verify the reproducibility of saved quantum Tanner codes.
 
-This script regenerates every code saved by run_search.py from the group, base code, and seed in its
+This script regenerates every code saved by run_search.py from the specification and seed in its
 file name, and checks that the regenerated code equals the saved code.  It reports every code that
-fails this check or cannot be loaded, and exits with an error if there are any.
+fails this check, or cannot be loaded or regenerated, and exits with an error if there are any.
 
 Example:
     python experiments/quantum_tanner/verify_codes.py
@@ -16,9 +16,9 @@ from __future__ import annotations
 import argparse
 import pathlib
 
-import run_search as search
+import saved_codes
 
-from qldpc import abstract, codes
+from qldpc import codes
 
 ####################################################################################################
 # command-line interface
@@ -27,7 +27,7 @@ from qldpc import abstract, codes
 def main() -> None:
     """Check that all saved quantum Tanner codes can be regenerated from their seeds."""
     args = parse_args()
-    paths = search.get_saved_code_paths(args.results_dir / search.CODES_NAME)
+    paths = saved_codes.get_saved_code_paths(args.results_dir / saved_codes.CODES_NAME)
 
     failed_paths = []
     for index, path in enumerate(paths, start=1):
@@ -45,7 +45,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    search.add_results_dir_argument(parser)
+    saved_codes.add_results_dir_argument(parser)
     return parser.parse_args()
 
 
@@ -56,7 +56,8 @@ def parse_args() -> argparse.Namespace:
 def get_verification_problem(path: pathlib.Path) -> str | None:
     """Say why a saved quantum Tanner code fails verification, or return None if it passes.
 
-    A saved code passes if it can be loaded, and if regenerating it from its seed reproduces it.
+    A saved code passes if it can be loaded, and if regenerating it from its specification and seed
+    reproduces it.
     """
     # load the saved code, which fails if its file is truncated or malformed
     try:
@@ -65,10 +66,12 @@ def get_verification_problem(path: pathlib.Path) -> str | None:
         return f"Saved code cannot be loaded ({error!r})"
 
     # regenerate the code from its seed, and compare
-    group_order, group_index, base_code_id, seed = search.parse_code_path(path)
-    group = abstract.SmallGroup(group_order, group_index)
-    base_code = search.get_base_code(base_code_id)
-    if codes.QTCode.random(group, base_code, seed=seed) != saved_code:
+    spec, seed = saved_codes.parse_code_path(path)
+    try:
+        regenerated_code = spec.build(seed)
+    except ValueError as error:
+        return f"Saved code cannot be regenerated ({error!r})"
+    if regenerated_code != saved_code:
         return "Saved code does not match its regenerated version"
     return None
 

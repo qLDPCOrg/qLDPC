@@ -6,12 +6,12 @@ They are not part of the installed `qldpc` package, and the test suite does not 
 | Directory | What it does | Entry points |
 | --- | --- | --- |
 | [`bivariate_bicycle/`](bivariate_bicycle/) | Brute-force search for bivariate bicycle codes with toric layouts | `run_search.py`, then `collect_results.py` |
-| [`quantum_tanner/`](quantum_tanner/) | Randomized search for quantum Tanner codes | `run_search.py`, then `collect_results.py` and `verify_codes.py` |
+| [`quantum_tanner/`](quantum_tanner/) | Randomized search for quantum Tanner codes | `run_search.py`, then `compute_distances.py`, `collect_results.py`, and `verify_codes.py` |
 | [`connected_support_distance/`](connected_support_distance/) | Timings of the connected-support and Brouwer–Zimmermann exact distance searches on pair-partition and other codes | `benchmark.py` |
 | [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#lattice-surgery)) | `collect_ler.py` |
 
 Each script's module docstring summarizes its method and outputs; run it with `--help` to see its options.
-The quantum Tanner `run_search.py` and `verify_codes.py` require [GAP](https://www.gap-system.org) for their groups (the SmallGroups library) and Cordaro–Wagner base codes (the GUAVA package), whereas `collect_results.py` only reads saved files.
+The quantum Tanner `run_search.py` and `verify_codes.py` require [GAP](https://www.gap-system.org) for groups in the SmallGroups library and for Cordaro–Wagner base codes (the GUAVA package), whereas `compute_distances.py` and `collect_results.py` only read saved files.
 Both code searches bound distances with the default backend of `get_distance_bound`, which uses `sqetch` if installed, then GAP's QDistRnd package if available, and a decoder-based method otherwise.
 See the [GAP integration instructions](../docs/source/installation.rst#gap-integration) to set up GAP, for example with `pip install 'qldpc[gap]'`.
 Commands below are written relative to the repository root.
@@ -25,7 +25,7 @@ Each results directory holds a CSV summary, together with the resumable intermed
 | Experiment | Intermediate data | CSV summary |
 | --- | --- | --- |
 | Bivariate bicycle | `results/cache/`: disk cache of code parameters | `results/codes.csv`: codes with `k d^2 / n > 1` |
-| Quantum Tanner | `results/codes/`: one text file per saved code | `results/codes.csv`: parameters of every saved code with `k > 0` |
+| Quantum Tanner | `results/codes/`: one text file per saved code; `results/exact_distances.csv`: exact distances | `results/codes.csv`: parameters of every distinct saved code with `k > 0` |
 | Lattice surgery | `results/{preset}_{run_id}_progress.csv`: Sinter progress | `results/{preset}.csv`: sample counts, from which logical error rates follow |
 
 Earlier versions of these scripts saved results beside the scripts instead, where Git no longer ignores them.
@@ -72,33 +72,56 @@ python experiments/bivariate_bicycle/collect_results.py --num-trials 10 --result
 ## Quantum Tanner codes
 
 [`quantum_tanner/`](quantum_tanner/) performs a randomized search over small quantum Tanner codes, which [arXiv:2202.13641](https://arxiv.org/abs/2202.13641) introduced.
-The search builds codes from small finite groups and small classical base codes.
+The search builds codes from finite groups and pairs of classical local codes.
 It constructs each code with `codes.QTCode.random`, which draws two random symmetric subsets of a group, that is, subsets closed under inverses.
-Both subsets have the block length of the base code as their size.
-The base code is the local code on one subset, and its dual code is the local code on the other.
-The codes live on the quadripartite Cayley complex of [arXiv:2206.07571](https://arxiv.org/abs/2206.07571), the default of `codes.QTCode.random`.
-This complex is built on four copies of the group, so the subsets need not satisfy the conditions of the bipartite complex of arXiv:2202.13641.
+The sizes of the subsets are the block lengths of the two local codes, and each local code constrains the qubits around one subset.
 See the docstrings of `codes.QTCode` and `objects.CayleyComplex` for the construction.
+
+The options of `run_search.py` choose the groups, the local codes, and the complex on which the codes live:
+
+- `--groups` chooses between all groups of order at most `--max-order` in the SmallGroups library (the default), and the dihedral groups of order at most `--max-order`.
+  [arXiv:2508.05095](https://arxiv.org/abs/2508.05095) uses dihedral groups for the expansion of their Cayley graphs.
+- `--base-codes` lists the classical base codes, by default the Hamming, Cordaro–Wagner, and "Mittal" codes in `BASE_CODE_IDS`.
+  Identifiers such as `Random-5-3-0` name random codes, here with 5 bits and 3 parity checks; `saved_codes.py` lists all identifiers.
+- `--pairs` chooses the pairs of local codes.
+  By default, each base code is paired with its dual.
+  With `--pairs all`, the pairs are every ordered pair of codes with equal block lengths among the base codes and their duals, as in arXiv:2508.05095.
+- By default, the codes live on the quadripartite Cayley complex of [arXiv:2206.07571](https://arxiv.org/abs/2206.07571).
+  This complex is built on four copies of the group, so the subsets need not satisfy the conditions of the bipartite complex of arXiv:2202.13641.
+  With `--bipartite`, the codes live on the bipartite complex instead, which halves their numbers of qubits.
+  This complex requires the subsets to satisfy the Total No Conjugacy condition, so the search tries up to `MAX_TNC_ATTEMPTS` seeds per sample, and skips a sample if none of them satisfies it.
+
+These choices make it possible to search codes like those of arXiv:2508.05095, with one difference.
+The subsets that `codes.QTCode.random` draws may contain the identity element, which arXiv:2508.05095 excludes.
+For example, a symmetric subset with an odd number of elements contains an element that is its own inverse.
+In a dihedral group of order 2m with odd m, that element can be the identity here, whereas it is a reflection in arXiv:2508.05095.
+Hence the search finds bipartite codes on such groups, which Lemma 3 of arXiv:2508.05095 rules out for subsets without the identity.
 
 `abstract.Group.random_symmetric_subset` does not draw subsets uniformly.
 The frequencies of code parameters in the results therefore reflect this sampler, rather than the fractions of all symmetric subsets that give these parameters.
 Small groups have few symmetric subsets of a given size, so different seeds often draw the same subsets, and thereby the same code.
 With default settings, the search saves 10,913 codes, of which 4,515 are distinct.
 
-1. `run_search.py` samples codes for every group of order at most `--max-order` and every base code in `BASE_CODE_IDS`, and saves each code to a text file in `results/codes/`.
-   Groups with fewer elements than a base code has bits are skipped for that base code, because they cannot define a quantum Tanner code with it.
-   File names identify the group, base code, and random seed of each code.
+1. `run_search.py` samples codes for every group and pair of local codes, and saves each code to a text file in `results/codes/`.
+   Groups that are too small to have subsets of the required sizes are skipped.
+   File names identify the group, local codes, complex, and random seed of each code.
    Codes that already have a file are skipped, even if that file used a different `--num-trials`, unless `--overwrite` is passed.
    Each code is written to a temporary `*.tmp` file and then renamed, so an interrupted search leaves no partial code file.
    Leftover `*.tmp` files are ignored by the other scripts, and overwritten when the search resumes.
    Run one search per results directory at a time.
-2. `collect_results.py` summarizes the parameters of saved codes in `results/codes.csv`, with one row `group_order, group_index, base_code, seed, n, k, d, num_trials, stabilizer_weight` per saved code that has `k > 0`.
-   Here `group_order` and `group_index` identify a group in the SmallGroups library, and `stabilizer_weight` is the maximum weight of a parity check (stabilizer generator) of the code.
-   Codes saved under different seeds can be identical, so the same code can have several rows.
-3. `verify_codes.py` checks that every saved code can be loaded, and that regenerating it from its seed reproduces it.
+2. `compute_distances.py` computes exact distances of the distinct saved codes with `k > 0`, with the connected-support search of `qldpc`, and appends them to `results/exact_distances.csv`.
+   Each computation runs in its own process, which is stopped after `--time-limit` seconds.
+   The script resumes where it left off, and a rerun with a longer `--time-limit` retries the codes that were stopped.
+   This step is optional.
+3. `collect_results.py` summarizes the saved codes in `results/codes.csv`, with one row per distinct code that has `k > 0`.
+   Its columns are `group, group_order, code_a, code_b, complex, seed, num_seeds, n, k, d, d_kind, num_trials, stabilizer_weight`.
+   Here `num_seeds` counts the saved copies of the code, and `stabilizer_weight` is the maximum weight of a parity check (stabilizer generator) of the code.
+   The distance `d` is exact if `d_kind` is `exact`, and otherwise it is the smallest upper bound among the saved copies of the code.
+4. `verify_codes.py` checks that every saved code can be loaded, and that regenerating it from its file name reproduces it.
 
 ```bash
 python experiments/quantum_tanner/run_search.py --workers 8
+python experiments/quantum_tanner/compute_distances.py --workers 8
 python experiments/quantum_tanner/collect_results.py
 python experiments/quantum_tanner/verify_codes.py
 ```
@@ -108,18 +131,30 @@ To try the pipeline cheaply first, write a small search to a new private scratch
 ```bash
 RESULTS=$(mktemp -d)
 python experiments/quantum_tanner/run_search.py --max-order 6 --num-samples 2 --num-trials 10 --results-dir "$RESULTS"
+python experiments/quantum_tanner/compute_distances.py --time-limit 10 --results-dir "$RESULTS"
 python experiments/quantum_tanner/collect_results.py --results-dir "$RESULTS"
 python experiments/quantum_tanner/verify_codes.py --results-dir "$RESULTS"
 ```
 
+A search like that of arXiv:2508.05095 uses dihedral groups, the bipartite complex, and all pairs of random local codes:
+
+```bash
+python experiments/quantum_tanner/run_search.py --groups dihedral --max-order 20 --bipartite --pairs all \
+    --base-codes Random-3-1-0 Random-3-1-1 Random-5-2-0 Random-5-2-1 --workers 8
+```
+
 With default settings, the search covers the 18 groups of order at most 10.
-It samples up to 100 random codes per group and base code, or only one if the base code has as many bits as the group has elements.
-Each code requires a randomized distance estimate with `--num-trials` trials, so a full search can take many CPU-hours.
-Distances `d` are upper bounds.
+It samples up to 100 random codes per group and pair of local codes, or only one if both local codes have as many bits as the group has elements.
+Each code requires a randomized distance bound with `--num-trials` trials, so a full search can take many CPU-hours.
 These bounds are randomized without a seed, so they can differ between runs for the same code.
 `verify_codes.py` does not check them.
-Saved code files record `d` as `nan` for codes with no logical qubits, and `collect_results.py` omits such codes.
-Verification requires `codes.QTCode.random` to sample the same code for the same seed, so codes saved with a different version of `qldpc` may fail verification.
+Saved code files record `d` as `nan` for codes with no logical qubits, and the other scripts skip such codes.
+
+The cost of an exact distance grows rapidly with the distance and the weights of parity checks, and is hard to predict from the number of qubits.
+In a trial on 14 codes from the default search, with up to 490 qubits, the connected-support search found 13 exact distances within 16 seconds each, and ran for more than two minutes on the last.
+Exact distances also showed that randomized bounds can be far from exact, such as a bound of 26 for a code with distance 16.
+
+Verification requires `codes.QTCode.random` to sample the same code for the same seed, and local codes to be constructed in the same way, so codes saved with a different version of `qldpc` may fail verification.
 
 ## Connected-support distance
 
