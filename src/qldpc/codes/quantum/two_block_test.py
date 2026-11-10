@@ -14,6 +14,7 @@ import sympy
 from sympy.abc import x, y
 
 from qldpc import abstract, codes
+from qldpc.abstract.monomials import get_coefficient_and_exponents
 from qldpc.codes.distance._search import automorphism_families
 from qldpc.objects import Node
 
@@ -245,8 +246,8 @@ def test_bivariate_bicycle_codes() -> None:
     assert code.dimension == 8
     for orders, poly_a, poly_b in code.get_equivalent_toric_layout_code_data():
         # assert that the polynomials look like 1 + x + ... and 1 + y + ...
-        exponents_a = [abstract.get_coefficient_and_exponents(term)[1] for term in poly_a.args]
-        exponents_b = [abstract.get_coefficient_and_exponents(term)[1] for term in poly_b.args]
+        exponents_a = [get_coefficient_and_exponents(term)[1] for term in poly_a.args]
+        exponents_b = [get_coefficient_and_exponents(term)[1] for term in poly_b.args]
         assert [] in exponents_a and [(x, 1)] in exponents_a
         assert [] in exponents_b and [(y, 1)] in exponents_b
 

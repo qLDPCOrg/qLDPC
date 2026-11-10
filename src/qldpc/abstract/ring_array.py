@@ -323,10 +323,13 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
 
         In addition to transposing the first two indices of the array, this property "conjugates" or
         "transposes" each array element with the involution of the ring (see ``RingMember.T``).  For
-        a group algebra, this takes group members ``g -> ~g = g**-1``.  This property raises a
-        ValueError for an array over a ring without an involution (see ``Ring.has_involution``).
+        a group algebra, this takes group members ``g -> ~g = g**-1``.  As in numpy, an array with
+        fewer than two dimensions keeps its shape.  This property raises a ValueError for an array
+        over a ring without an involution (see ``Ring.has_involution``).
         """
-        return (~self).transpose(1, 0, *np.arange(2, self.ndim))
+        if self.ndim < 2:
+            return ~self
+        return (~self).transpose(1, 0, *range(2, self.ndim))
 
     @staticmethod
     def build(
@@ -650,16 +653,6 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         - https://github.com/m-webster/XPFpackage/blob/570ea89/Examples/A.1_howell_matrix.ipynb
         """
         return get_howell_normal_form_poly(self)
-
-    def reduced_groebner_basis(self) -> RingArray:
-        """Compute a reduced Groebner basis for this RingArray.
-
-        At least, that's the plan.  This method is not yet implemented.
-        """
-        self._require_ndim(2)
-        raise NotImplementedError(
-            "Computing a reduced Groebner basis is very mathematically involved.  Here be dragons."
-        )
 
     def _require_ndim(self, *ndims: int) -> None:
         """Raise a ValueError unless this RingArray has one of the given numbers of dimensions."""
