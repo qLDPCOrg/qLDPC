@@ -10,8 +10,9 @@ scans, rather than for each layer or query: the packed rows and quotient labels 
 scans, their pivot columns and ranks, the certificate that bounds the Hamming weight of the words
 that it has not yet visited, and the factor that converts these bounds into bounds on the weights
 that the search compares.  A distance search builds another instance when it switches to an
-automorphism family.  Each coset search of ``CosetLeaderSearch`` is built from a coset instance.
-The offsets and stopping step of a coset search depend on the query, so the instance holds neither.
+automorphism family.  Each family with which a coset search of ``CosetLeaderSearch`` answers queries
+has a coset instance (see ``coset_routes.py``).  The offsets and stopping step of a coset search
+depend on the query, so the instance holds neither.
 
 A distance instance packs the rows of each set with its pivot columns deleted, since a scan of a
 space restores their weight arithmetically.  Its certificate is the one that the distance search

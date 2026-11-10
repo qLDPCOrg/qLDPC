@@ -3,7 +3,7 @@
 """Shared fixtures and helpers for exact-distance, binary-algebra, BZ, and count tests."""
 
 import itertools
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from typing import Any, NamedTuple
 
 import galois
@@ -98,6 +98,39 @@ def compilation_mode(
             yield
         finally:
             _compilation.set_on_request_functions_compiled(False)
+
+
+def get_binary_matrix(rows: Iterable[str]) -> npt.NDArray[np.uint8]:
+    """The binary matrix with the given rows of digits."""
+    return np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
+
+
+# Codes whose greedy disjoint packings, in natural column order, leave room for the other families
+# of the routes of coset searches (see ``_search/coset_routes.py``).  The even code has the columns
+# e1, e2, e3, e1 + e2, e1 + e2, and e1 + e2 + e3, so every row has even weight.  Its greedy packing
+# has ranks three and two, and its columns hold two disjoint information sets.  In the random [10,
+# 6] code, a greedy packing of ranks six and three leaves room for one of ranks six and four, and
+# for a family of three overlapping information sets, and queries take each of these at some maximum
+# weights.  In the random [14, 8] code, a greedy packing of ranks eight and six uses every column,
+# and three overlapping information sets do less work for some queries, but not for others.  So its
+# overlapping family depends on the weight at which it is built, and that family changes some
+# answers.
+EVEN_ROUTES_CODE = get_binary_matrix(["100111", "010111", "001001"])
+TWO_FAMILIES_CODE = get_binary_matrix(
+    ["1001010111", "0110001011", "0101111010", "0010111100", "0010100000", "0000100110"]
+)
+OVERLAPPING_ROUTES_CODE = get_binary_matrix(
+    [
+        "01111100111010",
+        "00010010000010",
+        "00010001001101",
+        "11000101110011",
+        "10111001110101",
+        "01000001111111",
+        "00101110110101",
+        "11001001110111",
+    ]
+)
 
 
 def get_random_full_rank_matrix(

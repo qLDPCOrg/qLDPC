@@ -10,12 +10,14 @@ which search a space.  The coset-leader oracle (``CosetLeaderSearch``) answers i
 coset searches, whose offset is a fixed word of the searched coset (see ``_search_coset`` in
 ``coset_leader_search.py``).  This module owns how those basis families are built, pruned, and
 replaced by overlapping ones, and the certificate that bounds the Hamming weight of eligible words
-that a basis family has not yet visited.  The coset searches use the disjoint information sets for
-their own layered search.  The distance, counting, and coset scans all enumerate a layer with
-:func:`advance_support`.  The distance and coset searches plan their steps with :func:`plan_steps`:
-where a search stops, which is the first step whose bound exceeds a limit, and how much work the
-steps up to it take.  A distance search whose certificate solves linear programs instead finds where
-it stops in each layer by checking the steps in order (see ``Certificate.plan``).
+that a basis family has not yet visited.  The coset searches use the disjoint information sets, and
+for costly queries the families of :func:`get_maximum_disjoint_family` and
+:func:`get_overlapping_family` (see ``coset_routes.py``).  The distance, counting, and coset scans
+all enumerate a layer with :func:`advance_support`.  The distance and coset searches plan their
+steps with :func:`plan_steps`: where a search stops, which is the first step whose bound exceeds a
+limit, and how much work the steps up to it take.  A distance search whose certificate solves linear
+programs instead finds where it stops in each layer by checking the steps in order (see
+``Certificate.plan``).
 
 A :class:`BasisFamily` stacks its information sets into arrays, so that one set of functions serves
 every caller, in the subset of Python that numba compiles, and some of them are compiled (see
@@ -514,8 +516,9 @@ def get_overlapping_family_policy(
     """The arguments of stage three after ``upper_bound``, from ``max_sets`` on, for a search.
 
     They are the limit, the minimum work, and the attempts of ``tuning``, the capped binomials of
-    the dimension, and a new generator with a fixed seed, so that every search, distance or count,
-    chooses the same replacement for the same basis family and tuning.
+    the dimension, and a new generator with a fixed seed.  So every search, of the distance, of the
+    counts, or of cosets (see ``coset_routes.py``), chooses the same replacement for the same basis
+    family and tuning.
     """
     return (
         tuning.max_information_sets,
@@ -678,7 +681,9 @@ def _get_no_replacement(
 ) -> BasisFamily:
     """A family of no sets, for when no better family is found.
 
-    Stages three and four return it, and so does ``get_maximum_disjoint_family``.
+    Stages three and four return it, and so does ``get_maximum_disjoint_family``.  The distance
+    search and the counts then keep their basis family, and the routes of coset searches (see
+    ``coset_routes.py``) leave the family out of their candidates.
     """
     dimension = basis.shape[0]
     return BasisFamily(

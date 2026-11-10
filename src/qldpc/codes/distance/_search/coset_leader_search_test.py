@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import inspect
 import itertools
 from collections.abc import Sequence
 from math import comb
@@ -18,8 +19,13 @@ from qldpc import math
 from qldpc._binary import get_kernel, pack_bits, row_reduce_binary, unpack_bits
 
 from ...conftest import Tune
-from .._tuning import DEFAULT_TUNING, use_tuning
-from ..conftest import get_random_full_rank_matrix
+from .._tuning import DEFAULT_TUNING, MAX_VALUE, get_tuning, use_tuning
+from ..conftest import (
+    EVEN_ROUTES_CODE,
+    OVERLAPPING_ROUTES_CODE,
+    TWO_FAMILIES_CODE,
+    get_random_full_rank_matrix,
+)
 from . import affine_instance, coset_leader_search, information_sets
 from .coset_leader_search import CosetLeaderSearch, MinWeightBound
 
@@ -100,6 +106,19 @@ _BLOCK_CASES = pytest.mark.parametrize(
     [(_GHZ_BLOCK, False), (_GHZ_BLOCK, True), (_PHASED_GHZ_BLOCK, True)],
     ids=["ghz-physical", "ghz-css", "phased-ghz-css"],
 )
+
+
+# Graph states whose searches of Pauli errors, by physical and by CSS weight, have a maximum
+# disjoint family with more information sets, or a larger partial set, than their greedy packing,
+# which their costly queries take (see ``coset_routes``).  The family of the first state for the
+# physical weight has more information sets, and those of the other two states have a larger partial
+# set.  The two states for the physical weight differ in the answers that this family changes.  On
+# the second, it returns other errors for some classes without a light enough error.
+_ROUTED_PHYSICAL_STATES = (
+    _graph_state(5, [(0, 3), (1, 2), (1, 3), (1, 4)], phase=True),
+    _graph_state(5, [(0, 4), (2, 3)]),
+)
+_ROUTED_CSS_WEIGHT_STATE = _graph_state(5, [(0, 1), (0, 4), (1, 4)])
 
 
 def _find_each_not_within_max_weight(
@@ -698,7 +717,7 @@ def test_cached_searches_answer_only_for_their_stabilizer_group(
 
 
 def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An oracle builds its searches with the column orders of the tuning in force when it is built.
+    """An oracle builds its searches with the tuning in force, keyed by the fields that they read.
 
     The searches are cached, and the column orders key the cache.  So the first oracle built under
     some orders builds searches of its own with them, and a second oracle built under the same
@@ -707,7 +726,9 @@ def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.Mo
     |000+++>, whose two classical searches are cached by stabilizer group, and a two-qubit graph
     state with phases, which is not CSS, so its search of Pauli errors is cached by stabilizers.
     Every oracle answers exactly.  The caches are cleared first, since earlier tests may have filled
-    them.
+    them.  Only a search of Pauli errors by CSS weight reads ``max_css_single_pairs``, so the
+    classical searches, and a search of Pauli errors by physical weight, are shared by oracles built
+    under different values of it, and a search of Pauli errors by CSS weight is not.
     """
     orders: list[int] = []
     get_disjoint_family = information_sets.get_disjoint_family
@@ -732,6 +753,102 @@ def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.Mo
             assert not orders
         for oracle in (first, second):
             _assert_exact_answers(oracle, matrix, True)
+    for matrix, css_weight in ((zero_plus, True), (phased, False), (phased, True)):
+        CosetLeaderSearch(matrix, css_weight=css_weight)
+        orders.clear()
+        with use_tuning(max_css_single_pairs=0):
+            CosetLeaderSearch(matrix, css_weight=css_weight)
+        assert bool(orders) == (matrix is phased and css_weight)
+
+
+def test_oracles_build_other_families_with_the_tuning_they_are_built_with(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A costly query builds an overlapping family with the tuning of the oracle that answers it.
+
+    With the threshold of the gate at zero, the first query that searches builds the other families
+    of the search (see ``coset_routes``).  The most sets of the overlapping family and the column
+    orders that it tries for each set reach ``information_sets.get_overlapping_family``, which the
+    test wraps to record them.  They are those of the tuning in force when the oracle was built,
+    not when it answers.
+    """
+    calls: list[tuple[int, int]] = []
+    get_overlapping_family = information_sets.get_overlapping_family
+    signature = inspect.signature(get_overlapping_family)
+
+    def record(*args: Any, **kwargs: Any) -> information_sets.BasisFamily:
+        arguments = signature.bind(*args, **kwargs).arguments
+        calls.append((arguments["max_sets"], arguments["attempts_per_set"]))
+        return get_overlapping_family(*args, **kwargs)
+
+    monkeypatch.setattr(information_sets, "get_overlapping_family", record)
+    coset_leader_search._get_pauli_search.cache_clear()
+    with use_tuning(
+        overlapping_minimum_work=0, max_information_sets=5, overlapping_attempts_per_set=3
+    ):
+        oracle = CosetLeaderSearch(_ROUTED_PHYSICAL_STATES[1])
+    for syndrome in range(1 << 5):
+        oracle.get_min_weight_bound(syndrome, 2)
+    assert calls == [(5, 3)]
+
+
+def test_connected_support_oracles_make_checks_sparser_with_their_tuning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A connected-support oracle makes its checks sparser in the rounds of its tuning.
+
+    The most rounds and the rounds without improvement of the tuning in force when the oracle is
+    built reach ``_get_sparser_rows``, which the test wraps to record them.  The state is a graph
+    state with phases, which is not CSS, so the oracle has one search of Pauli errors.
+    """
+    calls: list[tuple[int, int]] = []
+    get_sparser_rows = coset_leader_search._get_sparser_rows
+    signature = inspect.signature(get_sparser_rows)
+
+    def record(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
+        arguments = signature.bind(*args, **kwargs).arguments
+        calls.append((arguments["max_rounds"], arguments["rounds_without_improvement"]))
+        return get_sparser_rows(*args, **kwargs)
+
+    monkeypatch.setattr(coset_leader_search, "_get_sparser_rows", record)
+    with use_tuning(max_sparsifying_rounds=5, sparsifying_rounds_without_improvement=2):
+        CosetLeaderSearch(_graph_state(2, [(0, 1)], phase=True), method="connected_support")
+    assert calls == [(5, 2)]
+
+
+def test_oracles_under_other_gates_do_not_share_searches(tune: Tune) -> None:
+    """An oracle answers as a fresh oracle under the threshold of its gate, whatever is cached.
+
+    Oracles are built for a graph state, whose search of Pauli errors is cached by stabilizers, and
+    for a CSS state whose pure-X stabilizers span a random code, whose two classical searches are
+    cached by stabilizer group.  They are built under the threshold zero, then the largest value,
+    then zero again.  Some answers differ between the thresholds, so an oracle that shared the
+    search of another threshold would answer differently.
+    """
+    checks = get_kernel(OVERLAPPING_ROUTES_CODE)
+    css_state = np.block(
+        [
+            [OVERLAPPING_ROUTES_CODE, np.zeros_like(OVERLAPPING_ROUTES_CODE)],
+            [np.zeros_like(checks), checks],
+        ]
+    )
+    for matrix in (_ROUTED_PHYSICAL_STATES[1], css_state):
+        css_weight = matrix is css_state
+        syndromes = range(0, 1 << len(matrix), max(1, (1 << len(matrix)) // 64))
+        queries = list(itertools.product(syndromes, range(6)))
+        answers = {}
+        for minimum_work in (0, MAX_VALUE):
+            coset_leader_search._get_css_searches.cache_clear()
+            coset_leader_search._get_pauli_search.cache_clear()
+            with use_tuning(overlapping_minimum_work=minimum_work):
+                oracle = CosetLeaderSearch(matrix, css_weight=css_weight)
+                answers[minimum_work] = [oracle.get_min_weight_bound(*query) for query in queries]
+        assert answers[0] != answers[MAX_VALUE]
+        for minimum_work in (0, MAX_VALUE, 0):
+            tune(overlapping_minimum_work=minimum_work)
+            oracle = CosetLeaderSearch(matrix, css_weight=css_weight)
+            answers_now = [oracle.get_min_weight_bound(*query) for query in queries]
+            assert answers_now == answers[minimum_work]
 
 
 def test_cached_pauli_searches_answer_for_their_own_stabilizers_and_weight() -> None:
@@ -765,15 +882,19 @@ def test_cached_pauli_searches_answer_for_their_own_stabilizers_and_weight() -> 
         _assert_exact_answers(oracle, matrix, css_weight)
 
 
-def test_cached_pauli_searches_ignore_later_changes_to_the_stabilizer_array() -> None:
+def test_cached_pauli_searches_ignore_later_changes_to_the_stabilizer_array(tune: Tune) -> None:
     """Oracles answer for the stabilizers that they were built from, when an array changes later.
 
-    Oracles of the state ``Y__``, ``_Z_``, ``__X`` are built from an array, which is then
-    overwritten with the state ``X__``, ``_Y_``, ``__Z``, from which further oracles are built from
-    the same array.  Oracles of the first state built again from a copy of it, and the oracles built
-    before the change, still answer for the first state.
+    Oracles of a graph state are built from an array, which is then overwritten with another graph
+    state, from which further oracles are built from the same array.  Oracles of the first state
+    built again from a copy of it, and the oracles built before the change, still answer for the
+    first state.  With the threshold of the gate at zero, the searches build their other families
+    at their first queries, after the change (see ``coset_routes``).  The first state has a larger
+    disjoint family by CSS weight, and its search by CSS weight reads its generators from the
+    stabilizers themselves.
     """
-    first, second = _product_state(("Y__", "_Z_", "__X")), _product_state(("X__", "_Y_", "__Z"))
+    tune(overlapping_minimum_work=0)
+    first, second = _ROUTED_CSS_WEIGHT_STATE, _ROUTED_PHYSICAL_STATES[1]
     coset_leader_search._get_pauli_search.cache_clear()
     array = first.copy()
     oracles = [
@@ -897,7 +1018,12 @@ def _assert_classical_cosets_match_brute_force(generators: npt.NDArray[np.uint8]
     """
     num_columns = generators.shape[1]
     checks = get_kernel(generators)
-    search = coset_leader_search._get_classical_search(generators, checks, 0)
+    tuning = coset_leader_search._CosetTuning.from_tuning(
+        get_tuning(), reads_css_single_pairs=False
+    )
+    search = coset_leader_search._get_classical_search(
+        generators, checks, tuning._replace(disjoint_random_column_orders=0)
+    )
     minima = _classical_minima(checks)
     even = not np.any(generators.sum(axis=1) % 2)
 
@@ -927,10 +1053,14 @@ def _assert_classical_cosets_match_brute_force(generators: npt.NDArray[np.uint8]
         # Find each syndrome whose minimum exceeds the maximum weight with batches, each of which
         # starts after the last syndrome found.
         found, start = [], 0
-        best = np.empty(search.tables.inverse.shape[1], dtype=np.uint64)
+        best = np.empty(search.get_tables(max_weight).inverse.shape[1], dtype=np.uint64)
         while True:
             index, lower_bound = coset_leader_search._find_first_not_within_max_weight(
-                packed_syndromes[start:], max_weight, best, *search.tables, search.scale
+                packed_syndromes[start:],
+                max_weight,
+                best,
+                *search.get_tables(max_weight),
+                search.scale,
             )
             if start + index == len(syndromes):
                 break
@@ -977,6 +1107,94 @@ def test_cosets_of_an_even_code_have_bounds_of_their_parity() -> None:
     """
     parities = _RANK_DEFICIENT_CODE.sum(axis=1, keepdims=True) % 2
     _assert_classical_cosets_match_brute_force(np.hstack([_RANK_DEFICIENT_CODE, parities]))
+
+
+@pytest.mark.parametrize(
+    "code", [EVEN_ROUTES_CODE, TWO_FAMILIES_CODE], ids=["even", "two-families"]
+)
+def test_cosets_match_brute_force_with_other_families(
+    code: npt.NDArray[np.uint8], tune: Tune
+) -> None:
+    """Searches of X or Z parts answer exactly when costly queries take other families.
+
+    With the threshold of the gate at zero, queries that the disjoint family would answer with more
+    work take another family (see ``coset_routes``).  The even code takes a disjoint family with
+    two information sets, for cosets of both parities.  The random code takes a disjoint family with
+    a larger partial set, and a family of overlapping information sets.  Single queries and
+    batches, at maximum weights from below zero to past the number of columns, and so just below
+    and at the least weight of each coset, agree with the least weight of the words of each coset
+    (see ``_assert_classical_cosets_match_brute_force``).
+    """
+    tune(overlapping_minimum_work=0)
+    _assert_classical_cosets_match_brute_force(code)
+
+
+@pytest.mark.parametrize(
+    "matrix, css_weight",
+    [
+        (_ROUTED_PHYSICAL_STATES[0], False),
+        (_ROUTED_PHYSICAL_STATES[1], False),
+        (_ROUTED_CSS_WEIGHT_STATE, True),
+        (np.hstack([np.zeros((4, 4), np.uint8), np.eye(4, dtype=np.uint8)]), True),
+    ],
+    ids=["physical-0", "physical-1", "css-weight", "empty-x-code"],
+)
+def test_oracles_answer_exactly_with_other_families(
+    matrix: npt.NDArray[np.uint8], css_weight: bool, tune: Tune
+) -> None:
+    """Oracles answer exactly when costly queries take other families.
+
+    With the threshold of the gate at zero, the searches of Pauli errors of the graph states take
+    their maximum disjoint families, which change different answers on the two states by physical
+    weight.  On |0000>, the CSS weight splits the search, and the X parts have the empty code,
+    which no other family improves.  Every single query, and every batch, at every maximum weight,
+    agrees with exhaustive minima.
+    """
+    tune(overlapping_minimum_work=0)
+    oracle = CosetLeaderSearch(matrix, css_weight=css_weight)
+    _assert_exact_answers(oracle, matrix, css_weight)
+    num_qubits = len(matrix)
+    minima = _css_minima(matrix, css_weight)
+    syndromes = _pack_syndromes(list(range(1 << num_qubits)), num_qubits)
+    for max_weight in range(num_qubits + 1):
+        found = _find_each_not_within_max_weight(oracle, matrix, syndromes, max_weight)
+        assert found == np.flatnonzero(minima > max_weight).tolist()
+
+
+def test_answers_do_not_depend_on_earlier_queries(pytestconfig: pytest.Config, tune: Tune) -> None:
+    """The answers of a search depend only on its code, the syndrome, and the maximum weight.
+
+    With the threshold of the gate at zero, fresh searches of the cosets of a random code answer
+    every query in increasing, decreasing, and random order of the maximum weight.  Each order
+    reaches the threshold at a different query, but the overlapping family of the code, which
+    depends on the weight at which it is built, and so the answers, are the same.  With the largest
+    threshold, some answers differ, so the other families answer some of the queries.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    checks = get_kernel(OVERLAPPING_ROUTES_CODE)
+
+    def get_answers(order: str) -> dict[tuple[int, int], MinWeightBound]:
+        """Every answer of a fresh search, with the maximum weights in the given order."""
+        tuning = coset_leader_search._CosetTuning.from_tuning(
+            get_tuning(), reads_css_single_pairs=False
+        )
+        search = coset_leader_search._get_classical_search(
+            OVERLAPPING_ROUTES_CODE, checks, tuning._replace(disjoint_random_column_orders=0)
+        )
+        weights = list(range(15))
+        if order != "up":
+            weights = weights[::-1] if order == "down" else rng.permutation(weights).tolist()
+        return {
+            (syndrome, max_weight): search.get_min_weight_bound(syndrome, max_weight)
+            for max_weight in weights
+            for syndrome in range(1 << len(checks))
+        }
+
+    tune(overlapping_minimum_work=0)
+    answers = [get_answers(order) for order in ("up", "down", "random")]
+    assert answers[0] == answers[1] == answers[2]
+    with use_tuning(overlapping_minimum_work=MAX_VALUE):
+        assert get_answers("up") != answers[0]
 
 
 @pytest.mark.usefixtures("compilation_mode")

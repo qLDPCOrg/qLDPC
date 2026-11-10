@@ -44,6 +44,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | Information sets with bounded column coverage, by matroid partitioning | `_search/matroid_partition.py` |
 | Exhaustive enumeration, for small codes, fallbacks, and the `brute_force` method | `_search/brute_force.py` |
 | Minimum weights of syndrome classes of Pauli errors (coset-leader weights), by BZ or by connected-support searches, with two classical searches for the CSS weight on CSS states, used by `src/qldpc/circuits/certification/` and `src/qldpc/experimental/circuits/benchmarking/residual_weights.py` | `_search/coset_leader_search.py` |
+| The families of information sets with which a BZ coset-leader search answers costly queries, and the gate that chooses them for each maximum weight | `_search/coset_routes.py` |
 | The counter, its deformed counters, or `compile_search_setup` | `logical_counts.py` |
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
@@ -62,6 +63,7 @@ From the top:
 3. `_search/brouwer_zimmermann.py`, `_search/brute_force.py`, `_search/connected_support.py`, and `_search/coset_leader_search.py`, the searches.
 4. The modules that the searches build on.
    `_search/affine_instance.py` packs the information sets of a BZ distance or BZ coset-leader search, with the certificate of their steps.
+   `_search/coset_routes.py` chooses the families of information sets with which a BZ coset-leader search answers each maximum weight.
    `_search/affine_search.py` holds the compiled scans of layers that the BZ distance and BZ coset-leader searches share.
    `_search/information_sets.py` builds the basis families of those two searches and of the counting scans.
    `_search/automorphism_families.py` builds automorphism families from them.
@@ -85,7 +87,7 @@ Section 4.4 of `brouwer_zimmermann.md` says where each heuristic of a Brouwer–
 - A search reads the active tuning once, when it starts, and passes the values that it needs down to the stages and loops that use them.
   The distance functions of `core.py` read it for a distance search, `CSSLogicalCounter.count_logical_ops` for a count, and `CosetLeaderSearch` when it is built; `get_distance_brouwer_zimmermann_many` and `get_distance_connected_support` read it only if their callers pass none.
   Pass these values as arguments, including to compiled code, and do not read the tuning anywhere else, so that one search never mixes two tunings.
-  A value that the code keeps in a cache that outlives a search, such as `disjoint_random_column_orders` in the cached searches of `CosetLeaderSearch`, also keys that cache.
+  A value that the code keeps in a cache that outlives a search also keys that cache, as the fields of `_CosetTuning` key the cached searches of `CosetLeaderSearch`.
 - Only a value that qLDPC fixes before any search starts, such as the size of a cache, which `functools.lru_cache` fixes at import, is a constant in `_tuning.py`, read as `_tuning.NAME`.
   Constants fixed by the algorithm or by native integer widths, such as `_WORK_CAP`, and the fixed seeds of random generators, which make results reproducible rather than tune anything, stay in the modules that use them.
 - Document each field and constant in its own `#:` comment directly above it, so that Sphinx renders it.
@@ -98,6 +100,7 @@ Section 4.4 of `brouwer_zimmermann.md` says where each heuristic of a Brouwer–
   `_tuning_test.py` checks that the map names every field and every constant except `MAX_VALUE`, that the page lists every constant, and that each field and constant has its own `#:` comment, and the documentation build fails on a broken reference into `_tuning`.
 - A tuning changes only how long a search takes and how much memory it uses, never a result that the search guarantees.
   With an early exit, it can change which word a search finds first, and so the upper bound that it returns (see the module docstring of `_tuning.py`).
+  For a coset query of `CosetLeaderSearch`, it can change the representative of the answer, and with the Brouwer–Zimmermann method its lower bound, within the contract of `MinWeightBound`, but not whether the answer is within the maximum weight.
   A new heuristic whose value could change a guaranteed result does not belong in `SearchTuning`.
 - To force a route or exercise a value in a test, call the `tune` fixture of `src/qldpc/codes/conftest.py`, as in `tune(overlapping_minimum_work=0)`, rather than patching module attributes.
 - For a field whose full range the implementation cannot safely support, narrow its range in its metadata rather than adding code for unsupported values.
