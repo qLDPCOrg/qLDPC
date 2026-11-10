@@ -824,28 +824,28 @@ def test_cached_stopping_steps_are_reused_exactly_while_they_stay_first(
 
     The stopping step of a maximum weight is the first step whose bound exceeds it.
     ``_get_stopping_step`` reuses the step that a planning buffer caches if that step is the
-    stopping step.  Otherwise, it finds the stopping step by binary search and caches it.  A reuse
-    is observable only as a skipped binary search, so the test records the binary searches.
+    stopping step.  Otherwise, it plans the stopping step, which a binary search finds, and caches
+    it.  A reuse is observable only as a skipped plan, so the test records the plans.
 
     Each step of the bounds is planted as the cached step.  A planted step may be stale, or pair the
     layer of one step with the number of completed sets of another, as interleaved queries might
     leave it.  Each maximum weight from zero to past the largest finite bound is then queried twice.
-    The first query searches exactly if the planted step is not its stopping step.  The second
-    query does not search, since the first cached its step.  Both queries return the stopping step,
-    which a linear search finds, and its bound.  The bounds in the buffer never change.  A negative
-    maximum weight always searches, since every bound is at least zero, so it is left out.
+    The first query plans exactly if the planted step is not its stopping step.  The second query
+    does not plan, since the first cached its step.  Both queries return the stopping step, which a
+    linear search finds, and its bound.  The bounds in the buffer never change.  A negative maximum
+    weight always plans, since every bound is at least zero, so it is left out.
 
     The bounds are those of the empty code, of a rank-one code with 64 sets, and of sets of ranks
     zero, two, and four in a code of dimension four, for both weight factors.
     """
-    searches: list[int] = []
-    find_stopping_step = information_sets.find_stopping_step
+    plans: list[int] = []
+    plan_steps = information_sets.plan_steps
 
-    def record(*args: Any) -> tuple[int, int]:
-        searches.append(args[1])
-        return find_stopping_step(*args)
+    def record(*args: Any) -> tuple[int, int, int]:
+        plans.append(args[1])
+        return plan_steps(*args)
 
-    monkeypatch.setattr(information_sets, "find_stopping_step", record)
+    monkeypatch.setattr(information_sets, "plan_steps", record)
     get_stopping_step = coset_leader_search._get_stopping_step.py_func
     certificates = [
         information_sets.Certificate(0, (0,)),
@@ -863,11 +863,11 @@ def test_cached_stopping_steps_are_reused_exactly_while_they_stay_first(
             expected = (*stopping_step, int(bounds[stopping_step]))
             # Plant the cached step in the last row of the table (see ``_get_planning``).
             table[-1, :2] = planted
-            searches.clear()
+            plans.clear()
             assert get_stopping_step(table, max_weight) == expected
-            assert len(searches) == (planted != stopping_step)
+            assert len(plans) == (planted != stopping_step)
             assert get_stopping_step(table, max_weight) == expected
-            assert len(searches) == (planted != stopping_step)
+            assert len(plans) == (planted != stopping_step)
         assert np.array_equal(table[:-1], bounds)
 
 
@@ -991,7 +991,8 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
     with every row of the code.  A search whose answer is no weighs every word of the layers of the
     sets that it visits, and every answer is exact.  The exact number of words weighed guards the
     documented rule for skipping sets, so a legitimate future pruning of the coset scan would
-    change it.
+    change it.  The work of the plan of the steps of the search, from layer zero and without the
+    sets that it skips (see ``information_sets.plan_steps``), predicts this number.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for _ in range(12):
@@ -1054,6 +1055,11 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
                     if last_layer >= num_rows - rank
                     for layer in range(last_layer + 1)
                 )
+                binomials = information_sets.get_capped_binomials(num_rows)
+                plan = information_sets.plan_steps(
+                    table[:-1], max_weight, 0, num_rows, instance.ranks, binomials, True
+                )
+                assert plan == (stop_layer, stop_num_completed, weighed)
 
 
 def _product_state(generators: Sequence[str]) -> npt.NDArray[np.uint8]:

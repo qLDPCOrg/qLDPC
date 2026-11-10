@@ -114,12 +114,13 @@ def test_scanned_sets_balance_two_orbits() -> None:
 def test_automorphism_family_work_scans_one_set_per_layer() -> None:
     """The work estimate counts each layer of one set, through the layer that certifies a bound.
 
-    This certificate of a five-row basis bounds unvisited words by ``t + 1`` after layer ``t``.
+    This certificate of three images of an information set of a five-row basis, with coverage two,
+    bounds unvisited words by ``ceil(3 (t + 1) / 2)`` once every image has completed layer ``t``.
     """
-    certificate = information_sets.Certificate(5, (5,))
-    # layer one certifies weight two; layer two certifies three; no layer certifies 100
-    assert automorphism_families.estimate_automorphism_family_work(certificate, 2) == 5
-    assert automorphism_families.estimate_automorphism_family_work(certificate, 3) == 5 + 10
+    certificate = information_sets.Certificate(5, (5,) * 3, max_coverage=2)
+    # layer one certifies weight three; layer two certifies five; no layer certifies 100
+    assert automorphism_families.estimate_automorphism_family_work(certificate, 3) == 5
+    assert automorphism_families.estimate_automorphism_family_work(certificate, 4) == 5 + 10
     assert automorphism_families.estimate_automorphism_family_work(certificate, 100) == 2**5 - 1
 
 

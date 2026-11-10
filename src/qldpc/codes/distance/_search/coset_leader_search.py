@@ -1193,11 +1193,11 @@ def _get_stopping_step(table: npt.NDArray[np.int64], max_weight: int) -> tuple[i
     which is zero in row zero.  So the bound of the step before step ``(w, j)`` is entry
     ``[w, j - 1]``, and for a nonnegative maximum weight, step ``(w, j)`` is the stopping step
     exactly if its bound exceeds the maximum weight and entry ``[w, j - 1]`` does not.  The step
-    cached in the table (see ``_get_planning``) is reused if it passes this check.  Otherwise, the
-    stopping step is found by binary search and cached in its place.  A negative maximum weight
-    fails the check, and the binary search returns the first step.  If no bound exceeds the maximum
-    weight, which happens only when the maximum weight reaches the largest native integer, the
-    binary search returns the last step.
+    cached in the table (see ``_get_planning``) is reused if it passes this check.  Otherwise,
+    ``information_sets.plan_steps`` finds the stopping step by binary search, and it is cached in
+    its place.  A negative maximum weight fails the check, and the binary search returns the first
+    step.  If no bound exceeds the maximum weight, which happens only when the maximum weight
+    reaches the largest native integer, the binary search returns the last step.
 
     Oracles that share a cached search share its planning buffer.  Compiled calls hold the global
     interpreter lock, since numba compiles them without ``nogil``, so calls interleave only when
@@ -1215,8 +1215,11 @@ def _get_stopping_step(table: npt.NDArray[np.int64], max_weight: int) -> tuple[i
         max_weight < bounds[layer, num_completed] and bounds[layer, num_completed - 1] <= max_weight
     )
     if not is_stopping_step:
-        layer, num_completed = information_sets.find_stopping_step(
-            bounds, max_weight, 0, len(bounds) - 1
+        # The search needs the step alone.  Empty binomials ask ``plan_steps`` for the step only,
+        # and a plan that leaves out no sets reads no ranks, so both are empty placeholders.
+        no_values = np.empty(0, dtype=np.int64)
+        layer, num_completed, _ = information_sets.plan_steps(
+            bounds, max_weight, 0, len(bounds) - 1, no_values, no_values, False
         )
         table[-1, 0], table[-1, 1] = layer, num_completed
     return layer, num_completed, int(bounds[layer, num_completed])
@@ -1240,7 +1243,9 @@ def _search_from_syndrome_word(
     ``best`` holds that word, of weight ``best_weight`` above ``max_weight``.  The stopping step and
     its bound are those of ``_get_stopping_step``.  A set of rank deficiency ``s`` adds to the bound
     of a step only once it has completed layer ``s``, so a set that would not have completed it by
-    the stopping step adds nothing, and the search skips it.
+    the stopping step adds nothing, and the search skips it.  These are the unused sets of
+    ``information_sets.plan_steps``, whose work for this step, from layer zero, counts the words
+    that the search weighs after the word of the syndrome if it finds no light enough word.
 
     Returns:
         The lower bound of ``_search_coset``, and the number of words weighed after the word of the

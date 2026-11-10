@@ -38,7 +38,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | The compiled scans of layers that the BZ distance search and the BZ coset-leader search share, one body specialized by constant flags | `_search/affine_search.py` |
 | The connected-support search, of distances and of vectors with a given syndrome | `_search/connected_support.py` |
 | The packed information sets of a BZ distance search or a BZ coset-leader search, and the certificate of their steps | `_search/affine_instance.py` |
-| How basis families and their certificates are built | `_search/information_sets.py` |
+| How basis families and their certificates are built, and how searches plan their steps: where they stop, and the work of the steps up to there | `_search/information_sets.py` |
 | Automorphism families: the images of one information set under automorphisms of a code, and the check of those automorphisms, which the connected-support search uses too | `_search/automorphism_families.py` |
 | Tables that let a BZ distance search skip supports whose last two rows cannot complete a word lighter than the best one found, and the choice of whether to build them | `_search/completion_bounds.py` |
 | Information sets with bounded column coverage, by matroid partitioning | `_search/matroid_partition.py` |
