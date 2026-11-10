@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import operator
 
+import galois
 import numpy as np
 import pytest
 import sympy
@@ -316,6 +317,8 @@ def test_computed_primitive_central_idempotents(group: abstract.Group, field: in
     ring = abstract.GroupRing(group, field)
     idempotents = rings._get_primitive_central_idempotents(ring)
     assert sum(idempotents, ring.zero) == ring.one
+    vectors = sorted(idempotent.to_vector().tolist() for idempotent in idempotents)
+    assert [pci.to_vector().tolist() for pci in ring.get_primitive_central_idempotents()] == vectors
     for index, idempotent in enumerate(idempotents):
         assert idempotent and idempotent * idempotent == idempotent
         assert all(
@@ -330,6 +333,25 @@ def test_computed_primitive_central_idempotents(group: abstract.Group, field: in
         for gg in members
     }
     assert len(idempotents) == len(classes)
+
+
+def test_precomputed_primitive_central_idempotents_need_default_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only a field with the default irreducible polynomial uses the precomputed idempotents."""
+    # see test_primitive_central_idempotents for why this import is here
+    from qldpc.external import _groups
+
+    # pretend that the table holds the identity as the only idempotent of GF(9)[C2]
+    group = abstract.CyclicGroup(2)
+    table = {(group.to_gap_group(), 9): (((1, ()),),)}
+    monkeypatch.setattr(_groups, "KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS", table)
+    ring = abstract.GroupRing(group, field=9)
+    assert ring.get_primitive_central_idempotents() == (ring.one,)
+
+    # a field with another irreducible polynomial computes its two idempotents instead
+    ring = abstract.GroupRing(group, field=galois.GF(9, irreducible_poly="x^2 + 1"))
+    assert len(ring.get_primitive_central_idempotents()) == 2
 
 
 def test_precomputed_primitive_central_idempotents() -> None:

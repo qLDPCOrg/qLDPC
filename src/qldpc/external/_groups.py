@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Loading groups and their properties from GroupNames, GAP, or MAGMA, and precomputed idempotents.
+"""Loading groups and their properties from GroupNames, GAP, or MAGMA.
 
-See https://groupnames.org and https://www.gap-system.org.
+This module also stores precomputed primitive central idempotents of some group algebras.  See
+https://groupnames.org and https://www.gap-system.org.
 """
 
 from __future__ import annotations
@@ -347,11 +348,11 @@ def _maybe_get_webpage(order: int) -> str | None:
 
 
 # Primitive central idempotents of some group algebras, keyed by a GAP group expression and the
-# order of a field.  They are computed by the group-algebra section of abstract/rings.py, and stored
-# here so that common algebras skip that computation.  A test in abstract/rings_test.py checks that
-# they equal the computed ones.  Each idempotent is a tuple of terms (coefficient, permutation),
-# where the coefficient is an element of galois.GF(field) cast to an integer, and the permutation is
-# in cyclic form with 0-indexed points.
+# order q of a field.  They are computed by the group-algebra section of abstract/rings.py, and
+# stored here so that common algebras skip that computation.  A test in abstract/rings_test.py
+# checks that they equal the computed ones.  Each idempotent is a tuple of terms (coefficient,
+# permutation), where the coefficient is an element of galois.GF(q) cast to an integer, and the
+# permutation is in cyclic form with 0-indexed points.
 KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS: dict[tuple[str, int], _Idempotents] = {
     # F2[C3]
     ("Group((1,2,3))", 2): (

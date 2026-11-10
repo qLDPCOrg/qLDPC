@@ -378,9 +378,9 @@ class GroupRing(Ring):
         <https://en.wikipedia.org/wiki/Idempotent_%28ring_theory%29>`_.
 
         This method looks up the idempotents in a table of precomputed ones, or else computes them.
-        The cost of this computation grows with the order of the group and, most steeply, with the
-        number of simple components.  The idempotents are sorted by their vectors of coefficients
-        (see ``RingMember.to_vector``).
+        The cost of this computation grows with the orders of the group and the field, and most
+        steeply with the number of simple components.  The idempotents are sorted by their vectors
+        of coefficients (see ``RingMember.to_vector``).
 
         Raises a ValueError if this ring is not semisimple.
         """
@@ -389,9 +389,16 @@ class GroupRing(Ring):
         if self._idempotents is None:
             from qldpc.external import _groups  # avoid circular import
 
-            # look up the idempotents, or else compute them
+            # Look up the idempotents, or else compute them.  The table stores coefficients as
+            # integers in the default representation of the field, so only fields with the default
+            # irreducible polynomial can use it.
             key = (self.group.to_gap_group(), self.field.order)
-            if (known_idempotents := _groups.KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS.get(key)) is None:
+            known_idempotents = _groups.KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS.get(key)
+            default_field = galois.GF(self.field.order)
+            if (
+                known_idempotents is None
+                or self.field.irreducible_poly != default_field.irreducible_poly
+            ):
                 idempotents = _get_primitive_central_idempotents(self)
             else:
                 idempotents = tuple(
@@ -623,12 +630,13 @@ def _get_primitive_central_idempotents(ring: GroupRing) -> tuple[RingMember, ...
         for idempotent in idempotents:
             element = multiply(random_member, idempotent)
             minimal_poly, element_powers = _get_minimal_polynomial(element, idempotent, multiply)
-            # B is a product of copies of F_q, so m(x) is a product of distinct factors x - λ, which
-            # equal-degree factorization finds faster than a search over F_q for roots
+            # B is a product of copies of F_q, so m(x) has distinct roots in F_q.  A search over F_q
+            # finds them faster than factorization for the small fields that qLDPC typically uses.
+            roots = minimal_poly.roots()
+            assert len(roots) == minimal_poly.degree
             derivative = minimal_poly.derivative()
-            for factor in minimal_poly.equal_degree_factors(1):
-                root = -factor.coeffs[-1]
-                quotient = minimal_poly // factor
+            for root in roots:
+                quotient = minimal_poly // galois.Poly([1, -root], field=field)
                 new_idempotents.append(quotient.coeffs[::-1] / derivative(root) @ element_powers)
         idempotents = new_idempotents
 
@@ -645,6 +653,10 @@ def _get_minimal_polynomial(
 
     The zeroth power of the element is the identity.  Returns the minimal polynomial, and a matrix
     whose rows are the powers of the element below the degree of that polynomial.
+
+    WedderburnArtinComponentTransformer._get_minimal_polynomial does the same with regular lifts,
+    whose size is the order of the group.  This function instead works with vectors of length n in
+    the subalgebra B of _get_primitive_central_idempotents, which is much smaller.
     """
     field = type(element)
     powers = [identity]

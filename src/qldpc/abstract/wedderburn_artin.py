@@ -50,8 +50,8 @@ class WedderburnArtinTransformer:
     theorem <https://en.wikipedia.org/wiki/Wedderburn%27s_little_theorem>`_.
 
     The decomposition is implemented only for group algebras, so construction raises a
-    NotImplementedError for any other ring, and a ValueError for a group algebra that is not
-    semisimple.
+    NotImplementedError for any other ring.  Construction raises a ValueError for a group algebra
+    that is not semisimple.
     """
 
     ring: GroupRing
@@ -948,14 +948,15 @@ def _check_semisimple_group_algebra(ring: Ring) -> GroupRing:
     raises a NotImplementedError, and a group algebra that is not semisimple raises a ValueError.
     """
     # Supporting any semisimple ring would replace each use of the group of a group algebra in this
-    # module.  Primitive central idempotents come from splitting the subalgebra of central members z
-    # with z^q = z, where q is the order of the field.  Its basis of sums over F_q-conjugacy classes
-    # of the group could instead be found as the kernel of z -> z^q - z on the center.  The center
-    # comes from adjoint lifts of group members, and could instead consist of the members that
-    # commute with the generators of the ring.  Coefficients in simple components come from a trace
-    # over the group, which a linear solve in the basis of each component could replace, since a
-    # trace form on M_n(F) vanishes on the identity if the characteristic divides n.  Semisimplicity
-    # follows from Maschke's theorem, and would instead need the Jacobson radical.
+    # module and in GroupRing.get_primitive_central_idempotents.  Primitive central idempotents come
+    # from splitting the subalgebra of central members z with z^q = z, where q is the order of the
+    # field.  This subalgebra, which sums over F_q-conjugacy classes of the group span, could
+    # instead be found as the kernel of z -> z^q - z on the center.  The center comes from adjoint
+    # lifts of group members, and could instead consist of the members that commute with the
+    # generators of the ring.  Coefficients in simple components come from a trace over the group,
+    # which a linear solve in the basis of each component could replace, since a trace form on
+    # M_n(F) vanishes on the identity if the characteristic divides n.  Semisimplicity follows from
+    # Maschke's theorem, and would instead need the Jacobson radical.
     if not isinstance(ring, GroupRing):
         raise NotImplementedError(
             f"The Wedderburn-Artin decomposition is implemented only for group algebras, not {ring}"
