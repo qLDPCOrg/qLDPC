@@ -527,8 +527,8 @@ def test_bounds_match_per_block_minima(
 # much as the word of the syndrome, and the bound comes from the certificate, below the weight of
 # the representative.  For the CSS weight, the X parts of the pure-X stabilizers of the GHZ block
 # and the Z parts of its pure-Z stabilizers have even weight, so the bounds of its classical
-# searches round up to the parity of each coset.  The X parts of the errors with syndrome 2635 all
-# have even weight, so its bound at maximum weight two is four.  Block minima (see
+# searches round up to the parity of each coset.  The X parts of the errors with syndrome 2635 have
+# even weights above two, so its bound at maximum weight two is four.  Block minima (see
 # ``_block_minimum``) independently check each answer.
 _ORDERED_QUERIES = [
     (_GHZ_BLOCK, False, 742, 2, MinWeightBound(False, 338, 3)),
@@ -619,25 +619,28 @@ def test_css_bounds_match_exhaustive_minima(pytestconfig: pytest.Config) -> None
 def test_css_weight_searches_of_even_stabilizers_stop_at_bounds_of_each_class_parity() -> None:
     """Searches of Pauli errors by CSS weight stop at the bounds of each class, rounded to parity.
 
-    The state is the graph state of a triangle on qubits 2, 5, and 6, with qubit 1 joined to qubit
-    2 and qubits 0, 3, and 4 isolated, after S on each qubit of even degree.  Its stabilizers have
+    The state is the graph state of a triangle on qubits 2, 5, and 6, with qubit 1 joined to qubit 2
+    and qubits 0, 3, and 4 isolated, after S on each qubit of even degree.  Its stabilizers have
     even weight as binary words ``(x|z)``, and it is not CSS, so the oracle searches its Pauli
     errors.  The errors of a syndrome class share the parity of ``|x| + |z|``, which the test reads
-    from every error.  Every query agrees with exhaustive minima.  For syndrome 57, whose class has
-    minimum two, the word of the syndrome has Hamming weight four but CSS weight three.  A search
-    that took the parity of the CSS weight would read the bounds of odd classes, which stop its
+    from every error.  Every query agrees with exhaustive minima.  A search that took the parity of
+    the CSS weight instead would not: for syndrome 57, whose class has minimum two, the word of the
+    syndrome has Hamming weight four but CSS weight three, and the bounds of odd classes stop the
     search at maximum weight two before it finds an error of weight two.
 
-    Rounding to parity changes no answer of these searches, only where they stop (see Section 3.2
-    of ``brouwer_zimmermann.md``).  So the test also finds the stopping step of each query as
-    ``_search_coset`` does: the first step whose bound, rounded up to the parity of the class
-    before it is halved, exceeds the maximum weight.  Some odd classes stop sooner than they would
+    Answers alone cannot show whether these searches round, since rounding mainly moves where an
+    odd class stops (see Section 3.2 of ``brouwer_zimmermann.md``).  So the test also finds the
+    stopping step of each query as ``_search_coset`` does, and checks it against the first step
+    whose bound in ``AffineInstance.get_weight_bounds`` for the parity of the class exceeds the
+    maximum weight.  ``information_sets_test.py`` and ``affine_instance_test.py`` check those bounds
+    against their definition and against brute force.  Some odd classes stop sooner than they would
     without parity.
     """
     generators = ("Y______", "_XZ____", "_ZX__ZZ", "___Y___", "____Y__", "__Z__YZ", "__Z__ZY")
     matrix = _stabilizer_matrix([stim.PauliString(pauli) for pauli in generators])
     _assert_exact_answers(CosetLeaderSearch(matrix, css_weight=True), matrix, True)
 
+    # Read the parity of each syndrome class from every error, and check that the class shares it.
     num_qubits = len(matrix)
     checks = (math.symplectic_conjugate(matrix.astype(int)) % 2).astype(np.uint8)
     errors = (np.arange(1 << 2 * num_qubits)[:, None] >> np.arange(2 * num_qubits)) & 1
@@ -646,6 +649,8 @@ def test_css_weight_searches_of_even_stabilizers_stop_at_bounds_of_each_class_pa
     class_parities[syndromes] = parities
     assert np.array_equal(class_parities[syndromes], parities)
 
+    # Find the stopping step of each query as ``_search_coset`` does.  Steps ``(layer,
+    # num_completed)`` compare as tuples in the order of the search.
     instance = affine_instance.get_coset_instance(matrix, random_column_orders=0, weight_factor=2)
     inverse = coset_leader_search._get_inverse(checks)
     tables = coset_leader_search._get_search_tables(instance, inverse, num_qubits)
@@ -662,7 +667,9 @@ def test_css_weight_searches_of_even_stabilizers_stop_at_bounds_of_each_class_pa
         for max_weight in range(2, num_qubits):
             stopping_step = next(step for step in steps if bounds[step] > max_weight)
             assert coset_leader_search._get_stopping_step(table, max_weight)[:2] == stopping_step
-            num_sooner += stopping_step < next(s for s in steps if unrounded[s] > max_weight)
+            num_sooner += stopping_step < next(
+                step for step in steps if unrounded[step] > max_weight
+            )
     assert num_sooner
 
 
@@ -883,10 +890,10 @@ def _assert_classical_cosets_match_brute_force(generators: npt.NDArray[np.uint8]
     Single queries and batches, at maximum weights from below zero to past the number of columns,
     agree with the least weight of the words of each syndrome.  From maximum weight two, they also
     agree with each other.  A coset without a word of weight at most the maximum weight gets a lower
-    bound of at least the least integer above that weight.  If every row of ``generators`` has even
-    weight, every word of a coset has the parity of its least weight, and so must that integer.
-    Below maximum weight two, a single query of a coset without a word of weight at most one gets
-    exactly that integer for maximum weight one, which it finds without a search.
+    bound of at least the least weight above the maximum weight that a word of the coset can have.
+    That weight has the parity of the coset's least weight if every row of ``generators`` has even
+    weight.  Below maximum weight two, a single query of a coset without a word of weight at most
+    one gets exactly that weight for maximum weight one, which it finds without a search.
     """
     num_columns = generators.shape[1]
     checks = get_kernel(generators)
@@ -895,7 +902,7 @@ def _assert_classical_cosets_match_brute_force(generators: npt.NDArray[np.uint8]
     even = not np.any(generators.sum(axis=1) % 2)
 
     def get_least_bound(syndrome: int, max_weight: int) -> int:
-        """The least integer above the maximum weight that can bound the coset of a syndrome."""
+        """The least weight above the maximum weight that a word of the coset can have."""
         return max_weight + 1 + int(even and (max_weight + 1 - minima[syndrome]) % 2)
 
     syndromes = list(range(1 << len(checks)))
@@ -956,7 +963,7 @@ def test_cosets_of_a_rank_deficient_code_match_brute_force() -> None:
 
 @pytest.mark.usefixtures("compilation_mode")
 def test_cosets_of_an_even_code_have_bounds_of_their_parity() -> None:
-    """Coset searches of an even code bound each coset without a light enough word by its parity.
+    """Coset searches of an even code give each coset with no light word a bound of its parity.
 
     The code is ``_RANK_DEFICIENT_CODE`` with a last column that holds the parity of each row, so
     every word of the code has even weight, and the weights of the words of each coset share a
@@ -964,9 +971,9 @@ def test_cosets_of_an_even_code_have_bounds_of_their_parity() -> None:
     that integer has the other parity, so its lower bound is at least the least integer above ``m``
     of its parity (see ``_assert_classical_cosets_match_brute_force``).  The bounds of the searches,
     which round up to the parity of each coset, reach it.  So does the bound three of an odd coset
-    of least weight three in a single query below maximum weight two, which does not search.
-    Bounds without parity would fall short of both.  The cosets have both parities, and least
-    weights up to four.
+    of least weight three in a single query below maximum weight two, which does not search.  Bounds
+    without parity would fall short of both.  The cosets have both parities, and least weights up to
+    four.
     """
     parities = _RANK_DEFICIENT_CODE.sum(axis=1, keepdims=True) % 2
     _assert_classical_cosets_match_brute_force(np.hstack([_RANK_DEFICIENT_CODE, parities]))

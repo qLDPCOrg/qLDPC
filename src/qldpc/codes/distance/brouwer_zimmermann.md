@@ -359,10 +359,14 @@ The same identity shows what carries over to the words of a coset `u + V`, which
 A divisor of the weights of `V` need not divide the weights of a coset: every word of `V = {0000, 1111}` has a weight divisible by four, while the coset `1000 + V` has the weights one and three.
 Parity does carry over: if every word of `V` is even, every word `u + v` of the coset has the parity of `wt(u)`.
 So a coset search of an even code can round each bound up to the least integer of that parity that is at least the bound.
-It reads the parity from the word of its syndrome ([Section 4.1](#41-module-map-and-layering)), and coset searches round to no divisor.
-The searches of X and Z parts round to parity, and so does a search of Pauli errors weighed by their CSS weight, which bounds the CSS weight by half the Hamming weight of `[x | z]`, rounded up, after rounding to parity.
-In that search, each step adds at most one to the Hamming bound, so a search stops at the bound of the maximum weight plus one with or without parity.
-Rounding stops an odd class sooner, at the first step whose Hamming bound reaches twice the maximum weight.
+It reads the parity from the word of its syndrome ([Section 4.1](#41-module-map-and-layering)).
+Coset searches use no other rounding.
+When their code is even, the searches of X and Z parts round to parity.
+So does a search of Pauli errors weighed by their CSS weight `max(|x|, |z|)` when the words `[x | z]` of its code are even.
+That search bounds the CSS weight by half the Hamming weight of `[x | z]`, rounded up, after rounding to parity.
+Until it has visited every word, each of its steps adds at most one to its bound on Hamming weight.
+So if it stops before it has visited every word, the halved bound of its stopping step is the maximum weight plus one, with or without parity.
+Rounding can stop an odd coset sooner: at the first step whose bound on Hamming weight reaches twice the maximum weight, rather than the first that exceeds it.
 A search of Pauli errors weighed by their physical weight does not round: every word `T(x, z)` of [Section 2.7](#27-pauli-weight-as-hamming-weight) is even, and rounding a bound up to an even integer does not change its half, rounded up.
 
 ### 3.3 Sharing witnesses between CSS sectors
@@ -728,9 +732,10 @@ It stops at its **stopping step**, the first step whose bound exceeds the maximu
 It skips each rank-deficient search basis whose deficiency keeps it out of the bound of that step.
 `find_stopping_step` of [_search/information_sets.py](_search/information_sets.py) finds the stopping step by a binary search of steps whose bounds never decrease.
 Each coset search keeps the bounds of its steps in a **planning buffer**, with a table for each parity of its cosets if it rounds to parity, and one table otherwise.
-A query takes the table of the parity of the word of its syndrome, and each table has one more row that caches a stopping step.
+A query takes the table of the parity of the word of its syndrome.
+Each table has one more row that caches a stopping step.
 For a nonnegative maximum weight, `_get_stopping_step` reuses the cached step of a table exactly while it stays the stopping step of that weight, and replaces it otherwise.
-A single query first looks up the words of weight at most one.
+`get_min_weight_bound` first looks up the words of weight at most one.
 If there is none and its maximum weight is below two, it gives the lower bound two without a search, or three for an odd coset in a search of X or Z parts that rounds to parity.
 The distance search also uses `find_stopping_step`, through `Certificate.get_num_sets_to_certify`, when its certificate solves no linear programs.
 A distance certificate with linear programs instead checks its steps in order with `certifies`, which solves each program only when the coverage bound falls short.
@@ -907,7 +912,8 @@ Changes to the BZ algorithm can use different representations, certificates, and
   It need not hold for heavier words, such as skipped ones, so a bound that a search reports on the distance is `min(L, U)`, not `L`.
   The current formula relies on block ranks, overlap coverage, and completed layers (Sections [2.4](#24-search-bases-and-rank-deficient-blocks), [2.5](#25-the-stopping-certificate), and [3.1](#31-overlapping-search-bases)).
   Coverage may be conservatively overestimated; underestimating it can make the formula unsound.
-  Optional rounding requires a congruence that every eligible weight satisfies: divisibility by a common divisor, or, in a coset search of an even code, where every word of the coset is eligible, the parity of the coset ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)).
+  Optional rounding requires a congruence that every eligible weight satisfies: divisibility by a common divisor, or the parity of a coset of an even code ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)).
+  Parity applies only in a coset search, where every word of the coset is eligible.
   A certificate from another CSS sector needs justification for the sector where it is applied, just as any other certificate does.
   The certificate of an automorphism family holds instead for every eligible word whose images under the automorphisms are all unexamined, so it requires automorphisms that map `V` and `S` onto themselves ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), which searches verify before they use them.
 - **Skip only supports that a bound proves cannot lower `U`.**
