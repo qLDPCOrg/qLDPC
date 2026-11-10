@@ -38,6 +38,9 @@ from . import affine_instance, affine_search, connected_support, information_set
 # stopping step (see ``_get_planning``).
 _PlanningBuffer = npt.NDArray[np.int64]
 
+# The method of a coset-leader search.
+CosetSearchMethod = Literal["brouwer_zimmermann", "connected_support"]
+
 ####################################################################################################
 # coset-leader minimum-weight bounds
 
@@ -140,7 +143,7 @@ class CosetLeaderSearch:
         stabilizers: npt.ArrayLike,
         *,
         css_weight: bool = False,
-        method: Literal["brouwer_zimmermann", "connected_support"] = "brouwer_zimmermann",
+        method: CosetSearchMethod = "brouwer_zimmermann",
     ) -> None:
         if method not in ("brouwer_zimmermann", "connected_support"):
             raise ValueError(

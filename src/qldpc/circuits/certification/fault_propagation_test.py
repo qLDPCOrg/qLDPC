@@ -7,8 +7,9 @@ from __future__ import annotations
 import functools
 import itertools
 import operator
+import typing
 from collections.abc import Collection, Sequence
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -16,6 +17,7 @@ import pytest
 import stim
 
 from qldpc import circuits
+from qldpc.codes.distance import DistanceMethod
 from qldpc.codes.distance._search.coset_leader_search import MinWeightBound
 
 from . import fault_propagation
@@ -599,9 +601,9 @@ def test_the_connected_support_method_finds_the_same_fault() -> None:
         result.counterexample.residual_weight_lower_bound == result.counterexample.fault_weight + 1
     )
 
-    # The brute-force method has no coset search, which is checked before the circuit, which has no
-    # unmeasured qubit, is read.
-    with pytest.raises(ValueError, match="no coset-leader search"):
+    # The brute-force method has no search of residual weights.  The method is checked before the
+    # circuit is read, so the circuit's lack of an unmeasured qubit raises no error first.
+    with pytest.raises(ValueError, match="no search of residual weights"):
         circuits.certify_bounded_fault_propagation(stim.Circuit("M 0"), method="brute_force")
 
     # The +1 eigenstate of Y is not CSS, so the connected-support search cannot weigh its errors by
@@ -614,6 +616,23 @@ def test_the_connected_support_method_finds_the_same_fault() -> None:
     assert circuits.certify_bounded_fault_propagation(
         y_state, css_weight=True, method="information_sets"
     ).certified
+
+
+def test_every_distance_method_but_brute_force_has_a_coset_search() -> None:
+    """Each exact-distance method except brute force selects a coset-leader search.
+
+    The alias ``"information_sets"`` selects the default search, and unknown methods are rejected.
+    """
+    for method in typing.get_args(DistanceMethod):
+        if method == "brute_force":
+            with pytest.raises(ValueError, match="no search of residual weights"):
+                fault_propagation._get_coset_search_method(method)
+        else:
+            expected = "brouwer_zimmermann" if method == "information_sets" else method
+            assert fault_propagation._get_coset_search_method(method) == expected
+    unknown: Any = "gap"
+    with pytest.raises(ValueError, match="Unknown distance method"):
+        fault_propagation._get_coset_search_method(unknown)
 
 
 def test_added_flags_match_explicit_flag_detectors() -> None:

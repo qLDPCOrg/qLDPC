@@ -14,13 +14,13 @@ import stim
 from qldpc import math
 from qldpc._binary import get_rank_packed, pack_bits
 from qldpc.codes.distance import DistanceMethod
-from qldpc.codes.distance._search.coset_leader_search import MinWeightBound
+from qldpc.codes.distance._search.coset_leader_search import CosetSearchMethod, MinWeightBound
 
 from .._post_selection import get_flag_detectors, get_selected_detectors, is_integer
 from ..bookkeeping import DetectorRecord
 from ..common import get_pauli_product_measurements
 from ..encoding import get_state_stabilizers
-from ._fault_search import _get_coset_search_method, find_smallest_violation
+from ._fault_search import find_smallest_violation
 
 ####################################################################################################
 # bounded fault propagation certification
@@ -100,12 +100,11 @@ def certify_bounded_fault_propagation(
         memory_limit: The approximate number of bytes that the search may use for its lookup tables,
             a positive integer.  A smaller limit can make the search slower, but never changes the
             result.  Default: ``2**30`` (1 GiB).
-        method: The exact search of the residual weights, an exact-distance method other than
-            ``"brute_force"``: ``"brouwer_zimmermann"``, with alias ``"information_sets"``,
-            searches cosets of the stabilizer group by information sets,
-            and ``"connected_support"`` grows errors from their syndromes through generators of
-            the stabilizer group.  It first makes the generators sparser by adding them to each
-            other, and is fast if the result is sparse (see the `connected-support guide
+        method: The exact search of the residual weights.  ``"brouwer_zimmermann"``, with alias
+            ``"information_sets"``, searches cosets of the stabilizer group by information sets.
+            ``"connected_support"`` grows errors from their syndromes through generators of the
+            stabilizer group.  It first makes the generators sparser by adding them to each other,
+            and is fast if the result is sparse (see the `connected-support guide
             <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_).
             Both certify the same circuits, and find the same smallest violating fault, but the
             ``output_pauli`` of a counterexample may be another equivalent error, and with
@@ -127,7 +126,7 @@ def certify_bounded_fault_propagation(
             ``"brute_force"``, or if ``method`` is ``"connected_support"`` and errors on a state
             that is not CSS are weighed by their CSS weight.
     """
-    engine = _get_coset_search_method(method)
+    search_method = _get_coset_search_method(method)
     if max_weight is not None:
         if not is_integer(max_weight):
             raise TypeError("max_weight must be an integer or None")
@@ -162,7 +161,7 @@ def certify_bounded_fault_propagation(
         circuit, stabilizers, qubits, selected
     )
     violation = find_smallest_violation(
-        flags, syndromes, matrix, max_weight, css_weight, int(memory_limit), engine
+        flags, syndromes, matrix, max_weight, css_weight, int(memory_limit), search_method
     )
     return BoundedFaultPropagationCertificate(
         output_qubits=qubits,
@@ -426,6 +425,30 @@ def _validate_output_qubits(output_qubits: Sequence[int], num_qubits: int) -> tu
     ):
         raise ValueError("output_qubits must contain distinct in-range qubit indices, at least one")
     return tuple(map(int, qubits))
+
+
+def _get_coset_search_method(method: DistanceMethod) -> CosetSearchMethod:
+    """Validate an exact-distance method, and return the method of the coset-leader search.
+
+    The alias ``"information_sets"`` is ``"brouwer_zimmermann"``.
+
+    Raises:
+        ValueError: If the method is unknown, or is ``"brute_force"``, which has no search of
+            residual weights.
+    """
+    if method == "brute_force":
+        raise ValueError(
+            "The 'brute_force' distance method has no search of residual weights: use"
+            " 'brouwer_zimmermann' or 'connected_support'"
+        )
+    if method == "connected_support":
+        return "connected_support"
+    if method in ("brouwer_zimmermann", "information_sets"):
+        return "brouwer_zimmermann"
+    raise ValueError(
+        f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann' or"
+        " 'connected_support'."
+    )
 
 
 def _is_css_state(stabilizers: npt.NDArray[np.uint8]) -> bool:

@@ -22,7 +22,7 @@ from __future__ import annotations
 import dataclasses
 import math
 from collections.abc import Collection, Iterable, Sequence
-from typing import Literal, Protocol
+from typing import Protocol
 
 import galois
 import numpy as np
@@ -34,14 +34,14 @@ from qldpc import circuits
 from qldpc import math as qldpc_math
 from qldpc.circuits._post_selection import get_flag_detectors, get_selected_detectors, is_integer
 from qldpc.circuits.bookkeeping import DetectorRecord
-from qldpc.circuits.certification._fault_search import _get_coset_search_method
 from qldpc.circuits.certification.fault_propagation import (
+    _get_coset_search_method,
     _get_primitive_fault_signatures,
     _get_unmeasured_qubits,
     _is_css_state,
 )
 from qldpc.codes.distance import DistanceMethod
-from qldpc.codes.distance._search.coset_leader_search import CosetLeaderSearch
+from qldpc.codes.distance._search.coset_leader_search import CosetLeaderSearch, CosetSearchMethod
 from qldpc.objects import Pauli, PauliXZ, PauliXZLike
 
 from .consumer_profiles import ConsumerProfile
@@ -389,11 +389,10 @@ def estimate_residual_weight_histogram(
             weight) are computed exactly rather than sampled.  Default: ``10**6``.
         seed: A seed for the random number generator.  Default: None, for fresh randomness.
         method: The exact search of residual weights where the tables do not apply, as for
-            ``certify_bounded_fault_propagation``: an exact-distance method other than
-            ``"brute_force"``, which is ``"brouwer_zimmermann"``, with alias
-            ``"information_sets"``, or ``"connected_support"``.  Both give the same histogram.
-            ``"connected_support"`` weighs errors by CSS weight only on CSS states.  Default:
-            ``"brouwer_zimmermann"``.
+            ``certify_bounded_fault_propagation``: ``"brouwer_zimmermann"``, with alias
+            ``"information_sets"``, or ``"connected_support"``.  With the same ``seed``, both give
+            the same histogram.  ``"connected_support"`` weighs errors by CSS weight only on CSS
+            states.  Default: ``"brouwer_zimmermann"``.
 
     Returns:
         A ``ResidualWeightHistogram``.
@@ -410,7 +409,7 @@ def estimate_residual_weight_histogram(
             ``method`` is ``"connected_support"`` and errors on a state that is not CSS are weighed
             by their CSS weight.
     """
-    engine = _get_coset_search_method(method)
+    search_method = _get_coset_search_method(method)
     max_residual_weight = _check_integer(max_residual_weight, "max_residual_weight", 0)
     num_samples = _check_integer(num_samples, "num_samples", 0)
     max_exact_faults = _check_integer(max_exact_faults, "max_exact_faults", 0)
@@ -427,7 +426,7 @@ def estimate_residual_weight_histogram(
         css_weight=css_weight,
         pauli=pauli,
         max_residual_weight=max_residual_weight,
-        method=engine,
+        method=search_method,
     )
 
     probabilities_by_fault_weight, truncated_probability = _get_fault_weight_probabilities(
@@ -517,13 +516,14 @@ def _get_mechanisms(
     css_weight: bool | None,
     pauli: PauliXZ | None,
     max_residual_weight: int,
-    method: Literal["brouwer_zimmermann", "connected_support"],
+    method: CosetSearchMethod,
 ) -> tuple[_Mechanisms, _ResidualWeightOracle, bool]:
     """Get the error mechanisms of a circuit, and an oracle for the residual weights of syndromes.
 
     The circuit, output qubits, and selected detectors are those of ``_get_selection``, and the
-    other arguments are those of ``estimate_residual_weight_histogram``.  Also return whether the
-    Pauli weight is the CSS weight, which by default it is for a CSS state.
+    other arguments are those of ``estimate_residual_weight_histogram``, except that ``method`` is
+    the method of the coset-leader search.  Also return whether the Pauli weight is the CSS weight,
+    which by default it is for a CSS state.
     """
     stabilizers = circuits.get_state_stabilizers(full_circuit, qubits)
     if len(stabilizers) != len(qubits):
@@ -911,7 +911,7 @@ class _ResidualWeightSetup:
         css_weight: Whether whole errors are weighed by their CSS weight or physical weight.
         pauli: The Pauli component to score, or None for whole errors.
         max_residual_weight: The largest residual weight to resolve.
-        method: The engine of the coset search, where the tables do not apply.
+        method: The method of the coset-leader search, used where the tables do not apply.
 
     Raises:
         ValueError: If ``pauli`` is given and the state is not a CSS state, or if the method is
@@ -926,7 +926,7 @@ class _ResidualWeightSetup:
         pauli: PauliXZ | None,
         max_residual_weight: int,
         *,
-        method: Literal["brouwer_zimmermann", "connected_support"] = "brouwer_zimmermann",
+        method: CosetSearchMethod = "brouwer_zimmermann",
     ) -> None:
         """Choose the stabilizer generators and the residual-weight oracle."""
         num_qubits = stabilizers.shape[1] // 2
@@ -939,25 +939,28 @@ class _ResidualWeightSetup:
         self.oracle: _ResidualWeightOracle
         self.syndrome_mask = (1 << num_qubits) - 1
         self._cache: dict[bytes, int] = {}
+        # Whole errors of a state that is not CSS, or weighed by physical weight, take a coset
+        # search of the given stabilizers.  Otherwise the X-type and Z-type supports give tables,
+        # or, above their limit, a coset search by CSS weight.
+        search_css_weight = css_weight
         if not is_css or (pauli is None and not (css_weight and num_qubits <= _MAX_TABLE_QUBITS)):
             self.matrix = stabilizers
-            self.oracle = _CosetSearchWeights(
-                stabilizers, css_weight, max_residual_weight, method=method
-            )
-            return
-
-        x_supports, z_supports = _get_css_supports(stabilizers)
-        self.matrix = np.zeros_like(stabilizers)
-        self.matrix[: len(x_supports), :num_qubits] = x_supports
-        self.matrix[len(x_supports) :, num_qubits:] = z_supports
-        if pauli is Pauli.X:
-            self.syndrome_mask ^= (1 << len(x_supports)) - 1
-        elif pauli is Pauli.Z:
-            self.syndrome_mask = (1 << len(x_supports)) - 1
-        if num_qubits <= _MAX_TABLE_QUBITS:
-            self.oracle = _CSSWeightTables(x_supports, z_supports, max_residual_weight)
         else:
-            self.oracle = _CosetSearchWeights(self.matrix, True, max_residual_weight, method=method)
+            x_supports, z_supports = _get_css_supports(stabilizers)
+            self.matrix = np.zeros_like(stabilizers)
+            self.matrix[: len(x_supports), :num_qubits] = x_supports
+            self.matrix[len(x_supports) :, num_qubits:] = z_supports
+            if pauli is Pauli.X:
+                self.syndrome_mask ^= (1 << len(x_supports)) - 1
+            elif pauli is Pauli.Z:
+                self.syndrome_mask = (1 << len(x_supports)) - 1
+            if num_qubits <= _MAX_TABLE_QUBITS:
+                self.oracle = _CSSWeightTables(x_supports, z_supports, max_residual_weight)
+                return
+            search_css_weight = True
+        self.oracle = _CosetSearchWeights(
+            self.matrix, search_css_weight, max_residual_weight, method=method
+        )
 
     @property
     def stabilizers(self) -> list[stim.PauliString]:
@@ -1030,8 +1033,8 @@ class _CSSWeightTables:
 class _CosetSearchWeights:
     """Exact residual weights of the syndromes of any stabilizer state, by a coset search.
 
-    This uses the exact minimum-weight search of ``certify_bounded_fault_propagation``, by either of
-    its methods, which is slower than ``_CSSWeightTables`` but works for any stabilizer state and
+    This uses the exact minimum-weight search of ``certify_bounded_fault_propagation``, by the
+    given method.  It is slower than ``_CSSWeightTables``, but works for any stabilizer state and
     either Pauli weight.
     """
 
@@ -1041,7 +1044,7 @@ class _CosetSearchWeights:
         css_weight: bool,
         max_residual_weight: int,
         *,
-        method: Literal["brouwer_zimmermann", "connected_support"] = "brouwer_zimmermann",
+        method: CosetSearchMethod,
     ) -> None:
         """Prepare the search for the given stabilizer generators, one row per generator."""
         self.max_residual_weight = max_residual_weight

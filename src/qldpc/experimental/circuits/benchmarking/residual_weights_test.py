@@ -296,26 +296,26 @@ def test_invalid_arguments() -> None:
 
 
 def test_methods_of_the_coset_search() -> None:
-    """Every method of the coset search gives the exact histogram of a state that is not CSS.
+    """The connected-support search gives the exact histogram of a state that is not CSS.
 
-    The connected-support search refuses to weigh its errors by CSS weight, which the default
-    search, also under its alias ``"information_sets"``, accepts.
+    On this state, it cannot weigh errors by CSS weight, but the default search, here under its
+    alias ``"information_sets"``, can.  The brute-force method has no search of residual weights,
+    and is rejected before the circuit is read.
     """
     circuit = _build_circuit(_NON_CSS_LAYERS, _NON_CSS_MECHANISMS)
     acceptance, distribution = _brute_force(_NON_CSS_LAYERS, _NON_CSS_MECHANISMS, 3, False, 1, None)
-    for method in ("information_sets", "connected_support"):
-        histogram = estimate_residual_weight_histogram(
-            circuit, 1, output_qubits=range(3), post_select=False, method=method
-        )
-        assert histogram.acceptance_probability == pytest.approx(acceptance, rel=1e-12)
-        assert np.allclose(histogram.get_residual_weight_distribution(), distribution, rtol=1e-9)
+    histogram = estimate_residual_weight_histogram(
+        circuit, 1, output_qubits=range(3), post_select=False, method="connected_support"
+    )
+    assert histogram.acceptance_probability == pytest.approx(acceptance, rel=1e-12)
+    assert np.allclose(histogram.get_residual_weight_distribution(), distribution, rtol=1e-9)
 
     options: dict[str, Any] = {"output_qubits": range(3), "css_weight": True}
     estimate_residual_weight_histogram(circuit, 1, method="information_sets", **options)
     with pytest.raises(ValueError, match="only on CSS states"):
         estimate_residual_weight_histogram(circuit, 1, method="connected_support", **options)
-    with pytest.raises(ValueError, match="no coset-leader search"):
-        estimate_residual_weight_histogram(circuit, 1, method="brute_force")
+    with pytest.raises(ValueError, match="no search of residual weights"):
+        estimate_residual_weight_histogram(stim.Circuit("M 0"), 1, method="brute_force")
 
 
 def test_validate_indices() -> None:
@@ -362,10 +362,7 @@ def test_invalid_histograms() -> None:
 
 
 def test_weight_oracles(pytestconfig: pytest.Config) -> None:
-    """The residual-weight oracles agree with brute force on every syndrome of the Steane code.
-
-    The coset search runs by either of its methods.
-    """
+    """Both residual-weight oracles agree with brute force on every syndrome of the Steane code."""
     code = codes.SteaneCode()
     x_supports = code.matrix_x.view(np.ndarray).astype(np.uint8)
     logical_z = code.get_logical_ops(Pauli.Z)
@@ -386,9 +383,8 @@ def test_weight_oracles(pytestconfig: pytest.Config) -> None:
         assert np.linalg.matrix_rank(galois.GF2(np.vstack([recovered, original]))) == rank
 
     tables = residual_weights._CSSWeightTables(x_supports, z_supports, max_residual_weight)
-    search = residual_weights._CosetSearchWeights(stabilizers, True, max_residual_weight)
-    support_search = residual_weights._CosetSearchWeights(
-        stabilizers, True, max_residual_weight, method="connected_support"
+    search = residual_weights._CosetSearchWeights(
+        stabilizers, True, max_residual_weight, method="brouwer_zimmermann"
     )
     keys = []
     expected = []
@@ -401,7 +397,7 @@ def test_weight_oracles(pytestconfig: pytest.Config) -> None:
             )
             keys.append(syndrome)
             expected.append(min(weight, max_residual_weight + 1))
-    for oracle in (tables, search, support_search):
+    for oracle in (tables, search):
         packed = np.array([oracle.get_key_words(key) for key in keys], dtype=np.uint64)
         assert np.array_equal(oracle.get_weights(packed), expected)
 
