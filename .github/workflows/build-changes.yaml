@@ -23,6 +23,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  install:
+    name: Installation check (Python 3.14)
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: 3.14
+          # Install from scratch, as a new user would.
+          enable-cache: false
+      # Install what a development installation (pip install -e '.[dev]') does, which no other job
+      # installs together.
+      - name: Install package and dependencies
+        run: uv sync --extra dev
+
   ubuntu:
     name: Ubuntu check of minimum dependency versions (Python 3.11)
     if: github.event.pull_request.draft == false
