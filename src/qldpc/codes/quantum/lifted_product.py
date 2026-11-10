@@ -167,9 +167,9 @@ class LPCode(CSSCode):
            involution of the ring transposes lifts.  This route takes precedence wherever it
            applies, even for seed matrices that also fit the split route.
         2. Split route, for seed matrices ``matrix_a`` and ``matrix_b`` that split at trailing
-           pivot blocks (defined below), following Appendix B of
-           https://arxiv.org/abs/2607.28795v2.  This route is for any other ring that meets the
-           requirements on the ring of an ``LPCode``, and whose involution transposes lifts.
+           pivot blocks (defined below), following Appendix B of https://arxiv.org/abs/2607.28795v2.
+           This route is for any other ring that meets the requirements on the ring of an
+           ``LPCode``, and whose involution transposes lifts.
 
         Let ``matrix_a`` and ``matrix_b`` have shapes ``(ma, na)`` and ``(mb, nb)``, and let ``d``
         be the size of lifted blocks.  The first block of qudits, which is sector (0, 0), is a grid
@@ -179,23 +179,24 @@ class LPCode(CSSCode):
         ``matrix_a = [A_free | A_pivot]`` and ``matrix_b = [B_free | B_pivot]``, where the square
         pivot blocks are the last ``ma`` and ``mb`` columns.  A cell is free if its ``i`` and ``j``
         index free columns, and a pivot cell otherwise.  The seed matrices split at these pivot
-        blocks if their lifts are invertible in the actions that the code uses on lines of qudits:
-        ``A_pivot`` as in ``kron(matrix_a, I)``, and ``B_pivot`` as in ``kron(I, matrix_b)``.
-        This is the square invertibility condition of Definition 16 in arXiv:2607.28795v2, with
-        the pivot columns last.  Over a noncommutative group algebra, these actions multiply from
-        the left and from the right, and a ring matrix can be invertible in one action but not the
-        other.
+        blocks if the lifts of the pivot blocks are invertible in the actions that the code uses on
+        lines of qudits, where ``I`` is an identity matrix: ``A_pivot`` as in ``kron(matrix_a, I)``,
+        and ``B_pivot`` as in ``kron(I, matrix_b)``.  This condition generalizes the square
+        invertibility condition of Definition 16 in arXiv:2607.28795v2 to other rings, lifts, and
+        square seed matrices, with the pivot columns last.  Over a noncommutative group algebra,
+        these actions multiply from the left and from the right, and a ring matrix can be
+        invertible in one action but not the other.
 
         The split route builds one pair of operators for each free column ``i`` of ``matrix_a``,
         free column ``j`` of ``matrix_b``, and coordinate ``g`` of a lifted block.  The X operator
         lies on row ``i`` of the grid, and the Z operator lies on column ``j``.  On the free cells
         of its line, each operator is the unit vector at ``(i, j, g)``, and its values on pivot
-        cells solve the checks.  For these
-        ``(na - ma) * (nb - mb) * d`` pairs, ``logical_ops_x @ logical_ops_z.T`` is the identity.
-        These pairs span all logical operators because the involution of the ring transposes
-        lifts.  Without this property, a subsystem lifted product can encode more logical qudits,
-        so the split route declines such rings.  This route recognizes only trailing pivot blocks,
-        so seed matrices with invertible pivot blocks elsewhere need their columns reordered first.
+        cells solve the checks.  For these ``(na - ma) * (nb - mb) * d`` pairs,
+        ``logical_ops_x @ logical_ops_z.T`` is the identity.  These pairs span all logical
+        operators because the involution of the ring transposes lifts.  Without this property, a
+        subsystem lifted product can encode more logical qudits, so the split route declines such
+        rings.  This route recognizes only trailing pivot blocks, so seed matrices with invertible
+        pivot blocks elsewhere need their columns reordered first.
 
         For matrices that fit neither route, this method raises a NotImplementedError if either
         ring is not a group algebra, and otherwise a ValueError, such as for matrices over
@@ -450,10 +451,12 @@ def _check_semisimple_route(
     The semisimple route of ``LPCode.get_canonical_logical_line_ops`` uses semisimple Howell normal
     forms, which are implemented only for group algebras, and need a field characteristic that does
     not divide the group order.  This function raises a NotImplementedError if either matrix is not
-    over a group algebra, before computing null spaces, which raise a ValueError for a ring without
-    an involution.  It then raises a ValueError for matrices over different group algebras, or over
-    a group algebra that is not semisimple.  If ``mention_split_route`` is True, the errors for
-    rings also say that the matrices do not fit the split route, for callers that tried it first.
+    over a group algebra, and then a ValueError for matrices over different group algebras, or over
+    a group algebra that is not semisimple.  Callers run it before computing null spaces, so a ring
+    that is not a group algebra raises a NotImplementedError rather than the ValueError of a null
+    space over a ring without an involution.  If ``mention_split_route`` is True, the errors for a
+    ring that is not a group algebra or not semisimple also say that the matrices do not fit the
+    split route, for callers that tried it first.
     """
     split_route_hint = (
         ", and the seed matrices do not fit the split route (see"
@@ -461,18 +464,18 @@ def _check_semisimple_route(
         if mention_split_route
         else ""
     )
-    for ring in (matrix_a.ring, matrix_b.ring):
-        if not isinstance(ring, abstract.GroupRing):
-            raise NotImplementedError(
-                "The semisimple route of canonical logical operators of lifted products is"
-                f" implemented only for group algebras, not {ring}{split_route_hint}"
-            )
+    ring_a, ring_b = matrix_a.ring, matrix_b.ring
+    if not isinstance(ring_a, abstract.GroupRing) or not isinstance(ring_b, abstract.GroupRing):
+        ring = ring_b if isinstance(ring_a, abstract.GroupRing) else ring_a
+        raise NotImplementedError(
+            "The semisimple route of canonical logical operators of lifted products is implemented"
+            f" only for group algebras, not {ring}{split_route_hint}"
+        )
     _check_same_ring(matrix_a, matrix_b)
-    ring = matrix_a.ring
-    if isinstance(ring, abstract.GroupRing) and not ring.is_semisimple:
+    if not ring_a.is_semisimple:
         raise ValueError(
             "The semisimple route of canonical logical operators of lifted products needs a field"
-            f" characteristic that does not divide the group order, unlike that of {ring}"
+            f" characteristic that does not divide the group order, unlike that of {ring_a}"
             f"{split_route_hint}"
         )
 
@@ -484,12 +487,12 @@ def _set_canonical_logical_line_ops(code: LPCode | SLPCode) -> None:
         logical_ops_xz = code.get_canonical_logical_line_ops(code.matrix_a, code.matrix_b)
     except (ValueError, NotImplementedError) as exception:
         raise ValueError(
-            "Cannot set canonical logical operators for this code, since its seed matrices fit"
-            " neither route of LPCode.get_canonical_logical_line_ops"
+            f"Cannot set canonical logical operators for this code: {exception}"
         ) from exception
 
-    # operators of both routes assume that the involution of the ring transposes lifts, so invalid
-    # operators are a bug if it does, and otherwise they can be invalid
+    # the split route requires an involution that transposes lifts, and the semisimple route
+    # assumes one, so invalid operators are a bug if the involution transposes lifts, and otherwise
+    # they can come from the semisimple route
     if _involution_transposes_lifts(ring):
         code.set_logical_ops_xz(*logical_ops_xz)
         return
@@ -549,12 +552,13 @@ def _get_paired_grid_line_ops(
     satisfy ``checks_a``.  X operators are supported on one row, where they must satisfy
     ``checks_b``.  The pivot block of each check matrix is its last square block of columns.
 
-    If both pivot blocks are invertible, then for each free cell ``(i, j)``, with ``i < na - ma``
-    and ``j < nb - mb``, and each coordinate ``g`` of a block, this function returns the X operator
-    on row ``i`` and the Z operator on column ``j`` that equal the unit vector at ``(i, j, g)`` on
-    free cells of that line.  Their values on pivot cells solve the checks.  An X operator on row
-    ``i`` and a Z operator on column ``j'`` meet only at the free cell ``(i, j')``, where both are
-    unit vectors, so ``logical_ops_x @ logical_ops_z.T`` is the identity.
+    If both pivot blocks are invertible, then for each free cell ``(i, j, g)``, with
+    ``i < na - ma`` and ``j < nb - mb``, this function returns the X operator on row ``i`` and the
+    Z operator on column ``j`` that equal the unit vector at ``(i, j, g)`` on free cells of that
+    line.  Their values on pivot cells solve the checks.  An X operator on row ``i`` and a Z
+    operator on column ``j'`` meet only at the free cells ``(i, j', g')``, so the X operator for
+    ``(i, j, g)`` and the Z operator for ``(i', j', g')`` overlap only if they are the same cell,
+    and ``logical_ops_x @ logical_ops_z.T`` is the identity.
 
     Returns:
         The X operators and Z operators, both ordered by ``(i, j, g)``, or None if a check matrix
