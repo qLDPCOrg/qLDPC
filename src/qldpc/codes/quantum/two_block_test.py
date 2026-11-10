@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import itertools
 
+import galois
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -409,6 +410,36 @@ def test_gala_translations_preserve_checks() -> None:
 def test_nonabelian_groups_give_no_block_translations() -> None:
     """Translations by the generators of a nonabelian group need not preserve a code."""
     assert _get_abelian_block_translations(abstract.DihedralGroup(3), 2) is None
+
+
+def test_abelian_block_translations_of_field_lifts() -> None:
+    """Lifts given as arrays over a finite field are read by their integer entries."""
+    field = galois.GF(2)
+
+    # a cyclic shift over GF(2) gives the translations of the permutation that it represents, as
+    # does the same shift over the integers, and they preserve a lifted product
+    shift = np.roll(np.eye(3, dtype=int), 1, axis=0)
+    group = abstract.Group.from_generating_mats(field(shift))
+    translations = _get_abelian_block_translations(group, 2)
+    integer_translations = _get_abelian_block_translations(
+        abstract.Group.from_generating_mats(shift), 2
+    )
+    assert translations is not None and integer_translations is not None
+    assert np.array_equal(translations, integer_translations)
+    ring = abstract.GroupRing(group)
+    code = codes.LPCode(abstract.RingArray.build([[ring.one + ring.generators[0], 1]], ring))
+    code_translations = code._get_qudit_automorphisms()
+    assert code_translations is not None
+    assert_valid_translations(code, code_translations, group_order=3)
+
+    # the all-ones matrix J minus the identity squares to the identity over GF(2), so it generates a
+    # group of order 2.  Every row and column of J - I sums to 1 over GF(2), but J - I is not a
+    # permutation matrix.
+    group = abstract.Group.from_generating_mats(
+        field(np.ones((4, 4), dtype=int) - np.eye(4, dtype=int))
+    )
+    assert group.order == 2
+    assert _get_abelian_block_translations(group, 2) is None
 
 
 @pytest.mark.parametrize(
