@@ -63,8 +63,8 @@ def test_ring() -> None:
     ring = abstract.GroupRing(group, field=3)
     g_i, g_j = group.generators
     r_i, r_j = ring.generators
-    x_i = sympy.Symbol("x_i")
-    x_j = sympy.Symbol("x_j")
+    x_i = sympy.Symbol("x_i", commutative=False)
+    x_j = sympy.Symbol("x_j", commutative=False)
     symbols = {x_i: g_i, x_j: g_j}
     poly_r = 4 * r_i**2 - 2 * r_i * r_j + r_j
     poly_x = 4 * x_i**2 - 2 * x_i * x_j + x_j
@@ -85,13 +85,38 @@ def test_ring() -> None:
     with pytest.raises(ValueError, match="must be GroupMember-valued"):
         ring.eval(1, wrong_symbols)  # type:ignore[arg-type]
 
-    # coefficients of a polynomial must be integers, and its other factors integer powers of the
-    # given symbols
+    # terms must be integers times words in the given symbols
     assert ring.eval(1.0 * x_i, symbols) == ring.eval(x_i, symbols)
     assert ring.eval(x_i**2.0, symbols) == ring.eval(x_i**2, symbols)
     for expression in [x_i / 2, sympy.sin(x_i)]:
         with pytest.raises(ValueError, match="the given symbols"):
             ring.eval(expression, symbols)
+
+    # words can be nested, and products and powers of sums are expanded
+    a, b = sympy.symbols("a b", commutative=False)
+    g, h = abstract.SymmetricGroup(3).generators
+    word_ring = abstract.GroupRing(abstract.SymmetricGroup(3))
+    word_symbols = {a: g, b: h}
+    assert word_ring.eval(3 * (a * b) ** -1, word_symbols) == 3 * abstract.RingMember(
+        word_ring, h**-1 * g**-1
+    )
+    ring_g, ring_h = abstract.RingMember(word_ring, g), abstract.RingMember(word_ring, h)
+    assert word_ring.eval((a + b) ** 2, word_symbols) == (ring_g + ring_h) ** 2
+    assert word_ring.eval((a + b) ** 2.0, word_symbols) == (ring_g + ring_h) ** 2
+    with pytest.raises(ValueError, match="the given symbols"):
+        word_ring.eval((a + b) ** -1, word_symbols)
+
+    # products and powers in the unexpanded expression are checked, because expanding can cancel
+    # reordered terms; sums are not checked
+    x, y, z = sympy.symbols("x y z")
+    assert word_ring.eval(x + y, {x: g, y: h}) == ring_g + ring_h
+    assert word_ring.eval(x * (y + z), {x: g**0, y: g, z: h}) == ring_g + ring_h
+    assert word_ring.eval((x + y) ** 1.0, {x: g, y: h}) == ring_g + ring_h
+    for expression in [1 + z * (x + y) * (x - y), (x + y) ** 2 + (x - y) ** 2]:
+        with pytest.raises(ValueError, match="does not commute"):
+            word_ring.eval(expression, {x: g, y: h, z: g**0})
+    with pytest.raises(ValueError, match="does not commute"):
+        word_ring.eval(a * (x + b) + a * (b - x), {a: g, b: h, x: h})
 
     # edge cases with non-prime number fields
     ring = abstract.GroupRing(group, field=9)

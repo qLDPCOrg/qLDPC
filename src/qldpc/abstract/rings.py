@@ -31,7 +31,7 @@ from qldpc import _deprecations
 from qldpc.math import resolve_field
 
 from .groups import AbelianGroup, Group, GroupMember
-from .monomials import _is_integer, iter_monomial_terms
+from .monomials import _is_integer, _read_polynomial, iter_monomial_terms
 
 if TYPE_CHECKING:
     from .wedderburn_artin import WedderburnArtinTransformer
@@ -411,35 +411,57 @@ class GroupRing(Ring):
         return self._idempotents
 
     def eval(
-        self, expression: sympy.Basic | int | np.int_, symbols: dict[sympy.Symbol, GroupMember]
+        self,
+        expression: sympy.Expr | sympy.Poly | int | np.integer,
+        symbols: dict[sympy.Symbol, GroupMember],
     ) -> RingMember:
-        """Convert a SymPy expression (such as a polynomial) into a member of this ring.
+        """Evaluate a polynomial in words of the given symbols as a member of this ring.
 
-        Each term must be an integer times a product of integer powers of the given symbols, and
-        other expressions raise a ValueError.
+        This method expands products and nonnegative integer powers of sums into terms.
+        Integer-valued floats are read as integers.  It evaluates each term, an integer times a word
+        in the given symbols (see ``Group.eval``), as its coefficient times the member of the group
+        that its word evaluates to.  Raise a ValueError for any other term, and for any word that
+        ``Group.eval`` rejects.  Raise a TypeError if SymPy reads the expression as something other
+        than an expression or a polynomial, such as an equation.
+
+        Use noncommutative symbols for members that do not commute.  SymPy sorts commutative symbols
+        when it builds an expression, so terms can cancel, as in ``x * y - y * x == 0``.  Expanding
+        a product can cancel terms in the same way, as in ``(x + y) * (x - y)``.  Raise a ValueError
+        if, in the expression that this method receives, a commutative symbol stands for a member
+        that does not commute with the member of a symbol in another factor of the same product, or
+        in the base of the same power.
         """
         # helpful error message for invalid symbols
         if any(not isinstance(value, GroupMember) for value in symbols.values()):
             raise ValueError("The symbols passed to GroupRing.eval must be GroupMember-valued")
 
-        # sum the ring members obtained by evaluating each monomial term of the polynomial
-        terms = (self._eval_monomial(term, symbols) for term in iter_monomial_terms(expression))
-        return functools.reduce(operator.add, terms, self.zero)
+        # sum the ring members obtained by evaluating each term
+        expression = _read_polynomial(expression)
+        terms = (self._eval_term(term, symbols) for term in iter_monomial_terms(expression))
+        result = functools.reduce(operator.add, terms, self.zero)
 
-    def _eval_monomial(
-        self, monomial: sympy.Expr, symbols: dict[sympy.Symbol, GroupMember]
-    ) -> RingMember:
-        """Convert a single SymPy monomial into a member of this ring."""
-        # split the monomial into its integer coefficient and its group-element content, which
-        # Group.eval checks
-        sympy_coeff, group_content = monomial.as_coeff_Mul()
+        # check the products and powers that expanding the expression may have cancelled
+        for node in sympy.preorder_traversal(expression):
+            if isinstance(node, sympy.Mul):
+                factors = [factor.free_symbols for factor in node.args]
+                for left, right in itertools.combinations(factors, 2):
+                    self.group._check_commutative_symbols(left, right, symbols)
+            elif isinstance(node, sympy.Pow):
+                base = node.base.free_symbols
+                self.group._check_commutative_symbols(base, base, symbols)
+        return result
+
+    def _eval_term(self, term: sympy.Expr, symbols: dict[sympy.Symbol, GroupMember]) -> RingMember:
+        """Evaluate an integer times a word in the given symbols as a member of this ring."""
+        # split the term into its integer coefficient and its word, which Group.eval checks
+        sympy_coeff, word = term.as_coeff_Mul()
         if not _is_integer(sympy_coeff):
             raise ValueError(
-                "GroupRing.eval requires monomials in the given symbols with integer coefficients,"
-                f" not {monomial}"
+                "GroupRing.eval requires terms that are integers times words in the given symbols,"
+                f" not {term}"
             )
         coeff = self._eval_int(int(sympy_coeff))
-        group_member = self.group.eval(group_content, symbols)
+        group_member = self.group.eval(word, symbols)
         return RingMember(self, (coeff, group_member))
 
     @functools.cached_property
