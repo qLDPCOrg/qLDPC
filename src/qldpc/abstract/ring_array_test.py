@@ -229,10 +229,14 @@ def test_build_edge_cases() -> None:
 
     # each entry of an array is one ring member
     entries = np.empty(1, dtype=object)
-    for entry in [[1], ring.field([1]), abstract.RingArray.build([1], ring)]:
+    for entry in [[1], (1,), ring.field([1]), abstract.RingArray.build([1], ring)]:
         entries[0] = entry
         with pytest.raises(ValueError, match="must be scalars, group members, or ring members"):
             abstract.RingArray.build(entries, ring)
+
+    # an entry that is a 0-d array of objects is read as the object it holds
+    entries[0] = np.array(ring.one, dtype=object)
+    assert abstract.RingArray.build(entries, ring)[0] == ring.one
 
 
 def test_matmul_fallbacks() -> None:

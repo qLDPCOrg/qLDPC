@@ -300,6 +300,8 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             if isinstance(value, GroupMember):
                 return one * value
 
+            if isinstance(value, np.ndarray) and value.ndim == 0 and value.dtype == object:
+                return as_ring_member(value.item())
             if isinstance(value, (list, tuple)) or (isinstance(value, np.ndarray) and value.ndim):
                 raise ValueError(
                     "The entries of a RingArray must be scalars, group members, or ring members,"
