@@ -229,7 +229,7 @@ def test_build_edge_cases() -> None:
 
     # each entry of an array is one ring member
     entries = np.empty(1, dtype=object)
-    for entry in [[1], ring.field([1])]:
+    for entry in [[1], ring.field([1]), abstract.RingArray.build([1], ring)]:
         entries[0] = entry
         with pytest.raises(ValueError, match="must be scalars, group members, or ring members"):
             abstract.RingArray.build(entries, ring)

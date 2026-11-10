@@ -814,6 +814,13 @@ def test_matrix_groups_over_wide_fields() -> None:
     inverse = int(element**-1)
     assert abstract.Group.from_generating_mats(field([[0, 2**65], [inverse, 0]])).order == 2
 
+    # rows over a finite field give a matrix over that field
+    rows = list(galois.GF(3)([[1, 1], [0, 1]]))
+    group = abstract.Group.from_generating_mats(rows)
+    assert group.order == 3 and type(group.lift(group.generators[0])) is galois.GF(3)
+    with pytest.raises(ValueError, match="Inconsistent fields"):
+        abstract.Group.from_generating_mats([rows[0], galois.GF(5)([0, 1])])
+
 
 def test_pgl_requires_trivial_center() -> None:
     """Asking for the linear representation raises an error when it does not exist.

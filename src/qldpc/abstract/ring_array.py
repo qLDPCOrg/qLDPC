@@ -300,16 +300,16 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             if isinstance(value, GroupMember):
                 return one * value
 
-            # an integer, float, or field scalar is a multiple of the identity
-            if isinstance(value, (int, np.integer, np.bool_)):
-                return one * int(value)
-            coefficient = ring._read_coefficients(value)
-            if coefficient.ndim:
+            if isinstance(value, (list, tuple)) or (isinstance(value, np.ndarray) and value.ndim):
                 raise ValueError(
                     "The entries of a RingArray must be scalars, group members, or ring members,"
                     f" not {value!r}"
                 )
-            return one * coefficient
+
+            # an integer, float, or field scalar is a multiple of the identity
+            if isinstance(value, (int, np.integer, np.bool_)):
+                return one * int(value)
+            return one * ring._read_coefficients(value)
 
         vals = [as_ring_member(value) for value in array.ravel()]
         result = np.array(vals, dtype=object).reshape(array.shape).view(RingArray)

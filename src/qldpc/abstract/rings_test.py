@@ -261,6 +261,13 @@ def test_field_scalars() -> None:
             combine(x, ring.field([2]))
         with pytest.raises(TypeError):
             combine(ring.field([2]), x)
+
+    # field scalars of other field classes are read as coefficients
+    assert x * galois.GF(9)(2) == x * scalar
+    for combine in [operator.mul, operator.add, operator.sub]:
+        with pytest.raises(ValueError, match="cannot be read in"):
+            combine(x, galois.GF(5)(2))
+
     array = ring.field([1, 2])
     assert np.array_equal(
         x * abstract.RingArray.build(array, ring), abstract.RingArray.build([x, x * ring.field(2)])
