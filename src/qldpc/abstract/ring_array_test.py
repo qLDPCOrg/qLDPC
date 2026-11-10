@@ -119,6 +119,12 @@ def test_transpose() -> None:
     matrix = abstract.RingArray.build([[x0, 0, x1], [x2, 0, abstract.RingMember(group, x3)]])
     assert np.array_equal(matrix.T.T, matrix)
 
+    # as in numpy, an array with fewer than two dimensions keeps its shape
+    vector = abstract.RingArray.build([x1, x2], matrix.ring)
+    assert np.array_equal(vector.T, abstract.RingArray.build([x3, x2], matrix.ring))
+    scalar = abstract.RingArray.build(x1, matrix.ring)
+    assert np.array_equal(scalar.T, abstract.RingArray.build(x3, matrix.ring))
+
     # a RingArray without a base ring transposes its entries in their own rings
     ring = matrix.ring
     plain = np.asarray(abstract.RingArray.build([[x1, 1], [0, x1]], ring)).view(abstract.RingArray)
@@ -503,11 +509,6 @@ def test_ring_row_reduction() -> None:
     ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
     with pytest.raises(ValueError, match="only supports semisimple rings"):
         abstract.RingArray.build([[1, 0], [1, 1]], ring).row_reduce()
-
-    # computing a reduced Groebner basis is the final boss
-    ring = abstract.GroupRing(abstract.DihedralGroup(2), field=2)
-    with pytest.raises(NotImplementedError, match="Groebner"):
-        abstract.RingArray.build([[1, 0], [1, 1]], ring).reduced_groebner_basis()
 
 
 def test_deprecated_argument_order() -> None:

@@ -17,6 +17,7 @@ import sympy
 
 from qldpc import abstract
 from qldpc._utils import networkx as nx
+from qldpc.abstract.monomials import get_coefficient_and_exponents, iter_monomial_terms
 from qldpc.objects import (
     Node,
 )
@@ -361,8 +362,8 @@ class MBCode(TBCode):
         assert len(orders) == len(self.symbols)
 
         coefficients: dict[sympy.Expr, galois.FieldArray] = {}
-        for term in abstract.iter_monomial_terms(poly):
-            _, _exponents = abstract.get_coefficient_and_exponents(term)
+        for term in iter_monomial_terms(poly):
+            _, _exponents = get_coefficient_and_exponents(term)
             exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
             monomial = sympy.prod(
                 symbol ** (exponents.get(symbol, 0) % order)
@@ -388,8 +389,8 @@ class MBCode(TBCode):
 
         # shift the exponents of one simplified monomial term at a time
         new_poly: sympy.Expr = sympy.Integer(0)
-        for term in abstract.iter_monomial_terms(self.get_simplified_form(poly, orders)):
-            coeff, _exponents = abstract.get_coefficient_and_exponents(term)
+        for term in iter_monomial_terms(self.get_simplified_form(poly, orders)):
+            coeff, _exponents = get_coefficient_and_exponents(term)
             exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
 
             new_term = sympy.Integer(coeff)
@@ -441,8 +442,8 @@ class MBCode(TBCode):
             )
 
         # build matrices for each term in A and B, transposed to match the lift in __init__
-        terms_a = abstract.iter_monomial_terms(self.poly_a)
-        terms_b = abstract.iter_monomial_terms(self.poly_b)
+        terms_a = iter_monomial_terms(self.poly_a)
+        terms_b = iter_monomial_terms(self.poly_b)
         matrices_a = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_a]
         matrices_b = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_b]
 
@@ -685,8 +686,8 @@ class BBCode(MBCode):
             return []
 
         # identify individual monomials (terms without their coefficients) in the polynomials
-        monomials_a = [term.as_coeff_Mul()[1] for term in abstract.iter_monomial_terms(self.poly_a)]
-        monomials_b = [term.as_coeff_Mul()[1] for term in abstract.iter_monomial_terms(self.poly_b)]
+        monomials_a = [term.as_coeff_Mul()[1] for term in iter_monomial_terms(self.poly_a)]
+        monomials_b = [term.as_coeff_Mul()[1] for term in iter_monomial_terms(self.poly_b)]
 
         # identify collections of monomials that can be combined to obtain a toric layout
         toric_params = []
@@ -739,7 +740,7 @@ class BBCode(MBCode):
         Raise a ValueError unless the monomial is an integer times a product of integer powers of
         the symbols of this code.  The integer is ignored.
         """
-        _, _exponents = abstract.get_coefficient_and_exponents(monomial)
+        _, _exponents = get_coefficient_and_exponents(monomial)
         exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
         if not exponents.keys() <= set(self.symbols):
             raise ValueError(f"{monomial} is not a monomial in the symbols {self.symbols}")
