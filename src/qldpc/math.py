@@ -63,7 +63,7 @@ def resolve_field(field: int | type[galois.FieldArray] | None) -> type[galois.Fi
 def op_to_string(op: npt.NDArray[np.int_]) -> stim.PauliString:
     """Convert an integer array that represents a Pauli string into a stim.PauliString.
 
-    The (first, second) half the array indicates the support of (X, Z) Paulis.
+    The (first, second) half of the array indicates the support of (X, Z) Paulis.
     """
     support_xz = np.array(op, dtype=int).reshape(2, -1)
     paulis = {(0, 0): "I", (1, 0): "X", (0, 1): "Z", (1, 1): "Y"}
@@ -73,7 +73,7 @@ def op_to_string(op: npt.NDArray[np.int_]) -> stim.PauliString:
 def string_to_op(string: stim.PauliString, num_qubits: int | None = None) -> npt.NDArray[np.int_]:
     """Convert a stim.PauliString into an integer array, inverting qldpc.math.op_to_string.
 
-    The (first, second) half the array indicates the support of (X, Z) Paulis.
+    The (first, second) half of the array indicates the support of (X, Z) Paulis.
     """
     num_qubits = num_qubits or len(string)
     string = stim.PauliString(string)  # copy: avoid mutating the caller's input via *=

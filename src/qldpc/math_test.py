@@ -57,7 +57,7 @@ def test_vectors() -> None:
         qldpc.math.symplectic_weight(np.zeros(3, dtype=int))
 
 
-def test_symplectic_conjugate_identity() -> None:
+def test_symplectic_conjugate_identity(pytestconfig: pytest.Config) -> None:
     """The symplectic inner product satisfies ``<P, Q>_s = P @ symplectic_conjugate(Q)``.
 
     Anchors the identity documented on ``symplectic_conjugate``, including the ``-1`` on the Z
@@ -65,9 +65,10 @@ def test_symplectic_conjugate_identity() -> None:
     """
     num_qubits = 6
     # GF(3)/GF(5) exercise the -1 on the Z sector, which is invisible over GF(2) (where -1 == 1).
+    seed = pytestconfig.getoption("randomly_seed")
     for field in [galois.GF(2), galois.GF(3), galois.GF(5)]:
-        vectors_p = field(np.random.randint(field.order, size=(4, 2 * num_qubits)))
-        vectors_q = field(np.random.randint(field.order, size=(7, 2 * num_qubits)))
+        vectors_p = field.Random((4, 2 * num_qubits), seed=seed)
+        vectors_q = field.Random((7, 2 * num_qubits), seed=seed + 1)
         p_x, p_z = vectors_p[:, :num_qubits], vectors_p[:, num_qubits:]
         q_x, q_z = vectors_q[:, :num_qubits], vectors_q[:, num_qubits:]
         expected = p_x @ q_z.T - p_z @ q_x.T
