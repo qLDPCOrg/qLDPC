@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import galois
 import networkx as nx
 import numpy as np
@@ -15,6 +17,7 @@ from qldpc import abstract, codes
 from qldpc.objects import ChainComplex, Pauli
 
 from ..conftest import assert_valid_translations
+from .lifted_product import _get_paired_grid_line_ops, _get_split_logical_line_ops
 
 
 def test_trivial_lift(
@@ -81,6 +84,20 @@ def test_lift(ring_cyclic3_gf2: abstract.GroupRing) -> None:
     line_weights = np.count_nonzero(logical_line_ops.view(np.ndarray), axis=1)
     weights = np.count_nonzero(logical_ops.view(np.ndarray), axis=1)
     assert np.all(line_weights <= weights)
+
+    # this seed also splits at trailing pivot blocks, but the split route declines it, since the
+    # semisimple route takes precedence
+    one = np.ones((1, 1), dtype=int)
+    checks_a = abstract.kron(ring_matrix, one).lift()
+    checks_b = abstract.kron(one, ring_matrix).lift()
+    assert _get_paired_grid_line_ops(checks_a, checks_b, ring.lift_dim) is not None
+    for with_second_block in [True, False]:
+        assert (
+            _get_split_logical_line_ops(
+                ring_matrix, ring_matrix, with_second_block=with_second_block
+            )
+            is None
+        )
 
 
 def test_twisted_xzzx(width: int = 3) -> None:
@@ -296,38 +313,39 @@ def test_lifted_product_valid_over_group_algebras() -> None:
                 assert not np.any(code.matrix_x @ code.matrix_z.T)
 
 
-def test_unsupported_line_logicals(rows: int = 2, cols: int = 3) -> None:
+def test_unsupported_line_logicals() -> None:
     """Requesting line operators raises an error for seeds that fit neither route.
 
     The field characteristic divides the order of the group, so the semisimple route does not
-    apply.  The trailing 2×2 block of every seed drawn here has determinant 0 or 1 + x, neither of
-    which is a unit, so the seeds do not split at trailing pivot blocks.
+    apply.  The trailing 2×2 block of the seed has determinant 1 + g, where g generates the group.
+    This determinant is not a unit, so the seed does not split at trailing pivot blocks.
     """
     ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
-    values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
-    matrix = abstract.RingArray.build(values, ring)
+    gen = ring.generators[0]
+    matrix = abstract.RingArray.build([[gen, 1, gen], [1, 1, 1]], ring)
     code_types: list[type[codes.LPCode | codes.SLPCode]] = [codes.LPCode, codes.SLPCode]
     for code_type in code_types:
-        with pytest.raises(ValueError, match="not yet supported"):
+        with pytest.raises(ValueError, match=r"semisimple.*do not fit the split route"):
             code_type(matrix, set_logicals=True)
-        with pytest.raises(ValueError, match="semisimple"):
+        with pytest.raises(ValueError, match=r"semisimple.*do not fit the split route"):
             code_type.get_canonical_logical_line_ops(matrix, matrix)
 
 
 def test_split_line_logicals() -> None:
     """Seeds that split at trailing pivot blocks have paired line operators.
 
-    The split route follows Appendix B of arXiv:2607.28795.  The rings below are not semisimple
+    The split route follows Appendix B of arXiv:2607.28795v2.  The rings below are not semisimple
     group algebras, so their seeds avoid the semisimple route.
     """
-    # dual numbers, as in the invertible-pivot example of arXiv:2607.28795
+    # dual numbers F_2[eps]/(eps^2), as the algebra of the cyclic group of order 2 over F_2
     ring_c2 = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
     eps = ring_c2.one + ring_c2.generators[0]
     seed_c2 = abstract.RingArray.build([[eps, 1]], ring_c2)
 
     # a noncommutative ring, with a pivot block that is invertible in the left action that
-    # seed_a_s3 needs, but not in the right action that seed_b_s3 needs.  Its transpose, the pivot
-    # block of seed_b_s3, is invertible only in the right action.
+    # seed_a_s3 needs, but not in the right action that seed_b_s3 needs.  The pivot block of
+    # seed_b_s3 is its entrywise transpose (without the involution), and is invertible only in the
+    # right action.
     ring_s3 = abstract.GroupRing(abstract.DihedralGroup(3), field=2)
     rot, ref = ring_s3.generators
     pivot = [[ring_s3.one, rot], [rot * ref, ring_s3.one + ref]]
@@ -335,6 +353,12 @@ def test_split_line_logicals() -> None:
     seed_b_s3 = abstract.RingArray.build(
         [[ref, pivot[0][0], pivot[1][0]], [rot, pivot[0][1], pivot[1][1]]], ring_s3
     )
+    one = np.ones((1, 1), dtype=int)
+    pivot_a = abstract.RingArray.build(pivot, ring_s3)
+    pivot_b = abstract.RingArray.build([list(row) for row in zip(*pivot)], ring_s3)
+    for pivot_block, left_rank, right_rank in [(pivot_a, 12, 10), (pivot_b, 10, 12)]:
+        assert np.linalg.matrix_rank(abstract.kron(pivot_block, one).lift()) == left_rank
+        assert np.linalg.matrix_rank(abstract.kron(one, pivot_block).lift()) == right_rank
 
     # an extension field of odd characteristic, with coefficients outside its prime subfield, and
     # seeds with several free columns
@@ -354,14 +378,22 @@ def test_split_line_logicals() -> None:
         [[ring_matrix.one + ring_matrix.generators[0], 1]], ring_matrix
     )
 
-    code_types: list[type[codes.LPCode | codes.SLPCode]] = [codes.LPCode, codes.SLPCode]
     for seed_a, seed_b in [
         (seed_a_s3, seed_b_s3),
         (seed_a_gf9, seed_b_gf9),
         (seed_matrix, seed_matrix),
     ]:
-        for code_type in code_types:
-            assert_split_line_logicals(code_type(seed_a, seed_b, set_logicals=True))
+        lp_code = codes.LPCode(seed_a, seed_b, set_logicals=True)
+        slp_code = codes.SLPCode(seed_a, seed_b, set_logicals=True)
+        assert_split_line_logicals(lp_code)
+        assert_split_line_logicals(slp_code)
+
+        # the operators of an SLPCode are those of the LPCode, restricted to its first block
+        for pauli in (Pauli.X, Pauli.Z):
+            assert np.array_equal(
+                slp_code.get_logical_ops(pauli),
+                lp_code.get_logical_ops(pauli)[:, : len(slp_code)],
+            )
 
     # the dual-number seed has these line operators, as lifts of ring-valued operators
     code = codes.LPCode(seed_c2, set_logicals=True)
@@ -372,9 +404,10 @@ def test_split_line_logicals() -> None:
     assert np.array_equal(code.get_logical_ops(Pauli.X), expected_ops_x)
     assert np.array_equal(code.get_logical_ops(Pauli.Z), expected_ops_z)
 
-    # each S3 seed has a pivot block that is not invertible in the action of the other seed
+    # SLPCode(seed, seed) uses each S3 seed in both actions, and its pivot block is invertible in
+    # only one of them
     for seed in (seed_a_s3, seed_b_s3):
-        with pytest.raises(ValueError, match="not yet supported"):
+        with pytest.raises(ValueError, match="do not fit the split route"):
             codes.SLPCode(seed, seed, set_logicals=True)
 
 
@@ -393,7 +426,7 @@ def test_split_line_logicals_require_split_seeds() -> None:
     # pivot blocks that are not invertible, not square, or not trailing
     for values in ([[eps, eps]], [[1], [1]], [[1, eps]]):
         for code_type in code_types:
-            with pytest.raises(ValueError, match="not yet supported"):
+            with pytest.raises(ValueError, match="do not fit the split route"):
                 code_type(abstract.RingArray.build(values, ring), set_logicals=True)
 
     # if the involution of the ring does not transpose lifts, a subsystem code from these seeds
@@ -407,7 +440,7 @@ def test_split_line_logicals_require_split_seeds() -> None:
     assert ring_with_shear.has_involution
     seed = abstract.RingArray.build([[ring_with_shear.generators[0], 1]], ring_with_shear)
     assert codes.SLPCode(seed).dimension == 4
-    with pytest.raises(ValueError, match="not yet supported"):
+    with pytest.raises(ValueError, match="do not fit the split route"):
         codes.SLPCode(seed, set_logicals=True)
 
     # likewise for a ring without an involution
@@ -420,7 +453,7 @@ def test_split_line_logicals_require_split_seeds() -> None:
     assert codes.SLPCode(seed).dimension == 4
     with pytest.raises(NotImplementedError, match="only for group algebras"):
         codes.SLPCode.get_canonical_logical_line_ops(seed, seed)
-    with pytest.raises(ValueError, match="not yet supported"):
+    with pytest.raises(ValueError, match="do not fit the split route"):
         codes.SLPCode(seed, set_logicals=True)
 
 
@@ -436,6 +469,8 @@ def assert_split_line_logicals(code: codes.LPCode | codes.SLPCode) -> None:
     rank_z = np.linalg.matrix_rank(code.matrix_z)
     num_gauge_pairs = np.linalg.matrix_rank(code.matrix_x @ code.matrix_z.T)
     assert len(code) - rank_x - rank_z + num_gauge_pairs == dimension
+    if isinstance(code, codes.LPCode):
+        assert num_gauge_pairs == 0
 
     # the logical operators commute with the checks and pair as the identity
     logical_ops_x = code.get_logical_ops(Pauli.X)
@@ -539,20 +574,24 @@ def test_lifted_product_ring_requirements() -> None:
     assert np.array_equal(subsystem_code.matrix_x, matrix.lift())
     assert np.array_equal(subsystem_code.matrix_z, matrix.lift())
 
-    # canonical logical operators need a group algebra, whether or not the ring has an involution,
-    # and a group algebra paired with another ring raises this error rather than the error for
-    # different rings
+    # operators of the semisimple route need a group algebra, whether or not the ring has an
+    # involution, and a group algebra paired with another ring raises this error rather than the
+    # error for different rings.  These seeds do not fit the split route.
     ring_with_involution = abstract.MatrixRing(np.diag([1, 0]))
     assert ring_with_involution.is_commutative and ring_with_involution.has_involution
-    get_ops = [
+    get_lifted_ops: list[Callable[[abstract.RingArray, abstract.RingArray], object]] = [
         codes.LPCode.get_canonical_logical_line_ops,
         codes.SLPCode.get_canonical_logical_line_ops,
+    ]
+    get_ring_ops: list[Callable[[abstract.RingArray, abstract.RingArray], object]] = [
+        codes.LPCode.get_canonical_ring_logical_line_ops,
+        codes.SLPCode.get_canonical_ring_logical_line_ops,
     ]
     group_ring = abstract.GroupRing(abstract.CyclicGroup(2))
     group_matrix = abstract.RingArray.build([[1]], group_ring)
     for ring in [ring_with_involution, ring_without_involution]:
         matrix = abstract.RingArray.build([[ring.generators[0]]], ring)
-        for get_canonical_logical_line_ops in get_ops:
+        for get_canonical_logical_line_ops in get_lifted_ops + get_ring_ops:
             for matrices in [(matrix, matrix), (group_matrix, matrix), (matrix, group_matrix)]:
                 with pytest.raises(NotImplementedError, match="only for group algebras"):
                     get_canonical_logical_line_ops(*matrices)
@@ -560,6 +599,15 @@ def test_lifted_product_ring_requirements() -> None:
     for code_type in [codes.LPCode, codes.SLPCode]:
         with pytest.raises(ValueError, match="Cannot set canonical logical operators"):
             code_type(matrix, set_logicals=True)
+
+    # the split route declines a noncommutative ring that is not a group algebra, even if its
+    # involution transposes lifts and its seeds have an invertible trailing pivot block
+    full_matrix_ring = abstract.MatrixRing(upper, lower)
+    assert not full_matrix_ring.is_commutative and full_matrix_ring.has_involution
+    matrix = abstract.RingArray.build([[full_matrix_ring.generators[0], 1]], full_matrix_ring)
+    for get_canonical_logical_line_ops in get_lifted_ops:
+        with pytest.raises(NotImplementedError, match="do not fit the split route"):
+            get_canonical_logical_line_ops(matrix, matrix)
 
 
 def test_lifted_product_sector_sizes() -> None:
