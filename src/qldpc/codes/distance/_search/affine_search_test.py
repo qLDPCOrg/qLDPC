@@ -348,7 +348,8 @@ def test_coset_tail_scans_weigh_words_by_their_pivot_rows_and_tails(
     The bases have full rank, rank deficiency one, and rank zero, and their tails span two machine
     words.  Each scan keeps the support of each word lighter than every word before it and than the
     initial best weight, and returns after the first word at which the best weight so far is at most
-    the cutoff, having weighed exactly the supports up to it.
+    the cutoff, having weighed exactly the supports up to it.  Without tables, the scan with pair
+    steps does the same for layers of two or more rows.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_rows = 5
@@ -356,6 +357,7 @@ def test_coset_tail_scans_weigh_words_by_their_pivot_rows_and_tails(
     offset_tail = rng.integers(0, 2, 70, dtype=np.uint8)
     packed_tails, packed_offset = pack_bits(tails)[None], pack_bits(offset_tail[None])[0]
     widths = np.array([packed_tails.shape[2]], dtype=np.int64)
+    no_tables = completion_bounds.NO_TABLES
     for rank, layer in itertools.product((num_rows, num_rows - 1, 0), range(1, num_rows + 1)):
         weights = _get_tail_weights(offset_tail, tails, rank, layer)
         least = min(weight for _, weight in weights)
@@ -369,34 +371,123 @@ def test_coset_tail_scans_weigh_words_by_their_pivot_rows_and_tails(
                     expected_weighed = index + 1
                     break
 
-            best_support = np.full(layer, -1, dtype=np.int64)
-            best, weighed = affine_search.scan_coset_layer_by_tails(
-                packed_offset,
-                packed_tails,
-                np.array([rank]),
-                widths,
-                np.empty(layer, dtype=np.int64),
-                np.empty((layer, 1, widths[0]), dtype=np.uint64),
-                initial_best,
-                cutoff,
-                best_support,
-            )
-            assert (best, weighed) == (expected_best, expected_weighed)
-            if expected_support is None:
-                assert np.all(best_support == -1)
-            else:
-                assert tuple(best_support) == expected_support
+            # Scan the layer without pair steps, and with them, without tables, from two rows.
+            for pair_steps in (False, True) if layer >= 2 else (False,):
+                best_support = np.full(layer, -1, dtype=np.int64)
+                arguments = (
+                    packed_offset,
+                    packed_tails,
+                    np.array([rank]),
+                    widths,
+                    np.empty(layer, dtype=np.int64),
+                    np.empty((layer, 1, widths[0]), dtype=np.uint64),
+                    initial_best,
+                    cutoff,
+                )
+                if pair_steps:
+                    best, weighed, skipped = affine_search.scan_coset_layer_by_tails_with_tables(
+                        *arguments,
+                        0,
+                        no_tables.tables,
+                        no_tables.offsets,
+                        no_tables.block_bits,
+                        best_support,
+                    )
+                    assert not skipped
+                else:
+                    best, weighed = affine_search.scan_coset_layer_by_tails(
+                        *arguments, best_support
+                    )
+                assert (best, weighed) == (expected_best, expected_weighed)
+                if expected_support is None:
+                    assert np.all(best_support == -1)
+                else:
+                    assert tuple(best_support) == expected_support
+
+
+@pytest.mark.usefixtures("compilation_mode")
+@pytest.mark.parametrize("deficiency", [0, 1, 3])
+def test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_bound(
+    deficiency: int, pytestconfig: pytest.Config
+) -> None:
+    """A coset tail scan with tables skips completions only if their bound reaches the skip bound.
+
+    The bound of the completions of a prefix by two rows from row ``s`` on adds a pivot one for each
+    row of the prefix below the rank, the fewest pivot ones of any such pair, and the block bound of
+    the tables on their tails, each found here by enumeration.  The bases of six rows have rank
+    deficiency zero, one, and three, so that their pairs have two, one, or no pivot ones, and only
+    the last has rows of a prefix at or above its rank, which add nothing.  With a cutoff one below
+    the skip bound, every skipped word weighs more than the cutoff, so the scan finds a word of
+    weight at most the cutoff exactly when the layer has one.  With skip bounds at most the least
+    weight of the layer, the scan visits the whole layer: it skips exactly the supports whose bounds
+    reach the skip bound, and weighs the others.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    num_rows, num_columns, block_bits = 6, 24, 4
+    # The last column has a one, so that the tables cover every column.
+    tails = (rng.random((num_rows, num_columns)) < 0.25).astype(np.uint8)
+    tails[0, -1] = 1
+    packed_tails = pack_bits(tails)[None]
+    widths = np.array([packed_tails.shape[2]], dtype=np.int64)
+    tables = completion_bounds.CompletionTables.build(packed_tails[0], block_bits)
+    rank = num_rows - deficiency
+    total_skipped = 0
+    for _ in range(4):
+        offset_tail = (rng.random(num_columns) < 0.25).astype(np.uint8)
+        packed_offset = pack_bits(offset_tail[None])[0]
+        for layer in range(2, num_rows + 1):
+            weights = _get_tail_weights(offset_tail, tails, rank, layer)
+            least = min(weight for _, weight in weights)
+            for skip_bound in range(least - 1, least + 2):
+                best_support = np.full(layer, -1, dtype=np.int64)
+                best, weighed, skipped = affine_search.scan_coset_layer_by_tails_with_tables(
+                    packed_offset,
+                    packed_tails,
+                    np.array([rank]),
+                    widths,
+                    np.empty(layer, dtype=np.int64),
+                    np.empty((layer, 1, widths[0]), dtype=np.uint64),
+                    num_columns + num_rows + 1,
+                    skip_bound - 1,
+                    skip_bound,
+                    tables.tables,
+                    tables.offsets,
+                    tables.block_bits,
+                    best_support,
+                )
+                assert (best < skip_bound) == (least < skip_bound)
+                if best <= num_columns + num_rows:
+                    assert dict(weights)[tuple(best_support)] == best
+                if skip_bound <= least:
+                    bounds = [
+                        sum(row < rank for row in rows[:-2])
+                        + min(
+                            sum(row < rank for row in pair)
+                            for pair in itertools.combinations(range(rows[-2], num_rows), 2)
+                        )
+                        + _get_completion_bound(tails, rows, block_bits, offset_tail)
+                        for rows, _ in weights
+                    ]
+                    assert skipped == sum(bound >= skip_bound for bound in bounds)
+                    assert weighed + skipped == math.comb(num_rows, layer)
+                    total_skipped += skipped
+    assert total_skipped
 
 
 def _get_completion_bound(
-    tails: npt.NDArray[np.uint8], support: Sequence[int], block_bits: int
+    tails: npt.NDArray[np.uint8],
+    support: Sequence[int],
+    block_bits: int,
+    offset: npt.NDArray[np.uint8] | None = None,
 ) -> int:
     """The block bound on the completions of a support from its first row of its last pair on.
 
-    Add, over blocks of columns, the least weight on the block of the first rows of the support plus
-    any pair of rows from the first row of its last pair on.
+    Add, over blocks of columns, the least weight on the block of the offset, if any, plus the first
+    rows of the support plus any pair of rows from the first row of its last pair on.
     """
     prefix = np.bitwise_xor.reduce(tails[list(support[:-2])], axis=0, initial=0)
+    if offset is not None:
+        prefix ^= offset
     pairs = list(itertools.combinations(range(support[-2], len(tails)), 2))
     return sum(
         min(

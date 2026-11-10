@@ -957,8 +957,9 @@ def plan_steps(
     With the binomials of ``get_capped_binomials``, a plan from layer one for the limit ``U - 1``
     gives the work estimate of a distance search (Section 3.6 of ``brouwer_zimmermann.md``).  A plan
     from layer zero for a maximum weight ``max_weight`` that skips unused sets gives the number of
-    words that a coset search weighs after the word of its syndrome, if no word of the coset weighs
-    at most ``max_weight``.
+    words that a coset search weighs, or skips by completion tables (Section 3.9 of
+    ``brouwer_zimmermann.md``), after the word of its syndrome, if no word of the coset weighs at
+    most ``max_weight``.
 
     Returns:
         The stopping step ``(w*, j*)``, and the work.
@@ -975,6 +976,28 @@ def plan_steps(
         skip_unused,
     )
     return layer, num_completed, work
+
+
+@always_compiled(inline=True)
+def get_completed_layer(set_index: int, layer: int, num_completed: int) -> int:
+    """The last layer that set ``set_index`` has completed at step ``(layer, num_completed)``."""
+    return layer if set_index < num_completed else layer - 1
+
+
+@always_compiled(inline=True)
+def is_unused_set(
+    pivots: npt.NDArray[np.int64], set_index: int, layer: int, num_completed: int
+) -> bool:
+    """Whether a set is an unused set of step ``(layer, num_completed)`` (see ``plan_steps``).
+
+    ``pivots`` holds the pivot columns of each set of ``num_rows = pivots.shape[1]`` rows, padded
+    with -1 beyond its rank.  A set is unused if its rank deficiency exceeds the last layer that it
+    has completed, which must be at least zero.  This holds exactly if its rank is at most
+    ``position = num_rows - completed_layer - 1``, that is, if its pivot at ``position`` is padding.
+    ``position`` is negative only if the set has completed layer ``num_rows``, and then it is used.
+    """
+    position = pivots.shape[1] - get_completed_layer(set_index, layer, num_completed) - 1
+    return position >= 0 and pivots[set_index, position] < 0
 
 
 @always_compiled
@@ -1093,7 +1116,7 @@ def _get_steps_work(
             return _WORK_CAP
         for index in range(num_sets):
             # Skip the layers that the set has not completed, and the sets that the plan leaves out.
-            completed_layer = layer if index < num_completed else layer - 1
+            completed_layer = get_completed_layer(index, layer, num_completed)
             if weight > completed_layer or (
                 skip_unused and completed_layer < dimension - ranks[index]
             ):

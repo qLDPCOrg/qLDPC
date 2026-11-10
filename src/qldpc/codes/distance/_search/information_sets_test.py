@@ -286,6 +286,10 @@ def test_plans_follow_their_definition(pytestconfig: pytest.Config) -> None:
     the cap if a layer up to that of the step has a binomial above the cap divided by the number of
     sets, or the sum reaches the cap, and no binomials give no work.
 
+    At the stopping step of a plan over every layer, ``get_completed_layer`` gives the last layer of
+    each set.  ``is_unused_set`` tells from the pivots of a set, which are -1 beyond its rank,
+    whether a plan that skips unused sets leaves the set out.
+
     The bounds are certificate tables of sets of every rank, including zero, a table without sets,
     and the weight bounds of the coset searches, which divide them by a weight factor after rounding
     them to a parity.  The limits run past both ends of each table, to the largest native integer.
@@ -357,6 +361,16 @@ def test_plans_follow_their_definition(pytestconfig: pytest.Config) -> None:
                     bounds, limit, first_layer, last_layer, ranks, binomials, skip_unused
                 )
                 assert plan == expected
+                dimension = num_rows - 1
+                if first_layer or last_layer < dimension or skip_unused or len(binomials):
+                    continue
+                step = (layer, num_completed)
+                pivots = np.where(np.arange(dimension) < ranks[:, np.newaxis], 0, -1)
+                for index, (rank, last) in enumerate(zip(ranks, last_layers)):
+                    assert information_sets.get_completed_layer(index, *step) == last
+                    if last >= 0:
+                        unused = last + 1 <= dimension - rank
+                        assert information_sets.is_unused_set(pivots, index, *step) == unused
 
 
 def test_sets_to_certify_a_bound_may_come_from_linear_programs() -> None:

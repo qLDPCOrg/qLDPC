@@ -11,14 +11,21 @@ pair on every block, so the sum bounds the weight of the tail of every completio
 ``U - w``, for the best weight ``U`` found so far, none of these completions can lower ``U``, and
 the search skips them.  Section 3.9 of ``brouwer_zimmermann.md`` derives this bound.
 
-A count of the words of a given weight uses the same bound with ``U`` one above that weight, so
-that it skips only completions heavier than the weight (``_counting/scan.py``).
+A count of the words of a given weight uses the same bound with ``U`` one above that weight, so that
+it skips only completions heavier than the weight (``_counting/scan.py``).  The costliest queries of
+the coset searches of ``CosetLeaderSearch`` use it with the least bound that proves a word heavier
+than their maximum weight in place of ``U``.  Their bases need not be information sets, so in place
+of ``w`` they bound the ones of a completion on pivot columns (see
+``affine_search.scan_coset_layer_by_tails_with_tables``).
 
 Tables of the least weights on each block, for every value of ``p`` on the block and every ``s``,
 make each bound a few lookups.  They cost memory and time to build, so ``select_completion_tables``
 estimates from a sample of supports how much of a layer the bound would skip, and uses tables only
 if their predicted cost is within the limits of the search's tuning.  The estimate only guides this
 choice: a search skips completions only when a computed bound proves that they cannot lower ``U``.
+``considers_tables`` states which layers a tuning considers for tables at all.  Coset searches build
+the tables of the bases of their costliest queries without sampling, if they fit within a limit (see
+``coset_routes`` and ``build_tables_within``).
 """
 
 from __future__ import annotations
@@ -75,6 +82,20 @@ class CompletionTables:
 NO_TABLES = CompletionTables(np.zeros(0, dtype=np.uint8), np.zeros(1, dtype=np.int64), 0)
 
 
+def build_tables_within(
+    rows: npt.NDArray[np.uint64], block_bits: int, max_bytes: int
+) -> CompletionTables | None:
+    """Build the tables of the packed tails of a basis on blocks of columns, if they fit.
+
+    Returns:
+        The tables, or None if they would exceed ``max_bytes`` bytes, or be empty, as for tails
+        without ones or a basis of fewer than two rows, whose tables would skip nothing.
+    """
+    if not _tables_fit(len(rows), _get_num_tail_bits(rows), block_bits, max_bytes):
+        return None
+    return CompletionTables.build(rows, block_bits)
+
+
 def select_completion_tables(
     rows: npt.NDArray[np.uint64],
     weight: int,
@@ -87,11 +108,11 @@ def select_completion_tables(
     ``rows`` holds the packed tails of a systematic basis whose layer ``weight`` a search is about
     to scan, with the best weight ``upper_bound``, and ``tuning`` is the tuning of the search.  A
     count of the words of weight ``t`` passes ``t + 1``, the lightest weight that it may skip.  For
-    a layer of at least ``tuning.completion_bound_minimum_layer_work`` supports, the function
-    estimates, from random supports of the layer, a conservative lower bound on the share that
-    tables would skip.  It predicts the cost of scanning the layer with tables, counting the cost of
-    building them unless the search passes its tables of ``rows`` as ``current``.  Tables use blocks
-    of ``tuning.completion_bound_block_bits`` columns, or of
+    a layer whose tables the tuning considers (see ``considers_tables``), the function estimates,
+    from random supports of the layer, a conservative lower bound on the share that tables would
+    skip.  It predicts the cost of scanning the layer with tables, counting the cost of building
+    them unless the search passes its tables of ``rows`` as ``current``.  Tables use blocks of
+    ``tuning.completion_bound_block_bits`` columns, or of
     ``tuning.completion_bound_fallback_block_bits`` if those would need more than
     ``tuning.completion_bound_max_table_bytes`` bytes.
 
@@ -100,17 +121,9 @@ def select_completion_tables(
         ``tuning.completion_bound_max_cost_percent`` percent of the cost of a scan without them, or
         None.
     """
-    # Consider only the layers and tables that the tuning allows.  Like the work estimates of
-    # certificates, the work of a layer saturates at their cap, so that the largest threshold of a
-    # tuning considers no layer.
+    # Consider only the layers and tables that the tuning allows.
     num_rows = len(rows)
-    num_supports = math.comb(num_rows, weight)
-    work = min(num_supports, information_sets._WORK_CAP)
-    if (
-        not 2 <= weight <= num_rows
-        or work < tuning.completion_bound_minimum_layer_work
-        or not tuning.completion_bound_max_cost_percent
-    ):
+    if not considers_tables(num_rows, weight, tuning):
         return None
     num_bits = _get_num_tail_bits(rows)
     block_bits = _get_block_bits(num_rows, num_bits, tuning)
@@ -134,6 +147,7 @@ def select_completion_tables(
     # with the cost of building them unless they are reused, and use them if that is within the
     # limit.  Dividing the integer binomials first keeps their ratios small, even for layers whose
     # binomials are too large for floating point.
+    num_supports = math.comb(num_rows, weight)
     kept_ratio = math.comb(num_rows, weight - 1) / num_supports
     prefix_ratio = math.comb(num_rows, weight - 2) / num_supports
     lookups = tuning.completion_bound_kept_first_row_ratio * (1 - share) * kept_ratio + prefix_ratio
@@ -144,10 +158,29 @@ def select_completion_tables(
     )
     cost = 1 - share + lookup_cost * lookups
     if current is None:
-        cost += _estimate_build_cost(num_rows, offsets, block_bits, tuning) / work
+        cost += _estimate_build_cost(num_rows, offsets, block_bits, tuning) / _get_layer_work(
+            num_rows, weight
+        )
     if 100 * cost > tuning.completion_bound_max_cost_percent:
         return None
     return CompletionTables.build(rows, block_bits) if current is None else current
+
+
+def considers_tables(num_rows: int, weight: int, tuning: SearchTuning) -> bool:
+    """Whether a tuning considers completion tables for layer ``weight`` of a basis of ``num_rows``.
+
+    Tables bound the completions of a prefix by two more rows, so the layer must have at least two
+    rows, and no more than the basis.  It must have at least
+    ``tuning.completion_bound_minimum_layer_work`` supports.  Like the work estimates of
+    certificates, this number saturates at their cap, so that the largest threshold of a tuning
+    considers no layer.  A tuning that allows no cost or no bytes of tables considers none.
+    """
+    return (
+        2 <= weight <= num_rows
+        and _get_layer_work(num_rows, weight) >= tuning.completion_bound_minimum_layer_work
+        and tuning.completion_bound_max_cost_percent > 0
+        and tuning.completion_bound_max_table_bytes > 0
+    )
 
 
 @always_compiled(inline=True)
@@ -179,6 +212,11 @@ def get_completion_bound(
     return bound
 
 
+def _get_layer_work(num_rows: int, weight: int) -> int:
+    """The number of supports of a layer, saturated at the cap of work estimates."""
+    return min(math.comb(num_rows, weight), information_sets._WORK_CAP)
+
+
 def _get_num_tail_bits(rows: npt.NDArray[np.uint64]) -> int:
     """Return one plus the last tail column on which a row has a one, or zero."""
     union = np.bitwise_or.reduce(rows, axis=0)
@@ -203,18 +241,25 @@ def _get_table_bytes(num_rows: int, offsets: npt.NDArray[np.int64]) -> int:
 
 
 def _get_block_bits(num_rows: int, num_bits: int, tuning: SearchTuning) -> int:
-    """Choose the blocks of the tuning, or its fallback blocks, whose tables fit, or 0 if none do.
-
-    Tables of tails without ones would be empty and skip nothing, so none fit.
-    """
+    """Choose the blocks of the tuning, or its fallback blocks, whose tables fit, or else 0."""
     for block_bits in (
         tuning.completion_bound_block_bits,
         tuning.completion_bound_fallback_block_bits,
     ):
-        num_bytes = _get_table_bytes(num_rows, _get_block_offsets(num_bits, block_bits))
-        if 0 < num_bytes <= tuning.completion_bound_max_table_bytes:
+        if _tables_fit(num_rows, num_bits, block_bits, tuning.completion_bound_max_table_bytes):
             return block_bits
     return 0
+
+
+def _tables_fit(num_rows: int, num_bits: int, block_bits: int, max_bytes: int) -> bool:
+    """Whether the tables of a basis on blocks of ``block_bits`` columns fit in ``max_bytes``.
+
+    The basis has ``num_rows`` rows, and its tails have ``num_bits`` columns up to the last with a
+    one.  Tables of tails without ones, or of fewer than two rows, would be empty and skip nothing,
+    so they never fit.
+    """
+    num_bytes = _get_table_bytes(num_rows, _get_block_offsets(num_bits, block_bits))
+    return 0 < num_bytes <= max_bytes
 
 
 def _get_share_lower_bound(share: float, num_samples: int, z: float) -> float:

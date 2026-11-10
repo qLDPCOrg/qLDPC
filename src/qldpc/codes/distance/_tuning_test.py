@@ -107,6 +107,7 @@ def test_tunings_are_validated() -> None:
         "lp_dual_max_denominator": {"minimum": 1},
         "completion_bound_block_bits": widths,
         "completion_bound_fallback_block_bits": widths,
+        "coset_completion_block_bits": widths,
         "completion_bound_samples": {"minimum": 1, "maximum": 2**12},
         "completion_bound_min_samples": {"minimum": 1},
         "completion_bound_confidence_z": {"maximum": 10.0},

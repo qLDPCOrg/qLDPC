@@ -144,6 +144,18 @@ def test_tables_fit_their_memory_limit() -> None:
     assert cb._get_block_bits(4, 0, _with_table_bytes(2**30)) == 0
 
 
+def test_tables_within_a_limit_are_built_only_if_they_fit_and_skip_something() -> None:
+    """Tables are built only within their limit, and not for tails without ones or a single row."""
+    rows = pack_bits(get_random_tails(np.random.default_rng(0), 4, 40))
+    tables = cb.CompletionTables.build(rows, 8)
+    built = cb.build_tables_within(rows, 8, len(tables.tables))
+    assert built is not None
+    np.testing.assert_array_equal(built.tables, tables.tables)
+    assert cb.build_tables_within(rows, 8, len(tables.tables) - 1) is None
+    assert cb.build_tables_within(np.zeros_like(rows), 8, MAX_VALUE) is None
+    assert cb.build_tables_within(rows[:1], 8, MAX_VALUE) is None
+
+
 @pytest.mark.parametrize("interpreted", [False, True])
 def test_sampled_supports_are_counted_exactly(
     interpreted: bool, pytestconfig: pytest.Config
@@ -214,10 +226,29 @@ def test_selection_follows_its_policy() -> None:
     with pytest.raises(AssertionError):
         cb.select_completion_tables(rows[:30], 6, 6, tables, FORCED)
 
-    # A limit of zero bytes allows no tables, and no layer has more rows than its basis.
-    no_memory = dataclasses.replace(FORCED, completion_bound_max_table_bytes=0)
+    # A limit of one byte fits no tables, and no layer has more rows than its basis.
+    no_memory = dataclasses.replace(FORCED, completion_bound_max_table_bytes=1)
     assert cb.select_completion_tables(rows, 6, 6, None, no_memory) is None
     assert cb.select_completion_tables(rows[:5], 7, 7, None, FORCED) is None
+
+
+def test_tunings_consider_tables_for_large_enough_layers_of_two_or_more_rows() -> None:
+    """A tuning considers tables for layers from two rows to every row, with enough supports.
+
+    Layers two and three of five rows have ten supports, and layers four and five fewer.  A tuning
+    that allows no cost or no bytes of tables considers no layer.
+    """
+
+    def get_considered(**changes: Any) -> list[int]:
+        """The layers of five rows for which the forced tuning, with changes, considers tables."""
+        tuning = dataclasses.replace(FORCED, **changes)
+        return [weight for weight in range(7) if cb.considers_tables(5, weight, tuning)]
+
+    assert get_considered() == [2, 3, 4, 5]
+    assert get_considered(completion_bound_minimum_layer_work=10) == [2, 3]
+    assert get_considered(completion_bound_minimum_layer_work=11) == []
+    assert get_considered(completion_bound_max_cost_percent=0) == []
+    assert get_considered(completion_bound_max_table_bytes=0) == []
 
 
 def test_the_largest_layer_threshold_considers_no_layer() -> None:
