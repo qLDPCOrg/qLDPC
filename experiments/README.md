@@ -104,7 +104,7 @@ Verification requires `codes.QTCode.random` to sample the same code for the same
 
 ## Connected-support distance
 
-[`connected_support_distance/benchmark.py`](connected_support_distance/benchmark.py) times the exact distance searches of `qldpc` on the pair-partition codes of [the connected-support guide](../src/qldpc/codes/distance/connected_support.md), and on a few other codes.
+[`connected_support_distance/benchmark.py`](connected_support_distance/benchmark.py) times the exact distance searches of `qldpc` on pair-partition codes of Okada and Kasai and of Lee et al. (see [the connected-support guide](../src/qldpc/codes/distance/connected_support.md)), and on a few other codes.
 It prints its results and saves nothing, so it takes no `--results-dir`.
 For example:
 
