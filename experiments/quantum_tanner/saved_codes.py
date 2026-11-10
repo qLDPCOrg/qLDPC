@@ -129,9 +129,9 @@ class CodeSpec:
     def build(self, sample_id: str) -> codes.QTCode:
         """Construct the quantum Tanner code with this specification and a sample identifier.
 
-        Raises a ValueError if the kind of the sample identifier is not recognized, if an enumerated
-        index is out of range, or if the complex is bipartite and the subsets drawn for a random
-        seed violate the Total No Conjugacy condition.
+        Raises a ValueError if, for example, the sample identifier is malformed, an enumerated index
+        is out of range, or the complex is bipartite and the subsets drawn for a random seed violate
+        the Total No Conjugacy condition.
         """
         code_a = get_local_code(self.code_a_id)
         code_b = get_local_code(self.code_b_id)
@@ -196,9 +196,9 @@ def get_subset_pairs(
     For a bipartite complex, the list excludes pairs that violate the Total No Conjugacy condition.
     The pairs are ordered by their first subsets, and then by their second subsets, in the order of
     get_symmetric_subsets.  The index of a pair in this list identifies an enumerated sample.  If
-    this order changes, for example with the permutation representation of a group, then saved files
-    of enumerated samples identify different subsets.  Their verification then fails, and a resumed
-    search skips the pairs whose indices already have files.
+    this order changes, for example when the permutation representation of a group changes, then
+    saved files of enumerated samples can identify different subsets.  Such files fail
+    verification, and a resumed search skips the pairs whose indices already have files.
     """
     subset_pairs = itertools.product(
         get_symmetric_subsets(spec.group_id, get_local_code(spec.code_a_id).num_bits),

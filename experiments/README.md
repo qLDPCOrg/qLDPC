@@ -115,13 +115,13 @@ On the bipartite complex, it keeps only the pairs that satisfy the Total No Conj
 Otherwise, the search draws `--num-samples` random pairs.
 Enumeration thereby never constructs more codes than random sampling would, and its results are complete and free of repeated subsets.
 The sample identifier of a saved code, described below, tells whether its subsets were enumerated or drawn at random.
-For a group and local codes whose pairs are enumerated, once the search has finished, the frequencies of code parameters among their enumerated files are fractions of all enumerated pairs.
+For a group, pair of local codes, and complex whose pairs are enumerated, once the search has finished without failures, the frequencies of code parameters among their enumerated files are the fractions of enumerated pairs that give these parameters.
 On the bipartite complex, these are the pairs that satisfy the Total No Conjugacy condition.
 The pairs are not reduced by automorphisms of the group, so equivalent codes are counted separately.
 
 Random sampling has two limitations.
 First, `abstract.Group.random_symmetric_subset` does not draw subsets uniformly.
-The frequencies of code parameters among random samples therefore reflect this sampler, rather than the fractions of all pairs of symmetric subsets that give these parameters.
+The frequencies of code parameters among random samples therefore reflect this sampler, rather than the fractions of pairs of symmetric subsets that give these parameters.
 Second, different seeds can draw the same subsets, and thereby the same code.
 
 The generating data of a saved code are its subsets, its local codes, and its complex, and saved codes count as distinct if their generating data differ.

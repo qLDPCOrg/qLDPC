@@ -35,9 +35,9 @@ deterministic seeds.  On a bipartite complex, it tries up to MAX_TNC_ATTEMPTS se
 sample to find subsets that satisfy the Total No Conjugacy condition, and skips the sample if none
 of them does.  Random sampling has two limitations.  First, the subsets are not uniformly random
 (see qldpc.abstract.Group.random_symmetric_subset), so the frequencies of code parameters among
-random samples reflect this sampler, rather than the fractions of all pairs of symmetric subsets
-that give these parameters.  Second, different seeds can draw the same subsets, and thereby the
-same code.
+random samples reflect this sampler, rather than the fractions of pairs of symmetric subsets that
+give these parameters.  Second, different seeds can draw the same subsets, and thereby the same
+code.
 
 The script upper-bounds the code distances by minimizing over --num-trials randomized trials, and
 saves each code with its parameters to a text file in the "codes" subdirectory of --results-dir (by
@@ -77,7 +77,7 @@ else:
 
 # default search settings
 MAX_ORDER = 10  # largest order of the groups to consider
-NUM_SAMPLES = 100  # random samples per group and local codes, or the most pairs to enumerate
+NUM_SAMPLES = 100  # random samples per group and local codes, and the most pairs to enumerate
 NUM_TRIALS = 1000  # for code distance calculations
 NUM_WORKERS = max(1, (os.cpu_count() or 1) - 2)  # number of parallel jobs
 MAX_TNC_ATTEMPTS = 100  # seeds to try per random sample for a bipartite complex
@@ -198,7 +198,8 @@ def parse_args() -> argparse.Namespace:
             num_bits = saved_codes.get_local_code(code_id).num_bits
         except ValueError as error:
             parser.error(str(error))
-        # local codes with 1 bit would need subsets of the trivial group, which cannot be sorted
+        # with 1-bit local codes, the search would include the trivial group, whose members
+        # GroupMember.__lt__ cannot compare
         if num_bits < 2:
             parser.error(f"Base codes need at least 2 bits: {code_id}")
     return args
