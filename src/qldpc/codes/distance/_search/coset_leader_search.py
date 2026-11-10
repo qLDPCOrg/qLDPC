@@ -659,7 +659,7 @@ class _ConnectedSupportCosetSearch:
     ) -> None:
         # Map each syndrome of a word of weight zero or one to such a word.  The syndrome of a word
         # with one nonzero bit is a column of the checks, once the halves of symplectic checks are
-        # swapped, as for a ``_CosetSearch``.
+        # swapped.
         num_variables = matrix.shape[1] if homogeneous else matrix.shape[1] // 2
         syndrome_matrix = matrix if homogeneous else np.roll(matrix, num_variables, axis=1)
         columns = _row_ints(np.ascontiguousarray(syndrome_matrix.T))
@@ -1084,21 +1084,23 @@ def _int_to_words(value: int, width: int) -> npt.NDArray[np.uint64]:
 def _tabulate_singles(
     check_columns: Sequence[int], num_qubits: int, *, is_pauli: bool
 ) -> tuple[dict[int, int], dict[int, int], dict[int, int]]:
-    """Tabulate the words of weight zero or one by syndrome, and the X and Z errors among them.
+    """Tabulate the words of weight zero or one by syndrome, and the single-qubit X and Z errors.
 
-    Each table maps a syndrome to the first word with it, and starts with the identity.  For packed
-    Paulis, the words are X, Z, and Y on each qubit in turn, whose syndrome is the sum of those of X
-    and Z there.  For X or Z parts, they are the single bits.
+    The words are the identity and, for packed Paulis, X, Z, and Y on each qubit, and for X or Z
+    parts, the single bits.  The syndrome of Y on a qubit is the sum of those of X and Z there.
+    Each table maps each syndrome of its words to one of them.
 
     Args:
         check_columns: Column ``c`` of the checks as an integer: the syndrome of the word with only
             bit ``c`` set.
-        num_qubits: The number of qubits ``n``, so that packed Paulis have ``2 n`` bits.
+        num_qubits: The number of qubits ``n`` of packed Paulis, which have ``2 n`` bits; unused for
+            X or Z parts.
         is_pauli: Whether the words are packed Paulis, rather than X or Z parts.
 
     Returns:
-        The table of all such words, and those of the single-qubit X errors and of the single-qubit
-        Z errors, which hold only the identity for X or Z parts.
+        The table of these words, and the tables of the identity and the single-qubit X errors, and
+        of the identity and the single-qubit Z errors.  For X or Z parts, the last two hold only the
+        identity.
     """
     singles, x_singles, z_singles = {0: 0}, {0: 0}, {0: 0}
     if not is_pauli:
