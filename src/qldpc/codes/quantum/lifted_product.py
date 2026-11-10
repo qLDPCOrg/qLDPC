@@ -156,41 +156,48 @@ class LPCode(CSSCode):
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
         """Canonical logical line operators for a lifted product code.
 
-        Each X-type operator is supported on one row of the first block of qudits (sector (0, 0)),
-        and each Z-type operator on one column of that block.  These operators come from one of two
-        routes.
+        These operators come from one of two routes.
 
-        1. Semisimple route, for group algebras whose order the field characteristic does not
-           divide: lift ``get_canonical_ring_logical_line_ops``, which uses semisimple Howell normal
+        1. Semisimple route, for group algebras whose group order the field characteristic does
+           not divide: lift ``get_canonical_ring_logical_line_ops``, which generalizes the line
+           operators of ``HGPCode.get_canonical_logical_line_ops`` using semisimple Howell normal
            forms.  Unless the primitive central idempotents of the group algebra are known, this
            route may run GAP, prompt on standard input, and use the system clipboard; see
            GroupRing.get_transformer.  These operators assume that the involution of the ring
            transposes lifts.  This route takes precedence wherever it applies.
-        2. Split route, following Appendix B of https://arxiv.org/abs/2607.28795, over any other
-           ring that is commutative or a group algebra and whose involution transposes lifts.  Write
-           ``matrix_a = [A_free | A_pivot]`` and ``matrix_b = [B_free | B_pivot]``, where the
-           square pivot blocks are the last ``len(matrix_a)`` and ``len(matrix_b)`` columns.  The
-           lifted pivot blocks must be invertible in the actions that the code uses on one line of
-           qudits: ``A_pivot`` as in ``kron(matrix_a, I)``, and ``B_pivot`` as in
-           ``kron(I, matrix_b)``.  Over a noncommutative group algebra, these actions multiply
-           from the left and from the right, and a ring matrix can be invertible in one but not
-           the other.  For each free column ``i`` of ``matrix_a``, free column ``j`` of
-           ``matrix_b``, and coordinate ``g`` of a lifted block, the X operator on row ``i`` and the
-           Z operator on column ``j`` are unit vectors at ``(i, j, g)`` on the free cells of their
-           lines, and solve the checks on pivot cells.  These ``(na - ma) * (nb - mb) * d`` pairs,
-           with ``(ma, na)`` and ``(mb, nb)`` the shapes of the matrices and ``d`` the size of
-           lifted blocks, pair as the identity and span all logical operators.  Spanning needs
-           the involution to transpose lifts: otherwise, a subsystem lifted product can encode
-           more logical qudits.  This route recognizes only trailing pivot blocks, so seed matrices
-           with invertible pivot blocks elsewhere need their columns reordered first.
+        2. Split route, for seed matrices that split at trailing pivot blocks, following Appendix
+           B of https://arxiv.org/abs/2607.28795.  This route is for any other ring that is
+           commutative or a group algebra, and whose involution transposes lifts.
+
+        Let ``matrix_a`` and ``matrix_b`` have shapes ``(ma, na)`` and ``(mb, nb)``, and let ``d``
+        be the size of lifted blocks.  Write ``matrix_a = [A_free | A_pivot]`` and
+        ``matrix_b = [B_free | B_pivot]``, where the square pivot blocks are the last ``ma`` and
+        ``mb`` columns.  The seed matrices split at these pivot blocks if their lifts are
+        invertible in the actions that the code uses on lines of qudits: ``A_pivot`` as in
+        ``kron(matrix_a, I)``, and ``B_pivot`` as in ``kron(I, matrix_b)``.  Over a
+        noncommutative group algebra, these actions multiply from the left and from the right,
+        and a ring matrix can be invertible in one action but not the other.
+
+        The split route builds one pair of operators for each free column ``i`` of ``matrix_a``,
+        free column ``j`` of ``matrix_b``, and coordinate ``g`` of a lifted block.  The X operator
+        lies on row ``i`` of the first block of qudits (sector (0, 0)), and the Z operator on
+        column ``j``.  On the free cells of its line, each operator is the unit vector at
+        ``(i, j, g)``, and its values on pivot cells solve the checks.  These
+        ``(na - ma) * (nb - mb) * d`` pairs pair as the identity.  If the involution of the ring
+        transposes lifts, they span all logical operators.  Otherwise, a subsystem lifted product
+        can encode more logical qudits.  This route recognizes only trailing pivot blocks, so seed
+        matrices with invertible pivot blocks elsewhere need their columns reordered first.
 
         For matrices that fit neither route, this method raises a NotImplementedError if either
         ring is not a group algebra, and otherwise a ValueError, such as for matrices over
-        different rings or for a group algebra whose order the field characteristic divides.
+        different rings or for a group algebra whose group order the field characteristic divides.
         """
-        if (logical_ops_xz := _get_split_logical_line_ops(matrix_a, matrix_b, LPCode)) is not None:
+        # the split route declines semisimple group algebras, so the semisimple route takes
+        # precedence
+        logical_ops_xz = _get_split_logical_line_ops(matrix_a, matrix_b, with_second_block=True)
+        if logical_ops_xz is not None:
             return logical_ops_xz
-        _require_group_algebras(matrix_a, matrix_b, split_route=True)
+        _require_group_algebras(matrix_a, matrix_b, mention_split_route=True)
         ring_logical_ops_xz = LPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
         return LPCode.to_lifted_logical_ops(*ring_logical_ops_xz)
 
@@ -345,12 +352,16 @@ class SLPCode(CSSCode):
         """Canonical logical line operators for a subsystem lifted product code.
 
         These operators are built by the routes of ``LPCode.get_canonical_logical_line_ops``,
-        which describes the matrices that each route needs, its side effects, and its errors.  The
-        operators of the split route are those of the LPCode without its second block of qudits.
+        which describes the matrices that each route needs, and the side effects and errors of each
+        route.  The operators of the split route are those of the LPCode without its second block
+        of qudits.
         """
-        if (logical_ops_xz := _get_split_logical_line_ops(matrix_a, matrix_b, SLPCode)) is not None:
+        # the split route declines semisimple group algebras, so the semisimple route takes
+        # precedence
+        logical_ops_xz = _get_split_logical_line_ops(matrix_a, matrix_b, with_second_block=False)
+        if logical_ops_xz is not None:
             return logical_ops_xz
-        _require_group_algebras(matrix_a, matrix_b, split_route=True)
+        _require_group_algebras(matrix_a, matrix_b, mention_split_route=True)
         ring_logical_ops_xz = SLPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
         return SLPCode.to_lifted_logical_ops(*ring_logical_ops_xz)
 
@@ -418,33 +429,37 @@ def _involution_transposes_lifts(ring: abstract.Ring) -> bool:
     )
 
 
-def _require_group_algebras(*matrices: abstract.RingArray, split_route: bool = False) -> None:
+def _require_group_algebras(
+    *matrices: abstract.RingArray, mention_split_route: bool = False
+) -> None:
     """Raise a NotImplementedError unless all matrices are over group algebras.
 
-    Canonical logical operators of lifted products use semisimple Howell normal forms, which are
-    implemented only for group algebras.  This check comes before computing null spaces, which raise
-    a ValueError for a ring without an involution.  If ``split_route`` is True, the error also
-    points to the split route of ``LPCode.get_canonical_logical_line_ops``, for callers that tried
-    it first.
+    The semisimple route of canonical logical operators of lifted products uses semisimple Howell
+    normal forms, which are implemented only for group algebras.  This check comes before computing
+    null spaces, which raise a ValueError for a ring without an involution.  If
+    ``mention_split_route`` is True, the error also points to the split route of
+    ``LPCode.get_canonical_logical_line_ops``, for callers that tried it first.
     """
     for matrix in matrices:
         if not isinstance(matrix.ring, abstract.GroupRing):
-            alternative = (
-                ", or for seed matrices that split at trailing pivot blocks (see"
+            split_route = (
+                ".  Seed matrices that split at trailing pivot blocks also have them (see"
                 " LPCode.get_canonical_logical_line_ops)"
-                if split_route
+                if mention_split_route
                 else ""
             )
             raise NotImplementedError(
                 "Canonical logical operators of lifted products are implemented only for group"
-                f" algebras{alternative}, not {matrix.ring}"
+                f" algebras, not {matrix.ring}{split_route}"
             )
 
 
 def _set_canonical_logical_line_ops(code: LPCode | SLPCode) -> None:
     """Set the canonical logical line operators of a lifted product code."""
     # operators of the split route span all logical operators, so invalid operators are a bug
-    logical_ops_xz = _get_split_logical_line_ops(code.matrix_a, code.matrix_b, type(code))
+    logical_ops_xz = _get_split_logical_line_ops(
+        code.matrix_a, code.matrix_b, with_second_block=isinstance(code, LPCode)
+    )
     if logical_ops_xz is not None:
         code.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
         return
@@ -477,15 +492,14 @@ def _set_canonical_logical_line_ops(code: LPCode | SLPCode) -> None:
 
 
 def _get_split_logical_line_ops(
-    matrix_a: abstract.RingArray,
-    matrix_b: abstract.RingArray,
-    code_type: type[LPCode | SLPCode],
+    matrix_a: abstract.RingArray, matrix_b: abstract.RingArray, *, with_second_block: bool
 ) -> tuple[galois.FieldArray, galois.FieldArray] | None:
     """Canonical logical line operators of the split route, or None for matrices outside it.
 
     See ``LPCode.get_canonical_logical_line_ops`` for the split route.  This function returns None
-    for matrices that the semisimple route handles, which comes first, and for matrices that this
-    route does not support.  The operators of an LPCode vanish on its second block of qudits.
+    for matrices over semisimple group algebras, which the semisimple route takes, and for other
+    matrices that the split route does not support.  If ``with_second_block`` is True, the operators
+    also cover the second block of qudits of an LPCode, on which they vanish.
     """
     ring = matrix_a.ring
     if (
@@ -494,66 +508,65 @@ def _get_split_logical_line_ops(
         or not (ring.is_commutative or isinstance(ring, abstract.GroupRing))
         or not ring.has_involution
         or not _involution_transposes_lifts(ring)
-        or matrix_a.shape[0] > matrix_a.shape[1]
-        or matrix_b.shape[0] > matrix_b.shape[1]
     ):
         return None
 
     # lift the checks on one column and on one row of the first block of qudits, using the actions
-    # of the lifted product, and require invertible trailing pivot blocks
+    # of the lifted product
     one = np.ones((1, 1), dtype=int)
     checks_a = abstract.kron(matrix_a, one).lift()
     checks_b = abstract.kron(one, matrix_b).lift()
-    for checks in (checks_a, checks_b):
-        pivot_block = checks[:, checks.shape[1] - len(checks) :]
-        if np.linalg.matrix_rank(pivot_block) < len(checks):
-            return None
-    logical_ops_x, logical_ops_z = _get_split_line_ops(checks_a, checks_b, ring.lift_dim)
+    logical_ops_xz = _get_split_line_ops(checks_a, checks_b, ring.lift_dim)
+    if logical_ops_xz is None or not with_second_block:
+        return logical_ops_xz
 
-    # the logical operators of an LPCode vanish on its second block of qudits
-    if issubclass(code_type, LPCode):
-        num_qudits = len(matrix_a) * len(matrix_b) * ring.lift_dim
-        zeros = ring.field.Zeros((len(logical_ops_x), num_qudits))
-        logical_ops_x = np.hstack([logical_ops_x, zeros]).view(ring.field)
-        logical_ops_z = np.hstack([logical_ops_z, zeros]).view(ring.field)
-    return logical_ops_x, logical_ops_z
+    # the operators vanish on the second block of qudits of an LPCode
+    num_qudits = len(matrix_a) * len(matrix_b) * ring.lift_dim
+    zeros = ring.field.Zeros((len(logical_ops_xz[0]), num_qudits))
+    logical_ops_x, logical_ops_z = (np.hstack([ops, zeros]) for ops in logical_ops_xz)
+    return logical_ops_x.view(ring.field), logical_ops_z.view(ring.field)  # views for type checks
 
 
 def _get_split_line_ops(
     checks_a: galois.FieldArray, checks_b: galois.FieldArray, block_size: int
-) -> tuple[galois.FieldArray, galois.FieldArray]:
-    """Paired X and Z line operators on a grid of blocks, given checks with invertible pivots.
+) -> tuple[galois.FieldArray, galois.FieldArray] | None:
+    """Paired X and Z line operators on a grid of blocks, or None if a pivot block is singular.
 
     The grid has shape ``(na, nb, block_size)``, flattened in row-major order.  Z operators are
     supported on one column of the grid, where they must satisfy ``checks_a``, whose shape is
     ``(ma * block_size, na * block_size)``.  X operators are supported on one row, where they must
-    satisfy ``checks_b``, whose shape is ``(mb * block_size, nb * block_size)``.  The last square
-    block of columns of each check matrix, its pivot block, must be invertible.
+    satisfy ``checks_b``, whose shape is ``(mb * block_size, nb * block_size)``.  The pivot block
+    of each check matrix is its last square block of columns.
 
-    For each free cell ``(i, j)``, with ``i < na - ma`` and ``j < nb - mb``, and each coordinate
-    ``g`` of a block, this function returns the X operator on row ``i`` and the Z operator on column
-    ``j`` that equal the unit vector at ``(i, j, g)`` on free cells of that line.  Their values on
-    pivot cells solve the checks.  The two operators meet only at cell ``(i, j)``, so the X
-    operators and Z operators pair as the identity: ``logical_ops_x @ logical_ops_z.T == I``.
+    If both pivot blocks are invertible, then for each free cell ``(i, j)``, with ``i < na - ma``
+    and ``j < nb - mb``, and each coordinate ``g`` of a block, this function returns the X operator
+    on row ``i`` and the Z operator on column ``j`` that equal the unit vector at ``(i, j, g)`` on
+    free cells of that line.  Their values on pivot cells solve the checks.  The two operators meet
+    only at cell ``(i, j)``, so the X operators and Z operators pair as the identity:
+    ``logical_ops_x @ logical_ops_z.T == I``.
 
     Returns:
-        The X operators and Z operators, both ordered by ``(i, j, g)``.
+        The X operators and Z operators, both ordered by ``(i, j, g)``, or None if a pivot block is
+        not square or not invertible.
     """
-    field = type(checks_a)
-    num_rows, num_cols = checks_a.shape[1] // block_size, checks_b.shape[1] // block_size
-    num_free_rows = num_rows - len(checks_a) // block_size
-    num_free_cols = num_cols - len(checks_b) // block_size
-
-    # on one line, unit vectors on free coordinates fix the values on pivot coordinates
+    # on one line, a pivot block is invertible if and only if the reduced null space of the checks
+    # is the identity on free coordinates, followed by the values that solve the checks
     line_ops = []
     for checks in (checks_a, checks_b):
         num_free = checks.shape[1] - len(checks)
-        free_block, pivot_block = checks[:, :num_free], checks[:, num_free:]
-        pivot_values = -np.linalg.inv(pivot_block) @ free_block
-        line_ops.append(np.hstack([field.Identity(num_free), pivot_values.T]).view(field))
+        null_space = checks.null_space()
+        if num_free < 0 or not np.array_equal(
+            null_space[:, :num_free], np.eye(num_free, dtype=int)
+        ):
+            return None
+        line_ops.append(null_space)
     line_ops_z, line_ops_x = line_ops
 
     # place each X line operator on a free row of the grid
+    field = type(checks_a)
+    num_rows, num_cols = checks_a.shape[1] // block_size, checks_b.shape[1] // block_size
+    num_free_rows = len(line_ops_z) // block_size
+    num_free_cols = len(line_ops_x) // block_size
     logical_ops_x = np.kron(field.Identity(num_rows)[:num_free_rows], line_ops_x).view(field)
 
     # place each Z line operator on a free column of the grid
