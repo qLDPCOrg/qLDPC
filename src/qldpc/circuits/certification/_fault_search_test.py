@@ -9,6 +9,7 @@ import itertools
 import operator
 import tracemalloc
 from collections.abc import Callable, Collection, Sequence
+from typing import Any
 from unittest import mock
 
 import numpy as np
@@ -533,3 +534,15 @@ def test_memory_limit_does_not_change_results(pytestconfig: pytest.Config) -> No
             for limit in (1, 2**20)
         ]
         assert results[0] == results[1] == _certify_map(flags, syndromes, None, 6)
+
+
+def test_coset_search_methods() -> None:
+    """Exact-distance methods name a coset-leader search, except the brute-force method."""
+    assert _fault_search._get_coset_search_method("brouwer_zimmermann") == "brouwer_zimmermann"
+    assert _fault_search._get_coset_search_method("information_sets") == "brouwer_zimmermann"
+    assert _fault_search._get_coset_search_method("connected_support") == "connected_support"
+    with pytest.raises(ValueError, match="no coset-leader search"):
+        _fault_search._get_coset_search_method("brute_force")
+    unknown: Any = "gap"
+    with pytest.raises(ValueError, match="Unknown distance method"):
+        _fault_search._get_coset_search_method(unknown)

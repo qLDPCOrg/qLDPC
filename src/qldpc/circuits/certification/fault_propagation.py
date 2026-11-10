@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
-from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -14,13 +13,14 @@ import stim
 
 from qldpc import math
 from qldpc._binary import get_rank_packed, pack_bits
+from qldpc.codes.distance import DistanceMethod
 from qldpc.codes.distance._search.coset_leader_search import MinWeightBound
 
 from .._post_selection import get_flag_detectors, get_selected_detectors, is_integer
 from ..bookkeeping import DetectorRecord
 from ..common import get_pauli_product_measurements
 from ..encoding import get_state_stabilizers
-from ._fault_search import find_smallest_violation
+from ._fault_search import _get_coset_search_method, find_smallest_violation
 
 ####################################################################################################
 # bounded fault propagation certification
@@ -35,9 +35,7 @@ def certify_bounded_fault_propagation(
     css_weight: bool | None = None,
     output_qubits: Sequence[int] | None = None,
     memory_limit: int = 2**30,  # 1 GiB
-    method: Literal["brouwer_zimmermann", "information_sets", "connected_support"] = (
-        "brouwer_zimmermann"
-    ),
+    method: DistanceMethod = "brouwer_zimmermann",
 ) -> BoundedFaultPropagationCertificate:
     """Certify bounded fault propagation in a noisy Clifford state-preparation circuit.
 
@@ -102,8 +100,9 @@ def certify_bounded_fault_propagation(
         memory_limit: The approximate number of bytes that the search may use for its lookup tables,
             a positive integer.  A smaller limit can make the search slower, but never changes the
             result.  Default: ``2**30`` (1 GiB).
-        method: The exact search of the residual weights: ``"brouwer_zimmermann"``, with alias
-            ``"information_sets"``, searches cosets of the stabilizer group by information sets,
+        method: The exact search of the residual weights, an exact-distance method other than
+            ``"brute_force"``: ``"brouwer_zimmermann"``, with alias ``"information_sets"``,
+            searches cosets of the stabilizer group by information sets,
             and ``"connected_support"`` grows errors from their syndromes through generators of
             the stabilizer group.  It first makes the generators sparser by adding them to each
             other, and is fast if the result is sparse (see the `connected-support guide
@@ -124,18 +123,11 @@ def certify_bounded_fault_propagation(
         ValueError: If ``max_weight`` or ``memory_limit`` is not positive, if ``output_qubits`` is
             empty, repeats a qubit, or has an index out of range, if ``post_select`` has an index
             out of range, if the output qubits do not end in one definite stabilizer state, if
-            Stim cannot convert the circuit to a DEM, if ``method`` is unknown, or if ``method`` is
-            ``"connected_support"`` and errors on a state that is not CSS are weighed by their CSS
-            weight.
+            Stim cannot convert the circuit to a DEM, if ``method`` is unknown or
+            ``"brute_force"``, or if ``method`` is ``"connected_support"`` and errors on a state
+            that is not CSS are weighed by their CSS weight.
     """
-    if method not in ("brouwer_zimmermann", "information_sets", "connected_support"):
-        raise ValueError(
-            "method must be 'brouwer_zimmermann', 'information_sets', or 'connected_support', not"
-            f" {method!r}"
-        )
-    engine: Literal["brouwer_zimmermann", "connected_support"] = (
-        "connected_support" if method == "connected_support" else "brouwer_zimmermann"
-    )
+    engine = _get_coset_search_method(method)
     if max_weight is not None:
         if not is_integer(max_weight):
             raise TypeError("max_weight must be an integer or None")

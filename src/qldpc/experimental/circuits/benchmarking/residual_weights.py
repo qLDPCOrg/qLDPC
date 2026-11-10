@@ -34,11 +34,13 @@ from qldpc import circuits
 from qldpc import math as qldpc_math
 from qldpc.circuits._post_selection import get_flag_detectors, get_selected_detectors, is_integer
 from qldpc.circuits.bookkeeping import DetectorRecord
+from qldpc.circuits.certification._fault_search import _get_coset_search_method
 from qldpc.circuits.certification.fault_propagation import (
     _get_primitive_fault_signatures,
     _get_unmeasured_qubits,
     _is_css_state,
 )
+from qldpc.codes.distance import DistanceMethod
 from qldpc.codes.distance._search.coset_leader_search import CosetLeaderSearch
 from qldpc.objects import Pauli, PauliXZ, PauliXZLike
 
@@ -314,9 +316,7 @@ def estimate_residual_weight_histogram(
     max_fault_weight: int | None = None,
     max_exact_faults: int = 10**6,
     seed: int | None = None,
-    method: Literal["brouwer_zimmermann", "information_sets", "connected_support"] = (
-        "brouwer_zimmermann"
-    ),
+    method: DistanceMethod = "brouwer_zimmermann",
 ) -> ResidualWeightHistogram:
     """Estimate the residual weights of the faults of a noisy Clifford state-preparation circuit.
 
@@ -389,7 +389,8 @@ def estimate_residual_weight_histogram(
             weight) are computed exactly rather than sampled.  Default: ``10**6``.
         seed: A seed for the random number generator.  Default: None, for fresh randomness.
         method: The exact search of residual weights where the tables do not apply, as for
-            ``certify_bounded_fault_propagation``: ``"brouwer_zimmermann"``, with alias
+            ``certify_bounded_fault_propagation``: an exact-distance method other than
+            ``"brute_force"``, which is ``"brouwer_zimmermann"``, with alias
             ``"information_sets"``, or ``"connected_support"``.  Both give the same histogram.
             ``"connected_support"`` weighs errors by CSS weight only on CSS states.  Default:
             ``"brouwer_zimmermann"``.
@@ -405,18 +406,11 @@ def estimate_residual_weight_histogram(
             is invalid, if ``pauli`` does not identify X or Z, if the output qubits do not end in
             a definite stabilizer state, if component scoring is requested for a non-CSS state, if
             the circuit has an error instruction with probability one, if Stim cannot convert the
-            circuit to a detector error model, if ``method`` is unknown, or if ``method`` is
-            ``"connected_support"`` and errors on a state that is not CSS are weighed by their CSS
-            weight.
+            circuit to a detector error model, if ``method`` is unknown or ``"brute_force"``, or if
+            ``method`` is ``"connected_support"`` and errors on a state that is not CSS are weighed
+            by their CSS weight.
     """
-    if method not in ("brouwer_zimmermann", "information_sets", "connected_support"):
-        raise ValueError(
-            "method must be 'brouwer_zimmermann', 'information_sets', or 'connected_support', not"
-            f" {method!r}"
-        )
-    engine: Literal["brouwer_zimmermann", "connected_support"] = (
-        "connected_support" if method == "connected_support" else "brouwer_zimmermann"
-    )
+    engine = _get_coset_search_method(method)
     max_residual_weight = _check_integer(max_residual_weight, "max_residual_weight", 0)
     num_samples = _check_integer(num_samples, "num_samples", 0)
     max_exact_faults = _check_integer(max_exact_faults, "max_exact_faults", 0)

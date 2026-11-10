@@ -314,9 +314,8 @@ def test_methods_of_the_coset_search() -> None:
     estimate_residual_weight_histogram(circuit, 1, method="information_sets", **options)
     with pytest.raises(ValueError, match="only on CSS states"):
         estimate_residual_weight_histogram(circuit, 1, method="connected_support", **options)
-    unknown: Any = "brute_force"
-    with pytest.raises(ValueError, match="method must be"):
-        estimate_residual_weight_histogram(circuit, 1, method=unknown)
+    with pytest.raises(ValueError, match="no coset-leader search"):
+        estimate_residual_weight_histogram(circuit, 1, method="brute_force")
 
 
 def test_validate_indices() -> None:

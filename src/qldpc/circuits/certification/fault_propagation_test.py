@@ -8,7 +8,7 @@ import functools
 import itertools
 import operator
 from collections.abc import Collection, Sequence
-from typing import Any, cast
+from typing import cast
 
 import numpy as np
 import numpy.typing as npt
@@ -599,10 +599,10 @@ def test_the_connected_support_method_finds_the_same_fault() -> None:
         result.counterexample.residual_weight_lower_bound == result.counterexample.fault_weight + 1
     )
 
-    # An unknown method is rejected before the circuit, which has no unmeasured qubit, is read.
-    method: Any = "brute_force"
-    with pytest.raises(ValueError, match="method must be"):
-        circuits.certify_bounded_fault_propagation(stim.Circuit("M 0"), method=method)
+    # The brute-force method has no coset search, which is checked before the circuit, which has no
+    # unmeasured qubit, is read.
+    with pytest.raises(ValueError, match="no coset-leader search"):
+        circuits.certify_bounded_fault_propagation(stim.Circuit("M 0"), method="brute_force")
 
     # The +1 eigenstate of Y is not CSS, so the connected-support search cannot weigh its errors by
     # CSS weight, but the default search, also under its alias, can.

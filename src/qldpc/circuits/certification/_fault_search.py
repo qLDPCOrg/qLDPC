@@ -24,6 +24,7 @@ import numpy.typing as npt
 
 from qldpc._binary import get_rank_packed, popcount_word, trailing_zeros_word
 from qldpc._compilation import always_compiled
+from qldpc.codes.distance import DistanceMethod
 from qldpc.codes.distance._search.coset_leader_search import CosetLeaderSearch, MinWeightBound
 
 # The peak number of bytes per pair of classes for the closing map of pairs of classes (see
@@ -108,6 +109,32 @@ def find_smallest_violation(
 
     oracle = CosetLeaderSearch(stabilizers, css_weight=css_weight, method=method)
     return _search_irreducible_faults(signatures, max_fault_weight, oracle, memory_limit)
+
+
+def _get_coset_search_method(
+    method: DistanceMethod,
+) -> Literal["brouwer_zimmermann", "connected_support"]:
+    """The method of the coset-leader search for an exact-distance method.
+
+    The alias ``"information_sets"`` is ``"brouwer_zimmermann"``.
+
+    Raises:
+        ValueError: If the method is unknown, or is ``"brute_force"``, which has no coset-leader
+            search.
+    """
+    if method == "brute_force":
+        raise ValueError(
+            "The 'brute_force' method has no coset-leader search: use 'brouwer_zimmermann' or"
+            " 'connected_support'"
+        )
+    if method == "connected_support":
+        return "connected_support"
+    if method in ("brouwer_zimmermann", "information_sets"):
+        return "brouwer_zimmermann"
+    raise ValueError(
+        f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann', 'information_sets',"
+        " or 'connected_support'"
+    )
 
 
 def _search_irreducible_faults(
