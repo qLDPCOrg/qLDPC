@@ -9,15 +9,16 @@ compute_distances.py, if any.  It writes the parameters of the codes to codes.cs
 one logical qubit.  Saved codes count as distinct if their generating data (subsets, local codes,
 and complex; see saved_codes.get_code_key) differ, and the saved files with the same generating
 data are copies of one code.  Each row summarizes the copies of one code.  Different generating data
-can still give the same code, which then has several rows.  The group, local codes, complex, and
-sample of a row are those of its first copy, where copies are ordered by group (order first), local
-codes, complex, and sample (enumerated before random, and then by number).  The columns of the CSV
-file are CSV_FIELDS:
+can still give the same code, which then has several rows.  The specification and sample of a row
+are those of its first copy, where copies are ordered by group (order first), local codes, complex,
+identity exclusion, and sample (enumerated before random, and then by number).  The columns of the
+CSV file are CSV_FIELDS:
 - group, group_order: the identifier and order of the group that defines the code (see
   saved_codes.get_group),
 - code_a, code_b: the identifiers of the local codes on the two subsets of the group (see
   saved_codes.get_local_code),
 - complex: "quadripartite" or "bipartite", the Cayley complex on which the code lives,
+- exclude_identity: whether the subsets of the group exclude its identity element,
 - sample: the sample identifier of the first copy, which is "s{seed}" for subsets drawn with a
   random seed, or "e{index}" for subsets at an index in an enumeration (see saved_codes),
 - num_copies: the number of saved copies of the code, which may have different groups, local
@@ -57,6 +58,7 @@ CSV_FIELDS = (
     "code_a",
     "code_b",
     "complex",
+    "exclude_identity",
     "sample",
     "num_copies",
     "n",
@@ -100,9 +102,9 @@ def get_code_data(results_dir: pathlib.Path) -> list[tuple[int | str, ...]]:
     """Collect the parameters of the distinct saved quantum Tanner codes with k > 0.
 
     Returns one row with the fields in CSV_FIELDS per distinct code, sorted by group, local codes,
-    complex, and sample.  Raises a ValueError if saved results contradict each other: if copies of a
-    code have different parameters (n, k) or stabilizer weights, if computations disagree on its
-    exact distance, or if its exact distance exceeds an upper bound.
+    complex, identity exclusion, and sample.  Raises a ValueError if saved results contradict each
+    other: if copies of a code have different parameters (n, k) or stabilizer weights, if
+    computations disagree on its exact distance, or if its exact distance exceeds an upper bound.
     """
     # group the saved files by the code that they save
     paths_by_key = collections.defaultdict(list)
@@ -147,6 +149,7 @@ def get_code_data(results_dir: pathlib.Path) -> list[tuple[int | str, ...]]:
             spec.code_a_id,
             spec.code_b_id,
             "bipartite" if spec.bipartite else "quadripartite",
+            spec.exclude_identity,
             sample_id,
             len(paths),
             num_qudits,
@@ -180,14 +183,15 @@ def get_exact_distances(results_dir: pathlib.Path) -> dict[str, int]:
 def get_spec_sort_key(
     spec_and_sample_id: tuple[saved_codes.CodeSpec, str],
 ) -> tuple[int | str | bool, ...]:
-    """Get a key that sorts specifications and samples by group, local codes, complex, and sample.
+    """Get a key that sorts specifications and samples by their fields, in order.
 
     Groups are sorted by their orders first; see saved_codes.get_group_sort_key.
     """
     spec, sample_id = spec_and_sample_id
     group_key = saved_codes.get_group_sort_key(spec.group_id)
     sample_key = saved_codes.get_sample_sort_key(sample_id)
-    return (*group_key, spec.code_a_id, spec.code_b_id, spec.bipartite, *sample_key)
+    codes_key = (spec.code_a_id, spec.code_b_id, spec.bipartite, spec.exclude_identity)
+    return (*group_key, *codes_key, *sample_key)
 
 
 if __name__ == "__main__":

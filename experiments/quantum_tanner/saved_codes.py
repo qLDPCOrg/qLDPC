@@ -4,8 +4,8 @@
 
 The scripts in this directory share the helpers in this module.  A quantum Tanner code of the search
 is specified by a CodeSpec and a sample identifier.  The CodeSpec identifies a group, a pair of
-classical local codes, and a choice of Cayley complex.  The sample identifier identifies the subsets
-of the group:
+classical local codes, a choice of Cayley complex, and whether subsets may contain the identity
+element.  The sample identifier identifies the subsets of the group:
 - "s{seed}": the subsets that qldpc.codes.QTCode.random draws with a random seed, or
 - "e{index}": the subsets at an index in the enumeration of pairs of subsets of the required sizes,
   which on a bipartite complex includes only the pairs that satisfy the Total No Conjugacy
@@ -53,11 +53,12 @@ EXACT_DISTANCES_NAME = "exact_distances.csv"  # file of exact distances in the r
 EXACT_DISTANCE_FIELDS = ("code_key", "code_file", "status", "distance", "time_limit", "seconds")
 
 # patterns of identifiers of groups and local codes, and of names of saved code files
-_NUMBER = r"(?:0|[1-9]\d*)"  # without leading zeros, so that each number has one spelling
+_NUMBER = r"(?:0|[1-9][0-9]*)"  # without leading zeros, so that each number has one spelling
 _GROUP_ID = rf"SmallGroup-{_NUMBER}-{_NUMBER}|Dihedral-{_NUMBER}"
 _LOCAL_CODE_ID = rf"[A-Za-z]+(?:-{_NUMBER})+"
 _CODE_FILE_NAME = re.compile(
-    rf"qtcode_({_GROUP_ID})_({_LOCAL_CODE_ID})(?:\+({_LOCAL_CODE_ID}))?(_bipartite)?_([se]{_NUMBER})\.txt"
+    rf"qtcode_({_GROUP_ID})_({_LOCAL_CODE_ID})_({_LOCAL_CODE_ID})_(quadripartite|bipartite)"
+    rf"_(identity|noidentity)_([se]{_NUMBER})\.txt"
 )
 
 ####################################################################################################
@@ -75,57 +76,24 @@ class CodeSpec:
         code_b_id: An identifier of the local code on the second subset; see get_local_code.
         bipartite: Whether the code lives on the bipartite Cayley complex of arXiv:2202.13641,
             rather than on the quadripartite complex of arXiv:2206.07571.
+        exclude_identity: Whether the subsets exclude the identity element of the group.
     """
 
     group_id: str
     code_a_id: str
     code_b_id: str
     bipartite: bool
-
-    @property
-    def has_dual_codes(self) -> bool:
-        """Is the second local code identified as the dual of the first?
-
-        Local codes that are dual but have unrelated identifiers, such as "Hamming-2" and
-        "CordaroWagner-3", do not count as dual here.
-        """
-        return self.code_b_id == get_dual_id(self.code_a_id)
+    exclude_identity: bool
 
     def get_seed(self, sample_index: int, attempt: int) -> int:
         """Get the random seed of an attempt to draw a sample with this specification.
 
-        The seed of attempt 0 is a deterministic hash of the group, the bytes of the parity check
-        matrices of the local codes, the choice of complex, and the sample index.  Groups in the
-        SmallGroups library enter by their order and index, and the second local code and the choice
-        of complex enter only if they differ from the defaults (dual local codes and the
-        quadripartite complex).  For specifications with default choices, the seed is thus a hash of
-        the group order and index, the bytes of the first local code's parity check matrix, and the
-        sample index alone.  Adding inputs for such specifications would change the seeds, and
-        thereby the file names, of codes that are already saved, so searches could not resume from
-        them.  The bytes of a parity check matrix depend on its rows and data type, so a change to
-        how a local code is constructed changes the seeds of its codes.
-
-        The seed of a later attempt is a hash of the seed of attempt 0 and the attempt index.  A
-        bipartite complex exists only if the subsets drawn for a seed satisfy the Total No Conjugacy
-        condition (see qldpc.objects.CayleyComplex), so run_search.py makes up to MAX_TNC_ATTEMPTS
-        attempts per sample.
+        The seed is a deterministic hash of this specification, the sample index, and the attempt
+        index.  A bipartite complex exists only if the subsets drawn for a seed satisfy the Total No
+        Conjugacy condition (see qldpc.objects.CayleyComplex), so run_search.py makes up to
+        MAX_TNC_ATTEMPTS attempts per sample.
         """
-        # identify groups in the SmallGroups library by their order and index, and other groups by
-        # their identifiers
-        family, *group_parameters = self.group_id.split("-")
-        if family == "SmallGroup":
-            inputs: list[object] = [int(parameter) for parameter in group_parameters]
-        else:
-            inputs = [self.group_id]
-
-        # add the local codes, the choice of complex, and the sample index
-        inputs.append(get_local_code(self.code_a_id).matrix.tobytes())
-        if not self.has_dual_codes:
-            inputs.append(get_local_code(self.code_b_id).matrix.tobytes())
-        if self.bipartite:
-            inputs.append("bipartite")
-        seed = get_deterministic_hash(*inputs, sample_index)
-        return get_deterministic_hash(seed, attempt) if attempt else seed
+        return get_deterministic_hash(*dataclasses.astuple(self), sample_index, attempt)
 
     def build(self, sample_id: str) -> codes.QTCode:
         """Construct the quantum Tanner code with this specification and a sample identifier.
@@ -144,21 +112,32 @@ class CodeSpec:
             subset_a, subset_b = subset_pairs[number]
             return codes.QTCode(subset_a, subset_b, code_a, code_b, bipartite=self.bipartite)
         if kind == "s":
-            group = get_group(self.group_id)
-            return codes.QTCode.random(group, code_a, code_b, bipartite=self.bipartite, seed=number)
+            return codes.QTCode.random(
+                get_group(self.group_id),
+                code_a,
+                code_b,
+                bipartite=self.bipartite,
+                exclude_identity=self.exclude_identity,
+                seed=number,
+            )
         raise ValueError(f"Sample identifier not recognized: {sample_id}")
 
     def get_path(self, codes_dir: pathlib.Path, sample_id: str) -> pathlib.Path:
         """Get the path of the file that saves the code with this specification and sample.
 
-        The name of the file has the form "qtcode_{group}_{codes}{complex}_{sample}.txt", where
-        {codes} is the identifier of the first local code if the second is its dual, and
-        "{code_a}+{code_b}" otherwise, {complex} is "_bipartite" for a bipartite complex and empty
-        otherwise, and {sample} is the sample identifier.  See parse_code_path.
+        The name of the file has the form
+        "qtcode_{group}_{code_a}_{code_b}_{complex}_{identity}_{sample}.txt", where {complex} is
+        "quadripartite" or "bipartite", {identity} is "identity" if subsets may contain the identity
+        element and "noidentity" otherwise, and {sample} is the sample identifier.  See
+        parse_code_path.
         """
-        codes_id = self.code_a_id if self.has_dual_codes else f"{self.code_a_id}+{self.code_b_id}"
-        complex_id = "_bipartite" if self.bipartite else ""
-        return codes_dir / f"qtcode_{self.group_id}_{codes_id}{complex_id}_{sample_id}.txt"
+        complex_id = "bipartite" if self.bipartite else "quadripartite"
+        identity_id = "noidentity" if self.exclude_identity else "identity"
+        name = (
+            f"qtcode_{self.group_id}_{self.code_a_id}_{self.code_b_id}_{complex_id}_{identity_id}"
+            f"_{sample_id}.txt"
+        )
+        return codes_dir / name
 
 
 def parse_code_path(path: pathlib.Path) -> tuple[CodeSpec, str]:
@@ -169,9 +148,13 @@ def parse_code_path(path: pathlib.Path) -> tuple[CodeSpec, str]:
     match = _CODE_FILE_NAME.fullmatch(path.name)
     if match is None:
         raise ValueError(f"Unrecognized quantum Tanner code file name: {path}")
-    group_id, code_a_id, code_b_id, complex_id, sample_id = match.groups()
+    group_id, code_a_id, code_b_id, complex_id, identity_id, sample_id = match.groups()
     spec = CodeSpec(
-        group_id, code_a_id, code_b_id or get_dual_id(code_a_id), bipartite=bool(complex_id)
+        group_id,
+        code_a_id,
+        code_b_id,
+        bipartite=complex_id == "bipartite",
+        exclude_identity=identity_id == "noidentity",
     )
     return spec, sample_id
 
@@ -184,8 +167,8 @@ def count_subset_pairs(spec: CodeSpec) -> int:
     """
     num_bits_a = get_local_code(spec.code_a_id).num_bits
     num_bits_b = get_local_code(spec.code_b_id).num_bits
-    num_subsets_a = count_symmetric_subsets(spec.group_id, num_bits_a)
-    return num_subsets_a * count_symmetric_subsets(spec.group_id, num_bits_b)
+    num_subsets_a = count_symmetric_subsets(spec.group_id, num_bits_a, spec.exclude_identity)
+    return num_subsets_a * count_symmetric_subsets(spec.group_id, num_bits_b, spec.exclude_identity)
 
 
 @functools.cache
@@ -202,8 +185,12 @@ def get_subset_pairs(
     verification, and a resumed search skips the pairs whose indices already have files.
     """
     subset_pairs = itertools.product(
-        get_symmetric_subsets(spec.group_id, get_local_code(spec.code_a_id).num_bits),
-        get_symmetric_subsets(spec.group_id, get_local_code(spec.code_b_id).num_bits),
+        get_symmetric_subsets(
+            spec.group_id, get_local_code(spec.code_a_id).num_bits, spec.exclude_identity
+        ),
+        get_symmetric_subsets(
+            spec.group_id, get_local_code(spec.code_b_id).num_bits, spec.exclude_identity
+        ),
     )
     if spec.bipartite:
         satisfies_tnc = objects.CayleyComplex.satisfies_total_no_conjugacy
@@ -266,8 +253,12 @@ def get_group_sort_key(group_id: str) -> tuple[int | str, ...]:
 
 
 @functools.cache
-def get_symmetric_subsets(group_id: str, size: int) -> list[frozenset[abstract.GroupMember]]:
+def get_symmetric_subsets(
+    group_id: str, size: int, exclude_identity: bool
+) -> list[frozenset[abstract.GroupMember]]:
     """List the symmetric subsets of a given size of a group, in a deterministic order.
+
+    If exclude_identity is True, the subsets exclude the identity element of the group.
 
     A symmetric subset consists of members that are their own inverses, and of pairs of a member and
     its inverse.  Subsets are listed by their numbers of inverse pairs, from fewest to most, then by
@@ -276,8 +267,13 @@ def get_symmetric_subsets(group_id: str, size: int) -> list[frozenset[abstract.G
     inverse pair is represented by its smaller member.  The identifiers of enumerated samples depend
     on this order; see get_subset_pairs.
     """
-    members = sorted(get_group(group_id).generate())
-    self_inverse_members = [member for member in members if member == ~member]
+    group = get_group(group_id)
+    members = sorted(group.generate())
+    self_inverse_members = [
+        member
+        for member in members
+        if member == ~member and not (exclude_identity and member == group.identity)
+    ]
     inverse_pairs = [(member, ~member) for member in members if member < ~member]
     return [
         frozenset(itertools.chain(singles, *pairs))
@@ -287,10 +283,14 @@ def get_symmetric_subsets(group_id: str, size: int) -> list[frozenset[abstract.G
     ]
 
 
-def count_symmetric_subsets(group_id: str, size: int) -> int:
-    """Count the symmetric subsets of a given size of a group, without listing them."""
+def count_symmetric_subsets(group_id: str, size: int, exclude_identity: bool) -> int:
+    """Count the symmetric subsets of a given size of a group, without listing them.
+
+    If exclude_identity is True, count only the subsets that exclude the identity element.
+    """
     num_self_inverse = get_num_self_inverse_members(group_id)
     num_inverse_pairs = (get_group_order(group_id) - num_self_inverse) // 2
+    num_self_inverse -= exclude_identity
     return sum(
         math.comb(num_self_inverse, size - 2 * num_pairs) * math.comb(num_inverse_pairs, num_pairs)
         for num_pairs in range(size // 2 + 1)
@@ -316,6 +316,8 @@ def get_local_code(code_id: str) -> codes.ClassicalCode:
     - CordaroWagner-3 to CordaroWagner-6: [3, 2, 2], [4, 2, 2], [5, 2, 3], and [6, 2, 4], and
     - Mittal-4 to Mittal-6: [4, 2, 2], [5, 2, 3], and [6, 3, 3].
     """
+    if not re.fullmatch(_LOCAL_CODE_ID, code_id):
+        raise ValueError(f"Local code not recognized: {code_id}")
     if code_id.startswith("Dual"):
         return ~get_local_code(code_id.removeprefix("Dual"))
     family, *parameters = code_id.split("-")

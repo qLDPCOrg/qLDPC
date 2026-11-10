@@ -24,6 +24,9 @@ code on this complex has at most as many qubits as the code with the same subset
 quadripartite complex, and often half as many.  The search skips groups and local codes whose
 subsets cannot satisfy the Total No Conjugacy condition at all; see get_search_space.
 
+By default, the subsets may contain the identity element of the group.  With --exclude-identity,
+they exclude it, as in arXiv:2508.05095.
+
 For each group and pair of local codes, the script enumerates the pairs of symmetric subsets of the
 required sizes if there are at most --num-samples of them, keeping only pairs that satisfy the Total
 No Conjugacy condition on a bipartite complex (see saved_codes.get_subset_pairs).  The enumeration
@@ -107,6 +110,7 @@ def main() -> None:
             saved_codes.get_group_ids(args.groups, args.max_order),
             get_local_code_pairs(args.base_codes, args.pairs),
             bipartite=args.bipartite,
+            exclude_identity=args.exclude_identity,
             num_samples=args.num_samples,
         )
     )
@@ -150,7 +154,7 @@ def parse_args() -> argparse.Namespace:
         nargs="+",
         default=list(BASE_CODE_IDS),
         metavar="CODE_ID",
-        help="identifiers of classical base codes with at least 2 bits (default: %(default)s)",
+        help="identifiers of classical base codes (default: %(default)s)",
     )
     parser.add_argument(
         "--pairs",
@@ -163,6 +167,11 @@ def parse_args() -> argparse.Namespace:
         "--bipartite",
         action="store_true",
         help="build codes on the bipartite Cayley complex, rather than the quadripartite one",
+    )
+    parser.add_argument(
+        "--exclude-identity",
+        action="store_true",
+        help="exclude the identity element of each group from the subsets that define codes",
     )
     parser.add_argument(
         "--num-samples",
@@ -195,13 +204,9 @@ def parse_args() -> argparse.Namespace:
             parser.error(f"--{name.replace('_', '-')} must be positive")
     for code_id in args.base_codes:
         try:
-            num_bits = saved_codes.get_local_code(code_id).num_bits
+            saved_codes.get_local_code(code_id)
         except ValueError as error:
             parser.error(str(error))
-        # with 1-bit local codes, the search would include the trivial group, whose members
-        # GroupMember.__lt__ cannot compare
-        if num_bits < 2:
-            parser.error(f"Base codes need at least 2 bits: {code_id}")
     return args
 
 
@@ -214,6 +219,7 @@ def get_search_space(
     local_code_pairs: Iterable[tuple[str, str]],
     *,
     bipartite: bool,
+    exclude_identity: bool,
     num_samples: int,
 ) -> Iterator[tuple[saved_codes.CodeSpec, int, int, bool]]:
     """Iterate over the quantum Tanner codes to construct.
@@ -223,36 +229,33 @@ def get_search_space(
     symmetric subsets of the required sizes, the samples enumerate these pairs, keeping only those
     that satisfy the Total No Conjugacy condition on a bipartite complex (see
     saved_codes.get_subset_pairs), and enumerated is True.  Otherwise, the samples are num_samples
-    random samples, and enumerated is False.
-
-    Skips groups that are too small for a pair of local codes.  Such groups have fewer elements than
-    a local code has bits, so they have no subset as large as the block length of that code.
+    random samples, and enumerated is False.  A specification without pairs of subsets of the
+    required sizes, such as one whose group has fewer elements than a local code has bits, has no
+    samples.
 
     For a bipartite complex, also skips groups whose subsets cannot satisfy the Total No Conjugacy
     condition.  A member s of both subsets violates this condition, since s * e == e * s for the
     identity element e.  The subsets must therefore be disjoint, so the group needs at least as many
     elements as the two local codes have bits together.  Moreover, a symmetric subset with an odd
-    number of members contains a member that is its own inverse, which is the identity element in a
-    group of odd order.  A group of odd order thereby has no disjoint symmetric subsets of odd
+    number of members contains a member that is its own inverse, which in a group of odd order is
+    the identity element.  A group of odd order thereby has no disjoint symmetric subsets of odd
     sizes.
     """
     local_code_pairs = list(local_code_pairs)
     for group_id in group_ids:
         order = saved_codes.get_group_order(group_id)
         for code_a_id, code_b_id in local_code_pairs:
-            # skip groups that are too small for these local codes
+            # skip bipartite complexes whose subsets cannot be disjoint
             num_bits_a = saved_codes.get_local_code(code_a_id).num_bits
             num_bits_b = saved_codes.get_local_code(code_b_id).num_bits
-            min_order = num_bits_a + num_bits_b if bipartite else max(num_bits_a, num_bits_b)
-            if order < min_order:
-                continue
-
-            # skip bipartite complexes whose subsets would both contain the identity element
-            if bipartite and order % 2 == num_bits_a % 2 == num_bits_b % 2 == 1:
+            if bipartite and (
+                order < num_bits_a + num_bits_b
+                or order % 2 == num_bits_a % 2 == num_bits_b % 2 == 1
+            ):
                 continue
 
             # enumerate pairs of subsets if there are few, and sample random pairs otherwise
-            spec = saved_codes.CodeSpec(group_id, code_a_id, code_b_id, bipartite)
+            spec = saved_codes.CodeSpec(group_id, code_a_id, code_b_id, bipartite, exclude_identity)
             enumerated = saved_codes.count_subset_pairs(spec) <= num_samples
             num_spec_samples = (
                 len(saved_codes.get_subset_pairs(spec)) if enumerated else num_samples
@@ -331,7 +334,9 @@ def run_and_save(
     if not overwrite and any(path.is_file() for path in paths):
         return
 
-    complex_text = " bipartite" if spec.bipartite else ""
+    complex_text = (" bipartite" if spec.bipartite else "") + (
+        " without identity" if spec.exclude_identity else ""
+    )
     job_id = (
         f"{spec.group_id} {spec.code_a_id}+{spec.code_b_id}{complex_text}"
         f" {sample_index + 1}/{num_spec_samples}"
