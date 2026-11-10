@@ -455,21 +455,21 @@ class Group:
         """Construct a Group from a set of generating matrices.
 
         The matrices should be over a finite field (e.g. a ``galois.FieldArray``), so that the group
-        that they generate is finite.  A nested sequence of field elements, such as a list of rows
-        over a finite field, is a matrix over their field.  Matrices over different fields raise a
-        ValueError.  Integer matrices must generate a finite group, and multiply as NumPy's
-        fixed-width integers, which overflow silently.
+        that they generate is finite.  A nested sequence or object array of field elements, such as
+        a list of rows over a finite field, is a matrix over their field.  Matrices over different
+        fields raise a ValueError.  Integer matrices must generate a finite group, and multiply as
+        NumPy's fixed-width integers, which overflow silently.
         """
         if not matrices:
             return TrivialGroup()
+        gens = [_read_generating_matrix(matrix) for matrix in matrices]
+        if len({type(gen) for gen in gens if isinstance(gen, galois.FieldArray)}) > 1:
+            raise ValueError("Inconsistent fields provided to Group.from_generating_mats")
 
         # keep track of distinct group members and a multiplication table
         index_to_member: dict[int, npt.NDArray[np.int_]] = {}
         key_to_index: dict[bytes, int] = {}
         generator_indices = []
-        gens = [_read_generating_matrix(matrix) for matrix in matrices]
-        if len({type(gen) for gen in gens if isinstance(gen, galois.FieldArray)}) > 1:
-            raise ValueError("Inconsistent fields provided to Group.from_generating_mats")
         for gen in gens:
             if (key := _array_key(gen)) not in key_to_index:
                 key_to_index[key] = len(key_to_index)
@@ -1408,8 +1408,8 @@ def _read_generating_matrix(
 ) -> npt.NDArray[np.int_]:
     """Read a matrix into a new array, keeping its type, or the field of its field elements.
 
-    A FieldArray or an array of numbers is copied.  A nested sequence, or an array of objects, is
-    read as a matrix over the field of its field elements, or as an integer matrix.
+    A nested sequence or an array of objects that holds field elements is a matrix over their field.
+    Any other array is copied, and any other nested sequence is read as integers.
     """
     if isinstance(matrix, galois.FieldArray) or (
         isinstance(matrix, np.ndarray) and matrix.dtype != object
@@ -1425,6 +1425,8 @@ def _read_generating_matrix(
     integers = [[int(value) for value in row] for row in matrix]
     if fields:
         return cast(npt.NDArray[np.int_], fields.pop()(integers))
+    if isinstance(matrix, np.ndarray):
+        return cast(npt.NDArray[np.int_], matrix.copy())
     return np.array(integers, dtype=int)
 
 

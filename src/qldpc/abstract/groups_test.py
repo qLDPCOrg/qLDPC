@@ -802,6 +802,10 @@ def test_matrix_groups_over_wide_fields() -> None:
     group = abstract.Group.from_generating_mats(swap, flip, flip.astype(np.int32), swap)
     assert group.order == 8 and len(group.generators) == 2
 
+    # an array of Python integers as objects multiplies them exactly
+    big = np.array([[2**40, 1 - 2**80], [1, -(2**40)]], dtype=object)
+    assert abstract.Group.from_generating_mats(big).order == 2
+
     # matrices over fields whose elements are stored as Python objects are compared by value
     field = galois.GF(2**70)
     element = field(2**65)
