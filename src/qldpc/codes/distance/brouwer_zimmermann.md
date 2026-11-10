@@ -728,6 +728,7 @@ It also passes a function that returns automorphisms of the code.
 The distance search uses [_search/completion_bounds.py](_search/completion_bounds.py) to choose and build the tables of [Section 3.9](#39-skipping-completions-that-cannot-lower-u).
 The distance search and `CosetLeaderSearch` scan their layers with the compiled entry points of [_search/affine_search.py](_search/affine_search.py), which run one body, `_scan`, with constant flags.
 `scan_family` scans every set of a family in lockstep, `scan_information_set` scans one information set with or without completion tables, and `scan_coset_layer` and `scan_coset_layer_by_css_weight` scan one layer of one set of a coset and keep its lightest word.
+`scan_coset_layer_by_tails` scans one layer of one set of a coset by the tails of its words, without the pivot columns of the set ([Section 3.5](#35-packed-enumeration-with-pivot-column-deletion)), and keeps the support of its lightest word.
 Numba compiles the body separately for each entry point, so no flag costs a branch for each word.
 Each search builds an `AffineInstance` of [_search/affine_instance.py](_search/affine_instance.py) for its problem before it scans, rather than for each layer or query.
 The instance holds the packed rows, labels, and pivots of the sets that the search scans, the ranks of those sets, and the certificate of their steps.
