@@ -322,13 +322,13 @@ class SearchTuning:
 
     # Fields of completion tables.
 
-    #: The number of supports, choices of rows of an information set, from which a layer that scans
-    #: one information set considers completion tables, which skip supports that cannot complete a
-    #: word lighter than its best one (Section 3.9 of ``brouwer_zimmermann.md``).  Considering them
-    #: takes milliseconds of sampling.  Lowering it considers smaller layers; zero every layer, and
-    #: ``MAX_VALUE`` none.  Defaults to 10**8, about 0.2 seconds of scanning on the calibration
-    #: machine, so that sampling costs a few percent at most.  To retune it, time layers near the
-    #: threshold with tables disabled and forced.
+    #: The number of supports, choices of rows of an information set, from which a layer of one
+    #: information set considers completion tables, which skip supports that cannot complete a word
+    #: lighter than its best one, or, in a count, no heavier than the counted weight (Section 3.9 of
+    #: ``brouwer_zimmermann.md``).  Considering them takes milliseconds of sampling.  Lowering it
+    #: considers smaller layers; zero every layer, and ``MAX_VALUE`` none.  Defaults to 10**8, about
+    #: 0.2 seconds of scanning on the calibration machine, so that sampling costs a few percent at
+    #: most.  To retune it, time layers near the threshold with tables disabled and forced.
     completion_bound_minimum_layer_work: int = 100_000_000
 
     #: A layer uses the completion tables that it considers only if their predicted cost, including
@@ -339,13 +339,13 @@ class SearchTuning:
     #: set.
     completion_bound_max_cost_percent: int = 90
 
-    #: The most bytes of completion tables that each problem of a distance search keeps, the main
-    #: memory limit of distance searches; so a joint search of both sectors of a CSS code can keep
-    #: this much for each sector.  Tables use blocks of ``completion_bound_block_bits`` columns, or
-    #: of ``completion_bound_fallback_block_bits`` if those do not fit, or none.  Zero disables
-    #: tables, and ``MAX_VALUE`` removes the limit.  Defaults to 256 MiB, which fits blocks of 16
-    #: columns for bases of up to about 500 rows and 140 tail columns.  To retune it, choose the
-    #: memory that the tables of one problem may use.
+    #: The most bytes of completion tables that each problem of a distance search, or each sector of
+    #: a count, keeps, besides tables that a count is building; so a joint search of both sectors of
+    #: a CSS code can keep this much for each.  Tables use blocks of ``completion_bound_block_bits``
+    #: columns, or of ``completion_bound_fallback_block_bits`` if those do not fit, or none.  Zero
+    #: disables tables, and ``MAX_VALUE`` removes the limit.  Defaults to 256 MiB, which fits blocks
+    #: of 16 columns for bases of up to about 500 rows and 140 tail columns.  To retune it, choose
+    #: the memory that tables may use.
     completion_bound_max_table_bytes: int = 256 * 2**20
 
     #: The number of tail columns in a block of completion tables, a power of two up to 16.  Wider
@@ -447,20 +447,21 @@ class SearchTuning:
     #: interrupt, and keep the smallest value whose overhead is negligible.
     information_set_batch_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
 
-    #: The most supports that one compiled call of the scan of a count, by the BZ or brute-force
-    #: method, visits; a call also ends at the end of each coefficient layer of each information
-    #: set.  Lowering it makes interrupts prompter, at more overhead; ``MAX_VALUE`` lets each call
-    #: finish its layer.  At least 1.  Defaults to 65,536; how it was chosen is not recorded.  To
-    #: retune it, time long counts and the delay of an interrupt, and keep the smallest value whose
-    #: overhead is negligible.
+    #: The most supports, and lookups of completion tables, counted together, that one compiled call
+    #: of the scan of a count, by the BZ or brute-force method, visits; a call also ends at the end
+    #: of each coefficient layer of each information set.  Lowering it makes interrupts prompter, at
+    #: more overhead; ``MAX_VALUE`` lets each call finish its layer.  At least 1.  Defaults to
+    #: 65,536; how it was chosen is not recorded.  To retune it, time long counts and the delay of
+    #: an interrupt, and keep the smallest value whose overhead is negligible.
     scan_chunk_size: int = dataclasses.field(default=1 << 16, metadata={"minimum": 1})
 
-    #: The most calls of ``scan_chunk_size`` supports that the scan of a count makes before it
-    #: returns to Python, once :func:`~qldpc.codes.distance.logical_counts.compile_search_setup` has
-    #: compiled its loop over layers; until then, it returns after every call.  Lowering it makes
-    #: interrupts prompter; ``MAX_VALUE`` lets a compiled scan run to its end.  At least 1.
-    #: Defaults to 64; how it was chosen is not recorded.  To retune it, proceed as for
-    #: ``scan_chunk_size``.
+    #: The most chunks of ``scan_chunk_size`` that the scan of a count visits before it returns to
+    #: Python, once :func:`~qldpc.codes.distance.logical_counts.compile_search_setup` has compiled
+    #: its loop over layers; until then, it returns after every chunk.  It also returns before and
+    #: after each coefficient layer of an information set that may use completion tables.  Lowering
+    #: it makes interrupts prompter; ``MAX_VALUE`` lets a compiled scan run to its end, or to such a
+    #: layer.  At least 1.  Defaults to 64; how it was chosen is not recorded.  To retune it,
+    #: proceed as for ``scan_chunk_size``.
     scan_chunks_per_call: int = dataclasses.field(default=64, metadata={"minimum": 1})
 
     #: The most Gray-code steps that the walk of a check space by the MacWilliams method takes in
