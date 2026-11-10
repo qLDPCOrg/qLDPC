@@ -134,9 +134,11 @@ class CosetLeaderSearch:
     ``overlapping_attempts_per_set`` configure the families of information sets with which a BZ
     search answers costly queries (see ``coset_routes``).  These families can change the
     representatives and lower bounds of the answers, but never whether an answer is within
-    ``max_weight``.  The fields ``max_sparsifying_rounds`` and
-    ``sparsifying_rounds_without_improvement`` configure how the connected-support searches make
-    their checks sparser.
+    ``max_weight``.  The threshold ``overlapping_minimum_work`` also decides which queries of the BZ
+    searches by physical weight, and of the classical searches, weigh words without the pivot
+    columns of each set of their family (see ``coset_routes``).  This changes no answer.  The fields
+    ``max_sparsifying_rounds`` and ``sparsifying_rounds_without_improvement`` configure how the
+    connected-support searches make their checks sparser.
 
     Args:
         stabilizers: A binary ``n x 2n`` matrix in ``[X|Z]`` order whose rows are independent
@@ -314,18 +316,9 @@ class CosetLeaderSearch:
                     return index, bound
             return len(syndromes), None
 
-        # With one search, take its bound and the lightest error that it visited.  Each search
-        # answers the batch with the tables of the route of the maximum weight.
+        # With one search, take its bound and the lightest error that it visited.
         if len(self._searches) == 1:
-            (search,) = self._searches
-            tables = search.get_tables(max_weight)
-            best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
-            index, lower_bound = _find_first_not_within_max_weight(
-                syndromes, max_weight, best, *tables, search.scale
-            )
-            if index == len(syndromes):
-                return index, None
-            return index, MinWeightBound(False, search.unembed(best), int(lower_bound))
+            return self._searches[0].find_first_not_within_max_weight(syndromes, max_weight)
 
         # With two searches, a syndrome's class fails, that is, has no error of weight at most
         # ``max_weight``, exactly when the coset of its X part or that of its Z part does.  So find
@@ -335,11 +328,7 @@ class CosetLeaderSearch:
         index = len(syndromes)
         for search, map_columns in zip(self._searches, self._map_columns):
             part_syndromes = _map_syndromes(syndromes[:index], map_columns)
-            tables = search.get_tables(max_weight)
-            best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
-            index, _ = _find_first_not_within_max_weight(
-                part_syndromes, max_weight, best, *tables, search.scale
-            )
+            index, _ = search.find_first_not_within_max_weight(part_syndromes, max_weight)
         if index == len(syndromes):
             return index, None
         return index, self.get_min_weight_bound(_packed_row_int(syndromes[index]), max_weight)
@@ -407,7 +396,8 @@ class _CosetSearchTables(NamedTuple):
         x_mask: Selects the bits of a packed embedded word that count as its X part, with one
             machine word for each machine word of the embedded words.  Only searches of Pauli
             errors by CSS weight use the X part, and their layers scan with it, but every search
-            reads the mask when it weighs the word of a syndrome and the offsets of layer zero.
+            reads the mask when it weighs the word of a syndrome, and a search of whole words also
+            reads it when it weighs the offsets of layer zero.
     """
 
     inverse: npt.NDArray[np.uint64]
@@ -415,6 +405,30 @@ class _CosetSearchTables(NamedTuple):
     pivots: npt.NDArray[np.int64]
     planning: _PlanningBuffer
     x_mask: npt.NDArray[np.uint64]
+
+
+class _CosetTails(NamedTuple):
+    """The tails with which ``_search_coset_by_tails`` weighs the words of a family.
+
+    The tail of an embedded word on a set of the family holds every column of the word but the
+    pivot columns of the set, including columns on which no row of the set has a one.  The tails are
+    packed, and padded with zeros to one common width, that of the set of least rank.  A word of a
+    coset is the offset of a set, which is zero on its pivot columns, plus rows of the set.  Each
+    row below the rank of the set has a one on its own pivot column, where the other rows are zero.
+    So the word weighs the number of its rows below the rank plus the weight of its tail (see
+    Section 3.5 of ``brouwer_zimmermann.md``).
+
+    Attributes:
+        tails: The tails of the rows of each set, with shape ``(num_sets, num_rows, num_words)``.
+        inverse_tails: The tails of the rows of ``inverse`` of ``_CosetSearchTables`` on each set,
+            with shape ``(num_sets, num_syndrome_bits, num_words)``.  The tail of the word of a
+            syndrome on a set is the sum of the rows for the set bits of the syndrome.  These rows
+            can be derived from ``inverse``, but a query that sums them directly finds the tails of
+            its offsets faster than one that gathers the columns of each tail from the full word.
+    """
+
+    tails: npt.NDArray[np.uint64]
+    inverse_tails: npt.NDArray[np.uint64]
 
 
 class _CosetSearch:
@@ -428,7 +442,8 @@ class _CosetSearch:
 
     The search answers queries of each maximum weight with the tables of a family of information
     sets of the code, which ``routes`` choose (see ``coset_routes``).  The tables of every family
-    have the same ``inverse`` and ``x_mask``.
+    have the same ``inverse`` and ``x_mask``.  The queries of a route by tails weigh the words of
+    its family by their tails, from its record of tails.
 
     Args:
         routes: The routes of the search.
@@ -447,7 +462,7 @@ class _CosetSearch:
 
     def __init__(
         self,
-        routes: coset_routes.CosetRoutes[_CosetSearchTables],
+        routes: coset_routes.CosetRoutes[_CosetSearchTables, _CosetTails],
         css_weight: bool,
         num_qubits: int,
         inverse_rows: tuple[int, ...],
@@ -506,19 +521,47 @@ class _CosetSearch:
                 False, word, self._odd_coset_lookup_bound if word.bit_count() % 2 else 2
             )
 
-        # Search the coset with the tables of the route of the maximum weight, and keep the lightest
-        # word that the search visits in ``best``.
-        tables = self.get_tables(max_weight)
+        # Search the coset with the tables of the route of the maximum weight, by tails on a route
+        # by tails, and keep the lightest word that the search visits in ``best``.
+        tables, tails = self._routes.get_route(max_weight)
         best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
         packed_syndrome = _int_to_words(syndrome, max(1, (self._num_syndrome_bits + 63) // 64))
-        lower_bound = _search_coset(packed_syndrome, max_weight, best, *tables, self.scale)
+        if tails is None:
+            lower_bound = _search_coset(packed_syndrome, max_weight, best, *tables, self.scale)
+        else:
+            lower_bound = _search_coset_by_tails(
+                packed_syndrome, max_weight, best, *tables, *tails, self.scale
+            )
         # A search that finds a light enough word returns zero, but every word of the coset weighs
         # at least two, since the coset has no word of weight at most one.
         return MinWeightBound(lower_bound <= max_weight, self.unembed(best), max(2, lower_bound))
 
-    def get_tables(self, max_weight: int) -> _CosetSearchTables:
-        """The tables with which the search answers queries of a maximum weight."""
-        return self._routes.get_tables(max_weight)
+    def find_first_not_within_max_weight(
+        self, syndromes: npt.NDArray[np.uint64], max_weight: int
+    ) -> tuple[int, MinWeightBound | None]:
+        """Find the first syndrome whose coset has no word of weight at most ``max_weight``.
+
+        The syndromes are packed as for ``CosetLeaderSearch.find_first_not_within_max_weight``.
+        The search answers them with the route of the maximum weight, which it takes once.
+
+        Returns:
+            The index of that syndrome, or the number of syndromes if there is none, and a
+            ``MinWeightBound`` for its coset, with the lightest word that the search visited, or
+            None if there is none.
+        """
+        tables, tails = self._routes.get_route(max_weight)
+        best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
+        if tails is None:
+            index, lower_bound = _find_first_not_within_max_weight(
+                syndromes, max_weight, best, *tables, self.scale
+            )
+        else:
+            index, lower_bound = _find_first_not_within_max_weight_by_tails(
+                syndromes, max_weight, best, *tables, *tails, self.scale
+            )
+        if index == len(syndromes):
+            return index, None
+        return index, MinWeightBound(False, self.unembed(best), int(lower_bound))
 
     def unembed(self, embedded_word: npt.NDArray[np.uint64]) -> int:
         """Convert a packed embedded word into a word, without the columns that the embedding adds.
@@ -595,8 +638,10 @@ class _CosetTuning(NamedTuple):
 
     ``disjoint_random_column_orders`` configures the disjoint information sets of the search.  Only
     a search of Pauli errors by CSS weight reads ``max_css_single_pairs``, for its lookups.  The
-    other fields configure the families with which the search answers costly queries (see
-    ``coset_routes``), which it builds after the cache stores it.
+    other fields configure the families with which the search answers costly queries, and
+    ``overlapping_minimum_work`` also chooses its routes by tails, whose queries weigh words by
+    their tails, if it weighs Hamming weights (see ``coset_routes``).  The search builds the
+    families and tails after the cache stores it.
     """
 
     disjoint_random_column_orders: int
@@ -763,9 +808,15 @@ def _get_pauli_search(key: _StabilizerKey, css_weight: bool, tuning: _CosetTunin
     embedded_stabilizers = stabilizers if css_weight else symplectic_to_hamming(stabilizers)
     embedded_inverse = inverse if css_weight else symplectic_to_hamming(inverse)
     # An error weighs at least half of the Hamming weight of its embedded word, by either measure of
-    # weight, so the certificate bounds are halved.
+    # weight, so the certificate bounds are halved.  A search by CSS weight never weighs words by
+    # tails, since that weight needs to know which deleted pivot columns are in the X part.
     routes = _get_routes(
-        embedded_stabilizers, embedded_inverse, num_qubits, weight_factor=2, tuning=tuning
+        embedded_stabilizers,
+        embedded_inverse,
+        num_qubits,
+        weight_factor=2,
+        tuning=tuning,
+        by_tails=not css_weight,
     )
     check_columns = _row_ints(np.ascontiguousarray(checks.T))
     return _CosetSearch(
@@ -818,7 +869,9 @@ def _get_classical_search(
     num_qubits = generators.shape[1]
     inverse = _get_inverse(checks)
     # Every column counts as the X part, so the CSS weight of a word is its Hamming weight.
-    routes = _get_routes(generators, inverse, num_qubits, weight_factor=1, tuning=tuning)
+    routes = _get_routes(
+        generators, inverse, num_qubits, weight_factor=1, tuning=tuning, by_tails=True
+    )
     check_columns = _row_ints(np.ascontiguousarray(checks.T))
     return _CosetSearch(routes, True, num_qubits, _row_ints(inverse), check_columns, is_pauli=False)
 
@@ -830,13 +883,16 @@ def _get_routes(
     *,
     weight_factor: int,
     tuning: _CosetTuning,
-) -> coset_routes.CosetRoutes[_CosetSearchTables]:
+    by_tails: bool,
+) -> coset_routes.CosetRoutes[_CosetSearchTables, _CosetTails]:
     """The routes of a coset search of the code of independent embedded generators.
 
     The routes start from the coset instance of the disjoint information sets of the generators,
     with the weight factor ``weight_factor`` (see ``affine_instance.get_coset_instance``).  The
     tables of every family of the routes come from ``_get_search_tables``, with ``inverse`` and
-    ``num_x_columns``.
+    ``num_x_columns``.  If ``by_tails`` is True, the routes whose queries are predicted to examine
+    at least ``tuning.overlapping_minimum_work`` words with their own family are routes by tails,
+    with records of tails from ``_get_coset_tails``, and otherwise no route is.
     """
     instance = affine_instance.get_coset_instance(
         generators,
@@ -847,6 +903,7 @@ def _get_routes(
         generators,
         instance,
         functools.partial(_get_search_tables, inverse=inverse, num_x_columns=num_x_columns),
+        functools.partial(_get_coset_tails, inverse=inverse) if by_tails else None,
         minimum_work=tuning.overlapping_minimum_work,
         max_sets=tuning.max_information_sets,
         attempts_per_set=tuning.overlapping_attempts_per_set,
@@ -1019,6 +1076,30 @@ def _get_search_tables(
         _get_planning([instance.get_weight_bounds(parity) for parity in parities]),
         x_mask,
     )
+
+
+def _get_coset_tails(
+    instance: affine_instance.AffineInstance, inverse: npt.NDArray[np.uint8]
+) -> _CosetTails:
+    """Build the record of the tails of the family of a coset instance.
+
+    ``inverse`` holds embedded words whose syndromes have one bit set, with every column of the
+    embedded words.  The tails of each set keep every column but its pivots, and are zero-padded
+    to the width of the set of least rank, which keeps the most columns.
+    """
+    num_sets, num_rows, width = instance.generators.shape
+    num_columns = inverse.shape[1]
+    rows = unpack_bits(instance.generators.reshape(-1, width), num_columns)
+    rows = rows.reshape(num_sets, num_rows, num_columns)
+    tail_width = (num_columns - int(instance.ranks.min()) + 63) // 64
+    tails = np.zeros((num_sets, num_rows, tail_width), dtype=np.uint64)
+    inverse_tails = np.zeros((num_sets, len(inverse), tail_width), dtype=np.uint64)
+    for set_index, (pivots, rank) in enumerate(zip(instance.pivots, instance.ranks, strict=True)):
+        columns = np.delete(np.arange(num_columns), pivots[:rank])
+        set_width = (len(columns) + 63) // 64
+        tails[set_index, :, :set_width] = pack_bits(rows[set_index][:, columns])
+        inverse_tails[set_index, :, :set_width] = pack_bits(inverse[:, columns])
+    return _CosetTails(tails, inverse_tails)
 
 
 def _get_planning(bound_tables: Sequence[npt.NDArray[np.int64]]) -> _PlanningBuffer:
@@ -1263,6 +1344,88 @@ def _search_coset(
 
 
 @always_compiled
+def _find_first_not_within_max_weight_by_tails(
+    syndromes: npt.NDArray[np.uint64],
+    max_weight: int,
+    best: npt.NDArray[np.uint64],
+    inverse: npt.NDArray[np.uint64],
+    generators: npt.NDArray[np.uint64],
+    pivots: npt.NDArray[np.int64],
+    planning: _PlanningBuffer,
+    x_mask: npt.NDArray[np.uint64],
+    tails: npt.NDArray[np.uint64],
+    inverse_tails: npt.NDArray[np.uint64],
+    scale: int,
+) -> tuple[int, int]:
+    """Search the coset of each syndrome in turn with ``_search_coset_by_tails``.
+
+    The arguments and the result are those of ``_find_first_not_within_max_weight``, with the tails
+    of ``_CosetTails``.
+    """
+    for index in range(len(syndromes)):
+        lower_bound = _search_coset_by_tails(
+            syndromes[index],
+            max_weight,
+            best,
+            inverse,
+            generators,
+            pivots,
+            planning,
+            x_mask,
+            tails,
+            inverse_tails,
+            scale,
+        )
+        if lower_bound > max_weight:
+            return index, lower_bound
+    return len(syndromes), 0
+
+
+@always_compiled(inline=True)
+def _search_coset_by_tails(
+    packed_syndrome: npt.NDArray[np.uint64],
+    max_weight: int,
+    best: npt.NDArray[np.uint64],
+    inverse: npt.NDArray[np.uint64],
+    generators: npt.NDArray[np.uint64],
+    pivots: npt.NDArray[np.int64],
+    planning: _PlanningBuffer,
+    x_mask: npt.NDArray[np.uint64],
+    tails: npt.NDArray[np.uint64],
+    inverse_tails: npt.NDArray[np.uint64],
+    scale: int,
+) -> int:
+    """Search the coset of a syndrome as ``_search_coset`` does, but weigh words by their tails.
+
+    The arguments are those of ``_search_coset``, with the tails of ``_CosetTails`` of the
+    family of ``generators``, and ``scale`` is one or two, since the search weighs words by their
+    Hamming weight.  The search visits the same words as ``_search_coset``, in the same order, and
+    returns the same lower bound, with the same lightest word in ``best`` (see
+    ``_search_by_tails_from_syndrome_word``).
+    """
+    best_weight, parity = _get_syndrome_word(packed_syndrome, best, inverse, x_mask, scale)
+    if best_weight <= max_weight:
+        return 0
+    table = _get_planning_table(planning, parity)
+    stop_layer, stop_num_completed, stop_bound = _get_stopping_step(table, max_weight)
+    lower_bound, _ = _search_by_tails_from_syndrome_word(
+        packed_syndrome,
+        max_weight,
+        stop_layer,
+        stop_num_completed,
+        stop_bound,
+        best,
+        best_weight,
+        generators,
+        pivots,
+        tails,
+        inverse_tails,
+        scale,
+    )
+    return lower_bound
+
+
+@always_compiled
 def _get_planning_table(planning: _PlanningBuffer, parity: int) -> npt.NDArray[np.int64]:
     """The table of a planning buffer for a coset whose Hamming weights have parity ``parity``.
 
@@ -1341,7 +1504,8 @@ def _search_from_syndrome_word(
 
     Returns:
         The lower bound of ``_search_coset``, and the number of words weighed after the word of the
-        syndrome.  Only tests read the number, to check which sets a search skips.
+        syndrome.  Only tests read the number, to check which sets a search skips and that a
+        search by tails weighs as many words.
     """
     num_sets, num_rows, width = generators.shape
 
@@ -1349,13 +1513,7 @@ def _search_from_syndrome_word(
     offsets = np.empty((num_sets, width), dtype=np.uint64)
     for set_index in range(num_sets):
         offsets[set_index] = best
-        for row in range(num_rows):
-            pivot = pivots[set_index, row]
-            if pivot < 0:
-                break
-            if offsets[set_index, pivot // 64] >> np.uint64(pivot % 64) & np.uint64(1):
-                for index in range(width):
-                    offsets[set_index, index] ^= generators[set_index, row, index]
+        _reduce_to_offset(offsets[set_index], generators[set_index], pivots[set_index])
 
     # Visit each layer one information set at a time, up to the stopping step.  The scans of layers
     # take work space for one set, and weigh Hamming weights, which are ``scale`` times the weights,
@@ -1366,15 +1524,7 @@ def _search_from_syndrome_word(
     prefixes = np.empty((num_rows, 1, width), dtype=np.uint64)
     for layer in range(stop_layer + 1):
         for set_index in range(num_sets if layer < stop_layer else stop_num_completed):
-            # Skip a set that adds nothing to the bound of the stopping step, since its rank
-            # deficiency exceeds the last layer that it completes by then.  This holds exactly if
-            # its rank is at most ``position = num_rows - last_layer - 1``, that is, if its pivot
-            # at ``position`` is padding.  The last layer is at least zero for every set visited
-            # here, so ``position`` is below ``num_rows``.  It is negative only if the last layer
-            # is ``num_rows``, where no set is skipped.
-            last_layer = stop_layer if set_index < stop_num_completed else stop_layer - 1
-            position = num_rows - last_layer - 1
-            if position >= 0 and pivots[set_index, position] < 0:
+            if _is_skipped_set(pivots, set_index, stop_layer, stop_num_completed):
                 continue
             if layer == 0:
                 best_weight = _keep_lighter(offsets[set_index], best, best_weight, x_mask, scale)
@@ -1410,6 +1560,154 @@ def _search_from_syndrome_word(
     return min(best_weight, stop_bound), weighed
 
 
+@always_compiled
+def _search_by_tails_from_syndrome_word(
+    packed_syndrome: npt.NDArray[np.uint64],
+    max_weight: int,
+    stop_layer: int,
+    stop_num_completed: int,
+    stop_bound: int,
+    best: npt.NDArray[np.uint64],
+    best_weight: int,
+    generators: npt.NDArray[np.uint64],
+    pivots: npt.NDArray[np.int64],
+    tails: npt.NDArray[np.uint64],
+    inverse_tails: npt.NDArray[np.uint64],
+    scale: int,
+) -> tuple[int, int]:
+    """Search a coset as ``_search_from_syndrome_word`` does, but weigh words by their tails.
+
+    The arguments are those of ``_search_from_syndrome_word``, with ``packed_syndrome``, the
+    syndrome of the word in ``best``, and the tails of ``_CosetTails`` rather than ``x_mask``.
+    ``scale`` is one or two.  The search visits the same words in the same order, and keeps the
+    first of the lightest, but it weighs a word by its rows below the rank of its set and its tail.
+    It keeps the set, the layer, and the support of the lightest word, and writes that word into
+    ``best`` before it returns.
+
+    Returns:
+        The lower bound of ``_search_coset``, and the number of words weighed after the word of the
+        syndrome, as ``_search_from_syndrome_word`` returns them.
+    """
+    num_sets, num_rows, _ = generators.shape
+    tail_width = tails.shape[2]
+
+    # Find the rank of each information set and the tail of its offset.  The rows of a set with
+    # pivots on which the word of the syndrome has ones reduce the word to the offset, since every
+    # row is zero on the pivots of the other rows.  The tail of the word sums the tails of the rows
+    # of the inverse for the set bits of the syndrome.
+    ranks = np.zeros(num_sets, dtype=np.int64)
+    offset_tails = np.zeros((num_sets, tail_width), dtype=np.uint64)
+    for set_index in range(num_sets):
+        _xor_selected_rows(packed_syndrome, inverse_tails[set_index], offset_tails[set_index])
+        rank = 0
+        while rank < num_rows and pivots[set_index, rank] >= 0:
+            pivot = pivots[set_index, rank]
+            if best[pivot // 64] >> np.uint64(pivot % 64) & np.uint64(1):
+                for index in range(tail_width):
+                    offset_tails[set_index, index] ^= tails[set_index, rank, index]
+            rank += 1
+        ranks[set_index] = rank
+
+    # Visit each layer one information set at a time, up to the stopping step, and skip the sets
+    # that ``_search_from_syndrome_word`` skips.  The scans of layers weigh Hamming weights, which
+    # are ``scale`` times the weights.
+    best_ones, cutoff = scale * best_weight, scale * max_weight
+    best_set, best_layer = -1, 0
+    weighed = 0
+    widths = np.full(1, tail_width, dtype=np.int64)
+    support = np.empty(num_rows, dtype=np.int64)
+    best_support = np.empty(num_rows, dtype=np.int64)
+    prefixes = np.empty((num_rows, 1, tail_width), dtype=np.uint64)
+    for layer in range(stop_layer + 1):
+        for set_index in range(num_sets if layer < stop_layer else stop_num_completed):
+            if _is_skipped_set(pivots, set_index, stop_layer, stop_num_completed):
+                continue
+            if layer == 0:
+                ones = 0
+                for index in range(tail_width):
+                    ones += int(popcount_word(offset_tails[set_index, index]))
+                count = 1
+            else:
+                ones, count = affine_search.scan_coset_layer_by_tails(
+                    offset_tails[set_index],
+                    tails[set_index : set_index + 1],
+                    ranks[set_index : set_index + 1],
+                    widths,
+                    support[:layer],
+                    prefixes,
+                    best_ones,
+                    cutoff,
+                    best_support,
+                )
+            weighed += count
+            if ones < best_ones:
+                best_ones, best_set, best_layer = ones, set_index, layer
+            if best_ones <= cutoff:
+                break
+        if best_ones <= cutoff:
+            break
+
+    # Write the lightest word into ``best``, which holds the word of the syndrome until then.
+    if best_set >= 0:
+        _rebuild_word(best, generators[best_set], pivots[best_set], best_support[:best_layer])
+    lower_bound = 0 if best_ones <= cutoff else min(best_ones // scale, stop_bound)
+    return lower_bound, weighed
+
+
+@always_compiled
+def _rebuild_word(
+    word: npt.NDArray[np.uint64],
+    rows: npt.NDArray[np.uint64],
+    pivots: npt.NDArray[np.int64],
+    support: npt.NDArray[np.int64],
+) -> None:
+    """Turn a word of a coset into the offset of an information set plus the rows of a support.
+
+    ``rows`` and ``pivots`` are those of the set, as for ``_reduce_to_offset``.
+    """
+    _reduce_to_offset(word, rows, pivots)
+    for row in support:
+        for index in range(len(word)):
+            word[index] ^= rows[row, index]
+
+
+@always_compiled(inline=True)
+def _reduce_to_offset(
+    word: npt.NDArray[np.uint64], rows: npt.NDArray[np.uint64], pivots: npt.NDArray[np.int64]
+) -> None:
+    """Reduce a word of a coset to the offset of an information set, which is zero on its pivots.
+
+    ``rows`` are the packed rows of the set, and ``pivots`` their pivot columns, padded with -1
+    beyond its rank.  The word adds the row of each pivot that it has a one on, since every row is
+    zero on the pivots of the other rows.
+    """
+    for row in range(len(pivots)):
+        pivot = pivots[row]
+        if pivot < 0:
+            break
+        if word[pivot // 64] >> np.uint64(pivot % 64) & np.uint64(1):
+            for index in range(len(word)):
+                word[index] ^= rows[row, index]
+
+
+@always_compiled(inline=True)
+def _is_skipped_set(
+    pivots: npt.NDArray[np.int64], set_index: int, stop_layer: int, stop_num_completed: int
+) -> bool:
+    """Whether a search skips a set, since it adds nothing to the bound of the stopping step.
+
+    A set adds nothing if its rank deficiency exceeds the last layer that it completes by the
+    stopping step.  For sets of ``num_rows = pivots.shape[1]`` rows, this holds exactly if its rank
+    is at most ``position = num_rows - last_layer - 1``, that is, if its pivot at ``position`` is
+    padding.  The last layer is at least zero for every set that a search visits, so ``position`` is
+    below ``num_rows``.  It is negative only if the last layer is ``num_rows``, where no set is
+    skipped.
+    """
+    last_layer = stop_layer if set_index < stop_num_completed else stop_layer - 1
+    position = pivots.shape[1] - last_layer - 1
+    return position >= 0 and pivots[set_index, position] < 0
+
+
 @always_compiled(inline=True)
 def _get_syndrome_word(
     packed_syndrome: npt.NDArray[np.uint64],
@@ -1424,15 +1722,27 @@ def _get_syndrome_word(
     the parity of its Hamming weight.
     """
     word[:] = 0
-    for machine_word in range(len(packed_syndrome)):
-        bits = packed_syndrome[machine_word]
+    _xor_selected_rows(packed_syndrome, inverse, word)
+    weight, ones = _get_weight(word, x_mask, scale)
+    return weight, ones % 2
+
+
+@always_compiled(inline=True)
+def _xor_selected_rows(
+    packed_bits: npt.NDArray[np.uint64], rows: npt.NDArray[np.uint64], word: npt.NDArray[np.uint64]
+) -> None:
+    """Add to ``word`` row ``b`` of ``rows`` for each set bit ``b`` of ``packed_bits``.
+
+    ``packed_bits`` is split into 64-bit machine words, with machine word ``j`` holding bits
+    ``64 j`` and up, and each set bit must be below the number of rows; this is not checked.
+    """
+    for machine_word in range(len(packed_bits)):
+        bits = packed_bits[machine_word]
         while bits:
             bit = 64 * machine_word + trailing_zeros_word(bits)
             for index in range(len(word)):
-                word[index] ^= inverse[bit, index]
+                word[index] ^= rows[bit, index]
             bits &= bits - np.uint64(1)
-    weight, ones = _get_weight(word, x_mask, scale)
-    return weight, ones % 2
 
 
 @always_compiled
@@ -1477,14 +1787,7 @@ def _map_syndromes(
     syndromes are split into 64-bit words, and each set bit must be below the number of columns;
     this is not checked.
     """
-    width = map_columns.shape[1]
-    mapped = np.zeros((len(syndromes), width), dtype=np.uint64)
+    mapped = np.zeros((len(syndromes), map_columns.shape[1]), dtype=np.uint64)
     for row in range(len(syndromes)):
-        for machine_word in range(syndromes.shape[1]):
-            bits = syndromes[row, machine_word]
-            while bits:
-                bit = 64 * machine_word + trailing_zeros_word(bits)
-                for index in range(width):
-                    mapped[row, index] ^= map_columns[bit, index]
-                bits &= bits - np.uint64(1)
+        _xor_selected_rows(syndromes[row], map_columns, mapped[row])
     return mapped

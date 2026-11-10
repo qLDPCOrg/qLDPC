@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import NamedTuple
 
 import numpy as np
@@ -22,12 +23,15 @@ class _Tables(NamedTuple):
 
 
 def _build_routes(
-    code: npt.NDArray[np.uint8], minimum_work: int
-) -> coset_routes.CosetRoutes[_Tables]:
+    code: npt.NDArray[np.uint8],
+    minimum_work: int,
+    build_tails: Callable[[affine_instance.AffineInstance], object] | None = None,
+) -> coset_routes.CosetRoutes[_Tables, object]:
     """The routes of the cosets of a code, from its greedy packing in natural column order.
 
     The planning buffers of the tables have a table of the bounds of the steps for each parity of
-    the cosets of an even code, and one table otherwise, each with a row for a stopping step.
+    the cosets of an even code, and one table otherwise, each with a row for a stopping step.  The
+    routes build records of tails with ``build_tails``, if it is given.
     """
     parities = (0, 1) if not np.any(code.sum(axis=1) % 2) else (None,)
 
@@ -38,7 +42,13 @@ def _build_routes(
 
     instance = affine_instance.get_coset_instance(code, random_column_orders=0, weight_factor=1)
     return coset_routes.CosetRoutes(
-        code, instance, build_tables, minimum_work=minimum_work, max_sets=16, attempts_per_set=2
+        code,
+        instance,
+        build_tables,
+        build_tails,
+        minimum_work=minimum_work,
+        max_sets=16,
+        attempts_per_set=2,
     )
 
 
@@ -51,6 +61,13 @@ def _get_work(tables: _Tables, max_weight: int) -> int:
             table[:-1], max_weight, 0, dimension, tables.instance.ranks, binomials, True
         )[2]
         for table in tables.planning
+    )
+
+
+def _get_examinations(tables: _Tables, max_weight: int) -> int:
+    """The predicted examinations of a query: one more than the largest work of a table."""
+    return 1 + max(
+        _get_work(_Tables(table[None], tables.instance), max_weight) for table in tables.planning
     )
 
 
@@ -72,18 +89,14 @@ def test_the_gate_takes_other_families_from_its_threshold(
     predicted examinations, but not under a threshold just above them.  Every lighter query, which
     does less work, keeps the disjoint family.
     """
-    disjoint = _build_routes(code, 0).disjoint_tables
-    examinations = 1 + max(
-        _get_work(_Tables(table[None], disjoint.instance), max_weight)
-        for table in disjoint.planning
-    )
+    examinations = _get_examinations(_build_routes(code, 0).disjoint_tables, max_weight)
     for minimum_work in (examinations, examinations + 1):
         routes = _build_routes(code, minimum_work)
-        assert (routes.get_tables(max_weight) is routes.disjoint_tables) == (
+        assert (routes.get_route(max_weight)[0] is routes.disjoint_tables) == (
             minimum_work > examinations
         )
         for lighter in range(-1, max_weight):
-            assert routes.get_tables(lighter) is routes.disjoint_tables
+            assert routes.get_route(lighter)[0] is routes.disjoint_tables
 
 
 @pytest.mark.parametrize(
@@ -109,9 +122,53 @@ def test_routes_take_the_family_of_least_work(code: npt.NDArray[np.uint8]) -> No
     for max_weight in range(-1, code.shape[1] + 2):
         works = [_get_work(tables, max_weight) for tables in families]
         index = works.index(min(works))
-        tables = routes.get_tables(max_weight)
+        tables, _ = routes.get_route(max_weight)
         assert np.array_equal(tables.instance.pivots, families[index].instance.pivots)
         assert tables.instance.certificate == families[index].instance.certificate
         taken.add(index)
     assert taken == set(range(len(families)))
     assert len(families) == (3 if code is TWO_FAMILIES_CODE else 2)
+
+
+@pytest.mark.parametrize(
+    "code", [EVEN_ROUTES_CODE, TWO_FAMILIES_CODE], ids=["even", "two-families"]
+)
+def test_routes_by_tails_reach_the_threshold_with_their_own_family(
+    code: npt.NDArray[np.uint8],
+) -> None:
+    """A route is by tails exactly if its predicted examinations reach the threshold.
+
+    The predicted examinations of a route are one more than the largest work of a table of its
+    family.  Under thresholds at and just above the predicted examinations of each route at the
+    threshold zero, the route of each maximum weight gives the record of the tails of its family
+    exactly when they reach the threshold.  The routes build the record from the coset instance of
+    the family, once for each family.  A search that gives no builder has no routes by tails.  The
+    random code has routes by tails on both of its other families, so each family must get its own
+    record.
+    """
+    examinations = {
+        _get_examinations(_build_routes(code, 0).get_route(max_weight)[0], max_weight)
+        for max_weight in range(-1, code.shape[1] + 2)
+    }
+    built: list[affine_instance.AffineInstance] = []
+
+    def build_tails(instance: affine_instance.AffineInstance) -> object:
+        """Record the coset instance of a family, and return it as its record of tails."""
+        built.append(instance)
+        return instance
+
+    kinds = set()
+    for minimum_work in sorted(examinations | {value + 1 for value in examinations}):
+        built.clear()
+        routes = _build_routes(code, minimum_work, build_tails)
+        plain_routes = _build_routes(code, minimum_work)
+        for max_weight in range(-1, code.shape[1] + 2):
+            tables, tails = routes.get_route(max_weight)
+            by_tails = _get_examinations(tables, max_weight) >= minimum_work
+            assert (tails is not None) == by_tails
+            if tails is not None:
+                assert tails is tables.instance
+            assert plain_routes.get_route(max_weight)[1] is None
+            kinds.add(by_tails)
+        assert len(built) == len({id(instance) for instance in built})
+    assert kinds == {False, True}

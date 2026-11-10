@@ -17,11 +17,12 @@ depend on the query, so the instance holds neither.
 A distance instance packs the rows of each set with its pivot columns deleted, since a scan of a
 space restores their weight arithmetically.  Its certificate is the one that the distance search
 selects, with the proven divisor of eligible weights.  A coset instance packs the full rows of the
-sets of a family of information sets of its code, disjoint or overlapping, which the coset search
-weighs whole.  Its certificate takes the maximum coverage of the family, and no divisor, since the
-words of a coset need not share the divisibility of the code.  If every word of the code has even
-Hamming weight, the Hamming weights of the words of each coset all have one parity instead, and the
-bounds of a coset may be rounded up to its parity.
+sets of a family of information sets of its code, disjoint or overlapping, which a coset search
+weighs whole or, in a search that weighs Hamming weights, on its routes by tails, by tails derived
+from them (see ``coset_leader_search._CosetTails``).  Its certificate takes the maximum coverage of
+the family, and no divisor, since the words of a coset need not share the divisibility of the code.
+If every word of the code has even Hamming weight, the Hamming weights of the words of each coset
+all have one parity instead, and the bounds of a coset may be rounded up to its parity.
 """
 
 from __future__ import annotations

@@ -6,7 +6,10 @@ A BZ search scans the words of an affine space ``u + V`` layer by layer: layer `
 basis holds the sums of its offset and ``w`` of its rows (see ``brouwer_zimmermann.md``).  The
 distance search scans ``V`` itself, with zero offsets and quotient labels that tell eligible words
 from excluded ones, and keeps only the best weight.  The coset search of ``CosetLeaderSearch`` scans
-a coset, with the offset of each basis, and keeps the lightest word.
+a coset, with the offset of each basis, and keeps the lightest word.  On its routes by tails (see
+``coset_routes``), a coset search that weighs Hamming weights scans the tails of the rows and
+offsets instead, without the pivot columns of each basis, and keeps the support of the lightest
+word, from which it rebuilds the word.
 
 Every scan of this module runs one body, ``_scan``, which its compiled entry points call with
 constant flags.  Numba includes the body in each entry point, which compiles it for those flags, so
@@ -82,9 +85,10 @@ def scan_family(
         _NO_TABLE_BYTES,
         _NO_TABLE_OFFSETS,
         0,
-        # This scan neither weighs X parts nor records words.
+        # This scan neither weighs X parts nor records words or supports.
         prefixes[0, 0],
         prefixes[0, 0],
+        support,
         one_set=False,
         pair_steps=False,
         deleted_pivots=True,
@@ -92,6 +96,8 @@ def scan_family(
         record=False,
         css_weight=False,
         chunked=True,
+        ranked=False,
+        record_support=False,
     )
     return best, depth, visited
 
@@ -131,7 +137,7 @@ def scan_information_set(
         numbers of supports that the chunk weighed, of bounds that it looked up, and of supports
         that it skipped.
     """
-    # This scan neither reads ranks nor weighs X parts nor records words.
+    # This scan neither reads ranks nor weighs X parts nor records words or supports.
     return _scan(
         generators,
         labels,
@@ -149,6 +155,7 @@ def scan_information_set(
         block_bits,
         prefixes[0, 0],
         prefixes[0, 0],
+        support,
         one_set=True,
         pair_steps=True,
         deleted_pivots=True,
@@ -156,6 +163,8 @@ def scan_information_set(
         record=False,
         css_weight=False,
         chunked=True,
+        ranked=False,
+        record_support=False,
     )
 
 
@@ -179,8 +188,9 @@ def scan_coset_layer(
     The words are packed and full width, with no columns deleted, and weigh their Hamming weight.
     ``rows`` has shape ``(1, num_rows, num_words)``, a stack of one search basis, and ``widths`` is
     ``[num_words]``.  The layer must have ``1 <= len(support) <= num_rows`` rows; the coset driver
-    weighs the offset itself, layer zero, without a scan.  ``support`` and ``prefixes``, of at least
-    ``len(support)`` rows, are work space.  The scan keeps each word lighter than ``best`` in
+    weighs the offset itself, layer zero, without a scan.  ``prefixes``, of at least
+    ``len(support)`` rows, and ``support`` are work space.  The scan keeps each word lighter than
+    ``best`` in
     ``representative``.  After each word, it returns if the best weight so far, which starts at
     ``best``, is at most ``cutoff``, and otherwise it returns once the layer is complete.
 
@@ -205,9 +215,10 @@ def scan_coset_layer(
         _NO_TABLE_BYTES,
         _NO_TABLE_OFFSETS,
         0,
-        # This scan neither reads labels nor ranks nor weighs X parts.
+        # This scan neither reads labels nor ranks nor weighs X parts nor records supports.
         representative,
         representative,
+        support,
         one_set=True,
         pair_steps=False,
         deleted_pivots=False,
@@ -215,6 +226,8 @@ def scan_coset_layer(
         record=True,
         css_weight=False,
         chunked=False,
+        ranked=False,
+        record_support=False,
     )
     return best, weighed
 
@@ -254,9 +267,10 @@ def scan_coset_layer_by_css_weight(
         _NO_TABLE_BYTES,
         _NO_TABLE_OFFSETS,
         0,
-        # This scan neither reads labels nor ranks.
+        # This scan neither reads labels nor ranks nor records supports.
         x_mask,
         representative,
+        support,
         one_set=True,
         pair_steps=False,
         deleted_pivots=False,
@@ -264,6 +278,70 @@ def scan_coset_layer_by_css_weight(
         record=True,
         css_weight=True,
         chunked=False,
+        ranked=False,
+        record_support=False,
+    )
+    return best, weighed
+
+
+@always_compiled
+def scan_coset_layer_by_tails(
+    offset_tail: npt.NDArray[np.uint64],
+    tails: npt.NDArray[np.uint64],
+    ranks: npt.NDArray[np.int64],
+    widths: npt.NDArray[np.int64],
+    support: npt.NDArray[np.int64],
+    prefixes: npt.NDArray[np.uint64],
+    best: int,
+    cutoff: int,
+    best_support: npt.NDArray[np.int64],
+) -> tuple[int, int]:
+    """Scan a layer as ``scan_coset_layer`` does, but weigh each word by its pivot rows and tail.
+
+    The tail of a word holds its columns other than the pivot columns of the basis, packed.
+    ``tails`` holds the tails of the rows, with shape ``(1, num_rows, num_words)``, and
+    ``offset_tail`` that of the offset; ``ranks`` is ``[rank]``, for the rank of the basis, and
+    ``widths`` is ``[num_words]``.  Each of the first ``rank`` rows has a one on its own pivot
+    column, where the other rows and the offset are zero.  So the Hamming weight of a word is the
+    number of its rows below ``rank`` plus the weight of its tail.  The layer, ``support``,
+    ``prefixes``, ``best``, and ``cutoff`` are as for ``scan_coset_layer``.  The scan keeps the
+    support of each word lighter than ``best`` in ``best_support``, of at least ``len(support)``
+    entries, rather than the word.
+
+    Returns:
+        The weight of the lightest word found, or ``best`` if none is lighter, and the number of
+        words weighed.
+    """
+    prefixes[0, 0] = offset_tail
+    support[0] = 0
+    best, _, weighed, _, _ = _scan(
+        tails,
+        tails,
+        ranks,
+        widths,
+        widths,
+        support,
+        prefixes,
+        0,
+        best,
+        cutoff,
+        0,
+        _NO_TABLE_BYTES,
+        _NO_TABLE_OFFSETS,
+        0,
+        # This scan neither reads labels nor weighs X parts nor records words.
+        prefixes[0, 0],
+        prefixes[0, 0],
+        best_support,
+        one_set=True,
+        pair_steps=False,
+        deleted_pivots=True,
+        test_labels=False,
+        record=False,
+        css_weight=False,
+        chunked=False,
+        ranked=True,
+        record_support=True,
     )
     return best, weighed
 
@@ -290,6 +368,7 @@ def _scan(
     block_bits: int,
     x_mask: npt.NDArray[np.uint64],
     representative: npt.NDArray[np.uint64],
+    best_support: npt.NDArray[np.int64],
     one_set: bool,
     pair_steps: bool,
     deleted_pivots: bool,
@@ -297,12 +376,14 @@ def _scan(
     record: bool,
     css_weight: bool,
     chunked: bool,
+    ranked: bool,
+    record_support: bool,
 ) -> tuple[int, int, int, int, int]:
     """Scan the supports of a layer of a stack of search bases, starting from ``support``.
 
-    The array arguments are those of ``scan_family``, ``scan_information_set``, and
-    ``scan_coset_layer_by_css_weight``, and the flags, which callers pass as constants, choose what
-    the scan does:
+    The array arguments are those of ``scan_family``, ``scan_information_set``,
+    ``scan_coset_layer_by_css_weight``, and ``scan_coset_layer_by_tails``, and the flags, which
+    callers pass as constants, choose what the scan does:
 
     - ``one_set``: scan only the first basis, rather than all bases in lockstep.
     - ``pair_steps``: with ``one_set``, step through the first of the last two rows of a support
@@ -314,6 +395,12 @@ def _scan(
     - ``record``: copy each lighter word into ``representative``.
     - ``css_weight``: weigh words by their CSS weight, with ``x_mask``, rather than Hamming weight.
     - ``chunked``: return once the weighed supports and the lookups reach ``batch_size`` together.
+    - ``ranked``: with ``one_set`` and ``deleted_pivots``, and without completion tables, lift the
+      assumption of a scan of one basis that the basis is an information set: only its first
+      ``ranks[0]`` rows hold pivots, so a word weighs the number of its rows below ``ranks[0]``,
+      rather than ``len(support)``, plus the weight of its packed tail.  A scan of every basis in
+      lockstep reads ``ranks`` regardless.
+    - ``record_support``: copy the support of each lighter word into ``best_support``.
 
     Returns:
         Updated ``best`` and ``depth``, and the numbers of supports weighed, of bounds looked up,
@@ -369,6 +456,13 @@ def _scan(
         # row, returning at the cutoff or at the end of this chunk.  The last row stays in a local
         # variable, and enters the support only where the support is read.
         row = support[depth]
+        # In a ranked basis, count the pivot rows of the support but the last once, before trying
+        # each last row.
+        head_pivots = np.int64(0)
+        if ranked:
+            for selected in range(depth):
+                if support[selected] < ranks[0]:
+                    head_pivots += 1
         while row < num_rows:
             for set_index in range(num_sets):
                 width = first_width if one_set else widths[set_index]
@@ -378,7 +472,9 @@ def _scan(
                 # counts show that the word is no lighter than the best one.
                 candidate = np.int64(0)
                 if deleted_pivots:
-                    if one_set or ranks[set_index] == num_rows:
+                    if ranked:
+                        candidate = head_pivots + (1 if row < ranks[0] else 0)
+                    elif one_set or ranks[set_index] == num_rows:
                         candidate = np.int64(weight)
                     else:
                         for selected in range(depth):
@@ -413,6 +509,10 @@ def _scan(
                         representative[word] = (
                             prefixes[depth, set_index, word] ^ generators[set_index, row, word]
                         )
+                if record_support:
+                    for selected in range(depth):
+                        best_support[selected] = support[selected]
+                    best_support[depth] = row
 
             row += 1
             evaluated += 1
