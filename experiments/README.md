@@ -112,7 +112,7 @@ The frequencies of code parameters in the results therefore reflect this sampler
 Small groups have few symmetric subsets of a given size, so different seeds often draw the same subsets, and thereby the same code.
 Saved codes are distinct if they differ in their subsets, their local codes, or their complex.
 Different generating data can still give the same code, or codes that are equivalent up to a permutation of qubits.
-With default settings, the search saves 10,913 codes, of which 4,515 are distinct.
+With default settings, the search saves 10,913 codes, of which 4,504 are distinct.
 
 1. `run_search.py` samples codes for every group and pair of local codes, and saves each code to a text file in `results/codes/`.
    Groups that are too small to have subsets of the required sizes are skipped.
