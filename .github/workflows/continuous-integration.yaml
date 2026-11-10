@@ -104,11 +104,25 @@ jobs:
           examples/decoders.ipynb examples/basics.ipynb examples/noise_models.ipynb
 
   coverage:
-    name: Pytest and coverage check
+    name: Pytest and coverage shard ${{ matrix.shard }}/${{ strategy.job-total }}
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      # The number of shards.  The matrix must list the shards 1 to SHARDS once each, with no other
+      # dimension, and its first step checks that it does.
+      SHARDS: 3
+    strategy:
+      # Let every shard finish when one fails, so that each reports its own failures.
+      fail-fast: false
+      matrix:
+        # Each shard checks a share of the test files on its own runner (see coverage_.py --shard).
+        shard: [1, 2, 3]
     steps:
+      - name: Check that the matrix runs each shard once
+        run: |
+          test "${{ strategy.job-total }}" = "$SHARDS"
+          test "${{ matrix.shard }}" = "$(( ${{ strategy.job-index }} + 1 ))"
       - uses: actions/checkout@v6
       - name: Set up Python
         uses: astral-sh/setup-uv@v7
@@ -138,4 +152,19 @@ jobs:
         # Use every CPU of the dedicated runner (the check defaults to half of them).
         run: >-
           uv run --extra bliss --extra decoders --extra gap --group ci-test python checks/coverage_.py
-          --jobs "$(nproc)"
+          --jobs "$(nproc)" --shard "${{ matrix.shard }}/$SHARDS"
+
+  coverage-result:
+    # Combine the results of the shards into one check, whose name, unlike theirs, does not depend
+    # on the number of shards, for branch protection to require.  It runs even when a shard fails or
+    # the run is cancelled, since GitHub counts a skipped required check as passing.
+    name: Pytest and coverage check
+    if: always() && github.event.pull_request.draft == false
+    needs: coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Check that every shard passed
+        run: |
+          echo "Result of the shards: ${{ needs.coverage.result }}"
+          test "${{ needs.coverage.result }}" = success
