@@ -104,7 +104,7 @@ Verification requires `codes.QTCode.random` to sample the same code for the same
 
 ## Connected-support distance
 
-[`connected_support_distance/benchmark.py`](connected_support_distance/benchmark.py) times the exact distance searches of `qldpc` on the pair-partition codes that [the connected-support guide](../src/qldpc/codes/distance/connected_support.md) uses, and on a few other codes.
+[`connected_support_distance/benchmark.py`](connected_support_distance/benchmark.py) times the exact distance searches of `qldpc` on the pair-partition codes of [the connected-support guide](../src/qldpc/codes/distance/connected_support.md), and on a few other codes.
 It prints its results and saves nothing, so it takes no `--results-dir`.
 For example:
 
@@ -119,7 +119,6 @@ The option `--hadamards` applies Hadamards to the second half of the qubits of e
 
 Numba compiles the searches on first use, so run the script twice for the times of a warm cache.
 Some searches run for hours or more, so run it under a deadline.
-Section 2 of the guide lists the times of the instances.
 
 ## Lattice surgery
 
