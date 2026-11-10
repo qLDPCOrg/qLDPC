@@ -160,8 +160,7 @@ def get_howell_dual(
     The ``transformer`` must be the one used to build ``matrix_hnf``, since the dual is built in
     that transformer's basis.  By default it is read from ``matrix_hnf`` (the transformer recorded
     when the Howell form was built).  If neither provides one, this function uses the ring's
-    transformer, which may run GAP, prompt on standard input, and use the system clipboard; see
-    GroupRing.get_transformer.
+    transformer (see GroupRing.get_transformer).
 
     Likewise, the ``right`` flag must match the orientation used to build ``matrix_hnf`` (the
     ``right`` passed to ``null_space``/``howell_normal_form_semisimple``).  For a non-commutative
