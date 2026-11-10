@@ -144,6 +144,18 @@ def test_tables_fit_their_memory_limit() -> None:
     assert cb._get_block_bits(4, 0, _with_table_bytes(2**30)) == 0
 
 
+def test_tables_within_a_limit_are_built_only_if_they_fit_and_skip_something() -> None:
+    """Tables are built only within their limit, and not for tails without ones or a single row."""
+    rows = pack_bits(get_random_tails(np.random.default_rng(0), 4, 40))
+    tables = cb.CompletionTables.build(rows, 8)
+    built = cb.build_tables_within(rows, 8, len(tables.tables))
+    assert built is not None
+    np.testing.assert_array_equal(built.tables, tables.tables)
+    assert cb.build_tables_within(rows, 8, len(tables.tables) - 1) is None
+    assert cb.build_tables_within(np.zeros_like(rows), 8, MAX_VALUE) is None
+    assert cb.build_tables_within(rows[:1], 8, MAX_VALUE) is None
+
+
 @pytest.mark.parametrize("interpreted", [False, True])
 def test_sampled_supports_are_counted_exactly(
     interpreted: bool, pytestconfig: pytest.Config

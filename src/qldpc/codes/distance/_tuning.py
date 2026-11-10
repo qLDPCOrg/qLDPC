@@ -227,11 +227,11 @@ class SearchTuning:
     #: The estimated work of a search, in examinations (candidate/set evaluations), below which it
     #: keeps its disjoint information sets.  It also gates the coset searches of
     #: ``CosetLeaderSearch``: a query with fewer predicted examinations keeps the disjoint sets and
-    #: weighs whole words.  Lowering it tries other families sooner, and words without their pivot
-    #: columns in searches by Hamming weight, which may not repay their setup; zero always tries,
-    #: and ``MAX_VALUE`` never does.  Defaults to 100,000, chosen for distances by unrecorded means,
-    #: and kept for cosets after replaying residual-weight estimates.  To retune it, time searches
-    #: near it with and without other families.
+    #: whole words.  Lowering it tries other families sooner, and, in searches by Hamming weight,
+    #: tails and completion tables, which may not repay setup; zero always tries, ``MAX_VALUE``
+    #: never.  Defaults to 100,000, chosen for distances by unrecorded means, and kept for cosets
+    #: after replaying residual-weight estimates of 37- to 95-qubit state preparations.  To retune
+    #: it, time searches near it with and without other families.
     overlapping_minimum_work: int = 100_000
 
     #: The column orders that building a family of overlapping information sets tries for each set
@@ -341,13 +341,13 @@ class SearchTuning:
     #: set.
     completion_bound_max_cost_percent: int = 90
 
-    #: The most bytes of completion tables that each problem of a distance search, or each sector of
-    #: a count, keeps, besides tables that a count is building; so a joint search of both sectors of
-    #: a CSS code can keep this much for each.  Tables use blocks of ``completion_bound_block_bits``
-    #: columns, or of ``completion_bound_fallback_block_bits`` if those do not fit, or none.  Zero
-    #: disables tables, and ``MAX_VALUE`` removes the limit.  Defaults to 256 MiB, which fits blocks
-    #: of 16 columns for bases of up to about 500 rows and 140 tail columns.  To retune it, choose
-    #: the memory that tables may use.
+    #: The most bytes of completion tables that a distance search keeps for each problem, a count
+    #: for each sector besides the tables that it is building, and a coset search of
+    #: ``CosetLeaderSearch`` for each set of a family.  Distance searches and counts use blocks of
+    #: ``completion_bound_block_bits`` columns, or of ``completion_bound_fallback_block_bits`` if
+    #: those do not fit, or none.  Zero disables tables, and ``MAX_VALUE`` removes the limit.
+    #: Defaults to 256 MiB, which fits blocks of 16 columns for bases of up to about 500 rows and
+    #: 140 tail columns.  To retune it, choose the memory that tables may use.
     completion_bound_max_table_bytes: int = 256 * 2**20
 
     #: The number of tail columns in a block of completion tables, a power of two up to 16.  Wider
@@ -363,6 +363,15 @@ class SearchTuning:
     #: saved time on every layer of the width data set of at least ``10**9`` supports.  To retune
     #: it, lower the memory limit until that data set falls back, and compare narrower widths.
     completion_bound_fallback_block_bits: int = dataclasses.field(default=8, metadata=_BLOCK_WIDTHS)
+
+    #: The number of tail columns in a block of the completion tables of ``CosetLeaderSearch``, a
+    #: power of two up to 16.  Its searches by Hamming weight build tables for their costliest
+    #: queries, within ``completion_bound_max_table_bytes`` for each set.  Wider blocks skip more
+    #: completions, but the table of a block has ``2**width`` bytes for each row and takes longer to
+    #: build: 1 builds fastest and skips least, and 16 the reverse.  Defaults to 8: on
+    #: residual-weight estimates of three state preparations, 16 columns took longer to build than
+    #: most estimates spent scanning.  To retune it, time such estimates with each width.
+    coset_completion_block_bits: int = dataclasses.field(default=8, metadata=_BLOCK_WIDTHS)
 
     #: The number of random supports from which a search estimates the share of a layer that
     #: completion tables would skip, within the budget ``completion_bound_sampling_work``; drawing

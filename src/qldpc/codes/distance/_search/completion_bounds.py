@@ -75,6 +75,20 @@ class CompletionTables:
 NO_TABLES = CompletionTables(np.zeros(0, dtype=np.uint8), np.zeros(1, dtype=np.int64), 0)
 
 
+def build_tables_within(
+    rows: npt.NDArray[np.uint64], block_bits: int, max_bytes: int
+) -> CompletionTables | None:
+    """Build the tables of the packed tails of a basis on blocks of columns, if they fit.
+
+    Returns:
+        The tables, or None if they would exceed ``max_bytes`` bytes, or be empty, as for tails
+        without ones or a basis of fewer than two rows, whose tables would skip nothing.
+    """
+    if not _tables_fit(len(rows), _get_num_tail_bits(rows), block_bits, max_bytes):
+        return None
+    return CompletionTables.build(rows, block_bits)
+
+
 def select_completion_tables(
     rows: npt.NDArray[np.uint64],
     weight: int,
@@ -220,18 +234,25 @@ def _get_table_bytes(num_rows: int, offsets: npt.NDArray[np.int64]) -> int:
 
 
 def _get_block_bits(num_rows: int, num_bits: int, tuning: SearchTuning) -> int:
-    """Choose the blocks of the tuning, or its fallback blocks, whose tables fit, or 0 if none do.
-
-    Tables of tails without ones would be empty and skip nothing, so none fit.
-    """
+    """Choose the blocks of the tuning, or its fallback blocks, whose tables fit, or else 0."""
     for block_bits in (
         tuning.completion_bound_block_bits,
         tuning.completion_bound_fallback_block_bits,
     ):
-        num_bytes = _get_table_bytes(num_rows, _get_block_offsets(num_bits, block_bits))
-        if 0 < num_bytes <= tuning.completion_bound_max_table_bytes:
+        if _tables_fit(num_rows, num_bits, block_bits, tuning.completion_bound_max_table_bytes):
             return block_bits
     return 0
+
+
+def _tables_fit(num_rows: int, num_bits: int, block_bits: int, max_bytes: int) -> bool:
+    """Whether the tables of a basis on blocks of ``block_bits`` columns fit in ``max_bytes``.
+
+    The basis has ``num_rows`` rows, and its tails have ``num_bits`` columns up to the last with a
+    one.  Tables of tails without ones, or of fewer than two rows, would be empty and skip nothing,
+    so they never fit.
+    """
+    num_bytes = _get_table_bytes(num_rows, _get_block_offsets(num_bits, block_bits))
+    return 0 < num_bytes <= max_bytes
 
 
 def _get_share_lower_bound(share: float, num_samples: int, z: float) -> float:
