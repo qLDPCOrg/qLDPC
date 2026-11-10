@@ -20,27 +20,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  install:
-    name: Installation check
-    if: github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v6
-      - name: Set up Python
-        uses: astral-sh/setup-uv@v7
-        with:
-          python-version: 3.14
-          enable-cache: true
-      - name: Install package and dependencies
-        run: uv sync --extra dev --extra gap
-
   format:
     name: Lint and type check
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 2
-    needs: install
     steps:
       - uses: actions/checkout@v6
       - name: Set up Python
@@ -84,7 +68,6 @@ jobs:
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: install
     steps:
       - uses: actions/checkout@v6
       - name: Set up Python
@@ -104,7 +87,6 @@ jobs:
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 7
-    needs: install
     env:
       PIP_NO_INDEX: "1"
     steps:
@@ -126,7 +108,6 @@ jobs:
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: install
     steps:
       - uses: actions/checkout@v6
       - name: Set up Python

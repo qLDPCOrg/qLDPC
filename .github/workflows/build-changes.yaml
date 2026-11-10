@@ -23,6 +23,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  install:
+    name: Installation check (Python 3.14)
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: 3.14
+          # setup-uv's cache key hashes pyproject.toml, so runs that change that file cannot reuse it
+          enable-cache: false
+      # Install everything that a development installation does, which no other job installs at once.
+      - name: Install package and dependencies
+        run: uv sync --extra dev --extra gap
+
   ubuntu:
     name: Ubuntu check of minimum dependency versions (Python 3.11)
     if: github.event.pull_request.draft == false
