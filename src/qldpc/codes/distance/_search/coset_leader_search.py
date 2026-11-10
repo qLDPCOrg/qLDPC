@@ -113,11 +113,14 @@ class CosetLeaderSearch:
     Given stabilizers, such as row-reduced ones, can be dense, so it first makes its checks sparser
     by adding them to each other, which can fall short of the sparsest generators.  It uses no
     tuning field.  The CSS weight is not a sum over qubits, so it weighs errors by CSS weight only
-    on CSS states, whose X and Z parts it searches separately.  Its bounds are weaker.  A query
-    within ``max_weight`` gives a lower bound of one, or zero for an empty syndrome.  A query with
-    no error within ``max_weight`` gives ``max_weight + 1``, or, for a negative ``max_weight``, one,
-    or zero for an empty syndrome.  The BZ searches often give higher bounds, which spare queries
-    to consumers that raise a threshold to each bound.
+    on CSS states, whose X and Z parts it searches separately.  Like the BZ searches, it first looks
+    up errors of weight at most one, so a syndrome with such an error gets the weight of its
+    lightest errors as a lower bound.  For any other syndrome, a query with an error within
+    ``max_weight`` gives two, and a query with none gives the larger of two and ``max_weight + 1``.
+    ``find_first_not_within_max_weight`` searches each syndrome that the table lacks with increasing
+    weight limits, which can find light errors sooner than one search at ``max_weight``.  The BZ
+    searches often give higher bounds, which spare queries to consumers that raise a threshold to
+    each bound.
 
     Args:
         stabilizers: A binary ``n x 2n`` matrix in ``[X|Z]`` order whose rows are independent
@@ -258,15 +261,10 @@ class CosetLeaderSearch:
         searches = self._support_searches or self._searches
         if len(searches) == 1:
             return searches[0].get_min_weight_bound(syndrome, max_weight)
-        part_syndromes = _xor_selected(self._joint_map_columns, syndrome)
-        x_syndrome = part_syndromes & ((1 << self._num_x_syndrome_bits) - 1)
-        z_syndrome = part_syndromes >> self._num_x_syndrome_bits
-        x_bound = searches[0].get_min_weight_bound(x_syndrome, max_weight)
-        z_bound = searches[1].get_min_weight_bound(z_syndrome, max_weight)
-        return MinWeightBound(
-            x_bound.within_max_weight and z_bound.within_max_weight,
-            x_bound.representative | (z_bound.representative << self.num_qubits),
-            max(x_bound.lower_bound, z_bound.lower_bound),
+        x_syndrome, z_syndrome = self._split_syndrome(syndrome)
+        return self._join_part_bounds(
+            searches[0].get_min_weight_bound(x_syndrome, max_weight),
+            searches[1].get_min_weight_bound(z_syndrome, max_weight),
         )
 
     def find_first_not_within_max_weight(
@@ -286,13 +284,16 @@ class CosetLeaderSearch:
             The index of that syndrome, or the number of syndromes if there is none, and a
             ``MinWeightBound`` for that syndrome, or None if there is none.  With one BZ search,
             the bound is the one that the batch search found, so the syndrome is not searched
-            again.  With two BZ searches, or with the connected-support method, it is the one that
-            ``get_min_weight_bound`` gives.
+            again.  With two BZ searches, it is the one that ``get_min_weight_bound`` gives.  With
+            the connected-support method, it has the lower bound that ``get_min_weight_bound``
+            gives.  If the X and Z parts are searched separately, the representative of a part
+            within ``max_weight`` can differ, since the batch searches with increasing weight
+            limits (see ``_get_batch_support_bound``).
         """
         # The connected-support searches answer one syndrome at a time.
         if self._support_searches:
             for index, row in enumerate(syndromes):
-                bound = self.get_min_weight_bound(_packed_row_int(row), max_weight)
+                bound = self._get_batch_support_bound(_packed_row_int(row), max_weight)
                 if not bound.within_max_weight:
                     return index, bound
             return len(syndromes), None
@@ -323,6 +324,44 @@ class CosetLeaderSearch:
         if index == len(syndromes):
             return index, None
         return index, self.get_min_weight_bound(_packed_row_int(syndromes[index]), max_weight)
+
+    def _get_batch_support_bound(self, syndrome: int, max_weight: int) -> MinWeightBound:
+        """Answer a query of a batch with the connected-support searches, by increasing limits.
+
+        Most syndromes of a batch have an error within ``max_weight``, which a search at a lower
+        weight limit finds sooner (see ``_ConnectedSupportCosetSearch.get_min_weight_bound``).
+
+        Raises:
+            ValueError: If the syndrome is out of range.
+        """
+        if not 0 <= syndrome < 1 << self.num_qubits:
+            raise ValueError("The syndrome is out of range")
+        searches = self._support_searches
+        if len(searches) == 1:
+            return searches[0].get_min_weight_bound(syndrome, max_weight, increasing_limits=True)
+        x_syndrome, z_syndrome = self._split_syndrome(syndrome)
+        return self._join_part_bounds(
+            searches[0].get_min_weight_bound(x_syndrome, max_weight, increasing_limits=True),
+            searches[1].get_min_weight_bound(z_syndrome, max_weight, increasing_limits=True),
+        )
+
+    def _split_syndrome(self, syndrome: int) -> tuple[int, int]:
+        """Map a syndrome for the given stabilizers to the syndromes of the parts of its errors."""
+        part_syndromes = _xor_selected(self._joint_map_columns, syndrome)
+        x_syndrome = part_syndromes & ((1 << self._num_x_syndrome_bits) - 1)
+        return x_syndrome, part_syndromes >> self._num_x_syndrome_bits
+
+    def _join_part_bounds(self, x_bound: MinWeightBound, z_bound: MinWeightBound) -> MinWeightBound:
+        """Join the bounds of the cosets of X parts and of Z parts into a bound of a syndrome class.
+
+        The smallest CSS weight of an error in the class is the larger of the smallest weights of
+        the parts.
+        """
+        return MinWeightBound(
+            x_bound.within_max_weight and z_bound.within_max_weight,
+            x_bound.representative | (z_bound.representative << self.num_qubits),
+            max(x_bound.lower_bound, z_bound.lower_bound),
+        )
 
 
 class _CosetSearchTables(NamedTuple):
@@ -536,10 +575,15 @@ class _ConnectedSupportCosetSearch:
     for the stabilizers is that of the symplectic search of ``connected_support.SupportSearch``, or
     the X or Z parts of Paulis, whose syndrome is that of a binary search of the checks.  The search
     starts from the syndrome of a query, and grows supports through its unsatisfied checks (Section
-    3.8 of ``connected_support.md``).  Its bounds are weaker than those of a ``_CosetSearch``.  A
-    query within ``max_weight`` gives a lower bound of one, or zero for an empty syndrome.  A query
-    with no word within ``max_weight`` gives ``max_weight + 1``, or, for a negative ``max_weight``,
-    one, or zero for an empty syndrome.
+    3.8 of ``connected_support.md``).
+
+    Like a ``_CosetSearch``, it first looks up a word of weight zero or one by its syndrome: a
+    single variable, or a single-qubit Pauli.  It searches only cosets with no such word, so a coset
+    with such a word gets the weight of that word as a lower bound.  Any other coset gets two if it
+    has a word within ``max_weight``.  With increasing weight limits (see ``get_min_weight_bound``),
+    it instead gets the weight of its lightest words.  Without a word within ``max_weight``, it gets
+    the larger of two and ``max_weight + 1``.  These bounds are often weaker than those of a
+    ``_CosetSearch``.
 
     The search is fast only if its checks are sparse, but the given checks, such as row-reduced
     stabilizers, can be dense.  So it searches the sparser checks of ``_sparsify``, which span the
@@ -553,6 +597,23 @@ class _ConnectedSupportCosetSearch:
     """
 
     def __init__(self, matrix: npt.NDArray[np.uint8], *, homogeneous: bool) -> None:
+        # Map each syndrome of a word of weight zero or one to such a word.  The syndrome of a word
+        # with one nonzero bit, which is an X or a Z on one qubit or one bit of a part, is a column
+        # of the checks, once the halves of symplectic checks are swapped.  The syndrome of the
+        # Pauli Y on a qubit is the sum of those of X and Z there.
+        num_variables = matrix.shape[1] if homogeneous else matrix.shape[1] // 2
+        syndrome_matrix = matrix if homogeneous else np.roll(matrix, num_variables, axis=1)
+        columns = _row_ints(np.ascontiguousarray(syndrome_matrix.T))
+        self._singles = {0: 0}
+        for variable in range(num_variables):
+            low_syndrome, low_word = columns[variable], 1 << variable
+            self._singles.setdefault(low_syndrome, low_word)
+            if not homogeneous:
+                z_syndrome = columns[num_variables + variable]
+                z_word = 1 << (num_variables + variable)
+                self._singles.setdefault(z_syndrome, z_word)
+                self._singles.setdefault(low_syndrome ^ z_syndrome, low_word | z_word)
+
         rows, transform = _sparsify(matrix, homogeneous=homogeneous)
         self._num_checks = len(rows)
         # Row ``i`` of the sparse rows sums the given rows that row ``i`` of the transform selects,
@@ -567,32 +628,54 @@ class _ConnectedSupportCosetSearch:
             automorphism_minimum_states=_tuning.MAX_VALUE,
         )
         # Row ``j`` of the inverse is a word whose syndrome has only bit ``j`` set, so the words of
-        # the set bits of a syndrome sum to a representative of its coset.  The syndrome of a Pauli
-        # is its product with the rows whose halves are swapped.
-        num_variables = self._search.num_variables
+        # the set bits of a syndrome sum to a representative of its coset.
         syndrome_rows = rows if homogeneous else np.roll(rows, num_variables, axis=1)
         self._inverse_rows = _row_ints(_get_inverse(syndrome_rows))
 
-    def get_min_weight_bound(self, syndrome: int, max_weight: int) -> MinWeightBound:
+    def get_min_weight_bound(
+        self, syndrome: int, max_weight: int, *, increasing_limits: bool = False
+    ) -> MinWeightBound:
         """Decide whether the coset of this syndrome has a word of weight at most ``max_weight``.
 
         A negative ``max_weight`` admits no word, as for a ``_CosetSearch``.
-        """
-        # Map the syndrome to the sparse checks, and search from its bits, which the search packs
-        # again.  Every word weighs at least one, unless the syndrome is empty.
-        syndrome = _xor_selected(self._syndrome_map_columns, syndrome)
-        least_weight = int(syndrome != 0)
-        symbols = None
-        if max_weight >= 0:
-            num_words = (self._num_checks + 63) // 64
-            bits = unpack_bits(_int_to_words(syndrome, num_words)[None], self._num_checks)[0]
-            symbols = self._search.find_vector_with_syndrome(bits, max_weight)
-        if symbols is None:
-            representative = _xor_selected(self._inverse_rows, syndrome)
-            return MinWeightBound(False, representative, max(max_weight + 1, least_weight))
 
-        # A symbol gives the qubit ``symbol % n`` the Pauli X, Z, or Y for values 0, 1, and 2.  The
-        # symbols of an X or Z part have only the value 0.
+        A search with weight limit ``max_weight`` can visit many heavy supports before it finds a
+        word that is much lighter.  With ``increasing_limits``, the search instead tries every limit
+        from two to ``max_weight``, and stops at the first limit within which it finds a word, so it
+        finds a lightest word.  This can save time on cosets with words much lighter than
+        ``max_weight``, and repeats the work of the lower limits on cosets without a word within
+        ``max_weight``.  Callers that already raise the limit of their queries one at a time should
+        not set ``increasing_limits``.
+        """
+        # Look up a word of weight zero or one.
+        word = self._singles.get(syndrome)
+        if word is not None:
+            weight = int(word != 0)
+            return MinWeightBound(weight <= max_weight, word, weight)
+
+        # Otherwise every word weighs at least two, so no limit below two is searched, and a single
+        # query searches only at ``max_weight``.  Map the syndrome to the sparse checks, and search
+        # from its bits, which the search packs again.  Each limit within which the search finds no
+        # word raises the lower bound above that limit.
+        syndrome = _xor_selected(self._syndrome_map_columns, syndrome)
+        lower_bound = 2
+        num_words = (self._num_checks + 63) // 64
+        bits = unpack_bits(_int_to_words(syndrome, num_words)[None], self._num_checks)[0]
+        first_limit = 2 if increasing_limits else max(2, max_weight)
+        for limit in range(first_limit, max_weight + 1):
+            symbols = self._search.find_vector_with_syndrome(bits, limit)
+            if symbols is not None:
+                return MinWeightBound(True, self._get_word(symbols), lower_bound)
+            lower_bound = limit + 1
+        representative = _xor_selected(self._inverse_rows, syndrome)
+        return MinWeightBound(False, representative, lower_bound)
+
+    def _get_word(self, symbols: npt.NDArray[np.int64]) -> int:
+        """Pack the symbols of a support into a word.
+
+        A symbol gives the qubit ``symbol % n`` the Pauli X, Z, or Y for values 0, 1, and 2.  The
+        symbols of an X or Z part have only the value 0.
+        """
         num_variables = self._search.num_variables
         word = 0
         for symbol in symbols.tolist():
@@ -601,7 +684,7 @@ class _ConnectedSupportCosetSearch:
                 word |= 1 << variable
             if value:
                 word |= 1 << (num_variables + variable)
-        return MinWeightBound(True, word, least_weight)
+        return word
 
 
 @functools.lru_cache(maxsize=_tuning.PAULI_SEARCH_CACHE_SIZE)

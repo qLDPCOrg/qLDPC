@@ -1082,10 +1082,12 @@ def test_connected_support_answers_match_exhaustive_minima(pytestconfig: pytest.
 
     Graph states with phases are not CSS, and are weighed by physical weight.  CSS states with
     no pure-X stabilizer, with only pure-X stabilizers, and with both are weighed by both measures,
-    and the CSS weight splits their searches.  Within ``max_weight``, the engine's bound is 1, or 0
-    for an empty syndrome.  Otherwise it is ``max(max_weight + 1, int(syndrome != 0))``, since a
-    negative ``max_weight`` admits no error.  These exact bounds imply the inequalities that
-    ``_assert_exact_answers`` checks.
+    and the CSS weight splits their searches.  A syndrome whose lightest errors weigh at most one
+    gets their weight as its bound.  Otherwise a query within ``max_weight`` gets 2, and one with no
+    error within ``max_weight`` gets ``max(2, max_weight + 1)``.  The queries of batches, which try
+    increasing weight limits, instead get the exact minimum and a lightest error when they are
+    within ``max_weight``.  These exact bounds imply the inequalities that ``_assert_exact_answers``
+    checks.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 6):
@@ -1099,14 +1101,20 @@ def test_connected_support_answers_match_exhaustive_minima(pytestconfig: pytest.
             for syndrome, max_weight in itertools.product(
                 range(1 << num_qubits), range(-1, num_qubits + 1)
             ):
-                bound = oracle.get_min_weight_bound(syndrome, max_weight)
-                weight = _pauli_weight(bound.representative, num_qubits, css_weight)
-                assert _get_syndrome(matrix, bound.representative) == syndrome
-                assert bound.within_max_weight == (minima[syndrome] <= max_weight)
-                if bound.within_max_weight:
-                    assert weight <= max_weight and bound.lower_bound == int(syndrome != 0)
-                else:
-                    assert bound.lower_bound == max(max_weight + 1, int(syndrome != 0))
+                minimum = int(minima[syndrome])
+                single = oracle.get_min_weight_bound(syndrome, max_weight)
+                batched = oracle._get_batch_support_bound(syndrome, max_weight)
+                for bound, exact in [(single, False), (batched, True)]:
+                    weight = _pauli_weight(bound.representative, num_qubits, css_weight)
+                    assert _get_syndrome(matrix, bound.representative) == syndrome
+                    assert bound.within_max_weight == (minimum <= max_weight)
+                    if not bound.within_max_weight:
+                        expected_bound = minimum if minimum < 2 else max(2, max_weight + 1)
+                        assert bound.lower_bound == expected_bound
+                    elif exact or minimum < 2:
+                        assert bound.lower_bound == weight == minimum
+                    else:
+                        assert bound.lower_bound == 2 and weight <= max_weight
 
 
 def test_connected_support_batches_read_syndromes_of_several_words(
@@ -1178,7 +1186,7 @@ def test_connected_support_rejects_what_it_cannot_search() -> None:
     with pytest.raises(ValueError, match="Unknown coset-leader search method"):
         CosetLeaderSearch([[1, 0]], method=method)
 
-    # A batch of the engine checks the range of its syndromes, through ``get_min_weight_bound``.
+    # A batch of the engine checks the range of its syndromes, through ``_get_batch_support_bound``.
     oracle = CosetLeaderSearch([[1, 0]], method="connected_support")
     with pytest.raises(ValueError, match="out of range"):
         oracle.find_first_not_within_max_weight(np.array([[2]], dtype=np.uint64), 1)
