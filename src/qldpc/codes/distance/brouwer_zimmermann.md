@@ -223,7 +223,7 @@ Extensions strengthen the lower certificate or the upper bound, while optimizati
 The extensions are:
 
 - [Section 3.1](#31-overlapping-search-bases) strengthens the lower certificate by allowing for search bases with overlapping blocks, chosen heuristically or by matroid partitioning, and certified by coverage or by linear programming.
-- [Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple) strengthens the lower certificate by rounding it up when the weight of every eligible word is a multiple of some integer.
+- [Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple) strengthens the lower certificate by rounding it up when the weight of every eligible word is a multiple of some integer, or, in a coset search of an even code, has the parity of its coset.
 - [Section 3.3](#33-sharing-witnesses-between-css-sectors) tightens the upper bound by sharing witnesses between the two sectors of a CSS code.
 
 The optimizations are:
@@ -358,9 +358,12 @@ That stronger test mainly helps doubly even classical codes: in a CSS sector, it
 The same identity shows what carries over to the words of a coset `u + V`, which the coset searches of [Section 4.1](#41-module-map-and-layering) search.
 A divisor of the weights of `V` need not divide the weights of a coset: every word of `V = {0000, 1111}` has a weight divisible by four, while the coset `1000 + V` has the weights one and three.
 Parity does carry over: if every word of `V` is even, every word `u + v` of the coset has the parity of `wt(u)`.
-So a coset search of an even code rounds its certificate up to the least integer of that parity, which it reads from the first word of the coset that it builds, and to no other divisor.
-The searches of X and Z parts do this, and so does a search of Pauli errors weighed by their CSS weight, which bounds the CSS weight by half the Hamming weight of `[x | z]`, rounded up, after rounding to parity.
-A search of Pauli errors weighed by their physical weight does not round: every word `T(x, z)` of [Section 2.7](#27-pauli-weight-as-hamming-weight) is even, and rounding a bound up to an even integer does not change its half.
+So a coset search of an even code can round each bound up to the least integer of that parity that is at least the bound.
+It reads the parity from the word of its syndrome ([Section 4.1](#41-module-map-and-layering)), and coset searches round to no divisor.
+The searches of X and Z parts round to parity, and so does a search of Pauli errors weighed by their CSS weight, which bounds the CSS weight by half the Hamming weight of `[x | z]`, rounded up, after rounding to parity.
+In that search, each step adds at most one to the Hamming bound, so a search stops at the bound of the maximum weight plus one with or without parity.
+Rounding stops an odd class sooner, at the first step whose Hamming bound reaches twice the maximum weight.
+A search of Pauli errors weighed by their physical weight does not round: every word `T(x, z)` of [Section 2.7](#27-pauli-weight-as-hamming-weight) is even, and rounding a bound up to an even integer does not change its half, rounded up.
 
 ### 3.3 Sharing witnesses between CSS sectors
 
@@ -713,9 +716,10 @@ There a layer adds `w` rows to an **offset**, a word of the coset that is zero o
 A **query** of `CosetLeaderSearch` asks whether the coset of a syndrome has a word of weight at most a given maximum weight.
 `CosetLeaderSearch` answers each query with one or two **coset searches**: a search of Pauli errors, or, for the CSS weight on a CSS state, searches of their X and Z parts, as described at the end of this section.
 Each coset search is built from a **coset instance**, which `get_coset_instance` packs from the full rows of the disjoint sets of its code.
-The certificate of a coset instance applies unchanged, except that it takes no weight divisor, because the words of a coset need not share the divisibility of `V`, even when `get_disjoint_family` infers a divisor for `V`.
-If every word of `V` has even weight, the bounds of each coset may instead be rounded up to its parity ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)), which `AffineInstance.get_weight_bounds` does when it is given the parity.
-`_get_search_tables` rounds them when some coset of the search is odd, which holds exactly when some row of the right inverse of its checks is odd.
+The certificate of a coset instance applies unchanged, except that it takes no weight divisor ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)), because the words of a coset need not share the divisibility of `V`.
+This holds even when `get_disjoint_family` infers a divisor for `V`.
+If every word of `V` has even weight, the bounds of each coset may instead be rounded up to its parity, which `AffineInstance.get_weight_bounds` does when it is given the parity.
+`_get_search_tables` rounds them when some coset of the search is odd, which holds exactly when some row of the right inverse of its checks, as a binary word of the search, is odd.
 In a search of Pauli errors, an error weighs at least half the Hamming weight of the binary word that represents it.
 So the instance of such a search has a **weight factor** of two: `AffineInstance.get_weight_bounds` divides the bounds of its certificate by two, rounding up, after any rounding to parity.
 A query of a coset search asks the same of a coset of its code, whose words have syndromes for the checks of that code.
@@ -726,7 +730,8 @@ It skips each rank-deficient search basis whose deficiency keeps it out of the b
 Each coset search keeps the bounds of its steps in a **planning buffer**, with a table for each parity of its cosets if it rounds to parity, and one table otherwise.
 A query takes the table of the parity of the word of its syndrome, and each table has one more row that caches a stopping step.
 For a nonnegative maximum weight, `_get_stopping_step` reuses the cached step of a table exactly while it stays the stopping step of that weight, and replaces it otherwise.
-A query below maximum weight two looks up the words of weight at most one instead of searching, and without one bounds the weight of the coset by two, or by three for an odd coset of a search of X or Z parts that rounds to parity.
+A single query first looks up the words of weight at most one.
+If there is none and its maximum weight is below two, it gives the lower bound two without a search, or three for an odd coset in a search of X or Z parts that rounds to parity.
 The distance search also uses `find_stopping_step`, through `Certificate.get_num_sets_to_certify`, when its certificate solves no linear programs.
 A distance certificate with linear programs instead checks its steps in order with `certifies`, which solves each program only when the coverage bound falls short.
 For the CSS weight `max(|x|, |z|)` on a CSS state, whose stabilizer group is generated by stabilizers with no Z part and stabilizers with no X part, `CosetLeaderSearch` instead runs this search on two classical codes, spanned by the X parts of the first kind and by the Z parts of the second, with words weighed by their Hamming weight.
@@ -782,7 +787,7 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Automorphisms, generators of `G` | `automorphisms`, whose row `i` maps column `j` to column `automorphisms[i, j]`, as returned by `get_automorphisms`; `_found_qudit_automorphisms` and `_get_qudit_automorphisms` of `QuditCode` |
 | Automorphism family | `get_automorphism_family` of [_search/automorphism_families.py](_search/automorphism_families.py), which returns a `BasisFamily` of the scanned set and the `Certificate` of all of its images; `_switch_to_automorphism_family` adopts them, and sets `uses_automorphism_family` of the search |
 | Last completed layer `t`, next layer | `completed_weight`, `next_weight` |
-| Divisor `D` | `Certificate.weight_divisor`, in Hamming units of the searched basis. Coset searches of even codes round to the parity of each coset instead (`_get_search_tables`). |
+| Divisor `D` | `Certificate.weight_divisor`, in Hamming units of the searched basis. Coset searches take no divisor, but those of even codes with odd cosets round to the parity of each coset (`_get_search_tables`). |
 | Maximum coverage `C` | `Certificate.max_coverage` |
 | Dimension `r`, block rank `r_i` | `dimension`, `ranks` (`BasisFamily.ranks`). `AffineInstance.ranks` holds the ranks of the packed sets of a search, counted from their pivots, as a native array. |
 | Search basis and its block | One set of a `BasisFamily`: its entries of `generators`, `labels`, `pivots`, and `ranks`; the recorded block is the pivot subset, as explained below |
@@ -902,7 +907,7 @@ Changes to the BZ algorithm can use different representations, certificates, and
   It need not hold for heavier words, such as skipped ones, so a bound that a search reports on the distance is `min(L, U)`, not `L`.
   The current formula relies on block ranks, overlap coverage, and completed layers (Sections [2.4](#24-search-bases-and-rank-deficient-blocks), [2.5](#25-the-stopping-certificate), and [3.1](#31-overlapping-search-bases)).
   Coverage may be conservatively overestimated; underestimating it can make the formula unsound.
-  Optional rounding requires a congruence that every eligible weight satisfies, such as a common divisor, or the parity of a coset of an even code ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)).
+  Optional rounding requires a congruence that every eligible weight satisfies: divisibility by a common divisor, or, in a coset search of an even code, where every word of the coset is eligible, the parity of the coset ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)).
   A certificate from another CSS sector needs justification for the sector where it is applied, just as any other certificate does.
   The certificate of an automorphism family holds instead for every eligible word whose images under the automorphisms are all unexamined, so it requires automorphisms that map `V` and `S` onto themselves ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), which searches verify before they use them.
 - **Skip only supports that a bound proves cannot lower `U`.**

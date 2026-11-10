@@ -21,9 +21,9 @@ def test_coset_bounds_hold_for_every_unvisited_word(pytestconfig: pytest.Config)
 
     The codes are random, so some of their disjoint information sets are rank deficient, and the
     words of each coset are enumerated through every set (see ``_get_unvisited_minima``).  A word
-    weighs at least its Hamming weight divided by the weight factor, which is one or two.  Half of
-    the codes get a last column with the parity of each row, which makes them even, and the bounds
-    of their cosets are rounded to the parity of the coset.
+    weighs at least its Hamming weight divided by the weight factor, which is one or two.  About
+    half of the codes get a last column with the parity of each row, which makes them even, and the
+    bounds of the cosets of even codes are rounded to the parity of each coset.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for _ in range(40):
@@ -49,9 +49,9 @@ def test_coset_bounds_round_up_to_the_parity_of_each_coset() -> None:
     have even weight, and those of the coset of ``100000`` odd weight.  The bound of each step
     equals the least weight of the words of the coset that it leaves unvisited.  Once the first set
     of pivots ``0, 2, 4`` has completed layer one and the other set layer zero, the bound without
-    parity would be three.  The even words that remain weigh at least four, and the odd ones three,
-    which a bound rounded to the even divisor of the code would exceed.  The entry before the first
-    step is not the bound of a step, and is left out.
+    parity would be three.  The least weight of the unvisited words is four in the code and three
+    in the coset of ``100000``.  A bound rounded to the even divisor of the code would be four for
+    both.  The entry before the first step is not the bound of a step, and is left out.
     """
     generators = np.kron(np.eye(3), np.ones((1, 2))).astype(np.uint8)
     instance = affine_instance.get_coset_instance(

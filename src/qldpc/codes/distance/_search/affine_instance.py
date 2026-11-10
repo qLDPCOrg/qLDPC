@@ -84,10 +84,10 @@ class AffineInstance:
     def get_weight_bounds(self, parity: int | None = None) -> npt.NDArray[np.int64]:
         """Bounds on the weight of the unvisited words after each step of the certificate.
 
-        The table of ``Certificate.get_weight_bounds`` for the weight factor of the instance.  For
-        the cosets whose words all have Hamming weights of one parity, zero or one, as the words of
-        each coset of an even code do (see ``get_coset_instance``), passing that parity rounds the
-        table to it.  Each call returns a new table.
+        The table of ``Certificate.get_weight_bounds`` for the weight factor of the instance,
+        rounded up to ``parity`` if it is given.  The Hamming weights of the words of each coset of
+        an even code share a parity, zero or one (see ``get_coset_instance``), so the bounds of such
+        a coset may be rounded up to it.  Each call returns a new table.
         """
         return self.certificate.get_weight_bounds(self.weight_factor, parity)
 

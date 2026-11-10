@@ -205,16 +205,18 @@ class Certificate:
         Every word must weigh at least its Hamming weight divided by ``weight_factor``.  Entry
         ``[w, j]`` is the entry of the table of ``get_step_lower_bounds`` for this certificate,
         divided by ``weight_factor`` and rounded up, except that the entries ``[dimension, j]`` for
-        ``j >= 1`` stay ``NO_WORD_BOUND``, since no word remains unvisited.  If every eligible word
-        has a Hamming weight of parity ``parity``, zero or one, the entries of that table are
-        rounded up to that parity before the division: each becomes the smallest integer of that
-        parity that is at least the entry.  The bounds do not decrease in the order of the steps.
-        Column zero of row zero, which precedes every step, stays zero, and column zero of each
-        later row repeats the last column of the row before.  Each call returns a new table.
+        ``j >= 1`` stay ``NO_WORD_BOUND``, since no word remains unvisited.  Given ``parity``, zero
+        or one, which the Hamming weight of every eligible word must have, the entries of that table
+        are first rounded up to that parity: each becomes the smallest integer of that parity that
+        is at least the entry.  The bounds do not decrease in the order of the steps.  Column zero
+        of row zero, which precedes every step, stays zero, and column zero of each later row
+        repeats the last column of the row before.  Each call returns a new table.
         """
         bounds = self._step_lower_bounds
         if parity is not None:
-            # Round each finite entry up to the parity, and keep the zero before every step.
+            # Round each finite entry up to the parity.  The entry before the first step bounds no
+            # step, and stays zero so that every nonnegative maximum weight passes it, as a check of
+            # a cached stopping step requires (see ``_get_stopping_step`` of a coset search).
             bounds = bounds + (bounds - parity) % 2 * (bounds < NO_WORD_BOUND)
             bounds[0, 0] = 0
 
