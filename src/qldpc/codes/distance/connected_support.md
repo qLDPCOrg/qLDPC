@@ -278,7 +278,7 @@ Four parts of a distance search do not carry over:
 - Every vector with the syndrome counts, so the query has no logical test.
 
 The fault-propagation certifier in `qldpc.circuits.certification` uses `CosetLeaderSearch` in `_search/coset_leader_search.py`.
-When it is built with `method="connected_support"`, `CosetLeaderSearch` answers each of its queries with such queries, of the Pauli errors or of their X and Z parts, at one or more weight limits.
+When it is built with `method="connected_support"`, `CosetLeaderSearch` answers each of its queries by a table lookup, or by such queries at one or more weight limits.
 It searches the Pauli errors of a state by their physical weight.
 The CSS weight `max(|x|, |z|)` is not a sum over qubits, so for it, on a CSS state, it searches the X and Z parts separately, and on any other state it raises an error.
 
@@ -289,13 +289,14 @@ For the physical weight on the state `|0⟩` of the [[144, 12, 12]] bivariate bi
 On the [[232, 62, 12]] pair-partition code, it lowers it from 54 to 33, while the checks weigh 8, so a sparser choice of generators remains to be found.
 
 A search first looks up the syndrome in a table of the syndromes of the vectors of weight at most 1, and searches only syndromes that the table lacks, which have no vector of weight below 2.
-A single query of such a syndrome with limit `W` thus has the lower bound `max(2, W + 1)` if the search finds no vector within `W`, and 2 if it finds one.
+A syndrome in the table gets the weight of its vector as the lower bound.
+A single query of any other syndrome with limit `W` has the lower bound `max(2, W + 1)` if no vector lies within `W`, and 2 if the search finds one.
 These bounds are often weaker than those of BZ.
 A search with limit `W` can wander through many heavy supports before it reaches a much lighter vector.
 So for the batches of certification, where most syndromes have a vector within `W`, a search tries the limits 2, 3, …, `W` in turn, and stops at the first limit within which it finds a vector.
 That vector is a lightest one, and its weight is the lower bound.
 The search of a syndrome without a vector within `W` repeats the work of the lower limits.
-Single queries search at `W` directly, so that a caller that raises `W` one step at a time adds no repeated work.
+Single queries search at `W` directly, so that the search repeats no work for a caller that already raises `W` one step at a time.
 
 ## 4. Guide to the source code
 
@@ -311,7 +312,7 @@ The names below are in `_search/connected_support.py`, unless the table says oth
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Syndrome query | `SupportSearch.find_vector_with_syndrome`, and the root `-1` of `_search_supports` |
 | Coset leaders of Pauli errors, and the sparser checks that their searches use | `_ConnectedSupportCosetSearch`, `_sparsify`, and `CosetLeaderSearch` in `_search/coset_leader_search.py` |
-| Table of light vectors, and increasing limits for batches | `_ConnectedSupportCosetSearch.get_min_weight_bound`, and `CosetLeaderSearch._get_batch_support_bound` |
+| Table of light vectors, and increasing limits for batches | `_ConnectedSupportCosetSearch` (its `_singles` and `get_min_weight_bound`), and `CosetLeaderSearch._get_batch_support_bound`, in `_search/coset_leader_search.py` |
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_search/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |

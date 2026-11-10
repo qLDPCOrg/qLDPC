@@ -979,11 +979,11 @@ def test_connected_support_answers_match_exhaustive_minima(pytestconfig: pytest.
     Graph states with phases are not CSS, and are weighed by physical weight.  CSS states with
     no pure-X stabilizer, with only pure-X stabilizers, and with both are weighed by both measures,
     and the CSS weight splits their searches.  A syndrome whose lightest errors weigh at most one
-    gets their weight as its bound.  Otherwise a query within ``max_weight`` gets 2, and one with
-    no error within ``max_weight`` gets ``max(2, max_weight + 1)``.  The queries of batches, which
-    try increasing weight limits, instead get the exact minimum and a lightest error when they are
-    within ``max_weight``.  These exact bounds imply the inequalities that
-    ``_assert_exact_answers`` checks.
+    gets their weight as its bound.  Otherwise a query within ``max_weight`` gets 2, and one with no
+    error within ``max_weight`` gets ``max(2, max_weight + 1)``.  The queries of batches, which try
+    increasing weight limits, instead get the exact minimum and a lightest error when they are
+    within ``max_weight``.  These exact bounds imply the inequalities that ``_assert_exact_answers``
+    checks.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 6):
@@ -1000,14 +1000,14 @@ def test_connected_support_answers_match_exhaustive_minima(pytestconfig: pytest.
                 minimum = int(minima[syndrome])
                 single = oracle.get_min_weight_bound(syndrome, max_weight)
                 batched = oracle._get_batch_support_bound(syndrome, max_weight)
-                for bound, lightest in [(single, False), (batched, True)]:
+                for bound, exact in [(single, False), (batched, True)]:
                     weight = _pauli_weight(bound.representative, num_qubits, css_weight)
                     assert _get_syndrome(matrix, bound.representative) == syndrome
                     assert bound.within_max_weight == (minimum <= max_weight)
                     if not bound.within_max_weight:
-                        missing_weight = minimum if minimum < 2 else max(2, max_weight + 1)
-                        assert bound.lower_bound == missing_weight
-                    elif lightest or minimum < 2:
+                        expected_bound = minimum if minimum < 2 else max(2, max_weight + 1)
+                        assert bound.lower_bound == expected_bound
+                    elif exact or minimum < 2:
                         assert bound.lower_bound == weight == minimum
                     else:
                         assert bound.lower_bound == 2 and weight <= max_weight

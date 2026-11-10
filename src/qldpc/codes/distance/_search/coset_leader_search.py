@@ -110,14 +110,14 @@ class CosetLeaderSearch:
     Given stabilizers, such as row-reduced ones, can be dense, so it first makes its checks sparser
     by adding them to each other, which can fall short of the sparsest generators.  It uses no
     tuning field.  The CSS weight is not a sum over qubits, so it weighs errors by CSS weight only
-    on CSS states, whose X and Z parts it searches separately.  Like the BZ searches, it first
-    looks up errors of weight at most one, so a syndrome with such an error gets the weight of its
+    on CSS states, whose X and Z parts it searches separately.  Like the BZ searches, it first looks
+    up errors of weight at most one, so a syndrome with such an error gets the weight of its
     lightest errors as a lower bound.  For any other syndrome, a query with an error within
-    ``max_weight`` gives two, and a query with none gives the larger of two and
-    ``max_weight + 1``.  ``find_first_not_within_max_weight`` searches each syndrome with
-    increasing weight limits, which find light errors sooner than one search at ``max_weight``.
-    The BZ searches often give higher bounds, which spare queries to consumers that raise a
-    threshold to each bound.
+    ``max_weight`` gives two, and a query with none gives the larger of two and ``max_weight + 1``.
+    ``find_first_not_within_max_weight`` searches each syndrome that the table lacks with increasing
+    weight limits, which can find light errors sooner than one search at ``max_weight``.  The BZ
+    searches often give higher bounds, which spare queries to consumers that raise a threshold to
+    each bound.
 
     Args:
         stabilizers: A binary ``n x 2n`` matrix in ``[X|Z]`` order whose rows are independent
@@ -283,8 +283,9 @@ class CosetLeaderSearch:
             the bound is the one that the batch search found, so the syndrome is not searched
             again.  With two BZ searches, it is the one that ``get_min_weight_bound`` gives.  With
             the connected-support method, it has the lower bound that ``get_min_weight_bound``
-            gives, but its representative can differ, since the batch searches with increasing
-            weight limits (see ``_get_batch_support_bound``).
+            gives.  If the X and Z parts are searched separately, the representative of a part
+            within ``max_weight`` can differ, since the batch searches with increasing weight
+            limits (see ``_get_batch_support_bound``).
         """
         # The connected-support searches answer one syndrome at a time.
         if self._support_searches:
@@ -559,11 +560,11 @@ class _ConnectedSupportCosetSearch:
     starts from the syndrome of a query, and grows supports through its unsatisfied checks (Section
     3.8 of ``connected_support.md``).
 
-    Like a ``_CosetSearch``, it first looks up a word of weight zero or one, a single variable or a
-    single-qubit Pauli, by its syndrome, and searches only cosets with no such word.  So a coset
-    with such a word gets its weight as a lower bound.  Any other coset gets two if it has a word
-    within ``max_weight``.  With increasing weight limits (see ``get_min_weight_bound``), it
-    instead gets the weight of its lightest words.  Without a word within ``max_weight``, it gets
+    Like a ``_CosetSearch``, it first looks up a word of weight zero or one by its syndrome: a
+    single variable, or a single-qubit Pauli.  It searches only cosets with no such word, so a coset
+    with such a word gets the weight of that word as a lower bound.  Any other coset gets two if it
+    has a word within ``max_weight``.  With increasing weight limits (see ``get_min_weight_bound``),
+    it instead gets the weight of its lightest words.  Without a word within ``max_weight``, it gets
     the larger of two and ``max_weight + 1``.  These bounds are often weaker than those of a
     ``_CosetSearch``.
 
@@ -580,21 +581,21 @@ class _ConnectedSupportCosetSearch:
 
     def __init__(self, matrix: npt.NDArray[np.uint8], *, homogeneous: bool) -> None:
         # Map each syndrome of a word of weight zero or one to such a word.  The syndrome of a word
-        # with one nonzero bit, an X or a Z on one qubit or one bit of a part, is a column of the
-        # checks, once the halves of symplectic checks are swapped, and that of the Pauli Y on a
-        # qubit is the sum of those of X and Z there.
+        # with one nonzero bit, which is an X or a Z on one qubit or one bit of a part, is a column
+        # of the checks, once the halves of symplectic checks are swapped.  The syndrome of the
+        # Pauli Y on a qubit is the sum of those of X and Z there.
         num_variables = matrix.shape[1] if homogeneous else matrix.shape[1] // 2
         syndrome_matrix = matrix if homogeneous else np.roll(matrix, num_variables, axis=1)
         columns = _row_ints(np.ascontiguousarray(syndrome_matrix.T))
         self._singles = {0: 0}
         for variable in range(num_variables):
-            x_syndrome, x_word = columns[variable], 1 << variable
-            self._singles.setdefault(x_syndrome, x_word)
+            low_syndrome, low_word = columns[variable], 1 << variable
+            self._singles.setdefault(low_syndrome, low_word)
             if not homogeneous:
                 z_syndrome = columns[num_variables + variable]
                 z_word = 1 << (num_variables + variable)
                 self._singles.setdefault(z_syndrome, z_word)
-                self._singles.setdefault(x_syndrome ^ z_syndrome, x_word | z_word)
+                self._singles.setdefault(low_syndrome ^ z_syndrome, low_word | z_word)
 
         rows, transform = _sparsify(matrix, homogeneous=homogeneous)
         self._num_checks = len(rows)
@@ -624,9 +625,10 @@ class _ConnectedSupportCosetSearch:
         A search with weight limit ``max_weight`` can visit many heavy supports before it finds a
         word that is much lighter.  With ``increasing_limits``, the search instead tries every limit
         from two to ``max_weight``, and stops at the first limit within which it finds a word, so it
-        finds a lightest word.  This saves time on cosets with light words, and repeats the work of
-        the lower limits on cosets without a word within ``max_weight``.  Callers that already raise
-        the limit of their queries one at a time should not ask for it.
+        finds a lightest word.  This can save time on cosets with words much lighter than
+        ``max_weight``, and repeats the work of the lower limits on cosets without a word within
+        ``max_weight``.  Callers that already raise the limit of their queries one at a time should
+        not set ``increasing_limits``.
         """
         # Look up a word of weight zero or one.
         word = self._singles.get(syndrome)
