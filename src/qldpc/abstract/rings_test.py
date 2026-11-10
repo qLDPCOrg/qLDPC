@@ -555,6 +555,27 @@ def test_reading_coefficients() -> None:
         with pytest.raises(ValueError, match="must be integers"):
             abstract.RingMember.from_vector(bad_vector, ring)
 
+    # the coefficients of terms are read in the same way
+    (group_member,) = ring.group.generators
+    assert abstract.RingMember(ring, (2.0, group_member)) == x * ring.field(2)
+    assert abstract.RingMember(ring, (galois.GF(2)(1), group_member)) == x
+    with pytest.raises(ValueError, match="cannot be read in"):
+        abstract.RingMember(ring, (galois.GF(16)(2), group_member))
+    with pytest.raises(ValueError, match="must be integers"):
+        abstract.RingMember(ring, (0.5, group_member))
+    with pytest.raises(ValueError, match="must be integers"):
+        abstract.RingMember(ring, ("x", group_member))  # type:ignore[arg-type]
+    with pytest.raises(ValueError, match="must be integers"):
+        abstract.RingArray.build([["x"]], ring)
+    for array in [[1, 1], [1], ring.field([1])]:
+        with pytest.raises(ValueError, match="must be a scalar"):
+            abstract.RingMember(ring, (array, group_member))  # type:ignore[arg-type]
+
+    # integer coefficients must lie in [0, q), even -1, which is an additive inverse as an operand
+    for integer in [4, -1]:
+        with pytest.raises(ValueError, match=r"must be in \[0, 4\)"):
+            abstract.RingMember(ring, (integer, group_member))
+
     # an error names the irreducible polynomial of an extension field
     ring_9 = abstract.GroupRing(abstract.CyclicGroup(2), field=9)
     field_9 = galois.GF(9, irreducible_poly="x^2 + 1")
@@ -670,6 +691,23 @@ def test_group_member_arithmetic() -> None:
     assert group_member * member == as_ring_member * member
     assert member * group_member == member * as_ring_member
     assert member + group_member == group_member + member == member + as_ring_member
+
+
+def test_lifts_over_other_fields() -> None:
+    """Lifts over a finite field are read as field elements, as coefficients are."""
+    group = abstract.QuaternionGroup()
+    (generator, _) = group.generators
+    lift = group.lift(generator)
+    assert type(lift) is galois.GF(3)
+    for field in [3, 9]:
+        ring = abstract.GroupRing(group, field=field)
+        ring_lift = ring.lift(generator)
+        assert type(ring_lift) is ring.field and np.array_equal(ring_lift, lift)
+    for field in [2, 5]:
+        with pytest.raises(
+            ValueError, match="Entries of group lifts in GF\\(3\\) cannot be read in"
+        ):
+            abstract.GroupRing(group, field=field).lift(generator)
 
 
 def test_regular_lift_returns_independent_arrays() -> None:

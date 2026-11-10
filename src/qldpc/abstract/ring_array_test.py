@@ -166,9 +166,11 @@ def test_from_field_array() -> None:
     with pytest.raises(ValueError, match="cannot be read in"):
         abstract.RingArray.from_field_array(galois.GF(4)([2] * ring.dim), ring)
 
-    # a coefficient vector has a multiple of ring.dim entries
+    # a coefficient vector is 1-D, with a multiple of ring.dim entries
     with pytest.raises(ValueError, match="must be a multiple of"):
         abstract.RingArray.from_field_vector(np.zeros(ring.dim + 1, dtype=int), ring)
+    with pytest.raises(ValueError, match="must be 1-D"):
+        abstract.RingArray.from_field_vector(np.zeros((2, ring.dim), dtype=int), ring)
 
 
 def test_build_edge_cases() -> None:

@@ -156,7 +156,7 @@ class MatrixRing(Ring):
     @property
     def one(self) -> RingMember:
         """One (multiplicative identity) element."""
-        return RingMember(self, (1, 0))
+        return RingMember._from_trusted_terms(self, [(1, 0)])
 
     @property
     def generators(self) -> list[RingMember]:

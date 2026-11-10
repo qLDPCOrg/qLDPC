@@ -257,11 +257,13 @@ class Ring(abc.ABC):
             raise ValueError(f"Integer coefficients must be in [0, {self.field.order})")
         return integers
 
-    def _read_field_elements(self, values: galois.FieldArray) -> galois.FieldArray:
+    def _read_field_elements(
+        self, values: galois.FieldArray, description: str = "Coefficients"
+    ) -> galois.FieldArray:
         """Read an array over a finite field as an array over the base field of this ring.
 
         Raise a ValueError unless the integer representations of the values denote the same elements
-        in the base field of this ring.
+        in the base field of this ring.  The error message calls the values ``description``.
         """
         field = type(values)
         integers = values.view(np.ndarray)
@@ -272,7 +274,7 @@ class Ring(abc.ABC):
         )
         if not same_encoding:
             raise ValueError(
-                f"Coefficients in {_describe_field(field)} cannot be read in"
+                f"{description} in {_describe_field(field)} cannot be read in"
                 f" {_describe_field(self.field)}"
             )
         return values if field is self.field else self.field(integers)
@@ -439,7 +441,9 @@ class GroupRing(Ring):
 
             ``self.lift(g·h) = self.lift(h) @ self.lift(g)``.
 
-        For a noncommutative group with a custom lift, ``right=True`` raises a ValueError.
+        Raise a ValueError if ``right=True`` for a noncommutative group with a custom lift, or if
+        the group lifts its members to matrices over a finite field whose elements cannot be read in
+        the base field of this ring (see ``RingMember.from_vector``).
         """
         return self._lift_in_field(self.group.lift(member, right=right))
 
@@ -559,8 +563,14 @@ class GroupRing(Ring):
         group_member = self.group.eval(word, symbols)
         return RingMember(self, (coeff, group_member))
 
-    def _lift_in_field(self, matrix: npt.NDArray[np.int_]) -> galois.FieldArray:
-        """View an integer matrix as a matrix over the field of this ring, converting if needed."""
+    def _lift_in_field(self, matrix: npt.NDArray[np.int_] | galois.FieldArray) -> galois.FieldArray:
+        """Read a matrix of a group lift as a matrix over the field of this ring.
+
+        Read a matrix over a finite field as ``_read_field_elements`` does, and an integer matrix as
+        integer representations of field elements.
+        """
+        if isinstance(matrix, galois.FieldArray):
+            return self._read_field_elements(matrix, "Entries of group lifts")
         return matrix.view(self.field) if matrix.dtype in self.field.dtypes else self.field(matrix)
 
     @functools.cached_property
@@ -832,8 +842,9 @@ class RingMember:
     group ``G``, so each of its elements is a sum of group members, ``x = sum_{g in G} x_g g``.
 
     Terms are specified as ``(coefficient, label)`` pairs, where the ring defines the labels of its
-    basis elements.  A group member as a term has coefficient one, and is read on as many points as
-    the group of the ring acts on (see ``Group``).
+    basis elements.  Their coefficients are read as in ``RingMember.from_vector``.  A group member
+    as a term has coefficient one, and is read on as many points as the group of the ring acts on
+    (see ``Group``).
 
     A RingMember combines on either side with integers and members of an equal ring, and with field
     scalars on its right.  A member of a group algebra also combines on either side with members of
@@ -855,13 +866,16 @@ class RingMember:
     def __init__(
         self,
         ring: Ring | Group,
-        *terms: GroupMember | tuple[int | galois.FieldArray, Any],
+        *terms: GroupMember | tuple[int | float | np.integer | np.bool_ | galois.FieldArray, Any],
     ) -> None:
         self._ring = ring if isinstance(ring, Ring) else GroupRing(ring)
         self._vec = collections.defaultdict(lambda: self.field(0))
         for term in terms:
             value, label = (1, term) if isinstance(term, GroupMember) else term
-            self._vec[self.ring._as_label(label)] += self.field(value)
+            coefficient = self.ring._read_coefficients(value)
+            if coefficient.ndim:
+                raise ValueError(f"The coefficient of a term must be a scalar, not {value!r}")
+            self._vec[self.ring._as_label(label)] += coefficient
 
     def __str__(self) -> str:
         """Write a member of a group algebra as a polynomial in the generators of its group.
@@ -993,8 +1007,8 @@ class RingMember:
 
             ``(a * b).lift(right=True) = b.lift(right=True) @ a.lift(right=True)``.
 
-        For the algebra of a noncommutative group with a custom lift, ``right=True`` raises a
-        ValueError (see ``GroupRing.lift``).
+        For a group algebra, this method raises a ValueError in the cases that ``GroupRing.lift``
+        describes.
         """
         return sum(
             (val * self.ring.lift(label, right=right) for val, label in self if val),

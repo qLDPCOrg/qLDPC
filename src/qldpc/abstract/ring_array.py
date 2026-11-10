@@ -352,7 +352,8 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         """Construct a 1-D RingArray from a vector of coefficients.
 
         This method is the inverse of ``RingArray.to_field_vector``.  The coefficients are read as
-        in ``RingMember.from_vector``.
+        in ``RingMember.from_vector``.  Raise a ValueError unless the vector is 1-D and its length
+        is a multiple of the dimension of the ring.
         """
         if isinstance(vector, (Ring, Group)):  # DEPRECATED: see qldpc._deprecations
             _deprecations.warn_deprecated(
@@ -364,6 +365,11 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             vector, ring = ring, vector
         ring = ring if isinstance(ring, Ring) else GroupRing(ring)
         vector = ring._read_coefficients(vector)
+        if vector.ndim != 1:
+            raise ValueError(
+                "A RingArray coefficient vector must be 1-D, but the vector has shape"
+                f" {vector.shape}"
+            )
         if vector.size % ring.dim:
             raise ValueError(
                 f"The length of a RingArray coefficient vector must be a multiple of {ring.dim}"
