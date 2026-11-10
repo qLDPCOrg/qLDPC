@@ -207,18 +207,12 @@ class Ring(abc.ABC):
     def _eval_int(self, value: int) -> galois.FieldArray:
         """Evaluate an integer as an element of the base field of this ring.
 
-        Over an extension field the integer is interpreted via galois' integer encoding of field
-        elements (e.g. over ``GF(4)`` the integer ``2`` is the element with integer representation
-        2, the primitive element -- not ``2 * one``, which is ``0`` in characteristic 2).  Integers
-        outside ``[0, field.order)`` are accepted only when unambiguous: over a prime field they
-        reduce modulo the order, and over an extension field a negative integer in
-        ``(-field.order, 0)`` is read as the additive inverse of its magnitude; any other
-        out-of-range integer raises a ValueError.
+        Integers are read as described in ``help(RingMember)``.
         """
         if not 0 <= value < self.field.order:
             if self.field.degree == 1:
                 # there is no ambiguity over prime number fields
-                return self.field(int(value) % self.field.order)
+                return self.field(value % self.field.order)
             elif -self.field.order < value < 0:
                 # negation corresponds to an additive inverse
                 return -self.field(-value)
@@ -227,6 +221,100 @@ class Ring(abc.ABC):
                     f"The value of the integer {value} is ambiguous over GF({self.field.order})"
                 )
         return self.field(value)
+
+    def _read_coefficients(self, values: npt.ArrayLike) -> galois.FieldArray:
+        """Read an array of coefficients as an array over the base field of this ring.
+
+        The coefficients are read as described in ``RingMember.from_vector``, also when field
+        elements are given in a nested sequence, as in a list of field arrays.  Raise a ValueError
+        for other coefficients.
+        """
+        if isinstance(values, galois.FieldArray):
+            return self._read_field_elements(values)
+
+        # integer arrays are read directly
+        if isinstance(values, np.ndarray) and values.dtype.kind in "iu":
+            return self.field(self._check_integers(values))
+
+        # read other values one by one, keeping the field of each field element, and reading the
+        # rest as Python integers, which large fields can need
+        def read(value: object) -> int:
+            if isinstance(value, galois.FieldArray):
+                return int(self._read_field_elements(value))
+            try:
+                return _read_integer(value)
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    f"Coefficients must be integers or field elements, not {value!r}"
+                ) from error
+
+        integers = np.vectorize(read, otypes=[object])(_as_object_array(values))
+        return self.field(self._check_integers(integers))
+
+    def _check_integers(self, integers: npt.NDArray[Any]) -> npt.NDArray[Any]:
+        """Raise a ValueError unless integers are the integer representations of field elements."""
+        if integers.size and not bool(np.all((integers >= 0) & (integers < self.field.order))):
+            raise ValueError(f"Integer coefficients must be in [0, {self.field.order})")
+        return integers
+
+    def _read_field_elements(self, values: galois.FieldArray) -> galois.FieldArray:
+        """Read an array over a finite field as an array over the base field of this ring.
+
+        Raise a ValueError unless the integer representations of the values denote the same elements
+        in the base field of this ring.
+        """
+        field = type(values)
+        integers = values.view(np.ndarray)
+        same_encoding = field.characteristic == self.field.characteristic and (
+            field.degree == 1
+            or field.irreducible_poly == self.field.irreducible_poly
+            or bool(np.all(integers < field.characteristic))
+        )
+        if not same_encoding:
+            raise ValueError(
+                f"Coefficients in {_describe_field(field)} cannot be read in"
+                f" {_describe_field(self.field)}"
+            )
+        return values if field is self.field else self.field(integers)
+
+
+def _read_integer(value: Any) -> int:
+    """Read a number that has an integer value, such as a boolean or a float, as an integer.
+
+    Raise a ValueError for a float without an integer value, and a TypeError for other values that
+    are not integers.
+    """
+    if isinstance(value, (float, np.floating)):
+        if not float(value).is_integer():
+            raise ValueError(f"{value} is not an integer")
+        return int(value)
+    if isinstance(value, np.bool_):
+        return int(value)
+    return operator.index(value)
+
+
+def _as_object_array(values: object) -> npt.NDArray[np.object_]:
+    """An array of the values in a nested sequence, which keeps field elements as field elements.
+
+    Numpy reads field arrays in a sequence as integers, which loses their fields.
+    """
+    if isinstance(values, galois.FieldArray):
+        array = np.empty(values.shape, dtype=object)
+        for index in np.ndindex(values.shape):
+            array[index] = values[index]
+        return array
+    if isinstance(values, (list, tuple)):
+        if not values:
+            return np.empty(0, dtype=object)
+        return np.stack([_as_object_array(value) for value in values])
+    return np.asarray(values, dtype=object)
+
+
+def _describe_field(field: type[galois.FieldArray]) -> str:
+    """Name a field class, with its irreducible polynomial if it is an extension field."""
+    if field.degree == 1:
+        return f"GF({field.order})"
+    return f"GF({field.order}) with irreducible polynomial {field.irreducible_poly}"
 
 
 ####################################################################################################
@@ -316,13 +404,21 @@ class GroupRing(Ring):
 
     @functools.cached_property
     def group_trace_matrix(self) -> galois.FieldArray:
-        """Construct the matrix for a trace over the group: ``r -> sum_{g in G} g r g^{-1}``."""
-        adjoints = [self.group.adjoint_lift(gg).view(self.field) for gg in self.group.generate()]
-        return functools.reduce(operator.add, adjoints).view(self.field)
+        """Construct the matrix for a trace over the group: ``r -> sum_{g in G} g r g^{-1}``.
+
+        The matrix is read-only.
+        """
+        adjoints = [
+            self._lift_in_field(self.group.adjoint_lift(gg)) for gg in self.group.generate()
+        ]
+        # copy, since for a group of order 1 the sum is the cached adjoint lift of the identity
+        matrix = functools.reduce(operator.add, adjoints).copy()
+        matrix.flags.writeable = False
+        return matrix
 
     @property
     def generators(self) -> list[RingMember]:
-        """Generators of this ring's base group."""
+        """The generators of this ring's base group, as ring members."""
         return [RingMember._from_trusted_terms(self, [(1, gen)]) for gen in self.group.generators]
 
     def regular_lift(self, member: GroupMember, *, right: bool = False) -> galois.FieldArray:
@@ -330,7 +426,7 @@ class GroupRing(Ring):
 
         See ``help(qldpc.abstract.Group.regular_lift)`` for more information.
         """
-        return self.group.regular_lift(member, right=right).view(self.field)
+        return self._lift_in_field(self.group.regular_lift(member, right=right))
 
     def lift(self, member: GroupMember, *, right: bool = False) -> galois.FieldArray:
         """Lift a group member to a representation by a matrix.
@@ -345,7 +441,7 @@ class GroupRing(Ring):
 
         For a noncommutative group with a custom lift, ``right=True`` raises a ValueError.
         """
-        return self.group.lift(member, right=right).view(self.field)
+        return self._lift_in_field(self.group.lift(member, right=right))
 
     @property
     def one(self) -> RingMember:
@@ -367,7 +463,7 @@ class GroupRing(Ring):
 
         - square to themselves (they are idempotent),
         - commute with all other elements of the ring (they lie in the ring's center), and
-        - cannot be decomposed into a sum of two nonzero orthogonal idempotents.
+        - are not sums of two nonzero orthogonal central idempotents.
 
         Two idempotents g, h are orthogonal if ``g * h = h * g = 0``.
 
@@ -378,11 +474,11 @@ class GroupRing(Ring):
         <https://en.wikipedia.org/wiki/Idempotent_%28ring_theory%29>`_.
 
         This method looks up the idempotents in a table of precomputed ones, or else computes them.
-        The cost of this computation grows with the orders of the group and the field, and most
-        steeply with the number of simple components.  The idempotents are sorted by their vectors
-        of coefficients (see ``RingMember.to_vector``).
+        The cost of this computation grows with the order of the group, and most steeply with the
+        number of simple components.  It also grows linearly with the order of the field.  The
+        idempotents are sorted by their vectors of coefficients (see ``RingMember.to_vector``).
 
-        Raises a ValueError if this ring is not semisimple.
+        Raise a ValueError if this ring is not semisimple.
         """
         if not self.is_semisimple:
             raise ValueError("Only semisimple rings have primitive central idempotents")
@@ -390,14 +486,13 @@ class GroupRing(Ring):
             from qldpc.external import _groups  # avoid circular import
 
             # Look up the idempotents, or else compute them.  The table stores coefficients as
-            # integers in the default representation of the field, so only fields with the default
-            # irreducible polynomial can use it.
+            # integers in the default representation of the field, so only prime fields and fields
+            # with the default irreducible polynomial can use it.
             key = (self.group.to_gap_group(), self.field.order)
             known_idempotents = _groups.KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS.get(key)
-            default_field = galois.GF(self.field.order)
-            if (
-                known_idempotents is None
-                or self.field.irreducible_poly != default_field.irreducible_poly
+            if known_idempotents is None or not (
+                self.field.degree == 1
+                or self.field.irreducible_poly == galois.GF(self.field.order).irreducible_poly
             ):
                 idempotents = _get_primitive_central_idempotents(self)
             else:
@@ -421,6 +516,10 @@ class GroupRing(Ring):
         # sum the ring members obtained by evaluating each monomial term of the polynomial
         terms = (self._eval_monomial(term, symbols) for term in iter_monomial_terms(expression))
         return functools.reduce(operator.add, terms, self.zero)
+
+    def _lift_in_field(self, matrix: npt.NDArray[np.int_]) -> galois.FieldArray:
+        """View an integer matrix as a matrix over the field of this ring, converting if needed."""
+        return matrix.view(self.field) if matrix.dtype in self.field.dtypes else self.field(matrix)
 
     def _eval_monomial(
         self, monomial: sympy.Expr, symbols: dict[sympy.Symbol, GroupMember]
@@ -569,10 +668,9 @@ def _get_primitive_central_idempotents(ring: GroupRing) -> tuple[RingMember, ...
     """
     assert ring.is_semisimple
 
-    # This function computes with integer arrays of permutations, rather than with SymPy
-    # permutations, products of RingMembers, or tables with |G| × |G| entries, such as Group.table
-    # and adjoint lifts.  Its largest arrays have |G| × d entries, where d is the number of points
-    # that G acts on, and n × |G| entries.
+    # This function computes with integer arrays of permutations, so that its largest arrays have
+    # |G| × d and n × |G| entries, where d is the number of points that G acts on.  Group.table and
+    # adjoint lifts would need |G| × |G| entries.
 
     # index members of G by their permutations, in the order of the coefficients of ring members
     group, field = ring.group, ring.field
@@ -630,8 +728,9 @@ def _get_primitive_central_idempotents(ring: GroupRing) -> tuple[RingMember, ...
         for idempotent in idempotents:
             element = multiply(random_member, idempotent)
             minimal_poly, element_powers = _get_minimal_polynomial(element, idempotent, multiply)
-            # B is a product of copies of F_q, so m(x) has distinct roots in F_q.  A search over F_q
-            # finds them faster than factorization for the small fields that qLDPC typically uses.
+            # B is a product of copies of F_q, so m(x) has distinct roots in F_q.  galois'
+            # Poly.roots searches over F_q, which is faster than factorization for the small fields
+            # that qLDPC typically uses.
             roots = minimal_poly.roots()
             assert len(roots) == minimal_poly.degree
             derivative = minimal_poly.derivative()
@@ -641,7 +740,9 @@ def _get_primitive_central_idempotents(ring: GroupRing) -> tuple[RingMember, ...
         idempotents = new_idempotents
 
     # expand idempotents into coefficients on members of G
-    return tuple(RingMember.from_vector(idempotent[class_of], ring) for idempotent in idempotents)
+    return tuple(
+        RingMember._from_trusted_vector(ring, idempotent[class_of]) for idempotent in idempotents
+    )
 
 
 def _get_minimal_polynomial(
@@ -651,22 +752,42 @@ def _get_minimal_polynomial(
 ) -> tuple[galois.Poly, galois.FieldArray]:
     """Find the minimal polynomial of an element of an algebra with a given identity and product.
 
-    The zeroth power of the element is the identity.  Returns the minimal polynomial, and a matrix
-    whose rows are the powers of the element below the degree of that polynomial.
+    The zeroth power of the element is the identity.
 
     WedderburnArtinComponentTransformer._get_minimal_polynomial does the same with regular lifts,
-    whose size is the order of the group.  This function instead works with vectors of length n in
-    the subalgebra B of _get_primitive_central_idempotents, which is much smaller.
+    whose size is the order of the group.  This function instead works with vectors of length n, the
+    dimension of the subalgebra B of _get_primitive_central_idempotents, which is usually much
+    smaller than the order of the group.
+
+    Returns:
+        - The minimal polynomial.
+        - A matrix whose rows are the powers of the element below the degree of that polynomial.
     """
     field = type(element)
     powers = [identity]
+
+    # Reduce each power against the earlier ones.  Keep each reduced power with its pivot, which is
+    # its first nonzero entry, and with the combination of powers that it equals.  Divide the
+    # reduced power and its combination by the pivot entry, so that the pivot entry becomes 1.  A
+    # power that reduces to zero gives the minimal polynomial.
+    reduced: list[tuple[int, galois.FieldArray, galois.FieldArray]] = []
+    power = identity
     while True:
-        next_power = multiply(element, powers[-1])
-        null_space = field(np.array([*powers, next_power])).T.null_space()
-        if len(null_space):
-            relation = null_space[0] / null_space[0][-1]
-            return galois.Poly(relation[::-1]), field(np.array(powers))
-        powers.append(next_power)
+        degree = len(reduced)
+        vector = power
+        combination = field.Zeros(degree + 1)
+        combination[degree] = 1
+        for pivot, row, row_combination in reduced:
+            if vector[pivot]:
+                factor = vector[pivot]
+                vector = vector - factor * row
+                combination[: len(row_combination)] -= factor * row_combination
+        if not np.any(vector):
+            return galois.Poly(combination[::-1]), field(np.array(powers[:degree]))
+        pivot = int(np.flatnonzero(vector)[0])
+        reduced.append((pivot, vector / vector[pivot], combination / vector[pivot]))
+        power = multiply(element, power)
+        powers.append(power)
 
 
 ####################################################################################################
@@ -690,6 +811,12 @@ class RingMember:
     does combining a member of a group algebra with a group member outside its group, or
     constructing a RingMember from a label that does not denote a basis element of its ring.
     Combining a member of any other ring with a group member raises a TypeError.
+
+    An integer operand in ``[0, q)`` is the field element with that integer representation in
+    galois.  Over ``GF(4)``, for example, the integer ``2`` is a primitive element, whereas
+    ``GF(4)(1) + GF(4)(1)`` is ``0``.  Over a prime field, other integers reduce modulo q.  Over an
+    extension field, an integer in ``(-q, 0)`` is the additive inverse of its magnitude, and any
+    other integer raises a ValueError.
     """
 
     _ring: Ring
@@ -718,8 +845,10 @@ class RingMember:
         return (
             isinstance(other, RingMember)
             and self._ring == other._ring
-            and all(self._vec.get(label, 0) == other._vec.get(label, 0) for label in self._vec)
-            and all(self._vec.get(label, 0) == other._vec.get(label, 0) for label in other._vec)
+            and all(
+                self._vec.get(label, 0) == other._vec.get(label, 0)
+                for label in self._vec.keys() | other._vec.keys()
+            )
         )
 
     def __bool__(self) -> bool:
@@ -788,8 +917,8 @@ class RingMember:
     def __neg__(self) -> RingMember:
         return self * (-1)
 
-    def __pow__(self, power: int) -> RingMember:
-        if not isinstance(power, (int, np.int_)) or power < 0:
+    def __pow__(self, power: int | np.integer) -> RingMember:
+        if not isinstance(power, (int, np.integer)) or power < 0:
             raise ValueError(
                 "A RingMember can only be raised to an integer power >= 0."
                 "\nTry ring_member.inverse() ** abs(power)"
@@ -850,7 +979,7 @@ class RingMember:
 
             r.regular_lift() @ s.to_vector() = (r * s).to_vector().
 
-        If ``right is True``, this method lifts a ring member to its regular representation in the
+        If ``right=True``, this method lifts a ring member to its regular representation in the
         opposite ring, such that matrix multiplication corresponds to ring multiplication from the
         right::
 
@@ -858,11 +987,9 @@ class RingMember:
 
         See `Opposite ring <https://en.wikipedia.org/wiki/Opposite_ring>`_.
         """
-        terms = (val * self.ring.regular_lift(label, right=right) for val, label in self if val)
-        return (
-            functools.reduce(operator.add, terms)
-            if bool(self)
-            else self.field.Zeros([self.ring.dim] * 2)
+        return sum(
+            (val * self.ring.regular_lift(label, right=right) for val, label in self if val),
+            start=self.field.Zeros([self.ring.dim] * 2),
         )
 
     @property
@@ -879,7 +1006,7 @@ class RingMember:
         return self.ring._apply_involution(self)
 
     def inverse(self) -> RingMember | None:
-        """The inverse of this RingMember, if it exists."""
+        """The inverse of this RingMember if it exists, and None otherwise."""
         self_vec = {label: coefficient for label, coefficient in self._vec.items() if coefficient}
         if not self_vec:
             return None
@@ -895,20 +1022,31 @@ class RingMember:
             matrix_inv = np.linalg.inv(matrix).view(self.field)
             # ``regular_lift`` M satisfies M @ s.to_vector() == (self * s).to_vector(), so the
             # inverse element solves M @ x == one.to_vector(), i.e. x = M^{-1} @ one.to_vector().
-            return RingMember.from_vector(matrix_inv @ self.ring.one.to_vector(), self.ring)
+            return RingMember._from_trusted_vector(
+                self.ring, matrix_inv @ self.ring.one.to_vector()
+            )
         except np.linalg.LinAlgError:
             return None
 
     @classmethod
-    def from_vector(cls, vector: npt.NDArray[np.int_], ring: Ring | Group) -> RingMember:
+    def from_vector(cls, vector: npt.ArrayLike, ring: Ring | Group) -> RingMember:
         """Construct a ring member from its vector of coefficients, ``(x_b : b in basis)``.
 
         In a group algebra, the coefficients are indexed by group members, ``(x_g : g in G)``.
+
+        The coefficients may be integers in ``[0, q)``, including booleans and integer-valued
+        floats.  Unlike integer operands of ring arithmetic, they are the integer representations of
+        field elements, so other integers raise a ValueError.  Field elements may also be
+        coefficients if their integer representations denote the same elements of the base field.
+        These are the elements of any field class with the same irreducible polynomial as the base
+        field, and the elements of the prime field in any field of the same characteristic.  Other
+        coefficients raise a ValueError.
         """
         if isinstance(vector, (Ring, Group)):  # DEPRECATED: see qldpc._deprecations
             _deprecations.warn_deprecated(
                 "Check argument order: it should be RingMember.from_vector(vector, ring)."
-                "  The order (ring, vector) is DEPRECATED and will throw an error in the future!",
+                "  The order (ring, vector) is DEPRECATED and will raise an error in a future"
+                " release!",
                 stacklevel=2,
             )
             vector, ring = ring, vector
@@ -918,8 +1056,7 @@ class RingMember:
                 f"A member of a ring of dimension {ring.dim} has {ring.dim} coefficients, but the"
                 f" vector has shape {np.shape(vector)}"
             )
-        terms = [(int(x_b), label) for x_b, label in zip(vector, ring._labels) if x_b]
-        return RingMember._from_trusted_terms(ring, terms)
+        return RingMember._from_trusted_vector(ring, ring._read_coefficients(vector))
 
     def to_vector(self) -> galois.FieldArray:
         """Convert this ring member into its vector of coefficients, ``(x_b : b in basis)``.
@@ -942,6 +1079,18 @@ class RingMember:
         for val, label in self:
             new_element._vec[group_member * label if on_left else label * group_member] = val
         return new_element
+
+    @classmethod
+    def _from_trusted_vector(cls, ring: Ring, vector: galois.FieldArray) -> RingMember:
+        """Construct a ring member from a coefficient vector over the field of its ring.
+
+        The caller must check that the vector has length ``ring.dim``.
+        """
+        ring_member = cls(ring)
+        labels = ring._labels
+        for index in np.flatnonzero(vector):
+            ring_member._vec[labels[index]] = vector[index]
+        return ring_member
 
     @classmethod
     def _from_trusted_terms(

@@ -358,10 +358,10 @@ class SLPCode(CSSCode):
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
         """Canonical logical line operators for a subsystem lifted product code.
 
-        These operators are built by the routes of ``LPCode.get_canonical_logical_line_ops``,
-        which describes the matrices that each route needs, and the errors of each route.  The
-        operators of the split route are those of ``LPCode(matrix_a, matrix_b)``, restricted to its
-        first block of qudits.
+        These operators are built by the routes of ``LPCode.get_canonical_logical_line_ops``, which
+        describes the matrices that each route needs, and the errors of each route.  The operators
+        of the split route are those of ``LPCode(matrix_a, matrix_b)``, restricted to its first
+        block of qudits.
         """
         # the split route declines semisimple group algebras, so the semisimple route takes
         # precedence

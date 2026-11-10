@@ -19,7 +19,7 @@ def assert_coefficient_matmul(
     matrix_a: abstract.RingArray | npt.NDArray[np.int_],
     matrix_b: abstract.RingArray | npt.NDArray[np.int_],
 ) -> None:
-    """Assert that the coefficient-array kernel computes a product with RingMember arithmetic."""
+    """Assert that the coefficient-array product agrees with RingMember arithmetic."""
     ring = next(mm.ring for mm in (matrix_a, matrix_b) if isinstance(mm, abstract.RingArray))
     product = _coefficients.coefficient_matmul(matrix_a, matrix_b, ring=ring)
     expected = np.matmul(np.asarray(matrix_a), np.asarray(matrix_b))  # RingMember arithmetic
@@ -37,7 +37,7 @@ def always_use_coefficients(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.mark.usefixtures("always_use_coefficients")
 def test_coefficient_matmul(ring: abstract.GroupRing) -> None:
-    """The coefficient-array kernel agrees with RingMember arithmetic."""
+    """The coefficient-array product agrees with RingMember arithmetic."""
     rng = np.random.default_rng(0)
 
     def random_matrix(*shape: int) -> abstract.RingArray:
@@ -53,7 +53,7 @@ def test_coefficient_matmul(ring: abstract.GroupRing) -> None:
     ]:
         assert_coefficient_matmul(random_matrix(*shape_a), random_matrix(*shape_b))
 
-    # the kernel loops over group members in whichever operand has fewer of them
+    # the coefficient product loops over group members in whichever operand has fewer of them
     dense = random_matrix(3, 3)
     monomial = abstract.RingArray.build(np.full((3, 3), ring.generators[0], dtype=object), ring)
     assert_coefficient_matmul(dense, monomial)
@@ -85,31 +85,31 @@ def test_coefficient_matmul_group_orderings() -> None:
 
 
 def test_coefficient_matmul_fallbacks(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The coefficient-array kernel declines products that it does not handle."""
+    """The coefficient-array product returns None for operands that it does not handle."""
     ring = abstract.GroupRing(abstract.CyclicGroup(7), field=4)
     matrix = abstract.RingArray.build(np.eye(4, dtype=int), ring)
-    kernel = functools.partial(_coefficients.coefficient_matmul, ring=ring)
+    product = functools.partial(_coefficients.coefficient_matmul, ring=ring)
 
     # operands without coefficients in the ring, or with shapes that numpy.matmul rejects
-    assert kernel(matrix, np.eye(4)) is None
-    assert kernel(matrix, galois.GF(2)(np.eye(4, dtype=int))) is None
-    assert kernel(matrix[0, 0, ...], matrix) is None
-    assert kernel(matrix, matrix[:3]) is None
-    assert kernel(np.stack([matrix] * 2), np.stack([matrix] * 3)) is None
+    assert product(matrix, np.eye(4)) is None
+    assert product(matrix, galois.GF(2)(np.eye(4, dtype=int))) is None
+    assert product(matrix[0, 0, ...], matrix) is None
+    assert product(matrix, matrix[:3]) is None
+    assert product(np.stack([matrix] * 2), np.stack([matrix] * 3)) is None
 
     # products that are too small, or too large
     work = 4 * 4 * 4 * ring.group.order  # rows * inner * columns * group order
     monkeypatch.setattr(_coefficients, "_MIN_MATMUL_COEFFICIENT_WORK", work + 1)
-    assert kernel(matrix, matrix) is None
+    assert product(matrix, matrix) is None
     monkeypatch.setattr(_coefficients, "_MIN_MATMUL_COEFFICIENT_WORK", work)
-    assert kernel(matrix, matrix) is not None
+    assert product(matrix, matrix) is not None
     monkeypatch.setattr(_coefficients, "_MAX_MATMUL_COEFFICIENT_BYTES", 0)
-    assert kernel(matrix, matrix) is None
+    assert product(matrix, matrix) is None
 
 
-def test_coefficient_matmul_falls_back_for_other_rings(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.usefixtures("always_use_coefficients")
+def test_coefficient_matmul_falls_back_for_other_rings() -> None:
     """Rings other than group algebras multiply matrices with RingMember arithmetic."""
-    monkeypatch.setattr(_coefficients, "_MIN_MATMUL_COEFFICIENT_WORK", 0)
     ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
     (swap,) = ring.generators
     matrix = abstract.RingArray.build([[1, swap], [swap, 0]], ring)

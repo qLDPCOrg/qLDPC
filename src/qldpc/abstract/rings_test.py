@@ -5,9 +5,11 @@
 from __future__ import annotations
 
 import operator
+from collections.abc import Sequence
 
 import galois
 import numpy as np
+import numpy.typing as npt
 import pytest
 import sympy
 import sympy.combinatorics
@@ -18,7 +20,7 @@ from qldpc.external import _groups
 
 
 def test_ring() -> None:
-    """Construct elements of a group algebra."""
+    """Construct, invert, and evaluate members of group algebras."""
     group: abstract.Group
 
     group = abstract.TrivialGroup()
@@ -70,11 +72,14 @@ def test_ring() -> None:
     poly_x = 4 * x_i**2 - 2 * x_i * x_j + x_j
     assert poly_r == ring.eval(poly_x, symbols)
 
-    # the group trace projects any element of the ring into its center
-    aa_vec = ring.group_trace_matrix @ ring.field.Random(group.order)
-    aa = abstract.RingMember.from_vector(aa_vec, ring)
-    bb = abstract.RingMember.from_vector(ring.field.Random(group.order), ring)
-    assert aa * bb == bb * aa
+    # the group trace is r -> sum_g g r g^-1, which projects into the center of the ring
+    bb = 2 * r_i + r_j
+    assert any(bb * gg != gg * bb for gg in ring.generators)
+    aa = abstract.RingMember.from_vector(ring.group_trace_matrix @ bb.to_vector(), ring)
+    assert aa == sum((ring.one * gg * bb * ~gg for gg in group.generate()), ring.zero)
+    assert all(aa * gg == gg * aa for gg in ring.generators)
+    with pytest.raises(ValueError, match="read-only"):
+        ring.group_trace_matrix[0, 0] = 1
 
     # a vector of coefficients has one entry for each group member
     for size in [group.order - 1, group.order + 1]:
@@ -301,21 +306,16 @@ def test_primitive_central_idempotents(ring_cyclic3_gf2: abstract.GroupRing) -> 
         abstract.GroupRing(abstract.CyclicGroup(2), field=2).get_primitive_central_idempotents()
 
 
-@pytest.mark.parametrize(
-    "group, field", [(abstract.DihedralGroup(3), 7), (abstract.CyclicGroup(5), 4)]
-)
-def test_computed_primitive_central_idempotents(group: abstract.Group, field: int) -> None:
-    """Computed idempotents are nonzero, central, orthogonal, and sum to one.
+def assert_primitive_central_idempotents(
+    ring: abstract.GroupRing, idempotents: Sequence[abstract.RingMember]
+) -> None:
+    """Assert that ring members are the primitive central idempotents of a group algebra.
 
-    There are as many of them as there are primitive central idempotents, which by the Witt-Berman
-    theorem is the number of F_q-conjugacy classes.  So they are the primitive central idempotents.
-    Over GF(4), the F_4-conjugacy classes of C5 differ from its F_2-conjugacy classes.
+    The members must be nonzero, central, orthogonal idempotents that sum to one.  There must be as
+    many of them as there are primitive central idempotents, which by the Witt-Berman theorem is the
+    number of F_q-conjugacy classes.
     """
-    ring = abstract.GroupRing(group, field)
-    idempotents = rings._get_primitive_central_idempotents(ring)
     assert sum(idempotents, ring.zero) == ring.one
-    vectors = sorted(idempotent.to_vector().tolist() for idempotent in idempotents)
-    assert [pci.to_vector().tolist() for pci in ring.get_primitive_central_idempotents()] == vectors
     for index, idempotent in enumerate(idempotents):
         assert idempotent and idempotent * idempotent == idempotent
         assert all(
@@ -324,18 +324,43 @@ def test_computed_primitive_central_idempotents(group: abstract.Group, field: in
         assert all(idempotent * other == ring.zero for other in idempotents[index + 1 :])
 
     # g and h are in the same F_q-conjugacy class if h = y·g^(q^i)·y^(-1) for some y in G and i ≥ 0
-    members = list(group.generate())
+    members = list(ring.group.generate())
+    order = ring.field.order
     classes = {
-        frozenset(yy * gg ** (field**ii) * ~yy for yy in members for ii in range(len(members)))
+        frozenset(yy * gg ** (order**ii) * ~yy for yy in members for ii in range(len(members)))
         for gg in members
     }
     assert len(idempotents) == len(classes)
 
 
-def test_precomputed_primitive_central_idempotents_need_default_field(
+@pytest.mark.parametrize(
+    "group, field",
+    [
+        (abstract.DihedralGroup(3), galois.GF(7)),
+        (abstract.CyclicGroup(5), galois.GF(4)),
+        (abstract.CyclicGroup(5), galois.GF(9, irreducible_poly="x^2 + 1")),
+    ],
+)
+def test_computed_primitive_central_idempotents(
+    group: abstract.Group, field: type[galois.FieldArray]
+) -> None:
+    """Computed idempotents are the primitive central idempotents, sorted by their coefficients.
+
+    D3 is not abelian, so conjugation by every generator matters.  Over GF(4), the F_4-conjugacy
+    classes of C5 differ from its F_2-conjugacy classes.  Over GF(9) with a non-default irreducible
+    polynomial, the idempotents of C5 have coefficients outside the prime field.
+    """
+    ring = abstract.GroupRing(group, field)
+    idempotents = rings._get_primitive_central_idempotents(ring)
+    assert_primitive_central_idempotents(ring, idempotents)
+    vectors = sorted(idempotent.to_vector().tolist() for idempotent in idempotents)
+    assert [pci.to_vector().tolist() for pci in ring.get_primitive_central_idempotents()] == vectors
+
+
+def test_precomputed_primitive_central_idempotents_need_default_encoding(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Only a field with the default irreducible polynomial uses the precomputed idempotents."""
+    """Only prime fields and fields with the default irreducible polynomial use the table."""
     # pretend that the table holds the identity as the only idempotent of GF(9)[C2]
     group = abstract.CyclicGroup(2)
     table = {(group.to_gap_group(), 9): (((1, ()),),)}
@@ -347,9 +372,16 @@ def test_precomputed_primitive_central_idempotents_need_default_field(
     ring = abstract.GroupRing(group, field=galois.GF(9, irreducible_poly="x^2 + 1"))
     assert len(ring.get_primitive_central_idempotents()) == 2
 
+    # pretend the same for GF(5)[C2]: a prime field uses the table whatever its primitive element
+    monkeypatch.setattr(
+        _groups, "KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS", {(group.to_gap_group(), 5): (((1, ()),),)}
+    )
+    ring = abstract.GroupRing(group, field=galois.GF(5, primitive_element=3))
+    assert ring.get_primitive_central_idempotents() == (ring.one,)
+
 
 def test_precomputed_primitive_central_idempotents() -> None:
-    """The precomputed primitive central idempotents equal the computed ones."""
+    """The precomputed primitive central idempotents are correct, and equal the computed ones."""
     frobenius_group = abstract.Group(  # SmallGroup(21, 1)
         abstract.GroupMember([[1, 2, 4], [3, 6, 5]]), abstract.GroupMember([list(range(7))])
     )
@@ -368,11 +400,108 @@ def test_precomputed_primitive_central_idempotents() -> None:
     )
     for group, field in group_algebras:
         ring = abstract.GroupRing(group, field)
+        assert_primitive_central_idempotents(ring, ring.get_primitive_central_idempotents())
         computed = rings._get_primitive_central_idempotents(ring)
         vectors = sorted(idempotent.to_vector().tolist() for idempotent in computed)
         assert [
             pci.to_vector().tolist() for pci in ring.get_primitive_central_idempotents()
         ] == vectors
+
+
+def test_member_equality_inverses_and_powers() -> None:
+    """Members compare by their rings and all of their terms, and have inverses and powers.
+
+    A multiple of a group member has an inverse, and powers may be numpy integers.
+    """
+    ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
+    x, y = ring.generators
+    assert ring.zero != ring.one != ring.zero
+    assert x != x + y != x
+    assert ring.one != abstract.GroupRing(abstract.DihedralGroup(3), field=3).one
+
+    # a multiple of a group member has an inverse
+    member = 2 * x
+    inverse = member.inverse()
+    assert inverse is not None and member * inverse == ring.one
+
+    # powers may be numpy integers
+    assert x ** np.int32(2) == x * x
+
+
+def test_members_over_large_fields() -> None:
+    """Members of algebras over fields that store their elements as Python objects can be lifted."""
+    large_ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2**70)
+    (generator,) = large_ring.generators
+    member = 1 + generator * large_ring.field(2**65)
+    inverse = member.inverse()
+    assert inverse is not None
+    assert np.array_equal(member.lift() @ inverse.lift(), large_ring.field.Identity(2))
+    assert not large_ring.group_trace_matrix.flags.writeable
+
+
+def test_reading_coefficients() -> None:
+    """Coefficients are integers or field elements, read as the same elements of the ring."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(2), field=4)
+    x = ring.generators[0]
+    vectors: list[npt.ArrayLike] = [
+        [1, 2],
+        range(1, 3),
+        ring.field([1, 2]),
+        list(ring.field([1, 2])),
+    ]
+    for vector in vectors:
+        assert abstract.RingMember.from_vector(vector, ring) == 1 + x * ring.field(2)
+
+    # integers are integer representations of field elements, so they are not reduced
+    unreduced_vectors: list[npt.ArrayLike] = [[4, 0], np.array([4, 0])]
+    for unreduced in unreduced_vectors:
+        with pytest.raises(ValueError, match=r"must be in \[0, 4\)"):
+            abstract.RingMember.from_vector(unreduced, ring)
+
+    # empty sequences have no coefficients
+    assert ring._read_coefficients([[], []]).shape == (2, 0)
+    assert abstract.RingArray.build([], ring).shape == (0,)
+
+    # elements of a prime field with the same characteristic denote the same elements
+    assert abstract.RingMember.from_vector(galois.GF(2)([1, 1]), ring) == 1 + x
+
+    # so do elements of a field class with the same irreducible polynomial
+    same_poly_field = galois.GF(4, irreducible_poly="x^2 + x + 1", primitive_element="x + 1")
+    assert same_poly_field is not ring.field
+    assert abstract.RingMember.from_vector(same_poly_field([1, 2]), ring) == 1 + x * ring.field(2)
+
+    # elements of another field that lie in its prime field denote the same elements, and others
+    # cannot be read, also when they are given one by one
+    assert abstract.RingMember.from_vector(galois.GF(16)([1, 0]), ring) == ring.one
+    for other_field in [galois.GF(3), galois.GF(16)]:
+        other_vectors: list[npt.ArrayLike] = [other_field([1, 2]), list(other_field([1, 2]))]
+        for other_vector in other_vectors:
+            with pytest.raises(ValueError, match="cannot be read in"):
+                abstract.RingMember.from_vector(other_vector, ring)
+
+    # integer-valued floats and booleans are read as integers, and are read exactly, even for fields
+    # too large for fixed-width integers
+    large_ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2**70)
+    large_vectors: list[npt.ArrayLike] = [[2**65, 1], large_ring.field([2**65, 1])]
+    for large_vector in large_vectors:
+        member = abstract.RingMember.from_vector(large_vector, large_ring)
+        assert np.array_equal(member.to_vector(), large_ring.field([2**65, 1]))
+    member = abstract.RingMember.from_vector(np.array([2.0**65, 1.0]), large_ring)
+    assert np.array_equal(member.to_vector(), large_ring.field([2**65, 1]))
+    member = abstract.RingMember.from_vector(np.array([np.True_, 1.0], dtype=object), ring)
+    assert member == ring.one + x
+
+    # other values are not coefficients
+    bad_vectors: list[npt.ArrayLike] = [["a", "b"], [0.5, 1]]
+    for bad_vector in bad_vectors:
+        with pytest.raises(ValueError, match="must be integers"):
+            abstract.RingMember.from_vector(bad_vector, ring)
+
+    # an error names the irreducible polynomial of an extension field
+    ring_9 = abstract.GroupRing(abstract.CyclicGroup(2), field=9)
+    field_9 = galois.GF(9, irreducible_poly="x^2 + 1")
+    with pytest.raises(ValueError, match="irreducible polynomial x\\^2 \\+ 1 cannot be read in"):
+        abstract.RingMember.from_vector(field_9([1, 3]), ring_9)
 
 
 def test_get_transformer_reuse() -> None:
@@ -403,7 +532,7 @@ def test_deprecated_argument_order() -> None:
     """Deprecated argument orders emit DeprecationWarning."""
     ring = abstract.GroupRing(abstract.TrivialGroup())
 
-    vector = ring.field.Random(ring.group.order)
+    vector = ring.field.Random(ring.group.order, seed=0)
     with pytest.warns(DeprecationWarning, match="DEPRECATED"):
         # the deprecated argument order does not match the typed signature
         ring_member = abstract.RingMember.from_vector(ring, vector)  # type:ignore[arg-type]

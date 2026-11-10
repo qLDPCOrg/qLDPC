@@ -36,6 +36,7 @@ docs/source/contributing/standards/deprecations.rst describes the steps of a fut
 from __future__ import annotations
 
 import importlib
+import re
 import sys
 import warnings
 from collections.abc import Callable, Iterable
@@ -246,6 +247,12 @@ SILENT_ALIASES: dict[str, dict[str, str]] = {
         "get_error_decoder": "qldpc._deprecations.decoders:get_error_decoder",
         "get_observable_decoder": "qldpc._deprecations.decoders:get_observable_decoder",
     },
+    # removed functions of the deprecated qldpc.external.groups, which now refers to this module
+    "qldpc.external._groups": {
+        "get_primitive_central_idempotents": (
+            "qldpc._deprecations.core:get_primitive_central_idempotents"
+        ),
+    },
 }
 
 
@@ -364,6 +371,53 @@ def get_distance_bound(
         cutoff=cutoff,
         maxav=maxav,
     )
+
+
+def get_primitive_central_idempotents(
+    group: str, field: int
+) -> list[tuple[tuple[int, tuple[tuple[int, ...], ...]], ...]]:
+    """Deprecated: primitive central idempotents of a group algebra over a finite field.
+
+    This function was formerly qldpc.external.groups.get_primitive_central_idempotents.  Use
+    GroupRing.get_primitive_central_idempotents instead.  The group is a GAP expression.  A group of
+    permutations, such as ``"Group((1,2,3),(1,3))"``, is read directly, and other expressions are
+    resolved as by Group.from_name, which may run GAP, access the network, or prompt for input.
+    Each idempotent is a tuple of terms (coefficient, permutation), where the coefficient is an
+    element of galois.GF(field) cast to an integer, and the permutation is in cyclic form with
+    0-indexed points.  The identity permutation is ``((),)``.
+    """
+    from qldpc import abstract
+    from qldpc.external import _groups
+
+    warn_deprecated(
+        "get_primitive_central_idempotents is deprecated; use"
+        " GroupRing.get_primitive_central_idempotents instead",
+        stacklevel=get_external_caller_stacklevel(),
+    )
+    # read a GAP group of permutations directly, and resolve other expressions as Group.from_name
+    # does
+    group = "".join(group.split())
+    permutation_pattern = r"(?:\(\d+(?:,\d+)*\))+|\(\)"
+    permutations_pattern = rf"(?:{permutation_pattern})(?:,(?:{permutation_pattern}))*"
+    match = re.fullmatch(
+        rf"Group\((?:\[({permutations_pattern})\]|({permutations_pattern}))\)", group
+    )
+    if match:
+        permutations = re.findall(permutation_pattern, match.group(1) or match.group(2))
+        generators = _groups._parse_gap_permutations("\n".join(permutations))
+    else:
+        generators = _groups.get_generators(group)
+    ring = abstract.GroupRing(
+        abstract.Group(*(abstract.GroupMember(cycles) for cycles in generators)), field
+    )
+    return [
+        tuple(
+            (int(coefficient), tuple(map(tuple, member.cyclic_form)) or ((),))
+            for coefficient, member in idempotent
+            if coefficient
+        )
+        for idempotent in ring.get_primitive_central_idempotents()
+    ]
 
 
 ####################################################################################################

@@ -1,6 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Arithmetic with RingArrays by way of arrays of their coefficients in the base field of a ring."""
+"""Conversions between RingArrays and arrays of their coefficients, and products of RingArrays.
+
+The coefficients of a RingArray lie in the base field of its ring.  This module computes products of
+RingArrays over a group algebra as matrix products of their coefficient arrays, when that is faster
+than RingMember arithmetic.
+"""
 
 from __future__ import annotations
 
@@ -11,9 +16,6 @@ import galois
 import numpy as np
 import numpy.typing as npt
 
-# ring_array imports this module, so import the ring_array module rather than its names, and look up
-# RingArray when a function runs; ring_array loads first (see qldpc/abstract/__init__.py)
-from . import ring_array
 from .groups import Group
 from .rings import GroupRing, Ring, RingMember
 
@@ -25,6 +27,35 @@ if TYPE_CHECKING:
 _MAX_MATMUL_COEFFICIENT_BYTES = 64 << 20
 # Keep tiny products on the object path, where coefficient conversion costs more than it saves.
 _MIN_MATMUL_COEFFICIENT_WORK = 128
+
+
+####################################################################################################
+# conversions between RingArrays and coefficient arrays
+
+
+def ring_array_to_field_array(array: RingArray, ring: Ring) -> galois.FieldArray:
+    """Convert a RingArray into coefficient vectors that are indexed by the basis of a ring.
+
+    The provided ring must equal the ring of the array, but it may enumerate basis elements in a
+    different order.
+    """
+    vectors = ring.field.Zeros((array.size, ring.dim))
+    for index, value in enumerate(array.ravel()):
+        for coefficient, label in value:
+            if coefficient:
+                vectors[index, ring._index(label)] = coefficient
+    return vectors.reshape(*array.shape, ring.dim)
+
+
+def ring_array_from_field_array(coefficients: galois.FieldArray, ring: Ring) -> RingArray:
+    """Construct a RingArray from validated coefficient vectors in the last axis of an array."""
+    from .ring_array import RingArray  # avoid circular import
+
+    vectors = coefficients.reshape(-1, ring.dim).view(ring.field)
+    values = [RingMember._from_trusted_vector(ring, vector) for vector in vectors]
+    result = np.array(values, dtype=object).reshape(coefficients.shape[:-1]).view(RingArray)
+    result._ring = ring
+    return result
 
 
 ####################################################################################################
@@ -102,33 +133,8 @@ def coefficient_matmul(
     if shape.vector_b:
         coefficients_ab = coefficients_ab[..., 0, :]
     if shape.vector_a and shape.vector_b:
-        return _ring_member_from_vector(coefficients_ab, ring)
+        return RingMember._from_trusted_vector(ring, coefficients_ab)
     return ring_array_from_field_array(coefficients_ab, ring)
-
-
-def ring_array_to_field_array(array: RingArray, ring: Ring) -> galois.FieldArray:
-    """Convert a RingArray into coefficient vectors that are indexed by the basis of a ring.
-
-    The provided ring must equal the ring of the array, but it may enumerate basis elements in a
-    different order.
-    """
-    vectors = ring.field.Zeros((array.size, ring.dim))
-    for index, value in enumerate(array.ravel()):
-        for coefficient, label in value:
-            if coefficient:
-                vectors[index, ring._index(label)] = coefficient
-    return vectors.reshape(*array.shape, ring.dim)
-
-
-def ring_array_from_field_array(coefficients: galois.FieldArray, ring: Ring) -> RingArray:
-    """Construct a RingArray from validated coefficient vectors in the last axis of an array."""
-    vectors = coefficients.reshape(-1, ring.dim).view(ring.field)
-    values = [_ring_member_from_vector(vector, ring) for vector in vectors]
-    result = (
-        np.array(values, dtype=object).reshape(coefficients.shape[:-1]).view(ring_array.RingArray)
-    )
-    result._ring = ring
-    return result
 
 
 class _MatmulShape(NamedTuple):
@@ -142,6 +148,7 @@ class _MatmulShape(NamedTuple):
     vector_b: bool  # whether the right operand is a 1-D vector
 
 
+# cached, because every coefficient product looks up an action for each group member in its operands
 @functools.lru_cache(maxsize=512)
 def _get_group_action(group: Group, index: int, *, on_left: bool) -> npt.NDArray[np.int_]:
     """Permutation of group-member indices induced by multiplying with the member at an index.
@@ -155,14 +162,6 @@ def _get_group_action(group: Group, index: int, *, on_left: bool) -> npt.NDArray
     permutation = np.fromiter(map(group.index, products), dtype=int, count=group.order)
     permutation.flags.writeable = False
     return permutation
-
-
-def _ring_member_from_vector(vector: galois.FieldArray, ring: Ring) -> RingMember:
-    """Construct a RingMember from its coefficients for the basis labels of its ring."""
-    ring_member = RingMember(ring)
-    for index in np.flatnonzero(vector):
-        ring_member._vec[ring._labels[index]] = vector[index]
-    return ring_member
 
 
 def _get_matmul_shape(shape_a: tuple[int, ...], shape_b: tuple[int, ...]) -> _MatmulShape | None:
@@ -200,10 +199,12 @@ def _use_coefficient_matmul(shape: _MatmulShape, ring: GroupRing) -> bool:
 def _is_coefficient_operand(array: npt.NDArray[np.generic], ring: GroupRing) -> bool:
     """Does a matmul operand have a direct representation by coefficients in the given ring?
 
-    Arrays over other finite fields are excluded, since their integer storage need not encode
-    integers.
+    Arrays over other finite fields are excluded, since their integers need not denote the same
+    elements of the field of the ring.
     """
-    if isinstance(array, (ring_array.RingArray, ring.field)):
+    from .ring_array import RingArray  # avoid circular import
+
+    if isinstance(array, (RingArray, ring.field)):
         return True
     return type(array) is np.ndarray and (
         np.issubdtype(array.dtype, np.integer) or np.issubdtype(array.dtype, np.bool_)
@@ -212,7 +213,9 @@ def _is_coefficient_operand(array: npt.NDArray[np.generic], ring: GroupRing) -> 
 
 def _to_coefficients(array: npt.NDArray[np.generic], ring: GroupRing) -> galois.FieldArray:
     """Represent a matmul operand by a coefficient vector for each entry."""
-    if isinstance(array, ring_array.RingArray):
+    from .ring_array import RingArray  # avoid circular import
+
+    if isinstance(array, RingArray):
         return ring_array_to_field_array(array, ring)
     if isinstance(array, ring.field):
         scalars = array

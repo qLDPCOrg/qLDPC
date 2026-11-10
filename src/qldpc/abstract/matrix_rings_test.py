@@ -62,8 +62,9 @@ def test_invalid_construction() -> None:
         abstract.MatrixRing(np.eye(2, dtype=int), np.eye(3, dtype=int))
     with pytest.raises(ValueError, match="square matrices of one size"):
         abstract.MatrixRing(np.zeros((0, 0), dtype=int))
-    with pytest.raises(ValueError, match="must be over GF"):
-        abstract.MatrixRing(galois.GF(4).Identity(2), field=2)
+    with pytest.raises(ValueError, match="cannot be read in"):
+        abstract.MatrixRing(galois.GF(4)([[2, 0], [0, 1]]), field=2)
+    assert abstract.MatrixRing(galois.GF(4).Identity(2), field=2).field is galois.GF(2)
 
 
 @pytest.mark.parametrize(
@@ -155,8 +156,10 @@ def test_member_from_matrix() -> None:
         ring.member_from_matrix([[1, 1], [0, 1]])
     with pytest.raises(ValueError, match="lifts to a 2x2 matrix"):
         ring.member_from_matrix(np.eye(3, dtype=int))
-    with pytest.raises(ValueError, match="must be over GF"):
+    with pytest.raises(ValueError, match="cannot be read in"):
         ring.member_from_matrix(galois.GF(3)([[1, 1], [1, 1]]))
+    with pytest.raises(ValueError, match="cannot be read in"):
+        ring.member_from_matrix(list(galois.GF(3)([[1, 1], [1, 1]])))
 
 
 def test_members() -> None:
