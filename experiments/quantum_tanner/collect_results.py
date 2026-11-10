@@ -11,14 +11,15 @@ and complex; see saved_codes.get_code_key) differ, and the saved files with the 
 data are copies of one code.  Each row summarizes the copies of one code.  Different generating data
 can still give the same code, which then has several rows.  The group, local codes, complex, and
 sample of a row are those of its first copy, where copies are ordered by group (order first), local
-codes, complex, and sample.  The columns of the CSV file are CSV_FIELDS:
+codes, complex, and sample (enumerated before random, and then by number).  The columns of the CSV
+file are CSV_FIELDS:
 - group, group_order: the identifier and order of the group that defines the code (see
   saved_codes.get_group),
 - code_a, code_b: the identifiers of the local codes on the two subsets of the group (see
   saved_codes.get_local_code),
 - complex: "quadripartite" or "bipartite", the Cayley complex on which the code lives,
 - sample: the sample identifier of the first copy, which is "s{seed}" for subsets drawn with a
-  random seed, or "e{index}" for subsets at an index in an enumeration (see saved_codes.CodeSpec),
+  random seed, or "e{index}" for subsets at an index in an enumeration (see saved_codes),
 - num_copies: the number of saved copies of the code, which may have different groups, local
   codes, or samples,
 - n, k: the number of physical qubits and the number of logical qubits,

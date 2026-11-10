@@ -3,11 +3,14 @@
 """Specifications of quantum Tanner codes, and the files that save them in a results directory.
 
 The scripts in this directory share the helpers in this module.  A quantum Tanner code of the search
-is specified by a CodeSpec, which identifies a group, a pair of classical local codes, and a choice
-of Cayley complex, together with a sample identifier, which identifies the subsets of the group:
+is specified by a CodeSpec and a sample identifier.  The CodeSpec identifies a group, a pair of
+classical local codes, and a choice of Cayley complex.  The sample identifier identifies the subsets
+of the group:
 - "s{seed}": the subsets that qldpc.codes.QTCode.random draws with a random seed, or
-- "e{index}": the subsets at an index in the enumeration of all pairs of subsets of the required
-  sizes (see get_subset_pairs).
+- "e{index}": the subsets at an index in the enumeration of pairs of subsets of the required sizes,
+  which on a bipartite complex includes only the pairs that satisfy the Total No Conjugacy
+  condition (see get_subset_pairs).
+
 Each saved code is a text file, written by qldpc.codes.QTCode.save, whose name identifies its
 specification and sample, and whose header records the parameters computed by run_search.py.
 
@@ -62,7 +65,7 @@ _CODE_FILE_NAME = re.compile(
 
 @dataclasses.dataclass(frozen=True)
 class CodeSpec:
-    """The data that, together with a random seed, specifies a quantum Tanner code of the search.
+    """The data that, together with a sample identifier, specifies a quantum Tanner code.
 
     Attributes:
         group_id: An identifier of the group whose subsets define the Cayley complex; see
@@ -126,17 +129,22 @@ class CodeSpec:
     def build(self, sample_id: str) -> codes.QTCode:
         """Construct the quantum Tanner code with this specification and a sample identifier.
 
-        Raises a ValueError if the complex is bipartite and the subsets drawn for a random seed
-        violate the Total No Conjugacy condition.
+        Raises a ValueError if the sample identifier is invalid, or if the complex is bipartite and
+        the subsets drawn for a random seed violate the Total No Conjugacy condition.
         """
         code_a = get_local_code(self.code_a_id)
         code_b = get_local_code(self.code_b_id)
-        number = int(sample_id[1:])
-        if sample_id.startswith("e"):
-            subset_a, subset_b = get_subset_pairs(self)[number]
+        kind, number = sample_id[:1], int(sample_id[1:])
+        if kind == "e":
+            subset_pairs = get_subset_pairs(self)
+            if number >= len(subset_pairs):
+                raise ValueError(f"Enumerated sample out of range: {sample_id}")
+            subset_a, subset_b = subset_pairs[number]
             return codes.QTCode(subset_a, subset_b, code_a, code_b, bipartite=self.bipartite)
-        group = get_group(self.group_id)
-        return codes.QTCode.random(group, code_a, code_b, bipartite=self.bipartite, seed=number)
+        if kind == "s":
+            group = get_group(self.group_id)
+            return codes.QTCode.random(group, code_a, code_b, bipartite=self.bipartite, seed=number)
+        raise ValueError(f"Sample identifier not recognized: {sample_id}")
 
     def get_path(self, codes_dir: pathlib.Path, sample_id: str) -> pathlib.Path:
         """Get the path of the file that saves the code with this specification and sample.
@@ -179,11 +187,15 @@ def count_subset_pairs(spec: CodeSpec) -> int:
 
 
 @functools.cache
-def get_subset_pairs(spec: CodeSpec) -> list[tuple[frozenset[abstract.GroupMember], ...]]:
+def get_subset_pairs(
+    spec: CodeSpec,
+) -> list[tuple[frozenset[abstract.GroupMember], frozenset[abstract.GroupMember]]]:
     """List the ordered pairs of symmetric subsets of the sizes that the local codes require.
 
     For a bipartite complex, the list excludes pairs that violate the Total No Conjugacy condition.
-    The order of the list is deterministic; see get_symmetric_subsets.
+    The pairs are ordered by their first subsets, and then by their second subsets, in the order of
+    get_symmetric_subsets.  The index of a pair in this list identifies an enumerated sample, so
+    changing this order changes which codes saved files identify.
     """
     subset_pairs = itertools.product(
         get_symmetric_subsets(spec.group_id, get_local_code(spec.code_a_id).num_bits),
@@ -254,8 +266,13 @@ def get_symmetric_subsets(group_id: str, size: int) -> list[frozenset[abstract.G
     """List the symmetric subsets of a given size of a group, in a deterministic order.
 
     A symmetric subset consists of members that are their own inverses, and of pairs of a member and
-    its inverse.  Subsets are listed by their numbers of such pairs, and then in the order of
-    itertools.combinations over the group members, which are sorted.
+    its inverse.  Subsets are listed by their numbers of inverse pairs, from fewest to most, then by
+    their members that are their own inverses, and then by their inverse pairs.  The last two orders
+    are those of itertools.combinations over group members sorted by GroupMember.__lt__, where each
+    inverse pair is represented by its smaller member.  This order determines which codes the
+    identifiers of enumerated samples identify (see get_subset_pairs), so changing it, or changing
+    the permutation representation of a group, stops searches from verifying or resuming from codes
+    saved before the change.
     """
     members = sorted(get_group(group_id).generate())
     self_inverse_members = [member for member in members if member == ~member]

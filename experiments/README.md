@@ -6,7 +6,7 @@ They are not part of the installed `qldpc` package, and the test suite does not 
 | Directory | What it does | Entry points |
 | --- | --- | --- |
 | [`bivariate_bicycle/`](bivariate_bicycle/) | Brute-force search for bivariate bicycle codes with toric layouts | `run_search.py`, then `collect_results.py` |
-| [`quantum_tanner/`](quantum_tanner/) | Randomized search for quantum Tanner codes | `run_search.py`, then `compute_distances.py`, `collect_results.py`, and `verify_codes.py` |
+| [`quantum_tanner/`](quantum_tanner/) | Search for quantum Tanner codes, by enumeration where cheap and random sampling otherwise | `run_search.py`, then `compute_distances.py`, `collect_results.py`, and `verify_codes.py` |
 | [`connected_support_distance/`](connected_support_distance/) | Timings of the connected-support and Brouwer–Zimmermann exact distance searches on pair-partition and other codes | `benchmark.py` |
 | [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#lattice-surgery)) | `collect_ler.py` |
 
@@ -71,9 +71,10 @@ python experiments/bivariate_bicycle/collect_results.py --num-trials 10 --result
 
 ## Quantum Tanner codes
 
-[`quantum_tanner/`](quantum_tanner/) performs a randomized search over small quantum Tanner codes, which [arXiv:2202.13641](https://arxiv.org/abs/2202.13641) introduced.
+[`quantum_tanner/`](quantum_tanner/) searches over small quantum Tanner codes, which [arXiv:2202.13641](https://arxiv.org/abs/2202.13641) introduced.
 The search builds codes from finite groups and pairs of classical local codes.
-It constructs each code with `codes.QTCode.random`, which draws two random symmetric subsets of a group, that is, subsets closed under inverses.
+Each code is defined by two symmetric subsets of a group, that is, subsets closed under inverses.
+The search either enumerates these subsets or draws them with `codes.QTCode.random`, as described below.
 The sizes of the subsets are the block lengths of the two local codes, whose bits are labeled by the members of the subsets.
 See the docstrings of `codes.QTCode` and `objects.CayleyComplex` for the construction.
 
@@ -90,12 +91,12 @@ The options of `run_search.py` choose the groups, the local codes, and the compl
   This complex is built on four copies of the group, so the subsets need not satisfy the Total No Conjugacy condition, which the bipartite complex of arXiv:2202.13641 requires.
   With `--bipartite`, the codes live on the bipartite complex instead.
   A code on the bipartite complex has at most as many qubits as the code with the same subsets on the quadripartite complex, and often half as many.
-  The search tries up to `MAX_TNC_ATTEMPTS` seeds per sample to find subsets that satisfy the Total No Conjugacy condition, and skips a sample if none of them does.
+  The search tries up to `MAX_TNC_ATTEMPTS` seeds per random sample to find subsets that satisfy the Total No Conjugacy condition, and skips the sample if none of them does.
 
 With these choices, the search covers codes like those of arXiv:2508.05095, together with others.
 The search differs from that work in four ways:
 
-- The subsets that `codes.QTCode.random` draws may contain the identity element, which arXiv:2508.05095 excludes.
+- The subsets of the search may contain the identity element, which arXiv:2508.05095 excludes.
   This difference matters for dihedral groups.
   A symmetric subset with an odd number of elements contains an element that is its own inverse.
   In a dihedral group of order 2m with odd m, that element can be the identity here, whereas it is a reflection in arXiv:2508.05095.
@@ -112,6 +113,9 @@ For each group, pair of local codes, and complex, the search enumerates all pair
 On the bipartite complex, it keeps only the pairs that satisfy the Total No Conjugacy condition.
 Otherwise, the search draws `--num-samples` random pairs.
 Enumeration thereby never constructs more codes than random sampling would, and its results are complete and free of repeated subsets.
+For a group and local codes whose pairs are enumerated, the frequencies of code parameters among their saved files are therefore fractions of all such pairs.
+The pairs are not reduced by automorphisms of the group, so equivalent codes are counted separately.
+The sample identifier of a saved code, described below, tells whether its pairs were enumerated or randomly sampled.
 
 Random sampling has two limitations.
 First, `abstract.Group.random_symmetric_subset` does not draw subsets uniformly.
@@ -129,7 +133,7 @@ It draws 100 random samples for each of the other 33 choices, and saves 5,523 co
    On the bipartite complex, the search also skips groups whose subsets cannot satisfy the Total No Conjugacy condition.
    These are groups with fewer elements than the two local codes have bits together, and groups of odd order when both local codes have odd block lengths.
    File names identify the group, local codes, and complex of each code, and end with a sample identifier.
-   This identifier is `s{seed}` for subsets drawn with a random seed, and `e{index}` for the subsets at an index in the enumeration of all pairs of subsets.
+   This identifier is `s{seed}` for subsets drawn with a random seed, and `e{index}` for the subsets at an index in the enumeration of pairs of subsets (see `saved_codes.get_subset_pairs`).
    A results directory can hold both kinds of samples of the same group and local codes, such as after a change of `--num-samples`.
    Codes that already have a file are skipped, even if that file used a different `--num-trials`, unless `--overwrite` is passed.
    Each code is written to a temporary `*.tmp` file and then renamed, so an interrupted search leaves no partial code file.
@@ -142,8 +146,9 @@ It draws 100 random samples for each of the other 33 choices, and saves 5,523 co
 3. `collect_results.py` summarizes the saved codes in `results/codes.csv`, with one row per distinct code that has `k > 0`.
    Each row summarizes the copies of one code, which are the saved files with the same generating data.
    Its columns are `group, group_order, code_a, code_b, complex, sample, num_copies, n, k, d, d_kind, num_trials, stabilizer_weight`.
-   Here `sample` is the sample identifier of the first copy, `num_copies` counts the saved copies of the code, and `stabilizer_weight` is the maximum weight of a parity check (stabilizer generator) of the code.
+   Here `sample` is the sample identifier of the first copy (see the `collect_results.py` docstring for the order of copies), `num_copies` counts the saved copies of the code, and `stabilizer_weight` is the maximum weight of a parity check (stabilizer generator) of the code.
    The distance `d` is exact if `d_kind` is `exact`, and otherwise it is the smallest upper bound among the saved copies of the code.
+   A row attributes a code to its first copy, which can belong to another group or other local codes, so frequencies of parameters for a given group and local codes come from the saved files rather than from rows of `codes.csv`.
 4. `verify_codes.py` checks that every saved code can be loaded, and that regenerating it from its file name reproduces it.
 
 ```bash
@@ -180,9 +185,10 @@ Saved code files record `d` as `nan` for codes with no logical qubits, and `comp
 The cost of an exact distance grows rapidly with the distance and the weights of parity checks, and is hard to predict from the number of qubits.
 Among codes of the default search, with up to 490 qubits, many exact distances take seconds, whereas some take minutes or more.
 Randomized bounds can be far from exact distances, especially with few trials.
-For example, the only code for `SmallGroup-7-1` and `Mittal-6` in the default search, whose sample identifier is `e0`, has 252 qubits and distance 16, whereas single runs with `--num-trials 100` bounded its distance by values up to 29.
+For example, the default search saves one code for `SmallGroup-7-1` and `Mittal-6`, with sample identifier `e0`.
+It has 252 qubits and distance 16, whereas single runs with `--num-trials 100` bounded its distance by values up to 29.
 
-Verification requires `codes.QTCode.random` to sample the same code for the same seed, and local codes to be constructed in the same way, so codes saved with a different version of `qldpc` may fail verification.
+Verification requires `codes.QTCode.random` to sample the same code for the same seed, enumerated subsets to be listed in the same order (see `saved_codes.get_symmetric_subsets`), and local codes to be constructed in the same way, so codes saved with a different version of `qldpc` may fail verification.
 
 ## Connected-support distance
 
