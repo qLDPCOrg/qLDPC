@@ -80,7 +80,7 @@ Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py`, modules in `src
 
 Every value that changes only how long a search takes or how much memory it uses, such as a threshold that chooses a route, a limit, a coefficient of a cost model, an attempt count, or a batch size, is a field of `SearchTuning` in `_tuning.py`.
 The arguments of the public functions say what to compute and by which method, such as `cutoff`, `max_weight`, and `method`; do not add arguments that only tune a search.
-Section 4.4 of `brouwer_zimmermann.md` says where each heuristic of a Brouwer–Zimmermann search uses its fields, and Section 3.5 of `connected_support.md` where the connected-support search uses its field.
+Section 4.4 of `brouwer_zimmermann.md` says where each heuristic of a Brouwer–Zimmermann search uses its fields, and Sections 3.5 and 3.8 of `connected_support.md` where the connected-support searches use theirs.
 
 - A search reads the active tuning once, when it starts, and passes the values that it needs down to the stages and loops that use them.
   The distance functions of `core.py` read it for a distance search, `CSSLogicalCounter.count_logical_ops` for a count, and `CosetLeaderSearch` when it is built; `get_distance_brouwer_zimmermann_many` and `get_distance_connected_support` read it only if their callers pass none.

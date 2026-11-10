@@ -42,6 +42,8 @@ Start from a symptom
    * - A cheap connected-support search spends its time finding automorphisms
      - Raise :attr:`~SearchTuning.automorphism_minimum_states`.
        A search whose first weight limit a cutoff raises asks for them unless the field is ``MAX_VALUE``.
+   * - A ``CosetLeaderSearch`` with the connected-support method takes long to build, or its queries are slow
+     - Lower :attr:`~SearchTuning.max_sparsifying_rounds` or :attr:`~SearchTuning.sparsifying_rounds_without_improvement` to build it sooner, or raise them for sparser checks and faster queries.
    * - Completion tables are used, or declined, against measured savings
      - Refit the fields of their cost model, as :ref:`Retuning <tuning-retuning>` describes.
 
@@ -88,6 +90,10 @@ Routes and the names that control them
      - :attr:`SearchTuning.automorphism_minimum_states`
      -
      - `Section 3.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md#35-symmetries>`__
+   * - Making the checks of connected-support searches of the lightest Pauli errors sparser
+     - :attr:`SearchTuning.max_sparsifying_rounds`, :attr:`SearchTuning.sparsifying_rounds_without_improvement`
+     -
+     - `Section 3.8 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md#38-vectors-with-a-given-syndrome>`__
    * - Whether a layer of one information set uses completion tables to skip hopeless supports
      - :attr:`SearchTuning.completion_bound_minimum_layer_work`, :attr:`SearchTuning.completion_bound_max_cost_percent`
      -

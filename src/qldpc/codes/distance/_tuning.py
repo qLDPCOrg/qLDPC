@@ -291,6 +291,22 @@ class SearchTuning:
     #: hand.  To retune it, time searches with and without automorphisms.
     automorphism_minimum_states: int = 100_000
 
+    #: A ``CosetLeaderSearch`` with the connected-support method makes its checks sparser in up to
+    #: this many rounds, each of which row-reduces them in a random order of the columns and keeps
+    #: the light rows (Section 3.8 of ``connected_support.md``).  Raising it can make the checks
+    #: sparser, and the queries faster, at the cost of building the oracle; zero keeps the rows of
+    #: the greedy pairwise reduction.  Defaults to 1000, chosen by hand: on the state ``|0⟩`` of the
+    #: [[232, 62, 12]] pair-partition code, the mean weight of the checks stops falling near there.
+    #: To retune it, time the queries of a certification against the time to build its oracle.
+    max_sparsifying_rounds: int = 1000
+
+    #: Making checks sparser stops early after this many rounds in a row that leave the total
+    #: weight of the checks unchanged (see ``max_sparsifying_rounds``).  Raising it spends more
+    #: rounds on checks that rarely get lighter; zero stops after the first round.  Defaults to 200,
+    #: chosen by hand from the rounds between improvements on the codes of
+    #: ``experiments/connected_support_distance/benchmark.py``.  To retune it, record those rounds.
+    sparsifying_rounds_without_improvement: int = 200
+
     # Fields of completion tables.
 
     #: The number of supports, choices of rows of an information set, from which a layer that scans

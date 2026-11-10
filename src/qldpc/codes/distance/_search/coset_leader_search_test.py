@@ -1173,6 +1173,25 @@ def test_sparser_rows_span_the_same_space(pytestconfig: pytest.Config) -> None:
             assert get_weights((rows[row] ^ rows[other])[None], homogeneous)[0] >= weights[row]
 
 
+def test_rounds_of_random_reductions_make_rows_sparser() -> None:
+    """On rows that adding pairs of rows leaves heavier than their lightest basis, rounds reach it.
+
+    The lightest basis of the span, by the number of qubits of each row, weighs 6 in total: the
+    greedy algorithm for matroids over all seven nonzero words of the span finds it.
+    """
+    matrix = np.array(
+        [[1, 0, 0, 0, 0, 0, 0, 0], [0, 1, 0, 0, 1, 0, 0, 0], [1, 1, 1, 0, 1, 1, 1, 1]],
+        dtype=np.uint8,
+    )
+    for max_rounds, total_weight in [(0, 7), (20, 6)]:
+        rows, transform = coset_leader_search._get_sparser_rows(
+            matrix, homogeneous=False, max_rounds=max_rounds, rounds_without_improvement=20
+        )
+        assert np.array_equal(transform @ matrix % 2, rows)
+        assert len(row_reduce_binary(transform)[2]) == len(matrix)
+        assert coset_leader_search._get_row_weights(rows, False).sum() == total_weight
+
+
 def test_connected_support_rejects_what_it_cannot_search() -> None:
     """The engine rejects the CSS weight on a non-CSS state, and its batches reject large syndromes.
 
