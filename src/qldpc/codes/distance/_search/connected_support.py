@@ -326,8 +326,9 @@ class SupportSearch:
             self._ranks,
             self._inverse_overlaps,
             int(min(max_weight, self.num_variables)),
-            # The searches from roots ignore the starting syndrome.
+            # The searches from roots ignore the starting syndrome, and do not memoize.
             np.zeros(self._symbol_masks.shape[1], dtype=np.uint64),
+            False,
         )
         self.num_states += num_states
         last = self._last_two_num_states[1] if self._last_two_num_states else 0
@@ -411,6 +412,7 @@ class SupportSearch:
             self._inverse_overlaps,
             int(min(max_weight, self.num_variables)),
             packed_syndrome,
+            True,
         )
         return np.sort(support) if len(support) else None
 
@@ -490,6 +492,7 @@ def _search_supports(
     inverse_overlaps: npt.NDArray[np.int64],
     max_weight: int,
     start_syndrome: npt.NDArray[np.uint64],
+    memoize: bool,
 ) -> tuple[npt.NDArray[np.int64], int]:
     """Search the supports that grow from each root through unsatisfied checks.
 
@@ -518,6 +521,10 @@ def _search_supports(
     Its empty state has that syndrome, and branches on one of its unsatisfied checks, as every
     other state does, without a root or ranks.  Every support that it reaches with no unsatisfied
     check is a solution, without tests.  The searches from other roots ignore ``start_syndrome``.
+
+    With ``memoize``, each state computes the overlap and the repair of each symbol at most once
+    (see ``_get_branches``).  This saves time when checks are dense, as those of syndrome queries
+    can be (see Section 3.8 of ``connected_support.md``).  It costs time when they are sparse.
 
     Returns:
         The symbols of a witness, or of a solution, of weight at most ``max_weight``, or an empty
@@ -556,9 +563,13 @@ def _search_supports(
     allowance_starts = np.zeros(max_weight + 2, dtype=np.int64)
     allowances = np.empty(num_symbols, dtype=np.int64)
 
-    # Scratch space for _get_branches.
+    # Scratch space for _get_branches, whose docstring describes ``memos``.  Each call of
+    # _get_branches gets a stamp of its own: the number of calls so far, including itself.  So the
+    # zeros of ``memos`` match no stamp.
     check_weights = np.zeros(len(check_starts) - 1, dtype=np.int64)
     branch_repairs = np.empty(max_branches, dtype=np.int64)
+    memos = np.zeros((4, num_symbols if memoize else 0), dtype=np.int64)
+    stamp = 0
 
     num_states = 0
     for root in roots:
@@ -572,6 +583,7 @@ def _search_supports(
         if root < 0:
             # Branch on an unsatisfied check of the starting syndrome, as a state does.
             syndromes[0] = start_syndrome
+            stamp += 1
             num_branches[0] = _get_branches(
                 check_starts,
                 check_symbols,
@@ -588,6 +600,8 @@ def _search_supports(
                 inverse_overlaps,
                 check_weights,
                 branch_repairs,
+                memos,
+                stamp,
             )
             num_restrictions += restricts[0]
         else:
@@ -648,6 +662,7 @@ def _search_supports(
                 grown = np.empty(2 * len(allowances) + num_symbols, dtype=np.int64)
                 grown[: allowance_starts[depth]] = allowances[: allowance_starts[depth]]
                 allowances = grown
+            stamp += 1
             num_branches[depth] = _get_branches(
                 check_starts,
                 check_symbols,
@@ -664,6 +679,8 @@ def _search_supports(
                 inverse_overlaps,
                 check_weights,
                 branch_repairs,
+                memos,
+                stamp,
             )
             num_restrictions += restricts[depth]
 
@@ -693,6 +710,8 @@ def _get_branches(
     inverse_overlaps: npt.NDArray[np.int64],
     check_weights: npt.NDArray[np.int64],
     branch_repairs: npt.NDArray[np.int64],
+    memos: npt.NDArray[np.int64],
+    stamp: int,
 ) -> int:
     """Choose the symbols that the state at a depth branches on, if its syndrome is not empty.
 
@@ -716,9 +735,16 @@ def _get_branches(
     ``branches[depth]``, most repairing first.  It returns their number.  ``check_weights`` and
     ``branch_repairs`` are scratch space for the weights of the unsatisfied checks and the repairs
     of the branch symbols.
+
+    If ``memos`` has columns, one for each symbol, the state computes the overlap and the repair of
+    each symbol at most once, and keeps them there.  Row 0 of ``memos`` holds the stamp of the
+    call that computed the overlap of each symbol, and row 1 that overlap.  Rows 2 and 3 hold the
+    same for repairs.  ``stamp`` is the stamp of this call, which no other call of the search uses.
     """
     num_blocks = syndromes.shape[1]
     scale = inverse_overlaps[1]
+    memoize = memos.shape[1] > 0
+    overlap_stamps, overlaps, repair_stamps, repairs = memos[0], memos[1], memos[2], memos[3]
 
     # Weigh each unsatisfied check, and choose the one with the fewest available symbols.  The
     # count starts above any possible count.
@@ -735,7 +761,14 @@ def _get_branches(
             for position in range(check_starts[check], check_starts[check + 1]):
                 symbol = check_symbols[position]
                 if levels[symbol] == available_level:
-                    overlap = _get_overlap(syndromes, depth, symbol_masks, symbol)
+                    if not memoize:
+                        overlap = _get_overlap(syndromes, depth, symbol_masks, symbol)
+                    elif overlap_stamps[symbol] != stamp:
+                        overlap = _get_overlap(syndromes, depth, symbol_masks, symbol)
+                        overlap_stamps[symbol] = stamp
+                        overlaps[symbol] = overlap
+                    else:
+                        overlap = overlaps[symbol]
                     largest_overlap = max(largest_overlap, overlap)
                     count += 1
             if count == 0:
@@ -765,7 +798,18 @@ def _get_branches(
                 for position in range(check_starts[check], check_starts[check + 1]):
                     symbol = check_symbols[position]
                     if levels[symbol] == available_level:
-                        repair = _get_repair(syndromes, depth, symbol_masks, symbol, check_weights)
+                        if not memoize:
+                            repair = _get_repair(
+                                syndromes, depth, symbol_masks, symbol, check_weights
+                            )
+                        elif repair_stamps[symbol] != stamp:
+                            repair = _get_repair(
+                                syndromes, depth, symbol_masks, symbol, check_weights
+                            )
+                            repair_stamps[symbol] = stamp
+                            repairs[symbol] = repair
+                        else:
+                            repair = repairs[symbol]
                         if total_weight - repair <= (slack - 1) * scale:
                             levels[symbol] += 1
                             allowances[allowance_end] = symbol
@@ -787,7 +831,14 @@ def _get_branches(
         symbol = check_symbols[position]
         if levels[symbol] != available_level:
             continue
-        repair = _get_repair(syndromes, depth, symbol_masks, symbol, check_weights)
+        if not memoize:
+            repair = _get_repair(syndromes, depth, symbol_masks, symbol, check_weights)
+        elif repair_stamps[symbol] != stamp:
+            repair = _get_repair(syndromes, depth, symbol_masks, symbol, check_weights)
+            repair_stamps[symbol] = stamp
+            repairs[symbol] = repair
+        else:
+            repair = repairs[symbol]
         index = num_branches
         while index > 0 and branch_repairs[index - 1] < repair:
             branches[depth, index] = branches[depth, index - 1]
