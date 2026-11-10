@@ -681,8 +681,7 @@ def test_lifted_product_with_non_orthogonal_lifts() -> None:
 
 def test_canonical_logicals_with_non_orthogonal_lifts() -> None:
     """With lifts that are not orthogonal, logical operators lift, and only valid ones are set."""
-    # lift the generator of a cyclic group of order 2 to a matrix that is not orthogonal, over a
-    # field for which qLDPC knows the primitive central idempotents of this group algebra
+    # lift the generator of a cyclic group of order 2 to a matrix that is not orthogonal
     field = galois.GF(3)
     lift = field([[1, 0], [1, 2]])
     group = abstract.Group.from_sympy(

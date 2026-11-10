@@ -110,12 +110,11 @@ class LPCode(CSSCode):
         If ``set_logicals`` is True, set the canonical logical line operators of the code.  These
         operators need a group algebra whose group order is not divisible by the field
         characteristic, or seed matrices that split at trailing pivot blocks over a ring whose
-        involution transposes lifts.  See ``get_canonical_logical_line_ops`` for these conditions
-        and for the side effects of computing the operators.  Lifted products of binary codes over
-        groups of even order are common but often fail both conditions, so ``set_logicals``
-        defaults to False.  If it is True for matrices that fail both conditions, a ValueError is
-        raised.  A ValueError is also raised if these operators are invalid, which can happen for a
-        group algebra whose involution does not transpose lifts.
+        involution transposes lifts.  See ``get_canonical_logical_line_ops`` for these conditions.
+        Lifted products of binary codes over groups of even order are common but often fail both
+        conditions, so ``set_logicals`` defaults to False.  If it is True for matrices that fail
+        both conditions, a ValueError is raised.  A ValueError is also raised if these operators are
+        invalid, which can happen for a group algebra whose involution does not transpose lifts.
         """
         if matrix_b is None:
             matrix_b = matrix_a
@@ -161,11 +160,9 @@ class LPCode(CSSCode):
 
         1. Semisimple route, for group algebras whose group order the field characteristic does
            not divide.  This route lifts the operators of ``get_canonical_ring_logical_line_ops``,
-           which use semisimple Howell normal forms.  Unless the primitive central idempotents of
-           the group algebra are known, this route may run GAP, prompt on standard input, and use
-           the system clipboard; see GroupRing.get_transformer.  These operators assume that the
-           involution of the ring transposes lifts.  This route takes precedence wherever it
-           applies, even for seed matrices that also fit the split route.
+           which use semisimple Howell normal forms.  These operators assume that the involution of
+           the ring transposes lifts.  This route takes precedence wherever it applies, even for
+           seed matrices that also fit the split route.
         2. Split route, for seed matrices ``matrix_a`` and ``matrix_b`` that split at trailing
            pivot blocks (defined below), following Appendix B of https://arxiv.org/abs/2607.28795v2.
            This route is for any other ring that meets the requirements on the ring of an
@@ -219,10 +216,9 @@ class LPCode(CSSCode):
 
         Generalizes HGPCode.get_canonical_logical_line_ops.  These are the ring-valued operators of
         the semisimple route of ``LPCode.get_canonical_logical_line_ops``, which describes the rings
-        that this route needs, and the side effects of this route.  This method raises a
-        NotImplementedError if either ring is not a group algebra, and a ValueError for a group
-        algebra whose group order the field characteristic divides or for matrices over different
-        group algebras.
+        that this route needs.  This method raises a NotImplementedError if either ring is not a
+        group algebra, and a ValueError for a group algebra whose group order the field
+        characteristic divides or for matrices over different group algebras.
         """
         _check_semisimple_route(matrix_a, matrix_b)
 
@@ -363,9 +359,9 @@ class SLPCode(CSSCode):
         """Canonical logical line operators for a subsystem lifted product code.
 
         These operators are built by the routes of ``LPCode.get_canonical_logical_line_ops``,
-        which describes the matrices that each route needs, and the side effects and errors of each
-        route.  The operators of the split route are those of ``LPCode(matrix_a, matrix_b)``,
-        restricted to its first block of qudits.
+        which describes the matrices that each route needs, and the errors of each route.  The
+        operators of the split route are those of ``LPCode(matrix_a, matrix_b)``, restricted to its
+        first block of qudits.
         """
         # the split route declines semisimple group algebras, so the semisimple route takes
         # precedence
@@ -384,7 +380,7 @@ class SLPCode(CSSCode):
 
         Generalizes SHPCode.get_canonical_logical_line_ops.  These are the ring-valued operators of
         the semisimple route of ``LPCode.get_canonical_logical_line_ops``, which describes the rings
-        that this route needs, and the side effects of this route.  This method raises the errors of
+        that this route needs.  This method raises the errors of
         ``LPCode.get_canonical_ring_logical_line_ops``.
         """
         _check_semisimple_route(matrix_a, matrix_b)

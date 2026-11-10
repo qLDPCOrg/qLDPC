@@ -15,12 +15,14 @@ import copy
 import functools
 import itertools
 import operator
-from collections.abc import Hashable, Iterable, Iterator
+from collections.abc import Callable, Hashable, Iterable, Iterator
 from typing import TYPE_CHECKING, Any
 
 import galois
 import numpy as np
 import numpy.typing as npt
+import scipy.sparse
+import scipy.sparse.csgraph
 import sympy.abc
 import sympy.combinatorics
 import sympy.core
@@ -272,9 +274,6 @@ class GroupRing(Ring):
 
         By default each component's primitive central idempotent is validated; pass
         ``skip_validation=True`` to skip the check (see WedderburnArtinComponentTransformer).
-
-        Unless the ring's primitive central idempotents are already known, this may run GAP, prompt
-        on standard input, and use the system clipboard; see get_primitive_central_idempotents.
         """
         from .wedderburn_artin import WedderburnArtinTransformer  # avoid circular import
 
@@ -378,34 +377,37 @@ class GroupRing(Ring):
         See `Idempotent (ring theory)
         <https://en.wikipedia.org/wiki/Idempotent_%28ring_theory%29>`_.
 
-        Unless they are already known, the idempotents are computed with the GAP Wedderga package
-        and cached to disk.  If GAP can be called but lacks Wedderga, qLDPC asks for consent on
-        standard input to install it.  If GAP cannot be called directly, qLDPC asks on standard
-        input whether GAP is available for copy/paste, and then prints the GAP commands, copies
-        them to the system clipboard, and reads the output that the user pastes into standard input.
+        This method looks up the idempotents in a table of precomputed ones, or else computes them.
+        The cost of this computation grows with the orders of the group and the field, and most
+        steeply with the number of simple components.  The idempotents are sorted by their vectors
+        of coefficients (see ``RingMember.to_vector``).
+
+        Raises a ValueError if this ring is not semisimple.
         """
         if not self.is_semisimple:
             raise ValueError("Only semisimple rings have primitive central idempotents")
         if self._idempotents is None:
             from qldpc.external import _groups  # avoid circular import
 
-            idempotents_as_tuples = _groups.get_primitive_central_idempotents(
-                self.group.to_gap_group(), self.field.order
+            # Look up the idempotents, or else compute them.  The table stores coefficients as
+            # integers in the default representation of the field, so only fields with the default
+            # irreducible polynomial can use it.
+            key = (self.group.to_gap_group(), self.field.order)
+            known_idempotents = _groups.KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS.get(key)
+            default_field = galois.GF(self.field.order)
+            if (
+                known_idempotents is None
+                or self.field.irreducible_poly != default_field.irreducible_poly
+            ):
+                idempotents = _get_primitive_central_idempotents(self)
+            else:
+                idempotents = tuple(
+                    RingMember(self, *((coeff, GroupMember(cycles)) for coeff, cycles in terms))
+                    for terms in known_idempotents
+                )
+            self._idempotents = tuple(
+                sorted(idempotents, key=lambda idempotent: idempotent.to_vector().tolist())
             )
-            idempotents = []
-            for idempotent in idempotents_as_tuples:
-                # collect terms, coercing cycles into elements of self.group
-                terms = [
-                    (
-                        self.field(coefficient),
-                        GroupMember(cycles) * self.group.identity
-                        if cycles != ((),)  # the empty cycle needs special treatment
-                        else self.group.identity,
-                    )
-                    for coefficient, cycles in idempotent
-                ]
-                idempotents.append(RingMember._from_trusted_terms(self, terms))
-            self._idempotents = tuple(idempotents)
         return self._idempotents
 
     def eval(
@@ -545,6 +547,126 @@ class GroupRing(Ring):
                 terms.append(int(x_g) * monomial)
 
         return str(sum(terms) + sympy.core.numbers.Zero()).replace("**", "^").replace("*", " ")
+
+
+def _get_primitive_central_idempotents(ring: GroupRing) -> tuple[RingMember, ...]:
+    """Compute the primitive central idempotents of a semisimple group algebra ``F_q[G]``.
+
+    Members g and h of G are ``F_q``-conjugate if ``h = y·g^(q^i)·y^(-1)`` for some ``y ∈ G`` and
+    integer ``i ≥ 0``.  By the Witt-Berman theorem, the sums over these ``F_q``-conjugacy classes
+    form a basis of the subalgebra B of central members z with ``z^q = z``.  If there are n of these
+    classes, then B is isomorphic to a product of n copies of ``F_q``.  Every primitive central
+    idempotent (PCI) of ``F_q[G]`` lies in B, so the n PCIs of B are those of ``F_q[G]``.
+
+    This function splits the identity of B into orthogonal idempotents until there are n of them.
+    Each split takes a random member b of B and an idempotent e found so far.  The minimal
+    polynomial m(x) of ``b·e`` in ``e·B`` has distinct roots ``λ ∈ F_q``, and e is the sum of the
+    orthogonal idempotents
+
+        ``e_λ = (m(x) / (x - λ)) / m'(λ)``,  evaluated at ``x = b·e``, where ``x^0 = e``.
+
+    The PCIs do not depend on the random choices, but their order does.
+    """
+    assert ring.is_semisimple
+
+    # This function computes with integer arrays of permutations, rather than with SymPy
+    # permutations, products of RingMembers, or tables with |G| × |G| entries, such as Group.table
+    # and adjoint lifts.  Its largest arrays have |G| × d entries, where d is the number of points
+    # that G acts on, and n × |G| entries.
+
+    # index members of G by their permutations, in the order of the coefficients of ring members
+    group, field = ring.group, ring.field
+    perms = np.array([member.array_form for member in group._members], dtype=int)
+    inverses = np.argsort(perms, axis=1)
+    member_index = {perm.tobytes(): index for index, perm in enumerate(perms)}
+
+    def get_indices(perms_to_find: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        return np.array([member_index[perm.tobytes()] for perm in perms_to_find], dtype=int)
+
+    # raise every member g to the power q by repeated squaring, composing members as
+    # (a·b)[i] = b[a[i]]
+    qth_powers = np.broadcast_to(np.arange(group.degree, dtype=int), perms.shape)
+    squares, exponent = perms, field.order
+    while exponent:
+        if exponent % 2:
+            qth_powers = np.take_along_axis(squares, qth_powers, axis=1)
+        squares = np.take_along_axis(squares, squares, axis=1)
+        exponent //= 2
+
+    # identify F_q-conjugacy classes as the connected components of a graph that joins each member g
+    # to g^q and to its conjugates by the generators of G
+    neighbors = [get_indices(qth_powers)]
+    for generator in group.generators:
+        generator_array = np.array(generator.array_form, dtype=int)
+        conjugates = np.argsort(generator_array)[perms[:, generator_array]]
+        neighbors.append(get_indices(conjugates))
+    graph = scipy.sparse.coo_array(
+        (
+            np.ones(len(neighbors) * group.order),
+            (np.tile(np.arange(group.order), len(neighbors)), np.concatenate(neighbors)),
+        ),
+        shape=(group.order, group.order),
+    )
+    num_classes, class_of = scipy.sparse.csgraph.connected_components(graph, directed=False)
+    representatives = [np.flatnonzero(class_of == label)[0] for label in range(num_classes)]
+
+    # Members of B are vectors of coefficients on class sums.  The coefficient of a product x·y on
+    # the class of a member r is the sum over g ∈ G of x(class of r·g^(-1))·y(class of g).
+    product_classes = class_of[
+        np.array([get_indices(inverses[:, perms[rep]]) for rep in representatives])
+    ]
+
+    def multiply(left: galois.FieldArray, right: galois.FieldArray) -> galois.FieldArray:
+        return left[product_classes] @ right[class_of]
+
+    # repeatedly split idempotents into orthogonal idempotents, starting from the identity of B
+    identity = field.Zeros(num_classes)
+    identity[class_of[member_index[np.arange(group.degree, dtype=int).tobytes()]]] = 1
+    idempotents = [identity]
+    rng = np.random.default_rng(0)
+    while len(idempotents) < num_classes:
+        random_member = field.Random(num_classes, seed=rng)
+        new_idempotents = []
+        for idempotent in idempotents:
+            element = multiply(random_member, idempotent)
+            minimal_poly, element_powers = _get_minimal_polynomial(element, idempotent, multiply)
+            # B is a product of copies of F_q, so m(x) has distinct roots in F_q.  A search over F_q
+            # finds them faster than factorization for the small fields that qLDPC typically uses.
+            roots = minimal_poly.roots()
+            assert len(roots) == minimal_poly.degree
+            derivative = minimal_poly.derivative()
+            for root in roots:
+                quotient = minimal_poly // galois.Poly([1, -root], field=field)
+                new_idempotents.append(quotient.coeffs[::-1] / derivative(root) @ element_powers)
+        idempotents = new_idempotents
+
+    # expand idempotents into coefficients on members of G
+    return tuple(RingMember.from_vector(idempotent[class_of], ring) for idempotent in idempotents)
+
+
+def _get_minimal_polynomial(
+    element: galois.FieldArray,
+    identity: galois.FieldArray,
+    multiply: Callable[[galois.FieldArray, galois.FieldArray], galois.FieldArray],
+) -> tuple[galois.Poly, galois.FieldArray]:
+    """Find the minimal polynomial of an element of an algebra with a given identity and product.
+
+    The zeroth power of the element is the identity.  Returns the minimal polynomial, and a matrix
+    whose rows are the powers of the element below the degree of that polynomial.
+
+    WedderburnArtinComponentTransformer._get_minimal_polynomial does the same with regular lifts,
+    whose size is the order of the group.  This function instead works with vectors of length n in
+    the subalgebra B of _get_primitive_central_idempotents, which is much smaller.
+    """
+    field = type(element)
+    powers = [identity]
+    while True:
+        next_power = multiply(element, powers[-1])
+        null_space = field(np.array([*powers, next_power])).T.null_space()
+        if len(null_space):
+            relation = null_space[0] / null_space[0][-1]
+            return galois.Poly(relation[::-1]), field(np.array(powers))
+        powers.append(next_power)
 
 
 ####################################################################################################
