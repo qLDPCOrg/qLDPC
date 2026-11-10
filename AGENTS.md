@@ -30,7 +30,8 @@ Read the [orientation](docs/source/contributing/index.rst#orientation) before re
 When asked to run a **standard review**, coordinate it as [reviewing changes](docs/source/contributing/reviewing.rst) describes.
 Run a standard review only when asked; you may suggest one.
 As a reviewer within a standard review, follow the coordinator's instructions, and end your report without a review status.
-Otherwise, end every report on a change with its review status, as in "standard review: not run" or "standard review: 2 rounds; open decisions: none".
+Otherwise, end every report on a change with its review status, as in "standard review: not run" or "standard review: 2 rounds; pre-existing problems fixed: 1; open decisions: none".
+Count every pre-existing problem that the review fixed, and list each one in the report, so that the maintainer sees each change they did not ask for.
 When asked for a pull request description, follow the [pull request standard](docs/source/contributing/standards/pull_requests.rst).
 Use judgment to point out when a change would be easier to review as a sequence of smaller pull requests, such as when it mixes concerns that could merge separately or its review stops converging.
 
