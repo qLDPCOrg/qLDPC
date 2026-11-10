@@ -277,7 +277,7 @@ Four parts of a distance search do not carry over:
 - The weights of the vectors with a syndrome need not share a divisor, so the query has none.
 - Every vector with the syndrome counts, so the query has no logical test.
 
-The fault-propagation certifier in `qldpc.circuits.certification` uses `CosetLeaderSearch` in `_search/coset_leader_search.py`.
+The fault-propagation certifier in `qldpc.circuits.certification`, and the experimental residual-weight estimator, use `CosetLeaderSearch` in `_search/coset_leader_search.py`.
 When it is built with `method="connected_support"`, `CosetLeaderSearch` answers each of its queries by a table lookup, or by such queries at one or more weight limits.
 It searches the Pauli errors of a state by their physical weight.
 The CSS weight `max(|x|, |z|)` is not a sum over qubits, so for it, on a CSS state, it searches the X and Z parts separately, and on any other state it raises an error.
