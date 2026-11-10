@@ -267,12 +267,21 @@ def test_group_members_of_ring_members() -> None:
 
 
 def test_primitive_central_idempotents(ring_cyclic3_gf2: abstract.GroupRing) -> None:
-    """Convert external primitive central idempotents into RingMembers."""
+    """Get primitive central idempotents, from a table of known ones or by computing them."""
     ring = ring_cyclic3_gf2
     x = ring.generators[0]
     idempotents = ring.get_primitive_central_idempotents()
     assert idempotents == (x**2 + x + 1, x**2 + x)
     assert all(idempotent == idempotent * idempotent for idempotent in idempotents)
+
+    # GF(7)[C3] is not in the table.  Its idempotents are (1/3) sum_g w(g^{-1}) g for the cube roots
+    # of unity w = 1, 2, 4 in GF(7), where 1/3 = 5.
+    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=7)
+    x = ring.generators[0]
+    expected = [5 + 5 * x + 5 * x**2, 5 + 6 * x + 3 * x**2, 5 + 3 * x + 6 * x**2]
+    idempotents = ring.get_primitive_central_idempotents()
+    assert len(idempotents) == len(expected)
+    assert all(idempotent in idempotents for idempotent in expected)
 
     with pytest.raises(ValueError, match="Only semisimple rings"):
         abstract.GroupRing(abstract.CyclicGroup(2), field=2).get_primitive_central_idempotents()

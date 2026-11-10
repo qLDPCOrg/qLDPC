@@ -159,10 +159,7 @@ class LPCode(CSSCode):
         algebras, and need a field characteristic that does not divide the group order.  This method
         raises a NotImplementedError if either ring is not a group algebra, and otherwise a
         ValueError for matrices over different rings or for a group algebra that fails this
-        condition.  Unless the primitive central idempotents of the group algebra are known, this
-        method may run GAP, prompt on standard input, and use the system clipboard; see
-        GroupRing.get_transformer.  These operators also assume that the involution of the ring
-        transposes lifts.
+        condition.  These operators also assume that the involution of the ring transposes lifts.
         """
         logical_ops_xz = LPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
         return LPCode.to_lifted_logical_ops(*logical_ops_xz)

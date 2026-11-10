@@ -12,7 +12,6 @@ import urllib.error
 import urllib.request
 import warnings
 
-import galois
 import pyperclip
 
 import qldpc.cache
@@ -332,95 +331,20 @@ def _get_small_group_number_from_gap(order: int) -> int:
 # primitive central idempotents
 
 
-@qldpc.cache.use_disk_cache(
-    "idempotents",
-    key_func=lambda group, field: ("".join(group.split()), field),  # strip whitespace
-)
-def get_primitive_central_idempotents(group: str, field: int) -> _IdempotentsList:
-    """Get the primitive central idempotents of a group algebra over a finite field.
+def get_known_primitive_central_idempotents(group: str, field: int) -> _IdempotentsList | None:
+    """Get the primitive central idempotents of a group algebra over a finite field, if known.
 
-    This function uses the GAP Wedderga package (https://gap-packages.github.io/wedderga/), which it
-    may install, run through qldpc.external.gap.get_output.
+    The group is a GAP group expression, such as the output of ``abstract.Group.to_gap_group``.
+    The known idempotents come from the GAP Wedderga package
+    (https://gap-packages.github.io/wedderga/).
 
-    Primitive central idempotents of a ring are nonzero elements that:
-
-    - square to themselves (they are idempotent)
-    - commute with all other elements of the ring (they lie in the ring's center), and
-    - cannot be decomposed into a sum of two nonzero orthogonal idempotents.
-
-    Two idempotents g, h are orthogonal if ``g * h = h * g = 0``.
-
-    Intuitively, primitive central idempotents act like projectors onto orthogonal components of a
-    ring.
-
-    See `Idempotent (ring theory)
-    <https://en.wikipedia.org/wiki/Idempotent_%28ring_theory%29>`_.
-
-    Returns a tuple of idempotents, where each idempotent is represented by a tuple of terms (to
-    sum), and each term is in turn a tuple (coefficient, permutation).  Here the coefficient is an
-    element of galois.GF(field) cast to an integer, and the permutation is expressed in cyclic form,
-    namely as a tuple of tuples of integers.
+    Returns None if the idempotents are not known.  Otherwise returns a list of idempotents, where
+    each idempotent is represented by a tuple of terms (to sum), and each term is in turn a tuple
+    (coefficient, permutation).  Here the coefficient is an element of galois.GF(field) cast to an
+    integer, and the permutation is expressed in cyclic form, namely as a tuple of tuples of
+    integers.
     """
-    if pcis := _KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS.get((group, field)):
-        return pcis
-
-    qldpc.external.gap.require_package("Wedderga")
-
-    gap_output = qldpc.external.gap.get_output(
-        'LoadPackage("wedderga", false);;',
-        f"group := {group};;",
-        f"ring := GroupRing(GF({field}), group);;",
-        "idempotents := PrimitiveCentralIdempotentsByCharacterTable(ring);;",
-        "Print(idempotents);;",
-    )
-
-    # parse GAP's group-ring output as coefficients followed by permutation cycles
-    coefficient_pattern = r"\(Z\(\d+(?:\^\d+)?\)(?:\^\d+)?\)"
-    cycle_pattern = r"\(\s*\d+(?:,\s*\d+)*\)|\(\)"
-    cycles_pattern = f"(?:{cycle_pattern})+"
-    ring_term_pattern = rf"{coefficient_pattern}\*{cycles_pattern}"
-    ring_member_pattern = rf"(?:{ring_term_pattern})(?:\+{ring_term_pattern})*"
-
-    re_ring_term = re.compile(ring_term_pattern)
-    re_ring_member = re.compile(ring_member_pattern)
-    re_cycle = re.compile(cycle_pattern)
-    re_integer = re.compile(r"\d+")
-    re_coefficient_components = re.compile(r"\(Z\((\d+)(?:\^(\d+))?\)(?:\^(\d+))?\)")
-
-    idempotents = []
-    for ring_member_match in re_ring_member.finditer(gap_output):
-        idempotent = []
-        for ring_term_match in re_ring_term.finditer(ring_member_match.group()):
-            coefficient_string, cycles_string = ring_term_match.group().split("*")
-
-            # Convert "Z(p^k)^m" into an element of GF(field).  Z(p^k) is the primitive element of
-            # the subfield GF(p^k), which is not the same as the integer galois.GF(p**k) uses to
-            # store it: the embedding GF(p^k) -> GF(field) sends the subfield generator to
-            # ``GF(field).primitive_element ** ((field - 1) // (p^k - 1))``, and Z(p^k)^m follows.
-            # This relies on GAP and galois selecting the same primitive element of GF(field); both
-            # use Conway polynomials (galois for field orders in its Conway database, which covers
-            # every field small enough to arise here), so their primitive elements agree.
-            coefficient_match = re_coefficient_components.match(coefficient_string)
-            assert coefficient_match is not None
-            pp = int(coefficient_match.group(1))
-            kk = int(coefficient_match.group(2) or 1)
-            mm = int(coefficient_match.group(3) or 1)
-            # GAP only reports Z(p^k) for elements that lie in GF(field), so k divides the degree of
-            # GF(field) and (p^k - 1) divides (field - 1) exactly (no floor-division truncation).
-            assert (field - 1) % (pp**kk - 1) == 0
-            subfield_embedding_power = (field - 1) // (pp**kk - 1)
-            coefficient = galois.GF(field).primitive_element ** (subfield_embedding_power * mm)
-
-            # extract and 0-index cycles
-            cycles = tuple(
-                tuple(int(ii) - 1 for ii in re_integer.findall(cycle_match.group()))
-                for cycle_match in re_cycle.finditer(cycles_string)
-            )
-            idempotent.append((int(coefficient), cycles))
-
-        idempotents.append(tuple(idempotent))
-
-    return idempotents
+    return _KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS.get((group, field))
 
 
 ####################################################################################################

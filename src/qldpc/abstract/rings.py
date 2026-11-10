@@ -272,9 +272,6 @@ class GroupRing(Ring):
 
         By default each component's primitive central idempotent is validated; pass
         ``skip_validation=True`` to skip the check (see WedderburnArtinComponentTransformer).
-
-        Unless the ring's primitive central idempotents are already known, this may run GAP, prompt
-        on standard input, and use the system clipboard; see get_primitive_central_idempotents.
         """
         from .wedderburn_artin import WedderburnArtinTransformer  # avoid circular import
 
@@ -378,34 +375,38 @@ class GroupRing(Ring):
         See `Idempotent (ring theory)
         <https://en.wikipedia.org/wiki/Idempotent_%28ring_theory%29>`_.
 
-        Unless they are already known, the idempotents are computed with the GAP Wedderga package
-        and cached to disk.  If GAP can be called but lacks Wedderga, qLDPC asks for consent on
-        standard input to install it.  If GAP cannot be called directly, qLDPC asks on standard
-        input whether GAP is available for copy/paste, and then prints the GAP commands, copies
-        them to the system clipboard, and reads the output that the user pastes into standard input.
+        A table holds the idempotents of some small group algebras, which were found with the GAP
+        Wedderga package.  Other idempotents are computed from sums over classes of group members.
+        The cost of this computation grows with the order of the group and, more steeply, with the
+        number of simple components.
         """
         if not self.is_semisimple:
             raise ValueError("Only semisimple rings have primitive central idempotents")
         if self._idempotents is None:
             from qldpc.external import _groups  # avoid circular import
 
-            idempotents_as_tuples = _groups.get_primitive_central_idempotents(
+            from .wedderburn_artin import _get_primitive_central_idempotents
+
+            known_idempotents = _groups.get_known_primitive_central_idempotents(
                 self.group.to_gap_group(), self.field.order
             )
-            idempotents = []
-            for idempotent in idempotents_as_tuples:
-                # collect terms, coercing cycles into elements of self.group
-                terms = [
-                    (
-                        self.field(coefficient),
-                        GroupMember(cycles) * self.group.identity
-                        if cycles != ((),)  # the empty cycle needs special treatment
-                        else self.group.identity,
-                    )
-                    for coefficient, cycles in idempotent
-                ]
-                idempotents.append(RingMember._from_trusted_terms(self, terms))
-            self._idempotents = tuple(idempotents)
+            if known_idempotents is None:
+                self._idempotents = _get_primitive_central_idempotents(self)
+            else:
+                idempotents = []
+                for idempotent in known_idempotents:
+                    # collect terms, coercing cycles into elements of self.group
+                    terms = [
+                        (
+                            self.field(coefficient),
+                            GroupMember(cycles) * self.group.identity
+                            if cycles != ((),)  # the empty cycle needs special treatment
+                            else self.group.identity,
+                        )
+                        for coefficient, cycles in idempotent
+                    ]
+                    idempotents.append(RingMember._from_trusted_terms(self, terms))
+                self._idempotents = tuple(idempotents)
         return self._idempotents
 
     def eval(

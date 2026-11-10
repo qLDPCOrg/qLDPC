@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from qldpc import abstract
+from qldpc.abstract import wedderburn_artin
 
 
 def test_scalar_embedding_is_field_isomorphism(wa_ring: abstract.GroupRing) -> None:
@@ -221,6 +222,37 @@ def test_primitive_central_idempotent_validation(
     trusted_pci = ring.get_primitive_central_idempotents()[0]
     transformer(trusted_pci, skip_validation=True)
     abstract.WedderburnArtinTransformer(ring, skip_validation=True)
+
+
+@pytest.mark.parametrize(
+    "group, field",
+    [
+        (abstract.CyclicGroup(7), 2),
+        (abstract.CyclicGroup(4), 3),
+        (abstract.CyclicGroup(3), 4),
+        (abstract.DihedralGroup(3), 5),
+        (abstract.AlternatingGroup(4), 5),
+        (abstract.DihedralGroup(5), 3),
+    ],
+)
+def test_primitive_central_idempotents(group: abstract.Group, field: int) -> None:
+    """Computed primitive central idempotents match those that GAP's Wedderga package found."""
+    # import here, so that importing this file does not cover _groups.py at import time
+    from qldpc.external import _groups
+
+    ring = abstract.GroupRing(group, field)
+    assert _groups.get_known_primitive_central_idempotents(group.to_gap_group(), field) is not None
+    known = ring.get_primitive_central_idempotents()
+    computed = wedderburn_artin._get_primitive_central_idempotents(ring)
+    assert sorted(pci.to_vector().tolist() for pci in computed) == sorted(
+        pci.to_vector().tolist() for pci in known
+    )
+
+
+def test_primitive_central_idempotents_of_trivial_group() -> None:
+    """The group algebra of the trivial group has one primitive central idempotent: its identity."""
+    ring = abstract.GroupRing(abstract.TrivialGroup())
+    assert wedderburn_artin._get_primitive_central_idempotents(ring) == (ring.one,)
 
 
 def test_wedderburn_artin_requires_group_algebra() -> None:
