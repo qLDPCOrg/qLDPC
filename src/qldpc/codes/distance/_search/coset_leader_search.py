@@ -4,7 +4,8 @@
 
 The Pauli errors with a given syndrome form a coset of the stabilizer group, and a lightest error in
 it is a coset leader.  ``CosetLeaderSearch`` decides whether the coset leaders of a syndrome class
-weigh at most a given maximum weight, with Brouwer-Zimmermann searches of cosets of binary codes.
+weigh at most a given maximum weight, with Brouwer-Zimmermann searches of cosets of binary codes, or
+with connected-support searches that start from the syndrome (see ``connected_support.py``).
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from __future__ import annotations
 import functools
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 import numpy as np
 import numpy.typing as npt
@@ -31,7 +32,7 @@ from qldpc._compilation import always_compiled
 from .. import _tuning
 from .._binary import as_binary_matrix, assert_binary, symplectic_to_hamming
 from .._tuning import get_tuning
-from . import affine_instance, affine_search, information_sets
+from . import affine_instance, affine_search, connected_support, information_sets
 
 # The planning buffer of a coset search: the bounds of its steps, and one more row that caches a
 # stopping step (see ``_get_planning``).
@@ -79,10 +80,10 @@ class CosetLeaderSearch:
     stabilizer ``j``.  The weight of an error is either its physical weight, the number of qubits
     that it acts on, or its CSS weight ``max(|x|, |z|)``.
 
-    The oracle answers a query with one or two coset searches.  Each searches the cosets of a binary
-    code with the Brouwer-Zimmermann (BZ) algorithm (see ``brouwer_zimmermann.md``), as
-    ``_search_coset`` describes.  ``get_min_weight_bound`` first looks up words of weight at most
-    one in a table.
+    The oracle answers a query with one or two coset searches.  By default, each searches the
+    cosets of a binary code with the Brouwer-Zimmermann (BZ) algorithm (see
+    ``brouwer_zimmermann.md``), as ``_search_coset`` describes, and ``get_min_weight_bound`` first
+    looks up words of weight at most one in a table.
 
     - In general, one Pauli search covers the Pauli errors themselves, modulo the stabilizers.
       Its syndromes are for the given stabilizers, so it is cached for the most recently used
@@ -102,23 +103,54 @@ class CosetLeaderSearch:
       ``_tuning.CSS_SEARCH_CACHE_SIZE``), and oracles for different generating sets of one state
       share them.
 
+    With ``method="connected_support"``, each coset search is instead the search of
+    ``connected_support.SupportSearch`` from the syndrome of a query, through the unsatisfied
+    stabilizers for Pauli errors, the pure-Z stabilizers for X parts, and the pure-X stabilizers
+    for Z parts (Section 3.8 of ``connected_support.md``).  It is fast if its checks are sparse.
+    Given stabilizers, such as row-reduced ones, can be dense, so it first makes its checks sparser
+    by adding them to each other, which can fall short of the sparsest generators.  It uses no
+    tuning field.  The CSS weight is not a sum over qubits, so it weighs errors by CSS weight only
+    on CSS states, whose X and Z parts it searches separately.  Its bounds are weaker.  A query
+    within ``max_weight`` gives a lower bound of one, or zero for an empty syndrome.  A query with
+    no error within ``max_weight`` gives ``max_weight + 1``, or, for a negative ``max_weight``, one,
+    or zero for an empty syndrome.  The BZ searches often give higher bounds, which spare queries
+    to consumers that raise a threshold to each bound.
+
     Args:
         stabilizers: A binary ``n x 2n`` matrix in ``[X|Z]`` order whose rows are independent
             commuting stabilizers.
         css_weight: True to weigh an error by its CSS weight, or False to weigh it by its physical
             weight.
+        method: ``"brouwer_zimmermann"`` (the default) or ``"connected_support"``, the search of
+            the cosets.
 
     The oracle reads the active tuning (see ``_tuning``) when it is built.  Its field
-    ``disjoint_random_column_orders`` configures every search of the oracle, and
-    ``max_css_single_pairs`` the searches by CSS weight that are not split into two classical
+    ``disjoint_random_column_orders`` configures every BZ search of the oracle, and
+    ``max_css_single_pairs`` the BZ searches by CSS weight that are not split into two classical
     searches.
 
     Raises:
-        ValueError: If the stabilizers are not ``n`` independent commuting stabilizers.
+        ValueError: If the stabilizers are not ``n`` independent commuting stabilizers, if the
+            method is unknown, or if the connected-support method would weigh errors on a state that
+            is not CSS by their CSS weight.
     """
 
-    def __init__(self, stabilizers: npt.ArrayLike, *, css_weight: bool = False) -> None:
+    def __init__(
+        self,
+        stabilizers: npt.ArrayLike,
+        *,
+        css_weight: bool = False,
+        method: Literal["brouwer_zimmermann", "connected_support"] = "brouwer_zimmermann",
+    ) -> None:
+        if method not in ("brouwer_zimmermann", "connected_support"):
+            raise ValueError(
+                f"Unknown coset-leader search method {method!r}; choose from 'brouwer_zimmermann'"
+                " or 'connected_support'"
+            )
         tuning = get_tuning()
+        # Exactly one of the BZ searches and the connected-support searches is nonempty.
+        self._searches: tuple[_CosetSearch, ...] = ()
+        self._support_searches: tuple[_ConnectedSupportCosetSearch, ...] = ()
         self.css_weight = css_weight
         assert_binary(stabilizers, "stabilizers")
         matrix = as_binary_matrix(stabilizers)
@@ -137,19 +169,27 @@ class CosetLeaderSearch:
         # parts of the errors be searched separately.
         combinations = _get_css_combinations(matrix) if css_weight else None
         if combinations is None:
-            self._searches: tuple[_CosetSearch, ...] = (
-                _get_pauli_search(
-                    _StabilizerKey(matrix, checks),
-                    css_weight,
-                    tuning.disjoint_random_column_orders,
-                    tuning.max_css_single_pairs,
-                ),
-            )
+            if method == "brouwer_zimmermann":
+                self._searches = (
+                    _get_pauli_search(
+                        _StabilizerKey(matrix, checks),
+                        css_weight,
+                        tuning.disjoint_random_column_orders,
+                        tuning.max_css_single_pairs,
+                    ),
+                )
+            elif css_weight:
+                raise ValueError(
+                    "The connected-support method weighs errors by CSS weight only on CSS states;"
+                    " use css_weight=False or the default method"
+                )
+            else:
+                self._support_searches = (_ConnectedSupportCosetSearch(matrix, homogeneous=False),)
             return
 
         # Combine the stabilizers into pure-X and pure-Z stabilizers, and row-reduce the X parts of
         # the pure-X stabilizers and the Z parts of the pure-Z stabilizers.  The reduced rows depend
-        # only on the stabilizer group, so they key the cache of searches.
+        # only on the stabilizer group, so they key the cache of BZ searches.
         x_combinations, z_combinations = combinations
         x_rows, x_transform, _ = row_reduce_binary(
             (x_combinations @ matrix[:, :n]) % 2, np.eye(len(x_combinations), dtype=np.uint8)
@@ -158,13 +198,21 @@ class CosetLeaderSearch:
             (z_combinations @ matrix[:, n:]) % 2, np.eye(len(z_combinations), dtype=np.uint8)
         )
         assert x_transform is not None and z_transform is not None
-        self._searches = _get_css_searches(
-            n,
-            len(x_rows),
-            pack_bits(x_rows).tobytes(),
-            pack_bits(z_rows).tobytes(),
-            tuning.disjoint_random_column_orders,
-        )
+        if method == "connected_support":
+            # The Z parts of the pure-Z stabilizers check the X parts, and the X parts of the pure-X
+            # stabilizers check the Z parts.
+            self._support_searches = (
+                _ConnectedSupportCosetSearch(z_rows, homogeneous=True),
+                _ConnectedSupportCosetSearch(x_rows, homogeneous=True),
+            )
+        else:
+            self._searches = _get_css_searches(
+                n,
+                len(x_rows),
+                pack_bits(x_rows).tobytes(),
+                pack_bits(z_rows).tobytes(),
+                tuning.disjoint_random_column_orders,
+            )
 
         # Row ``j`` of ``z_rows`` is the Z part of a pure-Z stabilizer, the product of the given
         # stabilizers with coefficients ``c = (z_transform @ z_combinations)[j]``.  An error's
@@ -204,13 +252,14 @@ class CosetLeaderSearch:
         """
         if not 0 <= syndrome < 1 << self.num_qubits:
             raise ValueError("The syndrome is out of range")
-        if len(self._searches) == 1:
-            return self._searches[0].get_min_weight_bound(syndrome, max_weight)
+        searches = self._support_searches or self._searches
+        if len(searches) == 1:
+            return searches[0].get_min_weight_bound(syndrome, max_weight)
         part_syndromes = _xor_selected(self._joint_map_columns, syndrome)
         x_syndrome = part_syndromes & ((1 << self._num_x_syndrome_bits) - 1)
         z_syndrome = part_syndromes >> self._num_x_syndrome_bits
-        x_bound = self._searches[0].get_min_weight_bound(x_syndrome, max_weight)
-        z_bound = self._searches[1].get_min_weight_bound(z_syndrome, max_weight)
+        x_bound = searches[0].get_min_weight_bound(x_syndrome, max_weight)
+        z_bound = searches[1].get_min_weight_bound(z_syndrome, max_weight)
         return MinWeightBound(
             x_bound.within_max_weight and z_bound.within_max_weight,
             x_bound.representative | (z_bound.representative << self.num_qubits),
@@ -225,16 +274,26 @@ class CosetLeaderSearch:
         Args:
             syndromes: One packed syndrome (see ``CosetLeaderSearch``) per row, split into 64-bit
                 machine words, with machine word ``j`` holding bits ``64 j`` and up.  Each syndrome
-                must be below ``2**num_qubits``; this is not checked.  The rows may have fewer words
+                must be below ``2**num_qubits``.  The BZ searches do not check this, and the
+                connected-support searches raise a ``ValueError``.  The rows may have fewer words
                 than ``num_qubits`` bits need, if every syndrome fits in them.
             max_weight: The largest weight that the query accepts.
 
         Returns:
             The index of that syndrome, or the number of syndromes if there is none, and a
-            ``MinWeightBound`` for that syndrome, or None if there is none.  With one search, the
-            bound is the one that the batch search found, so the syndrome is not searched again.
-            With two searches, it is the one that ``get_min_weight_bound`` gives.
+            ``MinWeightBound`` for that syndrome, or None if there is none.  With one BZ search,
+            the bound is the one that the batch search found, so the syndrome is not searched
+            again.  With two BZ searches, or with the connected-support method, it is the one that
+            ``get_min_weight_bound`` gives.
         """
+        # The connected-support searches answer one syndrome at a time.
+        if self._support_searches:
+            for index, row in enumerate(syndromes):
+                bound = self.get_min_weight_bound(_packed_row_int(row), max_weight)
+                if not bound.within_max_weight:
+                    return index, bound
+            return len(syndromes), None
+
         # With one search, take its bound and the lightest error that it visited.
         if len(self._searches) == 1:
             (search,) = self._searches
@@ -453,6 +512,81 @@ class _StabilizerKey:
         return isinstance(other, _StabilizerKey) and self._key == other._key
 
 
+class _ConnectedSupportCosetSearch:
+    """A coset search of a ``CosetLeaderSearch`` by the connected-support search of its checks.
+
+    The words, checks, and syndromes are those of a ``_CosetSearch``: packed Paulis, whose syndrome
+    for the stabilizers is that of the symplectic search of ``connected_support.SupportSearch``, or
+    the X or Z parts of Paulis, whose syndrome is that of a binary search of the checks.  The search
+    starts from the syndrome of a query, and grows supports through its unsatisfied checks (Section
+    3.8 of ``connected_support.md``).  Its bounds are weaker than those of a ``_CosetSearch``.  A
+    query within ``max_weight`` gives a lower bound of one, or zero for an empty syndrome.  A query
+    with no word within ``max_weight`` gives ``max_weight + 1``, or, for a negative ``max_weight``,
+    one, or zero for an empty syndrome.
+
+    The search is fast only if its checks are sparse, but the given checks, such as row-reduced
+    stabilizers, can be dense.  So it searches the sparser checks of ``_sparsify``, which span the
+    same space, and maps the syndrome of a query to them.
+
+    Args:
+        matrix: The checks, whose kernel is the code: the stabilizers, in ``[X|Z]`` order, for
+            Paulis, or the rows that check the X or Z parts.  Bit ``j`` of the syndrome of a word
+            is its symplectic product with row ``j`` for Paulis, and its dot product for parts.
+        homogeneous: False for Paulis, and True for X or Z parts.
+    """
+
+    def __init__(self, matrix: npt.NDArray[np.uint8], *, homogeneous: bool) -> None:
+        rows, transform = _sparsify(matrix, homogeneous=homogeneous)
+        self._num_checks = len(rows)
+        # Row ``i`` of the sparse rows sums the given rows that row ``i`` of the transform selects,
+        # so bit ``i`` of a syndrome for them is the parity of those bits of the given syndrome.
+        # Entry ``j`` of the map is column ``j`` of the transform, which a given syndrome bit adds.
+        self._syndrome_map_columns = _row_ints(np.ascontiguousarray(transform.T))
+        # Without a function that finds automorphisms, the search never asks for them.
+        self._search = connected_support.SupportSearch(
+            rows,
+            np.zeros((0, matrix.shape[1]), dtype=np.uint8),
+            homogeneous=homogeneous,
+            automorphism_minimum_states=_tuning.MAX_VALUE,
+        )
+        # Row ``j`` of the inverse is a word whose syndrome has only bit ``j`` set, so the words of
+        # the set bits of a syndrome sum to a representative of its coset.  The syndrome of a Pauli
+        # is its product with the rows whose halves are swapped.
+        num_variables = self._search.num_variables
+        syndrome_rows = rows if homogeneous else np.roll(rows, num_variables, axis=1)
+        self._inverse_rows = _row_ints(_get_inverse(syndrome_rows))
+
+    def get_min_weight_bound(self, syndrome: int, max_weight: int) -> MinWeightBound:
+        """Decide whether the coset of this syndrome has a word of weight at most ``max_weight``.
+
+        A negative ``max_weight`` admits no word, as for a ``_CosetSearch``.
+        """
+        # Map the syndrome to the sparse checks, and search from its bits, which the search packs
+        # again.  Every word weighs at least one, unless the syndrome is empty.
+        syndrome = _xor_selected(self._syndrome_map_columns, syndrome)
+        least_weight = int(syndrome != 0)
+        symbols = None
+        if max_weight >= 0:
+            num_words = (self._num_checks + 63) // 64
+            bits = unpack_bits(_int_to_words(syndrome, num_words)[None], self._num_checks)[0]
+            symbols = self._search.find_vector_with_syndrome(bits, max_weight)
+        if symbols is None:
+            representative = _xor_selected(self._inverse_rows, syndrome)
+            return MinWeightBound(False, representative, max(max_weight + 1, least_weight))
+
+        # A symbol gives the qubit ``symbol % n`` the Pauli X, Z, or Y for values 0, 1, and 2.  The
+        # symbols of an X or Z part have only the value 0.
+        num_variables = self._search.num_variables
+        word = 0
+        for symbol in symbols.tolist():
+            value, variable = divmod(symbol, num_variables)
+            if value != 1:
+                word |= 1 << variable
+            if value:
+                word |= 1 << (num_variables + variable)
+        return MinWeightBound(True, word, least_weight)
+
+
 @functools.lru_cache(maxsize=_tuning.PAULI_SEARCH_CACHE_SIZE)
 def _get_pauli_search(
     key: _StabilizerKey,
@@ -545,6 +679,57 @@ def _get_inverse(checks: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
     inverse = np.zeros(checks.shape, dtype=np.uint8)
     inverse[:, pivots] = labels.T
     return inverse
+
+
+def _sparsify(
+    matrix: npt.NDArray[np.uint8], *, homogeneous: bool
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
+    """Rows with the span of the given rows, made sparser by adding rows to each other.
+
+    The weight of a row is its number of nonzero entries, or, if the rows are symplectic, the
+    number of qubits on which its X part ``[:n]`` or its Z part ``[n:]`` is nonzero.  While adding
+    another row to a row lowers its weight, the row takes the sum that is lightest.  Every addition
+    lowers the total weight, so this ends.
+
+    Args:
+        matrix: The rows.
+        homogeneous: False if the rows are symplectic, and True otherwise.
+
+    Returns:
+        The rows, and the invertible transform ``T``, so that the rows are ``T @ matrix % 2``.
+    """
+    # Pack the X and Z parts, or the rows and zeros, so that a weight counts the nonzero qubits.
+    num_rows, width = matrix.shape
+    num_variables = width if homogeneous else width // 2
+    part_x = pack_bits(np.ascontiguousarray(matrix[:, :num_variables]))
+    part_z = (
+        np.zeros_like(part_x)
+        if homogeneous
+        else pack_bits(np.ascontiguousarray(matrix[:, num_variables:]))
+    )
+    transform = np.eye(num_rows, dtype=np.uint8)
+    weights = np.bitwise_count(part_x | part_z).sum(axis=1, dtype=np.int64)
+
+    # Replace each row by its lightest sum with another row, while that lowers its weight.  A row
+    # added to itself would vanish, so its own entry keeps its weight, which never wins.
+    improved = True
+    while improved:
+        improved = False
+        for row in range(num_rows):
+            sums_x, sums_z = part_x ^ part_x[row], part_z ^ part_z[row]
+            sum_weights = np.bitwise_count(sums_x | sums_z).sum(axis=1, dtype=np.int64)
+            sum_weights[row] = weights[row]
+            other = int(np.argmin(sum_weights))
+            if sum_weights[other] < weights[row]:
+                part_x[row], part_z[row] = sums_x[other], sums_z[other]
+                transform[row] ^= transform[other]
+                weights[row] = sum_weights[other]
+                improved = True
+
+    parts = [unpack_bits(part_x, num_variables)]
+    if not homogeneous:
+        parts.append(unpack_bits(part_z, num_variables))
+    return np.hstack(parts), transform
 
 
 def _get_search_tables(

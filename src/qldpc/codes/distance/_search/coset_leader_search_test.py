@@ -970,3 +970,111 @@ def _assert_exact_answers(
         assert _get_syndrome(matrix, bound.representative) == syndrome
         assert bound.lower_bound <= minima[syndrome] <= weight
         assert weight <= max_weight if bound.within_max_weight else bound.lower_bound > max_weight
+
+
+@pytest.mark.usefixtures("compilation_mode")
+def test_connected_support_answers_match_exhaustive_minima(pytestconfig: pytest.Config) -> None:
+    """The connected-support engine answers every query exactly, by either measure of weight.
+
+    Graph states with phases are not CSS, and are weighed by physical weight.  CSS states with
+    no pure-X stabilizer, with only pure-X stabilizers, and with both are weighed by both measures,
+    and the CSS weight splits their searches.  Within ``max_weight``, the engine's bound is 1, or 0
+    for an empty syndrome.  Otherwise it is ``max(max_weight + 1, int(syndrome != 0))``, since a
+    negative ``max_weight`` admits no error.  These exact bounds imply the inequalities that
+    ``_assert_exact_answers`` checks.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for num_qubits in range(1, 6):
+        edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
+        graph_state = _graph_state(num_qubits, edges, phase=True)
+        num_x_stabilizers = [0, num_qubits, num_qubits // 2][num_qubits % 3]
+        css_state = _random_css_state(num_qubits, num_x_stabilizers, rng)
+        for matrix, css_weight in [(graph_state, False), (css_state, False), (css_state, True)]:
+            oracle = CosetLeaderSearch(matrix, css_weight=css_weight, method="connected_support")
+            minima = _css_minima(matrix, css_weight)
+            for syndrome, max_weight in itertools.product(
+                range(1 << num_qubits), range(-1, num_qubits + 1)
+            ):
+                bound = oracle.get_min_weight_bound(syndrome, max_weight)
+                weight = _pauli_weight(bound.representative, num_qubits, css_weight)
+                assert _get_syndrome(matrix, bound.representative) == syndrome
+                assert bound.within_max_weight == (minima[syndrome] <= max_weight)
+                if bound.within_max_weight:
+                    assert weight <= max_weight and bound.lower_bound == int(syndrome != 0)
+                else:
+                    assert bound.lower_bound == max(max_weight + 1, int(syndrome != 0))
+
+
+def test_connected_support_batches_read_syndromes_of_several_words(
+    pytestconfig: pytest.Config,
+) -> None:
+    """On 17 phased GHZ blocks, batches of the connected-support engine agree with block minima.
+
+    The 68 syndrome bits span two words, and the physical weight takes one search of the Pauli
+    errors.  Each error acts on at most three random qubits, and blocks that it does not touch add
+    nothing to its minimum weight.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    num_blocks = 17
+    generators = _block_generators(_PHASED_GHZ_BLOCK, num_blocks)
+    matrix = _stabilizer_matrix(generators)
+    oracle = CosetLeaderSearch(matrix, method="connected_support")
+    syndromes, minima = [], []
+    for _ in range(30):
+        error = stim.PauliString(4 * num_blocks)
+        for qubit in rng.choice(4 * num_blocks, size=rng.integers(1, 4), replace=False):
+            error[int(qubit)] = int(rng.integers(1, 4))
+        syndromes.append(sum((not error.commutes(gg)) << jj for jj, gg in enumerate(generators)))
+        bits = [(syndromes[-1] >> jj) & 1 for jj in range(4 * num_blocks)]
+        local = [bits[4 * index : 4 * index + 4] for index in range(num_blocks)]
+        minima.append(_block_minimum(_PHASED_GHZ_BLOCK, [ss for ss in local if any(ss)], False))
+    words = _syndrome_words(syndromes, 68)
+    for max_weight in range(4):
+        found = _find_each_not_within_max_weight(oracle, matrix, words, max_weight)
+        assert found == np.flatnonzero(np.array(minima) > max_weight).tolist()
+
+
+def test_sparser_rows_span_the_same_space(pytestconfig: pytest.Config) -> None:
+    """Adding rows to each other leaves rows of the same span, which no such addition makes lighter.
+
+    The weight of a symplectic row counts the qubits on which it acts, whether by X, Y, or Z.
+    """
+
+    def get_weights(rows: npt.NDArray[np.uint8], homogeneous: bool) -> npt.NDArray[np.int_]:
+        if homogeneous:
+            return rows.sum(axis=1)
+        half = rows.shape[1] // 2
+        return (rows[:, :half] | rows[:, half:]).sum(axis=1)
+
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    cases = []
+    for homogeneous in (True, False):
+        for _ in range(10):
+            matrix = rng.integers(2, size=(6, 8), dtype=np.uint8)
+            cases.append((matrix[row_reduce_binary(matrix.T.copy())[2]], homogeneous))
+    for matrix, homogeneous in cases:
+        rows, transform = coset_leader_search._sparsify(matrix, homogeneous=homogeneous)
+        assert np.array_equal(transform @ matrix % 2, rows)
+        assert len(row_reduce_binary(transform)[2]) == len(matrix)
+        weights = get_weights(rows, homogeneous)
+        for row, other in itertools.permutations(range(len(rows)), 2):
+            assert get_weights((rows[row] ^ rows[other])[None], homogeneous)[0] >= weights[row]
+
+
+def test_connected_support_rejects_what_it_cannot_search() -> None:
+    """The engine rejects the CSS weight on a non-CSS state, and its batches reject large syndromes.
+
+    Other methods are unknown.
+    """
+    with pytest.raises(ValueError, match="only on CSS states"):
+        CosetLeaderSearch(
+            _graph_state(2, [(0, 1)], phase=True), css_weight=True, method="connected_support"
+        )
+    method: Any = "brute_force"
+    with pytest.raises(ValueError, match="Unknown coset-leader search method"):
+        CosetLeaderSearch([[1, 0]], method=method)
+
+    # A batch of the engine checks the range of its syndromes, through ``get_min_weight_bound``.
+    oracle = CosetLeaderSearch([[1, 0]], method="connected_support")
+    with pytest.raises(ValueError, match="out of range"):
+        oracle.find_first_not_within_max_weight(np.array([[2]], dtype=np.uint64), 1)

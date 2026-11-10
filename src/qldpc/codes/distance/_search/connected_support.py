@@ -9,7 +9,9 @@ vectors of Pauli operators, whose weights count qubits.  It follows Algorithm 2 
 Okada and Kasai, https://arxiv.org/abs/2607.14091, which searches CSS codes.  The idea is older:
 searches of the Tanner graphs of classical LDPC codes, and the irreducible-cluster technique of
 Dumer, Kovalev, and Pryadko for classical and quantum LDPC codes, use it too (see the references
-of ``connected_support.md``).
+of ``connected_support.md``).  The same search, started from a nonzero syndrome rather than from
+a root, finds a light vector with that syndrome, such as a light Pauli error with a given syndrome
+on a stabilizer state.
 
 ``connected_support.md`` in ``src/qldpc/codes/distance/`` derives the search and states its
 correctness requirements.  The Brouwer-Zimmermann search in ``brouwer_zimmermann.py`` solves the
@@ -162,7 +164,8 @@ class SupportSearch:
     which it is nonzero.  Its weight is the size of its support.  The row space of ``excluded`` must
     satisfy every check, and the words outside it are the witnesses.  The search grows a support
     through the checks that it leaves unsatisfied (see ``connected_support.md``), so it is fast if
-    ``checks`` is sparse.
+    ``checks`` is sparse.  It also finds light vectors with a given syndrome, which need not
+    satisfy the checks (see ``find_vector_with_syndrome``).
 
     A homogeneous problem has binary words, whose coordinates are the variables, and a word ``x``
     satisfies a check ``h`` if ``h @ x = 0``.  A problem that is not homogeneous has the symplectic
@@ -188,8 +191,9 @@ class SupportSearch:
         num_variables: The number of variables: the number of columns of ``checks`` if the problem
             is homogeneous, and half of it otherwise.
         weight_divisor: A divisor of the weight of every word.
-        num_states: The number of states that the search has visited so far, over all of its weight
-            limits.  The empty support at the start of the search from each root is not counted.
+        num_states: The number of states that ``find_witness`` has visited so far, over all of its
+            weight limits.  The empty support at the start of the search from each root is not
+            counted, and neither are the states of syndrome queries.
 
     Raises:
         ValueError: If the matrices are not binary matrices of equal width, if a symplectic matrix
@@ -230,15 +234,24 @@ class SupportSearch:
 
         # A symplectic check is satisfied if its dot product with a word vanishes once its halves
         # are swapped, and the excluded rows must satisfy every check.  The product of small
-        # integer matrices in float32 is exact, and faster than in integers.  Zero and duplicate
-        # checks add nothing to a search.
+        # integer matrices in float32 is exact, and faster than in integers.
         if not homogeneous:
             checks = np.roll(checks, self.num_variables, axis=1)
         if np.any(checks.astype(np.float32) @ excluded.astype(np.float32).T % 2):
             raise ValueError("The excluded rows must satisfy the checks")
-        nonzero_checks = checks[np.any(checks, axis=1)]
-        _, first_rows = np.unique(nonzero_checks, axis=0, return_index=True)
-        self._checks = nonzero_checks[np.sort(first_rows)]
+        # Zero and duplicate checks add nothing to a search, which keeps the first copy of each
+        # nonzero check, in order.  A syndrome query maps each given check to the index of the kept
+        # check that equals it, or to -1 for a zero check.  The unique rows are sorted, and
+        # ``rank_of_unique`` inverts the order that sorts their first copies.
+        nonzero_rows = np.flatnonzero(np.any(checks, axis=1))
+        _, first_rows, unique_index_of_row = np.unique(
+            checks[nonzero_rows], axis=0, return_index=True, return_inverse=True
+        )
+        order = np.argsort(first_rows)
+        rank_of_unique = np.argsort(order)
+        self._checks = checks[nonzero_rows[first_rows[order]]]
+        self._kept_index_of_check = np.full(len(checks), -1, dtype=np.int64)
+        self._kept_index_of_check[nonzero_rows] = rank_of_unique[unique_index_of_row.ravel()]
 
         # The checks that each symbol flips, and the tests that it fails, are the columns of the
         # matrices of the checks and of the tests for its value.
@@ -313,10 +326,71 @@ class SupportSearch:
             self._ranks,
             self._inverse_overlaps,
             int(min(max_weight, self.num_variables)),
+            # The searches from roots ignore the starting syndrome.
+            np.zeros(self._symbol_masks.shape[1], dtype=np.uint64),
         )
         self.num_states += num_states
         last = self._last_two_num_states[1] if self._last_two_num_states else 0
         self._last_two_num_states = (last, num_states)
+        return np.sort(support) if len(support) else None
+
+    def find_vector_with_syndrome(
+        self, syndrome: npt.ArrayLike, max_weight: int
+    ) -> npt.NDArray[np.int64] | None:
+        """Search for a vector with a given syndrome, of weight at most ``max_weight``.
+
+        The syndrome of a vector says which checks it fails, so the vectors with a syndrome are a
+        coset of the vectors that satisfy every check, and the excluded rows play no part.  The
+        search starts from the syndrome, and grows supports through its unsatisfied checks without
+        roots, symmetries, or a weight divisor (see Section 3.8 of ``connected_support.md``).  Like
+        ``find_witness``, it is exhaustive, but need not find a lightest vector.
+
+        Args:
+            syndrome: A binary vector with one entry for each row of the checks that the search was
+                given, in their order.  For a symplectic problem, entry ``j`` says whether a Pauli
+                operator anticommutes with check ``j``.
+            max_weight: The weight limit, which is at least zero.
+
+        Returns:
+            The sorted symbols of a vector with the syndrome, one for each variable of its support,
+            as ``find_witness`` returns them, or None if every such vector weighs more than
+            ``max_weight``.
+
+        Raises:
+            ValueError: If the syndrome is not a binary vector with one entry for each check, or if
+                the weight limit is negative.
+        """
+        assert_binary(syndrome, "syndrome")
+        syndrome = np.asarray(syndrome, dtype=np.uint8)
+        if syndrome.shape != self._kept_index_of_check.shape:
+            raise ValueError(
+                f"The syndrome must have one entry for each of {len(self._kept_index_of_check)} checks"
+            )
+        if max_weight < 0:
+            raise ValueError(f"The weight limit must be at least zero, not {max_weight}")
+
+        # Equal checks have equal entries, and a zero check has entry zero, for every vector.
+        indices = self._kept_index_of_check
+        kept = indices >= 0
+        kept_syndrome = np.zeros(len(self._checks), dtype=np.uint8)
+        kept_syndrome[indices[kept]] = syndrome[kept]
+        expected = np.zeros_like(syndrome)
+        expected[kept] = kept_syndrome[indices[kept]]
+        if np.any(syndrome != expected):
+            return None
+        if not np.any(kept_syndrome):
+            return np.empty(0, dtype=np.int64)
+        support, _ = _search_supports(
+            self._check_starts,
+            self._check_symbols,
+            self._symbol_masks,
+            self._test_columns,
+            np.array([-1], dtype=np.int64),
+            self._ranks,
+            self._inverse_overlaps,
+            int(min(max_weight, self.num_variables)),
+            pack_bits(kept_syndrome[None])[0],
+        )
         return np.sort(support) if len(support) else None
 
     def _predict_states(self, max_weight: int) -> int:
@@ -394,6 +468,7 @@ def _search_supports(
     ranks: npt.NDArray[np.int64],
     inverse_overlaps: npt.NDArray[np.int64],
     max_weight: int,
+    start_syndrome: npt.NDArray[np.uint64],
 ) -> tuple[npt.NDArray[np.int64], int]:
     """Search the supports that grow from each root through unsatisfied checks.
 
@@ -417,9 +492,15 @@ def _search_supports(
     its viable symbols in its subtree, if it rules out any.  The state at depth zero is the empty
     support, which branches on the values of the root, and which the count of states omits.
 
+    A root of -1 instead starts a search for a vector whose syndrome is ``start_syndrome``, packed
+    as a row of ``symbol_masks`` is, rather than for a witness.  The syndrome must not be empty.
+    Its empty state has that syndrome, and branches on one of its unsatisfied checks, as every
+    other state does, without a root or ranks.  Every support that it reaches with no unsatisfied
+    check is a solution, without tests.  The searches from other roots ignore ``start_syndrome``.
+
     Returns:
-        The symbols of a witness of weight at most ``max_weight``, or an empty array, and the
-        number of states that the search visited.
+        The symbols of a witness, or of a solution, of weight at most ``max_weight``, or an empty
+        array, and the number of states that the search visited.
     """
     # The sizes of the stack, and of the branches of a state, which are at least the values of the
     # root that the empty state branches on.
@@ -460,16 +541,43 @@ def _search_supports(
 
     num_states = 0
     for root in roots:
-        # Block the variables of lower rank than the root, and branch on the values of the root.
-        for variable in range(num_variables):
-            if ranks[variable] < ranks[root]:
-                for value in range(num_values):
-                    levels[value * num_variables + variable] += _BLOCKED
-        for value in range(num_values):
-            branches[0, value] = value * num_variables + root
-        num_branches[0] = num_values
+        # The empty state has the empty syndrome, and restricts nothing, unless the search starts
+        # from a syndrome.
         cursors[0] = 0
         depth = 0
+        syndromes[0] = 0
+        restricts[0] = False
+        allowance_starts[1] = allowance_starts[0]
+        if root < 0:
+            # Branch on an unsatisfied check of the starting syndrome, as a state does.
+            syndromes[0] = start_syndrome
+            num_branches[0] = _get_branches(
+                check_starts,
+                check_symbols,
+                symbol_masks,
+                levels,
+                num_restrictions,
+                syndromes,
+                branches,
+                restricts,
+                allowance_starts,
+                allowances,
+                0,
+                max_weight,
+                inverse_overlaps,
+                check_weights,
+                branch_repairs,
+            )
+            num_restrictions += restricts[0]
+        else:
+            # Block the variables of lower rank than the root, and branch on its values.
+            for variable in range(num_variables):
+                if ranks[variable] < ranks[root]:
+                    for value in range(num_values):
+                        levels[value * num_variables + variable] += _BLOCKED
+            for value in range(num_values):
+                branches[0, value] = value * num_variables + root
+            num_branches[0] = num_values
         while depth >= 0:
             # The search is back at a state after the branch that it tried last, so the other values
             # of the variable of that branch are available again.
@@ -510,7 +618,7 @@ def _search_supports(
             allowance_starts[depth + 1] = allowance_starts[depth]
             restricts[depth] = False
             if num_unsatisfied == 0:
-                if _is_outside_excluded(test_columns, support, depth):
+                if root < 0 or _is_outside_excluded(test_columns, support, depth):
                     return support[:depth].copy(), num_states
                 continue
 
@@ -539,10 +647,11 @@ def _search_supports(
             num_restrictions += restricts[depth]
 
         # Unblock the variables of lower rank than the root.
-        for variable in range(num_variables):
-            if ranks[variable] < ranks[root]:
-                for value in range(num_values):
-                    levels[value * num_variables + variable] -= _BLOCKED
+        if root >= 0:
+            for variable in range(num_variables):
+                if ranks[variable] < ranks[root]:
+                    for value in range(num_values):
+                        levels[value * num_variables + variable] -= _BLOCKED
     return np.empty(0, dtype=np.int64), num_states
 
 
@@ -568,14 +677,15 @@ def _get_branches(
 
     A symbol is available if its level is ``available_level``.  A completion of a support that has
     ``slack`` variables to spare is a set ``T`` of available symbols, on distinct variables, that
-    makes the support a witness, so ``T`` flips every unsatisfied check an odd number of times.  The
-    overlap of an available symbol is the number of unsatisfied checks that it flips.  Weigh each
-    unsatisfied check by the inverse of the largest overlap of its available symbols, in units of
-    ``1 / scale``, rounded down, as ``inverse_overlaps`` lists, whose entry 1 is the scale.  The
-    weights of the unsatisfied checks of any available symbol then total at most one, and their
-    total is its repair.  So ``T`` has at least as many symbols as the total weight of the
-    unsatisfied checks.  A symbol ``s`` of ``T`` repairs its share, and the other symbols of ``T``
-    the rest, so ``|T| >= 1 + total - repair(s)``.
+    makes the support a witness, or a solution of a syndrome query, so ``T`` flips every
+    unsatisfied check an odd number of times.  The overlap of an available symbol is the number of
+    unsatisfied checks that it flips.  Weigh each unsatisfied check by the inverse of the largest
+    overlap of its available symbols, in units of ``1 / scale``, rounded down, as
+    ``inverse_overlaps`` lists, whose entry 1 is the scale.  The weights of the unsatisfied checks
+    of any available symbol then total at most one, and their total is its repair.  So ``T`` has
+    at least as many symbols as the total weight of the unsatisfied checks.  A symbol ``s`` of
+    ``T`` repairs its share, and the other symbols of ``T`` the rest, so
+    ``|T| >= 1 + total - repair(s)``.
 
     A symbol for which this exceeds ``slack`` is in no completion, and the state allows only the
     other symbols in its subtree.  It records them in ``allowances``, from

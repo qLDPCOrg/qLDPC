@@ -23,10 +23,10 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 - **Basis family** (`BasisFamily`): the information sets that one Brouwer–Zimmermann search or count uses together, stacked into arrays.
 - **Certificate** (`Certificate`): a lower bound on the weight of the words that a Brouwer–Zimmermann search has not yet visited, which tells the search when it can stop.
 - **Connected-support search** (`SupportSearch`): the depth-first search of the supports that grow through unsatisfied parity checks, for a binary matrix of checks `H` and an excluded matrix `G`, whose words are binary, or symplectic for qubit codes that are not CSS.
-  It is another exact method, selected by `method="connected_support"`.
+  It is another exact method, selected by `method="connected_support"`, and it also finds light vectors with a given syndrome.
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer.
   Counting scans in `_counting/scan.py`.
-  The Brouwer–Zimmermann distance search in `_search/brouwer_zimmermann.py` and the coset search in `_search/coset_leader_search.py` scan with the compiled scans of `_search/affine_search.py`.
+  The Brouwer–Zimmermann distance search in `_search/brouwer_zimmermann.py` and the Brouwer–Zimmermann coset search in `_search/coset_leader_search.py` scan with the compiled scans of `_search/affine_search.py`.
   All of them step through a layer with `advance_support` in `_search/information_sets.py`.
 
 ## Where to look
@@ -35,15 +35,15 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | --- | --- |
 | A distance method, or the validation of method and backend names | `core.py`, and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact`, `get_distance`, and `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` dispatch on the method name |
 | The Brouwer–Zimmermann (BZ) distance search | `_search/brouwer_zimmermann.py` |
-| The compiled scans of layers that the BZ distance search and the coset-leader search share, one body specialized by constant flags | `_search/affine_search.py` |
-| The connected-support distance search | `_search/connected_support.py` |
-| The packed information sets of a BZ distance search or a coset-leader search, and the certificate of their steps | `_search/affine_instance.py` |
+| The compiled scans of layers that the BZ distance search and the BZ coset-leader search share, one body specialized by constant flags | `_search/affine_search.py` |
+| The connected-support search, of distances and of vectors with a given syndrome | `_search/connected_support.py` |
+| The packed information sets of a BZ distance search or a BZ coset-leader search, and the certificate of their steps | `_search/affine_instance.py` |
 | How basis families and their certificates are built | `_search/information_sets.py` |
 | Automorphism families: the images of one information set under automorphisms of a code, and the check of those automorphisms, which the connected-support search uses too | `_search/automorphism_families.py` |
 | Tables that let a BZ distance search skip supports whose last two rows cannot complete a word lighter than the best one found, and the choice of whether to build them | `_search/completion_bounds.py` |
 | Information sets with bounded column coverage, by matroid partitioning | `_search/matroid_partition.py` |
 | Exhaustive enumeration, for small codes, fallbacks, and the `brute_force` method | `_search/brute_force.py` |
-| Minimum weights of syndrome classes of Pauli errors (coset-leader weights), with two classical searches for the CSS weight on CSS states, used by `src/qldpc/circuits/certification/` | `_search/coset_leader_search.py` |
+| Minimum weights of syndrome classes of Pauli errors (coset-leader weights), by BZ or by connected-support searches, with two classical searches for the CSS weight on CSS states, used by `src/qldpc/circuits/certification/` | `_search/coset_leader_search.py` |
 | The counter, its deformed counters, or `compile_search_setup` | `logical_counts.py` |
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
@@ -61,8 +61,8 @@ From the top:
 2. The `_counting` package, the counting methods.
 3. `_search/brouwer_zimmermann.py`, `_search/brute_force.py`, `_search/connected_support.py`, and `_search/coset_leader_search.py`, the searches.
 4. The modules that the searches build on.
-   `_search/affine_instance.py` packs the information sets of a BZ distance or coset-leader search, with the certificate of their steps.
-   `_search/affine_search.py` holds the compiled scans of layers that the BZ distance and coset-leader searches share.
+   `_search/affine_instance.py` packs the information sets of a BZ distance or BZ coset-leader search, with the certificate of their steps.
+   `_search/affine_search.py` holds the compiled scans of layers that the BZ distance and BZ coset-leader searches share.
    `_search/information_sets.py` builds the basis families of those two searches and of the counting scans.
    `_search/automorphism_families.py` builds automorphism families from them.
    `_search/completion_bounds.py` bounds the words that complete the first rows of a support with two more rows.
