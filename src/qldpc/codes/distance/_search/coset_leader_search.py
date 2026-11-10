@@ -480,24 +480,12 @@ class _CosetSearch:
         num_tables = len(routes.disjoint_tables.planning)
         self._odd_coset_lookup_bound = 3 if not is_pauli and num_tables == 2 else 2
 
-        # Map each syndrome of a word of weight zero or one to such a word: a single bit, or a
-        # single-qubit Pauli.  For the CSS weight, ``_weight_one_word`` also pairs the single-qubit
-        # X errors with the single-qubit Z errors, to find ``X_i Z_j`` on distinct qubits.
-        self._singles = {0: 0}
-        self._x_singles = {0: 0}
-        self._z_singles = {0: 0}
-        if not is_pauli:
-            for column, syndrome in enumerate(check_columns):
-                self._singles.setdefault(syndrome, 1 << column)
-            return
-        for qubit in range(num_qubits):
-            x, z = 1 << qubit, 1 << (qubit + num_qubits)
-            sx, sz = check_columns[qubit], check_columns[qubit + num_qubits]
-            self._x_singles.setdefault(sx, x)
-            self._z_singles.setdefault(sz, z)
-            self._singles.setdefault(sx, x)
-            self._singles.setdefault(sz, z)
-            self._singles.setdefault(sx ^ sz, x ^ z)
+        # Map each syndrome of a word of weight zero or one to such a word.  For the CSS weight,
+        # ``_weight_one_word`` also pairs the single-qubit X errors with the single-qubit Z errors,
+        # to find ``X_i Z_j`` on distinct qubits.
+        self._singles, self._x_singles, self._z_singles = _tabulate_singles(
+            check_columns, num_qubits, is_pauli=is_pauli
+        )
 
     def get_min_weight_bound(self, syndrome: int, max_weight: int) -> MinWeightBound:
         """Decide whether the coset of this syndrome has a word of weight at most ``max_weight``.
@@ -670,21 +658,12 @@ class _ConnectedSupportCosetSearch:
         rounds_without_improvement: int,
     ) -> None:
         # Map each syndrome of a word of weight zero or one to such a word.  The syndrome of a word
-        # with one nonzero bit, which is an X or a Z on one qubit or one bit of a part, is a column
-        # of the checks, once the halves of symplectic checks are swapped.  The syndrome of the
-        # Pauli Y on a qubit is the sum of those of X and Z there.
+        # with one nonzero bit is a column of the checks, once the halves of symplectic checks are
+        # swapped.
         num_variables = matrix.shape[1] if homogeneous else matrix.shape[1] // 2
         syndrome_matrix = matrix if homogeneous else np.roll(matrix, num_variables, axis=1)
         columns = _row_ints(np.ascontiguousarray(syndrome_matrix.T))
-        self._singles = {0: 0}
-        for variable in range(num_variables):
-            low_syndrome, low_word = columns[variable], 1 << variable
-            self._singles.setdefault(low_syndrome, low_word)
-            if not homogeneous:
-                z_syndrome = columns[num_variables + variable]
-                z_word = 1 << (num_variables + variable)
-                self._singles.setdefault(z_syndrome, z_word)
-                self._singles.setdefault(low_syndrome ^ z_syndrome, low_word | z_word)
+        self._singles, _, _ = _tabulate_singles(columns, num_variables, is_pauli=not homogeneous)
 
         rows, transform = _get_sparser_rows(
             matrix,
@@ -1100,6 +1079,43 @@ def _packed_row_int(row: npt.NDArray[np.uint64]) -> int:
 def _int_to_words(value: int, width: int) -> npt.NDArray[np.uint64]:
     """Split an integer into ``width`` 64-bit words, with word ``j`` in bits ``64 j`` and up."""
     return np.frombuffer(value.to_bytes(8 * width, "little"), dtype="<u8").astype(np.uint64)
+
+
+def _tabulate_singles(
+    check_columns: Sequence[int], num_qubits: int, *, is_pauli: bool
+) -> tuple[dict[int, int], dict[int, int], dict[int, int]]:
+    """Tabulate the words of weight zero or one by syndrome, and the single-qubit X and Z errors.
+
+    The words are the identity and, for packed Paulis, X, Z, and Y on each qubit, and for X or Z
+    parts, the single bits.  The syndrome of Y on a qubit is the sum of those of X and Z there.
+    Each table maps each syndrome of its words to one of them.
+
+    Args:
+        check_columns: Column ``c`` of the checks as an integer: the syndrome of the word with only
+            bit ``c`` set.
+        num_qubits: The number of qubits ``n`` of packed Paulis, which have ``2 n`` bits; unused for
+            X or Z parts.
+        is_pauli: Whether the words are packed Paulis, rather than X or Z parts.
+
+    Returns:
+        The table of these words, and the tables of the identity and the single-qubit X errors, and
+        of the identity and the single-qubit Z errors.  For X or Z parts, the last two hold only the
+        identity.
+    """
+    singles, x_singles, z_singles = {0: 0}, {0: 0}, {0: 0}
+    if not is_pauli:
+        for column, syndrome in enumerate(check_columns):
+            singles.setdefault(syndrome, 1 << column)
+        return singles, x_singles, z_singles
+    for qubit in range(num_qubits):
+        x, z = 1 << qubit, 1 << (qubit + num_qubits)
+        sx, sz = check_columns[qubit], check_columns[qubit + num_qubits]
+        x_singles.setdefault(sx, x)
+        z_singles.setdefault(sz, z)
+        singles.setdefault(sx, x)
+        singles.setdefault(sz, z)
+        singles.setdefault(sx ^ sz, x ^ z)
+    return singles, x_singles, z_singles
 
 
 def _tabulate_css_singles(
