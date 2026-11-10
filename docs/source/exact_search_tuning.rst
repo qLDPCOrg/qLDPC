@@ -31,6 +31,10 @@ Start from a symptom
      - Lower :attr:`~SearchTuning.completion_bound_minimum_layer_work` or raise :attr:`~SearchTuning.completion_bound_max_cost_percent` to use completion tables in more layers; raise :attr:`~SearchTuning.max_information_sets`; lower :attr:`~SearchTuning.lp_minimum_work` or :attr:`~SearchTuning.automorphism_minimum_layer_work`.
    * - A cheap search spends its time building families of information sets
      - Raise :attr:`~SearchTuning.overlapping_minimum_work` or :attr:`~SearchTuning.partition_work_ratio`, or lower :attr:`~SearchTuning.max_information_sets`.
+   * - Queries of ``CosetLeaderSearch`` by the Brouwer--Zimmermann method at moderate maximum weights are slow, as in residual-weight estimates
+     - Lower :attr:`~SearchTuning.overlapping_minimum_work`, so that cheaper queries try a family of overlapping information sets, or a disjoint family with more information sets or a larger partial set.
+       The oracle builds these families once for each cached search (see :data:`CSS_SEARCH_CACHE_SIZE` and :data:`PAULI_SEARCH_CACHE_SIZE`).
+       For larger overlapping families, raise :attr:`~SearchTuning.max_information_sets` or :attr:`~SearchTuning.overlapping_attempts_per_set`.
    * - A search or count uses too much memory
      - For distance searches, lower :attr:`~SearchTuning.completion_bound_max_table_bytes`, which applies to each problem of a joint search, such as each sector of a CSS code.
        For exhaustive enumeration, lower :attr:`~SearchTuning.enumeration_batch_exponent`.
@@ -122,14 +126,14 @@ Routes and the names that control them
      - :attr:`SearchTuning.macwilliams_shared_walk_rank`, :attr:`SearchTuning.macwilliams_chunk_size`
      - :data:`KRAWTCHOUK_CACHE_SIZE`
      -
-   * - Searches of the lightest Pauli errors by CSS weight on a CSS state
-     - :attr:`SearchTuning.disjoint_random_column_orders`
+   * - Searches of the lightest Pauli errors by CSS weight on a CSS state, by the Brouwer--Zimmermann method
+     - :attr:`SearchTuning.disjoint_random_column_orders`, and for costly queries :attr:`SearchTuning.overlapping_minimum_work`, :attr:`SearchTuning.max_information_sets`, :attr:`SearchTuning.overlapping_attempts_per_set`
      - :data:`CSS_SEARCH_CACHE_SIZE`
-     -
-   * - Searches of the lightest Pauli errors by physical weight, or by CSS weight on another stabilizer state
-     - :attr:`SearchTuning.disjoint_random_column_orders`, :attr:`SearchTuning.max_css_single_pairs`
+     - `Section 4.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#44-heuristics-and-cost-models>`__
+   * - Searches of the lightest Pauli errors by physical weight, or by CSS weight on another stabilizer state, by the Brouwer--Zimmermann method
+     - :attr:`SearchTuning.disjoint_random_column_orders`, :attr:`SearchTuning.max_css_single_pairs`, and for costly queries :attr:`SearchTuning.overlapping_minimum_work`, :attr:`SearchTuning.max_information_sets`, :attr:`SearchTuning.overlapping_attempts_per_set`
      - :data:`PAULI_SEARCH_CACHE_SIZE`
-     -
+     - `Section 4.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#44-heuristics-and-cost-models>`__
    * - Counts of deformed codes
      -
      - :data:`LOCAL_CLIFFORD_CACHE_SIZE`

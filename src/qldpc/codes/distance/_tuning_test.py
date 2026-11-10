@@ -255,9 +255,14 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
 
     Tuning keeps results, so recording the arguments of each reader is what shows that a value
     arrives.  The tuning takes every route, with values that differ from the defaults.  Fields that
-    this test does not follow are read within one function from the tuning that it receives, and
-    their tests in ``_search/completion_bounds_test.py`` and ``_search/information_sets_test.py``
-    change them there.
+    this test does not follow are read in one of two ways.  Some are read within one function from
+    the tuning that it receives, and their tests in ``_search/completion_bounds_test.py`` and
+    ``_search/information_sets_test.py`` change them there.  Others are read once by
+    ``CosetLeaderSearch``, which passes their values down to its coset searches:
+    ``max_css_single_pairs``, ``max_sparsifying_rounds``, and
+    ``sparsifying_rounds_without_improvement``.  Tests in ``_search/coset_leader_search_test.py``
+    change or record these, and the fields that the oracle passes down to the routes of its BZ
+    searches.
     """
     seen: dict[str, list[Any]] = collections.defaultdict(list)
 

@@ -31,8 +31,8 @@ from qldpc._compilation import always_compiled
 
 from .. import _tuning
 from .._binary import as_binary_matrix, assert_binary, symplectic_to_hamming
-from .._tuning import get_tuning
-from . import affine_instance, affine_search, connected_support, information_sets
+from .._tuning import SearchTuning, get_tuning
+from . import affine_instance, affine_search, connected_support, coset_routes, information_sets
 
 # The method of a coset-leader search.
 CosetSearchMethod = Literal["brouwer_zimmermann", "connected_support"]
@@ -127,6 +127,17 @@ class CosetLeaderSearch:
     ``max_weight``.  The BZ searches often give higher bounds, which spare queries to consumers that
     raise a threshold to each bound.
 
+    The oracle reads the active tuning (see ``_tuning``) when it is built.  Its field
+    ``disjoint_random_column_orders`` configures every BZ search of the oracle.  The field
+    ``max_css_single_pairs`` configures the BZ searches by CSS weight that are not split into two
+    classical searches.  The fields ``overlapping_minimum_work``, ``max_information_sets``, and
+    ``overlapping_attempts_per_set`` configure the families of information sets with which a BZ
+    search answers costly queries (see ``coset_routes``).  These families can change the
+    representatives and lower bounds of the answers, but never whether an answer is within
+    ``max_weight``.  The fields ``max_sparsifying_rounds`` and
+    ``sparsifying_rounds_without_improvement`` configure how the connected-support searches make
+    their checks sparser.
+
     Args:
         stabilizers: A binary ``n x 2n`` matrix in ``[X|Z]`` order whose rows are independent
             commuting stabilizers.
@@ -134,12 +145,6 @@ class CosetLeaderSearch:
             weight.
         method: ``"brouwer_zimmermann"`` (the default) or ``"connected_support"``, the search of
             the cosets.
-
-    The oracle reads the active tuning (see ``_tuning``) when it is built.  Its field
-    ``disjoint_random_column_orders`` configures every BZ search of the oracle, and
-    ``max_css_single_pairs`` the BZ searches by CSS weight that are not split into two classical
-    searches.  Its fields ``max_sparsifying_rounds`` and ``sparsifying_rounds_without_improvement``
-    configure how the connected-support searches make their checks sparser.
 
     Raises:
         ValueError: If the stabilizers are not ``n`` independent commuting stabilizers, if the
@@ -192,8 +197,7 @@ class CosetLeaderSearch:
                     _get_pauli_search(
                         _StabilizerKey(matrix, checks),
                         css_weight,
-                        tuning.disjoint_random_column_orders,
-                        tuning.max_css_single_pairs,
+                        _CosetTuning.from_tuning(tuning, reads_css_single_pairs=css_weight),
                     ),
                 )
             elif css_weight:
@@ -229,7 +233,7 @@ class CosetLeaderSearch:
                 len(x_rows),
                 pack_bits(x_rows).tobytes(),
                 pack_bits(z_rows).tobytes(),
-                tuning.disjoint_random_column_orders,
+                _CosetTuning.from_tuning(tuning, reads_css_single_pairs=False),
             )
 
         # Row ``j`` of ``z_rows`` is the Z part of a pure-Z stabilizer, the product of the given
@@ -310,12 +314,14 @@ class CosetLeaderSearch:
                     return index, bound
             return len(syndromes), None
 
-        # With one search, take its bound and the lightest error that it visited.
+        # With one search, take its bound and the lightest error that it visited.  Each search
+        # answers the batch with the tables of the route of the maximum weight.
         if len(self._searches) == 1:
             (search,) = self._searches
-            best = np.empty(search.tables.inverse.shape[1], dtype=np.uint64)
+            tables = search.get_tables(max_weight)
+            best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
             index, lower_bound = _find_first_not_within_max_weight(
-                syndromes, max_weight, best, *search.tables, search.scale
+                syndromes, max_weight, best, *tables, search.scale
             )
             if index == len(syndromes):
                 return index, None
@@ -329,9 +335,10 @@ class CosetLeaderSearch:
         index = len(syndromes)
         for search, map_columns in zip(self._searches, self._map_columns):
             part_syndromes = _map_syndromes(syndromes[:index], map_columns)
-            best = np.empty(search.tables.inverse.shape[1], dtype=np.uint64)
+            tables = search.get_tables(max_weight)
+            best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
             index, _ = _find_first_not_within_max_weight(
-                part_syndromes, max_weight, best, *search.tables, search.scale
+                part_syndromes, max_weight, best, *tables, search.scale
             )
         if index == len(syndromes):
             return index, None
@@ -387,15 +394,16 @@ class _CosetSearchTables(NamedTuple):
     Attributes:
         inverse: Row ``j`` is the packed embedded word of a word whose syndrome has only bit ``j``
             set.
-        generators: The packed rows of each disjoint information set of the embedded generators of
-            the code.
-        pivots: The pivot columns of each information set, padded with -1.
-        planning: The planning buffer of the search: its tables of the bounds of its steps, each
-            with one more row that caches a stopping step (see ``_get_planning``).  For a
-            nonnegative maximum weight, ``_get_stopping_step`` reuses the cached step of a table
-            exactly while it stays the first step whose bound exceeds that weight, and replaces it
-            otherwise.  Queries write only the rows of cached steps, and oracles that share a cached
-            search share them.
+        generators: The packed rows of each set of a family of information sets of the embedded
+            generators of the code (see ``coset_routes``).  The last set of a disjoint family may
+            be partial, of rank below the dimension of the code.
+        pivots: The pivot columns of each set, padded with -1 beyond its rank.
+        planning: The planning buffer of the search with this family: its tables of the bounds of
+            its steps, each with one more row that caches a stopping step (see ``_get_planning``).
+            For a nonnegative maximum weight, ``_get_stopping_step`` reuses the cached step of a
+            table exactly while it stays the first step whose bound exceeds that weight, and
+            replaces it otherwise.  Queries write only the rows of cached steps, and oracles that
+            share a cached search share them.
         x_mask: Selects the bits of a packed embedded word that count as its X part, with one
             machine word for each machine word of the embedded words.  Only searches of Pauli
             errors by CSS weight use the X part, and their layers scan with it, but every search
@@ -418,8 +426,12 @@ class _CosetSearch:
     Each coset is labeled by the syndrome of its words, whose bit ``j`` is the parity of a word with
     row ``j`` of a matrix of checks.
 
+    The search answers queries of each maximum weight with the tables of a family of information
+    sets of the code, which ``routes`` choose (see ``coset_routes``).  The tables of every family
+    have the same ``inverse`` and ``x_mask``.
+
     Args:
-        tables: The tables of ``_search_coset``.
+        routes: The routes of the search.
         css_weight: True to weigh words by their CSS weight, which is the Hamming weight of an X
             or Z part, or False to weigh them by their physical weight.
         num_qubits: The number of qubits ``n``.
@@ -435,7 +447,7 @@ class _CosetSearch:
 
     def __init__(
         self,
-        tables: _CosetSearchTables,
+        routes: coset_routes.CosetRoutes[_CosetSearchTables],
         css_weight: bool,
         num_qubits: int,
         inverse_rows: tuple[int, ...],
@@ -444,13 +456,13 @@ class _CosetSearch:
         is_pauli: bool,
         max_css_single_pairs: int = 0,
     ) -> None:
-        self.tables = tables
+        self._routes = routes
         self._max_css_single_pairs = max_css_single_pairs
         self.css_weight = css_weight
         # The compiled search weighs embedded words by their CSS weight only in a search of Pauli
         # errors by CSS weight, and otherwise by their Hamming weight, which is twice the physical
         # weight of an error, and the weight of an X or Z part (see ``_search_coset``).  The scale
-        # chooses which of these weights a scan computes.  The weight factor of the coset instance
+        # chooses which of these weights a scan computes.  The weight factor of the coset instances
         # is separate: it is two for every search of Pauli errors, including those by CSS weight,
         # whose scale is zero, since an error weighs at least half the Hamming weight of its
         # embedded word (see ``_get_pauli_search``).
@@ -465,7 +477,8 @@ class _CosetSearch:
         # either, and the query bounds it by three.  An odd coset of a search of Pauli errors by
         # CSS weight can still hold an error of weight two, such as ``YX``, whose binary word has
         # three ones.
-        self._odd_coset_lookup_bound = 3 if not is_pauli and len(tables.planning) == 2 else 2
+        num_tables = len(routes.disjoint_tables.planning)
+        self._odd_coset_lookup_bound = 3 if not is_pauli and num_tables == 2 else 2
 
         # Map each syndrome of a word of weight zero or one to such a word: a single bit, or a
         # single-qubit Pauli.  For the CSS weight, ``_weight_one_word`` also pairs the single-qubit
@@ -505,13 +518,19 @@ class _CosetSearch:
                 False, word, self._odd_coset_lookup_bound if word.bit_count() % 2 else 2
             )
 
-        # Search the coset, and keep the lightest word that the search visits in ``best``.
-        best = np.empty(self.tables.inverse.shape[1], dtype=np.uint64)
+        # Search the coset with the tables of the route of the maximum weight, and keep the lightest
+        # word that the search visits in ``best``.
+        tables = self.get_tables(max_weight)
+        best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
         packed_syndrome = _int_to_words(syndrome, max(1, (self._num_syndrome_bits + 63) // 64))
-        lower_bound = _search_coset(packed_syndrome, max_weight, best, *self.tables, self.scale)
+        lower_bound = _search_coset(packed_syndrome, max_weight, best, *tables, self.scale)
         # A search that finds a light enough word returns zero, but every word of the coset weighs
         # at least two, since the coset has no word of weight at most one.
         return MinWeightBound(lower_bound <= max_weight, self.unembed(best), max(2, lower_bound))
+
+    def get_tables(self, max_weight: int) -> _CosetSearchTables:
+        """The tables with which the search answers queries of a maximum weight."""
+        return self._routes.get_tables(max_weight)
 
     def unembed(self, embedded_word: npt.NDArray[np.uint64]) -> int:
         """Convert a packed embedded word into a word, without the columns that the embedding adds.
@@ -565,6 +584,9 @@ class _StabilizerKey:
     The checks follow from the stabilizers, so the stabilizers alone key the cache, and the key
     keeps both matrices to build a search that the cache has not stored yet.  Keys of packed bytes
     would not hold the matrices, but unpacking them would cost about 0.4% of the setup of a search.
+    The matrices may be arrays of the caller.  The key compares a copy of the bytes of the
+    stabilizers, and the search copies what it keeps of them, so later changes to the arrays of the
+    caller reach neither.
     """
 
     def __init__(self, stabilizers: npt.NDArray[np.uint8], checks: npt.NDArray[np.uint8]) -> None:
@@ -578,6 +600,35 @@ class _StabilizerKey:
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, _StabilizerKey) and self._key == other._key
+
+
+class _CosetTuning(NamedTuple):
+    """The fields of the tuning that the setup of a BZ coset search reads, which key its cache.
+
+    ``disjoint_random_column_orders`` configures the disjoint information sets of the search.  Only
+    a search of Pauli errors by CSS weight reads ``max_css_single_pairs``, for its lookups.  The
+    other fields configure the families with which the search answers costly queries (see
+    ``coset_routes``), which it builds after the cache stores it.
+    """
+
+    disjoint_random_column_orders: int
+    max_css_single_pairs: int
+    overlapping_minimum_work: int
+    max_information_sets: int
+    overlapping_attempts_per_set: int
+
+    @classmethod
+    def from_tuning(cls, tuning: SearchTuning, *, reads_css_single_pairs: bool) -> _CosetTuning:
+        """The fields of a tuning that the setup of a search reads.
+
+        ``max_css_single_pairs`` is zero for a search that does not read it, so that oracles built
+        under tunings that differ only in that field share cached searches.
+        """
+        fields = (getattr(tuning, name) for name in cls._fields)
+        coset_tuning = cls(*fields)
+        if reads_css_single_pairs:
+            return coset_tuning
+        return coset_tuning._replace(max_css_single_pairs=0)
 
 
 class _ConnectedSupportCosetSearch:
@@ -714,18 +765,13 @@ class _ConnectedSupportCosetSearch:
 
 
 @functools.lru_cache(maxsize=_tuning.PAULI_SEARCH_CACHE_SIZE)
-def _get_pauli_search(
-    key: _StabilizerKey,
-    css_weight: bool,
-    random_column_orders: int,
-    max_css_single_pairs: int,
-) -> _CosetSearch:
+def _get_pauli_search(key: _StabilizerKey, css_weight: bool, tuning: _CosetTuning) -> _CosetSearch:
     """The Pauli search, of Pauli errors modulo the stabilizers, with syndromes for the stabilizers.
 
     ``key`` holds the stabilizers and their checks (see ``CosetLeaderSearch``).  The syndromes
     depend on the rows of the stabilizer matrix, not only on the group that they generate, so the
-    rows key the cache.  ``css_weight`` and the fields ``disjoint_random_column_orders`` and
-    ``max_css_single_pairs`` of the tuning, which configure the search, key it too.
+    rows key the cache.  ``css_weight`` and the fields of the tuning that the setup reads key it
+    too.
     """
     stabilizers, checks = key.stabilizers, key.checks
     num_qubits = len(stabilizers)
@@ -734,25 +780,24 @@ def _get_pauli_search(
     embedded_inverse = inverse if css_weight else symplectic_to_hamming(inverse)
     # An error weighs at least half of the Hamming weight of its embedded word, by either measure of
     # weight, so the certificate bounds are halved.
-    instance = affine_instance.get_coset_instance(
-        embedded_stabilizers, random_column_orders=random_column_orders, weight_factor=2
+    routes = _get_routes(
+        embedded_stabilizers, embedded_inverse, num_qubits, weight_factor=2, tuning=tuning
     )
-    tables = _get_search_tables(instance, embedded_inverse, num_qubits)
     check_columns = _row_ints(np.ascontiguousarray(checks.T))
     return _CosetSearch(
-        tables,
+        routes,
         css_weight,
         num_qubits,
         _row_ints(inverse),
         check_columns,
         is_pauli=True,
-        max_css_single_pairs=max_css_single_pairs,
+        max_css_single_pairs=tuning.max_css_single_pairs,
     )
 
 
 @functools.lru_cache(maxsize=_tuning.CSS_SEARCH_CACHE_SIZE)
 def _get_css_searches(
-    num_qubits: int, num_x_rows: int, x_rows: bytes, z_rows: bytes, random_column_orders: int
+    num_qubits: int, num_x_rows: int, x_rows: bytes, z_rows: bytes, tuning: _CosetTuning
 ) -> tuple[_CosetSearch, _CosetSearch]:
     """The classical searches of the X parts and of the Z parts of the errors on a CSS state.
 
@@ -761,8 +806,7 @@ def _get_css_searches(
     echelon form, which depends only on the stabilizer group, and packed by ``pack_bits`` into
     bytes, which ``lru_cache`` can hash.  The X parts of errors are searched modulo the code of the
     X rows, with the Z rows as checks, and the Z parts the other way around (see
-    ``CosetLeaderSearch``).  ``random_column_orders`` is the ``disjoint_random_column_orders`` of
-    the tuning, which keys the cache too.
+    ``CosetLeaderSearch``).  The fields of the tuning that the setup reads key the cache too.
     """
     num_words = max(1, (num_qubits + 63) // 64)
     x_matrix = unpack_bits(
@@ -773,13 +817,13 @@ def _get_css_searches(
         num_qubits,
     )
     return (
-        _get_classical_search(x_matrix, z_matrix, random_column_orders),
-        _get_classical_search(z_matrix, x_matrix, random_column_orders),
+        _get_classical_search(x_matrix, z_matrix, tuning),
+        _get_classical_search(z_matrix, x_matrix, tuning),
     )
 
 
 def _get_classical_search(
-    generators: npt.NDArray[np.uint8], checks: npt.NDArray[np.uint8], random_column_orders: int
+    generators: npt.NDArray[np.uint8], checks: npt.NDArray[np.uint8], tuning: _CosetTuning
 ) -> _CosetSearch:
     """The classical search of X or Z parts modulo the row space of independent generators.
 
@@ -789,13 +833,40 @@ def _get_classical_search(
     """
     num_qubits = generators.shape[1]
     inverse = _get_inverse(checks)
-    instance = affine_instance.get_coset_instance(
-        generators, random_column_orders=random_column_orders, weight_factor=1
-    )
     # Every column counts as the X part, so the CSS weight of a word is its Hamming weight.
-    tables = _get_search_tables(instance, inverse, num_qubits)
+    routes = _get_routes(generators, inverse, num_qubits, weight_factor=1, tuning=tuning)
     check_columns = _row_ints(np.ascontiguousarray(checks.T))
-    return _CosetSearch(tables, True, num_qubits, _row_ints(inverse), check_columns, is_pauli=False)
+    return _CosetSearch(routes, True, num_qubits, _row_ints(inverse), check_columns, is_pauli=False)
+
+
+def _get_routes(
+    generators: npt.NDArray[np.uint8],
+    inverse: npt.NDArray[np.uint8],
+    num_x_columns: int,
+    *,
+    weight_factor: int,
+    tuning: _CosetTuning,
+) -> coset_routes.CosetRoutes[_CosetSearchTables]:
+    """The routes of a coset search of the code of independent embedded generators.
+
+    The routes start from the coset instance of the disjoint information sets of the generators,
+    with the weight factor ``weight_factor`` (see ``affine_instance.get_coset_instance``).  The
+    tables of every family of the routes come from ``_get_search_tables``, with ``inverse`` and
+    ``num_x_columns``.
+    """
+    instance = affine_instance.get_coset_instance(
+        generators,
+        random_column_orders=tuning.disjoint_random_column_orders,
+        weight_factor=weight_factor,
+    )
+    return coset_routes.CosetRoutes(
+        generators,
+        instance,
+        functools.partial(_get_search_tables, inverse=inverse, num_x_columns=num_x_columns),
+        minimum_work=tuning.overlapping_minimum_work,
+        max_sets=tuning.max_information_sets,
+        attempts_per_set=tuning.overlapping_attempts_per_set,
+    )
 
 
 def _get_inverse(checks: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
@@ -1122,9 +1193,9 @@ def _search_coset(
     otherwise its Hamming weight divided by ``scale``, which is two for the physical weight and one
     for X or Z parts.  The tables are those of ``_CosetSearchTables``.  Row ``j`` of ``inverse`` is
     the embedded word of a word whose syndrome has only bit ``j`` set.  ``generators`` and
-    ``pivots`` are the disjoint information sets of the embedded generators of the code, with pivots
-    padded with -1.  ``planning`` is the planning buffer of the search, whose cached stopping steps
-    a query may update.
+    ``pivots`` are the information sets of a family of the embedded generators of the code, with
+    pivots padded with -1.  ``planning`` is the planning buffer of the search with this family,
+    whose cached stopping steps a query may update.
 
     The embedded words of the coset form a coset of the embedded code.  The search starts from the
     sum of the rows of ``inverse`` for the set bits of the syndrome, a word with that syndrome.  The
@@ -1193,11 +1264,11 @@ def _get_stopping_step(table: npt.NDArray[np.int64], max_weight: int) -> tuple[i
     which is zero in row zero.  So the bound of the step before step ``(w, j)`` is entry
     ``[w, j - 1]``, and for a nonnegative maximum weight, step ``(w, j)`` is the stopping step
     exactly if its bound exceeds the maximum weight and entry ``[w, j - 1]`` does not.  The step
-    cached in the table (see ``_get_planning``) is reused if it passes this check.  Otherwise, the
-    stopping step is found by binary search and cached in its place.  A negative maximum weight
-    fails the check, and the binary search returns the first step.  If no bound exceeds the maximum
-    weight, which happens only when the maximum weight reaches the largest native integer, the
-    binary search returns the last step.
+    cached in the table (see ``_get_planning``) is reused if it passes this check.  Otherwise,
+    ``information_sets.plan_steps`` finds the stopping step by binary search, and it is cached in
+    its place.  A negative maximum weight fails the check, and the binary search returns the first
+    step.  If no bound exceeds the maximum weight, which happens only when the maximum weight
+    reaches the largest native integer, the binary search returns the last step.
 
     Oracles that share a cached search share its planning buffer.  Compiled calls hold the global
     interpreter lock, since numba compiles them without ``nogil``, so calls interleave only when
@@ -1215,8 +1286,11 @@ def _get_stopping_step(table: npt.NDArray[np.int64], max_weight: int) -> tuple[i
         max_weight < bounds[layer, num_completed] and bounds[layer, num_completed - 1] <= max_weight
     )
     if not is_stopping_step:
-        layer, num_completed = information_sets.find_stopping_step(
-            bounds, max_weight, 0, len(bounds) - 1
+        # The search needs the step alone.  Empty binomials ask ``plan_steps`` for the step only,
+        # and a plan that leaves out no sets reads no ranks, so both are empty placeholders.
+        no_values = np.empty(0, dtype=np.int64)
+        layer, num_completed, _ = information_sets.plan_steps(
+            bounds, max_weight, 0, len(bounds) - 1, no_values, no_values, False
         )
         table[-1, 0], table[-1, 1] = layer, num_completed
     return layer, num_completed, int(bounds[layer, num_completed])
@@ -1240,7 +1314,9 @@ def _search_from_syndrome_word(
     ``best`` holds that word, of weight ``best_weight`` above ``max_weight``.  The stopping step and
     its bound are those of ``_get_stopping_step``.  A set of rank deficiency ``s`` adds to the bound
     of a step only once it has completed layer ``s``, so a set that would not have completed it by
-    the stopping step adds nothing, and the search skips it.
+    the stopping step adds nothing, and the search skips it.  These are the unused sets of
+    ``information_sets.plan_steps``, whose work for this step, from layer zero, counts the words
+    that the search weighs after the word of the syndrome if it finds no light enough word.
 
     Returns:
         The lower bound of ``_search_coset``, and the number of words weighed after the word of the
