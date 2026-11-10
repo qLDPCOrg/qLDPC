@@ -25,6 +25,7 @@ shard.
 """
 
 import argparse
+import contextlib
 import io
 import os
 import pathlib
@@ -85,9 +86,18 @@ def run(*args: str) -> int:
     parsed_args, pytest_args = parser.parse_known_intermixed_args(args)
     if "coverage" in parsed_args.skip:
         return 0
+    if any("::" in file for file in parsed_args.files):
+        parser.error("the check runs whole test files, not test node IDs")
     if parsed_args.isolated and parsed_args.shard is not None:
         parser.error("--shard does not apply to --isolated")
     if parsed_args.isolated:
+        # checks_superstaq looks for test files relative to the current directory, so from any other
+        # directory it would find none, and pass.
+        if not os.path.samefile(os.getcwd(), check_utils.root_dir):
+            parser.error("--isolated runs only from the root directory of the repository")
+        # checks_superstaq skips modules without a test file, so they fail before the audit runs.
+        if untested := get_untested_files(check_utils.extract_files(parsed_args, "*.py", EXCLUDE)):
+            return report_results(0, [], untested)
         modular_args = [arg for arg in args if arg != "--isolated"]
         return checks_superstaq.coverage_.run(
             *modular_args, "--modular", "--sysmon", *PYTEST_OPTIONS, exclude=EXCLUDE
@@ -95,18 +105,20 @@ def run(*args: str) -> int:
 
     files = check_utils.extract_files(parsed_args, "*.py", EXCLUDE)
 
-    # Modules without a test file are found among all of the selected files, so that every shard
-    # reports them.
-    untested = get_untested_files(files)
-    if parsed_args.shard is not None:
-        files = get_shard(files, *parsed_args.shard)
-    covered_files = get_covered_files(files)
-    if not covered_files and not untested:
-        print("No test files to check for pytest and coverage.")
-        return 0
-    test_returncode, coverage_reports = check_test_files(
-        covered_files, parsed_args.jobs, parsed_args.branch, pytest_args
-    )
+    # The selected files are relative to the root directory, where their test files are looked for.
+    with contextlib.chdir(check_utils.root_dir):
+        # Modules without a test file are found among all of the selected files, so that every
+        # shard reports them.
+        untested = get_untested_files(files)
+        if parsed_args.shard is not None:
+            files = get_shard(files, *parsed_args.shard)
+        covered_files = get_covered_files(files)
+        if not covered_files and not untested:
+            print("No test files to check for pytest and coverage.")
+            return 0
+        test_returncode, coverage_reports = check_test_files(
+            covered_files, parsed_args.jobs, parsed_args.branch, pytest_args
+        )
     return report_results(test_returncode, coverage_reports, untested)
 
 

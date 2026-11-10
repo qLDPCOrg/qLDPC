@@ -86,7 +86,7 @@ CI's exact environments and commands are in ``.github/workflows/``.
    * - ``python checks/mypy_.py``
      - mypy with the repository's typing settings, over source and tests
    * - ``python checks/coverage_.py``
-     - 100% statement coverage of each module by its own test file, as in CI
+     - A test file for each module, which alone covers 100% of its statements, as in CI
    * - ``python checks/build_docs.py``
      - Strict Sphinx and notebook documentation build
    * - ``python checks/all_.py``
