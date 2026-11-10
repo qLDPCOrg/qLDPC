@@ -23,6 +23,7 @@ import sympy.abc
 
 from qldpc import abstract, codes, decoders, external, math
 from qldpc.codes import _code_capacity, common
+from qldpc.codes.distance import DistanceMethod
 from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ
 
 from .conftest import Tune, assert_valid_subgraphs
@@ -700,6 +701,110 @@ def test_exact_code_distance_method_api() -> None:
     mock_joint_distance.assert_called_once()
 
 
+def test_connected_support_method_is_only_for_binary_codes() -> None:
+    """Nonbinary codes reject the connected-support method, also when they only bound distances."""
+    # a generic CSS code, unlike a product code, has no closed form that rejects the method first
+    hgp_code = codes.HGPCode(codes.RepetitionCode(3, field=3))
+    for code in (
+        codes.RepetitionCode(3, field=3),
+        codes.FiveQuditCode(3),
+        codes.CSSCode(hgp_code.matrix_x, hgp_code.matrix_z),
+    ):
+        with pytest.raises(ValueError, match="only for binary codes"):
+            code.get_distance(bound=1, method="connected_support")
+        with pytest.raises(ValueError, match="only for binary codes"):
+            code.get_distance_exact(method="connected_support")
+
+
+def test_connected_support_distances_of_classical_codes() -> None:
+    """Classical codes search their parity checks, and vector distances search a coset.
+
+    The tests of the search itself compare many codes with enumeration.
+    """
+    # an exact distance is remembered, and a result within a cutoff is an upper bound, which is not
+    code = codes.ClassicalCode(codes.HammingCode(3).matrix)
+    assert code.get_distance(method="connected_support") == 3
+    assert code.get_distance_if_known() == 3
+    code = codes.ClassicalCode([[1, 1, 0, 0, 0], [0, 1, 1, 0, 0], [0, 0, 0, 1, 1]])
+    with unittest.mock.patch.object(
+        common,
+        "_get_distance_connected_support",
+        autospec=True,
+        side_effect=common._get_distance_connected_support,
+    ) as search:
+        assert 2 <= code.get_distance_exact(cutoff=3, method="connected_support") <= 3
+    assert search.call_args.kwargs["cutoff"] == 3
+    assert code.get_distance_if_known() is None
+
+    # the code words of this code are 00000, 11100, 00011, and 11111, so the vector 00101 is at
+    # distance 2 from them, and 01100 at distance 1; a result above a cutoff is exact
+    for vector, expected in [((0, 0, 1, 0, 1), 2), ((0, 1, 1, 0, 0), 1)]:
+        for cutoff in range(4):
+            distance = code.get_distance_exact(
+                vector=vector, cutoff=cutoff, method="connected_support"
+            )
+            assert distance == expected or expected <= distance <= cutoff
+
+
+def test_connected_support_distances_of_qubit_codes() -> None:
+    """Qubit codes that are not CSS search their stabilizers.
+
+    The tests of the search itself compare many codes with enumeration, and
+    ``test_distances_verify_automorphisms`` searches a subsystem code.
+    """
+    # the five-qubit code has distance 3, which a cutoff can bound without remembering it
+    five_qubit_code = codes.QuditCode(codes.FiveQubitCode().matrix)
+    with unittest.mock.patch.object(
+        common,
+        "_get_distance_connected_support",
+        autospec=True,
+        side_effect=common._get_distance_connected_support,
+    ) as search:
+        assert 3 <= five_qubit_code.get_distance_exact(cutoff=5, method="connected_support") <= 5
+    assert search.call_args.kwargs["cutoff"] == 5
+    assert five_qubit_code.get_distance_if_known() is None
+    assert five_qubit_code.get_distance(method="connected_support") == 3
+    assert five_qubit_code.get_distance_if_known() == 3
+
+
+def test_connected_support_distances_of_css_codes() -> None:
+    """Sector distances, joint distances, and their caches have their known values."""
+    # the sectors of this code have distances 3 and 2, and a known sector distance bounds the search
+    # of the other sector
+    checks_x = [[1, 1, 1, 1, 1, 1, 1], [1, 0, 1, 1, 1, 0, 0]]
+    checks_z = [[1, 1, 0, 1, 0, 0, 1], [1, 1, 1, 0, 0, 1, 0], [1, 0, 1, 1, 1, 0, 0]]
+    code = codes.CSSCode(checks_x, checks_z)
+    assert code.get_distance_exact(Pauli.X, method="connected_support") == 3
+    assert code.get_distance_exact(cutoff=0, method="connected_support") == 2
+    assert code.get_distance_if_known() == 2 and code.get_distance_if_known(Pauli.Z) is None
+    assert code.get_distance_exact(Pauli.Z, method="connected_support") == 2
+
+    # once the lighter sector is known, the joint search is bounded by it
+    code = codes.CSSCode(checks_x, checks_z)
+    assert code.get_distance_exact(Pauli.Z, method="connected_support") == 2
+    assert code.get_distance_exact(cutoff=0, method="connected_support") == 2
+
+    # an exit at a cutoff returns an upper bound, which is not remembered
+    code = codes.CSSCode(checks_x, checks_z)
+    with unittest.mock.patch.object(
+        common,
+        "_get_distance_connected_support",
+        autospec=True,
+        side_effect=common._get_distance_connected_support,
+    ) as search:
+        assert 2 <= code.get_distance_exact(cutoff=7, method="connected_support") <= 7
+    assert search.call_args.kwargs["cutoff"] == 7
+    assert code.get_distance_if_known() is None
+
+    # a generic copy of the [[9, 1, 3]] Bacon-Shor code, which knows no distance of its own,
+    # searches its dressed logical operators
+    bacon_shor_code = codes.BaconShorCode(3)
+    generic_bacon_shor_code = codes.CSSCode(
+        bacon_shor_code.matrix_x, bacon_shor_code.matrix_z, is_subsystem_code=True
+    )
+    assert generic_bacon_shor_code.get_distance_exact(Pauli.X, method="connected_support") == 3
+
+
 def test_css_joint_distance_cache() -> None:
     """A joint CSS search caches only the global distance, leaving sector distances independent."""
     checks_x = [
@@ -800,22 +905,27 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: T
             return self.automorphisms
 
     def get_css_distance(
-        automorphisms: npt.NDArray[np.int_], pauli: PauliXZ | None = None
+        automorphisms: npt.NDArray[np.int_],
+        pauli: PauliXZ | None = None,
+        method: DistanceMethod = "brouwer_zimmermann",
     ) -> int | float:
         code = CSSCodeWithAutomorphisms(bb_code.matrix_x, bb_code.matrix_z)
         code.automorphisms = automorphisms
-        return code.get_distance_exact(pauli)
+        return code.get_distance_exact(pauli, method=method)
 
     def get_qudit_distance(
-        matrix: npt.NDArray[np.int_], automorphisms: npt.NDArray[np.int_], **options: Any
+        matrix: npt.NDArray[np.int_],
+        automorphisms: npt.NDArray[np.int_],
+        method: DistanceMethod = "brouwer_zimmermann",
+        **options: Any,
     ) -> int | float:
         code = QuditCodeWithAutomorphisms(matrix, **options)
         code.automorphisms = automorphisms
-        return code.get_distance_exact()
+        return code.get_distance_exact(method=method)
 
     # use the automorphisms of the code's family before the first layer of these quick searches
     monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
-    tune(automorphism_minimum_layer_work=0)
+    tune(automorphism_minimum_layer_work=0, automorphism_minimum_states=0)
     x, y = sympy.abc.x, sympy.abc.y
     bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
     translations = bb_code._get_qudit_automorphisms()
@@ -823,7 +933,7 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: T
     row_swap = np.arange(16).reshape(4, 4)[[1, 0, 2, 3]].ravel()
     cases: list[tuple[Callable[[npt.NDArray[np.int_]], int | float], npt.NDArray[np.int_], int]] = [
         (get_css_distance, translations, 6),
-        (functools.partial(get_css_distance, pauli=Pauli.X), translations, 6),
+        (functools.partial(get_css_distance, method="connected_support"), translations, 6),
         (
             functools.partial(get_qudit_distance, bb_code.conjugated(range(36, 72)).matrix),
             translations,
@@ -831,6 +941,19 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: T
         ),
         (
             functools.partial(get_qudit_distance, bacon_shor_matrix, is_subsystem_code=True),
+            row_swap[None],
+            4,
+        ),
+    ]
+    # the connected-support search verifies the automorphisms of qubit codes too
+    cases += [
+        (
+            functools.partial(
+                get_qudit_distance,
+                bacon_shor_matrix,
+                method="connected_support",
+                is_subsystem_code=True,
+            ),
             row_swap[None],
             4,
         ),

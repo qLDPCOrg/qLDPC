@@ -4,12 +4,17 @@
 
 from __future__ import annotations
 
+import operator
+
+import galois
 import numpy as np
 import pytest
 import sympy
+import sympy.combinatorics
 
 from qldpc import abstract
 from qldpc.abstract import rings
+from qldpc.external import _groups
 
 
 def test_ring() -> None:
@@ -28,7 +33,6 @@ def test_ring() -> None:
     assert np.array_equal(one.lift(), np.array(1, ndmin=2))
     assert "GF(3)" in str(ring)
     assert ring.is_commutative
-    assert ring.is_abelian
     assert ring.is_semisimple
 
     with pytest.raises(ValueError, match="integer power >= 0"):
@@ -59,8 +63,8 @@ def test_ring() -> None:
     ring = abstract.GroupRing(group, field=3)
     g_i, g_j = group.generators
     r_i, r_j = ring.generators
-    x_i = sympy.Symbol("x_i")
-    x_j = sympy.Symbol("x_j")
+    x_i = sympy.Symbol("x_i", commutative=False)
+    x_j = sympy.Symbol("x_j", commutative=False)
     symbols = {x_i: g_i, x_j: g_j}
     poly_r = 4 * r_i**2 - 2 * r_i * r_j + r_j
     poly_x = 4 * x_i**2 - 2 * x_i * x_j + x_j
@@ -81,11 +85,44 @@ def test_ring() -> None:
     with pytest.raises(ValueError, match="must be GroupMember-valued"):
         ring.eval(1, wrong_symbols)  # type:ignore[arg-type]
 
+    # terms must be integers times words in the given symbols
+    assert ring.eval(1.0 * x_i, symbols) == ring.eval(x_i, symbols)
+    assert ring.eval(x_i**2.0, symbols) == ring.eval(x_i**2, symbols)
+    for expression in [x_i / 2, sympy.sin(x_i)]:
+        with pytest.raises(ValueError, match="the given symbols"):
+            ring.eval(expression, symbols)
+
+    # words can be nested, and products and powers of sums are expanded
+    a, b = sympy.symbols("a b", commutative=False)
+    g, h = abstract.SymmetricGroup(3).generators
+    word_ring = abstract.GroupRing(abstract.SymmetricGroup(3))
+    word_symbols = {a: g, b: h}
+    assert word_ring.eval(3 * (a * b) ** -1, word_symbols) == 3 * abstract.RingMember(
+        word_ring, h**-1 * g**-1
+    )
+    ring_g, ring_h = abstract.RingMember(word_ring, g), abstract.RingMember(word_ring, h)
+    assert word_ring.eval((a + b) ** 2, word_symbols) == (ring_g + ring_h) ** 2
+    assert word_ring.eval((a + b) ** 2.0, word_symbols) == (ring_g + ring_h) ** 2
+    with pytest.raises(ValueError, match="the given symbols"):
+        word_ring.eval((a + b) ** -1, word_symbols)
+
+    # products and powers in the unexpanded expression are checked, because expanding can cancel
+    # reordered terms; sums are not checked
+    x, y, z = sympy.symbols("x y z")
+    assert word_ring.eval(x + y, {x: g, y: h}) == ring_g + ring_h
+    assert word_ring.eval(x * (y + z), {x: g**0, y: g, z: h}) == ring_g + ring_h
+    assert word_ring.eval((x + y) ** 1.0, {x: g, y: h}) == ring_g + ring_h
+    for expression in [1 + z * (x + y) * (x - y), (x + y) ** 2 + (x - y) ** 2]:
+        with pytest.raises(ValueError, match="does not commute"):
+            word_ring.eval(expression, {x: g, y: h, z: g**0})
+    with pytest.raises(ValueError, match="does not commute"):
+        word_ring.eval(a * (x + b) + a * (b - x), {a: g, b: h, x: h})
+
     # edge cases with non-prime number fields
-    ring = abstract.GroupRing(group, field=4)
-    assert ring.eval(-3, symbols) == -ring.eval(3, symbols)
+    ring = abstract.GroupRing(group, field=9)
+    assert ring.eval(-3, symbols) == -ring.eval(3, symbols) != ring.eval(3, symbols)
     with pytest.raises(ValueError, match=r"The value .* is ambiguous"):
-        ring.eval(5, symbols)
+        ring.eval(10, symbols)
 
 
 def test_ring_equality() -> None:
@@ -169,6 +206,25 @@ def test_printing() -> None:
     ring = abstract.GroupRing(abstract.AbelianGroup(2, 2, 2, 2))
     assert [str(gg) for gg in ring.generators] == ["w", "x", "y", "z"]
 
+    # factors of order 1 get no symbols
+    ring = abstract.GroupRing(abstract.AbelianGroup(2, 1, 2))
+    assert [str(gg) for gg in ring.generators] == ["x", "y"]
+    assert str(ring.one + sum(ring.generators, ring.zero)) == "x + y + 1"
+    assert str(abstract.GroupRing(abstract.AbelianGroup()).one) == "1"
+
+    # with more than 26 generators, members print as words in indexed symbols
+    members = [gg for gg in abstract.SymmetricGroup(5).generate() if not gg.is_Identity]
+    group = abstract.Group(*members[:27])
+    assert len(group.generators) == 27
+    ring = abstract.GroupRing(group)
+    symbols = [sympy.Symbol(f"x_{index:02}", commutative=False) for index in range(27)]
+    assert str(ring.generators[0]) == "x_00"
+    local_dict = {str(symbol): symbol for symbol in symbols}
+    member = ring.generators[0] * ring.generators[26]
+    text = str(member).replace("^", "**").replace(" ", "*")
+    word = sympy.parse_expr(text, local_dict=local_dict)
+    assert ring.eval(word, dict(zip(symbols, group.generators))) == member
+
     # every member of a noncommutative group prints as a word that evaluates to that member, even
     # though the SymPy group of QuaternionGroup has more generators than the group
     group = abstract.QuaternionGroup()
@@ -210,9 +266,9 @@ def test_arithmetic_across_rings() -> None:
         abstract.GroupRing(abstract.SymmetricGroup(3), field=3),
         abstract.GroupRing(abstract.SymmetricGroup(3).with_natural_lift()),
     ]:
-        with pytest.raises(ValueError, match="different group algebras"):
+        with pytest.raises(ValueError, match="different rings"):
             ring.one + different_ring.one
-        with pytest.raises(ValueError, match="different group algebras"):
+        with pytest.raises(ValueError, match="different rings"):
             ring.one * different_ring.one
 
 
@@ -241,12 +297,25 @@ def test_group_members_of_ring_members() -> None:
     assert np.array_equal((1 - abstract.RingMember(ring, generator)).to_vector(), expected)
     assert np.array_equal((generator - ring.one).to_vector(), -expected)
 
-    # a permutation that acts on fewer points than the group is padded with fixed points
+    # a permutation on fewer or more points than the group is read on the points of the group
     ring = abstract.GroupRing(abstract.SymmetricGroup(4))
     short, full = abstract.GroupMember(0, 1), abstract.GroupMember([1, 0, 2, 3])
-    assert short.size < full.size
-    assert abstract.RingMember(ring, short) == abstract.RingMember(ring, full)
-    assert ring.zero + short == abstract.RingMember(ring, full)
+    long = abstract.GroupMember([1, 0, 2, 3, 4])
+    assert short.size < full.size < long.size
+    for member in [short, long]:
+        assert abstract.RingMember(ring, member) == abstract.RingMember(ring, full)
+        assert ring.zero + member == abstract.RingMember(ring, full)
+
+    # GroupRing.eval reads the members that symbols stand for in the same way
+    x_sym = sympy.Symbol("x")
+    assert ring.eval(1 + x_sym, {x_sym: long}) == ring.eval(1 + x_sym, {x_sym: full})
+
+    # a SymPy permutation becomes a group member, and a label that is not a permutation is rejected
+    permutation = sympy.combinatorics.Permutation([1, 0, 2, 3])
+    assert not isinstance(permutation, abstract.GroupMember)
+    assert abstract.RingMember(ring, (1, permutation)) == abstract.RingMember(ring, full)
+    with pytest.raises(ValueError, match="not a member"):
+        abstract.RingMember(ring, (1, 0))
 
     # every identity permutation, of any size, is the identity of the group, even in a trivial
     # group, whose identity SymPy does not identify as a member of that group
@@ -258,15 +327,110 @@ def test_group_members_of_ring_members() -> None:
 
 
 def test_primitive_central_idempotents(ring_cyclic3_gf2: abstract.GroupRing) -> None:
-    """Convert external primitive central idempotents into RingMembers."""
+    """Get primitive central idempotents, sorted by their vectors of coefficients."""
     ring = ring_cyclic3_gf2
     x = ring.generators[0]
-    idempotents = ring.get_primitive_central_idempotents()
-    assert idempotents == (x**2 + x + 1, x**2 + x)
-    assert all(idempotent == idempotent * idempotent for idempotent in idempotents)
+    assert ring.get_primitive_central_idempotents() == (x**2 + x, x**2 + x + 1)
+
+    # GF(5)[C2] is not in the table of precomputed idempotents.  Its idempotents are
+    # (1 ± x) / 2 = 3 ± 3 x.
+    ring = abstract.GroupRing(abstract.CyclicGroup(2), field=5)
+    assert (ring.group.to_gap_group(), 5) not in _groups.KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS
+    x = ring.generators[0]
+    assert ring.get_primitive_central_idempotents() == (3 + 2 * x, 3 + 3 * x)
+
+    # the group algebra of the trivial group has one primitive central idempotent: its identity
+    ring = abstract.GroupRing(abstract.TrivialGroup())
+    assert ring.get_primitive_central_idempotents() == (ring.one,)
+
+    # idempotents from the table are sorted for a group that orders its members differently
+    cyclic_group = abstract.CyclicGroup(4)
+    group = abstract.Group(
+        *cyclic_group.generators, generate_func=lambda: reversed(list(cyclic_group.generate()))
+    )
+    assert (group.to_gap_group(), 5) in _groups.KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS
+    vectors = [
+        idempotent.to_vector().tolist()
+        for idempotent in abstract.GroupRing(group, 5).get_primitive_central_idempotents()
+    ]
+    assert vectors == sorted(vectors)
 
     with pytest.raises(ValueError, match="Only semisimple rings"):
         abstract.GroupRing(abstract.CyclicGroup(2), field=2).get_primitive_central_idempotents()
+
+
+@pytest.mark.parametrize(
+    "group, field", [(abstract.DihedralGroup(3), 7), (abstract.CyclicGroup(5), 4)]
+)
+def test_computed_primitive_central_idempotents(group: abstract.Group, field: int) -> None:
+    """Computed idempotents are nonzero, central, orthogonal, and sum to one.
+
+    There are as many of them as there are primitive central idempotents, which by the Witt-Berman
+    theorem is the number of F_q-conjugacy classes.  So they are the primitive central idempotents.
+    Over GF(4), the F_4-conjugacy classes of C5 differ from its F_2-conjugacy classes.
+    """
+    ring = abstract.GroupRing(group, field)
+    idempotents = rings._get_primitive_central_idempotents(ring)
+    assert sum(idempotents, ring.zero) == ring.one
+    vectors = sorted(idempotent.to_vector().tolist() for idempotent in idempotents)
+    assert [pci.to_vector().tolist() for pci in ring.get_primitive_central_idempotents()] == vectors
+    for index, idempotent in enumerate(idempotents):
+        assert idempotent and idempotent * idempotent == idempotent
+        assert all(
+            idempotent * generator == generator * idempotent for generator in ring.generators
+        )
+        assert all(idempotent * other == ring.zero for other in idempotents[index + 1 :])
+
+    # g and h are in the same F_q-conjugacy class if h = y·g^(q^i)·y^(-1) for some y in G and i ≥ 0
+    members = list(group.generate())
+    classes = {
+        frozenset(yy * gg ** (field**ii) * ~yy for yy in members for ii in range(len(members)))
+        for gg in members
+    }
+    assert len(idempotents) == len(classes)
+
+
+def test_precomputed_primitive_central_idempotents_need_default_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only a field with the default irreducible polynomial uses the precomputed idempotents."""
+    # pretend that the table holds the identity as the only idempotent of GF(9)[C2]
+    group = abstract.CyclicGroup(2)
+    table = {(group.to_gap_group(), 9): (((1, ()),),)}
+    monkeypatch.setattr(_groups, "KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS", table)
+    ring = abstract.GroupRing(group, field=9)
+    assert ring.get_primitive_central_idempotents() == (ring.one,)
+
+    # a field with another irreducible polynomial computes its two idempotents instead
+    ring = abstract.GroupRing(group, field=galois.GF(9, irreducible_poly="x^2 + 1"))
+    assert len(ring.get_primitive_central_idempotents()) == 2
+
+
+def test_precomputed_primitive_central_idempotents() -> None:
+    """The precomputed primitive central idempotents equal the computed ones."""
+    frobenius_group = abstract.Group(  # SmallGroup(21, 1)
+        abstract.GroupMember([[1, 2, 4], [3, 6, 5]]), abstract.GroupMember([list(range(7))])
+    )
+    group_algebras = [
+        *[(abstract.CyclicGroup(order), 2) for order in (3, 5, 7, 9)],
+        *[(abstract.CyclicGroup(order), 3) for order in (2, 4, 5)],
+        (abstract.CyclicGroup(3), 4),
+        (abstract.CyclicGroup(4), 5),
+        (abstract.DihedralGroup(3), 5),
+        (abstract.AlternatingGroup(4), 5),
+        (frobenius_group, 2),
+        (abstract.DihedralGroup(5), 3),
+    ]
+    assert {(group.to_gap_group(), field) for group, field in group_algebras} == set(
+        _groups.KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS
+    )
+    for group, field in group_algebras:
+        ring = abstract.GroupRing(group, field)
+        computed = rings._get_primitive_central_idempotents(ring)
+        vectors = sorted(idempotent.to_vector().tolist() for idempotent in computed)
+        assert [
+            pci.to_vector().tolist() for pci in ring.get_primitive_central_idempotents()
+        ] == vectors
 
 
 def test_get_transformer_reuse() -> None:
@@ -276,11 +440,20 @@ def test_get_transformer_reuse() -> None:
     assert ring.get_transformer() is transformer
 
 
+def test_get_transformer_is_reproducible() -> None:
+    """Without a seed, separately built rings have the same Wedderburn-Artin decomposition."""
+    rings = [abstract.GroupRing(abstract.DihedralGroup(3), field=5) for _ in range(2)]
+    transformer_a, transformer_b = [ring.get_transformer() for ring in rings]
+    for component_a, component_b in zip(transformer_a.transformers, transformer_b.transformers):
+        assert np.array_equal(component_a.matrix_basis, component_b.matrix_basis)
+
+
 def test_transpose() -> None:
-    """Transpose ring members."""
+    """Transposing a member of a group algebra inverts its group members."""
     group = abstract.CyclicGroup(4)
     for member in group.generate():
         element = abstract.RingMember(group, member)
+        assert element.T == abstract.RingMember(group, ~member)
         assert element.T.T == element
 
 
@@ -294,8 +467,84 @@ def test_deprecated_argument_order() -> None:
         ring_member = abstract.RingMember.from_vector(ring, vector)  # type:ignore[arg-type]
     assert np.array_equal(ring_member.to_vector(), vector)
 
+    # the deprecated argument order also works for other rings
+    matrix_ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
+    vector = matrix_ring.field([1, 1])
+    with pytest.warns(DeprecationWarning, match="DEPRECATED"):
+        ring_member = abstract.RingMember.from_vector(matrix_ring, vector)  # type:ignore[arg-type]
+    assert ring_member == abstract.RingMember.from_vector(vector, matrix_ring)
+
 
 def test_deprecated_attribute_lookup() -> None:
     """The module-level lookup of deprecated names rejects other names."""
     with pytest.raises(AttributeError, match="has no attribute 'not_a_real_export'"):
         rings.not_a_real_export  # type: ignore[attr-defined]  # noqa: B018
+
+
+def test_ring_interface() -> None:
+    """Group algebras and matrix rings implement the ``Ring`` interface."""
+    group = abstract.SymmetricGroup(3).with_natural_lift()
+    group_ring = abstract.GroupRing(group)
+    assert group_ring.dim == group.order == 6 and group_ring.lift_dim == group.lift_dim == 3
+    assert group_ring.has_involution
+    assert group_ring.basis == [
+        abstract.RingMember(group_ring, member) for member in group.generate()
+    ]
+
+    ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]), field=3)
+    one, swap = ring.basis
+    assert ring.is_commutative and str(2 * swap + one) == "e_0 + 2 e_1" and str(swap - swap) == "0"
+    shift = abstract.MatrixRing(np.roll(np.eye(3, dtype=int), 1, axis=0)).generators[0]
+    assert shift.inverse() == shift**2
+    with pytest.raises(NotImplementedError, match="only for group algebras"):
+        ring.get_transformer()
+    with pytest.raises(AttributeError, match="no base group"):
+        _ = ring.one.group
+
+
+def test_combining_members_of_different_rings() -> None:
+    """Members of a matrix ring do not combine with members of other rings, or group members."""
+    ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
+    other_ring = abstract.MatrixRing(np.array([[0, 1], [1, 1]]))
+    assert ring.field is other_ring.field and ring.dim == other_ring.dim
+    with pytest.raises(ValueError, match="different rings"):
+        ring.one + other_ring.one
+    with pytest.raises(ValueError, match="different rings"):
+        ring.one * other_ring.one
+
+    # group members combine only with members of group algebras
+    group_member = abstract.CyclicGroup(3).generators[0]
+    with pytest.raises(TypeError):
+        ring.one + group_member
+    with pytest.raises(TypeError, match="only with members of group algebras"):
+        ring.one * group_member
+    with pytest.raises(TypeError):
+        group_member * ring.one
+
+    # operands that are not ring members are rejected
+    for operation, operands in [
+        (operator.add, (ring.one, "x")),
+        (operator.mul, (ring.one, "x")),
+        (operator.mul, ("x", ring.one)),
+    ]:
+        with pytest.raises(TypeError):
+            operation(*operands)
+
+
+def test_group_member_arithmetic() -> None:
+    """Group members multiply members of a group algebra from the side on which they appear."""
+    ring = abstract.GroupRing(abstract.SymmetricGroup(3), field=3)
+    group_member = ring.group.generators[0]
+    as_ring_member = abstract.RingMember(ring, group_member)
+    member = ring.one + 2 * ring.generators[1]
+    assert member * group_member != group_member * member
+    assert group_member * member == as_ring_member * member
+    assert member * group_member == member * as_ring_member
+    assert member + group_member == group_member + member == member + as_ring_member
+
+
+def test_regular_lift_returns_independent_arrays() -> None:
+    """Mutating a returned regular lift does not corrupt the cached lifts of the group."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3))
+    ring.regular_lift(ring.group.identity)[:] = 0
+    assert np.array_equal(ring.regular_lift(ring.group.identity), np.identity(3, dtype=int))

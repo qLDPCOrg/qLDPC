@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import itertools
 
+import galois
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -141,7 +142,7 @@ def test_gala_code_errors() -> None:
         codes.GALACode([one], [1], num_active_rows=1)  # type: ignore[list-item]
 
     other_ring = abstract.GroupRing(abstract.CyclicGroup(2))
-    with pytest.raises(ValueError, match="same group ring"):
+    with pytest.raises(ValueError, match="same group algebra"):
         codes.GALACode([one], [other_ring.one], num_active_rows=1)
 
     qutrit_ring = abstract.GroupRing(abstract.CyclicGroup(3), field=3)
@@ -220,6 +221,14 @@ def test_bivariate_bicycle_codes() -> None:
     assert str(orders) in code_string
     assert str(poly_a.as_expr()) in code_string
     assert str(poly_b.as_expr()) in code_string
+
+    # exponent vectors are read only from integer powers of the symbols of the code
+    assert code.as_exponent_vector(x**3 / y**2) == (3, -2)
+    with pytest.raises(ValueError, match="not a product of integer powers of symbols"):
+        code.as_exponent_vector(sympy.sin(x))
+    for monomial in [z, x * z]:
+        with pytest.raises(ValueError, match="not a monomial in the symbols"):
+            code.as_exponent_vector(monomial)
 
     # [[144, 12, 12]] code in Table 3 and Figure 2 of arXiv:2308.07915
     orders = (12, 6)
@@ -411,6 +420,36 @@ def test_nonabelian_groups_give_no_block_translations() -> None:
     assert _get_abelian_block_translations(abstract.DihedralGroup(3), 2) is None
 
 
+def test_abelian_block_translations_of_field_lifts() -> None:
+    """Lifts given as arrays over a finite field are read by their integer entries."""
+    field = galois.GF(2)
+
+    # a cyclic shift over GF(2) gives the translations of the permutation that it represents, as
+    # does the same shift over the integers, and they preserve a lifted product
+    shift = np.roll(np.eye(3, dtype=int), 1, axis=0)
+    group = abstract.Group.from_generating_mats(field(shift))
+    translations = _get_abelian_block_translations(group, 2)
+    integer_translations = _get_abelian_block_translations(
+        abstract.Group.from_generating_mats(shift), 2
+    )
+    assert translations is not None and integer_translations is not None
+    assert np.array_equal(translations, integer_translations)
+    ring = abstract.GroupRing(group)
+    code = codes.LPCode(abstract.RingArray.build([[ring.one + ring.generators[0], 1]], ring))
+    code_translations = code._get_qudit_automorphisms()
+    assert code_translations is not None
+    assert_valid_translations(code, code_translations, group_order=3)
+
+    # the all-ones matrix J minus the identity squares to the identity over GF(2), so it generates a
+    # group of order 2.  Every row and column of J - I sums to 1 over GF(2), but J - I is not a
+    # permutation matrix.
+    group = abstract.Group.from_generating_mats(
+        field(np.ones((4, 4), dtype=int) - np.eye(4, dtype=int))
+    )
+    assert group.order == 2
+    assert _get_abelian_block_translations(group, 2) is None
+
+
 @pytest.mark.parametrize(
     "lifts",
     [
@@ -449,7 +488,7 @@ def test_block_translations() -> None:
         assert np.array_equal(translation[blocks] - blocks[:, :1], [translation[:block_size]] * 3)
     for first, second in itertools.combinations(translations, 2):
         assert np.array_equal(first[second], second[first])
-    orbits = automorphism_families._get_orbits(translations, num_blocks * block_size)
+    orbits = automorphism_families.get_orbits(translations, num_blocks * block_size)
     assert [len(set(orbits[block])) for block in blocks] == [1] * num_blocks
     assert len(set(orbits)) == num_blocks
 
@@ -465,3 +504,11 @@ def test_multivariate_bicycle_syndrome_subgraphs_by_term_count(num_terms: int) -
     assert len(code.poly_b.terms()) == num_terms
     assert len(code.get_syndrome_subgraphs()) == 4 * num_terms
     assert_valid_subgraphs(code)
+
+
+def test_gala_requires_group_algebra() -> None:
+    """GALA codes are built from members of a group algebra."""
+    ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
+    generators = (ring.one + ring.generators[0],)
+    with pytest.raises(ValueError, match="same group algebra"):
+        codes.GALACode(generators, generators, num_active_rows=1)

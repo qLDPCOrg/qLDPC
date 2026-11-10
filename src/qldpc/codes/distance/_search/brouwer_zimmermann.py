@@ -8,8 +8,10 @@ The overlapping-set certificate and implementation invariants are derived in
 ``brouwer_zimmermann.md`` beside this module.  Information-set families and their certificates are
 built in ``information_sets.py``, which fixed-weight logical counting shares.  Families of
 images of one information set under automorphisms are built in ``automorphism_families.py``, and
-tables that let a scan skip hopeless supports in ``completion_bounds.py``.  This module owns witness
-discovery, early exits, exhaustive dispatch, and the resumable native scans.
+tables that let a scan skip hopeless supports in ``completion_bounds.py``.  The compiled scans of
+layers, which the coset search shares, are in ``affine_search.py``.  ``affine_instance.py`` packs
+the sets of a search with their certificate, for the coset search too.  This module owns witness
+discovery, early exits, exhaustive dispatch, and the resumable scans of layers in chunks.
 """
 
 from __future__ import annotations
@@ -22,15 +24,18 @@ from dataclasses import dataclass, field
 import numpy as np
 import numpy.typing as npt
 
-from qldpc._binary import pack_bits, popcount_word
-from qldpc._compilation import always_compiled
+from qldpc._binary import pack_bits
 
 from .._binary import get_eligible_rows
 from .._tuning import SearchTuning, get_tuning
-from . import automorphism_families, completion_bounds, information_sets
+from . import (
+    affine_instance,
+    affine_search,
+    automorphism_families,
+    completion_bounds,
+    information_sets,
+)
 from .brute_force import get_nested_distance_brute_force
-from .completion_bounds import get_completion_bound
-from .information_sets import advance_support
 
 # A function that returns the automorphism family of a problem for a weight divisor, or None.
 _GetAutomorphismFamily = Callable[
@@ -195,12 +200,12 @@ def _enumeration_is_cheaper_than_search(
 class _BrouwerZimmermannSearch:
     """State for one resumable Brouwer-Zimmermann search.
 
-    ``certificate`` records the ranks, maximum coordinate coverage, and proven weight divisor of the
-    family that certifies the search.  This family is the packed family, unless
+    ``instance`` holds the packed sets that the search scans, and the certificate of the family that
+    certifies the search.  The certificate records the ranks, maximum coordinate coverage, and
+    proven weight divisor of that family.  This family is the packed family, unless
     ``uses_automorphism_family`` is True.  Such a search packs one set, and its family holds the
     images of that set under automorphisms of the problem, which complete each layer when the set
-    does (see ``automorphism_families``).  ``ranks`` is the native copy of the ranks of the packed
-    sets for the compiled scan.
+    does (see ``automorphism_families``).
 
     ``lower_bound`` bounds the weights of the eligible words lighter than ``best``: the search
     certifies that no eligible word weighs less than ``min(lower_bound, best)``, and it has finished
@@ -215,17 +220,13 @@ class _BrouwerZimmermannSearch:
     the automorphism family if it predicts less work (see ``_switch_to_automorphism_family``).
 
     A layer of two or more rows that scans one set whose block is an information set uses
-    ``_scan_one_information_set``.  Such a layer may skip the supports whose last two rows cannot
-    complete a word lighter than the best weight, with tables that the completion fields of
+    ``affine_search.scan_information_set``.  Such a layer may skip the supports whose last two rows
+    cannot complete a word lighter than the best weight, with tables that the completion fields of
     ``tuning`` choose (see ``completion_bounds``).  ``completion_tables`` keeps the most recently
     chosen tables for reuse, until the basis changes or the search finishes.
     """
 
-    generators: npt.NDArray[np.uint64]
-    labels: npt.NDArray[np.uint64]
-    widths: npt.NDArray[np.int64]
-    label_widths: npt.NDArray[np.int64]
-    certificate: information_sets.Certificate
+    instance: affine_instance.AffineInstance
     cutoff: int
     batch_size: int
     tuning: SearchTuning
@@ -234,20 +235,14 @@ class _BrouwerZimmermannSearch:
     next_weight: int = 1
     get_automorphism_family: _GetAutomorphismFamily | None = field(default=None, repr=False)
     uses_automorphism_family: bool = field(default=False, init=False)
-    ranks: npt.NDArray[np.int64] = field(init=False, repr=False)
     completion_tables: completion_bounds.CompletionTables | None = field(
         default=None, init=False, repr=False
     )
 
-    def __post_init__(self) -> None:
-        self.ranks = np.array(self.certificate.ranks, dtype=np.int64)
-        assert len(self.ranks) == len(self.generators)
-        assert self.certificate.dimension == self.dimension
-
     @property
     def dimension(self) -> int:
         """Number of basis rows searched."""
-        return self.generators.shape[1]
+        return self.instance.generators.shape[1]
 
     @property
     def finished(self) -> bool:
@@ -279,11 +274,13 @@ class _BrouwerZimmermannSearch:
         # weight: an unvisited eligible word lighter than that would contradict the certificate, and
         # lighter witnesses found during the scan only lower the best weight further.
         weight = self.next_weight
-        num_sets = len(self.certificate.ranks)
+        instance = self.instance
+        certificate = instance.certificate
+        num_sets = len(certificate.ranks)
         if self.uses_automorphism_family:
             num_scanned, num_completed = 1, num_sets
         else:
-            num_completed = self.certificate.get_num_sets_to_certify(weight, self.best)
+            num_completed = certificate.get_num_sets_to_certify(weight, self.best)
             num_scanned = num_completed
 
         # Before a costly layer, consider scanning one set and certifying with its images.  Like
@@ -302,24 +299,26 @@ class _BrouwerZimmermannSearch:
         # Start a fresh enumeration of all supports with this coefficient weight.
         scanned = slice(0, num_scanned)
         support = np.zeros(weight, dtype=np.int64)
-        prefixes = np.zeros((weight + 1, num_scanned, self.generators.shape[2]), dtype=np.uint64)
+        prefixes = np.zeros(
+            (weight + 1, num_scanned, instance.generators.shape[2]), dtype=np.uint64
+        )
         depth = 0
         # Any negative Python cutoff disables early exit; keep its native value in int64 range.
         cutoff = max(-1, self.cutoff)
 
         # A layer of one information set uses its own scan, with completion tables if they pay.
-        one_set = num_scanned == 1 and self.ranks[0] == self.dimension and weight >= 2
+        one_set = num_scanned == 1 and instance.ranks[0] == self.dimension and weight >= 2
         tables = self._select_completion_tables(weight) if one_set else None
         scan_tables = completion_bounds.NO_TABLES if tables is None else tables
 
         # Scan in chunks, returning early once the upper bound reaches the cutoff.
         while depth >= 0:
             if one_set:
-                self.best, depth, _, _, _ = _scan_one_information_set(
-                    self.generators[scanned],
-                    self.labels[scanned],
-                    self.widths[scanned],
-                    self.label_widths[scanned],
+                self.best, depth, _, _, _ = affine_search.scan_information_set(
+                    instance.generators[scanned],
+                    instance.labels[scanned],
+                    instance.widths[scanned],
+                    instance.label_widths[scanned],
                     support,
                     prefixes,
                     depth,
@@ -331,12 +330,12 @@ class _BrouwerZimmermannSearch:
                     scan_tables.block_bits,
                 )
             else:
-                self.best, depth, _ = _scan_brouwer_zimmermann(
-                    self.generators[scanned],
-                    self.labels[scanned],
-                    self.ranks[scanned],
-                    self.widths[scanned],
-                    self.label_widths[scanned],
+                self.best, depth, _ = affine_search.scan_family(
+                    instance.generators[scanned],
+                    instance.labels[scanned],
+                    instance.ranks[scanned],
+                    instance.widths[scanned],
+                    instance.label_widths[scanned],
                     support,
                     prefixes,
                     depth,
@@ -351,7 +350,7 @@ class _BrouwerZimmermannSearch:
         # bound of a family scanned before a switch to an automorphism family still holds for the
         # eligible words lighter than the best weight, which no layer has examined or skipped.
         self.lower_bound = max(
-            self.lower_bound, self.certificate.step_lower_bound(weight, num_completed)
+            self.lower_bound, certificate.step_lower_bound(weight, num_completed)
         )
         if num_completed == num_sets:
             self.next_weight += 1
@@ -363,7 +362,7 @@ class _BrouwerZimmermannSearch:
         The search reuses its tables while it scans the same set, and keeps the chosen tables.
         """
         tables = completion_bounds.select_completion_tables(
-            self.generators[0, :, : self.widths[0]],
+            self.instance.generators[0, :, : self.instance.widths[0]],
             weight,
             self.best,
             current=self.completion_tables,
@@ -383,7 +382,7 @@ class _BrouwerZimmermannSearch:
         """
         assert self.get_automorphism_family is not None
         get_automorphism_family, self.get_automorphism_family = self.get_automorphism_family, None
-        automorphism_family = get_automorphism_family(self.certificate.weight_divisor)
+        automorphism_family = get_automorphism_family(self.instance.certificate.weight_divisor)
         if automorphism_family is None:
             return
 
@@ -391,13 +390,9 @@ class _BrouwerZimmermannSearch:
         basis_family, certificate = automorphism_family
         self.best = _get_basis_family_upper_bound(basis_family, self.best)
         work = automorphism_families.estimate_automorphism_family_work(certificate, self.best)
-        if work >= self.certificate.work(self.best):
+        if work >= self.instance.certificate.work(self.best):
             return
-        self.generators, self.labels, self.widths, self.label_widths = _pack_basis_family(
-            basis_family
-        )
-        self.certificate = certificate
-        self.ranks = np.array(certificate.ranks[:1], dtype=np.int64)
+        self.instance = affine_instance.get_distance_instance(basis_family, certificate)
         self.lower_bound = max(self.lower_bound, certificate.lower_bound(1))
         self.next_weight = 2
         self.uses_automorphism_family = True
@@ -522,9 +517,11 @@ def _prepare_brouwer_zimmermann_search(
         return min(best, distance)
 
     return _BrouwerZimmermannSearch(
-        *_pack_basis_family(basis_family),
-        certificate=basis_family.get_search_certificate(
-            best, tuning.lp_minimum_work, tuning.lp_dual_max_denominator
+        affine_instance.get_distance_instance(
+            basis_family,
+            basis_family.get_search_certificate(
+                best, tuning.lp_minimum_work, tuning.lp_dual_max_denominator
+            ),
         ),
         cutoff=cutoff,
         batch_size=1 << tuning.information_set_batch_exponent,
@@ -569,37 +566,6 @@ def _get_automorphism_family(
     )
 
 
-def _pack_basis_family(
-    basis_family: information_sets.BasisFamily,
-) -> tuple[
-    npt.NDArray[np.uint64], npt.NDArray[np.uint64], npt.NDArray[np.int64], npt.NDArray[np.int64]
-]:
-    """Pack the sets of a basis family for the native scan.
-
-    Returns the packed rows, packed labels, and the numbers of words of each that each set uses.
-    """
-    # Remove systematic pivots; advance() restores their known weight arithmetically.
-    packed_rows = [
-        pack_bits(np.delete(generators, pivots[:rank], axis=1))
-        for generators, pivots, rank in zip(
-            basis_family.generators, basis_family.pivots, basis_family.ranks, strict=True
-        )
-    ]
-
-    # Zero-pad every set to a common word width, so the Numba kernel receives single arrays.  The
-    # labels of every set already have the same width, which is zero for a basis without labels.
-    widths = np.array([rows.shape[1] for rows in packed_rows], dtype=np.int64)
-    packed_generators = np.zeros(
-        (len(packed_rows), basis_family.generators.shape[1], int(widths.max(initial=0))),
-        dtype=np.uint64,
-    )
-    for index, rows in enumerate(packed_rows):
-        packed_generators[index, :, : widths[index]] = rows
-    packed_labels = np.stack([pack_bits(set_labels) for set_labels in basis_family.labels])
-    label_widths = np.full(len(packed_labels), packed_labels.shape[2], dtype=np.int64)
-    return packed_generators, packed_labels, widths, label_widths
-
-
 def _get_lightest_eligible_row_weight(
     basis: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8],
@@ -618,197 +584,3 @@ def _get_basis_family_upper_bound(
     for generators, set_labels in zip(basis_family.generators, basis_family.labels, strict=True):
         upper_bound = min(upper_bound, _get_lightest_eligible_row_weight(generators, set_labels))
     return upper_bound
-
-
-####################################################################################################
-# native scan
-
-
-@always_compiled
-def _scan_brouwer_zimmermann(
-    generators: npt.NDArray[np.uint64],
-    labels: npt.NDArray[np.uint64],
-    ranks: npt.NDArray[np.int64],
-    widths: npt.NDArray[np.int64],
-    label_widths: npt.NDArray[np.int64],
-    support: npt.NDArray[np.int64],
-    prefixes: npt.NDArray[np.uint64],
-    depth: int,
-    best: int,
-    cutoff: int,
-    batch_size: int,
-) -> tuple[int, int, int]:
-    """Scan one bounded chunk of coefficient supports for Brouwer-Zimmermann search.
-
-    Args:
-        generators: Packed information-set rows after pivot columns have been deleted.
-        labels: Packed quotient labels whose nonzero XOR marks eligible candidates.
-        ranks: Rank of each information-set block before pivot columns were deleted.
-        widths: Number of packed generator words used by each information-set block.
-        label_widths: Number of packed label words used by each information-set block.
-        support: Mutable row indices for the current coefficient support.
-        prefixes: Mutable prefix XORs for internal support depths and information-set blocks.
-        depth: Current support-tree depth, or ``-1`` when the coefficient layer is complete.
-        best: Current upper bound; only strictly lighter eligible candidates replace it.
-        cutoff: Weight threshold that stops this chunk once ``best <= cutoff``.
-        batch_size: Maximum number of complete supports visited by this chunk.
-
-    Returns:
-        Updated ``best``, updated ``depth``, and number of complete supports visited.
-    """
-    dimension = generators.shape[1]
-    weight = len(support)
-    visited = 0
-    while True:
-        depth = advance_support(generators, widths, support, prefixes, depth)
-        if depth < 0:
-            return best, depth, visited
-
-        # Visit the remaining supports that differ from this one only in their last row, in each
-        # information set, returning at the cutoff or at the end of this chunk.
-        while support[depth] < dimension:
-            row = support[depth]
-            for set_index in range(len(ranks)):
-                # Each selected row whose pivot column was deleted contributes one to the Hamming
-                # weight; packed words hold the remaining columns.
-                if ranks[set_index] == dimension:
-                    candidate_weight = np.int64(weight)
-                else:
-                    candidate_weight = np.int64(0)
-                    for selected in range(weight):
-                        if support[selected] < ranks[set_index]:
-                            candidate_weight += 1
-                for word in range(widths[set_index]):
-                    value = prefixes[depth, set_index, word] ^ generators[set_index, row, word]
-                    candidate_weight += popcount_word(value)
-                    if candidate_weight >= best:
-                        break
-                if candidate_weight >= best:
-                    continue
-
-                if _is_eligible(labels, label_widths, set_index, support):
-                    best = int(candidate_weight)
-
-            visited += 1
-            support[depth] += 1
-            if best <= cutoff or visited >= batch_size:
-                return best, depth, visited
-
-
-@always_compiled
-def _scan_one_information_set(
-    generators: npt.NDArray[np.uint64],
-    labels: npt.NDArray[np.uint64],
-    widths: npt.NDArray[np.int64],
-    label_widths: npt.NDArray[np.int64],
-    support: npt.NDArray[np.int64],
-    prefixes: npt.NDArray[np.uint64],
-    depth: int,
-    best: int,
-    cutoff: int,
-    batch_size: int,
-    tables: npt.NDArray[np.uint8],
-    offsets: npt.NDArray[np.int64],
-    block_bits: int,
-) -> tuple[int, int, int, int, int]:
-    """Scan one bounded chunk of a layer of one information set, skipping hopeless completions.
-
-    The arguments are those of ``_scan_brouwer_zimmermann``, without ``ranks``, for one set whose
-    block is an information set, so every word weighs its coefficient weight plus the weight of its
-    packed tail, and for a layer of at least two rows.  ``tables``, ``offsets``, and ``block_bits``
-    are those of ``completion_bounds.CompletionTables``, such as ``completion_bounds.NO_TABLES``,
-    which skip nothing.  With tables, before the scan tries row ``s`` as the first of the last two
-    rows of a support, it bounds the tail weights of the completions of the first ``weight - 2``
-    rows, the prefix, by two rows from row ``s`` on.  If their words cannot weigh less than
-    ``best``, it skips them all.
-
-    A chunk ends when the layer is complete, at the cutoff, or once the supports that it weighed and
-    the bounds that it looked up reach ``batch_size`` together.
-
-    Returns:
-        Updated ``best``; updated ``depth``, which is ``-1`` once the layer is complete; and the
-        numbers of supports that the chunk weighed, of bounds that it looked up, and of supports
-        that it skipped.
-    """
-    num_rows = generators.shape[1]
-    weight = len(support)
-    width = widths[0]
-    use_tables = len(tables) > 0
-    # The search steps through the supports of the first weight - 1 rows, whose last row is the
-    # first of the last two rows of a support, and visits the last row of each in its own loop.  The
-    # first of the last two rows is never the last row, which no row can follow.
-    head = support[: weight - 1]
-    head_rows = generators[:, : num_rows - 1]
-    pair_depth = weight - 2
-    evaluated, lookups, skipped = 0, 0, 0
-    while True:
-        if depth < weight - 1:
-            depth = advance_support(head_rows, widths, head, prefixes, depth)
-            if depth < 0:
-                return best, depth, evaluated, lookups, skipped
-            first = support[pair_depth]
-
-            # Skip every completion from row first on if none can be lighter than the best word.
-            prefix = prefixes[pair_depth, 0]
-            if use_tables:
-                lookups += 1
-                limit = best - weight
-                if get_completion_bound(tables, offsets, block_bits, first, prefix, limit) >= limit:
-                    remaining = num_rows - first
-                    skipped += remaining * (remaining - 1) // 2
-                    support[pair_depth] = num_rows
-                    if evaluated + lookups >= batch_size:
-                        return best, depth, evaluated, lookups, skipped
-                    continue
-
-            # Otherwise add row first to the prefix, and try every later row as the last row.
-            for word in range(width):
-                prefixes[weight - 1, 0, word] = prefix[word] ^ generators[0, first, word]
-            depth = weight - 1
-            support[depth] = first + 1
-            if evaluated + lookups >= batch_size:
-                return best, depth, evaluated, lookups, skipped
-
-        # Weigh the words that differ only in their last row.
-        while support[depth] < num_rows:
-            row = support[depth]
-            candidate_weight = np.int64(weight)
-            for word in range(width):
-                candidate_weight += popcount_word(
-                    prefixes[depth, 0, word] ^ generators[0, row, word]
-                )
-                if candidate_weight >= best:
-                    break
-            if candidate_weight < best and _is_eligible(labels, label_widths, 0, support):
-                best = int(candidate_weight)
-
-            evaluated += 1
-            support[depth] += 1
-            if best <= cutoff or evaluated + lookups >= batch_size:
-                return best, depth, evaluated, lookups, skipped
-        depth = pair_depth
-        support[depth] += 1
-
-
-@always_compiled(inline=True)
-def _is_eligible(
-    labels: npt.NDArray[np.uint64],
-    label_widths: npt.NDArray[np.int64],
-    set_index: int,
-    support: npt.NDArray[np.int64],
-) -> bool:
-    """Decide whether the word of a support of a search basis lies outside the excluded subcode.
-
-    A word is eligible when no subcode is excluded, so that the set has no label words, or when the
-    XOR of the quotient labels of its rows is nonzero.
-    """
-    weight = len(support)
-    eligible = label_widths[set_index] == 0
-    for word in range(label_widths[set_index]):
-        combined = labels[set_index, support[0], word]
-        for selected in range(1, weight):
-            combined ^= labels[set_index, support[selected], word]
-        if combined:
-            eligible = True
-            break
-    return eligible

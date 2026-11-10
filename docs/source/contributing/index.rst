@@ -104,11 +104,14 @@ The third tier is the finishing checks.
   Run ``pytest_.py`` only on selected paths, since over the whole repository it repeats the test run of ``coverage_.py``.
   When targeted tests do not settle a question, such as whether a module's own tests fully cover it, run ``coverage_.py`` on that module.
   For example, ``python checks/coverage_.py src/qldpc/codes/common.py`` checks one module, and ``python checks/coverage_.py -i`` checks every changed module.
-* **Finishing:** once a change is finished, before its pull request is marked ready for review, check the change and the code that it could affect.
+* **Finishing:** local checks that catch, before CI runs, the failures that a change most likely causes.
+  CI runs them too, over the whole repository, so they are needed only when no one will read CI's results soon, such as when a change is finished while the maintainers are away.
+  In that case, check the finished change and the code that it could affect before its pull request is marked ready for review.
   Run the anytime checks, ``coverage_.py -i``, the tests of closely related code, such as callers and subclasses of changed code, and ``build_docs.py`` if the change edits documentation, notebooks, or docstrings.
   Leave repository-wide test runs to CI.
   After fixing a failure, rerun the failed checks.
   If a standard review ran, ask the maintainer whether to review a significant fix in another round.
+  If the maintainer is away, report that question as an open decision.
 
 Refreshing the saved outputs of a changed notebook, as the :doc:`writing standard <standards/writing>` requires, is part of writing the change, not a check.
 

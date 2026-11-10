@@ -88,9 +88,9 @@ class GALACode(CSSCode):
     The first J block rows of each parent matrix are the active rows that define the parity checks
     of the code.  The remaining rows are latent rows and do not define stabilizers.
 
-    Each generator is a RingMember and may therefore be either a monomial, representing one group
-    element, or a polynomial sum of group elements.  GALA codes are currently supported only over
-    GF(2).
+    Each generator is a member of the group algebra, so it may be either a monomial, representing
+    one group element, or a polynomial sum of group elements.  GALA codes are currently supported
+    only over GF(2).
 
     The compact self-dual [[132, 30, 12]] code from arXiv:2608.07431 can be constructed by::
 
@@ -203,8 +203,10 @@ class GALACode(CSSCode):
         if not all(isinstance(generator, abstract.RingMember) for generator in generators):
             raise ValueError("GALA generators must be RingMember objects")
         ring = generators[0].ring
-        if any(generator.ring != ring for generator in generators[1:]):
-            raise ValueError("All GALA generators must belong to the same group ring")
+        if not isinstance(ring, abstract.GroupRing) or any(
+            generator.ring != ring for generator in generators[1:]
+        ):
+            raise ValueError("GALA generators must all be members of the same group algebra")
         if ring.field.order != 2:
             raise ValueError("GALA codes are currently supported only over GF(2)")
 
@@ -732,9 +734,15 @@ class BBCode(MBCode):
         return toric_layout_generating_data
 
     def as_exponent_vector(self, monomial: sympy.Mul) -> tuple[int, int]:
-        """Express the given monomial as a vector of exponents, as in ``x**3/y**2 -> (3, -2)``."""
+        """Express the given monomial as a vector of exponents, as in ``x**3/y**2 -> (3, -2)``.
+
+        Raise a ValueError unless the monomial is an integer times a product of integer powers of
+        the symbols of this code.  The integer is ignored.
+        """
         _, _exponents = abstract.get_coefficient_and_exponents(monomial)
         exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
+        if not exponents.keys() <= set(self.symbols):
+            raise ValueError(f"{monomial} is not a monomial in the symbols {self.symbols}")
         return (exponents.get(self.symbols[0], 0), exponents.get(self.symbols[1], 0))
 
     def change_poly_basis(
@@ -835,7 +843,8 @@ def _get_block_translations(group: abstract.Group, num_blocks: int) -> npt.NDArr
     offsets = block_size * np.arange(num_blocks)[:, None]
     return np.array(
         [
-            (np.argmax(group.lift(generator), axis=0) + offsets).ravel()
+            # the argmax of a field array is a field array, which cannot add integer offsets
+            (np.argmax(group.lift(generator).view(np.ndarray), axis=0) + offsets).ravel()
             for generator in group.generators
         ],
         dtype=int,
@@ -864,7 +873,8 @@ def _get_abelian_block_translations(
     if not group.is_abelian:
         return None
     for generator in group.generators:
-        lift = group.lift(generator)
+        # read the entries of a lift as integers, since sums over a finite field would be modular
+        lift = group.lift(generator).view(np.ndarray)
         is_permutation = (
             np.isin(lift, (0, 1)).all()
             and (lift.sum(axis=0) == 1).all()

@@ -38,9 +38,10 @@ Use judgment to point out when a change would be easier to review as a sequence 
 
 The [validation commands](docs/source/contributing/index.rst#validation-commands) define three tiers of checks: anytime, as needed, and finishing.
 Run anytime checks freely, and as-needed checks when writing, reviewing, or verifying a change.
-Run the finishing checks only when a maintainer explicitly asks to finish, finalize, or make a pull request ready to merge or ready for review.
-Examples of such requests are "finish this PR" and "run the finishing checks".
-You may report that a change appears ready for the finishing checks.
+Run the finishing checks only when a maintainer asks you to finish a change, as in "finish this PR", or to run them.
+Such a request includes leaving you to finish a change on your own, such as while the maintainer is away, since then no one will read CI's results before you report.
+Otherwise, the maintainer usually starts CI and reads its results, which make the finishing checks unnecessary.
+So report a change ready to push once its anytime and as-needed checks pass and any review that ran is done.
 Run checks individually, never through `checks/all_.py`.
 Leave repository-wide test runs, notebook runs, and the GAP integration tests to CI.
 

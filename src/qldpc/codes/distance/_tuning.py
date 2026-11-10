@@ -6,8 +6,10 @@ Exact distances and logical-operator counts choose between routes, such as exhau
 and searches of disjoint or overlapping information sets, and bound their batches, memory, and
 caches.  :class:`SearchTuning` collects the values that tune a search, from the thresholds that
 choose a route to the coefficients of cost models and the sizes of batches.  The page
-:doc:`/exact_search_tuning` of the documentation maps routes and symptoms to these values, and
-Section 4.4 of ``brouwer_zimmermann.md`` says where each heuristic uses them.
+:doc:`/exact_search_tuning` of the documentation maps routes and symptoms to these values.  Section
+4.4 of ``brouwer_zimmermann.md`` says where each heuristic of a Brouwer-Zimmermann search uses them,
+and Sections 3.5 and 3.8 of ``connected_support.md`` where the connected-support searches use
+theirs.
 
 This module is private.  Its names, fields, and defaults can change in any release, without a
 deprecation period or any other warning, so code that uses it should pin the exact version of
@@ -23,10 +25,15 @@ What tuning can and cannot change:
   nontrivial word that it finds at or below ``cutoff``, and which word comes first depends on
   tuning.  The result is still an upper bound between the distance and ``cutoff``, as documented by
   :func:`~qldpc.codes.distance.get_distance_quantum`.
+- Under every tuning, a query of ``CosetLeaderSearch`` decides the same way whether a coset has a
+  word of weight at most the query's maximum weight, and with the connected-support method it gives
+  the same lower bound.  The word that it returns, and with the Brouwer-Zimmermann method its lower
+  bound, can depend on tuning, within the contract of ``MinWeightBound``.
 - Codes and counters remember their results, and some intermediate results are cached for the whole
-  process (see ``BINOMIAL_CACHE_SIZE``, ``CSS_SEARCH_CACHE_SIZE``, ``KRAWTCHOUK_CACHE_SIZE``, and
-  ``LOCAL_CLIFFORD_CACHE_SIZE``), so a later search with another tuning may not search again.  To
-  time a tuning, run each search in a new process, after a first search that loads or compiles code.
+  process (see ``BINOMIAL_CACHE_SIZE``, ``CSS_SEARCH_CACHE_SIZE``, ``KRAWTCHOUK_CACHE_SIZE``,
+  ``LOCAL_CLIFFORD_CACHE_SIZE``, and ``PAULI_SEARCH_CACHE_SIZE``), so a later search with another
+  tuning may not search again.  To time a tuning, run each search in a new process, after a first
+  search that loads or compiles code.
 
 To change the tuning, change the fields of the active tuning within a ``with`` block::
 
@@ -98,8 +105,8 @@ To refit the cost model of completion tables, which ``select_completion_tables``
    (``completion_bound_max_table_bytes=0``), forced (``completion_bound_minimum_layer_work=0`` and
    ``completion_bound_max_cost_percent=MAX_VALUE``), and at the defaults.  For each layer, record
    the share of its supports that tables skipped and its number of lookups, which
-   ``_scan_one_information_set`` in ``_search/brouwer_zimmermann.py`` returns for each call, and
-   time ``CompletionTables.build`` separately.
+   ``scan_information_set`` in ``_search/affine_search.py`` returns for each call, and time
+   ``CompletionTables.build`` separately.
 2. Express times in scanned supports, the time per support of the arm without tables.
 3. Fit the coefficients that the cost model reads, ``completion_bound_lookup_block_cost``,
    ``completion_bound_lookup_block_cost_per_mib``, ``completion_bound_kept_first_row_ratio``,
@@ -201,10 +208,12 @@ class SearchTuning:
     # Fields of information-set families.
 
     #: The most information sets in a family of overlapping sets, or in a family found by matroid
-    #: partitioning.  More sets can skip costly layers of hard searches, but setup grows roughly
-    #: with the square of this limit and dominates cheap searches; zero disables both kinds of
-    #: family.  Defaults to 16; how it was chosen is not recorded.  To retune it, compare the total
-    #: times of hard searches.
+    #: partitioning with a coverage of two or more.  Distance searches and counts build both, and
+    #: coset searches build overlapping ones for costly queries.  More sets can skip costly layers,
+    #: but setup grows roughly with the square of this limit and dominates cheap searches.  Zero
+    #: disables both, but not the maximum disjoint family that a coset search finds by matroid
+    #: partitioning with coverage one.  Defaults to 16; how it was chosen is not recorded.  To
+    #: retune it, compare the total times of hard searches.
     max_information_sets: int = 16
 
     #: How many random column orders, in a fixed sequence, a search tries when the natural order
@@ -215,18 +224,22 @@ class SearchTuning:
     #: time against the search time saved.
     disjoint_random_column_orders: int = 8
 
-    #: The estimated work of a search, in candidate/set evaluations, below which it does not try to
-    #: replace its disjoint information sets by overlapping ones.  Lowering it tries this on cheaper
-    #: searches, which may not recover the setup; zero always tries, and ``MAX_VALUE`` never does.
-    #: Defaults to 100,000; how it was chosen is not recorded.  To retune it, time searches near the
-    #: threshold with and without the replacement.
+    #: The estimated work of a search, in examinations (candidate/set evaluations), below which it
+    #: does not try to replace its disjoint information sets by overlapping ones.  It is also the
+    #: threshold of the gate of a coset search of ``CosetLeaderSearch``: a query with fewer
+    #: predicted examinations keeps the disjoint sets.  Lowering it tries other families for cheaper
+    #: work, which may not repay their setup; zero always tries, and ``MAX_VALUE`` never does.
+    #: Defaults to 100,000, chosen for distances by unrecorded means, and kept for cosets after
+    #: replays of residual-weight estimates.  To retune it, time searches near it with and without
+    #: other families.
     overlapping_minimum_work: int = 100_000
 
     #: The column orders that building a family of overlapping information sets tries for each set
-    #: that it may add; an order that repeats an existing set still counts.  More attempts can reach
-    #: a cheaper family, but lengthen setup; zero builds no family.  Defaults to 2, chosen by hand.
-    #: To retune it, record how the estimated work of the family falls with more attempts, and weigh
-    #: setup time against the search time saved.
+    #: that it may add; an order that repeats an existing set still counts.  Distance searches and
+    #: counts build such families, and coset searches of ``CosetLeaderSearch`` build them for costly
+    #: queries.  More attempts can reach a cheaper family, but lengthen setup; zero builds no
+    #: family.  Defaults to 2, chosen by hand.  To retune it, record how the estimated work of the
+    #: family falls with more attempts, and weigh setup time against the search time saved.
     overlapping_attempts_per_set: int = 2
 
     #: A search builds families by matroid partitioning only if its estimated work is at least this
@@ -277,6 +290,35 @@ class SearchTuning:
     #: 10**8; how it was chosen is not recorded.  To retune it, time searches with and without
     #: automorphisms.
     automorphism_minimum_layer_work: int = 100_000_000
+
+    # Fields of connected-support searches.
+
+    #: A connected-support search of a quantum code asks for its automorphisms before the first
+    #: weight limit at which it expects to have visited this many states, which are supports, over
+    #: all limits of one problem (Section 3.5 of ``connected_support.md``).  It also asks before a
+    #: first limit that a cutoff raises, unless this is ``MAX_VALUE``.  Lowering it pays the cost
+    #: of finding them on cheaper searches; raising it searches more limits from every variable.
+    #: Zero asks before the first limit, and ``MAX_VALUE`` never.  Defaults to 100,000, chosen by
+    #: hand.  To retune it, time searches with and without automorphisms.
+    automorphism_minimum_states: int = 100_000
+
+    #: A ``CosetLeaderSearch`` with the connected-support method makes its checks sparser in up to
+    #: this many rounds, each a row reduction in a random order of the columns (Section 3.8 of
+    #: ``connected_support.md``).  Raising it can speed up the queries but slows the build of the
+    #: oracle; zero only adds checks to each other while that makes them lighter, and ``MAX_VALUE``
+    #: leaves the rounds to ``sparsifying_rounds_without_improvement``.  Defaults to 1000, chosen by
+    #: hand: there the mean weight of the checks of ``|0⟩`` of the [[232, 62, 12]] pair-partition
+    #: code stops falling.  To retune it, time building the oracle and its queries.
+    max_sparsifying_rounds: int = 1000
+
+    #: Making checks sparser stops early after this many rounds in a row that leave the total
+    #: weight of the checks unchanged (see ``max_sparsifying_rounds``).  Raising it spends more
+    #: rounds on checks that rarely get lighter; zero stops after the first round, and ``MAX_VALUE``
+    #: never stops early, so that with both fields at ``MAX_VALUE`` the rounds never end.  Defaults
+    #: to 200, chosen by hand from the rounds between improvements on the pair-partition codes of
+    #: ``experiments/connected_support_distance/benchmark.py``.  To retune it, record the rounds
+    #: between improvements.
+    sparsifying_rounds_without_improvement: int = 200
 
     # Fields of completion tables.
 
@@ -534,32 +576,28 @@ _ACTIVE_TUNING: contextvars.ContextVar[SearchTuning] = contextvars.ContextVar(
 ####################################################################################################
 # constants of caches
 
-#: The number of arrays of binomial coefficients, one for each number of rows of a basis, that the
-#: estimates of the work of searches of information sets keep.  It takes effect when qLDPC is
-#: imported.  Chosen by hand: each array of a basis of ``k`` rows takes ``8 * (k + 1)`` bytes, and
-#: few workloads search bases of more than a thousand different numbers of rows.  A larger cache
-#: uses more memory, and a smaller one recomputes arrays that a workload reuses.  Only speed and
-#: memory depend on it.  To retune it, record the hit rate of the cache on representative workloads,
-#: and keep the smallest size beyond which it stops growing.
+#: The number of arrays of binomial coefficients, one per number of rows of a basis, that the work
+#: estimates of searches of information sets keep.  It takes effect when qLDPC is imported.  Chosen
+#: by hand: the array of a basis of ``k`` rows takes ``8 * (k + 1)`` bytes, and few workloads search
+#: bases of more than a thousand different numbers of rows.  A larger cache uses more memory, and a
+#: smaller one recomputes arrays that a workload reuses.  To retune it, record the hit rate on
+#: typical workloads, and keep the smallest size past which it stops rising.
 BINOMIAL_CACHE_SIZE = 1024
 
 #: The number of entries that ``coset_leader_search._get_css_searches`` keeps, one for each CSS
-#: state and value of ``disjoint_random_column_orders``, each a pair of classical searches, of the X
-#: parts and of the Z parts of errors.  It takes effect when qLDPC is imported.  Chosen by hand.  A
-#: larger cache uses more memory, and a smaller one repeats the setup of searches that a workload
-#: reuses.  Only speed and memory depend on it.  To retune it, record the hit rate of the cache, the
-#: time to set up a missed pair of searches, and the memory of each pair on representative
-#: workloads, such as the certification of fault propagation, and keep the smallest size beyond
-#: which the hit rate stops growing.
+#: state and tuning of the setup of the searches, each a pair of classical searches, for the X and Z
+#: parts of errors.  It takes effect when qLDPC is imported.  A larger cache uses more memory, and a
+#: smaller one repeats the setup of searches that a workload reuses.  Chosen by hand.  To retune it,
+#: record the hit rate, the setup time of a missed pair, and the memory of each pair on workloads
+#: such as certification, and keep the smallest size beyond which the hit rate stops growing.
 CSS_SEARCH_CACHE_SIZE = 8
 
 #: The number of results that each of two caches of the MacWilliams method keeps, one of single
 #: Krawtchouk rows, of one weight, and one of arrays of the rows of light weights.  It takes effect
 #: when qLDPC is imported.  Chosen by hand.  A larger cache uses more memory, and a smaller one
-#: recomputes rows that a workload reuses.  Only speed and memory depend on it.  To retune it,
-#: record the hit rates of both caches, the time to recompute a missed row, and the memory of the
-#: rows on counts of codes of the lengths of interest, and keep the smallest size beyond which the
-#: hit rates stop growing.
+#: recomputes rows that a workload reuses.  To retune it, record the hit rates of both caches, the
+#: time to recompute a missed row, and the memory of the rows on counts of codes of interest, and
+#: keep the smallest size beyond which the hit rates stop growing.
 KRAWTCHOUK_CACHE_SIZE = 1024
 
 #: The number of results that the cache of the local Clifford matrices of deformed counters keeps,
@@ -569,3 +607,11 @@ KRAWTCHOUK_CACHE_SIZE = 1024
 #: hit rate of the cache and the time to recompute a missed pair on counts of many deformed codes,
 #: and keep the smallest size beyond which the hit rate stops growing.
 LOCAL_CLIFFORD_CACHE_SIZE = 1024
+
+#: The number of searches of Pauli errors that ``coset_leader_search._get_pauli_search`` keeps, one
+#: for each stabilizer matrix, measure of weight, and tuning of the setup of the search.  It takes
+#: effect when qLDPC is imported.  A larger cache uses more memory, a smaller one repeats setups,
+#: and zero disables the cache.  Only speed and memory depend on it.  Chosen by hand.  To retune it,
+#: record the hit rate, the setup time of a missed search, and the memory per search on workloads
+#: such as certification, and keep the smallest size beyond which the hit rate stops growing.
+PAULI_SEARCH_CACHE_SIZE = 8

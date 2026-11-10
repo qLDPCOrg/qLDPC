@@ -9,6 +9,9 @@ image ``g(I)`` is the image of a word with the same weight and eligibility and a
 on ``I``.  So a BZ search can scan ``I`` alone, and certify with the automorphism family of the
 images of ``I`` under all of ``G``, which completes each coefficient layer when ``I`` does.
 Section 3.7 of ``brouwer_zimmermann.md`` derives the certificate of this family.
+
+The connected-support search of ``connected_support.py`` also uses ``verify_automorphisms``, and the
+orbits of ``get_orbits``, whose order fixes its ranks of variables.
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ from qldpc._binary import get_rank_packed, pack_bits, row_reduce_packed, unpack_
 from qldpc._compilation import always_compiled
 
 from .._binary import get_eligible_rows
-from .information_sets import BasisFamily, Certificate, get_capped_binomials
+from .information_sets import BasisFamily, Certificate, get_capped_binomials, plan_steps
 
 ####################################################################################################
 # automorphism families
@@ -79,7 +82,7 @@ def get_automorphism_family(
         A basis family of ``I`` alone, and the certificate of all of its images.
     """
     dimension, num_columns = basis.shape
-    orbits = _get_orbits(automorphisms, num_columns)
+    orbits = get_orbits(automorphisms, num_columns)
     rows, packed_labels, pivots = row_reduce_packed(
         pack_bits(basis), pack_bits(labels), np.flatnonzero(np.any(basis, axis=0))
     )
@@ -114,19 +117,31 @@ def estimate_automorphism_family_work(certificate: Certificate, upper_bound: int
     """Estimate the candidate/set evaluations of a search that certifies with automorphisms.
 
     This is ``Certificate.work`` for a search that scans one set of the family of ``certificate``,
-    whose other sets are its images, and it is pessimistic in the same way.
+    whose other sets are its images, and it is pessimistic in the same way.  Every image completes
+    each layer when the scanned set does, so the steps of the search are the complete layers of the
+    family.  Its plan (see ``plan_steps``) is that of one set whose bounds are those of the family
+    once it has completed each layer, the last column of the table of its bounds on Hamming weight.
     """
-    binomials = get_capped_binomials(certificate.dimension)
-    work = 0
-    for weight in range(1, certificate.dimension + 1):
-        work += int(binomials[weight])
-        if certificate.lower_bound(weight) >= upper_bound:
-            break
+    dimension, num_sets = certificate.dimension, len(certificate.ranks)
+    layer_bounds = certificate.get_weight_bounds(1)[:, [0, num_sets]]
+    # A plan that leaves out no sets reads no ranks, so the rank of the one set is a placeholder.
+    _, _, work = plan_steps(
+        layer_bounds,
+        upper_bound - 1,
+        1,
+        dimension,
+        np.array([dimension], dtype=np.int64),
+        get_capped_binomials(dimension),
+        False,
+    )
     return work
 
 
-def _get_orbits(automorphisms: npt.NDArray[np.int_], num_columns: int) -> npt.NDArray[np.int64]:
-    """Number the orbits of the group that the permutations generate, and label each column."""
+def get_orbits(automorphisms: npt.NDArray[np.int_], num_columns: int) -> npt.NDArray[np.int64]:
+    """Number the orbits of the group that the permutations generate, and label each column.
+
+    The orbits are numbered in the order of their least columns.
+    """
     # Give each column the least column that it is known to share an orbit with, until no
     # permutation lowers a label.  Every label is a column of the same orbit, so the labels
     # settle on the least column of each orbit.

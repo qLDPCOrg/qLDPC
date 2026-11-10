@@ -221,3 +221,12 @@ def test_primitive_central_idempotent_validation(
     trusted_pci = ring.get_primitive_central_idempotents()[0]
     transformer(trusted_pci, skip_validation=True)
     abstract.WedderburnArtinTransformer(ring, skip_validation=True)
+
+
+def test_wedderburn_artin_requires_group_algebra() -> None:
+    """The Wedderburn-Artin decomposition is implemented only for group algebras."""
+    ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]), field=3)
+    with pytest.raises(NotImplementedError, match="only for group algebras"):
+        abstract.WedderburnArtinTransformer(ring)
+    with pytest.raises(NotImplementedError, match="only for group algebras"):
+        abstract.WedderburnArtinComponentTransformer(ring.one)

@@ -24,7 +24,11 @@ import numpy.typing as npt
 
 from qldpc._binary import get_rank_packed, popcount_word, trailing_zeros_word
 from qldpc._compilation import always_compiled
-from qldpc.codes.distance._search.coset_leader_search import CosetLeaderSearch, MinWeightBound
+from qldpc.codes.distance._search.coset_leader_search import (
+    CosetLeaderSearch,
+    CosetSearchMethod,
+    MinWeightBound,
+)
 
 # The peak number of bytes per pair of classes for the closing map of pairs of classes (see
 # ``FaultLister``).  While a counting sort builds its closing table, each pair takes an 8-byte hash,
@@ -82,6 +86,7 @@ def find_smallest_violation(
     max_weight: int | None,
     css_weight: bool,
     memory_limit: int = 2**30,  # 1 GiB
+    search_method: CosetSearchMethod = "brouwer_zimmermann",
 ) -> Violation | None:
     """Find a violating accepted fault of the smallest fault weight, or None if there is none.
 
@@ -89,7 +94,7 @@ def find_smallest_violation(
     weight to ``max_weight`` and to what an irreducible accepted fault can have.  Then it runs
     ``_search_irreducible_faults`` with an exact oracle for the Pauli weight, ``CosetLeaderSearch``,
     which runs two classical searches for the CSS weight on a CSS state, and otherwise one search of
-    Pauli errors.
+    Pauli errors, each by ``search_method``.
     """
     # A primitive fault with zero flags and zero syndrome does nothing, and two primitive faults
     # with equal (flags, syndrome) signatures cancel.  Keeping one primitive fault for each distinct
@@ -105,7 +110,7 @@ def find_smallest_violation(
     flag_rank = get_rank_packed(_to_words(distinct_flags, _get_num_words(distinct_flags)))
     max_fault_weight = flag_rank + 1 if max_weight is None else min(max_weight, flag_rank + 1)
 
-    oracle = CosetLeaderSearch(stabilizers, css_weight=css_weight)
+    oracle = CosetLeaderSearch(stabilizers, css_weight=css_weight, method=search_method)
     return _search_irreducible_faults(signatures, max_fault_weight, oracle, memory_limit)
 
 

@@ -6,12 +6,14 @@ from __future__ import annotations
 
 import unittest.mock
 
+import galois
 import networkx as nx
 import numpy as np
 import pytest
 from sympy.abc import x, y
 
-from qldpc import codes
+from qldpc import abstract, codes
+from qldpc.codes.distance import DistanceMethod
 from qldpc.math import resolve_field
 from qldpc.objects import ChainComplex, Pauli, PauliXZ
 
@@ -98,9 +100,20 @@ def test_hypergraph_product_distance_by_sector(
         assert code.get_distance(Pauli.Z) == plain.get_distance(Pauli.Z)
 
 
-@pytest.mark.parametrize("pauli", [None, Pauli.X, Pauli.Z])
-def test_closed_forms_search_seed_codes_with_the_given_method(pauli: PauliXZ | None) -> None:
-    """The closed-form distances of product codes search their seed codes with the given method."""
+@pytest.mark.parametrize(
+    "pauli, method",
+    [(None, "brute_force"), (Pauli.X, "brute_force"), (Pauli.Z, "brute_force")]
+    + [(None, "connected_support")],
+)
+def test_closed_forms_search_seed_codes_with_the_given_method(
+    pauli: PauliXZ | None, method: DistanceMethod
+) -> None:
+    """The closed-form distances of product codes search their seed codes with the given method.
+
+    Both products of the ring code of length 4 have distance 4 in every sector.  The joint distance
+    of a CSS code searches its sectors together with the connected-support method, unless a subclass
+    has a closed form, which this case guards.
+    """
     for product in (codes.HGPCode, codes.SHPCode):
         # A generic copy of a ring code records no distance, and its dependent checks give its
         # transpose code words, so the closed form of HGPCode searches both.
@@ -112,9 +125,10 @@ def test_closed_forms_search_seed_codes_with_the_given_method(pauli: PauliXZ | N
             autospec=True,
             side_effect=codes.ClassicalCode.get_distance,
         ) as get_distance:
-            code.get_distance_exact(pauli, method="brute_force")
+            distance = code.get_distance_exact(pauli, method=method)
+        assert distance == 4
         assert get_distance.call_args_list
-        assert all(call.kwargs["method"] == "brute_force" for call in get_distance.call_args_list)
+        assert all(call.kwargs["method"] == method for call in get_distance.call_args_list)
 
 
 def test_hypergraph_product_syndrome_subgraphs() -> None:
@@ -199,6 +213,20 @@ def test_subsystem_hypergraph_product(
 
     # verify that the canonical logicals are valid
     code.set_logical_ops(code.get_logical_ops(), skip_validation=False)
+
+
+def test_products_require_same_ring() -> None:
+    """Hypergraph products of matrices over different rings or fields raise an error."""
+    ring_a = abstract.GroupRing(abstract.CyclicGroup(4))
+    ring_b = abstract.GroupRing(abstract.AbelianGroup(2, 2))
+    ring_matrix_a = abstract.RingArray.build([[1, ring_a.generators[0]]], ring_a)
+    ring_matrix_b = abstract.RingArray.build([[1, ring_b.generators[0]]], ring_b)
+    field_matrix_a, field_matrix_b = galois.GF(2)([[1, 1]]), galois.GF(3)([[1, 1]])
+    for get_matrix_product in [codes.HGPCode.get_matrix_product, codes.SHPCode.get_matrix_product]:
+        with pytest.raises(ValueError, match="different rings"):
+            get_matrix_product(ring_matrix_a, ring_matrix_b)
+        with pytest.raises(ValueError, match="different rings"):
+            get_matrix_product(field_matrix_a, field_matrix_b)
 
 
 def test_bacon_shor_code() -> None:
