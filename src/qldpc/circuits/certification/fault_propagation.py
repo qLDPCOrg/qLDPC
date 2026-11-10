@@ -109,8 +109,12 @@ def certify_bounded_fault_propagation(
             Both certify the same circuits, and find the same smallest violating fault, but the
             ``output_pauli`` of a counterexample may be another equivalent error, and with
             ``"connected_support"`` its bound is ``fault_weight + 1`` (see
-            ``BoundedFaultPropagationCounterexample``).  ``"connected_support"`` weighs errors by
-            CSS weight only on CSS states.  Default: ``"brouwer_zimmermann"``.
+            ``BoundedFaultPropagationCounterexample``).  With ``"brouwer_zimmermann"``, the
+            ``output_pauli`` and the bound of a counterexample can also change between versions of
+            qLDPC when its queries are costly.  Such queries can search other families of
+            information sets, and the costliest can skip errors that tables prove too heavy.  The
+            verdict and the smallest violating fault do not change.  ``"connected_support"`` weighs
+            errors by CSS weight only on CSS states.  Default: ``"brouwer_zimmermann"``.
 
     Returns:
         A certificate of bounded fault propagation, which includes a counterexample if applicable.
@@ -263,7 +267,10 @@ class BoundedFaultPropagationCounterexample:
 
     Its residual weight exceeds its fault weight.  No fault that passes post-selection and has a
     smaller fault weight violates the bound.  Equivalence, fault weight, Pauli weight, output error,
-    residual weight, and the bound are as defined in ``certify_bounded_fault_propagation``.
+    residual weight, and the bound are as defined in ``certify_bounded_fault_propagation``.  The
+    ``output_pauli`` and ``residual_weight_lower_bound`` of a counterexample can change between
+    versions of qLDPC, as the searches that find them change (see
+    ``certify_bounded_fault_propagation``).
 
     Attributes are in dependency order: each refers only to the ones before it.
 

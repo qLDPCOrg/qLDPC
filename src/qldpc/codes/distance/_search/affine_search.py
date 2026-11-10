@@ -9,7 +9,8 @@ from excluded ones, and keeps only the best weight.  The coset search of ``Coset
 a coset, with the offset of each basis, and keeps the lightest word.  On its routes by tails (see
 ``coset_routes``), a coset search that weighs Hamming weights scans the tails of the rows and
 offsets instead, without the pivot columns of each basis, and keeps the support of the lightest
-word, from which it rebuilds the word.
+word, from which it rebuilds the word.  In layers of two or more rows, it also skips the completions
+of a prefix that completion tables of the tails show to lie beyond the maximum weight of its query.
 
 Every scan of this module runs one body, ``_scan``, which its compiled entry points call with
 constant flags.  Numba includes the body in each entry point, which compiles it for those flags, so

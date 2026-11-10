@@ -11,14 +11,21 @@ pair on every block, so the sum bounds the weight of the tail of every completio
 ``U - w``, for the best weight ``U`` found so far, none of these completions can lower ``U``, and
 the search skips them.  Section 3.9 of ``brouwer_zimmermann.md`` derives this bound.
 
-A count of the words of a given weight uses the same bound with ``U`` one above that weight, so
-that it skips only completions heavier than the weight (``_counting/scan.py``).
+A count of the words of a given weight uses the same bound with ``U`` one above that weight, so that
+it skips only completions heavier than the weight (``_counting/scan.py``).  The costliest queries of
+the coset searches of ``CosetLeaderSearch`` use it with the least bound that proves a word heavier
+than their maximum weight in place of ``U``.  Their bases need not be information sets, so in place
+of ``w`` they bound the ones of a completion on pivot columns (see
+``affine_search.scan_coset_layer_by_tails_with_tables``).
 
 Tables of the least weights on each block, for every value of ``p`` on the block and every ``s``,
 make each bound a few lookups.  They cost memory and time to build, so ``select_completion_tables``
 estimates from a sample of supports how much of a layer the bound would skip, and uses tables only
 if their predicted cost is within the limits of the search's tuning.  The estimate only guides this
 choice: a search skips completions only when a computed bound proves that they cannot lower ``U``.
+``considers_tables`` states which layers a tuning considers for tables at all.  Coset searches build
+the tables of the bases of their costliest queries without sampling, if they fit within a limit (see
+``coset_routes`` and ``build_tables_within``).
 """
 
 from __future__ import annotations

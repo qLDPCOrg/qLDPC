@@ -40,11 +40,11 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | The packed information sets of a BZ distance search or a BZ coset-leader search, and the certificate of their steps | `_search/affine_instance.py` |
 | How basis families and their certificates are built, and how searches plan their steps: where they stop, and the work of the steps up to there | `_search/information_sets.py` |
 | Automorphism families: the images of one information set under automorphisms of a code, and the check of those automorphisms, which the connected-support search uses too | `_search/automorphism_families.py` |
-| Tables that let a BZ distance search skip supports whose last two rows cannot complete a word lighter than the best one found, and a count skip those whose words all weigh more than its target weight, and the choice of whether to build them | `_search/completion_bounds.py` |
+| Completion tables, which bound the words that complete the first rows of a BZ support with two more rows: a distance search skips the supports whose words cannot be lighter than its best word, a count those whose words all weigh more than its target weight, and a BZ coset query on a route by tails those whose words all weigh more than its maximum weight. Also the choice of whether to build them | `_search/completion_bounds.py` |
 | Information sets with bounded column coverage, by matroid partitioning | `_search/matroid_partition.py` |
 | Exhaustive enumeration, for small codes, fallbacks, and the `brute_force` method | `_search/brute_force.py` |
 | Minimum weights of syndrome classes of Pauli errors (coset-leader weights), by BZ or by connected-support searches, with two classical searches for the CSS weight on CSS states, used by `src/qldpc/circuits/certification/` and `src/qldpc/experimental/circuits/benchmarking/residual_weights.py` | `_search/coset_leader_search.py` |
-| The families of information sets with which a BZ coset-leader search answers costly queries, the gate that chooses them for each maximum weight, and the routes whose queries weigh words by their tails | `_search/coset_routes.py` |
+| The families of information sets with which a BZ coset-leader search answers costly queries, the gate that chooses them for each maximum weight, and the routes whose queries weigh words by their tails and skip completions by tables | `_search/coset_routes.py` |
 | The counter, its deformed counters, or `compile_search_setup` | `logical_counts.py` |
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |

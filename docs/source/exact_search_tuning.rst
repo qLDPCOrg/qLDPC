@@ -106,7 +106,7 @@ Routes and the names that control them
    * - Whether a layer of one information set, or a step of a count, uses completion tables to skip hopeless supports
      - :attr:`SearchTuning.completion_bound_minimum_layer_work`, :attr:`SearchTuning.completion_bound_max_cost_percent`
      -
-     - `Section 3.9 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#39-skipping-completions-that-cannot-lower-u>`__
+     - `Section 3.9 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#39-skipping-completions-by-completion-tables>`__
    * - The memory and the blocks of completion tables
      - :attr:`SearchTuning.completion_bound_max_table_bytes`, :attr:`SearchTuning.completion_bound_block_bits`, :attr:`SearchTuning.completion_bound_fallback_block_bits`, and in ``CosetLeaderSearch`` :attr:`SearchTuning.coset_completion_block_bits`
      -

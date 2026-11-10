@@ -62,7 +62,9 @@ class MinWeightBound:
 
     A query of ``CosetLeaderSearch`` asks whether a syndrome class of Pauli errors, which is a coset
     of the stabilizer group, has an error of weight at most ``max_weight``.  A query of one of its
-    coset searches asks the same about a coset of the code that the search covers.
+    coset searches asks the same about a coset of the code that the search covers.  Which element
+    and which lower bound a query returns can depend on the method and tuning of the search, and on
+    the version of qLDPC, within the guarantees below.
 
     Attributes:
         within_max_weight: Whether the coset has an element of weight at most ``max_weight``.
@@ -143,9 +145,13 @@ class CosetLeaderSearch:
     representatives and lower bounds of the answers, but never whether an answer is within
     ``max_weight``.  The threshold ``overlapping_minimum_work`` also decides which queries of the BZ
     searches by physical weight, and of the classical searches, weigh words without the pivot
-    columns of each set of their family (see ``coset_routes``).  This changes no answer.  The fields
-    ``max_sparsifying_rounds`` and ``sparsifying_rounds_without_improvement`` configure how the
-    connected-support searches make their checks sparser.
+    columns of each set of their family, and skip the words that tables of bounds prove to weigh
+    more than ``max_weight`` (see ``coset_routes``).  The fields ``coset_completion_block_bits`` and
+    ``completion_bound_max_table_bytes`` configure these tables.  Skipping words can change the
+    representatives and lower bounds of the answers without a word within ``max_weight``, but never
+    whether an answer is within it.  The fields ``max_sparsifying_rounds`` and
+    ``sparsifying_rounds_without_improvement`` configure how the connected-support searches make
+    their checks sparser.
 
     Args:
         stabilizers: A binary ``n x 2n`` matrix in ``[X|Z]`` order whose rows are independent
@@ -541,7 +547,7 @@ class _CosetSearch:
             )
 
         # Search the coset with the tables of the route of the maximum weight, by tails on a route
-        # by tails, and keep the lightest word that the search visits in ``best``.
+        # by tails, and keep the lightest word that the search weighs in ``best``.
         tables, tails = self._routes.get_route(max_weight)
         best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
         packed_syndrome = _int_to_words(syndrome, max(1, (self._num_syndrome_bits + 63) // 64))
@@ -565,7 +571,7 @@ class _CosetSearch:
 
         Returns:
             The index of that syndrome, or the number of syndromes if there is none, and a
-            ``MinWeightBound`` for its coset, with the lightest word that the search visited, or
+            ``MinWeightBound`` for its coset, with the lightest word that the search weighed, or
             None if there is none.
         """
         tables, tails = self._routes.get_route(max_weight)
