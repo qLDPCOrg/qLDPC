@@ -8,14 +8,11 @@ import functools
 import itertools
 import math
 import operator
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from typing import Literal
 
 import galois
 import numpy as np
-import numpy.typing as npt
-import scipy.sparse
-import scipy.sparse.csgraph
 
 import qldpc
 
@@ -950,14 +947,14 @@ def _check_semisimple_group_algebra(ring: Ring) -> GroupRing:
     raises a NotImplementedError, and a group algebra that is not semisimple raises a ValueError.
     """
     # Supporting any semisimple ring would replace each use of the group of a group algebra in this
-    # module.  Primitive central idempotents come from sums over classes of group members, and could
-    # instead come from splitting the center into fields by factoring minimal polynomials of central
-    # members.  The center comes from adjoint lifts of group members, and could instead consist of
-    # the members that commute with the generators of the ring.  Coefficients in simple components
-    # come from a trace over the group, which a linear solve in the basis of each component could
-    # replace, since a trace form on M_n(F) vanishes on the identity if the characteristic divides
-    # n.  Semisimplicity follows from Maschke's theorem, and would instead need the Jacobson
-    # radical.
+    # module.  Primitive central idempotents come from splitting the span of sums over classes of
+    # group members, and could instead come from splitting the subalgebra of central members z with
+    # z^q = z, where q is the order of the field.  The center comes from adjoint lifts of group
+    # members, and could instead consist of the members that commute with the generators of the
+    # ring.  Coefficients in simple components come from a trace over the group, which a linear
+    # solve in the basis of each component could replace, since a trace form on M_n(F) vanishes on
+    # the identity if the characteristic divides n.  Semisimplicity follows from Maschke's theorem,
+    # and would instead need the Jacobson radical.
     if not isinstance(ring, GroupRing):
         raise NotImplementedError(
             f"The Wedderburn-Artin decomposition is implemented only for group algebras, not {ring}"
@@ -965,108 +962,3 @@ def _check_semisimple_group_algebra(ring: Ring) -> GroupRing:
     if not ring.is_semisimple:
         raise ValueError("The Wedderburn-Artin decomposition only exists for semisimple rings")
     return ring
-
-
-def _get_primitive_central_idempotents(ring: GroupRing) -> tuple[RingMember, ...]:
-    """Compute the primitive central idempotents of a semisimple group algebra ``F_q[G]``.
-
-    Every primitive central idempotent (PCI) is a member of the subalgebra B of central members z
-    with ``z^q = z``.  The algebra B is isomorphic to ``GF(q)^n``, and its PCIs are those of
-    ``F_q[G]``.  By the Witt-Berman theorem, a basis of B consists of the sums over the
-    ``F_q``-conjugacy classes of G, in which g and h are equivalent if ``h = x g^(q^i) x^{-1}`` for
-    some ``x ∈ G`` and integer i.  So the number of PCIs is the number of these classes.
-
-    This function splits the identity of B into orthogonal idempotents until there are n of
-    them.  Each split takes a random member b of B and an idempotent e found so far.  Because B is
-    isomorphic to ``GF(q)^n``, the minimal polynomial m(x) of ``b·e`` in ``e·B`` has distinct roots
-    ``λ ∈ GF(q)``.  The idempotent e is then the sum of the orthogonal idempotents
-
-        ``e_λ = (m(x) / (x - λ)) / m'(λ)``,  evaluated at ``x = b·e``.
-
-    The PCIs do not depend on the random choices, and are returned in a canonical order.  The cost
-    grows with the number of PCIs, since each split computes a minimal polynomial within ``e·B``.
-    """
-    # index members of G by their permutations
-    group, field = ring.group, ring.field
-    perms = np.array([member.array_form for member in group.generate()], dtype=int)
-    inverses = np.argsort(perms, axis=1)
-    member_index = {perm.tobytes(): index for index, perm in enumerate(perms)}
-
-    def get_indices(perms_to_find: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-        return np.array([member_index[perm.tobytes()] for perm in perms_to_find], dtype=int)
-
-    # Identify F_q-conjugacy classes as the connected components of a graph that joins each member g
-    # to g^q and to its conjugates by the generators of G.  Members compose as (a * b)[i] = b[a[i]].
-    powers = np.broadcast_to(np.arange(group.degree), perms.shape)
-    for _ in range(field.order):
-        powers = np.take_along_axis(perms, powers, axis=1)
-    neighbors = [get_indices(powers)]
-    for generator in group.generators:
-        generator_array = np.array(generator.array_form, dtype=int)
-        conjugates = np.argsort(generator_array)[perms[:, generator_array]]
-        neighbors.append(get_indices(conjugates))
-    graph = scipy.sparse.coo_array(
-        (
-            np.ones(len(neighbors) * group.order),
-            (np.tile(np.arange(group.order), len(neighbors)), np.concatenate(neighbors)),
-        ),
-        shape=(group.order, group.order),
-    )
-    num_classes, class_of = scipy.sparse.csgraph.connected_components(graph, directed=False)
-    representatives = [np.flatnonzero(class_of == label)[0] for label in range(num_classes)]
-
-    # Members of B are vectors of coefficients on class sums.  The coefficient of the product of x
-    # and y on the class of r is sum_g x(class(r g^{-1})) y(class(g)).
-    product_classes = class_of[
-        np.array([get_indices(inverses[:, perms[rep]]) for rep in representatives])
-    ]
-
-    def multiply(left: galois.FieldArray, right: galois.FieldArray) -> galois.FieldArray:
-        return left[product_classes] @ right[class_of]
-
-    # repeatedly split idempotents into orthogonal idempotents, starting from the identity of B
-    identity = field.Zeros(num_classes)
-    identity[class_of[member_index[np.arange(group.degree).tobytes()]]] = 1
-    idempotents = [identity]
-    rng = np.random.default_rng(0)
-    while len(idempotents) < num_classes:
-        random_member = field.Random(num_classes, seed=rng)
-        new_idempotents = []
-        for idempotent in idempotents:
-            element = multiply(random_member, idempotent)
-            minimal_poly, element_powers = _get_minimal_polynomial_in_center(
-                element, idempotent, multiply
-            )
-            derivative = minimal_poly.derivative()
-            for root in minimal_poly.roots():
-                quotient = minimal_poly // galois.Poly([1, -root], field=field)
-                coefficients = quotient.coeffs[::-1] / derivative(root)
-                new_idempotents.append(coefficients @ element_powers[: len(coefficients)])
-        idempotents = new_idempotents
-
-    # expand idempotents into coefficients on members of G, and sort them canonically
-    vectors = sorted(
-        (idempotent[class_of] for idempotent in idempotents), key=lambda vec: vec.tolist()
-    )
-    return tuple(RingMember.from_vector(vector, ring) for vector in vectors)
-
-
-def _get_minimal_polynomial_in_center(
-    element: galois.FieldArray,
-    idempotent: galois.FieldArray,
-    multiply: Callable[[galois.FieldArray, galois.FieldArray], galois.FieldArray],
-) -> tuple[galois.Poly, galois.FieldArray]:
-    """Find the minimal polynomial of an element of a commutative algebra with identity e.
-
-    Here ``x^0`` is the idempotent e.  Returns the minimal polynomial, and a matrix whose rows are
-    the powers of the element up to one less than the degree of the polynomial.
-    """
-    field = type(element)
-    powers = [idempotent]
-    while True:
-        next_power = multiply(element, powers[-1])
-        null_space = field(np.array([*powers, next_power])).T.null_space()
-        if len(null_space):
-            relation = null_space[0] / null_space[0][-1]
-            return galois.Poly(relation[::-1]), field(np.array(powers))
-        powers.append(next_power)

@@ -12,7 +12,6 @@ import numpy as np
 import pytest
 
 from qldpc import abstract
-from qldpc.abstract import wedderburn_artin
 
 
 def test_scalar_embedding_is_field_isomorphism(wa_ring: abstract.GroupRing) -> None:
@@ -224,35 +223,31 @@ def test_primitive_central_idempotent_validation(
     abstract.WedderburnArtinTransformer(ring, skip_validation=True)
 
 
-@pytest.mark.parametrize(
-    "group, field",
-    [
-        (abstract.CyclicGroup(7), 2),
-        (abstract.CyclicGroup(4), 3),
-        (abstract.CyclicGroup(3), 4),
-        (abstract.DihedralGroup(3), 5),
-        (abstract.AlternatingGroup(4), 5),
-        (abstract.DihedralGroup(5), 3),
-    ],
-)
-def test_primitive_central_idempotents(group: abstract.Group, field: int) -> None:
-    """Computed primitive central idempotents match those that GAP's Wedderga package found."""
-    # import here, so that importing this file does not cover _groups.py at import time
-    from qldpc.external import _groups
+def test_transformer_with_computed_idempotents() -> None:
+    """A transformer decomposes a group algebra whose idempotents are computed, not precomputed.
 
-    ring = abstract.GroupRing(group, field)
-    assert _groups.get_known_primitive_central_idempotents(group.to_gap_group(), field) is not None
-    known = ring.get_primitive_central_idempotents()
-    computed = wedderburn_artin._get_primitive_central_idempotents(ring)
-    assert sorted(pci.to_vector().tolist() for pci in computed) == sorted(
-        pci.to_vector().tolist() for pci in known
-    )
+    Over GF(3), the quaternion group Q8 has four irreducible representations of dimension 1 and one
+    of dimension 2, so its group algebra is the direct sum of four copies of GF(3) and of
+    GF(3)^{2 × 2}.
+    """
+    ring = abstract.GroupRing(abstract.QuaternionGroup(), field=3)
+    transformer = ring.get_transformer()
+    assert sorted((comp.size, comp.degree) for comp in transformer.transformers) == [
+        (1, 1),
+        (1, 1),
+        (1, 1),
+        (1, 1),
+        (2, 1),
+    ]
 
-
-def test_primitive_central_idempotents_of_trivial_group() -> None:
-    """The group algebra of the trivial group has one primitive central idempotent: its identity."""
-    ring = abstract.GroupRing(abstract.TrivialGroup())
-    assert wedderburn_artin._get_primitive_central_idempotents(ring) == (ring.one,)
+    # decomposition preserves products, and recompose inverts it
+    gen_a, gen_b = ring.generators
+    member_a, member_b = 1 + gen_a, gen_a - gen_b**2
+    products = [
+        comp_a @ comp_b
+        for comp_a, comp_b in zip(transformer.decompose(member_a), transformer.decompose(member_b))
+    ]
+    assert transformer.recompose(products) == member_a * member_b
 
 
 def test_wedderburn_artin_requires_group_algebra() -> None:

@@ -267,24 +267,80 @@ def test_group_members_of_ring_members() -> None:
 
 
 def test_primitive_central_idempotents(ring_cyclic3_gf2: abstract.GroupRing) -> None:
-    """Get primitive central idempotents, from a table of known ones or by computing them."""
+    """Get primitive central idempotents, sorted by their vectors of coefficients."""
+    # Import inside the test, so that collecting this file does not run the module-level lines of
+    # _groups.py, which the coverage check requires _groups_test.py to cover.
+    from qldpc.external import _groups
+
     ring = ring_cyclic3_gf2
     x = ring.generators[0]
-    idempotents = ring.get_primitive_central_idempotents()
-    assert idempotents == (x**2 + x + 1, x**2 + x)
-    assert all(idempotent == idempotent * idempotent for idempotent in idempotents)
+    assert ring.get_primitive_central_idempotents() == (x**2 + x, x**2 + x + 1)
 
-    # GF(7)[C3] is not in the table.  Its idempotents are (1/3) sum_g w(g^{-1}) g for the cube roots
-    # of unity w = 1, 2, 4 in GF(7), where 1/3 = 5.
-    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=7)
+    # GF(5)[C2] is not in the table of precomputed idempotents, which are (1 ± x) / 2 = 3 ± 3 x
+    ring = abstract.GroupRing(abstract.CyclicGroup(2), field=5)
+    assert _groups.get_known_primitive_central_idempotents(ring.group.to_gap_group(), 5) is None
     x = ring.generators[0]
-    expected = [5 + 5 * x + 5 * x**2, 5 + 6 * x + 3 * x**2, 5 + 3 * x + 6 * x**2]
-    idempotents = ring.get_primitive_central_idempotents()
-    assert len(idempotents) == len(expected)
-    assert all(idempotent in idempotents for idempotent in expected)
+    assert ring.get_primitive_central_idempotents() == (3 + 2 * x, 3 + 3 * x)
+
+    # the group algebra of the trivial group has one primitive central idempotent: its identity
+    ring = abstract.GroupRing(abstract.TrivialGroup())
+    assert rings._get_primitive_central_idempotents(ring) == (ring.one,)
 
     with pytest.raises(ValueError, match="Only semisimple rings"):
         abstract.GroupRing(abstract.CyclicGroup(2), field=2).get_primitive_central_idempotents()
+
+
+def test_computed_primitive_central_idempotents() -> None:
+    """Computed idempotents are nonzero, central, orthogonal, and sum to one.
+
+    There are as many of them as there are primitive central idempotents, which by the Witt-Berman
+    theorem is the number of F_q-conjugacy classes.  So they are the primitive central idempotents.
+    """
+    group = abstract.QuaternionGroup()
+    ring = abstract.GroupRing(group, field=3)
+    idempotents = rings._get_primitive_central_idempotents(ring)
+    assert sum(idempotents, ring.zero) == ring.one
+    for index, idempotent in enumerate(idempotents):
+        assert idempotent and idempotent * idempotent == idempotent
+        assert all(
+            idempotent * generator == generator * idempotent for generator in ring.generators
+        )
+        assert all(idempotent * other == ring.zero for other in idempotents[index + 1 :])
+
+    # g and h are in the same F_3-conjugacy class if h = y g^(3^i) y^{-1} for some y in G and i >= 0
+    members = list(group.generate())
+    classes = {
+        frozenset(yy * gg ** (3**ii) * ~yy for yy in members for ii in range(len(members)))
+        for gg in members
+    }
+    assert len(idempotents) == len(classes)
+
+
+def test_precomputed_primitive_central_idempotents() -> None:
+    """The precomputed primitive central idempotents equal the computed ones, in the same order."""
+    # see test_primitive_central_idempotents for why this import is here
+    from qldpc.external import _groups
+
+    frobenius_group = abstract.Group(  # SmallGroup(21, 1)
+        abstract.GroupMember([[1, 2, 4], [3, 6, 5]]), abstract.GroupMember([list(range(7))])
+    )
+    group_algebras = [
+        *[(abstract.CyclicGroup(order), 2) for order in (3, 5, 7, 9)],
+        *[(abstract.CyclicGroup(order), 3) for order in (2, 4, 5)],
+        (abstract.CyclicGroup(3), 4),
+        (abstract.CyclicGroup(4), 5),
+        (abstract.DihedralGroup(3), 5),
+        (abstract.AlternatingGroup(4), 5),
+        (frobenius_group, 2),
+        (abstract.DihedralGroup(5), 3),
+    ]
+    assert {(group.to_gap_group(), field) for group, field in group_algebras} == set(
+        _groups._KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS
+    )
+    for group, field in group_algebras:
+        ring = abstract.GroupRing(group, field)
+        computed = rings._get_primitive_central_idempotents(ring)
+        assert ring.get_primitive_central_idempotents() == computed
 
 
 def test_get_transformer_reuse() -> None:
