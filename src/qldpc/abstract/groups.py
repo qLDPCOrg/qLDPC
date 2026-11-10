@@ -68,6 +68,16 @@ class GroupMember(comb.Permutation):
             return GroupMember.from_sympy(super().__mul__(other))
         return NotImplemented
 
+    def __rmul__(self, other: object) -> Any:
+        """Compose with permutations on the left, and defer other products, such as with integers.
+
+        SymPy reads an integer n on the left of a permutation as the identity on n + 1 points, so
+        without this method ``2 * g`` would be ``g``.
+        """
+        if isinstance(other, comb.Permutation):
+            return GroupMember.from_sympy(comb.Permutation.__mul__(other, self))
+        return NotImplemented
+
     def __add__(self, other: object) -> Any:
         """Defer sums, such as with ring members.
 

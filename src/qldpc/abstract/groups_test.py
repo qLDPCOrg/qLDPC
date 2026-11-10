@@ -80,7 +80,12 @@ def test_permutation_group(pytestconfig: pytest.Config) -> None:
     with pytest.raises(TypeError):
         gens[0] * 1
     with pytest.raises(TypeError):
+        2 * gens[0]
+    with pytest.raises(TypeError):
         gens[0] + 1
+    plain = sympy.combinatorics.Permutation(gens[1].array_form)
+    assert plain * gens[0] == gens[1] * gens[0]
+    assert isinstance(plain * gens[0], abstract.GroupMember)
 
     # the identity is written in GAP as "()"
     assert abstract.GroupMember().to_gap_cycles() == "()"
