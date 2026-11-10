@@ -113,8 +113,16 @@ class CayleyComplex:
         bipartite: bool = False,
     ) -> None:
         """Construct a left-right Cayley complex."""
+        from qldpc import abstract
+
         if subset_b is None:
             subset_b = subset_a
+
+        # Read all members on the same number of points.  SymPy drops trailing fixed points, so one
+        # group member can otherwise appear in different forms, which would be different nodes.
+        size = max((member.size for member in itertools.chain(subset_a, subset_b)), default=0)
+        subset_a = {abstract.GroupMember(member, size=size) for member in subset_a}
+        subset_b = {abstract.GroupMember(member, size=size) for member in subset_b}
 
         # assert that the generating subsets are symmetric
         for subset, name in [(subset_a, "subset_a"), (subset_b, "subset_b")]:
@@ -127,8 +135,8 @@ class CayleyComplex:
                     raise ValueError(message)
 
         # save generating data
-        self.subset_a = set(subset_a)
-        self.subset_b = set(subset_b)
+        self.subset_a = subset_a
+        self.subset_b = subset_b
         self.bipartite = bipartite
 
         # if asked for a bipartite complex, run a validity check

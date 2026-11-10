@@ -55,17 +55,38 @@ def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> 
     with pytest.raises(ValueError, match="Path does not exist"):
         codes.QTCode.load(str(tmp_path / "missing.txt"))
 
-    # saved subsets are sorted, so that equal codes give equal files in every Python session
-    lines = path.read_text().splitlines()
-    start_a, start_b, end_b = (
-        lines.index(f"# {name}:") for name in ("subset_a", "subset_b", "code_a.matrix")
-    )
-    for rows, subset in [
-        (lines[start_a + 1 : start_b], code.complex.subset_a),
-        (lines[start_b + 1 : end_b], code.complex.subset_b),
+    # saved files do not depend on the iteration order of subsets, which varies between sessions
+    saved_files = []
+    for reverse in [False, True]:
+        ordered_a = sorted(code.complex.subset_a, reverse=reverse)
+        ordered_b = sorted(code.complex.subset_b, reverse=reverse)
+        with (
+            unittest.mock.patch.object(code.complex, "subset_a", ordered_a),
+            unittest.mock.patch.object(code.complex, "subset_b", ordered_b),
+        ):
+            code.save(str(path))
+        saved_files.append(path.read_text())
+    assert saved_files[0] == saved_files[1]
+
+    # codes with empty sections of saved data, such as members of the trivial group or seed codes
+    # without parity checks, load back too
+    generator = abstract.CyclicGroup(2).generators[0]
+    for saved_code in [
+        codes.QTCode.random(abstract.TrivialGroup(), codes.ClassicalCode([[1]])),
+        codes.QTCode([generator], [generator], np.zeros((0, 1), dtype=int), [[1]]),
     ]:
-        members = [abstract.GroupMember(list(map(int, row.split()))) for row in rows]
-        assert members == sorted(subset)
+        saved_code.save(str(path))
+        assert codes.QTCode.load(str(path)) == saved_code
+
+    # Random subsets can exclude the identity element.  Without that exclusion, about half of the
+    # symmetric subsets of size 3 in this group contain it, so several seeds would catch it.
+    symmetric_group = abstract.SymmetricGroup(3)
+    first_seed = np.random.randint(2**31)
+    for seed in range(first_seed, first_seed + 10):
+        code = codes.QTCode.random(
+            symmetric_group, codes.HammingCode(2), exclude_identity=True, seed=seed
+        )
+        assert symmetric_group.identity not in code.complex.subset_a | code.complex.subset_b
 
 
 def test_quantum_tanner_nonabelian_faces() -> None:

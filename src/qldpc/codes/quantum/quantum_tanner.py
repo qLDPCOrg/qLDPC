@@ -193,15 +193,21 @@ class QTCode(CSSCode):
         *,
         bipartite: bool = False,
         one_subset: bool = False,
+        exclude_identity: bool = False,
         seed: int | None = None,
     ) -> QTCode:
         """Construct a random quantum Tanner code from a base group and seed code(s).
 
-        If only one code C is provided, use its dual ~C for the second code.
+        If only one code C is provided, use its dual ~C for the second code.  If exclude_identity is
+        True, the random subsets exclude the identity element of the group.  Not every group has
+        such subsets of every size, and without them this method may never terminate; see
+        help(qldpc.abstract.Group.random_symmetric_subset).
         """
         code_a = ClassicalCode(code_a, field)
         code_b = ClassicalCode(code_b if code_b is not None else ~code_a, field)
-        subset_a = group.random_symmetric_subset(code_a.num_bits, seed=seed)
+        subset_a = group.random_symmetric_subset(
+            code_a.num_bits, exclude_identity=exclude_identity, seed=seed
+        )
         if one_subset:
             subset_b = subset_a
         else:
@@ -209,7 +215,9 @@ class QTCode(CSSCode):
             # keeping the construction as a whole reproducible from the given seed.  Reduce it
             # first, so that a seed of any magnitude is accepted, as it is for the first subset.
             seed_b = _get_scrambled_seed(seed % 2**32) if seed is not None else None
-            subset_b = group.random_symmetric_subset(code_b.num_bits, seed=seed_b)
+            subset_b = group.random_symmetric_subset(
+                code_b.num_bits, exclude_identity=exclude_identity, seed=seed_b
+            )
         return QTCode(subset_a, subset_b, code_a, code_b, bipartite=bipartite)
 
     def save(self, path: str, *headers: str) -> None:
@@ -249,30 +257,46 @@ class QTCode(CSSCode):
 
     @staticmethod
     def load(path: str) -> QTCode:
-        """Load a QTCode from a file."""
+        """Load a QTCode from a file written by QTCode.save."""
         if not os.path.isfile(path):
             raise ValueError(f"Path does not exist: {path}")
 
         with open(path, "r") as file:
             lines = file.read().splitlines()
 
-        # load miscellaneous data
-        field = ast.literal_eval(lines[-2].split(":")[-1])
-        bipartite = ast.literal_eval(lines[-1].split(":")[-1])
+        # Find the comment line that starts each section of generating data.  Sections can be
+        # empty, such as for a seed code without parity checks.
+        names = [
+            "subset_a",
+            "subset_b",
+            "code_a.matrix",
+            "code_b.matrix",
+            "base field",
+            "bipartite",
+        ]
+        starts = [lines.index(f"# {names[0]}:")]
+        for name in names[1:]:
+            starts.append(
+                next(
+                    index
+                    for index in range(starts[-1] + 1, len(lines))
+                    if lines[index].startswith(f"# {name}:")
+                )
+            )
 
-        # load integer arrays separated by comments
-        arrays = []
-        last_index = 0
-        for index, line in enumerate(lines):
-            if line.startswith("#"):
-                if index > last_index + 1:
-                    array = np.genfromtxt(lines[last_index + 1 : index], dtype=int, ndmin=2)
-                    arrays.append(array)
-                last_index = index
+        def read_rows(section: int) -> list[list[int]]:
+            """Read the rows of integers in a section."""
+            section_lines = lines[starts[section] + 1 : starts[section + 1]]
+            return [[int(value) for value in line.split()] for line in section_lines]
 
         # construct subsets and generating codes
-        subset_a = {abstract.GroupMember(gen) for gen in arrays[0]}
-        subset_b = {abstract.GroupMember(gen) for gen in arrays[1]}
-        code_a = ClassicalCode(arrays[2], field)
-        code_b = ClassicalCode(arrays[3], field)
+        field = ast.literal_eval(lines[starts[4]].split(":")[-1])
+        bipartite = ast.literal_eval(lines[starts[5]].split(":")[-1])
+        subset_a = {abstract.GroupMember(row) for row in read_rows(0)}
+        subset_b = {abstract.GroupMember(row) for row in read_rows(1)}
+        rows_a, rows_b = read_rows(2), read_rows(3)
+        matrix_a = np.array(rows_a, dtype=int).reshape(len(rows_a), len(subset_a))
+        matrix_b = np.array(rows_b, dtype=int).reshape(len(rows_b), len(subset_b))
+        code_a = ClassicalCode(matrix_a, field)
+        code_b = ClassicalCode(matrix_b, field)
         return QTCode(subset_a, subset_b, code_a, code_b, bipartite=bipartite)

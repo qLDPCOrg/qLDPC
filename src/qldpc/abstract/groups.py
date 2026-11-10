@@ -50,7 +50,8 @@ NestedSequence = Sequence[object | Sequence["NestedSequence"]]
 class GroupMember(comb.Permutation):
     """Wrapper for SymPy Permutation class.
 
-    Supports sorting permutations (by their rank), and taking their tensor product.
+    Supports sorting permutations (lexicographically, padding with fixed points), and taking their
+    tensor product.
     """
 
     @staticmethod
@@ -86,17 +87,26 @@ class GroupMember(comb.Permutation):
         """
         return NotImplemented
 
-    def __lt__(self, other: GroupMember) -> bool:
-        """Compare permutations lexicographically, reading both on the same number of points.
+    def __lt__(self, other: comb.Permutation) -> bool:
+        """Compare the array forms of permutations lexicographically, after padding the shorter one.
 
-        For permutations on the same number of points, this order is that of their SymPy ranks.
-        Unlike ranks, it treats a permutation on fewer points as one with extra fixed points, and
-        it accepts the permutation on no points, which is the identity of the trivial group.
+        The shorter array form is padded with fixed points, so permutations that differ only in
+        trailing fixed points are neither smaller nor larger than each other, although they are not
+        equal (==).  Sorting keeps the input order of such permutations.  On permutations of the
+        same size, this order is that of SymPy ranks.  It also orders the identity of the trivial
+        group, which acts on no points.
         """
-        size = max(self.size, other.size)
-        self_form = self.array_form + list(range(self.size, size))
-        other_form = other.array_form + list(range(other.size, size))
+        if not isinstance(other, comb.Permutation):
+            return NotImplemented
+        self_form, other_form = GroupMember._get_padded_array_forms(self, other)
         return self_form < other_form
+
+    def __gt__(self, other: comb.Permutation) -> bool:
+        """Compare permutations in the order of __lt__, which also orders SymPy permutations."""
+        if not isinstance(other, comb.Permutation):
+            return NotImplemented
+        self_form, other_form = GroupMember._get_padded_array_forms(self, other)
+        return self_form > other_form
 
     def __matmul__(self, other: GroupMember) -> GroupMember:
         """Take the "tensor product" of two group members.
@@ -130,6 +140,17 @@ class GroupMember(comb.Permutation):
 
         cycles = [to_gap_cycle(cycle) for cycle in self.cyclic_form]
         return "".join(cycles) if cycles else "()"
+
+    @staticmethod
+    def _get_padded_array_forms(
+        first: comb.Permutation, second: comb.Permutation
+    ) -> tuple[list[int], list[int]]:
+        """Get the array forms of two permutations, padding the shorter one with fixed points."""
+        size = max(first.size, second.size)
+        return (
+            first.array_form + list(range(first.size, size)),
+            second.array_form + list(range(second.size, size)),
+        )
 
 
 Lift = Callable[[GroupMember], npt.NDArray[np.int_]]

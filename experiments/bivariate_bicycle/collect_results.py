@@ -23,8 +23,8 @@ import numpy as np
 import qldpc.cache
 
 # Scripts in this directory import each other as top-level modules.  mypy knows these files only as
-# experiments.bivariate_bicycle.*, and would silently treat a bare "from run_search import ..." as
-# untyped.
+# experiments.bivariate_bicycle.*, and with ignore_missing_imports in pyproject.toml, it would
+# silently treat a bare "from run_search import ..." as untyped.
 if TYPE_CHECKING:
     from experiments.bivariate_bicycle.run_search import (
         CACHE_NAME,
