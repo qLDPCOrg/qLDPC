@@ -140,13 +140,12 @@ def get_howell_dual(
     NotImplementedError for any other ring.
 
     Over a commutative ring, the dual needs no transformer.  Over a noncommutative ring, the dual is
-    built in the basis of a Wedderburn-Artin
-    ``transformer``, which must be the one used to build ``matrix_hnf``.  Likewise, ``right`` must
-    match the orientation used to build ``matrix_hnf``, since the dual for the other orientation
-    need not satisfy properties 1-4.  By default, both are read from the provenance that
-    ``howell_normal_form_semisimple`` records on its output.  Copies, slices, transposes, and
-    arithmetic results have no provenance.  Without provenance, the default orientation is
-    ``right=False``, and the default transformer is that of the ring (see
+    built in the basis of a Wedderburn-Artin ``transformer``, which must be the one used to build
+    ``matrix_hnf``.  Likewise, ``right`` must match the orientation used to build ``matrix_hnf``,
+    since the dual for the other orientation need not satisfy properties 1-4.  By default, both are
+    read from the provenance that ``howell_normal_form_semisimple`` records on its output.  Copies,
+    slices, transposes, and arithmetic results have no provenance.  Without provenance, the default
+    orientation is ``right=False``, and the default transformer is that of the ring (see
     GroupRing.get_transformer).
 
     ``matrix_hnf`` should be a Howell normal form with idempotent pivots, such as the output of
@@ -154,7 +153,9 @@ def get_howell_dual(
     are 1.  The pivots of other matrices, such as polynomial Howell forms, need not be idempotent,
     so their duals generally fail properties 1-4.
 
-    ``skip_validation`` controls whether the returned dual is checked against properties 1-4:
+    ``skip_validation`` controls whether the returned dual is checked.  Validation checks properties
+    1 and 2, which depend on ``matrix_hnf``.  The constructed dual satisfies properties 3 and 4
+    whenever it satisfies properties 1 and 2.
 
     - ``False``: always check, raising a ValueError if the dual is not valid.
     - ``True``: never check.  A wrong ``transformer`` or ``right`` may then give a wrong dual.
@@ -209,7 +210,7 @@ def get_howell_dual(
                 dual[row, col] += component_transformer.embed(projector).T
 
     if not skip_validation:
-        _validate_howell_dual(matrix_hnf, dual, transformer, right)
+        _validate_howell_dual(matrix_hnf, dual, right)
     return dual
 
 
@@ -253,24 +254,22 @@ def _swap_sectors(matrix: RingArray) -> RingArray:
     return RingArray(swapped, matrix.ring)
 
 
-def _validate_howell_dual(
-    matrix_hnf: RingArray,
-    dual: RingArray,
-    transformer: WedderburnArtinTransformer | None,
-    right: bool,
-) -> None:
+def _validate_howell_dual(matrix_hnf: RingArray, dual: RingArray, right: bool) -> None:
     """Raise a ValueError if ``dual`` is not a valid dual of matrix_hnf.
 
-    See properties 1-4 in the docstring of get_howell_dual.  Without a transformer, property 4 is
-    not checked.  Over a commutative semisimple ring, every simple component is 1x1, so property 4
-    follows from property 1.
+    This function checks properties 1 and 2 in the docstring of get_howell_dual.  For the dual that
+    get_howell_dual builds, they imply properties 3 and 4.  In a Wedderburn-Artin component, the
+    diagonal block of D for a row is ``B·E``, where B is the leading block of the row and E is the
+    symmetric projector onto the span S of the row.  Properties 1 and 2 make ``B·E`` fix S, and
+    ``B·E`` vanishes on the orthogonal complement of S, which E vanishes on, so ``B·E = E``.  Then D
+    is a diagonal of symmetric idempotents, which gives properties 3 and 4.  Over a commutative
+    ring, the diagonal entry of D for a row with pivot p is ``p·p``, property 2 gives ``p·p·p = p``,
+    and property 3 follows.
     """
     diag = matmul(matrix_hnf, dual.T, right=right)
     valid = (
         np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))  # 1
         and np.array_equal(matmul(diag, matrix_hnf, right=right), matrix_hnf)  # 2
-        and np.array_equal(matmul(diag.T, dual, right=right), dual)  # 3
-        and (transformer is None or np.array_equal(diag, transformer.transpose_array(diag)))  # 4
     )
     if not valid:
         raise ValueError(
